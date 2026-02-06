@@ -8,6 +8,7 @@
 import { assertEquals, assertStringIncludes, assert } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { ensureDir } from "https://deno.land/std@0.224.0/fs/mod.ts";
 import * as path from "https://deno.land/std@0.224.0/path/mod.ts";
+import { SEPARATOR as SEP } from "https://deno.land/std@0.224.0/path/mod.ts";
 import { JSZip } from "../deps.ts";
 import {
   getFolderSuffix,
@@ -426,6 +427,7 @@ async function createMockRemoteZip(items: Record<string, string>): Promise<JSZip
 
 /**
  * Reads all files from a directory recursively
+ * Normalizes path separators to forward slashes for cross-platform compatibility
  */
 async function readDirRecursive(
   dir: string,
@@ -435,7 +437,8 @@ async function readDirRecursive(
 
   for await (const entry of Deno.readDir(dir)) {
     const fullPath = path.join(dir, entry.name);
-    const relativePath = fullPath.substring(baseDir.length + 1);
+    // Normalize path separators to forward slashes for cross-platform compatibility
+    const relativePath = fullPath.substring(baseDir.length + 1).replaceAll("\\", "/");
 
     if (entry.isDirectory) {
       const subFiles = await readDirRecursive(fullPath, baseDir);
@@ -900,152 +903,19 @@ Deno.test("readDirRecursive reads all files correctly", async () => {
 });
 
 // =============================================================================
-// Integration Tests (require Windmill server at localhost:8000)
+// Integration Tests (use withTestBackend for automated backend setup)
 // =============================================================================
 
-import { addWorkspace } from "../workspace.ts";
-
-// Configuration for local Windmill server
-const WINDMILL_BASE_URL = Deno.env.get("WINDMILL_BASE_URL") || "http://localhost:8000";
-const WINDMILL_EMAIL = Deno.env.get("WINDMILL_EMAIL") || "admin@windmill.dev";
-const WINDMILL_PASSWORD = Deno.env.get("WINDMILL_PASSWORD") || "changeme";
-const WINDMILL_WORKSPACE = Deno.env.get("WINDMILL_WORKSPACE") || "admins";
-
-// Set to true to run integration tests (requires Windmill server)
-const RUN_INTEGRATION_TESTS = Deno.env.get("RUN_INTEGRATION_TESTS") === "true";
-
-/**
- * Get an authentication token from the Windmill server
- */
-async function getAuthToken(): Promise<string> {
-  let response: Response;
-  try {
-    response = await fetch(`${WINDMILL_BASE_URL}/api/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: WINDMILL_EMAIL, password: WINDMILL_PASSWORD }),
-    });
-  } catch (e) {
-    throw new Error(
-      `Failed to connect to Windmill server at ${WINDMILL_BASE_URL}. ` +
-      `Make sure the server is running. Error: ${e instanceof Error ? e.message : e}`
-    );
-  }
-
-  const responseText = await response.text();
-
-  if (!response.ok) {
-    throw new Error(
-      `Failed to authenticate with ${WINDMILL_EMAIL} at ${WINDMILL_BASE_URL}. ` +
-      `Status: ${response.status}. Response: ${responseText}`
-    );
-  }
-
-  // The auth endpoint returns the token as plain text
-  return responseText;
-}
-
-/**
- * Check if the Windmill server is available
- */
-async function isServerAvailable(): Promise<boolean> {
-  try {
-    const response = await fetch(`${WINDMILL_BASE_URL}/api/version`, {
-      signal: AbortSignal.timeout(5000),
-    });
-    // Consume the response body to avoid resource leaks
-    await response.text();
-    return response.ok;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Run a CLI command and return the result
- */
-async function runCLICommand(
-  args: string[],
-  cwd: string,
-  configDir: string,
-): Promise<{ code: number; stdout: string; stderr: string }> {
-  const cmd = new Deno.Command("deno", {
-    args: [
-      "run",
-      "-A",
-      "--no-check",
-      path.join(Deno.cwd(), "src/main.ts"),
-      "--config-dir",
-      configDir,
-      ...args,
-    ],
-    cwd,
-    env: {
-      ...Deno.env.toObject(),
-      SKIP_DENO_DEPRECATION_WARNING: "true",
-    },
-    stdout: "piped",
-    stderr: "piped",
-  });
-
-  const output = await cmd.output();
-  return {
-    code: output.code,
-    stdout: new TextDecoder().decode(output.stdout),
-    stderr: new TextDecoder().decode(output.stderr),
-  };
-}
-
-/**
- * Set up a test environment with workspace configured
- */
-async function setupTestEnvironment(): Promise<{
-  tempDir: string;
-  configDir: string;
-  token: string;
-  cleanup: () => Promise<void>;
-}> {
-  const tempDir = await Deno.makeTempDir({ prefix: "wmill_sync_test_" });
-  const configDir = await Deno.makeTempDir({ prefix: "wmill_config_" });
-
-  const token = await getAuthToken();
-
-  // Configure workspace - addWorkspace will create configDir/windmill/ structure
-  const workspace = {
-    remote: WINDMILL_BASE_URL + "/",
-    workspaceId: WINDMILL_WORKSPACE,
-    name: "test_workspace",
-    token,
-  };
-  await addWorkspace(workspace, { force: true, configDir });
-
-  // Set active workspace - needs to go in configDir/windmill/activeWorkspace
-  const windmillConfigDir = path.join(configDir, "windmill");
-  await ensureDir(windmillConfigDir);
-  await Deno.writeTextFile(path.join(windmillConfigDir, "activeWorkspace"), "test_workspace");
-
-  return {
-    tempDir,
-    configDir,
-    token,
-    cleanup: async () => {
-      await cleanupTempDir(tempDir);
-      await cleanupTempDir(configDir);
-    },
-  };
-}
+import { yamlParseFile } from "../deps.ts";
+import { withTestBackend } from "./test_backend.ts";
+import { shouldSkipOnCI } from "./cargo_backend.ts";
 
 Deno.test({
   name: "Integration: Pull creates correct local structure",
-  ignore: !RUN_INTEGRATION_TESTS,
+  sanitizeResources: false,
+  sanitizeOps: false,
   async fn() {
-    if (!await isServerAvailable()) {
-      console.log(`Skipping: Windmill server not available at ${WINDMILL_BASE_URL}`);
-      return;
-    }
-
-    const { tempDir, configDir, cleanup } = await setupTestEnvironment();
-    try {
+    await withTestBackend(async (backend, tempDir) => {
       // Create wmill.yaml
       await Deno.writeTextFile(
         `${tempDir}/wmill.yaml`,
@@ -1057,7 +927,7 @@ excludes: []
       );
 
       // Run sync pull
-      const result = await runCLICommand(["sync", "pull", "--yes"], tempDir, configDir);
+      const result = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
 
       assertEquals(
         result.code,
@@ -1070,23 +940,16 @@ excludes: []
       const hasYamlFiles = Object.keys(files).some((f) => f.endsWith(".yaml") && f !== "wmill.yaml");
 
       assert(hasYamlFiles || Object.keys(files).length > 1, "Should have pulled files from server");
-    } finally {
-      await cleanup();
-    }
+    });
   },
 });
 
 Deno.test({
   name: "Integration: Push uploads local changes correctly",
-  ignore: !RUN_INTEGRATION_TESTS,
+  sanitizeResources: false,
+  sanitizeOps: false,
   async fn() {
-    if (!await isServerAvailable()) {
-      console.log(`Skipping: Windmill server not available at ${WINDMILL_BASE_URL}`);
-      return;
-    }
-
-    const { tempDir, configDir, cleanup } = await setupTestEnvironment();
-    try {
+    await withTestBackend(async (backend, tempDir) => {
       // Create wmill.yaml
       await Deno.writeTextFile(
         `${tempDir}/wmill.yaml`,
@@ -1106,10 +969,9 @@ excludes: []
       await Deno.writeTextFile(`${tempDir}/${script.metadataFile.path}`, script.metadataFile.content);
 
       // Run sync push with dry-run first (only push our test script, not everything)
-      const dryRunResult = await runCLICommand(
+      const dryRunResult = await backend.runCLICommand(
         ["sync", "push", "--dry-run", "--includes", `f/test/push_script_${uniqueId}**`],
         tempDir,
-        configDir,
       );
 
       assertEquals(
@@ -1124,10 +986,9 @@ excludes: []
       );
 
       // Run actual push (only push our test script)
-      const pushResult = await runCLICommand(
+      const pushResult = await backend.runCLICommand(
         ["sync", "push", "--yes", "--includes", `f/test/push_script_${uniqueId}**`],
         tempDir,
-        configDir,
       );
 
       assertEquals(
@@ -1135,23 +996,16 @@ excludes: []
         0,
         `Push should succeed.\nstdout: ${pushResult.stdout}\nstderr: ${pushResult.stderr}`,
       );
-    } finally {
-      await cleanup();
-    }
+    });
   },
 });
 
 Deno.test({
   name: "Integration: Pull then Push is idempotent",
-  ignore: !RUN_INTEGRATION_TESTS,
+  sanitizeResources: false,
+  sanitizeOps: false,
   async fn() {
-    if (!await isServerAvailable()) {
-      console.log(`Skipping: Windmill server not available at ${WINDMILL_BASE_URL}`);
-      return;
-    }
-
-    const { tempDir, configDir, cleanup } = await setupTestEnvironment();
-    try {
+    await withTestBackend(async (backend, tempDir) => {
       // Create wmill.yaml
       await Deno.writeTextFile(
         `${tempDir}/wmill.yaml`,
@@ -1163,7 +1017,7 @@ excludes: []
       );
 
       // Pull from remote
-      const pullResult = await runCLICommand(["sync", "pull", "--yes"], tempDir, configDir);
+      const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
       assertEquals(
         pullResult.code,
         0,
@@ -1171,7 +1025,7 @@ excludes: []
       );
 
       // Push back without changes (should be no-op)
-      const pushResult = await runCLICommand(["sync", "push", "--dry-run"], tempDir, configDir);
+      const pushResult = await backend.runCLICommand(["sync", "push", "--dry-run"], tempDir);
       assertEquals(pushResult.code, 0, `Push dry-run should succeed: ${pushResult.stderr}`);
 
       // Should report 0 changes (check both stdout and stderr)
@@ -1180,23 +1034,16 @@ excludes: []
         output.includes("0 change") || output.includes("no change") || output.includes("nothing"),
         `Should have no changes after pull without modifications. Output: ${output}`,
       );
-    } finally {
-      await cleanup();
-    }
+    });
   },
 });
 
 Deno.test({
   name: "Integration: Include/exclude filters work correctly",
-  ignore: !RUN_INTEGRATION_TESTS,
+  sanitizeResources: false,
+  sanitizeOps: false,
   async fn() {
-    if (!await isServerAvailable()) {
-      console.log(`Skipping: Windmill server not available at ${WINDMILL_BASE_URL}`);
-      return;
-    }
-
-    const { tempDir, configDir, cleanup } = await setupTestEnvironment();
-    try {
+    await withTestBackend(async (backend, tempDir) => {
       // Create wmill.yaml with restrictive filters
       await Deno.writeTextFile(
         `${tempDir}/wmill.yaml`,
@@ -1211,7 +1058,7 @@ skipResources: true
       );
 
       // Run sync pull
-      const result = await runCLICommand(["sync", "pull", "--yes"], tempDir, configDir);
+      const result = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
 
       assertEquals(
         result.code,
@@ -1228,23 +1075,16 @@ skipResources: true
 
       assert(!hasVariables, "Should not have pulled variables (skipVariables: true)");
       assert(!hasResources, "Should not have pulled resources (skipResources: true)");
-    } finally {
-      await cleanup();
-    }
+    });
   },
 });
 
 Deno.test({
   name: "Integration: Flow folder structure is created correctly",
-  ignore: !RUN_INTEGRATION_TESTS,
+  sanitizeResources: false,
+  sanitizeOps: false,
   async fn() {
-    if (!await isServerAvailable()) {
-      console.log(`Skipping: Windmill server not available at ${WINDMILL_BASE_URL}`);
-      return;
-    }
-
-    const { tempDir, configDir, cleanup } = await setupTestEnvironment();
-    try {
+    await withTestBackend(async (backend, tempDir) => {
       // Create wmill.yaml
       await Deno.writeTextFile(
         `${tempDir}/wmill.yaml`,
@@ -1267,10 +1107,9 @@ excludes: []
 
       // Push the flow (only push our test flow, not everything)
       // Pattern needs to match the .flow folder, so use * to match the suffix
-      const pushResult = await runCLICommand(
+      const pushResult = await backend.runCLICommand(
         ["sync", "push", "--yes", "--includes", `f/test/flow_${uniqueId}*/**`],
         tempDir,
-        configDir,
       );
 
       assertEquals(
@@ -1290,7 +1129,7 @@ excludes: []
 `;
         await Deno.writeTextFile(`${tempDir2}/wmill.yaml`, wmillConfig);
 
-        const pullResult = await runCLICommand(["sync", "pull", "--yes"], tempDir2, configDir);
+        const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir2);
 
         assertEquals(
           pullResult.code,
@@ -1311,23 +1150,16 @@ excludes: []
       } finally {
         await cleanupTempDir(tempDir2);
       }
-    } finally {
-      await cleanup();
-    }
+    });
   },
 });
 
 Deno.test({
   name: "Integration: Raw app folder structure is handled correctly",
-  ignore: !RUN_INTEGRATION_TESTS,
+  sanitizeResources: false,
+  sanitizeOps: false,
   async fn() {
-    if (!await isServerAvailable()) {
-      console.log(`Skipping: Windmill server not available at ${WINDMILL_BASE_URL}`);
-      return;
-    }
-
-    const { tempDir, configDir, cleanup } = await setupTestEnvironment();
-    try {
+    await withTestBackend(async (backend, tempDir) => {
       // Create wmill.yaml
       await Deno.writeTextFile(
         `${tempDir}/wmill.yaml`,
@@ -1348,10 +1180,9 @@ excludes: []
       }
 
       // Push the raw app (only push our test raw app, not everything)
-      const pushResult = await runCLICommand(
+      const pushResult = await backend.runCLICommand(
         ["sync", "push", "--yes", "--includes", `f/test/raw_app_${uniqueId}**`],
         tempDir,
-        configDir,
       );
 
       // Note: This may fail if raw apps require specific validation
@@ -1363,9 +1194,7 @@ excludes: []
           "Push completed",
         );
       }
-    } finally {
-      await cleanup();
-    }
+    });
   },
 });
 
@@ -1410,11 +1239,11 @@ Deno.test("buildMetadataPath with nonDottedPaths creates correct paths", () => {
   setNonDottedPaths(true);
   assertEquals(
     buildMetadataPath("my_flow", "flow", "yaml"),
-    "my_flow__flow/flow.yaml"
+    `my_flow__flow${SEP}flow.yaml`
   );
   assertEquals(
-    buildMetadataPath("f/test/my_app", "app", "yaml"),
-    "f/test/my_app__app/app.yaml"
+    buildMetadataPath(`f${SEP}test${SEP}my_app`, "app", "yaml"),
+    `f${SEP}test${SEP}my_app__app${SEP}app.yaml`
   );
   setNonDottedPaths(false); // Reset
 });
@@ -1422,51 +1251,51 @@ Deno.test("buildMetadataPath with nonDottedPaths creates correct paths", () => {
 Deno.test("isFlowPath detects non-dotted paths when configured", () => {
   // Default (dotted) paths
   setNonDottedPaths(false);
-  assert(isFlowPath("f/test/my_flow.flow/flow.yaml"));
-  assert(!isFlowPath("f/test/my_flow__flow/flow.yaml"));
+  assert(isFlowPath(`f${SEP}test${SEP}my_flow.flow${SEP}flow.yaml`));
+  assert(!isFlowPath(`f${SEP}test${SEP}my_flow__flow${SEP}flow.yaml`));
 
   // Non-dotted paths
   setNonDottedPaths(true);
-  assert(isFlowPath("f/test/my_flow__flow/flow.yaml"));
-  assert(!isFlowPath("f/test/my_flow.flow/flow.yaml"));
+  assert(isFlowPath(`f${SEP}test${SEP}my_flow__flow${SEP}flow.yaml`));
+  assert(!isFlowPath(`f${SEP}test${SEP}my_flow.flow${SEP}flow.yaml`));
   setNonDottedPaths(false); // Reset
 });
 
 Deno.test("isAppPath detects non-dotted paths when configured", () => {
   // Default (dotted) paths
   setNonDottedPaths(false);
-  assert(isAppPath("f/test/my_app.app/app.yaml"));
-  assert(!isAppPath("f/test/my_app__app/app.yaml"));
+  assert(isAppPath(`f${SEP}test${SEP}my_app.app${SEP}app.yaml`));
+  assert(!isAppPath(`f${SEP}test${SEP}my_app__app${SEP}app.yaml`));
 
   // Non-dotted paths
   setNonDottedPaths(true);
-  assert(isAppPath("f/test/my_app__app/app.yaml"));
-  assert(!isAppPath("f/test/my_app.app/app.yaml"));
+  assert(isAppPath(`f${SEP}test${SEP}my_app__app${SEP}app.yaml`));
+  assert(!isAppPath(`f${SEP}test${SEP}my_app.app${SEP}app.yaml`));
   setNonDottedPaths(false); // Reset
 });
 
 Deno.test("isRawAppPath detects non-dotted paths when configured", () => {
   // Default (dotted) paths
   setNonDottedPaths(false);
-  assert(isRawAppPath("f/test/my_raw_app.raw_app/raw_app.yaml"));
-  assert(!isRawAppPath("f/test/my_raw_app__raw_app/raw_app.yaml"));
+  assert(isRawAppPath(`f${SEP}test${SEP}my_raw_app.raw_app${SEP}raw_app.yaml`));
+  assert(!isRawAppPath(`f${SEP}test${SEP}my_raw_app__raw_app${SEP}raw_app.yaml`));
 
   // Non-dotted paths
   setNonDottedPaths(true);
-  assert(isRawAppPath("f/test/my_raw_app__raw_app/raw_app.yaml"));
-  assert(!isRawAppPath("f/test/my_raw_app.raw_app/raw_app.yaml"));
+  assert(isRawAppPath(`f${SEP}test${SEP}my_raw_app__raw_app${SEP}raw_app.yaml`));
+  assert(!isRawAppPath(`f${SEP}test${SEP}my_raw_app.raw_app${SEP}raw_app.yaml`));
   setNonDottedPaths(false); // Reset
 });
 
 Deno.test("extractResourceName works with non-dotted paths", () => {
   setNonDottedPaths(true);
   assertEquals(
-    extractResourceName("f/test/my_flow__flow/flow.yaml", "flow"),
-    "f/test/my_flow"
+    extractResourceName(`f${SEP}test${SEP}my_flow__flow${SEP}flow.yaml`, "flow"),
+    `f${SEP}test${SEP}my_flow`
   );
   assertEquals(
-    extractResourceName("f/test/my_app__app/app.yaml", "app"),
-    "f/test/my_app"
+    extractResourceName(`f${SEP}test${SEP}my_app__app${SEP}app.yaml`, "app"),
+    `f${SEP}test${SEP}my_app`
   );
   setNonDottedPaths(false); // Reset
 });
@@ -1629,15 +1458,10 @@ Deno.test("Local filesystem with nonDottedPaths creates correct folder structure
 
 Deno.test({
   name: "Integration: wmill.yaml with nonDottedPaths is read correctly",
-  ignore: !RUN_INTEGRATION_TESTS,
+  sanitizeResources: false,
+  sanitizeOps: false,
   async fn() {
-    if (!await isServerAvailable()) {
-      console.log(`Skipping: Windmill server not available at ${WINDMILL_BASE_URL}`);
-      return;
-    }
-
-    const { tempDir, configDir, cleanup } = await setupTestEnvironment();
-    try {
+    await withTestBackend(async (backend, tempDir) => {
       // Create wmill.yaml with nonDottedPaths option
       await Deno.writeTextFile(
         `${tempDir}/wmill.yaml`,
@@ -1661,10 +1485,9 @@ excludes: []
       setNonDottedPaths(false); // Reset
 
       // Run sync push with dry-run to verify the config is being read
-      const dryRunResult = await runCLICommand(
+      const dryRunResult = await backend.runCLICommand(
         ["sync", "push", "--dry-run", "--includes", `f/test/nondot_flow_${uniqueId}**`],
         tempDir,
-        configDir,
       );
 
       assertEquals(
@@ -1672,23 +1495,16 @@ excludes: []
         0,
         `Dry run should succeed with nonDottedPaths config.\nstdout: ${dryRunResult.stdout}\nstderr: ${dryRunResult.stderr}`,
       );
-    } finally {
-      await cleanup();
-    }
+    });
   },
 });
 
 Deno.test({
   name: "Integration: Pull then Push with nonDottedPaths is idempotent",
-  ignore: !RUN_INTEGRATION_TESTS,
+  sanitizeResources: false,
+  sanitizeOps: false,
   async fn() {
-    if (!await isServerAvailable()) {
-      console.log(`Skipping: Windmill server not available at ${WINDMILL_BASE_URL}`);
-      return;
-    }
-
-    const { tempDir, configDir, cleanup } = await setupTestEnvironment();
-    try {
+    await withTestBackend(async (backend, tempDir) => {
       // Create wmill.yaml with nonDottedPaths enabled
       await Deno.writeTextFile(
         `${tempDir}/wmill.yaml`,
@@ -1701,7 +1517,7 @@ excludes: []
       );
 
       // Pull from remote with nonDottedPaths enabled
-      const pullResult = await runCLICommand(["sync", "pull", "--yes"], tempDir, configDir);
+      const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
       assertEquals(
         pullResult.code,
         0,
@@ -1733,7 +1549,7 @@ excludes: []
       }
 
       // Push back without changes (should be no-op / idempotent)
-      const pushResult = await runCLICommand(["sync", "push", "--dry-run"], tempDir, configDir);
+      const pushResult = await backend.runCLICommand(["sync", "push", "--dry-run"], tempDir);
       assertEquals(pushResult.code, 0, `Push dry-run should succeed: ${pushResult.stderr}`);
 
       // Should report 0 changes (check both stdout and stderr)
@@ -1742,23 +1558,16 @@ excludes: []
         output.includes("0 change") || output.includes("no change") || output.includes("nothing"),
         `Should have no changes after pull with nonDottedPaths without modifications. Output: ${output}`,
       );
-    } finally {
-      await cleanup();
-    }
+    });
   },
 });
 
 Deno.test({
   name: "Integration: Push flow with nonDottedPaths creates __flow structure on server",
-  ignore: !RUN_INTEGRATION_TESTS,
+  sanitizeResources: false,
+  sanitizeOps: false,
   async fn() {
-    if (!await isServerAvailable()) {
-      console.log(`Skipping: Windmill server not available at ${WINDMILL_BASE_URL}`);
-      return;
-    }
-
-    const { tempDir, configDir, cleanup } = await setupTestEnvironment();
-    try {
+    await withTestBackend(async (backend, tempDir) => {
       // Create wmill.yaml with nonDottedPaths enabled
       await Deno.writeTextFile(
         `${tempDir}/wmill.yaml`,
@@ -1782,10 +1591,9 @@ excludes: []
       setNonDottedPaths(false); // Reset global state
 
       // Push the flow
-      const pushResult = await runCLICommand(
+      const pushResult = await backend.runCLICommand(
         ["sync", "push", "--yes", "--includes", `f/test/nondot_idem_flow_${uniqueId}**`],
         tempDir,
-        configDir,
       );
 
       assertEquals(
@@ -1795,10 +1603,9 @@ excludes: []
       );
 
       // Pull back to same directory to verify round-trip (idempotency)
-      const pullResult = await runCLICommand(
+      const pullResult = await backend.runCLICommand(
         ["sync", "pull", "--yes", "--includes", `f/test/nondot_idem_flow_${uniqueId}**`],
         tempDir,
-        configDir,
       );
 
       assertEquals(
@@ -1823,10 +1630,9 @@ excludes: []
       );
 
       // Push again (should be idempotent - no changes)
-      const push2 = await runCLICommand(
+      const push2 = await backend.runCLICommand(
         ["sync", "push", "--dry-run", "--includes", `f/test/nondot_idem_flow_${uniqueId}**`],
         tempDir,
-        configDir,
       );
 
       assertEquals(push2.code, 0, `Second push dry-run should succeed: ${push2.stderr}`);
@@ -1836,23 +1642,16 @@ excludes: []
         output.includes("0 change") || output.includes("no change") || output.includes("nothing"),
         `Should have no changes after push-pull cycle for flow. Output: ${output}`,
       );
-    } finally {
-      await cleanup();
-    }
+    });
   },
 });
 
 Deno.test({
   name: "Integration: Multiple pull/push cycles with nonDottedPaths remain idempotent",
-  ignore: !RUN_INTEGRATION_TESTS,
+  sanitizeResources: false,
+  sanitizeOps: false,
   async fn() {
-    if (!await isServerAvailable()) {
-      console.log(`Skipping: Windmill server not available at ${WINDMILL_BASE_URL}`);
-      return;
-    }
-
-    const { tempDir, configDir, cleanup } = await setupTestEnvironment();
-    try {
+    await withTestBackend(async (backend, tempDir) => {
       // Create wmill.yaml with nonDottedPaths enabled
       await Deno.writeTextFile(
         `${tempDir}/wmill.yaml`,
@@ -1865,19 +1664,19 @@ excludes: []
       );
 
       // First pull
-      const pull1 = await runCLICommand(["sync", "pull", "--yes"], tempDir, configDir);
+      const pull1 = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
       assertEquals(pull1.code, 0, `First pull should succeed: ${pull1.stderr}`);
 
       // First push (should be no-op)
-      const push1 = await runCLICommand(["sync", "push", "--dry-run"], tempDir, configDir);
+      const push1 = await backend.runCLICommand(["sync", "push", "--dry-run"], tempDir);
       assertEquals(push1.code, 0, `First push dry-run should succeed: ${push1.stderr}`);
 
       // Second pull (should have no changes)
-      const pull2 = await runCLICommand(["sync", "pull", "--yes"], tempDir, configDir);
+      const pull2 = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
       assertEquals(pull2.code, 0, `Second pull should succeed: ${pull2.stderr}`);
 
       // Second push (should still be no-op)
-      const push2 = await runCLICommand(["sync", "push", "--dry-run"], tempDir, configDir);
+      const push2 = await backend.runCLICommand(["sync", "push", "--dry-run"], tempDir);
       assertEquals(push2.code, 0, `Second push dry-run should succeed: ${push2.stderr}`);
 
       // Verify no changes after multiple cycles
@@ -1888,11 +1687,11 @@ excludes: []
       );
 
       // Third pull to verify consistency
-      const pull3 = await runCLICommand(["sync", "pull", "--yes"], tempDir, configDir);
+      const pull3 = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
       assertEquals(pull3.code, 0, `Third pull should succeed: ${pull3.stderr}`);
 
       // Final push check
-      const push3 = await runCLICommand(["sync", "push", "--dry-run"], tempDir, configDir);
+      const push3 = await backend.runCLICommand(["sync", "push", "--dry-run"], tempDir);
       assertEquals(push3.code, 0, `Final push dry-run should succeed: ${push3.stderr}`);
 
       const finalOutput = (push3.stdout + push3.stderr).toLowerCase();
@@ -1900,23 +1699,16 @@ excludes: []
         finalOutput.includes("0 change") || finalOutput.includes("no change") || finalOutput.includes("nothing"),
         `Should still have no changes after 3 cycles. Output: ${finalOutput}`,
       );
-    } finally {
-      await cleanup();
-    }
+    });
   },
 });
 
 Deno.test({
   name: "Integration: App with nonDottedPaths creates __app structure and is idempotent",
-  ignore: !RUN_INTEGRATION_TESTS,
+  sanitizeResources: false,
+  sanitizeOps: false,
   async fn() {
-    if (!await isServerAvailable()) {
-      console.log(`Skipping: Windmill server not available at ${WINDMILL_BASE_URL}`);
-      return;
-    }
-
-    const { tempDir, configDir, cleanup } = await setupTestEnvironment();
-    try {
+    await withTestBackend(async (backend, tempDir) => {
       // Create wmill.yaml with nonDottedPaths enabled
       await Deno.writeTextFile(
         `${tempDir}/wmill.yaml`,
@@ -1940,10 +1732,9 @@ excludes: []
       setNonDottedPaths(false); // Reset global state
 
       // Push the app
-      const pushResult = await runCLICommand(
+      const pushResult = await backend.runCLICommand(
         ["sync", "push", "--yes", "--includes", `f/test/nondot_app_${uniqueId}**`],
         tempDir,
-        configDir,
       );
 
       assertEquals(
@@ -1953,10 +1744,9 @@ excludes: []
       );
 
       // Pull back to same directory
-      const pullResult = await runCLICommand(
+      const pullResult = await backend.runCLICommand(
         ["sync", "pull", "--yes", "--includes", `f/test/nondot_app_${uniqueId}**`],
         tempDir,
-        configDir,
       );
 
       assertEquals(
@@ -1976,10 +1766,9 @@ excludes: []
       );
 
       // Push again (should be idempotent)
-      const push2 = await runCLICommand(
+      const push2 = await backend.runCLICommand(
         ["sync", "push", "--dry-run", "--includes", `f/test/nondot_app_${uniqueId}**`],
         tempDir,
-        configDir,
       );
 
       assertEquals(push2.code, 0, `Second push dry-run should succeed: ${push2.stderr}`);
@@ -1989,9 +1778,7 @@ excludes: []
         output.includes("0 change") || output.includes("no change") || output.includes("nothing"),
         `Should have no changes after push-pull cycle for app. Output: ${output}`,
       );
-    } finally {
-      await cleanup();
-    }
+    });
   },
 });
 
@@ -2029,15 +1816,10 @@ runnables:
 
 Deno.test({
   name: "Integration: Raw app with nonDottedPaths creates __raw_app structure",
-  ignore: !RUN_INTEGRATION_TESTS,
+  sanitizeResources: false,
+  sanitizeOps: false,
   async fn() {
-    if (!await isServerAvailable()) {
-      console.log(`Skipping: Windmill server not available at ${WINDMILL_BASE_URL}`);
-      return;
-    }
-
-    const { tempDir, configDir, cleanup } = await setupTestEnvironment();
-    try {
+    await withTestBackend(async (backend, tempDir) => {
       // Create wmill.yaml with nonDottedPaths enabled
       await Deno.writeTextFile(
         `${tempDir}/wmill.yaml`,
@@ -2075,41 +1857,32 @@ excludes: []
       );
 
       // Push the raw app (may fail if raw apps require specific validation)
-      const pushResult = await runCLICommand(
+      const pushResult = await backend.runCLICommand(
         ["sync", "push", "--yes", "--includes", `f/test/nondot_rawapp_${uniqueId}**`],
         tempDir,
-        configDir,
       );
 
       // Note: Raw apps may have additional validation requirements
       // This test primarily verifies the folder structure is correct
       if (pushResult.code === 0) {
         // If push succeeded, verify idempotency
-        const push2 = await runCLICommand(
+        const push2 = await backend.runCLICommand(
           ["sync", "push", "--dry-run", "--includes", `f/test/nondot_rawapp_${uniqueId}**`],
           tempDir,
-          configDir,
         );
 
         assertEquals(push2.code, 0, `Second push dry-run should succeed: ${push2.stderr}`);
       }
-    } finally {
-      await cleanup();
-    }
+    });
   },
 });
 
 Deno.test({
   name: "Integration: Mixed scripts and flows with nonDottedPaths are idempotent",
-  ignore: !RUN_INTEGRATION_TESTS,
+  sanitizeResources: false,
+  sanitizeOps: false,
   async fn() {
-    if (!await isServerAvailable()) {
-      console.log(`Skipping: Windmill server not available at ${WINDMILL_BASE_URL}`);
-      return;
-    }
-
-    const { tempDir, configDir, cleanup } = await setupTestEnvironment();
-    try {
+    await withTestBackend(async (backend, tempDir) => {
       // Create wmill.yaml with nonDottedPaths enabled
       await Deno.writeTextFile(
         `${tempDir}/wmill.yaml`,
@@ -2140,10 +1913,9 @@ excludes: []
       setNonDottedPaths(false); // Reset global state
 
       // Push both
-      const pushResult = await runCLICommand(
+      const pushResult = await backend.runCLICommand(
         ["sync", "push", "--yes", "--includes", `f/test/mixed_*_${uniqueId}**`],
         tempDir,
-        configDir,
       );
 
       assertEquals(
@@ -2153,10 +1925,9 @@ excludes: []
       );
 
       // Pull back
-      const pullResult = await runCLICommand(
+      const pullResult = await backend.runCLICommand(
         ["sync", "pull", "--yes", "--includes", `f/test/mixed_*_${uniqueId}**`],
         tempDir,
-        configDir,
       );
 
       assertEquals(
@@ -2166,10 +1937,9 @@ excludes: []
       );
 
       // Verify idempotency
-      const push2 = await runCLICommand(
+      const push2 = await backend.runCLICommand(
         ["sync", "push", "--dry-run", "--includes", `f/test/mixed_*_${uniqueId}**`],
         tempDir,
-        configDir,
       );
 
       assertEquals(push2.code, 0, `Second push dry-run should succeed: ${push2.stderr}`);
@@ -2179,8 +1949,215 @@ excludes: []
         output.includes("0 change") || output.includes("no change") || output.includes("nothing"),
         `Should have no changes after push-pull cycle for mixed content. Output: ${output}`,
       );
-    } finally {
-      await cleanup();
-    }
+    });
+  },
+});
+
+// =============================================================================
+// ws_error_handler_muted Persistence Tests
+// =============================================================================
+
+Deno.test({
+  name: "Integration: Script ws_error_handler_muted is persisted through push/pull",
+  ignore: shouldSkipOnCI(), // Requires EE features
+  sanitizeResources: false,
+  sanitizeOps: false,
+  async fn() {
+    await withTestBackend(async (backend, tempDir) => {
+      await Deno.writeTextFile(
+        `${tempDir}/wmill.yaml`,
+        `defaultTs: bun
+includes:
+  - "**"
+excludes: []
+`,
+      );
+
+      const uniqueId = Date.now();
+      await ensureDir(`${tempDir}/f/test`);
+
+      // Create a script with ws_error_handler_muted: true
+      const scriptName = `f/test/muted_script_${uniqueId}`;
+      const script = createScriptFixture(scriptName, "deno");
+      await Deno.writeTextFile(`${tempDir}/${script.contentFile.path}`, script.contentFile.content);
+      // Add ws_error_handler_muted to the metadata
+      const metadataWithMuted = script.metadataFile.content + `ws_error_handler_muted: true\n`;
+      await Deno.writeTextFile(`${tempDir}/${script.metadataFile.path}`, metadataWithMuted);
+
+      // Push
+      const pushResult = await backend.runCLICommand(
+        ["sync", "push", "--yes", "--includes", `f/test/muted_script_${uniqueId}**`],
+        tempDir,
+      );
+      assertEquals(
+        pushResult.code,
+        0,
+        `Push should succeed.\nstdout: ${pushResult.stdout}\nstderr: ${pushResult.stderr}`,
+      );
+
+      // Verify via API that ws_error_handler_muted was persisted
+      const apiResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/scripts/get/p/${scriptName}`,
+      );
+      assertEquals(apiResp.status, 200, "API should return the script");
+      const scriptData = await apiResp.json();
+      assertEquals(
+        scriptData.ws_error_handler_muted,
+        true,
+        "API should return ws_error_handler_muted: true for the pushed script",
+      );
+
+      // Pull into a fresh directory and verify the field round-trips
+      const pullDir = await Deno.makeTempDir({ prefix: "wmill_muted_script_pull_" });
+      try {
+        await Deno.writeTextFile(
+          `${pullDir}/wmill.yaml`,
+          `defaultTs: bun
+includes:
+  - "f/test/muted_script_${uniqueId}**"
+excludes: []
+`,
+        );
+
+        const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], pullDir);
+        assertEquals(
+          pullResult.code,
+          0,
+          `Pull should succeed.\nstdout: ${pullResult.stdout}\nstderr: ${pullResult.stderr}`,
+        );
+
+        // Verify ws_error_handler_muted is in the pulled metadata
+        const pulledMetadata = await Deno.readTextFile(`${pullDir}/${script.metadataFile.path}`);
+        assertStringIncludes(
+          pulledMetadata,
+          "ws_error_handler_muted: true",
+          "Pulled script metadata should contain ws_error_handler_muted: true",
+        );
+
+        // Verify push from pulled dir is idempotent (no changes)
+        const push2 = await backend.runCLICommand(
+          ["sync", "push", "--dry-run", "--includes", `f/test/muted_script_${uniqueId}**`],
+          pullDir,
+        );
+        assertEquals(push2.code, 0, `Second push dry-run should succeed: ${push2.stderr}`);
+        const output = (push2.stdout + push2.stderr).toLowerCase();
+        assert(
+          output.includes("0 change") || output.includes("no change") || output.includes("nothing"),
+          `Should have no changes after push-pull cycle for script with ws_error_handler_muted. Output: ${output}`,
+        );
+      } finally {
+        await Deno.remove(pullDir, { recursive: true }).catch(() => {});
+      }
+    });
+  },
+});
+
+Deno.test({
+  name: "Integration: Flow ws_error_handler_muted is persisted through push/pull",
+  ignore: shouldSkipOnCI(), // Requires EE features
+  sanitizeResources: false,
+  sanitizeOps: false,
+  async fn() {
+    await withTestBackend(async (backend, tempDir) => {
+      await Deno.writeTextFile(
+        `${tempDir}/wmill.yaml`,
+        `defaultTs: bun
+includes:
+  - "**"
+excludes: []
+`,
+      );
+
+      const uniqueId = Date.now();
+      const flowName = `f/test/muted_flow_${uniqueId}`;
+      const flowFixture = createFlowFixture(flowName);
+
+      // Create flow directory and files
+      await ensureDir(`${tempDir}/f/test/muted_flow_${uniqueId}${getFolderSuffix("flow")}`);
+      for (const [key, file] of Object.entries(flowFixture)) {
+        if (key === "metadata") {
+          // Add ws_error_handler_muted to flow metadata
+          const contentWithMuted = file.content + `ws_error_handler_muted: true\n`;
+          await Deno.writeTextFile(`${tempDir}/${file.path}`, contentWithMuted);
+        } else {
+          await Deno.writeTextFile(`${tempDir}/${file.path}`, file.content);
+        }
+      }
+
+      // Push
+      const pushResult = await backend.runCLICommand(
+        ["sync", "push", "--yes", "--includes", `f/test/muted_flow_${uniqueId}*/**`],
+        tempDir,
+      );
+      assertEquals(
+        pushResult.code,
+        0,
+        `Push should succeed.\nstdout: ${pushResult.stdout}\nstderr: ${pushResult.stderr}`,
+      );
+
+      // Verify via API that ws_error_handler_muted was persisted
+      const apiResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/flows/get/${flowName}`,
+      );
+      assertEquals(apiResp.status, 200, "API should return the flow");
+      const flowData = await apiResp.json();
+      assertEquals(
+        flowData.ws_error_handler_muted,
+        true,
+        "API should return ws_error_handler_muted: true for the pushed flow",
+      );
+
+      // Pull into a fresh directory and verify the field round-trips
+      const pullDir = await Deno.makeTempDir({ prefix: "wmill_muted_flow_pull_" });
+      try {
+        await Deno.writeTextFile(
+          `${pullDir}/wmill.yaml`,
+          `defaultTs: bun
+includes:
+  - "f/test/muted_flow_${uniqueId}*/**"
+excludes: []
+`,
+        );
+
+        const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], pullDir);
+        assertEquals(
+          pullResult.code,
+          0,
+          `Pull should succeed.\nstdout: ${pullResult.stdout}\nstderr: ${pullResult.stderr}`,
+        );
+
+        // Verify ws_error_handler_muted is in the pulled flow.yaml
+        const flowYamlPath = `${pullDir}/${flowFixture.metadata.path}`;
+        const pulledFlowYaml = await Deno.readTextFile(flowYamlPath);
+        assertStringIncludes(
+          pulledFlowYaml,
+          "ws_error_handler_muted: true",
+          "Pulled flow.yaml should contain ws_error_handler_muted: true",
+        );
+
+        // Parse the YAML to confirm it's a proper boolean value
+        // deno-lint-ignore no-explicit-any
+        const parsed = await yamlParseFile(flowYamlPath) as any;
+        assertEquals(
+          parsed.ws_error_handler_muted,
+          true,
+          "ws_error_handler_muted should be boolean true in parsed flow YAML",
+        );
+
+        // Verify push from pulled dir is idempotent (no changes)
+        const push2 = await backend.runCLICommand(
+          ["sync", "push", "--dry-run", "--includes", `f/test/muted_flow_${uniqueId}*/**`],
+          pullDir,
+        );
+        assertEquals(push2.code, 0, `Second push dry-run should succeed: ${push2.stderr}`);
+        const output = (push2.stdout + push2.stderr).toLowerCase();
+        assert(
+          output.includes("0 change") || output.includes("no change") || output.includes("nothing"),
+          `Should have no changes after push-pull cycle for flow with ws_error_handler_muted. Output: ${output}`,
+        );
+      } finally {
+        await Deno.remove(pullDir, { recursive: true }).catch(() => {});
+      }
+    });
   },
 });

@@ -3,7 +3,7 @@
 
 	import { Highlight } from 'svelte-highlight'
 	import { json } from 'svelte-highlight/languages'
-	import { copyToClipboard, roughSizeOfObject } from '$lib/utils'
+	import { copyToClipboard, parseS3Object, roughSizeOfObject } from '$lib/utils'
 	import { base } from '$lib/base'
 	import { Button, Drawer, DrawerContent } from './common'
 	import {
@@ -73,6 +73,7 @@
 		| 'pdf'
 		| undefined
 	let resultKind: ResultKind = $state()
+	let length = $state(1)
 
 	let hasBigInt = $state(false)
 
@@ -179,6 +180,10 @@
 	let is_render_all = $state(false)
 	let download_as_csv = $state(false)
 	function inferResultKind(result: any) {
+		if (typeof result === 'string' && result.match(/s3:\/\/[^/]*\/.+/)) {
+			largeObject = true
+			return 's3object'
+		}
 		try {
 			if (result === 'WINDMILL_TOO_BIG') {
 				largeObject = true
@@ -498,8 +503,8 @@
 
 {#if result_stream && result == undefined}
 	<div class="flex flex-col w-full gap-2">
-		<div class="flex items-center gap-2 text-primary">
-			<Loader2 class="animate-spin" size={16} /> Streaming result
+		<div class="flex items-center gap-2 text-secondary text-xs">
+			<Loader2 class="animate-spin" size={14} /> Streaming result
 		</div>
 		<ResultStreamDisplay {result_stream} />
 	</div>
@@ -792,8 +797,10 @@
 						>
 					</div>
 				{:else if !forceJson && resultKind === 's3object'}
+					{@const s3object = parseS3Object(result) as typeof result}
 					<div
-						class="h-full w-full {typeof result?.s3 === 'string' && result?.s3?.endsWith('.parquet')
+						class="h-full w-full {typeof s3object?.s3 === 'string' &&
+						s3object?.s3?.endsWith('.parquet')
 							? 'h-min-[600px]'
 							: ''}"
 					>
@@ -809,13 +816,13 @@
 								<Highlight
 									class=""
 									language={json}
-									code={toJsonStr(result).replace(/\\n/g, '\n')}
+									code={toJsonStr(s3object).replace(/\\n/g, '\n')}
 								/>
 								{#if $userStore}
 									<button
 										class="text-secondary underline text-2xs whitespace-nowrap"
 										onclick={() => {
-											s3FileViewer?.open?.(result)
+											s3FileViewer?.open?.(s3object)
 										}}
 										><span class="flex items-center gap-1"
 											><PanelRightOpen size={12} />object store explorer<Tooltip
@@ -826,13 +833,13 @@
 										>
 									</button>
 								{/if}
-							{:else if !result?.disable_download}
-								<FileDownload {workspaceId} s3object={result} {appPath} />
+							{:else if !s3object?.disable_download}
+								<FileDownload {workspaceId} {s3object} {appPath} />
 								{#if $userStore}
 									<button
 										class="text-secondary underline text-2xs whitespace-nowrap"
 										onclick={() => {
-											s3FileViewer?.open?.(result)
+											s3FileViewer?.open?.(s3object)
 										}}
 										><span class="flex items-center gap-1"
 											><PanelRightOpen size={12} />object store explorer<Tooltip
@@ -845,17 +852,17 @@
 								{/if}
 							{/if}
 						</div>
-						{#if typeof result?.s3 === 'string'}
-							{#if !appPath && (result?.s3?.endsWith('.parquet') || result?.s3?.endsWith('.csv'))}
-								{#key result.s3}
+						{#if typeof s3object?.s3 === 'string'}
+							{#if !appPath && (s3object?.s3?.endsWith('.parquet') || s3object?.s3?.endsWith('.csv'))}
+								{#key s3object.s3}
 									<ParqetTableRenderer
-										disable_download={result?.disable_download}
+										disable_download={s3object?.disable_download}
 										{workspaceId}
-										s3resource={result?.s3}
-										storage={result?.storage}
+										s3resource={s3object?.s3}
+										storage={s3object?.storage}
 									/>
 								{/key}
-							{:else if result?.s3?.endsWith('.png') || result?.s3?.endsWith('.jpeg') || result?.s3?.endsWith('.jpg') || result?.s3?.endsWith('.webp')}
+							{:else if s3object?.s3?.endsWith('.png') || s3object?.s3?.endsWith('.jpeg') || s3object?.s3?.endsWith('.jpg') || s3object?.s3?.endsWith('.webp')}
 								<div class="h-full mt-2">
 									<img
 										alt="preview rendered"
@@ -864,14 +871,14 @@
 											appPath
 												? 'apps_u/download_s3_file/' + appPath
 												: 'job_helpers/load_image_preview'
-										}?${appPath ? 's3' : 'file_key'}=${encodeURIComponent(result.s3)}` +
-											(result.storage ? `&storage=${result.storage}` : '')}{appPath &&
-										result.presigned
-											? `&${result.presigned}`
+										}?${appPath ? 's3' : 'file_key'}=${encodeURIComponent(s3object.s3)}` +
+											(s3object.storage ? `&storage=${s3object.storage}` : '')}{appPath &&
+										s3object.presigned
+											? `&${s3object.presigned}`
 											: ''}"
 									/>
 								</div>
-							{:else if result?.s3?.endsWith('.pdf')}
+							{:else if s3object?.s3?.endsWith('.pdf')}
 								<div class="h-96 mt-2 border">
 									{#await import('$lib/components/display/PdfViewer.svelte')}
 										<Loader2 class="animate-spin" />
@@ -882,10 +889,10 @@
 												appPath
 													? 'apps_u/download_s3_file/' + appPath
 													: 'job_helpers/load_image_preview'
-											}?${appPath ? 's3' : 'file_key'}=${encodeURIComponent(result.s3)}` +
-												(result.storage ? `&storage=${result.storage}` : '')}{appPath &&
-											result.presigned
-												? `&${result.presigned}`
+											}?${appPath ? 's3' : 'file_key'}=${encodeURIComponent(s3object.s3)}` +
+												(s3object.storage ? `&storage=${s3object.storage}` : '')}{appPath &&
+											s3object.presigned
+												? `&${s3object.presigned}`
 												: ''}"
 										/>
 									{/await}
@@ -902,7 +909,8 @@
 								size="xs"
 								options={{ right: 'Raw S3 object' }}
 							/>
-							{#each result as s3object}
+							{#each result as _s3object}
+								{@const s3object = parseS3Object(_s3object) as typeof _s3object}
 								{#if s3FileDisplayRawMode}
 									<Highlight
 										class=""

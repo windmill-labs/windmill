@@ -46,6 +46,7 @@ struct MssqlDatabase {
     #[serde(default, deserialize_with = "empty_as_none")]
     ca_cert: Option<String>,
     encrypt: Option<bool>,
+    integrated_auth: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -129,7 +130,23 @@ pub async fn do_mssql(
     }
 
     // Handle authentication based on available credentials
-    if let Some(token_value) = &database.aad_token {
+    if database.integrated_auth.unwrap_or(false) {
+        #[cfg(any(feature = "mssql-kerberos", feature = "mssql-winauth"))]
+        {
+            config.authentication(AuthMethod::Integrated);
+            #[cfg(feature = "mssql-kerberos")]
+            let logs = format!("\nUsing Integrated Authentication (Kerberos/GSSAPI)");
+            #[cfg(feature = "mssql-winauth")]
+            let logs = format!("\nUsing Integrated Authentication (Windows SSPI)");
+            append_logs(&job.id, &job.workspace_id, logs, conn).await;
+        }
+        #[cfg(not(any(feature = "mssql-kerberos", feature = "mssql-winauth")))]
+        {
+            return Err(Error::BadRequest(
+                "Integrated authentication is not available in this build. Requires mssql-kerberos (Linux) or mssql-winauth (Windows) feature.".to_string(),
+            ));
+        }
+    } else if let Some(token_value) = &database.aad_token {
         if let Some(token) = &token_value.token {
             config.authentication(AuthMethod::aad_token(token));
         } else {
@@ -141,7 +158,7 @@ pub async fn do_mssql(
         config.authentication(AuthMethod::sql_server(user.clone(), password.clone()));
     } else {
         return Err(Error::BadRequest(
-            "Neither AAD token nor username/password credentials are set".to_string(),
+            "No authentication method configured. Set integrated_auth, aad_token, or user/password.".to_string(),
         ));
     }
 
@@ -230,7 +247,7 @@ pub async fn do_mssql(
             let rows_stream = async_stream::stream! {
                 let mut stream = prepared_query.query(&mut client).await.map_err(to_anyhow)?.into_row_stream().map(|row| {
                     let raw_value = row_to_json(row.map_err(to_anyhow)?).map_err(to_anyhow);
-                    let json = raw_value.and_then(|raw_value| serde_json::to_value(raw_value.get()).map_err(to_anyhow));
+                    let json = raw_value.and_then(|raw_value| serde_json::from_str(raw_value.get()).map_err(to_anyhow));
                     json
                 });
                 while let Some(row) = stream.next().await {

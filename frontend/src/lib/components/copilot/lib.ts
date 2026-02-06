@@ -21,6 +21,7 @@ import {
 	getNonStreamingOpenAIResponsesCompletion,
 	getOpenAIResponsesCompletionStream
 } from './chat/openai-responses'
+import { convertOpenAIToAnthropicMessages } from './chat/anthropic'
 import type { Stream } from 'openai/core/streaming.mjs'
 import { generateRandomString } from '$lib/utils'
 import { copilotInfo, getCurrentModel } from '$lib/aiStore'
@@ -346,7 +347,6 @@ function prepareMessages(aiProvider: AIProvider, messages: ChatCompletionMessage
 
 const DEFAULT_COMPLETION_CONFIG: ChatCompletionCreateParams = {
 	model: '',
-	seed: 42,
 	messages: []
 }
 
@@ -358,14 +358,8 @@ export const PROVIDER_COMPLETION_CONFIG_MAP: Record<AIProvider, ChatCompletionCr
 	togetherai: DEFAULT_COMPLETION_CONFIG,
 	deepseek: DEFAULT_COMPLETION_CONFIG,
 	customai: DEFAULT_COMPLETION_CONFIG,
-	googleai: {
-		...DEFAULT_COMPLETION_CONFIG,
-		seed: undefined // not supported by gemini
-	} as ChatCompletionCreateParams,
-	mistral: {
-		...DEFAULT_COMPLETION_CONFIG,
-		seed: undefined
-	},
+	googleai: DEFAULT_COMPLETION_CONFIG,
+	mistral: DEFAULT_COMPLETION_CONFIG,
 	anthropic: DEFAULT_COMPLETION_CONFIG,
 	aws_bedrock: DEFAULT_COMPLETION_CONFIG
 } as const
@@ -445,6 +439,18 @@ export async function testKey({
 		throw new Error('Missing a model to test')
 	}
 
+	// Use Anthropic SDK for Anthropic provider
+	if (aiProvider === 'anthropic') {
+		await testAnthropicKey({
+			apiKey,
+			resourcePath,
+			model: modelToTest,
+			abortController,
+			messages
+		})
+		return
+	}
+
 	await getNonStreamingCompletion(messages, abortController, {
 		apiKey,
 		resourcePath,
@@ -453,6 +459,55 @@ export async function testKey({
 			provider: aiProvider
 		}
 	})
+}
+
+async function testAnthropicKey({
+	apiKey,
+	resourcePath,
+	model,
+	abortController,
+	messages
+}: {
+	apiKey?: string
+	resourcePath?: string
+	model: string
+	abortController: AbortController
+	messages: ChatCompletionMessageParam[]
+}) {
+	const { system, messages: anthropicMessages } = convertOpenAIToAnthropicMessages(messages)
+
+	const headers: Record<string, string> = {
+		'X-Provider': 'anthropic',
+		'anthropic-version': '2023-06-01',
+		'X-Anthropic-SDK': 'true'
+	}
+
+	if (resourcePath) {
+		headers['X-Resource-Path'] = resourcePath
+	} else if (apiKey) {
+		headers['X-API-Key'] = apiKey
+	}
+
+	const anthropicClient = apiKey
+		? new Anthropic({
+				baseURL: `${location.origin}${OpenAPI.BASE}/ai/proxy`,
+				apiKey: 'fake-key',
+				dangerouslyAllowBrowser: true
+			})
+		: workspaceAIClients.getAnthropicClient()
+
+	await anthropicClient.messages.create(
+		{
+			model,
+			max_tokens: 100,
+			messages: anthropicMessages,
+			...(system && { system })
+		},
+		{
+			signal: abortController.signal,
+			headers
+		}
+	)
 }
 
 interface BaseOptions {

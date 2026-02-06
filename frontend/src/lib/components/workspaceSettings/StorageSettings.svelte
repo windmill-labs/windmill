@@ -132,7 +132,7 @@
 	</Alert>
 {/if}
 {#if s3ResourceSettings}
-	<DataTable containerClass="mt-4">
+	<DataTable containerClass="storage-settings-table mt-4">
 		<Head>
 			<tr>
 				{#each tableHeadNames as name, i}
@@ -152,7 +152,11 @@
 						{#if tableRow[0] === null}
 							<TextInput inputProps={{ placeholder: 'Primary storage', disabled: true }} />
 						{:else}
-							<TextInput bind:value={tableRow[0]} inputProps={{ placeholder: 'Name' }} />
+							<TextInput
+								bind:value={tableRow[0]}
+								inputProps={{ placeholder: 'Name' }}
+								class="secondary-storage-name-input"
+							/>
 						{/if}
 					</Cell>
 					<Cell>
@@ -167,6 +171,7 @@
 										{ value: 'gcloud_storage', label: 'Google Cloud Storage' }
 									]}
 									bind:value={tableRow[1].resourceType}
+									id="storage-resource-type-select"
 									class="w-40"
 								/>
 							</div>
@@ -198,7 +203,7 @@
 							{#if emptyString(tableRow[1].resourcePath) || isDirty(tableRow[0])}
 								<Popover
 									openOnHover
-									contentClasses="p-2 text-sm text-secondary italic"
+									contentClasses="p-2 text-xs text-secondary"
 									class="cursor-not-allowed"
 								>
 									<svelte:fragment slot="trigger">
@@ -237,11 +242,12 @@
 			{/each}
 			<Row class="!border-0">
 				<Cell colspan={tableHeadNames.length} class="pt-0 pb-2">
-					<div class="flex justify-center">
+					{#snippet addSecondaryStorageBtn()}
 						<Button
 							size="sm"
 							btnClasses="max-w-fit"
 							variant="default"
+							disabled={!s3ResourceSettings.resourcePath}
 							on:click={() => {
 								if (s3ResourceSettings.secondaryStorage === undefined) {
 									s3ResourceSettings.secondaryStorage = []
@@ -259,12 +265,32 @@
 							}}
 						>
 							<Plus /> Add secondary storage
-							<Tooltip>
-								Secondary storage is a feature that allows you to read and write from storage that
-								isn't your main storage by specifying it in the s3 object as "secondary_storage"
-								with the name of it
-							</Tooltip>
+							{#if s3ResourceSettings.resourcePath}
+								<Tooltip>
+									Secondary storage is a feature that allows you to read and write from storage that
+									isn't your main storage by specifying it in the s3 object as "secondary_storage"
+									with the name of it
+								</Tooltip>
+							{/if}
 						</Button>
+					{/snippet}
+					<div class="flex justify-center w-full">
+						{#if !s3ResourceSettings.resourcePath}
+							<Popover
+								class="cursor-not-allowed"
+								openOnHover
+								contentClasses="p-2 text-xs text-secondary"
+							>
+								{#snippet trigger()}
+									{@render addSecondaryStorageBtn()}
+								{/snippet}
+								{#snippet content()}
+									Setup a primary storage to use secondary storages
+								{/snippet}
+							</Popover>
+						{:else}
+							{@render addSecondaryStorageBtn()}
+						{/if}
 					</div>
 				</Cell>
 			</Row>

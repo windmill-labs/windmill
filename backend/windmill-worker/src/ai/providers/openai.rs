@@ -11,35 +11,7 @@ use crate::ai::{
     utils::extract_text_content,
 };
 
-#[derive(Deserialize, Serialize, Clone, Debug)]
-pub struct OpenAIFunction {
-    pub name: String,
-    pub arguments: String,
-}
-
-/// Google-specific extra content for thought signatures (Gemini 3 Pro / 2.5)
-#[derive(Deserialize, Serialize, Clone, Debug, Default)]
-pub struct GoogleExtraContent {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub thought_signature: Option<String>,
-}
-
-/// Extra content for provider-specific metadata (e.g., Google thought signatures)
-#[derive(Deserialize, Serialize, Clone, Debug, Default)]
-pub struct ExtraContent {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub google: Option<GoogleExtraContent>,
-}
-
-#[derive(Deserialize, Serialize, Clone, Debug)]
-pub struct OpenAIToolCall {
-    pub id: String,
-    pub function: OpenAIFunction,
-    pub r#type: String,
-    /// Extra content for provider-specific metadata (e.g., Google Gemini thought signatures)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub extra_content: Option<ExtraContent>,
-}
+use windmill_common::ai_types::OpenAIToolCall;
 
 // Responses API structures
 #[derive(Deserialize)]
@@ -500,6 +472,10 @@ impl QueryBuilder for OpenAIQueryBuilder {
         let mut parser = OpenAIResponsesSSEParser::new(stream_event_processor);
         parser.parse_events(response).await?;
 
+        // Convert OpenAI Responses usage to TokenUsage
+        let usage =
+            parser.usage.map(|u| TokenUsage::new(u.input_tokens, u.output_tokens, u.total_tokens));
+
         Ok(ParsedResponse::Text {
             content: if parser.accumulated_content.is_empty() {
                 None
@@ -510,6 +486,7 @@ impl QueryBuilder for OpenAIQueryBuilder {
             events_str: Some(parser.events_str),
             annotations: parser.annotations,
             used_websearch: parser.used_websearch,
+            usage,
         })
     }
 
@@ -541,7 +518,9 @@ impl QueryBuilder for OpenAIQueryBuilder {
                 "image_generation_call" => {
                     if output.status.as_deref() == Some("completed") {
                         if let Some(ref base64_image) = output.result {
-                            return Ok(ParsedResponse::Image { base64_data: base64_image.clone() });
+                            return Ok(ParsedResponse::Image {
+                                base64_data: base64_image.clone(),
+                            });
                         }
                     }
                 }

@@ -1,4 +1,3 @@
-import { playwright } from '@vitest/browser-playwright'
 import { sveltekit } from '@sveltejs/kit/vite'
 import { readFileSync } from 'fs'
 import { fileURLToPath } from 'url'
@@ -35,6 +34,11 @@ const config = {
 		port: 3000,
 		cors: { origin: '*' },
 		proxy: {
+			'^/\\.well-known/.*': {
+				target: process.env.REMOTE ?? 'https://app.windmill.dev',
+				changeOrigin: true,
+				cookieDomainRewrite: 'localhost'
+			},
 			'^/api/w/[^/]+/s3_proxy/.*': {
 				target: process.env.REMOTE ?? 'https://app.windmill.dev/',
 				changeOrigin: false, // Important for signature to be correct
@@ -63,6 +67,12 @@ const config = {
 				changeOrigin: true,
 				ws: true
 			},
+			'^/ws_debug/.*': {
+				target: process.env.REMOTE_DEBUG ?? 'https://app.windmill.dev',
+				changeOrigin: true,
+				ws: true,
+				rewrite: (path) => path.replace(/^\/ws_debug/, '')
+			},
 			'^/ui_builder/.*': {
 				target: 'http://localhost:4000',
 				changeOrigin: true,
@@ -82,7 +92,6 @@ const config = {
 		exclude: [
 			'@codingame/monaco-vscode-standalone-typescript-language-features',
 			'@codingame/monaco-vscode-standalone-languages',
-			'vscode'
 		]
 	},
 	worker: { format: 'es' },
@@ -98,19 +107,6 @@ const config = {
 	test: {
 		expect: { requireAssertions: true },
 		projects: [
-			{
-				extends: './vite.config.js',
-				test: {
-					name: 'client',
-					browser: {
-						enabled: true,
-						provider: playwright(),
-						instances: [{ browser: 'chromium', headless: true }]
-					},
-					include: ['src/**/*.svelte.{test,spec}.{js,ts}'],
-					exclude: ['src/lib/server/**']
-				}
-			},
 			{
 				extends: './vite.config.js',
 				test: {

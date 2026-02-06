@@ -3,7 +3,7 @@
 	import { base } from '$app/paths'
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { logout, logoutWithRedirect } from '$lib/logout'
+	import { logout, logoutWithRedirect } from '$lib/logoutKit'
 	import { UserService, type WorkspaceInvite, WorkspaceService } from '$lib/gen'
 	import {
 		superadmin,
@@ -170,7 +170,7 @@
 </script>
 
 {#if $superadmin}
-	<SuperadminSettings bind:this={superadminSettings} />
+	<SuperadminSettings bind:this={superadminSettings} disableChatOffset />
 {/if}
 
 <CenteredModal
@@ -440,4 +440,4 @@
 		</p>
 	</div>
 </div> -->
-<UserSettings bind:this={userSettings} showMcpMode={true} />
+<UserSettings bind:this={userSettings} showMcpMode={true} disableChatOffset />

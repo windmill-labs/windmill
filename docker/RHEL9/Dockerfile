@@ -31,6 +31,7 @@ RUN mkdir /backend
 COPY /backend/windmill-api/openapi.yaml /backend/windmill-api/openapi.yaml
 COPY /openflow.openapi.yaml /openflow.openapi.yaml
 COPY /backend/windmill-api/build_openapi.sh /backend/windmill-api/build_openapi.sh
+COPY /system_prompts/auto-generated /system_prompts/auto-generated
 
 RUN cd /backend/windmill-api && . ./build_openapi.sh
 COPY /backend/parsers/windmill-parser-wasm/pkg/ /backend/parsers/windmill-parser-wasm/pkg/
@@ -61,7 +62,7 @@ RUN --mount=type=secret,id=rh_username \
 RUN subscription-manager repos --enable codeready-builder-for-rhel-9-$(arch)-rpms
 
 RUN yum update -y && \
-    yum install -y perl-FindBin perl-IPC-Cmd perl-Time-Piece libxml2-devel xmlsec1-devel xmlsec1-openssl-devel clang llvm-devel cmake libtool-ltdl-devel
+    yum install -y perl-FindBin perl-IPC-Cmd perl-Time-Piece libxml2-devel xmlsec1-devel xmlsec1-openssl-devel krb5-devel cyrus-sasl-devel cyrus-sasl-gssapi clang llvm-devel cmake libtool-ltdl-devel
 
 # RUN --mount=type=cache,target=/usr/local/cargo/registry \
 #     CARGO_NET_GIT_FETCH_WITH_CLI=true RUST_BACKTRACE=1 cargo chef cook --release --features "$features" --recipe-path recipe.json

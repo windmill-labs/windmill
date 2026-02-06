@@ -291,6 +291,7 @@ async fn create_group(
         windmill_git_sync::DeployedObject::Group { name: ng.name.clone() },
         Some(format!("Created group '{}'", &ng.name)),
         true,
+        None,
     )
     .await?;
 
@@ -514,6 +515,7 @@ async fn delete_group(
         windmill_git_sync::DeployedObject::Group { name: name.clone() },
         Some(format!("Deleted group '{}'", &name)),
         true,
+        None,
     )
     .await?;
 
@@ -573,6 +575,7 @@ async fn update_group(
         windmill_git_sync::DeployedObject::Group { name: name.clone() },
         Some(format!("Updated group '{}'", &name)),
         true,
+        None,
     )
     .await?;
 
@@ -637,6 +640,7 @@ async fn add_user(
         windmill_git_sync::DeployedObject::Group { name: name.clone() },
         Some(format!("Added user to group '{}'", &name)),
         true,
+        None,
     )
     .await?;
 
@@ -682,9 +686,16 @@ async fn add_user_igroup(
     #[cfg(all(feature = "private", feature = "enterprise"))]
     {
         use crate::workspaces_ee::auto_add_user;
-        let workspaces = sqlx::query!("SELECT workspace_id, auto_add_instance_groups_roles FROM workspace_settings WHERE $1 = ANY(COALESCE(auto_add_instance_groups, '{}'))", &name).fetch_all(&mut *tx).await?;
+        let workspaces = sqlx::query!(
+            r#"
+            SELECT workspace_id, auto_invite->'instance_groups_roles' as instance_groups_roles
+            FROM workspace_settings
+            WHERE auto_invite->'instance_groups' ? $1
+            "#,
+            &name
+        ).fetch_all(&mut *tx).await?;
         for ws in workspaces {
-            let role = ws.auto_add_instance_groups_roles.and_then(|r| r.get(&name).and_then(|v| v.as_str().map(String::from))).unwrap_or_else(|| "developer".to_string());
+            let role = ws.instance_groups_roles.and_then(|r| r.get(&name).and_then(|v| v.as_str().map(String::from))).unwrap_or_else(|| "developer".to_string());
             let (is_admin, is_operator) = match role.as_str() { "admin" => (true, false), "operator" => (false, true), _ => (false, false) };
             auto_add_user(&email, &ws.workspace_id, &is_operator, &mut tx, &authed, Some(serde_json::json!({"source": "instance_group", "group": &name}))).await?;
             if is_admin { sqlx::query!("UPDATE usr SET is_admin = true WHERE workspace_id = $1 AND email = $2", &ws.workspace_id, &email).execute(&mut *tx).await?; }
@@ -748,10 +759,10 @@ async fn list_igroups_with_workspaces(Extension(db): Extension<DB>) -> JsonResul
             ig.name as group_name,
             ws.workspace_id,
             w.name as workspace_name,
-            ws.auto_add_instance_groups_roles->ig.name as role
+            ws.auto_invite->'instance_groups_roles'->ig.name as role
         FROM instance_group ig
-        INNER JOIN workspace_settings ws ON ws.auto_add_instance_groups IS NOT NULL
-            AND ig.name = ANY(ws.auto_add_instance_groups)
+        INNER JOIN workspace_settings ws ON ws.auto_invite->'instance_groups' IS NOT NULL
+            AND ws.auto_invite->'instance_groups' ? ig.name
         INNER JOIN workspace w ON w.id = ws.workspace_id AND w.deleted = false
         ORDER BY ig.name, ws.workspace_id
         "#
@@ -907,6 +918,7 @@ async fn remove_user(
         windmill_git_sync::DeployedObject::Group { name: name.clone() },
         Some(format!("Removed user from group '{}'", &name)),
         true,
+        None,
     )
     .await?;
 

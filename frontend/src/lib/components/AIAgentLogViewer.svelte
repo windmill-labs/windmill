@@ -55,9 +55,17 @@
 		workspaceId?: string | undefined
 		storedToolCallJobs?: Record<number, Job>
 		onToolJobLoaded?: (job: Job, idx: number) => void
+		noPadding?: boolean
 	}
 
-	let { tools, agentJob, workspaceId, onToolJobLoaded, storedToolCallJobs }: Props = $props()
+	let {
+		tools,
+		agentJob,
+		workspaceId,
+		onToolJobLoaded,
+		storedToolCallJobs,
+		noPadding = false
+	}: Props = $props()
 
 	const fakeModuleStates: Record<string, GraphModuleState> = $state({})
 
@@ -198,7 +206,7 @@
 </script>
 
 {#if job}
-	<div class="p-2">
+	<div class={noPadding ? '' : 'p-2'}>
 		<FlowLogViewerWrapper
 			{job}
 			localModuleStates={fakeModuleStates}

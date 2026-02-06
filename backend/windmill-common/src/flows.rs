@@ -1146,6 +1146,7 @@ pub struct ListFlowQuery {
     pub starred_only: Option<bool>,
     pub include_draft_only: Option<bool>,
     pub with_deployment_msg: Option<bool>,
+    pub dedicated_worker: Option<bool>,
 }
 
 pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {

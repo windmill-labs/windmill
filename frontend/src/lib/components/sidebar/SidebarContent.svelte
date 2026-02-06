@@ -15,7 +15,7 @@
 	import { SIDEBAR_SHOW_SCHEDULES } from '$lib/consts'
 	import {
 		BookOpen,
-		HardHat,
+		ServerCog,
 		Boxes,
 		Calendar,
 		DollarSign,
@@ -31,7 +31,6 @@
 		Newspaper,
 		Play,
 		Route,
-		ServerCog,
 		Settings,
 		UserCog,
 		Plus,
@@ -60,6 +59,12 @@
 	import MqttIcon from '../icons/MqttIcon.svelte'
 	import AwsIcon from '../icons/AwsIcon.svelte'
 	import {
+		getAvailableNativeTriggerServices,
+		getServiceConfig,
+		getServiceIcon
+	} from '../triggers/native/utils'
+	import type { NativeServiceName } from '$lib/gen/types.gen'
+	import {
 		Menubar,
 		Menu,
 		MenuSingleItem,
@@ -86,6 +91,28 @@
 	let hasNewChangelogs = $state(false)
 	let recentChangelogs: Changelog[] = $state([])
 	let lastOpened = localStorage.getItem('changelogsLastOpened')
+	let availableNativeServices = $state<
+		Array<{ service: NativeServiceName; icon: any; config: any }>
+	>([])
+
+	async function loadAvailableNativeTriggers() {
+		try {
+			const services = await getAvailableNativeTriggerServices($workspaceStore!)
+			const serviceData = await Promise.all(
+				services.map(async (service) => ({
+					service,
+					icon: await getServiceIcon(service),
+					config: getServiceConfig(service)
+				}))
+			)
+			availableNativeServices = serviceData
+		} catch (err) {
+			console.error('Failed to load available native trigger services:', err)
+			availableNativeServices = []
+		}
+	}
+
+	loadAvailableNativeTriggers()
 
 	onMount(async () => {
 		if (lastOpened) {
@@ -317,6 +344,21 @@
 			aiDescription: 'Button to navigate to Email triggers'
 		}
 	])
+
+	let nativeTriggerLinks = $derived(
+		availableNativeServices.map(({ service, icon, config }) => ({
+			label: config?.serviceDisplayName || service,
+			href: `/native_triggers/${service}`,
+			icon: icon,
+			disabled: $userStore?.operator,
+			kind: service,
+			aiId: `sidebar-menu-link-${service}`,
+			aiDescription: `Button to navigate to ${config?.serviceDisplayName || service} triggers`
+		}))
+	)
+
+	let allTriggerLinks = $derived([...defaultExtraTriggerLinks, ...nativeTriggerLinks])
+
 	let triggerMenuLinks = $derived([
 		{
 			label: 'Schedules',
@@ -326,12 +368,12 @@
 			aiId: 'sidebar-menu-link-schedules',
 			aiDescription: 'Button to navigate to schedules'
 		},
-		...defaultExtraTriggerLinks.filter(
+		...allTriggerLinks.filter(
 			(link) => $usedTriggerKinds.includes(link.kind) || $page.url.pathname.includes(link.href)
 		)
 	])
 	let extraTriggerLinks = $derived(
-		defaultExtraTriggerLinks.filter((link) => {
+		allTriggerLinks.filter((link) => {
 			return !$page.url.pathname.includes(link.href) && !$usedTriggerKinds.includes(link.kind)
 		})
 	)
@@ -412,7 +454,7 @@
 		{
 			label: 'Workers',
 			href: `${base}/workers`,
-			icon: HardHat,
+			icon: ServerCog,
 			disabled: $userStore?.operator,
 			aiId: 'sidebar-menu-link-workers',
 			aiDescription: 'Button to navigate to workers'

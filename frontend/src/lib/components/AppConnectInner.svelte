@@ -561,6 +561,7 @@
 				placeholder="Search resource type"
 				bind:value={filter}
 				class="text-2xl grow"
+				id="search-resource-type"
 			/>
 		</div>
 

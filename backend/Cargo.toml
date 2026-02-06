@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.603.4"
+version = "1.628.2"
 authors.workspace = true
 edition.workspace = true
 
@@ -35,7 +35,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal"]
 
 [workspace.package]
-version = "1.603.4"
+version = "1.628.2"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -55,6 +55,7 @@ default = []
 private = ["windmill-api/private", "windmill-autoscaling/private", "windmill-common/private", "windmill-git-sync/private", "windmill-indexer/private", "windmill-queue/private", "windmill-worker/private"]
 agent_worker_server = ["windmill-api/agent_worker_server"]
 enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise"]
+local_reports = ["windmill-common/local_reports"]
 enterprise_saml = ["windmill-api/enterprise_saml", "oauth2"]
 stripe = ["windmill-api/stripe"]
 benchmark = ["windmill-api/benchmark", "windmill-worker/benchmark", "windmill-queue/benchmark", "windmill-common/benchmark"]
@@ -68,8 +69,10 @@ jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemal
 tantivy = ["dep:windmill-indexer", "windmill-api/tantivy", "windmill-indexer/enterprise", "windmill-indexer/parquet", "windmill-common/tantivy", "enterprise", "parquet"]
 sqlx = ["windmill-worker/sqlx"]
 deno_core = ["windmill-worker/deno_core", "windmill-api/deno_core", "dep:deno_core", "dep:v8"]
+quickjs = ["windmill-worker/quickjs"]
 deno_core_mac = ["deno_core", "windmill-worker/libffi_mac"]
 kafka = ["windmill-api/kafka"]
+kafka-gssapi = ["windmill-api/kafka-gssapi"]
 nats = ["windmill-api/nats"]
 otel = ["windmill-common/otel", "windmill-worker/otel"]
 dind = ["windmill-worker/dind"]
@@ -77,7 +80,9 @@ websocket = ["windmill-api/websocket"]
 http_trigger = ["windmill-api/http_trigger"]
 postgres_trigger = ["windmill-api/postgres_trigger"]
 mcp = ["windmill-api/mcp", "windmill-worker/mcp"]
+bedrock = ["windmill-api/bedrock", "windmill-worker/bedrock", "windmill-common/bedrock"]
 mqtt_trigger = ["windmill-api/mqtt_trigger"]
+native_trigger = ["windmill-api/native_trigger"]
 sqs_trigger = ["windmill-api/sqs_trigger", "windmill-common/aws_auth", "windmill-api/openidconnect"]
 gcp_trigger = ["windmill-api/gcp_trigger"]
 smtp = ["windmill-api/smtp", "windmill-common/smtp", "windmill-queue/smtp"]
@@ -86,7 +91,9 @@ oauth2 = ["windmill-api/oauth2"]
 zip = ["windmill-api/zip"]
 static_frontend = ["windmill-api/static_frontend"]
 scoped_cache = ["windmill-common/scoped_cache"]
+no_auth = ["windmill-api/no_auth"]
 test_job_debouncing = []
+private_registry_test = []
 # Languages
 python = ["windmill-worker/python", "windmill-api/python"]
 rust = ["windmill-worker/rust"]
@@ -94,22 +101,48 @@ mysql = ["windmill-worker/mysql"]
 oracledb = ["windmill-worker/oracledb"]
 duckdb = ["windmill-worker/duckdb"]
 mssql = ["windmill-worker/mssql"]
+mssql-kerberos = ["windmill-worker/mssql-kerberos"]  # Linux/Unix integrated auth
+mssql-winauth = ["windmill-worker/mssql-winauth"]  # Windows integrated auth
 bigquery = ["windmill-worker/bigquery"]
 php = ["windmill-worker/php"]
 csharp = ["windmill-worker/csharp"]
 nu = ["windmill-worker/nu"]
 java = ["windmill-worker/java"]
 ruby = ["windmill-worker/ruby"]
-all_languages = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql", "bigquery", "csharp", "nu", "php", "java", "ruby"]
+all_languages = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql-kerberos", "bigquery", "csharp", "nu", "php", "java", "ruby"]
 # For windows we have another set of languages enabled
-all_languages_windows = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql", "bigquery", "csharp", "nu", "php", "java"]
+all_languages_windows = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql-winauth", "bigquery", "csharp", "nu", "php", "java"]
+# Edition meta-features: shared groups
+oss_core = [
+    "embedding", "parquet", "openidconnect", "license",
+    "http_trigger", "zip", "oauth2", "postgres_trigger",
+    "mqtt_trigger", "websocket", "smtp", "native_trigger",
+    "static_frontend", "mcp", "bedrock"
+]
+ce_core = ["oss_core", "private"]
+ee_core = [
+    "enterprise", "stripe", "prometheus", "cloud",
+    "kafka", "sqs_trigger", "nats", "gcp_trigger",
+    "jemalloc", "otel"
+]
+ee_server = ["enterprise_saml", "tantivy", "agent_worker_server", "local_reports"]
+# Edition meta-features: CE variants
+oss = ["oss_core", "all_languages", "no_auth"]
+ce_rpi = ["ce_core", "all_languages"]
+ce = ["ce_rpi", "jemalloc", "dind", "agent_worker_server"]
+# Edition meta-features: EE variants
+ee = ["ce", "ee_core", "ee_server"]
+ee_rhel = ["ce_core", "ee_core", "all_languages"]
+ee_windows = ["ce_core", "ee_core", "all_languages_windows"]
 all_sqlx_features = ["all_languages", "enterprise", "enterprise_saml", "embedding", "parquet", "prometheus", "flow_testing",
- "openidconnect", "cloud", "jemalloc", "tantivy", "sqlx", "kafka", "nats", "otel", "dind", "websocket", "http_trigger",
+ "openidconnect", "cloud", "jemalloc", "tantivy", "sqlx", "kafka", "kafka-gssapi", "nats", "otel", "dind", "websocket", "http_trigger",
   "postgres_trigger", "mcp", "mqtt_trigger", "sqs_trigger", "gcp_trigger", "smtp", "stripe",
-   "license", "oauth2", "zip", "static_frontend", "scoped_cache", "agent_worker_server"]
+   "license", "oauth2", "zip", "static_frontend", "scoped_cache", "agent_worker_server", "bedrock", "native_trigger"]
 
 [patch.crates-io]
 object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7" }
+# Use tiberius main branch for libgssapi 0.8.1 fix (https://github.com/prisma/tiberius/issues/343)
+tiberius = { git = "https://github.com/prisma/tiberius", rev = "59db57960a14b422fb3a1309aa4aa47880896ff8" }
 
 [dependencies]
 anyhow.workspace = true
@@ -151,8 +184,6 @@ memchr.workspace = true
 v8 = { workspace = true, optional = true }
 rustls.workspace = true
 pep440_rs.workspace = true
-systemstat.workspace = true
-size.workspace = true
 strum.workspace = true
 aws-sigv4.workspace = true
 aws-sdk-config.workspace = true
@@ -161,7 +192,8 @@ k8s-openapi.workspace = true
 libloading.workspace = true
 bitflags.workspace = true
 globset.workspace = true
-
+opentelemetry-proto.workspace = true
+systemstat.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-service = "0.7"
@@ -180,6 +212,7 @@ axum.workspace = true
 serde.workspace = true
 windmill-api-client.workspace = true
 deno_core = { workspace = true, features = ["include_js_files_for_snapshotting", "unsafe_use_unprotected_platform"] }
+tempfile.workspace = true
 
 
 [workspace.dependencies]
@@ -219,6 +252,8 @@ memchr = "2.7.4"
 axum = { version = "^0.7", features = ["multipart", "macros"] }
 headers = "^0"
 hyper = { version = "^1", features = ["full"] }
+hyper-tls = "^0.6"
+hyper-util = { version = "^0.1", features = ["client-legacy", "http1", "tokio"] }
 tokio = { version = "=1.46.1", features = ["full", "tracing", "time"] }
 tokio-stream = { version = "0.1.17" }
 tower = "^0"
@@ -233,6 +268,7 @@ thiserror = "^2"
 anyhow = "^1"
 chrono = { version = "^0.4", features = ["serde"] }
 chrono-tz = "^0.10.1"
+derive_more = { version = "1", features = ["deref", "deref_mut"], default-features = false }
 tracing = "^0"
 tracing-subscriber = { version = "^0", features = ["env-filter", "json"] }
 tracing-appender = "^0"
@@ -247,6 +283,7 @@ argon2 = "^0"
 quick_cache = "^0"
 rand = "=0.9.0"
 rand_core = { version = "^0", features = ["std"] }
+ed25519-dalek = { version = "2", features = ["rand_core"] }
 magic-crypt = "^3"
 git-version = "^0"
 malachite = "=0.4.18"
@@ -291,6 +328,7 @@ deno_permissions = "0.49.0"
 deno_runtime = { version = "0.198.0", features = ["transpile"] }
 deno_telemetry = "0.12.0"
 deno_error = "=0.5.5"
+rustls-pemfile = "2.2.0"
 
 # only used with special deno_core_mac feature to prevent ffi issue on macos, requires libffi to be installed
 libffi-sys = { version = "2.3.0", features = ["system"]}
@@ -332,9 +370,10 @@ futures-core = "^0"
 lazy_static = "1.4.0"
 serde_derive = "1.0.147"
 const_format = { version = "0.2.35", features = ["rust_1_64", "rust_1_51"] }
+const-str = "0.5"
 constant_time_eq = "0.3.1"
-dyn-iter = "0.2.0"
 rsa = "^0"
+aes-gcm = "^0"
 async_zip = { version = "0.0.17", features = ["tokio", "tokio-fs", "deflate", "chrono"] }
 once_cell = "1.17.1"
 dashmap = "6.1.0"
@@ -377,6 +416,7 @@ openssl = "=0.10"
 mail-parser = "^0"
 matchit = "=0.7.3"
 rdkafka = { version = "0.36.2", features = ["cmake-build", "ssl-vendored"] }
+rdkafka-sys = "=4.9.0"
 pg_escape = "0.1.1"
 async-nats = "0.38.0"
 nkeys = "0.4.4"
@@ -384,13 +424,17 @@ nu-parser = { version = "0.101.0", default-features = false }
 globset = "0.4.16"
 croner = "2.2.0"
 rmcp = { version = "^0", features = ["client", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"] }
+rquickjs = { version = "0.8", features = ["futures", "parallel", "macro"] }
 process-wrap = { version = "8.2.1", features = ["tokio1"] }
+
+systemstat = "0.2.4"
 
 datafusion = "47.0.0"
 object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7", features = ["aws", "azure", "gcp"] }
 openidconnect = { version = "4.0.0-rc.1" }
 aws-config = "^1"
-aws-sdk-bedrockruntime = "=1.113.0"
+aws-sdk-bedrock = "1.129.0"
+aws-sdk-bedrockruntime = "=1.122.0"
 aws-credential-types = "^1"
 aws-smithy-types = "^1"
 aws-sdk-sqs = "=1.77.0"
@@ -399,11 +443,12 @@ aws-sdk-sso = "=1.77.0"
 aws-sdk-ssooidc = "=1.78.0"
 rustls = "=0.23.35"
 async-once-cell = "0.5.4"
-
+size = "0.5.0"
 
 aws-smithy-types-convert = { version = "^0", features = ["convert-chrono"] }
 crc = "^3"
 tar = "^0"
+flate2 = "^1"
 http = "^1"
 async-stream = "^0"
 
@@ -413,6 +458,8 @@ opentelemetry_sdk = { version = "0.27.1", features = ["rt-tokio"] }
 opentelemetry-otlp = { version = "0.27.0", features = ["grpc-tonic", "tls"] }
 opentelemetry-appender-tracing = "0.27.0"
 opentelemetry-semantic-conventions = { version = "0.27.0", features = ["semconv_experimental"] }
+opentelemetry-proto = { version = "0.29.0", features = ["with-serde", "gen-tonic"] }
+prost = "0.13"
 
 bollard = "0.18.1"
 
@@ -429,8 +476,6 @@ pin-project-lite = "^0"
 tantivy = { git="https://github.com/windmill-labs/tantivy", rev="6a24621231202ccd77bec90d8787e2281fb94e4e" }
 
 backon = "1.3.0"
-systemstat = "0.2.4"
-size = "0.5.0"
 
 flume = { version = "0.11.1", features = ["async"] }
 kube = { version = "1.1.0", features = ["runtime", "derive"] }
@@ -454,3 +499,6 @@ oracle = { version = "0.6.3", features = ["chrono"] }
 rumqttc = { version = "0.24.0", features = ["use-native-tls"]}
 strum = { version = "0.27", features = ["derive"] }
 strum_macros = "^0"
+hudsucker = { version = "0.22", features = ["rcgen-ca", "native-tls-client"] }
+hyper-http-proxy = { version = "1", default-features = false, features = ["native-tls"] }
+rcgen = "0.13"

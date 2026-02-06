@@ -14,7 +14,7 @@ import type {
 } from '$lib/gen/types.gen'
 import type { Writable } from 'svelte/store'
 import SchedulePollIcon from '../icons/SchedulePollIcon.svelte'
-import { type TriggerKind } from '$lib/components/triggers'
+import type { TriggerKind } from '../triggers'
 import { saveScheduleFromCfg } from '$lib/components/flows/scheduleUtils'
 import { saveHttpRouteFromCfg } from './http/utils'
 import { saveWebsocketTriggerFromCfg } from './websocket/utils'
@@ -27,6 +27,8 @@ import { saveGcpTriggerFromCfg } from './gcp/utils'
 import type { Triggers } from './triggers.svelte'
 import { emptyString } from '$lib/utils'
 import { saveEmailTriggerFromCfg } from './email/utils'
+import NextcloudIcon from '$lib/components/icons/NextcloudIcon.svelte'
+import { saveNativeTriggerFromCfg } from './native/utils'
 
 export const CLOUD_DISABLED_TRIGGER_TYPES = [
 	'nats',
@@ -54,6 +56,7 @@ export type TriggerType =
 	| 'email'
 	| 'poll'
 	| 'cli'
+	| 'nextcloud'
 
 export const jobTriggerKinds: JobTriggerKind[] = [
 	'webhook',
@@ -99,7 +102,8 @@ export const triggerIconMap = {
 	gcp: GoogleCloudIcon,
 	primary_schedule: Calendar,
 	poll: SchedulePollIcon,
-	cli: Terminal
+	cli: Terminal,
+	nextcloud: NextcloudIcon
 }
 
 export const triggerDisplayNamesMap = {
@@ -116,7 +120,8 @@ export const triggerDisplayNamesMap = {
 	poll: 'Scheduled Poll',
 	webhook: 'Webhook',
 	default_email: 'Default Email',
-	cli: 'CLI'
+	cli: 'CLI',
+	nextcloud: 'Nextcloud'
 } as const satisfies Record<TriggerType, string>
 
 /**
@@ -170,7 +175,8 @@ export function updateTriggersCount(
 		gcp: 'gcp_count',
 		email: 'email_count',
 		poll: undefined,
-		cli: undefined
+		cli: undefined,
+		nextcloud: undefined
 	}
 
 	const countProperty = countPropertyMap[type]
@@ -352,7 +358,16 @@ export async function deployTriggers(
 				usedTriggerKinds
 			),
 		poll: undefined,
-		cli: undefined
+		cli: undefined,
+		nextcloud: (trigger: Trigger) =>
+			saveNativeTriggerFromCfg(
+				'nextcloud',
+				trigger.path ?? '',
+				trigger.draftConfig ?? {},
+				!trigger.isDraft,
+				workspaceId,
+				usedTriggerKinds
+			)
 	}
 
 	await Promise.all(
@@ -450,6 +465,8 @@ export function getLightConfig(
 		return { gcp_resource_path: trigger.gcp_resource_path, topic: trigger.topic }
 	} else if (triggerType === 'email') {
 		return { local_part: trigger.local_part }
+	} else if (triggerType === 'nextcloud') {
+		return { event: trigger.service_config?.event ?? trigger.event }
 	} else {
 		return undefined
 	}
@@ -484,6 +501,8 @@ export function getTriggerLabel(trigger: Trigger): string {
 		return `${config?.url}`
 	} else if (type === 'email' && config?.local_part) {
 		return `${config?.local_part}`
+	} else if (type === 'nextcloud' && path) {
+		return `${path}`
 	} else if (isDraft && draftConfig?.path) {
 		return `${draftConfig?.path}`
 	} else if (isDraft) {
@@ -508,7 +527,8 @@ export function sortTriggers(triggers: Trigger[]): Trigger[] {
 		'mqtt',
 		'sqs',
 		'gcp',
-		'email'
+		'email',
+		'nextcloud'
 	]
 
 	return triggers.sort((a, b) => {

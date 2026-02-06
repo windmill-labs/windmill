@@ -42,6 +42,7 @@
 	import TextInput from './text_input/TextInput.svelte'
 	import Dropdown from './DropdownV2.svelte'
 	import TagList from './TagList.svelte'
+	import DedicatedWorkersSelector from './DedicatedWorkersSelector.svelte'
 
 	function computeVCpuAndMemory(workers: [string, WorkerPing[]][]) {
 		let vcpus = 0
@@ -73,6 +74,7 @@
 
 	let nconfig: {
 		dedicated_worker?: string
+		dedicated_workers?: string[]
 		worker_tags?: string[]
 		priority_tags?: Record<string, number>
 		cache_clear?: number
@@ -89,7 +91,9 @@
 
 	function loadNConfig() {
 		nconfig = config
-			? config.worker_tags != undefined || config.dedicated_worker != undefined
+			? config.worker_tags != undefined ||
+				config.dedicated_worker != undefined ||
+				config.dedicated_workers != undefined
 				? config
 				: {
 						worker_tags: []
@@ -99,6 +103,12 @@
 				}
 		if (nconfig.priority_tags === undefined) {
 			nconfig.priority_tags = {}
+		}
+
+		// Convert legacy dedicated_worker to dedicated_workers array
+		if (nconfig.dedicated_worker && !nconfig.dedicated_workers?.length) {
+			nconfig.dedicated_workers = [nconfig.dedicated_worker]
+			nconfig.dedicated_worker = undefined
 		}
 
 		customEnvVars = []
@@ -170,6 +180,7 @@
 			| undefined
 			| {
 					dedicated_worker?: string
+					dedicated_workers?: string[]
 					worker_tags?: string[]
 					priority_tags?: Record<string, number>
 					cache_clear?: number
@@ -243,7 +254,11 @@
 
 	let drawer: Drawer | undefined = $state()
 	let vcpus_memory = $derived(computeVCpuAndMemory(workers))
-	let selected = $derived(nconfig?.dedicated_worker != undefined ? 'dedicated' : 'normal')
+	let selected = $derived(
+		nconfig?.dedicated_worker != undefined || nconfig?.dedicated_workers != undefined
+			? 'dedicated'
+			: 'normal'
+	)
 	$effect(() => {
 		;($superadmin || $devopsRole) && listWorkspaces()
 	})
@@ -330,17 +345,19 @@
 						nconfig = {}
 					}
 					if (e.detail == 'dedicated') {
-						nconfig.dedicated_worker = ''
+						nconfig.dedicated_workers = nconfig.dedicated_workers ?? []
+						nconfig.dedicated_worker = undefined
 						nconfig.worker_tags = undefined
 					} else {
 						nconfig.dedicated_worker = undefined
+						nconfig.dedicated_workers = undefined
 						nconfig.worker_tags = []
 					}
 				}}
 			>
 				{#snippet children({ item })}
 					<ToggleButton value="normal" label="Any jobs within worker tags" {item} />
-					<ToggleButton value="dedicated" label="Dedicated to a script/flow" {item} />
+					<ToggleButton value="dedicated" label="Dedicated to scripts/flows" {item} />
 				{/snippet}
 			</ToggleButtonGroup>
 		</Label>
@@ -493,30 +510,33 @@
 				</Label>
 			{/if}
 		{:else if selected == 'dedicated'}
-			<div class="flex flex-col gap-2">
+			<div class="flex flex-col gap-4">
 				{#if $superadmin || $devopsRole}
 					<div class="py-2">
 						<Alert
 							size="xs"
 							type="info"
-							title="Script's runtime setting 'dedicated worker' must be toggled on as well"
+							title="The 'dedicated worker' runtime setting of the runnables must be enabled to be selected here"
 						/>
 					</div>
 				{/if}
-				{#if nconfig?.dedicated_worker != undefined}
-					<div
-						><p class="text-xs text-secondary mb-2"
-							>Workers will get killed upon detecting changes. It is assumed they are in an
-							environment where the supervisor will restart them.</p
-						>
-						<input
-							disabled={!canEditConfig}
-							placeholder="<workspace>:<script path>"
-							type="text"
-							onchange={() => {}}
-							bind:value={nconfig.dedicated_worker}
-						/></div
-					>
+
+				<p class="text-xs text-secondary"
+					>Workers will get killed upon detecting changes. It is assumed they are in an environment
+					where the supervisor will restart them.</p
+				>
+
+				{#if nconfig !== undefined}
+					<DedicatedWorkersSelector
+						selectedTags={nconfig.dedicated_workers ?? []}
+						disabled={!canEditConfig}
+						onchange={(tags) => {
+							if (nconfig) {
+								nconfig.dedicated_workers = tags
+								nconfig.dedicated_worker = undefined
+							}
+						}}
+					/>
 				{/if}
 			</div>
 		{/if}
@@ -1144,6 +1164,17 @@
 		<div class="flex flex-row items-start gap-2 w-full">
 			<div class="text-secondary text-xs mt-1">Tags:</div>
 			<TagList tags={config.worker_tags} maxVisible={25} class="flex-wrap" />
+		</div>
+	{:else if config?.dedicated_workers && config.dedicated_workers.length > 0}
+		<div class="flex flex-row items-start gap-2 w-full">
+			<div class="text-secondary text-xs mt-1">Dedicated to:</div>
+			<div class="flex flex-wrap gap-1">
+				{#each config.dedicated_workers as dw}
+					<div class="text-xs bg-surface-secondary px-2 py-1 rounded text-primary font-mono">
+						{dw}
+					</div>
+				{/each}
+			</div>
 		</div>
 	{:else if config?.dedicated_worker}
 		<div class="flex flex-row items-start gap-2 w-full">

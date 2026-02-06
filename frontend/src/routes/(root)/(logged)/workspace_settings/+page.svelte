@@ -32,7 +32,7 @@
 		isCriticalAlertsUIOpen
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { clone, emptyString } from '$lib/utils'
+	import { clone, emptyString, encodeState } from '$lib/utils'
 	import { RotateCw, Save, Slack } from 'lucide-svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
@@ -98,8 +98,12 @@
 	let errorHandlerItemKind: 'flow' | 'script' = $state('script')
 	let errorHandlerExtraArgs: Record<string, any> = $state({})
 	let errorHandlerMutedOnCancel: boolean | undefined = $state(undefined)
+	let errorHandlerMutedOnUserPath: boolean | undefined = $state(undefined)
+	let successHandlerScriptPath: string | undefined = $state(undefined)
 	let criticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let initialCriticalAlertUIMuted: boolean | undefined = $state(undefined)
+	let publicAppRateLimitPerMinute: number | undefined = $state(undefined)
+	let initialPublicAppRateLimitPerMinute: number | undefined = $state(undefined)
 
 	let aiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
 	let codeCompletionModel: string | undefined = $state(undefined)
@@ -154,6 +158,7 @@
 			| 'windmill_lfs'
 			| 'git_sync'
 			| 'default_app'
+			| 'native_triggers'
 			| 'encryption'
 			| 'dependencies'
 		// Both 'slack' and 'teams' URLs map to 'slack' tab
@@ -334,19 +339,26 @@
 		initialCodeCompletionModel = codeCompletionModel
 		initialCustomPrompts = clone(customPrompts)
 		initialMaxTokensPerModel = clone(maxTokensPerModel)
-		errorHandlerItemKind = settings.error_handler
-			? (settings.error_handler.split('/')[0] as 'flow' | 'script')
+		const errorHandler = settings.error_handler as { path?: string; extra_args?: any; muted_on_cancel?: boolean; muted_on_user_path?: boolean } | undefined
+		const errorHandlerPath = errorHandler?.path ?? ''
+		errorHandlerItemKind = errorHandlerPath
+			? (errorHandlerPath.split('/')[0] as 'flow' | 'script')
 			: 'script'
-		errorHandlerScriptPath = (settings.error_handler ?? '').split('/').slice(1).join('/')
-		errorHandlerMutedOnCancel = settings.error_handler_muted_on_cancel
+		errorHandlerScriptPath = errorHandlerPath.split('/').slice(1).join('/')
+		errorHandlerMutedOnCancel = errorHandler?.muted_on_cancel
+		errorHandlerMutedOnUserPath = errorHandler?.muted_on_user_path
 		criticalAlertUIMuted = settings.mute_critical_alerts
 		initialCriticalAlertUIMuted = settings.mute_critical_alerts
+		publicAppRateLimitPerMinute = settings.public_app_execution_limit_per_minute ?? undefined
+		initialPublicAppRateLimitPerMinute = settings.public_app_execution_limit_per_minute ?? undefined
 		if (emptyString($enterpriseLicense)) {
 			errorHandlerSelected = 'custom'
 		} else {
 			errorHandlerSelected = getHandlerType(errorHandlerScriptPath)
 		}
-		errorHandlerExtraArgs = settings.error_handler_extra_args ?? {}
+		errorHandlerExtraArgs = errorHandler?.extra_args ?? {}
+		const successHandler = settings.success_handler as { path?: string; extra_args?: any } | undefined
+		successHandlerScriptPath = (successHandler?.path ?? '').split('/').slice(1).join('/')
 		workspaceDefaultAppPath = settings.default_app
 
 		s3ResourceSettings = convertBackendSettingsToFrontendSettings(
@@ -496,9 +508,10 @@
 			await WorkspaceService.editErrorHandler({
 				workspace: $workspaceStore!,
 				requestBody: {
-					error_handler: `${errorHandlerItemKind}/${errorHandlerScriptPath}`,
-					error_handler_extra_args: errorHandlerExtraArgs,
-					error_handler_muted_on_cancel: errorHandlerMutedOnCancel
+					path: `${errorHandlerItemKind}/${errorHandlerScriptPath}`,
+					extra_args: errorHandlerExtraArgs,
+					muted_on_cancel: errorHandlerMutedOnCancel,
+					muted_on_user_path: errorHandlerMutedOnUserPath
 				}
 			})
 			sendUserToast(`workspace error handler set to ${errorHandlerScriptPath}`)
@@ -506,12 +519,33 @@
 			await WorkspaceService.editErrorHandler({
 				workspace: $workspaceStore!,
 				requestBody: {
-					error_handler: undefined,
-					error_handler_extra_args: undefined,
-					error_handler_muted_on_cancel: undefined
+					path: undefined,
+					extra_args: undefined,
+					muted_on_cancel: undefined,
+					muted_on_user_path: undefined
 				}
 			})
 			sendUserToast(`workspace error handler removed`)
+		}
+	}
+
+	async function editSuccessHandler() {
+		if (successHandlerScriptPath) {
+			await WorkspaceService.editSuccessHandler({
+				workspace: $workspaceStore!,
+				requestBody: {
+					path: `script/${successHandlerScriptPath}`
+				}
+			})
+			sendUserToast(`workspace success handler set to ${successHandlerScriptPath}`)
+		} else {
+			await WorkspaceService.editSuccessHandler({
+				workspace: $workspaceStore!,
+				requestBody: {
+					path: undefined
+				}
+			})
+			sendUserToast(`workspace success handler removed`)
 		}
 	}
 
@@ -529,6 +563,21 @@
 		setTimeout(() => {
 			window.location.reload()
 		}, 3000)
+	}
+
+	async function editPublicAppRateLimit() {
+		await SettingService.setPublicAppRateLimit({
+			workspace: $workspaceStore!,
+			requestBody: {
+				public_app_execution_limit_per_minute: publicAppRateLimitPerMinute
+			}
+		})
+		initialPublicAppRateLimitPerMinute = publicAppRateLimitPerMinute
+		sendUserToast(
+			publicAppRateLimitPerMinute
+				? `Public app rate limit set to ${publicAppRateLimitPerMinute} per minute per server`
+				: `Public app rate limit disabled`
+		)
 	}
 
 	// Function to check if there are unsaved changes in AI settings
@@ -734,9 +783,9 @@
 				<Tab
 					small
 					value="default_app"
-					aiId="workspace-settings-default-app"
-					aiDescription="Default app workspace settings"
-					label="Default App"
+					aiId="workspace-settings-apps"
+					aiDescription="Apps workspace settings"
+					label="Apps"
 				/>
 
 				<Tab
@@ -760,6 +809,13 @@
 					aiId="workspace-settings-dependencies"
 					aiDescription="Workspace dependencies settings"
 					label="Dependencies"
+				/>
+				<Tab
+					small
+					value="native_triggers"
+					aiId="workspace-settings-integrations"
+					aiDescription="Workspace integrations for native triggers"
+					label="Native Triggers (Beta)"
 				/>
 			</Tabs>
 		</div>
@@ -1134,6 +1190,14 @@
 							bind:checked={errorHandlerMutedOnCancel}
 							options={{ right: 'Do not run error handler for canceled jobs' }}
 						/>
+						<Toggle
+							disabled={!$enterpriseLicense ||
+								((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
+									!emptyString(errorHandlerScriptPath) &&
+									emptyString(errorHandlerExtraArgs['channel']))}
+							bind:checked={errorHandlerMutedOnUserPath}
+							options={{ right: 'Do not run error handler for u/ scripts and flows' }}
+						/>
 						<Button
 							disabled={!$enterpriseLicense ||
 								((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
@@ -1151,10 +1215,111 @@
 
 				<hr class="border-t" />
 				<Section
+					label="Workspace Success Handler"
+					description="Configure a script that automatically executes when any script or flow in the workspace completes successfully. The handler receives: <b>path</b>, <b>email</b>, <b>result</b>, <b>job_id</b>, <b>is_flow</b>, <b>workspace_id</b>, and <b>started_at</b>. The handler runs as the <b>g/success_handler</b> group. <i>Note: changes may take up to 60 seconds to propagate due to caching.</i>"
+					class="space-y-6"
+				>
+					{#if !$enterpriseLicense}
+						<Alert type="warning" title="Workspace success handler is an EE feature">
+							Workspace success handler is a Windmill Enterprise Edition feature that allows you to
+							run a script whenever any job in the workspace completes successfully.
+						</Alert>
+					{/if}
+					<div class="flex flex-col gap-4">
+						<div class="flex flex-row gap-2 items-center">
+							<ScriptPicker
+								disabled={!$enterpriseLicense}
+								initialPath={successHandlerScriptPath}
+								allowRefresh
+								itemKind="script"
+								on:select={(ev) => {
+									successHandlerScriptPath = ev?.detail?.path
+								}}
+							/>
+							<Button
+								variant="border"
+								size="xs"
+								href={`${base}/scripts/add?lang=bun#` +
+									encodeState({
+										path: 'f/success_handler',
+										summary: 'Workspace Success Handler',
+										description: 'Called when any job in the workspace completes successfully',
+										content: `//native
+
+// Workspace Success Handler
+// This script is called whenever a job completes successfully in this workspace.
+
+export async function main(
+  path: string,
+  email: string,
+  result: any,
+  job_id: string,
+  is_flow: boolean,
+  workspace_id: string,
+  started_at: string
+) {
+  console.log(\`Job \${job_id} completed successfully\`)
+  console.log(\`Path: \${path}, Is Flow: \${is_flow}\`)
+  console.log(\`Result:\`, result)
+
+  // Add your success handling logic here
+  // Examples:
+  // - Send a notification
+  // - Update an external system
+  // - Log to a database
+  // - Trigger another workflow
+
+  return { handled: true }
+}
+`,
+										language: 'bun',
+										kind: 'script'
+									})}
+								target="_blank"
+							>
+								Create from template
+							</Button>
+						</div>
+					</div>
+
+					<div class="flex flex-row gap-2 items-center">
+						<Button
+							disabled={!$enterpriseLicense}
+							size="sm"
+							on:click={editSuccessHandler}
+							startIcon={{ icon: Save }}
+						>
+							Save
+						</Button>
+						{#if successHandlerScriptPath}
+							<Button
+								disabled={!$enterpriseLicense}
+								size="sm"
+								color="red"
+								variant="border"
+								on:click={() => {
+									successHandlerScriptPath = undefined
+									editSuccessHandler()
+								}}
+							>
+								Remove
+							</Button>
+						{/if}
+					</div>
+				</Section>
+
+				<hr class="border-t" />
+				<Section
 					label="Workspace Critical Alerts"
 					description="Critical alerts within the scope of a workspace are sent to the workspace admins through a UI notification. <a href='https://www.windmill.dev/docs/core_concepts/critical_alerts'>Learn more</a>"
 					class="flex flex-col gap-6"
 				>
+					{#if !$enterpriseLicense}
+						<Alert type="warning" title="Workspace critical alerts is an EE feature">
+							Workspace critical alerts is a Windmill Enterprise Edition feature that sends
+							notifications to workspace admins when critical events occur.
+						</Alert>
+					{/if}
 					<Toggle
 						disabled={!$enterpriseLicense}
 						bind:checked={criticalAlertUIMuted}
@@ -1259,6 +1424,43 @@
 					/>
 				{/key}
 			</div>
+
+			<hr class="border-t my-8" />
+			<Section
+				label="Public App Rate Limiting"
+				description="Limit the number of public (anonymous) app executions per minute per server. Set to 0 or leave empty to disable. This is a per-server limit, not a global limit."
+				class="flex flex-col gap-6"
+			>
+				<div class="flex flex-row items-center gap-4">
+					<TextInput
+						inputProps={{ type: 'number', placeholder: '0 (disabled)' }}
+						bind:value={publicAppRateLimitPerMinute}
+						class="w-48"
+					/>
+					<span class="text-secondary text-sm">executions per minute per server</span>
+				</div>
+
+				<Button
+					disabled={publicAppRateLimitPerMinute === initialPublicAppRateLimitPerMinute}
+					size="sm"
+					on:click={editPublicAppRateLimit}
+					variant="default"
+					startIcon={{ icon: Save }}
+					btnClasses="w-fit"
+				>
+					Save rate limit
+				</Button>
+			</Section>
+		{:else if tab == 'native_triggers'}
+			{#if $workspaceStore}
+				{#await import('$lib/components/workspaceSettings/WorkspaceIntegrations.svelte') then { default: WorkspaceIntegrations }}
+					<WorkspaceIntegrations />
+				{/await}
+			{:else}
+				<div class="flex items-center justify-center p-8">
+					<div class="text-sm text-secondary">Loading workspace...</div>
+				</div>
+			{/if}
 		{:else if tab == 'encryption'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">

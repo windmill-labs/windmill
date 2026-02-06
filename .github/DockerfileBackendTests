@@ -28,7 +28,7 @@ ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
 # UV
-RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.4.18/uv-installer.sh | sh && mv /usr/local/cargo/bin/uv /usr/local/bin/uv
+RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.9.24/uv-installer.sh | sh && mv /usr/local/cargo/bin/uv /usr/local/bin/uv
 
 ENV TZ=Etc/UTC
 
@@ -42,7 +42,7 @@ RUN wget https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VER
 RUN /usr/local/bin/python3 -m pip install pip-tools
 
 # Bun
-COPY --from=oven/bun:1.2.23 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.3.8 /usr/local/bin/bun /usr/bin/bun
 
 ARG TARGETPLATFORM
 

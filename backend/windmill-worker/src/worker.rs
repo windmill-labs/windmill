@@ -17,6 +17,8 @@ use tokio::time::timeout;
 use windmill_common::client::AuthedClient;
 use windmill_common::jobs::WorkerInternalServerInlineUtils;
 use windmill_common::jobs::WORKER_INTERNAL_SERVER_INLINE_UTILS;
+use windmill_common::runtime_assets::init_runtime_asset_loop;
+use windmill_common::runtime_assets::register_runtime_asset;
 use windmill_common::scripts::hash_to_codebase_id;
 use windmill_common::scripts::is_special_codebase_hash;
 use windmill_common::utils::report_critical_error;
@@ -55,7 +57,7 @@ use windmill_common::METRICS_ENABLED;
 use serde::{Deserialize, Serialize};
 use sqlx::types::Json;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::Display,
     sync::{
         atomic::{AtomicBool, AtomicU16, Ordering},
@@ -228,6 +230,9 @@ pub const GO_BIN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "gobin");
 pub const POWERSHELL_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "powershell");
 pub const COMPOSER_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "composer");
 
+pub const TRACING_PROXY_CA_CERT_PATH: &str =
+    concatcp!(ROOT_CACHE_NOMOUNT_DIR, "tracing_proxy_ca.pem");
+
 const NUM_SECS_PING: u64 = 5;
 const NUM_SECS_READINGS: u64 = 60;
 
@@ -241,12 +246,22 @@ pub const DEFAULT_SLEEP_QUEUE: u64 = 50;
 // only 1 native job so that we don't have to worry about concurrency issues on non dedicated native jobs workers
 pub const DEFAULT_NATIVE_JOBS: usize = 1;
 
-const VACUUM_PERIOD: u32 = 50000;
+const VACUUM_PERIOD: u32 = 10000;
 
 // #[cfg(any(target_os = "linux"))]
 // const DROP_CACHE_PERIOD: u32 = 1000;
 
 pub const MAX_BUFFERED_DEDICATED_JOBS: usize = 3;
+
+/// Per-language OTEL tracing proxy configuration.
+/// Default languages are configured in frontend instanceSettings.ts
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct OtelTracingProxySettings {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub enabled_languages: HashSet<ScriptLang>,
+}
 
 #[cfg(feature = "prometheus")]
 lazy_static::lazy_static! {
@@ -471,7 +486,8 @@ lazy_static::lazy_static! {
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     tracing::warn!(
                         "nsjail test failed: {}. Jobs will run without nsjail sandboxing. \
-                        To enable nsjail: install nsjail binary or use windmill image with -nsjail suffix",
+                        nsjail should be included in all standard windmill images. \
+                        Check that the nsjail binary is installed and working correctly.",
                         stderr.trim()
                     );
                     None
@@ -480,7 +496,8 @@ lazy_static::lazy_static! {
                     if e.kind() == std::io::ErrorKind::NotFound {
                         tracing::warn!(
                             "nsjail not found at '{}'. Jobs will run without nsjail sandboxing. \
-                            To enable nsjail: install nsjail binary or use windmill image with -nsjail suffix",
+                            nsjail should be included in all standard windmill images. \
+                            Check that the nsjail binary is installed at the expected path.",
                             nsjail_path
                         );
                     } else {
@@ -505,6 +522,7 @@ lazy_static::lazy_static! {
     pub static ref HTTP_PROXY: Option<String> = std::env::var("http_proxy").ok().or(std::env::var("HTTP_PROXY").ok());
     pub static ref HTTPS_PROXY: Option<String> = std::env::var("https_proxy").ok().or(std::env::var("HTTPS_PROXY").ok());
 
+    /// Static proxy environment variables from env vars (for languages not using dynamic OTEL tracing proxy config)
     pub static ref PROXY_ENVS: Vec<(&'static str, String)> = {
         let mut proxy_env = Vec::new();
         if let Some(no_proxy) = NO_PROXY.as_ref() {
@@ -520,6 +538,9 @@ lazy_static::lazy_static! {
         }
         proxy_env
     };
+
+    /// Per-language OTEL tracing proxy settings (configured via instance settings)
+    pub static ref OTEL_TRACING_PROXY_SETTINGS: Arc<RwLock<OtelTracingProxySettings>> = Arc::new(RwLock::new(OtelTracingProxySettings::default()));
     pub static ref WHITELIST_ENVS: HashMap<String, String> = {
         windmill_common::worker::load_env_vars(
             windmill_common::worker::load_whitelist_env_vars_from_env(),
@@ -608,6 +629,55 @@ lazy_static::lazy_static! {
 }
 
 type Envs = Vec<(String, String)>;
+
+/// Check if OTEL tracing proxy is enabled for a specific language (EE only)
+pub async fn is_otel_tracing_proxy_enabled_for_lang(lang: &ScriptLang) -> bool {
+    cfg!(all(feature = "private", feature = "enterprise")) && {
+        let settings = OTEL_TRACING_PROXY_SETTINGS.read().await;
+        settings.enabled && settings.enabled_languages.contains(lang)
+    }
+}
+
+/// Get proxy environment variables for job execution for a specific language.
+/// When OTEL tracing proxy is enabled for this language, routes all traffic through the proxy.
+/// Otherwise, uses the standard HTTP_PROXY/HTTPS_PROXY from environment.
+pub async fn get_proxy_envs_for_lang(
+    lang: &ScriptLang,
+) -> anyhow::Result<Vec<(&'static str, String)>> {
+    #[cfg(all(feature = "private", feature = "enterprise"))]
+    if is_otel_tracing_proxy_enabled_for_lang(lang).await {
+        return get_otel_tracing_proxy_envs().await;
+    }
+    let _ = lang;
+    Ok(PROXY_ENVS.clone())
+}
+
+#[cfg(all(feature = "private", feature = "enterprise"))]
+async fn get_otel_tracing_proxy_envs() -> anyhow::Result<Vec<(&'static str, String)>> {
+    let port = crate::otel_tracing_proxy_ee::TRACING_PROXY_PORT
+        .read()
+        .await
+        .ok_or_else(|| anyhow::anyhow!("OTEL tracing proxy port not initialized"))?;
+    let proxy_url = format!("http://127.0.0.1:{}", port);
+    Ok(vec![
+        ("HTTP_PROXY", proxy_url.clone()),
+        ("HTTPS_PROXY", proxy_url.clone()),
+        // Lowercase variants for Ruby and other runtimes that check lowercase first
+        ("http_proxy", proxy_url.clone()),
+        ("https_proxy", proxy_url),
+        ("NO_PROXY", "".to_string()),
+        ("no_proxy", "".to_string()),
+        // CA cert for various runtimes to trust the tracing proxy
+        ("SSL_CERT_FILE", TRACING_PROXY_CA_CERT_PATH.to_string()),
+        ("REQUESTS_CA_BUNDLE", TRACING_PROXY_CA_CERT_PATH.to_string()),
+        (
+            "NODE_EXTRA_CA_CERTS",
+            TRACING_PROXY_CA_CERT_PATH.to_string(),
+        ),
+        ("CURL_CA_BUNDLE", TRACING_PROXY_CA_CERT_PATH.to_string()),
+        ("DENO_CERT", TRACING_PROXY_CA_CERT_PATH.to_string()),
+    ])
+}
 
 #[cfg(windows)]
 lazy_static::lazy_static! {
@@ -1022,7 +1092,7 @@ pub async fn handle_all_job_kind_error(
     }
 }
 
-pub fn start_interactive_worker_shell(
+fn start_interactive_worker_shell(
     conn: Connection,
     hostname: String,
     worker_name: String,
@@ -1230,7 +1300,7 @@ pub async fn run_worker(
                     "Cannot preinstall or find Instance Python version to worker: {e}"//
                 );
             }
-            if let Err(e) = PyV::from(PyVAlias::Py311)
+            if let Err(e) = PyV::from(PyVAlias::default())
                 .try_get_python(&Uuid::nil(), &mut 0, &conn, &worker_name, "", &mut None)
                 .await
             {
@@ -1238,7 +1308,7 @@ pub async fn run_worker(
                     worker = %worker_name,
                     hostname = %hostname,
                     worker_dir = %worker_dir,
-                    "Cannot preinstall or find default 311 version to worker: {e}"//
+                    "Cannot preinstall or find default version to worker: {e}"//
                 );
             }
         });
@@ -1463,7 +1533,14 @@ pub async fn run_worker(
     let mut occupancy_metrics = OccupancyMetrics::new(start_time);
     let mut jobs_executed = 0;
 
-    let is_dedicated_worker: bool = WORKER_CONFIG.read().await.dedicated_worker.is_some();
+    let is_dedicated_worker: bool = {
+        let config = WORKER_CONFIG.read().await;
+        config.dedicated_worker.is_some()
+            || config
+                .dedicated_workers
+                .as_ref()
+                .is_some_and(|dws| !dws.is_empty())
+    };
 
     #[cfg(feature = "benchmark")]
     let benchmark_jobs: i32 = std::env::var("BENCHMARK_JOBS")
@@ -1565,9 +1642,9 @@ pub async fn run_worker(
     // Option<JoinHandle<()>>,
 
     #[cfg(all(feature = "private", feature = "enterprise"))]
-    let (dedicated_workers, is_flow_worker, dedicated_handles): (
+    let (dedicated_workers, dedicated_flow_paths, dedicated_handles): (
         HashMap<String, Sender<DedicatedWorkerJob>>,
-        bool,
+        HashSet<String>,
         Vec<JoinHandle<()>>,
     ) = match conn {
         Connection::Sql(pool) => {
@@ -1582,23 +1659,26 @@ pub async fn run_worker(
             )
             .await
         }
-        Connection::Http(_) => (HashMap::new(), false, vec![]),
+        Connection::Http(_) => (HashMap::new(), HashSet::new(), vec![]),
     };
 
     #[cfg(any(not(feature = "private"), not(feature = "enterprise")))]
-    let (dedicated_workers, is_flow_worker, dedicated_handles): (
+    let (dedicated_workers, dedicated_flow_paths, dedicated_handles): (
         HashMap<String, Sender<DedicatedWorkerJob>>,
-        bool,
+        HashSet<String>,
         Vec<JoinHandle<()>>,
-    ) = (HashMap::new(), false, vec![]);
+    ) = (HashMap::new(), HashSet::new(), vec![]);
 
     if i_worker == 1 {
+        // Initialize runtime asset inserter for batched database inserts
+        if let Connection::Sql(db) = conn {
+            init_runtime_asset_loop(db.clone(), killpill_rx.resubscribe());
+        }
         if let Err(e) = queue_init_bash_maybe(conn, same_worker_tx.clone(), &worker_name).await {
             killpill_tx.send();
             tracing::error!(worker = %worker_name, hostname = %hostname, "Error queuing init bash script for worker {worker_name}: {e:#}");
             return;
         }
-
         spawn_periodic_script_task(
             worker_name.clone(),
             conn.clone(),
@@ -1964,30 +2044,34 @@ pub async fn run_worker(
                     JobKind::Script | JobKind::Preview | JobKind::FlowScript
                 ) {
                     if !dedicated_workers.is_empty() {
-                        let key_o = if is_flow_worker {
-                            job.flow_step_id.as_ref().map(|x| x.to_string())
+                        // Try flow path + step_id combinations for flow jobs, otherwise use runnable_path
+                        let dedicated_worker_tx = if let Some(step_id) = job.flow_step_id.as_ref() {
+                            dedicated_flow_paths.iter().find_map(|flow_path| {
+                                let key = format!("{}:{}", flow_path, step_id);
+                                dedicated_workers.get(&key)
+                            })
                         } else {
-                            job.runnable_path.as_ref().map(|x| x.to_string())
+                            job.runnable_path
+                                .as_ref()
+                                .and_then(|path| dedicated_workers.get(path))
                         };
-                        if let Some(key) = key_o {
-                            if let Some(dedicated_worker_tx) = dedicated_workers.get(&key) {
-                                let dedicated_job = DedicatedWorkerJob {
-                                    job: Arc::new(job.job()),
-                                    flow_runners: None,
-                                    done_tx: None,
-                                };
-                                if let Err(e) = dedicated_worker_tx.send(dedicated_job).await {
-                                    tracing::info!("failed to send jobs to dedicated workers. Likely dedicated worker has been shut down. This is normal: {e:?}");
-                                }
-
-                                #[cfg(feature = "benchmark")]
-                                {
-                                    add_time!(bench, "sent to dedicated worker");
-                                    infos.add_iter(bench, true);
-                                }
-
-                                continue;
+                        if let Some(dedicated_worker_tx) = dedicated_worker_tx {
+                            let dedicated_job = DedicatedWorkerJob {
+                                job: Arc::new(job.job()),
+                                flow_runners: None,
+                                done_tx: None,
+                            };
+                            if let Err(e) = dedicated_worker_tx.send(dedicated_job).await {
+                                tracing::info!("failed to send jobs to dedicated workers. Likely dedicated worker has been shut down. This is normal: {e:?}");
                             }
+
+                            #[cfg(feature = "benchmark")]
+                            {
+                                add_time!(bench, "sent to dedicated worker");
+                                infos.add_iter(bench, true);
+                            }
+
+                            continue;
                         }
                     }
 
@@ -2668,6 +2752,41 @@ pub struct PreviousResult<'a> {
     pub previous_result: Option<&'a RawValue>,
 }
 
+/// Detects and stores runtime assets from job arguments.
+/// This function is called when a job starts executing to track which assets
+/// are passed as inputs to the job at runtime.
+async fn detect_and_store_runtime_assets_from_job_args(
+    workspace_id: &str,
+    job_id: &Uuid,
+    Json(args_map): &Json<HashMap<String, Box<RawValue>>>,
+    job_kind: &JobKind,
+) {
+    match job_kind {
+        JobKind::Script_Hub | JobKind::Script | JobKind::Flow => {}
+        _ => return,
+    }
+
+    let runtime_assets =
+        windmill_common::runtime_assets::extract_runtime_assets_from_args(args_map);
+    if runtime_assets.is_empty() {
+        return;
+    }
+
+    // Store each detected runtime asset
+    for asset in runtime_assets {
+        let asset = windmill_common::runtime_assets::InsertRuntimeAssetParams {
+            workspace_id: workspace_id.to_string(),
+            job_id: *job_id,
+            asset_path: asset.path,
+            asset_kind: asset.kind,
+            access_type: None,
+            created_at: None,
+            columns: None,
+        };
+        register_runtime_asset(asset);
+    }
+}
+
 pub async fn handle_queued_job(
     job: Arc<MiniPulledJob>,
     raw_code: Option<String>,
@@ -2689,8 +2808,6 @@ pub async fn handle_queued_job(
     flow_runners: Option<Arc<FlowRunners>>,
     #[cfg(feature = "benchmark")] _bench: &mut BenchmarkIter,
 ) -> windmill_common::error::Result<bool> {
-    // Extract the active span from the context
-
     if job.canceled_by.is_some() {
         return Err(Error::JsonErr(canceled_job_to_result(&job)));
     }
@@ -2930,6 +3047,17 @@ pub async fn handle_queued_job(
         );
         append_logs(&job.id, &job.workspace_id, logs, conn).await;
 
+        // Extract and store runtime assets from job arguments
+        if let (Connection::Sql(_), Some(args_json)) = (conn, &job.args) {
+            detect_and_store_runtime_assets_from_job_args(
+                &job.workspace_id,
+                &job.id,
+                args_json,
+                &job.kind,
+            )
+            .await;
+        }
+
         let mut column_order: Option<Vec<String>> = None;
         let mut new_args: Option<HashMap<String, Box<RawValue>>> = None;
         let mut has_stream = false;
@@ -3055,6 +3183,16 @@ pub async fn handle_queued_job(
                     _ => None,
                 });
 
+                // Set job context for OTEL tracing before entering handle_code_execution_job's span
+                #[cfg(all(feature = "private", feature = "enterprise"))]
+                if matches!(
+                    job.script_lang,
+                    Some(ScriptLang::Nativets) | Some(ScriptLang::Bunnative)
+                ) && is_otel_tracing_proxy_enabled_for_lang(&ScriptLang::Nativets).await
+                {
+                    crate::otel_tracing_proxy_ee::set_current_job_context(job.id).await;
+                }
+
                 // Box::pin to move large future to heap
                 let r = Box::pin(handle_code_execution_job(
                     job.as_ref(),
@@ -3136,7 +3274,7 @@ pub fn build_envs(
     };
 
     for (k, v) in PROXY_ENVS.iter() {
-        envs.insert(k.to_string(), v.to_string());
+        envs.insert(k.to_string(), v.clone());
     }
 
     Ok(envs)

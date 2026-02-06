@@ -2,13 +2,13 @@
 	import { emptyString, type S3Object } from '$lib/utils'
 	import { Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
-	import { tick, untrack } from 'svelte'
+	import { tick } from 'svelte'
 	import S3FilePickerInner from './S3FilePickerInner.svelte'
 	import Select from './select/Select.svelte'
 	import { FileUp } from 'lucide-svelte'
-	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import { SettingService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { resource } from 'runed'
 
 	interface Props {
 		fromWorkspaceSettings?: boolean
@@ -52,19 +52,16 @@
 		}
 	> = $state({})
 
-	let wasOpen = $state(false)
-
-	let secondaryStorageNames = usePromise(
+	let secondaryStorageNames = resource(
+		() => $workspaceStore,
 		() => SettingService.getSecondaryStorageNames({ workspace: $workspaceStore! }),
-		{ loadInit: false }
+		{ lazy: true }
 	)
 
-	$effect(() => {
-		wasOpen && $workspaceStore && untrack(() => secondaryStorageNames.refresh())
-	})
-
 	export async function open(_preSelectedFileKey: S3Object | undefined = undefined) {
+		secondaryStorageNames.refetch()
 		drawer?.openDrawer?.()
+
 		await tick()
 		s3FilePickerInner?.open?.(_preSelectedFileKey)
 	}
@@ -102,19 +99,18 @@
 			bind:workspaceSettingsInitialized
 			bind:storage
 			bind:allFilesByKey
-			bind:wasOpen
 			bind:uploadModalOpen
 			{folderOnly}
 			{regexFilter}
 		/>
 		{#snippet actions()}
 			<div class="flex gap-1">
-				{#if secondaryStorageNames.value?.length}
+				{#if secondaryStorageNames.current?.length}
 					<Select
 						inputClass="h-10 min-w-44 !placeholder-secondary"
 						items={[
 							{ value: undefined, label: 'Default storage' },
-							...secondaryStorageNames.value.map((value) => ({ value }))
+							...secondaryStorageNames.current.map((value) => ({ value }))
 						]}
 						placeholder="Default storage"
 						bind:value={
@@ -122,7 +118,7 @@
 							(v) => {
 								if (v === storage) return
 								storage = v
-								s3FilePickerInner?.reloadContent()
+								s3FilePickerInner?.reloadContent?.()
 							}
 						}
 					/>

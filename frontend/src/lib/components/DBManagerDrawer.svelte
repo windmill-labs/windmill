@@ -73,6 +73,8 @@
 		input = undefined
 		selectedDatatable = undefined
 		dbManagerContent?.clearReplResult()
+		if (window.location.hash.startsWith('#dbmanager:'))
+			history.replaceState('', document.title, window.location.href.replace(/#dbmanager:.*$/, ''))
 	}
 
 	let windowWidth = $state(window.innerWidth)
@@ -85,7 +87,6 @@
 	let dbManagerContent: DBManagerContent | undefined = $state()
 
 	let hasReplResult = $state(false)
-	let isRefreshing = $state(false)
 </script>
 
 <svelte:window bind:innerWidth={windowWidth} />
@@ -108,15 +109,11 @@
 		}}
 		CloseIcon={hasReplResult ? ArrowLeft : undefined}
 		noPadding
+		id="db-manager-drawer"
 	>
 		{#if effectiveInput && $workspaceStore}
 			{#key selectedDatatable}
-				<DBManagerContent
-					bind:this={dbManagerContent}
-					input={effectiveInput}
-					bind:hasReplResult
-					bind:isRefreshing
-				>
+				<DBManagerContent bind:this={dbManagerContent} input={effectiveInput} bind:hasReplResult>
 					{#snippet dbSelector()}
 						{#if isDatatableInput}
 							{#if datatables.loading}
@@ -140,8 +137,11 @@
 		{/if}
 		{#snippet actions()}
 			<Button
-				loading={isRefreshing}
-				on:click={() => dbManagerContent?.refresh()}
+				loading={dbManagerContent?.isLoading() ?? false}
+				on:click={() => {
+					dbManagerContent?.refresh()
+					dbManagerContent?.dbManager()?.dbTable()?.refresh()
+				}}
 				startIcon={{ icon: RefreshCcw }}
 				size="xs"
 				color="light"

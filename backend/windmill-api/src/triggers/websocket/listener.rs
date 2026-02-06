@@ -1,5 +1,6 @@
 use super::WebsocketTrigger;
 use crate::triggers::{
+    filter::{is_value_superset, Filter, JsonFilter},
     listener::ListeningTrigger,
     trigger_helpers::{
         trigger_runnable, trigger_runnable_and_wait_for_raw_result,
@@ -13,12 +14,9 @@ use async_trait::async_trait;
 use futures::{stream::SplitSink, SinkExt, StreamExt};
 use http::Response;
 use itertools::Itertools;
-use serde::{
-    de::{self, MapAccess, Visitor},
-    Deserialize, Deserializer,
-};
-use serde_json::{value::RawValue, Value};
-use std::{borrow::Cow, collections::HashMap, fmt, sync::Arc};
+use serde::Deserialize;
+use serde_json::value::RawValue;
+use std::{borrow::Cow, collections::HashMap, sync::Arc};
 use tokio::{net::TcpStream, sync::RwLock};
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 use windmill_common::{
@@ -173,7 +171,7 @@ impl Listener for WebsocketTrigger {
             Cow::Borrowed(&url)
         };
 
-        let connection = connect_async(connect_url.as_ref())
+        let connection = connect_async(&*connect_url)
             .await
             .map(|conn| Some(conn))
             .map_err(|err| to_anyhow(err).into());
@@ -443,18 +441,6 @@ impl Listener for WebsocketTrigger {
     }
 }
 
-#[derive(Deserialize)]
-pub struct JsonFilter {
-    key: String,
-    value: Value,
-}
-
-#[derive(Deserialize)]
-#[serde(untagged)]
-pub enum Filter {
-    JsonFilter(JsonFilter),
-}
-
 pub struct ReturnMessageChannels {
     send_message_tx: tokio::sync::mpsc::Sender<String>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
@@ -475,71 +461,6 @@ enum InitialMessage {
     RawMessage(String),
     #[serde(rename = "runnable_result")]
     RunnableResult { path: String, args: Box<RawValue>, is_flow: bool },
-}
-
-struct SupersetVisitor<'a> {
-    key: &'a str,
-    value_to_check: &'a Value,
-}
-
-impl<'de, 'a> Visitor<'de> for SupersetVisitor<'a> {
-    type Value = bool;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str("a JSON object with a specific key at the top level")
-    }
-
-    fn visit_map<V>(self, mut map: V) -> std::result::Result<Self::Value, V::Error>
-    where
-        V: MapAccess<'de>,
-    {
-        while let Some(key) = map.next_key::<String>()? {
-            if key == self.key {
-                // Deserialize the value for the key and check if it's a superset
-                let json_value: Value = map.next_value()?;
-                return Ok(is_superset(&json_value, self.value_to_check));
-            } else {
-                // Skip the value if it's not the one we're interested in
-                let _ = map.next_value::<de::IgnoredAny>()?;
-            }
-        }
-        // If the key was not found, return false
-        Ok(false)
-    }
-}
-
-fn is_superset(json_value: &Value, value_to_check: &Value) -> bool {
-    match (json_value, value_to_check) {
-        (Value::Object(json_map), Value::Object(check_map)) => {
-            // Check that all keys and values in check_map exist and match in json_map
-            check_map.iter().all(|(k, v)| {
-                json_map
-                    .get(k)
-                    .map_or(false, |json_val| is_superset(json_val, v))
-            })
-        }
-        (Value::Array(json_array), Value::Array(check_array)) => {
-            // Check that all elements in check_array exist in json_array
-            check_array.iter().all(|check_item| {
-                json_array
-                    .iter()
-                    .any(|json_item| is_superset(json_item, check_item))
-            })
-        }
-        _ => json_value == value_to_check,
-    }
-}
-
-// A function to deserialize and check if the value at the given key is a superset of a passed value
-fn is_value_superset<'a, 'de, D>(
-    deserializer: D,
-    key: &'a str,
-    value_to_check: &'a Value,
-) -> std::result::Result<bool, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    deserializer.deserialize_map(SupersetVisitor { key, value_to_check })
 }
 
 fn raw_value_to_args_hashmap(

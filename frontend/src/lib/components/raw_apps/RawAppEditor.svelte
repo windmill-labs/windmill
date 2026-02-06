@@ -33,10 +33,10 @@
 	} from './dataTableRefUtils'
 
 	interface Props {
-		initFiles: Record<string, string>
-		initRunnables: Record<string, Runnable>
+		files?: Record<string, string>
+		runnables?: Record<string, Runnable>
 		/** Data configuration including tables and creation policy */
-		initData: RawAppData | undefined
+		data?: RawAppData
 		newApp: boolean
 		policy: Policy
 		summary?: string
@@ -57,9 +57,9 @@
 	}
 
 	let {
-		initFiles,
-		initRunnables,
-		initData,
+		files = $bindable({}),
+		runnables = $bindable({}),
+		data = $bindable(DEFAULT_DATA),
 		newApp,
 		policy,
 		summary = $bindable(''),
@@ -70,23 +70,8 @@
 	}: Props = $props()
 	export const version: number | undefined = undefined
 
-	let runnables = $state(initRunnables)
-
-	// Data configuration with tables and creation policy
-	let data: RawAppData = $state(initData ?? DEFAULT_DATA)
-
 	// Convert to object format for child components
 	let dataTableRefsObjects = $derived(data.tables.map(parseDataTableRef))
-	let initRunnablesContent = Object.fromEntries(
-		Object.entries(initRunnables).map(([key, runnable]) => {
-			if (isRunnableByName(runnable)) {
-				return [key, runnable?.inlineScript?.content ?? '']
-			}
-			return [key, '']
-		})
-	)
-
-	let files: Record<string, string> | undefined = $state(initFiles)
 
 	// Initialize history manager
 	const historyManager = new RawAppHistoryManager({
@@ -175,7 +160,9 @@
 	let iframeLoaded = $state(false) // @hmr:keep
 
 	function populateFiles() {
-		setFilesInIframe(initFiles)
+		if (files) {
+			setFilesInIframe(files)
+		}
 	}
 	function setFilesInIframe(newFiles: Record<string, string>) {
 		const files = Object.fromEntries(
@@ -185,6 +172,20 @@
 			{
 				type: 'setFiles',
 				files: files
+			},
+			'*'
+		)
+	}
+
+	function setFilesAndSelectInIframe(newFiles: Record<string, string>, pathToSelect: string) {
+		const files = Object.fromEntries(
+			Object.entries(newFiles).filter(([path, _]) => !path.endsWith('/'))
+		)
+		iframe?.contentWindow?.postMessage(
+			{
+				type: 'setFilesAndSelect',
+				files: files,
+				pathToSelect: pathToSelect
 			},
 			'*'
 		)
@@ -290,7 +291,6 @@
 					...$state.snapshot(files ?? {}),
 					'/wmill.d.ts': genWmillTs(runnables)
 				}
-				console.log('result', frontendFiles)
 				return frontendFiles
 			},
 			setFrontendFile: (path, content): LintResult => {
@@ -299,10 +299,9 @@
 					files = {}
 				}
 				files[path] = content
-				setFilesInIframe(files)
 				selectedDocument = path
-				handleSelectFile(path)
-				console.log('files after setting', files)
+				// Use combined setFilesAndSelect to avoid race condition
+				setFilesAndSelectInIframe(files, path)
 				return lint()
 			},
 			deleteFrontendFile: (path) => {
@@ -592,8 +591,8 @@
 	// Normalize Windows-style path separators to Linux-style
 	function normalizeFilePaths(
 		filesObj: Record<string, string> | undefined
-	): Record<string, string> | undefined {
-		if (!filesObj) return filesObj
+	): Record<string, string> {
+		if (!filesObj) return {}
 		return Object.fromEntries(
 			Object.entries(filesObj).map(([path, content]) => [path.replace(/\\/g, '/'), content])
 		)
@@ -669,7 +668,7 @@
 		})
 	})
 	$effect(() => {
-		iframe && iframeLoaded && initFiles && populateFiles()
+		iframe && iframeLoaded && files && populateFiles()
 	})
 	$effect(() => {
 		iframe && iframeLoaded && runnables && populateRunnables()
@@ -735,9 +734,10 @@
 	}
 
 	function handleHistorySelect(id: number) {
-		// Create a snapshot if we have pending changes before navigating
-		if (historyManager.needsSnapshotBeforeNav) {
-			historyManager.manualSnapshot(files ?? {}, runnables, summary, data)
+		// Save current state temporarily (not as a snapshot) when navigating to history
+		// Only if we're currently at the "current" state (not already viewing history)
+		if (historyManager.selectedEntryId === undefined) {
+			historyManager.saveTemporaryCurrentState(files ?? {}, runnables, summary, data)
 		}
 
 		const entry = historyManager.selectEntry(id)
@@ -758,19 +758,15 @@
 			summary = entry.summary
 			data = structuredClone($state.snapshot(entry.data))
 
-			setFilesInIframe(entry.files)
-			populateRunnables()
-
-			// Re-select the current document if it exists in the new files
+			// If there's a selected document that exists in the new files, use the combined message
 			if (selectedDocument && entry.files[selectedDocument] !== undefined) {
-				iframe?.contentWindow?.postMessage(
-					{
-						type: 'selectFile',
-						path: selectedDocument
-					},
-					'*'
-				)
+				// Use combined setFilesAndSelect message to avoid race condition
+				setFilesAndSelectInIframe(entry.files, selectedDocument)
+			} else {
+				// Otherwise just set files normally
+				setFilesInIframe(entry.files)
 			}
+			populateRunnables()
 		} catch (error) {
 			console.error('Failed to apply entry:', error)
 			sendUserToast('Failed to apply entry: ' + (error as Error).message, true)
@@ -821,8 +817,8 @@
 		onRedo={handleRedo}
 	/>
 
-	<Splitpanes id="o2" class="grow">
-		<Pane bind:size={sidebarPanelSize} maxSize={20}>
+	<Splitpanes id="o2" class="grow min-h-0">
+		<Pane bind:size={sidebarPanelSize} maxSize={20} class="h-full overflow-y-auto">
 			<RawAppSidebar
 				bind:files={
 					() => files,
@@ -857,6 +853,15 @@
 				{historyManager}
 				historySelectedId={historyManager.selectedEntryId}
 				onHistorySelect={handleHistorySelect}
+				onHistorySelectCurrent={() => {
+					// Restore the temporary current state if it exists
+					const tempState = historyManager.getAndClearTemporaryState()
+					if (tempState) {
+						applyEntry(tempState)
+					}
+					// Clear selection to indicate we're at current state
+					historyManager.clearSelection()
+				}}
 				onManualSnapshot={() => {
 					historyManager.manualSnapshot(files ?? {}, runnables, summary, data, true)
 				}}
@@ -877,8 +882,7 @@
 						<RawAppInlineScriptsPanel
 							appPath={path}
 							{selectedRunnable}
-							{initRunnablesContent}
-							{runnables}
+							bind:runnables
 							onSelectionChange={(selection) => {
 								console.log('handle selection', selection)
 

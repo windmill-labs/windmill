@@ -11,7 +11,7 @@ pub enum HandlerAction {
     // Future variants can be added here (e.g., Script, Flow, etc.)
 }
 
-#[cfg(all(feature = "smtp", feature = "enterprise", feature = "private"))]
+#[cfg(all(feature = "smtp", feature = "private"))]
 pub mod email;
 #[cfg(all(feature = "gcp_trigger", feature = "enterprise", feature = "private"))]
 pub mod gcp;
@@ -30,6 +30,7 @@ pub mod sqs;
 #[cfg(feature = "websocket")]
 pub mod websocket;
 
+pub mod filter;
 pub mod global_handler;
 mod handler;
 mod listener;

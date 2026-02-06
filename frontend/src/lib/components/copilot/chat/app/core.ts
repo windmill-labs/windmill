@@ -696,7 +696,7 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 			})
 			const lintResult = await helpers.setBackendRunnable(parsedArgs.key, runnable)
 			toolCallbacks.setToolStatus(toolId, {
-				content: `Backend runnable '${parsedArgs.key}' analyzed`,
+				content: `Backend runnable '${parsedArgs.key}' set successfully.`,
 				result: 'Success'
 			})
 			return formatLintResultResponse(
@@ -870,6 +870,14 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 ])
 
 export function prepareAppSystemMessage(customPrompt?: string): ChatCompletionSystemMessageParam {
+	// Get policy early so we can use it in the template
+	const policy = aiChatManager.datatableCreationPolicy
+	const datatableName = policy.datatable ?? 'main'
+	const schemaPrefix = policy.schema ? `${policy.schema}.` : ''
+	// Use wmill.datatable() for 'main' (default), otherwise wmill.datatable('name')
+	const datatableCall =
+		datatableName === 'main' ? 'wmill.datatable()' : `wmill.datatable('${datatableName}')`
+
 	let content = `You are a helpful assistant that creates and edits apps on the Windmill platform. Apps are defined as a collection of files that contains both the frontend and the backend.
 
 ## App Structure
@@ -946,12 +954,10 @@ Backend runnables should only perform **data operations** (SELECT, INSERT, UPDAT
 import * as wmill from 'windmill-client';
 
 export async function main(user_id: string) {
-  // Use default 'main' datatable
-  let sql = wmill.datatable();
-  // Or specify a named datatable: wmill.datatable('named_datatable')
+  const sql = ${datatableCall};
 
   // Safe string interpolation (parameterized query)
-  let user = await sql\`SELECT * FROM users WHERE id = \${user_id}\`.fetchOne();
+  const user = await sql\`SELECT * FROM ${schemaPrefix}users WHERE id = \${user_id}\`.fetchOne();
   return user;
 }
 \`\`\`
@@ -961,22 +967,20 @@ export async function main(user_id: string) {
 import wmill
 
 def main(user_id: str):
-    db = wmill.datatable()  # or wmill.datatable('named_datatable')
+    db = ${datatableCall}
 
     # Use positional arguments ($1, $2, etc.)
-    user = db.query('SELECT * FROM users WHERE id = $1', user_id).fetch_one()
+    user = db.query('SELECT * FROM ${schemaPrefix}users WHERE id = $1', user_id).fetch_one()
     return user
 \`\`\`
 
 ### Common Operations (for use in backend runnables)
 
-- **Fetch all**: \`sql\`SELECT * FROM table\`.fetch()\` or \`db.query('SELECT * FROM table').fetch()\`
+- **Fetch all**: \`sql\`SELECT * FROM ${schemaPrefix}table\`.fetch()\` or \`db.query('SELECT * FROM ${schemaPrefix}table').fetch()\`
 - **Fetch one**: \`.fetchOne()\` or \`.fetch_one()\`
-- **Insert**: \`sql\`INSERT INTO table (col) VALUES (\${value})\`\`
-- **Update**: \`sql\`UPDATE table SET col = \${value} WHERE id = \${id}\`\`
-- **Delete**: \`sql\`DELETE FROM table WHERE id = \${id}\`\`
-
-The "main" datatable is the default and can be accessed without specifying a name.
+- **Insert**: \`sql\`INSERT INTO ${schemaPrefix}table (col) VALUES (\${value})\`\`
+- **Update**: \`sql\`UPDATE ${schemaPrefix}table SET col = \${value} WHERE id = \${id}\`\`
+- **Delete**: \`sql\`DELETE FROM ${schemaPrefix}table WHERE id = \${id}\`\`
 
 ### Schema Modifications (DDL) - Use exec_datatable_sql tool ONLY
 
@@ -1061,13 +1065,11 @@ When creating a new app, use \`list_workspace_runnables\` or \`search_hub_script
 `
 
 	// Add datatable creation policy context
-	const policy = aiChatManager.datatableCreationPolicy
 	if (policy.enabled && policy.datatable) {
-		const schemaPrefix = policy.schema ? `${policy.schema}.` : ''
 		content += `## Datatable Creation Policy
 
 **Table creation is ENABLED.** You can create new tables using \`exec_datatable_sql\` with the \`new_table\` parameter.
-- **Default datatable**: ${policy.datatable}${policy.schema ? `\n- **Default schema**: ${policy.schema}` : ''}
+- **Default datatable**: ${datatableName}${policy.schema ? `\n- **Default schema**: ${policy.schema}` : ''}
 
 When creating new tables, you MUST use the default datatable${policy.schema ? ` and schema` : ''} specified above. Do not create tables in other datatables or schemas.
 ${policy.schema ? `\n**IMPORTANT**: Always use the schema prefix \`${schemaPrefix}\` in your SQL queries when creating or referencing tables. For example: \`CREATE TABLE ${schemaPrefix}my_table (...)\` and \`SELECT * FROM ${schemaPrefix}my_table\`. Never create tables without the schema prefix as they would go to the public schema instead.` : ''}

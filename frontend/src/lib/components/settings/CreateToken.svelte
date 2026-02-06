@@ -39,7 +39,8 @@
 		defaultNewTokenWorkspace,
 		scopes,
 		onTokenCreated,
-		newTokenLabel = $bindable(undefined)
+		newTokenLabel = $bindable(undefined),
+		displayCreateToken = true
 	}: Props = $props()
 
 	// MCP clients do not allow names longer than 60 characters, here we use 55 because final tool name server side will add ~5 characters
@@ -175,7 +176,7 @@
 	}
 
 	const workspaces = $derived(ensureCurrentWorkspaceIncluded($userWorkspaces, $workspaceStore))
-	const mcpBaseUrl = $derived(`${window.location.origin}/api/mcp/w/${newTokenWorkspace}/sse?token=`)
+	const mcpBaseUrl = $derived(`${window.location.origin}/api/mcp/w/${newTokenWorkspace}/mcp?token=`)
 
 	const warning = $derived(
 		newMcpScope === 'all'
@@ -701,11 +702,11 @@
 		</div>
 	</div>
 
-	{#if newToken}
+	{#if newToken && displayCreateToken}
 		<TokenDisplay token={newToken} />
 	{/if}
 
-	{#if newMcpToken}
+	{#if newMcpToken && displayCreateToken}
 		<TokenDisplay token={newMcpToken} mcpUrl={`${mcpBaseUrl}${newMcpToken}`} />
 	{/if}
 </div>

@@ -7,6 +7,11 @@ import { DataTableSchema } from "../../../gen/types.gen.ts";
 import { generateAgentsDocumentation } from "../sync/sync.ts";
 import path from "node:path";
 import * as fs from "node:fs";
+import {
+  getFolderSuffix,
+  hasFolderSuffix,
+  loadNonDottedPathsSetting,
+} from "../../utils/resource_folders.ts";
 
 interface GenerateAgentsOptions extends GlobalOptions {
   output?: string;
@@ -189,12 +194,15 @@ export async function regenerateAgentDocs(
   const agentsContent = generateAgentsDocumentation(localData);
   await Deno.writeTextFile(path.join(targetDir, "AGENTS.md"), agentsContent);
 
+  // Generate and write CLAUDE.md referencing AGENTS.md
+  await Deno.writeTextFile(path.join(targetDir, "CLAUDE.md"), `Instructions are in @AGENTS.md\n`);
+
   // Generate and write DATATABLES.md
   const datatablesContent = generateDatatablesMarkdown(schemas, localData);
   await Deno.writeTextFile(path.join(targetDir, "DATATABLES.md"), datatablesContent);
 
   if (!silent) {
-    log.info(colors.green(`✓ Generated AGENTS.md and DATATABLES.md`));
+    log.info(colors.green(`✓ Generated AGENTS.md, CLAUDE.md, and DATATABLES.md`));
 
     // Summary
     const datatableCount = schemas.length;
@@ -230,14 +238,17 @@ async function generateAgents(
       : path.join(cwd, appFolder);
   }
 
-  // Ensure we're in a .raw_app folder or targeting one
+  // Load nonDottedPaths setting before using folder suffix functions
+  await loadNonDottedPathsSetting();
+
+  // Ensure we're in a raw_app folder or targeting one
   const dirName = path.basename(targetDir);
-  if (!dirName.endsWith(".raw_app")) {
-    // Check if current directory is a .raw_app folder
-    if (!path.basename(cwd).endsWith(".raw_app") && !appFolder) {
+  if (!hasFolderSuffix(dirName, "raw_app")) {
+    // Check if current directory is a raw_app folder
+    if (!hasFolderSuffix(path.basename(cwd), "raw_app") && !appFolder) {
       log.error(
         colors.red(
-          "Error: Must be run inside a .raw_app folder or specify one as argument."
+          `Error: Must be run inside a ${getFolderSuffix("raw_app")} folder or specify one as argument.`
         )
       );
       log.info(colors.gray("Usage: wmill app generate-agents [app_folder]"));

@@ -51,6 +51,88 @@ use tokio::task;
 #[cfg(feature = "parquet")]
 use windmill_parser_sql::S3ModeFormat;
 
+use std::collections::HashMap;
+
+lazy_static::lazy_static! {
+    static ref S3_BUCKET_RESTRICTIONS: Option<HashMap<String, Vec<String>>> = {
+        parse_bucket_restrictions()
+    };
+}
+
+/// Parses the S3_BUCKETS_WORKSPACE_RESTRICTIONS environment variable
+/// Format: bucket_a:workspace1,workspace2;bucket_b:workspace3,workspace4
+fn parse_bucket_restrictions() -> Option<HashMap<String, Vec<String>>> {
+    let env_var = std::env::var("S3_BUCKETS_WORKSPACE_RESTRICTIONS").ok()?;
+
+    if env_var.trim().is_empty() {
+        return None;
+    }
+
+    let mut restrictions = HashMap::new();
+
+    for bucket_rule in env_var.split(';') {
+        let bucket_rule = bucket_rule.trim();
+        if bucket_rule.is_empty() {
+            continue;
+        }
+
+        let parts: Vec<&str> = bucket_rule.splitn(2, ':').collect();
+        if parts.len() != 2 {
+            tracing::warn!(
+                "Invalid bucket restriction format: '{}'. Expected 'bucket:workspace1,workspace2'",
+                bucket_rule
+            );
+            continue;
+        }
+
+        let bucket_name = parts[0].trim().to_string();
+        let workspaces: Vec<String> = parts[1]
+            .split(',')
+            .map(|w| w.trim().to_string())
+            .filter(|w| !w.is_empty())
+            .collect();
+
+        if workspaces.is_empty() {
+            tracing::warn!(
+                "No workspaces specified for bucket '{}', skipping restriction",
+                bucket_name
+            );
+            continue;
+        }
+
+        restrictions.insert(bucket_name, workspaces);
+    }
+
+    if restrictions.is_empty() {
+        None
+    } else {
+        tracing::info!(
+            "S3 bucket restrictions loaded for {} buckets",
+            restrictions.len()
+        );
+        Some(restrictions)
+    }
+}
+
+/// Checks if a workspace is allowed to access a given bucket based on restrictions
+/// Returns Ok(()) if access is allowed, Err if restricted
+pub fn check_bucket_workspace_restriction(
+    bucket_name: &str,
+    workspace_id: &str,
+) -> error::Result<()> {
+    if let Some(ref restrictions) = *S3_BUCKET_RESTRICTIONS {
+        if let Some(allowed_workspaces) = restrictions.get(bucket_name) {
+            if !allowed_workspaces.contains(&workspace_id.to_string()) {
+                return Err(error::Error::NotAuthorized(format!(
+                    "Workspace '{}' is not authorized to access bucket '{}'",
+                    workspace_id, bucket_name
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg(feature = "parquet")]
 #[derive(Clone)]
 pub struct ExpirableObjectStore {
@@ -711,8 +793,8 @@ pub async fn build_s3_client(s3_resource_ref: &S3Resource) -> error::Result<Arc<
     let store = store_builder.build().map_err(|err| {
         tracing::error!("Error building object store client: {:?}", err);
         error::Error::internal_err(format!(
-            "Error building object store client: {}",
-            err.to_string()
+            "Error building object store client: {:?}",
+            err
         ))
     })?;
 
@@ -778,8 +860,8 @@ fn build_azure_blob_client(
     let store = store_builder.build().map_err(|err| {
         tracing::error!("Error building object store client: {:?}", err);
         error::Error::internal_err(format!(
-            "Error building object store client: {}",
-            err.to_string()
+            "Error building object store client: {:?}",
+            err
         ))
     })?;
 
@@ -818,8 +900,8 @@ async fn build_gcs_client(gcs_resource_ref: &GcsResource) -> error::Result<Arc<d
         .map_err(|err| {
             tracing::error!("Error building GCS object store client: {:?}", err);
             error::Error::internal_err(format!(
-                "Error building GCS object store client: {}",
-                err.to_string()
+                "Error building GCS object store client: {:?}",
+                err
             ))
         })?;
 
@@ -1175,21 +1257,21 @@ pub fn lfs_to_object_store_resource(
     match lfs {
         LargeFileStorage::S3Storage(_) | LargeFileStorage::S3AwsOidc(_) => {
             let s3_resource: S3Resource = serde_json::from_value(resource_value).map_err(|e| {
-                error::Error::internal_err(format!("Error parsing S3 resource: {}", e))
+                error::Error::internal_err(format!("Error parsing S3 resource: {e:?}"))
             })?;
             Ok(ObjectStoreResource::S3(s3_resource))
         }
         LargeFileStorage::AzureBlobStorage(_) | LargeFileStorage::AzureWorkloadIdentity(_) => {
             let azure_blob_resource: AzureBlobResource = serde_json::from_value(resource_value)
                 .map_err(|e| {
-                    error::Error::internal_err(format!("Error parsing Azure Blob resource: {}", e))
+                    error::Error::internal_err(format!("Error parsing Azure Blob resource: {e:?}"))
                 })?;
             Ok(ObjectStoreResource::Azure(azure_blob_resource))
         }
         LargeFileStorage::GoogleCloudStorage(_) => {
             let gcs_resource: GcsResource =
                 serde_json::from_value(resource_value).map_err(|e| {
-                    error::Error::internal_err(format!("Error parsing GCS resource: {}", e))
+                    error::Error::internal_err(format!("Error parsing GCS resource: {e:?}"))
                 })?;
             Ok(ObjectStoreResource::Gcs(gcs_resource))
         }

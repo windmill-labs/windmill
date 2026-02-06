@@ -314,6 +314,7 @@ pub async fn create_many_http_triggers(
             windmill_git_sync::DeployedObject::HttpTrigger { path: http_trigger.base.path.clone() },
             Some(format!("HTTP trigger '{}' created", http_trigger.base.path)),
             true,
+            None,
         )
         .await
         .map_err(|err| error_wrapper(&http_trigger.config.route_path, err.into()))?;
@@ -962,7 +963,13 @@ async fn route_job(
 
             let s3_object = s3_object.map_err(|err| {
                 tracing::warn!("Error retrieving file from S3: {:?}", err);
-                Error::internal_err(format!("Error retrieving file: {}", err.to_string()))
+                let mut msg = format!("Error retrieving file: {err}");
+                let mut source = std::error::Error::source(&err);
+                while let Some(e) = source {
+                    msg.push_str(&format!("\n  caused by: {e}"));
+                    source = e.source();
+                }
+                Error::internal_err(msg)
             })?;
 
             let mut response_headers = http::HeaderMap::new();

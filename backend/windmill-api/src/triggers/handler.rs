@@ -436,6 +436,7 @@ async fn create_trigger<T: TriggerCrud>(
         T::get_deployed_object(new_path.clone()),
         Some(format!("{} '{}' created", T::DEPLOYMENT_NAME, new_path)),
         true,
+        None,
     )
     .await?;
 
@@ -529,6 +530,7 @@ async fn update_trigger<T: TriggerCrud>(
         T::get_deployed_object(new_path.clone()),
         Some(format!("{} '{}' updated", T::DEPLOYMENT_NAME, new_path)),
         true,
+        None,
     )
     .await?;
 
@@ -629,6 +631,7 @@ async fn set_trigger_mode<T: TriggerCrud>(
         T::get_deployed_object(path.to_owned()),
         Some(format!("{} trigger '{}' updated", T::DEPLOYMENT_NAME, path)),
         true,
+        None,
     )
     .await?;
 
@@ -762,7 +765,7 @@ pub fn generate_trigger_routers() -> Router {
         );
     }
 
-    #[cfg(all(feature = "enterprise", feature = "smtp", feature = "private"))]
+    #[cfg(all(feature = "smtp", feature = "private"))]
     {
         use crate::triggers::email::EmailTrigger;
 
@@ -811,6 +814,7 @@ pub struct TriggersCount {
     mqtt_count: i64,
     sqs_count: i64,
     gcp_count: i64,
+    nextcloud_count: i64,
 }
 
 pub async fn get_triggers_count_internal(
@@ -970,6 +974,16 @@ pub async fn get_triggers_count_internal(
     .await?
     .unwrap_or(0);
 
+    let nextcloud_count = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM native_trigger WHERE workspace_id = $1 AND script_path = $2 AND is_flow = $3 AND service_name = 'nextcloud'",
+        w_id,
+        path,
+        is_flow,
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(0);
+
     Ok(Json(TriggersCount {
         primary_schedule: primary_schedule.map(|s| TriggerPrimarySchedule { schedule: s }),
         schedule_count,
@@ -984,5 +998,6 @@ pub async fn get_triggers_count_internal(
         mqtt_count,
         gcp_count,
         sqs_count,
+        nextcloud_count,
     }))
 }

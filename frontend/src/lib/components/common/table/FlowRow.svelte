@@ -38,7 +38,6 @@
 	interface Props {
 		flow: Flow & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
 		marked: string | undefined
-		starred: boolean
 		shareModal: ShareModal
 		moveDrawer: MoveDrawer
 		deleteConfirmedCallback: (() => void) | undefined
@@ -51,7 +50,6 @@
 	let {
 		flow,
 		marked,
-		starred,
 		shareModal,
 		moveDrawer,
 		deleteConfirmedCallback = $bindable(),
@@ -106,9 +104,7 @@
 	{marked}
 	path={flow.path}
 	summary={flow.summary}
-	{starred}
 	{errorHandlerMuted}
-	on:change
 	canFavorite={!flow.draft_only}
 	{depth}
 >

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import { logout } from '$lib/logout'
+	import { logout } from '$lib/logoutKit'
 	import {
 		userStore,
 		usageStore,
@@ -11,7 +11,7 @@
 	import { USER_SETTINGS_HASH } from './settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import { twMerge } from 'tailwind-merge'
-	import { Crown, HardHat, LogOut, Moon, Settings, Sun, User } from 'lucide-svelte'
+	import { Crown, ServerCog, LogOut, Moon, Settings, Sun, User } from 'lucide-svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import MenuButton from './MenuButton.svelte'
 	import { Menu, MenuItem } from '$lib/components/meltComponents'
@@ -55,7 +55,7 @@
 				{#if $userStore?.is_admin}
 					Admin of this workspace <Crown size={14} />
 				{:else if $userStore?.operator}
-					Operator in this workspace <HardHat size={14} />
+					Operator in this workspace <ServerCog size={14} />
 				{/if}
 			</span>
 		</div>

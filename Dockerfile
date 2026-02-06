@@ -1,6 +1,26 @@
 ARG DEBIAN_IMAGE=debian:bookworm-slim
 ARG RUST_IMAGE=rust:1.90-slim-bookworm
 
+FROM debian:bookworm-slim AS nsjail
+
+WORKDIR /nsjail
+
+RUN apt-get -y update \
+    && apt-get install -y \
+    bison=2:3.8.* \
+    flex=2.6.* \
+    g++=4:12.2.* \
+    gcc=4:12.2.* \
+    git=1:2.39.* \
+    libprotobuf-dev=3.21.* \
+    libnl-route-3-dev=3.7.* \
+    make=4.3-4.1 \
+    pkg-config=1.8.* \
+    protobuf-compiler=3.21.*
+
+RUN git clone -b master --single-branch https://github.com/google/nsjail.git . && git checkout dccf911fd2659e7b08ce9507c25b2b38ec2c5800
+RUN make
+
 FROM ${RUST_IMAGE} AS rust_base
 
 RUN apt-get update && apt-get install -y git libssl-dev pkg-config npm
@@ -77,7 +97,7 @@ ARG features=""
 
 COPY --from=planner /windmill/recipe.json recipe.json
 
-RUN apt-get update && apt-get install -y libxml2-dev=2.9.* libxmlsec1-dev=1.2.* clang=1:14.0-55.* libclang-dev=1:14.0-55.* cmake=3.25.* && \
+RUN apt-get update && apt-get install -y libxml2-dev=2.9.* libxmlsec1-dev=1.2.* libkrb5-dev libsasl2-dev clang=1:14.0-55.* libclang-dev=1:14.0-55.* cmake=3.25.* && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -129,7 +149,7 @@ ENV PATH /usr/local/bin:/root/.local/bin:/tmp/.local/bin:$PATH
 
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends netbase tzdata ca-certificates wget curl jq unzip build-essential unixodbc xmlsec1 software-properties-common tini \
+    && apt-get install -y --no-install-recommends netbase tzdata ca-certificates wget curl jq unzip build-essential unixodbc xmlsec1 software-properties-common tini libsasl2-modules-gssapi-mit \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -190,7 +210,7 @@ ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
 # Install UV
-RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.6.2/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
+RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.9.24/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
 
 # Preinstall python runtimes to temp build location (will copy with world-writable perms later)
 RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install 3.11
@@ -234,7 +254,7 @@ COPY --from=windmill_duckdb_ffi_internal_builder /windmill-duckdb-ffi-internal/t
 
 COPY --from=denoland/deno:2.2.1 --chmod=755 /usr/bin/deno /usr/bin/deno
 
-COPY --from=oven/bun:1.2.23 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.3.8 /usr/local/bin/bun /usr/bin/bun
 
 COPY --from=php:8.3.7-cli /usr/local/bin/php /usr/bin/php
 COPY --from=composer:2.7.6 /usr/bin/composer /usr/bin/composer
@@ -246,6 +266,11 @@ ENV RUSTUP_HOME="/usr/local/rustup"
 ENV CARGO_HOME="/usr/local/cargo"
 ENV LD_LIBRARY_PATH="."
 
+# nsjail runtime deps and binary
+RUN apt-get update && apt-get install -y libprotobuf-dev libnl-route-3-dev \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+COPY --from=nsjail /nsjail/nsjail /bin/nsjail
+
 WORKDIR ${APP}
 
 RUN ln -s ${APP}/windmill /usr/local/bin/windmill
@@ -254,7 +279,7 @@ COPY ./frontend/src/lib/hubPaths.json ${APP}/hubPaths.json
 
 RUN windmill cache ${APP}/hubPaths.json && rm ${APP}/hubPaths.json
 
-
+RUN windmill cache-rt
 
 # Create a non-root user 'windmill' with UID and GID 1000
 RUN addgroup --gid 1000 windmill && \

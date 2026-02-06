@@ -47,10 +47,10 @@ use windmill_common::runnable_settings::{
 };
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{calculate_hash, configure_client, now_from_db};
-use windmill_common::worker::{
-    Connection, MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
-    SCRIPT_TOKEN_EXPIRY,
+use windmill_common::min_version::{
+    MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
 };
+use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
 
 use windmill_common::{
     auth::{fetch_authed_from_permissioned_as, permissioned_as_to_username},
@@ -71,9 +71,10 @@ use windmill_common::{
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
     utils::{not_found_if_none, report_critical_error, StripPath, WarnAfterExt},
+    min_version::{MIN_VERSION_IS_AT_LEAST_1_432, MIN_VERSION_IS_AT_LEAST_1_440},
     worker::{
-        to_raw_value, CLOUD_HOSTED, DISABLE_FLOW_SCRIPT, MIN_VERSION_IS_AT_LEAST_1_432,
-        MIN_VERSION_IS_AT_LEAST_1_440, NO_LOGS, WORKER_PULL_QUERIES, WORKER_SUSPENDED_PULL_QUERY,
+        to_raw_value, CLOUD_HOSTED, DISABLE_FLOW_SCRIPT, NO_LOGS, WORKER_PULL_QUERIES,
+        WORKER_SUSPENDED_PULL_QUERY,
     },
     DB, METRICS_ENABLED,
 };
@@ -138,10 +139,13 @@ const MAX_FREE_CONCURRENT_RUNS: i32 = 30;
 const ERROR_HANDLER_USERNAME: &str = "error_handler";
 const SCHEDULE_ERROR_HANDLER_USERNAME: &str = "schedule_error_handler";
 const GLOBAL_ERROR_HANDLER_USERNAME: &str = "global";
+const SUCCESS_HANDLER_USERNAME: &str = "success_handler";
 
 pub const ERROR_HANDLER_USER_GROUP: &str = "g/error_handler";
 pub const ERROR_HANDLER_USER_EMAIL: &str = "error_handler@windmill.dev";
 pub const SCHEDULE_ERROR_HANDLER_USER_EMAIL: &str = "schedule_error_handler@windmill.dev";
+pub const SUCCESS_HANDLER_USER_GROUP: &str = "g/success_handler";
+pub const SUCCESS_HANDLER_USER_EMAIL: &str = "success_handler@windmill.dev";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CanceledBy {
@@ -773,9 +777,15 @@ lazy_static::lazy_static! {
     static ref RESTART_UNLESS_CANCELLED_CACHE: Cache<(i64, String), bool> = Cache::new(10000);
 
     // Cache for workspace error handler settings with 60s TTL
-    // Key: workspace_id, Value: (error_handler, error_handler_extra_args, error_handler_muted_on_cancel, expiry_timestamp)
-    static ref WORKSPACE_ERROR_HANDLER_CACHE: Cache<String, (Option<String>, Option<Json<Box<RawValue>>>, bool, i64)> = Cache::new(1000);
+    // Key: workspace_id, Value: (error_handler, error_handler_extra_args, error_handler_muted_on_cancel, error_handler_muted_on_user_path, expiry_timestamp)
+    static ref WORKSPACE_ERROR_HANDLER_CACHE: Cache<String, (Option<String>, Option<Json<Box<RawValue>>>, bool, bool, i64)> = Cache::new(1000);
+
+    // Cache for workspace success handler settings with 60s TTL
+    // Key: workspace_id, Value: (success_handler, success_handler_extra_args, expiry_timestamp)
+    static ref WORKSPACE_SUCCESS_HANDLER_CACHE: Cache<String, (Option<String>, Option<Json<Box<RawValue>>>, i64)> = Cache::new(1000);
 }
+
+const WORKSPACE_HANDLER_CACHE_TTL_SECONDS: i64 = 60;
 
 pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     db: &Pool<Postgres>,
@@ -1511,12 +1521,12 @@ pub async fn report_error_to_workspace_handler_or_critical_side_channel(
     let w_id = &queued_job.workspace_id;
     let row_result = sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>)>(
         r#"
-                SELECT 
-                    error_handler, 
-                    error_handler_extra_args
-                FROM 
-                    workspace_settings 
-                WHERE 
+                SELECT
+                    error_handler->>'path',
+                    (error_handler->'extra_args')::text::json
+                FROM
+                    workspace_settings
+                WHERE
                     workspace_id = $1
                 "#,
     )
@@ -1565,6 +1575,31 @@ pub async fn report_error_to_workspace_handler_or_critical_side_channel(
     }
 }
 
+async fn fetch_error_handler_from_db(
+    db: &Pool<Postgres>,
+    w_id: &str,
+) -> Result<(Option<String>, Option<Json<Box<RawValue>>>, bool, bool), Error> {
+    sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>, Option<bool>, Option<bool>)>(
+        r#"
+        SELECT
+            error_handler->>'path',
+            (error_handler->'extra_args')::text::json,
+            (error_handler->>'muted_on_cancel')::boolean,
+            (error_handler->>'muted_on_user_path')::boolean
+        FROM workspace_settings
+        WHERE workspace_id = $1
+        "#,
+    )
+    .bind(w_id)
+    .fetch_optional(db)
+    .await
+    .context("fetching error handler info from workspace_settings")?
+    .map(|(path, extra_args, muted_on_cancel, muted_on_user_path)| {
+        (path, extra_args, muted_on_cancel.unwrap_or(false), muted_on_user_path.unwrap_or(false))
+    })
+    .ok_or_else(|| Error::internal_err(format!("no workspace settings for id {w_id}")))
+}
+
 pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>(
     queued_job: &MiniCompletedJob,
     is_canceled: bool,
@@ -1573,88 +1608,41 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
 ) -> Result<(), Error> {
     let w_id = &queued_job.workspace_id;
 
-    // Try to get from cache first, checking if entry is still valid (within 60s TTL)
     let now = chrono::Utc::now().timestamp();
-    let (error_handler, error_handler_extra_args, error_handler_muted_on_cancel) =
+    let (error_handler, error_handler_extra_args, error_handler_muted_on_cancel, error_handler_muted_on_user_path) =
         if let Some(cached) = WORKSPACE_ERROR_HANDLER_CACHE.get(w_id) {
-            if cached.3 > now {
-                // Cache hit and not expired
-                (cached.0.clone(), cached.1.clone(), cached.2)
+            if cached.4 > now {
+                (cached.0.clone(), cached.1.clone(), cached.2, cached.3)
             } else {
-                // Cache expired, fetch from database
-                let row_result =
-                    sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>, bool)>(
-                        r#"
-                        SELECT
-                            error_handler,
-                            error_handler_extra_args,
-                            error_handler_muted_on_cancel
-                        FROM
-                            workspace_settings
-                        WHERE
-                            workspace_id = $1
-                    "#,
-                    )
-                    .bind(&w_id)
-                    .fetch_optional(db)
-                    .await
-                    .context("fetching error handler info from workspace_settings")?
-                    .ok_or_else(|| {
-                        Error::internal_err(format!("no workspace settings for id {w_id}"))
-                    })?;
-
-                // Update cache with 60s TTL
-                let expiry = now + 60;
+                let row = fetch_error_handler_from_db(db, w_id).await?;
+                let expiry = now + WORKSPACE_HANDLER_CACHE_TTL_SECONDS;
                 WORKSPACE_ERROR_HANDLER_CACHE.insert(
                     w_id.clone(),
-                    (
-                        row_result.0.clone(),
-                        row_result.1.clone(),
-                        row_result.2,
-                        expiry,
-                    ),
+                    (row.0.clone(), row.1.clone(), row.2, row.3, expiry),
                 );
-                row_result
+                row
             }
         } else {
-            // Cache miss, fetch from database
-            let row_result =
-                sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>, bool)>(
-                    r#"
-                    SELECT
-                        error_handler,
-                        error_handler_extra_args,
-                        error_handler_muted_on_cancel
-                    FROM
-                        workspace_settings
-                    WHERE
-                        workspace_id = $1
-                "#,
-                )
-                .bind(&w_id)
-                .fetch_optional(db)
-                .await
-                .context("fetching error handler info from workspace_settings")?
-                .ok_or_else(|| {
-                    Error::internal_err(format!("no workspace settings for id {w_id}"))
-                })?;
-
-            // Store in cache with 60s TTL
-            let expiry = now + 60;
+            let row = fetch_error_handler_from_db(db, w_id).await?;
+            let expiry = now + WORKSPACE_HANDLER_CACHE_TTL_SECONDS;
             WORKSPACE_ERROR_HANDLER_CACHE.insert(
                 w_id.clone(),
-                (
-                    row_result.0.clone(),
-                    row_result.1.clone(),
-                    row_result.2,
-                    expiry,
-                ),
+                (row.0.clone(), row.1.clone(), row.2, row.3, expiry),
             );
-            row_result
+            row
         };
 
     if is_canceled && error_handler_muted_on_cancel {
         return Ok(());
+    }
+
+    // Skip error handler for scripts/flows starting with u/
+    if error_handler_muted_on_user_path {
+        if let Some(ref path) = queued_job.runnable_path {
+            if path.starts_with("u/") {
+                return Ok(());
+            }
+        }
     }
 
     if let Some(error_handler) = error_handler {
@@ -1707,6 +1695,79 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
     Ok(())
 }
 
+async fn fetch_success_handler_from_db(
+    db: &Pool<Postgres>,
+    w_id: &str,
+) -> Result<(Option<String>, Option<Json<Box<RawValue>>>), Error> {
+    sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>)>(
+        r#"
+        SELECT
+            success_handler->>'path',
+            (success_handler->'extra_args')::text::json
+        FROM workspace_settings
+        WHERE workspace_id = $1
+        "#,
+    )
+    .bind(w_id)
+    .fetch_optional(db)
+    .await
+    .context("fetching success handler info from workspace_settings")?
+    .ok_or_else(|| Error::internal_err(format!("no workspace settings for id {w_id}")))
+}
+
+pub async fn send_success_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>(
+    queued_job: &MiniCompletedJob,
+    db: &Pool<Postgres>,
+    result: Json<&'a T>,
+) -> Result<(), Error> {
+    let w_id = &queued_job.workspace_id;
+
+    let now = chrono::Utc::now().timestamp();
+    let (success_handler, success_handler_extra_args) =
+        if let Some(cached) = WORKSPACE_SUCCESS_HANDLER_CACHE.get(w_id) {
+            if cached.2 > now {
+                (cached.0.clone(), cached.1.clone())
+            } else {
+                let row = fetch_success_handler_from_db(db, w_id).await?;
+                let expiry = now + WORKSPACE_HANDLER_CACHE_TTL_SECONDS;
+                WORKSPACE_SUCCESS_HANDLER_CACHE.insert(
+                    w_id.clone(),
+                    (row.0.clone(), row.1.clone(), expiry),
+                );
+                row
+            }
+        } else {
+            let row = fetch_success_handler_from_db(db, w_id).await?;
+            let expiry = now + WORKSPACE_HANDLER_CACHE_TTL_SECONDS;
+            WORKSPACE_SUCCESS_HANDLER_CACHE.insert(
+                w_id.clone(),
+                (row.0.clone(), row.1.clone(), expiry),
+            );
+            row
+        };
+
+    if let Some(success_handler) = success_handler {
+        tracing::info!("workspace success handler for job {}", &queued_job.id);
+
+        push_success_handler(
+            db,
+            queued_job.id,
+            queued_job.schedule_path(),
+            queued_job.runnable_path.clone(),
+            queued_job.is_flow(),
+            &queued_job.workspace_id,
+            &success_handler,
+            result,
+            queued_job.started_at,
+            success_handler_extra_args,
+            &queued_job.permissioned_as_email,
+            None,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
 pub async fn handle_maybe_scheduled_job<'c>(
     db: &Pool<Postgres>,
     job: &MiniCompletedJob,
@@ -1721,10 +1782,19 @@ pub async fn handle_maybe_scheduled_job<'c>(
     );
 
     if schedule.enabled && script_path == schedule.script_path {
+        let schedule_authed = windmill_common::auth::fetch_authed_from_permissioned_as(
+            windmill_common::users::username_to_permissioned_as(&schedule.edited_by),
+            schedule.email.clone(),
+            w_id,
+            db,
+        )
+        .await
+        .ok();
+
         let push_next_job_future = (|| {
             tokio::time::timeout(std::time::Duration::from_secs(5), async {
                 let mut tx = db.begin().await?;
-                tx = push_scheduled_job(db, tx, &schedule, None, Some(job.scheduled_for)).await?;
+                tx = push_scheduled_job(db, tx, &schedule, schedule_authed.as_ref(), Some(job.scheduled_for)).await?;
                 tx.commit().await?;
                 Ok::<(), Error>(())
             })
@@ -1946,6 +2016,91 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         Some(job_id),
         None,
         Some(job_id),
+        None,
+        false,
+        false,
+        None,
+        true,
+        tag,
+        None,
+        None,
+        priority,
+        None,
+        false,
+        None,
+        None,
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    return Ok(uuid);
+}
+
+pub async fn push_success_handler<'a, 'c, T: Serialize + Send + Sync>(
+    db: &Pool<Postgres>,
+    job_id: Uuid,
+    schedule_path: Option<String>,
+    script_path: Option<String>,
+    is_flow: bool,
+    w_id: &str,
+    on_success_path: &str,
+    result: Json<&'a T>,
+    started_at: Option<DateTime<Utc>>,
+    extra_args: Option<Json<Box<RawValue>>>,
+    email: &str,
+    priority: Option<i16>,
+) -> windmill_common::error::Result<Uuid> {
+    let (payload, tag, on_behalf_of) =
+        get_payload_tag_from_prefixed_path(on_success_path, db, w_id).await?;
+
+    let mut extra = HashMap::new();
+    if let Some(schedule_path) = schedule_path {
+        extra.insert("schedule_path".to_string(), to_raw_value(&schedule_path));
+    }
+    extra.insert("workspace_id".to_string(), to_raw_value(&w_id));
+    extra.insert("job_id".to_string(), to_raw_value(&job_id));
+    extra.insert("path".to_string(), to_raw_value(&script_path));
+    extra.insert("is_flow".to_string(), to_raw_value(&is_flow));
+    extra.insert("started_at".to_string(), to_raw_value(&started_at));
+    extra.insert("email".to_string(), to_raw_value(&email));
+
+    if let Some(args_v) = extra_args {
+        if let Ok(args_m) = serde_json::from_str::<HashMap<String, Box<RawValue>>>(args_v.get()) {
+            extra.extend(args_m);
+        } else {
+            return Err(error::Error::ExecutionErr(
+                "args of scripts needs to be dict".to_string(),
+            ));
+        }
+    }
+
+    let result = sanitize_result(result);
+
+    let (email, permissioned_as) = if let Some(on_behalf_of) = on_behalf_of.as_ref() {
+        (
+            on_behalf_of.email.as_str(),
+            on_behalf_of.permissioned_as.clone(),
+        )
+    } else {
+        (SUCCESS_HANDLER_USER_EMAIL, SUCCESS_HANDLER_USER_GROUP.to_string())
+    };
+
+    let tx = PushIsolationLevel::IsolatedRoot(db.clone());
+    let (uuid, tx) = push(
+        &db,
+        tx,
+        w_id,
+        payload,
+        PushArgs { extra: Some(extra), args: &result },
+        SUCCESS_HANDLER_USERNAME,
+        email,
+        permissioned_as,
+        Some(&format!("success.handler.{job_id}")),
+        None,
+        None,
+        Some(job_id), // parent_job
+        Some(job_id), // root_job
+        Some(job_id), // flow_innermost_root_job
         None,
         false,
         false,
@@ -2622,7 +2777,7 @@ impl PulledJobResult {
                 .is_some();
 
         if (is_djob_to_debounce || debounce_delay_s.filter(|x| *x > 0).is_some())
-            && *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await
+            && MIN_VERSION_SUPPORTS_DEBOUNCING.met().await
             && !*WMDEBUG_NO_DEBOUNCING
         {
             let needs_debounce = sqlx::query_scalar!(
@@ -2646,7 +2801,7 @@ impl PulledJobResult {
             }
 
             if matches!(kind, JobKind::FlowDependencies | JobKind::AppDependencies)
-                && !*MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
+                && !MIN_VERSION_SUPPORTS_DEBOUNCING_V2.met().await
                 && !*WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT
             {
                 // Simply disable optimization for apps and flows if min version doesn't support debouncing v2
@@ -3240,7 +3395,7 @@ pub async fn check_debouncing_within_limits(
 ) -> DebouncingLimitsReport {
     use DebouncingLimitsReport::*;
 
-    let no_legacy_compat = *MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
+    let no_legacy_compat = MIN_VERSION_SUPPORTS_DEBOUNCING_V2.met().await
         || *WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT;
 
     if !no_legacy_compat {
@@ -4309,7 +4464,7 @@ pub async fn push<'c, 'd>(
             let status = Some(FlowStatus::new(value));
             // Keep inserting `value` if not all workers are updated.
             // Starting at `v1.440`, the value is fetched on pull from the flow node id.
-            let value_o = if !*MIN_VERSION_IS_AT_LEAST_1_440.read().await {
+            let value_o = if !MIN_VERSION_IS_AT_LEAST_1_440.met().await {
                 Some(value.clone())
             } else {
                 // `raw_flow` is fetched on pull.
@@ -4429,7 +4584,7 @@ pub async fn push<'c, 'd>(
 
             // Keep inserting `value` if not all workers are updated.
             // Starting at `v1.440`, the value is fetched on pull from the version id.
-            let value_o = if !*MIN_VERSION_IS_AT_LEAST_1_440.read().await && !skip_compat {
+            let value_o = if !MIN_VERSION_IS_AT_LEAST_1_440.met().await && !skip_compat {
                 let mut ntx = tx.into_tx().await?;
                 // The version has been inserted only within the transaction.
                 let data = cache::flow::fetch_version(&mut *ntx, version).await?;
@@ -4700,7 +4855,7 @@ pub async fn push<'c, 'd>(
             let mut ntx = tx.into_tx().await?;
             // Do not use the lite version unless all workers are updated.
             let data = if *DISABLE_FLOW_SCRIPT
-                || (!*MIN_VERSION_IS_AT_LEAST_1_432.read().await && !*CLOUD_HOSTED)
+                || (!MIN_VERSION_IS_AT_LEAST_1_432.met().await && !*CLOUD_HOSTED)
             {
                 cache::flow::fetch_version(&mut *ntx, version).await
             } else {
@@ -4738,7 +4893,7 @@ pub async fn push<'c, 'd>(
 
             // Keep inserting `value` if not all workers are updated.
             // Starting at `v1.440`, the value is fetched on pull from the version id.
-            let value_o = if !*MIN_VERSION_IS_AT_LEAST_1_440.read().await {
+            let value_o = if !MIN_VERSION_IS_AT_LEAST_1_440.met().await {
                 let mut value = value;
                 add_virtual_items_if_necessary(&mut value.modules);
                 if same_worker {
@@ -4823,7 +4978,7 @@ pub async fn push<'c, 'd>(
             let cache_ttl = value.cache_ttl.map(|x| x as i32);
             // Keep inserting `value` if not all workers are updated.
             // Starting at `v1.440`, the value is fetched on pull from the version id.
-            let value_o = if version.is_none() || !*MIN_VERSION_IS_AT_LEAST_1_440.read().await {
+            let value_o = if version.is_none() || !MIN_VERSION_IS_AT_LEAST_1_440.met().await {
                 Some(value.clone())
             } else {
                 // `raw_flow` is fetched on pull.
@@ -4875,7 +5030,7 @@ pub async fn push<'c, 'd>(
         cfg!(feature = "private")
             && job_kind.is_dependency()
             && !*WMDEBUG_NO_DEBOUNCING
-            && *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await,
+            && MIN_VERSION_SUPPORTS_DEBOUNCING.met().await,
     ) {
         concurrency_settings.concurrency_key = Some(format!("dependency:{workspace_id}/{path}"));
         concurrency_settings.concurrent_limit = Some(1);

@@ -67,10 +67,9 @@
 	import { SettingService, WorkspaceService } from '$lib/gen'
 	import type { GetSettingsResponse } from '$lib/gen'
 
-	import { workspaceStore } from '$lib/stores'
+	import { globalDbManagerDrawer, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import ExploreAssetButton from '../ExploreAssetButton.svelte'
-	import DbManagerDrawer from '../DBManagerDrawer.svelte'
 	import Tooltip from '../Tooltip.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
@@ -179,7 +178,7 @@
 			'Where the data is actually stored, in parquet format. You need to configure a workspace storage first'
 	}
 
-	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
+	let dbManagerDrawer = $derived(globalDbManagerDrawer.val)
 	let confirmationModal = createAsyncConfirmationModal()
 </script>
 
@@ -202,7 +201,7 @@
 	</div>
 {/if}
 
-<DataTable>
+<DataTable containerClass="ducklake-settings-table">
 	<Head>
 		<tr>
 			{#each tableHeadNames as name, i}
@@ -235,7 +234,11 @@
 							<code class="px-1 py-0.5 border rounded-md">ATTACH 'ducklake' AS dl;</code> shorthand
 						</Tooltip>
 					{/if}
-					<TextInput bind:value={ducklake.name} inputProps={{ placeholder: 'Name' }} />
+					<TextInput
+						bind:value={ducklake.name}
+						inputProps={{ placeholder: 'Name' }}
+						class="ducklake-name"
+					/>
 				</Cell>
 				<Cell>
 					<div class="flex gap-2">
@@ -309,11 +312,12 @@
 									else delete ducklake.storage.storage
 								}
 							}
-							class="w-48"
+							class="ducklake-workspace-storage-select w-48"
 							inputClass="!placeholder-secondary"
 						/>
 						<TextInput
 							inputProps={{ placeholder: 'Data path (defaults to /)' }}
+							class="ducklake-storage-data-path"
 							bind:value={ducklake.storage.path}
 						/>
 					</div>
@@ -389,6 +393,5 @@
 >
 	Save ducklake settings
 </Button>
-<DbManagerDrawer bind:this={dbManagerDrawer} />
 
 <ConfirmationModal {...confirmationModal.props} />

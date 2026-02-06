@@ -62,12 +62,11 @@
 	import { random_adj } from '../random_positive_adjetive'
 	import { sendUserToast } from '$lib/toast'
 	import { SettingService, WorkspaceService, type GetSettingsResponse } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { globalDbManagerDrawer, workspaceStore } from '$lib/stores'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { resource } from 'runed'
 	import CustomInstanceDbSelect from './CustomInstanceDbSelect.svelte'
-	import DBManagerDrawer from '../DBManagerDrawer.svelte'
 	import { Popover } from '../meltComponents'
 	import ExploreAssetButton from '../ExploreAssetButton.svelte'
 	import { deepEqual } from 'fast-equals'
@@ -140,7 +139,7 @@
 	}
 
 	let confirmationModal = createAsyncConfirmationModal()
-	let dbManagerDrawer: DBManagerDrawer | undefined = $state()
+	let dbManagerDrawer = $derived(globalDbManagerDrawer.val)
 	let dirtyMap = $derived.by(() => {
 		const map: Record<string, boolean> = {}
 		for (let i = 0; i < tempSettings.dataTables.length; i++) {
@@ -192,7 +191,7 @@
 		{#each tempSettings.dataTables as dataTable, dataTableIndex}
 			<Row>
 				<Cell first class="w-48 relative">
-					<TextInput bind:value={dataTable.name} inputProps={{ placeholder: 'Name' }} />
+					<TextInput bind:value={dataTable.name} inputProps={{ placeholder: 'Name', id: 'name' }} />
 				</Cell>
 				<Cell>
 					<div class="flex gap-2">
@@ -221,6 +220,7 @@
 										}
 									}
 								}
+								id="database-type-select"
 								class="w-28"
 							/>
 						</div>
@@ -289,4 +289,3 @@
 <Button wrapperClasses="mt-4 mb-16 max-w-fit" on:click={onSave} variant="accent">Save</Button>
 
 <ConfirmationModal {...confirmationModal.props} />
-<DBManagerDrawer bind:this={dbManagerDrawer} />

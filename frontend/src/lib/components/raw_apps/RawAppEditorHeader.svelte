@@ -4,14 +4,18 @@
 	import UndoRedo from '$lib/components/common/button/UndoRedo.svelte'
 
 	import { AppService, DraftService, type Policy } from '$lib/gen'
-	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { rawAppToHubUrl } from '$lib/hub'
+	import { enterpriseLicense, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
+	import JSZip from 'jszip'
+	import YAML from 'yaml'
 	import {
 		Bug,
 		DiffIcon,
+		Download,
+		EllipsisVertical,
 		FileJson,
-		FileUp,
+		Globe,
 		History,
-		MoreVertical,
 		Pen,
 		Save,
 		WandSparkles
@@ -48,7 +52,7 @@
 	import { aiChatManager } from '../copilot/chat/AIChatManager.svelte'
 	import { AIBtnClasses } from '../copilot/chat/AIButtonStyle'
 	import type { RawAppData } from './dataTableRefUtils'
-	
+
 	// async function hash(message) {
 	// 	try {
 	// 		const msgUint8 = new TextEncoder().encode(message) // encode as (utf-8) Uint8Array
@@ -143,7 +147,39 @@
 	let draftDrawerOpen = $state(false)
 	let saveDrawerOpen = $state(false)
 	let historyBrowserDrawerOpen = $state(false)
+	let publishToHubDrawerOpen = $state(false)
+	let publishingToHub = $state(false)
 	let deploymentMsg: string | undefined = $state(undefined)
+
+	async function publishToHub() {
+		if (!app) return
+		publishingToHub = true
+		try {
+			const { js, css } = await getBundle()
+			const zip = new JSZip()
+			zip.file('app.yaml', YAML.stringify(app))
+			zip.file('bundle.js', js)
+			zip.file('bundle.css', css)
+			const blob = await zip.generateAsync({ type: 'blob' })
+
+			// Download the zip
+			const url = window.URL.createObjectURL(blob)
+			const a = document.createElement('a')
+			a.href = url
+			a.download = `${(appPath || 'raw-app').replaceAll('/', '__')}.zip`
+			a.click()
+			setTimeout(() => URL.revokeObjectURL(url), 100)
+
+			// Open hub page
+			const hubUrl = rawAppToHubUrl(
+				$hubBaseUrlStore,
+				summary || appPath.split('/').pop()?.replace('_', ' ') || 'my raw app'
+			)
+			window.open(hubUrl.toString(), '_blank')
+		} finally {
+			publishingToHub = false
+		}
+	}
 
 	function closeSaveDrawer() {
 		saveDrawerOpen = false
@@ -161,6 +197,9 @@
 		if (!app) {
 			sendUserToast(`App hasn't been loaded yet`, true)
 			return
+		}
+		if (!policy.execution_mode) {
+			policy.execution_mode = 'publisher'
 		}
 		await computeTriggerables()
 		try {
@@ -266,6 +305,9 @@
 		}
 		const { js, css } = await getBundle()
 		await computeTriggerables()
+		if (!policy.execution_mode) {
+			policy.execution_mode = 'publisher'
+		}
 		await AppService.updateAppRaw({
 			workspace: $workspaceStore!,
 			path: appPath!,
@@ -532,11 +574,10 @@
 			}
 		},
 		{
-			displayName: 'Hub compatible JSON',
-			icon: FileUp,
+			displayName: 'Publish to Hub',
+			icon: Globe,
 			action: () => {
-				sendUserToast('todo')
-				// appExport.open(toStatic(app, $staticExporter, summary).app)
+				publishToHubDrawerOpen = true
 			}
 		},
 		{
@@ -620,19 +661,26 @@
 						startIcon={{ icon: Save }}
 						disabled={pathError != '' || app == undefined}
 						on:click={() => saveInitialDraft()}
+						unifiedSize="md"
+						variant="accent"
 					>
 						Save initial draft
 					</Button>
 				</div>
 			{/snippet}
-			<AppEditorHeaderDeployInitialDraft {summary} {appPath} bind:pathError bind:newEditedPath />
+			<AppEditorHeaderDeployInitialDraft
+				bind:summary
+				bind:appPath
+				bind:pathError
+				bind:newEditedPath
+			/>
 		</DrawerContent>
 	</Drawer>
 {/if}
 <Drawer bind:open={saveDrawerOpen} size="800px">
 	<DrawerContent title="Deploy" on:close={() => closeSaveDrawer()}>
 		{#snippet actions()}
-			<div class="flex flex-row gap-4">
+			<div class="flex flex-row gap-2">
 				<Button
 					variant="default"
 					disabled={!savedApp || savedApp.draft_only}
@@ -675,6 +723,8 @@
 					</div>
 				</Button>
 				<Button
+					variant="accent"
+					unifiedSize="md"
 					startIcon={{ icon: Save }}
 					disabled={pathError != '' || customPathError != '' || app == undefined}
 					on:click={() => {
@@ -697,13 +747,12 @@
 			{appPath}
 			{onLatest}
 			{savedApp}
-			{summary}
+			bind:summary
 			bind:customPath
 			bind:deploymentMsg
 			bind:customPathError
 			bind:pathError
 			bind:newEditedPath
-			hideSecretUrl={true}
 		/>
 	</DrawerContent>
 </Drawer>
@@ -711,6 +760,42 @@
 <Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
 	<DrawerContent title="Deployment History" on:close={() => (historyBrowserDrawerOpen = false)}>
 		<DeploymentHistory on:restore {appPath} />
+	</DrawerContent>
+</Drawer>
+
+<Drawer bind:open={publishToHubDrawerOpen} size="600px">
+	<DrawerContent title="Publish to Hub" on:close={() => (publishToHubDrawerOpen = false)}>
+		{#snippet actions()}
+			<Button
+				loading={publishingToHub}
+				disabled={!app}
+				on:click={publishToHub}
+				variant="accent"
+				startIcon={{ icon: Download }}
+			>
+				Download & open hub
+			</Button>
+		{/snippet}
+		<div class="flex flex-col gap-4">
+			<p class="text-secondary text-sm">
+				This will download a zip file containing your raw app bundle and open the Windmill Hub
+				submission page.
+			</p>
+			<div class="text-sm">
+				<p class="font-semibold mb-2">The zip file will contain:</p>
+				<ul class="list-disc list-inside text-secondary space-y-1">
+					<li
+						><code class="text-xs bg-surface-secondary px-1 rounded">app.yaml</code> - App configuration</li
+					>
+					<li
+						><code class="text-xs bg-surface-secondary px-1 rounded">bundle.js</code> - JavaScript bundle</li
+					>
+					<li
+						><code class="text-xs bg-surface-secondary px-1 rounded">bundle.css</code> - CSS styles</li
+					>
+				</ul>
+			</div>
+		</div>
 	</DrawerContent>
 </Drawer>
 
@@ -729,7 +814,7 @@
 />
 
 <div
-	class="border-b flex flex-row justify-between py-1 gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto min-h-10"
+	class="border-b flex flex-row justify-between py-1 gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto min-h-10 shrink-0"
 >
 	<div class="flex flex-row gap-2 items-center">
 		<Summary bind:value={summary} />
@@ -781,11 +866,13 @@
 	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
 		<DropdownV2 items={moreItems} class="h-auto">
 			{#snippet buttonReplacement()}
-				<Button nonCaptureEvent size="xs" color="light">
-					<div class="flex flex-row items-center">
-						<MoreVertical size={14} />
-					</div>
-				</Button>
+				<Button
+					nonCaptureEvent
+					unifiedSize="md"
+					variant="subtle"
+					startIcon={{ icon: EllipsisVertical }}
+					iconOnly
+				></Button>
 			{/snippet}
 		</DropdownV2>
 
@@ -795,8 +882,8 @@
 					jobsDrawerOpen = true
 				}}
 				color="light"
-				size="xs"
-				variant="border"
+				unifiedSize="md"
+				variant="default"
 				btnClasses="relative"
 			>
 				<div class="flex flex-row gap-1 items-center">
@@ -811,8 +898,7 @@
 		</div>
 		<AppExportButton bind:this={appExport} />
 		<Button
-			unifiedSized="sm"
-			color="light"
+			unifiedSize="md"
 			variant="default"
 			onClick={() => aiChatManager.toggleOpen()}
 			startIcon={{ icon: WandSparkles }}
@@ -825,7 +911,8 @@
 			loading={loading.save}
 			startIcon={{ icon: Save }}
 			on:click={() => saveDraft()}
-			size="xs"
+			unifiedSize="md"
+			variant="default"
 			disabled={!newApp && !savedApp}
 			shortCut={{ key: 'S' }}
 		>
@@ -835,7 +922,8 @@
 			loading={loading.save}
 			startIcon={{ icon: Save }}
 			on:click={save}
-			size="xs"
+			unifiedSize="md"
+			variant="accent"
 			dropdownItems={appPath != ''
 				? () => [
 						{

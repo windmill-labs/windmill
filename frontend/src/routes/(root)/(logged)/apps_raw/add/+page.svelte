@@ -24,15 +24,7 @@
 	import Select from '$lib/components/select/Select.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import {
-		AlertTriangle,
-		Sparkles,
-		ArrowRight,
-		Plus,
-		List,
-		Ban,
-		ExternalLinkIcon
-	} from 'lucide-svelte'
+	import { Sparkles, Plus, List, Ban, ExternalLinkIcon } from 'lucide-svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import RawAppDataTableList from '$lib/components/raw_apps/RawAppDataTableList.svelte'
@@ -41,17 +33,20 @@
 	import { copilotInfo } from '$lib/aiStore'
 	import { aiChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { Alert } from '$lib/components/common'
+	import { AIBtnClasses } from '$lib/components/copilot/chat/AIButtonStyle'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 	const templatePath = $page.url.searchParams.get('template')
 	const templateId = $page.url.searchParams.get('template_id')
+	const hubId = $page.url.searchParams.get('hub')
 
 	const importRaw = $importStore
 	if ($importStore) {
 		$importStore = undefined
 	}
 
-	const appState = nodraft ? undefined : localStorage.getItem('rawapp')
+	const appState = nodraft || hubId ? undefined : localStorage.getItem('rawapp')
 
 	let summary = $state('')
 	let files: Record<string, string> = $state(react19Template)
@@ -149,7 +144,18 @@
 			console.log('App loaded from template id')
 			sendUserToast('App loaded from template')
 			goto('?', { replaceState: true })
-		} else if (!templatePath && appState) {
+		} else if (hubId) {
+			const hub = await AppService.getHubRawAppById({ id: Number(hubId) })
+			if (hub.app?.value) {
+				extractValue(hub.app.value)
+			}
+			if (hub.app?.summary) {
+				summary = hub.app.summary
+			}
+			console.log('App loaded from Hub')
+			sendUserToast('App loaded from Hub')
+			goto('?', { replaceState: true })
+		} else if (!templatePath && !hubId && appState) {
 			console.log('App loaded from browser stored autosave')
 			sendUserToast('App restored from browser stored autosave', false, [
 				{
@@ -366,7 +372,7 @@
 		<div class="flex flex-col gap-6 min-w-sm">
 			<!-- Summary -->
 			<div>
-				<h2 class="text-sm font-medium text-primary mb-2">Summary</h2>
+				<h2 class="text-xs font-semibold text-emphasis mb-1">Summary</h2>
 				<TextInput
 					bind:value={appSummary}
 					inputProps={{
@@ -376,118 +382,117 @@
 			</div>
 
 			<!-- Template Selection -->
-			<div class="border-t pt-4">
-				<h2 class="text-sm font-medium text-primary mb-2">Framework</h2>
+			<div class="pt-6">
+				<h2 class="text-xs font-semibold text-emphasis mb-1">Framework</h2>
 				<div class="flex flex-wrap gap-3">
 					{#each templates as t, i}
 						<button
 							onclick={() => (selectedTemplateIndex = i)}
 							class="w-24 h-24 flex justify-between py-5 flex-col {selectedTemplateIndex === i
-								? 'bg-surface-selected ring-2 ring-blue-500'
+								? 'bg-surface-accent-selected border border-accent'
 								: ''} hover:bg-surface-hover border rounded-lg transition-all"
 						>
 							<div class="w-full flex items-center justify-center">
-								<FileEditorIcon file={'.' + t.icon} />
+								<FileEditorIcon file={'.' + t.icon} size={32} />
 							</div>
-							<div class="center-center w-full text-sm">{t.name}</div>
+							<div class="center-center w-full text-sm text-secondary">{t.name}</div>
 						</button>
 					{/each}
 				</div>
 			</div>
 
 			<!-- Data Configuration -->
-			<div class="border-t pt-4">
-				<h2 class="text-sm font-medium text-primary mb-3">Data Configuration</h2>
+			<div class="pt-6">
+				<h2 class="text-xs font-semibold text-emphasis mb-1">Data configuration</h2>
 
 				{#if hasNoDatatables}
-					<div
-						class="flex items-center gap-2 p-3 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800"
-					>
-						<AlertTriangle size={16} class="text-yellow-600 dark:text-yellow-400 shrink-0" />
-						<div class="text-sm text-yellow-800 dark:text-yellow-200">
-							<span class="font-medium">No datatables configured.</span>
-							You can still create an app, but for data storage you won't be able to use data tables
-							which are <b>HIGHLY RECOMMENDED</b>.
-							<br />
+					<Alert type="warning" title="No datatables configured.">
+						You can still create an app, but for data storage you won't be able to use data tables
+						which are <b>highly recommended</b>.
+						<br />
 
-							{#if $userStore?.is_admin}
-								Configure datatables in
-								<a
-									href="/workspace/settings?tab=windmill_data_tables"
-									target="_blank"
-									class="inline-flex items-center gap-1"
-									>workspace settings <ExternalLinkIcon size={16} />
-								</a> to enable this feature.
-							{:else}
-								<b>
-									Ask your workspace admin to configure datatables in workspace settings to enable
-									this feature.
-								</b>
-							{/if}
-						</div>
-					</div>
+						{#if $userStore?.is_admin}
+							Configure datatables in
+							<a
+								href="/workspace_settings?tab=windmill_data_tables"
+								target="_blank"
+								class="inline-flex items-center gap-1"
+								>workspace settings <ExternalLinkIcon size={16} />
+							</a> to enable this feature.
+						{:else}
+							Ask your workspace admin to configure datatables in workspace settings to enable this
+							feature.
+						{/if}
+					</Alert>
 				{:else}
 					<div class="flex flex-col gap-4">
 						<!-- Default Datatable & Schema -->
-						<div>
-							<span class="text-xs text-tertiary mb-1 block">Default settings for new tables</span>
-							<div class="flex flex-col gap-1">
-								<div class="flex gap-2 items-center">
-									<Select
-										transformInputSelectedText={(text) => 'datatable: ' + text}
-										disablePortal
-										items={datatableItems}
-										bind:value={selectedDatatable}
-										placeholder="Datatable"
-										size="sm"
-										class="w-40"
-									/>
-								</div>
-								<div>
-									<span class="text-2xs text-tertiary">Schema</span>
+						<div class="flex flex-col gap-1">
+							<span class="text-xs text-secondary mb-1 block">Default settings for new tables</span>
+							<div class="flex flex-col gap-4 rounded-md p-4 border">
+								<div class="flex flex-col gap-4">
+									<div class="flex flex-col gap-1">
+										<label class="text-xs text-emphasis font-semibold" for="datatable"
+											>Datatable</label
+										>
+										<Select
+											id="datatable"
+											disablePortal
+											items={datatableItems}
+											bind:value={selectedDatatable}
+											placeholder="Datatable"
+											size="sm"
+											class="w-40"
+										/>
+									</div>
+									<div>
+										<span class="text-xs text-emphasis font-semibold">Schema</span>
 
-									<div class="flex flex-row gap-1 w-full items-center">
-										<div>
-											<ToggleButtonGroup bind:selected={schemaMode} noWFull>
-												{#snippet children({ item })}
-													<ToggleButton value="none" label="None" icon={Ban} {item} size="sm" />
-													<ToggleButton value="new" label="New" icon={Plus} {item} size="sm" />
-													<ToggleButton
-														value="existing"
-														label="Existing"
-														icon={List}
-														{item}
-														size="sm"
-													/>
-												{/snippet}
-											</ToggleButtonGroup>
-										</div>
-										{#if schemaMode === 'new'}
-											<TextInput
-												bind:value={newSchemaName}
-												inputProps={{
-													placeholder: 'Schema name',
-													oninput: () => (userEditedSchemaName = true)
-												}}
-												class="flex-1"
-												error={newSchemaAlreadyExists}
-											/>
-										{:else if schemaMode === 'existing'}
-											<div class="flex-1">
-												<Select
-													disablePortal
-													items={schemaItems}
-													bind:value={selectedSchema}
-													placeholder="Schema"
+										<div class="flex flex-row gap-1 w-full items-center">
+											<div>
+												<ToggleButtonGroup bind:selected={schemaMode} noWFull>
+													{#snippet children({ item })}
+														<ToggleButton value="none" label="None" icon={Ban} {item} size="sm" />
+														<ToggleButton value="new" label="New" icon={Plus} {item} size="sm" />
+														<ToggleButton
+															value="existing"
+															label="Existing"
+															icon={List}
+															{item}
+															size="sm"
+														/>
+													{/snippet}
+												</ToggleButtonGroup>
+											</div>
+											{#if schemaMode === 'new'}
+												<TextInput
+													bind:value={newSchemaName}
+													inputProps={{
+														placeholder: 'Schema name',
+														oninput: () => (userEditedSchemaName = true)
+													}}
+													class="flex-1"
+													error={newSchemaAlreadyExists}
 													size="sm"
 												/>
-											</div>
+											{:else if schemaMode === 'existing'}
+												<div class="flex-1">
+													<Select
+														disablePortal
+														items={schemaItems}
+														bind:value={selectedSchema}
+														placeholder="Schema"
+														size="sm"
+													/>
+												</div>
+											{/if}
+										</div>
+										{#if newSchemaAlreadyExists}
+											<span class="text-xs text-red-500"
+												>Schema "{newSchemaName}" already exists</span
+											>
 										{/if}
 									</div>
-									{#if newSchemaAlreadyExists}
-										<span class="text-xs text-red-500">Schema "{newSchemaName}" already exists</span
-										>
-									{/if}
 								</div>
 							</div>
 						</div>
@@ -502,7 +507,7 @@
 						</div>
 
 						<!-- Pre-whitelisted Tables -->
-						<div class="border-t pt-3">
+						<div class="pt-6">
 							<RawAppDataTableList
 								dataTableRefs={preWhitelistedTables}
 								defaultDatatable={selectedDatatable}
@@ -520,38 +525,30 @@
 			</div>
 
 			<!-- AI Prompt (Optional) -->
-			<div class="border-t pt-4">
-				<h2 class="text-sm font-medium text-primary mb-2 flex items-center gap-2">
-					<Sparkles size={16} class="text-blue-500" />
+			<div class="pt-6">
+				<h2 class="text-xs font-semibold text-emphasis mb-1 flex items-center gap-2">
+					<Sparkles size={16} class="text-ai" />
 					Start with AI
 					<span class="text-xs font-normal text-tertiary">(optional)</span>
 				</h2>
 
 				{#if !isAiEnabled}
-					<div
-						class="flex items-center gap-2 p-3 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700"
-					>
-						<AlertTriangle size={16} class="text-gray-500 shrink-0" />
-						<div class="text-sm text-tertiary">
-							AI is not configured for this workspace. You can still create an app manually but <b
-								>using AI is highly recommended</b
-							>.
-							<br />
-							{#if $userStore?.is_admin}
-								Configure AI in
-								<a
-									href="/workspace/settings?tab=ai"
-									target="_blank"
-									class="inline-flex items-center gap-1"
-									>workspace settings <ExternalLinkIcon size={16} />
-								</a>
-								to enable this feature.
-							{:else}
-								Ask your workspace admin to configure AI in workspace settings to enable this
-								feature.
-							{/if}
-						</div>
-					</div>
+					<Alert type="info" title="AI is not configured for this workspace.">
+						You can still create an app manually but using AI is highly recommended.
+						<br />
+						{#if $userStore?.is_admin}
+							Configure AI in
+							<a
+								href="/workspace_settings?tab=ai"
+								target="_blank"
+								class="inline-flex items-center gap-1 font-semibold"
+								>workspace settings <ExternalLinkIcon size={16} />
+							</a>
+							to enable this feature.
+						{:else}
+							Ask your workspace admin to configure AI in workspace settings to enable this feature.
+						{/if}
+					</Alert>
 				{:else}
 					<div class="flex flex-col gap-2">
 						<TextInput
@@ -572,9 +569,9 @@
 			</div>
 
 			<!-- Actions -->
-			<div class="border-t pt-4 flex justify-end gap-3">
+			<div class="pt-6 flex justify-end gap-3">
 				<Button
-					color="light"
+					variant="default"
 					size="sm"
 					on:click={() => startApp(false)}
 					disabled={!templates[selectedTemplateIndex] || newSchemaAlreadyExists}
@@ -583,14 +580,13 @@
 				</Button>
 				{#if isAiEnabled}
 					<Button
-						color="blue"
-						size="sm"
+						variant="accent"
 						on:click={() => startApp(true)}
 						disabled={!templates[selectedTemplateIndex] ||
 							!initialPrompt.trim() ||
 							newSchemaAlreadyExists}
 						startIcon={{ icon: Sparkles }}
-						endIcon={{ icon: ArrowRight }}
+						btnClasses={AIBtnClasses('accent')}
 					>
 						Start with AI
 					</Button>
@@ -604,12 +600,12 @@
 		on:savedNewAppPath={(event) => {
 			goto(`/apps_raw/edit/${event.detail}`)
 		}}
-		initFiles={files}
-		initRunnables={runnables}
-		initData={data}
+		bind:files
+		bind:runnables
+		bind:data
 		{policy}
 		path={''}
-		{summary}
+		bind:summary
 		newApp
 	/>
 {/key}

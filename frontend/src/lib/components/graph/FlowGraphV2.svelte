@@ -256,7 +256,6 @@
 
 	// Function to calculate extra gap needed for notes below the lowest flow nodes
 	function calculateNoteGap(notes: FlowNote[] | undefined): number {
-		console.log('calculateNoteGap', notes)
 		if (!notes || notes.length === 0) {
 			return 0
 		}
@@ -650,6 +649,10 @@
 		]
 
 		await tick()
+		updateHeight()
+	}
+
+	function updateHeight() {
 		if (nodes.length === 0) {
 			height = minHeight
 		} else {
@@ -658,6 +661,11 @@
 			height = Math.max(maxBottom - minY, minHeight)
 		}
 	}
+
+	$effect(() => {
+		minHeight
+		untrack(() => updateHeight())
+	})
 
 	const nodeTypes = {
 		input2: InputNode,
@@ -940,7 +948,7 @@
 				{height}
 				{width}
 				minZoom={0.2}
-				maxZoom={1.2}
+				maxZoom={1.6}
 				connectionLineType={ConnectionLineType.SmoothStep}
 				defaultEdgeOptions={{ type: 'smoothstep' }}
 				preventScrolling={scroll}

@@ -1,3 +1,5 @@
+#[cfg(feature = "bedrock")]
+use crate::ai::providers::bedrock::check_env_credentials;
 use crate::ai::tools::{execute_tool_calls, ToolExecutionContext};
 use crate::ai::utils::{
     add_message_to_conversation, any_tool_needs_previous_result, cleanup_mcp_clients,
@@ -19,7 +21,7 @@ use windmill_mcp::McpClient;
 #[cfg(not(feature = "mcp"))]
 use crate::ai::tools::McpClientStub as McpClient;
 use windmill_common::{
-    ai_providers::AIProvider,
+    ai_providers::{AIProvider},
     cache,
     client::AuthedClient,
     db::DB,
@@ -103,8 +105,17 @@ pub async fn handle_ai_agent_job(
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
     has_stream: &mut bool,
 ) -> Result<Box<RawValue>, Error> {
-    let args = build_args_map(job, client, conn).await?;
+    // build_args_map returns None if no $res:/$var: transforms needed, in which case use original args
+    let args = match build_args_map(job, client, conn).await? {
+        Some(transformed) => transformed,
+        None => job.args.as_ref().map(|a| a.0.clone()).unwrap_or_default(),
+    };
     let args = serde_json::from_str::<AIAgentArgs>(&serde_json::to_string(&args)?)?;
+
+    // Handle dry_run mode - check credentials without making API calls
+    if args.credentials_check {
+        return handle_credentials_check(&args.provider).await;
+    }
 
     let Some(flow_step_id) = &job.flow_step_id else {
         return Err(Error::internal_err(
@@ -294,7 +305,7 @@ pub async fn handle_ai_agent_job(
                     r#type: "function".to_string(),
                     function: ToolDefFunction {
                         name: summary.clone(),
-                        description: None,
+                        description: Some(summary.clone()),
                         parameters: schema.unwrap_or_else(|| {
                             to_raw_value(&serde_json::json!({
                                 "type": "object",
@@ -315,7 +326,8 @@ pub async fn handle_ai_agent_job(
     let mut tools = tools;
 
     let mcp_clients = if !mcp_configs.is_empty() {
-        let (clients, mcp_tools) = load_mcp_tools(db, &job.workspace_id, mcp_configs).await?;
+        let (clients, mcp_tools) =
+            load_mcp_tools(db, &job.workspace_id, mcp_configs, &client.token).await?;
         tools.extend(mcp_tools);
         clients
     } else {
@@ -398,10 +410,14 @@ pub async fn run_agent(
     has_websearch: bool,
 ) -> error::Result<Box<RawValue>> {
     let output_type = args.output_type.as_ref().unwrap_or(&OutputType::Text);
-    let base_url = args.provider.get_base_url(db).await?;
-    let api_key = args.provider.get_api_key();
-    let region = args.provider.get_region();
-
+    // Skip get_base_url for Bedrock - it uses SDK directly, not HTTP
+    let base_url = if args.provider.kind == AIProvider::AWSBedrock {
+        String::new()
+    } else {
+        args.provider.get_base_url(db).await?
+    };
+    let api_key = args.provider.get_api_key().unwrap_or("");
+    
     // Create the query builder for the provider
     let query_builder = create_query_builder(&args.provider);
 
@@ -559,6 +575,7 @@ pub async fn run_agent(
 
     let mut actions = vec![];
     let mut content = None;
+    let mut final_usage: Option<crate::ai::types::TokenUsage> = None;
 
     // Check if this provider supports tools with the current output type
     let supports_tools = query_builder.supports_tools_with_output_type(output_type);
@@ -645,34 +662,38 @@ pub async fn run_agent(
             break;
         }
 
-        // Special handling for AWS Bedrock using the official SDK
+        // Handle AWS Bedrock provider specially using the official SDK
         let parsed = if args.provider.kind == AIProvider::AWSBedrock {
-            let Some(region) = region else {
+            #[cfg(feature = "bedrock")]
+            {
+                let region = args.provider.get_region().unwrap_or(windmill_common::ai_providers::USE_ENV_REGION);
+                // Use Bedrock SDK via dedicated query builder
+                crate::ai::providers::bedrock::BedrockQueryBuilder::default()
+                    .execute_request(
+                        &messages,
+                        tool_defs.as_deref(),
+                        args.provider.get_model(),
+                        args.temperature,
+                        args.max_completion_tokens,
+                        api_key,
+                        region,
+                        stream_event_processor.clone(),
+                        client,
+                        &job.workspace_id,
+                        structured_output_tool_name.as_deref(),
+                        args.provider.get_aws_access_key_id(),
+                        args.provider.get_aws_secret_access_key(),
+                    )
+                    .await?
+            }
+            #[cfg(not(feature = "bedrock"))]
+            {
                 return Err(Error::internal_err(
-                    "AWS Bedrock region is required".to_string(),
+                    "AWS Bedrock support is not enabled. Build with 'bedrock' feature.".to_string(),
                 ));
-            };
-            // Use Bedrock SDK via dedicated query builder
-            // Always use streaming for text output
-            crate::ai::providers::bedrock::BedrockQueryBuilder::default()
-                .execute_request(
-                    &messages,
-                    tool_defs.as_deref(),
-                    args.provider.get_model(),
-                    args.temperature,
-                    args.max_completion_tokens,
-                    api_key,
-                    region,
-                    stream_event_processor.clone(),
-                    client,
-                    &job.workspace_id,
-                    structured_output_tool_name.as_deref(),
-                    args.provider.get_aws_access_key_id(),
-                    args.provider.get_aws_secret_access_key(),
-                )
-                .await?
+            }
         } else {
-            // For non-Bedrock providers, use HTTP client
+            // For all other providers, use the HTTP client approach
             let build_args = BuildRequestArgs {
                 messages: &messages,
                 tools: tool_defs.as_deref(),
@@ -687,7 +708,6 @@ pub async fn run_agent(
                 has_websearch,
             };
 
-            // Always use streaming for text output
             let request_body = query_builder
                 .build_request(&build_args, client, &job.workspace_id)
                 .await?;
@@ -700,45 +720,88 @@ pub async fn run_agent(
                 .await
                 .0;
 
-            let mut request = HTTP_CLIENT
-                .post(&endpoint)
-                .timeout(timeout)
-                .header("Content-Type", "application/json");
+            // Helper to build HTTP request with headers
+            let build_http_request = |body: String| {
+                let mut req = HTTP_CLIENT
+                    .post(&endpoint)
+                    .timeout(timeout)
+                    .header("Content-Type", "application/json");
 
-            // Apply authentication headers
-            for (header_name, header_value) in &auth_headers {
-                request = request.header(*header_name, header_value.clone());
-            }
+                for (header_name, header_value) in &auth_headers {
+                    req = req.header(*header_name, header_value.clone());
+                }
 
-            // Apply custom headers from AI_HTTP_HEADERS environment variable
-            for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
-                request = request.header(header_name.as_str(), header_value.as_str());
-            }
+                for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
+                    req = req.header(header_name.as_str(), header_value.as_str());
+                }
 
-            let resp = request
-                .body(request_body)
+                req.body(body)
+            };
+
+            let resp = build_http_request(request_body.clone())
                 .send()
                 .await
                 .map_err(|e| Error::internal_err(format!("Failed to call API: {}", e)))?;
 
-            match resp.error_for_status_ref() {
-                Ok(_) => {
-                    if let Some(ref stream_event_processor) = stream_event_processor {
-                        query_builder
-                            .parse_streaming_response(resp, stream_event_processor.clone())
-                            .await?
-                    } else {
-                        query_builder.parse_image_response(resp).await?
-                    }
-                }
+            // Check if request failed and we should retry without stream_options
+            let resp = match resp.error_for_status_ref() {
+                Ok(_) => resp,
                 Err(e) => {
-                    let _status = resp.status();
+                    let status = resp.status();
                     let text = resp
                         .text()
                         .await
                         .unwrap_or_else(|_| "<failed to read body>".to_string());
-                    return Err(Error::internal_err(format!("API error: {} - {}", e, text)));
+
+                    // Retry without stream_options if provider supports it and error suggests incompatibility
+                    // Common error patterns: 400 Bad Request with mentions of stream_options or include_usage
+                    let should_retry = query_builder.supports_retry_without_usage()
+                        && status.as_u16() == 400
+                        && (text.contains("stream_options")
+                            || text.contains("include_usage")
+                            || text.contains("Additional properties are not allowed"));
+
+                    if should_retry {
+                        tracing::info!(
+                            "Retrying request without stream_options due to provider incompatibility"
+                        );
+
+                        let retry_body = query_builder
+                            .build_request_without_usage(&build_args, client, &job.workspace_id)
+                            .await?;
+
+                        let retry_resp = build_http_request(retry_body)
+                            .send()
+                            .await
+                            .map_err(|e| {
+                                Error::internal_err(format!("Failed to call API on retry: {}", e))
+                            })?;
+
+                        match retry_resp.error_for_status_ref() {
+                            Ok(_) => retry_resp,
+                            Err(retry_e) => {
+                                let retry_text = retry_resp
+                                    .text()
+                                    .await
+                                    .unwrap_or_else(|_| "<failed to read body>".to_string());
+                                return Err(Error::internal_err(format!(
+                                    "API error on retry: {} - {}",
+                                    retry_e, retry_text
+                                )));
+                            }
+                        }
+                    } else {
+                        return Err(Error::internal_err(format!("API error: {} - {}", e, text)));
+                    }
                 }
+            };
+
+            if let Some(ref stream_event_processor) = stream_event_processor {
+                query_builder
+                    .parse_streaming_response(resp, stream_event_processor.clone())
+                    .await?
+            } else {
+                query_builder.parse_image_response(resp).await?
             }
         };
 
@@ -749,7 +812,15 @@ pub async fn run_agent(
                 events_str,
                 annotations,
                 used_websearch,
+                usage,
             } => {
+                // Accumulate usage from this iteration
+                if let Some(u) = usage {
+                    match &mut final_usage {
+                        Some(existing) => existing.accumulate(&u),
+                        None => final_usage = Some(u),
+                    }
+                }
                 if let Some(events_str) = events_str {
                     final_events_str.push_str(&events_str);
                 }
@@ -1039,5 +1110,47 @@ pub async fn run_agent(
         } else {
             None
         },
+        usage: if final_usage.as_ref().map(|u| u.is_empty()).unwrap_or(true) {
+            None
+        } else {
+            final_usage
+        },
     }))
+}
+
+/// Handle credentials check mode - check credentials without making API calls
+async fn handle_credentials_check(provider: &ProviderWithResource) -> Result<Box<RawValue>, Error> {
+    let result = match &provider.kind {
+        #[cfg(feature = "bedrock")]
+        AIProvider::AWSBedrock => {
+            let check = check_env_credentials().await;
+            serde_json::json!({
+                "credentials_check": true,
+                "provider": "aws_bedrock",
+                "credentials": {
+                    "available": check.available,
+                    "access_key_id_prefix": check.access_key_id_prefix,
+                    "region": check.region,
+                    "error": check.error
+                }
+            })
+        }
+        #[cfg(not(feature = "bedrock"))]
+        AIProvider::AWSBedrock => {
+            serde_json::json!({
+                "credentials_check": true,
+                "provider": "aws_bedrock",
+                "error": "AWS Bedrock support is not enabled. Build with 'bedrock' feature."
+            })
+        }
+        other => {
+            serde_json::json!({
+                "credentials_check": true,
+                "provider": format!("{:?}", other),
+                "message": "Credentials check not implemented for this provider"
+            })
+        }
+    };
+
+    serde_json::value::to_raw_value(&result).map_err(|e| Error::internal_err(e.to_string()))
 }

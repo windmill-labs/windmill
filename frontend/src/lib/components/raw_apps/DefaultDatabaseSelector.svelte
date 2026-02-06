@@ -9,6 +9,7 @@
 		toDatatableItems,
 		toSchemaItems
 	} from './datatableUtils.svelte'
+	import { Button } from '../common'
 
 	interface Props {
 		/** Currently selected datatable */
@@ -48,15 +49,18 @@
 
 <Popover>
 	<svelte:fragment slot="trigger">
-		<button
-			class="pt-1.5 pb-0.5 px-1 hover:bg-surface-hover rounded transition-colors"
+		<Button
 			title="Configure default datatable & schema"
+			unifiedSize="xs"
+			variant="subtle"
+			nonCaptureEvent
+			btnClasses="px-1"
 		>
-			<Settings size={12} class="text-tertiary" />
-		</button>
+			<Settings size={12} />
+		</Button>
 	</svelte:fragment>
 	<svelte:fragment slot="content">
-		<div class="flex flex-col gap-3 p-2 min-w-64 max-w-80">
+		<div class="flex flex-col gap-3 p-4 min-w-64 max-w-80">
 			<div class="text-xs font-medium text-primary">Default Datatable & Schema</div>
 
 			<p class="text-2xs text-tertiary leading-relaxed">

@@ -51,6 +51,8 @@
 	import { workspaceStore } from '$lib/stores'
 	import { checkIfParentLoop } from '../utils.svelte'
 	import ModulePreviewResultViewer from '$lib/components/ModulePreviewResultViewer.svelte'
+	import LogViewer from '$lib/components/LogViewer.svelte'
+	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 	import AssetsDropdownButton from '$lib/components/assets/AssetsDropdownButton.svelte'
@@ -58,6 +60,26 @@
 	import { editor as meditor } from 'monaco-editor'
 	import { DynamicInput } from '$lib/utils'
 	import { usePreparedAssetSqlQueries } from '$lib/infer.svelte'
+	import { SvelteSet } from 'svelte/reactivity'
+	import { slide } from 'svelte/transition'
+	import {
+		DebugToolbar,
+		DebugPanel,
+		DebugConsole,
+		getDAPClient,
+		debugState,
+		resetDAPClient,
+		getDebugServerUrl,
+		type DebugLanguage,
+		isDebuggable,
+		getDebugFileExtension,
+		fetchContextualVariables,
+		signDebugRequest,
+		getDebugErrorMessage
+	} from '$lib/components/debug'
+	import { AlertTriangle, Bug, Terminal } from 'lucide-svelte'
+	import Modal from '$lib/components/common/modal/Modal.svelte'
+	import { getLocalSetting, sendUserToast, storeLocalSetting } from '$lib/utils'
 
 	const {
 		selectionManager,
@@ -352,6 +374,337 @@
 		() => flowGraphAssetsCtx?.val.sqlQueries[selectedId],
 		() => $workspaceStore
 	)
+
+	// Debug mode state
+	const DEBUG_BETA_WARNING_KEY = 'debug_beta_warning_confirmed'
+	let showDebugBetaWarning = $state(false)
+	let debugMode = $state(false)
+	let debugBreakpoints = new SvelteSet<number>()
+	let breakpointDecorations: string[] = $state([])
+	let currentLineDecoration: string[] = $state([])
+	let dapClient = $state<ReturnType<typeof getDAPClient> | null>(null)
+	let selectedDebugFrameId: number | null = $state(null)
+	let debugSessionJobId: string | null = $state(null)
+	let showDebugConsole = $state(true)
+	let editorPaneSize = $state(75)
+	let consolePaneSize = $state(25)
+
+	// Get the DAP server URL based on language
+	const dapServerUrl = $derived(getDebugServerUrl((rawScriptLang || 'python3') as DebugLanguage))
+	const debugFilePath = $derived(`/tmp/script${getDebugFileExtension(rawScriptLang ?? '')}`)
+	const isDebuggableScript = $derived(isDebuggable(rawScriptLang ?? ''))
+	const showDebugPanel = $derived(
+		debugMode && $debugState.connected && ($debugState.running || $debugState.stopped)
+	)
+	const hasDebugResult = $derived(debugMode && $debugState.result !== undefined)
+	const debugConsoleVisible = $derived(showDebugPanel && showDebugConsole)
+	const currentDebugFrameId = $derived(selectedDebugFrameId ?? $debugState.stackFrames[0]?.id)
+
+	// Breakpoint decoration options
+	const breakpointDecorationType: meditor.IModelDecorationOptions = {
+		glyphMarginClassName: 'debug-breakpoint-glyph',
+		glyphMarginHoverMessage: { value: 'Breakpoint (click to remove)' },
+		stickiness: 1
+	}
+
+	const currentLineDecorationType = {
+		isWholeLine: true,
+		className: 'debug-current-line',
+		glyphMarginClassName: 'debug-current-line-glyph'
+	}
+
+	// Debug functions
+	function toggleBreakpoint(line: number): void {
+		if (debugBreakpoints.has(line)) {
+			debugBreakpoints.delete(line)
+		} else {
+			debugBreakpoints.add(line)
+		}
+		updateBreakpointDecorations()
+	}
+
+	function updateBreakpointDecorations(): void {
+		const monacoEditor = editor?.getEditor?.()
+		if (!monacoEditor) return
+
+		const decorations = Array.from(debugBreakpoints).map((line) => ({
+			range: { startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: 1 },
+			options: breakpointDecorationType
+		}))
+
+		const oldDecorations = untrack(() => breakpointDecorations)
+		breakpointDecorations = monacoEditor.deltaDecorations(oldDecorations, decorations)
+	}
+
+	function refreshBreakpointPositions(): void {
+		const monacoEditor = editor?.getEditor?.()
+		if (!monacoEditor || breakpointDecorations.length === 0) return
+
+		const model = monacoEditor.getModel()
+		if (!model) return
+
+		const newLines = new Set<number>()
+		for (const decorationId of breakpointDecorations) {
+			const range = model.getDecorationRange(decorationId)
+			if (range) {
+				newLines.add(range.startLineNumber)
+			}
+		}
+
+		const oldLines = Array.from(debugBreakpoints).sort((a, b) => a - b)
+		const updatedLines = Array.from(newLines).sort((a, b) => a - b)
+
+		const positionsChanged =
+			oldLines.length !== updatedLines.length ||
+			oldLines.some((line, i) => line !== updatedLines[i])
+
+		if (positionsChanged) {
+			debugBreakpoints.clear()
+			for (const line of newLines) {
+				debugBreakpoints.add(line)
+			}
+			syncBreakpointsWithServer()
+		}
+	}
+
+	async function syncBreakpointsWithServer(): Promise<void> {
+		if (!dapClient || !dapClient.isConnected()) return
+		try {
+			await dapClient.setBreakpoints(debugFilePath, Array.from(debugBreakpoints))
+		} catch (error) {
+			console.error('Failed to sync breakpoints:', error)
+		}
+	}
+
+	function updateCurrentLineDecoration(line: number | undefined): void {
+		const monacoEditor = editor?.getEditor?.()
+		if (!monacoEditor) return
+
+		const oldDecorations = untrack(() => currentLineDecoration)
+
+		if (!line) {
+			currentLineDecoration = monacoEditor.deltaDecorations(oldDecorations, [])
+			return
+		}
+
+		const decorations = [
+			{
+				range: { startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: 1 },
+				options: currentLineDecorationType
+			}
+		]
+
+		currentLineDecoration = monacoEditor.deltaDecorations(oldDecorations, decorations)
+		monacoEditor.revealLineInCenter(line)
+	}
+
+	async function startDebugging(): Promise<void> {
+		if (flowModule.value.type !== 'rawscript') return
+
+		try {
+			showDebugConsole = true
+			selectedDebugFrameId = null
+
+			resetDAPClient()
+			dapClient = getDAPClient(dapServerUrl)
+
+			const env = await fetchContextualVariables($workspaceStore ?? '')
+			const code = flowModule.value.content
+
+			let signedPayload
+			try {
+				signedPayload = await signDebugRequest(
+					$workspaceStore ?? '',
+					code ?? '',
+					rawScriptLang ?? 'python3'
+				)
+				debugSessionJobId = signedPayload.job_id
+			} catch (signError) {
+				sendUserToast(getDebugErrorMessage(signError), true)
+				return
+			}
+
+			// Get static args from input transforms
+			const args = Object.entries(flowModule.value.input_transforms).reduce<
+				Record<string, unknown>
+			>((acc, [key, obj]) => {
+				if (obj.type === 'static') {
+					acc[key] = obj.value
+				}
+				return acc
+			}, {})
+
+			await dapClient.connect()
+			await dapClient.initialize()
+			await dapClient.setBreakpoints(debugFilePath, Array.from(debugBreakpoints))
+			await dapClient.configurationDone()
+			await dapClient.launch({
+				code,
+				cwd: '/tmp',
+				args,
+				callMain: true,
+				env,
+				token: signedPayload.token
+			})
+		} catch (error) {
+			console.error('Failed to start debugging:', error)
+			sendUserToast(getDebugErrorMessage(error), true)
+		}
+	}
+
+	async function stopDebugging(): Promise<void> {
+		if (!dapClient) return
+		try {
+			await dapClient.terminate()
+			dapClient.disconnect()
+		} catch (error) {
+			console.error('Failed to stop debugging:', error)
+		} finally {
+			debugSessionJobId = null
+		}
+	}
+
+	async function continueExecution(): Promise<void> {
+		if (!dapClient) return
+		await dapClient.continue_()
+	}
+
+	async function stepOver(): Promise<void> {
+		if (!dapClient) return
+		await dapClient.stepOver()
+	}
+
+	async function stepIn(): Promise<void> {
+		if (!dapClient) return
+		await dapClient.stepIn()
+	}
+
+	async function stepOut(): Promise<void> {
+		if (!dapClient) return
+		await dapClient.stepOut()
+	}
+
+	function clearAllBreakpoints(): void {
+		debugBreakpoints.clear()
+		updateBreakpointDecorations()
+	}
+
+	function toggleDebugMode(): void {
+		if (debugMode) {
+			// Exiting debug mode - clean up
+			debugMode = false
+			stopDebugging()
+			clearAllBreakpoints()
+			updateCurrentLineDecoration(undefined)
+		} else {
+			// Entering debug mode - check if beta warning was confirmed
+			if (getLocalSetting(DEBUG_BETA_WARNING_KEY) !== 'true') {
+				showDebugBetaWarning = true
+			} else {
+				debugMode = true
+				// Switch to test tab when entering debug mode
+				selected = 'test'
+			}
+		}
+	}
+
+	function confirmDebugBetaWarning(): void {
+		storeLocalSetting(DEBUG_BETA_WARNING_KEY, 'true')
+		showDebugBetaWarning = false
+		debugMode = true
+		// Switch to test tab when entering debug mode
+		selected = 'test'
+	}
+
+	// Subscribe to debug state changes for current line highlighting
+	$effect(() => {
+		const currentLine = $debugState.currentLine
+		if (debugMode) {
+			untrack(() => updateCurrentLineDecoration(currentLine))
+		}
+	})
+
+	// Watch for language changes - exit debug mode when language changes
+	let lastDebugLang: typeof rawScriptLang | undefined = undefined
+	$effect(() => {
+		const currentLang = rawScriptLang
+		if (lastDebugLang !== undefined && lastDebugLang !== currentLang && debugMode) {
+			untrack(() => {
+				if (dapClient) {
+					dapClient
+						.terminate()
+						.catch(() => {})
+						.finally(() => {
+							dapClient?.disconnect()
+						})
+				}
+				resetDAPClient()
+				dapClient = null
+				debugMode = false
+				clearAllBreakpoints()
+				updateCurrentLineDecoration(undefined)
+			})
+		}
+		lastDebugLang = currentLang
+	})
+
+	// Set up glyph margin click handler for breakpoints when debug mode is enabled
+	$effect(() => {
+		const monacoEditor = editor?.getEditor?.()
+		if (!monacoEditor) return
+
+		if (debugMode && isDebuggableScript) {
+			monacoEditor.updateOptions({ glyphMargin: true })
+
+			const mouseDownDisposable = monacoEditor.onMouseDown((e) => {
+				if (e.target.type === 2) {
+					const line = e.target.position?.lineNumber
+					if (line) {
+						toggleBreakpoint(line)
+					}
+				}
+			})
+
+			monacoEditor.addCommand(120, () => {
+				const position = monacoEditor.getPosition()
+				if (position) {
+					toggleBreakpoint(position.lineNumber)
+				}
+			})
+
+			monacoEditor.addCommand(119, () => {
+				if ($debugState.stopped) continueExecution()
+			})
+
+			monacoEditor.addCommand(117, () => {
+				if ($debugState.stopped) stepOver()
+			})
+
+			monacoEditor.addCommand(118, () => {
+				if ($debugState.stopped) stepIn()
+			})
+
+			monacoEditor.addCommand(1143, () => {
+				if ($debugState.stopped) stepOut()
+			})
+
+			return () => {
+				mouseDownDisposable.dispose()
+				monacoEditor.updateOptions({ glyphMargin: false })
+			}
+		} else {
+			monacoEditor.updateOptions({ glyphMargin: false })
+		}
+	})
+
+	// Clean up debug mode on destroy
+	import { onDestroy as onDestroyHook } from 'svelte'
+	onDestroyHook(() => {
+		if (debugMode) {
+			stopDebugging()
+			resetDAPClient()
+		}
+	})
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -464,54 +817,149 @@
 												{#if assets?.length}
 													<AssetsDropdownButton {assets} />
 												{/if}
+												{#if isDebuggableScript && customUi?.editorBar?.debug != false}
+													<Button
+														variant={debugMode ? 'accent' : 'default'}
+														size="xs"
+														onclick={toggleDebugMode}
+														startIcon={{ icon: Bug }}
+														btnClasses={debugMode
+															? ''
+															: 'bg-surface hover:bg-surface-hover border border-tertiary/30'}
+														title="Toggle Debug Mode"
+													>
+														{debugMode ? 'Exit Debug' : 'Debug'}
+													</Button>
+												{/if}
+												{#if showDebugPanel && !showDebugConsole}
+													<Button
+														variant="default"
+														size="xs"
+														onclick={() => (showDebugConsole = true)}
+														startIcon={{ icon: Terminal }}
+														btnClasses="bg-surface hover:bg-surface-hover border border-tertiary/30"
+														title="Show Debug Console"
+													>
+														Console
+													</Button>
+												{/if}
 											</div>
-											<div id="flow-editor-code-section" class="h-full relative">
-												<Editor
-													loadAsync
-													folding
-													path={$pathStore + '/' + flowModule.id}
-													bind:websocketAlive
-													bind:this={editor}
-													class="h-full relative"
-													code={flowModule.value.content}
-													scriptLang={flowModule?.value?.language}
-													automaticLayout={true}
-													cmdEnterAction={async () => {
-														selected = 'test'
-														if (selectedId == flowModule.id) {
-															if (flowModule.value.type === 'rawscript' && editor) {
-																flowModule.value.content = editor.getCode()
+											{#if debugConsoleVisible}
+												<Splitpanes horizontal class="h-full">
+													<Pane bind:size={editorPaneSize} minSize={20}>
+														<div id="flow-editor-code-section" class="h-full relative">
+															<Editor
+																loadAsync
+																folding
+																path={$pathStore + '/' + flowModule.id}
+																bind:websocketAlive
+																bind:this={editor}
+																class="h-full relative"
+																code={flowModule.value.content}
+																scriptLang={flowModule?.value?.language}
+																automaticLayout={true}
+																cmdEnterAction={async () => {
+																	selected = 'test'
+																	if (selectedId == flowModule.id) {
+																		if (flowModule.value.type === 'rawscript' && editor) {
+																			flowModule.value.content = editor.getCode()
+																		}
+																		await reload(flowModule)
+																		modulePreview?.runTestWithStepArgs()
+																	}
+																}}
+																on:change={async (event) => {
+																	const content = event.detail
+																	if (flowModule.value.type === 'rawscript') {
+																		if (flowModule.value.content !== content) {
+																			flowModule.value.content = content
+																		}
+																		await reload(flowModule)
+																		if (debugMode && breakpointDecorations.length > 0) {
+																			refreshBreakpointPositions()
+																		}
+																	}
+																}}
+																formatAction={() => {
+																	reload(flowModule)
+																	saveDraft()
+																}}
+																fixedOverflowWidgets={true}
+																args={Object.entries(flowModule.value.input_transforms).reduce(
+																	(acc, [key, obj]) => {
+																		acc[key] = obj.type === 'static' ? obj.value : undefined
+																		return acc
+																	},
+																	{}
+																)}
+																key={`flow-inline-${$workspaceStore}-${$pathStore}-${flowModule.id}`}
+																moduleId={flowModule.id}
+																preparedAssetsSqlQueries={preparedSqlQueries.current}
+															/>
+														</div>
+													</Pane>
+													<Pane bind:size={consolePaneSize} minSize={10}>
+														<DebugConsole
+															client={dapClient}
+															currentFrameId={currentDebugFrameId}
+															onClose={() => (showDebugConsole = false)}
+															workspace={$workspaceStore}
+															jobId={debugSessionJobId ?? undefined}
+														/>
+													</Pane>
+												</Splitpanes>
+											{:else}
+												<div id="flow-editor-code-section" class="h-full relative">
+													<Editor
+														loadAsync
+														folding
+														path={$pathStore + '/' + flowModule.id}
+														bind:websocketAlive
+														bind:this={editor}
+														class="h-full relative"
+														code={flowModule.value.content}
+														scriptLang={flowModule?.value?.language}
+														automaticLayout={true}
+														cmdEnterAction={async () => {
+															selected = 'test'
+															if (selectedId == flowModule.id) {
+																if (flowModule.value.type === 'rawscript' && editor) {
+																	flowModule.value.content = editor.getCode()
+																}
+																await reload(flowModule)
+																modulePreview?.runTestWithStepArgs()
 															}
-															await reload(flowModule)
-															modulePreview?.runTestWithStepArgs()
-														}
-													}}
-													on:change={async (event) => {
-														const content = event.detail
-														if (flowModule.value.type === 'rawscript') {
-															if (flowModule.value.content !== content) {
-																flowModule.value.content = content
+														}}
+														on:change={async (event) => {
+															const content = event.detail
+															if (flowModule.value.type === 'rawscript') {
+																if (flowModule.value.content !== content) {
+																	flowModule.value.content = content
+																}
+																await reload(flowModule)
+																if (debugMode && breakpointDecorations.length > 0) {
+																	refreshBreakpointPositions()
+																}
 															}
-															await reload(flowModule)
-														}
-													}}
-													formatAction={() => {
-														reload(flowModule)
-														saveDraft()
-													}}
-													fixedOverflowWidgets={true}
-													args={Object.entries(flowModule.value.input_transforms).reduce(
-														(acc, [key, obj]) => {
-															acc[key] = obj.type === 'static' ? obj.value : undefined
-															return acc
-														},
-														{}
-													)}
-													key={`flow-inline-${$workspaceStore}-${$pathStore}-${flowModule.id}`}
-													moduleId={flowModule.id}
-													preparedAssetsSqlQueries={preparedSqlQueries.current}
-												/>
-											</div>
+														}}
+														formatAction={() => {
+															reload(flowModule)
+															saveDraft()
+														}}
+														fixedOverflowWidgets={true}
+														args={Object.entries(flowModule.value.input_transforms).reduce(
+															(acc, [key, obj]) => {
+																acc[key] = obj.type === 'static' ? obj.value : undefined
+																return acc
+															},
+															{}
+														)}
+														key={`flow-inline-${$workspaceStore}-${$pathStore}-${flowModule.id}`}
+														moduleId={flowModule.id}
+														preparedAssetsSqlQueries={preparedSqlQueries.current}
+													/>
+												</div>
+											{/if}
 											<DiffEditor
 												open={false}
 												bind:this={diffEditor}
@@ -587,7 +1035,7 @@
 														></div>
 													{/if}
 													<InputTransformSchemaForm
-														class="px-2 xl:px-4"
+														class="px-2 xl:px-4 pb-8"
 														bind:this={inputTransformSchemaForm}
 														pickableProperties={stepPropPicker.pickableProperties}
 														schema={flowStateStore.val[selectedId]?.schema ?? {}}
@@ -616,6 +1064,24 @@
 												</PropPickerWrapper>
 											</div>
 										{:else if selected === 'test'}
+											{#if debugMode && isDebuggableScript}
+												<div transition:slide={{ duration: 200 }}>
+													<DebugToolbar
+														connected={$debugState.connected}
+														running={$debugState.running}
+														stopped={$debugState.stopped}
+														breakpointCount={debugBreakpoints.size}
+														onStart={startDebugging}
+														onStop={stopDebugging}
+														onContinue={continueExecution}
+														onStepOver={stepOver}
+														onStepIn={stepIn}
+														onStepOut={stepOut}
+														onClearBreakpoints={clearAllBreakpoints}
+														onExitDebug={toggleDebugMode}
+													/>
+												</div>
+											{/if}
 											<ModulePreview
 												class="flex-1"
 												pickableProperties={stepPropPicker.pickableProperties}
@@ -628,6 +1094,7 @@
 												bind:scriptProgress
 												focusArg={highlightArg}
 												{onJobDone}
+												hideRunButton={debugMode && isDebuggableScript}
 											/>
 										{:else if selected === 'advanced'}
 											<Tabs bind:selected={advancedSelected} wrapperClass="shrink-0">
@@ -922,28 +1389,80 @@
 												>
 											</div>
 										{/if}
-										<ModulePreviewResultViewer
-											lang={flowModule.value['language'] ?? 'deno'}
-											{editor}
-											{diffEditor}
-											loopStatus={parentLoop
-												? { type: 'inside', flow: parentLoop.type }
-												: undefined}
-											onUpdateMock={(detail) => {
-												flowModule.mock = detail
-												flowModule = flowModule
-												refreshStateStore(flowStore)
-											}}
-											{testJob}
-											{scriptProgress}
-											mod={flowModule}
-											{testIsLoading}
-											disableMock={preprocessorModule || failureModule}
-											disableHistory={failureModule}
-											loadingJob={stepHistoryLoader?.stepStates[flowModule.id]?.loadingJobs}
-											tagLabel={customUi?.tagLabel}
-											bind:this={modulePreviewResultViewer}
-										/>
+										{#if showDebugPanel || hasDebugResult}
+											<Splitpanes horizontal class="h-full">
+												<Pane size={50} minSize={15}>
+													<Splitpanes horizontal class="h-full">
+														<Pane size={50} minSize={10}>
+															<LogViewer
+																small
+																content={$debugState.logs}
+																isLoading={$debugState.running && !$debugState.stopped}
+																tag={undefined}
+															/>
+														</Pane>
+														<Pane size={50} minSize={10}>
+															{#if hasDebugResult}
+																<div class="h-full p-2 overflow-auto">
+																	<DisplayResult
+																		result={$debugState.result}
+																		language={rawScriptLang}
+																	/>
+																</div>
+															{:else}
+																<div
+																	class="h-full flex items-center justify-center text-sm text-tertiary"
+																>
+																	{#if $debugState.running && !$debugState.stopped}
+																		Running...
+																	{:else if $debugState.stopped}
+																		Paused at breakpoint
+																	{:else}
+																		Waiting for debug session
+																	{/if}
+																</div>
+															{/if}
+														</Pane>
+													</Splitpanes>
+												</Pane>
+												<Pane size={50} minSize={15}>
+													<DebugPanel
+														stackFrames={$debugState.stackFrames}
+														scopes={$debugState.scopes}
+														variables={$debugState.variables}
+														client={dapClient}
+														bind:selectedFrameId={selectedDebugFrameId}
+													/>
+												</Pane>
+											</Splitpanes>
+										{:else if debugMode && isDebuggableScript}
+											<div class="h-full flex items-center justify-center text-sm text-tertiary">
+												Click "Debug" in the toolbar to start debugging
+											</div>
+										{:else}
+											<ModulePreviewResultViewer
+												lang={flowModule.value['language'] ?? 'deno'}
+												{editor}
+												{diffEditor}
+												loopStatus={parentLoop
+													? { type: 'inside', flow: parentLoop.type }
+													: undefined}
+												onUpdateMock={(detail) => {
+													flowModule.mock = detail
+													flowModule = flowModule
+													refreshStateStore(flowStore)
+												}}
+												{testJob}
+												{scriptProgress}
+												mod={flowModule}
+												{testIsLoading}
+												disableMock={preprocessorModule || failureModule}
+												disableHistory={failureModule}
+												loadingJob={stepHistoryLoader?.stepStates[flowModule.id]?.loadingJobs}
+												tagLabel={customUi?.tagLabel}
+												bind:this={modulePreviewResultViewer}
+											/>
+										{/if}
 									</Pane>
 								{/if}
 							</Splitpanes>
@@ -956,3 +1475,25 @@
 {:else}
 	Incorrect flow module type
 {/if}
+
+<Modal title="Debug Feature (Beta)" bind:open={showDebugBetaWarning}>
+	<div class="flex items-start gap-3">
+		<div class="flex-shrink-0">
+			<div
+				class="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-100 dark:bg-yellow-800/50"
+			>
+				<AlertTriangle class="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
+			</div>
+		</div>
+		<div class="text-secondary text-sm">
+			<p
+				>The Debug feature is currently in <strong>beta</strong>. You may encounter unexpected
+				behavior or limitations.</p
+			>
+			<p class="mt-2">By continuing, you acknowledge that this feature is experimental.</p>
+		</div>
+	</div>
+	{#snippet actions()}
+		<Button size="sm" on:click={confirmDebugBetaWarning}>Continue</Button>
+	{/snippet}
+</Modal>

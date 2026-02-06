@@ -1,6 +1,6 @@
 <script lang="ts">
 	import AddUser from '$lib/components/AddUser.svelte'
-	import { Badge, Button, Section, Skeleton } from '$lib/components/common'
+	import { Alert, Badge, Button, Section, Skeleton } from '$lib/components/common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -32,7 +32,7 @@
 	let userFilter = $state('')
 	let auto_invite_domain: string | undefined = $state()
 	let operatorOnly: boolean | undefined = $state(undefined)
-	let autoAdd: boolean | undefined = $state(undefined)
+	let autoAdd: boolean | undefined = $state(false)
 	let nbDisplayed = $state(30)
 
 	// Instance group auto-add settings
@@ -92,11 +92,19 @@
 
 	async function loadSettings(): Promise<void> {
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
-		auto_invite_domain = settings.auto_invite_domain
-		operatorOnly = settings.auto_invite_operator
-		autoAdd = settings.auto_add
-		autoAddInstanceGroups = settings.auto_add_instance_groups || []
-		autoAddInstanceGroupsRoles = settings.auto_add_instance_groups_roles || {}
+		const autoInvite = settings.auto_invite as {
+			enabled?: boolean
+			domain?: string
+			operator?: boolean
+			mode?: string
+			instance_groups?: string[]
+			instance_groups_roles?: Record<string, string>
+		} | undefined
+		auto_invite_domain = autoInvite?.enabled ? (autoInvite?.domain ?? '*') : undefined
+		operatorOnly = autoInvite?.operator ?? false
+		autoAdd = autoInvite?.mode === 'add'
+		autoAddInstanceGroups = autoInvite?.instance_groups || []
+		autoAddInstanceGroupsRoles = autoInvite?.instance_groups_roles || {}
 	}
 
 	let getUsagePromise: CancelablePromise<UserUsage[]> | undefined = undefined
@@ -257,6 +265,11 @@
 	let removeInstanceGroupConfirmedCallback: (() => void) | undefined = $state(undefined)
 	let convertConfirmedCallback: (() => void) | undefined = $state(undefined)
 
+	// Auto-add/invite confirmation modal states
+	let autoAddConfirmCallback: (() => void) | undefined = $state(undefined)
+	let autoInviteDisableConfirmCallback: (() => void) | undefined = $state(undefined)
+	let switchToAutoAddConfirmCallback: (() => void) | undefined = $state(undefined)
+
 	async function removeAllInvitesFromDomain() {
 		await Promise.all(
 			invites
@@ -360,6 +373,24 @@
 	}
 
 	const autoInviteOrAddEnabled = $derived(auto_invite_domain != undefined)
+
+	// Legacy auto-invite: user already has auto-invite enabled (not auto-add) on a non-cloud instance
+	// This preserves their existing setup even though auto-invite is deprecated for new setups
+	const isLegacyAutoInvite = $derived(autoInviteOrAddEnabled && !autoAdd && !isCloudHosted())
+
+	// Show auto-invite toggle only for:
+	// - Cloud hosted users (always available)
+	// - Legacy users who already have auto-invite enabled (preserve existing setup)
+	const showAutoInviteToggle = $derived(isCloudHosted() || isLegacyAutoInvite)
+
+	// Display mode for labels: for non-cloud, non-legacy users, always show "add"
+	// For cloud or legacy users, show based on actual autoAdd setting
+	const displayMode = $derived.by(() => {
+		if (!isCloudHosted() && !isLegacyAutoInvite) {
+			return 'add'
+		}
+		return autoAdd ? 'add' : 'invite'
+	})
 </script>
 
 <SearchItems
@@ -404,32 +435,55 @@
 						unifiedSize="md"
 						nonCaptureEvent={true}
 						startIcon={{ icon: Mails }}
-						>Auto-{autoAdd ? 'add' : 'invite'}: {autoInviteOrAddEnabled ? 'ON' : 'OFF'}
+						>Auto-{displayMode}: {autoInviteOrAddEnabled ? 'ON' : 'OFF'}
 					</Button>
 				{/snippet}
 				{#snippet content()}
-					<div class="flex flex-col items-start p-4">
-						<div class="text-xs mb-1 text-primary"
-							>Mode <Tooltip>Whether to invite or add users directly to the workspace.</Tooltip>
-						</div>
-						<ToggleButtonGroup
-							selected={autoAdd ? 'add' : 'invite'}
-							on:selected={async (e) => {
-								autoAdd = e.detail === 'add'
-								if (autoInviteOrAddEnabled) {
-									await updateAutoInvite(true)
-								}
-							}}
-						>
-							{#snippet children({ item })}
-								<ToggleButton value="invite" small label="Auto-invite" {item} />
-								<ToggleButton value="add" small label="Auto-add" {item} />
-							{/snippet}
-						</ToggleButtonGroup>
+					<div class="flex flex-col items-start p-4 min-w-[320px] max-w-sm">
+						{#if showAutoInviteToggle}
+							<div class="text-xs mb-1 text-primary"
+								>Mode <Tooltip>Whether to invite or add users directly to the workspace.</Tooltip>
+							</div>
+							<ToggleButtonGroup
+								selected={displayMode}
+								on:selected={async (e) => {
+									const switchingToAdd = e.detail === 'add' && !autoAdd
 
-						<span class="text-xs mb-1 mt-6"
-							>Role <Tooltip>Role of the auto-added users</Tooltip></span
-						>
+									// If switching from invite to add on non-cloud, show confirmation with warning
+									if (switchingToAdd && isLegacyAutoInvite) {
+										switchToAutoAddConfirmCallback = async () => {
+											autoAdd = true
+											if (autoInviteOrAddEnabled) {
+												await updateAutoInvite(true)
+											}
+										}
+									} else {
+										autoAdd = e.detail === 'add'
+										if (autoInviteOrAddEnabled) {
+											await updateAutoInvite(true)
+										}
+									}
+								}}
+							>
+								{#snippet children({ item })}
+									<ToggleButton value="invite" small label="Auto-invite" {item} />
+									<ToggleButton value="add" small label="Auto-add" {item} />
+								{/snippet}
+							</ToggleButtonGroup>
+
+							{#if isLegacyAutoInvite && !autoAdd}
+								<div class="mt-3 w-full">
+									<Alert type="warning" size="xs" title="Legacy mode">
+										Auto-invite is deprecated. Switching to auto-add will permanently disable
+										auto-invite for this workspace.
+									</Alert>
+								</div>
+							{/if}
+
+							<div class="mt-6"></div>
+						{/if}
+
+						<span class="text-xs mb-1">Role <Tooltip>Role of the auto-added users</Tooltip></span>
 						<ToggleButtonGroup
 							selected={operatorOnly ? 'operator' : 'developer'}
 							on:selected={async (e) => {
@@ -459,15 +513,40 @@
 							<Toggle
 								checked={autoInviteOrAddEnabled}
 								on:change={async (e) => {
-									await updateAutoInvite(e.detail)
+									const enabling = e.detail
+
+									if (enabling) {
+										// Non-cloud users without legacy auto-invite: force auto-add mode
+										if (!isCloudHosted() && !isLegacyAutoInvite) {
+											autoAdd = true
+										}
+
+										// Show confirmation when enabling auto-add
+										if (autoAdd || (!isCloudHosted() && !showAutoInviteToggle)) {
+											autoAddConfirmCallback = async () => {
+												await updateAutoInvite(true)
+											}
+										} else {
+											await updateAutoInvite(true)
+										}
+									} else {
+										// Disabling: show confirmation if currently using auto-invite (legacy)
+										if (isLegacyAutoInvite) {
+											autoInviteDisableConfirmCallback = async () => {
+												await updateAutoInvite(false)
+											}
+										} else {
+											await updateAutoInvite(false)
+										}
+									}
 								}}
 								disabled={isCloudHosted() && !allowedAutoDomain}
 								options={{
 									right: isCloudHosted()
-										? `Auto-${autoAdd ? 'add' : 'invite'} anyone from ${
+										? `Auto-${displayMode} anyone from ${
 												autoInviteOrAddEnabled ? auto_invite_domain : domain
 											}`
-										: `Auto-${autoAdd ? 'add' : 'invite'} anyone joining the instance`
+										: `Auto-${displayMode} anyone joining the instance`
 								}}
 							/>
 						</div>
@@ -648,7 +727,9 @@
 				</Popover>
 			{/if}
 
-			<InviteUser {inviteUser} />
+			{#if showAutoInviteToggle}
+				<InviteUser {inviteUser} />
+			{/if}
 
 			<AddUser
 				on:new={() => {
@@ -890,9 +971,11 @@
 		documentationLink="https://www.windmill.dev/docs/core_concepts/authentification#adding-users-to-a-workspace"
 	>
 		{#snippet action()}
-			<div class="flex gap-2 items-center">
-				<InviteUser {inviteUser} />
-			</div>
+			{#if showAutoInviteToggle}
+				<div class="flex gap-2 items-center">
+					<InviteUser {inviteUser} />
+				</div>
+			{/if}
 		{/snippet}
 		<DataTable>
 			<Head>
@@ -1061,3 +1144,68 @@
 		</ul>
 	</div>
 </ConfirmationModal>
+
+<!-- Auto-add/invite confirmation modals - z-index to appear above popover -->
+<div class="[&>div]:!z-[5002]">
+	<ConfirmationModal
+		open={Boolean(autoAddConfirmCallback)}
+		title="Enable Auto-add"
+		confirmationText="Enable"
+		on:canceled={() => {
+			autoAddConfirmCallback = undefined
+		}}
+		on:confirmed={() => {
+			if (autoAddConfirmCallback) {
+				autoAddConfirmCallback()
+			}
+			autoAddConfirmCallback = undefined
+		}}
+	>
+		Are you sure you want to enable auto-add?<br />
+		Anyone added to the instance will automatically join this workspace.
+	</ConfirmationModal>
+</div>
+
+<div class="[&>div]:!z-[5002]">
+	<ConfirmationModal
+		open={Boolean(autoInviteDisableConfirmCallback)}
+		title="Disable Auto-invite"
+		confirmationText="Disable"
+		on:canceled={() => {
+			autoInviteDisableConfirmCallback = undefined
+		}}
+		on:confirmed={() => {
+			if (autoInviteDisableConfirmCallback) {
+				autoInviteDisableConfirmCallback()
+			}
+			autoInviteDisableConfirmCallback = undefined
+		}}
+	>
+		Are you sure you want to disable auto-invite? Auto-invite is a legacy feature. After disabling,
+		it will no longer be available for this workspace. You will only be able to use auto-add. <br />
+		Anyone added to the instance will automatically join this workspace.
+	</ConfirmationModal>
+</div>
+
+<div class="[&>div]:!z-[5002]">
+	<ConfirmationModal
+		open={Boolean(switchToAutoAddConfirmCallback)}
+		title="Switch to Auto-add"
+		confirmationText="Switch"
+		on:canceled={() => {
+			switchToAutoAddConfirmCallback = undefined
+		}}
+		on:confirmed={() => {
+			if (switchToAutoAddConfirmCallback) {
+				switchToAutoAddConfirmCallback()
+			}
+			switchToAutoAddConfirmCallback = undefined
+		}}
+	>
+		Are you sure you want to switch from auto-invite to auto-add?<br />
+		Auto-invite is a legacy feature. After switching to auto-add, auto-invite will no longer be available
+		for this workspace. <br />
+		With auto-add, anyone added to the instance will automatically join this workspace without needing
+		to accept an invitation.
+	</ConfirmationModal>
+</div>

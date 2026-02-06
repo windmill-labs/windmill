@@ -1,0 +1,148 @@
+name: Spawn Ephemeral Backend
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number"
+        required: true
+        type: number
+
+jobs:
+  determine-commenter:
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/spawnbackend')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '/spawnbackend'))
+    runs-on: ubicloud-standard-2
+    outputs:
+      commenter: ${{ steps.determine-commenter.outputs.commenter }}
+    steps:
+      - name: Determine commenter
+        id: determine-commenter
+        run: |
+          # Work out who wrote the comment / review
+          if [[ "${{ github.event_name }}" == "issue_comment" || \
+                "${{ github.event_name }}" == "pull_request_review_comment" ]]; then
+            COMMENTER="${{ github.event.comment.user.login }}"
+          elif [[ "${{ github.event_name }}" == "pull_request_review" ]]; then
+            COMMENTER="${{ github.event.review.user.login }}"
+          else
+            COMMENTER="${{ github.event.issue.user.login }}"
+          fi
+          echo "commenter=$COMMENTER" >> $GITHUB_OUTPUT
+
+  check-membership:
+    needs: determine-commenter
+    uses: ./.github/workflows/check-org-membership.yml
+    with:
+      commenter: ${{ needs.determine-commenter.outputs.commenter }}
+    secrets:
+      access_token: ${{ secrets.ORG_ACCESS_TOKEN }}
+
+  spawn-backend:
+    needs: [determine-commenter, check-membership]
+    # Only run on PR comments that contain /spawn-backend, or manual dispatch
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.issue.pull_request && needs.check-membership.outputs.is_member == 'true')
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+
+    steps:
+      - name: Get PR details
+        id: pr-details
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = context.eventName === 'workflow_dispatch'
+              ? context.payload.inputs.pr_number
+              : context.issue.number;
+
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+
+            // Get branch name and format it for Cloudflare Pages
+            // Replace '/' with '-' for the URL
+            const branchName = pr.data.head.ref;
+            const formattedBranch = branchName.replace(/\//g, '-');
+            const cfFrontendUrl = `https://${formattedBranch}.windmill.pages.dev`;
+
+            core.setOutput('commit_hash', pr.data.head.sha);
+            core.setOutput('pr_number', prNumber);
+            core.setOutput('branch_name', branchName);
+            core.setOutput('cf_frontend_url', cfFrontendUrl);
+
+      - name: Check manager URL
+        id: check-manager-url
+        run: |
+          if [ -z "${{ secrets.EPHEMERAL_BACKEND_QUEUE_URL }}" ]; then
+            echo "manager_url_set=false" >> $GITHUB_OUTPUT
+          else
+            echo "manager_url_set=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Post error comment if manager not running
+        if: steps.check-manager-url.outputs.manager_url_set == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = context.eventName === 'workflow_dispatch'
+              ? Number(context.payload.inputs.pr_number)
+              : context.issue.number;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: `❌ Manager URL not set (did you start the ephemeral backend manager?)\n\nThe ephemeral backend manager needs to be running to spawn backends. Please start the manager first.`
+            });
+
+      - name: Fail if manager not running
+        if: steps.check-manager-url.outputs.manager_url_set == 'false'
+        run: |
+          echo "Error: EPHEMERAL_BACKEND_QUEUE_URL secret is not set"
+          exit 1
+
+      - name: Trigger Windmill flow
+        if: steps.check-manager-url.outputs.manager_url_set == 'true'
+        id: trigger-flow
+        run: |
+          JOB_UUID=$(curl -s -X POST "https://app.windmill.dev/api/w/windmill-labs/jobs/run/f/f/all/run_ephemeral_backend" \
+            -H "Authorization: Bearer ${{ secrets.WINDMILL_RUN_FLOW_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "manager_url": "${{ secrets.EPHEMERAL_BACKEND_QUEUE_URL }}",
+              "commit_hash": "${{ steps.pr-details.outputs.commit_hash }}",
+              "pr_number": ${{ steps.pr-details.outputs.pr_number }},
+              "cf_frontend_url": "${{ steps.pr-details.outputs.cf_frontend_url }}"
+            }' | tr -d '"')
+
+          echo "Job UUID: $JOB_UUID"
+          echo "job_uuid=$JOB_UUID" >> $GITHUB_OUTPUT
+
+      - name: Post comment with job link
+        if: steps.check-manager-url.outputs.manager_url_set == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const jobUuid = '${{ steps.trigger-flow.outputs.job_uuid }}';
+            const appUrl = `https://app.windmill.dev/public/windmill-labs/a106bad0256c1dfa7a4f9279c42b1a4b#${jobUuid}`;
+            const prNumber = context.eventName === 'workflow_dispatch'
+              ? Number(context.payload.inputs.pr_number)
+              : context.issue.number;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: `🚀 Spawning new ephemeral backend!\n\n${appUrl}`
+            });

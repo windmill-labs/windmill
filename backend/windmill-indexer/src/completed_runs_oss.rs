@@ -18,7 +18,7 @@ pub struct IndexReader;
 pub struct IndexWriter;
 
 #[cfg(not(feature = "private"))]
-pub async fn init_index(_db: &Pool<Postgres>) -> Result<(IndexReader, IndexWriter), Error> {
+pub async fn init_index(_db: &Pool<Postgres>) -> Result<Option<(IndexReader, IndexWriter)>, Error> {
     Err(anyhow!("Cannot initialize index: not in EE").into())
 }
 

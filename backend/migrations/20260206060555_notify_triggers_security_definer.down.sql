@@ -1,0 +1,12 @@
+ALTER FUNCTION notify_config_change() SECURITY INVOKER;
+ALTER FUNCTION notify_global_setting_change() SECURITY INVOKER;
+ALTER FUNCTION notify_global_setting_delete() SECURITY INVOKER;
+ALTER FUNCTION notify_webhook_change() SECURITY INVOKER;
+ALTER FUNCTION notify_workspace_envs_change() SECURITY INVOKER;
+ALTER FUNCTION notify_workspace_premium_change() SECURITY INVOKER;
+ALTER FUNCTION notify_team_plan_status_change() SECURITY INVOKER;
+ALTER FUNCTION notify_runnable_version_change() SECURITY INVOKER;
+ALTER FUNCTION notify_http_trigger_change() SECURITY INVOKER;
+ALTER FUNCTION notify_token_invalidation() SECURITY INVOKER;
+ALTER FUNCTION notify_workspace_key_change() SECURITY INVOKER;
+ALTER FUNCTION notify_workspace_rate_limit_change() SECURITY INVOKER;

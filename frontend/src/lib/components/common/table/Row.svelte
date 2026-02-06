@@ -1,17 +1,13 @@
 <script lang="ts">
 	import Star from '$lib/components/Star.svelte'
-	import { createEventDispatcher } from 'svelte'
 	import RowIcon from './RowIcon.svelte'
 	import { BellOff } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { goto } from '$lib/navigation'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 
-	const dispatch = createEventDispatcher()
-
 	interface Props {
 		marked: string | undefined
-		starred: boolean
 		selected?: boolean
 		disabled?: boolean
 		canFavorite?: boolean
@@ -20,7 +16,7 @@
 		errorHandlerMuted?: boolean
 		aiId?: string | undefined
 		aiDescription?: string | undefined
-		kind?: 'script' | 'flow' | 'app' | 'raw_app' | 'resource' | 'variable'
+		kind?: 'script' | 'flow' | 'app' | 'raw_app' | 'resource' | 'variable' | 'resource_type'
 		summary?: string | undefined
 		path: string
 		href?: string
@@ -38,7 +34,6 @@
 
 	let {
 		marked,
-		starred,
 		selected = false,
 		disabled = false,
 		canFavorite = true,
@@ -80,7 +75,6 @@
 		depth > 0 ? '!rounded-none' : '',
 		disabled ? 'opacity-25' : 'hover:bg-surface-hover',
 		selected ? 'bg-surface-accent-selected' : ''
-
 	)}
 	style={depth > 0 ? `padding-left: ${depth * 32}px;` : ''}
 >
@@ -91,11 +85,14 @@
 	{/if}
 
 	{#if href}
-		<a {href} class="min-w-0 grow hover:underline decoration-gray-400 inline-flex items-center gap-4">
+		<a
+			{href}
+			class="min-w-0 grow hover:underline decoration-gray-400 inline-flex items-center gap-4"
+		>
 			{@render rowContent()}
 		</a>
 	{:else}
-			{@render rowContent()}
+		{@render rowContent()}
 	{/if}
 
 	{#if errorHandlerMuted}
@@ -108,17 +105,9 @@
 		</div>
 	{/if}
 
-	{#if canFavorite && kind !== 'resource' && kind !== 'variable'}
+	{#if canFavorite && kind !== 'resource' && kind !== 'variable' && kind !== 'resource_type'}
 		<div class="center-center h-full text-xs font-semibold text-secondary w-9">
-			<Star
-				{kind}
-				{path}
-				{starred}
-				workspace_id={workspaceId}
-				on:starred={() => {
-					dispatch('change')
-				}}
-			/>
+			<Star {kind} {path} {workspaceId} {summary} />
 		</div>
 	{:else}
 		<div class="w-9"></div>
@@ -137,12 +126,10 @@
 		<div class="text-emphasis flex-wrap text-left text-xs font-semibold">
 			{#if customSummary}
 				{@render customSummary?.()}
+			{:else if marked}
+				{@html marked}
 			{:else}
-				{#if marked}
-					{@html marked}
-				{:else}
-					{!summary || summary.length == 0 ? displayPath : summary}
-				{/if}
+				{!summary || summary.length == 0 ? displayPath : summary}
 			{/if}
 		</div>
 		<div class="text-hint text-3xs truncate text-left font-normal">

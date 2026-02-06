@@ -103,6 +103,7 @@ import ApifyIcon from './ApifyIcon.svelte'
 import McpIcon from './McpIcon.svelte'
 import SageIcon from './SageIcon.svelte'
 import ZohoIcon from './ZohoIcon.svelte'
+import PocketIdIcon from './PocketIdIcon.svelte'
 import type { Component } from 'svelte'
 export const APP_TO_ICON_COMPONENT = {
 	postgresql: PostgresIcon,
@@ -211,7 +212,8 @@ export const APP_TO_ICON_COMPONENT = {
 	mqtt: MqttIcon,
 	apify: ApifyIcon,
 	mcp: McpIcon,
-	zoho: ZohoIcon
+	zoho: ZohoIcon,
+	pocketid: PocketIdIcon
 } as unknown as Record<string, Component> // to generate correct svelte package types
 
 export {

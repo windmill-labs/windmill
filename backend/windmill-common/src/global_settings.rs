@@ -46,7 +46,10 @@ pub const DEV_INSTANCE_SETTING: &str = "dev_instance";
 pub const JWT_SECRET_SETTING: &str = "jwt_secret";
 pub const EMAIL_DOMAIN_SETTING: &str = "email_domain";
 pub const OTEL_SETTING: &str = "otel";
+pub const OTEL_TRACING_PROXY_SETTING: &str = "otel_tracing_proxy";
 pub const APP_WORKSPACED_ROUTE_SETTING: &str = "app_workspaced_route";
+pub const SECRET_BACKEND_SETTING: &str = "secret_backend";
+pub const MIN_KEEP_ALIVE_VERSION_SETTING: &str = "min_keep_alive_version";
 
 pub const ENV_SETTINGS: &[&str] = &[
     "DISABLE_NSJAIL",
@@ -115,6 +118,8 @@ pub const ENV_SETTINGS: &[&str] = &[
     "PG_SCHEMA",
     "PG_LISTENER_REFRESH_PERIOD_SECS",
     "AI_REQUEST_TIMEOUT_SECONDS",
+    "JOB_CLEANUP_BATCH_SIZE",
+    "JOB_CLEANUP_MAX_BATCHES",
 ];
 
 use crate::error;

@@ -127,6 +127,7 @@ pub fn workspaced_service() -> Router {
         .route("/edit_copilot_config", post(edit_copilot_config))
         .route("/get_copilot_info", get(get_copilot_info))
         .route("/edit_error_handler", post(edit_error_handler))
+        .route("/edit_success_handler", post(edit_success_handler))
         .route(
             "/edit_large_file_storage_config",
             post(edit_large_file_storage_config),
@@ -175,6 +176,7 @@ pub fn workspaced_service() -> Router {
             post(acknowledge_all_critical_alerts),
         )
         .route("/critical_alerts/mute", post(mute_critical_alerts))
+        .route("/public_app_rate_limit", post(edit_public_app_rate_limit))
         .route("/operator_settings", post(update_operator_settings))
         .route(
             "/create_workspace_fork_branch",
@@ -248,12 +250,6 @@ pub struct WorkspaceSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub slack_oauth_client_secret: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub auto_invite_domain: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub auto_invite_operator: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub auto_add: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub customer_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plan: Option<String>,
@@ -264,21 +260,15 @@ pub struct WorkspaceSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_config: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error_handler: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error_handler_extra_args: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error_handler_muted_on_cancel: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub large_file_storage: Option<serde_json::Value>, // effectively: DatasetsStorage
+    pub large_file_storage: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ducklake: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub datatable: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub git_sync: Option<serde_json::Value>, // effectively: WorkspaceGitSyncSettings
+    pub git_sync: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub deploy_ui: Option<serde_json::Value>, // effectively: WorkspaceDeploymentUISettings
+    pub deploy_ui: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_app: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -291,13 +281,18 @@ pub struct WorkspaceSettings {
     pub operator_settings: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub git_app_installations: Option<serde_json::Value>,
+    // Grouped config fields
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub auto_add_instance_groups: Option<Vec<String>>,
+    pub auto_invite: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub auto_add_instance_groups_roles: Option<serde_json::Value>,
+    pub error_handler: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub success_handler: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub public_app_execution_limit_per_minute: Option<i32>,
 }
 
-// #[derive(sqlx::Type, Serialize, Deserialize, Debug)]
+/// #[derive(sqlx::Type, Serialize, Deserialize, Debug)]
 // #[sqlx(type_name = "WORKSPACE_KEY_KIND", rename_all = "lowercase")]
 // pub enum WorkspaceKeyKind {
 //     Cloud,
@@ -435,11 +430,82 @@ pub struct NewWorkspaceUser {
     pub operator: bool,
 }
 
+// New format for error handler (grouped)
 #[derive(Deserialize)]
-pub struct EditErrorHandler {
+#[serde(deny_unknown_fields)]
+pub struct EditErrorHandlerNew {
+    pub path: Option<String>,
+    pub extra_args: Option<serde_json::Value>,
+    #[serde(default)]
+    pub muted_on_cancel: bool,
+    #[serde(default)]
+    pub muted_on_user_path: bool,
+}
+
+// Legacy format for error handler (flat fields from old CLI)
+#[derive(Deserialize)]
+pub struct EditErrorHandlerLegacy {
     pub error_handler: Option<String>,
     pub error_handler_extra_args: Option<serde_json::Value>,
-    pub error_handler_muted_on_cancel: Option<bool>,
+    #[serde(default)]
+    pub error_handler_muted_on_cancel: bool,
+}
+
+// Accepts both old and new formats
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum EditErrorHandler {
+    New(EditErrorHandlerNew),
+    Legacy(EditErrorHandlerLegacy),
+}
+
+impl EditErrorHandler {
+    pub fn into_normalized(self) -> EditErrorHandlerNew {
+        match self {
+            EditErrorHandler::New(new) => new,
+            EditErrorHandler::Legacy(legacy) => EditErrorHandlerNew {
+                path: legacy.error_handler,
+                extra_args: legacy.error_handler_extra_args,
+                muted_on_cancel: legacy.error_handler_muted_on_cancel,
+                muted_on_user_path: false, // Old format doesn't have this field
+            },
+        }
+    }
+}
+
+// New format for success handler (grouped)
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EditSuccessHandlerNew {
+    pub path: Option<String>,
+    pub extra_args: Option<serde_json::Value>,
+}
+
+// Legacy format for success handler (flat fields from old CLI)
+#[derive(Deserialize)]
+pub struct EditSuccessHandlerLegacy {
+    pub success_handler: Option<String>,
+    pub success_handler_extra_args: Option<serde_json::Value>,
+}
+
+// Accepts both old and new formats
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum EditSuccessHandler {
+    New(EditSuccessHandlerNew),
+    Legacy(EditSuccessHandlerLegacy),
+}
+
+impl EditSuccessHandler {
+    pub fn into_normalized(self) -> EditSuccessHandlerNew {
+        match self {
+            EditSuccessHandler::New(new) => new,
+            EditSuccessHandler::Legacy(legacy) => EditSuccessHandlerNew {
+                path: legacy.success_handler,
+                extra_args: legacy.success_handler_extra_args,
+            },
+        }
+    }
 }
 
 lazy_static::lazy_static! {
@@ -544,17 +610,11 @@ async fn get_settings(
             slack_email,
             slack_oauth_client_id,
             slack_oauth_client_secret,
-            auto_invite_domain,
-            auto_invite_operator,
-            auto_add,
             customer_id,
             plan,
             webhook,
             deploy_to,
             ai_config,
-            error_handler,
-            error_handler_extra_args,
-            error_handler_muted_on_cancel,
             large_file_storage,
             datatable,
             ducklake,
@@ -566,8 +626,10 @@ async fn get_settings(
             color,
             operator_settings,
             git_app_installations,
-            auto_add_instance_groups,
-            auto_add_instance_groups_roles
+            auto_invite,
+            error_handler,
+            success_handler,
+            public_app_execution_limit_per_minute
         FROM
             workspace_settings
         WHERE
@@ -732,9 +794,8 @@ async fn get_slack_oauth_config(
 ) -> JsonResult<GetSlackOAuthConfigResponse> {
     require_admin(authed.is_admin, &authed.username)?;
 
-    let settings = sqlx::query_as!(
-        WorkspaceSettings,
-        "SELECT * FROM workspace_settings WHERE workspace_id = $1",
+    let settings = sqlx::query!(
+        "SELECT slack_oauth_client_id, slack_oauth_client_secret FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
     .fetch_one(&db)
@@ -831,18 +892,43 @@ async fn delete_slack_oauth_config(
     ))
 }
 
+#[derive(Deserialize)]
+struct GetSecondaryStorageNamesQuery {
+    #[serde(default)]
+    include_default: bool,
+}
+
 async fn get_secondary_storage_names(
     _authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
+    Query(query): Query<GetSecondaryStorageNamesQuery>,
 ) -> JsonResult<Vec<String>> {
-    let result: Vec<String> = sqlx::query_scalar!(
+    let mut result: Vec<String> = sqlx::query_scalar!(
         "SELECT jsonb_object_keys(large_file_storage->'secondary_storage') AS \"secondary_storage_name!: _\"
         FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
     .fetch_all(&db)
     .await?;
+
+    // If include_default is true, check if primary storage is set and add "_default_"
+    if query.include_default {
+        let has_primary_storage: Option<bool> = sqlx::query_scalar!(
+            "SELECT (large_file_storage IS NOT NULL
+                     AND large_file_storage != 'null'::jsonb
+                     AND jsonb_typeof(large_file_storage) = 'object') AS \"has_primary!\"
+            FROM workspace_settings WHERE workspace_id = $1",
+            &w_id
+        )
+        .fetch_optional(&db)
+        .await?;
+
+        if has_primary_storage.unwrap_or(false) {
+            result.insert(0, "_default_".to_string());
+        }
+    }
+
     Ok(Json(result))
 }
 
@@ -891,6 +977,7 @@ async fn edit_deploy_to(
         DeployedObject::Settings { setting_type: "deploy_to".to_string() },
         None,
         false,
+        None,
     )
     .await?;
 
@@ -991,6 +1078,7 @@ async fn edit_webhook(
         DeployedObject::Settings { setting_type: "webhook".to_string() },
         None,
         false,
+        None,
     )
     .await?;
 
@@ -1057,6 +1145,7 @@ async fn edit_copilot_config(
         windmill_git_sync::DeployedObject::Settings { setting_type: "ai_config".to_string() },
         Some("AI configuration updated".to_string()),
         false,
+        None,
     )
     .await?;
 
@@ -1150,6 +1239,7 @@ async fn edit_large_file_storage_config(
         },
         Some("Large file storage configuration updated".to_string()),
         false,
+        None,
     )
     .await?;
 
@@ -1279,30 +1369,54 @@ async fn get_datatable_schema(db: &DB, w_id: &str, datatable_name: &str) -> Resu
         }
     });
 
-    // Query the schema information
-    let rows = client
+    // First, get all non-system schemas (including empty ones)
+    let schema_rows = client
         .query(
             r#"
-            SELECT
-                nsp.nspname::text AS table_schema,
-                c.table_name::text,
-                c.column_name::text,
-                c.udt_name::text,
-                c.is_nullable::text,
-                c.column_default::text
-            FROM information_schema.columns c
-            JOIN pg_namespace nsp ON c.table_schema = nsp.nspname
-            WHERE nsp.nspname NOT IN ('information_schema', 'pg_toast', 'pg_catalog')
-              AND c.table_name IS NOT NULL
-            ORDER BY c.table_schema, c.table_name, c.ordinal_position
+            SELECT nspname::text AS schema_name
+            FROM pg_namespace
+            WHERE nspname NOT IN ('information_schema', 'pg_toast', 'pg_catalog')
+              AND nspname NOT LIKE 'pg_%'
+            ORDER BY nspname
             "#,
             &[],
         )
         .await
-        .map_err(|e| Error::internal_err(format!("Failed to query schema: {}", e)))?;
+        .map_err(|e| Error::internal_err(format!("Failed to query schemas: {}", e)))?;
 
     // Build hierarchical structure: schema -> table -> column -> compact_type
     let mut schema_map: SchemaMap = HashMap::new();
+
+    // Collect schema names and initialize map
+    let schema_names: Vec<String> = schema_rows
+        .iter()
+        .map(|row| {
+            let name: String = row.get(0);
+            schema_map.entry(name.clone()).or_default();
+            name
+        })
+        .collect();
+
+    // Query column information only for the schemas we found
+    let rows = client
+        .query(
+            r#"
+            SELECT
+                table_schema::text,
+                table_name::text,
+                column_name::text,
+                udt_name::text,
+                is_nullable::text,
+                column_default::text
+            FROM information_schema.columns
+            WHERE table_schema = ANY($1)
+              AND table_name IS NOT NULL
+            ORDER BY table_schema, table_name, ordinal_position
+            "#,
+            &[&schema_names],
+        )
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to query columns: {}", e)))?;
 
     for row in rows {
         let table_schema: String = row.get(0);
@@ -1647,6 +1761,7 @@ async fn edit_git_sync_config(
         windmill_git_sync::DeployedObject::Settings { setting_type: "git_sync".to_string() },
         Some("Git sync configuration updated".to_string()),
         false,
+        None,
     )
     .await?;
 
@@ -1770,6 +1885,7 @@ async fn edit_git_sync_repository(
             if repo_exists { "updated" } else { "added" }
         )),
         false,
+        None,
     )
     .await?;
 
@@ -1885,6 +2001,7 @@ async fn delete_git_sync_repository(
             request.git_repo_resource_path
         )),
         false,
+        None,
     )
     .await?;
 
@@ -2027,6 +2144,7 @@ async fn edit_default_scripts(
         windmill_git_sync::DeployedObject::Settings { setting_type: "default_scripts".to_string() },
         Some("Default scripts configuration updated".to_string()),
         false,
+        None,
     )
     .await?;
 
@@ -2109,6 +2227,7 @@ async fn edit_default_app(
         windmill_git_sync::DeployedObject::Settings { setting_type: "default_app".to_string() },
         Some("Default app configuration updated".to_string()),
         false,
+        None,
     )
     .await?;
 
@@ -2145,6 +2264,9 @@ async fn edit_error_handler(
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
 
+    // Normalize to new format (handles both old CLI and new CLI requests)
+    let ee = ee.into_normalized();
+
     let mut tx = db.begin().await?;
 
     sqlx::query_as!(
@@ -2158,8 +2280,8 @@ async fn edit_error_handler(
     .execute(&mut *tx)
     .await?;
 
-    if let Some(error_handler) = &ee.error_handler {
-        match ee.error_handler_extra_args.as_ref() {
+    if let Some(path) = &ee.path {
+        match ee.extra_args.as_ref() {
             Some(extra_args) if extra_args.is_object() => {
                 let Ok(email_recipients) = serde_json::from_value::<Option<Vec<String>>>(
                     extra_args["email_recipients"].to_owned(),
@@ -2183,41 +2305,34 @@ async fn edit_error_handler(
             None => {}
             _ => {
                 return Err(Error::BadRequest(
-                    "Field `error_handler_extra_args` expected to be JSON object".to_string(),
+                    "Field `extra_args` expected to be JSON object".to_string(),
                 ))
             }
         }
 
+        let mut error_handler = serde_json::json!({
+            "path": path,
+        });
+        if let Some(extra_args) = &ee.extra_args {
+            error_handler["extra_args"] = extra_args.clone();
+        }
+        if ee.muted_on_cancel {
+            error_handler["muted_on_cancel"] = serde_json::json!(true);
+        }
+        if ee.muted_on_user_path {
+            error_handler["muted_on_user_path"] = serde_json::json!(true);
+        }
+
         sqlx::query!(
-            r#"
-            UPDATE
-                workspace_settings
-            SET
-                error_handler = $1,
-                error_handler_extra_args = $2,
-                error_handler_muted_on_cancel = $3
-            WHERE
-                workspace_id = $4
-            "#,
+            "UPDATE workspace_settings SET error_handler = $1 WHERE workspace_id = $2",
             error_handler,
-            ee.error_handler_extra_args,
-            ee.error_handler_muted_on_cancel.unwrap_or(false),
             &w_id
         )
         .execute(&mut *tx)
         .await?;
     } else {
         sqlx::query!(
-            r#"
-            UPDATE
-                workspace_settings
-            SET
-                error_handler = NULL,
-                error_handler_extra_args = NULL,
-                error_handler_muted_on_cancel = false
-            WHERE
-                workspace_id = $1
-        "#,
+            "UPDATE workspace_settings SET error_handler = NULL WHERE workspace_id = $1",
             &w_id
         )
         .execute(&mut *tx)
@@ -2231,7 +2346,7 @@ async fn edit_error_handler(
         ActionKind::Update,
         &w_id,
         Some(&authed.email),
-        Some([("error_handler", &format!("{:?}", ee.error_handler)[..])].into()),
+        Some([("error_handler", &format!("{:?}", ee.path)[..])].into()),
     )
     .await?;
     tx.commit().await?;
@@ -2245,10 +2360,87 @@ async fn edit_error_handler(
         windmill_git_sync::DeployedObject::Settings { setting_type: "error_handler".to_string() },
         Some("Error handler configuration updated".to_string()),
         false,
+        None,
     )
     .await?;
 
     Ok(format!("Edit error_handler for workspace {}", &w_id))
+}
+
+async fn edit_success_handler(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(es): Json<EditSuccessHandler>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    // Normalize to new format (handles both old CLI and new CLI requests)
+    let es = es.into_normalized();
+
+    let mut tx = db.begin().await?;
+
+    sqlx::query_as!(
+        Group,
+        "INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+        w_id,
+        "success_handler",
+        "The group the success handler acts on behalf of",
+        serde_json::json!({username_to_permissioned_as(&authed.username): true})
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    if let Some(path) = &es.path {
+        let mut success_handler = serde_json::json!({
+            "path": path,
+        });
+        if let Some(extra_args) = &es.extra_args {
+            success_handler["extra_args"] = extra_args.clone();
+        }
+
+        sqlx::query!(
+            "UPDATE workspace_settings SET success_handler = $1 WHERE workspace_id = $2",
+            success_handler,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    } else {
+        sqlx::query!(
+            "UPDATE workspace_settings SET success_handler = NULL WHERE workspace_id = $1",
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.edit_success_handler",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some([("success_handler", &format!("{:?}", es.path)[..])].into()),
+    )
+    .await?;
+    tx.commit().await?;
+
+    // Trigger git sync for success handler changes
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        windmill_git_sync::DeployedObject::Settings { setting_type: "success_handler".to_string() },
+        Some("Success handler configuration updated".to_string()),
+        false,
+        None,
+    )
+    .await?;
+
+    Ok(format!("Edit success_handler for workspace {}", &w_id))
 }
 
 #[derive(Deserialize)]
@@ -2423,6 +2615,7 @@ async fn set_encryption_key(
         windmill_git_sync::DeployedObject::Key { key_type: "encryption_key".to_string() },
         Some("Encryption key updated".to_string()),
         false,
+        None,
     )
     .await?;
 
@@ -2440,6 +2633,7 @@ struct UsedTriggers {
     pub sqs_used: bool,
     pub gcp_used: bool,
     pub email_used: bool,
+    pub nextcloud_used: bool,
 }
 
 async fn get_used_triggers(
@@ -2448,7 +2642,7 @@ async fn get_used_triggers(
     Path(w_id): Path<String>,
 ) -> JsonResult<UsedTriggers> {
     let mut tx = user_db.begin(&authed).await?;
-    let websocket_used = sqlx::query_as!(
+    let triggers_used = sqlx::query_as!(
         UsedTriggers,
         r#"
         SELECT
@@ -2460,7 +2654,8 @@ async fn get_used_triggers(
             EXISTS(SELECT 1 FROM mqtt_trigger WHERE workspace_id = $1) AS "mqtt_used!",
             EXISTS(SELECT 1 FROM sqs_trigger WHERE workspace_id = $1) AS "sqs_used!",
             EXISTS(SELECT 1 FROM gcp_trigger WHERE workspace_id = $1) AS "gcp_used!",
-            EXISTS(SELECT 1 FROM email_trigger WHERE workspace_id = $1) AS "email_used!"
+            EXISTS(SELECT 1 FROM email_trigger WHERE workspace_id = $1) AS "email_used!",
+            EXISTS(SELECT 1 FROM native_trigger WHERE workspace_id = $1 AND service_name = 'nextcloud'::native_trigger_service) AS "nextcloud_used!"
         "#,
         w_id
     )
@@ -2468,7 +2663,7 @@ async fn get_used_triggers(
     .await?;
     tx.commit().await?;
 
-    Ok(Json(websocket_used))
+    Ok(Json(triggers_used))
 }
 
 async fn get_workspace_as_superadmin(
@@ -3463,18 +3658,18 @@ async fn edit_workspace(
     Ok(format!("Updated workspace {}", &w_id))
 }
 
-async fn archive_workspace(
-    Extension(db): Extension<DB>,
-    Path(w_id): Path<String>,
-    authed: ApiAuthed,
-) -> Result<String> {
-    require_admin(authed.is_admin, &authed.username)?;
-
+/// Archive a workspace: disable schedules, cancel jobs, and mark as deleted.
+/// Returns (schedules_disabled_count, jobs_canceled_count).
+pub(crate) async fn archive_workspace_impl(
+    db: &DB,
+    w_id: &str,
+    username: &str,
+) -> Result<(usize, usize)> {
     // Step 1: Disable all schedules and clear their queued jobs
     let mut tx = db.begin().await?;
     let disabled_schedules = sqlx::query_scalar!(
         "UPDATE schedule SET enabled = false WHERE workspace_id = $1 AND enabled = true RETURNING path",
-        &w_id
+        w_id
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -3488,15 +3683,20 @@ async fn archive_workspace(
 
     // Clear all schedule-related jobs using the existing clear_schedule function
     for schedule_path in &disabled_schedules {
-        crate::schedule::clear_schedule(&mut tx, schedule_path, &w_id).await?;
+        crate::schedule::clear_schedule(&mut tx, schedule_path, w_id).await?;
     }
+
+    // Mark workspace as archived
+    sqlx::query!("UPDATE workspace SET deleted = true WHERE id = $1", w_id)
+        .execute(&mut *tx)
+        .await?;
 
     tx.commit().await?;
 
     // Step 2: Get all remaining queued jobs for this workspace (non-schedule jobs)
     let jobs_to_cancel =
-        sqlx::query_scalar!("SELECT id FROM v2_job_queue WHERE workspace_id = $1", &w_id)
-            .fetch_all(&db)
+        sqlx::query_scalar!("SELECT id FROM v2_job_queue WHERE workspace_id = $1", w_id)
+            .fetch_all(db)
             .await?;
 
     let jobs_count = jobs_to_cancel.len();
@@ -3510,9 +3710,9 @@ async fn archive_workspace(
     let canceled_count = if !jobs_to_cancel.is_empty() {
         let axum::Json(canceled_jobs) = crate::jobs::cancel_jobs(
             jobs_to_cancel,
-            &db,
-            &authed.username,
-            &w_id,
+            db,
+            username,
+            w_id,
             false, // force_cancel
         )
         .await?;
@@ -3524,12 +3724,21 @@ async fn archive_workspace(
         0
     };
 
-    // Step 4: Archive the workspace
-    let mut tx = db.begin().await?;
-    sqlx::query!("UPDATE workspace SET deleted = true WHERE id = $1", &w_id)
-        .execute(&mut *tx)
-        .await?;
+    Ok((schedules_count, canceled_count))
+}
 
+async fn archive_workspace(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    authed: ApiAuthed,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let (schedules_count, canceled_count) =
+        archive_workspace_impl(&db, &w_id, &authed.username).await?;
+
+    // Audit log
+    let mut tx = db.begin().await?;
     let mut audit_params = HashMap::new();
     audit_params.insert("disabled_schedules", schedules_count.to_string());
     audit_params.insert("canceled_jobs", canceled_count.to_string());
@@ -3786,6 +3995,7 @@ async fn add_user(
         windmill_git_sync::DeployedObject::User { email: nu.email.clone() },
         Some(format!("Added user '{}' to workspace", &nu.email)),
         true,
+        None,
     )
     .await?;
 
@@ -4031,6 +4241,7 @@ async fn change_workspace_name(
         windmill_git_sync::DeployedObject::Settings { setting_type: "workspace_name".to_string() },
         Some(format!("Workspace name updated to {}", &rw.new_name)),
         false,
+        None,
     )
     .await?;
 
@@ -4065,6 +4276,7 @@ async fn change_workspace_color(
         DeployedObject::Settings { setting_type: "workspace_color".to_string() },
         None,
         false,
+        None,
     )
     .await?;
 
@@ -4178,6 +4390,7 @@ async fn mute_critical_alerts(
         DeployedObject::Settings { setting_type: "critical_alerts".to_string() },
         None,
         false,
+        None,
     )
     .await?;
 
@@ -4190,6 +4403,72 @@ async fn mute_critical_alerts(
 #[cfg(not(feature = "enterprise"))]
 pub async fn mute_critical_alerts() -> Error {
     Error::NotFound("Critical Alerts require EE".to_string())
+}
+
+#[derive(Deserialize)]
+pub struct EditPublicAppRateLimitRequest {
+    pub public_app_execution_limit_per_minute: Option<i32>,
+}
+
+async fn edit_public_app_rate_limit(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    authed: ApiAuthed,
+    Json(req): Json<EditPublicAppRateLimitRequest>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    sqlx::query!(
+        "UPDATE workspace_settings SET public_app_execution_limit_per_minute = $1 WHERE workspace_id = $2",
+        req.public_app_execution_limit_per_minute,
+        &w_id
+    )
+    .execute(&db)
+    .await?;
+
+    // Cache is invalidated via DB trigger -> notify_event -> polling in main.rs
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Settings { setting_type: "public_app_rate_limit".to_string() },
+        None,
+        false,
+        None,
+    )
+    .await?;
+
+    Ok(format!(
+        "Updated public app rate limit for workspace: {}",
+        &w_id
+    ))
+}
+
+// 5 minutes fallback TTL (in addition to event-based invalidation)
+const PUBLIC_APP_RATE_LIMIT_CACHE_TTL_SECS: i64 = 300;
+
+pub async fn get_public_app_rate_limit(db: &DB, w_id: &str) -> Result<Option<i32>> {
+    use windmill_common::workspaces::PUBLIC_APP_RATE_LIMIT_CACHE;
+
+    let now = Utc::now().timestamp();
+
+    if let Some((rate_limit, cached_at)) = PUBLIC_APP_RATE_LIMIT_CACHE.get(w_id) {
+        if now - cached_at < PUBLIC_APP_RATE_LIMIT_CACHE_TTL_SECS {
+            return Ok(rate_limit);
+        }
+    }
+
+    let result: Option<Option<i32>> = sqlx::query_scalar(
+        "SELECT public_app_execution_limit_per_minute FROM workspace_settings WHERE workspace_id = $1",
+    )
+    .bind(w_id)
+    .fetch_optional(db)
+    .await?;
+    let rate_limit = result.flatten();
+    PUBLIC_APP_RATE_LIMIT_CACHE.insert(w_id.to_string(), (rate_limit, now));
+    Ok(rate_limit)
 }
 
 #[derive(Deserialize, Serialize)]
@@ -4249,6 +4528,7 @@ async fn update_operator_settings(
         },
         Some("Operator settings updated".to_string()),
         false,
+        None,
     )
     .await?;
 
@@ -4274,6 +4554,8 @@ pub struct CompareSummary {
     pub apps_changed: usize,
     pub resources_changed: usize,
     pub variables_changed: usize,
+    pub resource_types_changed: usize,
+    pub folders_changed: usize,
     pub conflicts: usize, // Items that are both ahead and behind
 }
 
@@ -4384,6 +4666,19 @@ async fn compare_workspaces(
                 compare_two_variables(&db, &source_workspace_id, &fork_workspace_id, &item.path)
                     .await?,
             ),
+            "resource_type" => Some(
+                compare_two_resource_types(
+                    &db,
+                    &source_workspace_id,
+                    &fork_workspace_id,
+                    &item.path,
+                )
+                .await?,
+            ),
+            "folder" => Some(
+                compare_two_folders(&db, &source_workspace_id, &fork_workspace_id, &item.path)
+                    .await?,
+            ),
             k => {
                 tracing::error!("Received unrecognized item kind `{k}` with path: `{}` while computing diff of {fork_workspace_id} and {source_workspace_id} workspaces. Skipping this item", item.path);
                 None
@@ -4464,6 +4759,11 @@ async fn compare_workspaces(
             .iter()
             .filter(|s| s.kind == "variable")
             .count(),
+        resource_types_changed: visible_diffs
+            .iter()
+            .filter(|s| s.kind == "resource_type")
+            .count(),
+        folders_changed: visible_diffs.iter().filter(|s| s.kind == "folder").count(),
         conflicts: visible_diffs
             .iter()
             .filter(|s| s.ahead > 0 && s.behind > 0)
@@ -4583,6 +4883,33 @@ async fn query_visible_items<'c>(
                 sqlx::query_scalar!(
                     "SELECT path FROM variable
                      WHERE workspace_id = $1 AND path = ANY($2)",
+                    workspace_id,
+                    &paths_vec
+                )
+                .fetch_all(&mut **tx)
+                .await?
+            }
+            "folder" => {
+                let a: Vec<String> = paths_vec
+                    .iter()
+                    .map(|p| p.strip_prefix("f/").unwrap_or(p.as_str()).to_string())
+                    .collect();
+                sqlx::query_scalar!(
+                    "SELECT name FROM folder
+                     WHERE workspace_id = $1 AND name = ANY($2)",
+                    workspace_id,
+                    &a,
+                )
+                .fetch_all(&mut **tx)
+                .await?
+                .into_iter()
+                .map(|p| format!("f/{p}"))
+                .collect()
+            }
+            "resource_type" => {
+                sqlx::query_scalar!(
+                    "SELECT name FROM resource_type
+                     WHERE workspace_id = $1 AND name = ANY($2)",
                     workspace_id,
                     &paths_vec
                 )
@@ -4860,5 +5187,104 @@ async fn compare_two_variables(
         has_changes,
         exists_in_source: source_variable.is_some(),
         exists_in_fork: target_variable.is_some(),
+    });
+}
+
+async fn compare_two_resource_types(
+    db: &DB,
+    source_workspace_id: &str,
+    fork_workspace_id: &str,
+    name: &str,
+) -> Result<ItemComparison> {
+    // Get resource type from each workspace
+    let source_resource_type = sqlx::query!(
+        "SELECT schema, description, format_extension
+         FROM resource_type
+         WHERE workspace_id = $1 AND name = $2",
+        source_workspace_id,
+        name
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let target_resource_type = sqlx::query!(
+        "SELECT schema, description, format_extension
+         FROM resource_type
+         WHERE workspace_id = $1 AND name = $2",
+        fork_workspace_id,
+        name
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let mut has_changes = false;
+
+    // Check metadata differences
+    if let (Some(source), Some(target)) = (&source_resource_type, &target_resource_type) {
+        if source.schema != target.schema
+            || source.description != target.description
+            || source.format_extension != target.format_extension
+        {
+            has_changes = true;
+        }
+    } else if source_resource_type.is_some() || target_resource_type.is_some() {
+        // The resource type exists in one of source or target, but not the other, this is considered as a change
+        has_changes = true
+    }
+
+    return Ok(ItemComparison {
+        has_changes,
+        exists_in_source: source_resource_type.is_some(),
+        exists_in_fork: target_resource_type.is_some(),
+    });
+}
+
+async fn compare_two_folders(
+    db: &DB,
+    source_workspace_id: &str,
+    fork_workspace_id: &str,
+    name: &str,
+) -> Result<ItemComparison> {
+    // Get folder from each workspace
+    let source_folder = sqlx::query!(
+        "SELECT display_name, owners, extra_perms, summary
+         FROM folder
+         WHERE workspace_id = $1 AND name = $2",
+        source_workspace_id,
+        name.strip_prefix("f/"),
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let target_folder = sqlx::query!(
+        "SELECT display_name, owners, extra_perms, summary
+         FROM folder
+         WHERE workspace_id = $1 AND name = $2",
+        fork_workspace_id,
+        name.strip_prefix("f/"),
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let mut has_changes = false;
+
+    // Check metadata differences
+    if let (Some(source), Some(target)) = (&source_folder, &target_folder) {
+        if source.display_name != target.display_name
+            || source.owners != target.owners
+            || source.extra_perms != target.extra_perms
+            || source.summary != target.summary
+        {
+            has_changes = true;
+        }
+    } else if source_folder.is_some() || target_folder.is_some() {
+        // The folder exists in one of source or target, but not the other, this is considered as a change
+        has_changes = true
+    }
+
+    return Ok(ItemComparison {
+        has_changes,
+        exists_in_source: source_folder.is_some(),
+        exists_in_fork: target_folder.is_some(),
     });
 }

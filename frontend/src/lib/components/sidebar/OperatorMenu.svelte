@@ -12,7 +12,8 @@
 		Building,
 		Calendar,
 		ServerCog,
-		GraduationCap
+		GraduationCap,
+		Table2
 	} from 'lucide-svelte'
 	import { base } from '$lib/base'
 
@@ -28,28 +29,26 @@
 	} from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
 	import { USER_SETTINGS_HASH } from './settings'
-	import { logout } from '$lib/logout'
+	import { logout } from '$lib/logoutKit'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import BarsStaggered from '../icons/BarsStaggered.svelte'
 	import { Menu, Menubar, MenuItem } from '$lib/components/meltComponents'
 	import MenuButton, { sidebarClasses } from './MenuButton.svelte'
 	import MenuLink from './MenuLink.svelte'
 	import ResizeTransitionWrapper from '../common/ResizeTransitionWrapper.svelte'
+	import type { FavoriteKind } from './FavoriteMenu.svelte'
 	let darkMode: boolean = $state(false)
 
 	interface Props {
 		isCollapsed?: boolean
-		favoriteLinks?: any
-	}
-
-	let {
-		isCollapsed = false,
-		favoriteLinks = [] as {
+		favoriteLinks?: {
 			label: string
 			href: string
-			kind: 'script' | 'flow' | 'app' | 'raw_app'
+			kind: FavoriteKind
 		}[]
-	}: Props = $props()
+	}
+
+	let { isCollapsed = false, favoriteLinks = [] }: Props = $props()
 
 	let mainMenuLinks = $derived(
 		[
@@ -206,6 +205,8 @@
 									<BarsStaggered size={16} />
 								{:else if favorite.kind == 'app' || favorite.kind == 'raw_app'}
 									<LayoutDashboard size={16} />
+								{:else if favorite.kind == 'asset'}
+									<Table2 size={16} />
 								{/if}
 							</span>
 							<span class="text-primary ml-2 grow min-w-0 text-xs truncate">

@@ -1,10 +1,9 @@
 <script lang="ts">
 	import { ResourceService, type Job } from '$lib/gen'
 	import { inferAssets } from '$lib/infer'
-	import { workspaceStore } from '$lib/stores'
+	import { globalDbManagerDrawer, workspaceStore } from '$lib/stores'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import { pruneNullishArray, uniqueBy } from '$lib/utils'
-	import DbManagerDrawer from '../DBManagerDrawer.svelte'
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import AssetButtons from './AssetButtons.svelte'
@@ -54,7 +53,7 @@
 	$effect(() => {
 		for (const asset of assets.value ?? []) {
 			if (asset.kind == 'resource') {
-				let truncatedPath = asset.path.split('/').slice(0, 3).join('/')
+				let truncatedPath = asset.path.split('?table=')[0]
 				if (truncatedPath in resourceDataCache) continue
 				resourceDataCache[truncatedPath] = undefined // avoid fetching multiple times because of async
 				ResourceService.getResource({ path: truncatedPath, workspace: $workspaceStore! })
@@ -65,7 +64,7 @@
 	})
 
 	let s3FilePicker: S3FilePicker | undefined = $state()
-	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
+	let dbManagerDrawer = $derived(globalDbManagerDrawer.val)
 	let resourceEditorDrawer: ResourceEditorDrawer | undefined = $state()
 </script>
 
@@ -79,7 +78,7 @@
 						{formatAssetKind({
 							...asset,
 							...(asset.kind === 'resource'
-								? { metadata: { resource_type: resourceDataCache[asset.path] } }
+								? { metadata: { resource_type: resourceDataCache[asset.path.split('?table=')[0]] } }
 								: {})
 						})}
 					</span>
@@ -99,5 +98,4 @@
 {/if}
 
 <S3FilePicker bind:this={s3FilePicker} readOnlyMode />
-<DbManagerDrawer bind:this={dbManagerDrawer} />
 <ResourceEditorDrawer bind:this={resourceEditorDrawer} />

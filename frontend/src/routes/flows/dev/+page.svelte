@@ -11,7 +11,7 @@
 	} from '$lib/components/flows/types'
 	import { SelectionManager } from '$lib/components/graph/selectionUtils.svelte'
 	import { writable } from 'svelte/store'
-	import { OpenAPI, type OpenFlow, type TriggersCount } from '$lib/gen'
+	import { OpenAPI, type Job, type OpenFlow, type TriggersCount } from '$lib/gen'
 	import { initHistory } from '$lib/history.svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
 	import FlowModuleSchemaMap from '$lib/components/flows/map/FlowModuleSchemaMap.svelte'
@@ -70,6 +70,7 @@
 
 	let initialCode = JSON.stringify(flowStore, null, 4)
 	const flowStateStore = $state({ val: {} }) as StateStore<FlowState>
+	const suspendStatus = $state({ val: {} }) as StateStore<Record<string, { job: Job; nb: number }>>
 
 	const previewArgsStore = $state({ val: {} })
 	const scriptEditorDrawer = writable(undefined)
@@ -275,7 +276,7 @@
 			</div>
 
 			<div class="flex justify-center pt-1 z-50 absolute right-2 top-2 gap-2">
-				<FlowPreviewButtons bind:this={flowPreviewButtons} />
+				<FlowPreviewButtons bind:this={flowPreviewButtons} {suspendStatus} />
 			</div>
 			<Splitpanes horizontal class="h-full max-h-screen grow">
 				<Pane size={33}>

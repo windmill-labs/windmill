@@ -33,6 +33,7 @@
 		onStart?: () => void
 		onJobsLoaded?: ({ job, force }: { job: Job; force: boolean }) => void
 		onDone?: ({ job }: { job: CompletedJob }) => void
+		showLogsWithResult?: boolean
 	}
 
 	let {
@@ -41,7 +42,6 @@
 		workspaceId = undefined,
 		flowState = $bindable({}),
 		selectedJobStep = $bindable(undefined),
-		hideFlowResult = false,
 		hideTimeline = false,
 		hideDownloadInGraph = false,
 		hideNodeDefinition = false,
@@ -58,7 +58,8 @@
 		customUi,
 		onStart,
 		onJobsLoaded,
-		onDone
+		onDone,
+		showLogsWithResult = false
 	}: Props = $props()
 
 	let lastJobId: string = jobId
@@ -118,7 +119,6 @@
 
 {#key jobId}
 	<FlowStatusViewerInner
-		{hideFlowResult}
 		onJobsLoaded={({ job, force }) => {
 			if (job.script_path != lastScriptPath && job.script_path) {
 				lastScriptPath = job.script_path
@@ -136,7 +136,6 @@
 		{initialJob}
 		{jobId}
 		{workspaceId}
-		{isOwner}
 		{wideResults}
 		bind:rightColumnSelect
 		{render}
@@ -171,5 +170,6 @@
 				}
 			}
 		}}
+		{showLogsWithResult}
 	/>
 {/key}

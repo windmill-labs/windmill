@@ -62,7 +62,7 @@ use windmill_common::{
         MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL,
     },
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry, Step, Suspend},
-    worker::MIN_VERSION_IS_AT_LEAST_1_595,
+    min_version::MIN_VERSION_IS_AT_LEAST_1_595,
 };
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
@@ -83,7 +83,7 @@ async fn write_itered_to_db(
     job_id: Uuid,
     itered: &Vec<Box<RawValue>>,
 ) -> error::Result<Option<Vec<Box<RawValue>>>> {
-    if *MIN_VERSION_IS_AT_LEAST_1_595.read().await {
+    if MIN_VERSION_IS_AT_LEAST_1_595.met().await {
         // Write to separate table
         sqlx::query!(
             "INSERT INTO flow_iterator_data (job_id, itered) VALUES ($1, $2)
@@ -109,7 +109,7 @@ async fn read_itered_from_db(
     itered_from_status: &Option<Vec<Box<RawValue>>>,
 ) -> error::Result<Vec<Box<RawValue>>> {
     // Only try to read from separate table if version supports it
-    if *MIN_VERSION_IS_AT_LEAST_1_595.read().await {
+    if MIN_VERSION_IS_AT_LEAST_1_595.met().await {
         let result = sqlx::query_scalar!(
             "SELECT itered as \"itered: Json<Vec<Box<RawValue>>>\" FROM flow_iterator_data WHERE job_id = $1",
             job_id,
@@ -2518,10 +2518,13 @@ async fn push_next_flow_job(
             .await
             .context("lock flow in queue")?;
 
+            // Query for both step-level resumes (job = step_id) and flow-level resumes (job = flow_id)
+            // Flow-level resumes allow pre-approvals that can be consumed by any suspend step
             let resumes = sqlx::query_as::<_, ResumeRow>(
-                 "SELECT value, approver, resume_id, approved FROM resume_job WHERE job = $1 ORDER BY created_at ASC",
+                 "SELECT value, approver, resume_id, approved FROM resume_job WHERE job = $1 OR job = $2 ORDER BY created_at ASC",
              )
              .bind(last)
+             .bind(flow_job.id)
              .fetch_all(&mut *tx)
              .warn_after_seconds(3)
              .await

@@ -2,8 +2,8 @@
 
 import { untrack } from 'svelte'
 import { deepEqual } from 'fast-equals'
-import { type StateStore } from './utils'
-import { resource, type ResourceReturn } from 'runed'
+import type { StateStore } from './utils'
+import { resource, watch, type ResourceReturn } from 'runed'
 
 export function withProps<Component, Props>(component: Component, props: Props) {
 	const ret = $state({
@@ -185,5 +185,233 @@ export class ChangeOnDeepInequality<T> {
 
 	get value(): T {
 		return this._cached!
+	}
+}
+
+export function useReducedMotion(): { val: boolean } {
+	if (typeof window === 'undefined') return { val: false }
+
+	const query = window.matchMedia('(prefers-reduced-motion: reduce)')
+	let s = $state(query.matches)
+	$effect(() => {
+		const handler = (event: MediaQueryListEvent) => {
+			s = event.matches
+		}
+		query.addEventListener('change', handler)
+		return () => query.removeEventListener('change', handler)
+	})
+	return {
+		get val() {
+			return s
+		}
+	}
+}
+
+// Prevents flickering when data is unloaded (undefined) then reloaded quickly
+// But still becomes undefined if data is not reloaded within the timeout
+// so the user has feedback that the data is not available anymore.
+export class StaleWhileLoading<T> {
+	private _current: T | undefined = $state()
+	private _currentTimeout: ReturnType<typeof setTimeout> | undefined
+	constructor(getter: () => T, timeout = 400) {
+		watch(getter, (value) => {
+			if (this._currentTimeout) clearTimeout(this._currentTimeout)
+			if (value === undefined) {
+				this._currentTimeout = setTimeout(() => (this._current = undefined), timeout)
+			} else {
+				this._current = value
+			}
+		})
+	}
+	get current(): T | undefined {
+		return this._current
+	}
+}
+
+export interface UseInfiniteQueryOptions<TData, TPageParam> {
+	queryFn: (pageParam: TPageParam) => Promise<TData>
+	initialPageParam: TPageParam
+	getNextPageParam: (lastPage: TData, allPages: TData[]) => TPageParam | undefined
+}
+
+export interface UseInfiniteQueryReturn<TData> {
+	current: TData[]
+	isLoading: boolean
+	isFetchingNextPage: boolean
+	hasNextPage: boolean
+	error: Error | undefined
+	fetchNextPage: () => Promise<void>
+	reset: () => void
+}
+
+/**
+ * A Svelte 5 hook that detects when the user has scrolled to the bottom of an element
+ *
+ * @param selector - CSS selector for the element to monitor (if not provided, monitors window)
+ * @param threshold - Distance from bottom in pixels to trigger (default: 0)
+ * @returns Object with `current` getter that returns true when at bottom
+ *
+ * @example
+ * // Monitor a specific element
+ * const bottomDetector = useScrollToBottom('.my-scrollable-div', 100)
+ *
+ * // Monitor the window
+ * const windowBottomDetector = useScrollToBottom()
+ *
+ * $effect(() => {
+ *   if (bottomDetector.current) {
+ *     console.log('User scrolled to bottom!')
+ *   }
+ * })
+ */
+export function useScrollToBottom(selector: string, threshold: number = 0): { current: boolean } {
+	if (typeof window === 'undefined') return { current: false }
+
+	let current = $state(false)
+
+	$effect(() => {
+		const el = document.querySelector(selector) as HTMLElement
+		if (!el) {
+			console.warn(`useScrollToBottom: Element with selector "${selector}" not found`)
+			return
+		}
+		let element: HTMLElement = el
+
+		function checkIfAtBottom() {
+			const scrollTop = element.scrollTop
+			const scrollHeight = element.scrollHeight
+			const clientHeight = element.clientHeight
+
+			current = scrollTop + clientHeight >= scrollHeight - threshold
+		}
+
+		// Check immediately
+		checkIfAtBottom()
+
+		// Add scroll listener
+		element.addEventListener('scroll', checkIfAtBottom, { passive: true })
+
+		return () => {
+			element.removeEventListener('scroll', checkIfAtBottom)
+		}
+	})
+
+	return {
+		get current() {
+			return current
+		}
+	}
+}
+
+/**
+ * A Svelte 5 hook for infinite query/pagination functionality
+ *
+ * @example
+ * const query = useInfiniteQuery({
+ *   queryFn: async (page) => fetchItems(page),
+ *   initialPageParam: 0,
+ *   getNextPageParam: (lastPage, allPages) =>
+ *     lastPage.length > 0 ? allPages.length : undefined
+ * })
+ *
+ * // Access data
+ * query.current // All pages of data
+ * query.isLoading // Initial loading state
+ * query.isFetchingNextPage // Loading next page
+ * query.hasNextPage // Whether more pages exist
+ *
+ * // Fetch next page
+ * await query.fetchNextPage()
+ */
+export function useInfiniteQuery<TData, TPageParam = number>(
+	options: UseInfiniteQueryOptions<TData, TPageParam>
+): UseInfiniteQueryReturn<TData> {
+	const { queryFn, initialPageParam, getNextPageParam } = options
+
+	let pages = $state<TData[]>([])
+	let isLoading = $state(true)
+	let isFetchingNextPage = $state(false)
+	let error = $state<Error | undefined>(undefined)
+	let nextPageParam = $state<TPageParam | undefined>(initialPageParam)
+	let currentPromise: Promise<void> | undefined
+	let resetCount = 0
+
+	async function fetchPage(pageParam: TPageParam): Promise<void> {
+		try {
+			const currentResetCount = resetCount
+			const data = await queryFn(pageParam)
+			if (currentResetCount !== resetCount) {
+				// A reset occurred while we were fetching, discard this data
+				return
+			}
+			pages = [...pages, data]
+			nextPageParam = getNextPageParam(data, pages)
+		} catch (err) {
+			error = err instanceof Error ? err : new Error(String(err))
+			throw err
+		}
+	}
+
+	async function fetchNextPage(): Promise<void> {
+		if (!nextPageParam || isFetchingNextPage) {
+			return
+		}
+
+		const pageToFetch = nextPageParam
+		isFetchingNextPage = true
+		error = undefined
+
+		const promise = fetchPage(pageToFetch).finally(() => {
+			if (currentPromise === promise) {
+				isFetchingNextPage = false
+			}
+		})
+
+		currentPromise = promise
+		return promise
+	}
+
+	function reset(): void {
+		pages = []
+		isLoading = true
+		isFetchingNextPage = false
+		error = undefined
+		nextPageParam = initialPageParam
+		currentPromise = undefined
+		resetCount += 1
+
+		// Automatically fetch first page on reset
+		untrack(() => {
+			fetchPage(initialPageParam).finally(() => {
+				isLoading = false
+			})
+		})
+	}
+
+	// Initial fetch
+	untrack(() => {
+		fetchPage(initialPageParam).finally(() => {
+			isLoading = false
+		})
+	})
+
+	return {
+		get current() {
+			return pages
+		},
+		get isLoading() {
+			return isLoading
+		},
+		get isFetchingNextPage() {
+			return isFetchingNextPage
+		},
+		get hasNextPage() {
+			return nextPageParam !== undefined
+		},
+		get error() {
+			return error
+		},
+		fetchNextPage,
+		reset
 	}
 }

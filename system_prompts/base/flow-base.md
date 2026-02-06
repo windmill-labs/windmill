@@ -1,5 +1,15 @@
 # Windmill Flow Building Guide
 
+## CLI Commands
+
+Create a folder ending with `.flow` and add a YAML file with the flow definition.
+For rawscript modules, use `!inline path/to/script.ts` for the content key.
+After writing:
+- `wmill flow generate-locks --yes` - Generate lock files
+- `wmill sync push` - Deploy to Windmill
+
+## OpenFlow Schema
+
 The OpenFlow schema (openflow.openapi.yaml) is the source of truth for flow structure. Refer to OPENFLOW_SCHEMA for the complete type definitions.
 
 ## Reserved Module IDs

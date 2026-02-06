@@ -75,10 +75,10 @@ jobs:
           npm install
           npm run generate-backend-client
 
-      - name: install xmlsec1
+      - name: install xmlsec1 and gssapi
         run: |
           sudo apt-get update
-          sudo apt-get install -y libxml2-dev libxmlsec1-dev
+          sudo apt-get install -y libxml2-dev libxmlsec1-dev libkrb5-dev libsasl2-dev
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
@@ -97,7 +97,6 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           allowed_bots: "windmill-internal-app[bot]"
           trigger_phrase: "/ai"
-          plugins: "rust-analyzer-lsp@claude-plugins-official,typescript-lsp@claude-plugins-official"
           settings: |
             {
               "env": {

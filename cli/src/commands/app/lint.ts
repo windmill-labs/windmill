@@ -2,12 +2,16 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import process from "node:process";
-import { Command, colors, log, yamlParseFile } from "../../../deps.ts";
+import { colors, Command, log, yamlParseFile } from "../../../deps.ts";
 import { GlobalOptions } from "../../types.ts";
 import { createBundle } from "./bundle.ts";
 import { APP_BACKEND_FOLDER } from "./app_metadata.ts";
 import { loadRunnablesFromBackend } from "./raw_apps.ts";
-import { hasFolderSuffix, getFolderSuffix } from "../../utils/resource_folders.ts";
+import {
+  getFolderSuffix,
+  hasFolderSuffix,
+  loadNonDottedPathsSetting,
+} from "../../utils/resource_folders.ts";
 
 interface LintOptions extends GlobalOptions {
   fix?: boolean;
@@ -47,7 +51,7 @@ function validateRawAppYaml(appData: any): {
  */
 async function validateRunnables(
   appDir: string,
-  appData: any
+  appData: any,
 ): Promise<{ errors: string[]; warnings: string[] }> {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -59,8 +63,7 @@ async function validateRunnables(
   const hasBackendRunnables = Object.keys(runnablesFromBackend).length > 0;
 
   // Check for runnables in raw_app.yaml (old format)
-  const hasYamlRunnables =
-    appData.runnables &&
+  const hasYamlRunnables = appData.runnables &&
     typeof appData.runnables === "object" &&
     !Array.isArray(appData.runnables) &&
     Object.keys(appData.runnables).length > 0;
@@ -69,22 +72,26 @@ async function validateRunnables(
     errors.push(
       "No runnables found. Expected either:\n" +
         "  - Runnable YAML files in the 'backend/' folder (e.g., backend/myRunnable.yaml)\n" +
-        "  - Or a 'runnables' field in raw_app.yaml (legacy format)"
+        "  - Or a 'runnables' field in raw_app.yaml (legacy format)",
     );
   } else if (hasBackendRunnables) {
     log.info(
       colors.gray(
-        `  Found ${Object.keys(runnablesFromBackend).length} runnable(s) in backend folder`
-      )
+        `  Found ${
+          Object.keys(runnablesFromBackend).length
+        } runnable(s) in backend folder`,
+      ),
     );
   } else if (hasYamlRunnables) {
     log.info(
       colors.gray(
-        `  Found ${Object.keys(appData.runnables).length} runnable(s) in raw_app.yaml (legacy format)`
-      )
+        `  Found ${
+          Object.keys(appData.runnables).length
+        } runnable(s) in raw_app.yaml (legacy format)`,
+      ),
     );
     warnings.push(
-      "Using legacy format with runnables in raw_app.yaml. Consider migrating to separate files in backend/"
+      "Using legacy format with runnables in raw_app.yaml. Consider migrating to separate files in backend/",
     );
   }
 
@@ -95,7 +102,7 @@ async function validateRunnables(
  * Checks if the app can be built successfully
  */
 async function validateBuild(
-  appDir: string
+  appDir: string,
 ): Promise<{ errors: string[]; warnings: string[] }> {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -122,7 +129,7 @@ async function validateBuild(
  */
 async function lintRawApp(
   appDir: string,
-  opts: LintOptions
+  opts: LintOptions,
 ): Promise<LintResult> {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -131,7 +138,9 @@ async function lintRawApp(
   const currentDirName = path.basename(appDir);
   if (!hasFolderSuffix(currentDirName, "raw_app")) {
     errors.push(
-      `Not a raw app folder: '${currentDirName}' does not end with '${getFolderSuffix("raw_app")}'`
+      `Not a raw app folder: '${currentDirName}' does not end with '${
+        getFolderSuffix("raw_app")
+      }'`,
     );
     return { valid: false, errors, warnings };
   }
@@ -192,6 +201,9 @@ async function lintRawApp(
  * Main lint command
  */
 async function lint(opts: LintOptions, appFolder?: string) {
+  // Load nonDottedPaths setting before using folder suffix functions
+  await loadNonDottedPathsSetting();
+
   const targetDir = appFolder ?? process.cwd();
 
   log.info(colors.bold.blue(`\n🔍 Linting raw app: ${targetDir}\n`));

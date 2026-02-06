@@ -81,41 +81,7 @@
 
 <div class="min-w-[300px] h-full flex flex-col">
 	<Splitpanes horizontal={true}>
-		<Pane class="px-4 py-2 h-full">
-			<Section
-				label="Saved Inputs"
-				tooltip="Shared inputs are available to anyone with access to the script"
-				wrapperClass="h-full"
-				small={true}
-			>
-				{#snippet action()}
-					<SaveInputsButton
-						{args}
-						disabled={!isValid || jsonView}
-						{runnableId}
-						{runnableType}
-						on:update={() => {
-							savedInputsPicker?.refresh()
-						}}
-					/>
-				{/snippet}
-
-				<SavedInputsPicker
-					bind:this={savedInputsPicker}
-					previewArgs={args}
-					{runnableId}
-					{runnableType}
-					{isValid}
-					on:select={(e) => {
-						if (e.detail) historicInputs?.resetSelected()
-						selectArgs(e.detail, e.detail ? 'saved' : undefined)
-					}}
-					noButton={true}
-				/>
-			</Section>
-		</Pane>
-
-		<Pane class="px-4 py-4 h-full">
+		<Pane class="px-4 py-4 h-full" size={65}>
 			<Section label="History" wrapperClass="h-full" small={true}>
 				{#snippet action()}
 					<div class="flex space-x-2">
@@ -143,7 +109,7 @@
 							{/snippet}
 
 							{#snippet content()}
-								<div class="p-2 overflow-auto max-h-[400px] min-h-[300px] w-[400px]">
+								<div class="p-4 overflow-auto max-h-[400px] min-h-[300px] w-[400px]">
 									<div class="flex items-center flex-wrap gap-x-2 justify-between">
 										<div class="text-sm text-secondary">Search by args</div>
 										<div class="flex flex-wrap gap-x-2">
@@ -190,9 +156,7 @@
 							{/snippet}
 						</Popover>
 						<Button
-							size="xs2"
-							color="light"
-							btnClasses="!text-primary"
+							unifiedSize="sm"
 							endIcon={{ icon: ExternalLink }}
 							on:click={() => {
 								window.open(`/runs/${runnableId}`, '_blank')
@@ -213,6 +177,39 @@
 					searchArgs={emptySearchArgs ? undefined : appliedSearchArgs}
 					showAuthor
 					placement="top-end"
+				/>
+			</Section>
+		</Pane>
+		<Pane>
+			<Section
+				label="Saved Inputs"
+				tooltip="Shared inputs are available to anyone with access to the script"
+				wrapperClass="h-full px-4 py-2 overflow-y-auto"
+				small={true}
+			>
+				{#snippet action()}
+					<SaveInputsButton
+						{args}
+						disabled={!isValid || jsonView}
+						{runnableId}
+						{runnableType}
+						on:update={() => {
+							savedInputsPicker?.refresh()
+						}}
+					/>
+				{/snippet}
+
+				<SavedInputsPicker
+					bind:this={savedInputsPicker}
+					previewArgs={args}
+					{runnableId}
+					{runnableType}
+					{isValid}
+					on:select={(e) => {
+						if (e.detail) historicInputs?.resetSelected()
+						selectArgs(e.detail, e.detail ? 'saved' : undefined)
+					}}
+					noButton={true}
 				/>
 			</Section>
 		</Pane>

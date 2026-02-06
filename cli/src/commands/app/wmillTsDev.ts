@@ -19,7 +19,27 @@ function initWebSocket() {
 
     ws.onmessage = (event) => {
         const data = JSON.parse(event.data)
-        if (data.type === 'backendRes' || data.type === 'backendAsyncRes') {
+        if (data.type === 'streamJobUpdate') {
+            // Handle streaming update
+            const job = reqs[data.reqId]
+            if (job && job.onUpdate) {
+                job.onUpdate({
+                    new_result_stream: data.new_result_stream,
+                    stream_offset: data.stream_offset
+                })
+            }
+        } else if (data.type === 'streamJobRes') {
+            // Handle stream completion
+            const job = reqs[data.reqId]
+            if (job) {
+                if (data.error) {
+                    job.reject(new Error(data.result?.stack ?? data.result?.message ?? 'Stream error'))
+                } else {
+                    job.resolve(data.result)
+                }
+                delete reqs[data.reqId]
+            }
+        } else if (data.type === 'backendRes' || data.type === 'backendAsyncRes') {
             console.log('Message from WebSocket backend', data)
             const job = reqs[data.reqId]
             if (job) {
@@ -83,5 +103,24 @@ export function waitJob(jobId: string) {
 
 export function getJob(jobId: string) {
     return doRequest('getJob', { jobId })
+}
+
+/**
+ * Stream job results using SSE. Calls onUpdate for each stream update,
+ * and resolves with the final result when the job completes.
+ * @param jobId - The job ID to stream
+ * @param onUpdate - Callback for stream updates with new_result_stream data
+ * @returns Promise that resolves with the final job result
+ */
+export function streamJob(
+    jobId: string,
+    onUpdate?: (data: { new_result_stream?: string; stream_offset?: number }) => void
+): Promise<any> {
+    return new Promise(async (resolve, reject) => {
+        await wsReady
+        const reqId = Math.random().toString(36)
+        reqs[reqId] = { resolve, reject, onUpdate }
+        ws?.send(JSON.stringify({ jobId, type: 'streamJob', reqId }))
+    })
 }
 `}

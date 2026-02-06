@@ -1,5 +1,19 @@
 import type { ButtonType } from './common/button/model'
 
+// Languages that support HTTP request tracing via OTEL proxy
+export const OTEL_TRACING_PROXY_LANGUAGES = [
+	'nativets',
+	'python3',
+	'deno',
+	'bun',
+	'go',
+	'bash',
+	'rust',
+	'csharp',
+	'nu',
+	'ruby'
+] as const
+
 export interface Setting {
 	label: string
 	description?: string
@@ -34,6 +48,8 @@ export interface Setting {
 		| 'smtp_connect'
 		| 'indexer_rates'
 		| 'otel'
+		| 'otel_tracing_proxy'
+		| 'secret_backend'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -298,7 +314,7 @@ export const settings: Record<string, Setting[]> = {
 			label: 'UV index url',
 			description: 'Add private Pip registry',
 			key: 'pip_index_url',
-			fieldType: 'text',
+			fieldType: 'password',
 			placeholder: 'https://username:password@pypi.company.com/simple',
 			storage: 'setting',
 			ee_only: ''
@@ -307,7 +323,7 @@ export const settings: Record<string, Setting[]> = {
 			label: 'UV extra index url',
 			description: 'Add private extra Pip registry',
 			key: 'pip_extra_index_url',
-			fieldType: 'text',
+			fieldType: 'password',
 			placeholder: 'https://username:password@pypi.company.com/simple',
 			storage: 'setting',
 			ee_only: ''
@@ -316,7 +332,7 @@ export const settings: Record<string, Setting[]> = {
 			label: 'Npm config registry',
 			description: 'Add private npm registry',
 			key: 'npm_config_registry',
-			fieldType: 'text',
+			fieldType: 'password',
 			placeholder: 'https://registry.npmjs.org/:_authToken=npm_FOOBAR',
 			storage: 'setting',
 			ee_only: ''
@@ -326,7 +342,7 @@ export const settings: Record<string, Setting[]> = {
 			description:
 				'Add private scoped registries for Bun, See: https://bun.sh/docs/install/registries',
 			key: 'bunfig_install_scopes',
-			fieldType: 'text',
+			fieldType: 'password',
 			placeholder: '"@myorg3" = { token = "mytoken", url = "https://registry.myorg.com/" }',
 			storage: 'setting',
 			ee_only: ''
@@ -344,7 +360,7 @@ export const settings: Record<string, Setting[]> = {
 			label: 'Maven/Ivy repositories',
 			description: 'Add private Maven/Ivy repositories',
 			key: 'maven_repos',
-			fieldType: 'text',
+			fieldType: 'password',
 			placeholder: 'https://user:password@artifacts.foo.com/maven',
 			storage: 'setting',
 			ee_only: ''
@@ -361,7 +377,7 @@ export const settings: Record<string, Setting[]> = {
 			label: 'Ruby Gems repositories',
 			description: 'Add private Ruby repositories with credentials. Should end with /',
 			key: 'ruby_repos',
-			fieldType: 'text',
+			fieldType: 'password',
 			placeholder: 'https://user:password@gems.foo.com/',
 			storage: 'setting',
 			ee_only: ''
@@ -378,7 +394,8 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'PowerShell Repository PAT',
-			description: 'Add private PowerShell repository Personal Access Token',
+			description:
+				'Add private PowerShell repository Personal Access Token (optional, for authenticated repositories)',
 			key: 'powershell_repo_pat',
 			fieldType: 'password',
 			storage: 'setting',
@@ -445,7 +462,16 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: ''
 		},
-
+		{
+			label: 'HTTP Request Tracing',
+			description:
+				'Capture HTTP/HTTPS requests from job scripts as OpenTelemetry spans. Visible in job details and exported to your OTEL collector if configured. Toggling restarts workers.',
+			key: 'otel_tracing_proxy',
+			fieldType: 'otel_tracing_proxy',
+			storage: 'setting',
+			ee_only: 'HTTP Request Tracing is an EE feature',
+			defaultValue: () => ({ enabled: false, enabled_languages: [...OTEL_TRACING_PROXY_LANGUAGES] })
+		},
 		{
 			label: 'Prometheus',
 			description:
@@ -472,6 +498,17 @@ export const settings: Record<string, Setting[]> = {
 			key: 'disable_stats',
 			fieldType: 'boolean',
 			storage: 'setting'
+		}
+	],
+	'Secret Storage': [
+		{
+			label: 'Secret Storage Backend',
+			description:
+				'Configure where secrets (secret variables) are stored. By default, secrets are encrypted and stored in the database. Enterprise Edition supports HashiCorp Vault as an external secret store.',
+			key: 'secret_backend',
+			fieldType: 'secret_backend',
+			storage: 'setting',
+			ee_only: 'HashiCorp Vault integration is an Enterprise Edition feature'
 		}
 	]
 }

@@ -9,24 +9,26 @@
 	import { Button } from './common'
 	import SchemaForm from './SchemaForm.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { untrack } from 'svelte'
 
-	export let isOwner: boolean
-	export let workspaceId: string | undefined
-	export let job: Job
-	export let light: boolean = false
+	interface Props {
+		isOwner: boolean
+		workspaceId: string | undefined
+		job: Job
+		light?: boolean
+	}
 
-	let default_payload: object = {}
-	let resumeUrl: string | undefined = undefined
-	let cancelUrl: string | undefined = undefined
-	let description: any = undefined
-	let hide_cancel = false
+	let { isOwner, workspaceId, job, light = false }: Props = $props()
 
-	$: approvalStep = (job?.flow_status?.step ?? 1) - 1
+	let default_payload: object = $state({})
+	let resumeUrl: string | undefined = $state(undefined)
+	let cancelUrl: string | undefined = $state(undefined)
+	let description: any = $state(undefined)
+	let hide_cancel = $state(false)
 
-	let defaultValues = {}
-	$: job && getDefaultArgs()
+	let defaultValues = $state({})
 
-	let schema = {}
+	let schema = $state({})
 	let lastJobId: string | undefined = undefined
 	async function getDefaultArgs() {
 		let jobId = job?.flow_status?.modules?.[approvalStep]?.job
@@ -56,7 +58,9 @@
 		)
 	}
 
+	let loading = $state(false)
 	async function continu(approve: boolean) {
+		loading = true
 		if ((resumeUrl && approve) || (cancelUrl && !approve)) {
 			let split = (approve ? resumeUrl : cancelUrl)!.split('/')
 			let signatureUrl = split.pop() ?? ''
@@ -114,37 +118,43 @@
 			}
 		}
 	}
+	let approvalStep = $derived((job?.flow_status?.step ?? 1) - 1)
+	$effect(() => {
+		job && untrack(() => getDefaultArgs())
+	})
 </script>
 
-<div class="w-full h-full mt-2 text-xs text-primary">
-	{#if !light}
-		<p>Waiting to be resumed</p>
-	{/if}
+<div class="w-full h-full text-xs text-primary">
 	{#if description != undefined}
 		<DisplayResult {workspaceId} noControls result={description} language={job?.language} />
+		<div class="mt-2"></div>
 	{/if}
 	<div>
 		{#if isOwner || resumeUrl}
-			<div class={twMerge('flex gap-2 mt-2', light ? 'flex-col' : 'flex-row ')}>
-				{#if cancelUrl && !hide_cancel}
+			<div class={twMerge('flex gap-2', light ? 'flex-col' : 'flex-row ')}>
+				{#if !hide_cancel}
 					<div>
 						<Button
-							title="Cancel the flow"
+							title="Cancel the step"
+							{loading}
 							iconOnly
 							startIcon={{ icon: X }}
 							variant="default"
+							disabled={!cancelUrl}
 							destructive
+							unifiedSize="md"
 							on:click={() => continu(false)}
 						/>
 					</div>
 				{/if}
 				<div>
-					<Button variant="accent" on:click={() => continu(true)}
-						>Resume <Tooltip class="text-white"
-							>Since you are an owner of this flow, you can send resume events without necessarily
-							knowing the resume id sent by the approval step</Tooltip
-						></Button
-					>
+					<Button variant="accent" onClick={() => continu(true)} {loading} unifiedSize="md">
+						Resume
+						<Tooltip class="text-white">
+							Since you are an owner of this flow, you can send resume events without necessarily
+							knowing the resume id sent by the approval step
+						</Tooltip>
+					</Button>
 				</div>
 
 				{#if job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema}
@@ -156,10 +166,11 @@
 					>
 						<SchemaForm onlyMaskPassword bind:args={default_payload} {defaultValues} {schema} />
 					</div>
+					<Tooltip>
+						The payload is optional, it is passed to the following step through the `resume`
+						variable
+					</Tooltip>
 				{/if}
-				<Tooltip
-					>The payload is optional, it is passed to the following step through the `resume` variable</Tooltip
-				>
 			</div>
 		{:else}
 			You cannot resume the flow yourself without receiving the resume secret since you are not an

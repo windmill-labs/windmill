@@ -1,17 +1,25 @@
 <script lang="ts">
 	import { type Job } from '$lib/gen'
 	import ProgressBar from '../progressBar/ProgressBar.svelte'
+	import { forLater } from '$lib/forLater'
 
 	interface Props {
 		job?: Job | undefined
 		currentSubJobProgress?: number | undefined
 		class?: string
+		slim?: boolean
+		textPosition?: 'top' | 'bottom'
+		// Prefer step ID over step index when both are available
+		showStepId?: boolean
 	}
 
 	let {
 		job = undefined,
 		currentSubJobProgress = $bindable(undefined),
-		class: className
+		class: className,
+		slim = false,
+		textPosition = 'top',
+		showStepId = false
 	}: Props = $props()
 
 	let error: number | undefined = $state(undefined)
@@ -21,10 +29,19 @@
 	let length = $state(1)
 	let nextInProgress = $state(false)
 	let subIndexIsPercent: boolean = $state(false)
+	let currentStepId: string | undefined = $state(undefined)
+	let isWaitingForEvents = $state(false)
+	let isCanceled = $state(false)
+	let isScheduled = $state(false)
 
 	let progressBar = $state<ProgressBar | undefined>(undefined)
 
 	function updateJobProgress(job: Job) {
+		// Check if job is scheduled for later
+		const isJobScheduled = Boolean('running' in job && 'scheduled_for' in job &&
+			job.scheduled_for && forLater(job.scheduled_for))
+		isScheduled = isJobScheduled
+
 		const modules = job?.flow_status?.modules
 		if (!modules?.length) {
 			return
@@ -36,10 +53,23 @@
 		let newNextInProgress = false
 
 		let maxDone = Math.max(job?.flow_status?.step ?? 0, 0)
+		let newCurrentStepId: string | undefined = undefined
+		let newIsWaitingForEvents = false
+
 		if (modules.length > maxDone) {
 			const nextModule = modules[maxDone]
 			if (nextModule.type === 'InProgress') {
 				newNextInProgress = true
+				// Get the step ID if available
+				if (nextModule.id) {
+					newCurrentStepId = nextModule.id
+				}
+			} else if (nextModule.type === 'WaitingForEvents') {
+				newIsWaitingForEvents = true
+				// Get the step ID if available for waiting events
+				if (nextModule.id) {
+					newCurrentStepId = nextModule.id
+				}
 			}
 		}
 
@@ -80,6 +110,9 @@
 		length = Math.max(modules.length, 1)
 		index = maxDone
 		nextInProgress = newNextInProgress
+		currentStepId = newCurrentStepId
+		isWaitingForEvents = newIsWaitingForEvents
+		isCanceled = job?.canceled || false
 	}
 
 	export function reset() {
@@ -89,6 +122,10 @@
 		subLength = undefined
 		length = 1
 		index = 0
+		currentStepId = undefined
+		isWaitingForEvents = false
+		isCanceled = false
+		isScheduled = false
 	}
 	$effect(() => {
 		job && updateJobProgress(job)
@@ -104,5 +141,12 @@
 	{subIndex}
 	{error}
 	{subIndexIsPercent}
+	{slim}
 	class={className}
+	{textPosition}
+	stepId={currentStepId}
+	{showStepId}
+	{isWaitingForEvents}
+	{isCanceled}
+	{isScheduled}
 />

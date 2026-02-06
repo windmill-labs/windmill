@@ -7,18 +7,24 @@
 		runnables: Record<string, Runnable>
 		selectedRunnable: string | undefined
 		appPath: string
-		initRunnablesContent: Record<string, string>
 		/** Called when code is selected in the editor */
-		onSelectionChange?: (selection: {
-			content: string
-			startLine: number
-			endLine: number
-			startColumn: number
-			endColumn: number
-		} | null) => void
+		onSelectionChange?: (
+			selection: {
+				content: string
+				startLine: number
+				endLine: number
+				startColumn: number
+				endColumn: number
+			} | null
+		) => void
 	}
 
-	let { runnables, selectedRunnable = $bindable(), appPath, onSelectionChange }: Props = $props()
+	let {
+		runnables = $bindable(),
+		selectedRunnable = $bindable(),
+		appPath,
+		onSelectionChange
+	}: Props = $props()
 </script>
 
 {#if !selectedRunnable}

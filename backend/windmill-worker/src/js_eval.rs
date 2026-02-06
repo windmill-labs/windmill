@@ -29,6 +29,8 @@ use deno_web::{BlobStore, TimersPermission};
 #[cfg(feature = "deno_core")]
 use itertools::Itertools;
 use lazy_static::lazy_static;
+#[cfg(feature = "quickjs")]
+use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_json::value::RawValue;
 use sqlx::types::Json;
@@ -324,9 +326,18 @@ async fn handle_full_regex(
         };
 
         let result = if obj_name == "results" {
-            authed_client
-                .get_result_by_id(&by_id.flow_job.to_string(), obj_key, query)
+            // Use .ok() to match deno_core op_get_id behavior: return null for non-existent steps
+            // instead of throwing an error
+            let res = authed_client
+                .get_result_by_id::<Option<Box<RawValue>>>(&by_id.flow_job.to_string(), obj_key, query)
                 .await
+                .ok()
+                .flatten();
+            match res {
+                Some(v) => Ok(v),
+                None => serde_json::value::to_raw_value(&serde_json::Value::Null)
+                    .map_err(|e| anyhow::anyhow!("Failed to serialize null: {}", e)),
+            }
         } else if obj_name == "flow_env" {
             authed_client
                 .get_flow_env_by_flow_job_id(&by_id.flow_job.to_string(), obj_key, query)
@@ -391,6 +402,35 @@ pub async fn eval_timeout(
         if let Some(result) = handle_full_regex(&expr, authed_client, by_id).await {
             return result;
         }
+    }
+
+    // Use QuickJS if enabled and either deno_core is not available or USE_QUICKJS env var is set
+    #[cfg(all(feature = "quickjs", not(feature = "deno_core")))]
+    {
+        return crate::js_eval_quickjs::eval_timeout_quickjs(
+            expr,
+            transform_context,
+            flow_input,
+            flow_env,
+            authed_client,
+            by_id,
+            ctx,
+        )
+        .await;
+    }
+
+    #[cfg(all(feature = "quickjs", feature = "deno_core"))]
+    if *USE_QUICKJS {
+        return crate::js_eval_quickjs::eval_timeout_quickjs(
+            expr,
+            transform_context,
+            flow_input,
+            flow_env,
+            authed_client,
+            by_id,
+            ctx,
+        )
+        .await;
     }
 
     #[cfg(not(feature = "deno_core"))]
@@ -522,8 +562,8 @@ pub async fn eval_timeout(
     }
 }
 
-#[cfg(feature = "deno_core")]
-fn replace_with_await(expr: String, fn_name: &str) -> String {
+#[cfg(any(feature = "deno_core", feature = "quickjs"))]
+pub fn replace_with_await(expr: String, fn_name: &str) -> String {
     let sep = format!("{}(", fn_name);
     let mut split = expr.split(&sep);
     let mut s = split.next().unwrap_or_else(|| "").to_string();
@@ -545,12 +585,27 @@ lazy_static! {
         Regex::new(r"^(https?)://(([^:@\s]+):([^:@\s]+)@)?([^:@\s]+)(:(\d+))?$").unwrap();
 }
 
-#[cfg(feature = "deno_core")]
-fn replace_with_await_result(expr: String) -> String {
+#[cfg(feature = "quickjs")]
+#[allow(dead_code)] // Only used when both quickjs and deno_core features are enabled
+static USE_QUICKJS: Lazy<bool> = Lazy::new(|| {
+    // When enterprise is not enabled, default to QuickJS unless USE_DENO_FOR_FLOW_EVAL is set
+    // When enterprise is enabled, default to Deno unless USE_QUICKJS_FOR_FLOW_EVAL is set
+    #[cfg(not(feature = "enterprise"))]
+    {
+        std::env::var("USE_DENO_FOR_FLOW_EVAL").is_err()
+    }
+    #[cfg(feature = "enterprise")]
+    {
+        std::env::var("USE_QUICKJS_FOR_FLOW_EVAL").is_ok()
+    }
+});
+
+#[cfg(any(feature = "deno_core", feature = "quickjs"))]
+pub fn replace_with_await_result(expr: String) -> String {
     RE.replace_all(&expr, "(await $r)").to_string()
 }
 
-#[cfg(feature = "deno_core")]
+#[cfg(any(feature = "deno_core", feature = "quickjs"))]
 fn add_closing_bracket(s: &str) -> String {
     let mut s = s.to_string();
     let mut level = 1;
@@ -1131,6 +1186,17 @@ pub async fn eval_fetch_timeout(
         let mut js_runtime: JsRuntime = JsRuntime::new(options);
         // tracing::info!("ttc: {:?}", instant.elapsed());
 
+        // Bootstrap OpenTelemetry for fetch auto-instrumentation if OTEL was initialized.
+        // We call the function exposed by runtime.js since we can't dynamically import ext: modules.
+        #[cfg(all(feature = "private", feature = "enterprise"))]
+        if crate::DENO_OTEL_INITIALIZED.load(std::sync::atomic::Ordering::SeqCst) {
+            if let Err(e) =
+                js_runtime.execute_script("<otel_bootstrap>", "globalThis.__bootstrapOtel()")
+            {
+                tracing::warn!("Failed to bootstrap OTEL telemetry: {}", e);
+            }
+        }
+
         js_runtime.add_near_heap_limit_callback(move |x,y| {
             tracing::error!("heap limit reached: {x} {y}");
 
@@ -1322,6 +1388,26 @@ async fn eval_fetch(
         .context("failed to load module")?;
 
     let main_override = script_entrypoint_override.unwrap_or("main".to_string());
+
+    // Inject parent trace context using enterSpan with a duck-typed span object.
+    // Uses job_id as trace_id so all spans are linked to the job.
+    // span_id is a placeholder - it gets overwritten by the OTLP handler with the real parent span_id.
+    #[cfg(all(feature = "private", feature = "enterprise"))]
+    let otel_context_inject = if crate::DENO_OTEL_INITIALIZED.load(std::sync::atomic::Ordering::SeqCst) {
+        let trace_id = job_id.as_simple().to_string();
+        format!(
+r#"globalThis.__enterSpan?.({{
+    isRecording: () => true,
+    spanContext: () => ({{ traceId: "{trace_id}", spanId: "ffffffffffffffff", traceFlags: 1 }})
+}});"#
+        )
+    } else {
+        String::new()
+    };
+
+    #[cfg(not(all(feature = "private", feature = "enterprise")))]
+    let otel_context_inject = "";
+
     let script = js_runtime
         .execute_script(
             "<anon>",
@@ -1334,7 +1420,7 @@ function isAsyncIterable(obj) {{
 
 function processStreamIterative(res) {{
     const iterator = res[Symbol.asyncIterator]();
-    
+
     function processLoop() {{
         return new Promise(function(resolve) {{
             function step() {{
@@ -1354,9 +1440,11 @@ function processStreamIterative(res) {{
             step();
         }});
     }}
-    
+
     return processLoop();
 }}
+
+{otel_context_inject}
 
 let args = Deno.core.ops.op_get_static_args().map(JSON.parse)
 import("file:///eval.ts").then((module) => module.{main_override}(...args))

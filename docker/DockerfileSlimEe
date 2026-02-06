@@ -1,5 +1,25 @@
 ARG DEBIAN_IMAGE=debian:bookworm-slim
 
+FROM debian:bookworm-slim AS nsjail
+
+WORKDIR /nsjail
+
+RUN apt-get -y update \
+    && apt-get install -y \
+    bison=2:3.8.* \
+    flex=2.6.* \
+    g++=4:12.2.* \
+    gcc=4:12.2.* \
+    git=1:2.39.* \
+    libprotobuf-dev=3.21.* \
+    libnl-route-3-dev=3.7.* \
+    make=4.3-4.1 \
+    pkg-config=1.8.* \
+    protobuf-compiler=3.21.*
+
+RUN git clone -b master --single-branch https://github.com/google/nsjail.git . && git checkout dccf911fd2659e7b08ce9507c25b2b38ec2c5800
+RUN make
+
 FROM ${DEBIAN_IMAGE}
 
 ARG APP=/usr/src/app
@@ -22,7 +42,7 @@ RUN apt-get update \
 ENV TZ=Etc/UTC
 
 # Install UV
-RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.6.2/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
+RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.9.24/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
 
 # Preinstall python runtime to temp location (will copy with world-writable perms later)
 RUN UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install $LATEST_STABLE_PY
@@ -34,10 +54,15 @@ RUN mkdir -p /tmp/windmill/cache && \
     rm -rf /tmp/build_cache && \
     mkdir -p -m 777 /tmp/windmill/cache/uv
 
-COPY --from=oven/bun:1.2.23 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.3.8 /usr/local/bin/bun /usr/bin/bun
 
 # add the docker client to call docker from a worker if enabled
 COPY --from=docker:dind /usr/local/bin/docker /usr/local/bin/
+
+# nsjail runtime deps and binary
+RUN apt-get update && apt-get install -y libprotobuf-dev libnl-route-3-dev \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+COPY --from=nsjail /nsjail/nsjail /bin/nsjail
 
 WORKDIR ${APP}
 
@@ -50,6 +75,8 @@ COPY ./frontend/src/lib/hubPaths.json ${APP}/hubPaths.json
 RUN windmill cache ${APP}/hubPaths.json
 
 RUN rm ${APP}/hubPaths.json
+
+RUN windmill cache-rt
 
 # Create directories and make world-accessible for arbitrary UID support
 RUN mkdir -p -m 777 /tmp/windmill/logs /tmp/windmill/search /tmp/.cache && \

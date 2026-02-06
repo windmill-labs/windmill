@@ -7,7 +7,8 @@
 		type InlineScript,
 		type RunnableWithFields,
 		type StaticAppInput,
-		type UserAppInput
+		type UserAppInput,
+		type CtxAppInput
 	} from '../apps/inputType'
 	import { createEventDispatcher } from 'svelte'
 	import RawAppInlineScriptEditor from './RawAppInlineScriptEditor.svelte'
@@ -20,6 +21,12 @@
 	import RunnableJobPanelInner from '../apps/editor/RunnableJobPanelInner.svelte'
 	import JobLoader from '../JobLoader.svelte'
 	import type { Job, ScriptLang } from '$lib/gen'
+	import { slide } from 'svelte/transition'
+	import { DebugToolbar, DebugPanel, debugState } from '$lib/components/debug'
+	import LogViewer from '$lib/components/LogViewer.svelte'
+	import DisplayResult from '$lib/components/DisplayResult.svelte'
+	import RunButton from '$lib/components/RunButton.svelte'
+	import { userStore, workspaceStore } from '$lib/stores'
 
 	type RunnableWithInlineScript = RunnableWithFields & {
 		inlineScript?: InlineScript & { language: ScriptLang }
@@ -61,7 +68,7 @@
 					}
 	}
 
-	let selectedTab = $state('inputs')
+	let selectedTab = $state('test')
 	let args = $state({})
 
 	function getSchema(runnable: RunnableWithFields) {
@@ -78,13 +85,66 @@
 	let testIsLoading = $state(false)
 	let scriptProgress = $state(0)
 
-	function onFieldsChange(fields: Record<string, StaticAppInput | UserAppInput>) {
+	// Reference to the inline script editor for debug functions
+	let inlineScriptEditor: RawAppInlineScriptEditor | undefined = $state()
+
+	// Get debug state from the editor
+	const editorDebugState = $derived(
+		inlineScriptEditor?.getDebugState?.() ?? {
+			debugMode: false,
+			isDebuggableScript: false,
+			showDebugPanel: false,
+			hasDebugResult: false,
+			dapClient: null,
+			selectedDebugFrameId: null,
+			debugSessionJobId: null,
+			debugBreakpoints: new Set()
+		}
+	)
+
+	// Reactive debug state values
+	const debugMode = $derived(editorDebugState.debugMode)
+	const isDebuggableScript = $derived(editorDebugState.isDebuggableScript)
+	const showDebugPanel = $derived(editorDebugState.showDebugPanel)
+	const hasDebugResult = $derived(editorDebugState.hasDebugResult)
+	const dapClient = $derived(editorDebugState.dapClient)
+	let selectedDebugFrameId: number | null = $state(null)
+
+	// Auto-switch to test tab when debug mode is enabled
+	$effect(() => {
+		if (debugMode) {
+			selectedTab = 'test'
+		}
+	})
+
+	// Helper to get actual ctx value for testing
+	function getCtxValue(expr: string): any {
+		switch (expr) {
+			case 'username':
+				return $userStore?.username ?? ''
+			case 'email':
+				return $userStore?.email ?? ''
+			case 'groups':
+				return $userStore?.groups ?? []
+			case 'workspace':
+				return $workspaceStore ?? ''
+			case 'author':
+				return $userStore?.email ?? '' // In editor, author is the current user
+			default:
+				return ''
+		}
+	}
+
+	function onFieldsChange(fields: Record<string, StaticAppInput | UserAppInput | CtxAppInput>) {
 		if (args == undefined) {
 			args = {}
 		}
 		Object.entries(fields ?? {}).forEach(([k, v]) => {
 			if (v.type == 'static') {
 				args[k] = v.value
+			} else if (v.type == 'ctx' && v.ctx) {
+				// For test preview, use actual user values
+				args[k] = getCtxValue(v.ctx)
 			}
 		})
 	}
@@ -127,18 +187,13 @@
 		<Pane size={55}>
 			{#if isRunnableByName(runnable)}
 				<RawAppInlineScriptEditor
+					bind:this={inlineScriptEditor}
 					on:createScriptFromInlineScript={() => dispatch('createScriptFromInlineScript', runnable)}
 					{id}
 					bind:inlineScript={runnable.inlineScript}
 					bind:name={runnable.name}
 					bind:fields={runnable.fields}
-					isLoading={testIsLoading}
 					onRun={testPreview}
-					onCancel={async () => {
-						if (jobLoader) {
-							await jobLoader.cancelJob()
-						}
-					}}
 					on:delete
 					path={appPath}
 					{onSelectionChange}
@@ -163,8 +218,8 @@
 		</Pane>
 		<Pane size={45}>
 			<Tabs bind:selected={selectedTab}>
-				<Tab value="inputs" label="Inputs" />
 				<Tab value="test" label="Test" />
+				<Tab value="inputs" label="Inputs" />
 				{#snippet content()}
 					{#if selectedTab == 'inputs'}
 						{#if runnable?.fields}
@@ -195,10 +250,40 @@
 							<div class="text-primary text-xs">No inputs</div>
 						{/if}
 					{:else if selectedTab == 'test'}
+						{#if debugMode && isDebuggableScript}
+							<div transition:slide={{ duration: 200 }}>
+								<DebugToolbar
+									connected={$debugState.connected}
+									running={$debugState.running}
+									stopped={$debugState.stopped}
+									breakpointCount={editorDebugState.debugBreakpoints?.size ?? 0}
+									onStart={() => inlineScriptEditor?.startDebugging() ?? Promise.resolve()}
+									onStop={() => inlineScriptEditor?.stopDebugging() ?? Promise.resolve()}
+									onContinue={() => inlineScriptEditor?.continueExecution() ?? Promise.resolve()}
+									onStepOver={() => inlineScriptEditor?.stepOver() ?? Promise.resolve()}
+									onStepIn={() => inlineScriptEditor?.stepIn() ?? Promise.resolve()}
+									onStepOut={() => inlineScriptEditor?.stepOut() ?? Promise.resolve()}
+									onClearBreakpoints={() => inlineScriptEditor?.clearAllBreakpoints()}
+									onExitDebug={() => inlineScriptEditor?.toggleDebugMode()}
+								/>
+							</div>
+						{/if}
 						<SplitPanesWrapper>
 							<Splitpanes horizontal class="grow">
 								<Pane size={50}>
 									<div class="px-2 py-3 h-full overflow-auto">
+										<div class="mx-auto w-fit">
+											<RunButton
+												isLoading={testIsLoading}
+												onRun={testPreview}
+												onCancel={async () => {
+													if (jobLoader) {
+														await jobLoader.cancelJob()
+													}
+												}}
+												size="md"
+											/>
+										</div>
 										<SchemaForm
 											on:keydownCmdEnter={testPreview}
 											disabledArgs={Object.entries(runnable?.fields ?? {})
@@ -210,7 +295,59 @@
 									</div>
 								</Pane>
 								<Pane size={50}>
-									<RunnableJobPanelInner frontendJob={false} {testJob} {testIsLoading} />
+									{#if showDebugPanel || hasDebugResult}
+										<Splitpanes horizontal class="h-full">
+											<Pane size={50} minSize={15}>
+												<Splitpanes horizontal class="h-full">
+													<Pane size={50} minSize={10}>
+														<LogViewer
+															small
+															content={$debugState.logs}
+															isLoading={$debugState.running && !$debugState.stopped}
+															tag={undefined}
+														/>
+													</Pane>
+													<Pane size={50} minSize={10}>
+														{#if hasDebugResult}
+															<div class="h-full p-2 overflow-auto">
+																<DisplayResult
+																	result={$debugState.result}
+																	language={runnable?.inlineScript?.language}
+																/>
+															</div>
+														{:else}
+															<div
+																class="h-full flex items-center justify-center text-sm text-tertiary"
+															>
+																{#if $debugState.running && !$debugState.stopped}
+																	Running...
+																{:else if $debugState.stopped}
+																	Paused at breakpoint
+																{:else}
+																	Waiting for debug session
+																{/if}
+															</div>
+														{/if}
+													</Pane>
+												</Splitpanes>
+											</Pane>
+											<Pane size={50} minSize={15}>
+												<DebugPanel
+													stackFrames={$debugState.stackFrames}
+													scopes={$debugState.scopes}
+													variables={$debugState.variables}
+													client={dapClient}
+													bind:selectedFrameId={selectedDebugFrameId}
+												/>
+											</Pane>
+										</Splitpanes>
+									{:else if debugMode && isDebuggableScript}
+										<div class="h-full flex items-center justify-center text-sm text-tertiary">
+											Click "Debug" in the toolbar to start debugging
+										</div>
+									{:else}
+										<RunnableJobPanelInner frontendJob={false} {testJob} {testIsLoading} />
+									{/if}
 								</Pane>
 							</Splitpanes>
 						</SplitPanesWrapper>

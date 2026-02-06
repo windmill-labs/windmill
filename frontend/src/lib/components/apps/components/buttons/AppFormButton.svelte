@@ -97,10 +97,11 @@
 	/>
 {/each}
 
-{#each Object.keys(components['formbuttoncomponent'].initialData.configuration) as key (key)}
+{#each Object.entries(components['formbuttoncomponent'].initialData.configuration) as [key, initialConfig] (key)}
 	<ResolveConfig
 		{id}
 		{key}
+		{initialConfig}
 		bind:resolvedConfig={resolvedConfig[key]}
 		configuration={configuration[key]}
 	/>

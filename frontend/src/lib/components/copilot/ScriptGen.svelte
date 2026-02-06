@@ -84,7 +84,7 @@
 					workspace: $workspaceStore!
 				},
 				generatedCode,
-				abortController
+				abortController!
 			)
 		} else {
 			await copilot(
@@ -97,7 +97,7 @@
 					workspace: $workspaceStore!
 				},
 				generatedCode,
-				abortController
+				abortController!
 			)
 		}
 	}

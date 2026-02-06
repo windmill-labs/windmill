@@ -80,6 +80,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import InputSelectedBadge from '$lib/components/schema/InputSelectedBadge.svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
+	import { slide } from 'svelte/transition'
 	import TriggersBadge from '$lib/components/graph/renderers/triggers/TriggersBadge.svelte'
 	import TriggersEditor from '$lib/components/triggers/TriggersEditor.svelte'
 	import { Triggers } from '$lib/components/triggers/triggers.svelte'
@@ -88,6 +89,7 @@
 	let script: Script | undefined = $state()
 	let topHash: string | undefined = $state()
 	let can_write = $state(false)
+	let isHubScript = $state(false)
 	let deploymentInProgress = $state(false)
 	let deploymentJobId: string | undefined = $state(undefined)
 	let intervalId: number
@@ -166,7 +168,6 @@
 			}
 		}
 	}
-	let starred: boolean | undefined = $state(undefined)
 
 	async function loadTriggers(path: string): Promise<void> {
 		await triggersState.fetchTriggers(
@@ -180,6 +181,41 @@
 	}
 
 	async function loadScript(hash: string): Promise<void> {
+		// Check if this is a hub script path
+		if (hash.startsWith('hub/')) {
+			isHubScript = true
+			try {
+				const hubScript = await ScriptService.getHubScriptByPath({ path: hash })
+				// Create a partial Script object from hub script data
+				script = {
+					hash: '',
+					path: hash,
+					summary: hubScript.summary ?? '',
+					description: '',
+					content: hubScript.content,
+					created_by: '',
+					created_at: '',
+					archived: false,
+					deleted: false,
+					is_template: false,
+					extra_perms: {},
+					lock: hubScript.lockfile,
+					language: hubScript.language as Script['language'],
+					kind: 'script',
+					starred: false,
+					schema: hubScript.schema as Script['schema'],
+					no_main_func: false,
+					has_preprocessor: false
+				}
+				can_write = false
+				return
+			} catch (e) {
+				sendUserToast('Could not load hub script: ' + e.body, true)
+				return
+			}
+		}
+
+		isHubScript = false
 		try {
 			script = await ScriptService.getScriptByHash({
 				workspace: $workspaceStore!,
@@ -187,7 +223,6 @@
 				withStarredInfo: true,
 				authed: true
 			})
-			starred = script.starred
 		} catch {
 			try {
 				script = await ScriptService.getScriptByPath({
@@ -195,7 +230,6 @@
 					path: hash,
 					withStarredInfo: true
 				})
-				starred = script.starred
 				hash = script.hash
 			} catch (e) {
 				sendUserToast('Could not load script: ' + e.body, true)
@@ -244,15 +278,28 @@
 		try {
 			runLoading = true
 			const scheduledFor = scheduledForStr ? new Date(scheduledForStr).toISOString() : undefined
-			let run = await JobService.runScriptByHash({
-				workspace: $workspaceStore!,
-				hash: script?.hash ?? '',
-				requestBody: args,
-				scheduledFor,
-				invisibleToOwner,
-				tag: overrideTag,
-				skipPreprocessor: true
-			})
+			let run: string
+			if (isHubScript) {
+				run = await JobService.runScriptByPath({
+					workspace: $workspaceStore!,
+					path: script?.path ?? '',
+					requestBody: args,
+					scheduledFor,
+					invisibleToOwner,
+					tag: overrideTag,
+					skipPreprocessor: true
+				})
+			} else {
+				run = await JobService.runScriptByHash({
+					workspace: $workspaceStore!,
+					hash: script?.hash ?? '',
+					requestBody: args,
+					scheduledFor,
+					invisibleToOwner,
+					tag: overrideTag,
+					skipPreprocessor: true
+				})
+			}
 			await goto('/run/' + run + '?workspace=' + $workspaceStore)
 		} catch (err) {
 			runLoading = false
@@ -567,7 +614,6 @@
 			<DetailPageHeader
 				{mainButtons}
 				menuItems={getMenuItems(script, deployUiSettings)}
-				title={defaultIfEmptyString(script?.summary, script?.path ?? '')}
 				bind:errorHandlerMuted={
 					() => script?.ws_error_handler_muted ?? false,
 					(v) => {
@@ -580,6 +626,8 @@
 				on:seeTriggers={() => {
 					rightPaneSelected = 'triggers'
 				}}
+				summary={script?.summary}
+				path={script?.path}
 			>
 				{#snippet trigger_badges()}
 					<TriggersBadge
@@ -599,15 +647,7 @@
 					/>
 				{/snippet}
 				{#if $workspaceStore && script}
-					<Star
-						kind="script"
-						path={script.path}
-						{starred}
-						workspace_id={$workspaceStore}
-						on:starred={() => {
-							starred = !starred
-						}}
-					/>
+					<Star kind="script" path={script.path} summary={script.summary} />
 				{/if}
 				{#if script?.codebase}
 					<Badge
@@ -641,22 +681,18 @@
 		{/snippet}
 		{#snippet form()}
 			{#if script}
-				<div class="p-8 w-full max-w-3xl mx-auto">
+				<div class="p-8 w-full max-w-3xl mx-auto min-h-[300px] flex flex-col justify-center">
 					<div class="flex flex-col gap-0.5 mb-1">
 						{#if script.lock_error_logs || topHash || script.archived || script.deleted}
 							<div class="flex flex-col gap-2 my-2">
 								{#if script.lock_error_logs}
-									<div
-										class="bg-red-100 dark:bg-red-700 border-l-4 border-red-500 p-4"
-										role="alert"
-									>
-										<p class="font-bold">Error deploying this script</p>
+									<Alert type="error" title="Deployment failed">
 										<p>
 											This script has not been deployed successfully because of the following
 											errors:
 										</p>
 										<LogViewer content={script.lock_error_logs} isLoading={false} tag={undefined} />
-									</div>
+									</Alert>
 								{/if}
 								{#if topHash}
 									<div class="mt-2"></div>
@@ -671,57 +707,70 @@
 									<Alert type="error" title="Archived">This path was archived</Alert>
 								{/if}
 								{#if script.deleted}
-									<div
-										class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4"
-										role="alert"
-									>
-										<p class="font-bold">Deleted</p>
+									<Alert type="error" title="Deleted">
 										<p>The content of this script was deleted (by an admin, no less)</p>
-									</div>
+									</Alert>
 								{/if}
 							</div>
 						{/if}
 
 						{#if !emptyString(script.description)}
-							<GfmMarkdown md={defaultIfEmptyString(script?.description, 'No description')} />
+							<div class="p-4 rounded-md bg-surface-secondary">
+								<GfmMarkdown
+									md={defaultIfEmptyString(script?.description, 'No description')}
+									noPadding
+								/>
+							</div>
+							<div class="h-4"></div>
 						{/if}
 					</div>
 
 					{#if deploymentInProgress}
-						<Badge color="yellow">
-							<Loader2 size={12} class="inline animate-spin mr-1" />
-							Deployment in progress
-							{#if deploymentJobId}
-								<a
-									href="/run/{deploymentJobId}?workspace={$workspaceStore}"
-									class="underline"
-									target="_blank">view job</a
-								>
-							{/if}
-						</Badge>
+						<div class="pb-4" transition:slide={{ duration: 150 }}>
+							<Badge color="yellow">
+								<Loader2 size={12} class="inline animate-spin mr-1" />
+								Deployment in progress
+								{#if deploymentJobId}
+									<a
+										href="/run/{deploymentJobId}?workspace={$workspaceStore}"
+										class="underline"
+										target="_blank">view job</a
+									>
+								{/if}
+							</Badge>
+						</div>
 					{/if}
 
 					<div class="flex flex-col align-left">
-						<div class="flex flex-row justify-between">
-							<InputSelectedBadge
-								onReject={() => {
-									savedInputsV2?.resetSelected()
-								}}
-								{inputSelected}
-							/>
-							<Toggle
-								bind:checked={jsonView}
-								size="xs"
-								options={{
-									right: 'JSON',
-									rightTooltip: 'Fill args from JSON'
-								}}
-								lightMode
-								on:change={(e) => {
-									runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
-								}}
-							/>
-						</div>
+						{#if (script.schema && Object.keys(script.schema.properties ?? {}).length > 0) || inputSelected}
+							{@const hasSchema =
+								script.schema && Object.keys(script.schema.properties ?? {}).length > 0}
+							<div
+								class="flex flex-row justify-between min-h-12"
+								transition:slide={{ duration: 150 }}
+							>
+								<InputSelectedBadge
+									onReject={() => {
+										savedInputsV2?.resetSelected()
+									}}
+									{inputSelected}
+								/>
+								{#if hasSchema}
+									<Toggle
+										bind:checked={jsonView}
+										size="xs"
+										options={{
+											right: 'JSON',
+											rightTooltip: 'Fill args from JSON'
+										}}
+										lightMode
+										on:change={(e) => {
+											runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+										}}
+									/>
+								{/if}
+							</div>
+						{/if}
 
 						{#if script?.schema?.prompt_for_ai !== undefined}
 							<AIFormAssistant
@@ -751,29 +800,30 @@
 						/>
 					</div>
 
-					<div class="py-10"></div>
-					{#if !emptyString(script.summary)}
-						<div>
-							<span class="text-primary">{script.path}</span>
-						</div>
-					{/if}
-					<div class="flex flex-row gap-x-2 flex-wrap items-center">
-						<span class="text-2xs text-secondary">
-							Edited <TimeAgo date={script.created_at || ''} /> by {script.created_by || 'unknown'}
-						</span>
-						<Badge small color="gray">
-							{truncateHash(script?.hash ?? '')}
-						</Badge>
-						{#if script?.is_template}
-							<Badge color="blue">Template</Badge>
+					<div class="pt-4 flex flex-row gap-1 w-full justify-end items-center">
+						{#if !isHubScript}
+							<span class="text-2xs text-secondary">
+								Edited <TimeAgo date={script.created_at || ''} /> by {script.created_by ||
+									'unknown'}
+							</span>
 						{/if}
-						{#if script && script.kind !== 'script'}
-							<Badge color="blue">
-								{script?.kind}
-							</Badge>
-						{/if}
+						<div class="flex flex-row gap-x-2 flex-wrap items-center">
+							{#if !isHubScript}
+								<Badge small color="gray">
+									{truncateHash(script?.hash ?? '')}
+								</Badge>
+							{/if}
+							{#if script?.is_template}
+								<Badge color="blue">Template</Badge>
+							{/if}
+							{#if script && script.kind !== 'script'}
+								<Badge color="blue">
+									{script?.kind}
+								</Badge>
+							{/if}
 
-						<SharedBadge canWrite={can_write} extraPerms={script?.extra_perms ?? {}} />
+							<SharedBadge canWrite={can_write} extraPerms={script?.extra_perms ?? {}} />
+						</div>
 					</div>
 				</div>
 			{/if}

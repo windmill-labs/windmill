@@ -211,6 +211,180 @@ export async function updateScriptSchema(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Annotation parser — mirrors backend's WorkspaceDependenciesAnnotatedRefs::parse
+// (windmill-common/src/workspace_dependencies.rs) so the cache key captures
+// exactly the parts of scriptContent that affect lockfile generation.
+// ---------------------------------------------------------------------------
+
+type AnnotationMode = "manual" | "extra";
+
+interface WorkspaceDepsAnnotation {
+  mode: AnnotationMode;
+  external: string[];
+  inline: string | null;
+}
+
+const LANG_ANNOTATION_CONFIG: Partial<
+  Record<ScriptLanguage, { comment: string; keyword: string; validityRe?: RegExp }>
+> = {
+  python3: { comment: "#", keyword: "requirements", validityRe: /^#\s?(\S+)\s*$/ },
+  bun: { comment: "//", keyword: "package_json" },
+  nativets: { comment: "//", keyword: "package_json" },
+  go: { comment: "//", keyword: "go_mod" },
+  php: { comment: "//", keyword: "composer_json" },
+};
+
+export function extractWorkspaceDepsAnnotation(
+  scriptContent: string,
+  language: ScriptLanguage,
+): WorkspaceDepsAnnotation | null {
+  const config = LANG_ANNOTATION_CONFIG[language];
+  if (!config) return null;
+
+  const { comment, keyword, validityRe } = config;
+  const extraMarker = `extra_${keyword}:`;
+  const manualMarker = `${keyword}:`;
+
+  const lines = scriptContent.split("\n");
+
+  // Find first annotation line (mirrors Rust find_position)
+  let pos = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    if (l.startsWith(comment) && (l.includes(extraMarker) || l.includes(manualMarker))) {
+      pos = i;
+      break;
+    }
+  }
+  if (pos === -1) return null;
+
+  const annotationLine = lines[pos];
+  const mode: AnnotationMode = annotationLine.includes(extraMarker) ? "extra" : "manual";
+
+  // Parse external references from the annotation line
+  const marker = mode === "extra" ? extraMarker : manualMarker;
+  const unparsed = annotationLine.replaceAll(marker, "").replaceAll(comment, "");
+  const external = unparsed
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+
+  // Parse inline deps from subsequent lines
+  const inlineParts: string[] = [];
+  for (let i = pos + 1; i < lines.length; i++) {
+    const l = lines[i];
+    if (validityRe) {
+      const match = validityRe.exec(l);
+      if (match && match[1]) {
+        inlineParts.push(match[1]);
+      } else {
+        break;
+      }
+    } else {
+      if (!l.startsWith(comment)) {
+        break;
+      }
+      inlineParts.push(l.substring(comment.length));
+    }
+  }
+
+  const inlineStr = inlineParts.join("\n");
+  const inline = inlineStr.trim().length > 0 ? inlineStr : null;
+
+  return { mode, external, inline };
+}
+
+export async function computeLockCacheKey(
+  scriptContent: string,
+  language: ScriptLanguage,
+  rawWorkspaceDependencies: Record<string, string>,
+): Promise<string> {
+  const annotation = extractWorkspaceDepsAnnotation(scriptContent, language);
+  const annotationStr = annotation
+    ? `${annotation.mode}|${annotation.external.join(",")}|${annotation.inline ?? ""}`
+    : "none";
+  const sortedDepsKeys = Object.keys(rawWorkspaceDependencies).sort();
+  const depsStr = sortedDepsKeys.map((k) => `${k}=${rawWorkspaceDependencies[k]}`).join(";");
+  return await generateHash(`${language}|${annotationStr}|${depsStr}`);
+}
+
+const lockCache = new Map<string, string>();
+
+export function clearLockCache(): void {
+  lockCache.clear();
+}
+
+async function fetchScriptLock(
+  workspace: Workspace,
+  scriptContent: string,
+  language: ScriptLanguage,
+  remotePath: string,
+  rawWorkspaceDependencies: Record<string, string>,
+): Promise<string> {
+  const hasRawDeps = Object.keys(rawWorkspaceDependencies).length > 0;
+  const cacheKey = hasRawDeps
+    ? await computeLockCacheKey(scriptContent, language, rawWorkspaceDependencies)
+    : undefined;
+  if (cacheKey && lockCache.has(cacheKey)) {
+    log.info(`Using cached lockfile for ${remotePath}`);
+    return lockCache.get(cacheKey)!;
+  }
+
+  const extraHeaders = getHeaders();
+  const rawResponse = await fetch(
+    `${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/dependencies`,
+    {
+      method: "POST",
+      headers: {
+        Cookie: `token=${workspace.token}`,
+        "Content-Type": "application/json",
+        ...extraHeaders,
+      },
+      body: JSON.stringify({
+        raw_scripts: [
+          {
+            raw_code: scriptContent,
+            language: language,
+            script_path: remotePath,
+          },
+        ],
+        raw_workspace_dependencies: Object.keys(rawWorkspaceDependencies).length > 0
+          ? rawWorkspaceDependencies : null,
+        entrypoint: remotePath,
+      }),
+    }
+  );
+
+  let responseText = "reading response failed";
+  try {
+    responseText = await rawResponse.text();
+    const response = JSON.parse(responseText);
+    const lock = response.lock;
+    if (lock === undefined) {
+      if (response?.["error"]?.["message"]) {
+        throw new LockfileGenerationError(
+          `Failed to generate lockfile: ${response?.["error"]?.["message"]}`
+        );
+      }
+      throw new LockfileGenerationError(
+        `Failed to generate lockfile: ${JSON.stringify(response, null, 2)}`
+      );
+    }
+    if (cacheKey) {
+      lockCache.set(cacheKey, lock);
+    }
+    return lock;
+  } catch (e) {
+    if (e instanceof LockfileGenerationError) {
+      throw e;
+    }
+    throw new LockfileGenerationError(
+      `Failed to generate lockfile:${rawResponse.statusText}, ${responseText}, ${e}`
+    );
+  }
+}
+
 async function updateScriptLock(
   workspace: Workspace,
   scriptContent: string,
@@ -235,70 +409,28 @@ async function updateScriptLock(
     const dependencyPaths = Object.keys(rawWorkspaceDependencies).join(', ');
     log.info(`Generating script lock for ${remotePath} with raw workspace dependencies: ${dependencyPaths}`);
   }
-  
-  // generate the script lock running a dependency job in Windmill and update it inplace
-  // TODO: update this once the client is released
-  const extraHeaders = getHeaders();
-  const rawResponse = await fetch(
-    `${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/dependencies`,
-    {
-      method: "POST",
-      headers: {
-        Cookie: `token=${workspace.token}`,
-        "Content-Type": "application/json",
-        ...extraHeaders,
-      },
-      body: JSON.stringify({
-        raw_scripts: [
-          {
-            raw_code: scriptContent,
-            language: language,
-            script_path: remotePath,
-          },
-        ],
-        raw_workspace_dependencies: Object.keys(rawWorkspaceDependencies).length > 0 
-          ? rawWorkspaceDependencies : null,
-        entrypoint: remotePath,
-      }),
-    }
+
+  const lock = await fetchScriptLock(
+    workspace,
+    scriptContent,
+    language,
+    remotePath,
+    rawWorkspaceDependencies,
   );
 
-  let responseText = "reading response failed";
-  try {
-    responseText = await rawResponse.text();
-    const response = JSON.parse(responseText);
-    const lock = response.lock;
-    if (lock === undefined) {
-      if (response?.["error"]?.["message"]) {
-        throw new LockfileGenerationError(
-          `Failed to generate lockfile: ${response?.["error"]?.["message"]}`
-        );
+  const lockPath = remotePath + ".script.lock";
+  if (lock != "") {
+    await Deno.writeTextFile(lockPath, lock);
+    metadataContent.lock = "!inline " + lockPath.replaceAll(SEP, "/");
+  } else {
+    try {
+      if (await Deno.stat(lockPath)) {
+        await Deno.remove(lockPath);
       }
-      throw new LockfileGenerationError(
-        `Failed to generate lockfile: ${JSON.stringify(response, null, 2)}`
-      );
+    } catch (e) {
+      log.info(colors.yellow(`Error removing lock file ${lockPath}: ${e}`));
     }
-    const lockPath = remotePath + ".script.lock";
-    if (lock != "") {
-      await Deno.writeTextFile(lockPath, lock);
-      metadataContent.lock = "!inline " + lockPath.replaceAll(SEP, "/");
-    } else {
-      try {
-        if (await Deno.stat(lockPath)) {
-          await Deno.remove(lockPath);
-        }
-      } catch (e) {
-        log.info(colors.yellow(`Error removing lock file ${lockPath}: ${e}`));
-      }
-      metadataContent.lock = "";
-    }
-  } catch (e) {
-    if (e instanceof LockfileGenerationError) {
-      throw e;
-    }
-    throw new LockfileGenerationError(
-      `Failed to generate lockfile:${rawResponse.statusText}, ${responseText}, ${e}`
-    );
+    metadataContent.lock = "";
   }
 }
 
@@ -636,6 +768,15 @@ interface Lock {
 }
 
 const WMILL_LOCKFILE = "wmill-lock.yaml";
+
+/**
+ * Normalizes a path to use Linux separators (forward slashes).
+ * This ensures wmill-lock.yaml is portable across Windows and Linux.
+ */
+export function normalizeLockPath(p: string): string {
+  return p.replace(/\\/g, "/");
+}
+
 export async function readLockfile(): Promise<Lock> {
   try {
     const read = await yamlParseFile(WMILL_LOCKFILE);
@@ -654,10 +795,11 @@ export async function readLockfile(): Promise<Lock> {
 }
 
 function v2LockPath(path: string, subpath?: string) {
+  const normalizedPath = normalizeLockPath(path);
   if (subpath) {
-    return `${path}+${subpath}`;
+    return `${normalizedPath}+${normalizeLockPath(subpath)}`;
   } else {
-    return path;
+    return normalizedPath;
   }
 }
 export async function checkifMetadataUptodate(

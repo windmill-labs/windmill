@@ -25,6 +25,7 @@
 	import type Editor from '../Editor.svelte'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import ScriptFix from '../copilot/ScriptFix.svelte'
+	import JobOtelTraces from '../JobOtelTraces.svelte'
 	import Cell from '../table/Cell.svelte'
 	import DataTable from '../table/DataTable.svelte'
 	import Head from '../table/Head.svelte'
@@ -46,6 +47,8 @@
 		customUi?: PreviewPanelUi | undefined
 		children?: import('svelte').Snippet
 		capturesTab?: import('svelte').Snippet
+		customResultPanel?: import('svelte').Snippet
+		showCustomResultPanel?: boolean
 	}
 
 	let {
@@ -60,7 +63,9 @@
 		showCaptures = false,
 		customUi = undefined,
 		children,
-		capturesTab
+		capturesTab,
+		customResultPanel,
+		showCustomResultPanel = false
 	}: Props = $props()
 
 	type DContent = {
@@ -123,6 +128,7 @@
 		{#if showCaptures && customUi?.disableTriggerCaptures !== true}
 			<Tab value="captures" label="Trigger captures" />
 		{/if}
+		<Tab value="tracing" label="Tracing" />
 
 		{#snippet content()}
 			<div class="grow min-h-0">
@@ -151,7 +157,11 @@
 							</Pane>
 							<Pane>
 								{@render children?.()}
-								{#if previewJob != undefined && (previewJob.result_stream || previewJob.result)}
+								{#if showCustomResultPanel && customResultPanel}
+									<div class="h-full">
+										{@render customResultPanel()}
+									</div>
+								{:else if previewJob != undefined && (previewJob.result_stream || previewJob.result)}
 									<div class="relative w-full h-full p-2">
 										<div class="relative h-full">
 											<DisplayResult
@@ -289,6 +299,15 @@
 				{/if}
 				{#if selectedTab === 'captures'}
 					{@render capturesTab?.()}
+				{/if}
+				{#if selectedTab === 'tracing'}
+					{#if previewJob?.id}
+						<JobOtelTraces jobId={previewJob.id} />
+					{:else}
+						<div class="p-4 text-secondary">
+							Run a preview to see HTTP request traces
+						</div>
+					{/if}
 				{/if}
 			</div>
 		{/snippet}

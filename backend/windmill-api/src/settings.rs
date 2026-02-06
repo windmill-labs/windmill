@@ -31,6 +31,8 @@ use crate::utils::require_devops_role;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "enterprise")]
 use windmill_common::ee_oss::{send_critical_alert, CriticalAlertKind, CriticalErrorChannel};
+#[cfg(all(feature = "private", feature = "enterprise"))]
+use windmill_common::secret_backend::{SecretMigrationReport, VaultSettings};
 use windmill_common::{
     email_oss::send_email_plain_text,
     error::{self, JsonResult, Result},
@@ -83,6 +85,16 @@ pub fn global_service() -> Router {
         .route(
             "/critical_alerts/acknowledge_all",
             post(acknowledge_all_critical_alerts),
+        );
+
+    // Vault integration routes (EE only - requires both private and enterprise features)
+    #[cfg(all(feature = "private", feature = "enterprise"))]
+    let r = r
+        .route("/test_secret_backend", post(test_secret_backend))
+        .route("/migrate_secrets_to_vault", post(migrate_secrets_to_vault))
+        .route(
+            "/migrate_secrets_to_database",
+            post(migrate_secrets_to_database),
         );
 
     #[cfg(feature = "parquet")]
@@ -736,7 +748,11 @@ async fn setup_custom_instance_pg_database_inner(
             "Cannot use reserved PostgreSQL database names".to_string(),
         ));
     }
-    if wmill_pg_creds.dbname.trim().eq_ignore_ascii_case(dbname.trim()) {
+    if wmill_pg_creds
+        .dbname
+        .trim()
+        .eq_ignore_ascii_case(dbname.trim())
+    {
         return Err(error::Error::BadRequest(
             "Database name cannot be the same as the main database".to_string(),
         ));
@@ -751,10 +767,7 @@ async fn setup_custom_instance_pg_database_inner(
     .await?
     .unwrap_or(false);
 
-    let pg_creds = PgDatabase {
-        dbname: dbname.to_string(),
-        ..wmill_pg_creds
-    };
+    let pg_creds = PgDatabase { dbname: dbname.to_string(), ..wmill_pg_creds };
 
     logs.created_database = "SKIP".to_string();
     if !db_exists {
@@ -777,7 +790,8 @@ async fn setup_custom_instance_pg_database_inner(
              GRANT CREATE ON SCHEMA public TO custom_instance_user;
              GRANT CREATE ON DATABASE \"{dbname}\" TO custom_instance_user;
              ALTER DEFAULT PRIVILEGES IN SCHEMA public
-                 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;"
+                 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;
+             ALTER ROLE custom_instance_user CREATEROLE;"
         ))
         .await
         .map_err(|e| {
@@ -797,4 +811,101 @@ async fn setup_custom_instance_pg_database_inner(
         })?;
 
     Ok(())
+}
+
+// ============================================================================
+// Secret Backend Settings (HashiCorp Vault Integration) - Enterprise Edition
+// ============================================================================
+
+/// Test connection to a secret backend (HashiCorp Vault)
+///
+/// This endpoint validates that the Vault settings are correct and that
+/// Windmill can successfully authenticate and communicate with Vault.
+///
+/// This is an Enterprise Edition feature.
+#[cfg(all(feature = "private", feature = "enterprise"))]
+pub async fn test_secret_backend(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(settings): Json<VaultSettings>,
+) -> Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+
+    windmill_common::secret_backend::test_vault_connection(&settings, Some(&db)).await?;
+
+    Ok("Successfully connected to HashiCorp Vault".to_string())
+}
+
+/// Migrate existing secrets from database to HashiCorp Vault
+///
+/// This endpoint reads all encrypted secrets from the database, decrypts them,
+/// and stores them in HashiCorp Vault. The database values are NOT deleted
+/// automatically to allow for rollback if needed.
+///
+/// This is an Enterprise Edition feature.
+#[cfg(all(feature = "private", feature = "enterprise"))]
+pub async fn migrate_secrets_to_vault(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(settings): Json<VaultSettings>,
+) -> JsonResult<SecretMigrationReport> {
+    require_super_admin(&db, &authed.email).await?;
+
+    let report = windmill_common::secret_backend::migrate_secrets_to_vault(&db, &settings).await?;
+
+    Ok(Json(report))
+}
+
+/// Migrate secrets from HashiCorp Vault back to database
+///
+/// This endpoint reads all secrets from HashiCorp Vault, encrypts them using
+/// the workspace encryption keys, and stores them in the database. The Vault
+/// values are NOT deleted automatically to allow for rollback if needed.
+///
+/// This is an Enterprise Edition feature.
+#[cfg(all(feature = "private", feature = "enterprise"))]
+pub async fn migrate_secrets_to_database(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(settings): Json<VaultSettings>,
+) -> JsonResult<SecretMigrationReport> {
+    require_super_admin(&db, &authed.email).await?;
+
+    let report =
+        windmill_common::secret_backend::migrate_secrets_to_database(&db, &settings).await?;
+
+    Ok(Json(report))
+}
+
+// ============================================================================
+// JWKS Endpoint for Vault JWT Authentication
+// ============================================================================
+
+/// JSON Web Key Set response structure
+#[derive(Serialize)]
+pub struct JwksResponse {
+    pub keys: Vec<serde_json::Value>,
+}
+
+/// JWKS endpoint for HashiCorp Vault to validate JWTs
+///
+/// Vault calls this endpoint to fetch the public keys used to verify
+/// JWTs generated by Windmill for authentication.
+///
+/// In the open-source version, this returns an empty JWKS.
+/// The Enterprise Edition provides the actual key set.
+pub async fn get_jwks() -> JsonResult<JwksResponse> {
+    // Open source version returns empty JWKS
+    // Enterprise Edition will override this with actual public keys
+    #[cfg(not(feature = "enterprise"))]
+    {
+        Ok(Json(JwksResponse { keys: vec![] }))
+    }
+
+    #[cfg(feature = "enterprise")]
+    {
+        // In enterprise mode, the actual keys would be fetched from global settings
+        // For now, return empty - the EE implementation would override this
+        Ok(Json(JwksResponse { keys: vec![] }))
+    }
 }

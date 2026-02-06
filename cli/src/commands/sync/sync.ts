@@ -22,6 +22,7 @@ import {
   pushObj,
   showConflict,
   showDiff,
+  extractNativeTriggerInfo,
 } from "../../types.ts";
 import { downloadZip } from "./pull.ts";
 
@@ -53,10 +54,11 @@ import {
   getSpecificItemsForCurrentBranch,
   isBranchSpecificFile,
   isCurrentBranchFile,
+  isItemTypeConfigured,
   isSpecificItem,
   SpecificItemsConfig,
 } from "../../core/specific_items.ts";
-import { getCurrentGitBranch } from "../../utils/git.ts";
+import { getCurrentGitBranch, isGitRepository } from "../../utils/git.ts";
 import { Workspace } from "../workspace/workspace.ts";
 import { removePathPrefix } from "../../types.ts";
 import { listSyncCodebases, SyncCodebase } from "../../utils/codebase.ts";
@@ -66,7 +68,7 @@ import {
   readLockfile,
   workspaceDependenciesPathToLanguageAndFilename,
 } from "../../utils/metadata.ts";
-import { OpenFlow } from "../../../gen/types.gen.ts";
+import { OpenFlow, NativeServiceName } from "../../../gen/types.gen.ts";
 import { pushResource } from "../resource/resource.ts";
 import {
   newPathAssigner,
@@ -109,8 +111,9 @@ async function resolveEffectiveSyncOptions(
   workspace: Workspace,
   localConfig: SyncOptions,
   promotion?: string,
+  branchOverride?: string,
 ): Promise<SyncOptions> {
-  return await getEffectiveSettings(localConfig, promotion);
+  return await getEffectiveSettings(localConfig, promotion, false, false, branchOverride);
 }
 
 type DynFSElement = {
@@ -314,8 +317,9 @@ export function extractFieldsForRawApps(runnables: Record<string, any>) {
 }
 
 /**
- * Generates AGENTS.md - the main documentation file for AI agents working with raw apps.
- * This includes app structure, backend runnables, datatables usage, and all critical rules.
+ * Generates AGENTS.md - app-specific configuration for AI agents working with raw apps.
+ * References the raw-app skill for complete documentation and includes instance-specific
+ * data configuration (datatable, schema, whitelisted tables).
  */
 export function generateAgentsDocumentation(data: {
   tables?: string[];
@@ -328,146 +332,13 @@ export function generateAgentsDocumentation(data: {
 
   return `# AI Agent Instructions
 
-This file contains instructions for AI agents (Claude, GPT, etc.) working with this Windmill raw app.
-**Read this file first** before making any changes to the app.
+For complete raw app documentation (app structure, backend runnables, datatables, SQL migrations), use the \`raw-app\` skill.
 
-## App Structure
-
-\`\`\`
-my_app.raw_app/
-├── AGENTS.md              # This file - read first!
-├── DATATABLES.md          # Database schemas (run 'wmill app generate-agents' to refresh)
-├── raw_app.yaml           # App configuration (summary, path, data settings)
-├── index.tsx              # Frontend entry point
-├── App.tsx                # Main React/Svelte/Vue component
-├── index.css              # Styles
-├── package.json           # Frontend dependencies
-├── wmill.ts               # Auto-generated - backend type definitions (DO NOT EDIT)
-├── backend/               # Backend runnables (server-side scripts)
-│   ├── <id>.<ext>         # Code file (e.g., get_user.ts) - auto-detected as inline
-│   ├── <id>.yaml          # Optional: config for fields, or to reference existing scripts
-│   └── <id>.lock          # Lock file (run 'wmill app generate-locks' to create)
-└── sql_to_apply/          # SQL migrations (dev only, not synced)
-    └── *.sql              # SQL files to apply via dev server
-\`\`\`
-
-## Backend Runnables
-
-Backend runnables are server-side scripts that your frontend can call. They live in the \`backend/\` folder.
-
-### Creating a Backend Runnable
-
-The simplest way to create a runnable is to add a code file:
-
-\`\`\`
-backend/<id>.<ext>
-\`\`\`
-
-The runnable ID is the filename without extension. For example, \`get_user.ts\` creates a runnable with ID \`get_user\`.
-
-**Optional:** Add a \`<id>.yaml\` file for additional configuration (fields, static values, etc.).
-
-### Supported Languages and Extensions
-
-| Language    | Extension      | Example            |
-|-------------|----------------|--------------------|
-| TypeScript  | \`.ts\`        | \`myFunc.ts\`      |
-| TypeScript (Bun) | \`.bun.ts\` | \`myFunc.bun.ts\` |
-| TypeScript (Deno) | \`.deno.ts\` | \`myFunc.deno.ts\` |
-| Python      | \`.py\`        | \`myFunc.py\`      |
-| Go          | \`.go\`        | \`myFunc.go\`      |
-| Bash        | \`.sh\`        | \`myFunc.sh\`      |
-| PowerShell  | \`.ps1\`       | \`myFunc.ps1\`     |
-| PostgreSQL  | \`.pg.sql\`    | \`myFunc.pg.sql\`  |
-| MySQL       | \`.my.sql\`    | \`myFunc.my.sql\`  |
-| BigQuery    | \`.bq.sql\`    | \`myFunc.bq.sql\`  |
-| Snowflake   | \`.sf.sql\`    | \`myFunc.sf.sql\`  |
-| MS SQL      | \`.ms.sql\`    | \`myFunc.ms.sql\`  |
-| GraphQL     | \`.gql\`       | \`myFunc.gql\`     |
-| PHP         | \`.php\`       | \`myFunc.php\`     |
-| Rust        | \`.rs\`        | \`myFunc.rs\`      |
-| C#          | \`.cs\`        | \`myFunc.cs\`      |
-| Java        | \`.java\`      | \`myFunc.java\`    |
-
-### Example: Creating a Runnable
-
-**backend/get_user.ts:**
-\`\`\`typescript
-import * as wmill from 'windmill-client';
-
-export async function main(user_id: string) {
-  const sql = wmill.datatable();
-  const user = await sql\`SELECT * FROM users WHERE id = \${user_id}\`.fetchOne();
-  return user;
-}
-\`\`\`
-
-That's it! The runnable is automatically detected and ready to use.
-
-**Generate lock files** for dependency management:
-\`\`\`bash
-wmill app generate-locks
-\`\`\`
-
-### Optional: YAML Configuration
-
-Add a \`<id>.yaml\` file to configure fields, static values, or other settings:
-
-**backend/get_user.yaml:**
-\`\`\`yaml
-type: inline
-fields:
-  user_id:
-    type: static
-    value: "default_user"
-\`\`\`
-
-### Referencing Existing Scripts
-
-To reference an existing Windmill script instead of inline code, use a different type:
-
-**backend/existing_script.yaml:**
-\`\`\`yaml
-type: script
-path: f/my_folder/existing_script
-\`\`\`
-
-For flows:
-\`\`\`yaml
-type: flow
-path: f/my_folder/my_flow
-\`\`\`
-
-### Calling Backend Runnables from Frontend
-
-Import from the auto-generated \`wmill.ts\`:
-
-\`\`\`typescript
-import { backend } from './wmill';
-
-// Call a backend runnable
-const user = await backend.get_user({ user_id: '123' });
-\`\`\`
-
-The \`wmill.ts\` file is auto-generated and provides type-safe access to all backend runnables.
+This file contains **app-specific configuration** for this raw app instance.
 
 ---
 
-## ⚠️ CRITICAL RULES FOR DATA TABLES
-
-**These rules are mandatory - violating them will cause runtime errors:**
-
-1. **ONLY USE WHITELISTED TABLES**: You can ONLY query tables listed in \`raw_app.yaml\` → \`data.tables\`.
-   Tables not in this list are NOT accessible to the app.
-
-2. **ADD TABLES BEFORE USING**: To use a new table, you MUST first add it to \`data.tables\` in \`raw_app.yaml\`.
-
-3. **USE CONFIGURED DATATABLE/SCHEMA**: When looking for tables:
-   - First, check the whitelisted tables below
-   - If creating new tables, use the default datatable${defaultSchema ? ` and schema` : ''} configured for this app
-   - See \`DATATABLES.md\` for full schema information
-
-### Current Data Configuration
+## Data Configuration
 
 ${defaultDatatable
   ? `**Default Datatable:** \`${defaultDatatable}\`${defaultSchema ? ` | **Default Schema:** \`${defaultSchema}\`` : ''}`
@@ -479,7 +350,7 @@ ${tables.length > 0
   ? `These tables are accessible to this app:\n\n${tables.map(t => `- \`${t}\``).join('\n')}`
   : `**No tables whitelisted.** Add tables to \`data.tables\` in \`raw_app.yaml\`.`}
 
-### Adding a Table to the Whitelist
+### Adding a Table
 
 Edit \`raw_app.yaml\`:
 
@@ -492,116 +363,31 @@ ${tables.length > 0 ? tables.map(t => `    - ${t}`).join('\n') : '    # Add tabl
 \`\`\`
 
 **Table reference formats:**
-- \`<datatable>\` - All tables in the datatable
-- \`<datatable>/<table>\` - Specific table in public schema
+- \`<datatable>/<table>\` - Table in public schema
 - \`<datatable>/<schema>:<table>\` - Table in specific schema
 
 ---
 
-## Querying Data Tables
+## Quick Reference
 
-### TypeScript (Bun/Deno)
+**Backend runnable:** Add \`backend/<name>.ts\` (or .py, etc.), then run \`wmill app generate-locks\`
 
+**Call from frontend:**
 \`\`\`typescript
-import * as wmill from 'windmill-client';
-
-export async function main(user_id: string) {
-  const sql = wmill.datatable();  // Or: wmill.datatable('other_datatable')
-
-  // Parameterized queries (safe from SQL injection)
-  const user = await sql\`SELECT * FROM users WHERE id = \${user_id}\`.fetchOne();
-  const users = await sql\`SELECT * FROM users WHERE active = \${true}\`.fetch();
-
-  // Insert/Update
-  await sql\`INSERT INTO users (name, email) VALUES (\${name}, \${email})\`;
-  await sql\`UPDATE users SET name = \${newName} WHERE id = \${user_id}\`;
-
-  return user;
-}
+import { backend } from './wmill';
+const result = await backend.<name>({ arg: 'value' });
 \`\`\`
 
-### Python
-
-\`\`\`python
-import wmill
-
-def main(user_id: str):
-    db = wmill.datatable()  # Or: wmill.datatable('other_datatable')
-
-    # Use $1, $2, etc. for parameters
-    user = db.query('SELECT * FROM users WHERE id = $1', user_id).fetch_one()
-    users = db.query('SELECT * FROM users WHERE active = $1', True).fetch()
-
-    # Insert/Update
-    db.query('INSERT INTO users (name, email) VALUES ($1, $2)', name, email)
-    db.query('UPDATE users SET name = $1 WHERE id = $2', new_name, user_id)
-
-    return user
+**Query datatable (TypeScript):**
+\`\`\`typescript
+const sql = wmill.datatable();
+const rows = await sql\`SELECT * FROM table WHERE id = \${id}\`.fetch();
 \`\`\`
 
----
-
-## SQL Migrations (sql_to_apply/)
-
-The \`sql_to_apply/\` folder is for creating/modifying database tables during development.
-
-### How It Works
-
-1. Create \`.sql\` files in \`sql_to_apply/\`
-2. Run \`wmill app dev\` - the dev server watches this folder
-3. When SQL files change, a modal appears in the browser to confirm execution
-4. After creating tables, **add them to \`data.tables\`** in \`raw_app.yaml\`
-
-### Example Migration
-
-**sql_to_apply/001_create_users.sql:**
-\`\`\`sql
-CREATE TABLE IF NOT EXISTS ${defaultSchema ? defaultSchema + '.' : ''}users (
-    id SERIAL PRIMARY KEY,
-    email TEXT NOT NULL UNIQUE,
-    name TEXT,
-    created_at TIMESTAMP DEFAULT NOW()
-);
-\`\`\`
-
-After applying, add to \`raw_app.yaml\`:
-\`\`\`yaml
-data:
-  tables:
-    - ${defaultDatatable || 'main'}/${defaultSchema ? defaultSchema + ':' : ''}users
-\`\`\`
-
-### Important Notes
-
-- **This folder is NOT synced** - it's local development only
-- **Use idempotent SQL**: \`CREATE TABLE IF NOT EXISTS\`, etc.
-- **Number your files**: \`001_\`, \`002_\` for ordering
-- **Always whitelist tables after creation**
+**SQL migrations:** Add \`.sql\` files to \`sql_to_apply/\`, run \`wmill app dev\`, then whitelist tables
 
 ---
-
-## Commands Reference
-
-| Command | Description |
-|---------|-------------|
-| \`wmill app dev\` | Start dev server with live reload |
-| \`wmill app generate-agents\` | Refresh AGENTS.md and DATATABLES.md |
-| \`wmill app generate-locks\` | Generate lock files for backend runnables |
-| \`wmill sync push\` | Deploy app to Windmill |
-| \`wmill sync pull\` | Pull latest from Windmill |
-
----
-
-## Best Practices
-
-1. **Check DATATABLES.md** for existing tables before creating new ones
-2. **Use parameterized queries** - never concatenate user input into SQL
-3. **Keep runnables focused** - one function per file
-4. **Use descriptive IDs** - \`get_user.ts\` not \`a.ts\`
-5. **Always whitelist tables** - add to \`data.tables\` before querying
-
----
-*This file is auto-generated. Run \`wmill app new\` or \`wmill sync pull\` to regenerate.*
+*Run \`wmill app generate-agents\` to refresh. See \`.claude/skills/raw-app\` skill for full documentation.*
 `;
 }
 
@@ -767,7 +553,7 @@ function ZipFSElement(
             let inlineScripts;
             try {
               inlineScripts = extractInlineScriptsForFlows(
-                flow.value.modules,
+                flow.value.modules as any,
                 {},
                 SEP,
                 defaultTs,
@@ -931,6 +717,29 @@ function ZipFSElement(
               };
             }
 
+            // Helper to simplify fields for YAML output
+            // { type: 'static', value: X } -> { value: X }
+            // { type: 'ctx', ctx: X } -> { ctx: X }
+            function simplifyFields(fields: Record<string, any> | undefined) {
+              if (!fields) return undefined;
+              const simplified: Record<string, any> = {};
+              for (const [k, v] of Object.entries(fields)) {
+                if (typeof v === "object" && v !== null) {
+                  if (v.type === "static" && v.value !== undefined) {
+                    simplified[k] = { value: v.value };
+                  } else if (v.type === "ctx" && v.ctx !== undefined) {
+                    simplified[k] = { ctx: v.ctx };
+                  } else {
+                    // Keep other field types as-is
+                    simplified[k] = v;
+                  }
+                } else {
+                  simplified[k] = v;
+                }
+              }
+              return simplified;
+            }
+
             // Yield each runnable as a separate YAML file in the backend folder
             // For inline scripts, simplify the YAML - inlineScript is not needed since
             // content/lock/language can be derived from sibling files
@@ -966,6 +775,11 @@ function ZipFSElement(
               } else {
                 // For other runnables, keep as-is
                 simplifiedRunnable = runnableObj;
+              }
+
+              // Simplify fields for cleaner YAML output
+              if (simplifiedRunnable.fields) {
+                simplifiedRunnable.fields = simplifyFields(simplifiedRunnable.fields);
               }
 
               yield {
@@ -1248,9 +1062,13 @@ export async function elementsToMap(
   json: boolean,
   skips: Skips,
   specificItems?: SpecificItemsConfig,
+  branchOverride?: string,
+  isRemote?: boolean,
 ): Promise<{ [key: string]: string }> {
   const map: { [key: string]: string } = {};
   const processedBasePaths = new Set<string>();
+  // Cache git branch at the start to avoid repeated execSync calls per file
+  const cachedBranch = branchOverride ?? getCurrentGitBranch() ?? undefined;
   for await (const entry of readDirRecursiveWithIgnore(ignore, els)) {
     // console.log("FOO", entry.path, entry.ignored, entry.isDirectory)
     if (entry.isDirectory || entry.ignored) {
@@ -1318,7 +1136,8 @@ export async function elementsToMap(
         path.endsWith(".mqtt_trigger" + ext) ||
         path.endsWith(".sqs_trigger" + ext) ||
         path.endsWith(".gcp_trigger" + ext) ||
-        path.endsWith(".email_trigger" + ext))
+        path.endsWith(".email_trigger" + ext) ||
+        path.endsWith("_native_trigger" + ext))
     ) {
       continue;
     }
@@ -1350,8 +1169,7 @@ export async function elementsToMap(
 
     // Handle branch-specific files - skip files for other branches
     if (specificItems && isBranchSpecificFile(path)) {
-      const currentBranch = getCurrentGitBranch();
-      if (!currentBranch || !isCurrentBranchFile(path)) {
+      if (!isCurrentBranchFile(path, cachedBranch)) {
         // Skip branch-specific files for other branches
         continue;
       }
@@ -1386,31 +1204,39 @@ export async function elementsToMap(
     }
 
     // Handle branch-specific path mapping after all filtering
-    if (specificItems) {
-      const currentBranch = getCurrentGitBranch();
-      if (currentBranch && isCurrentBranchFile(path)) {
-        // This is a branch-specific file for current branch
-        const basePath = fromBranchSpecificPath(path, currentBranch);
-        if (isSpecificItem(basePath, specificItems)) {
-          // Map to base path for push operations
-          map[basePath] = content;
-          processedBasePaths.add(basePath);
-        } else {
-          // Branch-specific file doesn't match pattern, skip it
-          continue;
-        }
-      } else if (!isBranchSpecificFile(path)) {
-        // This is a regular base file, check if we should skip it
-        if (processedBasePaths.has(path)) {
-          // Skip base file, we already processed branch-specific version
-          continue;
-        }
-        map[path] = content;
+    if (cachedBranch && isCurrentBranchFile(path, cachedBranch)) {
+      // This is a branch-specific file for current branch
+      const currentBranch = cachedBranch;
+      const basePath = fromBranchSpecificPath(path, currentBranch);
+
+      // Only use branch-specific files if the item type IS configured as branch-specific
+      // AND matches the pattern. Otherwise, skip and use base file instead.
+      if (!isItemTypeConfigured(basePath, specificItems)) {
+        // Type not configured as branch-specific - skip, use base file instead
+        continue;
       }
-    } else {
-      // No specific items configuration, use regular path
-      map[entry.path] = content;
+      if (!isSpecificItem(basePath, specificItems)) {
+        // Type configured but doesn't match pattern - skip
+        continue;
+      }
+
+      // Type configured AND matches - map to base path
+      map[basePath] = content;
+      processedBasePaths.add(basePath);
+    } else if (!isBranchSpecificFile(path)) {
+      // This is a regular base file
+      if (processedBasePaths.has(path)) {
+        // Skip base file, we already processed branch-specific version
+        continue;
+      }
+      // Skip base file if it's configured as branch-specific (expect branch version)
+      // Only for LOCAL files - remote workspace only has base paths
+      if (!isRemote && isSpecificItem(path, specificItems)) {
+        continue;
+      }
+      map[path] = content;
     }
+    // Note: branch-specific files for other branches are already filtered out earlier
   }
   return map;
 }
@@ -1444,13 +1270,15 @@ async function compareDynFSElement(
   codebases: SyncCodebase[],
   ignoreCodebaseChanges: boolean,
   specificItems?: SpecificItemsConfig,
+  branchOverride?: string,
+  isEls1Remote?: boolean,
 ): Promise<Change[]> {
   const [m1, m2] = els2
     ? await Promise.all([
-        elementsToMap(els1, ignore, json, skips, specificItems),
-        elementsToMap(els2, ignore, json, skips, specificItems),
+        elementsToMap(els1, ignore, json, skips, specificItems, branchOverride, isEls1Remote),
+        elementsToMap(els2, ignore, json, skips, specificItems, branchOverride, !isEls1Remote),
       ])
-    : [await elementsToMap(els1, ignore, json, skips, specificItems), {}];
+    : [await elementsToMap(els1, ignore, json, skips, specificItems, branchOverride, isEls1Remote), {}];
 
   const changes: Change[] = [];
 
@@ -1656,7 +1484,8 @@ function getOrderFromPath(p: string) {
     typ == "mqtt_trigger" ||
     typ == "sqs_trigger" ||
     typ == "gcp_trigger" ||
-    typ == "email_trigger"
+    typ == "email_trigger" ||
+    typ == "native_trigger"
   ) {
     return 14;
   } else {
@@ -1858,14 +1687,14 @@ async function buildTracker(changes: Change[]) {
 
 export async function pull(
   opts: GlobalOptions &
-    SyncOptions & { repository?: string; promotion?: string },
+    SyncOptions & { repository?: string; promotion?: string; branch?: string },
 ) {
   const originalCliOpts = { ...opts };
   opts = await mergeConfigWithConfigFile(opts);
 
-  // Validate branch configuration early
+  // Validate branch configuration early (skipped when --branch is used)
   try {
-    await validateBranchConfiguration(opts);
+    await validateBranchConfiguration(opts, opts.branch);
   } catch (error) {
     if (error instanceof Error && error.message.includes("overrides")) {
       log.error(error.message);
@@ -1878,7 +1707,7 @@ export async function pull(
     await ensureDir(path.join(Deno.cwd(), ".wmill"));
   }
 
-  const workspace = await resolveWorkspace(opts);
+  const workspace = await resolveWorkspace(opts, opts.branch);
   await requireLogin(opts);
 
   // Resolve effective sync options with branch awareness
@@ -1886,10 +1715,11 @@ export async function pull(
     workspace,
     opts,
     opts.promotion,
+    opts.branch,
   );
 
   // Extract specific items configuration before merging overwrites gitBranches
-  const specificItems = getSpecificItemsForCurrentBranch(opts);
+  const specificItems = getSpecificItemsForCurrentBranch(opts, opts.branch);
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
@@ -1910,6 +1740,7 @@ export async function pull(
   } catch {
     // ignore
   }
+
   const zipFile = await downloadZip(
     workspace,
     opts.plainSecrets,
@@ -1934,9 +1765,11 @@ export async function pull(
     resourceTypeToFormatExtension,
     true,
   );
+
   const local = !opts.stateful
     ? await FSFSElement(Deno.cwd(), codebases, true)
     : await FSFSElement(path.join(Deno.cwd(), ".wmill"), [], true);
+
   const changes = await compareDynFSElement(
     remote,
     local,
@@ -1947,6 +1780,8 @@ export async function pull(
     codebases,
     true,
     specificItems,
+    opts.branch,
+    true, // els1 (remote) is the remote source
   );
 
   log.info(
@@ -1969,6 +1804,7 @@ export async function pull(
               branch_specific_path: getBranchSpecificPath(
                 change.path,
                 specificItems,
+                opts.branch,
               ),
             }
           : {}),
@@ -1981,7 +1817,7 @@ export async function pull(
 
   if (changes.length > 0) {
     if (!opts.jsonOutput) {
-      prettyChanges(changes, specificItems);
+      prettyChanges(changes, specificItems, opts.branch);
     }
     if (opts.dryRun) {
       log.info(colors.gray(`Dry run complete.`));
@@ -2007,6 +1843,7 @@ export async function pull(
         const branchSpecificPath = getBranchSpecificPath(
           change.path,
           specificItems,
+          opts.branch,
         );
         if (branchSpecificPath) {
           targetPath = branchSpecificPath;
@@ -2216,6 +2053,7 @@ export async function pull(
                 branch_specific_path: getBranchSpecificPath(
                   change.path,
                   specificItems,
+                  opts.branch,
                 ),
               }
             : {}),
@@ -2241,7 +2079,7 @@ export async function pull(
   }
 }
 
-function prettyChanges(changes: Change[], specificItems?: SpecificItemsConfig) {
+function prettyChanges(changes: Change[], specificItems?: SpecificItemsConfig, branchOverride?: string) {
   for (const change of changes) {
     let displayPath = change.path;
     let branchNote = "";
@@ -2251,6 +2089,7 @@ function prettyChanges(changes: Change[], specificItems?: SpecificItemsConfig) {
       const branchSpecificPath = getBranchSpecificPath(
         change.path,
         specificItems,
+        branchOverride,
       );
       if (branchSpecificPath) {
         displayPath = branchSpecificPath;
@@ -2334,7 +2173,7 @@ function removeSuffix(str: string, suffix: string) {
 }
 
 export async function push(
-  opts: GlobalOptions & SyncOptions & { repository?: string },
+  opts: GlobalOptions & SyncOptions & { repository?: string; branch?: string },
 ) {
   // Save original CLI options before merging with config file
   const originalCliOpts = { ...opts };
@@ -2342,9 +2181,9 @@ export async function push(
   // Load configuration from wmill.yaml and merge with CLI options
   opts = await mergeConfigWithConfigFile(opts);
 
-  // Validate branch configuration early
+  // Validate branch configuration early (skipped when --branch is used)
   try {
-    await validateBranchConfiguration(opts);
+    await validateBranchConfiguration(opts, opts.branch);
   } catch (error) {
     if (error instanceof Error && error.message.includes("overrides")) {
       log.error(error.message);
@@ -2353,7 +2192,7 @@ export async function push(
     throw error;
   }
 
-  const workspace = await resolveWorkspace(opts);
+  const workspace = await resolveWorkspace(opts, opts.branch);
   await requireLogin(opts);
 
   // Resolve effective sync options with branch awareness
@@ -2361,10 +2200,11 @@ export async function push(
     workspace,
     opts,
     opts.promotion,
+    opts.branch,
   );
 
   // Extract specific items configuration BEFORE merging overwrites gitBranches
-  const specificItems = getSpecificItemsForCurrentBranch(opts);
+  const specificItems = getSpecificItemsForCurrentBranch(opts, opts.branch);
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
@@ -2432,6 +2272,8 @@ export async function push(
     codebases,
     false,
     specificItems,
+    opts.branch,
+    false, // els1 (local) is not the remote source
   );
 
   const rawWorkspaceDependencies = await getRawWorkspaceDependencies();
@@ -2555,6 +2397,7 @@ export async function push(
               branch_specific_path: getBranchSpecificPath(
                 change.path,
                 specificItems,
+                opts.branch,
               ),
             }
           : {}),
@@ -2567,7 +2410,7 @@ export async function push(
 
   if (changes.length > 0) {
     if (!opts.jsonOutput) {
-      prettyChanges(changes, specificItems);
+      prettyChanges(changes, specificItems, opts.branch);
     }
     if (opts.dryRun) {
       log.info(colors.gray(`Dry run complete.`));
@@ -2625,6 +2468,8 @@ export async function push(
     // Create a pool of workers that processes items as they become available
     const pool = new Set();
     const queue = [...groupedChangesArray];
+    // Cache git branch at the start to avoid repeated execSync calls per change
+    const cachedBranchForPush = opts.branch || (isGitRepository() ? getCurrentGitBranch() : null);
 
     while (queue.length > 0 || pool.size > 0) {
       // Fill the pool until we reach parallelizationFactor
@@ -2709,7 +2554,7 @@ export async function push(
                   // For branch-specific resources, push to the base path on the workspace server
                   // This ensures branch-specific files are stored with their base names in the workspace
                   let serverPath = resourceFilePath;
-                  const currentBranch = getCurrentGitBranch();
+                  const currentBranch = cachedBranchForPush;
 
                   if (currentBranch && isBranchSpecificFile(resourceFilePath)) {
                     serverPath = fromBranchSpecificPath(
@@ -2740,6 +2585,7 @@ export async function push(
                 originalBranchSpecificPath = getBranchSpecificPath(
                   change.path,
                   specificItems,
+                  opts.branch,
                 );
               }
 
@@ -2793,6 +2639,7 @@ export async function push(
                 const branchSpecificPath = getBranchSpecificPath(
                   change.path,
                   specificItems,
+                  opts.branch,
                 );
                 if (branchSpecificPath) {
                   localFilePath = branchSpecificPath;
@@ -2866,10 +2713,24 @@ export async function push(
                   break;
                 case "raw_app":
                   if (isRawAppFolderMetadataFile(target)) {
+                    // Delete the entire raw app
                     await wmill.deleteApp({
                       workspace: workspaceId,
                       path: removeSuffix(target, getDeleteSuffix("raw_app", "json")),
                     });
+                  } else {
+                    // For individual file deletions within a raw app,
+                    // re-push the entire raw app so the backend gets the updated file list
+                    // (the deleted file won't be included in the push)
+                    await pushObj(
+                      workspaceId,
+                      target,
+                      undefined,
+                      undefined,
+                      opts.plainSecrets ?? false,
+                      alreadySynced,
+                      opts.message,
+                    );
                   }
                   break;
                 case "schedule":
@@ -2932,6 +2793,20 @@ export async function push(
                     path: removeSuffix(target, ".email_trigger.json"),
                   });
                   break;
+                case "native_trigger": {
+                  const triggerInfo = extractNativeTriggerInfo(change.path);
+                  if (!triggerInfo) {
+                    throw new Error(
+                      `Invalid native trigger path: ${change.path}`
+                    );
+                  }
+                  await wmill.deleteNativeTrigger({
+                    workspace: workspaceId,
+                    serviceName: triggerInfo.serviceName as NativeServiceName,
+                    externalId: triggerInfo.externalId,
+                  });
+                  break;
+                }
                 case "variable":
                   await wmill.deleteVariable({
                     workspace: workspaceId,
@@ -3029,6 +2904,7 @@ export async function push(
                 branch_specific_path: getBranchSpecificPath(
                   change.path,
                   specificItems,
+                  opts.branch,
                 ),
               }
             : {}),
@@ -3118,6 +2994,10 @@ const command = new Command()
     "--promotion <branch:string>",
     "Use promotionOverrides from the specified branch instead of regular overrides",
   )
+  .option(
+    "--branch <branch:string>",
+    "Override the current git branch (works even outside a git repository)",
+  )
   // deno-lint-ignore no-explicit-any
   .action(pull as any)
   .command("push")
@@ -3170,6 +3050,10 @@ const command = new Command()
   .option(
     "--repository <repo:string>",
     "Specify repository path (e.g., u/user/repo) when multiple repositories exist",
+  )
+  .option(
+    "--branch <branch:string>",
+    "Override the current git branch (works even outside a git repository)",
   )
   // deno-lint-ignore no-explicit-any
   .action(push as any);

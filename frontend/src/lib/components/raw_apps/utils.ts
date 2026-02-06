@@ -15,24 +15,74 @@ export type RawApp = {
 	files: string[]
 }
 
-export function htmlContent(workspace: string, secret: string | undefined, ctx: any) {
-	return `
-        <!DOCTYPE html>
-        <html>
-            <head>
-                <meta charset="UTF-8" />
-                <title>App Preview</title>
-                <link rel="stylesheet" href="/api/w/${workspace}/apps/get_data/v/${secret}.css" />
-				<script>
-					window.ctx = ${ctx ? JSON.stringify(ctx) : 'undefined'}
-				</script>
-            </head>
-            <body>
-                <div id="root"></div>
-                <script src="/api/w/${workspace}/apps/get_data/v/${secret}.js"></script>
-            </body>
-        </html>
-    `
+export function htmlContent(
+	workspace: string,
+	secret: string | undefined,
+	ctx: any,
+	baseUrl: string = '',
+	initialHash: string = ''
+) {
+	return `<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="UTF-8" />
+	<title>App Preview</title>
+	<link rel="stylesheet" href="${baseUrl}/api/w/${workspace}/apps_u/get_data/v/${secret}.css" />
+	<script>
+		window.ctx = ${ctx ? JSON.stringify(ctx) : 'undefined'};
+
+		// Sync hash with parent window for shareable URLs
+		(function() {
+			// Set initial hash from parent URL
+			var initialHash = ${JSON.stringify(initialHash)};
+			if (initialHash && initialHash !== '#' && !window.location.hash) {
+				history.replaceState(null, '', initialHash);
+			}
+
+			// Notify parent when hash changes
+			function notifyParent() {
+				var hash = window.location.hash;
+				console.log('[HashSync] notifyParent called, hash:', hash);
+				if (window.parent !== window) {
+					window.parent.postMessage({
+						type: 'windmill:hashchange',
+						hash: hash
+					}, '*');
+				}
+			}
+
+			// Listen for hash changes
+			window.addEventListener('hashchange', function() {
+				console.log('[HashSync] hashchange event');
+				notifyParent();
+			});
+
+			// Also notify on pushState/replaceState
+			var originalPushState = history.pushState;
+			var originalReplaceState = history.replaceState;
+
+			history.pushState = function() {
+				console.log('[HashSync] pushState called with:', arguments[2]);
+				originalPushState.apply(this, arguments);
+				notifyParent();
+			};
+
+			history.replaceState = function() {
+				console.log('[HashSync] replaceState called with:', arguments[2]);
+				originalReplaceState.apply(this, arguments);
+				notifyParent();
+			};
+
+			// Notify parent of initial hash after load
+			setTimeout(notifyParent, 0);
+		})();
+	</script>
+</head>
+<body>
+	<div id="root"></div>
+	<script src="${baseUrl}/api/w/${workspace}/apps_u/get_data/v/${secret}.js"></script>
+</body>
+</html>`
 }
 
 function removeStaticFields(schema: Schema, fields: Record<string, { type: string }>): Schema {
@@ -101,5 +151,19 @@ export declare function waitJob(id: string): Promise<Job>;
  * @param id
  */
 export declare function getJob(id: string): Promise<Job>;
+
+export type StreamUpdate = {
+  new_result_stream?: string;
+  stream_offset?: number;
+};
+
+/**
+ * Stream job results using SSE. Calls onUpdate for each stream update,
+ * and resolves with the final result when the job completes.
+ * @param id - The job ID to stream
+ * @param onUpdate - Optional callback for stream updates with new_result_stream data
+ * @returns Promise that resolves with the final job result
+ */
+export declare function streamJob(id: string, onUpdate?: (data: StreamUpdate) => void): Promise<any>;
 `
 }

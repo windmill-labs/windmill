@@ -21,7 +21,6 @@
 	interface Props {
 		app: ListableRawApp & { canWrite: boolean }
 		marked: string | undefined
-		starred: boolean
 		shareModal: ShareModal
 		moveDrawer: MoveDrawer
 		deleteConfirmedCallback: (() => void) | undefined
@@ -33,7 +32,6 @@
 	let {
 		app,
 		marked,
-		starred,
 		shareModal,
 		moveDrawer,
 		deleteConfirmedCallback = $bindable(),
@@ -75,8 +73,6 @@
 	path={app.path}
 	summary={app.summary}
 	workspaceId={app.workspace_id ?? $workspaceStore ?? ''}
-	{starred}
-	on:change
 	canFavorite={true}
 	{depth}
 >
