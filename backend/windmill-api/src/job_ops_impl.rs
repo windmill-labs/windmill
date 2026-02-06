@@ -151,9 +151,13 @@ impl JobOps for JobOpsImpl {
             while let Some(msg) = bridge_rx.recv().await {
                 let converted = match msg {
                     crate::jobs::JobUpdateSSEStream::Update(update) => {
-                        JobUpdateSSEStream::Update(
-                            serde_json::to_value(&update).unwrap_or_default(),
-                        )
+                        match serde_json::to_value(&update) {
+                            Ok(v) => JobUpdateSSEStream::Update(v),
+                            Err(e) => {
+                                tracing::error!("Failed to serialize SSE job update: {e}");
+                                continue;
+                            }
+                        }
                     }
                     crate::jobs::JobUpdateSSEStream::Error { error } => {
                         JobUpdateSSEStream::Error { error }
