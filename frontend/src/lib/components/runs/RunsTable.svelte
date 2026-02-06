@@ -244,7 +244,7 @@
 	</div>
 	<div
 		bind:clientHeight={tableHeight}
-		class="relative flex-1 border rounded-t-md overflow-clip [&>.virtual-list-wrapper::-webkit-scrollbar-track]:bg-surface-tertiary"
+		class="relative flex-1 border rounded-t-md overflow-clip bg-surface-tertiary [&>.virtual-list-wrapper::-webkit-scrollbar-track]:bg-surface-tertiary"
 	>
 		{#if jobs?.length == 0 && (!showExternalJobs || externalJobs?.length == 0)}
 			<div class="text-xs text-secondary p-8"> No jobs found for the selected filters. </div>
