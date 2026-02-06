@@ -67,16 +67,16 @@ lazy_static::lazy_static! {
                     (20260206000000, "".to_string()),
                     (20260207000001, include_str!(
                         "../../migrations/20260207000001_concurrent_indexes_v2_job.up.sql"
-                    ).to_string()),
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
                     (20260207000002, include_str!(
                         "../../migrations/20260207000002_concurrent_indexes_v2_job_completed.up.sql"
-                    ).to_string()),
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
                     (20260207000003, include_str!(
                         "../../migrations/20260207000003_concurrent_indexes_v2_job_queue.up.sql"
-                    ).to_string()),
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
                     (20260207000004, include_str!(
                         "../../migrations/20260207000004_concurrent_indexes_other.up.sql"
-                    ).to_string()),
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
                     ].into_iter().collect();
 }
 
@@ -203,7 +203,13 @@ impl Migrate for CustomMigrator {
                                 !t.is_empty() && !t.starts_with("--")
                             })
                         {
+                            let summary: String = stmt.lines()
+                                .filter(|l| !l.trim().is_empty() && !l.trim().starts_with("--"))
+                                .collect::<Vec<_>>()
+                                .join(" ");
+                            tracing::info!("Executing: {summary}");
                             self.inner.execute(stmt).await?;
+                            tracing::info!("Done: {summary}");
                         }
                     }
                 } else if !migration_sql.is_empty() {
@@ -251,7 +257,8 @@ pub async fn migrate(
     if let Err(err) = sqlx::query!(
         "DELETE FROM _sqlx_migrations WHERE
         version=20250131115248 OR version=20250902085503 OR version=20250201145630 OR
-        version=20250201145631 OR version=20250201145632 OR version=20251006143821"
+        version=20250201145631 OR version=20250201145632 OR version=20251006143821 OR
+        version=20260207000001 OR version=20260207000002 OR version=20260207000003 OR version=20260207000004"
     )
     .execute(db)
     .await
