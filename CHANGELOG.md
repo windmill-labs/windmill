@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.628.2](https://github.com/windmill-labs/windmill/compare/v1.628.1...v1.628.2) (2026-02-06)
+
+
+### Bug Fixes
+
+* execute CONCURRENTLY statements individually in migrations ([7a7b118](https://github.com/windmill-labs/windmill/commit/7a7b118bf36e8086b2df5a940e99e1c031f57c81))
+
 ## [1.628.1](https://github.com/windmill-labs/windmill/compare/v1.628.0...v1.628.1) (2026-02-06)
 
 
