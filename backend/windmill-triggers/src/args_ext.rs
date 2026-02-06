@@ -94,7 +94,9 @@ impl RawWebhookArgs {
         w_id: &str,
     ) -> Result<HashMap<String, Box<RawValue>>, Error> {
         use object_store::{Attribute, Attributes};
-        use windmill_common::s3_helpers::build_object_store_client;
+        use windmill_common::s3_helpers::{
+            build_object_store_client, get_random_file_name, upload_file_internal,
+        };
 
         let job_ops = crate::jobs_ext::get_ops();
         let (_, s3_resource) = job_ops.get_workspace_s3_resource(authed, db, None, w_id, None).await?;
@@ -116,7 +118,7 @@ impl RawWebhookArgs {
                             .flatten()
                             .map(|x| x.to_string());
 
-                        let file_key = job_ops.get_random_file_name(ext);
+                        let file_key = get_random_file_name(ext);
 
                         let options = Attributes::from_iter(vec![
                             (Attribute::ContentType, content_type.to_string()),
@@ -138,8 +140,7 @@ impl RawWebhookArgs {
                             Ok::<bytes::Bytes, std::io::Error>(field_bytes)
                         });
 
-                        job_ops
-                            .upload_file_internal(s3_client.clone(), &file_key, Box::pin(bytes_stream), options)
+                        upload_file_internal(s3_client.clone(), &file_key, Box::pin(bytes_stream), options)
                             .await?;
 
                         files.entry(name).or_insert(vec![]).push(serde_json::json!({

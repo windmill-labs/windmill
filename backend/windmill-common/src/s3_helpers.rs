@@ -1349,3 +1349,67 @@ pub fn duckdb_connection_settings_internal(
 lazy_static::lazy_static! {
     pub static ref S3_PROXY_LAST_ERRORS_CACHE: Cache<String, String> = Cache::new(4);
 }
+
+pub fn get_random_file_name(file_extension: Option<String>) -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    format!(
+        "windmill_uploads/upload_{}_{}.{}",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis(),
+        rand::random::<u16>(),
+        file_extension.unwrap_or("file".to_string())
+    )
+}
+
+#[cfg(feature = "parquet")]
+pub async fn upload_file_internal(
+    s3_client: Arc<dyn ObjectStore>,
+    file_key: &str,
+    mut bytes_stream: std::pin::Pin<
+        Box<dyn futures::Stream<Item = Result<bytes::Bytes, std::io::Error>> + Send>,
+    >,
+    options: object_store::PutMultipartOpts,
+) -> error::Result<()> {
+    use futures::StreamExt;
+
+    let path = object_store::path::Path::parse(file_key)
+        .map_err(|e| error::Error::InternalErr(format!("Error parsing file key: {}", e)))?;
+    let upload = s3_client
+        .put_multipart_opts(&path, options)
+        .await
+        .map_err(|err| {
+            tracing::error!("Error initializing multipart upload: {:?}", err);
+            error::Error::InternalErr(format!("Error initializing multipart upload: {}", err))
+        })?;
+    let mut parts_writer = object_store::WriteMultipart::new(upload);
+    while let Some(chunk) = bytes_stream.next().await {
+        let chunk = chunk.map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err));
+        if let Err(e) = chunk {
+            if let Err(e) = parts_writer.abort().await {
+                tracing::error!("Error aborting multipart upload: {:?}", e);
+            }
+            return Err(error::Error::InternalErr(format!(
+                "Error reading request body: {} (could be because of the request size limit)",
+                e
+            )));
+        }
+        let chunk = chunk.unwrap();
+        if let Err(e) = parts_writer.wait_for_capacity(8).await {
+            if let Err(e) = parts_writer.abort().await {
+                tracing::error!("Error aborting multipart upload: {:?}", e);
+            }
+            return Err(error::Error::InternalErr(format!(
+                "Error waiting for capacity in multipart upload: {}",
+                e
+            )));
+        }
+        parts_writer.write(&chunk);
+    }
+    parts_writer.finish().await.map_err(|err| {
+        tracing::error!("Error completing multipart upload: {:?}", err);
+        error::Error::InternalErr(format!("Error completing multipart upload: {}", err))
+    })?;
+    Ok(())
+}

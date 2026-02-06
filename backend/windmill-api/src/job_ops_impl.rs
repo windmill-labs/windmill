@@ -9,103 +9,19 @@
 //! Implementation of `windmill_triggers::jobs_ext::JobOps` trait.
 //! This bridges windmill-triggers back to windmill-api internals.
 
-use axum::response::Response;
-use serde_json::value::RawValue;
-use sqlx::Postgres;
-#[cfg(feature = "parquet")]
-use std::sync::Arc;
 use uuid::Uuid;
 use windmill_api_auth::{ApiAuthed, OptTokened};
 use windmill_common::{
     db::UserDB,
     error,
-    triggers::TriggerMetadata,
-    utils::StripPath,
     DB,
 };
-use windmill_common::jobs::RunJobQuery;
-use windmill_queue::PushArgsOwned;
 use windmill_triggers::jobs_ext::{JobOps, JobUpdateSSEStream};
 
 pub struct JobOpsImpl;
 
 #[axum::async_trait]
 impl JobOps for JobOpsImpl {
-    async fn push_script_job_by_path_into_queue(
-        &self,
-        authed: ApiAuthed,
-        db: DB,
-        tx_o: Option<sqlx::Transaction<'static, Postgres>>,
-        user_db: UserDB,
-        w_id: String,
-        script_path: StripPath,
-        run_query: RunJobQuery,
-        args: PushArgsOwned,
-        trigger: Option<TriggerMetadata>,
-    ) -> error::Result<(
-        Uuid,
-        Option<bool>,
-        Option<sqlx::Transaction<'static, Postgres>>,
-    )> {
-        crate::jobs::push_script_job_by_path_into_queue(
-            authed, db, tx_o, user_db, w_id, script_path, run_query, args, trigger,
-        )
-        .await
-    }
-
-    async fn push_flow_job_by_path_into_queue(
-        &self,
-        authed: ApiAuthed,
-        db: DB,
-        tx_o: Option<sqlx::Transaction<'static, Postgres>>,
-        user_db: UserDB,
-        w_id: String,
-        flow_path: StripPath,
-        run_query: RunJobQuery,
-        args: PushArgsOwned,
-        trigger: Option<TriggerMetadata>,
-    ) -> error::Result<(
-        Uuid,
-        Option<String>,
-        Option<sqlx::Transaction<'static, Postgres>>,
-    )> {
-        crate::jobs::push_flow_job_by_path_into_queue(
-            authed, db, tx_o, user_db, w_id, flow_path, run_query, args, trigger,
-        )
-        .await
-    }
-
-    async fn run_wait_result_internal(
-        &self,
-        db: &DB,
-        uuid: Uuid,
-        w_id: &str,
-        node_id_for_empty_return: Option<String>,
-        username: &str,
-    ) -> error::Result<(Box<RawValue>, bool)> {
-        crate::jobs::run_wait_result_internal(db, uuid, w_id, node_id_for_empty_return, username)
-            .await
-    }
-
-    fn result_to_response(
-        &self,
-        result: Box<RawValue>,
-        success: bool,
-    ) -> error::Result<Response> {
-        crate::jobs::result_to_response(result, success)
-    }
-
-    async fn cancel_jobs(
-        &self,
-        jobs: Vec<Uuid>,
-        db: &DB,
-        username: &str,
-        w_id: &str,
-        force_cancel: bool,
-    ) -> error::JsonResult<Vec<Uuid>> {
-        crate::jobs::cancel_jobs(jobs, db, username, w_id, force_cancel).await
-    }
-
     fn start_job_update_sse_stream(
         &self,
         opt_authed: Option<ApiAuthed>,
@@ -225,26 +141,6 @@ impl JobOps for JobOpsImpl {
             let _ = (authed, db, w_id);
             Ok(s)
         }
-    }
-
-    #[cfg(feature = "parquet")]
-    fn get_random_file_name(&self, ext: Option<String>) -> String {
-        crate::job_helpers_oss::get_random_file_name(ext)
-    }
-
-    #[cfg(feature = "parquet")]
-    async fn upload_file_internal(
-        &self,
-        s3_client: Arc<dyn object_store::ObjectStore>,
-        file_key: &str,
-        bytes_stream: std::pin::Pin<
-            Box<dyn futures::Stream<Item = Result<bytes::Bytes, std::io::Error>> + Send>,
-        >,
-        options: object_store::PutMultipartOpts,
-    ) -> error::Result<()> {
-        crate::job_helpers_oss::upload_file_internal(s3_client, file_key, bytes_stream, options)
-            .await
-            .map(|_| ())
     }
 
     #[cfg(feature = "parquet")]
