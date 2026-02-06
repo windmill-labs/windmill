@@ -17,7 +17,7 @@
 	import type { Schema } from '$lib/common'
 	import InputTransformForm from '../InputTransformForm.svelte'
 	import type { FlowPropPickerConfig, PropPickerContext } from '../prop_picker'
-	import { setContext, untrack } from 'svelte'
+	import { setContext } from 'svelte'
 	import { writable } from 'svelte/store'
 	import type { PickableProperties } from '../flows/previousResults'
 	import Alert from '../common/alert/Alert.svelte'
@@ -31,6 +31,7 @@
 	import { readFieldsRecursively } from '$lib/utils'
 	import Button from '../common/button/Button.svelte'
 	import ResizeTransitionWrapper from '../common/ResizeTransitionWrapper.svelte'
+	import { resource, watch } from 'runed'
 
 	let {
 		selectedIds,
@@ -41,13 +42,16 @@
 	} = $props()
 
 	let selected: JobGroup | undefined = $state()
-	$effect(() => {
-		jobGroupsPromise.then((jobGroups) => {
+	watch(
+		() => jobGroups.current,
+		() => {
 			selected = selected
-				? jobGroups.find((g) => g.script_path === selected?.script_path && g.kind === selected.kind)
-				: jobGroups[0]
-		})
-	})
+				? jobGroups.current?.find(
+						(g) => g.script_path === selected?.script_path && g.kind === selected.kind
+					)
+				: jobGroups.current?.[0]
+		}
+	)
 
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
@@ -152,24 +156,21 @@
 				(options[selected.kind][selected.script_path]?.use_latest_version ?? false))
 	)
 
-	const jobGroupsPromise = $derived.by(() => {
-		readFieldsRecursively(selectedIds)
-		return untrack(() => fetchJobGroups())
-	})
+	const jobGroups = resource(() => readFieldsRecursively(selectedIds), fetchJobGroups)
 </script>
 
 <div class="flex-1 flex flex-col h-full">
 	<div class="border overflow-auto rounded-md mb-4 flex-1">
 		<Splitpanes>
-			<Pane size={32} class="bg-surface-secondary relative">
-				<PanelSection
-					title="Runnables"
-					class="bg-surface-secondary overflow-y-scroll absolute inset-0"
-					id="batch-rerun-options-runnable-list"
-				>
-					<div class="w-full flex flex-col gap-1">
-						{#await jobGroupsPromise then jobGroup}
-							{#each jobGroup as group}
+			{#if jobGroups.current?.length !== 1 && selectedIds.length > 1}
+				<Pane size={32} class="bg-surface-secondary relative">
+					<PanelSection
+						title="Runnables"
+						class="bg-surface-secondary overflow-y-scroll absolute inset-0"
+						id="batch-rerun-options-runnable-list"
+					>
+						<div class="w-full flex flex-col gap-1">
+							{#each jobGroups.current ?? [] as group}
 								<Button
 									variant="default"
 									unifiedSize="sm"
@@ -182,10 +183,10 @@
 									<span class="text-hint">({jobGroupTotalCount(group)})</span>
 								</Button>
 							{/each}
-						{/await}
-					</div>
-				</PanelSection>
-			</Pane>
+						</div>
+					</PanelSection>
+				</Pane>
+			{/if}
 			<Pane size={68} class="relative">
 				<PanelSection
 					title="Inputs"
