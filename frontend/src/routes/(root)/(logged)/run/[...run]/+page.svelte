@@ -755,7 +755,9 @@
 
 		<!-- Arguments and actions -->
 		<div class="max-w-7xl mx-auto w-full px-4 mt-12" id="inputs">
-			<div class="text-xs text-emphasis font-semibold mb-1 flex items-center gap-2 group">
+			<div
+				class="text-sm text-emphasis font-semibold mb-1 flex items-center gap-2 group sticky top-0 bg-surface py-2 z-50"
+			>
 				Inputs
 				<button
 					type="button"
@@ -820,7 +822,9 @@
 				<!-- Result Section (moved outside tabs) -->
 				{#if job}
 					<div class="mr-2 sm:mr-0 mt-12 mb-6" id="result">
-						<h3 class="text-xs font-semibold text-emphasis mb-1 flex items-center gap-2 group">
+						<h3
+							class="text-sm font-semibold text-emphasis mb-1 flex items-center gap-2 group sticky top-0 bg-surface py-2 z-50"
+						>
 							Result
 							<button
 								type="button"
@@ -831,7 +835,9 @@
 								<Hash size={14} />
 							</button>
 						</h3>
-						<div class="border rounded-md bg-surface-tertiary p-4 overflow-auto max-h-[95vh]">
+						<div
+							class="border rounded-md bg-surface-tertiary p-4 overflow-auto max-h-[calc(100vh-60px)]"
+						>
 							{#if job.result_stream || (job.type == 'CompletedJob' && job.result !== undefined)}
 								<DisplayResult
 									workspaceId={job?.workspace_id}
@@ -850,17 +856,6 @@
 
 				<!-- Logs and outputs-->
 				<div class="mr-2 sm:mr-0 mt-6" id="metrics">
-					<div class="text-xs text-emphasis font-semibold mb-1 flex items-center gap-2 group">
-						Logs & Metrics
-						<button
-							type="button"
-							onclick={() => handleSectionHashClick('metrics')}
-							class="text-muted-foreground hover:text-primary transition-colors opacity-0 group-hover:opacity-100"
-							title="Link to this section"
-						>
-							<Hash size={14} />
-						</button>
-					</div>
 					<Tabs bind:selected={viewTab}>
 						<Tab value="logs" label="Logs" />
 						<Tab value="stats" label="Metrics" />

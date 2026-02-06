@@ -1391,7 +1391,9 @@
 				{:else}
 					<!-- Default single-column result -->
 					<div id="result">
-						<h3 class="text-xs font-semibold text-emphasis mb-1 flex items-center gap-2 group">
+						<h3
+							class="text-sm font-semibold text-emphasis mb-1 flex items-center gap-2 group sticky top-0 bg-surface py-2 z-50"
+						>
 							Result
 							<button
 								type="button"
@@ -1403,7 +1405,9 @@
 							</button>
 						</h3>
 					</div>
-					<div class="flex-1 overflow-auto rounded-md border bg-surface-tertiary p-4 max-h-[95vh]">
+					<div
+						class="flex-1 overflow-auto rounded-md border bg-surface-tertiary p-4 max-h-[calc(100vh-60px)]"
+					>
 						{#if job !== undefined && (job.result_stream || (job.type == 'CompletedJob' && 'result' in job && job.result !== undefined))}
 							<DisplayResult
 								workspaceId={job?.workspace_id}
