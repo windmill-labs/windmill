@@ -898,7 +898,7 @@ pub mod workspace_dependencies {
         time::{Duration, Instant},
     };
 
-    use crate::{error, scripts::ScriptLang, workspace_dependencies::WorkspaceDependencies, DB};
+    use crate::{error, workspace_dependencies::WorkspaceDependencies, DB};
 
     make_static! {
         /// Workspace Dependencies by id and workspace cache.
@@ -908,7 +908,7 @@ pub mod workspace_dependencies {
         /// Cache for checking if default/unnamed workspace dependencies exist for a workspace and language.
         /// Cache key: (workspace_id, language)
         /// Cache value: (exists: bool, cached_at timestamp)
-        static ref DEFAULT_WD_EXISTS_CACHE: quick_cache::sync::Cache<(String, ScriptLang), (bool, Instant)> = quick_cache::sync::Cache::new(500);
+        static ref DEFAULT_WD_EXISTS_CACHE: quick_cache::sync::Cache<(String, String), (bool, Instant)> = quick_cache::sync::Cache::new(500);
     }
     /// Cache timeout for existence checks (10 seconds)
     pub const EXISTS_CACHE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -926,15 +926,15 @@ pub mod workspace_dependencies {
     }
 
     pub fn get_cached_is_unnamed_workspace_dependencies_exists<'c>(
-        language: ScriptLang,
+        dependencies_filename: String,
         workspace_id: String,
     ) -> Option<bool> {
-        let exists_key = (workspace_id.to_string(), language);
+        let exists_key = (workspace_id.to_string(), dependencies_filename);
+
         if let Some((exists, cached_at)) = DEFAULT_WD_EXISTS_CACHE.get(&exists_key) {
             if cached_at.elapsed() < EXISTS_CACHE_TIMEOUT {
                 tracing::debug!(
                     workspace_id = %workspace_id,
-                    ?language,
                     exists,
                     "cache hit for unnamed workspace dependencies existence"
                 );
@@ -942,7 +942,6 @@ pub mod workspace_dependencies {
             } else {
                 tracing::debug!(
                     workspace_id = %workspace_id,
-                    ?language,
                     "cache expired for unnamed workspace dependencies existence"
                 );
                 DEFAULT_WD_EXISTS_CACHE.remove(&exists_key);
@@ -950,24 +949,22 @@ pub mod workspace_dependencies {
         } else {
             tracing::debug!(
                 workspace_id = %workspace_id,
-                ?language,
                 "cache miss for unnamed workspace dependencies existence"
             );
         }
         None
     }
     pub fn set_cached_is_unnamed_workspace_dependencies_exists<'c>(
-        language: ScriptLang,
+        dependencies_filename: String,
         workspace_id: String,
         exists: bool,
     ) {
         tracing::debug!(
             workspace_id = %workspace_id,
-            ?language,
             exists,
             "setting cache for unnamed workspace dependencies existence"
         );
-        let exists_key = (workspace_id.to_string(), language);
+        let exists_key = (workspace_id.to_string(), dependencies_filename);
         DEFAULT_WD_EXISTS_CACHE.insert(exists_key, (exists, Instant::now()));
     }
 }
