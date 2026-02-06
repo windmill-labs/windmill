@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT value->'databases' FROM global_settings WHERE name = 'custom_instance_pg_databases'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "2767ea3f8fa1dc2c7285671560f77ecc71394957d6f87ae52f91c6e31525beef"
+}

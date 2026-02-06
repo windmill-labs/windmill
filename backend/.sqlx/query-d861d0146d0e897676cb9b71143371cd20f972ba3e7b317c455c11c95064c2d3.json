@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT auto_invite->'instance_groups' FROM workspace_settings WHERE workspace_id = 'ws-no-auto-add'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "d861d0146d0e897676cb9b71143371cd20f972ba3e7b317c455c11c95064c2d3"
+}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_status\n         SET flow_status = jsonb_set(\n             flow_status,\n             '{memory_id}',\n             to_jsonb($2::uuid)\n         )\n         WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "348d64dc9f81f04538c5fec98df51312794c22d6337be897bc618585fa5b27f3"
+}

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO tutorial_progress (email, progress, skipped_all) VALUES ($2, $1::bigint::bit(64), $3) ON CONFLICT (email) DO UPDATE SET progress = EXCLUDED.progress, skipped_all = EXCLUDED.skipped_all",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Varchar",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "04362a55081f7a98bca8fe4db0669939da8944711037957664cc2989b239c9d1"
+}

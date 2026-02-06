@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH queue_metrics as (\n            SELECT id, value, created_at\n            FROM metrics\n            WHERE id LIKE 'queue_%'\n                AND created_at > now() - interval '14 day'\n        )\n        SELECT id, array_agg(json_build_object('value', value, 'created_at', created_at) ORDER BY created_at ASC) as \"values!\"\n        FROM queue_metrics\n        GROUP BY id\n        ORDER BY id ASC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "values!",
+        "type_info": "JsonArray"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "44dd7a66ecc9564ad5727970b5f60a1717eda8924999741be522ffb74cc173fa"
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM dependency_map WHERE workspace_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "76d73f2fe5ac75e5033fb93d60f2ef5ab2b0b73a80dcb6a250c17c3b2f15c6b4"
+}

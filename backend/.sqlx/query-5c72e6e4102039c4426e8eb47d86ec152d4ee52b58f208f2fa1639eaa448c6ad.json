@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO app_script (app, hash, lock, code, code_sha256)\n                 VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Bpchar",
+        "Text",
+        "Text",
+        "Bpchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5c72e6e4102039c4426e8eb47d86ec152d4ee52b58f208f2fa1639eaa448c6ad"
+}

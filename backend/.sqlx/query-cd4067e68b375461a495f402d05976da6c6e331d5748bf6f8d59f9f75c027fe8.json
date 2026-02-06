@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE alerts\n         SET\n           acknowledged = true,\n           acknowledged_workspace = CASE\n             WHEN $3 THEN\n               CASE\n                 WHEN $2::text IS NOT NULL AND workspace_id = $2 THEN true\n                 ELSE acknowledged_workspace\n               END\n             ELSE true\n           END\n         WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "cd4067e68b375461a495f402d05976da6c6e331d5748bf6f8d59f9f75c027fe8"
+}

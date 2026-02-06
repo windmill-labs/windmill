@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT token_family FROM mcp_oauth_refresh_token\n                 WHERE refresh_token = $1 AND used_at IS NOT NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "token_family",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "99398d6d6aa04235226f1a5d0f100aea034d7ee2c86aa8fa5ccec0e3560965fd"
+}

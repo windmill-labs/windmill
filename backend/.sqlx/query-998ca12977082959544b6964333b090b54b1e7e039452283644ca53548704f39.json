@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*) FROM v2_job_queue q WHERE q.canceled_by IS NULL AND (q.scheduled_for <= now()\n            OR (q.suspend_until IS NOT NULL\n                AND (q.suspend <= 0 OR q.suspend_until <= now())))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "998ca12977082959544b6964333b090b54b1e7e039452283644ca53548704f39"
+}

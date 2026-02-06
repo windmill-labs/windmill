@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO deployment_metadata (workspace_id, path, flow_version, job_id)\n         VALUES ($1, $2, $3, $4)\n         ON CONFLICT (workspace_id, path, flow_version) WHERE flow_version IS NOT NULL\n         DO UPDATE SET job_id = EXCLUDED.job_id",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0e621bba5913482b8235d7d8442b8f0e9012c265e150afd4aa41972bf7334ba2"
+}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM job_logs WHERE workspace_id = $1 AND job_id = ANY($2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3bd11d7210bb548df4f18f980ae66cc04d41f6d8917c3c0873304250d39943ff"
+}

@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO group_permission_history\n         (workspace_id, group_name, changed_by, change_type, member_affected)\n         VALUES ($1, $2, $3, $4, $5)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f95358255e55d68dd453d173e23ab3cb1f1c2ba5b1cfc78f706b0b014f045477"
+}

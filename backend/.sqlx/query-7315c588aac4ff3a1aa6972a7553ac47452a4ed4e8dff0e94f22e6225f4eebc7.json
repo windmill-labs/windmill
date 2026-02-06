@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO v2_job_runtime (id, ping) SELECT unnest($1::uuid[]), null",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7315c588aac4ff3a1aa6972a7553ac47452a4ed4e8dff0e94f22e6225f4eebc7"
+}

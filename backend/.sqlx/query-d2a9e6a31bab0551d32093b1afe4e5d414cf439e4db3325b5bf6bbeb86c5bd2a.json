@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH to_delete AS (\n            SELECT id FROM v2_job_queue\n                JOIN v2_job j USING (id)\n            WHERE trigger_kind = 'schedule'\n                AND trigger = $1\n                AND j.workspace_id = $2\n                AND flow_step_id IS NULL\n                AND running = false\n            FOR UPDATE\n        ), deleted AS (\n            DELETE FROM v2_job_queue\n            WHERE id IN (SELECT id FROM to_delete)\n            RETURNING id\n        ) DELETE FROM v2_job WHERE id IN (SELECT id FROM deleted)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d2a9e6a31bab0551d32093b1afe4e5d414cf439e4db3325b5bf6bbeb86c5bd2a"
+}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM resource WHERE path = ANY($1) AND workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d8e293c0c8fd7e329b921822ffab8d305bd9ad73858e8f7b4269097b5ef4cf73"
+}

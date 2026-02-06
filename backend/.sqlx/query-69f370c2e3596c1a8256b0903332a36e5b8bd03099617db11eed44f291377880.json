@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT j.tag as \"tag!\", COUNT(*) as \"count!\"\n            FROM v2_job_completed c JOIN v2_job j USING (id)\n            WHERE c.started_at > NOW() - make_interval(secs => $1) AND ($2::text IS NULL OR j.workspace_id = $2)\n            GROUP BY j.tag\n            ORDER BY \"count!\" DESC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "tag!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Float8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "69f370c2e3596c1a8256b0903332a36e5b8bd03099617db11eed44f291377880"
+}
