@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO token (token, email, label, super_admin, owner, workspace_id)\n         VALUES ('CHARLIE_TOKEN_NEW', 'charlie@windmill.dev', 'Charlie new token', false, 'u/charlie', 'test-workspace')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "8515537f73c132e62c4dafad1e8d8e56f0c70dccd0edbc9667f550b31ab54c18"
+}

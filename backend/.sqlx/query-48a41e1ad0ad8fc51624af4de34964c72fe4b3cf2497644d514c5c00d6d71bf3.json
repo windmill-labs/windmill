@@ -1,0 +1,77 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n            j.runnable_path as script_path, j.runnable_id AS \"script_hash: ScriptHash\",\n            j.kind AS \"job_kind!: JobKind\",\n            COALESCE(c.flow_status, c.workflow_as_code_status) AS \"flow_status: Json<Box<RawValue>>\",\n            j.raw_flow AS \"raw_flow: Json<Box<RawValue>>\"\n        FROM v2_job_completed c JOIN v2_job j USING (id) WHERE j.id = $1 and j.workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "script_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "script_hash: ScriptHash",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "job_kind!: JobKind",
+        "type_info": {
+          "Custom": {
+            "name": "job_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "preview",
+                "flow",
+                "dependencies",
+                "flowpreview",
+                "script_hub",
+                "identity",
+                "flowdependencies",
+                "http",
+                "graphql",
+                "postgresql",
+                "noop",
+                "appdependencies",
+                "deploymentcallback",
+                "singlestepflow",
+                "flowscript",
+                "flownode",
+                "appscript",
+                "aiagent",
+                "unassigned_script",
+                "unassigned_flow",
+                "unassigned_singlestepflow"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "flow_status: Json<Box<RawValue>>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "raw_flow: Json<Box<RawValue>>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      false,
+      null,
+      true
+    ]
+  },
+  "hash": "48a41e1ad0ad8fc51624af4de34964c72fe4b3cf2497644d514c5c00d6d71bf3"
+}

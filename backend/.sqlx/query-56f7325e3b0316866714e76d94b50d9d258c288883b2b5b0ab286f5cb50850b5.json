@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_status SET\n                        workflow_as_code_status = jsonb_set(\n                            jsonb_set(\n                                COALESCE(workflow_as_code_status, '{}'::jsonb),\n                                array[$1],\n                                COALESCE(workflow_as_code_status->$1, '{}'::jsonb)\n                            ),\n                            array[$1, 'duration_ms'],\n                            to_jsonb($2::bigint)\n                        )\n                    WHERE id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "56f7325e3b0316866714e76d94b50d9d258c288883b2b5b0ab286f5cb50850b5"
+}

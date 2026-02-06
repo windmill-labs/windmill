@@ -1,0 +1,252 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH job_sizes AS (\n                            SELECT \n                                cj.id,\n                                cj.workspace_id,\n                                j.parent_job,\n                                j.created_by,\n                                cj.duration_ms,\n                                cj.status = 'success' OR cj.status = 'skipped' AS success,\n                                j.runnable_id AS script_hash,\n                                j.runnable_path AS script_path,\n                                j.args,\n                                cj.completed_at,\n                                cj.result,\n                                cj.deleted,\n                                cj.status = 'canceled' AS canceled,\n                                cj.canceled_by,\n                                cj.canceled_reason,\n                                j.kind AS job_kind,\n                                CASE WHEN j.trigger_kind = 'schedule'::job_trigger_kind THEN j.trigger END AS schedule_path,\n                                j.permissioned_as,\n                                j.flow_step_id IS NOT NULL AS is_flow_step,\n                                j.script_lang AS language,\n                                cj.status = 'skipped' AS is_skipped,\n                                j.permissioned_as_email AS email,\n                                j.visible_to_owner,\n                                cj.memory_peak AS mem_peak,\n                                j.tag,\n                                cj.started_at,\n                                job_logs.logs,\n                                job_logs.log_offset,\n                                job_logs.log_file_index,\n                                -- Estimate size in bytes based on actual data characteristics\n                                (36 + -- UUID\n                                 COALESCE(LENGTH(cj.workspace_id), 0) + \n                                 COALESCE(LENGTH(j.created_by), 0) + \n                                 COALESCE(LENGTH(j.runnable_path), 0) + \n                                 COALESCE(pg_column_size(j.args), 0) +\n                                 COALESCE(pg_column_size(cj.result), 0) + \n                                 COALESCE(LENGTH(job_logs.logs), 0) + \n                                 200) AS estimated_size_bytes -- Other fields overhead\n                            FROM v2_job_completed AS cj\n                            JOIN v2_job AS j ON cj.id = j.id\n                            LEFT JOIN job_logs ON cj.id = job_logs.job_id\n                            WHERE cj.completed_at < $1\n                              AND COALESCE(pg_column_size(cj.result), 0) <= 512000\n                              AND COALESCE(pg_column_size(j.args), 0) <= 512000\n                            ORDER BY completed_at ASC\n                            LIMIT 5000\n                        ),\n                        cumulative_sizes AS (\n                            SELECT\n                                *,\n                                SUM(estimated_size_bytes) OVER (\n                                    ORDER BY completed_at ASC\n                                    ROWS UNBOUNDED PRECEDING\n                                ) AS cumulative_size_bytes,\n                                ROW_NUMBER() OVER (ORDER BY completed_at ASC) AS row_num\n                            FROM job_sizes\n                        )\n                        SELECT\n                            id AS \"id!\",\n                            workspace_id AS \"workspace_id!\",\n                            parent_job,\n                            created_by AS \"created_by!\",\n                            duration_ms AS \"duration_ms!\",\n                            success AS \"success!\",\n                            script_hash AS \"script_hash!: Option<ScriptHash>\",\n                            script_path,\n                            args AS \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\",\n                            result AS \"result: sqlx::types::Json<Box<RawValue>>\",\n                            deleted AS \"deleted!\",\n                            canceled AS \"canceled!\",\n                            canceled_by,\n                            canceled_reason,\n                            job_kind AS \"job_kind!: JobKind\",\n                            schedule_path,\n                            permissioned_as AS \"permissioned_as!\",\n                            is_flow_step AS \"is_flow_step!\",\n                            language AS \"language: ScriptLang\",\n                            is_skipped AS \"is_skipped!\",\n                            email AS \"email!\",\n                            visible_to_owner AS \"visible_to_owner!\",\n                            mem_peak,\n                            tag AS \"tag!\",\n                            completed_at AS \"created_at!\",\n                            started_at,\n                            logs,\n                            log_offset AS \"log_offset?\",\n                            log_file_index\n                        FROM cumulative_sizes\n                        WHERE cumulative_size_bytes <= $2 OR row_num = 1\n                        ORDER BY completed_at ASC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_id!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "parent_job",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_by!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "duration_ms!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "success!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "script_hash!: Option<ScriptHash>",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "script_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "args: sqlx::types::Json<HashMap<String, Box<RawValue>>>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "result: sqlx::types::Json<Box<RawValue>>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 10,
+        "name": "deleted!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 11,
+        "name": "canceled!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 12,
+        "name": "canceled_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 13,
+        "name": "canceled_reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "job_kind!: JobKind",
+        "type_info": {
+          "Custom": {
+            "name": "job_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "preview",
+                "flow",
+                "dependencies",
+                "flowpreview",
+                "script_hub",
+                "identity",
+                "flowdependencies",
+                "http",
+                "graphql",
+                "postgresql",
+                "noop",
+                "appdependencies",
+                "deploymentcallback",
+                "singlestepflow",
+                "flowscript",
+                "flownode",
+                "appscript",
+                "aiagent",
+                "unassigned_script",
+                "unassigned_flow",
+                "unassigned_singlestepflow"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "schedule_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 16,
+        "name": "permissioned_as!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 17,
+        "name": "is_flow_step!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 18,
+        "name": "language: ScriptLang",
+        "type_info": {
+          "Custom": {
+            "name": "script_lang",
+            "kind": {
+              "Enum": [
+                "python3",
+                "deno",
+                "go",
+                "bash",
+                "postgresql",
+                "nativets",
+                "bun",
+                "mysql",
+                "bigquery",
+                "snowflake",
+                "graphql",
+                "powershell",
+                "mssql",
+                "php",
+                "bunnative",
+                "rust",
+                "ansible",
+                "csharp",
+                "oracledb",
+                "nu",
+                "java",
+                "duckdb",
+                "ruby"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 19,
+        "name": "is_skipped!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 20,
+        "name": "email!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 21,
+        "name": "visible_to_owner!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 22,
+        "name": "mem_peak",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 23,
+        "name": "tag!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 24,
+        "name": "created_at!",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 25,
+        "name": "started_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 26,
+        "name": "logs",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 27,
+        "name": "log_offset?",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 28,
+        "name": "log_file_index",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      null,
+      true,
+      true,
+      true,
+      true,
+      false,
+      null,
+      true,
+      true,
+      false,
+      null,
+      false,
+      null,
+      true,
+      null,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "b23784ed2737c01aaf05efe42bcdcfc9579aa203005ead60322fb71fd33b15b0"
+}
