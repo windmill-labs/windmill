@@ -64,8 +64,18 @@ lazy_static::lazy_static! {
                     (20260126235947, include_str!(
                         "../../custom_migrations/lowercase_emails_safe.sql"
                     ).to_string()),
-                    (20260206000000, include_str!(
-                        "../../migrations/20260206000000_consolidate_live_index_migrations.up.sql"
+                    (20260206000000, "".to_string()),
+                    (20260207000001, include_str!(
+                        "../../migrations/20260207000001_concurrent_indexes_v2_job.up.sql"
+                    ).to_string()),
+                    (20260207000002, include_str!(
+                        "../../migrations/20260207000002_concurrent_indexes_v2_job_completed.up.sql"
+                    ).to_string()),
+                    (20260207000003, include_str!(
+                        "../../migrations/20260207000003_concurrent_indexes_v2_job_queue.up.sql"
+                    ).to_string()),
+                    (20260207000004, include_str!(
+                        "../../migrations/20260207000004_concurrent_indexes_other.up.sql"
                     ).to_string()),
                     ].into_iter().collect();
 }
