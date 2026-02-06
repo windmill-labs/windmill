@@ -28,11 +28,12 @@ async fn require_is_writer_on_runnable(
     w_id: &str,
     db: DB,
 ) -> Result<()> {
-    if is_flow {
-        crate::flow_ext::require_is_writer(authed, path, w_id, db).await
+    let (query, kind) = if is_flow {
+        ("SELECT extra_perms FROM flow WHERE path = $1 AND workspace_id = $2", "flow")
     } else {
-        crate::script_ext::require_is_writer(authed, path, w_id, db).await
-    }
+        ("SELECT extra_perms FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1", "script")
+    };
+    windmill_api_auth::permissions::require_is_writer(authed, path, w_id, db, query, kind).await
 }
 
 #[derive(Debug, Deserialize)]
