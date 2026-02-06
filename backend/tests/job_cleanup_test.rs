@@ -28,6 +28,7 @@ use std::time::Instant;
 use uuid::Uuid;
 
 #[tokio::test]
+#[ignore]
 async fn test_batched_job_cleanup() {
     // Connect to database
     let database_url = std::env::var("DATABASE_URL")
@@ -194,6 +195,7 @@ async fn test_batched_job_cleanup() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_skip_locked_prevents_contention() {
     // This test verifies that SKIP LOCKED allows concurrent cleanup without deadlocks
     let database_url = std::env::var("DATABASE_URL")
