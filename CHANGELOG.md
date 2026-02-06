@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.628.1](https://github.com/windmill-labs/windmill/compare/v1.628.0...v1.628.1) (2026-02-06)
+
+
+### Bug Fixes
+
+* prevent deadlock in consolidate live index migration ([f39b28a](https://github.com/windmill-labs/windmill/commit/f39b28ac416cfdc2420a58b549ee07479f316493))
+* use concurrent index ops to prevent deadlock on upgrade ([9967f83](https://github.com/windmill-labs/windmill/commit/9967f835ab0cba04bdad4f72b7df786bd1b02fa0))
+
 ## [1.628.0](https://github.com/windmill-labs/windmill/compare/v1.627.0...v1.628.0) (2026-02-06)
 
 
