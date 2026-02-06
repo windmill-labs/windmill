@@ -1969,6 +1969,11 @@ async fn login(
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
     Json(Login { email, password }): Json<Login>,
 ) -> Result<String> {
+    #[cfg(feature = "no_auth")]
+    {
+        return Ok("no_auth".to_string());
+    }
+
     let mut tx = db.begin().await?;
     let email = email.to_lowercase();
     let audit_author = AuditAuthor {

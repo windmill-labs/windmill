@@ -597,6 +597,23 @@ where
         if parts.method == http::Method::OPTIONS {
             return Ok(OptJobAuthed::default());
         };
+
+        #[cfg(feature = "no_auth")]
+        {
+            let authed = ApiAuthed {
+                email: "admin@windmill.dev".to_string(),
+                username: "admin".to_string(),
+                is_admin: true,
+                is_operator: false,
+                groups: Vec::new(),
+                folders: Vec::new(),
+                scopes: None,
+                username_override: None,
+                token_prefix: None,
+            };
+            return Ok(OptJobAuthed { authed, job_id: None });
+        }
+
         let already_authed = parts.extensions.get::<OptJobAuthed>();
 
         if let Some(authed) = already_authed {
