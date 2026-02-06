@@ -111,7 +111,7 @@ impl ScriptLang {
         use ScriptLang::*;
         Some(
             match self {
-                Bun | Bunnative => "package.json",
+                Bun | Bunnative | Nativets => "package.json",
                 Python3 => "requirements.in",
                 // Go => "go.mod",
                 Php => "composer.json",
@@ -144,7 +144,7 @@ impl ScriptLang {
         }
         match self {
             // TODO: Maybe use regex
-            Bun | Bunnative => WorkspaceDependenciesAnnotatedRefs::parse(
+            Bun | Bunnative | Nativets => WorkspaceDependenciesAnnotatedRefs::parse(
                 "//",
                 "package_json",
                 code,
@@ -984,7 +984,8 @@ pub async fn clone_script<'c>(
         s
     } else {
         return Err(crate::error::Error::NotFound(format!(
-            "Non-archived script with path '{}' not found", path
+            "Non-archived script with path '{}' not found",
+            path
         )));
     };
 
