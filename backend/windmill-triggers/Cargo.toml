@@ -1,0 +1,133 @@
+[package]
+name = "windmill-triggers"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_triggers"
+path = "src/lib.rs"
+
+[features]
+default = []
+private = ["windmill-api-auth/private", "windmill-common/private"]
+enterprise = ["windmill-api-auth/enterprise", "windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise"]
+cloud = ["windmill-api-auth/cloud", "windmill-common/cloud"]
+license = []
+no_auth = ["windmill-api-auth/no_auth"]
+kafka = ["dep:rdkafka", "dep:rdkafka-sys"]
+kafka-gssapi = ["kafka", "rdkafka/gssapi"]
+nats = ["dep:async-nats", "dep:nkeys"]
+websocket = ["dep:tokio-tungstenite"]
+smtp = ["dep:mail-parser", "dep:openssl", "windmill-common/smtp"]
+http_trigger = ["dep:matchit", "dep:thiserror", "dep:sha1", "dep:constant_time_eq"]
+postgres_trigger = ["dep:rust-postgres", "dep:pg_escape", "dep:byteorder", "dep:thiserror", "dep:rust_decimal", "dep:rust-postgres-native-tls"]
+mqtt_trigger = ["dep:thiserror", "dep:rumqttc"]
+native_trigger = ["dep:strum", "dep:backon", "oauth2"]
+sqs_trigger = ["dep:aws-sdk-sqs", "dep:aws-sdk-sts", "dep:aws-sdk-sso", "dep:aws-sdk-ssooidc", "dep:thiserror", "dep:backon", "dep:aws-config", "windmill-common/aws_auth"]
+gcp_trigger = ["dep:thiserror", "dep:google-cloud-pubsub", "dep:google-cloud-googleapis", "dep:tonic", "dep:tokio-util"]
+parquet = ["dep:datafusion", "dep:object_store", "windmill-common/parquet"]
+oauth2 = ["dep:windmill-oauth"]
+openidconnect = ["windmill-common/openidconnect"]
+benchmark = []
+stripe = []
+prometheus = ["windmill-common/prometheus", "windmill-queue/prometheus", "dep:prometheus"]
+
+[dependencies]
+windmill-api-auth.workspace = true
+windmill-common = { workspace = true, default-features = false }
+windmill-queue.workspace = true
+windmill-audit.workspace = true
+windmill-git-sync.workspace = true
+windmill-oauth = { workspace = true, optional = true }
+windmill-parser.workspace = true
+windmill-parser-ts.workspace = true
+windmill-parser-py.workspace = true
+
+# Core framework
+tokio.workspace = true
+tokio-stream.workspace = true
+axum.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+tower-cookies.workspace = true
+hyper.workspace = true
+http.workspace = true
+
+# Data handling
+serde.workspace = true
+serde_json.workspace = true
+serde_urlencoded.workspace = true
+serde_yml.workspace = true
+
+# Database
+sqlx.workspace = true
+sql-builder.workspace = true
+
+# HTTP
+reqwest.workspace = true
+
+# Utilities
+chrono.workspace = true
+uuid.workspace = true
+anyhow.workspace = true
+itertools.workspace = true
+futures.workspace = true
+rand.workspace = true
+bytes.workspace = true
+base64.workspace = true
+regex.workspace = true
+ulid.workspace = true
+async-trait.workspace = true
+quick_cache.workspace = true
+lazy_static.workspace = true
+jsonwebtoken.workspace = true
+hmac.workspace = true
+sha2.workspace = true
+url.workspace = true
+async-recursion.workspace = true
+async-stream.workspace = true
+pin-project.workspace = true
+
+# Optional dependencies
+tokio-tungstenite = { workspace = true, optional = true }
+rust-postgres = { workspace = true, optional = true }
+rust-postgres-native-tls = { workspace = true, optional = true }
+pg_escape = { workspace = true, optional = true }
+byteorder = { workspace = true, optional = true }
+native-tls.workspace = true
+tokio-native-tls.workspace = true
+tokio-postgres.workspace = true
+postgres-native-tls.workspace = true
+rumqttc = { workspace = true, optional = true }
+rdkafka = { workspace = true, optional = true }
+rdkafka-sys = { workspace = true, optional = true }
+async-nats = { workspace = true, optional = true }
+nkeys = { workspace = true, optional = true }
+aws-sdk-sqs = { workspace = true, optional = true }
+aws-sdk-sts = { workspace = true, optional = true }
+aws-sdk-sso = { workspace = true, optional = true }
+aws-sdk-ssooidc = { workspace = true, optional = true }
+aws-config = { workspace = true, optional = true }
+aws-credential-types.workspace = true
+aws-smithy-types.workspace = true
+google-cloud-pubsub = { workspace = true, optional = true }
+google-cloud-googleapis = { workspace = true, optional = true }
+tonic = { workspace = true, optional = true }
+tokio-util = { workspace = true, optional = true }
+matchit = { workspace = true, optional = true }
+sha1 = { workspace = true, optional = true }
+constant_time_eq = { workspace = true, optional = true }
+thiserror = { workspace = true, optional = true }
+rust_decimal = { workspace = true, optional = true }
+mail-parser = { workspace = true, features = ["serde_support"], optional = true }
+openssl = { workspace = true, optional = true }
+strum = { workspace = true, optional = true }
+backon = { workspace = true, optional = true }
+prometheus = { workspace = true, optional = true }
+datafusion = { workspace = true, optional = true }
+object_store = { workspace = true, optional = true }
+tracing.workspace = true
+dashmap.workspace = true
+hex.workspace = true
+urlencoding.workspace = true

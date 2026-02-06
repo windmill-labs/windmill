@@ -8,6 +8,8 @@ edition.workspace = true
 resolver = "2"
 members = [
     "./windmill-api",
+    "./windmill-api-auth",
+    "./windmill-triggers",
     "./windmill-queue",
     "./windmill-worker",
     "./windmill-common",
@@ -217,6 +219,8 @@ tempfile.workspace = true
 
 [workspace.dependencies]
 windmill-api = { path = "./windmill-api", default-features = false  }
+windmill-api-auth = { path = "./windmill-api-auth" }
+windmill-triggers = { path = "./windmill-triggers" }
 windmill-queue = { path = "./windmill-queue" }
 windmill-worker = { path = "./windmill-worker" }
 windmill-common = { path = "./windmill-common", default-features = false }

@@ -132,7 +132,13 @@ pub mod job_helpers_ee;
 #[cfg(feature = "parquet")]
 mod job_helpers_oss;
 pub mod job_metrics;
+pub mod job_ops_impl;
 pub mod jobs;
+
+// Re-export windmill-triggers extension modules so EE files that use
+// `crate::jobs_ext`, `crate::resource_ext` etc. work in both crates.
+pub use windmill_triggers::jobs_ext;
+pub use windmill_triggers::resource_ext;
 pub mod jobs_export;
 #[cfg(all(feature = "oauth2", feature = "private"))]
 pub mod oauth2_ee;
@@ -299,18 +305,29 @@ pub async fn run_server(
             .expect("could not create initial server dir");
     }
 
-    #[cfg(feature = "enterprise")]
-    let ext_jwks = ExternalJwks::load().await;
+    let jwt_ext_auth: Arc<dyn windmill_api_auth::JwtExtAuthBackend> = {
+        #[cfg(feature = "enterprise")]
+        {
+            let ext_jwks = ExternalJwks::load().await;
+            Arc::new(crate::ee_oss::ExternalJwksAuthBackend { ext_jwks })
+        }
+        #[cfg(not(feature = "enterprise"))]
+        {
+            Arc::new(windmill_api_auth::NoopJwtExtAuth)
+        }
+    };
     let auth_cache = Arc::new(crate::auth::AuthCache::new(
         db.clone(),
         std::env::var("SUPERADMIN_SECRET").ok(),
-        #[cfg(feature = "enterprise")]
-        ext_jwks,
+        jwt_ext_auth,
     ));
     let argon2 = Arc::new(Argon2::default());
 
     // Initialize debug signing key for debugger authentication
     debug::init_debug_signing_key().await;
+
+    // Initialize windmill-triggers JobOps with the real implementation
+    windmill_triggers::jobs_ext::set_ops(Arc::new(job_ops_impl::JobOpsImpl));
 
     let disable_response_logs = std::env::var("DISABLE_RESPONSE_LOGS")
         .ok()

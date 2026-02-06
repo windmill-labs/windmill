@@ -8,7 +8,6 @@
 
 #![allow(non_snake_case)]
 
-use quick_cache::sync::Cache;
 use sqlx::{PgConnection, Postgres, Transaction};
 
 use std::sync::atomic::AtomicBool;
@@ -24,7 +23,7 @@ use crate::utils::{
     generate_instance_wide_unique_username, get_instance_username_or_create_pending,
 };
 use crate::{
-    auth::ExpiringAuthCache, db::DB, utils::require_super_admin, webhook_util::WebhookShared,
+    db::DB, utils::require_super_admin, webhook_util::WebhookShared,
     COOKIE_DOMAIN, IS_SECURE,
 };
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
@@ -47,11 +46,11 @@ use tracing::Instrument;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::audit::AuditAuthor;
-use windmill_common::auth::{fetch_authed_from_permissioned_as, TOKEN_PREFIX_LEN};
+use windmill_common::auth::TOKEN_PREFIX_LEN;
 use windmill_common::global_settings::AUTOMATE_USERNAME_CREATION_SETTING;
 use windmill_common::oauth2::InstanceEvent;
 use windmill_common::users::COOKIE_NAME;
-use windmill_common::users::{truncate_token, username_to_permissioned_as};
+use windmill_common::users::truncate_token;
 use windmill_common::utils::paginate;
 use windmill_common::worker::CLOUD_HOSTED;
 use windmill_common::BASE_URL;
@@ -197,70 +196,9 @@ where
     }
 }
 
+pub use windmill_api_auth::fetch_api_authed;
 #[allow(unused)]
-pub async fn fetch_api_authed(
-    username: String,
-    email: String,
-    w_id: &str,
-    db: &DB,
-    username_override: Option<String>,
-) -> error::Result<ApiAuthed> {
-    let permissioned_as = username_to_permissioned_as(username.as_str());
-    fetch_api_authed_from_permissioned_as(permissioned_as, email, w_id, db, username_override).await
-}
-
-lazy_static::lazy_static! {
-    static ref API_AUTHED_CACHE: Cache<(String,String,String), ExpiringAuthCache> = Cache::new(300);
-}
-
-#[allow(unused)]
-pub async fn fetch_api_authed_from_permissioned_as(
-    permissioned_as: String,
-    email: String,
-    w_id: &str,
-    db: &DB,
-    username_override: Option<String>,
-) -> error::Result<ApiAuthed> {
-    let key = (w_id.to_string(), permissioned_as.clone(), email.clone());
-
-    let mut api_authed = match API_AUTHED_CACHE.get(&key) {
-        Some(expiring_authed) if expiring_authed.expiry > chrono::Utc::now() => {
-            tracing::debug!("API authed cache hit for user {}", email);
-            expiring_authed.authed
-        }
-        _ => {
-            tracing::debug!("API authed cache miss for user {}", email);
-            let authed =
-                fetch_authed_from_permissioned_as(permissioned_as, email.clone(), w_id, db).await?;
-
-            let api_authed = ApiAuthed {
-                username: authed.username,
-                email,
-                is_admin: authed.is_admin,
-                is_operator: authed.is_operator,
-                groups: authed.groups,
-                folders: authed.folders,
-                scopes: authed.scopes,
-                username_override: None,
-                token_prefix: authed.token_prefix,
-            };
-
-            API_AUTHED_CACHE.insert(
-                key,
-                ExpiringAuthCache {
-                    authed: api_authed.clone(),
-                    expiry: chrono::Utc::now() + chrono::Duration::try_seconds(120).unwrap(),
-                    job_id: None,
-                },
-            );
-
-            api_authed
-        }
-    };
-
-    api_authed.username_override = username_override;
-    Ok(api_authed)
-}
+pub use windmill_api_auth::fetch_api_authed_from_permissioned_as;
 
 #[derive(FromRow, Serialize)]
 pub struct User {

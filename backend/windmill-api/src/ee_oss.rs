@@ -44,6 +44,30 @@ impl ExternalJwks {
     }
 }
 
+#[cfg(all(feature = "enterprise", not(feature = "private")))]
+pub struct ExternalJwksAuthBackend {
+    pub ext_jwks: Option<Arc<RwLock<ExternalJwks>>>,
+}
+
+#[cfg(all(feature = "enterprise", not(feature = "private")))]
+#[axum::async_trait]
+impl windmill_api_auth::JwtExtAuthBackend for ExternalJwksAuthBackend {
+    async fn jwt_ext_auth(
+        &self,
+        w_id: Option<&String>,
+        token: &str,
+        db: &windmill_common::DB,
+    ) -> Option<(crate::db::ApiAuthed, usize, Option<uuid::Uuid>)> {
+        match jwt_ext_auth(w_id, token, self.ext_jwks.clone(), db).await {
+            Ok(r) => Some(r),
+            Err(e) => {
+                tracing::error!("JWT_EXT auth error: {:?}", e);
+                None
+            }
+        }
+    }
+}
+
 #[cfg(all(
     feature = "enterprise",
     any(feature = "nats", feature = "kafka", feature = "sqs_trigger"),
