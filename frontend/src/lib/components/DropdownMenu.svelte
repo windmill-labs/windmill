@@ -2,6 +2,7 @@
 	type Item = {
 		label: string
 		icon?: any
+		right?: string
 		onClick: () => void
 	}
 	type Props = {
@@ -11,7 +12,7 @@
 	let { items, closeCallback }: Props = $props()
 </script>
 
-<ul class="bg-surface-tertiary rounded-md border w-48 relative drop-shadow-base">
+<ul class="bg-surface-tertiary rounded-md border w-56 relative drop-shadow-base">
 	{#each items as item}
 		<li class="w-full">
 			<button
@@ -24,7 +25,12 @@
 				{#if item.icon}
 					<item.icon size="16"></item.icon>
 				{/if}
-				{item.label}
+				<span class="flex-1">
+					{item.label}
+				</span>
+				{#if item.right}
+					<span class="text-xs text-hint">{item.right}</span>
+				{/if}
 			</button>
 		</li>
 	{/each}

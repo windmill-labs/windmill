@@ -12,6 +12,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import RightClickPopover from '../RightClickPopover.svelte'
 	import DropdownMenu from '../DropdownMenu.svelte'
+	import { isJobCancelable, isJobReRunnable } from '$lib/utils'
 
 	interface Props {
 		//import InfiniteLoading from 'svelte-infinite-loading'
@@ -207,7 +208,27 @@
 		return nstickyIndices
 	})
 
-	const showTag = $derived(containerWidth > 700)
+	let showTag = $derived(containerWidth > 700)
+	let selectedIdsPossibleActions = $derived.by(() => {
+		const cancellableJobs: Job[] = []
+		const uncancelableJobs: Job[] = []
+		const rerunnableJobs: Job[] = []
+		const unrerunnableJobs: Job[] = []
+		for (const jobId of selectedIds) {
+			const job = flatJobs?.find(
+				(jobOrDate) => jobOrDate.type === 'job' && jobOrDate.job.id === jobId
+			)
+			if (job?.type === 'job') {
+				if (isJobCancelable(job.job)) cancellableJobs.push(job.job)
+				else uncancelableJobs.push(job.job)
+				if (isJobReRunnable(job.job)) rerunnableJobs.push(job.job)
+				else unrerunnableJobs.push(job.job)
+			}
+		}
+		return { cancellableJobs, uncancelableJobs, rerunnableJobs, unrerunnableJobs }
+	})
+	let rerunnable = $derived(selectedIdsPossibleActions.rerunnableJobs.length)
+	let cancellable = $derived(selectedIdsPossibleActions.cancellableJobs.length)
 </script>
 
 <div
@@ -397,16 +418,26 @@
 	<DropdownMenu
 		closeCallback={() => rightClickPopover?.close()}
 		items={[
-			{
-				label: 'Cancel',
-				icon: CircleXIcon,
-				onClick: () => {}
-			},
-			{
-				label: 'Run again',
-				icon: RefreshCwIcon,
-				onClick: () => {}
-			}
+			...(cancellable
+				? [
+						{
+							label: 'Cancel',
+							icon: CircleXIcon,
+							right: cancellable >= 2 ? `${cancellable}` : undefined,
+							onClick: () => {}
+						}
+					]
+				: []),
+			...(rerunnable
+				? [
+						{
+							label: 'Run again',
+							icon: RefreshCwIcon,
+							right: rerunnable >= 2 ? `${rerunnable}` : undefined,
+							onClick: () => {}
+						}
+					]
+				: [])
 		]}
 	/>
 </RightClickPopover>
