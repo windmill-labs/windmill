@@ -1,13 +1,10 @@
-use crate::{
-    native_triggers::{
-        delete_native_trigger, delete_token_by_prefix, get_native_trigger, get_token_by_prefix,
-        get_workspace_integration, list_native_triggers, store_native_trigger,
-        update_native_trigger_error, External, NativeTrigger, NativeTriggerConfig,
-        NativeTriggerData, ServiceName,
-    },
-    user_ext::{create_token_internal, NewToken},
+use crate::native_triggers::{
+    delete_native_trigger, delete_token_by_prefix, get_native_trigger, get_token_by_prefix,
+    get_workspace_integration, list_native_triggers, store_native_trigger,
+    update_native_trigger_error, External, NativeTrigger, NativeTriggerConfig,
+    NativeTriggerData, ServiceName,
 };
-use windmill_api_auth::{scopes::check_scopes, ApiAuthed};
+use windmill_api_auth::{scopes::check_scopes, tokens::{create_token_internal, NewToken}, ApiAuthed};
 use axum::{
     extract::{Path, Query},
     routing::{delete, get, post},

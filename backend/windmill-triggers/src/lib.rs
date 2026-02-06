@@ -16,4 +16,3 @@ pub mod flow_ext;
 pub mod jobs_ext;
 pub mod resource_ext;
 pub mod script_ext;
-pub mod user_ext;
