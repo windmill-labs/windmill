@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.628.0](https://github.com/windmill-labs/windmill/compare/v1.627.0...v1.628.0) (2026-02-06)
+
+
+### Features
+
+* kafka trigger kerberos/gssapi support ([#7815](https://github.com/windmill-labs/windmill/issues/7815)) ([795e2be](https://github.com/windmill-labs/windmill/commit/795e2bebe65db9c6f721e7cd24af1446aeb896ab))
+
+
+### Bug Fixes
+
+* make notify_event trigger functions SECURITY DEFINER ([#7826](https://github.com/windmill-labs/windmill/issues/7826)) ([33fb08c](https://github.com/windmill-labs/windmill/commit/33fb08cf3d08c4a6b86f32b3ae8bf2df8c1adcaa))
+* prevent schedule pool connection exhaustion ([#7821](https://github.com/windmill-labs/windmill/issues/7821)) ([e655a06](https://github.com/windmill-labs/windmill/commit/e655a065637b288080118661650bc14641dd0c6f))
+
 ## [1.627.0](https://github.com/windmill-labs/windmill/compare/v1.626.0...v1.627.0) (2026-02-05)
 
 
