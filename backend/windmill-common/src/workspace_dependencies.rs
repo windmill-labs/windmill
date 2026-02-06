@@ -168,7 +168,7 @@ impl WorkspaceDependencies {
 
     async fn get_latest_id<'c>(
         name: Option<String>,
-        mut language: ScriptLang,
+        language: ScriptLang,
         workspace_id: &str,
         e: impl PgExecutor<'c>,
     ) -> error::Result<Option<i64>> {
@@ -180,7 +180,7 @@ impl WorkspaceDependencies {
         );
 
         // Bunnative and Nativets workspace dependencies go under Bun language
-        language = match language {
+        let language = match language {
             ScriptLang::Nativets | ScriptLang::Bunnative => ScriptLang::Bun,
             l => l,
         };
