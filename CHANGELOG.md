@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.628.3](https://github.com/windmill-labs/windmill/compare/v1.628.2...v1.628.3) (2026-02-06)
+
+
+### Bug Fixes
+
+* **bun:** `//native` not using workspace dependencies  ([#7833](https://github.com/windmill-labs/windmill/issues/7833)) ([df0ae90](https://github.com/windmill-labs/windmill/commit/df0ae90a2c97de6f895142da1e189a9a7279f3fb))
+* mark job cleanup integration tests as ignored in CI ([4a1e61f](https://github.com/windmill-labs/windmill/commit/4a1e61f2f9a82b9279af8d0aded5683322f5f262))
+
 ## [1.628.2](https://github.com/windmill-labs/windmill/compare/v1.628.1...v1.628.2) (2026-02-06)
 
 
