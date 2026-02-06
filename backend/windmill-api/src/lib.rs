@@ -171,7 +171,7 @@ pub mod teams_approvals_ee;
 mod teams_approvals_oss;
 
 #[cfg(feature = "native_trigger")]
-pub mod native_triggers;
+pub use windmill_triggers::native_triggers;
 mod public_app_layer;
 mod public_app_rate_limit;
 mod static_assets;
@@ -187,7 +187,7 @@ pub mod teams_ee;
 mod teams_oss;
 mod token;
 mod tracing_init;
-pub mod triggers;
+pub use windmill_triggers::triggers;
 mod users;
 #[cfg(feature = "private")]
 pub mod users_ee;
