@@ -8,7 +8,7 @@
 	import Popover from '../Popover.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import './runs-grid.css'
-	import { useKeyboardModifiers } from '$lib/svelte5Utils.svelte'
+	import { useKeyPressed } from '$lib/svelte5Utils.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import RightClickPopover from '../RightClickPopover.svelte'
 
@@ -24,7 +24,6 @@
 		// const loadMoreQuantity: number = 100
 		lastFetchWentToEnd?: boolean
 		perPage?: number
-		allSelected?: boolean
 	}
 
 	let {
@@ -36,11 +35,22 @@
 		selectedWorkspace = $bindable(undefined),
 		activeLabel = null,
 		lastFetchWentToEnd = false,
-		perPage = 1000,
-		allSelected = $bindable()
+		perPage = 1000
 	}: Props = $props()
 
-	const keyboardModifiers = useKeyboardModifiers()
+	const keysPressed = useKeyPressed(['Shift', 'Control', 'Meta', 'A'], {
+		onKeyDown(key, e) {
+			if (key === 'A' && (keysPressed.Control || keysPressed.Meta)) {
+				e.preventDefault()
+				e.stopPropagation()
+				selectedIds = flatJobs
+					? flatJobs
+							.filter((jobOrDate) => jobOrDate.type === 'job')
+							.map((jobOrDate) => jobOrDate.job.id)
+					: []
+			}
+		}
+	})
 	let rightClickPopover: RightClickPopover | undefined = $state(undefined)
 
 	function getTime(job: Job): string | undefined {
@@ -290,14 +300,14 @@
 											selected={jobOrDate.job.id !== '-' && selectedIds.includes(jobOrDate.job.id)}
 											on:select={() => {
 												const jobId = jobOrDate.job.id
-												if (keyboardModifiers.control || keyboardModifiers.meta) {
+												if (keysPressed.Control || keysPressed.Meta) {
 													if (selectedIds.includes(jobOrDate.job.id)) {
 														selectedIds = selectedIds.filter((id) => id != jobId)
 													} else {
 														selectedIds.push(jobId)
 														selectedIds = selectedIds
 													}
-												} else if (keyboardModifiers.shift && selectedIds.length > 0) {
+												} else if (keysPressed.Shift && selectedIds.length > 0) {
 													const lastSelectedId = selectedIds[selectedIds.length - 1]
 													const lastSelectedIndex = flatJobs?.findIndex(
 														(jobOrDate) =>

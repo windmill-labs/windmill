@@ -416,31 +416,33 @@ export function useInfiniteQuery<TData, TPageParam = number>(
 	}
 }
 
-export function useKeyboardModifiers(): {
-	shift: boolean
-	control: boolean
-	meta: boolean
-	command: boolean
-} {
+export function useKeyPressed<Key extends string>(
+	keys: Key[],
+	params?: {
+		onKeyUp?: (key: Key, e: KeyboardEvent) => void
+		onKeyDown?: (key: Key, e: KeyboardEvent) => void
+	}
+): Record<Key, boolean> {
 	if (typeof window === 'undefined')
-		return { shift: false, control: false, meta: false, command: false }
-	let _shift = $state(false)
-	let control = $state(false)
-	let meta = $state(false)
-	let command = $state(false)
+		return Object.fromEntries(keys.map((key) => [key, false])) as Record<Key, boolean>
+	let obj = $state(Object.fromEntries(keys.map((key) => [key, false])) as Record<Key, boolean>)
 	$effect(() => {
 		const handleKeyDown = (event: KeyboardEvent) => {
-			if (event.key === 'Shift') _shift = true
-			else if (event.key === 'Control') control = true
-			else if (event.key === 'Meta') meta = true
-			else if (event.key === 'Command') command = true
+			for (const key of keys) {
+				if (event.key.toLowerCase() === key.toLowerCase()) {
+					obj[key] = true
+					params?.onKeyDown?.(key, event)
+				}
+			}
 		}
 
 		const handleKeyUp = (event: KeyboardEvent) => {
-			if (event.key === 'Shift') _shift = false
-			else if (event.key === 'Control') control = false
-			else if (event.key === 'Meta') meta = false
-			else if (event.key === 'Command') command = false
+			for (const key of keys) {
+				if (event.key.toLowerCase() === key.toLowerCase()) {
+					obj[key] = false
+					params?.onKeyUp?.(key, event)
+				}
+			}
 		}
 		window.addEventListener('keydown', handleKeyDown)
 		window.addEventListener('keyup', handleKeyUp)
@@ -449,18 +451,5 @@ export function useKeyboardModifiers(): {
 			window.removeEventListener('keyup', handleKeyUp)
 		}
 	})
-	return {
-		get shift() {
-			return _shift
-		},
-		get control() {
-			return control
-		},
-		get meta() {
-			return meta
-		},
-		get command() {
-			return command
-		}
-	}
+	return obj
 }

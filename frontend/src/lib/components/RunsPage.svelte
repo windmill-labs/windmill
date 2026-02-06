@@ -34,7 +34,6 @@
 	import { untrack } from 'svelte'
 	import { page } from '$app/state'
 	import RunOption from '$lib/components/runs/RunOption.svelte'
-	import { createBubbler } from 'svelte/legacy'
 	import Select from '$lib/components/select/Select.svelte'
 	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
 	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
@@ -78,7 +77,6 @@
 	let argError = $state('')
 	let resultError = $state('')
 	let filterTimeout: ReturnType<typeof setInterval> | undefined = undefined
-	let selectedManualDate = $state(0)
 	let autoRefresh: boolean = $state(getAutoRefresh())
 	let runDrawer: Drawer | undefined = $state(undefined)
 	let lookback: number = $state(1)
@@ -159,7 +157,6 @@
 	function reset() {
 		filters.min_ts = null
 		filters.max_ts = null
-		selectedManualDate = 0
 		selectedIds = []
 		filters.schedule_path = null
 		batchReRunOptions = { flow: {}, script: {} }
