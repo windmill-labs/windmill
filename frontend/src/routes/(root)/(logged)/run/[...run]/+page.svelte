@@ -397,11 +397,25 @@
 		job && untrack(() => onJobLoaded())
 	})
 	$effect(() => {
+		// Scroll to hash when job loads and hash is present
+		if (job && currentHash) {
+			setTimeout(() => scrollToSection(currentHash), 100)
+		}
+	})
+	$effect(() => {
 		// Initialize hash on mount and listen for hash changes
 		currentHash = window.location.hash.slice(1)
 		if (currentHash) {
-			// Small delay to ensure DOM is rendered
-			setTimeout(() => scrollToSection(currentHash), 100)
+			// Wait for job data and DOM to be fully rendered
+			const scrollToHash = () => {
+				if (document.getElementById(currentHash)) {
+					scrollToSection(currentHash)
+				} else {
+					// Retry if element not found yet (job data might still be loading)
+					setTimeout(scrollToHash, 200)
+				}
+			}
+			setTimeout(scrollToHash, 100)
 		}
 
 		window.addEventListener('hashchange', handleHashChange)
