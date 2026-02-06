@@ -190,11 +190,25 @@ impl Migrate for CustomMigrator {
 
             if let Some(migration_sql) = OVERRIDDEN_MIGRATIONS.get(&migration.version) {
                 tracing::info!("Using custom migration for version {}", migration.version);
-                // tracing::info!("Migration SQL: {}", migration_sql);
 
-                self.inner
-                    .execute(&**migration_sql)
-                    .await?;
+                if migration_sql.contains("CONCURRENTLY") {
+                    // CONCURRENTLY operations cannot run inside a transaction block
+                    // or a multi-statement query (PostgreSQL requires top-level execution).
+                    // Split into individual statements and execute each separately.
+                    for stmt in migration_sql.split(';') {
+                        let stmt = stmt.trim();
+                        if !stmt.is_empty()
+                            && stmt.lines().any(|l| {
+                                let t = l.trim();
+                                !t.is_empty() && !t.starts_with("--")
+                            })
+                        {
+                            self.inner.execute(stmt).await?;
+                        }
+                    }
+                } else if !migration_sql.is_empty() {
+                    self.inner.execute(&**migration_sql).await?;
+                }
                 let _ = sqlx::query(
                     r#"
                 INSERT INTO _sqlx_migrations ( version, description, success, checksum, execution_time )
