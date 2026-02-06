@@ -13,6 +13,7 @@
 	import KanidmSetting from '$lib/components/KanidmSetting.svelte'
 	import ZitadelSetting from '$lib/components/ZitadelSetting.svelte'
 	import NextcloudSetting from '$lib/components/NextcloudSetting.svelte'
+	import GoogleSetting from '$lib/components/GoogleSetting.svelte'
 	import CustomOauth from './CustomOauth.svelte'
 	import { capitalize, type Item } from '$lib/utils'
 	import Toggle from './Toggle.svelte'
@@ -263,8 +264,9 @@
 				<KanidmSetting bind:value={oauths['kanidm']} />
 				<ZitadelSetting bind:value={oauths['zitadel']} />
 				<NextcloudSetting bind:value={oauths['nextcloud']} {baseUrl} />
+				<GoogleSetting bind:value={oauths['google_native']} {baseUrl} />
 				{#each Object.keys(oauths) as k}
-					{#if !['authelia', 'authentik', 'google', 'microsoft', 'github', 'gitlab', 'jumpcloud', 'okta', 'auth0', 'keycloak', 'slack', 'kanidm', 'zitadel', 'nextcloud', 'pocketid'].includes(k) && oauths[k] && 'login_config' in oauths[k]}
+					{#if !['authelia', 'authentik', 'google', 'microsoft', 'github', 'gitlab', 'jumpcloud', 'okta', 'auth0', 'keycloak', 'slack', 'kanidm', 'zitadel', 'nextcloud', 'pocketid', 'google_native'].includes(k) && oauths[k] && 'login_config' in oauths[k]}
 						{#if oauths[k]}
 							<div class="flex flex-col gap-2 pb-4">
 								<div class="flex flex-row items-center gap-2">

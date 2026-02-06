@@ -6,6 +6,7 @@
 	import Description from '$lib/components/Description.svelte'
 	import { Check, X, ExternalLink, Cog, Plug } from 'lucide-svelte'
 	import { NextcloudIcon } from '$lib/components/icons'
+	import GoogleIcon from '$lib/components/icons/GoogleIcon.svelte'
 	import { WorkspaceIntegrationService, type NativeServiceName } from '$lib/gen'
 	import OAuthClientConfig from './OAuthClientConfig.svelte'
 	import { page } from '$app/stores'
@@ -27,6 +28,10 @@
 		description: string
 		icon: any
 		docsUrl?: string
+		requiresBaseUrl?: boolean
+		clientIdPlaceholder?: string
+		clientSecretPlaceholder?: string
+		setupInstructions?: string[]
 	}
 
 	const supportedServices: Record<string, ServiceConfig> = {
@@ -35,7 +40,28 @@
 			displayName: 'Nextcloud',
 			description: 'Connect to Nextcloud for file operations and webhook triggers',
 			icon: NextcloudIcon,
-			docsUrl: 'https://www.windmill.dev/docs/integrations/nextcloud'
+			docsUrl: 'https://www.windmill.dev/docs/integrations/nextcloud',
+			setupInstructions: [
+				'Create an OAuth2 application in your Nextcloud instance (Administration settings → Security → OAuth 2.0 clients)',
+				'Configure the redirect URI shown below',
+				'Enter the client credentials below'
+			]
+		},
+		google: {
+			name: 'google',
+			displayName: 'Google',
+			description: 'Connect to Google for Drive and Calendar triggers',
+			icon: GoogleIcon,
+			requiresBaseUrl: false,
+			clientIdPlaceholder: 'xxxx.apps.googleusercontent.com',
+			clientSecretPlaceholder: 'Google Cloud Console client secret',
+			setupInstructions: [
+				'Go to <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" class="underline">Google Cloud Console - Credentials</a>',
+				'Create an OAuth 2.0 Client ID (Web application type)',
+				'Add the redirect URI shown below to "Authorized redirect URIs"',
+				'Enable the <a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noopener" class="underline">Google Drive API</a> and <a href="https://console.cloud.google.com/apis/library/calendar-json.googleapis.com" target="_blank" rel="noopener" class="underline">Google Calendar API</a> in your project',
+				'Enter the client credentials below'
+			]
 		}
 	}
 
@@ -128,11 +154,13 @@
 	}
 
 	function isConfigured(integration: WorkspaceIntegration): boolean {
+		if (integration.oauth_data === null) return false
+		const serviceConfig = supportedServices[integration.service_name]
+		const needsBaseUrl = serviceConfig?.requiresBaseUrl !== false
 		return (
-			integration.oauth_data !== null &&
 			!!integration.oauth_data.client_id &&
 			!!integration.oauth_data.client_secret &&
-			!!integration.oauth_data.base_url
+			(!needsBaseUrl || !!integration.oauth_data.base_url)
 		)
 	}
 
@@ -150,16 +178,14 @@
 		code: string,
 		state: string
 	) {
-		console.log({ workspace, serviceName, code, state })
 		processingCallback = true
 		try {
 			if (serviceName) {
+				const redirectUri = getRedirectUri(serviceName)
 				await WorkspaceIntegrationService.nativeTriggerServiceCallback({
 					serviceName,
 					workspace,
-					code,
-					state,
-					requestBody: { redirect_uri: $page.url.toString() }
+					requestBody: { code, state, redirect_uri: redirectUri }
 				})
 				sendUserToast(`${supportedServices[serviceName]?.displayName} connected successfully!`)
 				await loadIntegrations()
@@ -194,7 +220,9 @@
 		}
 	})
 
-	let redirectUri = $state('')
+	function getRedirectUri(serviceName: string): string {
+		return `${window.location.origin}/workspace_settings?tab=native_triggers&service=${serviceName}&workspace=${$workspaceStore}`
+	}
 
 	$effect(() => {
 		if ($workspaceStore) {
@@ -217,21 +245,7 @@
 	</div>
 
 	<Alert type="warning" title="Beta Feature">
-		<p>Native Triggers is currently in beta. Nextcloud integration requires:</p>
-		<ul class="list-disc pl-4 mt-2 space-y-1">
-			<li>
-				<a
-					href="https://docs.nextcloud.com/server/latest/admin_manual/installation/source_installation.html#pretty-urls"
-					target="_blank"
-					rel="noopener noreferrer"
-					class="underline hover:text-blue-600"
-				>
-					Pretty URLs
-				</a>
-				to be enabled on your Nextcloud instance.
-			</li>
-			<li>The Windmill integration app to be installed on your Nextcloud instance (not yet released).</li>
-		</ul>
+		<p>Native Triggers is currently in beta.</p>
 	</Alert>
 
 	{#if processingCallback}
@@ -272,7 +286,7 @@
 									<span class="font-semibold">Connected</span>
 								</div>
 								<Button
-									onclick={() => connectService(serviceName, redirectUri)}
+									onclick={() => connectService(serviceName, getRedirectUri(serviceName))}
 									disabled={isConnecting}
 									startIcon={{ icon: Plug }}
 								>
@@ -288,7 +302,7 @@
 							{:else if isOAuthConfigured}
 								<Button
 									variant="accent"
-									onclick={() => connectService(serviceName, redirectUri)}
+									onclick={() => connectService(serviceName, getRedirectUri(serviceName))}
 									disabled={isConnecting}
 									startIcon={{ icon: Plug }}
 								>
@@ -324,9 +338,13 @@
 						<div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
 							<OAuthClientConfig
 								{serviceName}
-								bind:redirectUri
+								redirectUri={getRedirectUri(serviceName)}
 								serviceDisplayName={config.displayName}
 								existingConfig={integration?.oauth_data}
+								requiresBaseUrl={config.requiresBaseUrl !== false}
+								clientIdPlaceholder={config.clientIdPlaceholder}
+								clientSecretPlaceholder={config.clientSecretPlaceholder}
+								setupInstructions={config.setupInstructions}
 								onConfigSaved={async (oauthData) => {
 									await createOrUpdateIntegration(serviceName, oauthData)
 									showingConfig = null

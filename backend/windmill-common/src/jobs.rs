@@ -56,6 +56,7 @@ pub enum JobTriggerKind {
     Schedule,
     Gcp,
     Nextcloud,
+    Google,
 }
 
 impl std::fmt::Display for JobTriggerKind {
@@ -73,6 +74,7 @@ impl std::fmt::Display for JobTriggerKind {
             JobTriggerKind::Schedule => "schedule",
             JobTriggerKind::Gcp => "gcp",
             JobTriggerKind::Nextcloud => "nextcloud",
+            JobTriggerKind::Google => "google",
         };
         write!(f, "{}", kind)
     }

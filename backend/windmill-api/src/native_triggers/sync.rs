@@ -6,7 +6,7 @@ use serde::Serialize;
 
 use crate::native_triggers::{
     decrypt_oauth_data, list_native_triggers, update_native_trigger_error,
-    update_native_trigger_service_config, External, ServiceName,
+    update_native_trigger_service_config, External, NativeTrigger, ServiceName,
 };
 
 #[derive(Debug, Serialize)]
@@ -56,19 +56,20 @@ pub async fn sync_all_triggers(db: &DB) -> Result<BackgroundSyncResult> {
     // Each service only syncs workspaces that have the corresponding integration configured
     #[cfg(feature = "native_trigger")]
     {
+        use crate::native_triggers::google::Google;
         use crate::native_triggers::nextcloud::NextCloud;
 
+        // Nextcloud sync
         let (service_name, result) = sync_service_triggers(db, NextCloud).await;
         total_synced += result.synced_triggers.len();
         total_errors += result.errors.len();
         service_results.insert(service_name, result);
 
-        // Add new services here:
-        // use crate::native_triggers::newservice::NewService;
-        // let (service_name, result) = sync_service_triggers(db, NewService).await;
-        // total_synced += result.synced_triggers.len();
-        // total_errors += result.errors.len();
-        // service_results.insert(service_name, result);
+        // Google sync (handles both Drive and Calendar triggers)
+        let (service_name, result) = sync_service_triggers(db, Google).await;
+        total_synced += result.synced_triggers.len();
+        total_errors += result.errors.len();
+        service_results.insert(service_name, result);
     }
 
     // Count unique workspaces processed across all services
@@ -100,6 +101,9 @@ async fn sync_service_triggers<T: External>(
     let mut all_synced_triggers = Vec::new();
     let mut all_errors = Vec::new();
 
+    // Use the integration service for lookup (e.g., GoogleDrive/GoogleCalendar -> Google)
+    let integration_service = T::SERVICE_NAME.integration_service();
+
     // Only sync workspaces that have the corresponding integration configured
     let workspaces_with_integration = match sqlx::query_scalar!(
         r#"
@@ -110,7 +114,7 @@ async fn sync_service_triggers<T: External>(
           AND wi.oauth_data IS NOT NULL
           AND w.deleted = false
         "#,
-        T::SERVICE_NAME as ServiceName
+        integration_service as ServiceName
     )
     .fetch_all(db)
     .await
@@ -208,8 +212,11 @@ pub async fn sync_workspace_triggers<T: External>(
     let mut all_synced_triggers = Vec::new();
     let mut all_sync_errors = Vec::new();
 
+    // Use the integration service for OAuth lookup (e.g., GoogleDrive/GoogleCalendar -> Google)
+    let integration_service = T::SERVICE_NAME.integration_service();
+
     let oauth_data = {
-        match decrypt_oauth_data(db, db, workspace_id, T::SERVICE_NAME).await {
+        match decrypt_oauth_data(db, db, workspace_id, integration_service).await {
             Ok(oauth_data) => oauth_data,
             Err(e) => {
                 tracing::error!(
@@ -226,6 +233,18 @@ pub async fn sync_workspace_triggers<T: External>(
             }
         }
     };
+
+    // Renew expiring Google channels before the generic sync
+    if T::SERVICE_NAME == ServiceName::Google {
+        renew_expiring_google_channels(
+            db,
+            workspace_id,
+            &windmill_triggers,
+            &mut all_synced_triggers,
+            &mut all_sync_errors,
+        )
+        .await;
+    }
 
     let mut tx = db.begin().await?;
     let external_triggers = match handler
@@ -413,4 +432,131 @@ pub async fn sync_workspace_triggers<T: External>(
     );
 
     Ok((all_synced_triggers, all_sync_errors))
+}
+
+/// Renewal window: renew Drive channels with <1 hour remaining, Calendar with <1 day remaining.
+fn should_renew_google_channel(service_config: &serde_json::Value) -> bool {
+    let expiration_ms = service_config
+        .get("expiration")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(0);
+
+    if expiration_ms == 0 {
+        return false;
+    }
+
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let remaining_ms = expiration_ms - now_ms;
+
+    let trigger_type = service_config
+        .get("triggerType")
+        .and_then(|t| t.as_str())
+        .unwrap_or("drive");
+
+    let renewal_window_ms: i64 = match trigger_type {
+        "calendar" => 24 * 60 * 60 * 1000, // 1 day for Calendar (7 day expiry)
+        _ => 60 * 60 * 1000,               // 1 hour for Drive (24h expiry)
+    };
+
+    remaining_ms < renewal_window_ms
+}
+
+async fn renew_expiring_google_channels(
+    db: &DB,
+    workspace_id: &str,
+    triggers: &[NativeTrigger],
+    synced: &mut Vec<TriggerSyncInfo>,
+    errors: &mut Vec<SyncError>,
+) {
+    use crate::native_triggers::google::Google;
+
+    let handler = Google;
+
+    for trigger in triggers {
+        let config = match &trigger.service_config {
+            Some(c) => c,
+            None => continue,
+        };
+
+        if !should_renew_google_channel(config) {
+            continue;
+        }
+
+        tracing::info!(
+            "Renewing expiring Google channel {} for script_path '{}' in workspace '{}'",
+            trigger.external_id,
+            trigger.script_path,
+            workspace_id
+        );
+
+        match handler.renew_channel(workspace_id, trigger, db).await {
+            Ok(new_config) => {
+                match update_native_trigger_service_config(
+                    db,
+                    workspace_id,
+                    ServiceName::Google,
+                    &trigger.external_id,
+                    &new_config,
+                )
+                .await
+                {
+                    Ok(()) => {
+                        tracing::info!(
+                            "Renewed Google channel {} for '{}'",
+                            trigger.external_id,
+                            trigger.script_path
+                        );
+                        synced.push(TriggerSyncInfo {
+                            external_id: trigger.external_id.clone(),
+                            script_path: trigger.script_path.clone(),
+                            action: SyncAction::ConfigUpdated,
+                        });
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to update DB after renewing Google channel {}: {}",
+                            trigger.external_id,
+                            e
+                        );
+                        errors.push(SyncError {
+                            resource_path: format!("workspace:{}", workspace_id),
+                            error_message: format!(
+                                "Failed to update DB after channel renewal for {}: {}",
+                                trigger.external_id, e
+                            ),
+                            error_type: "channel_renewal_error".to_string(),
+                        });
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Failed to renew Google channel {} for '{}': {}",
+                    trigger.external_id,
+                    trigger.script_path,
+                    e
+                );
+
+                // Set error on the trigger so the user sees it
+                let _ = update_native_trigger_error(
+                    db,
+                    workspace_id,
+                    ServiceName::Google,
+                    &trigger.external_id,
+                    Some(&format!("Channel renewal failed: {}", e)),
+                )
+                .await;
+
+                errors.push(SyncError {
+                    resource_path: format!("workspace:{}", workspace_id),
+                    error_message: format!(
+                        "Channel renewal failed for {}: {}",
+                        trigger.external_id, e
+                    ),
+                    error_type: "channel_renewal_error".to_string(),
+                });
+            }
+        }
+    }
 }

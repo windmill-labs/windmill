@@ -12151,7 +12151,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/native_triggers/integrations/{service_name}/callback/{code}/{state}:
+  /w/{workspace}/native_triggers/integrations/{service_name}/callback:
     post:
       summary: native trigger service oauth callback
       operationId: nativeTriggerServiceCallback
@@ -12164,23 +12164,24 @@ paths:
           required: true
           schema:
             $ref: "#/components/schemas/NativeServiceName"
-        - name: code
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: state
-          in: path
-          required: true
-          schema:
-            type: string
       requestBody:
-        description: redirect_uri
+        description: OAuth callback data
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/RedirectUri"
+              type: object
+              properties:
+                code:
+                  type: string
+                state:
+                  type: string
+                redirect_uri:
+                  type: string
+              required:
+                - code
+                - state
+                - redirect_uri
       responses:
         "200":
           description: native trigger service oauth completed
@@ -19647,6 +19648,7 @@ components:
         - mqtt
         - sqs
         - gcp
+        - google
 
     TriggerMode:
       description: job trigger mode
@@ -20097,6 +20099,8 @@ components:
         sqs_count:
           type: number
         nextcloud_count:
+          type: number
+        google_count:
           type: number
 
     WebsocketTrigger:
@@ -23011,6 +23015,7 @@ components:
       type: string
       enum:
         - nextcloud
+        - google
 
     NativeTrigger:
       type: object

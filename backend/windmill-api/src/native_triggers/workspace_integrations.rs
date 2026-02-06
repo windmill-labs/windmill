@@ -23,7 +23,9 @@ use windmill_common::{
 #[cfg(feature = "native_trigger")]
 use crate::{
     db::ApiAuthed,
-    native_triggers::{delete_workspace_integration, store_workspace_integration, ServiceName},
+    native_triggers::{
+        delete_workspace_integration, resolve_endpoint, store_workspace_integration, ServiceName,
+    },
 };
 
 #[cfg(feature = "native_trigger")]
@@ -60,8 +62,8 @@ async fn generate_signed_state(
 
     // Get workspace key for signing
     let key = get_workspace_key(workspace_id, db).await?;
-    let mut mac =
-        HmacSha256::new_from_slice(key.as_bytes()).map_err(|e| Error::InternalErr(e.to_string()))?;
+    let mut mac = HmacSha256::new_from_slice(key.as_bytes())
+        .map_err(|e| Error::InternalErr(e.to_string()))?;
     mac.update(payload.as_bytes());
     let signature = mac.finalize().into_bytes();
 
@@ -121,8 +123,8 @@ async fn validate_signed_state(db: &DB, state: &str, workspace_id: &str) -> Resu
 
     // Verify signature
     let key = get_workspace_key(workspace_id, db).await?;
-    let mut mac =
-        HmacSha256::new_from_slice(key.as_bytes()).map_err(|e| Error::InternalErr(e.to_string()))?;
+    let mut mac = HmacSha256::new_from_slice(key.as_bytes())
+        .map_err(|e| Error::InternalErr(e.to_string()))?;
     mac.update(payload.as_bytes());
 
     let received_signature = match URL_SAFE_NO_PAD.decode(encoded_signature) {
@@ -156,7 +158,7 @@ pub struct WorkspaceOAuthConfig {
     pub client_id: String,
     pub client_secret: String,
     pub base_url: String,
-    pub access_token: Option<String>
+    pub access_token: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -180,7 +182,7 @@ async fn generate_connect_url(
 
     // Generate a signed state that is cluster-safe
     let state = generate_signed_state(&db, &workspace_id, service_name).await?;
-    let auth_url = build_authorization_url(&oauth_config, &state, &redirect_uri);
+    let auth_url = build_authorization_url(&oauth_config, service_name, &state, &redirect_uri);
     Ok(Json(auth_url))
 }
 
@@ -301,18 +303,25 @@ struct RedirectUri {
     redirect_uri: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct OAuthCallbackBody {
+    redirect_uri: String,
+    code: String,
+    state: String,
+}
+
 #[cfg(feature = "native_trigger")]
 async fn oauth_callback(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
-    Path((workspace_id, service_name, code, state)): Path<(String, ServiceName, String, String)>,
-    Json(RedirectUri { redirect_uri }): Json<RedirectUri>,
+    Path((workspace_id, service_name)): Path<(String, ServiceName)>,
+    Json(body): Json<OAuthCallbackBody>,
 ) -> JsonResult<String> {
     require_admin(authed.is_admin, &workspace_id)?;
 
     // Validate the signed state (cluster-safe, no DB storage needed)
-    let state_was_valid = validate_signed_state(&db, &state, &workspace_id).await?;
+    let state_was_valid = validate_signed_state(&db, &body.state, &workspace_id).await?;
 
     if !state_was_valid {
         return Err(Error::BadRequest(
@@ -325,7 +334,8 @@ async fn oauth_callback(
             .await?;
 
     let token_response =
-        exchange_code_for_token(&oauth_config, service_name, &code, &redirect_uri).await?;
+        exchange_code_for_token(&oauth_config, service_name, &body.code, &body.redirect_uri)
+            .await?;
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -381,10 +391,16 @@ fn build_native_oauth_client(
     service_name: ServiceName,
     redirect_uri: &str,
 ) -> Result<OClient> {
-    let auth_url = Url::parse(&format!("{}{}", config.base_url, service_name.auth_endpoint()))
-        .map_err(|e| Error::InternalErr(format!("Invalid auth URL: {}", e)))?;
-    let token_url = Url::parse(&format!("{}{}", config.base_url, service_name.token_endpoint()))
-        .map_err(|e| Error::InternalErr(format!("Invalid token URL: {}", e)))?;
+    let auth_url = Url::parse(&resolve_endpoint(
+        &config.base_url,
+        service_name.auth_endpoint(),
+    ))
+    .map_err(|e| Error::InternalErr(format!("Invalid auth URL: {}", e)))?;
+    let token_url = Url::parse(&resolve_endpoint(
+        &config.base_url,
+        service_name.token_endpoint(),
+    ))
+    .map_err(|e| Error::InternalErr(format!("Invalid token URL: {}", e)))?;
     let redirect = Url::parse(redirect_uri).map_err(|e| {
         Error::BadRequest(format!(
             "Invalid redirect URI '{}': {}. The redirect URI must be an absolute URL (e.g., https://example.com/callback)",
@@ -484,18 +500,28 @@ async fn get_workspace_oauth_config_as_oauth_config(
     get_workspace_oauth_config::<WorkspaceOAuthConfig>(db, workspace_id, service_name).await
 }
 
+#[cfg(feature = "native_trigger")]
 fn build_authorization_url(
     config: &WorkspaceOAuthConfig,
+    service_name: ServiceName,
     state: &str,
     redirect_uri: &str,
 ) -> String {
-    let params = [
+    let base_auth_url = resolve_endpoint(&config.base_url, service_name.auth_endpoint());
+
+    let mut params = vec![
         ("response_type", "code"),
-        ("client_id", &config.client_id),
+        ("client_id", config.client_id.as_str()),
         ("redirect_uri", redirect_uri),
         ("state", state),
-        ("scope", "read write"),
+        ("scope", service_name.oauth_scopes()),
     ];
+
+    // Google requires access_type=offline to return a refresh token
+    if matches!(service_name, ServiceName::Google) {
+        params.push(("access_type", "offline"));
+        params.push(("prompt", "consent"));
+    }
 
     let query_string = params
         .iter()
@@ -503,7 +529,7 @@ fn build_authorization_url(
         .collect::<Vec<_>>()
         .join("&");
 
-    format!("{}/apps/oauth2/authorize?{}", config.base_url, query_string)
+    format!("{}?{}", base_auth_url, query_string)
 }
 
 pub fn workspaced_service() -> Router {
@@ -516,7 +542,7 @@ pub fn workspaced_service() -> Router {
             post(generate_connect_url),
         )
         .route("/:service_name/delete", delete(delete_integration))
-        .route("/:service_name/callback/:code/:state", post(oauth_callback));
+        .route("/:service_name/callback", post(oauth_callback));
 
     Router::new().nest("/integrations", router)
 }

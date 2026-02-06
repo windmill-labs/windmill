@@ -34,7 +34,6 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use http::StatusCode;
 use itertools::Itertools;
 use reqwest::{Client, Method};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -62,28 +61,27 @@ pub mod workspace_integrations;
 
 // Service modules - add new services here:
 #[cfg(feature = "native_trigger")]
+pub mod google;
+#[cfg(feature = "native_trigger")]
 pub mod nextcloud;
-// #[cfg(feature = "native_trigger")]
-// pub mod newservice;
 
 /// Enum of all supported native trigger services.
 /// When adding a new service, add a variant here (e.g., `NewService`).
+/// Note: `Google` service handles both Drive and Calendar triggers via trigger_type.
 #[derive(EnumIter, sqlx::Type, Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[sqlx(type_name = "native_trigger_service", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum ServiceName {
     Nextcloud,
-    // Add new services here:
-    // NewService,
+    Google,
 }
 
 impl TryFrom<String> for ServiceName {
     type Error = Error;
     fn try_from(value: String) -> std::result::Result<Self, Self::Error> {
-        // Add new service match arms here:
         let service = match value.as_str() {
             "nextcloud" => ServiceName::Nextcloud,
-            // "newservice" => ServiceName::NewService,
+            "google" => ServiceName::Google,
             _ => {
                 return Err(anyhow::anyhow!(
                     "Unknown service, currently supported services are: [{}]",
@@ -99,48 +97,67 @@ impl TryFrom<String> for ServiceName {
 
 impl ServiceName {
     /// Returns the lowercase string identifier for this service.
-    /// Add new service match arms here.
     pub fn as_str(&self) -> &'static str {
         match self {
             ServiceName::Nextcloud => "nextcloud",
-            // ServiceName::NewService => "newservice",
+            ServiceName::Google => "google",
         }
     }
 
     /// Returns the corresponding TriggerKind for this service.
-    /// Requires adding the variant to TriggerKind in windmill_common.
     pub fn as_trigger_kind(&self) -> TriggerKind {
         match self {
             ServiceName::Nextcloud => TriggerKind::Nextcloud,
-            // ServiceName::NewService => TriggerKind::NewService,
+            ServiceName::Google => TriggerKind::Google,
         }
     }
 
     /// Returns the corresponding JobTriggerKind for this service.
-    /// Requires adding the variant to JobTriggerKind in windmill_common.
     pub fn as_job_trigger_kind(&self) -> windmill_common::jobs::JobTriggerKind {
         match self {
             ServiceName::Nextcloud => windmill_common::jobs::JobTriggerKind::Nextcloud,
-            // ServiceName::NewService => windmill_common::jobs::JobTriggerKind::NewService,
+            ServiceName::Google => windmill_common::jobs::JobTriggerKind::Google,
         }
     }
 
     /// Returns the OAuth token endpoint path for this service.
-    /// Used for building OAuth clients dynamically.
     pub fn token_endpoint(&self) -> &'static str {
         match self {
             ServiceName::Nextcloud => "/apps/oauth2/api/v1/token",
-            // ServiceName::NewService => "/oauth/token",
+            ServiceName::Google => "https://oauth2.googleapis.com/token",
         }
     }
 
     /// Returns the OAuth authorization endpoint path for this service.
-    /// Used for building OAuth authorization URLs.
     pub fn auth_endpoint(&self) -> &'static str {
         match self {
             ServiceName::Nextcloud => "/apps/oauth2/authorize",
-            // ServiceName::NewService => "/oauth/authorize",
+            ServiceName::Google => "https://accounts.google.com/o/oauth2/v2/auth",
         }
+    }
+
+    /// Returns the OAuth scopes for this service's authorization flow.
+    pub fn oauth_scopes(&self) -> &'static str {
+        match self {
+            ServiceName::Nextcloud => "read write",
+            ServiceName::Google => "https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events",
+        }
+    }
+
+    /// Returns the integration service name for workspace_integrations lookup.
+    /// For most services, this is the service itself.
+    pub fn integration_service(&self) -> ServiceName {
+        *self
+    }
+}
+
+/// Resolves an endpoint URL. If the endpoint is already an absolute URL (starts with http),
+/// returns it as-is. Otherwise, prepends the base_url.
+pub fn resolve_endpoint(base_url: &str, endpoint: &str) -> String {
+    if endpoint.starts_with("http://") || endpoint.starts_with("https://") {
+        endpoint.to_string()
+    } else {
+        format!("{}{}", base_url, endpoint)
     }
 }
 
@@ -264,8 +281,6 @@ pub trait External: Send + Sync + 'static {
         _w_id: &str,
         _header: HashMap<String, String>,
         _body: String,
-        _script_path: &str,
-        _is_flow: bool,
     ) -> Result<PushArgsOwned> {
         Ok(PushArgsOwned { extra: None, args: HashMap::new() })
     }
@@ -274,6 +289,20 @@ pub trait External: Send + Sync + 'static {
         &self,
         resp: &Self::CreateResponse,
     ) -> (String, Option<serde_json::Value>);
+
+    /// Build the service_config directly from the create response and input data,
+    /// skipping the update+get cycle after creation.
+    /// Return `None` (default) to use the update+get pattern (e.g. Nextcloud needs to
+    /// correct the webhook URL with the external_id assigned by the remote service).
+    /// Return `Some(config)` to skip update+get entirely (e.g. Google already includes
+    /// the channel_id in the webhook URL from the start).
+    fn service_config_from_create_response(
+        &self,
+        _data: &NativeTriggerData<Self::ServiceConfig>,
+        _resp: &Self::CreateResponse,
+    ) -> Option<serde_json::Value> {
+        None
+    }
 
     fn get_external_id_from_trigger_data(&self, data: &Self::TriggerData) -> String;
 
@@ -318,14 +347,8 @@ pub trait External: Send + Sync + 'static {
 
         match result {
             Ok(response) => Ok(response),
-            Err(err)
-                if err.status() == Some(StatusCode::UNAUTHORIZED)
-                    || err.status() == Some(StatusCode::FORBIDDEN) =>
-            {
-                tracing::info!(
-                    "HTTP auth error ({}), attempting token refresh",
-                    err.status().unwrap()
-                );
+            Err(ref err) if is_unauthorized_error(err) => {
+                tracing::info!("HTTP 401 for {}, attempting token refresh", url);
 
                 let refreshed_oauth_config =
                     refresh_oauth_tokens(&oauth_config, Self::REFRESH_ENDPOINT).await?;
@@ -345,7 +368,7 @@ pub trait External: Send + Sync + 'static {
                     }
                 });
 
-                let response = make_http_request(
+                make_http_request(
                     url,
                     method,
                     headers,
@@ -353,10 +376,8 @@ pub trait External: Send + Sync + 'static {
                     &refreshed_oauth_config.access_token,
                 )
                 .await
-                .map_err(to_anyhow)?;
-                Ok(response)
             }
-            Err(e) => Err(to_anyhow(e).into()),
+            other => other,
         }
     }
 }
@@ -370,13 +391,20 @@ pub struct OAuthConfig {
     pub client_secret: String,
 }
 
+fn is_unauthorized_error(err: &Error) -> bool {
+    match err {
+        Error::InternalErr(msg) => msg.starts_with("HTTP 401 "),
+        _ => false,
+    }
+}
+
 pub async fn make_http_request<T: DeserializeOwned + Send, B: Serialize>(
     url: &str,
     method: Method,
     headers: Option<HashMap<String, String>>,
     body: Option<&B>,
     access_token: &str,
-) -> std::result::Result<T, reqwest::Error> {
+) -> Result<T> {
     let client = Client::new();
     let mut request = client.request(method, url);
 
@@ -398,11 +426,33 @@ pub async fn make_http_request<T: DeserializeOwned + Send, B: Serialize>(
         request = request.json(body_content);
     }
 
-    let response = request.send().await?.error_for_status()?;
+    let response = request.send().await.map_err(to_anyhow)?;
+    let status = response.status();
 
-    let response_json = response.json().await?;
+    if !status.is_success() {
+        let body_text = response.text().await.unwrap_or_default();
+        let message = if let Ok(err_json) = serde_json::from_str::<serde_json::Value>(&body_text) {
+            err_json
+                .get("error")
+                .and_then(|e| e.get("message"))
+                .and_then(|m| m.as_str())
+                .unwrap_or(&body_text)
+                .to_string()
+        } else {
+            body_text
+        };
+        return Err(Error::InternalErr(format!(
+            "HTTP {} for {}: {}",
+            status.as_u16(),
+            url,
+            message
+        )));
+    }
 
-    Ok(response_json)
+    response
+        .json()
+        .await
+        .map_err(|e| Error::InternalErr(format!("Failed to parse response from {}: {}", url, e)))
 }
 
 pub async fn decrypt_oauth_data<
@@ -506,11 +556,15 @@ pub async fn refresh_oauth_tokens(
         .as_ref()
         .ok_or_else(|| Error::InternalErr("No refresh token available".to_string()))?;
 
-    // Build OAuth client for token refresh
     // Auth URL is not used for refresh, but required by the client constructor
-    let auth_url = Url::parse(&format!("{}/oauth/authorize", oauth_config.base_url))
+    let auth_url_str = if oauth_config.base_url.is_empty() {
+        "https://localhost/oauth/authorize".to_string()
+    } else {
+        format!("{}/oauth/authorize", oauth_config.base_url)
+    };
+    let auth_url = Url::parse(&auth_url_str)
         .map_err(|e| Error::InternalErr(format!("Invalid auth URL: {}", e)))?;
-    let token_url = Url::parse(&format!("{}{}", oauth_config.base_url, refresh_endpoint))
+    let token_url = Url::parse(&resolve_endpoint(&oauth_config.base_url, refresh_endpoint))
         .map_err(|e| Error::InternalErr(format!("Invalid token URL: {}", e)))?;
 
     let mut client = OClient::new(oauth_config.client_id.clone(), auth_url, token_url);
@@ -1050,4 +1104,30 @@ pub fn generate_webhook_service_url(
     }
 
     url
+}
+
+/// Process incoming webhook request for a native trigger service.
+/// Dispatches to the service-specific `prepare_webhook` to transform headers/body into args.
+/// Returns `None` if the service doesn't need special processing (standard body parsing is used).
+#[cfg(feature = "native_trigger")]
+pub async fn prepare_native_trigger_args(
+    service_name: ServiceName,
+    db: &DB,
+    w_id: &str,
+    headers: &http::HeaderMap,
+    body: String,
+) -> Result<Option<windmill_queue::PushArgsOwned>> {
+    let headers_map: HashMap<String, String> = headers
+        .iter()
+        .filter_map(|(k, v)| v.to_str().ok().map(|v| (k.to_string(), v.to_string())))
+        .collect();
+
+    match service_name {
+        ServiceName::Google => {
+            let handler = google::Google;
+            let args = handler.prepare_webhook(db, w_id, headers_map, body).await?;
+            Ok(Some(args))
+        }
+        _ => Ok(None),
+    }
 }
