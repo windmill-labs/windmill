@@ -108,7 +108,7 @@
 				group.schemas.find((s) => s.script_hash === jobSchema.script_hash) ??
 				group.schemas[
 					group.schemas.push({
-						schema: jobSchema.schema as Schema,
+						schema: (jobSchema.schema as Schema) ?? {},
 						job_ids: [],
 						script_hash: jobSchema.script_hash
 					}) - 1
@@ -130,7 +130,7 @@
 	}
 	function propertyAlwaysExists(propertyName: string, group: JobGroup): boolean {
 		for (const s of group.schemas) {
-			if (!(propertyName in (s.schema as Schema).properties)) return false
+			if (!(propertyName in ((s.schema as Schema)?.properties ?? {}))) return false
 		}
 		return true
 	}
@@ -138,7 +138,7 @@
 	function propertyAlwaysHasSameType(propertyName: string, group: JobGroup): boolean {
 		let prevType = 'INIT'
 		for (const s of group.schemas) {
-			const currType = (s.schema as Schema).properties[propertyName]?.type
+			const currType = (s.schema as Schema)?.properties?.[propertyName]?.type
 			if (currType === undefined) continue
 			if (prevType !== 'INIT' && currType !== prevType) return false
 			prevType = currType
@@ -159,7 +159,7 @@
 </script>
 
 <div class="flex-1 flex flex-col h-full">
-	<div class="border overflow-auto rounded-md m-4 flex-1">
+	<div class="border overflow-auto rounded-md mb-4 flex-1">
 		<Splitpanes>
 			<Pane size={32} class="bg-surface-secondary relative">
 				<PanelSection
@@ -219,15 +219,15 @@
 						<!-- Even if we use the latest schema, we want the editor -->
 						<!-- to only lint the original jobs' values -->
 						{@const displayedSchema = selectedUsesLatestSchema
-							? (selected.latest_schema as Schema)
-							: mergeSchemasForBatchReruns(selected.schemas.map((s) => s.schema as Schema))}
+							? (selected.latest_schema as Schema | undefined)
+							: mergeSchemasForBatchReruns(selected.schemas.map((s) => (s.schema as Schema) ?? {}))}
 						{@const extraLib = buildExtraLibForBatchReruns({
 							schemas: selected.schemas,
 							script_path: selected.script_path
 						})}
 						<div class="w-full h-full">
 							{#key [selected, displayedSchema]}
-								{#each Object.keys(displayedSchema.properties) as propertyName}
+								{#each Object.keys(displayedSchema?.properties ?? {}) as propertyName}
 									<ResizeTransitionWrapper vertical innerClass="w-full">
 										<InputTransformForm
 											class="items-start mb-6"
@@ -244,7 +244,7 @@
 													{})[propertyName] = newArg
 											}}
 											argName={propertyName}
-											schema={displayedSchema}
+											schema={displayedSchema ?? {}}
 											{extraLib}
 											previousModuleId={undefined}
 											pickableProperties={{
