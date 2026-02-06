@@ -462,7 +462,7 @@ pub async fn prepare_deps_standalone(code: &str, language: &str) -> PrepareRespo
         .current_dir(&job_dir)
         .env_clear()
         .envs(common_bun_proc_envs)
-        .args(vec!["install"])
+        .args(vec!["install", "--linker", "hoisted"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
