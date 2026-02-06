@@ -13,6 +13,7 @@
 	import RightClickPopover from '../RightClickPopover.svelte'
 	import DropdownMenu from '../DropdownMenu.svelte'
 	import { isJobCancelable, isJobReRunnable } from '$lib/utils'
+	import is from 'date-fns/locale/is'
 
 	interface Props {
 		//import InfiniteLoading from 'svelte-infinite-loading'
@@ -229,6 +230,7 @@
 	})
 	let rerunnable = $derived(selectedIdsPossibleActions.rerunnableJobs.length)
 	let cancellable = $derived(selectedIdsPossibleActions.cancellableJobs.length)
+	let hoveredDropdownAction: 'cancel' | 'rerun' | null = $state(null)
 </script>
 
 <div
@@ -318,7 +320,17 @@
 									<!-- svelte-ignore a11y_click_events_have_key_events -->
 									<!-- svelte-ignore a11y_no_static_element_interactions -->
 									<div
-										class="flex flex-row items-center h-full w-full select-none"
+										class={twMerge(
+											'flex flex-row items-center h-full w-full select-none transition-opacity',
+											rightClickPopover?.isOpen() &&
+												hoveredDropdownAction === 'cancel' &&
+												!isJobCancelable(jobOrDate.job) &&
+												'opacity-20',
+											rightClickPopover?.isOpen() &&
+												hoveredDropdownAction === 'rerun' &&
+												!isJobReRunnable(jobOrDate.job) &&
+												'opacity-20'
+										)}
 										oncontextmenu={(e) => {
 											e.preventDefault()
 											rightClickPopover?.open(e)
@@ -423,8 +435,9 @@
 						{
 							label: 'Cancel',
 							icon: CircleXIcon,
-							right: cancellable >= 2 ? `${cancellable}` : undefined,
-							onClick: () => {}
+							right: selectedIds.length >= 2 ? `${cancellable}` : undefined,
+							onClick: () => {},
+							onHover: (hover) => (hoveredDropdownAction = hover ? 'cancel' : null)
 						}
 					]
 				: []),
@@ -433,8 +446,9 @@
 						{
 							label: 'Run again',
 							icon: RefreshCwIcon,
-							right: rerunnable >= 2 ? `${rerunnable}` : undefined,
-							onClick: () => {}
+							right: selectedIds.length >= 2 ? `${rerunnable}` : undefined,
+							onClick: () => {},
+							onHover: (hover) => (hoveredDropdownAction = hover ? 'rerun' : null)
 						}
 					]
 				: [])

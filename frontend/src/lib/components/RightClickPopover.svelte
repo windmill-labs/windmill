@@ -10,26 +10,29 @@
 
 	const { children }: Props = $props()
 
-	let isOpen = $state(false)
+	let _isOpen = $state(false)
 	let mousePos = $state({ x: 0, y: 0 })
 	export function open(e: MouseEvent) {
 		e.preventDefault()
-		isOpen = true
+		_isOpen = true
 		mousePos = { x: e.clientX, y: e.clientY }
 		console.log('Opening popover at', mousePos)
 	}
 	export function close() {
-		isOpen = false
+		_isOpen = false
+	}
+	export function isOpen() {
+		return _isOpen
 	}
 </script>
 
 <Portal>
-	{#if isOpen}
+	{#if _isOpen}
 		<div
 			in:fly={{ x: 0, y: -10, duration: 120 }}
 			use:clickOutside={{
 				onClickOutside: (e) => {
-					isOpen = false
+					_isOpen = false
 					e.preventDefault()
 					e.stopPropagation()
 				}

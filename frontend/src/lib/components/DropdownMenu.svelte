@@ -3,7 +3,8 @@
 		label: string
 		icon?: any
 		right?: string
-		onClick: () => void
+		onClick?: () => void
+		onHover?: (hover: boolean) => void
 	}
 	type Props = {
 		closeCallback?: () => void
@@ -18,9 +19,11 @@
 			<button
 				class="px-3 h-9 text-xs cursor-pointer hover:bg-surface-hover font-normal w-full text-left flex items-center gap-2.5"
 				onclick={() => {
-					item.onClick()
+					item.onClick?.()
 					closeCallback?.()
 				}}
+				onmouseenter={() => item.onHover?.(true)}
+				onmouseleave={() => item.onHover?.(false)}
 			>
 				{#if item.icon}
 					<item.icon size="16"></item.icon>
