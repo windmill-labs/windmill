@@ -151,14 +151,19 @@
 	}
 	*/
 
-	function jobCountString(jobCount: number | undefined, lastFetchWentToEnd: boolean): string {
+	function jobCountString(
+		jobCount: number | undefined,
+		lastFetchWentToEnd: boolean,
+		hideLabel?: boolean
+	): string {
 		if (jobCount === undefined) {
 			return ''
 		}
 		const jc = jobCount
 		const isTruncated = jc >= perPage && !lastFetchWentToEnd
 
-		return `${jc}${isTruncated ? '+' : ''} job${jc != 1 ? 's' : ''}`
+		if (hideLabel) return `${jc}${isTruncated ? '+' : ''}`
+		else return `${jc}${isTruncated ? '+' : ''} job${jc != 1 ? 's' : ''}`
 	}
 
 	const dispatch = createEventDispatcher()
@@ -237,7 +242,11 @@
 						</Popover>
 					</div>
 				{:else}
-					{jobs ? jobCountString(jobs.length, lastFetchWentToEnd) : ''}
+					{@const jobCount = jobs
+						? jobCountString(jobs.length, lastFetchWentToEnd, selectedIds.length >= 2)
+						: ''}
+					{selectedIds.length >= 2 ? `${selectedIds.length}/` : ''}<wbr />
+					{jobCount}
 				{/if}
 			</div>
 			<div class="text-xs font-semibold leading-3">Started</div>
