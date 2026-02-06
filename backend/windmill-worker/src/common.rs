@@ -617,10 +617,13 @@ impl OccupancyMetrics {
                 //drop all elements before the oldest one in 30m windows
                 metrics.worker_occupancy_rate_history.drain(..index30m);
 
+                // Only report occupancy for a window if the worker has been running
+                // long enough to have meaningful data for that window. Otherwise,
+                // short-lived workers would report misleadingly high occupancy rates.
                 (
-                    Some(total_occupation_15s),
-                    Some(total_occupation_5m),
-                    Some(total_occupation_30m),
+                    if elapsed >= 15.0 { Some(total_occupation_15s) } else { None },
+                    if elapsed >= 300.0 { Some(total_occupation_5m) } else { None },
+                    if elapsed >= 1800.0 { Some(total_occupation_30m) } else { None },
                 )
             } else {
                 (None, None, None)
