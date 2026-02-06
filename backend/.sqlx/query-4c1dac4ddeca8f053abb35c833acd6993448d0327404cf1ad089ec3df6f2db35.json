@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO agent_token_blacklist (token, expires_at, blacklisted_by)\n         VALUES ($1, $2, $3)\n         ON CONFLICT (token) DO UPDATE SET\n            expires_at = EXCLUDED.expires_at,\n            blacklisted_at = NOW(),\n            blacklisted_by = EXCLUDED.blacklisted_by",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Timestamp",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4c1dac4ddeca8f053abb35c833acd6993448d0327404cf1ad089ec3df6f2db35"
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_settings\n             SET slack_team_id = null, slack_name = null WHERE workspace_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "73ca6ea13b362b2569ea115d28e4e255cd5e9b990ffa89998ef24871d3a9717c"
+}
