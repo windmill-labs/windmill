@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.628.2"
+version = "1.628.3"
 authors.workspace = true
 edition.workspace = true
 
@@ -39,7 +39,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal"]
 
 [workspace.package]
-version = "1.628.2"
+version = "1.628.3"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -211,7 +211,7 @@ tikv-jemalloc-ctl = { optional = true, workspace = true }
 [dev-dependencies]
 serde_json.workspace = true
 reqwest.workspace = true
-windmill-queue.workspace = true
+windmill-queue = { workspace = true, features = ["failpoints"] }
 axum.workspace = true
 serde.workspace = true
 windmill-api-client.workspace = true

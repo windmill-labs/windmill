@@ -30,6 +30,7 @@ use sqlx::types::Json;
 use sqlx::{FromRow, Postgres, Transaction};
 use tracing::instrument;
 use uuid::Uuid;
+use backon::{BackoffBuilder, ConstantBuilder, Retryable};
 use windmill_common::auth::get_job_perms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
@@ -67,7 +68,8 @@ use windmill_common::{
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
     add_completed_job, add_completed_job_error, append_logs, get_mini_pulled_job,
-    handle_maybe_scheduled_job, insert_concurrency_key, interpolate_args, CanceledBy, FlowRunners,
+    try_schedule_next_job, insert_concurrency_key, interpolate_args,
+    report_error_to_workspace_handler_or_critical_side_channel, CanceledBy, FlowRunners,
     MiniCompletedJob, MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload, WrappedError,
 };
 
@@ -75,6 +77,17 @@ use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::audit::AuditAuthor;
 use windmill_queue::{canceled_job_to_result, push};
+
+#[derive(Debug)]
+pub struct SchedulePushZombieError(pub String);
+
+impl std::fmt::Display for SchedulePushZombieError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::error::Error for SchedulePushZombieError {}
 
 /// Helper function to write itered data to separate table
 /// Returns None if data was written to separate table, Some(itered) if it should be stored in JSONB
@@ -2177,22 +2190,76 @@ pub async fn handle_flow(
             .await?;
 
         if let Some(schedule) = schedule {
-            if let Err(err) = handle_maybe_scheduled_job(
-                db,
-                &MiniCompletedJob::from(flow_job.clone()),
-                &schedule,
-                flow_job.runnable_path.as_ref().unwrap(),
-                &flow_job.workspace_id,
-            )
-            .warn_after_seconds(5)
-            .await
-            {
-                match err {
-                    Error::QuotaExceeded(_) => return Err(err.into()),
-                    // scheduling next job failed and could not disable schedule => make zombie job to retry
-                    _ => return Ok(()),
+            let mini_job = MiniCompletedJob::from(flow_job.clone());
+            let runnable_path = flow_job.runnable_path.as_ref().unwrap().clone();
+            let schedule_push_result = (|| async {
+                let tx = db.begin().warn_after_seconds(5).await
+                    .map_err(|e| Error::internal_err(format!("begin tx for schedule push: {e:#}")))?;
+                let (tx, schedule_push_err) = try_schedule_next_job(
+                    db,
+                    tx,
+                    &mini_job,
+                    &schedule,
+                    &runnable_path,
+                )
+                .await;
+                if let Some(err) = schedule_push_err {
+                    return Err(err);
                 }
-            };
+                tx.commit().warn_after_seconds(5).await
+                    .map_err(|e| Error::internal_err(format!("commit schedule push: {e:#}")))?;
+                Ok::<(), Error>(())
+            })
+            .retry(
+                ConstantBuilder::default()
+                    .with_delay(std::time::Duration::from_secs(3))
+                    .with_max_times(10)
+                    .build(),
+            )
+            .when(|err: &Error| !matches!(err, Error::QuotaExceeded(_) | Error::NotFound(_)))
+            .notify(|err: &Error, dur: std::time::Duration| {
+                tracing::error!(
+                    "Could not push next scheduled job for flow schedule {}, retrying in {dur:#?}: {err:#?}",
+                    schedule.path
+                );
+            })
+            .sleep(tokio::time::sleep)
+            .await;
+
+            // Non-retryable errors (QuotaExceeded, NotFound) are handled inside
+            // try_schedule_next_job (schedule disabled, returns None), so they never
+            // reach here. This handles only transient errors after retry exhaustion.
+            if let Err(err) = schedule_push_result {
+                tracing::error!(
+                    "Could not push next scheduled job for {} after retries: {err}. Disabling schedule.",
+                    schedule.path
+                );
+                if let Err(disable_err) = sqlx::query!(
+                    "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
+                    err.to_string(),
+                    &flow_job.workspace_id,
+                    &schedule.path
+                )
+                .execute(db)
+                .await
+                {
+                    report_error_to_workspace_handler_or_critical_side_channel(
+                        &mini_job,
+                        db,
+                        format!(
+                            "Could not push next scheduled job for {} and could not disable schedule: {disable_err}",
+                            schedule.path,
+                        ),
+                    )
+                    .await;
+                    return Err(SchedulePushZombieError(
+                        format!(
+                            "Could not push or disable schedule {} after retries",
+                            schedule.path
+                        ),
+                    ).into());
+                }
+            }
         } else {
             tracing::error!(
                 "Schedule {schedule_path} in {} not found. Impossible to schedule again",
