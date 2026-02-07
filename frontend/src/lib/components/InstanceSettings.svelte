@@ -17,8 +17,7 @@
 	import { writable, type Writable } from 'svelte/store'
 	import { ExternalLink, Loader2 } from 'lucide-svelte'
 	import YAML from 'yaml'
-	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import Toggle from './Toggle.svelte'
 	import type SimpleEditor from './SimpleEditor.svelte'
 
 	interface Props {
@@ -109,7 +108,7 @@
 	}
 
 	export async function saveSettings() {
-		if (viewMode === 'yaml') {
+		if (yamlMode) {
 			if (!syncYamlToForm()) {
 				return
 			}
@@ -251,7 +250,7 @@
 		tab = 'SMTP'
 	}
 
-	let viewMode: 'form' | 'yaml' = $state('form')
+	let yamlMode = $state(false)
 	let yamlCode = $state('')
 	let yamlEditor: SimpleEditor | undefined = $state(undefined)
 	let yamlError = $state('')
@@ -298,16 +297,16 @@
 		}
 	}
 
-	function handleViewModeChange(newMode: string) {
-		if (newMode === 'yaml') {
+	function handleYamlToggle(checked: boolean) {
+		if (checked) {
 			syncFormToYaml()
-			viewMode = 'yaml'
-		} else if (newMode === 'form') {
+			yamlMode = true
+		} else {
 			if (syncYamlToForm()) {
-				viewMode = 'form'
+				yamlMode = false
 			} else {
 				// Reset toggle back to YAML on parse failure
-				viewMode = 'yaml'
+				yamlMode = true
 			}
 		}
 	}
@@ -316,18 +315,15 @@
 <div class="pb-12">
 	<!-- svelte-ignore a11y_label_has_associated_control -->
 	<div class="flex items-center justify-end mb-2">
-		<ToggleButtonGroup
-			bind:selected={viewMode}
-			onSelected={handleViewModeChange}
-		>
-			{#snippet children({ item })}
-				<ToggleButton value="form" label="Form" {item} small />
-				<ToggleButton value="yaml" label="YAML" {item} small />
-			{/snippet}
-		</ToggleButtonGroup>
+		<Toggle
+			checked={yamlMode}
+			on:change={(e) => handleYamlToggle(e.detail)}
+			options={{ right: 'YAML' }}
+			size="xs"
+		/>
 	</div>
 
-	{#if viewMode === 'yaml'}
+	{#if yamlMode}
 		<div class="border rounded w-full" style="min-height: 600px;">
 			{#await import('$lib/components/SimpleEditor.svelte')}
 				<Loader2 class="animate-spin" />
