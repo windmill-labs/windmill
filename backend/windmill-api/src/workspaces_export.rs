@@ -651,7 +651,7 @@ pub(crate) async fn tarball_workspace(
     if include_triggers.unwrap_or(false) {
         #[cfg(feature = "http_trigger")]
         {
-            use crate::triggers::http::handler::HttpTrigger;
+            use crate::triggers::http::HttpTrigger;
             let handler = HttpTrigger;
             let http_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 

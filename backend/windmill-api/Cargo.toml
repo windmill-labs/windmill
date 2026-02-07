@@ -29,7 +29,7 @@ smtp = ["dep:mail-parser", "dep:openssl", "windmill-common/smtp", "dep:windmill-
 license = ["dep:rsa"]
 zip = ["dep:async_zip"]
 oauth2 = ["dep:windmill-oauth", "windmill-store/oauth2"]
-http_trigger = ["dep:matchit", "dep:thiserror", "dep:sha1", "dep:constant_time_eq", "windmill-store/http_trigger"]
+http_trigger = ["dep:matchit", "dep:windmill-trigger-http", "windmill-trigger-http/enterprise", "windmill-store/http_trigger"]
 static_frontend = ["dep:rust-embed"]
 postgres_trigger = ["dep:windmill-trigger-postgres", "windmill-trigger-postgres/enterprise", "windmill-store/postgres_trigger"]
 mqtt_trigger = ["dep:windmill-trigger-mqtt", "windmill-trigger-mqtt/enterprise", "windmill-store/mqtt_trigger"]
@@ -109,8 +109,6 @@ postgres-native-tls.workspace = true
 hmac.workspace = true
 cookie.workspace = true
 sha2.workspace = true
-sha1 = { workspace = true, optional = true }
-constant_time_eq = { workspace = true, optional = true }
 urlencoding.workspace = true
 lazy_static.workspace = true
 prometheus = { workspace = true, optional = true }
@@ -142,13 +140,13 @@ windmill-trigger-email = { workspace = true, optional = true }
 windmill-trigger-nats = { workspace = true, optional = true }
 windmill-trigger-sqs = { workspace = true, optional = true }
 windmill-trigger-gcp = { workspace = true, optional = true }
+windmill-trigger-http = { workspace = true, optional = true }
 const_format.workspace = true
 pin-project.workspace = true
 http.workspace = true
 indexmap.workspace = true
 async-stream.workspace = true
 ulid.workspace = true
-thiserror = { workspace = true, optional = true }
 rustls = { workspace = true }
 
 aws-sigv4.workspace = true

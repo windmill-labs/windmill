@@ -13,7 +13,7 @@ pub fn generate_trigger_routers() -> Router {
 
     #[cfg(feature = "http_trigger")]
     {
-        use crate::triggers::http::handler::HttpTrigger;
+        use crate::triggers::http::HttpTrigger;
 
         router = router.nest(
             HttpTrigger::ROUTE_PREFIX,
@@ -168,7 +168,7 @@ pub async fn get_triggers_count_internal(
 
     #[cfg(feature = "http_trigger")]
     let http_routes_count = {
-        use crate::triggers::http::handler::HttpTrigger;
+        use crate::triggers::http::HttpTrigger;
         let count = HttpTrigger
             .trigger_count(&mut tx, w_id, is_flow, path)
             .await;

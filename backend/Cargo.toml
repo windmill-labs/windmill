@@ -20,6 +20,7 @@ members = [
     "./windmill-trigger-nats",
     "./windmill-trigger-sqs",
     "./windmill-trigger-gcp",
+    "./windmill-trigger-http",
     "./windmill-store",
     "./windmill-queue",
     "./windmill-worker",
@@ -252,6 +253,7 @@ windmill-trigger-email = { path = "./windmill-trigger-email" }
 windmill-trigger-nats = { path = "./windmill-trigger-nats" }
 windmill-trigger-sqs = { path = "./windmill-trigger-sqs" }
 windmill-trigger-gcp = { path = "./windmill-trigger-gcp" }
+windmill-trigger-http = { path = "./windmill-trigger-http" }
 windmill-store = { path = "./windmill-store" }
 windmill-parser = { path = "./parsers/windmill-parser" }
 windmill-parser-ts = { path = "./parsers/windmill-parser-ts" }
