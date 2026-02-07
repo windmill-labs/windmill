@@ -1453,4 +1453,163 @@ mod schedule_push {
             Ok(())
         }
     }
+
+    // ===================================================================
+    // Zombie detection tests — verify that a flow left in queue after
+    // SchedulePushZombieError meets the restart criteria in monitor.rs
+    // ===================================================================
+
+    // -----------------------------------------------------------------------
+    // When both schedule push AND post-retry disable fail, the flow job stays
+    // in v2_job_queue as a zombie. This test simulates that state and verifies:
+    //
+    // 1. The zombie detection query (from handle_zombie_flows) finds the flow
+    // 2. The flow meets restart criteria: first module is WaitingForPriorSteps
+    //    and same_worker is false
+    // 3. After the restart UPDATE, the flow is re-queued (running=false)
+    // 4. The schedule remains enabled for retry on next flow execution
+    // -----------------------------------------------------------------------
+
+    #[sqlx::test(fixtures("base", "schedule_push"))]
+    async fn test_zombie_flow_after_schedule_push_failure_meets_restart_criteria(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        use windmill_common::flow_status::{FlowStatus, FlowStatusModule};
+
+        let flow_job_id = uuid::Uuid::new_v4();
+        let now = Utc::now();
+        let stale_ping = now - chrono::Duration::minutes(5);
+
+        // Schedule still enabled — simulates both push and disable failing
+        sqlx::query(
+            "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap)
+             VALUES ('test-workspace', 'f/system/test_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/test_flow', true, 'test@windmill.dev', '{}', false, false)"
+        )
+        .execute(&db)
+        .await?;
+
+        // Flow job in v2_job (kind=flow, triggered by schedule, same_worker=false)
+        sqlx::query(
+            "INSERT INTO v2_job (id, workspace_id, created_at, created_by, permissioned_as, permissioned_as_email, kind, runnable_path, trigger, trigger_kind, same_worker, visible_to_owner, tag)
+             VALUES ($1, 'test-workspace', $2, 'test-user', 'u/test-user', 'test@windmill.dev', 'flow', 'f/system/test_flow', 'f/system/test_schedule', 'schedule', false, false, 'flow')"
+        )
+        .bind(flow_job_id)
+        .bind(now - chrono::Duration::minutes(5))
+        .execute(&db)
+        .await?;
+
+        // Queue entry: running=true (worker caught SchedulePushZombieError and returned Ok)
+        sqlx::query(
+            "INSERT INTO v2_job_queue (id, workspace_id, created_at, scheduled_for, running, started_at, tag, suspend)
+             VALUES ($1, 'test-workspace', $2, $2, true, $3, 'flow', 0)"
+        )
+        .bind(flow_job_id)
+        .bind(now - chrono::Duration::minutes(5))
+        .bind(now - chrono::Duration::minutes(4))
+        .execute(&db)
+        .await?;
+
+        // Stale ping — older than the 60s zombie transition timeout
+        sqlx::query("INSERT INTO v2_job_runtime (id, ping) VALUES ($1, $2)")
+            .bind(flow_job_id)
+            .bind(stale_ping)
+            .execute(&db)
+            .await?;
+
+        // Flow status at step 0, first module = WaitingForPriorSteps
+        // This is the initial state of a flow that hasn't started any steps yet
+        let flow_status = serde_json::json!({
+            "step": 0,
+            "modules": [{"type": "WaitingForPriorSteps", "id": "a"}],
+            "failure_module": {"type": "WaitingForPriorSteps", "id": "failure"},
+            "retry": {"fail_count": 0, "failed_jobs": []},
+            "cleanup_module": {"flow_jobs_to_clean": []}
+        });
+
+        sqlx::query("INSERT INTO v2_job_status (id, flow_status) VALUES ($1, $2::jsonb)")
+            .bind(flow_job_id)
+            .bind(&flow_status)
+            .execute(&db)
+            .await?;
+
+        // Run the same zombie detection query from handle_zombie_flows (60s timeout)
+        let zombie_flows = sqlx::query_as::<_, (uuid::Uuid, String, Option<bool>, Option<String>)>(
+            r#"
+            SELECT
+                j.id, j.workspace_id, j.same_worker,
+                COALESCE(s.flow_status, s.workflow_as_code_status)::text AS flow_status
+            FROM v2_job_queue q
+            JOIN v2_job j USING (id)
+            LEFT JOIN v2_job_runtime r USING (id)
+            LEFT JOIN v2_job_status s USING (id)
+            WHERE q.running = true AND q.suspend = 0 AND q.suspend_until IS null
+                AND q.scheduled_for <= now()
+                AND (j.kind = 'flow' OR j.kind = 'flowpreview' OR j.kind = 'flownode')
+                AND r.ping IS NOT NULL
+                AND r.ping < NOW() - ('60' || ' seconds')::interval
+                AND q.canceled_by IS NULL
+            "#,
+        )
+        .fetch_all(&db)
+        .await?;
+
+        assert_eq!(zombie_flows.len(), 1, "zombie flow must be detected");
+        let (id, _ws, same_worker, flow_status_json) = &zombie_flows[0];
+        assert_eq!(*id, flow_job_id);
+
+        // Replicate the exact branching logic from handle_zombie_flows (monitor.rs:2711-2754).
+        // Only flows matching the restart condition get restarted; others are cancelled.
+        let status = flow_status_json
+            .as_deref()
+            .and_then(|x| serde_json::from_str::<FlowStatus>(x).ok());
+        let should_restart = !same_worker.unwrap_or(false)
+            && status.is_some_and(|s| {
+                s.modules
+                    .get(0)
+                    .is_some_and(|x| matches!(x, FlowStatusModule::WaitingForPriorSteps { .. }))
+            });
+
+        assert!(
+            should_restart,
+            "flow must match the restart branch (not the cancel branch) in handle_zombie_flows"
+        );
+
+        // Apply the restart action — same UPDATE as handle_zombie_flows
+        sqlx::query(
+            "UPDATE v2_job_queue SET running = false, started_at = null
+             WHERE id = $1 AND canceled_by IS NULL",
+        )
+        .bind(flow_job_id)
+        .execute(&db)
+        .await?;
+
+        // Flow is re-queued for processing
+        let (running, started_at): (bool, Option<chrono::DateTime<Utc>>) = sqlx::query_as(
+            "SELECT running, started_at FROM v2_job_queue WHERE id = $1",
+        )
+        .bind(flow_job_id)
+        .fetch_one(&db)
+        .await?;
+        assert!(!running, "flow must not be running after zombie restart");
+        assert!(started_at.is_none(), "started_at must be null after zombie restart");
+
+        // Schedule still enabled — will be retried when flow re-executes
+        let enabled: bool = sqlx::query_scalar(
+            "SELECT enabled FROM schedule WHERE workspace_id = 'test-workspace' AND path = 'f/system/test_schedule'",
+        )
+        .fetch_one(&db)
+        .await?;
+        assert!(enabled, "schedule must remain enabled for retry after zombie restart");
+
+        // Flow job is NOT in v2_job_completed (it was never completed with error)
+        let completed_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM v2_job_completed WHERE id = $1",
+        )
+        .bind(flow_job_id)
+        .fetch_one(&db)
+        .await?;
+        assert_eq!(completed_count, 0, "flow must not be in completed_job — it's a zombie, not an error");
+
+        Ok(())
+    }
 }

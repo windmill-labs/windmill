@@ -78,6 +78,17 @@ use windmill_audit::ActionKind;
 use windmill_common::audit::AuditAuthor;
 use windmill_queue::{canceled_job_to_result, push};
 
+#[derive(Debug)]
+pub struct SchedulePushZombieError(pub String);
+
+impl std::fmt::Display for SchedulePushZombieError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::error::Error for SchedulePushZombieError {}
+
 /// Helper function to write itered data to separate table
 /// Returns None if data was written to separate table, Some(itered) if it should be stored in JSONB
 async fn write_itered_to_db(
@@ -2241,6 +2252,12 @@ pub async fn handle_flow(
                         ),
                     )
                     .await;
+                    return Err(SchedulePushZombieError(
+                        format!(
+                            "Could not push or disable schedule {} after retries",
+                            schedule.path
+                        ),
+                    ).into());
                 }
             }
         } else {
