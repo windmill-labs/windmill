@@ -15,25 +15,18 @@ use windmill_common::{
     DB,
 };
 
-use crate::{
-    resources::try_get_resource_from_db_as,
-    triggers::{
-        listener::ListeningTrigger,
-        postgres::{
-            drop_publication, get_default_pg_connection, get_raw_postgres_connection,
-            handler::drop_logical_replication_slot,
-            relation::RelationConverter,
-            replication_message::{
-                LogicalReplicationMessage::{
-                    Begin, Commit, Delete, Insert, Relation, Type, Update,
-                },
-                PrimaryKeepAliveBody, ReplicationMessage,
-            },
-            Postgres, PostgresConfig, PostgresTrigger, ERROR_PUBLICATION_NAME_NOT_EXISTS,
-        },
-        trigger_helpers::TriggerJobArgs,
-        Listener,
+use windmill_store::resources::try_get_resource_from_db_as;
+use windmill_trigger::{listener::ListeningTrigger, trigger_helpers::TriggerJobArgs, Listener};
+
+use super::{
+    drop_publication, get_default_pg_connection, get_raw_postgres_connection,
+    handler::drop_logical_replication_slot,
+    relation::RelationConverter,
+    replication_message::{
+        LogicalReplicationMessage::{Begin, Commit, Delete, Insert, Relation, Type, Update},
+        PrimaryKeepAliveBody, ReplicationMessage,
     },
+    Postgres, PostgresConfig, PostgresTrigger, ERROR_PUBLICATION_NAME_NOT_EXISTS,
 };
 
 const ERROR_REPLICATION_SLOT_NOT_EXISTS: &str = r#"The replication slot associated with this trigger no longer exists. Recreate a new replication slot or select an existing one in the advanced tab, or delete and recreate a new trigger"#;

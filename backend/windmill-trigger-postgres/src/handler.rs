@@ -16,20 +16,19 @@ use uuid;
 use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, Error, Result},
+    DB,
 };
 use windmill_git_sync::DeployedObject;
 
-use crate::{
-    db::{ApiAuthed, DB},
-    triggers::{postgres::PostgresTrigger, Trigger, TriggerCrud, TriggerData},
-};
+use windmill_api_auth::ApiAuthed;
+use windmill_trigger::{Trigger, TriggerCrud, TriggerData};
 
 use super::{
     check_if_valid_publication_for_postgres_version, create_logical_replication_slot,
     create_pg_publication, drop_publication, generate_random_string, get_default_pg_connection,
     mapper::{Mapper, MappingInfo},
-    PostgresConfig, PostgresConfigRequest, PostgresPublicationReplication, PublicationData,
-    Relations, Slot, SlotList, TableToTrack, TemplateScript, TestPostgresConfig,
+    PostgresConfig, PostgresConfigRequest, PostgresPublicationReplication, PostgresTrigger,
+    PublicationData, Relations, Slot, SlotList, TableToTrack, TemplateScript, TestPostgresConfig,
     ERROR_PUBLICATION_NAME_NOT_EXISTS,
 };
 
@@ -211,8 +210,8 @@ impl TriggerCrud for PostgresTrigger {
 
         sqlx::query!(
             r#"
-            UPDATE postgres_trigger 
-            SET 
+            UPDATE postgres_trigger
+            SET
                 postgres_resource_path = $1,
                 replication_slot_name = $2,
                 publication_name = $3,
@@ -227,7 +226,7 @@ impl TriggerCrud for PostgresTrigger {
                 error_handler_path = $11,
                 error_handler_args = $12,
                 retry = $13
-            WHERE 
+            WHERE
                 workspace_id = $9 AND path = $10
             "#,
             postgres_resource_path,
@@ -419,12 +418,12 @@ pub async fn list_slot_name(
     let rows = pg_connection
         .query(
             r#"
-            SELECT 
+            SELECT
                 slot_name,
                 active
             FROM
-                pg_replication_slots 
-            WHERE 
+                pg_replication_slots
+            WHERE
                 plugin = 'pgoutput' AND
                 slot_type = 'logical';
             "#,
@@ -467,11 +466,11 @@ pub async fn drop_logical_replication_slot(pg_connection: &Client, slot_name: &s
     let row = pg_connection
         .query_opt(
             r#"
-            SELECT 
-                active_pid 
-            FROM 
-                pg_replication_slots 
-            WHERE 
+            SELECT
+                active_pid
+            FROM
+                pg_replication_slots
+            WHERE
                 slot_name = $1
             "#,
             &[&slot_name],

@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [features]
 default = []
-private = ["windmill-audit/private", "windmill-common/private", "windmill-api-auth/private", "windmill-store/private", "windmill-trigger-kafka?/private"]
+private = ["windmill-audit/private", "windmill-common/private", "windmill-api-auth/private", "windmill-store/private", "windmill-trigger-kafka?/private", "windmill-trigger-postgres?/private"]
 enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker/enterprise", "windmill-api-auth/enterprise", "windmill-store/enterprise", "windmill-api-jobs/enterprise"]
 stripe = []
 agent_worker_server = []
@@ -31,7 +31,7 @@ zip = ["dep:async_zip"]
 oauth2 = ["dep:windmill-oauth", "windmill-store/oauth2"]
 http_trigger = ["dep:matchit", "dep:thiserror", "dep:sha1", "dep:constant_time_eq", "windmill-store/http_trigger"]
 static_frontend = ["dep:rust-embed"]
-postgres_trigger = ["dep:rust-postgres", "dep:pg_escape", "dep:byteorder", "dep:thiserror", "dep:rust_decimal", "dep:rust-postgres-native-tls", "windmill-store/postgres_trigger"]
+postgres_trigger = ["dep:windmill-trigger-postgres", "windmill-trigger-postgres/enterprise", "windmill-store/postgres_trigger"]
 mqtt_trigger = ["dep:thiserror", "dep:rumqttc", "windmill-store/mqtt_trigger"]
 native_trigger = ["dep:strum", "dep:backon", "oauth2"]
 sqs_trigger = ["dep:aws-sdk-sqs", "dep:aws-sdk-sts", "dep:aws-sdk-sso", "dep:aws-sdk-ssooidc", "dep:thiserror", "dep:backon", "dep:aws-config", "windmill-store/sqs_trigger"]
@@ -136,6 +136,7 @@ jsonwebtoken = { workspace = true }
 matchit = { workspace = true, optional = true }
 tokio-tungstenite = { workspace = true, optional = true}
 windmill-trigger-kafka = { workspace = true, optional = true }
+windmill-trigger-postgres = { workspace = true, optional = true }
 
 async-nats = { workspace = true, optional = true }
 nkeys = { workspace = true, optional = true }
@@ -145,12 +146,7 @@ http.workspace = true
 indexmap.workspace = true
 async-stream.workspace = true
 ulid.workspace = true
-rust-postgres = { workspace = true, optional = true }
-pg_escape = { workspace = true, optional = true }
-byteorder = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
-rust_decimal = { workspace = true, optional = true }
-rust-postgres-native-tls = { workspace = true, optional = true}
 rumqttc = { workspace = true, optional = true }
 aws-sdk-sqs = { workspace = true, optional = true }
 aws-sdk-sso = { workspace = true, optional = true }
