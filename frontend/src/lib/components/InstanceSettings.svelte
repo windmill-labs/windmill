@@ -258,12 +258,20 @@
 
 	const SENSITIVE_UNCHANGED = '__SENSITIVE_AND_UNCHANGED__'
 
-	const sensitiveKeys: Set<string> = new Set(
-		[...Object.values(settings), scimSamlSetting]
+	const sensitiveKeys: Set<string> = new Set([
+		...[...Object.values(settings), scimSamlSetting]
 			.flatMap((s) => Object.values(s))
 			.filter((s) => s.fieldType === 'password' || s.fieldType === 'license_key')
-			.map((s) => s.key)
-	)
+			.map((s) => s.key),
+		'jwt_secret'
+	])
+
+	// Settings that should never appear in YAML export/import
+	const excludedKeys: Set<string> = new Set([
+		'custom_instance_pg_databases',
+		'ducklake_settings',
+		'ducklake_user_pg_pwd'
+	])
 
 	function maskSensitive(obj: Record<string, any>): Record<string, any> {
 		const masked: Record<string, any> = {}
@@ -289,7 +297,12 @@
 	}
 
 	function buildYamlObject(): Record<string, any> {
-		const obj: Record<string, any> = { ...$values }
+		const obj: Record<string, any> = {}
+		for (const [key, value] of Object.entries($values)) {
+			if (!excludedKeys.has(key)) {
+				obj[key] = value
+			}
+		}
 		if (oauths && Object.keys(oauths).length > 0) {
 			obj['oauths'] = oauths
 		}
@@ -337,6 +350,13 @@
 			// Restore unchanged sensitive settings
 			for (const key of sensitiveKeys) {
 				if (key in parsed && parsed[key] === SENSITIVE_UNCHANGED) {
+					parsed[key] = $values[key]
+				}
+			}
+
+			// Preserve excluded keys from current form state
+			for (const key of excludedKeys) {
+				if (key in $values) {
 					parsed[key] = $values[key]
 				}
 			}

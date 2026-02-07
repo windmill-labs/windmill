@@ -566,7 +566,12 @@ pub const PROTECTED_SETTINGS: &[&str] = &[
     "ducklake_user_pg_pwd",
     "ducklake_settings",
     "custom_instance_pg_databases",
+    "uid",
+    "rsa_keys",
 ];
+
+/// Internal settings that are never exposed via the API or included in config exports.
+pub const HIDDEN_SETTINGS: &[&str] = &["uid", "rsa_keys"];
 
 /// Compute the diff between current and desired global settings.
 pub fn diff_global_settings(
@@ -686,7 +691,10 @@ impl InstanceConfig {
             sqlx::query_as("SELECT name, value FROM global_settings")
                 .fetch_all(db)
                 .await?;
-        let map: serde_json::Map<String, serde_json::Value> = rows.into_iter().collect();
+        let map: serde_json::Map<String, serde_json::Value> = rows
+            .into_iter()
+            .filter(|(name, _)| !HIDDEN_SETTINGS.contains(&name.as_str()))
+            .collect();
         let global_settings: GlobalSettings =
             serde_json::from_value(serde_json::Value::Object(map))?;
 
