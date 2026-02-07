@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [features]
 default = []
-private = ["windmill-audit/private", "windmill-common/private", "windmill-api-auth/private", "windmill-store/private", "windmill-trigger-kafka?/private", "windmill-trigger-postgres?/private"]
+private = ["windmill-audit/private", "windmill-common/private", "windmill-api-auth/private", "windmill-store/private", "windmill-trigger-kafka?/private", "windmill-trigger-postgres?/private", "windmill-trigger-mqtt?/private", "windmill-trigger-websocket?/private"]
 enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker/enterprise", "windmill-api-auth/enterprise", "windmill-store/enterprise", "windmill-api-jobs/enterprise"]
 stripe = []
 agent_worker_server = []
@@ -24,7 +24,7 @@ tantivy = ["dep:windmill-indexer"]
 kafka = ["dep:windmill-trigger-kafka", "windmill-trigger-kafka/enterprise", "windmill-store/kafka"]
 kafka-gssapi = ["kafka", "windmill-trigger-kafka/kafka-gssapi"]
 nats = ["dep:async-nats", "dep:nkeys", "windmill-store/nats"]
-websocket = ["dep:tokio-tungstenite"]
+websocket = ["dep:windmill-trigger-websocket", "windmill-trigger-websocket/enterprise"]
 smtp = ["dep:mail-parser", "dep:openssl", "windmill-common/smtp"]
 license = ["dep:rsa"]
 zip = ["dep:async_zip"]
@@ -32,7 +32,7 @@ oauth2 = ["dep:windmill-oauth", "windmill-store/oauth2"]
 http_trigger = ["dep:matchit", "dep:thiserror", "dep:sha1", "dep:constant_time_eq", "windmill-store/http_trigger"]
 static_frontend = ["dep:rust-embed"]
 postgres_trigger = ["dep:windmill-trigger-postgres", "windmill-trigger-postgres/enterprise", "windmill-store/postgres_trigger"]
-mqtt_trigger = ["dep:thiserror", "dep:rumqttc", "windmill-store/mqtt_trigger"]
+mqtt_trigger = ["dep:windmill-trigger-mqtt", "windmill-trigger-mqtt/enterprise", "windmill-store/mqtt_trigger"]
 native_trigger = ["dep:strum", "dep:backon", "oauth2"]
 sqs_trigger = ["dep:aws-sdk-sqs", "dep:aws-sdk-sts", "dep:aws-sdk-sso", "dep:aws-sdk-ssooidc", "dep:thiserror", "dep:backon", "dep:aws-config", "windmill-store/sqs_trigger"]
 deno_core = ["dep:deno_core", "dep:deno_error"]
@@ -134,9 +134,10 @@ object_store = { workspace = true, optional = true}
 openidconnect = { workspace = true, optional = true}
 jsonwebtoken = { workspace = true }
 matchit = { workspace = true, optional = true }
-tokio-tungstenite = { workspace = true, optional = true}
 windmill-trigger-kafka = { workspace = true, optional = true }
 windmill-trigger-postgres = { workspace = true, optional = true }
+windmill-trigger-mqtt = { workspace = true, optional = true }
+windmill-trigger-websocket = { workspace = true, optional = true }
 
 async-nats = { workspace = true, optional = true }
 nkeys = { workspace = true, optional = true }
@@ -147,7 +148,6 @@ indexmap.workspace = true
 async-stream.workspace = true
 ulid.workspace = true
 thiserror = { workspace = true, optional = true }
-rumqttc = { workspace = true, optional = true }
 aws-sdk-sqs = { workspace = true, optional = true }
 aws-sdk-sso = { workspace = true, optional = true }
 aws-sdk-ssooidc = { workspace = true, optional = true }

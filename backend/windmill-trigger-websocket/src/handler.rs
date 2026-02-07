@@ -1,20 +1,19 @@
 use std::borrow::Cow;
 
-use crate::{
-    db::{ApiAuthed, DB},
-    triggers::{Trigger, TriggerCrud, TriggerData},
-};
 use axum::async_trait;
 use itertools::Itertools;
 use serde_json::value::RawValue;
 use sqlx::{types::Json as SqlxJson, PgConnection};
 use tokio_tungstenite::connect_async;
+use windmill_api_auth::ApiAuthed;
+use windmill_common::DB;
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
     worker::to_raw_value,
 };
 use windmill_git_sync::DeployedObject;
+use windmill_trigger::{Trigger, TriggerCrud, TriggerData};
 
 use super::{
     get_url_from_runnable_value, TestWebsocketConfig, WebsocketConfig, WebsocketConfigRequest,
@@ -167,7 +166,7 @@ impl TriggerCrud for WebsocketTrigger {
         // important to update server_id to NULL to stop current websocket listener
         sqlx::query!(
             "
-        UPDATE 
+        UPDATE
             websocket_trigger
         SET
             url = $1,

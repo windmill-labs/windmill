@@ -1,16 +1,15 @@
-use crate::{
-    db::{ApiAuthed, DB},
-    resources::try_get_resource_from_db_as,
-    triggers::{Trigger, TriggerCrud, TriggerData},
-};
 use axum::async_trait;
 use itertools::Itertools;
 use sqlx::{types::Json as SqlxJson, PgConnection};
+use windmill_api_auth::ApiAuthed;
+use windmill_common::DB;
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
 };
 use windmill_git_sync::DeployedObject;
+use windmill_store::resources::try_get_resource_from_db_as;
+use windmill_trigger::{Trigger, TriggerCrud, TriggerData};
 
 use super::{
     MqttClientBuilder, MqttClientVersion, MqttConfig, MqttConfigRequest, MqttResource, MqttTrigger,
@@ -92,16 +91,16 @@ impl TriggerCrud for MqttTrigger {
                 v3_config,
                 v5_config,
                 workspace_id,
-                path, 
-                script_path, 
-                is_flow, 
-                email, 
-                mode, 
+                path,
+                script_path,
+                is_flow,
+                email,
+                mode,
                 edited_by,
                 error_handler_path,
                 error_handler_args,
                 retry
-            ) 
+            )
             VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
             )"#,
@@ -149,8 +148,8 @@ impl TriggerCrud for MqttTrigger {
         // Important to set server_id to NULL to stop current mqtt listener
         sqlx::query!(
             r#"
-            UPDATE 
-                mqtt_trigger 
+            UPDATE
+                mqtt_trigger
             SET
                 mqtt_resource_path = $1,
                 subscribe_topics = $2,
@@ -158,19 +157,19 @@ impl TriggerCrud for MqttTrigger {
                 client_id = $4,
                 v3_config = $5,
                 v5_config = $6,
-                is_flow = $7, 
-                edited_by = $8, 
+                is_flow = $7,
+                edited_by = $8,
                 email = $9,
                 script_path = $10,
                 path = $11,
-                edited_at = now(), 
+                edited_at = now(),
                 error = NULL,
                 server_id = NULL,
                 error_handler_path = $14,
                 error_handler_args = $15,
                 retry = $16
-            WHERE 
-                workspace_id = $12 AND 
+            WHERE
+                workspace_id = $12 AND
                 path = $13
             "#,
             trigger.config.mqtt_resource_path,

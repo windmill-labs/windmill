@@ -1,14 +1,4 @@
-use super::WebsocketTrigger;
-use crate::triggers::{
-    filter::{is_value_superset, Filter, JsonFilter},
-    listener::ListeningTrigger,
-    trigger_helpers::{
-        trigger_runnable, trigger_runnable_and_wait_for_raw_result,
-        trigger_runnable_and_wait_for_raw_result_with_error_ctx, TriggerJobArgs,
-    },
-    websocket::{get_url_from_runnable_value, WebsocketConfig},
-    Listener,
-};
+use super::{get_url_from_runnable_value, WebsocketConfig, WebsocketTrigger};
 use anyhow::Context;
 use async_trait::async_trait;
 use futures::{stream::SplitSink, SinkExt, StreamExt};
@@ -28,6 +18,13 @@ use windmill_common::{
     DB,
 };
 use windmill_queue::PushArgsOwned;
+use windmill_trigger::filter::{is_value_superset, Filter, JsonFilter};
+use windmill_trigger::listener::ListeningTrigger;
+use windmill_trigger::trigger_helpers::{
+    trigger_runnable, trigger_runnable_and_wait_for_raw_result,
+    trigger_runnable_and_wait_for_raw_result_with_error_ctx, TriggerJobArgs,
+};
+use windmill_trigger::Listener;
 
 async fn send_initial_messages(
     listening_trigger: &ListeningTrigger<WebsocketConfig>,

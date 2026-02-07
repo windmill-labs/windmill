@@ -14,6 +14,8 @@ members = [
     "./windmill-trigger",
     "./windmill-trigger-kafka",
     "./windmill-trigger-postgres",
+    "./windmill-trigger-mqtt",
+    "./windmill-trigger-websocket",
     "./windmill-store",
     "./windmill-queue",
     "./windmill-worker",
@@ -240,6 +242,8 @@ windmill-api-jobs = { path = "./windmill-api-jobs" }
 windmill-trigger = { path = "./windmill-trigger" }
 windmill-trigger-kafka = { path = "./windmill-trigger-kafka" }
 windmill-trigger-postgres = { path = "./windmill-trigger-postgres" }
+windmill-trigger-mqtt = { path = "./windmill-trigger-mqtt" }
+windmill-trigger-websocket = { path = "./windmill-trigger-websocket" }
 windmill-store = { path = "./windmill-store" }
 windmill-parser = { path = "./parsers/windmill-parser" }
 windmill-parser-ts = { path = "./parsers/windmill-parser-ts" }
