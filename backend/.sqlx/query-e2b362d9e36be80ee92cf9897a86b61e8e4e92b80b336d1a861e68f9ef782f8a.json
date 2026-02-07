@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT EXISTS(\n                SELECT 1\n                FROM email_trigger\n                WHERE\n                     workspace_id = $1\n                    AND local_part = $2\n                    AND ($3::TEXT IS NULL OR path != $3)\n            )\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "e2b362d9e36be80ee92cf9897a86b61e8e4e92b80b336d1a861e68f9ef782f8a"
+}
