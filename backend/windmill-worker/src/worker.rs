@@ -17,6 +17,8 @@ use tokio::time::timeout;
 use windmill_common::client::AuthedClient;
 use windmill_common::jobs::WorkerInternalServerInlineUtils;
 use windmill_common::jobs::WORKER_INTERNAL_SERVER_INLINE_UTILS;
+use windmill_common::runtime_assets::init_runtime_asset_loop;
+use windmill_common::runtime_assets::register_runtime_asset;
 use windmill_common::scripts::hash_to_codebase_id;
 use windmill_common::scripts::is_special_codebase_hash;
 use windmill_common::utils::report_critical_error;
@@ -244,7 +246,7 @@ pub const DEFAULT_SLEEP_QUEUE: u64 = 50;
 // only 1 native job so that we don't have to worry about concurrency issues on non dedicated native jobs workers
 pub const DEFAULT_NATIVE_JOBS: usize = 1;
 
-const VACUUM_PERIOD: u32 = 50000;
+const VACUUM_PERIOD: u32 = 10000;
 
 // #[cfg(any(target_os = "linux"))]
 // const DROP_CACHE_PERIOD: u32 = 1000;
@@ -484,7 +486,8 @@ lazy_static::lazy_static! {
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     tracing::warn!(
                         "nsjail test failed: {}. Jobs will run without nsjail sandboxing. \
-                        To enable nsjail: install nsjail binary or use windmill image with -nsjail suffix",
+                        nsjail should be included in all standard windmill images. \
+                        Check that the nsjail binary is installed and working correctly.",
                         stderr.trim()
                     );
                     None
@@ -493,7 +496,8 @@ lazy_static::lazy_static! {
                     if e.kind() == std::io::ErrorKind::NotFound {
                         tracing::warn!(
                             "nsjail not found at '{}'. Jobs will run without nsjail sandboxing. \
-                            To enable nsjail: install nsjail binary or use windmill image with -nsjail suffix",
+                            nsjail should be included in all standard windmill images. \
+                            Check that the nsjail binary is installed at the expected path.",
                             nsjail_path
                         );
                     } else {
@@ -1088,7 +1092,7 @@ pub async fn handle_all_job_kind_error(
     }
 }
 
-pub fn start_interactive_worker_shell(
+fn start_interactive_worker_shell(
     conn: Connection,
     hostname: String,
     worker_name: String,
@@ -1531,7 +1535,11 @@ pub async fn run_worker(
 
     let is_dedicated_worker: bool = {
         let config = WORKER_CONFIG.read().await;
-        config.dedicated_worker.is_some() || config.dedicated_workers.as_ref().is_some_and(|dws| !dws.is_empty())
+        config.dedicated_worker.is_some()
+            || config
+                .dedicated_workers
+                .as_ref()
+                .is_some_and(|dws| !dws.is_empty())
     };
 
     #[cfg(feature = "benchmark")]
@@ -1662,12 +1670,15 @@ pub async fn run_worker(
     ) = (HashMap::new(), HashSet::new(), vec![]);
 
     if i_worker == 1 {
+        // Initialize runtime asset inserter for batched database inserts
+        if let Connection::Sql(db) = conn {
+            init_runtime_asset_loop(db.clone(), killpill_rx.resubscribe());
+        }
         if let Err(e) = queue_init_bash_maybe(conn, same_worker_tx.clone(), &worker_name).await {
             killpill_tx.send();
             tracing::error!(worker = %worker_name, hostname = %hostname, "Error queuing init bash script for worker {worker_name}: {e:#}");
             return;
         }
-
         spawn_periodic_script_task(
             worker_name.clone(),
             conn.clone(),
@@ -2040,7 +2051,9 @@ pub async fn run_worker(
                                 dedicated_workers.get(&key)
                             })
                         } else {
-                            job.runnable_path.as_ref().and_then(|path| dedicated_workers.get(path))
+                            job.runnable_path
+                                .as_ref()
+                                .and_then(|path| dedicated_workers.get(path))
                         };
                         if let Some(dedicated_worker_tx) = dedicated_worker_tx {
                             let dedicated_job = DedicatedWorkerJob {
@@ -2739,6 +2752,41 @@ pub struct PreviousResult<'a> {
     pub previous_result: Option<&'a RawValue>,
 }
 
+/// Detects and stores runtime assets from job arguments.
+/// This function is called when a job starts executing to track which assets
+/// are passed as inputs to the job at runtime.
+async fn detect_and_store_runtime_assets_from_job_args(
+    workspace_id: &str,
+    job_id: &Uuid,
+    Json(args_map): &Json<HashMap<String, Box<RawValue>>>,
+    job_kind: &JobKind,
+) {
+    match job_kind {
+        JobKind::Script_Hub | JobKind::Script | JobKind::Flow => {}
+        _ => return,
+    }
+
+    let runtime_assets =
+        windmill_common::runtime_assets::extract_runtime_assets_from_args(args_map);
+    if runtime_assets.is_empty() {
+        return;
+    }
+
+    // Store each detected runtime asset
+    for asset in runtime_assets {
+        let asset = windmill_common::runtime_assets::InsertRuntimeAssetParams {
+            workspace_id: workspace_id.to_string(),
+            job_id: *job_id,
+            asset_path: asset.path,
+            asset_kind: asset.kind,
+            access_type: None,
+            created_at: None,
+            columns: None,
+        };
+        register_runtime_asset(asset);
+    }
+}
+
 pub async fn handle_queued_job(
     job: Arc<MiniPulledJob>,
     raw_code: Option<String>,
@@ -2999,6 +3047,17 @@ pub async fn handle_queued_job(
         );
         append_logs(&job.id, &job.workspace_id, logs, conn).await;
 
+        // Extract and store runtime assets from job arguments
+        if let (Connection::Sql(_), Some(args_json)) = (conn, &job.args) {
+            detect_and_store_runtime_assets_from_job_args(
+                &job.workspace_id,
+                &job.id,
+                args_json,
+                &job.kind,
+            )
+            .await;
+        }
+
         let mut column_order: Option<Vec<String>> = None;
         let mut new_args: Option<HashMap<String, Box<RawValue>>> = None;
         let mut has_stream = false;
@@ -3126,8 +3185,10 @@ pub async fn handle_queued_job(
 
                 // Set job context for OTEL tracing before entering handle_code_execution_job's span
                 #[cfg(all(feature = "private", feature = "enterprise"))]
-                if matches!(job.script_lang, Some(ScriptLang::Nativets) | Some(ScriptLang::Bunnative))  
-                    && is_otel_tracing_proxy_enabled_for_lang(&ScriptLang::Nativets).await
+                if matches!(
+                    job.script_lang,
+                    Some(ScriptLang::Nativets) | Some(ScriptLang::Bunnative)
+                ) && is_otel_tracing_proxy_enabled_for_lang(&ScriptLang::Nativets).await
                 {
                     crate::otel_tracing_proxy_ee::set_current_job_context(job.id).await;
                 }

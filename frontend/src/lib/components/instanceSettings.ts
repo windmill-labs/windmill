@@ -314,7 +314,7 @@ export const settings: Record<string, Setting[]> = {
 			label: 'UV index url',
 			description: 'Add private Pip registry',
 			key: 'pip_index_url',
-			fieldType: 'text',
+			fieldType: 'password',
 			placeholder: 'https://username:password@pypi.company.com/simple',
 			storage: 'setting',
 			ee_only: ''
@@ -323,7 +323,7 @@ export const settings: Record<string, Setting[]> = {
 			label: 'UV extra index url',
 			description: 'Add private extra Pip registry',
 			key: 'pip_extra_index_url',
-			fieldType: 'text',
+			fieldType: 'password',
 			placeholder: 'https://username:password@pypi.company.com/simple',
 			storage: 'setting',
 			ee_only: ''
@@ -332,7 +332,7 @@ export const settings: Record<string, Setting[]> = {
 			label: 'Npm config registry',
 			description: 'Add private npm registry',
 			key: 'npm_config_registry',
-			fieldType: 'text',
+			fieldType: 'password',
 			placeholder: 'https://registry.npmjs.org/:_authToken=npm_FOOBAR',
 			storage: 'setting',
 			ee_only: ''
@@ -342,7 +342,7 @@ export const settings: Record<string, Setting[]> = {
 			description:
 				'Add private scoped registries for Bun, See: https://bun.sh/docs/install/registries',
 			key: 'bunfig_install_scopes',
-			fieldType: 'text',
+			fieldType: 'password',
 			placeholder: '"@myorg3" = { token = "mytoken", url = "https://registry.myorg.com/" }',
 			storage: 'setting',
 			ee_only: ''
@@ -360,7 +360,7 @@ export const settings: Record<string, Setting[]> = {
 			label: 'Maven/Ivy repositories',
 			description: 'Add private Maven/Ivy repositories',
 			key: 'maven_repos',
-			fieldType: 'text',
+			fieldType: 'password',
 			placeholder: 'https://user:password@artifacts.foo.com/maven',
 			storage: 'setting',
 			ee_only: ''
@@ -377,7 +377,7 @@ export const settings: Record<string, Setting[]> = {
 			label: 'Ruby Gems repositories',
 			description: 'Add private Ruby repositories with credentials. Should end with /',
 			key: 'ruby_repos',
-			fieldType: 'text',
+			fieldType: 'password',
 			placeholder: 'https://user:password@gems.foo.com/',
 			storage: 'setting',
 			ee_only: ''
@@ -394,7 +394,8 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'PowerShell Repository PAT',
-			description: 'Add private PowerShell repository Personal Access Token',
+			description:
+				'Add private PowerShell repository Personal Access Token (optional, for authenticated repositories)',
 			key: 'powershell_repo_pat',
 			fieldType: 'password',
 			storage: 'setting',

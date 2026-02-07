@@ -29,7 +29,13 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { ResourceType, WorkspaceDeployUISettings } from '$lib/gen'
 	import { OauthService, ResourceService, WorkspaceService, type ListableResource } from '$lib/gen'
-	import { enterpriseLicense, userStore, workspaceStore, userWorkspaces } from '$lib/stores'
+	import {
+		enterpriseLicense,
+		userStore,
+		workspaceStore,
+		userWorkspaces,
+		globalDbManagerDrawer
+	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import {
 		canWrite,
@@ -65,7 +71,6 @@
 	import ExploreAssetButton, {
 		assetCanBeExplored
 	} from '../../../../lib/components/ExploreAssetButton.svelte'
-	import DbManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
 
 	type ResourceW = ListableResource & { canWrite: boolean; marked?: string }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
@@ -473,7 +478,7 @@
 		}
 	})
 
-	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
+	let dbManagerDrawer = $derived(globalDbManagerDrawer.val)
 
 	let filterUserFolders = $state(false)
 	let filterUserFoldersType: 'only f/*' | 'u/username and f/*' | undefined = $derived(
@@ -561,11 +566,16 @@
 <Drawer bind:this={editResourceTypeDrawer} size="800px">
 	<DrawerContent title="Edit resource type" on:close={editResourceTypeDrawer.closeDrawer}>
 		{#snippet actions()}
-			<Button startIcon={{ icon: Save }} on:click={updateResourceType}>Update</Button>
+			<Button
+				startIcon={{ icon: Save }}
+				on:click={updateResourceType}
+				unifiedSize="md"
+				variant="accent">Update</Button
+			>
 		{/snippet}
 		<div class="flex flex-col gap-6">
 			<label for="inp">
-				<div class="mb-1 font-semibold text-secondary gap-1 flex flex-row items-center"
+				<div class="mb-1 font-semibold text-emphasis text-xs gap-1 flex flex-row items-center"
 					>Name
 					<div class="flex flex-row items-center gap-x-4">
 						<div class="flex flex-row items-center">
@@ -583,7 +593,7 @@
 				</div></label
 			>
 			<label>
-				<div class="mb-1 font-semibold text-secondary">Description</div>
+				<div class="mb-1 font-semibold text-emphasis text-xs">Description</div>
 				<textarea use:autosize autocomplete="off" bind:value={editResourceType.description}
 				></textarea></label
 			>
@@ -597,7 +607,7 @@
 						contains a `content` field and thus cannot be edited.
 					</Alert>
 				{:else}
-					<div class="mb-1 font-semibold text-secondary">Schema</div>
+					<div class="mb-1 font-semibold text-emphasis text-xs">Schema</div>
 					<div class="flex flex-col gap-2">
 						<EditableSchemaWrapper bind:schema={editResourceType.schema} noPreview />
 					</div>
@@ -611,6 +621,8 @@
 	<DrawerContent title="Create resource type" on:close={resourceTypeDrawer.closeDrawer}>
 		{#snippet actions()}
 			<Button
+				unifiedSize="md"
+				variant="accent"
 				startIcon={{ icon: Save }}
 				on:click={addResourceType}
 				disabled={!isNewResourceTypeNameValid || resourceTypeNameExists}>Save</Button
@@ -618,7 +630,7 @@
 		{/snippet}
 		<div class="flex flex-col gap-6">
 			<label for="inp">
-				<div class="mb-1 font-semibold text-secondary gap-1 flex flex-row items-center"
+				<div class="mb-1 font-semibold text-emphasis text-xs gap-1 flex flex-row items-center"
 					>Name<Required required={true} /><Tooltip>
 						Resource types are synchronized with the official types on the hub regularly. The `c_`
 						prefix is to avoid name clashes with them.
@@ -665,17 +677,17 @@
 				{/if}
 			</label>
 			<label>
-				<div class="mb-1 font-semibold text-secondary">Description</div>
+				<div class="mb-1 font-semibold text-emphasis text-xs">Description</div>
 				<textarea use:autosize autocomplete="off" bind:value={newResourceType.description}
 				></textarea></label
 			>
 			<div>
-				<div class="flex justify-between w-full items-center">
-					<div class="mb-1 font-semibold text-secondary">Schema</div>
-					<div class="mb-2 w-full flex flex-row-reverse">
+				<div class="flex justify-between w-full items-center mb-1">
+					<div class="font-semibold text-emphasis text-xs">Schema</div>
+					<div class="w-full flex flex-row-reverse">
 						<Button
 							on:click={openInferrer}
-							size="sm"
+							unifiedSize="md"
 							variant="default"
 							startIcon={{ icon: Braces }}
 						>
@@ -683,12 +695,15 @@
 						</Button>
 					</div>
 				</div>
+
+				<div class="flex flex-col gap-2">
+					<EditableSchemaWrapper
+						bind:schema={newResourceType.schema}
+						bind:formatExtension={newResourceType.formatExtension}
+						fullHeight
+					/>
+				</div>
 			</div>
-			<EditableSchemaWrapper
-				bind:schema={newResourceType.schema}
-				bind:formatExtension={newResourceType.formatExtension}
-				fullHeight
-			/>
 		</div>
 	</DrawerContent>
 </Drawer>
@@ -1160,7 +1175,6 @@
 <SupabaseConnect bind:this={supabaseConnect} on:refresh={loadResources} />
 <AppConnect bind:this={appConnect} on:refresh={loadResources} />
 <ResourceEditorDrawer bind:this={resourceEditor} on:refresh={loadResources} />
-<DbManagerDrawer bind:this={dbManagerDrawer} />
 
 <ShareModal
 	bind:this={shareModal}

@@ -9,6 +9,7 @@
 		small?: boolean
 		href?: string
 		rounded?: boolean
+		roundedFull?: boolean
 		dismissable?: boolean
 		wrapperClass?: string
 		baseClass?: string
@@ -30,9 +31,10 @@
 		small = false,
 		href = '',
 		rounded = false,
+		roundedFull = false,
 		dismissable = false,
 		wrapperClass = '',
-		baseClass = 'text-center text-primary font-normal min-h-5',
+		baseClass = 'text-center text-primary font-normal',
 		capitalize = false,
 		icon = undefined,
 		verySmall = false,
@@ -109,7 +111,7 @@
 	let badgeClass = $derived(
 		twMerge(
 			baseClass,
-			small ? 'text-2xs' : verySmall ? 'text-2xs' : large ? 'text-xs' : 'text-2xs',
+			small ? 'text-2xs' : verySmall ? 'text-2xs' : large ? 'text-sm' : 'text-2xs',
 			selected ? selectedColors[color] : colors[color],
 			clickable &&
 				!selected &&
@@ -117,9 +119,13 @@
 					? hovers[color.replace(ColorModifier, '')]
 					: hovers[color]),
 
-			rounded ? 'rounded-full px-2 py-1' : 'rounded-md px-2 py-0.5',
+			roundedFull
+				? 'rounded-full p-2 w-fit h-fit'
+				: rounded
+					? 'rounded-full px-2 py-1'
+					: 'rounded-md px-2 py-0.5',
 			verySmall ? 'px-0.5 py-0.5' : '',
-			'flex flex-row gap-1 items-center',
+			'flex flex-row gap-1 items-center justify-center',
 			classNames
 		)
 	)

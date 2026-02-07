@@ -35,7 +35,7 @@ export type FlowStatusViewerContext = {
 	hideTimeline?: boolean
 	hideNodeDefinition?: boolean
 	hideJobId?: boolean
-	hideDownloadLogs
+	hideDownloadLogs?: boolean
 }
 
 export type GraphModuleState = {

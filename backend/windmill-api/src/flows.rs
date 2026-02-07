@@ -32,11 +32,12 @@ use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres, Transaction};
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
-use windmill_common::runnable_settings::RunnableSettingsTrait;
-use windmill_common::utils::query_elems_from_hub;
+use windmill_common::assets::{clear_static_asset_usage, AssetUsageKind};
 use windmill_common::min_version::{
     MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
 };
+use windmill_common::runnable_settings::RunnableSettingsTrait;
+use windmill_common::utils::query_elems_from_hub;
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::HUB_BASE_URL;
 use windmill_common::{
@@ -472,12 +473,14 @@ async fn create_flow(
         workspace_id, path, summary, description,
         dependency_job, lock_error_logs, draft_only, tag,
         dedicated_worker, visible_to_runner_only, on_behalf_of_email,
+        ws_error_handler_muted,
         value, schema, edited_by, edited_at
     ) VALUES (
         $1, $2, $3, $4,
         NULL, '', $5, $6,
         $7, $8, $9,
-        $10, $11::text::json, $12, now()
+        $10,
+        $11, $12::text::json, $13, now()
     )"#,
         w_id,
         nf.path,
@@ -488,6 +491,7 @@ async fn create_flow(
         nf.dedicated_worker,
         nf.visible_to_runner_only.unwrap_or(false),
         nf.on_behalf_of_email.and(Some(&authed.email)),
+        nf.ws_error_handler_muted.unwrap_or(false),
         sqlx::types::Json(&nf.value) as _,
         schema_str,
         &authed.username,
@@ -896,12 +900,13 @@ async fn update_flow(
             dedicated_worker = $5,
             visible_to_runner_only = $6,
             on_behalf_of_email = $7,
-            value = $8,
-            schema = $9::text::json,
-            edited_by = $10,
+            ws_error_handler_muted = $8,
+            value = $9,
+            schema = $10::text::json,
+            edited_by = $11,
             edited_at = now()
         WHERE
-            path = $11 AND workspace_id = $12",
+            path = $12 AND workspace_id = $13",
         if is_new_path { flow_path } else { &nf.path },
         nf.summary,
         nf.description.as_deref().unwrap_or(""),
@@ -909,6 +914,7 @@ async fn update_flow(
         nf.dedicated_worker,
         nf.visible_to_runner_only.unwrap_or(false),
         nf.on_behalf_of_email.and(Some(&authed.email)),
+        nf.ws_error_handler_muted.unwrap_or(false),
         sqlx::types::Json(&nf.value) as _,
         schema_str,
         authed.username,
@@ -1432,13 +1438,7 @@ async fn archive_flow_by_path(
     .execute(&mut *tx)
     .await?;
 
-    sqlx::query!(
-        "DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'flow' AND usage_path = $2",
-        &w_id,
-        path
-    )
-    .execute(&mut *tx)
-    .await?;
+    clear_static_asset_usage(&mut *tx, &w_id, path, AssetUsageKind::Flow).await?;
 
     audit_log(
         &mut *tx,

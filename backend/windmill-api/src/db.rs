@@ -64,6 +64,19 @@ lazy_static::lazy_static! {
                     (20260126235947, include_str!(
                         "../../custom_migrations/lowercase_emails_safe.sql"
                     ).to_string()),
+                    (20260206000000, "".to_string()),
+                    (20260207000001, include_str!(
+                        "../../migrations/20260207000001_concurrent_indexes_v2_job.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
+                    (20260207000002, include_str!(
+                        "../../migrations/20260207000002_concurrent_indexes_v2_job_completed.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
+                    (20260207000003, include_str!(
+                        "../../migrations/20260207000003_concurrent_indexes_v2_job_queue.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
+                    (20260207000004, include_str!(
+                        "../../migrations/20260207000004_concurrent_indexes_other.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
                     ].into_iter().collect();
 }
 
@@ -177,11 +190,31 @@ impl Migrate for CustomMigrator {
 
             if let Some(migration_sql) = OVERRIDDEN_MIGRATIONS.get(&migration.version) {
                 tracing::info!("Using custom migration for version {}", migration.version);
-                // tracing::info!("Migration SQL: {}", migration_sql);
 
-                self.inner
-                    .execute(&**migration_sql)
-                    .await?;
+                if migration_sql.contains("CONCURRENTLY") {
+                    // CONCURRENTLY operations cannot run inside a transaction block
+                    // or a multi-statement query (PostgreSQL requires top-level execution).
+                    // Split into individual statements and execute each separately.
+                    for stmt in migration_sql.split(';') {
+                        let stmt = stmt.trim();
+                        if !stmt.is_empty()
+                            && stmt.lines().any(|l| {
+                                let t = l.trim();
+                                !t.is_empty() && !t.starts_with("--")
+                            })
+                        {
+                            let summary: String = stmt.lines()
+                                .filter(|l| !l.trim().is_empty() && !l.trim().starts_with("--"))
+                                .collect::<Vec<_>>()
+                                .join(" ");
+                            tracing::info!("Executing: {summary}");
+                            self.inner.execute(stmt).await?;
+                            tracing::info!("Done: {summary}");
+                        }
+                    }
+                } else if !migration_sql.is_empty() {
+                    self.inner.execute(&**migration_sql).await?;
+                }
                 let _ = sqlx::query(
                     r#"
                 INSERT INTO _sqlx_migrations ( version, description, success, checksum, execution_time )
@@ -224,7 +257,8 @@ pub async fn migrate(
     if let Err(err) = sqlx::query!(
         "DELETE FROM _sqlx_migrations WHERE
         version=20250131115248 OR version=20250902085503 OR version=20250201145630 OR
-        version=20250201145631 OR version=20250201145632 OR version=20251006143821"
+        version=20250201145631 OR version=20250201145632 OR version=20251006143821 OR
+        version=20260207000001 OR version=20260207000002 OR version=20260207000003 OR version=20260207000004"
     )
     .execute(db)
     .await
@@ -256,6 +290,12 @@ pub async fn migrate(
 
     crate::live_migrations::custom_migrations(&mut custom_migrator, db).await?;
     Ok(None)
+}
+
+#[derive(Default, Clone, Debug)]
+pub struct OptJobAuthed {
+    pub job_id: Option<uuid::Uuid>,
+    pub authed: ApiAuthed,
 }
 
 #[derive(Clone, Debug, Default, Hash, Eq, PartialEq)]

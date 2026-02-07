@@ -317,8 +317,9 @@ export function extractFieldsForRawApps(runnables: Record<string, any>) {
 }
 
 /**
- * Generates AGENTS.md - the main documentation file for AI agents working with raw apps.
- * This includes app structure, backend runnables, datatables usage, and all critical rules.
+ * Generates AGENTS.md - app-specific configuration for AI agents working with raw apps.
+ * References the raw-app skill for complete documentation and includes instance-specific
+ * data configuration (datatable, schema, whitelisted tables).
  */
 export function generateAgentsDocumentation(data: {
   tables?: string[];
@@ -331,146 +332,13 @@ export function generateAgentsDocumentation(data: {
 
   return `# AI Agent Instructions
 
-This file contains instructions for AI agents (Claude, GPT, etc.) working with this Windmill raw app.
-**Read this file first** before making any changes to the app.
+For complete raw app documentation (app structure, backend runnables, datatables, SQL migrations), use the \`raw-app\` skill.
 
-## App Structure
-
-\`\`\`
-my_app.raw_app/
-├── AGENTS.md              # This file - read first!
-├── DATATABLES.md          # Database schemas (run 'wmill app generate-agents' to refresh)
-├── raw_app.yaml           # App configuration (summary, path, data settings)
-├── index.tsx              # Frontend entry point
-├── App.tsx                # Main React/Svelte/Vue component
-├── index.css              # Styles
-├── package.json           # Frontend dependencies
-├── wmill.ts               # Auto-generated - backend type definitions (DO NOT EDIT)
-├── backend/               # Backend runnables (server-side scripts)
-│   ├── <id>.<ext>         # Code file (e.g., get_user.ts) - auto-detected as inline
-│   ├── <id>.yaml          # Optional: config for fields, or to reference existing scripts
-│   └── <id>.lock          # Lock file (run 'wmill app generate-locks' to create)
-└── sql_to_apply/          # SQL migrations (dev only, not synced)
-    └── *.sql              # SQL files to apply via dev server
-\`\`\`
-
-## Backend Runnables
-
-Backend runnables are server-side scripts that your frontend can call. They live in the \`backend/\` folder.
-
-### Creating a Backend Runnable
-
-The simplest way to create a runnable is to add a code file:
-
-\`\`\`
-backend/<id>.<ext>
-\`\`\`
-
-The runnable ID is the filename without extension. For example, \`get_user.ts\` creates a runnable with ID \`get_user\`.
-
-**Optional:** Add a \`<id>.yaml\` file for additional configuration (fields, static values, etc.).
-
-### Supported Languages and Extensions
-
-| Language    | Extension      | Example            |
-|-------------|----------------|--------------------|
-| TypeScript  | \`.ts\`        | \`myFunc.ts\`      |
-| TypeScript (Bun) | \`.bun.ts\` | \`myFunc.bun.ts\` |
-| TypeScript (Deno) | \`.deno.ts\` | \`myFunc.deno.ts\` |
-| Python      | \`.py\`        | \`myFunc.py\`      |
-| Go          | \`.go\`        | \`myFunc.go\`      |
-| Bash        | \`.sh\`        | \`myFunc.sh\`      |
-| PowerShell  | \`.ps1\`       | \`myFunc.ps1\`     |
-| PostgreSQL  | \`.pg.sql\`    | \`myFunc.pg.sql\`  |
-| MySQL       | \`.my.sql\`    | \`myFunc.my.sql\`  |
-| BigQuery    | \`.bq.sql\`    | \`myFunc.bq.sql\`  |
-| Snowflake   | \`.sf.sql\`    | \`myFunc.sf.sql\`  |
-| MS SQL      | \`.ms.sql\`    | \`myFunc.ms.sql\`  |
-| GraphQL     | \`.gql\`       | \`myFunc.gql\`     |
-| PHP         | \`.php\`       | \`myFunc.php\`     |
-| Rust        | \`.rs\`        | \`myFunc.rs\`      |
-| C#          | \`.cs\`        | \`myFunc.cs\`      |
-| Java        | \`.java\`      | \`myFunc.java\`    |
-
-### Example: Creating a Runnable
-
-**backend/get_user.ts:**
-\`\`\`typescript
-import * as wmill from 'windmill-client';
-
-export async function main(user_id: string) {
-  const sql = wmill.datatable();
-  const user = await sql\`SELECT * FROM users WHERE id = \${user_id}\`.fetchOne();
-  return user;
-}
-\`\`\`
-
-That's it! The runnable is automatically detected and ready to use.
-
-**Generate lock files** for dependency management:
-\`\`\`bash
-wmill app generate-locks
-\`\`\`
-
-### Optional: YAML Configuration
-
-Add a \`<id>.yaml\` file to configure fields, static values, or other settings:
-
-**backend/get_user.yaml:**
-\`\`\`yaml
-type: inline
-fields:
-  user_id:
-    type: static
-    value: "default_user"
-\`\`\`
-
-### Referencing Existing Scripts
-
-To reference an existing Windmill script instead of inline code, use a different type:
-
-**backend/existing_script.yaml:**
-\`\`\`yaml
-type: script
-path: f/my_folder/existing_script
-\`\`\`
-
-For flows:
-\`\`\`yaml
-type: flow
-path: f/my_folder/my_flow
-\`\`\`
-
-### Calling Backend Runnables from Frontend
-
-Import from the auto-generated \`wmill.ts\`:
-
-\`\`\`typescript
-import { backend } from './wmill';
-
-// Call a backend runnable
-const user = await backend.get_user({ user_id: '123' });
-\`\`\`
-
-The \`wmill.ts\` file is auto-generated and provides type-safe access to all backend runnables.
+This file contains **app-specific configuration** for this raw app instance.
 
 ---
 
-## ⚠️ CRITICAL RULES FOR DATA TABLES
-
-**These rules are mandatory - violating them will cause runtime errors:**
-
-1. **ONLY USE WHITELISTED TABLES**: You can ONLY query tables listed in \`raw_app.yaml\` → \`data.tables\`.
-   Tables not in this list are NOT accessible to the app.
-
-2. **ADD TABLES BEFORE USING**: To use a new table, you MUST first add it to \`data.tables\` in \`raw_app.yaml\`.
-
-3. **USE CONFIGURED DATATABLE/SCHEMA**: When looking for tables:
-   - First, check the whitelisted tables below
-   - If creating new tables, use the default datatable${defaultSchema ? ` and schema` : ''} configured for this app
-   - See \`DATATABLES.md\` for full schema information
-
-### Current Data Configuration
+## Data Configuration
 
 ${defaultDatatable
   ? `**Default Datatable:** \`${defaultDatatable}\`${defaultSchema ? ` | **Default Schema:** \`${defaultSchema}\`` : ''}`
@@ -482,7 +350,7 @@ ${tables.length > 0
   ? `These tables are accessible to this app:\n\n${tables.map(t => `- \`${t}\``).join('\n')}`
   : `**No tables whitelisted.** Add tables to \`data.tables\` in \`raw_app.yaml\`.`}
 
-### Adding a Table to the Whitelist
+### Adding a Table
 
 Edit \`raw_app.yaml\`:
 
@@ -495,116 +363,31 @@ ${tables.length > 0 ? tables.map(t => `    - ${t}`).join('\n') : '    # Add tabl
 \`\`\`
 
 **Table reference formats:**
-- \`<datatable>\` - All tables in the datatable
-- \`<datatable>/<table>\` - Specific table in public schema
+- \`<datatable>/<table>\` - Table in public schema
 - \`<datatable>/<schema>:<table>\` - Table in specific schema
 
 ---
 
-## Querying Data Tables
+## Quick Reference
 
-### TypeScript (Bun/Deno)
+**Backend runnable:** Add \`backend/<name>.ts\` (or .py, etc.), then run \`wmill app generate-locks\`
 
+**Call from frontend:**
 \`\`\`typescript
-import * as wmill from 'windmill-client';
-
-export async function main(user_id: string) {
-  const sql = wmill.datatable();  // Or: wmill.datatable('other_datatable')
-
-  // Parameterized queries (safe from SQL injection)
-  const user = await sql\`SELECT * FROM users WHERE id = \${user_id}\`.fetchOne();
-  const users = await sql\`SELECT * FROM users WHERE active = \${true}\`.fetch();
-
-  // Insert/Update
-  await sql\`INSERT INTO users (name, email) VALUES (\${name}, \${email})\`;
-  await sql\`UPDATE users SET name = \${newName} WHERE id = \${user_id}\`;
-
-  return user;
-}
+import { backend } from './wmill';
+const result = await backend.<name>({ arg: 'value' });
 \`\`\`
 
-### Python
-
-\`\`\`python
-import wmill
-
-def main(user_id: str):
-    db = wmill.datatable()  # Or: wmill.datatable('other_datatable')
-
-    # Use $1, $2, etc. for parameters
-    user = db.query('SELECT * FROM users WHERE id = $1', user_id).fetch_one()
-    users = db.query('SELECT * FROM users WHERE active = $1', True).fetch()
-
-    # Insert/Update
-    db.query('INSERT INTO users (name, email) VALUES ($1, $2)', name, email)
-    db.query('UPDATE users SET name = $1 WHERE id = $2', new_name, user_id)
-
-    return user
+**Query datatable (TypeScript):**
+\`\`\`typescript
+const sql = wmill.datatable();
+const rows = await sql\`SELECT * FROM table WHERE id = \${id}\`.fetch();
 \`\`\`
 
----
-
-## SQL Migrations (sql_to_apply/)
-
-The \`sql_to_apply/\` folder is for creating/modifying database tables during development.
-
-### How It Works
-
-1. Create \`.sql\` files in \`sql_to_apply/\`
-2. Run \`wmill app dev\` - the dev server watches this folder
-3. When SQL files change, a modal appears in the browser to confirm execution
-4. After creating tables, **add them to \`data.tables\`** in \`raw_app.yaml\`
-
-### Example Migration
-
-**sql_to_apply/001_create_users.sql:**
-\`\`\`sql
-CREATE TABLE IF NOT EXISTS ${defaultSchema ? defaultSchema + '.' : ''}users (
-    id SERIAL PRIMARY KEY,
-    email TEXT NOT NULL UNIQUE,
-    name TEXT,
-    created_at TIMESTAMP DEFAULT NOW()
-);
-\`\`\`
-
-After applying, add to \`raw_app.yaml\`:
-\`\`\`yaml
-data:
-  tables:
-    - ${defaultDatatable || 'main'}/${defaultSchema ? defaultSchema + ':' : ''}users
-\`\`\`
-
-### Important Notes
-
-- **This folder is NOT synced** - it's local development only
-- **Use idempotent SQL**: \`CREATE TABLE IF NOT EXISTS\`, etc.
-- **Number your files**: \`001_\`, \`002_\` for ordering
-- **Always whitelist tables after creation**
+**SQL migrations:** Add \`.sql\` files to \`sql_to_apply/\`, run \`wmill app dev\`, then whitelist tables
 
 ---
-
-## Commands Reference
-
-| Command | Description |
-|---------|-------------|
-| \`wmill app dev\` | Start dev server with live reload |
-| \`wmill app generate-agents\` | Refresh AGENTS.md and DATATABLES.md |
-| \`wmill app generate-locks\` | Generate lock files for backend runnables |
-| \`wmill sync push\` | Deploy app to Windmill |
-| \`wmill sync pull\` | Pull latest from Windmill |
-
----
-
-## Best Practices
-
-1. **Check DATATABLES.md** for existing tables before creating new ones
-2. **Use parameterized queries** - never concatenate user input into SQL
-3. **Keep runnables focused** - one function per file
-4. **Use descriptive IDs** - \`get_user.ts\` not \`a.ts\`
-5. **Always whitelist tables** - add to \`data.tables\` before querying
-
----
-*This file is auto-generated. Run \`wmill app new\` or \`wmill sync pull\` to regenerate.*
+*Run \`wmill app generate-agents\` to refresh. See \`.claude/skills/raw-app\` skill for full documentation.*
 `;
 }
 
@@ -1280,6 +1063,7 @@ export async function elementsToMap(
   skips: Skips,
   specificItems?: SpecificItemsConfig,
   branchOverride?: string,
+  isRemote?: boolean,
 ): Promise<{ [key: string]: string }> {
   const map: { [key: string]: string } = {};
   const processedBasePaths = new Set<string>();
@@ -1446,7 +1230,8 @@ export async function elementsToMap(
         continue;
       }
       // Skip base file if it's configured as branch-specific (expect branch version)
-      if (isSpecificItem(path, specificItems)) {
+      // Only for LOCAL files - remote workspace only has base paths
+      if (!isRemote && isSpecificItem(path, specificItems)) {
         continue;
       }
       map[path] = content;
@@ -1486,13 +1271,14 @@ async function compareDynFSElement(
   ignoreCodebaseChanges: boolean,
   specificItems?: SpecificItemsConfig,
   branchOverride?: string,
+  isEls1Remote?: boolean,
 ): Promise<Change[]> {
   const [m1, m2] = els2
     ? await Promise.all([
-        elementsToMap(els1, ignore, json, skips, specificItems, branchOverride),
-        elementsToMap(els2, ignore, json, skips, specificItems, branchOverride),
+        elementsToMap(els1, ignore, json, skips, specificItems, branchOverride, isEls1Remote),
+        elementsToMap(els2, ignore, json, skips, specificItems, branchOverride, !isEls1Remote),
       ])
-    : [await elementsToMap(els1, ignore, json, skips, specificItems, branchOverride), {}];
+    : [await elementsToMap(els1, ignore, json, skips, specificItems, branchOverride, isEls1Remote), {}];
 
   const changes: Change[] = [];
 
@@ -1995,6 +1781,7 @@ export async function pull(
     true,
     specificItems,
     opts.branch,
+    true, // els1 (remote) is the remote source
   );
 
   log.info(
@@ -2486,6 +2273,7 @@ export async function push(
     false,
     specificItems,
     opts.branch,
+    false, // els1 (local) is not the remote source
   );
 
   const rawWorkspaceDependencies = await getRawWorkspaceDependencies();

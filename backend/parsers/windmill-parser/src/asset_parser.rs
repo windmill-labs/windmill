@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::collections::BTreeMap;
 
 #[derive(Serialize, PartialEq, Clone, Copy, Debug)]
 #[serde(rename_all(serialize = "lowercase"))]
@@ -19,12 +20,14 @@ pub enum AssetKind {
     DataTable,
 }
 
-#[derive(Serialize, Debug, PartialEq)]
+#[derive(Serialize, Debug, PartialEq, Clone)]
 pub struct ParseAssetsResult {
     pub kind: AssetKind,
     pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub access_type: Option<AssetUsageAccessType>, // None in case of ambiguity
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub columns: Option<BTreeMap<String, AssetUsageAccessType>>, // Map column name to access type, "*" represents wildcard
 }
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -66,6 +69,8 @@ pub fn merge_assets(assets: Vec<ParseAssetsResult>) -> Vec<ParseAssetsResult> {
                 (Some(R), Some(R)) => Some(R),
                 (Some(W), Some(W)) => Some(W),
             };
+            // merge columns: union the column sets and merge access types per column
+            existing.columns = merge_column_maps(existing.columns.take(), asset.columns);
         } else {
             arr.push(asset);
         }
@@ -74,18 +79,49 @@ pub fn merge_assets(assets: Vec<ParseAssetsResult>) -> Vec<ParseAssetsResult> {
     arr
 }
 
+fn merge_column_maps(
+    existing: Option<BTreeMap<String, AssetUsageAccessType>>,
+    new: Option<BTreeMap<String, AssetUsageAccessType>>,
+) -> Option<BTreeMap<String, AssetUsageAccessType>> {
+    match (existing, new) {
+        (None, None) => None,
+        (Some(map), None) | (None, Some(map)) => Some(map),
+        (Some(mut existing_map), Some(new_map)) => {
+            for (col_name, new_access) in new_map {
+                existing_map
+                    .entry(col_name)
+                    .and_modify(|existing_access| {
+                        *existing_access = merge_access_types(*existing_access, new_access);
+                    })
+                    .or_insert(new_access);
+            }
+            Some(existing_map)
+        }
+    }
+}
+
+fn merge_access_types(a: AssetUsageAccessType, b: AssetUsageAccessType) -> AssetUsageAccessType {
+    match (a, b) {
+        (R, W) | (W, R) => RW,
+        (RW, _) | (_, RW) => RW,
+        (R, R) => R,
+        (W, W) => W,
+    }
+}
+
 // Will return false if the user assigned an asset to a variable like:
 //   let sql = wmill.datatable('main')
 // But never used it. In that case we don't know which table is being used,
 // but we still want to add the main datatable as an asset with unknown access type.
 //
-// This function takes care of the fact that assets can be suffixed (e.g. "main/users")
+// This function takes care of the fact that assets can be suffixed (e.g. "main/users" or "u/user/resource?table=table1")
 pub fn asset_was_used(assets: &Vec<ParseAssetsResult>, (kind, path): (AssetKind, &String)) -> bool {
     assets.iter().any(|a| {
         let a_path = a.path.as_str();
+        // Check for /table suffix (Ducklake, DataTable) or ?table= suffix (Resource)
         let has_same_path_base = a_path
             .strip_prefix(path)
-            .map(|p| p.starts_with('/'))
+            .map(|p| p.starts_with('/') || p.starts_with('?'))
             .unwrap_or(false);
         (has_same_path_base || a_path == path) && a.kind == kind
     })
@@ -93,20 +129,23 @@ pub fn asset_was_used(assets: &Vec<ParseAssetsResult>, (kind, path): (AssetKind,
 
 pub fn parse_asset_syntax(s: &str, enable_default_syntax: bool) -> Option<(AssetKind, &str)> {
     if enable_default_syntax && s == "datatable" {
-        Some((AssetKind::DataTable, "main"))
+        return Some((AssetKind::DataTable, "main"));
     } else if enable_default_syntax && s == "ducklake" {
-        Some((AssetKind::Ducklake, "main"))
-    } else if s.starts_with("s3://") {
-        Some((AssetKind::S3Object, &s[5..]))
-    } else if s.starts_with("res://") {
-        Some((AssetKind::Resource, &s[6..]))
-    } else if s.starts_with("$res:") {
-        Some((AssetKind::Resource, &s[5..]))
-    } else if s.starts_with("ducklake://") {
-        Some((AssetKind::Ducklake, &s[11..]))
-    } else if s.starts_with("datatable://") {
-        Some((AssetKind::DataTable, &s[12..]))
-    } else {
-        None
+        return Some((AssetKind::Ducklake, "main"));
     }
+    for (prefix, kind) in ASSET_KINDS.iter() {
+        if s.starts_with(prefix) {
+            let path = &s[prefix.len()..];
+            return Some((*kind, path));
+        }
+    }
+    None
 }
+
+pub const ASSET_KINDS: &[(&str, AssetKind)] = &[
+    ("s3://", AssetKind::S3Object),
+    ("res://", AssetKind::Resource),
+    ("$res:", AssetKind::Resource),
+    ("ducklake://", AssetKind::Ducklake),
+    ("datatable://", AssetKind::DataTable),
+];

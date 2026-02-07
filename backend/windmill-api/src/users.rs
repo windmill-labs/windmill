@@ -250,6 +250,7 @@ pub async fn fetch_api_authed_from_permissioned_as(
                 ExpiringAuthCache {
                     authed: api_authed.clone(),
                     expiry: chrono::Utc::now() + chrono::Duration::try_seconds(120).unwrap(),
+                    job_id: None,
                 },
             );
 
@@ -1968,6 +1969,11 @@ async fn login(
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
     Json(Login { email, password }): Json<Login>,
 ) -> Result<String> {
+    #[cfg(feature = "no_auth")]
+    {
+        return Ok("no_auth".to_string());
+    }
+
     let mut tx = db.begin().await?;
     let email = email.to_lowercase();
     let audit_author = AuditAuthor {

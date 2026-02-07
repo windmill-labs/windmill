@@ -467,6 +467,22 @@ pub async fn push_scheduled_job<'c>(
         )
     };
 
+    let obo_authed;
+    let push_authed = match push_authed {
+        Some(a) => Some(a),
+        None => {
+            obo_authed = windmill_common::auth::fetch_authed_from_permissioned_as_conn(
+                &permissioned_as,
+                email,
+                &schedule.workspace_id,
+                &mut *tx,
+            )
+            .await
+            .ok();
+            obo_authed.as_ref()
+        }
+    };
+
     if let Some(tag) = tag.as_deref().filter(|t| !t.is_empty()) {
         check_tag_available_for_workspace_internal(
             &db,

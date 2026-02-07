@@ -266,24 +266,25 @@ async fn eval_quickjs_inner(
             setup_results_proxy(&ctx, &globals, by_id, op_state_clone.clone())?;
         }
 
-        // Determine if we need to add return statement
+        // Determine if we need to add return statement.
+        // Wrap with .then((x) => JSON.stringify(x ?? null)) to serialize the result
+        // using the standard JSON.stringify, matching deno_core's behavior exactly.
         let code = if should_add_return_quickjs(&transformed_expr) {
-            format!("(async function() {{ return {}; }})()", transformed_expr)
+            format!("(async function() {{ return {}; }})().then((x) => JSON.stringify(x ?? null))", transformed_expr)
         } else {
-            format!("(async function() {{ {} }})()", transformed_expr)
+            format!("(async function() {{ {} }})().then((x) => JSON.stringify(x ?? null))", transformed_expr)
         };
 
-        // Evaluate the expression (returns a Promise)
+        // Evaluate the expression (returns a Promise that resolves to a JSON string)
         let promise: rquickjs::Promise = ctx.eval(code).catch(&ctx).map_err(quickjs_error_to_anyhow)?;
 
-        // Await the promise
+        // Await the promise — result is already a JSON string from JSON.stringify
         let result: Value = promise.into_future().await.catch(&ctx).map_err(quickjs_error_to_anyhow)?;
 
-        // Convert result to JSON
-        let json_result = js_to_json(&ctx, &result)?;
-        let json_str = serde_json::to_string(&json_result)?;
+        let json_str = String::from_js(&ctx, result)
+            .unwrap_or_else(|_| "null".to_string());
 
-        Ok(windmill_common::worker::to_raw_value(&serde_json::from_str::<serde_json::Value>(&json_str)?))
+        Ok(crate::common::unsafe_raw(json_str))
     })
     .await
 }
@@ -557,66 +558,11 @@ fn json_to_js<'js>(
 }
 
 /// Convert a QuickJS Value to a serde_json::Value
-fn js_to_json<'js>(
-    ctx: &rquickjs::Ctx<'js>,
-    val: &Value<'js>,
-) -> anyhow::Result<serde_json::Value> {
-    if val.is_null() || val.is_undefined() {
-        return Ok(serde_json::Value::Null);
-    }
-
-    if let Some(b) = val.as_bool() {
-        return Ok(serde_json::Value::Bool(b));
-    }
-
-    if let Some(i) = val.as_int() {
-        return Ok(serde_json::Value::Number(i.into()));
-    }
-
-    if let Some(f) = val.as_float() {
-        // Check if this float represents an exact integer
-        // This preserves integer formatting for values like timestamps
-        if f.fract() == 0.0 && f.abs() <= (i64::MAX as f64) {
-            let i = f as i64;
-            // Verify the conversion is exact (for very large numbers)
-            if (i as f64) == f {
-                return Ok(serde_json::Value::Number(i.into()));
-            }
-        }
-        if let Some(n) = serde_json::Number::from_f64(f) {
-            return Ok(serde_json::Value::Number(n));
-        } else {
-            return Ok(serde_json::Value::Null);
-        }
-    }
-
-    if let Ok(s) = String::from_js(ctx, val.clone()) {
-        return Ok(serde_json::Value::String(s));
-    }
-
-    if let Ok(arr) = rquickjs::Array::from_js(ctx, val.clone()) {
-        let mut json_arr = Vec::new();
-        for i in 0..arr.len() {
-            if let Ok(item) = arr.get::<Value>(i) {
-                json_arr.push(js_to_json(ctx, &item)?);
-            }
-        }
-        return Ok(serde_json::Value::Array(json_arr));
-    }
-
-    if let Ok(obj) = Object::from_js(ctx, val.clone()) {
-        let mut json_obj = serde_json::Map::new();
-        for res in obj.props::<String, Value>() {
-            if let Ok((k, v)) = res {
-                json_obj.insert(k, js_to_json(ctx, &v)?);
-            }
-        }
-        return Ok(serde_json::Value::Object(json_obj));
-    }
-
-    // Fallback
-    Ok(serde_json::Value::String("[object]".to_string()))
-}
+///
+/// This mimics JavaScript's JSON.stringify behavior:
+/// - For objects with a `toJSON` method (like Date), call it and use the result
+/// - Arrays are recursively serialized
+/// - Plain objects enumerate their own properties
 
 /// Determines if we should prepend "return" to the expression
 fn should_add_return_quickjs(expr: &str) -> bool {
@@ -793,5 +739,184 @@ mod tests {
         assert!(!should_add_return_quickjs("if (x > 5) { return x; }"));
 
         assert!(!should_add_return_quickjs("let x = 5; x + 1"));
+    }
+
+    #[tokio::test]
+    async fn test_eval_quickjs_date_serialization() -> anyhow::Result<()> {
+        // Test that Date objects serialize to ISO strings, matching JSON.stringify behavior
+        let result = eval_timeout_quickjs(
+            "new Date('2024-01-15T12:30:00.000Z')".to_string(),
+            HashMap::new(),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await?;
+
+        // Should be an ISO string, not an empty object
+        assert_eq!(result.get(), "\"2024-01-15T12:30:00.000Z\"");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_eval_quickjs_date_in_object() -> anyhow::Result<()> {
+        // Test that Date objects within other objects serialize correctly
+        let result = eval_timeout_quickjs(
+            "({ date: new Date('2024-01-15T12:30:00.000Z'), name: 'test' })".to_string(),
+            HashMap::new(),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await?;
+
+        let value: serde_json::Value = serde_json::from_str(result.get())?;
+        assert_eq!(value["date"], "2024-01-15T12:30:00.000Z");
+        assert_eq!(value["name"], "test");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_eval_quickjs_date_in_array() -> anyhow::Result<()> {
+        // Test that Date objects in arrays serialize correctly
+        let result = eval_timeout_quickjs(
+            "[new Date('2024-01-15T00:00:00.000Z'), new Date('2024-01-16T00:00:00.000Z')]"
+                .to_string(),
+            HashMap::new(),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await?;
+
+        let value: serde_json::Value = serde_json::from_str(result.get())?;
+        assert_eq!(value[0], "2024-01-15T00:00:00.000Z");
+        assert_eq!(value[1], "2024-01-16T00:00:00.000Z");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_eval_quickjs_custom_tojson() -> anyhow::Result<()> {
+        // Test that JSON.stringify handles custom toJSON when returning objects
+        let result = eval_timeout_quickjs(
+            r#"({ a: 1, toJSON: () => ({ converted: true }) })"#.to_string(),
+            HashMap::new(),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await?;
+
+        // JSON.stringify should call toJSON and use that result
+        let value: serde_json::Value = serde_json::from_str(result.get())?;
+        assert_eq!(value["converted"], true);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_eval_quickjs_deeply_nested_date() -> anyhow::Result<()> {
+        // Test that Date objects deep in nested structures are handled
+        let result = eval_timeout_quickjs(
+            "({ level1: { level2: { date: new Date('2024-01-15T00:00:00.000Z') } } })".to_string(),
+            HashMap::new(),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await?;
+
+        let value: serde_json::Value = serde_json::from_str(result.get())?;
+        assert_eq!(
+            value["level1"]["level2"]["date"],
+            "2024-01-15T00:00:00.000Z"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_eval_quickjs_regexp_serialization() -> anyhow::Result<()> {
+        // RegExp objects serialize to empty objects in JSON (same as JSON.stringify behavior)
+        let result = eval_timeout_quickjs(
+            "/test/gi".to_string(),
+            HashMap::new(),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await?;
+
+        // RegExp doesn't have toJSON, so it serializes to an empty object (same as Deno)
+        assert_eq!(result.get(), "{}");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_eval_quickjs_map_serialization() -> anyhow::Result<()> {
+        // Map objects serialize to empty objects in JSON (same as JSON.stringify behavior)
+        let result = eval_timeout_quickjs(
+            "new Map([['key', 'value']])".to_string(),
+            HashMap::new(),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await?;
+
+        // Map doesn't have toJSON, serializes to empty object (same as Deno)
+        assert_eq!(result.get(), "{}");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_eval_quickjs_set_serialization() -> anyhow::Result<()> {
+        // Set objects serialize to empty objects in JSON (same as JSON.stringify behavior)
+        let result = eval_timeout_quickjs(
+            "new Set([1, 2, 3])".to_string(),
+            HashMap::new(),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await?;
+
+        // Set doesn't have toJSON, serializes to empty object (same as Deno)
+        assert_eq!(result.get(), "{}");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_eval_quickjs_tojson_returning_date() -> anyhow::Result<()> {
+        // When toJSON returns a Date object, JSON.stringify does NOT call toJSON again
+        // on the returned value (per spec). Date has no own enumerable properties,
+        // so it serializes to {}.
+        let result = eval_timeout_quickjs(
+            "({ toJSON: () => new Date('2024-01-15T00:00:00.000Z') })".to_string(),
+            HashMap::new(),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await?;
+
+        assert_eq!(result.get(), "{}");
+        Ok(())
     }
 }

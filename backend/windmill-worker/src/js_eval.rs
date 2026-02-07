@@ -587,7 +587,18 @@ lazy_static! {
 
 #[cfg(feature = "quickjs")]
 #[allow(dead_code)] // Only used when both quickjs and deno_core features are enabled
-static USE_QUICKJS: Lazy<bool> = Lazy::new(|| std::env::var("USE_QUICKJS_FOR_FLOW_EVAL").is_ok());
+static USE_QUICKJS: Lazy<bool> = Lazy::new(|| {
+    // When enterprise is not enabled, default to QuickJS unless USE_DENO_FOR_FLOW_EVAL is set
+    // When enterprise is enabled, default to Deno unless USE_QUICKJS_FOR_FLOW_EVAL is set
+    #[cfg(not(feature = "enterprise"))]
+    {
+        std::env::var("USE_DENO_FOR_FLOW_EVAL").is_err()
+    }
+    #[cfg(feature = "enterprise")]
+    {
+        std::env::var("USE_QUICKJS_FOR_FLOW_EVAL").is_ok()
+    }
+});
 
 #[cfg(any(feature = "deno_core", feature = "quickjs"))]
 pub fn replace_with_await_result(expr: String) -> String {

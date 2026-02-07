@@ -7,6 +7,8 @@ import type { StateStore } from '$lib/utils'
 import type { FlowState } from './flowState'
 import { dfs } from './dfs'
 
+const isAiTransform = (transform: InputTransform | undefined) => transform?.type === 'ai'
+
 function isInputFilled(
 	inputTransforms: Record<string, InputTransform>,
 	key: string,
@@ -20,6 +22,9 @@ function isInputFilled(
 
 	if (inputTransforms.hasOwnProperty(key)) {
 		const transform = inputTransforms[key]
+		if (isAiTransform(transform)) {
+			return true
+		}
 		if (
 			transform?.type === 'static' &&
 			(transform?.value === undefined || transform?.value === '' || transform?.value === null)
@@ -41,6 +46,9 @@ async function isConnectedToMissingModule(
 	input_transform: InputTransform,
 	moduleIds: string[]
 ): Promise<string | undefined> {
+	if (isAiTransform(input_transform)) {
+		return undefined
+	}
 	const val: string =
 		input_transform.type === 'static' ? String(input_transform.value) : input_transform.expr
 

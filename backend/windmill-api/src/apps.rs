@@ -126,6 +126,7 @@ pub fn global_service() -> Router {
     Router::new()
         .route("/hub/list", get(list_hub_apps))
         .route("/hub/get/:id", get(get_hub_app_by_id))
+        .route("/hub/get_raw/:id", get(get_hub_raw_app_by_id))
 }
 
 #[derive(FromRow, Deserialize, Serialize)]
@@ -902,7 +903,8 @@ pub async fn compute_bundle_secret(db: &DB, w_id: &str, versions: &[i64]) -> Res
         .last()
         .ok_or_else(|| Error::internal_err("App has no versions".to_string()))?;
     let mc = build_crypt(db, w_id).await?;
-    let hx = hex::encode(mc.encrypt_str_to_bytes(format!("{}{}", BUNDLE_SECRET_PREFIX, version_id)));
+    let hx =
+        hex::encode(mc.encrypt_str_to_bytes(format!("{}{}", BUNDLE_SECRET_PREFIX, version_id)));
     Ok(hx)
 }
 
@@ -1300,6 +1302,24 @@ pub async fn get_hub_app_by_id(
     let value = http_get_from_hub(
         &HTTP_CLIENT,
         &format!("{}/apps/{}/json", *HUB_BASE_URL.read().await, id),
+        false,
+        None,
+        Some(&db),
+    )
+    .await?
+    .json()
+    .await
+    .map_err(to_anyhow)?;
+    Ok(Json(value))
+}
+
+pub async fn get_hub_raw_app_by_id(
+    Path(id): Path<i32>,
+    Extension(db): Extension<DB>,
+) -> JsonResult<Box<serde_json::value::RawValue>> {
+    let value = http_get_from_hub(
+        &HTTP_CLIENT,
+        &format!("{}/raw_apps/{}/json", *HUB_BASE_URL.read().await, id),
         false,
         None,
         Some(&db),
@@ -1909,6 +1929,15 @@ async fn execute_component(
         }
     };
 
+    // Check rate limit for anonymous (public) executions
+    if matches!(policy.execution_mode, ExecutionMode::Anonymous) && opt_authed.is_none() {
+        if let Some(limit) = crate::workspaces::get_public_app_rate_limit(&db, &w_id).await? {
+            if limit > 0 {
+                crate::public_app_rate_limit::check_and_increment(&w_id, limit)?;
+            }
+        }
+    }
+
     // Execution is publisher and an user is authenticated: check if the user is authorized to
     // execute the app.
     if let (ExecutionMode::Publisher, Some(authed)) = (policy.execution_mode, opt_authed.as_ref()) {
@@ -2288,6 +2317,7 @@ async fn upload_s3_file_from_app(
                         &w_id,
                         None,
                         &[(&file_key, S3Permission::WRITE)],
+                        None,
                     )
                     .await?;
                     (s3_resource_opt, file_key, email, permissioned_as, username)
@@ -2320,6 +2350,7 @@ async fn upload_s3_file_from_app(
                 &w_id,
                 None,
                 &[(&file_key, S3Permission::WRITE)],
+                None,
             )
             .await?;
 
@@ -2356,10 +2387,11 @@ async fn upload_s3_file_from_app(
                 let db_with_opt_authed = DbWithOptAuthed::from_authed(&authed, db.clone(), None);
                 let (_, s3_resource) = get_workspace_s3_resource_and_check_paths(
                     &db_with_opt_authed,
-                Some(&authed),
+                    Some(&authed),
                     &w_id,
                     None,
                     &[(&file_key, S3Permission::WRITE)],
+                    None,
                 )
                 .await?;
 
@@ -2467,10 +2499,11 @@ async fn delete_s3_file_from_app(
         let db_with_opt_authed = DbWithOptAuthed::from_authed(&on_behalf_authed, db.clone(), None);
         let (_, s3_resource) = get_workspace_s3_resource_and_check_paths(
             &db_with_opt_authed,
-                Some(&on_behalf_authed),
+            Some(&on_behalf_authed),
             &w_id,
             None,
             &[(&path.to_string(), S3Permission::DELETE)],
+            None,
         )
         .await?;
 
@@ -2640,6 +2673,8 @@ async fn download_s3_file_from_app(
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<AppS3FileQueryWithForceViewerAllowedS3Keys>,
 ) -> Result<Response> {
+    use crate::db::OptJobAuthed;
+
     let path = path.to_path();
 
     let force_viewer_allowed_s3_keys = if let Some(force_viewer_allowed_s3_keys) =
@@ -2665,7 +2700,7 @@ async fn download_s3_file_from_app(
     .await?;
 
     download_s3_file_internal(
-        on_behalf_authed,
+        OptJobAuthed { authed: on_behalf_authed, job_id: None },
         &db,
         None,
         &w_id,

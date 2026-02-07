@@ -15,7 +15,6 @@
 		canWrite,
 		computeSharableHash,
 		copyToClipboard,
-		displayDate,
 		emptyString,
 		encodeState,
 		isFlowPreview,
@@ -27,16 +26,11 @@
 	import {
 		Activity,
 		Calendar,
-		CheckCircle2,
-		Circle,
-		FastForward,
-		Hourglass,
 		List,
 		Pen,
 		RefreshCw,
 		TimerOff,
 		Trash,
-		XCircle,
 		Code2,
 		ClipboardCopy,
 		GitBranch,
@@ -57,14 +51,14 @@
 	import JobLoader from '$lib/components/JobLoader.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import { ActionRow, Button, Skeleton, Tab, Alert, DrawerContent } from '$lib/components/common'
-	import FlowMetadata from '$lib/components/FlowMetadata.svelte'
+	import JobDetailHeader from '$lib/components/runs/JobDetailHeader.svelte'
+	import FlowExecutionStatus from '$lib/components/runs/FlowExecutionStatus.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
 	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
 	import Tabs from '$lib/components/common/tabs/TabsV2.svelte'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
-	import { forLater } from '$lib/forLater'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PersistentScriptDrawer from '$lib/components/PersistentScriptDrawer.svelte'
 	import Portal from '$lib/components/Portal.svelte'
@@ -88,7 +82,6 @@
 	} from '$lib/components/flows/FlowAssetsHandler.svelte'
 	import JobAssetsViewer from '$lib/components/assets/JobAssetsViewer.svelte'
 	import { page } from '$app/state'
-	import RunBadges from '$lib/components/runs/RunBadges.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import FlowRestartButton from '$lib/components/FlowRestartButton.svelte'
 	import JobOtelTraces from '$lib/components/JobOtelTraces.svelte'
@@ -98,7 +91,7 @@
 	let scriptProgress: number | undefined = $state(undefined)
 	let currentJobIsLongRunning: boolean = $state(false)
 
-	let viewTab: 'result' | 'logs' | 'code' | 'stats' | 'assets' | 'traces' = $state('result')
+	let viewTab: 'logs' | 'code' | 'stats' | 'assets' | 'traces' = $state('logs')
 	let selectedJobStep: string | undefined = $state(undefined)
 
 	let selectedJobStepIsTopLevel: boolean | undefined = $state(undefined)
@@ -108,6 +101,11 @@
 	let testIsLoading = $state(false)
 	let jobLoader: JobLoader | undefined = $state(undefined)
 
+	// Flow execution status state
+	let suspendStatus: import('$lib/utils').StateStore<Record<string, { job: Job; nb: number }>> =
+		$state({ val: {} })
+	let isOwner: boolean = $state(false)
+
 	let persistentScriptDrawer: PersistentScriptDrawer | undefined = $state(undefined)
 
 	let showExplicitProgressTip: boolean = $state(
@@ -116,8 +114,6 @@
 
 	let lastJobId: string | undefined = $state(undefined)
 	let concurrencyKey: string | undefined = $state(undefined)
-
-	let manuallySetLogs: boolean = $state(false)
 
 	setContext(
 		'FlowGraphAssetContext',
@@ -149,26 +145,19 @@
 		}
 	}
 
-	// If we get results, focus on that tab. Else, focus on logs
+	// Initialize view tab to logs since result is now outside tabs
 	function initView(): void {
-		if (job && (job.result || job.result_stream)) {
-			viewTab = 'result'
-		} else if (viewTab == 'result') {
-			viewTab = 'logs'
-		}
+		// Result is now displayed outside tabs, so always default to logs
+		viewTab = 'logs'
 	}
 
 	async function getJob() {
 		await jobLoader?.watchJob(page.params.run ?? '', {
 			change(job: Job & { result_stream?: string }) {
-				if (!manuallySetLogs && viewTab == 'logs' && job.result_stream) {
-					viewTab = 'result'
-				}
+				// Result is now displayed outside tabs, no need to switch tabs
 			},
 			done(job) {
-				if (job?.['result'] != undefined) {
-					viewTab = 'result'
-				}
+				// Result is now displayed outside tabs, no need to switch tabs
 			}
 		})
 		initView()
@@ -455,49 +444,65 @@
 					</div>
 				{/each}
 				<div>
-					<Button href="{base}/runs" unifiedSize="md" variant="default">Go to runs page</Button>
+					<Button href="{base}/runs" unifiedSize="md" variant="accent">Go to runs page</Button>
 				</div>
 			</div>
 		</div>
 	</div>
 {:else}
 	<Skeleton
-		class="max-w-7xl px-4 mx-auto w-full"
+		class="max-w-7xl p-4 mx-auto w-full"
 		loading={!job}
-		layout={[0.75, [2, 0, 2], 2.25, [{ h: 1.5, w: 40 }]]}
+		layout={[
+			// 1. Top Action Bar (buttons on right side)
+			[
+				{ h: 2.5, w: 60 },
+				{ h: 2.5, w: 40 }
+			],
+			1,
+			// 2. Job Header
+			[{ h: 12, w: 100 }],
+			1,
+			// 3. Progress Bar
+			[{ h: 2, w: 100 }],
+			1.5
+		]}
 	/>
 	<ActionRow class="max-w-7xl px-4 mx-auto w-full">
 		{#snippet left()}
-			{@const isScript = job?.job_kind === 'script'}
-			{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
-			<div class="flex gap-2 items-center">
-				{#if job && 'deleted' in job && !job?.deleted && ($superadmin || ($userStore?.is_admin ?? false))}
-					<Dropdown
-						items={[
-							{
-								displayName: 'Delete result, logs and args (admin only)',
-								action: () => {
-									job?.id && deleteCompletedJob(job.id)
-								},
-								type: 'delete'
-							}
-						]}
-					>
-						{#snippet buttonReplacement()}
-							<Button nonCaptureEvent variant="default" size="sm" startIcon={{ icon: Trash }} />
-						{/snippet}
-					</Dropdown>
-					{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
-						<Button href={runsHref} variant="default" size="sm" startIcon={{ icon: List }}>
-							View runs
-						</Button>
-					{/if}
-				{/if}
-			</div>
+			<h1 class="text-sm font-semibold text-primary">run/{page.params.run}</h1>
 		{/snippet}
 		{#snippet right()}
-			{@const stem = job?.job_kind === 'script_hub' ? '/scripts' : `/${job?.job_kind}s`}
 			{@const isScript = job?.job_kind === 'script'}
+			{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
+			{#if job && 'deleted' in job && !job?.deleted && ($superadmin || ($userStore?.is_admin ?? false))}
+				<Dropdown
+					items={[
+						{
+							displayName: 'Delete result, logs and args (admin only)',
+							action: () => {
+								job?.id && deleteCompletedJob(job.id)
+							},
+							type: 'delete'
+						}
+					]}
+				>
+					{#snippet buttonReplacement()}
+						<Button
+							nonCaptureEvent
+							variant="default"
+							unifiedSize="md"
+							startIcon={{ icon: Trash }}
+						/>
+					{/snippet}
+				</Dropdown>
+				{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
+					<Button href={runsHref} variant="default" unifiedSize="md" startIcon={{ icon: List }}>
+						View runs
+					</Button>
+				{/if}
+			{/if}
+			{@const stem = job?.job_kind === 'script_hub' ? '/scripts' : `/${job?.job_kind}s`}
 			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
 			{#if (job?.job_kind == 'flow' || isFlowPreview(job?.job_kind)) && job?.['running'] && job?.parent_job == undefined}
 				<div class="inline">
@@ -648,7 +653,11 @@
 					variant="accent"
 					startIcon={{
 						icon:
-							job?.job_kind === 'script' || job?.job_kind === 'script_hub' ? Code2 : job?.job_kind === 'flow' ? BarsStaggered : Code2
+							job?.job_kind === 'script' || job?.job_kind === 'script_hub'
+								? Code2
+								: job?.job_kind === 'flow'
+									? BarsStaggered
+									: Code2
 					}}
 				>
 					View {job?.job_kind === 'script_hub' ? 'script' : job?.job_kind}
@@ -656,49 +665,24 @@
 			{/if}
 		{/snippet}
 	</ActionRow>
-	<div class="w-full">
-		<div
-			class="flex flex-row flex-wrap justify-between items-center gap-x-4 py-6 max-w-7xl mx-auto px-4"
-		>
-			<div class="flex flex-row flex-wrap gap-6 items-center">
-				{#if job}
-					{#if 'success' in job && job.success}
-						{#if job.is_skipped}
-							<FastForward class="text-green-600" size={20} />
-						{:else}
-							<CheckCircle2 class="text-green-600" size={20} />
-						{/if}
-					{:else if job && 'success' in job}
-						<XCircle class="text-red-700" size={20} />
-					{:else if job && 'running' in job && job.running && job.suspend}
-						<Hourglass class="text-violet-500" size={20} />
-					{:else if job && 'running' in job && job.running}
-						<Circle class="text-yellow-500 fill-current" size={20} />
-					{:else if job && 'running' in job && job.scheduled_for && forLater(job.scheduled_for)}
-						<Calendar class="text-secondary" size={20} />
-					{:else if job && 'running' in job && job.scheduled_for}
-						<Hourglass class="text-primary" size={20} />
-					{/if}
-					<span class="text-emphasis text-2xl font-semibold"
-						>{job.script_path ??
-							(job.job_kind == 'dependencies' ? 'lock dependencies' : 'No path')}</span
-					>
-					<div class="flex flex-row gap-2 items-center flex-wrap">
-						<RunBadges
-							{job}
-							displayPersistentScriptDefinition={!!persistentScriptDefinition}
-							openPersistentScriptDrawer={() => {
-								persistentScriptDrawer?.open?.(persistentScriptDefinition)
-							}}
-							{concurrencyKey}
-							verySmall={false}
-						/>
-					</div>
-				{/if}
-			</div>
+	<div class="w-full pb-8">
+		<!-- Flow Detail Header Card -->
+		<div class="max-w-7xl mx-auto px-4 py-0">
+			<Skeleton loading={!job} layout={[[24]]} />
+			{#if job}
+				<JobDetailHeader
+					{job}
+					{scheduleEditor}
+					displayPersistentScriptDefinition={!!persistentScriptDefinition}
+					openPersistentScriptDrawer={() => {
+						persistentScriptDrawer?.open?.(persistentScriptDefinition)
+					}}
+					{concurrencyKey}
+				/>
+			{/if}
 		</div>
 		{#if job?.['deleted']}
-			<div class="max-w-7xl mx-auto w-full px-4">
+			<div class="max-w-7xl mx-auto w-full px-4 mt-6">
 				<Alert type="error" title="Deleted">
 					The content of this run was deleted (by an admin, no less)
 				</Alert>
@@ -706,56 +690,67 @@
 			<div class="my-4"></div>
 		{/if}
 
+		<!-- Flow Progress Bar (for flows only) -->
+		{#if job?.job_kind === 'flow' || job?.job_kind === 'flowpreview'}
+			<div class="max-w-7xl mx-auto w-full px-4 flex flex-col gap-4 mt-2">
+				<FlowProgressBar
+					{job}
+					bind:currentSubJobProgress={scriptProgress}
+					class="w-full"
+					textPosition="bottom"
+					slim
+					showStepId
+				/>
+				{#if suspendStatus}
+					<FlowExecutionStatus
+						{job}
+						{isOwner}
+						{suspendStatus}
+						workspaceId={job?.workspace_id}
+						innerModules={job?.flow_status?.modules}
+					/>
+				{/if}
+			</div>
+		{/if}
+
 		<!-- Arguments and actions -->
-		<div
-			class="flex flex-col gap-y-8 sm:grid sm:grid-cols-3 sm:gap-10 max-w-7xl mx-auto w-full px-4"
-		>
-			<div class="col-span-2">
+		<div class="max-w-7xl mx-auto w-full px-4 mt-12">
+			<div class="text-xs text-emphasis font-semibold mb-1">Inputs</div>
+			<div class="flex flex-col gap-y-6">
 				<JobArgs
 					workspace={job?.workspace_id ?? $workspaceStore ?? 'no_w'}
 					id={job?.id}
 					args={job?.args}
 				/>
-			</div>
-			<div>
-				<Skeleton loading={!job} layout={[[9.5]]} />
-				{#if job}
-					<FlowMetadata {job} {scheduleEditor} />
-					{#if currentJobIsLongRunning && showExplicitProgressTip && !scriptProgress && 'running' in job}
-						<Alert
-							class="mt-4 p-1 flex flex-row relative text-center"
-							size="xs"
-							type="info"
-							title="tip: Track progress of longer jobs"
-							tooltip="For better transparency and verbosity, you can try setting progress from within the script."
-							documentationLink="https://www.windmill.dev/docs/advanced/explicit_progress"
+				{#if job && currentJobIsLongRunning && showExplicitProgressTip && !scriptProgress && 'running' in job}
+					<Alert
+						class="p-1 flex flex-row relative text-center"
+						size="xs"
+						type="info"
+						title="tip: Track progress of longer jobs"
+						tooltip="For better transparency and verbosity, you can try setting progress from within the script."
+						documentationLink="https://www.windmill.dev/docs/advanced/explicit_progress"
+					>
+						<button
+							type="button"
+							onclick={() => {
+								localStorage.setItem('hideExplicitProgressTip', 'true')
+								showExplicitProgressTip = false
+							}}
+							class="absolute m-2 top-0 right-0 inline-flex rounded-md bg-surface-secondary text-primary hover:text-primary focus:outline-none"
 						>
-							<button
-								type="button"
-								onclick={() => {
-									localStorage.setItem('hideExplicitProgressTip', 'true')
-									showExplicitProgressTip = false
-								}}
-								class="absolute m-2 top-0 right-0 inline-flex rounded-md bg-surface-secondary text-primary hover:text-primary focus:outline-none"
-							>
-								<span class="sr-only">Close</span>
-								<svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-									<path
-										d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"
-									/>
-								</svg>
-							</button>
-						</Alert>
-					{/if}
+							<span class="sr-only">Close</span>
+							<svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+								<path
+									d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"
+								/>
+							</svg>
+						</button>
+					</Alert>
 				{/if}
 			</div>
 		</div>
 
-		{#if job?.['scheduled_for'] && forLater(job?.['scheduled_for'])}
-			<div class="max-w-7xl mx-auto w-full px-4">
-				<h2 class="mt-10">Scheduled to be executed later: {displayDate(job?.['scheduled_for'])}</h2>
-			</div>
-		{/if}
 		{#if isNotFlow(job?.job_kind)}
 			{#if ['python3', 'bun', 'deno'].includes(job?.language ?? '') && (job?.job_kind == 'script' || isScriptPreview(job?.job_kind))}
 				<ExecutionDuration bind:job bind:longRunning={currentJobIsLongRunning} />
@@ -771,15 +766,31 @@
 				{#if scriptProgress}
 					<JobProgressBar {job} {scriptProgress} class="py-4" hideStepTitle={true} />
 				{/if}
+
+				<!-- Result Section (moved outside tabs) -->
+				{#if job}
+					<div class="mr-2 sm:mr-0 mt-12 mb-6">
+						<h3 class="text-xs font-semibold text-emphasis mb-1">Result</h3>
+						<div class="border rounded-md bg-surface-tertiary p-4 overflow-auto max-h-screen">
+							{#if job.result_stream || (job.type == 'CompletedJob' && job.result !== undefined)}
+								<DisplayResult
+									workspaceId={job?.workspace_id}
+									result_stream={job.result_stream}
+									jobId={job?.id}
+									result={job.result}
+									language={job?.language}
+									isTest={false}
+								/>
+							{:else}
+								<div class="text-secondary text-sm">No output is available yet</div>
+							{/if}
+						</div>
+					</div>
+				{/if}
+
 				<!-- Logs and outputs-->
-				<div class="mr-2 sm:mr-0 mt-12">
-					<Tabs
-						bind:selected={viewTab}
-						onTabClick={(value) => {
-							manuallySetLogs = value == 'logs'
-						}}
-					>
-						<Tab value="result" label="Result" />
+				<div class="mr-2 sm:mr-0 mt-6">
+					<Tabs bind:selected={viewTab}>
 						<Tab value="logs" label="Logs" />
 						<Tab value="stats" label="Metrics" />
 						<Tab value="traces" label="Traces" />
@@ -830,17 +841,8 @@
 								<div class="w-full">
 									<MemoryFootprintViewer jobId={job.id} bind:jobUpdateLastFetch />
 								</div>
-							{:else if job !== undefined && (job.result_stream || (job.type == 'CompletedJob' && job.result !== undefined))}
-								<DisplayResult
-									workspaceId={job?.workspace_id}
-									result_stream={job.result_stream}
-									jobId={job?.id}
-									result={job.result}
-									language={job?.language}
-									isTest={false}
-								/>
-							{:else if job}
-								No output is available yet
+							{:else}
+								<div class="w-full p-4 text-secondary">Select a tab to view content</div>
 							{/if}
 						</div>
 					{/if}
@@ -848,11 +850,7 @@
 			</div>
 		{:else if !job?.['deleted']}
 			<div class="mt-10"></div>
-			<FlowProgressBar
-				{job}
-				bind:currentSubJobProgress={scriptProgress}
-				class="py-4 max-w-7xl mx-auto px-4"
-			/>
+
 			<div class="w-full mt-10">
 				{#if job?.id}
 					<FlowStatusViewer
@@ -866,6 +864,8 @@
 						initialJob={job}
 						workspaceId={$workspaceStore}
 						bind:selectedJobStep
+						bind:suspendStatus
+						bind:isOwner
 					/>
 				{:else}
 					<Skeleton layout={[[5]]} />

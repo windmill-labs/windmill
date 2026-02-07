@@ -1,7 +1,7 @@
 import type { Schema } from './common'
 import { AppService, FlowService, type Flow, type Script } from './gen'
 import { encodeState } from './utils'
-import rawHubPaths from './hubPaths.json?raw'
+import hubPathsData from './hubPaths.json'
 import {
 	replacePlaceholderForSignatureScriptTemplate,
 	SIGNATURE_TEMPLATE_FLOW_HUB_ID,
@@ -83,6 +83,14 @@ export function appToHubUrl(staticApp: any, hubBaseUrl: string): URL {
 	return url
 }
 
+export function rawAppToHubUrl(hubBaseUrl: string, summary?: string): URL {
+	const url = new URL(hubBaseUrl + '/raw_apps/add')
+	if (summary) {
+		url.searchParams.append('summary', summary)
+	}
+	return url
+}
+
 type HubPaths = {
 	gitSync: string
 	gitSyncTest: string
@@ -101,4 +109,4 @@ type HubPaths = {
 	appReport: string
 }
 
-export const hubPaths = JSON.parse(rawHubPaths) as HubPaths
+export const hubPaths = hubPathsData as HubPaths
