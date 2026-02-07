@@ -8,7 +8,7 @@ mod schedule_push {
     use windmill_common::schedule::Schedule;
     use windmill_common::scripts::ScriptHash;
     use windmill_common::users::username_to_permissioned_as;
-    use windmill_queue::jobs::{handle_maybe_scheduled_job, MiniCompletedJob};
+    use windmill_queue::jobs::{try_schedule_next_job, MiniCompletedJob};
     use windmill_queue::schedule::push_scheduled_job;
 
     fn make_schedule(overrides: impl FnOnce(&mut Schedule)) -> Schedule {
@@ -442,7 +442,7 @@ mod schedule_push {
     }
 
     // -----------------------------------------------------------------------
-    // handle_maybe_scheduled_job: disabled schedule does not push
+    // try_schedule_next_job: disabled schedule does not push
     // -----------------------------------------------------------------------
 
     #[sqlx::test(fixtures("base", "schedule_push"))]
@@ -452,21 +452,23 @@ mod schedule_push {
         });
         let job = make_completed_job(&schedule);
 
-        let result = handle_maybe_scheduled_job(
+        let tx = db.begin().await?;
+        let (tx, err) = try_schedule_next_job(
             &db,
+            tx,
             &job,
             &schedule,
             &schedule.script_path,
-            "test-workspace",
         )
         .await;
-        assert!(result.is_ok());
+        tx.commit().await?;
+        assert!(err.is_none());
         assert_eq!(count_queued_jobs(&db).await, 0);
         Ok(())
     }
 
     // -----------------------------------------------------------------------
-    // handle_maybe_scheduled_job: script path mismatch does not push
+    // try_schedule_next_job: script path mismatch does not push
     // -----------------------------------------------------------------------
 
     #[sqlx::test(fixtures("base", "schedule_push"))]
@@ -474,21 +476,23 @@ mod schedule_push {
         let schedule = make_schedule(|_| {});
         let job = make_completed_job(&schedule);
 
-        let result = handle_maybe_scheduled_job(
+        let tx = db.begin().await?;
+        let (tx, err) = try_schedule_next_job(
             &db,
+            tx,
             &job,
             &schedule,
             "f/system/different_script",
-            "test-workspace",
         )
         .await;
-        assert!(result.is_ok());
+        tx.commit().await?;
+        assert!(err.is_none());
         assert_eq!(count_queued_jobs(&db).await, 0);
         Ok(())
     }
 
     // -----------------------------------------------------------------------
-    // handle_maybe_scheduled_job: enabled + matching path pushes next job
+    // try_schedule_next_job: enabled + matching path pushes next job
     // -----------------------------------------------------------------------
 
     #[sqlx::test(fixtures("base", "schedule_push"))]
@@ -496,15 +500,17 @@ mod schedule_push {
         let schedule = make_schedule(|_| {});
         let job = make_completed_job(&schedule);
 
-        let result = handle_maybe_scheduled_job(
+        let tx = db.begin().await?;
+        let (tx, err) = try_schedule_next_job(
             &db,
+            tx,
             &job,
             &schedule,
             &schedule.script_path,
-            "test-workspace",
         )
         .await;
-        assert!(result.is_ok());
+        tx.commit().await?;
+        assert!(err.is_none());
         assert_eq!(count_queued_jobs(&db).await, 1);
 
         let (_, path, trigger, trigger_kind) = get_queued_job(&db).await.unwrap();
@@ -515,7 +521,7 @@ mod schedule_push {
     }
 
     // -----------------------------------------------------------------------
-    // handle_maybe_scheduled_job: on_behalf_of_email via handle path
+    // try_schedule_next_job: on_behalf_of_email via handle path
     // -----------------------------------------------------------------------
 
     #[sqlx::test(fixtures("base", "schedule_push"))]
@@ -526,15 +532,17 @@ mod schedule_push {
         });
         let job = make_completed_job(&schedule);
 
-        let result = handle_maybe_scheduled_job(
+        let tx = db.begin().await?;
+        let (tx, err) = try_schedule_next_job(
             &db,
+            tx,
             &job,
             &schedule,
             &schedule.script_path,
-            "test-workspace",
         )
         .await;
-        assert!(result.is_ok());
+        tx.commit().await?;
+        assert!(err.is_none());
         assert_eq!(count_queued_jobs(&db).await, 1);
 
         let email = sqlx::query_scalar::<_, String>(
@@ -547,12 +555,12 @@ mod schedule_push {
     }
 
     // -----------------------------------------------------------------------
-    // handle_maybe_scheduled_job: push failure disables schedule
+    // try_schedule_next_job: push failure disables schedule
     // -----------------------------------------------------------------------
 
     #[sqlx::test(fixtures("base", "schedule_push"))]
     async fn test_handle_push_failure_disables_schedule(db: Pool<Postgres>) -> anyhow::Result<()> {
-        // Insert a schedule row so handle_maybe_scheduled_job can disable it
+        // Insert a schedule row so try_schedule_next_job can disable it
         sqlx::query(
             "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap)
              VALUES ('test-workspace', 'f/system/bad_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/nonexistent', false, 'test@windmill.dev', '{}', false, false)"
@@ -566,16 +574,18 @@ mod schedule_push {
         });
         let job = make_completed_job(&schedule);
 
-        let result = handle_maybe_scheduled_job(
+        let tx = db.begin().await?;
+        let (tx, err) = try_schedule_next_job(
             &db,
+            tx,
             &job,
             &schedule,
             &schedule.script_path,
-            "test-workspace",
         )
         .await;
+        tx.commit().await?;
         // Should succeed (error is handled internally by disabling schedule)
-        assert!(result.is_ok());
+        assert!(err.is_none());
         assert_eq!(count_queued_jobs(&db).await, 0);
 
         // Schedule should be disabled with an error

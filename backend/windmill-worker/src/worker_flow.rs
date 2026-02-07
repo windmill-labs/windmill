@@ -67,7 +67,7 @@ use windmill_common::{
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
     add_completed_job, add_completed_job_error, append_logs, get_mini_pulled_job,
-    handle_maybe_scheduled_job, insert_concurrency_key, interpolate_args, CanceledBy, FlowRunners,
+    try_schedule_next_job, insert_concurrency_key, interpolate_args, CanceledBy, FlowRunners,
     MiniCompletedJob, MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload, WrappedError,
 };
 
@@ -2177,22 +2177,23 @@ pub async fn handle_flow(
             .await?;
 
         if let Some(schedule) = schedule {
-            if let Err(err) = handle_maybe_scheduled_job(
+            let tx = db.begin().warn_after_seconds(5).await?;
+            let (tx, schedule_push_err) = try_schedule_next_job(
                 db,
+                tx,
                 &MiniCompletedJob::from(flow_job.clone()),
                 &schedule,
                 flow_job.runnable_path.as_ref().unwrap(),
-                &flow_job.workspace_id,
             )
             .warn_after_seconds(5)
-            .await
-            {
+            .await;
+            if let Some(err) = schedule_push_err {
                 match err {
                     Error::QuotaExceeded(_) => return Err(err.into()),
-                    // scheduling next job failed and could not disable schedule => make zombie job to retry
                     _ => return Ok(()),
                 }
-            };
+            }
+            tx.commit().warn_after_seconds(5).await?;
         } else {
             tracing::error!(
                 "Schedule {schedule_path} in {} not found. Impossible to schedule again",

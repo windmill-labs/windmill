@@ -56,7 +56,7 @@ use windmill_common::{
     auth::{fetch_authed_from_permissioned_as, permissioned_as_to_username},
     cache::{self, FlowData},
     db::{Authed, UserDB},
-    error::{self, to_anyhow, Error},
+    error::{self, Error},
     flow_status::{
         BranchAllStatus, FlowCleanupModule, FlowStatus, FlowStatusModule, FlowStatusModuleWParent,
         Iterator as FlowIterator, JobResult, RestartedFrom, RetryStatus, MAX_RETRY_ATTEMPTS,
@@ -1100,129 +1100,11 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                         .unwrap_or(false);
 
                 if schedule_next_tick {
-                    if !schedule.enabled {
-                        tracing::info!(
-                            "Schedule {} in {} is disabled. Not scheduling again.",
-                            schedule.path,
-                            &completed_job.workspace_id
-                        );
-                    } else if script_path.as_str() != schedule.script_path {
-                        tracing::warn!(
-                            "Schedule {} in {} has a different script path than the job. Not scheduling again",
-                            schedule.path,
-                            &completed_job.workspace_id
-                        );
-                    } else {
-                        tracing::info!(
-                            "Schedule {} scheduling next job for {} in {}",
-                            schedule.path,
-                            schedule.script_path,
-                            &completed_job.workspace_id
-                        );
-
-                        let schedule_authed =
-                            windmill_common::auth::fetch_authed_from_permissioned_as_conn(
-                                &windmill_common::users::username_to_permissioned_as(
-                                    &schedule.edited_by,
-                                ),
-                                &schedule.email,
-                                &completed_job.workspace_id,
-                                &mut *tx,
-                            )
-                            .await
-                            .ok();
-
-                        let mut push_err = None;
-                        for attempt in 0..3 {
-                            let savepoint = match tx.begin().await {
-                                Ok(sp) => sp,
-                                Err(e) => {
-                                    tracing::error!(
-                                        "Could not create savepoint for schedule push (attempt {}): {e:#}",
-                                        attempt + 1
-                                    );
-                                    push_err = Some(Error::internal_err(format!(
-                                        "Could not create savepoint: {e:#}"
-                                    )));
-                                    break;
-                                }
-                            };
-                            match push_scheduled_job(
-                                db,
-                                savepoint,
-                                &schedule,
-                                schedule_authed.as_ref(),
-                                Some(completed_job.scheduled_for),
-                            )
-                            .await
-                            {
-                                Ok(savepoint) => {
-                                    match savepoint.commit().await {
-                                        Ok(()) => {
-                                            push_err = None;
-                                            break;
-                                        }
-                                        Err(e) => {
-                                            push_err = Some(Error::internal_err(format!(
-                                                "Could not commit savepoint: {e:#}"
-                                            )));
-                                        }
-                                    }
-                                }
-                                Err(err) if matches!(err, Error::QuotaExceeded(_)) => {
-                                    push_err = Some(err);
-                                    break;
-                                }
-                                Err(err) => {
-                                    tracing::warn!(
-                                        "Could not push next scheduled job for {} (attempt {}): {err}",
-                                        schedule.path,
-                                        attempt + 1,
-                                    );
-                                    push_err = Some(err);
-                                }
-                            }
-                            if attempt < 2 {
-                                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                            }
-                        }
-                        if let Some(err) = push_err {
-                            if !matches!(err, Error::QuotaExceeded(_)) {
-                                tracing::error!(
-                                    "Could not push next scheduled job for {}: {err}. Disabling schedule.",
-                                    schedule.path
-                                );
-                                if let Err(disable_err) = sqlx::query!(
-                                    "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
-                                    err.to_string(),
-                                    &schedule.workspace_id,
-                                    &schedule.path
-                                )
-                                .execute(&mut *tx)
-                                .await
-                                {
-                                    report_error_to_workspace_handler_or_critical_side_channel(
-                                        completed_job,
-                                        db,
-                                        format!(
-                                            "Could not push next scheduled job for {} and could not disable schedule: {disable_err}",
-                                            schedule.path,
-                                        ),
-                                    )
-                                    .await;
-                                    return Ok((Some(job_id), 0, true));
-                                }
-                                report_error_to_workspace_handler_or_critical_side_channel(
-                                    completed_job,
-                                    db,
-                                    format!(
-                                        "Could not schedule next job for {} with err {err}. Schedule disabled",
-                                        schedule.path,
-                                    ),
-                                )
-                                .await;
-                            }
-                        }
+                    let (returned_tx, schedule_push_err) =
+                        try_schedule_next_job(db, tx, completed_job, &schedule, &script_path).await;
+                    tx = returned_tx;
+                    if schedule_push_err.is_some() {
+                        return Ok((Some(job_id), 0, true));
                     }
                 }
 
@@ -1876,100 +1758,144 @@ pub async fn send_success_to_workspace_handler<'a, 'c, T: Serialize + Send + Syn
     Ok(())
 }
 
-pub async fn handle_maybe_scheduled_job<'c>(
+pub async fn try_schedule_next_job<'c>(
     db: &Pool<Postgres>,
+    mut tx: Transaction<'c, Postgres>,
     job: &MiniCompletedJob,
     schedule: &Schedule,
     script_path: &str,
-    w_id: &str,
-) -> windmill_common::error::Result<()> {
+) -> (Transaction<'c, Postgres>, Option<Error>) {
+    if !schedule.enabled {
+        tracing::info!(
+            "Schedule {} in {} is disabled. Not scheduling again.",
+            schedule.path,
+            &job.workspace_id
+        );
+        return (tx, None);
+    }
+
+    if script_path != schedule.script_path {
+        tracing::warn!(
+            "Schedule {} in {} has a different script path than the job. Not scheduling again",
+            schedule.path,
+            &job.workspace_id
+        );
+        return (tx, None);
+    }
+
     tracing::info!(
-        "Schedule {} scheduling next job for {} in {w_id}",
+        "Schedule {} scheduling next job for {} in {}",
         schedule.path,
-        schedule.script_path
+        schedule.script_path,
+        &job.workspace_id
     );
 
-    if schedule.enabled && script_path == schedule.script_path {
-        let schedule_authed = windmill_common::auth::fetch_authed_from_permissioned_as(
-            windmill_common::users::username_to_permissioned_as(&schedule.edited_by),
-            schedule.email.clone(),
-            w_id,
-            db,
+    let schedule_authed =
+        windmill_common::auth::fetch_authed_from_permissioned_as_conn(
+            &windmill_common::users::username_to_permissioned_as(
+                &schedule.edited_by,
+            ),
+            &schedule.email,
+            &job.workspace_id,
+            &mut *tx,
         )
         .await
         .ok();
 
-        let push_next_job_future = (|| {
-            tokio::time::timeout(std::time::Duration::from_secs(5), async {
-                let mut tx = db.begin().await?;
-                tx = push_scheduled_job(db, tx, &schedule, schedule_authed.as_ref(), Some(job.scheduled_for)).await?;
-                tx.commit().await?;
-                Ok::<(), Error>(())
-            })
-            .map_err(|e| Error::internal_err(format!("Pushing next scheduled job timedout: {e:#}")))
-            .unwrap_or_else(|e| Err(e))
-        })
-        .retry(
-            ConstantBuilder::default()
-                .with_delay(std::time::Duration::from_secs(5))
-                .with_max_times(10)
-                .build(),
+    let mut push_err = None;
+    for attempt in 0..10 {
+        let savepoint = match tx.begin().await {
+            Ok(sp) => sp,
+            Err(e) => {
+                tracing::error!(
+                    "Could not create savepoint for schedule push (attempt {}): {e:#}",
+                    attempt + 1
+                );
+                push_err = Some(Error::internal_err(format!(
+                    "Could not create savepoint: {e:#}"
+                )));
+                break;
+            }
+        };
+        match push_scheduled_job(
+            db,
+            savepoint,
+            schedule,
+            schedule_authed.as_ref(),
+            Some(job.scheduled_for),
         )
-        .when(|err| !matches!(err, Error::QuotaExceeded(_)))
-        .notify(|err, dur| {
-            tracing::error!(
-                "Could not push next scheduled job for schedule {}, retrying in {dur:#?}, err: {err:#?}", schedule.path
-            );
-        })
-        .sleep(tokio::time::sleep);
-        match push_next_job_future.await {
-            Ok(()) => Ok(()),
-            Err(err) => {
-                let update_schedule = sqlx::query!(
-                    "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
-                    err.to_string(),
-                    &schedule.workspace_id,
-                    &schedule.path
-                )
-                .execute(db)
-                .await;
-                match update_schedule {
-                    Ok(_) => {
-                        match err {
-                            Error::QuotaExceeded(_) => {}
-                            _ => {
-                                report_error_to_workspace_handler_or_critical_side_channel(job, db,
-                                    format!("Could not schedule next job for {} with err {}. Schedule disabled", schedule.path, err.to_string()),
-                                ).await;
-                            }
-                        }
-                        Ok(())
+        .await
+        {
+            Ok(savepoint) => {
+                match savepoint.commit().await {
+                    Ok(()) => {
+                        push_err = None;
+                        break;
                     }
-                    Err(disable_err) => match err {
-                        Error::QuotaExceeded(_) => Err(err),
-                        _ => {
-                            report_error_to_workspace_handler_or_critical_side_channel(job, db,
-                                format!("Could not schedule next job for {} and could not disable schedule with err {}.", schedule.path, disable_err),
-                            ).await;
-                            Err(to_anyhow(disable_err).into())
-                        }
-                    },
+                    Err(e) => {
+                        push_err = Some(Error::internal_err(format!(
+                            "Could not commit savepoint: {e:#}"
+                        )));
+                    }
                 }
             }
+            Err(err) if matches!(err, Error::QuotaExceeded(_)) => {
+                push_err = Some(err);
+                break;
+            }
+            Err(err) => {
+                tracing::warn!(
+                    "Could not push next scheduled job for {} (attempt {}): {err}",
+                    schedule.path,
+                    attempt + 1,
+                );
+                push_err = Some(err);
+            }
         }
-    } else {
-        if script_path != schedule.script_path {
-            tracing::warn!(
-                "Schedule {} in {w_id} has a different script path than the job. Not scheduling again", schedule.path
-            );
-        } else {
-            tracing::info!(
-                "Schedule {} in {w_id} is disabled. Not scheduling again.",
-                schedule.path
-            );
+        if attempt < 9 {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         }
-        Ok(())
     }
+
+    if let Some(ref err) = push_err {
+        tracing::error!(
+            "Could not push next scheduled job for {}: {err}. Disabling schedule.",
+            schedule.path
+        );
+        if let Err(disable_err) = sqlx::query!(
+            "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
+            err.to_string(),
+            &schedule.workspace_id,
+            &schedule.path
+        )
+        .execute(&mut *tx)
+        .await
+        {
+            report_error_to_workspace_handler_or_critical_side_channel(
+                job,
+                db,
+                format!(
+                    "Could not push next scheduled job for {} and could not disable schedule: {disable_err}",
+                    schedule.path,
+                ),
+            )
+            .await;
+            return (tx, push_err);
+        }
+        if !matches!(err, Error::QuotaExceeded(_)) {
+            report_error_to_workspace_handler_or_critical_side_channel(
+                job,
+                db,
+                format!(
+                    "Could not schedule next job for {} with err {err}. Schedule disabled",
+                    schedule.path,
+                ),
+            )
+            .await;
+        }
+    }
+
+    (tx, None)
 }
 
 pub const ERROR_HANDLER_PATH_TEAMS: &str = "/workspace-or-schedule-error-handler-teams";
