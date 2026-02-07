@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -56,8 +57,22 @@ async fn reconcile(
 
     let generation = instance.metadata.generation.unwrap_or(0);
 
+    // Convert typed structs to BTreeMaps for db_sync
+    let settings_map = instance.spec.global_settings.to_settings_map();
+    let configs_map: BTreeMap<String, serde_json::Value> = instance
+        .spec
+        .worker_configs
+        .iter()
+        .map(|(k, v)| {
+            (
+                k.clone(),
+                serde_json::to_value(v).expect("WorkerGroupConfig serialization cannot fail"),
+            )
+        })
+        .collect();
+
     // Sync global settings
-    if let Err(e) = db_sync::sync_global_settings(&ctx.db, &instance.spec.global_settings).await {
+    if let Err(e) = db_sync::sync_global_settings(&ctx.db, &settings_map).await {
         tracing::error!("Failed to sync global settings for {name}: {e:#}");
         update_status(
             &ctx.client,
@@ -72,7 +87,7 @@ async fn reconcile(
     }
 
     // Sync worker configs
-    if let Err(e) = db_sync::sync_worker_configs(&ctx.db, &instance.spec.worker_configs).await {
+    if let Err(e) = db_sync::sync_worker_configs(&ctx.db, &configs_map).await {
         tracing::error!("Failed to sync worker configs for {name}: {e:#}");
         update_status(
             &ctx.client,
