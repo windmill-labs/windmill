@@ -15955,6 +15955,7 @@ dependencies = [
  "reqwest-middleware",
  "reqwest-retry",
  "rsa",
+ "schemars 0.8.22",
  "semver 1.0.27",
  "serde",
  "serde_json",

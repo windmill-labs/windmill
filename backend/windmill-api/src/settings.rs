@@ -42,6 +42,7 @@ use windmill_common::{
         CRITICAL_ALERT_MUTE_UI_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
         HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
     },
+    instance_config::{self, ApplyMode, InstanceConfig},
     server::Smtp,
 };
 use windmill_common::{error::to_anyhow, PgDatabase};
@@ -55,6 +56,10 @@ pub fn global_service() -> Router {
             post(set_global_setting).get(get_global_setting),
         )
         .route("/list_global", get(list_global_settings))
+        .route(
+            "/instance_config",
+            get(get_instance_config).put(set_instance_config),
+        )
         .route("/test_smtp", post(test_email))
         .route("/test_license_key", post(test_license_key))
         .route("/send_stats", post(send_stats))
@@ -367,6 +372,173 @@ pub async fn set_global_setting_internal(
             tracing::info!("Set global setting {} to {}", key, v);
         }
     };
+
+    Ok(())
+}
+
+/// Run side-effect hooks for specific settings before writing to DB.
+/// Extracted from `set_global_setting_internal` for reuse by the bulk endpoint.
+async fn run_setting_pre_write_hook(
+    db: &DB,
+    key: &str,
+    value: &serde_json::Value,
+) -> error::Result<()> {
+    match key {
+        AUTOMATE_USERNAME_CREATION_SETTING => {
+            if value.as_bool().unwrap_or(false) {
+                generate_instance_username_for_all_users(db)
+                    .await
+                    .map_err(|err| {
+                        error::Error::internal_err(format!(
+                            "Failed to generate instance wide usernames: {}",
+                            err
+                        ))
+                    })?;
+            }
+        }
+        CRITICAL_ALERT_MUTE_UI_SETTING => {
+            if value.as_bool().unwrap_or(false) {
+                sqlx::query!("UPDATE alerts SET acknowledged = true")
+                    .execute(db)
+                    .await?;
+            }
+        }
+        APP_WORKSPACED_ROUTE_SETTING => {
+            let serde_json::Value::Bool(workspaced_route) = value else {
+                return Err(error::Error::BadRequest(format!(
+                    "{} setting Expected to be boolean",
+                    APP_WORKSPACED_ROUTE_SETTING
+                )));
+            };
+
+            if !*workspaced_route {
+                #[derive(Debug, Deserialize, Serialize)]
+                #[allow(unused)]
+                struct DuplicateApp {
+                    custom_path: Option<String>,
+                    path: String,
+                }
+                let duplicate_app = sqlx::query_as!(
+                    DuplicateApp,
+                    r#"
+                        SELECT
+                            path,
+                            custom_path
+                        FROM
+                            app
+                        WHERE
+                            custom_path IN (
+                                SELECT
+                                    custom_path
+                                FROM
+                                    app
+                                GROUP
+                                    BY custom_path
+                                HAVING COUNT(*) > 1
+                            )
+                        ORDER BY custom_path
+                        "#
+                )
+                .fetch_all(db)
+                .await?;
+
+                if !duplicate_app.is_empty() {
+                    tracing::error!(
+                        "Cannot disable {} setting as duplicate app with custom path were found: {:?}",
+                        APP_WORKSPACED_ROUTE_SETTING,
+                        &duplicate_app
+                    );
+
+                    #[derive(Serialize)]
+                    struct ErrorResponse {
+                        error: String,
+                        details: Vec<DuplicateApp>,
+                    }
+
+                    let error_response = ErrorResponse {
+                        error: "Duplicate custom paths detected".to_string(),
+                        details: duplicate_app,
+                    };
+
+                    return Err(error::Error::JsonErr(
+                        serde_json::to_value(error_response).unwrap(),
+                    ));
+                }
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Bulk instance config endpoints
+// ---------------------------------------------------------------------------
+
+async fn get_instance_config(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> JsonResult<InstanceConfig> {
+    require_super_admin(&db, &authed.email).await?;
+    let config = InstanceConfig::from_db(&db)
+        .await
+        .map_err(|e| error::Error::internal_err(e.to_string()))?;
+    Ok(Json(config))
+}
+
+async fn set_instance_config(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(desired): Json<InstanceConfig>,
+) -> error::Result<()> {
+    require_super_admin(&db, &authed.email).await?;
+
+    let current = InstanceConfig::from_db(&db)
+        .await
+        .map_err(|e| error::Error::internal_err(e.to_string()))?;
+
+    // Diff global settings (Merge mode: never delete absent keys from UI)
+    let current_map = current.global_settings.to_settings_map();
+    let desired_map = desired.global_settings.to_settings_map();
+    let settings_diff =
+        instance_config::diff_global_settings(&current_map, &desired_map, ApplyMode::Merge);
+
+    // Run pre-write hooks for changed settings
+    for (key, value) in &settings_diff.upserts {
+        run_setting_pre_write_hook(&db, key, value).await?;
+    }
+
+    // Apply global settings diff
+    instance_config::apply_settings_diff(&db, &settings_diff)
+        .await
+        .map_err(|e| error::Error::internal_err(e.to_string()))?;
+
+    // Diff and apply worker configs (Merge mode)
+    let current_wc: std::collections::BTreeMap<String, serde_json::Value> = current
+        .worker_configs
+        .iter()
+        .map(|(k, v)| {
+            (
+                k.clone(),
+                serde_json::to_value(v).expect("WorkerGroupConfig serialization cannot fail"),
+            )
+        })
+        .collect();
+    let desired_wc: std::collections::BTreeMap<String, serde_json::Value> = desired
+        .worker_configs
+        .iter()
+        .map(|(k, v)| {
+            (
+                k.clone(),
+                serde_json::to_value(v).expect("WorkerGroupConfig serialization cannot fail"),
+            )
+        })
+        .collect();
+    let configs_diff =
+        instance_config::diff_worker_configs(&current_wc, &desired_wc, ApplyMode::Merge);
+    instance_config::apply_configs_diff(&db, &configs_diff)
+        .await
+        .map_err(|e| error::Error::internal_err(e.to_string()))?;
 
     Ok(())
 }

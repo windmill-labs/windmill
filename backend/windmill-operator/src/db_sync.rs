@@ -1,14 +1,9 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 
 use sqlx::{Pool, Postgres};
-
-/// Settings that must never be deleted by the operator.
-/// These are internal/system settings that could cause data loss if removed.
-const PROTECTED_SETTINGS: &[&str] = &[
-    "ducklake_user_pg_pwd",
-    "ducklake_settings",
-    "custom_instance_pg_databases",
-];
+use windmill_common::instance_config::{
+    apply_configs_diff, apply_settings_diff, diff_global_settings, diff_worker_configs, ApplyMode,
+};
 
 /// Perform a full declarative sync of global settings.
 ///
@@ -20,39 +15,14 @@ pub async fn sync_global_settings(
     desired: &BTreeMap<String, serde_json::Value>,
 ) -> anyhow::Result<()> {
     // Fetch current settings from DB
-    let current_rows: Vec<(String,)> = sqlx::query_as("SELECT name FROM global_settings")
-        .fetch_all(db)
-        .await?;
-    let current_keys: HashSet<String> = current_rows.into_iter().map(|(name,)| name).collect();
+    let current_rows: Vec<(String, serde_json::Value)> =
+        sqlx::query_as("SELECT name, value FROM global_settings")
+            .fetch_all(db)
+            .await?;
+    let current: BTreeMap<String, serde_json::Value> = current_rows.into_iter().collect();
 
-    // Upsert desired settings
-    for (key, value) in desired {
-        sqlx::query(
-            "INSERT INTO global_settings (name, value) VALUES ($1, $2) \
-             ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
-        )
-        .bind(key)
-        .bind(value)
-        .execute(db)
-        .await?;
-        tracing::info!("Synced global setting: {key}");
-    }
-
-    // Delete settings not in desired (except protected keys)
-    let desired_keys: HashSet<&str> = desired.keys().map(|s| s.as_str()).collect();
-    for current_key in &current_keys {
-        if !desired_keys.contains(current_key.as_str())
-            && !PROTECTED_SETTINGS.contains(&current_key.as_str())
-        {
-            sqlx::query("DELETE FROM global_settings WHERE name = $1")
-                .bind(current_key)
-                .execute(db)
-                .await?;
-            tracing::info!("Deleted global setting not in CRD: {current_key}");
-        }
-    }
-
-    Ok(())
+    let diff = diff_global_settings(&current, desired, ApplyMode::Replace);
+    apply_settings_diff(db, &diff).await
 }
 
 /// Perform a full declarative sync of worker configs.
@@ -64,38 +34,19 @@ pub async fn sync_worker_configs(
     db: &Pool<Postgres>,
     desired: &BTreeMap<String, serde_json::Value>,
 ) -> anyhow::Result<()> {
-    // Fetch current worker configs from DB
-    let current_rows: Vec<(String,)> =
-        sqlx::query_as("SELECT name FROM config WHERE name LIKE 'worker__%'")
+    // Fetch current worker configs from DB (strip prefix for comparison)
+    let current_rows: Vec<(String, serde_json::Value)> =
+        sqlx::query_as("SELECT name, config FROM config WHERE name LIKE 'worker__%'")
             .fetch_all(db)
             .await?;
-    let current_keys: HashSet<String> = current_rows.into_iter().map(|(name,)| name).collect();
+    let current: BTreeMap<String, serde_json::Value> = current_rows
+        .into_iter()
+        .map(|(name, config)| {
+            let group = name.strip_prefix("worker__").unwrap_or(&name).to_string();
+            (group, config)
+        })
+        .collect();
 
-    // Upsert desired configs (with worker__ prefix)
-    for (group_name, config_value) in desired {
-        let db_key = format!("worker__{group_name}");
-        sqlx::query(
-            "INSERT INTO config (name, config) VALUES ($1, $2) \
-             ON CONFLICT (name) DO UPDATE SET config = EXCLUDED.config",
-        )
-        .bind(&db_key)
-        .bind(config_value)
-        .execute(db)
-        .await?;
-        tracing::info!("Synced worker config: {db_key}");
-    }
-
-    // Delete worker configs not in desired
-    let desired_db_keys: HashSet<String> = desired.keys().map(|k| format!("worker__{k}")).collect();
-    for current_key in &current_keys {
-        if !desired_db_keys.contains(current_key) {
-            sqlx::query("DELETE FROM config WHERE name = $1")
-                .bind(current_key)
-                .execute(db)
-                .await?;
-            tracing::info!("Deleted worker config not in CRD: {current_key}");
-        }
-    }
-
-    Ok(())
+    let diff = diff_worker_configs(&current, desired, ApplyMode::Replace);
+    apply_configs_diff(db, &diff).await
 }

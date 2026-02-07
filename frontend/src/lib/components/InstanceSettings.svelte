@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { scimSamlSetting, settings, settingsKeys, type SettingStorage } from './instanceSettings'
+	import { scimSamlSetting, settings, settingsKeys } from './instanceSettings'
 	import { Button, Tab, TabContent, Tabs } from '$lib/components/common'
 	import { SettingService, SettingsService } from '$lib/gen'
 	import type { TeamsChannel } from '$lib/gen/types.gen'
@@ -54,27 +54,21 @@
 	async function loadSettings() {
 		loading = true
 
-		async function getValue(key: string, storage: SettingStorage) {
-			if (storage == 'setting') {
-				return SettingService.getGlobal({ key })
-			}
-		}
-		initialOauths = (await SettingService.getGlobal({ key: 'oauths' })) ?? {}
-		requirePreexistingUserForOauth =
-			((await SettingService.getGlobal({ key: 'require_preexisting_user_for_oauth' })) as any) ??
-			false
+		// Bulk-load all settings in a single API call
+		const config = await SettingService.getInstanceConfig()
+		const gs = (config.global_settings ?? {}) as Record<string, any>
+
+		initialOauths = gs['oauths'] ?? {}
+		requirePreexistingUserForOauth = gs['require_preexisting_user_for_oauth'] ?? false
 		initialRequirePreexistingUserForOauth = requirePreexistingUserForOauth
 		oauths = JSON.parse(JSON.stringify(initialOauths))
-		initialValues = Object.fromEntries(
-			(
-				await Promise.all(
-					[...Object.values(settings), scimSamlSetting].map(
-						async (y) =>
-							await Promise.all(y.map(async (x) => [x.key, await getValue(x.key, x.storage)]))
-					)
-				)
-			).flat()
-		)
+
+		// Build initialValues from the bulk response, keyed by setting name
+		initialValues = {}
+		for (const [key, value] of Object.entries(gs)) {
+			initialValues[key] = value
+		}
+
 		let nvalues = JSON.parse(JSON.stringify(initialValues))
 		if (nvalues['base_url'] == undefined) {
 			nvalues['base_url'] = window.location.origin
@@ -120,7 +114,7 @@
 		}
 
 		// Remove empty or invalid entries for critical error channels
-		$values.critical_error_channels = $values.critical_error_channels.filter((entry) => {
+		$values.critical_error_channels = $values.critical_error_channels.filter((entry: any) => {
 			if (!entry || typeof entry !== 'object') return false
 			if ('teams_channel' in entry) {
 				return isValidTeamsChannel(entry.teams_channel)
@@ -142,51 +136,48 @@
 				$values['license_key'] = $values['license_key'].trim()
 			}
 
+			// Check which settings require a page reload
 			const allSettings = [...Object.values(settings), scimSamlSetting].flatMap((x) =>
 				Object.entries(x)
 			)
 			let licenseKeySet = false
-			await Promise.all(
-				allSettings
-					.filter((x) => {
-						return (
-							x[1].storage == 'setting' &&
-							!deepEqual(initialValues?.[x[1].key], $values?.[x[1].key]) &&
-							($values?.[x[1].key] != '' ||
-								initialValues?.[x[1].key] != undefined ||
-								initialValues?.[x[1].key] != null)
-						)
-					})
-					.map(async ([_, x]) => {
-						if (x.key == 'license_key') {
-							licenseKeySet = true
-						}
-						if (x.requiresReloadOnChange) {
-							shouldReloadPage = true
-						}
-						return await SettingService.setGlobal({
-							key: x.key,
-							requestBody: { value: $values?.[x.key] }
-						})
-					})
-			)
-			initialValues = JSON.parse(JSON.stringify($values))
-
-			if (!deepEqual(initialOauths, oauths)) {
-				await SettingService.setGlobal({
-					key: 'oauths',
-					requestBody: {
-						value: oauths
+			for (const [_, x] of allSettings) {
+				if (
+					x.storage == 'setting' &&
+					!deepEqual(initialValues?.[x.key], $values?.[x.key])
+				) {
+					if (x.key == 'license_key') {
+						licenseKeySet = true
 					}
-				})
-				initialOauths = JSON.parse(JSON.stringify(oauths))
+					if (x.requiresReloadOnChange) {
+						shouldReloadPage = true
+					}
+				}
+			}
+
+			// Build the full global_settings object for the bulk PUT
+			const globalSettings: Record<string, any> = { ...$values }
+
+			// Include oauths and require_preexisting_user_for_oauth
+			if (!deepEqual(initialOauths, oauths)) {
+				globalSettings['oauths'] = oauths
 			}
 			if (initialRequirePreexistingUserForOauth !== requirePreexistingUserForOauth) {
-				await SettingService.setGlobal({
-					key: 'require_preexisting_user_for_oauth',
-					requestBody: { value: requirePreexistingUserForOauth }
-				})
+				globalSettings['require_preexisting_user_for_oauth'] = requirePreexistingUserForOauth
 			}
+
+			// Single bulk PUT — backend handles the diff
+			await SettingService.setInstanceConfig({
+				requestBody: {
+					global_settings: globalSettings,
+					worker_configs: {}
+				}
+			})
+
+			initialValues = JSON.parse(JSON.stringify($values))
+			initialOauths = JSON.parse(JSON.stringify(oauths))
+			initialRequirePreexistingUserForOauth = requirePreexistingUserForOauth
+
 			if (licenseKeySet) {
 				setLicense()
 			}
