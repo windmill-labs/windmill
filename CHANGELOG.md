@@ -1,5 +1,41 @@
 # Changelog
 
+## [1.628.3](https://github.com/windmill-labs/windmill/compare/v1.628.2...v1.628.3) (2026-02-06)
+
+
+### Bug Fixes
+
+* **bun:** `//native` not using workspace dependencies  ([#7833](https://github.com/windmill-labs/windmill/issues/7833)) ([df0ae90](https://github.com/windmill-labs/windmill/commit/df0ae90a2c97de6f895142da1e189a9a7279f3fb))
+* mark job cleanup integration tests as ignored in CI ([4a1e61f](https://github.com/windmill-labs/windmill/commit/4a1e61f2f9a82b9279af8d0aded5683322f5f262))
+
+## [1.628.2](https://github.com/windmill-labs/windmill/compare/v1.628.1...v1.628.2) (2026-02-06)
+
+
+### Bug Fixes
+
+* execute CONCURRENTLY statements individually in migrations ([7a7b118](https://github.com/windmill-labs/windmill/commit/7a7b118bf36e8086b2df5a940e99e1c031f57c81))
+
+## [1.628.1](https://github.com/windmill-labs/windmill/compare/v1.628.0...v1.628.1) (2026-02-06)
+
+
+### Bug Fixes
+
+* prevent deadlock in consolidate live index migration ([f39b28a](https://github.com/windmill-labs/windmill/commit/f39b28ac416cfdc2420a58b549ee07479f316493))
+* use concurrent index ops to prevent deadlock on upgrade ([9967f83](https://github.com/windmill-labs/windmill/commit/9967f835ab0cba04bdad4f72b7df786bd1b02fa0))
+
+## [1.628.0](https://github.com/windmill-labs/windmill/compare/v1.627.0...v1.628.0) (2026-02-06)
+
+
+### Features
+
+* kafka trigger kerberos/gssapi support ([#7815](https://github.com/windmill-labs/windmill/issues/7815)) ([795e2be](https://github.com/windmill-labs/windmill/commit/795e2bebe65db9c6f721e7cd24af1446aeb896ab))
+
+
+### Bug Fixes
+
+* make notify_event trigger functions SECURITY DEFINER ([#7826](https://github.com/windmill-labs/windmill/issues/7826)) ([33fb08c](https://github.com/windmill-labs/windmill/commit/33fb08cf3d08c4a6b86f32b3ae8bf2df8c1adcaa))
+* prevent schedule pool connection exhaustion ([#7821](https://github.com/windmill-labs/windmill/issues/7821)) ([e655a06](https://github.com/windmill-labs/windmill/commit/e655a065637b288080118661650bc14641dd0c6f))
+
 ## [1.627.0](https://github.com/windmill-labs/windmill/compare/v1.626.0...v1.627.0) (2026-02-05)
 
 
