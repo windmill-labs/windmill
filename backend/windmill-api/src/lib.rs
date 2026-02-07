@@ -11,12 +11,10 @@ use crate::db::ApiAuthed;
 use crate::ee_oss::ExternalJwks;
 #[cfg(feature = "embedding")]
 use crate::embeddings::load_embeddings_db;
-#[cfg(feature = "oauth2")]
-use crate::oauth2_oss::AllClients;
-#[cfg(feature = "oauth2")]
-use crate::oauth2_oss::SlackVerifier;
 #[cfg(feature = "smtp")]
 use crate::smtp_server_oss::SmtpServer;
+#[cfg(feature = "oauth2")]
+use windmill_oauth::SlackVerifier;
 
 #[cfg(feature = "mcp")]
 use crate::mcp::{extract_and_store_workspace_id, setup_mcp_server};
@@ -41,8 +39,6 @@ use axum::response::Response;
 use axum::{middleware::from_extractor, routing::get, routing::post, Extension, Json, Router};
 use db::DB;
 use reqwest::Client;
-#[cfg(feature = "oauth2")]
-use std::collections::HashMap;
 use tokio::task::JoinHandle;
 use windmill_common::global_settings::load_value_from_global_settings;
 use windmill_common::global_settings::EMAIL_DOMAIN_SETTING;
@@ -231,18 +227,13 @@ lazy_static::lazy_static! {
 }
 
 #[cfg(feature = "oauth2")]
+pub use windmill_oauth::OAUTH_CLIENTS;
+
+#[cfg(feature = "oauth2")]
 lazy_static::lazy_static! {
-    pub static ref OAUTH_CLIENTS: Arc<RwLock<AllClients>> = Arc::new(RwLock::new(AllClients {
-        logins: HashMap::new(),
-        connects: HashMap::new(),
-        slack: None
-    }));
-
-
     pub static ref SLACK_SIGNING_SECRET: Option<SlackVerifier> = std::env::var("SLACK_SIGNING_SECRET")
         .ok()
         .map(|x| SlackVerifier::new(x).unwrap());
-
 }
 
 // Compliance with cloud events spec.
@@ -292,16 +283,6 @@ pub async fn run_server(
 ) -> anyhow::Result<()> {
     // Register the auth resolver callback for windmill-api-auth's FromRequestParts impls
     windmill_api_auth::set_opt_job_authed_resolver(crate::auth::resolve_opt_job_authed);
-
-    // Register the refresh_token bridge for windmill-store
-    #[cfg(feature = "oauth2")]
-    windmill_store::bridge::set_refresh_token_fn(|db, path, w_id, account_id| async move {
-        let tx = db
-            .begin()
-            .await
-            .map_err(|e| windmill_common::error::Error::InternalErr(e.to_string()))?;
-        crate::oauth2_oss::_refresh_token(tx, &path, &w_id, account_id, &db).await
-    });
 
     let user_db = UserDB::new(db.clone());
 

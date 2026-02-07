@@ -109,10 +109,7 @@ async fn get_or_create_vault_backend(
     };
 
     // Cache it
-    *cache = Some(CachedVaultBackend {
-        backend: backend.clone(),
-        settings,
-    });
+    *cache = Some(CachedVaultBackend { backend: backend.clone(), settings });
 
     Ok(backend)
 }

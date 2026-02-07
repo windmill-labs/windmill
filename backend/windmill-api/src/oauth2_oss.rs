@@ -11,35 +11,31 @@ pub use crate::oauth2_ee::*;
  */
 
 #[cfg(not(feature = "private"))]
-use std::{collections::HashMap, fmt::Debug};
+use std::collections::HashMap;
 
 #[cfg(not(feature = "private"))]
 use axum::{routing::get, Json, Router};
-#[cfg(not(feature = "private"))]
-use hmac::Mac;
 
 #[cfg(all(feature = "oauth2", not(feature = "private")))]
 use itertools::Itertools;
 #[cfg(not(feature = "private"))]
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 #[cfg(not(feature = "private"))]
 use sqlx::{Postgres, Transaction};
+
 #[cfg(all(feature = "oauth2", not(feature = "private")))]
-use windmill_common::more_serde::maybe_number_opt;
-#[cfg(all(feature = "oauth2", not(feature = "private")))]
-use windmill_oauth::{helpers, AccessToken, OClient, RefreshToken, Scope};
+pub use windmill_oauth::{
+    AllClients, BasicClientsMap, ClientWithScopes, OAuthClient, OAuthConfig, SlackVerifier,
+    TokenResponse,
+};
 
 #[cfg(all(feature = "oauth2", not(feature = "private")))]
 use crate::OAUTH_CLIENTS;
 #[cfg(not(feature = "private"))]
 use windmill_common::error;
-#[cfg(not(feature = "private"))]
-use windmill_common::oauth2::*;
 
 #[cfg(not(feature = "private"))]
 use crate::db::DB;
-#[cfg(not(feature = "private"))]
-use std::str;
 
 #[cfg(not(feature = "private"))]
 pub fn global_service() -> Router {
@@ -54,49 +50,6 @@ pub fn workspaced_service() -> Router {
 }
 
 #[cfg(all(feature = "oauth2", not(feature = "private")))]
-#[derive(Debug, Clone)]
-pub struct ClientWithScopes {
-    _client: OClient,
-    _scopes: Vec<String>,
-    _extra_params: Option<HashMap<String, String>>,
-    _extra_params_callback: Option<HashMap<String, String>>,
-    _allowed_domains: Option<Vec<String>>,
-    _userinfo_url: Option<String>,
-}
-#[cfg(all(feature = "oauth2", not(feature = "private")))]
-pub type BasicClientsMap = HashMap<String, ClientWithScopes>;
-
-#[cfg(not(feature = "private"))]
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct OAuthConfig {
-    auth_url: String,
-    token_url: String,
-    userinfo_url: Option<String>,
-    scopes: Option<Vec<String>>,
-    extra_params: Option<HashMap<String, String>>,
-    extra_params_callback: Option<HashMap<String, String>>,
-    req_body_auth: Option<bool>,
-}
-
-#[cfg(not(feature = "private"))]
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct OAuthClient {
-    id: String,
-    secret: String,
-    allowed_domains: Option<Vec<String>>,
-    connect_config: Option<OAuthConfig>,
-    login_config: Option<OAuthConfig>,
-}
-
-#[cfg(all(feature = "oauth2", not(feature = "private")))]
-#[derive(Debug)]
-pub struct AllClients {
-    pub logins: BasicClientsMap,
-    pub connects: BasicClientsMap,
-    pub slack: Option<OClient>,
-}
-
-#[cfg(all(feature = "oauth2", not(feature = "private")))]
 pub async fn build_oauth_clients(
     _base_url: &str,
     _oauths_from_config: Option<HashMap<String, OAuthClient>>,
@@ -108,20 +61,6 @@ pub async fn build_oauth_clients(
         connects: HashMap::default(),
         slack: None,
     });
-}
-
-#[cfg(all(feature = "oauth2", not(feature = "private")))]
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct TokenResponse {
-    access_token: AccessToken,
-    #[serde(deserialize_with = "maybe_number_opt")]
-    #[serde(default)]
-    expires_in: Option<u64>,
-    refresh_token: Option<RefreshToken>,
-    #[serde(deserialize_with = "helpers::deserialize_space_delimited_vec")]
-    #[serde(serialize_with = "helpers::serialize_space_delimited_vec")]
-    #[serde(default)]
-    scope: Option<Vec<Scope>>,
 }
 
 #[cfg(not(feature = "private"))]
@@ -191,18 +130,4 @@ pub async fn check_nb_of_user(db: &DB) -> error::Result<()> {
         ));
     }
     return Ok(());
-}
-
-#[derive(Clone, Debug)]
-#[cfg(not(feature = "private"))]
-pub struct SlackVerifier {
-    _mac: HmacSha256,
-}
-#[cfg(not(feature = "private"))]
-impl SlackVerifier {
-    pub fn new<S: AsRef<[u8]>>(secret: S) -> anyhow::Result<SlackVerifier> {
-        HmacSha256::new_from_slice(secret.as_ref())
-            .map(|mac| SlackVerifier { _mac: mac })
-            .map_err(|_| anyhow::anyhow!("invalid secret"))
-    }
 }

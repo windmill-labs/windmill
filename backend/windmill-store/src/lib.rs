@@ -6,7 +6,10 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-pub mod bridge;
+#[cfg(feature = "oauth2")]
+pub mod oauth_refresh_oss;
+#[cfg(feature = "private")]
+mod oauth_refresh_ee;
 pub mod resources;
 pub mod secret_backend_ext;
 pub mod var_resource_cache;

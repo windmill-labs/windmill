@@ -198,12 +198,17 @@ async fn get_variable(
             value: if variable.is_expired.unwrap_or(false) && variable.account.is_some() {
                 #[cfg(feature = "oauth2")]
                 {
+                    let refresh_tx = db
+                        .begin()
+                        .await
+                        .map_err(|e| Error::InternalErr(e.to_string()))?;
                     Some(
-                        crate::bridge::refresh_token(
-                            &db,
+                        crate::oauth_refresh_oss::_refresh_token(
+                            refresh_tx,
                             &variable.path,
                             &w_id,
                             variable.account.unwrap(),
+                            &db,
                         )
                         .await?,
                     )
@@ -887,8 +892,18 @@ pub async fn get_value_internal<'a>(
             #[cfg(feature = "oauth2")]
             {
                 let db = db_with_opt_authed.db();
-                crate::bridge::refresh_token(db, &variable.path, &w_id, variable.account.unwrap())
-                    .await?
+                let refresh_tx = db
+                    .begin()
+                    .await
+                    .map_err(|e| Error::InternalErr(e.to_string()))?;
+                crate::oauth_refresh_oss::_refresh_token(
+                    refresh_tx,
+                    &variable.path,
+                    &w_id,
+                    variable.account.unwrap(),
+                    db,
+                )
+                .await?
             }
             #[cfg(not(feature = "oauth2"))]
             return Err(Error::internal_err("Require oauth2 feature".to_string()));
