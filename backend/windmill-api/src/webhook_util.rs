@@ -73,12 +73,14 @@ impl WebhookShared {
     pub fn new(mut shutdown_rx: tokio::sync::broadcast::Receiver<()>, db: DB) -> Self {
         let (tx, mut rx) = mpsc::unbounded_channel::<WebhookPayload>();
         let _process = tokio::spawn(async move {
-            let client = configure_client(reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(5))
-                // TODO: investigate pool timeouts and such if TCP load is high
-                .timeout(Duration::from_secs(5)))
-                .build()
-                .unwrap();
+            let client = configure_client(
+                reqwest::Client::builder()
+                    .connect_timeout(Duration::from_secs(5))
+                    // TODO: investigate pool timeouts and such if TCP load is high
+                    .timeout(Duration::from_secs(5)),
+            )
+            .build()
+            .unwrap();
 
             loop {
                 select! {

@@ -1,0 +1,46 @@
+[package]
+name = "windmill-trigger-http"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_trigger_http"
+path = "src/lib.rs"
+
+[features]
+default = []
+enterprise = ["windmill-common/enterprise"]
+cloud = ["windmill-common/cloud"]
+
+[dependencies]
+windmill-api-auth.workspace = true
+windmill-common = { workspace = true, default-features = false }
+windmill-trigger.workspace = true
+windmill-audit.workspace = true
+windmill-git-sync.workspace = true
+axum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+http.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+async-trait.workspace = true
+lazy_static.workspace = true
+quick_cache.workspace = true
+regex.workspace = true
+matchit.workspace = true
+hyper.workspace = true
+futures.workspace = true
+
+# http_trigger_auth deps
+base64.workspace = true
+hmac.workspace = true
+sha1.workspace = true
+sha2.workspace = true
+constant_time_eq.workspace = true
+itertools.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+hex.workspace = true

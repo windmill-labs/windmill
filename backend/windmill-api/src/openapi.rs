@@ -25,8 +25,7 @@ use crate::{
     db::ApiAuthed,
     resources::try_get_resource_from_db_as,
     triggers::http::{
-        http_trigger_args::HttpMethod, http_trigger_auth::ApiKeyAuthentication,
-        AuthenticationMethod, RequestType,
+        http_trigger_auth::ApiKeyAuthentication, AuthenticationMethod, HttpMethod, RequestType,
     },
 };
 

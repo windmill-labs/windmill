@@ -22,8 +22,8 @@ pub struct AgentConfig {
 
 impl AgentConfig {
     pub fn from_env() -> Result<Self, AgentConfigError> {
-        let agent_token = std::env::var("AGENT_TOKEN")
-            .map_err(|_| AgentConfigError::MissingAgentToken)?;
+        let agent_token =
+            std::env::var("AGENT_TOKEN").map_err(|_| AgentConfigError::MissingAgentToken)?;
         let base_internal_url = std::env::var("BASE_INTERNAL_URL")
             .map_err(|_| AgentConfigError::MissingBaseInternalUrl)?;
         Ok(Self { agent_token, base_internal_url })
@@ -44,10 +44,16 @@ impl std::fmt::Display for AgentConfigError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AgentConfigError::MissingAgentToken => {
-                write!(f, "AGENT_TOKEN environment variable is not set but required for agent mode")
+                write!(
+                    f,
+                    "AGENT_TOKEN environment variable is not set but required for agent mode"
+                )
             }
             AgentConfigError::MissingBaseInternalUrl => {
-                write!(f, "BASE_INTERNAL_URL environment variable is not set but required for agent mode")
+                write!(
+                    f,
+                    "BASE_INTERNAL_URL environment variable is not set but required for agent mode"
+                )
             }
         }
     }

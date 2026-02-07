@@ -11,13 +11,16 @@ use std::collections::HashMap;
 use windmill_common::error::Error;
 use windmill_common::variables::get_secret_value_as_admin;
 
-use crate::{approvals::{
-    extract_w_id_from_resume_url, handle_resume_action, ApprovalFormDetails, FieldType,
-    MessageFormat, QueryDefaultArgsJson, QueryDynamicEnumJson, QueryFlowStepId, QueryMessage,
-    ResumeFormField, ResumeSchema,
-}, auth::OptTokened};
 use crate::db::{ApiAuthed, DB};
 use crate::jobs::{QueryApprover, ResumeUrls};
+use crate::{
+    approvals::{
+        extract_w_id_from_resume_url, handle_resume_action, ApprovalFormDetails, FieldType,
+        MessageFormat, QueryDefaultArgsJson, QueryDynamicEnumJson, QueryFlowStepId, QueryMessage,
+        ResumeFormField, ResumeSchema,
+    },
+    auth::OptTokened,
+};
 
 #[derive(Deserialize, Debug)]
 pub struct SlackFormData {
@@ -125,8 +128,12 @@ pub async fn slack_app_callback_handler(
     tracing::debug!("Payload: {:#?}", payload);
 
     match payload.r#type {
-        PayloadType::ViewSubmission => handle_submission(authed, opt_tokened, db, &payload, "resume").await?,
-        PayloadType::ViewClosed => handle_submission(authed, opt_tokened, db, &payload, "cancel").await?,
+        PayloadType::ViewSubmission => {
+            handle_submission(authed, opt_tokened, db, &payload, "resume").await?
+        }
+        PayloadType::ViewClosed => {
+            handle_submission(authed, opt_tokened, db, &payload, "cancel").await?
+        }
         _ => {
             if let Some(actions) = &payload.actions {
                 if let Some(action) = actions.first() {
@@ -296,7 +303,15 @@ async fn handle_submission(
     }
 
     // Use the common handler to process the resume/cancel action
-    handle_resume_action(authed, opt_tokened, db.clone(), &resume_url, state_json, action).await?;
+    handle_resume_action(
+        authed,
+        opt_tokened,
+        db.clone(),
+        &resume_url,
+        state_json,
+        action,
+    )
+    .await?;
 
     let w_id = extract_w_id_from_resume_url(&resume_url)?;
     let slack_token = get_slack_token(&db, &resource_path, w_id).await?;

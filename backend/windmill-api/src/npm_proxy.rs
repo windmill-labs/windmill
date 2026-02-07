@@ -39,7 +39,9 @@ fn parse_package_and_version(path: &str) -> Result<(String, String)> {
         // Scoped package: @scope/name/version
         let parts: Vec<&str> = path.splitn(3, '/').collect();
         if parts.len() < 3 {
-            return Err(Error::BadRequest("Invalid scoped package path, expected @scope/name/version".to_string()));
+            return Err(Error::BadRequest(
+                "Invalid scoped package path, expected @scope/name/version".to_string(),
+            ));
         }
         let package = format!("{}/{}", parts[0], parts[1]);
         let version = parts[2].to_string();
@@ -48,7 +50,9 @@ fn parse_package_and_version(path: &str) -> Result<(String, String)> {
         // Regular package: name/version
         let parts: Vec<&str> = path.splitn(2, '/').collect();
         if parts.len() < 2 {
-            return Err(Error::BadRequest("Invalid package path, expected name/version".to_string()));
+            return Err(Error::BadRequest(
+                "Invalid package path, expected name/version".to_string(),
+            ));
         }
         Ok((parts[0].to_string(), parts[1].to_string()))
     }
@@ -62,7 +66,10 @@ fn parse_package_version_and_file(path: &str) -> Result<(String, String, String)
         // Scoped package: @scope/name/version/filepath
         let parts: Vec<&str> = path.splitn(4, '/').collect();
         if parts.len() < 4 {
-            return Err(Error::BadRequest("Invalid scoped package file path, expected @scope/name/version/filepath".to_string()));
+            return Err(Error::BadRequest(
+                "Invalid scoped package file path, expected @scope/name/version/filepath"
+                    .to_string(),
+            ));
         }
         let package = format!("{}/{}", parts[0], parts[1]);
         let version = parts[2].to_string();
@@ -72,9 +79,15 @@ fn parse_package_version_and_file(path: &str) -> Result<(String, String, String)
         // Regular package: name/version/filepath
         let parts: Vec<&str> = path.splitn(3, '/').collect();
         if parts.len() < 3 {
-            return Err(Error::BadRequest("Invalid package file path, expected name/version/filepath".to_string()));
+            return Err(Error::BadRequest(
+                "Invalid package file path, expected name/version/filepath".to_string(),
+            ));
         }
-        Ok((parts[0].to_string(), parts[1].to_string(), parts[2].to_string()))
+        Ok((
+            parts[0].to_string(),
+            parts[1].to_string(),
+            parts[2].to_string(),
+        ))
     }
 }
 
@@ -313,10 +326,7 @@ async fn get_package_filetree(
         .unwrap_or("index.js")
         .to_string();
 
-    Ok(Json(PackageFiletree {
-        default: main,
-        files,
-    }))
+    Ok(Json(PackageFiletree { default: main, files }))
 }
 
 /// Get a specific file from a package version
@@ -419,7 +429,10 @@ fn format_registry_url(
 
     match (version, file) {
         (Some(v), Some(f)) => {
-            format!("{}/{}/{}/-/{}-{}/{}", registry_base, package_path, v, package, v, f)
+            format!(
+                "{}/{}/{}/-/{}-{}/{}",
+                registry_base, package_path, v, package, v, f
+            )
         }
         (Some(v), None) => {
             format!("{}/{}/{}", registry_base, package_path, v)
@@ -453,9 +466,7 @@ fn extract_tarball_files(tarball_bytes: &[u8]) -> Result<Vec<FileEntry>> {
         // Remove the package/ prefix that npm tarballs have
         let path_str = path.to_string_lossy().to_string();
         if let Some(stripped) = path_str.strip_prefix("package/") {
-            files.push(FileEntry {
-                name: format!("/{}", stripped),
-            });
+            files.push(FileEntry { name: format!("/{}", stripped) });
         }
     }
 
@@ -490,13 +501,16 @@ fn extract_file_from_tarball(tarball_bytes: &[u8], target_file: &str) -> Result<
         if let Some(stripped) = path_str.strip_prefix("package/") {
             if stripped == target {
                 let mut content = String::new();
-                entry
-                    .read_to_string(&mut content)
-                    .map_err(|e| Error::InternalErr(format!("Failed to read file content: {}", e)))?;
+                entry.read_to_string(&mut content).map_err(|e| {
+                    Error::InternalErr(format!("Failed to read file content: {}", e))
+                })?;
                 return Ok(content);
             }
         }
     }
 
-    Err(Error::NotFound(format!("File {} not found in tarball", target_file)))
+    Err(Error::NotFound(format!(
+        "File {} not found in tarball",
+        target_file
+    )))
 }

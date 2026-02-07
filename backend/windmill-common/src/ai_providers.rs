@@ -8,7 +8,9 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 /// Deserializes an Option<String> where empty strings become None.
 /// Use with `#[serde(default, deserialize_with = "empty_string_as_none")]`
-pub fn empty_string_as_none<'de, D>(deserializer: D) -> std::result::Result<Option<String>, D::Error>
+pub fn empty_string_as_none<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<String>, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -47,11 +49,7 @@ pub enum AIProvider {
 
 impl AIProvider {
     /// Get the base URL for the AI provider
-    pub async fn get_base_url(
-        &self,
-        resource_base_url: Option<String>,
-        db: &DB,
-    ) -> Result<String> {
+    pub async fn get_base_url(&self, resource_base_url: Option<String>, db: &DB) -> Result<String> {
         if let Some(base_url) = resource_base_url {
             return Ok(base_url);
         }

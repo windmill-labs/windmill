@@ -1,5 +1,6 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx;
+use sqlx::{self, FromRow};
 use uuid::Uuid;
 
 use crate::error::Result;
@@ -12,6 +13,66 @@ pub enum MessageType {
     Assistant,
     System,
     Tool,
+}
+
+#[derive(Serialize, FromRow, Debug)]
+pub struct FlowConversation {
+    pub id: Uuid,
+    pub workspace_id: String,
+    pub flow_path: String,
+    pub title: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub created_by: String,
+}
+
+pub async fn get_or_create_conversation_with_id(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    w_id: &str,
+    flow_path: &str,
+    username: &str,
+    title: &str,
+    conversation_id: Uuid,
+) -> Result<FlowConversation> {
+    // Check if conversation already exists
+    let existing_conversation = sqlx::query_as!(
+        FlowConversation,
+        "SELECT id, workspace_id, flow_path, title, created_at, updated_at, created_by
+         FROM flow_conversation
+         WHERE id = $1 AND workspace_id = $2",
+        conversation_id,
+        w_id
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    if let Some(existing) = existing_conversation {
+        return Ok(existing);
+    }
+
+    // Truncate title to 25 char characters max
+    let title = if title.len() > 25 {
+        format!("{}...", &title[..25])
+    } else {
+        title.to_string()
+    };
+
+    // Create new conversation with provided ID
+    let conversation = sqlx::query_as!(
+        FlowConversation,
+        "INSERT INTO flow_conversation (id, workspace_id, flow_path, created_by, title)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id, workspace_id, flow_path, title, created_at, updated_at, created_by",
+        conversation_id,
+        w_id,
+        flow_path,
+        username,
+        title
+    )
+    .fetch_one(&mut **tx)
+    .await?;
+
+    Ok(conversation)
 }
 
 /// Add a message to a conversation using an existing transaction

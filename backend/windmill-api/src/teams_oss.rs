@@ -44,7 +44,6 @@ pub async fn run_teams_message_test_job() -> Result<StatusCode, Error> {
     ));
 }
 
-
 #[cfg(all(feature = "enterprise", not(feature = "private")))]
 pub fn teams_service() -> Router {
     Router::new()

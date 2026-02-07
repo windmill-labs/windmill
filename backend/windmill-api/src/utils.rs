@@ -13,12 +13,11 @@ use sqlx::{Postgres, Transaction};
 #[cfg(feature = "enterprise")]
 use windmill_common::worker::CLOUD_HOSTED;
 use windmill_common::{
-    auth::{is_devops_email, is_super_admin_email},
     error::{self, Error},
     DB,
 };
 
-use crate::{db::ApiAuthed, scopes::ScopeDefinition};
+pub use windmill_api_auth::{check_scopes, require_devops_role, require_super_admin};
 
 #[cfg(feature = "enterprise")]
 use windmill_common::error::JsonResult;
@@ -35,60 +34,6 @@ pub struct WithStarredInfoQuery {
 #[derive(Deserialize)]
 pub struct BulkDeleteRequest {
     pub paths: Vec<String>,
-}
-
-pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {
-    let is_admin = is_super_admin_email(db, email).await?;
-
-    if !is_admin {
-        Err(Error::NotAuthorized(
-            "This endpoint requires the caller to be a super admin".to_owned(),
-        ))
-    } else {
-        Ok(())
-    }
-}
-
-pub fn check_scopes<F>(authed: &ApiAuthed, required: F) -> error::Result<()>
-where
-    F: FnOnce() -> String,
-{
-    if let Some(scopes) = authed.scopes.as_ref() {
-        let mut is_scoped_token = false;
-        let required_scope = ScopeDefinition::from_scope_string(&required())?;
-        for scope in scopes {
-            if !scope.starts_with("if_jobs:filter_tags:") {
-                if !is_scoped_token {
-                    is_scoped_token = true;
-                }
-
-                match ScopeDefinition::from_scope_string(scope) {
-                    Ok(scope) if scope.includes(&required_scope) => return Ok(()),
-                    _ => {}
-                }
-            }
-        }
-
-        if is_scoped_token {
-            return Err(Error::NotAuthorized(format!(
-                "Required scope: {}",
-                required_scope.as_string()
-            )));
-        }
-    }
-    Ok(())
-}
-
-pub async fn require_devops_role(db: &DB, email: &str) -> error::Result<()> {
-    let is_devops = is_devops_email(db, email).await?;
-
-    if is_devops {
-        Ok(())
-    } else {
-        Err(Error::NotAuthorized(
-            "This endpoint requires the caller to have the `devops` role".to_string(),
-        ))
-    }
 }
 
 lazy_static::lazy_static! {

@@ -16,7 +16,10 @@ use std::sync::Arc;
 use crate::db::DB;
 use crate::error::{Error, Result};
 
-use super::{database::DatabaseBackend, SecretBackend, SecretBackendConfig, SecretMigrationReport, VaultSettings};
+use super::{
+    database::DatabaseBackend, SecretBackend, SecretBackendConfig, SecretMigrationReport,
+    VaultSettings,
+};
 
 /// Stub VaultBackend for OSS - all operations return EE required error
 pub struct VaultBackend;

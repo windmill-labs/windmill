@@ -47,8 +47,8 @@ pub const VERBOSE_TARGET: &str = "windmill_verbose";
 
 /// Creates a Targets filter that optionally filters out verbose logs when quiet mode is enabled.
 fn create_targets_filter(default_env_filter: LevelFilter) -> Targets {
-    let targets = Targets::new()
-        .with_target("windmill:job_log", tracing::level_filters::LevelFilter::OFF);
+    let targets =
+        Targets::new().with_target("windmill:job_log", tracing::level_filters::LevelFilter::OFF);
 
     if *QUIET_MODE {
         targets

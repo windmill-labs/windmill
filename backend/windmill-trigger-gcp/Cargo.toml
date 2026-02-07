@@ -1,0 +1,44 @@
+[package]
+name = "windmill-trigger-gcp"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_trigger_gcp"
+path = "src/lib.rs"
+
+[features]
+default = []
+enterprise = ["windmill-common/enterprise", "windmill-store/enterprise", "windmill-trigger/enterprise"]
+private = ["windmill-common/private", "windmill-store/private"]
+
+[dependencies]
+windmill-common = { workspace = true, default-features = false }
+windmill-api-auth.workspace = true
+windmill-store = { workspace = true, features = ["gcp_trigger"] }
+windmill-trigger.workspace = true
+windmill-git-sync.workspace = true
+google-cloud-pubsub.workspace = true
+google-cloud-googleapis.workspace = true
+tonic.workspace = true
+axum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+async-trait.workspace = true
+itertools.workspace = true
+anyhow.workspace = true
+base64.workspace = true
+bytes.workspace = true
+http.workspace = true
+jsonwebtoken.workspace = true
+quick_cache.workspace = true
+lazy_static.workspace = true
+reqwest.workspace = true
+tower-http.workspace = true
+chrono.workspace = true
+thiserror.workspace = true

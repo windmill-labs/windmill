@@ -8,6 +8,22 @@ edition.workspace = true
 resolver = "2"
 members = [
     "./windmill-api",
+    "./windmill-api-auth",
+    "./windmill-api-sse",
+    "./windmill-api-jobs",
+    "./windmill-trigger",
+    "./windmill-trigger-kafka",
+    "./windmill-trigger-postgres",
+    "./windmill-trigger-mqtt",
+    "./windmill-trigger-websocket",
+    "./windmill-trigger-email",
+    "./windmill-trigger-nats",
+    "./windmill-trigger-sqs",
+    "./windmill-trigger-gcp",
+    "./windmill-trigger-http",
+    "./windmill-native-triggers",
+    "./windmill-api-embeddings",
+    "./windmill-store",
     "./windmill-queue",
     "./windmill-worker",
     "./windmill-common",
@@ -227,6 +243,22 @@ windmill-indexer = {path = "./windmill-indexer"}
 windmill-mcp = {path = "./windmill-mcp"}
 windmill-oauth = {path = "./windmill-oauth"}
 windmill-macros = {path = "./windmill-macros"}
+windmill-api-auth = { path = "./windmill-api-auth" }
+windmill-api-sse = { path = "./windmill-api-sse" }
+windmill-api-jobs = { path = "./windmill-api-jobs" }
+windmill-trigger = { path = "./windmill-trigger" }
+windmill-trigger-kafka = { path = "./windmill-trigger-kafka" }
+windmill-trigger-postgres = { path = "./windmill-trigger-postgres" }
+windmill-trigger-mqtt = { path = "./windmill-trigger-mqtt" }
+windmill-trigger-websocket = { path = "./windmill-trigger-websocket" }
+windmill-trigger-email = { path = "./windmill-trigger-email" }
+windmill-trigger-nats = { path = "./windmill-trigger-nats" }
+windmill-trigger-sqs = { path = "./windmill-trigger-sqs" }
+windmill-trigger-gcp = { path = "./windmill-trigger-gcp" }
+windmill-trigger-http = { path = "./windmill-trigger-http" }
+windmill-native-triggers = { path = "./windmill-native-triggers" }
+windmill-api-embeddings = { path = "./windmill-api-embeddings" }
+windmill-store = { path = "./windmill-store" }
 windmill-parser = { path = "./parsers/windmill-parser" }
 windmill-parser-ts = { path = "./parsers/windmill-parser-ts" }
 windmill-parser-py = { path = "./parsers/windmill-parser-py" }

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        DELETE FROM\n            capture\n        WHERE\n            workspace_id = $1\n            AND created_at <= (\n                SELECT\n                    created_at\n                FROM\n                    capture\n                WHERE\n                    workspace_id = $1\n                ORDER BY\n                    created_at DESC\n                OFFSET $2\n                LIMIT 1\n            )\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0574df3e18f626dd8b3f83fbff8b0ee99cf8483a8fe66fa9311cb96e3f5a0ee2"
+}
