@@ -20,14 +20,14 @@ use hmac::Mac;
 
 #[cfg(all(feature = "oauth2", not(feature = "private")))]
 use itertools::Itertools;
-#[cfg(all(feature = "oauth2", not(feature = "private")))]
-use windmill_oauth::{OClient, AccessToken, RefreshToken, Scope, helpers};
 #[cfg(not(feature = "private"))]
 use serde::{Deserialize, Serialize};
 #[cfg(not(feature = "private"))]
 use sqlx::{Postgres, Transaction};
 #[cfg(all(feature = "oauth2", not(feature = "private")))]
 use windmill_common::more_serde::maybe_number_opt;
+#[cfg(all(feature = "oauth2", not(feature = "private")))]
+use windmill_oauth::{helpers, AccessToken, OClient, RefreshToken, Scope};
 
 #[cfg(all(feature = "oauth2", not(feature = "private")))]
 use crate::OAUTH_CLIENTS;

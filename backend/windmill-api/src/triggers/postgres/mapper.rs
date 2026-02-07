@@ -129,8 +129,7 @@ export async function main(
 ) {{
 }}
     "#,
-            &struct_definition,
-            &struct_definition
+            &struct_definition, &struct_definition
         )
     }
 }

@@ -1,15 +1,13 @@
 use std::num::ParseIntError;
 
-
 /**
 * This implementation is inspired by Postgres replication functionality
 * from https://github.com/supabase/pg_replicate
-* 
-* Original implementation: 
+*
+* Original implementation:
 * - https://github.dev/supabase/pg_replicate/blob/main/pg_replicate/src/conversions/hex.rs
-* 
+*
 */
-
 use thiserror::Error;
 
 #[derive(Debug, Error)]

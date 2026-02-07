@@ -1411,7 +1411,7 @@ async fn delete_app(
         deployed_object,
         Some(format!("App '{}' deleted", path)),
         true,
-    None,
+        None,
     )
     .await?;
 

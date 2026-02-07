@@ -15831,6 +15831,9 @@ dependencies = [
  "url",
  "urlencoding",
  "uuid",
+ "windmill-api-auth",
+ "windmill-api-jobs",
+ "windmill-api-sse",
  "windmill-audit",
  "windmill-autoscaling",
  "windmill-common",
@@ -15844,7 +15847,22 @@ dependencies = [
  "windmill-parser-sql",
  "windmill-parser-ts",
  "windmill-queue",
+ "windmill-store",
  "windmill-worker",
+]
+
+[[package]]
+name = "windmill-api-auth"
+version = "1.628.2"
+dependencies = [
+ "axum 0.7.9",
+ "http 1.4.0",
+ "itertools 0.14.0",
+ "serde",
+ "uuid",
+ "windmill-audit",
+ "windmill-common",
+ "windmill-mcp",
 ]
 
 [[package]]
@@ -15855,6 +15873,38 @@ dependencies = [
  "serde",
  "serde_json",
  "urlencoding",
+]
+
+[[package]]
+name = "windmill-api-jobs"
+version = "1.628.2"
+dependencies = [
+ "anyhow",
+ "axum 0.7.9",
+ "base64 0.22.1",
+ "chrono",
+ "http 1.4.0",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tower-http",
+ "tracing",
+ "uuid",
+ "windmill-api-auth",
+ "windmill-api-sse",
+ "windmill-common",
+]
+
+[[package]]
+name = "windmill-api-sse"
+version = "1.628.2"
+dependencies = [
+ "lazy_static",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "uuid",
+ "windmill-common",
 ]
 
 [[package]]
@@ -16335,6 +16385,32 @@ dependencies = [
  "wasm-bindgen-test",
  "windmill-parser",
  "windmill-parser-sql",
+]
+
+[[package]]
+name = "windmill-store"
+version = "1.628.2"
+dependencies = [
+ "async-recursion",
+ "axum 0.7.9",
+ "chrono",
+ "futures",
+ "http 1.4.0",
+ "hyper 1.8.1",
+ "lazy_static",
+ "quick_cache",
+ "serde",
+ "serde_json",
+ "sql-builder",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+ "windmill-api-auth",
+ "windmill-audit",
+ "windmill-common",
+ "windmill-git-sync",
+ "windmill-mcp",
 ]
 
 [[package]]

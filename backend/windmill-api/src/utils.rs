@@ -6,19 +6,15 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use axum::{body::Body, response::Response};
 use regex::Regex;
 use serde::{Deserialize, Deserializer};
 use sqlx::{Postgres, Transaction};
 #[cfg(feature = "enterprise")]
 use windmill_common::worker::CLOUD_HOSTED;
 use windmill_common::{
-    auth::{is_devops_email, is_super_admin_email},
     error::{self, Error},
     DB,
 };
-
-use crate::{db::ApiAuthed, scopes::ScopeDefinition};
 
 #[cfg(feature = "enterprise")]
 use windmill_common::error::JsonResult;
@@ -26,70 +22,9 @@ use windmill_common::error::JsonResult;
 #[cfg(feature = "enterprise")]
 use axum::Json;
 
-#[derive(Deserialize)]
-pub struct WithStarredInfoQuery {
-    pub with_starred_info: Option<bool>,
-}
-
-// Shared structs for bulk delete operations
-#[derive(Deserialize)]
-pub struct BulkDeleteRequest {
-    pub paths: Vec<String>,
-}
-
-pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {
-    let is_admin = is_super_admin_email(db, email).await?;
-
-    if !is_admin {
-        Err(Error::NotAuthorized(
-            "This endpoint requires the caller to be a super admin".to_owned(),
-        ))
-    } else {
-        Ok(())
-    }
-}
-
-pub fn check_scopes<F>(authed: &ApiAuthed, required: F) -> error::Result<()>
-where
-    F: FnOnce() -> String,
-{
-    if let Some(scopes) = authed.scopes.as_ref() {
-        let mut is_scoped_token = false;
-        let required_scope = ScopeDefinition::from_scope_string(&required())?;
-        for scope in scopes {
-            if !scope.starts_with("if_jobs:filter_tags:") {
-                if !is_scoped_token {
-                    is_scoped_token = true;
-                }
-
-                match ScopeDefinition::from_scope_string(scope) {
-                    Ok(scope) if scope.includes(&required_scope) => return Ok(()),
-                    _ => {}
-                }
-            }
-        }
-
-        if is_scoped_token {
-            return Err(Error::NotAuthorized(format!(
-                "Required scope: {}",
-                required_scope.as_string()
-            )));
-        }
-    }
-    Ok(())
-}
-
-pub async fn require_devops_role(db: &DB, email: &str) -> error::Result<()> {
-    let is_devops = is_devops_email(db, email).await?;
-
-    if is_devops {
-        Ok(())
-    } else {
-        Err(Error::NotAuthorized(
-            "This endpoint requires the caller to have the `devops` role".to_string(),
-        ))
-    }
-}
+pub use windmill_api_auth::{check_scopes, require_devops_role, require_super_admin};
+pub use windmill_common::utils::content_plain;
+pub use windmill_common::utils::{BulkDeleteRequest, WithStarredInfoQuery};
 
 lazy_static::lazy_static! {
     pub static ref INVALID_USERNAME_CHARS: Regex = Regex::new(r"[^A-Za-z0-9_]").unwrap();
@@ -211,14 +146,6 @@ pub async fn get_instance_username_or_create_pending<'c>(
             Ok(username)
         }
     }
-}
-
-pub fn content_plain(body: Body) -> Response {
-    use axum::http::header;
-    Response::builder()
-        .header(header::CONTENT_TYPE, "text/plain")
-        .body(body)
-        .unwrap()
 }
 
 #[allow(unused)]

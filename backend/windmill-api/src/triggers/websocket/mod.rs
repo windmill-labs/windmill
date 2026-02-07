@@ -12,7 +12,7 @@ use sqlx::{types::Json as SqlxJson, FromRow};
 use windmill_common::{
     error::{Error, Result},
     jobs::JobTriggerKind,
-    triggers::{TriggerMetadata, TriggerKind},
+    triggers::{TriggerKind, TriggerMetadata},
     worker::to_raw_value,
     DB,
 };

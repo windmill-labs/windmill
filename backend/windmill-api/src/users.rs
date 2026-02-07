@@ -19,7 +19,6 @@ use crate::db::ApiAuthed;
 
 pub use crate::auth::Tokened;
 
-use crate::secret_backend_ext::rename_vault_secrets_with_prefix;
 use crate::utils::{
     generate_instance_wide_unique_username, get_instance_username_or_create_pending,
 };
@@ -62,6 +61,7 @@ use windmill_common::{
     utils::{not_found_if_none, rd_string, require_admin, Pagination, StripPath},
 };
 use windmill_git_sync::handle_deployment_metadata;
+use windmill_store::secret_backend_ext::rename_vault_secrets_with_prefix;
 
 const COOKIE_PATH: &str = "/";
 
@@ -132,49 +132,7 @@ pub fn make_unauthed_service() -> Router {
         .route("/is_smtp_configured", get(is_smtp_configured))
 }
 
-pub async fn maybe_refresh_folders(
-    path: &str,
-    w_id: &str,
-    authed: ApiAuthed,
-    db: &DB,
-) -> ApiAuthed {
-    if authed.is_admin {
-        return authed;
-    }
-    let splitted = path.split('/').collect::<Vec<_>>();
-    if splitted.len() >= 2
-        && splitted[0] == "f"
-        && !authed.folders.iter().any(|(f, _, _)| f == splitted[1])
-    {
-        let name = &authed.username;
-        let groups = get_groups_for_user(w_id, name, &authed.email, db)
-            .await
-            .ok()
-            .unwrap_or_default();
-
-        let folders = get_folders_for_user(w_id, name, &groups, db)
-            .await
-            .ok()
-            .unwrap_or_default();
-        ApiAuthed { folders, ..authed }
-    } else {
-        authed
-    }
-}
-
-pub fn get_scope_tags(authed: &ApiAuthed) -> Option<Vec<&str>> {
-    authed.scopes.as_ref()?.iter().find_map(|s| {
-        if s.starts_with("if_jobs:filter_tags:") {
-            Some(
-                s.trim_start_matches("if_jobs:filter_tags:")
-                    .split(",")
-                    .collect::<Vec<_>>(),
-            )
-        } else {
-            None
-        }
-    })
-}
+pub use windmill_api_auth::{get_scope_tags, maybe_refresh_folders};
 
 #[derive(Clone, Debug)]
 pub struct OptAuthed(pub Option<ApiAuthed>);
@@ -914,35 +872,7 @@ pub async fn is_owner_of_path(
     }
 }
 
-pub fn require_owner_of_path(authed: &ApiAuthed, path: &str) -> Result<()> {
-    if authed.is_admin {
-        return Ok(());
-    }
-    if !path.is_empty() {
-        let splitted = path.split("/").collect::<Vec<&str>>();
-        if splitted[0] == "u" {
-            if splitted[1] == authed.username {
-                Ok(())
-            } else {
-                Err(Error::BadRequest(format!(
-                    "only the owner {} is authorized to perform this operation",
-                    splitted[1]
-                )))
-            }
-        } else if splitted[0] == "f" {
-            crate::folders::require_is_owner(authed, splitted[1])
-        } else {
-            Err(Error::BadRequest(format!(
-                "Not recognized path kind: {}",
-                path
-            )))
-        }
-    } else {
-        Err(Error::BadRequest(format!(
-            "Cannot be owner of an empty path"
-        )))
-    }
-}
+pub use windmill_api_auth::require_owner_of_path;
 
 /// Checks that a user has at least read access to the path for preview jobs.
 /// This prevents privilege escalation where a user could run preview code

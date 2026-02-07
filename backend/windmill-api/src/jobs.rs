@@ -6,8 +6,10 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+pub use windmill_api_jobs::*;
+pub use windmill_api_sse::*;
+
 use axum::body::Body;
-use axum::extract::Request;
 use axum::http::HeaderValue;
 #[cfg(feature = "deno_core")]
 use deno_core::{op2, serde_v8, v8, JsRuntime, OpState};
@@ -17,10 +19,7 @@ use itertools::Itertools;
 use quick_cache::sync::Cache;
 use serde_json::value::RawValue;
 use serde_json::Value;
-use sqlx::Pool;
 use std::collections::HashMap;
-use std::hash::{DefaultHasher, Hash, Hasher};
-use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 use std::time::Instant;
 use tokio::io::AsyncReadExt;
@@ -36,7 +35,7 @@ use windmill_common::flow_conversations::add_message_to_conversation_tx;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{
     check_tag_available_for_workspace_internal, format_completed_job_result, format_result,
-    DynamicInput, JobTriggerKind, RunInlinePreviewScriptFnParams, ENTRYPOINT_OVERRIDE,
+    DynamicInput, RunInlinePreviewScriptFnParams, ENTRYPOINT_OVERRIDE,
 };
 use windmill_common::runnable_settings::{
     ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings, RunnableSettings,
@@ -74,18 +73,19 @@ use crate::{
 };
 use anyhow::Context;
 use axum::{
-    extract::{FromRequest, Json, Path, Query},
+    extract::{Json, Path, Query},
     response::{IntoResponse, Response},
     routing::{get, post},
     Extension, Router,
 };
-use base64::Engine;
 use chrono::Utc;
 use hmac::Mac;
 use hyper::StatusCode;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use sql_builder::prelude::*;
 use sqlx::types::JsonRawValue;
+#[cfg(all(feature = "smtp", feature = "enterprise"))]
+use sqlx::Pool;
 use sqlx::{types::Uuid, FromRow, Postgres, Transaction};
 use tower_http::cors::{Any, CorsLayer};
 use urlencoding::encode;
@@ -1726,180 +1726,11 @@ async fn get_started_at_by_ids(
     Ok(Json(r))
 }
 
-#[derive(Debug, sqlx::FromRow, Serialize)]
-pub struct ListableCompletedJob {
-    pub r#type: String,
-    pub workspace_id: String,
-    pub id: Uuid,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub parent_job: Option<Uuid>,
-    pub created_by: String,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub started_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub duration_ms: i64,
-    pub success: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub script_hash: Option<ScriptHash>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub script_path: Option<String>,
-    pub deleted: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub raw_code: Option<String>,
-    pub canceled: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub canceled_by: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub canceled_reason: Option<String>,
-    pub job_kind: JobKind,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub schedule_path: Option<String>,
-    pub permissioned_as: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub flow_status: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub raw_flow: Option<serde_json::Value>,
-    pub is_flow_step: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub language: Option<ScriptLang>,
-    pub is_skipped: bool,
-    pub email: String,
-    pub visible_to_owner: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mem_peak: Option<i32>,
-    pub tag: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub priority: Option<i16>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub labels: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub args: Option<serde_json::Value>,
-}
+// ListableCompletedJob moved to windmill-api-jobs
 
-#[derive(Debug, Deserialize, Clone, Default)]
-pub struct RunJobQuery {
-    pub scheduled_for: Option<chrono::DateTime<chrono::Utc>>,
-    pub scheduled_in_secs: Option<i64>,
-    pub parent_job: Option<Uuid>,
-    pub root_job: Option<Uuid>,
-    pub invisible_to_owner: Option<bool>,
-    pub queue_limit: Option<i64>,
-    pub payload: Option<String>,
-    pub job_id: Option<Uuid>,
-    pub tag: Option<String>,
-    pub timeout: Option<i32>,
-    pub cache_ttl: Option<i32>,
-    pub cache_ignore_s3_path: Option<bool>,
-    pub skip_preprocessor: Option<bool>,
-    pub poll_delay_ms: Option<u64>,
-    pub memory_id: Option<Uuid>,
-    pub trigger_external_id: Option<String>,
-    pub service_name: Option<String>,
-    pub suspended_mode: Option<bool>,
-}
+// RunJobQuery moved to windmill-api-jobs
 
-impl RunJobQuery {
-    async fn get_scheduled_for<'c>(
-        &self,
-        db: &DB,
-    ) -> error::Result<Option<chrono::DateTime<chrono::Utc>>> {
-        if let Some(scheduled_for) = self.scheduled_for {
-            Ok(Some(scheduled_for))
-        } else if let Some(scheduled_in_secs) = self.scheduled_in_secs {
-            let now = now_from_db(db).await?;
-            Ok(Some(
-                now + chrono::Duration::try_seconds(scheduled_in_secs).unwrap_or_default(),
-            ))
-        } else {
-            Ok(None)
-        }
-    }
-
-    fn payload_as_args(&self) -> error::Result<HashMap<String, Box<RawValue>>> {
-        let payload_r = self.payload.clone().map(decode_payload).map(|x| {
-            x.map_err(|e| {
-                error::Error::internal_err(format!("Impossible to decode query payload: {e:#?}"))
-            })
-        });
-
-        let payload_as_args = if let Some(payload) = payload_r {
-            payload?
-        } else {
-            HashMap::new()
-        };
-
-        Ok(payload_as_args)
-    }
-}
-
-#[derive(Deserialize, Clone)]
-pub struct ListQueueQuery {
-    pub script_path_start: Option<String>,
-    pub script_path_exact: Option<String>,
-    pub script_hash: Option<String>,
-    pub created_by: Option<String>,
-    pub started_before: Option<chrono::DateTime<chrono::Utc>>,
-    pub started_after: Option<chrono::DateTime<chrono::Utc>>,
-    pub created_before: Option<chrono::DateTime<chrono::Utc>>,
-    pub created_after: Option<chrono::DateTime<chrono::Utc>>,
-    pub created_or_started_before: Option<chrono::DateTime<chrono::Utc>>,
-    pub created_or_started_after: Option<chrono::DateTime<chrono::Utc>>,
-    pub running: Option<bool>,
-    pub schedule_path: Option<String>,
-    pub parent_job: Option<String>,
-    pub order_desc: Option<bool>,
-    pub job_kinds: Option<String>,
-    pub suspended: Option<bool>,
-    pub worker: Option<String>,
-    // filter by matching a subset of the args using base64 encoded json subset
-    pub args: Option<String>,
-    pub tag: Option<String>,
-    pub scheduled_for_before_now: Option<bool>,
-    pub all_workspaces: Option<bool>,
-    pub is_flow_step: Option<bool>,
-    pub has_null_parent: Option<bool>,
-    pub is_not_schedule: Option<bool>,
-    pub concurrency_key: Option<String>,
-    pub allow_wildcards: Option<bool>,
-    pub trigger_kind: Option<JobTriggerKind>,
-    pub trigger_path: Option<String>,
-    pub include_args: Option<bool>,
-}
-
-impl From<ListCompletedQuery> for ListQueueQuery {
-    fn from(lcq: ListCompletedQuery) -> Self {
-        Self {
-            script_path_start: lcq.script_path_start,
-            script_path_exact: lcq.script_path_exact,
-            script_hash: lcq.script_hash,
-            created_by: lcq.created_by,
-            started_before: lcq.started_before,
-            started_after: lcq.started_after,
-            created_before: lcq.created_before_queue.or(lcq.created_before),
-            created_after: lcq.created_after_queue.or(lcq.created_after),
-            created_or_started_before: lcq.created_or_started_before,
-            created_or_started_after: lcq.created_or_started_after,
-            worker: lcq.worker,
-            running: lcq.running,
-            parent_job: lcq.parent_job,
-            order_desc: lcq.order_desc,
-            job_kinds: lcq.job_kinds,
-            suspended: lcq.suspended,
-            args: lcq.args,
-            tag: lcq.tag,
-            schedule_path: lcq.schedule_path,
-            scheduled_for_before_now: lcq.scheduled_for_before_now,
-            all_workspaces: lcq.all_workspaces,
-            is_flow_step: lcq.is_flow_step,
-            has_null_parent: lcq.has_null_parent,
-            is_not_schedule: lcq.is_not_schedule,
-            concurrency_key: lcq.concurrency_key,
-            allow_wildcards: lcq.allow_wildcards,
-            trigger_kind: lcq.trigger_kind,
-            trigger_path: lcq.trigger_path,
-            include_args: lcq.include_args,
-        }
-    }
-}
+// ListQueueQuery and From<ListCompletedQuery> for ListQueueQuery moved to windmill-api-jobs
 
 pub fn filter_list_queue_query(
     mut sqlb: SqlBuilder,
@@ -2948,13 +2779,7 @@ pub struct SuspendedJobFlow {
     pub approvers: Vec<Approval>,
 }
 
-#[derive(Deserialize, Debug)]
-pub struct QueryApprover {
-    pub approver: Option<String>,
-    /// If true, generate/verify resume URLs for the parent flow instead of the specific step.
-    /// This allows pre-approvals that can be consumed by any later suspend step in the same flow.
-    pub flow_level: Option<bool>,
-}
+// QueryApprover moved to windmill-api-jobs
 
 pub async fn get_suspended_job_flow(
     authed: Option<ApiAuthed>,
@@ -3170,13 +2995,7 @@ fn create_signature(
     Ok(hex::encode(mac.finalize().into_bytes()))
 }
 
-#[allow(non_snake_case)]
-#[derive(Serialize, Debug)]
-pub struct ResumeUrls {
-    pub approvalPage: String,
-    pub cancel: String,
-    pub resume: String,
-}
+// ResumeUrls moved to windmill-api-jobs
 
 fn build_resume_url(
     op: &str,
@@ -3282,466 +3101,10 @@ async fn get_flow_id_for_job(db: &DB, job_id: Uuid) -> error::Result<Uuid> {
         .ok_or_else(|| anyhow::anyhow!("job {} has no parent flow", job_id).into())
 }
 
-#[derive(sqlx::FromRow, Debug, Serialize)]
-pub struct JobExtended<T: JobCommon> {
-    #[sqlx(flatten)]
-    #[serde(flatten)]
-    inner: T,
+// Job, JobExtended, JobCommon types are re-exported from windmill_api_sse
 
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub raw_code: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub raw_lock: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub raw_flow: Option<sqlx::types::Json<Box<RawValue>>>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub worker: Option<String>,
-
-    #[sqlx(skip)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub self_wait_time_ms: Option<i64>,
-    #[sqlx(skip)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub aggregate_wait_time_ms: Option<i64>,
-}
-
-pub trait JobCommon {
-    fn job_kind(&self) -> &JobKind;
-}
-
-impl JobCommon for QueuedJob {
-    fn job_kind(&self) -> &JobKind {
-        &self.job_kind
-    }
-}
-
-impl JobCommon for CompletedJob {
-    fn job_kind(&self) -> &JobKind {
-        &self.job_kind
-    }
-}
-
-impl<T: JobCommon> JobExtended<T> {
-    pub fn new(
-        self_wait_time_ms: Option<i64>,
-        aggregate_wait_time_ms: Option<i64>,
-        inner: T,
-    ) -> Self {
-        Self {
-            inner,
-            raw_code: None,
-            raw_lock: None,
-            raw_flow: None,
-            worker: None,
-            self_wait_time_ms,
-            aggregate_wait_time_ms,
-        }
-    }
-}
-
-impl<T: JobCommon> Deref for JobExtended<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl<T: JobCommon> DerefMut for JobExtended<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
-    }
-}
-
-#[derive(Serialize, Debug)]
-#[serde(tag = "type")]
-pub enum Job {
-    QueuedJob(JobExtended<QueuedJob>),
-    CompletedJob(JobExtended<CompletedJob>),
-}
-
-impl Job {
-    pub fn created_by(&self) -> &str {
-        match self {
-            Job::QueuedJob(job) => &job.created_by,
-            Job::CompletedJob(job) => &job.created_by,
-        }
-    }
-
-    pub fn append_to_logs(&mut self, logs: &str) {
-        match self {
-            Job::QueuedJob(job) => {
-                if let Some(ref mut l) = job.logs {
-                    l.push_str(logs);
-                } else {
-                    job.logs = Some(logs.to_string());
-                }
-            }
-            Job::CompletedJob(job) => {
-                if let Some(ref mut l) = job.logs {
-                    l.push_str(logs);
-                } else {
-                    job.logs = Some(logs.to_string());
-                }
-            }
-        }
-    }
-
-    pub fn log_len(&self) -> Option<usize> {
-        match self {
-            Job::QueuedJob(job) => job.logs.as_ref().map(|l| l.len()),
-            Job::CompletedJob(job) => job.logs.as_ref().map(|l| l.len()),
-        }
-    }
-
-    pub fn logs(&self) -> Option<String> {
-        match self {
-            Job::QueuedJob(job) => job.logs.clone(),
-            Job::CompletedJob(job) => job.logs.clone(),
-        }
-    }
-    pub fn flow_status(&self) -> Option<FlowStatus> {
-        match self {
-            Job::QueuedJob(job) => job
-                .flow_status
-                .as_ref()
-                .map(|rf| serde_json::from_str(rf.0.get()).ok())
-                .flatten(),
-            Job::CompletedJob(job) => job
-                .flow_status
-                .as_ref()
-                .map(|rf| serde_json::from_str(rf.0.get()).ok())
-                .flatten(),
-        }
-    }
-    pub fn is_flow_step(&self) -> bool {
-        match self {
-            Job::QueuedJob(job) => job.is_flow_step,
-            Job::CompletedJob(job) => job.is_flow_step,
-        }
-    }
-
-    pub fn is_flow(&self) -> bool {
-        self.job_kind().is_flow()
-    }
-
-    pub fn job_kind(&self) -> &JobKind {
-        match self {
-            Job::QueuedJob(job) => &job.job_kind,
-            Job::CompletedJob(job) => &job.job_kind,
-        }
-    }
-
-    pub fn id(&self) -> Uuid {
-        match self {
-            Job::QueuedJob(job) => job.id,
-            Job::CompletedJob(job) => job.id,
-        }
-    }
-
-    pub fn workspace_id(&self) -> &String {
-        match self {
-            Job::QueuedJob(job) => &job.workspace_id,
-            Job::CompletedJob(job) => &job.workspace_id,
-        }
-    }
-
-    pub fn script_path(&self) -> &str {
-        match self {
-            Job::QueuedJob(job) => job.script_path.as_ref(),
-            Job::CompletedJob(job) => job.script_path.as_ref(),
-        }
-        .map(String::as_str)
-        .unwrap_or("tmp/main")
-    }
-
-    pub fn args(&self) -> Option<&sqlx::types::Json<HashMap<String, Box<RawValue>>>> {
-        match self {
-            Job::QueuedJob(job) => job.args.as_ref(),
-            Job::CompletedJob(job) => job.args.as_ref(),
-        }
-    }
-
-    pub fn full_path_with_workspace(&self) -> String {
-        format!(
-            "{}/{}/{}",
-            self.workspace_id(),
-            if self.is_flow() { "flow" } else { "script" },
-            self.script_path(),
-        )
-    }
-
-    pub async fn concurrency_key(
-        &self,
-        db: &Pool<Postgres>,
-    ) -> Result<Option<String>, sqlx::Error> {
-        sqlx::query_scalar!(
-            "SELECT key FROM concurrency_key WHERE job_id = $1",
-            self.id()
-        )
-        .fetch_optional(db)
-        .await
-    }
-
-    pub async fn fetch_outstanding_wait_time(
-        &mut self,
-        db: &Pool<Postgres>,
-    ) -> Result<(), sqlx::Error> {
-        let r = sqlx::query!(
-                "SELECT self_wait_time_ms, aggregate_wait_time_ms FROM outstanding_wait_time WHERE job_id = $1",
-                self.id()
-            )
-            .fetch_optional(db)
-            .await?;
-
-        let (self_wait_time, aggregate_wait_time) = r
-            .map(|x| (x.self_wait_time_ms, x.aggregate_wait_time_ms))
-            .unwrap_or((None, None));
-
-        match self {
-            Job::QueuedJob(job) => {
-                job.self_wait_time_ms = self_wait_time;
-                job.aggregate_wait_time_ms = aggregate_wait_time;
-            }
-            Job::CompletedJob(job) => {
-                job.self_wait_time_ms = self_wait_time;
-                job.aggregate_wait_time_ms = aggregate_wait_time;
-            }
-        }
-        Ok(())
-    }
-}
-
-#[derive(sqlx::FromRow)]
-pub struct UnifiedJob {
-    pub workspace_id: String,
-    pub typ: String,
-    pub id: Uuid,
-    pub parent_job: Option<Uuid>,
-    pub created_by: String,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub started_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub scheduled_for: Option<chrono::DateTime<chrono::Utc>>,
-    pub running: Option<bool>,
-    pub script_hash: Option<ScriptHash>,
-    pub script_path: Option<String>,
-    pub args: Option<serde_json::Value>,
-    pub duration_ms: Option<i64>,
-    pub success: Option<bool>,
-    pub deleted: bool,
-    pub canceled: bool,
-    pub canceled_by: Option<String>,
-    pub job_kind: JobKind,
-    pub schedule_path: Option<String>,
-    pub permissioned_as: String,
-    pub is_flow_step: bool,
-    pub language: Option<ScriptLang>,
-    pub is_skipped: bool,
-    pub email: String,
-    pub visible_to_owner: bool,
-    pub suspend: Option<i32>,
-    pub mem_peak: Option<i32>,
-    pub tag: String,
-    pub concurrent_limit: Option<i32>,
-    pub concurrency_time_window_s: Option<i32>,
-    pub priority: Option<i16>,
-    pub labels: Option<serde_json::Value>,
-    pub self_wait_time_ms: Option<i64>,
-    pub aggregate_wait_time_ms: Option<i64>,
-    pub preprocessed: Option<bool>,
-    pub worker: Option<String>,
-    pub runnable_settings_handle: Option<i64>,
-}
-
-const CJ_FIELDS: &[&str] = &[
-    "'CompletedJob' as typ",
-    "v2_job_completed.id",
-    "v2_job_completed.workspace_id",
-    "v2_job.parent_job",
-    "v2_job.created_by",
-    "v2_job.created_at",
-    "v2_job_completed.started_at",
-    "null as scheduled_for",
-    "v2_job_completed.completed_at",
-    "null as running",
-    "v2_job.runnable_id as script_hash",
-    "v2_job.runnable_path as script_path",
-    "null as args",
-    "v2_job_completed.duration_ms",
-    "v2_job_completed.status = 'success' OR v2_job_completed.status = 'skipped' as success",
-    "false as deleted",
-    "v2_job_completed.status = 'canceled' as canceled",
-    "v2_job_completed.canceled_by",
-    "v2_job.kind as job_kind",
-    "CASE WHEN v2_job.trigger_kind = 'schedule' THEN v2_job.trigger END as schedule_path",
-    "v2_job.permissioned_as",
-    "v2_job.flow_step_id IS NOT NULL as is_flow_step",
-    "v2_job.script_lang as language",
-    "v2_job_completed.status = 'skipped' as is_skipped",
-    "v2_job.permissioned_as_email as email",
-    "v2_job.visible_to_owner",
-    "null as suspend",
-    "v2_job_completed.memory_peak as mem_peak",
-    "v2_job.tag",
-    "null as concurrent_limit",
-    "null as concurrency_time_window_s",
-    "v2_job.priority",
-    "v2_job_completed.result->'wm_labels' as labels",
-    "self_wait_time_ms",
-    "aggregate_wait_time_ms",
-    "v2_job.preprocessed",
-    "v2_job_completed.worker",
-    "null as runnable_settings_handle",
-];
-
-const QJ_FIELDS: &[&str] = &[
-    "'QueuedJob' as typ",
-    "v2_job_queue.id",
-    "v2_job_queue.workspace_id",
-    "v2_job.parent_job",
-    "v2_job.created_by",
-    "v2_job_queue.created_at",
-    "v2_job_queue.started_at",
-    "v2_job_queue.scheduled_for",
-    "null as completed_at",
-    "v2_job_queue.running",
-    "v2_job.runnable_id as script_hash",
-    "v2_job.runnable_path as script_path",
-    "null as args",
-    "null as duration_ms",
-    "null as success",
-    "false as deleted",
-    "v2_job_queue.canceled_by IS NOT NULL as canceled",
-    "v2_job_queue.canceled_by",
-    "v2_job.kind as job_kind",
-    "CASE WHEN v2_job.trigger_kind = 'schedule' THEN v2_job.trigger END as schedule_path",
-    "v2_job.permissioned_as",
-    "v2_job.flow_step_id IS NOT NULL as is_flow_step",
-    "v2_job.script_lang as language",
-    "false as is_skipped",
-    "v2_job.permissioned_as_email as email",
-    "v2_job.visible_to_owner",
-    "v2_job_queue.suspend",
-    "null as mem_peak",
-    "v2_job.tag",
-    "v2_job.concurrent_limit",
-    "v2_job.concurrency_time_window_s",
-    "v2_job.priority",
-    "null as labels",
-    "self_wait_time_ms",
-    "aggregate_wait_time_ms",
-    "v2_job.preprocessed",
-    "v2_job_queue.worker",
-    "v2_job_queue.runnable_settings_handle",
-];
-
-impl UnifiedJob {
-    pub fn completed_job_fields() -> &'static [&'static str] {
-        CJ_FIELDS
-    }
-    pub fn queued_job_fields() -> &'static [&'static str] {
-        QJ_FIELDS
-    }
-}
-
-impl<'a> From<UnifiedJob> for Job {
-    fn from(uj: UnifiedJob) -> Self {
-        let args = uj.args.and_then(|v| serde_json::from_value(v).ok());
-        match uj.typ.as_ref() {
-            "CompletedJob" => Job::CompletedJob(JobExtended::new(
-                uj.self_wait_time_ms,
-                uj.aggregate_wait_time_ms,
-                CompletedJob {
-                    workspace_id: uj.workspace_id,
-                    id: uj.id,
-                    parent_job: uj.parent_job,
-                    created_by: uj.created_by,
-                    created_at: uj.created_at,
-                    started_at: uj.started_at,
-                    completed_at: uj.completed_at,
-                    duration_ms: uj.duration_ms.unwrap(),
-                    success: uj.success.unwrap(),
-                    script_hash: uj.script_hash,
-                    script_path: uj.script_path,
-                    args: args.clone(),
-                    result: None,
-                    result_columns: None,
-                    logs: None,
-                    flow_status: None,
-                    workflow_as_code_status: None,
-                    deleted: uj.deleted,
-                    canceled: uj.canceled,
-                    canceled_by: uj.canceled_by,
-                    canceled_reason: None,
-                    job_kind: uj.job_kind,
-                    schedule_path: uj.schedule_path,
-                    permissioned_as: uj.permissioned_as,
-                    is_flow_step: uj.is_flow_step,
-                    language: uj.language,
-                    is_skipped: uj.is_skipped,
-                    email: uj.email,
-                    visible_to_owner: uj.visible_to_owner,
-                    mem_peak: uj.mem_peak,
-                    tag: uj.tag,
-                    priority: uj.priority,
-                    labels: uj.labels,
-                    preprocessed: uj.preprocessed,
-                },
-            )),
-            "QueuedJob" => Job::QueuedJob(JobExtended::new(
-                uj.self_wait_time_ms,
-                uj.aggregate_wait_time_ms,
-                QueuedJob {
-                    workspace_id: uj.workspace_id,
-                    id: uj.id,
-                    parent_job: uj.parent_job,
-                    created_by: uj.created_by,
-                    created_at: uj.created_at,
-                    started_at: uj.started_at,
-                    scheduled_for: uj.scheduled_for.unwrap(),
-                    running: uj.running.unwrap(),
-                    script_hash: uj.script_hash,
-                    script_path: uj.script_path,
-                    script_entrypoint_override: None,
-                    args,
-                    logs: None,
-                    canceled: uj.canceled,
-                    canceled_by: uj.canceled_by,
-                    canceled_reason: None,
-                    last_ping: None,
-                    job_kind: uj.job_kind,
-                    schedule_path: uj.schedule_path,
-                    permissioned_as: uj.permissioned_as,
-                    flow_status: None,
-                    workflow_as_code_status: None,
-                    is_flow_step: uj.is_flow_step,
-                    language: uj.language,
-                    same_worker: false,
-                    pre_run_error: None,
-                    email: uj.email,
-                    visible_to_owner: uj.visible_to_owner,
-                    suspend: uj.suspend,
-                    mem_peak: uj.mem_peak,
-                    root_job: None,
-                    leaf_jobs: None,
-                    tag: uj.tag,
-                    concurrent_limit: uj.concurrent_limit,
-                    concurrency_time_window_s: uj.concurrency_time_window_s,
-                    timeout: None,
-                    flow_step_id: None,
-                    cache_ttl: None,
-                    cache_ignore_s3_path: None,
-                    priority: uj.priority,
-                    preprocessed: uj.preprocessed,
-                    runnable_settings_handle: uj.runnable_settings_handle,
-                },
-            )),
-            t => panic!("job type {} not valid", t),
-        }
-    }
-}
+// UnifiedJob, CJ_FIELDS, QJ_FIELDS, impl UnifiedJob, impl From<UnifiedJob> for Job
+// are re-exported from windmill_api_jobs
 #[derive(Deserialize)]
 struct CancelJob {
     reason: Option<String>,
@@ -3809,65 +3172,7 @@ pub enum DynamicSelectRunnableRef {
     Inline { code: String, lang: Option<ScriptLang> },
 }
 
-pub struct QueryOrBody<D>(pub Option<D>);
-
-#[axum::async_trait]
-impl<S, D> FromRequest<S, axum::body::Body> for QueryOrBody<D>
-where
-    D: DeserializeOwned,
-    S: Send + Sync,
-{
-    type Rejection = Response;
-
-    async fn from_request(
-        req: Request<axum::body::Body>,
-        state: &S,
-    ) -> std::result::Result<Self, Self::Rejection> {
-        return if req.method() == axum::http::Method::GET {
-            let Query(InPayload { payload }) = Query::from_request(req, state)
-                .await
-                .map_err(IntoResponse::into_response)?;
-            payload
-                .map(|p| {
-                    decode_payload(p)
-                        .map(QueryOrBody)
-                        .map_err(|err| (StatusCode::BAD_REQUEST, format!("{err:#?}")))
-                        .map_err(IntoResponse::into_response)
-                })
-                .unwrap_or(Ok(QueryOrBody(None)))
-        } else {
-            Json::from_request(req, state)
-                .await
-                .map(|Json(v)| QueryOrBody(Some(v)))
-                .map_err(IntoResponse::into_response)
-        };
-
-        #[derive(Deserialize)]
-        struct InPayload {
-            payload: Option<String>,
-        }
-    }
-}
-
-fn decode_payload<D: DeserializeOwned>(t: String) -> anyhow::Result<D> {
-    let vec = base64::engine::general_purpose::STANDARD
-        .decode(t)
-        .context("invalid base64")?;
-    serde_json::from_slice(vec.as_slice()).context("invalid json")
-}
-
-pub fn add_raw_string(
-    raw_string: Option<String>,
-    mut args: serde_json::Map<String, serde_json::Value>,
-) -> serde_json::Map<String, serde_json::Value> {
-    if let Some(raw_string) = raw_string {
-        args.insert(
-            "raw_string".to_string(),
-            serde_json::Value::String(raw_string),
-        );
-    }
-    return args;
-}
+// QueryOrBody, decode_payload, add_raw_string are re-exported from windmill_api_jobs
 
 pub async fn check_tag_available_for_workspace(
     db: &DB,
@@ -7457,74 +6762,7 @@ pub async fn run_job_by_hash_inner(
     Ok((uuid, delete_after_use))
 }
 
-#[derive(Deserialize)]
-pub struct JobUpdateQuery {
-    pub running: Option<bool>,
-    pub log_offset: Option<i32>,
-    pub stream_offset: Option<i32>,
-    pub get_progress: Option<bool>,
-    pub no_logs: Option<bool>,
-    pub only_result: Option<bool>,
-    pub fast: Option<bool>,
-    pub is_flow: Option<bool>,
-    pub poll_delay_ms: Option<u64>,
-}
-
-#[derive(Serialize, Debug)]
-pub struct JobUpdate {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub running: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub completed: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub new_logs: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub new_result_stream: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub log_offset: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub stream_offset: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mem_peak: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub progress: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub flow_status: Option<Box<serde_json::value::RawValue>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub workflow_as_code_status: Option<Box<serde_json::value::RawValue>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub job: Option<Job>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub only_result: Option<Box<serde_json::value::RawValue>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub flow_stream_job_id: Option<Uuid>,
-}
-
-impl JobUpdate {
-    pub fn hash_str(&self) -> String {
-        let mut hasher = DefaultHasher::new();
-        self.hash(&mut hasher);
-        format!("{:x}", hasher.finish())
-    }
-}
-
-impl Hash for JobUpdate {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.running.hash(state);
-        self.completed.hash(state);
-        self.log_offset.hash(state);
-        self.mem_peak.hash(state);
-        self.progress.hash(state);
-        self.stream_offset.hash(state);
-        self.flow_stream_job_id.hash(state);
-        if !self.completed.unwrap_or(false) {
-            self.flow_status.as_ref().map(|x| x.get().hash(state));
-            self.workflow_as_code_status
-                .as_ref()
-                .map(|x| x.get().hash(state));
-        }
-    }
-}
+// JobUpdateQuery, JobUpdate, and their impls are re-exported from windmill_api_sse
 
 async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::Result<Response> {
     if file_p.contains("..") {
@@ -7693,20 +6931,7 @@ async fn get_job_update_sse(
         .unwrap())
 }
 
-#[derive(Serialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
-pub enum JobUpdateSSEStream {
-    Update(JobUpdate),
-    Error { error: String },
-    NotFound,
-    Timeout,
-    Ping,
-}
-
-lazy_static::lazy_static! {
-    pub static ref TIMEOUT_SSE_STREAM: u64 =
-        std::env::var("TIMEOUT_SSE_STREAM").unwrap_or("60".to_string()).parse::<u64>().unwrap_or(60);
-}
+// JobUpdateSSEStream and TIMEOUT_SSE_STREAM are re-exported from windmill_api_sse
 
 pub fn start_job_update_sse_stream(
     opt_authed: Option<ApiAuthed>,
@@ -8486,49 +7711,7 @@ pub fn list_completed_jobs_query(
 
     filter_list_completed_query(sqlb, lq, w_id, join_outstanding_wait_times)
 }
-#[derive(Deserialize, Clone)]
-pub struct ListCompletedQuery {
-    pub script_path_start: Option<String>,
-    pub script_path_exact: Option<String>,
-    pub script_hash: Option<String>,
-    pub created_by: Option<String>,
-    pub started_before: Option<chrono::DateTime<chrono::Utc>>,
-    pub started_after: Option<chrono::DateTime<chrono::Utc>>,
-    pub created_before: Option<chrono::DateTime<chrono::Utc>>,
-    pub created_after: Option<chrono::DateTime<chrono::Utc>>,
-    pub created_or_started_before: Option<chrono::DateTime<chrono::Utc>>,
-    pub created_or_started_after: Option<chrono::DateTime<chrono::Utc>>,
-    pub created_or_started_after_completed_jobs: Option<chrono::DateTime<chrono::Utc>>,
-    pub created_before_queue: Option<chrono::DateTime<chrono::Utc>>,
-    pub created_after_queue: Option<chrono::DateTime<chrono::Utc>>,
-    pub completed_after: Option<chrono::DateTime<chrono::Utc>>,
-    pub completed_before: Option<chrono::DateTime<chrono::Utc>>,
-    pub success: Option<bool>,
-    pub running: Option<bool>,
-    pub parent_job: Option<String>,
-    pub order_desc: Option<bool>,
-    pub job_kinds: Option<String>,
-    pub is_skipped: Option<bool>,
-    pub is_flow_step: Option<bool>,
-    pub suspended: Option<bool>,
-    pub schedule_path: Option<String>,
-    // filter by matching a subset of the args using base64 encoded json subset
-    pub args: Option<String>,
-    // filter by matching a subset of the result using base64 encoded json subset
-    pub result: Option<String>,
-    pub tag: Option<String>,
-    pub scheduled_for_before_now: Option<bool>,
-    pub all_workspaces: Option<bool>,
-    pub has_null_parent: Option<bool>,
-    pub label: Option<String>,
-    pub is_not_schedule: Option<bool>,
-    pub concurrency_key: Option<String>,
-    pub worker: Option<String>,
-    pub allow_wildcards: Option<bool>,
-    pub trigger_kind: Option<JobTriggerKind>,
-    pub trigger_path: Option<String>,
-    pub include_args: Option<bool>,
-}
+// ListCompletedQuery is re-exported from windmill_api_jobs
 
 async fn list_completed_jobs(
     authed: ApiAuthed,

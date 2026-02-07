@@ -53,13 +53,11 @@ impl<'de, 'a> Visitor<'de> for SupersetVisitor<'a> {
 
 pub fn is_superset(json_value: &Value, value_to_check: &Value) -> bool {
     match (json_value, value_to_check) {
-        (Value::Object(json_map), Value::Object(check_map)) => {
-            check_map.iter().all(|(k, v)| {
-                json_map
-                    .get(k)
-                    .map_or(false, |json_val| is_superset(json_val, v))
-            })
-        }
+        (Value::Object(json_map), Value::Object(check_map)) => check_map.iter().all(|(k, v)| {
+            json_map
+                .get(k)
+                .map_or(false, |json_val| is_superset(json_val, v))
+        }),
         (Value::Array(json_array), Value::Array(check_array)) => {
             check_array.iter().all(|check_item| {
                 json_array

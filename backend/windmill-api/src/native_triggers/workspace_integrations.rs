@@ -60,8 +60,8 @@ async fn generate_signed_state(
 
     // Get workspace key for signing
     let key = get_workspace_key(workspace_id, db).await?;
-    let mut mac =
-        HmacSha256::new_from_slice(key.as_bytes()).map_err(|e| Error::InternalErr(e.to_string()))?;
+    let mut mac = HmacSha256::new_from_slice(key.as_bytes())
+        .map_err(|e| Error::InternalErr(e.to_string()))?;
     mac.update(payload.as_bytes());
     let signature = mac.finalize().into_bytes();
 
@@ -121,8 +121,8 @@ async fn validate_signed_state(db: &DB, state: &str, workspace_id: &str) -> Resu
 
     // Verify signature
     let key = get_workspace_key(workspace_id, db).await?;
-    let mut mac =
-        HmacSha256::new_from_slice(key.as_bytes()).map_err(|e| Error::InternalErr(e.to_string()))?;
+    let mut mac = HmacSha256::new_from_slice(key.as_bytes())
+        .map_err(|e| Error::InternalErr(e.to_string()))?;
     mac.update(payload.as_bytes());
 
     let received_signature = match URL_SAFE_NO_PAD.decode(encoded_signature) {
@@ -156,7 +156,7 @@ pub struct WorkspaceOAuthConfig {
     pub client_id: String,
     pub client_secret: String,
     pub base_url: String,
-    pub access_token: Option<String>
+    pub access_token: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -381,10 +381,18 @@ fn build_native_oauth_client(
     service_name: ServiceName,
     redirect_uri: &str,
 ) -> Result<OClient> {
-    let auth_url = Url::parse(&format!("{}{}", config.base_url, service_name.auth_endpoint()))
-        .map_err(|e| Error::InternalErr(format!("Invalid auth URL: {}", e)))?;
-    let token_url = Url::parse(&format!("{}{}", config.base_url, service_name.token_endpoint()))
-        .map_err(|e| Error::InternalErr(format!("Invalid token URL: {}", e)))?;
+    let auth_url = Url::parse(&format!(
+        "{}{}",
+        config.base_url,
+        service_name.auth_endpoint()
+    ))
+    .map_err(|e| Error::InternalErr(format!("Invalid auth URL: {}", e)))?;
+    let token_url = Url::parse(&format!(
+        "{}{}",
+        config.base_url,
+        service_name.token_endpoint()
+    ))
+    .map_err(|e| Error::InternalErr(format!("Invalid token URL: {}", e)))?;
     let redirect = Url::parse(redirect_uri).map_err(|e| {
         Error::BadRequest(format!(
             "Invalid redirect URI '{}': {}. The redirect URI must be an absolute URL (e.g., https://example.com/callback)",

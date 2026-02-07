@@ -18,10 +18,10 @@ use uuid::Uuid;
 /**
 * This implementation is inspired by Postgres replication functionality
 * from https://github.com/supabase/pg_replicate
-* 
-* Original implementation: 
+*
+* Original implementation:
 * - https://github.com/supabase/pg_replicate/blob/main/pg_replicate/src/conversions/text.rs
-* 
+*
 */
 
 #[derive(Debug, Error)]

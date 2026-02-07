@@ -810,7 +810,8 @@ pub(crate) async fn tarball_workspace(
 
             for service_name in ServiceName::iter() {
                 let native_triggers =
-                    list_native_triggers(&mut *tx, &w_id, service_name, None, None, None, None).await?;
+                    list_native_triggers(&mut *tx, &w_id, service_name, None, None, None, None)
+                        .await?;
 
                 for trigger in native_triggers {
                     let trigger_str = &to_string_without_metadata(
@@ -927,7 +928,7 @@ pub(crate) async fn tarball_workspace(
 
     if include_settings.unwrap_or(false) {
         let row = sqlx::query_as::<_, SettingsRow>(
-             r#"SELECT
+            r#"SELECT
                  auto_invite,
                  webhook,
                  deploy_to,
@@ -945,10 +946,10 @@ pub(crate) async fn tarball_workspace(
              FROM workspace_settings
              LEFT JOIN workspace ON workspace.id = workspace_settings.workspace_id
              WHERE workspace_id = $1"#,
-         )
-         .bind(&w_id)
-         .fetch_one(&mut *tx)
-         .await?;
+        )
+        .bind(&w_id)
+        .fetch_one(&mut *tx)
+        .await?;
 
         // Use v2 format only if explicitly requested, otherwise use v1 (legacy) for backward compatibility
         let settings_str = if settings_version.as_deref() == Some("v2") {
@@ -977,11 +978,18 @@ pub(crate) async fn tarball_workspace(
             let (auto_invite_enabled, auto_invite_as, auto_invite_mode) =
                 if let Some(ref ai) = row.auto_invite {
                     let enabled = ai.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
-                    let operator = ai.get("operator").and_then(|v| v.as_bool()).unwrap_or(false);
+                    let operator = ai
+                        .get("operator")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
                     let mode = ai.get("mode").and_then(|v| v.as_str()).unwrap_or("invite");
                     (
                         enabled,
-                        if operator { "operator".to_string() } else { "developer".to_string() },
+                        if operator {
+                            "operator".to_string()
+                        } else {
+                            "developer".to_string()
+                        },
                         mode.to_string(),
                     )
                 } else {
@@ -992,7 +1000,10 @@ pub(crate) async fn tarball_workspace(
                 if let Some(ref eh) = row.error_handler {
                     let path = eh.get("path").and_then(|v| v.as_str()).map(String::from);
                     let extra_args = eh.get("extra_args").cloned();
-                    let muted_on_cancel = eh.get("muted_on_cancel").and_then(|v| v.as_bool()).unwrap_or(false);
+                    let muted_on_cancel = eh
+                        .get("muted_on_cancel")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
                     (path, extra_args, muted_on_cancel)
                 } else {
                     (None, None, false)

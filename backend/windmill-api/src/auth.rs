@@ -567,111 +567,88 @@ fn maybe_get_workspace_id_from_path(path_vec: &[&str]) -> Option<String> {
     workspace_id
 }
 
-#[async_trait]
-impl<S> FromRequestParts<S> for ApiAuthed
-where
-    S: Send + Sync,
-{
-    type Rejection = Error;
+/// Resolves OptJobAuthed from request parts. Called by the OnceLock callback
+/// registered during startup. Takes ownership of Parts and returns them back.
+pub async fn resolve_opt_job_authed(
+    mut parts: Parts,
+) -> std::result::Result<(OptJobAuthed, Parts), (Error, Parts)> {
+    if parts.method == http::Method::OPTIONS {
+        return Ok((OptJobAuthed::default(), parts));
+    };
 
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &S,
-    ) -> std::result::Result<Self, Self::Rejection> {
-        let opt_job_authed = OptJobAuthed::from_request_parts(parts, state).await?;
-        Ok(opt_job_authed.authed)
+    #[cfg(feature = "no_auth")]
+    {
+        let authed = ApiAuthed {
+            email: "admin@windmill.dev".to_string(),
+            username: "admin".to_string(),
+            is_admin: true,
+            is_operator: false,
+            groups: Vec::new(),
+            folders: Vec::new(),
+            scopes: None,
+            username_override: None,
+            token_prefix: None,
+        };
+        return Ok((OptJobAuthed { authed, job_id: None }, parts));
     }
-}
 
-#[async_trait]
-impl<S> FromRequestParts<S> for OptJobAuthed
-where
-    S: Send + Sync,
-{
-    type Rejection = Error;
+    let already_authed = parts.extensions.get::<OptJobAuthed>().cloned();
 
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &S,
-    ) -> std::result::Result<Self, Self::Rejection> {
-        if parts.method == http::Method::OPTIONS {
-            return Ok(OptJobAuthed::default());
-        };
+    if let Some(authed) = already_authed {
+        return Ok((authed, parts));
+    }
 
-        #[cfg(feature = "no_auth")]
+    let already_tokened = parts.extensions.get::<Tokened>().cloned();
+    let token_o = if let Some(token) = already_tokened {
+        Some(token.token.clone())
+    } else {
+        extract_token(&mut parts, &()).await
+    };
+    if let Some(token) = token_o {
+        if let Ok(Extension(cache)) =
+            Extension::<Arc<AuthCache>>::from_request_parts(&mut parts, &()).await
         {
-            let authed = ApiAuthed {
-                email: "admin@windmill.dev".to_string(),
-                username: "admin".to_string(),
-                is_admin: true,
-                is_operator: false,
-                groups: Vec::new(),
-                folders: Vec::new(),
-                scopes: None,
-                username_override: None,
-                token_prefix: None,
-            };
-            return Ok(OptJobAuthed { authed, job_id: None });
-        }
+            let original_uri = OriginalUri::from_request_parts(&mut parts, &())
+                .await
+                .ok()
+                .map(|x| x.0)
+                .unwrap_or_default();
+            let path_vec: Vec<&str> = original_uri.path().split("/").collect();
+            let workspace_id = maybe_get_workspace_id_from_path(&path_vec);
 
-        let already_authed = parts.extensions.get::<OptJobAuthed>();
-
-        if let Some(authed) = already_authed {
-            return Ok(authed.clone());
-        }
-
-        let already_tokened = parts.extensions.get::<Tokened>();
-        let token_o = if let Some(token) = already_tokened {
-            Some(token.token.clone())
-        } else {
-            extract_token(parts, state).await
-        };
-        if let Some(token) = token_o {
-            if let Ok(Extension(cache)) =
-                Extension::<Arc<AuthCache>>::from_request_parts(parts, state).await
+            if let Some(mut opt_job_authed) =
+                cache.get_opt_job_authed(workspace_id.clone(), &token).await
             {
-                let original_uri = OriginalUri::from_request_parts(parts, state)
-                    .await
-                    .ok()
-                    .map(|x| x.0)
-                    .unwrap_or_default();
-                let path_vec: Vec<&str> = original_uri.path().split("/").collect();
-                let workspace_id = maybe_get_workspace_id_from_path(&path_vec);
+                let authed = &mut opt_job_authed.authed;
+                if authed.scopes.is_some() {
+                    transform_old_scope_to_new_scope(authed.scopes.as_mut());
 
-                if let Some(mut opt_job_authed) =
-                    cache.get_opt_job_authed(workspace_id.clone(), &token).await
-                {
-                    let authed = &mut opt_job_authed.authed;
-                    if authed.scopes.is_some() {
-                        transform_old_scope_to_new_scope(authed.scopes.as_mut());
+                    let path = original_uri.path();
+                    let method = parts.method.as_str();
 
-                        let path = original_uri.path();
-                        let method = parts.method.as_str();
-
-                        if let Err(err) = crate::scopes::check_scopes_for_route(
-                            authed.scopes.as_deref(),
-                            path,
-                            method,
-                        ) {
-                            BRUTE_FORCE_COUNTER.increment().await;
-                            return Err(err);
-                        }
+                    if let Err(err) = crate::scopes::check_scopes_for_route(
+                        authed.scopes.as_deref(),
+                        path,
+                        method,
+                    ) {
+                        BRUTE_FORCE_COUNTER.increment().await;
+                        return Err((err, parts));
                     }
-                    parts.extensions.insert(authed.clone());
-
-                    Span::current().record("username", &authed.username.as_str());
-                    Span::current().record("email", &authed.email);
-
-                    if let Some(workspace_id) = workspace_id {
-                        Span::current().record("workspace_id", &workspace_id);
-                    }
-                    return Ok(opt_job_authed);
                 }
+                parts.extensions.insert(authed.clone());
+
+                Span::current().record("username", &authed.username.as_str());
+                Span::current().record("email", &authed.email);
+
+                if let Some(workspace_id) = workspace_id {
+                    Span::current().record("workspace_id", &workspace_id);
+                }
+                return Ok((opt_job_authed, parts));
             }
         }
-        BRUTE_FORCE_COUNTER.increment().await;
-        Err(Error::NotAuthorized("Unauthorized".to_string()))
     }
+    BRUTE_FORCE_COUNTER.increment().await;
+    Err((Error::NotAuthorized("Unauthorized".to_string()), parts))
 }
 
 fn username_override_from_label(label: Option<String>) -> Option<String> {

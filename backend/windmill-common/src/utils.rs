@@ -1041,6 +1041,25 @@ pub fn merge_nested_raw_values_to_array<
     serde_json::value::RawValue::from_string(result).unwrap()
 }
 
+#[derive(Deserialize)]
+pub struct WithStarredInfoQuery {
+    pub with_starred_info: Option<bool>,
+}
+
+// Shared structs for bulk delete operations
+#[derive(Deserialize)]
+pub struct BulkDeleteRequest {
+    pub paths: Vec<String>,
+}
+
+pub fn content_plain(body: axum::body::Body) -> axum::response::Response {
+    use axum::http::header;
+    axum::response::Response::builder()
+        .header(header::CONTENT_TYPE, "text/plain")
+        .body(body)
+        .unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

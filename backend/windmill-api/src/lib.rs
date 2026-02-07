@@ -290,6 +290,19 @@ pub async fn run_server(
     _base_internal_url: String,
     name: Option<String>,
 ) -> anyhow::Result<()> {
+    // Register the auth resolver callback for windmill-api-auth's FromRequestParts impls
+    windmill_api_auth::set_opt_job_authed_resolver(crate::auth::resolve_opt_job_authed);
+
+    // Register the refresh_token bridge for windmill-store
+    #[cfg(feature = "oauth2")]
+    windmill_store::bridge::set_refresh_token_fn(|db, path, w_id, account_id| async move {
+        let tx = db
+            .begin()
+            .await
+            .map_err(|e| windmill_common::error::Error::InternalErr(e.to_string()))?;
+        crate::oauth2_oss::_refresh_token(tx, &path, &w_id, account_id, &db).await
+    });
+
     let user_db = UserDB::new(db.clone());
 
     for x in [HUB_CACHE_DIR] {

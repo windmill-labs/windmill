@@ -10,8 +10,8 @@ path = "src/lib.rs"
 
 [features]
 default = []
-private = ["windmill-audit/private", "windmill-common/private"]
-enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker/enterprise"]
+private = ["windmill-audit/private", "windmill-common/private", "windmill-store/private"]
+enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker/enterprise", "windmill-store/enterprise"]
 stripe = []
 agent_worker_server = []
 enterprise_saml = ["dep:samael", "dep:libxml"]
@@ -19,32 +19,36 @@ benchmark = []
 embedding = ["dep:tinyvector", "dep:hf-hub", "dep:tokenizers", "dep:candle-core", "dep:candle-transformers", "dep:candle-nn"]
 parquet = ["dep:datafusion", "dep:object_store", "windmill-common/parquet", "windmill-worker/parquet"]
 prometheus = ["windmill-common/prometheus", "windmill-queue/prometheus", "dep:prometheus", "windmill-worker/prometheus"]
-openidconnect = ["dep:openidconnect", "windmill-common/openidconnect"]
+openidconnect = ["dep:openidconnect", "windmill-common/openidconnect", "windmill-store/openidconnect"]
 tantivy = ["dep:windmill-indexer"]
-kafka = ["dep:rdkafka", "dep:rdkafka-sys"]
+kafka = ["dep:rdkafka", "dep:rdkafka-sys", "windmill-store/kafka"]
 kafka-gssapi = ["kafka", "rdkafka/gssapi"]
-nats = ["dep:async-nats", "dep:nkeys"]
+nats = ["dep:async-nats", "dep:nkeys", "windmill-store/nats"]
 websocket = ["dep:tokio-tungstenite"]
 smtp = ["dep:mail-parser", "dep:openssl", "windmill-common/smtp"]
 license = ["dep:rsa"]
 zip = ["dep:async_zip"]
-oauth2 = ["dep:windmill-oauth"]
-http_trigger = ["dep:matchit", "dep:thiserror", "dep:sha1", "dep:constant_time_eq"]
+oauth2 = ["dep:windmill-oauth", "windmill-store/oauth2"]
+http_trigger = ["dep:matchit", "dep:thiserror", "dep:sha1", "dep:constant_time_eq", "windmill-store/http_trigger"]
 static_frontend = ["dep:rust-embed"]
-postgres_trigger = ["dep:rust-postgres", "dep:pg_escape", "dep:byteorder", "dep:thiserror", "dep:rust_decimal", "dep:rust-postgres-native-tls"]
-mqtt_trigger = ["dep:thiserror", "dep:rumqttc"]
+postgres_trigger = ["dep:rust-postgres", "dep:pg_escape", "dep:byteorder", "dep:thiserror", "dep:rust_decimal", "dep:rust-postgres-native-tls", "windmill-store/postgres_trigger"]
+mqtt_trigger = ["dep:thiserror", "dep:rumqttc", "windmill-store/mqtt_trigger"]
 native_trigger = ["dep:strum", "dep:backon", "oauth2"]
-sqs_trigger = ["dep:aws-sdk-sqs", "dep:aws-sdk-sts", "dep:aws-sdk-sso", "dep:aws-sdk-ssooidc", "dep:thiserror", "dep:backon", "dep:aws-config"]
+sqs_trigger = ["dep:aws-sdk-sqs", "dep:aws-sdk-sts", "dep:aws-sdk-sso", "dep:aws-sdk-ssooidc", "dep:thiserror", "dep:backon", "dep:aws-config", "windmill-store/sqs_trigger"]
 deno_core = ["dep:deno_core", "dep:deno_error"]
-gcp_trigger = ["dep:thiserror", "dep:google-cloud-pubsub", "dep:google-cloud-googleapis", "dep:tonic"]
-cloud = ["windmill-common/cloud"]
-mcp = ["dep:windmill-mcp", "windmill-mcp/server", "windmill-mcp/auth"]
+gcp_trigger = ["dep:thiserror", "dep:google-cloud-pubsub", "dep:google-cloud-googleapis", "dep:tonic", "windmill-store/gcp_trigger"]
+cloud = ["windmill-common/cloud", "windmill-store/cloud"]
+mcp = ["dep:windmill-mcp", "windmill-mcp/server", "windmill-mcp/auth", "windmill-api-auth/mcp", "windmill-store/mcp"]
 bedrock = ["dep:aws-sdk-bedrock", "dep:aws-sdk-bedrockruntime", "windmill-common/bedrock", "dep:aws-config"]
 python = []
 no_auth = []
 
 [dependencies]
 windmill-mcp = { workspace = true, optional = true }
+windmill-api-auth.workspace = true
+windmill-api-sse.workspace = true
+windmill-api-jobs.workspace = true
+windmill-store.workspace = true
 windmill-queue.workspace = true
 windmill-common = { workspace = true, default-features = false }
 windmill-audit.workspace = true

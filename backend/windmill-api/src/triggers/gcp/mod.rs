@@ -2,7 +2,6 @@
 mod handler_ee;
 pub mod handler_oss;
 
-
 #[cfg(feature = "private")]
 mod listener_ee;
 pub mod listener_oss;
