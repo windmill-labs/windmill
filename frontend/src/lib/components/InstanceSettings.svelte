@@ -254,6 +254,39 @@
 	let yamlCode = $state('')
 	let yamlEditor: SimpleEditor | undefined = $state(undefined)
 	let yamlError = $state('')
+	let showSensitive = $state(false)
+
+	const SENSITIVE_UNCHANGED = '__SENSITIVE_AND_UNCHANGED__'
+
+	const sensitiveKeys: Set<string> = new Set(
+		[...Object.values(settings), scimSamlSetting]
+			.flatMap((s) => Object.values(s))
+			.filter((s) => s.fieldType === 'password' || s.fieldType === 'license_key')
+			.map((s) => s.key)
+	)
+
+	function maskSensitive(obj: Record<string, any>): Record<string, any> {
+		const masked: Record<string, any> = {}
+		for (const [key, value] of Object.entries(obj)) {
+			if (key === 'oauths' && typeof value === 'object' && value !== null) {
+				// Mask the 'secret' field inside each oauth provider
+				const maskedOauths: Record<string, any> = {}
+				for (const [provider, config] of Object.entries(value as Record<string, any>)) {
+					if (typeof config === 'object' && config !== null && 'secret' in config) {
+						maskedOauths[provider] = { ...config, secret: SENSITIVE_UNCHANGED }
+					} else {
+						maskedOauths[provider] = config
+					}
+				}
+				masked[key] = maskedOauths
+			} else if (sensitiveKeys.has(key) && value != null && value !== '') {
+				masked[key] = SENSITIVE_UNCHANGED
+			} else {
+				masked[key] = value
+			}
+		}
+		return masked
+	}
 
 	function buildYamlObject(): Record<string, any> {
 		const obj: Record<string, any> = { ...$values }
@@ -263,7 +296,7 @@
 		if (requirePreexistingUserForOauth) {
 			obj['require_preexisting_user_for_oauth'] = requirePreexistingUserForOauth
 		}
-		return obj
+		return showSensitive ? obj : maskSensitive(obj)
 	}
 
 	function syncFormToYaml() {
@@ -279,7 +312,20 @@
 				sendUserToast('YAML must be a mapping (key: value)', true)
 				return false
 			}
-			if ('oauths' in parsed) {
+
+			// Restore sensitive values that were not changed
+			if ('oauths' in parsed && typeof parsed['oauths'] === 'object') {
+				for (const [provider, config] of Object.entries(
+					parsed['oauths'] as Record<string, any>
+				)) {
+					if (
+						typeof config === 'object' &&
+						config !== null &&
+						config.secret === SENSITIVE_UNCHANGED
+					) {
+						config.secret = oauths?.[provider]?.secret
+					}
+				}
 				oauths = parsed['oauths'] ?? {}
 				delete parsed['oauths']
 			}
@@ -287,6 +333,14 @@
 				requirePreexistingUserForOauth = parsed['require_preexisting_user_for_oauth'] ?? false
 				delete parsed['require_preexisting_user_for_oauth']
 			}
+
+			// Restore unchanged sensitive settings
+			for (const key of sensitiveKeys) {
+				if (key in parsed && parsed[key] === SENSITIVE_UNCHANGED) {
+					parsed[key] = $values[key]
+				}
+			}
+
 			$values = parsed
 			yamlError = ''
 			return true
@@ -310,6 +364,13 @@
 			}
 		}
 	}
+
+	function handleShowSensitiveToggle(checked: boolean) {
+		// Sync any in-progress edits back to form state before re-rendering
+		syncYamlToForm()
+		showSensitive = checked
+		syncFormToYaml()
+	}
 </script>
 
 <div class="pb-12">
@@ -324,6 +385,14 @@
 	</div>
 
 	{#if yamlMode}
+		<div class="flex items-center justify-end mb-2">
+			<Toggle
+				checked={showSensitive}
+				on:change={(e) => handleShowSensitiveToggle(e.detail)}
+				options={{ right: 'Show sensitive values' }}
+				size="xs"
+			/>
+		</div>
 		<div class="border rounded w-full" style="min-height: 600px;">
 			{#await import('$lib/components/SimpleEditor.svelte')}
 				<Loader2 class="animate-spin" />
