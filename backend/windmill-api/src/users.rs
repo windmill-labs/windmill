@@ -8,7 +8,6 @@
 
 #![allow(non_snake_case)]
 
-use quick_cache::sync::Cache;
 use sqlx::{PgConnection, Postgres, Transaction};
 
 use std::sync::atomic::AtomicBool;
@@ -24,14 +23,11 @@ use crate::utils::{
     generate_instance_wide_unique_username, get_instance_username_or_create_pending,
 };
 use crate::{
-    auth::ExpiringAuthCache, db::DB, utils::require_super_admin, webhook_util::WebhookShared,
-    COOKIE_DOMAIN, IS_SECURE,
+    db::DB, utils::require_super_admin, webhook_util::WebhookShared, COOKIE_DOMAIN, IS_SECURE,
 };
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
 use axum::{
-    async_trait,
-    extract::{Extension, FromRequestParts, Path, Query},
-    http::request::Parts,
+    extract::{Extension, Path, Query},
     response::{IntoResponse, Response},
     routing::{delete, get, post},
     Json, Router,
@@ -47,11 +43,11 @@ use tracing::Instrument;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::audit::AuditAuthor;
-use windmill_common::auth::{fetch_authed_from_permissioned_as, TOKEN_PREFIX_LEN};
+use windmill_common::auth::TOKEN_PREFIX_LEN;
 use windmill_common::global_settings::AUTOMATE_USERNAME_CREATION_SETTING;
 use windmill_common::oauth2::InstanceEvent;
+use windmill_common::users::truncate_token;
 use windmill_common::users::COOKIE_NAME;
-use windmill_common::users::{truncate_token, username_to_permissioned_as};
 use windmill_common::utils::paginate;
 use windmill_common::worker::CLOUD_HOSTED;
 use windmill_common::BASE_URL;
@@ -132,93 +128,10 @@ pub fn make_unauthed_service() -> Router {
         .route("/is_smtp_configured", get(is_smtp_configured))
 }
 
-pub use windmill_api_auth::{get_scope_tags, maybe_refresh_folders};
-
-#[derive(Clone, Debug)]
-pub struct OptAuthed(pub Option<ApiAuthed>);
-
-#[async_trait]
-impl<S> FromRequestParts<S> for OptAuthed
-where
-    S: Send + Sync,
-{
-    type Rejection = (StatusCode, String);
-
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &S,
-    ) -> std::result::Result<Self, Self::Rejection> {
-        ApiAuthed::from_request_parts(parts, state)
-            .await
-            .map(|authed| Self(Some(authed)))
-            .or_else(|_| Ok(Self(None)))
-    }
-}
-
-#[allow(unused)]
-pub async fn fetch_api_authed(
-    username: String,
-    email: String,
-    w_id: &str,
-    db: &DB,
-    username_override: Option<String>,
-) -> error::Result<ApiAuthed> {
-    let permissioned_as = username_to_permissioned_as(username.as_str());
-    fetch_api_authed_from_permissioned_as(permissioned_as, email, w_id, db, username_override).await
-}
-
-lazy_static::lazy_static! {
-    static ref API_AUTHED_CACHE: Cache<(String,String,String), ExpiringAuthCache> = Cache::new(300);
-}
-
-#[allow(unused)]
-pub async fn fetch_api_authed_from_permissioned_as(
-    permissioned_as: String,
-    email: String,
-    w_id: &str,
-    db: &DB,
-    username_override: Option<String>,
-) -> error::Result<ApiAuthed> {
-    let key = (w_id.to_string(), permissioned_as.clone(), email.clone());
-
-    let mut api_authed = match API_AUTHED_CACHE.get(&key) {
-        Some(expiring_authed) if expiring_authed.expiry > chrono::Utc::now() => {
-            tracing::debug!("API authed cache hit for user {}", email);
-            expiring_authed.authed
-        }
-        _ => {
-            tracing::debug!("API authed cache miss for user {}", email);
-            let authed =
-                fetch_authed_from_permissioned_as(permissioned_as, email.clone(), w_id, db).await?;
-
-            let api_authed = ApiAuthed {
-                username: authed.username,
-                email,
-                is_admin: authed.is_admin,
-                is_operator: authed.is_operator,
-                groups: authed.groups,
-                folders: authed.folders,
-                scopes: authed.scopes,
-                username_override: None,
-                token_prefix: authed.token_prefix,
-            };
-
-            API_AUTHED_CACHE.insert(
-                key,
-                ExpiringAuthCache {
-                    authed: api_authed.clone(),
-                    expiry: chrono::Utc::now() + chrono::Duration::try_seconds(120).unwrap(),
-                    job_id: None,
-                },
-            );
-
-            api_authed
-        }
-    };
-
-    api_authed.username_override = username_override;
-    Ok(api_authed)
-}
+pub use windmill_api_auth::{
+    fetch_api_authed, fetch_api_authed_from_permissioned_as, get_scope_tags, maybe_refresh_folders,
+    require_path_read_access_for_preview, OptAuthed,
+};
 
 #[derive(FromRow, Serialize)]
 pub struct User {
@@ -873,63 +786,6 @@ pub async fn is_owner_of_path(
 }
 
 pub use windmill_api_auth::require_owner_of_path;
-
-/// Checks that a user has at least read access to the path for preview jobs.
-/// This prevents privilege escalation where a user could run preview code
-/// under a path they don't have access to.
-pub fn require_path_read_access_for_preview(
-    authed: &ApiAuthed,
-    path: &Option<String>,
-) -> Result<()> {
-    let Some(path) = path else {
-        return Ok(());
-    };
-
-    if authed.is_admin {
-        return Ok(());
-    }
-
-    if path.is_empty() {
-        return Ok(());
-    }
-
-    let splitted: Vec<&str> = path.split('/').collect();
-    if splitted.len() < 2 {
-        return Err(Error::BadRequest(format!(
-            "Invalid path format for preview job: {}",
-            path
-        )));
-    }
-
-    match splitted[0] {
-        "u" => {
-            if splitted[1] == authed.username {
-                Ok(())
-            } else {
-                Err(Error::BadRequest(format!(
-                    "You can only run preview jobs in your own namespace (u/{}) or in folders you have read access to",
-                    authed.username
-                )))
-            }
-        }
-        "f" => {
-            let folder = splitted[1];
-            if authed.folders.iter().any(|(f, _, _)| f == folder) {
-                Ok(())
-            } else {
-                Err(Error::BadRequest(format!(
-                    "You do not have read access to folder '{}'. Preview jobs require at least read access to the target folder.",
-                    folder
-                )))
-            }
-        }
-        "hub" => Ok(()),
-        _ => Err(Error::BadRequest(format!(
-            "Invalid path format for preview job: {}. Path must start with 'u/' or 'f/'",
-            path
-        ))),
-    }
-}
 
 pub fn get_perm_in_extra_perms_for_authed(
     v: serde_json::Value,

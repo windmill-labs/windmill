@@ -29,98 +29,101 @@ use windmill_common::{
 };
 use windmill_queue::PushArgsOwned;
 
-impl ListeningTrigger<WebsocketConfig> {
-    async fn send_initial_messages(
-        &self,
-        writer: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
-        db: &DB,
-    ) -> Result<()> {
-        let initial_messages: Vec<InitialMessage> = self
-            .trigger_config
-            .initial_messages
-            .as_deref()
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|m| serde_json::from_str(m.get()).ok())
-            .collect_vec();
+async fn send_initial_messages(
+    listening_trigger: &ListeningTrigger<WebsocketConfig>,
+    writer: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+    db: &DB,
+) -> Result<()> {
+    let initial_messages: Vec<InitialMessage> = listening_trigger
+        .trigger_config
+        .initial_messages
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|m| serde_json::from_str(m.get()).ok())
+        .collect_vec();
 
-        let WebsocketConfig { ref url, .. } = self.trigger_config;
-        let runnable_kind = if self.is_flow { "flow" } else { "script" };
-        let mut authed_o = None;
-        for start_message in initial_messages {
-            match start_message {
-                InitialMessage::RawMessage(msg) => {
-                    let msg = if msg.starts_with("\"") && msg.ends_with("\"") {
-                        msg[1..msg.len() - 1].to_string()
-                    } else {
-                        msg
-                    };
-                    tracing::info!(
-                        "Sending raw message initial message to WebSocket {}: {}",
-                        url,
-                        msg
-                    );
-                    writer
-                        .send(tokio_tungstenite::tungstenite::Message::Text(msg))
-                        .await
-                        .map_err(to_anyhow)
-                        .with_context(|| "failed to send raw message")?;
-                }
-                InitialMessage::RunnableResult { path, is_flow, args } => {
-                    tracing::info!(
-                        "Running {} {} for initial message to WebSocket {}",
-                        runnable_kind,
-                        path,
-                        url,
-                    );
-
-                    let args = raw_value_to_args_hashmap(Some(&args))?;
-
-                    if authed_o.is_none() {
-                        authed_o = Some(self.authed(db, "ws").await?);
-                    }
-                    let authed = authed_o.clone().unwrap();
-
-                    let result = trigger_runnable_and_wait_for_raw_result_with_error_ctx(
-                        db,
-                        None,
-                        authed.clone(),
-                        &self.workspace_id,
-                        &path,
-                        is_flow,
-                        PushArgsOwned { args, extra: None },
-                        None,
-                        None,
-                        None,
-                        "".to_string(), // doesn't matter as no retry/error handler
-                        TriggerMetadata::new(Some(self.path.to_owned()), JobTriggerKind::Websocket),
-                    )
+    let WebsocketConfig { ref url, .. } = listening_trigger.trigger_config;
+    let runnable_kind = if listening_trigger.is_flow {
+        "flow"
+    } else {
+        "script"
+    };
+    let mut authed_o = None;
+    for start_message in initial_messages {
+        match start_message {
+            InitialMessage::RawMessage(msg) => {
+                let msg = if msg.starts_with("\"") && msg.ends_with("\"") {
+                    msg[1..msg.len() - 1].to_string()
+                } else {
+                    msg
+                };
+                tracing::info!(
+                    "Sending raw message initial message to WebSocket {}: {}",
+                    url,
+                    msg
+                );
+                writer
+                    .send(tokio_tungstenite::tungstenite::Message::Text(msg))
                     .await
-                    .map(|r| r.get().to_owned())?;
+                    .map_err(to_anyhow)
+                    .with_context(|| "failed to send raw message")?;
+            }
+            InitialMessage::RunnableResult { path, is_flow, args } => {
+                tracing::info!(
+                    "Running {} {} for initial message to WebSocket {}",
+                    runnable_kind,
+                    path,
+                    url,
+                );
 
-                    tracing::info!(
-                        "Sending {} {} result to WebSocket {}",
-                        runnable_kind,
-                        path,
-                        url
-                    );
+                let args = raw_value_to_args_hashmap(Some(&args))?;
 
-                    // if the `result` was just a single string, the below removes the surrounding quotes by parsing it as a string.
-                    // it falls back to the original serialized JSON if it doesn't work.
-                    let result = serde_json::from_str::<String>(result.as_str()).unwrap_or(result);
-
-                    writer
-                        .send(tokio_tungstenite::tungstenite::Message::Text(result))
-                        .await
-                        .map_err(to_anyhow)
-                        .with_context(|| {
-                            format!("Failed to send {} {} result", runnable_kind, path)
-                        })?;
+                if authed_o.is_none() {
+                    authed_o = Some(listening_trigger.authed(db, "ws").await?);
                 }
+                let authed = authed_o.clone().unwrap();
+
+                let result = trigger_runnable_and_wait_for_raw_result_with_error_ctx(
+                    db,
+                    None,
+                    authed.clone(),
+                    &listening_trigger.workspace_id,
+                    &path,
+                    is_flow,
+                    PushArgsOwned { args, extra: None },
+                    None,
+                    None,
+                    None,
+                    "".to_string(), // doesn't matter as no retry/error handler
+                    TriggerMetadata::new(
+                        Some(listening_trigger.path.to_owned()),
+                        JobTriggerKind::Websocket,
+                    ),
+                )
+                .await
+                .map(|r| r.get().to_owned())?;
+
+                tracing::info!(
+                    "Sending {} {} result to WebSocket {}",
+                    runnable_kind,
+                    path,
+                    url
+                );
+
+                // if the `result` was just a single string, the below removes the surrounding quotes by parsing it as a string.
+                // it falls back to the original serialized JSON if it doesn't work.
+                let result = serde_json::from_str::<String>(result.as_str()).unwrap_or(result);
+
+                writer
+                    .send(tokio_tungstenite::tungstenite::Message::Text(result))
+                    .await
+                    .map_err(to_anyhow)
+                    .with_context(|| format!("Failed to send {} {} result", runnable_kind, path))?;
             }
         }
-        Ok(())
     }
+    Ok(())
 }
 
 #[async_trait]
@@ -205,7 +208,7 @@ impl Listener for WebsocketTrigger {
                 _ = self.loop_ping(db, listening_trigger, err_message.clone(), Some("Sending initial messages...".to_string())) => {
                     return;
                 },
-                result = listening_trigger.send_initial_messages(&mut writer, &db) => {
+                result = send_initial_messages(listening_trigger, &mut writer, &db) => {
                     if let Err(err) = result {
                         self.disable_with_error(&db, listening_trigger, format!("Error sending initial messages: {:?}", err)).await;
                         return

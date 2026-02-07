@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use uuid::Uuid;
 use windmill_common::{
-    db::{UserDB, UserDbWithAuthed},
+    db::{UserDB, UserDbWithAuthed, DB},
     error::Result,
     flows::{FlowModuleValue, Retry},
     get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
@@ -19,22 +19,21 @@ use windmill_common::{
         RUNNABLE_FORMAT_VERSION_CACHE,
     },
     users::username_to_permissioned_as,
-    utils::StripPath,
+    utils::{StripPath, HTTP_CLIENT},
     worker::to_raw_value,
 };
 use windmill_queue::{push, PushArgs, PushArgsOwned, PushIsolationLevel};
 
+use windmill_api_auth::{check_scopes, ApiAuthed};
 #[cfg(feature = "enterprise")]
-use crate::jobs::check_license_key_valid;
-use crate::{
-    db::{ApiAuthed, DB},
-    jobs::{
+use windmill_api_jobs::execution::check_license_key_valid;
+use windmill_api_jobs::{
+    execution::{
         check_tag_available_for_workspace, delete_job_metadata_after_use,
         push_flow_job_by_path_into_queue, push_script_job_by_path_into_queue, result_to_response,
-        run_wait_result_internal, RunJobQuery,
+        run_wait_result_internal,
     },
-    utils::check_scopes,
-    HTTP_CLIENT,
+    types::RunJobQuery,
 };
 
 struct ScriptInfo {

@@ -15848,6 +15848,7 @@ dependencies = [
  "windmill-parser-ts",
  "windmill-queue",
  "windmill-store",
+ "windmill-trigger",
  "windmill-worker",
 ]
 
@@ -15896,15 +15897,20 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "http 1.4.0",
+ "hyper 1.8.1",
+ "lazy_static",
  "serde",
  "serde_json",
+ "sql-builder",
  "sqlx",
+ "tokio",
  "tower-http",
  "tracing",
  "uuid",
  "windmill-api-auth",
  "windmill-api-sse",
  "windmill-common",
+ "windmill-queue",
 ]
 
 [[package]]
@@ -16426,6 +16432,39 @@ dependencies = [
  "windmill-git-sync",
  "windmill-mcp",
  "windmill-oauth",
+]
+
+[[package]]
+name = "windmill-trigger"
+version = "1.628.3"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum 0.7.9",
+ "chrono",
+ "http 1.4.0",
+ "hyper 1.8.1",
+ "itertools 0.14.0",
+ "lazy_static",
+ "rand 0.9.0",
+ "reqwest 0.13.1",
+ "serde",
+ "serde_json",
+ "sql-builder",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+ "windmill-api-auth",
+ "windmill-api-jobs",
+ "windmill-api-sse",
+ "windmill-audit",
+ "windmill-common",
+ "windmill-git-sync",
+ "windmill-parser",
+ "windmill-parser-py",
+ "windmill-parser-ts",
+ "windmill-queue",
 ]
 
 [[package]]

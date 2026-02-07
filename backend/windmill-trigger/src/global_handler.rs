@@ -1,8 +1,4 @@
-use crate::{
-    db::{ApiAuthed, DB},
-    jobs::cancel_jobs,
-    triggers::trigger_helpers::trigger_runnable_inner,
-};
+use crate::trigger_helpers::trigger_runnable_inner;
 use axum::{
     extract::{Extension, Path},
     response::Json,
@@ -13,8 +9,10 @@ use serde_json::value::RawValue;
 use sqlx::PgConnection;
 use std::collections::HashMap;
 use uuid::Uuid;
+use windmill_api_auth::ApiAuthed;
+use windmill_api_jobs::execution::cancel_jobs;
 use windmill_common::{
-    db::UserDB,
+    db::{UserDB, DB},
     error::{self, Error, Result},
     jobs::JobTriggerKind,
     triggers::TriggerMetadata,
@@ -62,12 +60,12 @@ async fn get_suspended_trigger(
     ];
 
     let sql = format!(
-        r#"SELECT 
-        {} 
-    FROM 
-        {} 
-    WHERE 
-        workspace_id = $1 AND 
+        r#"SELECT
+        {}
+    FROM
+        {}
+    WHERE
+        workspace_id = $1 AND
         path = $2
     "#,
         fields.join(", "),

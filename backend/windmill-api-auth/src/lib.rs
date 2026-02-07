@@ -18,9 +18,10 @@ use http::request::Parts;
 
 use windmill_audit::audit_oss::AuditAuthorable;
 use windmill_common::{
-    auth::{is_devops_email, is_super_admin_email},
+    auth::{fetch_authed_from_permissioned_as, is_devops_email, is_super_admin_email},
     db::{Authable, Authed, AuthedRef},
     error::{self, Error, Result},
+    users::username_to_permissioned_as,
     DB,
 };
 
@@ -386,4 +387,150 @@ where
 fn empty_parts() -> Parts {
     let (parts, _body) = http::Request::new(()).into_parts();
     parts
+}
+
+// ------------ OptAuthed (optional auth extractor) ------------
+
+#[derive(Clone, Debug)]
+pub struct OptAuthed(pub Option<ApiAuthed>);
+
+#[async_trait]
+impl<S> FromRequestParts<S> for OptAuthed
+where
+    S: Send + Sync,
+{
+    type Rejection = (http::StatusCode, String);
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &S,
+    ) -> std::result::Result<Self, Self::Rejection> {
+        ApiAuthed::from_request_parts(parts, state)
+            .await
+            .map(|authed| Self(Some(authed)))
+            .or_else(|_| Ok(Self(None)))
+    }
+}
+
+// ------------ fetch_api_authed helpers ------------
+
+lazy_static::lazy_static! {
+    static ref API_AUTHED_CACHE: quick_cache::sync::Cache<(String,String,String), ExpiringAuthCache> = quick_cache::sync::Cache::new(300);
+}
+
+#[allow(unused)]
+pub async fn fetch_api_authed(
+    username: String,
+    email: String,
+    w_id: &str,
+    db: &DB,
+    username_override: Option<String>,
+) -> error::Result<ApiAuthed> {
+    let permissioned_as = username_to_permissioned_as(username.as_str());
+    fetch_api_authed_from_permissioned_as(permissioned_as, email, w_id, db, username_override).await
+}
+
+#[allow(unused)]
+pub async fn fetch_api_authed_from_permissioned_as(
+    permissioned_as: String,
+    email: String,
+    w_id: &str,
+    db: &DB,
+    username_override: Option<String>,
+) -> error::Result<ApiAuthed> {
+    let key = (w_id.to_string(), permissioned_as.clone(), email.clone());
+
+    let mut api_authed = match API_AUTHED_CACHE.get(&key) {
+        Some(expiring_authed) if expiring_authed.expiry > chrono::Utc::now() => {
+            tracing::debug!("API authed cache hit for user {}", email);
+            expiring_authed.authed
+        }
+        _ => {
+            tracing::debug!("API authed cache miss for user {}", email);
+            let authed =
+                fetch_authed_from_permissioned_as(permissioned_as, email.clone(), w_id, db).await?;
+
+            let api_authed = ApiAuthed {
+                username: authed.username,
+                email,
+                is_admin: authed.is_admin,
+                is_operator: authed.is_operator,
+                groups: authed.groups,
+                folders: authed.folders,
+                scopes: authed.scopes,
+                username_override: None,
+                token_prefix: authed.token_prefix,
+            };
+
+            API_AUTHED_CACHE.insert(
+                key,
+                ExpiringAuthCache {
+                    authed: api_authed.clone(),
+                    expiry: chrono::Utc::now() + chrono::Duration::try_seconds(120).unwrap(),
+                    job_id: None,
+                },
+            );
+
+            api_authed
+        }
+    };
+
+    api_authed.username_override = username_override;
+    Ok(api_authed)
+}
+
+// ------------ Preview access check ------------
+
+pub fn require_path_read_access_for_preview(
+    authed: &ApiAuthed,
+    path: &Option<String>,
+) -> Result<()> {
+    let Some(path) = path else {
+        return Ok(());
+    };
+
+    if authed.is_admin {
+        return Ok(());
+    }
+
+    if path.is_empty() {
+        return Ok(());
+    }
+
+    let splitted: Vec<&str> = path.split('/').collect();
+    if splitted.len() < 2 {
+        return Err(Error::BadRequest(format!(
+            "Invalid path format for preview job: {}",
+            path
+        )));
+    }
+
+    match splitted[0] {
+        "u" => {
+            if splitted[1] == authed.username {
+                Ok(())
+            } else {
+                Err(Error::BadRequest(format!(
+                    "You can only run preview jobs in your own namespace (u/{}) or in folders you have read access to",
+                    authed.username
+                )))
+            }
+        }
+        "f" => {
+            let folder = splitted[1];
+            if authed.folders.iter().any(|(f, _, _)| f == folder) {
+                Ok(())
+            } else {
+                Err(Error::BadRequest(format!(
+                    "You do not have read access to folder '{}'. Preview jobs require at least read access to the target folder.",
+                    folder
+                )))
+            }
+        }
+        "hub" => Ok(()),
+        _ => Err(Error::BadRequest(format!(
+            "Invalid path format for preview job: {}. Path must start with 'u/' or 'f/'",
+            path
+        ))),
+    }
 }

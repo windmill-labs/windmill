@@ -11,7 +11,7 @@ path = "src/lib.rs"
 [features]
 default = []
 private = ["windmill-audit/private", "windmill-common/private", "windmill-api-auth/private", "windmill-store/private"]
-enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker/enterprise", "windmill-api-auth/enterprise", "windmill-store/enterprise"]
+enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker/enterprise", "windmill-api-auth/enterprise", "windmill-store/enterprise", "windmill-api-jobs/enterprise"]
 stripe = []
 agent_worker_server = []
 enterprise_saml = ["dep:samael", "dep:libxml"]
@@ -48,6 +48,7 @@ windmill-mcp = { workspace = true, optional = true }
 windmill-api-auth.workspace = true
 windmill-api-sse.workspace = true
 windmill-api-jobs.workspace = true
+windmill-trigger.workspace = true
 windmill-store.workspace = true
 windmill-queue.workspace = true
 windmill-common = { workspace = true, default-features = false }
