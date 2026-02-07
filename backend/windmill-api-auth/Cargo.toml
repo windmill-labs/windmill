@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [features]
 default = []
-enterprise = ["windmill-common/enterprise"]
+enterprise = ["windmill-common/enterprise", "dep:jsonwebtoken", "dep:reqwest"]
 cloud = ["windmill-common/cloud"]
 private = ["windmill-common/private"]
 no_auth = []
@@ -23,5 +23,17 @@ windmill-mcp = { workspace = true, optional = true }
 axum.workspace = true
 http.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 uuid.workspace = true
 itertools.workspace = true
+tower-cookies.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+quick_cache.workspace = true
+sqlx.workspace = true
+lazy_static.workspace = true
+tokio.workspace = true
+time.workspace = true
+anyhow.workspace = true
+jsonwebtoken = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true }

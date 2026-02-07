@@ -15855,10 +15855,22 @@ dependencies = [
 name = "windmill-api-auth"
 version = "1.628.2"
 dependencies = [
+ "anyhow",
  "axum 0.7.9",
+ "chrono",
  "http 1.4.0",
  "itertools 0.14.0",
+ "jsonwebtoken 8.3.0",
+ "lazy_static",
+ "quick_cache",
+ "reqwest 0.13.1",
  "serde",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tower-cookies",
+ "tracing",
  "uuid",
  "windmill-audit",
  "windmill-common",

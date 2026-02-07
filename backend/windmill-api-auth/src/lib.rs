@@ -6,11 +6,11 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+pub mod auth;
+#[cfg(feature = "private")]
+pub mod ee;
+pub mod ee_oss;
 pub mod scopes;
-
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::OnceLock;
 
 use axum::async_trait;
 use axum::extract::FromRequestParts;
@@ -26,33 +26,11 @@ use windmill_common::{
 
 use scopes::ScopeDefinition;
 
-// ------------ FromRequestParts bridge via OnceLock ------------
-
-type OptJobAuthedResolver = Box<
-    dyn Fn(
-            Parts,
-        ) -> Pin<
-            Box<
-                dyn Future<Output = std::result::Result<(OptJobAuthed, Parts), (Error, Parts)>>
-                    + Send,
-            >,
-        > + Send
-        + Sync,
->;
-
-static OPT_JOB_AUTHED_RESOLVER: OnceLock<OptJobAuthedResolver> = OnceLock::new();
-
-pub fn set_opt_job_authed_resolver<F, Fut>(f: F)
-where
-    F: Fn(Parts) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = std::result::Result<(OptJobAuthed, Parts), (Error, Parts)>>
-        + Send
-        + 'static,
-{
-    OPT_JOB_AUTHED_RESOLVER
-        .set(Box::new(move |parts| Box::pin(f(parts))))
-        .ok();
-}
+// Re-export key auth types and functions
+pub use auth::{
+    invalidate_token_from_cache, AuthCache, ExpiringAuthCache, OptTokened, Tokened,
+    TruncatedTokenWithEmail, AUTH_CACHE,
+};
 
 // ------------ ApiAuthed & OptJobAuthed types ------------
 
@@ -306,7 +284,7 @@ pub fn require_owner_of_path(authed: &ApiAuthed, path: &str) -> Result<()> {
         }
     } else {
         Err(Error::BadRequest(
-            "path cannot be empty for this operation".to_string(),
+            "Cannot be owner of an empty path".to_string(),
         ))
     }
 }
@@ -361,7 +339,7 @@ pub async fn maybe_refresh_folders(
     }
 }
 
-// ------------ FromRequestParts impls (delegates to OnceLock callback) ------------
+// ------------ FromRequestParts impls (direct call to auth module) ------------
 
 #[async_trait]
 impl<S> FromRequestParts<S> for ApiAuthed
@@ -390,13 +368,9 @@ where
         parts: &mut Parts,
         _state: &S,
     ) -> std::result::Result<Self, Self::Rejection> {
-        let resolver = OPT_JOB_AUTHED_RESOLVER
-            .get()
-            .expect("OPT_JOB_AUTHED_RESOLVER not initialized; call set_opt_job_authed_resolver during startup");
-
-        // Swap out parts so we can pass ownership to the callback
+        // Swap out parts so we can pass ownership to resolve_opt_job_authed
         let owned_parts = std::mem::replace(parts, empty_parts());
-        match resolver(owned_parts).await {
+        match auth::resolve_opt_job_authed(owned_parts).await {
             Ok((result, returned_parts)) => {
                 *parts = returned_parts;
                 Ok(result)
