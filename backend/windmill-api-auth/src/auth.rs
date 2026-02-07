@@ -570,6 +570,7 @@ fn maybe_get_workspace_id_from_path(path_vec: &[&str]) -> Option<String> {
 
 /// Resolves OptJobAuthed from request parts.
 /// Takes ownership of Parts and returns them back.
+#[allow(unreachable_code, unused_mut)]
 pub async fn resolve_opt_job_authed(
     mut parts: Parts,
 ) -> std::result::Result<(OptJobAuthed, Parts), (Error, Parts)> {

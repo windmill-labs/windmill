@@ -1893,6 +1893,7 @@ async fn set_login_type(
     ))
 }
 
+#[allow(unreachable_code, unused_variables)]
 async fn login(
     cookies: Cookies,
     Extension(db): Extension<DB>,
