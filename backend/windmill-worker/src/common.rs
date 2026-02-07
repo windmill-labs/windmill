@@ -143,6 +143,9 @@ pub async fn write_file_binary(dir: &str, path: &str, content: &[u8]) -> error::
 
 lazy_static::lazy_static! {
     static ref RE_RES_VAR: Regex = Regex::new(r#"\$(?:var|res|encrypted)\:"#).unwrap();
+    static ref RE_VAR_PATTERN: Regex = Regex::new(r#"\$var:([^\s"'\},\)\]&;]+)"#).unwrap();
+    static ref RE_RES_PATTERN: Regex = Regex::new(r#"\$res:([^\s"'\},\)\]&;]+)"#).unwrap();
+    static ref RE_ENCRYPTED_PATTERN: Regex = Regex::new(r#"\$encrypted:([^\s"'\},\)\]&;]+)"#).unwrap();
 }
 
 pub async fn transform_json<'a>(
@@ -239,7 +242,8 @@ pub async fn transform_json_value(
     conn: &Connection,
 ) -> error::Result<Value> {
     match v {
-        Value::String(y) if y.starts_with("$var:") => {
+        Value::String(y) if y.starts_with("$var:") && !y.contains(' ') => {
+            // Exact match: entire string is a variable reference
             let path = y.strip_prefix("$var:").unwrap();
             client
                 .get_variable_value(path)
@@ -249,7 +253,8 @@ pub async fn transform_json_value(
                     Error::NotFound(format!("Variable {path} not found for `{name}`: {e:#}"))
                 })
         }
-        Value::String(y) if y.starts_with("$res:") => {
+        Value::String(y) if y.starts_with("$res:") && !y.contains(' ') => {
+            // Exact match: entire string is a resource reference
             let path = y.strip_prefix("$res:").unwrap();
 
             if path.split("/").count() < 2 && !path.starts_with("CUSTOM_INSTANCE_DB/") {
@@ -267,7 +272,8 @@ pub async fn transform_json_value(
                     Error::NotFound(format!("Resource {path} not found for `{name}`: {e:#}"))
                 })
         }
-        Value::String(y) if y.starts_with("$encrypted:") => {
+        Value::String(y) if y.starts_with("$encrypted:") && !y.contains(' ') => {
+            // Exact match: entire string is an encrypted reference
             match conn {
                 Connection::Sql(db) => {
                     let encrypted = y.strip_prefix("$encrypted:").unwrap();
@@ -291,8 +297,104 @@ pub async fn transform_json_value(
                     Err(Error::NotFound("Http connection not supported".to_string()))
                 }
             }
+        }
+        Value::String(y) if (*RE_RES_VAR).is_match(&y) => {
+            // String interpolation: contains variable/resource/encrypted references
+            let mut result = y.clone();
 
-            // let path = y.strip_prefix("$res:").unwrap();
+            // Replace $var: references
+            for cap in (*RE_VAR_PATTERN).captures_iter(&y) {
+                let full_match = cap.get(0).unwrap().as_str();
+                let path = cap.get(1).unwrap().as_str();
+
+                match client.get_variable_value(path).await {
+                    Ok(value) => {
+                        result = result.replace(full_match, &value);
+                    }
+                    Err(e) => {
+                        return Err(Error::NotFound(format!(
+                            "Variable {path} not found in string interpolation for `{name}`: {e:#}"
+                        )));
+                    }
+                }
+            }
+
+            // Replace $res: references
+            for cap in (*RE_RES_PATTERN).captures_iter(&y) {
+                let full_match = cap.get(0).unwrap().as_str();
+                let path = cap.get(1).unwrap().as_str();
+
+                if path.split("/").count() < 2 && !path.starts_with("INSTANCE_DUCKLAKE_CATALOG/") {
+                    return Err(Error::internal_err(format!(
+                        "Argument `{name}` contains invalid resource path: {path}",
+                    )));
+                }
+
+                match client
+                    .get_resource_value_interpolated::<serde_json::Value>(
+                        path,
+                        Some(job.id.to_string()),
+                    )
+                    .await
+                {
+                    Ok(value) => {
+                        let value_str = if value.is_string() {
+                            value.as_str().unwrap().to_string()
+                        } else if value.is_number() {
+                            value.to_string()
+                        } else if value.is_boolean() {
+                            value.to_string()
+                        } else if value.is_null() {
+                            String::new()
+                        } else {
+                            // Object or Array - not suitable for string interpolation
+                            return Err(Error::BadRequest(format!(
+                                "Cannot interpolate resource '$res:{path}' into string for argument `{name}`. \
+                                The resource contains an object or array with multiple fields. \
+                                \nTo fix this:\n\
+                                1. Use the resource as a separate parameter (e.g., set the whole parameter to '$res:{path}'), OR\n\
+                                2. Create a simpler variable/resource with just the single value you need, OR\n\
+                                3. Extract the field in your script code after receiving the full resource object."
+                            )));
+                        };
+                        result = result.replace(full_match, &value_str);
+                    }
+                    Err(e) => {
+                        return Err(Error::NotFound(format!(
+                            "Resource {path} not found in string interpolation for `{name}`: {e:#}"
+                        )));
+                    }
+                }
+            }
+
+            // Replace $encrypted: references
+            if let Connection::Sql(db) = conn {
+                for cap in (*RE_ENCRYPTED_PATTERN).captures_iter(&y) {
+                    let full_match = cap.get(0).unwrap().as_str();
+                    let encrypted = cap.get(1).unwrap().as_str();
+
+                    let root_job_id = get_root_job_id(&job);
+                    let mc = build_crypt_with_key_suffix(
+                        db,
+                        &job.workspace_id,
+                        &root_job_id.to_string(),
+                    )
+                    .await?;
+
+                    match decrypt(&mc, encrypted.to_string()) {
+                        Ok(decrypted) => {
+                            result = result.replace(full_match, &decrypted);
+                        }
+                        Err(e) => {
+                            return Err(Error::internal_err(format!(
+                                "Failed to decrypt '$encrypted:' value in string interpolation: {e}"
+                            )));
+                        }
+                    }
+                }
+            }
+
+            Ok(json!(result))
         }
         Value::String(y) if y.starts_with("$") => {
             let variables = get_reserved_variables(job, &client.token, conn, None).await?;
