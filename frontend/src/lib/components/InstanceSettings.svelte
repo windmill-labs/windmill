@@ -15,7 +15,11 @@
 	import AuthSettings from './AuthSettings.svelte'
 	import InstanceSetting from './InstanceSetting.svelte'
 	import { writable, type Writable } from 'svelte/store'
-	import { ExternalLink } from 'lucide-svelte'
+	import { ExternalLink, Loader2 } from 'lucide-svelte'
+	import YAML from 'yaml'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import type SimpleEditor from './SimpleEditor.svelte'
 
 	interface Props {
 		tab?: string
@@ -105,6 +109,12 @@
 	}
 
 	export async function saveSettings() {
+		if (viewMode === 'yaml') {
+			if (!syncYamlToForm()) {
+				return
+			}
+		}
+
 		if (
 			oauths?.snowflake_oauth &&
 			oauths?.snowflake_oauth?.connect_config?.extra_params?.account_identifier !==
@@ -240,11 +250,103 @@
 	function openSmtpSettings() {
 		tab = 'SMTP'
 	}
+
+	let viewMode: 'form' | 'yaml' = $state('form')
+	let yamlCode = $state('')
+	let yamlEditor: SimpleEditor | undefined = $state(undefined)
+	let yamlError = $state('')
+
+	function buildYamlObject(): Record<string, any> {
+		const obj: Record<string, any> = { ...$values }
+		if (oauths && Object.keys(oauths).length > 0) {
+			obj['oauths'] = oauths
+		}
+		if (requirePreexistingUserForOauth) {
+			obj['require_preexisting_user_for_oauth'] = requirePreexistingUserForOauth
+		}
+		return obj
+	}
+
+	function syncFormToYaml() {
+		yamlCode = YAML.stringify(buildYamlObject())
+		yamlEditor?.setCode(yamlCode)
+		yamlError = ''
+	}
+
+	function syncYamlToForm(): boolean {
+		try {
+			const parsed = YAML.parse(yamlCode)
+			if (typeof parsed !== 'object' || parsed === null) {
+				sendUserToast('YAML must be a mapping (key: value)', true)
+				return false
+			}
+			if ('oauths' in parsed) {
+				oauths = parsed['oauths'] ?? {}
+				delete parsed['oauths']
+			}
+			if ('require_preexisting_user_for_oauth' in parsed) {
+				requirePreexistingUserForOauth = parsed['require_preexisting_user_for_oauth'] ?? false
+				delete parsed['require_preexisting_user_for_oauth']
+			}
+			$values = parsed
+			yamlError = ''
+			return true
+		} catch (e) {
+			yamlError = String(e)
+			sendUserToast('Invalid YAML: ' + e, true)
+			return false
+		}
+	}
+
+	function handleViewModeChange(newMode: string) {
+		if (newMode === 'yaml') {
+			syncFormToYaml()
+			viewMode = 'yaml'
+		} else if (newMode === 'form') {
+			if (syncYamlToForm()) {
+				viewMode = 'form'
+			} else {
+				// Reset toggle back to YAML on parse failure
+				viewMode = 'yaml'
+			}
+		}
+	}
 </script>
 
 <div class="pb-12">
 	<!-- svelte-ignore a11y_label_has_associated_control -->
-	{#if hideTabs}
+	{#if !hideTabs}
+		<div class="flex items-center justify-end mb-2">
+			<ToggleButtonGroup
+				bind:selected={viewMode}
+				onSelected={handleViewModeChange}
+			>
+				{#snippet children({ item })}
+					<ToggleButton value="form" label="Form" {item} small />
+					<ToggleButton value="yaml" label="YAML" {item} small />
+				{/snippet}
+			</ToggleButtonGroup>
+		</div>
+	{/if}
+
+	{#if viewMode === 'yaml' && !hideTabs}
+		<div class="border rounded w-full" style="min-height: 600px;">
+			{#await import('$lib/components/SimpleEditor.svelte')}
+				<Loader2 class="animate-spin" />
+			{:then Module}
+				<Module.default
+					bind:this={yamlEditor}
+					autoHeight
+					lang="yaml"
+					bind:code={yamlCode}
+					fixedOverflowWidgets={false}
+				/>
+			{/await}
+		</div>
+		{#if yamlError}
+			<div class="text-red-500 text-xs mt-1">{yamlError}</div>
+		{/if}
+	{:else if hideTabs}
 		{@render tabsContent()}
 	{:else}
 		<Tabs bind:selected={tab}>
