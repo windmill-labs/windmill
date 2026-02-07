@@ -11,7 +11,7 @@ path = "src/lib.rs"
 [features]
 default = []
 enterprise = ["windmill-common/enterprise", "windmill-store/enterprise", "windmill-trigger/enterprise"]
-private = ["windmill-common/private", "windmill-store/private"]
+private = ["windmill-common/private", "windmill-common/aws_auth", "windmill-common/openidconnect", "windmill-store/private"]
 
 [dependencies]
 windmill-common = { workspace = true, default-features = false }

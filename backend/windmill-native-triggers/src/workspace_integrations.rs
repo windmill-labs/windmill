@@ -1,29 +1,37 @@
-use axum::{extract::Path, routing::get, Extension, Json, Router};
+use axum::Router;
 
 #[cfg(feature = "native_trigger")]
-use axum::routing::{delete, post};
+use axum::{
+    extract::Path,
+    routing::{delete, get, post},
+    Extension, Json,
+};
 
 #[cfg(feature = "native_trigger")]
 use serde_json::to_value;
+
+#[cfg(feature = "native_trigger")]
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+
+#[cfg(feature = "native_trigger")]
 use sqlx::prelude::FromRow;
 
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
 #[cfg(feature = "native_trigger")]
 use windmill_audit::{audit_oss::audit_log, ActionKind};
+
+#[cfg(feature = "native_trigger")]
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
+    utils::require_admin,
+    variables::{build_crypt, encrypt},
     DB,
 };
 
 #[cfg(feature = "native_trigger")]
-use windmill_common::{
-    utils::require_admin,
-    variables::{build_crypt, encrypt},
-};
-
 use windmill_api_auth::ApiAuthed;
 
+#[cfg(feature = "native_trigger")]
 use crate::ServiceName;
 
 #[cfg(feature = "native_trigger")]
@@ -42,6 +50,7 @@ use sha2::Sha256;
 #[cfg(feature = "native_trigger")]
 type HmacSha256 = Hmac<Sha256>;
 
+#[cfg(feature = "native_trigger")]
 const STATE_EXPIRATION_SECONDS: i64 = 600; // 10 minutes
 
 /// Generate a signed OAuth state that is cluster-safe.
@@ -140,6 +149,7 @@ async fn validate_signed_state(db: &DB, state: &str, workspace_id: &str) -> Resu
     Ok(mac.verify_slice(&received_signature).is_ok())
 }
 
+#[cfg(feature = "native_trigger")]
 #[derive(Debug, Serialize)]
 pub struct IntegrationStatusResponse {
     pub connected: bool,
@@ -148,16 +158,19 @@ pub struct IntegrationStatusResponse {
     pub created_by: Option<String>,
 }
 
+#[cfg(feature = "native_trigger")]
 #[derive(Debug, Serialize)]
 pub struct ListIntegrationsResponse {
     pub integrations: Vec<IntegrationStatusResponse>,
 }
 
+#[cfg(feature = "native_trigger")]
 #[derive(Debug, Serialize)]
 pub struct ConnectIntegrationResponse {
     pub auth_url: String,
 }
 
+#[cfg(feature = "native_trigger")]
 #[derive(FromRow, Debug, Clone, Serialize, Deserialize)]
 pub struct WorkspaceOAuthConfig {
     pub client_id: String,
@@ -166,6 +179,7 @@ pub struct WorkspaceOAuthConfig {
     pub access_token: Option<String>,
 }
 
+#[cfg(feature = "native_trigger")]
 #[derive(Debug, Serialize)]
 pub struct OAuthConfigResponse {
     pub configured: bool,
@@ -229,6 +243,7 @@ async fn delete_integration(
     )))
 }
 
+#[cfg(feature = "native_trigger")]
 #[derive(FromRow, Debug, Deserialize, Serialize)]
 struct WorkspaceIntegrations {
     service_name: ServiceName,
@@ -278,6 +293,7 @@ async fn list_integrations(
     Ok(Json(integrations))
 }
 
+#[cfg(feature = "native_trigger")]
 async fn integration_exist(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -304,6 +320,7 @@ async fn integration_exist(
     Ok(Json(exists))
 }
 
+#[cfg(feature = "native_trigger")]
 #[derive(Debug, Deserialize)]
 struct RedirectUri {
     redirect_uri: String,
@@ -374,6 +391,7 @@ async fn oauth_callback(
 }
 
 /// Token response from OAuth token exchange
+#[cfg(feature = "native_trigger")]
 #[derive(Debug, Deserialize)]
 struct TokenResponse {
     access_token: String,
@@ -435,6 +453,7 @@ async fn exchange_code_for_token(
     Ok(token_response)
 }
 
+#[cfg(feature = "native_trigger")]
 async fn get_workspace_oauth_config<T: DeserializeOwned>(
     db: &DB,
     workspace_id: &str,
@@ -491,6 +510,7 @@ pub async fn create_workspace_integration(
     Ok(())
 }
 
+#[cfg(feature = "native_trigger")]
 #[inline]
 async fn get_workspace_oauth_config_as_oauth_config(
     db: &DB,
@@ -500,6 +520,7 @@ async fn get_workspace_oauth_config_as_oauth_config(
     get_workspace_oauth_config::<WorkspaceOAuthConfig>(db, workspace_id, service_name).await
 }
 
+#[cfg(feature = "native_trigger")]
 fn build_authorization_url(
     config: &WorkspaceOAuthConfig,
     state: &str,

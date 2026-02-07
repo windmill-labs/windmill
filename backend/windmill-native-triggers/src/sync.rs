@@ -47,6 +47,7 @@ pub struct ServiceSyncResult {
     pub errors: Vec<SyncError>,
 }
 
+#[allow(unused_variables, unused_mut)]
 pub async fn sync_all_triggers(db: &DB) -> Result<BackgroundSyncResult> {
     tracing::info!("Starting native triggers sync");
 
