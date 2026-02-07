@@ -114,6 +114,25 @@ lazy_static::lazy_static! {
 
 }
 
+#[cfg(feature = "failpoints")]
+pub mod schedule_failpoints {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum ScheduleFailPoint {
+        SavepointCreate,
+        Push,
+        SavepointCommit,
+        ScheduleDisable,
+    }
+
+    tokio::task_local! {
+        pub static ACTIVE: ScheduleFailPoint;
+    }
+
+    pub fn is_active(point: ScheduleFailPoint) -> bool {
+        ACTIVE.try_with(|fp| *fp == point).unwrap_or(false)
+    }
+}
+
 lazy_static::lazy_static! {
     pub static ref HTTP_CLIENT: Client = configure_client(reqwest::ClientBuilder::new()
         .user_agent("windmill/beta")
@@ -1804,6 +1823,11 @@ pub async fn try_schedule_next_job<'c>(
 
     let mut push_err = None;
     for attempt in 0..10 {
+        #[cfg(feature = "failpoints")]
+        if schedule_failpoints::is_active(schedule_failpoints::ScheduleFailPoint::SavepointCreate) {
+            push_err = Some(Error::internal_err("failpoint: savepoint create".to_string()));
+            break;
+        }
         let savepoint = match tx.begin().await {
             Ok(sp) => sp,
             Err(e) => {
@@ -1817,16 +1841,29 @@ pub async fn try_schedule_next_job<'c>(
                 break;
             }
         };
-        match push_scheduled_job(
+        let push_result = push_scheduled_job(
             db,
             savepoint,
             schedule,
             schedule_authed.as_ref(),
             Some(job.scheduled_for),
         )
-        .await
-        {
+        .await;
+        #[cfg(feature = "failpoints")]
+        let push_result = if schedule_failpoints::is_active(schedule_failpoints::ScheduleFailPoint::Push) {
+            if let Ok(sp) = push_result { sp.rollback().await.ok(); }
+            Err(Error::internal_err("failpoint: push".to_string()))
+        } else {
+            push_result
+        };
+        match push_result {
             Ok(savepoint) => {
+                #[cfg(feature = "failpoints")]
+                if schedule_failpoints::is_active(schedule_failpoints::ScheduleFailPoint::SavepointCommit) {
+                    savepoint.rollback().await.ok();
+                    push_err = Some(Error::internal_err("failpoint: savepoint commit".to_string()));
+                    break;
+                }
                 match savepoint.commit().await {
                     Ok(()) => {
                         push_err = None;
@@ -1862,15 +1899,21 @@ pub async fn try_schedule_next_job<'c>(
             "Could not push next scheduled job for {}: {err}. Disabling schedule.",
             schedule.path
         );
-        if let Err(disable_err) = sqlx::query!(
+        let disable_result = sqlx::query!(
             "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
             err.to_string(),
             &schedule.workspace_id,
             &schedule.path
         )
         .execute(&mut *tx)
-        .await
-        {
+        .await;
+        #[cfg(feature = "failpoints")]
+        let disable_result = if schedule_failpoints::is_active(schedule_failpoints::ScheduleFailPoint::ScheduleDisable) {
+            Err(sqlx::Error::Protocol("failpoint: schedule disable".to_string()))
+        } else {
+            disable_result
+        };
+        if let Err(disable_err) = disable_result {
             report_error_to_workspace_handler_or_critical_side_channel(
                 job,
                 db,
