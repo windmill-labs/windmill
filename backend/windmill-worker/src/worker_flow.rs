@@ -68,7 +68,8 @@ use windmill_common::{
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
     add_completed_job, add_completed_job_error, append_logs, get_mini_pulled_job,
-    try_schedule_next_job, insert_concurrency_key, interpolate_args, CanceledBy, FlowRunners,
+    try_schedule_next_job, insert_concurrency_key, interpolate_args,
+    report_error_to_workspace_handler_or_critical_side_channel, CanceledBy, FlowRunners,
     MiniCompletedJob, MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload, WrappedError,
 };
 
@@ -2190,7 +2191,6 @@ pub async fn handle_flow(
                     &schedule,
                     &runnable_path,
                 )
-                .warn_after_seconds(5)
                 .await;
                 if let Some(err) = schedule_push_err {
                     return Err(err);
@@ -2215,30 +2215,32 @@ pub async fn handle_flow(
             .sleep(tokio::time::sleep)
             .await;
 
+            // Non-retryable errors (QuotaExceeded, NotFound) are handled inside
+            // try_schedule_next_job (schedule disabled, returns None), so they never
+            // reach here. This handles only transient errors after retry exhaustion.
             if let Err(err) = schedule_push_result {
-                match err {
-                    Error::QuotaExceeded(_) => return Err(err.into()),
-                    _ => {
-                        tracing::error!(
-                            "Could not push next scheduled job for {} after retries: {err}. Disabling schedule.",
-                            schedule.path
-                        );
-                        if let Err(disable_err) = sqlx::query!(
-                            "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
-                            err.to_string(),
-                            &flow_job.workspace_id,
-                            &schedule.path
-                        )
-                        .execute(db)
-                        .await
-                        {
-                            tracing::error!(
-                                "Could not disable schedule {} after push failure: {disable_err}",
-                                schedule.path
-                            );
-                        }
-                        return Ok(());
-                    }
+                tracing::error!(
+                    "Could not push next scheduled job for {} after retries: {err}. Disabling schedule.",
+                    schedule.path
+                );
+                if let Err(disable_err) = sqlx::query!(
+                    "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
+                    err.to_string(),
+                    &flow_job.workspace_id,
+                    &schedule.path
+                )
+                .execute(db)
+                .await
+                {
+                    report_error_to_workspace_handler_or_critical_side_channel(
+                        &mini_job,
+                        db,
+                        format!(
+                            "Could not push next scheduled job for {} and could not disable schedule: {disable_err}",
+                            schedule.path,
+                        ),
+                    )
+                    .await;
                 }
             }
         } else {

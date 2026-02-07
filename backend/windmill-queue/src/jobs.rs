@@ -1834,14 +1834,23 @@ pub async fn try_schedule_next_job<'c>(
         let savepoint_result = tx.begin().await;
         match savepoint_result {
             Ok(savepoint) => {
-                let push_result = push_scheduled_job(
-                    db,
-                    savepoint,
-                    schedule,
-                    schedule_authed.as_ref(),
-                    Some(job.scheduled_for),
+                let push_result = match tokio::time::timeout(
+                    std::time::Duration::from_secs(5),
+                    push_scheduled_job(
+                        db,
+                        savepoint,
+                        schedule,
+                        schedule_authed.as_ref(),
+                        Some(job.scheduled_for),
+                    ),
                 )
-                .await;
+                .await
+                {
+                    Ok(result) => result,
+                    Err(_elapsed) => Err(Error::internal_err(
+                        "push_scheduled_job timed out after 5s".to_string(),
+                    )),
+                };
                 #[cfg(feature = "failpoints")]
                 let push_result = if schedule_failpoints::is_active(schedule_failpoints::ScheduleFailPoint::Push) {
                     if let Ok(sp) = push_result { sp.rollback().await.ok(); }
