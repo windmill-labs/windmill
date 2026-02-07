@@ -1,26 +1,27 @@
-#[cfg(not(feature = "private"))]
-use crate::triggers::TriggerData;
-
 #[allow(unused)]
 #[cfg(feature = "private")]
 pub use super::handler_ee::*;
 
 #[cfg(not(feature = "private"))]
+use windmill_trigger::TriggerData;
+
+#[cfg(not(feature = "private"))]
 use {
-    super::EmailTrigger,
-    crate::{
-        db::{ApiAuthed, DB},
-        triggers::TriggerCrud,
-    },
+    super::NatsTrigger,
     axum::async_trait,
     sqlx::PgConnection,
-    windmill_common::error::{Error, Result},
+    windmill_api_auth::ApiAuthed,
+    windmill_common::{
+        db::DB,
+        error::{Error, Result},
+    },
     windmill_git_sync::DeployedObject,
+    windmill_trigger::TriggerCrud,
 };
 
 #[cfg(not(feature = "private"))]
 #[async_trait]
-impl TriggerCrud for EmailTrigger {
+impl TriggerCrud for NatsTrigger {
     type Trigger = ();
     type TriggerConfig = ();
     type TriggerConfigRequest = ();
@@ -30,24 +31,24 @@ impl TriggerCrud for EmailTrigger {
     const TRIGGER_TYPE: &'static str = "";
     const SUPPORTS_SERVER_STATE: bool = false;
     const SUPPORTS_TEST_CONNECTION: bool = false;
-    const ROUTE_PREFIX: &'static str = "/email_triggers";
+    const ROUTE_PREFIX: &'static str = "/nats_triggers";
     const DEPLOYMENT_NAME: &'static str = "";
     const IS_ALLOWED_ON_CLOUD: bool = false;
 
     fn get_deployed_object(path: String) -> DeployedObject {
-        DeployedObject::EmailTrigger { path }
+        DeployedObject::NatsTrigger { path }
     }
 
     async fn create_trigger(
         &self,
         _db: &DB,
-        _tx: &mut PgConnection,
+        _executor: &mut PgConnection,
         _authed: &ApiAuthed,
         _w_id: &str,
         _trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
         Err(Error::BadRequest(
-            "Email triggers are not available in open source version".to_string(),
+            "NATS triggers are not available in open source version".to_string(),
         ))
     }
 
@@ -61,7 +62,7 @@ impl TriggerCrud for EmailTrigger {
         _trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
         Err(Error::BadRequest(
-            "Email triggers are not available in open source version".to_string(),
+            "NATS triggers are not available in open source version".to_string(),
         ))
     }
 }

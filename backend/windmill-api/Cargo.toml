@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [features]
 default = []
-private = ["windmill-audit/private", "windmill-common/private", "windmill-api-auth/private", "windmill-store/private", "windmill-trigger-kafka?/private", "windmill-trigger-postgres?/private", "windmill-trigger-mqtt?/private", "windmill-trigger-websocket?/private"]
+private = ["windmill-audit/private", "windmill-common/private", "windmill-api-auth/private", "windmill-store/private", "windmill-trigger-kafka?/private", "windmill-trigger-postgres?/private", "windmill-trigger-mqtt?/private", "windmill-trigger-websocket?/private", "windmill-trigger-nats?/private", "windmill-trigger-sqs?/private", "windmill-trigger-gcp?/private", "windmill-trigger-email?/private"]
 enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker/enterprise", "windmill-api-auth/enterprise", "windmill-store/enterprise", "windmill-api-jobs/enterprise"]
 stripe = []
 agent_worker_server = []
@@ -23,9 +23,9 @@ openidconnect = ["dep:openidconnect", "windmill-common/openidconnect", "windmill
 tantivy = ["dep:windmill-indexer"]
 kafka = ["dep:windmill-trigger-kafka", "windmill-trigger-kafka/enterprise", "windmill-store/kafka"]
 kafka-gssapi = ["kafka", "windmill-trigger-kafka/kafka-gssapi"]
-nats = ["dep:async-nats", "dep:nkeys", "windmill-store/nats"]
+nats = ["dep:windmill-trigger-nats", "windmill-trigger-nats/enterprise", "windmill-store/nats"]
 websocket = ["dep:windmill-trigger-websocket", "windmill-trigger-websocket/enterprise"]
-smtp = ["dep:mail-parser", "dep:openssl", "windmill-common/smtp"]
+smtp = ["dep:mail-parser", "dep:openssl", "windmill-common/smtp", "dep:windmill-trigger-email", "windmill-trigger-email/enterprise"]
 license = ["dep:rsa"]
 zip = ["dep:async_zip"]
 oauth2 = ["dep:windmill-oauth", "windmill-store/oauth2"]
@@ -34,9 +34,9 @@ static_frontend = ["dep:rust-embed"]
 postgres_trigger = ["dep:windmill-trigger-postgres", "windmill-trigger-postgres/enterprise", "windmill-store/postgres_trigger"]
 mqtt_trigger = ["dep:windmill-trigger-mqtt", "windmill-trigger-mqtt/enterprise", "windmill-store/mqtt_trigger"]
 native_trigger = ["dep:strum", "dep:backon", "oauth2"]
-sqs_trigger = ["dep:aws-sdk-sqs", "dep:aws-sdk-sts", "dep:aws-sdk-sso", "dep:aws-sdk-ssooidc", "dep:thiserror", "dep:backon", "dep:aws-config", "windmill-store/sqs_trigger"]
+sqs_trigger = ["dep:windmill-trigger-sqs", "windmill-trigger-sqs/enterprise", "windmill-store/sqs_trigger"]
 deno_core = ["dep:deno_core", "dep:deno_error"]
-gcp_trigger = ["dep:thiserror", "dep:google-cloud-pubsub", "dep:google-cloud-googleapis", "dep:tonic", "windmill-store/gcp_trigger"]
+gcp_trigger = ["dep:windmill-trigger-gcp", "windmill-trigger-gcp/enterprise", "windmill-store/gcp_trigger"]
 cloud = ["windmill-common/cloud", "windmill-api-auth/cloud", "windmill-store/cloud"]
 mcp = ["dep:windmill-mcp", "windmill-mcp/server", "windmill-mcp/auth", "windmill-api-auth/mcp", "windmill-store/mcp"]
 bedrock = ["dep:aws-sdk-bedrock", "dep:aws-sdk-bedrockruntime", "windmill-common/bedrock", "dep:aws-config"]
@@ -138,9 +138,10 @@ windmill-trigger-kafka = { workspace = true, optional = true }
 windmill-trigger-postgres = { workspace = true, optional = true }
 windmill-trigger-mqtt = { workspace = true, optional = true }
 windmill-trigger-websocket = { workspace = true, optional = true }
-
-async-nats = { workspace = true, optional = true }
-nkeys = { workspace = true, optional = true }
+windmill-trigger-email = { workspace = true, optional = true }
+windmill-trigger-nats = { workspace = true, optional = true }
+windmill-trigger-sqs = { workspace = true, optional = true }
+windmill-trigger-gcp = { workspace = true, optional = true }
 const_format.workspace = true
 pin-project.workspace = true
 http.workspace = true
@@ -148,10 +149,6 @@ indexmap.workspace = true
 async-stream.workspace = true
 ulid.workspace = true
 thiserror = { workspace = true, optional = true }
-aws-sdk-sqs = { workspace = true, optional = true }
-aws-sdk-sso = { workspace = true, optional = true }
-aws-sdk-ssooidc = { workspace = true, optional = true }
-aws-sdk-sts = { workspace = true, optional = true }
 rustls = { workspace = true }
 
 aws-sigv4.workspace = true
@@ -162,9 +159,6 @@ aws-sdk-bedrock = { workspace = true, optional = true }
 aws-sdk-bedrockruntime = { workspace = true, optional = true }
 aws-smithy-types.workspace = true
 async-trait.workspace = true
-google-cloud-pubsub = { workspace = true, optional = true }
-google-cloud-googleapis = { workspace = true , optional = true }
-tonic = { workspace = true, optional = true }
 deno_error = { workspace = true, optional = true }
 deno_core = { workspace = true, optional = true }
 tar.workspace = true
