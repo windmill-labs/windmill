@@ -16,7 +16,7 @@ stripe = []
 agent_worker_server = []
 enterprise_saml = ["dep:samael", "dep:libxml"]
 benchmark = []
-embedding = ["dep:tinyvector", "dep:hf-hub", "dep:tokenizers", "dep:candle-core", "dep:candle-transformers", "dep:candle-nn"]
+embedding = ["windmill-api-embeddings/embedding"]
 parquet = ["dep:datafusion", "dep:object_store", "windmill-common/parquet", "windmill-worker/parquet"]
 prometheus = ["windmill-common/prometheus", "windmill-queue/prometheus", "dep:prometheus", "windmill-worker/prometheus"]
 openidconnect = ["dep:openidconnect", "windmill-common/openidconnect", "windmill-store/openidconnect"]
@@ -121,12 +121,6 @@ libxml = { workspace = true, optional = true }
 async-recursion.workspace = true
 rsa = { workspace = true, optional = true}
 uuid.workspace = true
-tinyvector = { workspace = true, optional = true}
-hf-hub  = { workspace = true, optional = true}
-tokenizers = { workspace = true, optional = true}
-candle-core = { workspace = true, optional = true}
-candle-transformers = { workspace = true, optional = true}
-candle-nn = { workspace = true, optional = true}
 datafusion = { workspace = true, optional = true}
 object_store = { workspace = true, optional = true}
 openidconnect = { workspace = true, optional = true}
@@ -142,6 +136,7 @@ windmill-trigger-sqs = { workspace = true, optional = true }
 windmill-trigger-gcp = { workspace = true, optional = true }
 windmill-trigger-http = { workspace = true, optional = true }
 windmill-native-triggers = { workspace = true, optional = true }
+windmill-api-embeddings.workspace = true
 const_format.workspace = true
 pin-project.workspace = true
 http.workspace = true

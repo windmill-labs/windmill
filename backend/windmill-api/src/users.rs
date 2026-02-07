@@ -8,7 +8,7 @@
 
 #![allow(non_snake_case)]
 
-use sqlx::{PgConnection, Postgres, Transaction};
+use sqlx::{Postgres, Transaction};
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -129,10 +129,12 @@ pub fn make_unauthed_service() -> Router {
 }
 
 pub use windmill_api_auth::{
-    create_token_internal, fetch_api_authed, fetch_api_authed_from_permissioned_as,
-    get_perm_in_extra_perms_for_authed, get_scope_tags, maybe_refresh_folders, require_is_writer,
-    require_path_read_access_for_preview, NewToken, OptAuthed,
+    create_token_internal, fetch_api_authed, get_scope_tags, maybe_refresh_folders,
+    require_is_writer, require_path_read_access_for_preview, NewToken, OptAuthed,
 };
+
+#[cfg(feature = "parquet")]
+pub use windmill_api_auth::fetch_api_authed_from_permissioned_as;
 
 #[derive(FromRow, Serialize)]
 pub struct User {
