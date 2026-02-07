@@ -315,21 +315,19 @@
 
 <div class="pb-12">
 	<!-- svelte-ignore a11y_label_has_associated_control -->
-	{#if !hideTabs}
-		<div class="flex items-center justify-end mb-2">
-			<ToggleButtonGroup
-				bind:selected={viewMode}
-				onSelected={handleViewModeChange}
-			>
-				{#snippet children({ item })}
-					<ToggleButton value="form" label="Form" {item} small />
-					<ToggleButton value="yaml" label="YAML" {item} small />
-				{/snippet}
-			</ToggleButtonGroup>
-		</div>
-	{/if}
+	<div class="flex items-center justify-end mb-2">
+		<ToggleButtonGroup
+			bind:selected={viewMode}
+			onSelected={handleViewModeChange}
+		>
+			{#snippet children({ item })}
+				<ToggleButton value="form" label="Form" {item} small />
+				<ToggleButton value="yaml" label="YAML" {item} small />
+			{/snippet}
+		</ToggleButtonGroup>
+	</div>
 
-	{#if viewMode === 'yaml' && !hideTabs}
+	{#if viewMode === 'yaml'}
 		<div class="border rounded w-full" style="min-height: 600px;">
 			{#await import('$lib/components/SimpleEditor.svelte')}
 				<Loader2 class="animate-spin" />
