@@ -120,6 +120,7 @@ pub mod schedule_failpoints {
     pub enum ScheduleFailPoint {
         SavepointCreate,
         Push,
+        PushQuotaExceeded,
         SavepointCommit,
         ScheduleDisable,
     }
@@ -851,13 +852,14 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     .retry(
         ConstantBuilder::default()
             .with_delay(std::time::Duration::from_secs(3))
-            .with_max_times(5)
+            .with_max_times(10)
             .build(),
     )
     .when(|err| {
         !matches!(err, Error::QuotaExceeded(_))
             && !matches!(err, Error::ResultTooLarge(_))
             && !matches!(err, Error::AlreadyCompleted(_))
+            && !matches!(err, Error::NotFound(_))
     })
     .notify(|err, dur| {
         tracing::error!("Could not insert completed job, retrying in {dur:#?}, err: {err:#?}");
@@ -1122,8 +1124,8 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     let (returned_tx, schedule_push_err) =
                         try_schedule_next_job(db, tx, completed_job, &schedule, &script_path).await;
                     tx = returned_tx;
-                    if schedule_push_err.is_some() {
-                        return Ok((Some(job_id), 0, true));
+                    if let Some(err) = schedule_push_err {
+                        return Err(err);
                     }
                 }
 
@@ -1822,123 +1824,113 @@ pub async fn try_schedule_next_job<'c>(
         .ok();
 
     let mut push_err = None;
-    for attempt in 0..10 {
-        #[cfg(feature = "failpoints")]
-        if schedule_failpoints::is_active(schedule_failpoints::ScheduleFailPoint::SavepointCreate) {
-            push_err = Some(Error::internal_err("failpoint: savepoint create".to_string()));
-            break;
-        }
-        let savepoint = match tx.begin().await {
-            Ok(sp) => sp,
+
+    #[cfg(feature = "failpoints")]
+    if schedule_failpoints::is_active(schedule_failpoints::ScheduleFailPoint::SavepointCreate) {
+        push_err = Some(Error::internal_err("failpoint: savepoint create".to_string()));
+    }
+
+    if push_err.is_none() {
+        let savepoint_result = tx.begin().await;
+        match savepoint_result {
+            Ok(savepoint) => {
+                let push_result = push_scheduled_job(
+                    db,
+                    savepoint,
+                    schedule,
+                    schedule_authed.as_ref(),
+                    Some(job.scheduled_for),
+                )
+                .await;
+                #[cfg(feature = "failpoints")]
+                let push_result = if schedule_failpoints::is_active(schedule_failpoints::ScheduleFailPoint::Push) {
+                    if let Ok(sp) = push_result { sp.rollback().await.ok(); }
+                    Err(Error::internal_err("failpoint: push".to_string()))
+                } else if schedule_failpoints::is_active(schedule_failpoints::ScheduleFailPoint::PushQuotaExceeded) {
+                    if let Ok(sp) = push_result { sp.rollback().await.ok(); }
+                    Err(Error::QuotaExceeded("failpoint: push quota exceeded".to_string()))
+                } else {
+                    push_result
+                };
+                match push_result {
+                    Ok(savepoint) => {
+                        #[cfg(feature = "failpoints")]
+                        let savepoint_commit_fail = schedule_failpoints::is_active(schedule_failpoints::ScheduleFailPoint::SavepointCommit);
+                        #[cfg(not(feature = "failpoints"))]
+                        let savepoint_commit_fail = false;
+
+                        if savepoint_commit_fail {
+                            savepoint.rollback().await.ok();
+                            push_err = Some(Error::internal_err("failpoint: savepoint commit".to_string()));
+                        } else {
+                            match savepoint.commit().await {
+                                Ok(()) => {}
+                                Err(e) => {
+                                    push_err = Some(Error::internal_err(format!(
+                                        "Could not commit savepoint: {e:#}"
+                                    )));
+                                }
+                            }
+                        }
+                    }
+                    Err(err) if matches!(err, Error::QuotaExceeded(_)) => {
+                        push_err = Some(err);
+                    }
+                    Err(err) => {
+                        tracing::warn!(
+                            "Could not push next scheduled job for {}: {err}",
+                            schedule.path,
+                        );
+                        push_err = Some(err);
+                    }
+                }
+            }
             Err(e) => {
                 tracing::error!(
-                    "Could not create savepoint for schedule push (attempt {}): {e:#}",
-                    attempt + 1
+                    "Could not create savepoint for schedule push: {e:#}",
                 );
                 push_err = Some(Error::internal_err(format!(
                     "Could not create savepoint: {e:#}"
                 )));
-                break;
             }
-        };
-        let push_result = push_scheduled_job(
-            db,
-            savepoint,
-            schedule,
-            schedule_authed.as_ref(),
-            Some(job.scheduled_for),
-        )
-        .await;
-        #[cfg(feature = "failpoints")]
-        let push_result = if schedule_failpoints::is_active(schedule_failpoints::ScheduleFailPoint::Push) {
-            if let Ok(sp) = push_result { sp.rollback().await.ok(); }
-            Err(Error::internal_err("failpoint: push".to_string()))
-        } else {
-            push_result
-        };
-        match push_result {
-            Ok(savepoint) => {
-                #[cfg(feature = "failpoints")]
-                if schedule_failpoints::is_active(schedule_failpoints::ScheduleFailPoint::SavepointCommit) {
-                    savepoint.rollback().await.ok();
-                    push_err = Some(Error::internal_err("failpoint: savepoint commit".to_string()));
-                    break;
-                }
-                match savepoint.commit().await {
-                    Ok(()) => {
-                        push_err = None;
-                        break;
-                    }
-                    Err(e) => {
-                        push_err = Some(Error::internal_err(format!(
-                            "Could not commit savepoint: {e:#}"
-                        )));
-                    }
-                }
-            }
-            Err(err) if matches!(err, Error::QuotaExceeded(_)) => {
-                push_err = Some(err);
-                break;
-            }
-            Err(err) => {
-                tracing::warn!(
-                    "Could not push next scheduled job for {} (attempt {}): {err}",
-                    schedule.path,
-                    attempt + 1,
-                );
-                push_err = Some(err);
-            }
-        }
-        if attempt < 9 {
-            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         }
     }
 
     if let Some(ref err) = push_err {
-        tracing::error!(
-            "Could not push next scheduled job for {}: {err}. Disabling schedule.",
-            schedule.path
-        );
-        let disable_result = sqlx::query!(
-            "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
-            err.to_string(),
-            &schedule.workspace_id,
-            &schedule.path
-        )
-        .execute(&mut *tx)
-        .await;
-        #[cfg(feature = "failpoints")]
-        let disable_result = if schedule_failpoints::is_active(schedule_failpoints::ScheduleFailPoint::ScheduleDisable) {
-            Err(sqlx::Error::Protocol("failpoint: schedule disable".to_string()))
-        } else {
-            disable_result
-        };
-        if let Err(disable_err) = disable_result {
-            report_error_to_workspace_handler_or_critical_side_channel(
-                job,
-                db,
-                format!(
-                    "Could not push next scheduled job for {} and could not disable schedule: {disable_err}",
-                    schedule.path,
-                ),
+        if matches!(err, Error::QuotaExceeded(_) | Error::NotFound(_)) {
+            tracing::error!(
+                "Could not push next scheduled job for {}: {err}. Disabling schedule.",
+                schedule.path
+            );
+            let disable_result = sqlx::query!(
+                "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
+                err.to_string(),
+                &schedule.workspace_id,
+                &schedule.path
             )
+            .execute(&mut *tx)
             .await;
-            return (tx, push_err);
-        }
-        if !matches!(err, Error::QuotaExceeded(_)) {
-            report_error_to_workspace_handler_or_critical_side_channel(
-                job,
-                db,
-                format!(
-                    "Could not schedule next job for {} with err {err}. Schedule disabled",
-                    schedule.path,
-                ),
-            )
-            .await;
+            #[cfg(feature = "failpoints")]
+            let disable_result = if schedule_failpoints::is_active(schedule_failpoints::ScheduleFailPoint::ScheduleDisable) {
+                Err(sqlx::Error::Protocol("failpoint: schedule disable".to_string()))
+            } else {
+                disable_result
+            };
+            if let Err(disable_err) = disable_result {
+                report_error_to_workspace_handler_or_critical_side_channel(
+                    job,
+                    db,
+                    format!(
+                        "Could not push next scheduled job for {} and could not disable schedule: {disable_err}",
+                        schedule.path,
+                    ),
+                )
+                .await;
+            }
         }
     }
 
-    (tx, None)
+    (tx, push_err)
 }
 
 pub const ERROR_HANDLER_PATH_TEAMS: &str = "/workspace-or-schedule-error-handler-teams";

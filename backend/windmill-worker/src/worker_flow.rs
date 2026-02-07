@@ -30,6 +30,7 @@ use sqlx::types::Json;
 use sqlx::{FromRow, Postgres, Transaction};
 use tracing::instrument;
 use uuid::Uuid;
+use backon::{BackoffBuilder, ConstantBuilder, Retryable};
 use windmill_common::auth::get_job_perms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
@@ -2177,23 +2178,69 @@ pub async fn handle_flow(
             .await?;
 
         if let Some(schedule) = schedule {
-            let tx = db.begin().warn_after_seconds(5).await?;
-            let (tx, schedule_push_err) = try_schedule_next_job(
-                db,
-                tx,
-                &MiniCompletedJob::from(flow_job.clone()),
-                &schedule,
-                flow_job.runnable_path.as_ref().unwrap(),
+            let mini_job = MiniCompletedJob::from(flow_job.clone());
+            let runnable_path = flow_job.runnable_path.as_ref().unwrap().clone();
+            let schedule_push_result = (|| async {
+                let tx = db.begin().warn_after_seconds(5).await
+                    .map_err(|e| Error::internal_err(format!("begin tx for schedule push: {e:#}")))?;
+                let (tx, schedule_push_err) = try_schedule_next_job(
+                    db,
+                    tx,
+                    &mini_job,
+                    &schedule,
+                    &runnable_path,
+                )
+                .warn_after_seconds(5)
+                .await;
+                if let Some(err) = schedule_push_err {
+                    return Err(err);
+                }
+                tx.commit().warn_after_seconds(5).await
+                    .map_err(|e| Error::internal_err(format!("commit schedule push: {e:#}")))?;
+                Ok::<(), Error>(())
+            })
+            .retry(
+                ConstantBuilder::default()
+                    .with_delay(std::time::Duration::from_secs(3))
+                    .with_max_times(10)
+                    .build(),
             )
-            .warn_after_seconds(5)
+            .when(|err: &Error| !matches!(err, Error::QuotaExceeded(_) | Error::NotFound(_)))
+            .notify(|err: &Error, dur: std::time::Duration| {
+                tracing::error!(
+                    "Could not push next scheduled job for flow schedule {}, retrying in {dur:#?}: {err:#?}",
+                    schedule.path
+                );
+            })
+            .sleep(tokio::time::sleep)
             .await;
-            if let Some(err) = schedule_push_err {
+
+            if let Err(err) = schedule_push_result {
                 match err {
                     Error::QuotaExceeded(_) => return Err(err.into()),
-                    _ => return Ok(()),
+                    _ => {
+                        tracing::error!(
+                            "Could not push next scheduled job for {} after retries: {err}. Disabling schedule.",
+                            schedule.path
+                        );
+                        if let Err(disable_err) = sqlx::query!(
+                            "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
+                            err.to_string(),
+                            &flow_job.workspace_id,
+                            &schedule.path
+                        )
+                        .execute(db)
+                        .await
+                        {
+                            tracing::error!(
+                                "Could not disable schedule {} after push failure: {disable_err}",
+                                schedule.path
+                            );
+                        }
+                        return Ok(());
+                    }
                 }
             }
-            tx.commit().warn_after_seconds(5).await?;
         } else {
             tracing::error!(
                 "Schedule {schedule_path} in {} not found. Impossible to schedule again",

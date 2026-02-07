@@ -555,12 +555,12 @@ mod schedule_push {
     }
 
     // -----------------------------------------------------------------------
-    // try_schedule_next_job: push failure disables schedule
+    // try_schedule_next_job: push failure returns error to caller
+    // (caller is responsible for retry + eventual disable)
     // -----------------------------------------------------------------------
 
     #[sqlx::test(fixtures("base", "schedule_push"))]
     async fn test_handle_push_failure_disables_schedule(db: Pool<Postgres>) -> anyhow::Result<()> {
-        // Insert a schedule row so try_schedule_next_job can disable it
         sqlx::query(
             "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap)
              VALUES ('test-workspace', 'f/system/bad_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/nonexistent', false, 'test@windmill.dev', '{}', false, false)"
@@ -583,12 +583,12 @@ mod schedule_push {
             &schedule.script_path,
         )
         .await;
+        // NotFound: schedule disabled internally, error returned to caller
+        assert!(err.is_some());
         tx.commit().await?;
-        // Should succeed (error is handled internally by disabling schedule)
-        assert!(err.is_none());
         assert_eq!(count_queued_jobs(&db).await, 0);
 
-        // Schedule should be disabled with an error
+        // Schedule should be disabled (NotFound is non-retryable)
         let (enabled, error): (bool, Option<String>) = sqlx::query_as(
             "SELECT enabled, error FROM schedule WHERE workspace_id = 'test-workspace' AND path = 'f/system/bad_schedule'",
         )
@@ -699,12 +699,13 @@ mod schedule_push {
             &schedule.script_path,
         )
         .await;
-        assert!(err.is_none());
+        // NotFound: schedule disabled in tx, error returned to caller
+        assert!(err.is_some());
 
         // Drop without commit — simulates zombie retry path
         drop(tx);
 
-        // Schedule should STILL be enabled (disable was rolled back)
+        // Schedule should STILL be enabled (disable was rolled back with tx)
         let enabled: bool = sqlx::query_scalar(
             "SELECT enabled FROM schedule WHERE workspace_id = 'test-workspace' AND path = 'f/system/bad_schedule'",
         )
@@ -782,15 +783,16 @@ mod schedule_push {
             &schedule.script_path,
         )
         .await;
-        assert!(err.is_none());
+        // NotFound: schedule disabled in tx, error returned to caller
+        assert!(err.is_some());
 
-        // Write something else on the returned tx
+        // Write something else on the returned tx — tx is still usable
         sqlx::query("INSERT INTO global_settings (name, value) VALUES ('_test_after_fail', '99'::jsonb)")
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
 
-        // The schedule disable and our extra write should both be committed
+        // Schedule should be disabled (NotFound is non-retryable)
         let (enabled, error): (bool, Option<String>) = sqlx::query_as(
             "SELECT enabled, error FROM schedule WHERE workspace_id = 'test-workspace' AND path = 'f/system/bad_schedule'",
         )
@@ -799,6 +801,7 @@ mod schedule_push {
         assert!(!enabled);
         assert!(error.is_some());
 
+        // Extra write should still be committed (tx is usable after push failure)
         let val: serde_json::Value = sqlx::query_scalar(
             "SELECT value FROM global_settings WHERE name = '_test_after_fail'",
         )
@@ -903,8 +906,9 @@ mod schedule_push {
             &schedule.script_path,
         )
         .await;
+        // NotFound: schedule disabled in tx, error returned to caller
+        assert!(err.is_some());
         tx.commit().await?;
-        assert!(err.is_none());
 
         let error: String = sqlx::query_scalar(
             "SELECT error FROM schedule WHERE workspace_id = 'test-workspace' AND path = 'f/system/bad_schedule'",
@@ -1026,9 +1030,9 @@ mod schedule_push {
             &schedule.script_path,
         )
         .await;
-        tx.commit().await?;
-        // UPDATE 0 rows is not an error, function returns None
-        assert!(err.is_none());
+        drop(tx);
+        // Transient error returned to caller
+        assert!(err.is_some());
         assert_eq!(count_queued_jobs(&db).await, 0);
         Ok(())
     }
@@ -1111,7 +1115,8 @@ mod schedule_push {
             &schedule.script_path,
         )
         .await;
-        assert!(err.is_none());
+        // NotFound: schedule disabled in tx, error returned to caller
+        assert!(err.is_some());
         tx.commit().await?;
 
         // After commit: no next tick, but schedule is disabled — invariant holds
@@ -1123,7 +1128,7 @@ mod schedule_push {
         .await?;
         assert!(
             !enabled,
-            "schedule must be disabled when push fails and tx commits"
+            "schedule must be disabled when push fails with NotFound and tx commits"
         );
         Ok(())
     }
@@ -1160,7 +1165,8 @@ mod schedule_push {
             &schedule.script_path,
         )
         .await;
-        assert!(err.is_none());
+        // Transient error returned to caller
+        assert!(err.is_some());
 
         // Simulate zombie path: drop tx without commit
         drop(tx);
@@ -1206,18 +1212,18 @@ mod schedule_push {
                 let (tx, err) = try_schedule_next_job(
                     &db, tx, &job, &schedule, &schedule.script_path,
                 ).await;
-                assert!(err.is_none());
-                tx.commit().await.unwrap();
+                // Transient error returned to caller for retry
+                assert!(err.is_some());
+                drop(tx);
 
                 assert_eq!(count_queued_jobs(&db).await, 0);
-                let (enabled, error): (bool, Option<String>) = sqlx::query_as(
-                    "SELECT enabled, error FROM schedule WHERE workspace_id = 'test-workspace' AND path = 'f/system/test_schedule'",
+                let enabled: bool = sqlx::query_scalar(
+                    "SELECT enabled FROM schedule WHERE workspace_id = 'test-workspace' AND path = 'f/system/test_schedule'",
                 )
                 .fetch_one(&db)
                 .await
                 .unwrap();
-                assert!(!enabled, "schedule must be disabled after savepoint-create failure");
-                assert!(error.is_some(), "error must be set on schedule");
+                assert!(enabled, "schedule must stay enabled for caller retry");
             }).await;
             Ok(())
         }
@@ -1243,18 +1249,18 @@ mod schedule_push {
                 let (tx, err) = try_schedule_next_job(
                     &db, tx, &job, &schedule, &schedule.script_path,
                 ).await;
-                assert!(err.is_none());
-                tx.commit().await.unwrap();
+                // Transient error returned to caller for retry
+                assert!(err.is_some());
+                drop(tx);
 
                 assert_eq!(count_queued_jobs(&db).await, 0);
-                let (enabled, error): (bool, Option<String>) = sqlx::query_as(
-                    "SELECT enabled, error FROM schedule WHERE workspace_id = 'test-workspace' AND path = 'f/system/test_schedule'",
+                let enabled: bool = sqlx::query_scalar(
+                    "SELECT enabled FROM schedule WHERE workspace_id = 'test-workspace' AND path = 'f/system/test_schedule'",
                 )
                 .fetch_one(&db)
                 .await
                 .unwrap();
-                assert!(!enabled, "schedule must be disabled after push failure");
-                assert!(error.is_some(), "error must be set on schedule");
+                assert!(enabled, "schedule must stay enabled for caller retry");
             }).await;
             Ok(())
         }
@@ -1280,18 +1286,18 @@ mod schedule_push {
                 let (tx, err) = try_schedule_next_job(
                     &db, tx, &job, &schedule, &schedule.script_path,
                 ).await;
-                assert!(err.is_none());
-                tx.commit().await.unwrap();
+                // Transient error returned to caller for retry
+                assert!(err.is_some());
+                drop(tx);
 
                 assert_eq!(count_queued_jobs(&db).await, 0, "pushed job must be rolled back");
-                let (enabled, error): (bool, Option<String>) = sqlx::query_as(
-                    "SELECT enabled, error FROM schedule WHERE workspace_id = 'test-workspace' AND path = 'f/system/test_schedule'",
+                let enabled: bool = sqlx::query_scalar(
+                    "SELECT enabled FROM schedule WHERE workspace_id = 'test-workspace' AND path = 'f/system/test_schedule'",
                 )
                 .fetch_one(&db)
                 .await
                 .unwrap();
-                assert!(!enabled, "schedule must be disabled after savepoint-commit failure");
-                assert!(error.is_some(), "error must be set on schedule");
+                assert!(enabled, "schedule must stay enabled for caller retry");
             }).await;
             Ok(())
         }
@@ -1360,6 +1366,91 @@ mod schedule_push {
                 .unwrap();
                 assert!(enabled, "schedule must stay enabled when tx is dropped after disable failure");
                 assert!(error.is_none(), "error must not persist after rollback");
+            }).await;
+            Ok(())
+        }
+
+        // ---------------------------------------------------------------
+        // PushQuotaExceeded failpoint (script) → schedule disabled, 0 jobs,
+        // no error handler notification (QuotaExceeded is silenced)
+        // ---------------------------------------------------------------
+
+        #[sqlx::test(fixtures("base", "schedule_push"))]
+        async fn test_failpoint_push_quota_exceeded_script(db: Pool<Postgres>) -> anyhow::Result<()> {
+            sqlx::query(
+                "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap)
+                 VALUES ('test-workspace', 'f/system/test_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/test_script', false, 'test@windmill.dev', '{}', false, false)"
+            )
+            .execute(&db)
+            .await?;
+
+            let schedule = make_schedule(|_| {});
+            let job = make_completed_job(&schedule);
+
+            ACTIVE.scope(ScheduleFailPoint::PushQuotaExceeded, async {
+                let tx = db.begin().await.unwrap();
+                let (tx, err) = try_schedule_next_job(
+                    &db, tx, &job, &schedule, &schedule.script_path,
+                ).await;
+                // QuotaExceeded: schedule disabled internally, error returned to caller
+                assert!(err.is_some(), "QuotaExceeded should be returned to caller");
+                assert!(matches!(err.as_ref().unwrap(), windmill_common::error::Error::QuotaExceeded(_)));
+                tx.commit().await.unwrap();
+
+                assert_eq!(count_queued_jobs(&db).await, 0);
+                let (enabled, error): (bool, Option<String>) = sqlx::query_as(
+                    "SELECT enabled, error FROM schedule WHERE workspace_id = 'test-workspace' AND path = 'f/system/test_schedule'",
+                )
+                .fetch_one(&db)
+                .await
+                .unwrap();
+                assert!(!enabled, "schedule must be disabled after QuotaExceeded");
+                assert!(error.is_some(), "error must be set on schedule");
+                assert!(error.unwrap().contains("quota"), "error message should mention quota");
+            }).await;
+            Ok(())
+        }
+
+        // ---------------------------------------------------------------
+        // PushQuotaExceeded failpoint (flow) → schedule disabled, 0 jobs
+        // ---------------------------------------------------------------
+
+        #[sqlx::test(fixtures("base", "schedule_push"))]
+        async fn test_failpoint_push_quota_exceeded_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
+            sqlx::query(
+                "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap)
+                 VALUES ('test-workspace', 'f/system/flow_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/test_flow', true, 'test@windmill.dev', '{}', false, false)"
+            )
+            .execute(&db)
+            .await?;
+
+            let schedule = make_schedule(|s| {
+                s.is_flow = true;
+                s.script_path = "f/system/test_flow".to_string();
+                s.path = "f/system/flow_schedule".to_string();
+            });
+            let job = make_completed_job(&schedule);
+
+            ACTIVE.scope(ScheduleFailPoint::PushQuotaExceeded, async {
+                let tx = db.begin().await.unwrap();
+                let (tx, err) = try_schedule_next_job(
+                    &db, tx, &job, &schedule, &schedule.script_path,
+                ).await;
+                // QuotaExceeded: schedule disabled internally, error returned to caller
+                assert!(err.is_some(), "QuotaExceeded should be returned to caller");
+                assert!(matches!(err.as_ref().unwrap(), windmill_common::error::Error::QuotaExceeded(_)));
+                tx.commit().await.unwrap();
+
+                assert_eq!(count_queued_jobs(&db).await, 0);
+                let (enabled, error): (bool, Option<String>) = sqlx::query_as(
+                    "SELECT enabled, error FROM schedule WHERE workspace_id = 'test-workspace' AND path = 'f/system/flow_schedule'",
+                )
+                .fetch_one(&db)
+                .await
+                .unwrap();
+                assert!(!enabled, "flow schedule must be disabled after QuotaExceeded");
+                assert!(error.is_some(), "error must be set on flow schedule");
+                assert!(error.unwrap().contains("quota"), "error message should mention quota");
             }).await;
             Ok(())
         }
