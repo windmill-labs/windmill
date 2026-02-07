@@ -19,6 +19,7 @@ use crate::db::ApiAuthed;
 
 pub use crate::auth::Tokened;
 
+use crate::secret_backend_ext::rename_vault_secrets_with_prefix;
 use crate::utils::{
     generate_instance_wide_unique_username, get_instance_username_or_create_pending,
 };
@@ -61,7 +62,6 @@ use windmill_common::{
     utils::{not_found_if_none, rd_string, require_admin, Pagination, StripPath},
 };
 use windmill_git_sync::handle_deployment_metadata;
-use windmill_store::secret_backend_ext::rename_vault_secrets_with_prefix;
 
 const COOKIE_PATH: &str = "/";
 

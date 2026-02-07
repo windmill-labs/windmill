@@ -8,9 +8,11 @@ pub use crate::ee::*;
 ))]
 use {crate::db::ApiAuthed, windmill_common::DB};
 
+#[cfg(all(feature = "enterprise", not(feature = "private")))]
+pub use windmill_api_auth::ee_oss::ExternalJwks;
+
 #[cfg(not(feature = "private"))]
 use anyhow::anyhow;
-
 #[cfg(not(feature = "private"))]
 pub async fn validate_license_key(
     _license_key: String,

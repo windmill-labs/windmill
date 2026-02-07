@@ -306,7 +306,8 @@ pub async fn is_owner_api(
     Ok(Json(is_owner(&authed, &name)))
 }
 
-pub use windmill_api_auth::{is_owner, require_is_owner};
+use windmill_api_auth::is_owner;
+pub use windmill_api_auth::require_is_owner;
 
 async fn update_folder(
     authed: ApiAuthed,

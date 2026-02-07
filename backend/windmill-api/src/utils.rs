@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use axum::{body::Body, response::Response};
 use regex::Regex;
 use serde::{Deserialize, Deserializer};
 use sqlx::{Postgres, Transaction};
@@ -16,15 +17,24 @@ use windmill_common::{
     DB,
 };
 
+pub use windmill_api_auth::{check_scopes, require_devops_role, require_super_admin};
+
 #[cfg(feature = "enterprise")]
 use windmill_common::error::JsonResult;
 
 #[cfg(feature = "enterprise")]
 use axum::Json;
 
-pub use windmill_api_auth::{check_scopes, require_devops_role, require_super_admin};
-pub use windmill_common::utils::content_plain;
-pub use windmill_common::utils::{BulkDeleteRequest, WithStarredInfoQuery};
+#[derive(Deserialize)]
+pub struct WithStarredInfoQuery {
+    pub with_starred_info: Option<bool>,
+}
+
+// Shared structs for bulk delete operations
+#[derive(Deserialize)]
+pub struct BulkDeleteRequest {
+    pub paths: Vec<String>,
+}
 
 lazy_static::lazy_static! {
     pub static ref INVALID_USERNAME_CHARS: Regex = Regex::new(r"[^A-Za-z0-9_]").unwrap();
@@ -146,6 +156,14 @@ pub async fn get_instance_username_or_create_pending<'c>(
             Ok(username)
         }
     }
+}
+
+pub fn content_plain(body: Body) -> Response {
+    use axum::http::header;
+    Response::builder()
+        .header(header::CONTENT_TYPE, "text/plain")
+        .body(body)
+        .unwrap()
 }
 
 #[allow(unused)]

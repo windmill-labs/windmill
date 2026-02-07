@@ -163,6 +163,16 @@ pub struct Pagination {
     pub per_page: Option<usize>,
 }
 
+#[derive(Deserialize)]
+pub struct WithStarredInfoQuery {
+    pub with_starred_info: Option<bool>,
+}
+
+#[derive(Deserialize)]
+pub struct BulkDeleteRequest {
+    pub paths: Vec<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct StripPath(pub String);
 
@@ -1039,25 +1049,6 @@ pub fn merge_nested_raw_values_to_array<
     result.push(']');
 
     serde_json::value::RawValue::from_string(result).unwrap()
-}
-
-#[derive(Deserialize)]
-pub struct WithStarredInfoQuery {
-    pub with_starred_info: Option<bool>,
-}
-
-// Shared structs for bulk delete operations
-#[derive(Deserialize)]
-pub struct BulkDeleteRequest {
-    pub paths: Vec<String>,
-}
-
-pub fn content_plain(body: axum::body::Body) -> axum::response::Response {
-    use axum::http::header;
-    axum::response::Response::builder()
-        .header(header::CONTENT_TYPE, "text/plain")
-        .body(body)
-        .unwrap()
 }
 
 #[cfg(test)]

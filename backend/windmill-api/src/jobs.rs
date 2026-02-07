@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-pub use windmill_api_jobs::*;
+pub use windmill_api_jobs::types::*;
 pub use windmill_api_sse::*;
 
 use axum::body::Body;
@@ -84,8 +84,6 @@ use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use sql_builder::prelude::*;
 use sqlx::types::JsonRawValue;
-#[cfg(all(feature = "smtp", feature = "enterprise"))]
-use sqlx::Pool;
 use sqlx::{types::Uuid, FromRow, Postgres, Transaction};
 use tower_http::cors::{Any, CorsLayer};
 use urlencoding::encode;
@@ -1726,12 +1724,6 @@ async fn get_started_at_by_ids(
     Ok(Json(r))
 }
 
-// ListableCompletedJob moved to windmill-api-jobs
-
-// RunJobQuery moved to windmill-api-jobs
-
-// ListQueueQuery and From<ListCompletedQuery> for ListQueueQuery moved to windmill-api-jobs
-
 pub fn filter_list_queue_query(
     mut sqlb: SqlBuilder,
     lq: &ListQueueQuery,
@@ -2779,8 +2771,6 @@ pub struct SuspendedJobFlow {
     pub approvers: Vec<Approval>,
 }
 
-// QueryApprover moved to windmill-api-jobs
-
 pub async fn get_suspended_job_flow(
     authed: Option<ApiAuthed>,
     opt_tokened: OptTokened,
@@ -2995,8 +2985,6 @@ fn create_signature(
     Ok(hex::encode(mac.finalize().into_bytes()))
 }
 
-// ResumeUrls moved to windmill-api-jobs
-
 fn build_resume_url(
     op: &str,
     w_id: &str,
@@ -3101,10 +3089,6 @@ async fn get_flow_id_for_job(db: &DB, job_id: Uuid) -> error::Result<Uuid> {
         .ok_or_else(|| anyhow::anyhow!("job {} has no parent flow", job_id).into())
 }
 
-// Job, JobExtended, JobCommon types are re-exported from windmill_api_sse
-
-// UnifiedJob, CJ_FIELDS, QJ_FIELDS, impl UnifiedJob, impl From<UnifiedJob> for Job
-// are re-exported from windmill_api_jobs
 #[derive(Deserialize)]
 struct CancelJob {
     reason: Option<String>,
@@ -3171,8 +3155,6 @@ pub enum DynamicSelectRunnableRef {
     #[serde(rename = "inline")]
     Inline { code: String, lang: Option<ScriptLang> },
 }
-
-// QueryOrBody, decode_payload, add_raw_string are re-exported from windmill_api_jobs
 
 pub async fn check_tag_available_for_workspace(
     db: &DB,
@@ -6762,8 +6744,6 @@ pub async fn run_job_by_hash_inner(
     Ok((uuid, delete_after_use))
 }
 
-// JobUpdateQuery, JobUpdate, and their impls are re-exported from windmill_api_sse
-
 async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::Result<Response> {
     if file_p.contains("..") {
         return Err(error::Error::BadRequest("Invalid path".to_string()));
@@ -6930,8 +6910,6 @@ async fn get_job_update_sse(
         .body(body)
         .unwrap())
 }
-
-// JobUpdateSSEStream and TIMEOUT_SSE_STREAM are re-exported from windmill_api_sse
 
 pub fn start_job_update_sse_stream(
     opt_authed: Option<ApiAuthed>,
@@ -7711,7 +7689,6 @@ pub fn list_completed_jobs_query(
 
     filter_list_completed_query(sqlb, lq, w_id, join_outstanding_wait_times)
 }
-// ListCompletedQuery is re-exported from windmill_api_jobs
 
 async fn list_completed_jobs(
     authed: ApiAuthed,
