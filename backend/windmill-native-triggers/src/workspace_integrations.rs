@@ -1,13 +1,11 @@
-use axum::{
-    extract::Path,
-    routing::{delete, get, post},
-    Extension, Json, Router,
-};
+use axum::{extract::Path, routing::get, Extension, Json, Router};
+
+#[cfg(feature = "native_trigger")]
+use axum::routing::{delete, post};
 
 #[cfg(feature = "native_trigger")]
 use serde_json::to_value;
 use sqlx::prelude::FromRow;
-use strum::IntoEnumIterator;
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 #[cfg(feature = "native_trigger")]
@@ -15,24 +13,33 @@ use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
-    utils::require_admin,
-    variables::{build_crypt, encrypt},
     DB,
 };
 
 #[cfg(feature = "native_trigger")]
-use crate::{
-    db::ApiAuthed,
-    native_triggers::{delete_workspace_integration, store_workspace_integration, ServiceName},
+use windmill_common::{
+    utils::require_admin,
+    variables::{build_crypt, encrypt},
 };
+
+use windmill_api_auth::ApiAuthed;
+
+use crate::ServiceName;
+
+#[cfg(feature = "native_trigger")]
+use crate::{delete_workspace_integration, store_workspace_integration};
 
 #[cfg(feature = "native_trigger")]
 use windmill_oauth::{OClient, Url, OAUTH_HTTP_CLIENT};
 
+#[cfg(feature = "native_trigger")]
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+#[cfg(feature = "native_trigger")]
 use hmac::{Hmac, Mac};
+#[cfg(feature = "native_trigger")]
 use sha2::Sha256;
 
+#[cfg(feature = "native_trigger")]
 type HmacSha256 = Hmac<Sha256>;
 
 const STATE_EXPIRATION_SECONDS: i64 = 600; // 10 minutes
@@ -240,12 +247,12 @@ async fn list_integrations(
     let integrations = sqlx::query_as!(
         WorkspaceIntegrations,
         r#"
-        SELECT 
+        SELECT
             oauth_data as "oauth_data!: sqlx::types::Json<WorkspaceOAuthConfig>",
             service_name as "service_name!: ServiceName"
-        FROM 
-            workspace_integrations 
-        WHERE 
+        FROM
+            workspace_integrations
+        WHERE
             workspace_id = $1
         "#,
         workspace_id
@@ -258,6 +265,7 @@ async fn list_integrations(
         .map(|integration| (integration.service_name, integration.oauth_data))
         .collect::<std::collections::HashMap<_, _>>();
 
+    use strum::IntoEnumIterator;
     let integrations = ServiceName::iter()
         .map(|service_name| WorkspaceIntegrations {
             service_name: service_name,
@@ -282,7 +290,7 @@ async fn integration_exist(
             SELECT 1
             FROM workspace_integrations
             WHERE workspace_id = $1
-            AND service_name = $2 
+            AND service_name = $2
             AND oauth_data IS NOT NULL
         )
         "#,
@@ -434,11 +442,11 @@ async fn get_workspace_oauth_config<T: DeserializeOwned>(
 ) -> Result<T> {
     let oauth_configs = sqlx::query_scalar!(
         r#"
-        SELECT 
-            oauth_data 
-        FROM 
-            workspace_integrations 
-        WHERE 
+        SELECT
+            oauth_data
+        FROM
+            workspace_integrations
+        WHERE
             workspace_id = $1 AND
             service_name = $2
         "#,
@@ -469,7 +477,7 @@ pub async fn create_workspace_integration(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    store_workspace_integration(
+    crate::store_workspace_integration(
         &mut tx,
         &authed,
         &workspace_id,
@@ -514,6 +522,7 @@ fn build_authorization_url(
     format!("{}/apps/oauth2/authorize?{}", config.base_url, query_string)
 }
 
+#[cfg(feature = "native_trigger")]
 pub fn workspaced_service() -> Router {
     let router = Router::new()
         .route("/list", get(list_integrations))
@@ -527,4 +536,9 @@ pub fn workspaced_service() -> Router {
         .route("/:service_name/callback/:code/:state", post(oauth_callback));
 
     Router::new().nest("/integrations", router)
+}
+
+#[cfg(not(feature = "native_trigger"))]
+pub fn workspaced_service() -> Router {
+    Router::new()
 }

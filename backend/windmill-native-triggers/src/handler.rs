@@ -1,13 +1,8 @@
 use crate::{
-    db::ApiAuthed,
-    native_triggers::{
-        delete_native_trigger, delete_token_by_prefix, get_native_trigger, get_token_by_prefix,
-        get_workspace_integration, list_native_triggers, store_native_trigger,
-        update_native_trigger_error, External, NativeTrigger, NativeTriggerConfig,
-        NativeTriggerData, ServiceName,
-    },
-    users::{create_token_internal, NewToken},
-    utils::check_scopes,
+    delete_native_trigger, delete_token_by_prefix, get_native_trigger, get_token_by_prefix,
+    get_workspace_integration, list_native_triggers, store_native_trigger,
+    update_native_trigger_error, External, NativeTrigger, NativeTriggerConfig, NativeTriggerData,
+    ServiceName,
 };
 use axum::{
     extract::{Path, Query},
@@ -17,6 +12,9 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sqlx::PgConnection;
 use std::sync::Arc;
+use windmill_api_auth::{
+    check_scopes, create_token_internal, require_is_writer, ApiAuthed, NewToken,
+};
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
     db::UserDB,
@@ -33,9 +31,25 @@ async fn require_is_writer_on_runnable(
     db: DB,
 ) -> Result<()> {
     if is_flow {
-        crate::flows::require_is_writer(authed, path, w_id, db).await
+        require_is_writer(
+            authed,
+            path,
+            w_id,
+            db,
+            "SELECT extra_perms FROM flow WHERE path = $1 AND workspace_id = $2",
+            "flow",
+        )
+        .await
     } else {
-        crate::scripts::require_is_writer(authed, path, w_id, db).await
+        require_is_writer(
+            authed,
+            path,
+            w_id,
+            db,
+            "SELECT extra_perms FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
+            "script",
+        )
+        .await
     }
 }
 
@@ -548,11 +562,11 @@ pub fn generate_native_trigger_routers() -> Router {
 
     #[cfg(feature = "native_trigger")]
     {
-        use crate::native_triggers::nextcloud::NextCloud;
+        use crate::nextcloud::NextCloud;
 
         // Register all service routes here
         // When adding a new service:
-        // 1. Import the handler: use crate::native_triggers::newservice::NewServiceHandler;
+        // 1. Import the handler: use crate::newservice::NewServiceHandler;
         // 2. Add the route: .nest("/newservice", service_routes(NewServiceHandler))
         return router.nest("/nextcloud", service_routes(NextCloud));
         // Add new services here:

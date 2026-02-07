@@ -4,9 +4,12 @@ use windmill_common::DB;
 
 use serde::Serialize;
 
-use crate::native_triggers::{
+use crate::ServiceName;
+
+#[cfg(feature = "native_trigger")]
+use crate::{
     decrypt_oauth_data, list_native_triggers, update_native_trigger_error,
-    update_native_trigger_service_config, External, ServiceName,
+    update_native_trigger_service_config, External,
 };
 
 #[derive(Debug, Serialize)]
@@ -56,7 +59,7 @@ pub async fn sync_all_triggers(db: &DB) -> Result<BackgroundSyncResult> {
     // Each service only syncs workspaces that have the corresponding integration configured
     #[cfg(feature = "native_trigger")]
     {
-        use crate::native_triggers::nextcloud::NextCloud;
+        use crate::nextcloud::NextCloud;
 
         let (service_name, result) = sync_service_triggers(db, NextCloud).await;
         total_synced += result.synced_triggers.len();
@@ -64,7 +67,7 @@ pub async fn sync_all_triggers(db: &DB) -> Result<BackgroundSyncResult> {
         service_results.insert(service_name, result);
 
         // Add new services here:
-        // use crate::native_triggers::newservice::NewService;
+        // use crate::newservice::NewService;
         // let (service_name, result) = sync_service_triggers(db, NewService).await;
         // total_synced += result.synced_triggers.len();
         // total_errors += result.errors.len();
@@ -93,6 +96,7 @@ pub async fn sync_all_triggers(db: &DB) -> Result<BackgroundSyncResult> {
     Ok(result)
 }
 
+#[cfg(feature = "native_trigger")]
 async fn sync_service_triggers<T: External>(
     db: &DB,
     handler: T,

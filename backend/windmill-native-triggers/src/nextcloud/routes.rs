@@ -9,13 +9,11 @@ use windmill_common::{
 };
 
 use crate::{
-    db::ApiAuthed,
-    native_triggers::{
-        get_workspace_integration,
-        nextcloud::{NextCloudEventType, OcsResponse},
-        External, OAuthConfig, ServiceName,
-    },
+    get_workspace_integration,
+    nextcloud::{NextCloudEventType, OcsResponse},
+    External, OAuthConfig, ServiceName,
 };
+use windmill_api_auth::ApiAuthed;
 
 async fn list_available_events<T: External>(
     authed: ApiAuthed,

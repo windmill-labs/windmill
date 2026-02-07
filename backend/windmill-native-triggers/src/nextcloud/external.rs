@@ -8,7 +8,7 @@ use windmill_common::{
     BASE_URL, DB,
 };
 
-use crate::native_triggers::{
+use crate::{
     generate_webhook_service_url,
     nextcloud::{
         routes, NextCloud, NextCloudOAuthData, NextCloudTriggerData, NextcloudServiceConfig,

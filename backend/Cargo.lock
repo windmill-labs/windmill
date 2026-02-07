@@ -15734,7 +15734,6 @@ dependencies = [
  "aws-sigv4",
  "aws-smithy-types",
  "axum 0.7.9",
- "backon",
  "base32",
  "base64 0.22.1",
  "bytes",
@@ -15819,6 +15818,7 @@ dependencies = [
  "windmill-git-sync",
  "windmill-indexer",
  "windmill-mcp",
+ "windmill-native-triggers",
  "windmill-oauth",
  "windmill-parser",
  "windmill-parser-py",
@@ -16118,6 +16118,37 @@ dependencies = [
  "tokio-util",
  "tracing",
  "windmill-common",
+]
+
+[[package]]
+name = "windmill-native-triggers"
+version = "1.628.3"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum 0.7.9",
+ "backon",
+ "base64 0.22.1",
+ "chrono",
+ "hmac",
+ "http 1.4.0",
+ "itertools 0.14.0",
+ "lazy_static",
+ "reqwest 0.13.1",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "strum 0.27.2",
+ "tokio",
+ "tracing",
+ "urlencoding",
+ "uuid",
+ "windmill-api-auth",
+ "windmill-audit",
+ "windmill-common",
+ "windmill-oauth",
+ "windmill-queue",
 ]
 
 [[package]]

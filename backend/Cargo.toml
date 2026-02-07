@@ -21,6 +21,7 @@ members = [
     "./windmill-trigger-sqs",
     "./windmill-trigger-gcp",
     "./windmill-trigger-http",
+    "./windmill-native-triggers",
     "./windmill-store",
     "./windmill-queue",
     "./windmill-worker",
@@ -254,6 +255,7 @@ windmill-trigger-nats = { path = "./windmill-trigger-nats" }
 windmill-trigger-sqs = { path = "./windmill-trigger-sqs" }
 windmill-trigger-gcp = { path = "./windmill-trigger-gcp" }
 windmill-trigger-http = { path = "./windmill-trigger-http" }
+windmill-native-triggers = { path = "./windmill-native-triggers" }
 windmill-store = { path = "./windmill-store" }
 windmill-parser = { path = "./parsers/windmill-parser" }
 windmill-parser-ts = { path = "./parsers/windmill-parser-ts" }

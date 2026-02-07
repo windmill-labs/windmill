@@ -33,7 +33,7 @@ http_trigger = ["dep:matchit", "dep:windmill-trigger-http", "windmill-trigger-ht
 static_frontend = ["dep:rust-embed"]
 postgres_trigger = ["dep:windmill-trigger-postgres", "windmill-trigger-postgres/enterprise", "windmill-store/postgres_trigger"]
 mqtt_trigger = ["dep:windmill-trigger-mqtt", "windmill-trigger-mqtt/enterprise", "windmill-store/mqtt_trigger"]
-native_trigger = ["dep:strum", "dep:backon", "oauth2"]
+native_trigger = ["dep:windmill-native-triggers", "windmill-native-triggers/native_trigger", "windmill-native-triggers/enterprise", "dep:strum", "oauth2"]
 sqs_trigger = ["dep:windmill-trigger-sqs", "windmill-trigger-sqs/enterprise", "windmill-store/sqs_trigger"]
 deno_core = ["dep:deno_core", "dep:deno_error"]
 gcp_trigger = ["dep:windmill-trigger-gcp", "windmill-trigger-gcp/enterprise", "windmill-store/gcp_trigger"]
@@ -141,6 +141,7 @@ windmill-trigger-nats = { workspace = true, optional = true }
 windmill-trigger-sqs = { workspace = true, optional = true }
 windmill-trigger-gcp = { workspace = true, optional = true }
 windmill-trigger-http = { workspace = true, optional = true }
+windmill-native-triggers = { workspace = true, optional = true }
 const_format.workspace = true
 pin-project.workspace = true
 http.workspace = true
@@ -161,7 +162,6 @@ deno_error = { workspace = true, optional = true }
 deno_core = { workspace = true, optional = true }
 tar.workspace = true
 flate2.workspace = true
-backon = {workspace = true, optional = true}
 strum = { workspace = true, optional = true }
 dashmap.workspace = true
 
