@@ -583,8 +583,8 @@ mod schedule_push {
             &schedule.script_path,
         )
         .await;
-        // NotFound: schedule disabled internally, error returned to caller
-        assert!(err.is_some());
+        // NotFound: schedule disabled internally, no error returned (caller commits)
+        assert!(err.is_none());
         tx.commit().await?;
         assert_eq!(count_queued_jobs(&db).await, 0);
 
@@ -699,8 +699,8 @@ mod schedule_push {
             &schedule.script_path,
         )
         .await;
-        // NotFound: schedule disabled in tx, error returned to caller
-        assert!(err.is_some());
+        // NotFound: schedule disabled in tx, no error returned
+        assert!(err.is_none());
 
         // Drop without commit — simulates zombie retry path
         drop(tx);
@@ -783,8 +783,8 @@ mod schedule_push {
             &schedule.script_path,
         )
         .await;
-        // NotFound: schedule disabled in tx, error returned to caller
-        assert!(err.is_some());
+        // NotFound: schedule disabled in tx, no error returned
+        assert!(err.is_none());
 
         // Write something else on the returned tx — tx is still usable
         sqlx::query("INSERT INTO global_settings (name, value) VALUES ('_test_after_fail', '99'::jsonb)")
@@ -906,8 +906,8 @@ mod schedule_push {
             &schedule.script_path,
         )
         .await;
-        // NotFound: schedule disabled in tx, error returned to caller
-        assert!(err.is_some());
+        // NotFound: schedule disabled in tx, no error returned (caller commits)
+        assert!(err.is_none());
         tx.commit().await?;
 
         let error: String = sqlx::query_scalar(
@@ -1031,8 +1031,8 @@ mod schedule_push {
         )
         .await;
         drop(tx);
-        // Transient error returned to caller
-        assert!(err.is_some());
+        // NotFound: disable succeeds (UPDATE 0 rows is not an error), no error returned
+        assert!(err.is_none());
         assert_eq!(count_queued_jobs(&db).await, 0);
         Ok(())
     }
@@ -1115,8 +1115,8 @@ mod schedule_push {
             &schedule.script_path,
         )
         .await;
-        // NotFound: schedule disabled in tx, error returned to caller
-        assert!(err.is_some());
+        // NotFound: schedule disabled in tx, no error returned (caller commits)
+        assert!(err.is_none());
         tx.commit().await?;
 
         // After commit: no next tick, but schedule is disabled — invariant holds
@@ -1165,13 +1165,13 @@ mod schedule_push {
             &schedule.script_path,
         )
         .await;
-        // Transient error returned to caller
-        assert!(err.is_some());
+        // NotFound: schedule disabled in tx, no error returned
+        assert!(err.is_none());
 
         // Simulate zombie path: drop tx without commit
         drop(tx);
 
-        // Schedule still enabled, no jobs, no error — ready for retry
+        // Schedule still enabled (disable was rolled back with tx) — ready for retry
         let (enabled, error): (bool, Option<String>) = sqlx::query_as(
             "SELECT enabled, error FROM schedule WHERE workspace_id = 'test-workspace' AND path = 'f/system/bad_schedule'",
         )
@@ -1392,9 +1392,8 @@ mod schedule_push {
                 let (tx, err) = try_schedule_next_job(
                     &db, tx, &job, &schedule, &schedule.script_path,
                 ).await;
-                // QuotaExceeded: schedule disabled internally, error returned to caller
-                assert!(err.is_some(), "QuotaExceeded should be returned to caller");
-                assert!(matches!(err.as_ref().unwrap(), windmill_common::error::Error::QuotaExceeded(_)));
+                // QuotaExceeded: schedule disabled internally, no error returned
+                assert!(err.is_none(), "QuotaExceeded should be handled internally (returns None)");
                 tx.commit().await.unwrap();
 
                 assert_eq!(count_queued_jobs(&db).await, 0);
@@ -1436,9 +1435,8 @@ mod schedule_push {
                 let (tx, err) = try_schedule_next_job(
                     &db, tx, &job, &schedule, &schedule.script_path,
                 ).await;
-                // QuotaExceeded: schedule disabled internally, error returned to caller
-                assert!(err.is_some(), "QuotaExceeded should be returned to caller");
-                assert!(matches!(err.as_ref().unwrap(), windmill_common::error::Error::QuotaExceeded(_)));
+                // QuotaExceeded: schedule disabled internally, no error returned
+                assert!(err.is_none(), "QuotaExceeded should be handled internally (returns None)");
                 tx.commit().await.unwrap();
 
                 assert_eq!(count_queued_jobs(&db).await, 0);

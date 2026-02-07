@@ -1926,6 +1926,8 @@ pub async fn try_schedule_next_job<'c>(
                     ),
                 )
                 .await;
+            } else {
+                push_err = None;
             }
         }
     }
