@@ -571,7 +571,7 @@ pub const PROTECTED_SETTINGS: &[&str] = &[
 ];
 
 /// Internal settings that are never exposed via the API or included in config exports.
-pub const HIDDEN_SETTINGS: &[&str] = &["uid", "rsa_keys"];
+pub const HIDDEN_SETTINGS: &[&str] = &["uid", "rsa_keys", "jwt_secret", "min_keep_alive_version"];
 
 /// Compute the diff between current and desired global settings.
 pub fn diff_global_settings(

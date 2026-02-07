@@ -258,13 +258,12 @@
 
 	const SENSITIVE_UNCHANGED = '__SENSITIVE_AND_UNCHANGED__'
 
-	const sensitiveKeys: Set<string> = new Set([
-		...[...Object.values(settings), scimSamlSetting]
+	const sensitiveKeys: Set<string> = new Set(
+		[...Object.values(settings), scimSamlSetting]
 			.flatMap((s) => Object.values(s))
 			.filter((s) => s.fieldType === 'password' || s.fieldType === 'license_key')
-			.map((s) => s.key),
-		'jwt_secret'
-	])
+			.map((s) => s.key)
+	)
 
 	// Settings that should never appear in YAML export/import
 	const excludedKeys: Set<string> = new Set([
