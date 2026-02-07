@@ -1154,7 +1154,7 @@ impl<'a> GetQuery<'a> {
 
 #[cfg(all(feature = "smtp", feature = "enterprise"))]
 async fn send_workspace_trigger_failure_email_notification(
-    db: &Pool<Postgres>,
+    db: &DB,
     w_id: &str,
     job_id: &Uuid,
     trigger_path: Option<&str>,

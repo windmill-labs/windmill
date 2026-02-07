@@ -15853,7 +15853,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-auth"
-version = "1.628.2"
+version = "1.628.3"
 dependencies = [
  "anyhow",
  "axum 0.7.9",
@@ -15889,7 +15889,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-jobs"
-version = "1.628.2"
+version = "1.628.3"
 dependencies = [
  "anyhow",
  "axum 0.7.9",
@@ -15909,7 +15909,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-sse"
-version = "1.628.2"
+version = "1.628.3"
 dependencies = [
  "lazy_static",
  "serde",
@@ -16111,6 +16111,7 @@ version = "1.628.3"
 dependencies = [
  "anyhow",
  "async-trait",
+ "chrono",
  "futures",
  "http 1.4.0",
  "oauth2",
@@ -16401,7 +16402,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-store"
-version = "1.628.2"
+version = "1.628.3"
 dependencies = [
  "async-recursion",
  "axum 0.7.9",
