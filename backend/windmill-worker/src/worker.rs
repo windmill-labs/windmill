@@ -138,7 +138,7 @@ use crate::{
     pwsh_executor::handle_powershell_job,
     result_processor::{process_result, start_background_processor},
     schema::schema_validator_from_main_arg_sig,
-    worker_flow::handle_flow,
+    worker_flow::{handle_flow, SchedulePushZombieError},
     worker_lockfiles::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
     },
@@ -2964,7 +2964,7 @@ pub async fn handle_queued_job(
                 // Not a preview: fetch from the cache or the database.
                 _ => cache::job::fetch_flow(db, &job.kind, job.runnable_id).await?,
             };
-            Box::pin(handle_flow(
+            match Box::pin(handle_flow(
                 job,
                 &flow_data,
                 db,
@@ -2978,8 +2978,19 @@ pub async fn handle_queued_job(
                 &killpill_rx,
             ))
             .warn_after_seconds(10)
-            .await?;
-            Ok(true)
+            .await
+            {
+                Err(err) if err.downcast_ref::<SchedulePushZombieError>().is_some() => {
+                    tracing::error!(
+                        "Schedule push zombie: {err}. Leaving flow job in queue for zombie detection to restart."
+                    );
+                    Ok(true)
+                }
+                other => {
+                    other?;
+                    Ok(true)
+                }
+            }
         } else {
             return Err(Error::internal_err(
                 "Could not handle flow job with agent worker".to_string(),

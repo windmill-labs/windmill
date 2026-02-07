@@ -207,7 +207,7 @@ tikv-jemalloc-ctl = { optional = true, workspace = true }
 [dev-dependencies]
 serde_json.workspace = true
 reqwest.workspace = true
-windmill-queue.workspace = true
+windmill-queue = { workspace = true, features = ["failpoints"] }
 axum.workspace = true
 serde.workspace = true
 windmill-api-client.workspace = true
