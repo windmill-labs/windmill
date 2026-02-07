@@ -51,17 +51,107 @@ spec:
                     nullable: true
                     type: boolean
                   critical_alerts_on_db_oversize:
+                    description: Configuration for critical alerts when the database exceeds a size threshold.
                     nullable: true
+                    properties:
+                      enabled:
+                        default: false
+                        type: boolean
+                      value:
+                        default: 0.0
+                        format: float
+                        type: number
+                    type: object
                   critical_error_channels:
+                    items:
+                      anyOf:
+                      - required:
+                        - email
+                      - required:
+                        - slack_channel
+                      - required:
+                        - teams_channel
+                      description: A channel for delivering critical error alerts.
+                      properties:
+                        email:
+                          type: string
+                        slack_channel:
+                          type: string
+                        teams_channel:
+                          description: Microsoft Teams channel reference.
+                          properties:
+                            channel_id:
+                              type: string
+                            channel_name:
+                              type: string
+                            team_id:
+                              type: string
+                            team_name:
+                              type: string
+                          required:
+                          - channel_id
+                          - channel_name
+                          - team_id
+                          - team_name
+                          type: object
+                      type: object
                     nullable: true
+                    type: array
                   custom_instance_pg_databases:
+                    description: Custom PostgreSQL databases managed by the instance.
                     nullable: true
+                    properties:
+                      databases:
+                        additionalProperties:
+                          description: Status of a single custom instance database.
+                          properties:
+                            error:
+                              nullable: true
+                              type: string
+                            logs:
+                              default:
+                                super_admin: ''
+                              description: Setup log entries for a custom instance database.
+                              properties:
+                                created_database:
+                                  type: string
+                                database_credentials:
+                                  type: string
+                                db_connect:
+                                  type: string
+                                grant_permissions:
+                                  type: string
+                                super_admin:
+                                  default: ''
+                                  type: string
+                                valid_dbname:
+                                  type: string
+                              type: object
+                            success:
+                              default: false
+                              type: boolean
+                            tag:
+                              nullable: true
+                              type: string
+                          type: object
+                        type: object
+                      user_pwd:
+                        nullable: true
+                        type: string
+                    type: object
                   custom_tags:
+                    items:
+                      type: string
                     nullable: true
+                    type: array
                   default_tags_per_workspace:
                     nullable: true
+                    type: boolean
                   default_tags_workspaces:
+                    items:
+                      type: string
                     nullable: true
+                    type: array
                   dev_instance:
                     nullable: true
                     type: boolean
@@ -69,7 +159,51 @@ spec:
                     nullable: true
                     type: boolean
                   ducklake_settings:
+                    description: DuckLake catalog database settings.
                     nullable: true
+                    properties:
+                      ducklakes:
+                        additionalProperties:
+                          description: A single DuckLake instance configuration.
+                          properties:
+                            catalog:
+                              description: DuckLake catalog backend reference.
+                              properties:
+                                resource_path:
+                                  type: string
+                                resource_type:
+                                  description: The type of database backing a DuckLake catalog.
+                                  enum:
+                                  - postgresql
+                                  - mysql
+                                  - instance
+                                  type: string
+                              required:
+                              - resource_path
+                              - resource_type
+                              type: object
+                            extra_args:
+                              nullable: true
+                              type: string
+                            storage:
+                              description: DuckLake storage location.
+                              properties:
+                                path:
+                                  type: string
+                                storage:
+                                  nullable: true
+                                  type: string
+                              required:
+                              - path
+                              type: object
+                          required:
+                          - catalog
+                          - storage
+                          type: object
+                        type: object
+                    required:
+                    - ducklakes
+                    type: object
                   email_domain:
                     nullable: true
                     type: string
@@ -164,16 +298,158 @@ spec:
                     nullable: true
                     type: string
                   oauths:
+                    additionalProperties:
+                      description: OAuth client configuration for a single provider.
+                      properties:
+                        allowed_domains:
+                          items:
+                            type: string
+                          nullable: true
+                          type: array
+                        connect_config:
+                          description: OAuth provider endpoint configuration.
+                          nullable: true
+                          properties:
+                            auth_url:
+                              type: string
+                            extra_params:
+                              additionalProperties:
+                                type: string
+                              nullable: true
+                              type: object
+                            extra_params_callback:
+                              additionalProperties:
+                                type: string
+                              nullable: true
+                              type: object
+                            req_body_auth:
+                              nullable: true
+                              type: boolean
+                            scopes:
+                              items:
+                                type: string
+                              nullable: true
+                              type: array
+                            token_url:
+                              type: string
+                            userinfo_url:
+                              nullable: true
+                              type: string
+                          required:
+                          - auth_url
+                          - token_url
+                          type: object
+                        id:
+                          type: string
+                        login_config:
+                          description: OAuth provider endpoint configuration.
+                          nullable: true
+                          properties:
+                            auth_url:
+                              type: string
+                            extra_params:
+                              additionalProperties:
+                                type: string
+                              nullable: true
+                              type: object
+                            extra_params_callback:
+                              additionalProperties:
+                                type: string
+                              nullable: true
+                              type: object
+                            req_body_auth:
+                              nullable: true
+                              type: boolean
+                            scopes:
+                              items:
+                                type: string
+                              nullable: true
+                              type: array
+                            token_url:
+                              type: string
+                            userinfo_url:
+                              nullable: true
+                              type: string
+                          required:
+                          - auth_url
+                          - token_url
+                          type: object
+                        secret:
+                          type: string
+                      required:
+                      - id
+                      - secret
+                      type: object
                     nullable: true
+                    type: object
                   object_store_cache_config:
                     nullable: true
                   openai_azure_base_path:
                     nullable: true
                     type: string
                   otel:
+                    description: OpenTelemetry exporter configuration.
                     nullable: true
+                    properties:
+                      logs_enabled:
+                        nullable: true
+                        type: boolean
+                      metrics_enabled:
+                        nullable: true
+                        type: boolean
+                      otel_exporter_otlp_compression:
+                        nullable: true
+                        type: string
+                      otel_exporter_otlp_endpoint:
+                        nullable: true
+                        type: string
+                      otel_exporter_otlp_headers:
+                        nullable: true
+                        type: string
+                      otel_exporter_otlp_protocol:
+                        nullable: true
+                        type: string
+                      tracing_enabled:
+                        nullable: true
+                        type: boolean
+                    type: object
                   otel_tracing_proxy:
+                    description: Per-language HTTP request tracing proxy configuration.
                     nullable: true
+                    properties:
+                      enabled:
+                        default: false
+                        type: boolean
+                      enabled_languages:
+                        items:
+                          description: Script language identifier.
+                          enum:
+                          - python3
+                          - deno
+                          - go
+                          - bash
+                          - powershell
+                          - postgresql
+                          - bun
+                          - bunnative
+                          - mysql
+                          - bigquery
+                          - snowflake
+                          - graphql
+                          - nativets
+                          - mssql
+                          - oracledb
+                          - duckdb
+                          - php
+                          - rust
+                          - ansible
+                          - csharp
+                          - nu
+                          - java
+                          - ruby
+                          type: string
+                        type: array
+                    type: object
                   pip_extra_index_url:
                     nullable: true
                     type: string
@@ -256,7 +532,81 @@ spec:
                       nullable: true
                       type: array
                     autoscaling:
+                      description: Worker group autoscaling configuration.
                       nullable: true
+                      properties:
+                        cooldown_seconds:
+                          format: uint64
+                          minimum: 0.0
+                          nullable: true
+                          type: integer
+                        custom_tags:
+                          items:
+                            type: string
+                          nullable: true
+                          type: array
+                        dec_scale_occupancy_rate:
+                          format: uint8
+                          minimum: 0.0
+                          nullable: true
+                          type: integer
+                        enabled:
+                          default: false
+                          type: boolean
+                        full_scale_cooldown_seconds:
+                          format: uint64
+                          minimum: 0.0
+                          nullable: true
+                          type: integer
+                        full_scale_jobs_waiting:
+                          format: uint64
+                          minimum: 0.0
+                          nullable: true
+                          type: integer
+                        inc_num_workers:
+                          format: uint32
+                          minimum: 0.0
+                          nullable: true
+                          type: integer
+                        inc_scale_num_jobs_waiting:
+                          format: uint64
+                          minimum: 0.0
+                          nullable: true
+                          type: integer
+                        inc_scale_occupancy_rate:
+                          format: uint8
+                          minimum: 0.0
+                          nullable: true
+                          type: integer
+                        integration:
+                          description: |-
+                            Autoscaling integration backend.
+
+                            The `type` field selects the backend: `"script"`, `"dryrun"`, or `"kubernetes"`. For `"script"`, `path` is required and `tag` is optional.
+                          nullable: true
+                          properties:
+                            path:
+                              nullable: true
+                              type: string
+                            tag:
+                              nullable: true
+                              type: string
+                            type:
+                              type: string
+                          required:
+                          - type
+                          type: object
+                        max_workers:
+                          format: uint32
+                          minimum: 0.0
+                          nullable: true
+                          type: integer
+                        min_workers:
+                          format: uint32
+                          minimum: 0.0
+                          nullable: true
+                          type: integer
+                      type: object
                     cache_clear:
                       format: uint32
                       minimum: 0.0
@@ -350,3 +700,4 @@ spec:
     storage: true
     subresources:
       status: {}
+
