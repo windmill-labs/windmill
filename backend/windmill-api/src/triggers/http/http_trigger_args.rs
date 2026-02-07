@@ -4,7 +4,7 @@ use axum::{
     extract::{FromRequest, Request},
     response::Response,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::value::RawValue;
 use windmill_common::{
     error::Error,
@@ -14,6 +14,7 @@ use windmill_common::{
 };
 use windmill_queue::PushArgsOwned;
 
+use super::HttpMethod;
 use crate::{
     args::{
         build_headers, build_query, try_from_request_body, Body, RawWebhookArgs, WebhookArgs,
@@ -23,31 +24,6 @@ use crate::{
 };
 
 pub struct RawHttpTriggerArgs(pub RawWebhookArgs);
-
-#[derive(Serialize, Deserialize, sqlx::Type, Debug, Clone, Copy, Hash, Eq, PartialEq)]
-#[sqlx(type_name = "HTTP_METHOD", rename_all = "lowercase")]
-#[serde(rename_all = "lowercase")]
-pub enum HttpMethod {
-    Get,
-    Post,
-    Put,
-    Delete,
-    Patch,
-}
-
-impl TryFrom<&http::Method> for HttpMethod {
-    type Error = Error;
-    fn try_from(method: &http::Method) -> Result<Self, Self::Error> {
-        match method {
-            &http::Method::GET => Ok(HttpMethod::Get),
-            &http::Method::POST => Ok(HttpMethod::Post),
-            &http::Method::PUT => Ok(HttpMethod::Put),
-            &http::Method::DELETE => Ok(HttpMethod::Delete),
-            &http::Method::PATCH => Ok(HttpMethod::Patch),
-            _ => Err(Error::BadRequest("Invalid HTTP method".to_string())),
-        }
-    }
-}
 
 #[axum::async_trait]
 impl<S> FromRequest<S, axum::body::Body> for RawHttpTriggerArgs

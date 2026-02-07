@@ -148,11 +148,7 @@ async fn exists_workers_with_tags(
     Query(tags_query): Query<TagsQuery>,
 ) -> JsonResult<std::collections::HashMap<String, bool>> {
     // Create a list of requested tags
-    let mut tags: Vec<String> = tags_query
-        .tags
-        .split(',')
-        .map(|s| s.to_string())
-        .collect();
+    let mut tags: Vec<String> = tags_query.tags.split(',').map(|s| s.to_string()).collect();
 
     // When TAGS_ARE_SENSITIVE is enabled, filter tags based on workspace visibility
     if *TAGS_ARE_SENSITIVE {

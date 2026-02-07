@@ -163,6 +163,16 @@ pub struct Pagination {
     pub per_page: Option<usize>,
 }
 
+#[derive(Deserialize)]
+pub struct WithStarredInfoQuery {
+    pub with_starred_info: Option<bool>,
+}
+
+#[derive(Deserialize)]
+pub struct BulkDeleteRequest {
+    pub paths: Vec<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct StripPath(pub String);
 

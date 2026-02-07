@@ -1,0 +1,32 @@
+[package]
+name = "windmill-api-embeddings"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_api_embeddings"
+path = "src/lib.rs"
+
+[features]
+default = []
+embedding = ["dep:tinyvector", "dep:hf-hub", "dep:tokenizers", "dep:candle-core", "dep:candle-transformers", "dep:candle-nn"]
+
+[dependencies]
+windmill-common = { workspace = true, default-features = false }
+windmill-store.workspace = true
+axum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+reqwest.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+lazy_static.workspace = true
+anyhow.workspace = true
+tinyvector = { workspace = true, optional = true }
+hf-hub = { workspace = true, optional = true }
+tokenizers = { workspace = true, optional = true }
+candle-core = { workspace = true, optional = true }
+candle-transformers = { workspace = true, optional = true }
+candle-nn = { workspace = true, optional = true }
