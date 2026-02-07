@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [features]
 default = []
-private = ["windmill-audit/private", "windmill-common/private", "windmill-api-auth/private", "windmill-store/private"]
+private = ["windmill-audit/private", "windmill-common/private", "windmill-api-auth/private", "windmill-store/private", "windmill-trigger-kafka?/private"]
 enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker/enterprise", "windmill-api-auth/enterprise", "windmill-store/enterprise", "windmill-api-jobs/enterprise"]
 stripe = []
 agent_worker_server = []
@@ -21,8 +21,8 @@ parquet = ["dep:datafusion", "dep:object_store", "windmill-common/parquet", "win
 prometheus = ["windmill-common/prometheus", "windmill-queue/prometheus", "dep:prometheus", "windmill-worker/prometheus"]
 openidconnect = ["dep:openidconnect", "windmill-common/openidconnect", "windmill-store/openidconnect"]
 tantivy = ["dep:windmill-indexer"]
-kafka = ["dep:rdkafka", "dep:rdkafka-sys", "windmill-store/kafka"]
-kafka-gssapi = ["kafka", "rdkafka/gssapi"]
+kafka = ["dep:windmill-trigger-kafka", "windmill-trigger-kafka/enterprise", "windmill-store/kafka"]
+kafka-gssapi = ["kafka", "windmill-trigger-kafka/kafka-gssapi"]
 nats = ["dep:async-nats", "dep:nkeys", "windmill-store/nats"]
 websocket = ["dep:tokio-tungstenite"]
 smtp = ["dep:mail-parser", "dep:openssl", "windmill-common/smtp"]
@@ -135,8 +135,7 @@ openidconnect = { workspace = true, optional = true}
 jsonwebtoken = { workspace = true }
 matchit = { workspace = true, optional = true }
 tokio-tungstenite = { workspace = true, optional = true}
-rdkafka = { workspace = true, optional = true }
-rdkafka-sys = { workspace = true, optional = true }
+windmill-trigger-kafka = { workspace = true, optional = true }
 
 async-nats = { workspace = true, optional = true }
 nkeys = { workspace = true, optional = true }

@@ -1673,3 +1673,30 @@ async fn get_repo_latest_commit_hash(
 
     Ok(commit_hash)
 }
+
+#[cfg(all(
+    feature = "enterprise",
+    any(feature = "nats", feature = "kafka", feature = "sqs_trigger")
+))]
+pub async fn interpolate(
+    authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
+    s: String,
+) -> std::result::Result<String, anyhow::Error> {
+    use serde_json::Value;
+    use windmill_common::db::DbWithOptAuthed;
+    let value = Value::String(s);
+    match transform_json_value(
+        &DbWithOptAuthed::from_authed(authed, db.clone(), None),
+        w_id,
+        value,
+        &None,
+        None,
+    )
+    .await?
+    {
+        Value::String(s) => Ok(s),
+        v => Err(anyhow::anyhow!("Expected string, got {:?}", v)),
+    }
+}

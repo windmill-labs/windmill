@@ -15789,8 +15789,6 @@ dependencies = [
  "prometheus",
  "quick_cache",
  "rand 0.9.0",
- "rdkafka",
- "rdkafka-sys",
  "regex",
  "reqwest 0.13.1",
  "rsa",
@@ -15849,6 +15847,7 @@ dependencies = [
  "windmill-queue",
  "windmill-store",
  "windmill-trigger",
+ "windmill-trigger-kafka",
  "windmill-worker",
 ]
 
@@ -16410,6 +16409,7 @@ dependencies = [
 name = "windmill-store"
 version = "1.628.3"
 dependencies = [
+ "anyhow",
  "async-recursion",
  "axum 0.7.9",
  "chrono",
@@ -16465,6 +16465,29 @@ dependencies = [
  "windmill-parser-py",
  "windmill-parser-ts",
  "windmill-queue",
+]
+
+[[package]]
+name = "windmill-trigger-kafka"
+version = "1.628.3"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum 0.7.9",
+ "base64 0.22.1",
+ "itertools 0.14.0",
+ "rdkafka",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "windmill-api-auth",
+ "windmill-common",
+ "windmill-git-sync",
+ "windmill-store",
+ "windmill-trigger",
 ]
 
 [[package]]

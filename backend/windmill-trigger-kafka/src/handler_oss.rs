@@ -1,5 +1,5 @@
 #[cfg(not(feature = "private"))]
-use crate::triggers::TriggerData;
+use windmill_trigger::TriggerData;
 
 #[allow(unused)]
 #[cfg(feature = "private")]
@@ -8,14 +8,15 @@ pub use super::handler_ee::*;
 #[cfg(not(feature = "private"))]
 use {
     super::KafkaTrigger,
-    crate::{
-        db::{ApiAuthed, DB},
-        triggers::TriggerCrud,
-    },
     axum::async_trait,
     sqlx::PgConnection,
-    windmill_common::error::{Error, Result},
+    windmill_api_auth::ApiAuthed,
+    windmill_common::{
+        db::DB,
+        error::{Error, Result},
+    },
     windmill_git_sync::DeployedObject,
+    windmill_trigger::TriggerCrud,
 };
 
 #[cfg(not(feature = "private"))]

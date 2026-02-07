@@ -1,13 +1,6 @@
 #[cfg(feature = "private")]
 #[allow(unused)]
 pub use crate::ee::*;
-#[cfg(all(
-    feature = "enterprise",
-    any(feature = "nats", feature = "kafka", feature = "sqs_trigger"),
-    not(feature = "private")
-))]
-use {crate::db::ApiAuthed, windmill_common::DB};
-
 #[cfg(all(feature = "enterprise", not(feature = "private")))]
 pub use windmill_api_auth::ee_oss::ExternalJwks;
 
@@ -22,19 +15,9 @@ pub async fn validate_license_key(
     Err(anyhow!("License can't be validated in Windmill CE"))
 }
 
+// interpolate moved to windmill-store/src/resources.rs
 #[cfg(all(
     feature = "enterprise",
-    any(feature = "nats", feature = "kafka", feature = "sqs_trigger"),
-    not(feature = "private")
+    any(feature = "nats", feature = "kafka", feature = "sqs_trigger")
 ))]
-pub async fn interpolate(
-    _authed: &ApiAuthed,
-    _db: &DB,
-    _w_id: &str,
-    _s: String,
-) -> Result<String, anyhow::Error> {
-    // Implementation is not open source
-    Err(anyhow!(
-        "Interpolation is not available in open source version"
-    ))
-}
+pub use windmill_store::resources::interpolate;

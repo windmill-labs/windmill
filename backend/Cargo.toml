@@ -12,6 +12,7 @@ members = [
     "./windmill-api-sse",
     "./windmill-api-jobs",
     "./windmill-trigger",
+    "./windmill-trigger-kafka",
     "./windmill-store",
     "./windmill-queue",
     "./windmill-worker",
@@ -236,6 +237,7 @@ windmill-api-auth = { path = "./windmill-api-auth" }
 windmill-api-sse = { path = "./windmill-api-sse" }
 windmill-api-jobs = { path = "./windmill-api-jobs" }
 windmill-trigger = { path = "./windmill-trigger" }
+windmill-trigger-kafka = { path = "./windmill-trigger-kafka" }
 windmill-store = { path = "./windmill-store" }
 windmill-parser = { path = "./parsers/windmill-parser" }
 windmill-parser-ts = { path = "./parsers/windmill-parser-ts" }
