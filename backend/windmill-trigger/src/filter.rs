@@ -139,4 +139,82 @@ mod tests {
         let result = is_value_superset(&mut deserializer, key, &value).unwrap();
         assert!(!result, "Should not match when key doesn't exist");
     }
+
+    // --- is_superset unit tests ---
+
+    #[test]
+    fn test_superset_equal_scalars() {
+        assert!(is_superset(&json!(42), &json!(42)));
+        assert!(is_superset(&json!("hello"), &json!("hello")));
+        assert!(is_superset(&json!(true), &json!(true)));
+        assert!(is_superset(&json!(null), &json!(null)));
+    }
+
+    #[test]
+    fn test_superset_unequal_scalars() {
+        assert!(!is_superset(&json!(42), &json!(43)));
+        assert!(!is_superset(&json!("hello"), &json!("world")));
+        assert!(!is_superset(&json!(true), &json!(false)));
+    }
+
+    #[test]
+    fn test_superset_object_subset() {
+        let full = json!({"a": 1, "b": 2, "c": 3});
+        let subset = json!({"a": 1, "b": 2});
+        assert!(is_superset(&full, &subset));
+    }
+
+    #[test]
+    fn test_superset_object_not_subset() {
+        let full = json!({"a": 1, "b": 2});
+        let check = json!({"a": 1, "b": 3});
+        assert!(!is_superset(&full, &check));
+    }
+
+    #[test]
+    fn test_superset_object_missing_key() {
+        let full = json!({"a": 1});
+        let check = json!({"a": 1, "b": 2});
+        assert!(!is_superset(&full, &check));
+    }
+
+    #[test]
+    fn test_superset_nested_objects() {
+        let full = json!({"a": {"b": {"c": 1, "d": 2}, "e": 3}});
+        let check = json!({"a": {"b": {"c": 1}}});
+        assert!(is_superset(&full, &check));
+    }
+
+    #[test]
+    fn test_superset_array_subset() {
+        let full = json!([1, 2, 3, 4]);
+        let check = json!([2, 4]);
+        assert!(is_superset(&full, &check));
+    }
+
+    #[test]
+    fn test_superset_array_not_subset() {
+        let full = json!([1, 2, 3]);
+        let check = json!([4]);
+        assert!(!is_superset(&full, &check));
+    }
+
+    #[test]
+    fn test_superset_empty_check() {
+        assert!(is_superset(&json!({"a": 1}), &json!({})));
+        assert!(is_superset(&json!([1, 2]), &json!([])));
+    }
+
+    #[test]
+    fn test_superset_array_of_objects() {
+        let full = json!([{"id": 1, "name": "a"}, {"id": 2, "name": "b"}]);
+        let check = json!([{"id": 1}]);
+        assert!(is_superset(&full, &check));
+    }
+
+    #[test]
+    fn test_superset_type_mismatch() {
+        assert!(!is_superset(&json!(42), &json!("42")));
+        assert!(!is_superset(&json!([1]), &json!(1)));
+    }
 }

@@ -133,3 +133,90 @@ export async function main(
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_postgres_to_typescript_bool() {
+        assert_eq!(postgres_to_typescript_type(Some(Type::BOOL)), "boolean");
+    }
+
+    #[test]
+    fn test_postgres_to_typescript_text_types() {
+        assert_eq!(postgres_to_typescript_type(Some(Type::TEXT)), "string");
+        assert_eq!(postgres_to_typescript_type(Some(Type::VARCHAR)), "string");
+        assert_eq!(postgres_to_typescript_type(Some(Type::CHAR)), "string");
+    }
+
+    #[test]
+    fn test_postgres_to_typescript_number_types() {
+        assert_eq!(postgres_to_typescript_type(Some(Type::INT2)), "number");
+        assert_eq!(postgres_to_typescript_type(Some(Type::INT4)), "number");
+        assert_eq!(postgres_to_typescript_type(Some(Type::INT8)), "number");
+        assert_eq!(postgres_to_typescript_type(Some(Type::FLOAT4)), "number");
+        assert_eq!(postgres_to_typescript_type(Some(Type::FLOAT8)), "number");
+        assert_eq!(postgres_to_typescript_type(Some(Type::NUMERIC)), "number");
+    }
+
+    #[test]
+    fn test_postgres_to_typescript_array_types() {
+        assert_eq!(
+            postgres_to_typescript_type(Some(Type::INT4_ARRAY)),
+            "Array<number>"
+        );
+        assert_eq!(
+            postgres_to_typescript_type(Some(Type::TEXT_ARRAY)),
+            "Array<string>"
+        );
+        assert_eq!(
+            postgres_to_typescript_type(Some(Type::BOOL_ARRAY)),
+            "Array<boolean>"
+        );
+    }
+
+    #[test]
+    fn test_postgres_to_typescript_date_types() {
+        assert_eq!(postgres_to_typescript_type(Some(Type::DATE)), "string");
+        assert_eq!(postgres_to_typescript_type(Some(Type::TIMESTAMP)), "string");
+        assert_eq!(postgres_to_typescript_type(Some(Type::TIMESTAMPTZ)), "string");
+        assert_eq!(postgres_to_typescript_type(Some(Type::UUID)), "string");
+    }
+
+    #[test]
+    fn test_postgres_to_typescript_json() {
+        assert_eq!(postgres_to_typescript_type(Some(Type::JSON)), "unknown");
+        assert_eq!(postgres_to_typescript_type(Some(Type::JSONB)), "unknown");
+    }
+
+    #[test]
+    fn test_postgres_to_typescript_none() {
+        assert_eq!(postgres_to_typescript_type(None), "string");
+    }
+
+    #[test]
+    fn test_into_body_struct_typescript() {
+        let fields = vec![
+            MappingInfo::new("id".to_string(), Some(Type::INT4), false),
+            MappingInfo::new("name".to_string(), Some(Type::TEXT), true),
+        ];
+        let result = into_body_struct(Language::Typescript, fields);
+        assert!(result.contains("id: number,"));
+        assert!(result.contains("name?: string,"));
+    }
+
+    #[test]
+    fn test_empty_template() {
+        let mapper = Mapper::new(HashMap::new(), Language::Typescript);
+        let template = mapper.get_template();
+        assert!(template.contains("row: any"));
+    }
+
+    #[test]
+    fn test_mapping_info_nullable_field() {
+        let info = MappingInfo::new("email".to_string(), Some(Type::VARCHAR), true);
+        assert!(info.is_nullable);
+        assert_eq!(info.column_name, "email");
+    }
+}

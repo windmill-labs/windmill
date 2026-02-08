@@ -253,3 +253,244 @@ impl Converter {
         Ok(arr)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // --- Scalar type conversions ---
+
+    #[test]
+    fn test_bool_true() {
+        let result = Converter::try_from_str(Some(Type::BOOL), "t").unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn test_bool_false() {
+        let result = Converter::try_from_str(Some(Type::BOOL), "f").unwrap();
+        assert_eq!(result, Value::Bool(false));
+    }
+
+    #[test]
+    fn test_text() {
+        let result = Converter::try_from_str(Some(Type::TEXT), "hello world").unwrap();
+        assert_eq!(result, Value::String("hello world".to_string()));
+    }
+
+    #[test]
+    fn test_varchar() {
+        let result = Converter::try_from_str(Some(Type::VARCHAR), "test").unwrap();
+        assert_eq!(result, Value::String("test".to_string()));
+    }
+
+    #[test]
+    fn test_int2() {
+        let result = Converter::try_from_str(Some(Type::INT2), "42").unwrap();
+        assert_eq!(result, json!(42));
+    }
+
+    #[test]
+    fn test_int4() {
+        let result = Converter::try_from_str(Some(Type::INT4), "-100").unwrap();
+        assert_eq!(result, json!(-100));
+    }
+
+    #[test]
+    fn test_int8() {
+        let result = Converter::try_from_str(Some(Type::INT8), "9999999999").unwrap();
+        assert_eq!(result, json!(9999999999i64));
+    }
+
+    #[test]
+    fn test_float4() {
+        let result = Converter::try_from_str(Some(Type::FLOAT4), "3.14").unwrap();
+        assert!(result.as_f64().unwrap() - 3.14 < 0.001);
+    }
+
+    #[test]
+    fn test_float8() {
+        let result = Converter::try_from_str(Some(Type::FLOAT8), "2.718281828").unwrap();
+        assert!(result.as_f64().unwrap() - 2.718281828 < 0.0001);
+    }
+
+    #[test]
+    fn test_numeric() {
+        let result = Converter::try_from_str(Some(Type::NUMERIC), "123.456").unwrap();
+        assert_eq!(result.to_string(), "123.456");
+    }
+
+    #[test]
+    fn test_uuid() {
+        let result =
+            Converter::try_from_str(Some(Type::UUID), "550e8400-e29b-41d4-a716-446655440000")
+                .unwrap();
+        assert_eq!(
+            result,
+            Value::String("550e8400-e29b-41d4-a716-446655440000".to_string())
+        );
+    }
+
+    #[test]
+    fn test_json() {
+        let result =
+            Converter::try_from_str(Some(Type::JSON), r#"{"key": "value", "n": 1}"#).unwrap();
+        assert_eq!(result, json!({"key": "value", "n": 1}));
+    }
+
+    #[test]
+    fn test_jsonb() {
+        let result = Converter::try_from_str(Some(Type::JSONB), r#"[1,2,3]"#).unwrap();
+        assert_eq!(result, json!([1, 2, 3]));
+    }
+
+    #[test]
+    fn test_date() {
+        let result = Converter::try_from_str(Some(Type::DATE), "2024-01-15").unwrap();
+        assert_eq!(result, Value::String("2024-01-15".to_string()));
+    }
+
+    #[test]
+    fn test_time() {
+        let result = Converter::try_from_str(Some(Type::TIME), "14:30:00.0").unwrap();
+        assert_eq!(result, Value::String("14:30:00".to_string()));
+    }
+
+    #[test]
+    fn test_timestamp() {
+        let result =
+            Converter::try_from_str(Some(Type::TIMESTAMP), "2024-01-15 14:30:00.0").unwrap();
+        assert_eq!(
+            result,
+            Value::String("2024-01-15 14:30:00".to_string())
+        );
+    }
+
+    #[test]
+    fn test_timestamptz() {
+        let result = Converter::try_from_str(
+            Some(Type::TIMESTAMPTZ),
+            "2024-01-15 14:30:00.0+00",
+        )
+        .unwrap();
+        assert!(result.as_str().unwrap().contains("2024-01-15"));
+    }
+
+    #[test]
+    fn test_bytea() {
+        let result = Converter::try_from_str(Some(Type::BYTEA), "\\x48656c6c6f").unwrap();
+        assert_eq!(result, json!([72, 101, 108, 108, 111]));
+    }
+
+    #[test]
+    fn test_oid() {
+        let result = Converter::try_from_str(Some(Type::OID), "12345").unwrap();
+        assert_eq!(result, json!(12345u32));
+    }
+
+    #[test]
+    fn test_none_type_defaults_to_text() {
+        let result = Converter::try_from_str(None, "anything").unwrap();
+        assert_eq!(result, Value::String("anything".to_string()));
+    }
+
+    // --- Array type conversions ---
+
+    #[test]
+    fn test_int4_array() {
+        let result = Converter::try_from_str(Some(Type::INT4_ARRAY), "{1,2,3}").unwrap();
+        assert_eq!(result, json!([1, 2, 3]));
+    }
+
+    #[test]
+    fn test_text_array() {
+        let result = Converter::try_from_str(Some(Type::TEXT_ARRAY), "{hello,world}").unwrap();
+        assert_eq!(result, json!(["hello", "world"]));
+    }
+
+    #[test]
+    fn test_bool_array() {
+        let result = Converter::try_from_str(Some(Type::BOOL_ARRAY), "{t,f,t}").unwrap();
+        assert_eq!(result, json!([true, false, true]));
+    }
+
+    #[test]
+    fn test_array_with_null() {
+        let result = Converter::try_from_str(Some(Type::INT4_ARRAY), "{1,NULL,3}").unwrap();
+        assert_eq!(result, json!([1, null, 3]));
+    }
+
+    #[test]
+    fn test_array_with_quoted_strings() {
+        let result =
+            Converter::try_from_str(Some(Type::TEXT_ARRAY), r#"{"hello, world","test"}"#).unwrap();
+        assert_eq!(result, json!(["hello, world", "test"]));
+    }
+
+    #[test]
+    fn test_empty_array() {
+        let result = Converter::try_from_str(Some(Type::INT4_ARRAY), "{}").unwrap();
+        assert_eq!(result, json!([]));
+    }
+
+    #[test]
+    fn test_uuid_array() {
+        let result = Converter::try_from_str(
+            Some(Type::UUID_ARRAY),
+            "{550e8400-e29b-41d4-a716-446655440000,6ba7b810-9dad-11d1-80b4-00c04fd430c8}",
+        )
+        .unwrap();
+        assert_eq!(
+            result,
+            json!([
+                "550e8400-e29b-41d4-a716-446655440000",
+                "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+            ])
+        );
+    }
+
+    // --- Error cases ---
+
+    #[test]
+    fn test_invalid_int() {
+        assert!(Converter::try_from_str(Some(Type::INT4), "not_a_number").is_err());
+    }
+
+    #[test]
+    fn test_invalid_bool() {
+        assert!(Converter::try_from_str(Some(Type::BOOL), "yes").is_err());
+    }
+
+    #[test]
+    fn test_invalid_uuid() {
+        assert!(Converter::try_from_str(Some(Type::UUID), "not-a-uuid").is_err());
+    }
+
+    #[test]
+    fn test_invalid_json() {
+        assert!(Converter::try_from_str(Some(Type::JSON), "not json").is_err());
+    }
+
+    #[test]
+    fn test_array_missing_braces() {
+        assert!(Converter::try_from_str(Some(Type::INT4_ARRAY), "1,2,3").is_err());
+    }
+
+    #[test]
+    fn test_array_too_short() {
+        assert!(Converter::try_from_str(Some(Type::INT4_ARRAY), "{").is_err());
+    }
+
+    #[test]
+    fn test_array_with_escaped_backslash() {
+        let result =
+            Converter::try_from_str(Some(Type::TEXT_ARRAY), r#"{"a\\b","c"}"#).unwrap();
+        assert_eq!(result, json!(["a\\b", "c"]));
+    }
+
+    #[test]
+    fn test_float_nan_rejected() {
+        assert!(Converter::try_from_str(Some(Type::FLOAT4), "NaN").is_err());
+    }
+}

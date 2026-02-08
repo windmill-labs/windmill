@@ -22,3 +22,36 @@ pub fn parse_bool(s: &str) -> Result<bool, ParseBoolError> {
         _ => Err(ParseBoolError::InvalidInput(s.to_string())),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_true() {
+        assert_eq!(parse_bool("t").unwrap(), true);
+    }
+
+    #[test]
+    fn test_parse_false() {
+        assert_eq!(parse_bool("f").unwrap(), false);
+    }
+
+    #[test]
+    fn test_invalid_true_string() {
+        assert!(matches!(
+            parse_bool("true"),
+            Err(ParseBoolError::InvalidInput(s)) if s == "true"
+        ));
+    }
+
+    #[test]
+    fn test_invalid_empty() {
+        assert!(parse_bool("").is_err());
+    }
+
+    #[test]
+    fn test_invalid_uppercase() {
+        assert!(parse_bool("T").is_err());
+    }
+}

@@ -508,3 +508,309 @@ impl ReplicationMessage {
         Ok(replication_message)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn build_keepalive(wal_end: u64, timestamp: i64, reply: bool) -> Bytes {
+        let mut buf = Vec::new();
+        buf.push(PRIMARY_KEEPALIVE_BYTE);
+        buf.extend_from_slice(&wal_end.to_be_bytes());
+        buf.extend_from_slice(&timestamp.to_be_bytes());
+        buf.push(if reply { 1 } else { 0 });
+        Bytes::from(buf)
+    }
+
+    fn build_xlog_data(wal_start: u64, wal_end: u64, timestamp: i64, data: &[u8]) -> Bytes {
+        let mut buf = Vec::new();
+        buf.push(X_LOG_DATA_BYTE);
+        buf.extend_from_slice(&wal_start.to_be_bytes());
+        buf.extend_from_slice(&wal_end.to_be_bytes());
+        buf.extend_from_slice(&timestamp.to_be_bytes());
+        buf.extend_from_slice(data);
+        Bytes::from(buf)
+    }
+
+    #[test]
+    fn test_parse_keepalive_with_reply() {
+        let buf = build_keepalive(100, 200, true);
+        match ReplicationMessage::parse(buf).unwrap() {
+            ReplicationMessage::PrimaryKeepAlive(body) => {
+                assert_eq!(body.wal_end, 100);
+                assert_eq!(body.timestamp, 200);
+                assert!(body.reply);
+            }
+            _ => panic!("expected PrimaryKeepAlive"),
+        }
+    }
+
+    #[test]
+    fn test_parse_keepalive_without_reply() {
+        let buf = build_keepalive(500, 1000, false);
+        match ReplicationMessage::parse(buf).unwrap() {
+            ReplicationMessage::PrimaryKeepAlive(body) => {
+                assert_eq!(body.wal_end, 500);
+                assert_eq!(body.timestamp, 1000);
+                assert!(!body.reply);
+            }
+            _ => panic!("expected PrimaryKeepAlive"),
+        }
+    }
+
+    #[test]
+    fn test_parse_xlog_data() {
+        let payload = b"test payload";
+        let buf = build_xlog_data(10, 20, 30, payload);
+        match ReplicationMessage::parse(buf).unwrap() {
+            ReplicationMessage::XLogData(body) => {
+                assert_eq!(body.wal_start, 10);
+                assert_eq!(body.wal_end, 20);
+                assert_eq!(body.timestamp, 30);
+                assert_eq!(&body.data[..], payload);
+            }
+            _ => panic!("expected XLogData"),
+        }
+    }
+
+    #[test]
+    fn test_parse_unknown_byte() {
+        let buf = Bytes::from(vec![0xFF, 0, 0, 0, 0, 0, 0, 0, 0]);
+        assert!(ReplicationMessage::parse(buf).is_err());
+    }
+
+    fn build_begin_message() -> Vec<u8> {
+        let mut buf = Vec::new();
+        buf.push(BEGIN_BYTE);
+        buf.extend_from_slice(&0i64.to_be_bytes()); // lsn
+        buf.extend_from_slice(&0i64.to_be_bytes()); // timestamp
+        buf.extend_from_slice(&0i32.to_be_bytes()); // xid
+        buf
+    }
+
+    fn build_commit_message() -> Vec<u8> {
+        let mut buf = Vec::new();
+        buf.push(COMMIT_BYTE);
+        buf.push(0); // flags
+        buf.extend_from_slice(&0u64.to_be_bytes()); // lsn
+        buf.extend_from_slice(&0u64.to_be_bytes()); // end_lsn
+        buf.extend_from_slice(&0i64.to_be_bytes()); // timestamp
+        buf
+    }
+
+    fn build_insert_message(o_id: u32, tuple_data: &[(u8, &[u8])]) -> Vec<u8> {
+        let mut buf = Vec::new();
+        buf.push(INSERT_BYTE);
+        buf.extend_from_slice(&o_id.to_be_bytes());
+        buf.push(TUPLE_NEW_BYTE);
+        buf.extend_from_slice(&(tuple_data.len() as i16).to_be_bytes());
+        for (tag, data) in tuple_data {
+            buf.push(*tag);
+            match *tag {
+                TUPLE_DATA_TEXT_BYTE | TUPLE_DATA_BINARY_BYTE => {
+                    buf.extend_from_slice(&(data.len() as i32).to_be_bytes());
+                    buf.extend_from_slice(data);
+                }
+                _ => {}
+            }
+        }
+        buf
+    }
+
+    fn build_delete_message(o_id: u32, tuple_data: &[(u8, &[u8])]) -> Vec<u8> {
+        let mut buf = Vec::new();
+        buf.push(DELETE_BYTE);
+        buf.extend_from_slice(&o_id.to_be_bytes());
+        buf.push(TUPLE_OLD_BYTE);
+        buf.extend_from_slice(&(tuple_data.len() as i16).to_be_bytes());
+        for (tag, data) in tuple_data {
+            buf.push(*tag);
+            match *tag {
+                TUPLE_DATA_TEXT_BYTE | TUPLE_DATA_BINARY_BYTE => {
+                    buf.extend_from_slice(&(data.len() as i32).to_be_bytes());
+                    buf.extend_from_slice(data);
+                }
+                _ => {}
+            }
+        }
+        buf
+    }
+
+    fn settings(streaming: bool) -> LogicalReplicationSettings {
+        LogicalReplicationSettings { streaming }
+    }
+
+    #[test]
+    fn test_parse_begin() {
+        let data = Bytes::from(build_begin_message());
+        let body = XLogDataBody::new(0, 0, 0, data);
+        match body.parse(&settings(false)).unwrap() {
+            LogicalReplicationMessage::Begin => {}
+            other => panic!("expected Begin, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_commit() {
+        let data = Bytes::from(build_commit_message());
+        let body = XLogDataBody::new(0, 0, 0, data);
+        match body.parse(&settings(false)).unwrap() {
+            LogicalReplicationMessage::Commit => {}
+            other => panic!("expected Commit, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_insert_with_text_tuple() {
+        let data = Bytes::from(build_insert_message(
+            42,
+            &[(TUPLE_DATA_TEXT_BYTE, b"hello")],
+        ));
+        let body = XLogDataBody::new(0, 0, 0, data);
+        match body.parse(&settings(false)).unwrap() {
+            LogicalReplicationMessage::Insert(insert) => {
+                assert_eq!(insert.o_id, 42);
+                assert_eq!(insert.tuple.len(), 1);
+                match &insert.tuple[0] {
+                    TupleData::Text(b) => assert_eq!(&b[..], b"hello"),
+                    other => panic!("expected Text, got {:?}", other),
+                }
+            }
+            other => panic!("expected Insert, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_insert_with_null_tuple() {
+        let data = Bytes::from(build_insert_message(
+            10,
+            &[(TUPLE_DATA_NULL_BYTE, &[])],
+        ));
+        let body = XLogDataBody::new(0, 0, 0, data);
+        match body.parse(&settings(false)).unwrap() {
+            LogicalReplicationMessage::Insert(insert) => {
+                assert_eq!(insert.tuple.len(), 1);
+                assert!(matches!(insert.tuple[0], TupleData::Null));
+            }
+            other => panic!("expected Insert, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_insert_with_toast_tuple() {
+        let data = Bytes::from(build_insert_message(
+            10,
+            &[(TUPLE_DATA_TOAST_BYTE, &[])],
+        ));
+        let body = XLogDataBody::new(0, 0, 0, data);
+        match body.parse(&settings(false)).unwrap() {
+            LogicalReplicationMessage::Insert(insert) => {
+                assert!(matches!(insert.tuple[0], TupleData::UnchangedToast));
+            }
+            other => panic!("expected Insert, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_insert_multiple_columns() {
+        let data = Bytes::from(build_insert_message(
+            1,
+            &[
+                (TUPLE_DATA_TEXT_BYTE, b"col1"),
+                (TUPLE_DATA_NULL_BYTE, &[]),
+                (TUPLE_DATA_TEXT_BYTE, b"col3"),
+            ],
+        ));
+        let body = XLogDataBody::new(0, 0, 0, data);
+        match body.parse(&settings(false)).unwrap() {
+            LogicalReplicationMessage::Insert(insert) => {
+                assert_eq!(insert.tuple.len(), 3);
+                assert!(matches!(&insert.tuple[0], TupleData::Text(_)));
+                assert!(matches!(insert.tuple[1], TupleData::Null));
+                assert!(matches!(&insert.tuple[2], TupleData::Text(_)));
+            }
+            other => panic!("expected Insert, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_delete_with_old_tuple() {
+        let data = Bytes::from(build_delete_message(
+            99,
+            &[(TUPLE_DATA_TEXT_BYTE, b"old_val")],
+        ));
+        let body = XLogDataBody::new(0, 0, 0, data);
+        match body.parse(&settings(false)).unwrap() {
+            LogicalReplicationMessage::Delete(delete) => {
+                assert_eq!(delete.o_id, 99);
+                assert!(delete.old_tuple.is_some());
+                assert!(delete.key_tuple.is_none());
+            }
+            other => panic!("expected Delete, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_relation() {
+        let mut buf = Vec::new();
+        buf.push(RELATION_BYTE);
+        buf.extend_from_slice(&100u32.to_be_bytes()); // o_id
+        buf.extend_from_slice(b"public\0"); // namespace
+        buf.extend_from_slice(b"users\0"); // name
+        buf.push(REPLICA_IDENTITY_DEFAULT_BYTE as u8); // replica identity
+        buf.extend_from_slice(&1i16.to_be_bytes()); // num columns
+        // column: flags=0, name="id", type_oid=23 (INT4), type_modifier=-1
+        buf.push(0); // flags
+        buf.extend_from_slice(b"id\0"); // name
+        buf.extend_from_slice(&23u32.to_be_bytes()); // type_oid (INT4)
+        buf.extend_from_slice(&(-1i32).to_be_bytes()); // type_modifier
+
+        let data = Bytes::from(buf);
+        let body = XLogDataBody::new(0, 0, 0, data);
+        match body.parse(&settings(false)).unwrap() {
+            LogicalReplicationMessage::Relation(rel) => {
+                assert_eq!(rel.o_id, 100);
+                assert_eq!(rel.namespace, "public");
+                assert_eq!(rel.name, "users");
+                assert_eq!(rel.columns.len(), 1);
+                assert_eq!(rel.columns[0].name, "id");
+                assert!(matches!(rel.columns[0].type_o_id, Some(Type::INT4)));
+            }
+            other => panic!("expected Relation, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_insert_with_streaming_transaction_id() {
+        let mut buf = Vec::new();
+        buf.push(INSERT_BYTE);
+        buf.extend_from_slice(&42i32.to_be_bytes()); // transaction_id
+        buf.extend_from_slice(&10u32.to_be_bytes()); // o_id
+        buf.push(TUPLE_NEW_BYTE);
+        buf.extend_from_slice(&0i16.to_be_bytes()); // 0 columns
+
+        let data = Bytes::from(buf);
+        let body = XLogDataBody::new(0, 0, 0, data);
+        match body.parse(&settings(true)).unwrap() {
+            LogicalReplicationMessage::Insert(insert) => {
+                assert_eq!(insert.transaction_id, Some(42));
+                assert_eq!(insert.o_id, 10);
+            }
+            other => panic!("expected Insert, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_unknown_tuple_data_byte() {
+        let mut buf = Vec::new();
+        buf.push(INSERT_BYTE);
+        buf.extend_from_slice(&1u32.to_be_bytes()); // o_id
+        buf.push(TUPLE_NEW_BYTE);
+        buf.extend_from_slice(&1i16.to_be_bytes()); // 1 column
+        buf.push(0xFF); // invalid tuple data byte
+
+        let data = Bytes::from(buf);
+        let body = XLogDataBody::new(0, 0, 0, data);
+        assert!(body.parse(&settings(false)).is_err());
+    }
+}

@@ -156,3 +156,183 @@ pub enum TriggerMode {
     Disabled,
     Suspended,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // --- TriggerMode serde ---
+
+    #[test]
+    fn test_trigger_mode_serialize() {
+        assert_eq!(serde_json::to_value(TriggerMode::Enabled).unwrap(), json!("enabled"));
+        assert_eq!(serde_json::to_value(TriggerMode::Disabled).unwrap(), json!("disabled"));
+        assert_eq!(serde_json::to_value(TriggerMode::Suspended).unwrap(), json!("suspended"));
+    }
+
+    #[test]
+    fn test_trigger_mode_deserialize() {
+        let enabled: TriggerMode = serde_json::from_value(json!("enabled")).unwrap();
+        assert_eq!(enabled, TriggerMode::Enabled);
+        let disabled: TriggerMode = serde_json::from_value(json!("disabled")).unwrap();
+        assert_eq!(disabled, TriggerMode::Disabled);
+    }
+
+    #[test]
+    fn test_trigger_mode_invalid() {
+        let result: Result<TriggerMode, _> = serde_json::from_value(json!("paused"));
+        assert!(result.is_err());
+    }
+
+    // --- StandardTriggerQuery ---
+
+    #[test]
+    fn test_query_default() {
+        let q = StandardTriggerQuery::default();
+        assert_eq!(q.offset(), 0);
+        assert_eq!(q.limit(), 100);
+    }
+
+    #[test]
+    fn test_query_offset_calculation() {
+        let q = StandardTriggerQuery {
+            page: Some(2),
+            per_page: Some(50),
+            path: None,
+            is_flow: None,
+            path_start: None,
+        };
+        assert_eq!(q.offset(), 100);
+        assert_eq!(q.limit(), 50);
+    }
+
+    #[test]
+    fn test_query_offset_defaults() {
+        let q = StandardTriggerQuery {
+            page: None,
+            per_page: None,
+            path: None,
+            is_flow: None,
+            path_start: None,
+        };
+        assert_eq!(q.offset(), 0);
+        assert_eq!(q.limit(), 100);
+    }
+
+    // --- BaseTriggerData backward compatibility ---
+
+    #[test]
+    fn test_base_trigger_data_mode_field() {
+        let json = r#"{
+            "path": "test",
+            "script_path": "f/test/script",
+            "is_flow": false,
+            "mode": "enabled"
+        }"#;
+        let data: BaseTriggerData = serde_json::from_str(json).unwrap();
+        assert_eq!(data.mode(), &TriggerMode::Enabled);
+    }
+
+    #[test]
+    fn test_base_trigger_data_legacy_enabled_true() {
+        let json = r#"{
+            "path": "test",
+            "script_path": "f/test/script",
+            "is_flow": false,
+            "enabled": true
+        }"#;
+        let data: BaseTriggerData = serde_json::from_str(json).unwrap();
+        assert_eq!(data.mode(), &TriggerMode::Enabled);
+    }
+
+    #[test]
+    fn test_base_trigger_data_legacy_enabled_false() {
+        let json = r#"{
+            "path": "test",
+            "script_path": "f/test/script",
+            "is_flow": false,
+            "enabled": false
+        }"#;
+        let data: BaseTriggerData = serde_json::from_str(json).unwrap();
+        assert_eq!(data.mode(), &TriggerMode::Disabled);
+    }
+
+    #[test]
+    fn test_base_trigger_data_mode_takes_precedence() {
+        let json = r#"{
+            "path": "test",
+            "script_path": "f/test/script",
+            "is_flow": false,
+            "mode": "suspended",
+            "enabled": true
+        }"#;
+        let data: BaseTriggerData = serde_json::from_str(json).unwrap();
+        assert_eq!(data.mode(), &TriggerMode::Suspended);
+    }
+
+    #[test]
+    fn test_base_trigger_data_neither_field() {
+        let json = r#"{
+            "path": "test",
+            "script_path": "f/test/script",
+            "is_flow": false
+        }"#;
+        let data: BaseTriggerData = serde_json::from_str(json).unwrap();
+        assert_eq!(data.mode(), &TriggerMode::Enabled);
+    }
+
+    // --- HandlerAction ---
+
+    #[test]
+    fn test_handler_action_serialization() {
+        let action = HandlerAction::Trigger {
+            path: "f/test/trigger".to_string(),
+            trigger_kind: JobTriggerKind::Webhook,
+        };
+        let json = serde_json::to_value(&action).unwrap();
+        assert_eq!(json["type"], "trigger");
+        assert_eq!(json["path"], "f/test/trigger");
+    }
+
+    #[test]
+    fn test_handler_action_deserialization() {
+        let json = r#"{"type": "trigger", "path": "f/test/trigger", "trigger_kind": "webhook"}"#;
+        let action: HandlerAction = serde_json::from_str(json).unwrap();
+        match action {
+            HandlerAction::Trigger { path, trigger_kind } => {
+                assert_eq!(path, "f/test/trigger");
+                assert_eq!(
+                    serde_json::to_value(&trigger_kind).unwrap(),
+                    serde_json::to_value(&JobTriggerKind::Webhook).unwrap()
+                );
+            }
+        }
+    }
+
+    // --- ServerState ---
+
+    #[test]
+    fn test_server_state_skip_none_fields() {
+        let state = ServerState {
+            server_id: None,
+            last_server_ping: None,
+            error: None,
+        };
+        let json = serde_json::to_value(&state).unwrap();
+        assert!(!json.as_object().unwrap().contains_key("server_id"));
+        assert!(!json.as_object().unwrap().contains_key("error"));
+    }
+
+    #[test]
+    fn test_server_state_with_error() {
+        let state = ServerState {
+            server_id: Some("srv-1".to_string()),
+            last_server_ping: None,
+            error: Some("connection timeout".to_string()),
+        };
+        let json = serde_json::to_value(&state).unwrap();
+        assert_eq!(json["server_id"], "srv-1");
+        assert_eq!(json["error"], "connection timeout");
+    }
+}

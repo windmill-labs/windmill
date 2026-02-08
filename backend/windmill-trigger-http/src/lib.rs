@@ -410,4 +410,186 @@ mod tests {
         let config: HttpConfigRequest = serde_json::from_str(json_both).unwrap();
         assert_eq!(config.request_type, RequestType::SyncSse);
     }
+
+    // --- HttpMethod ---
+
+    #[test]
+    fn test_http_method_from_http_get() {
+        let method = HttpMethod::try_from(&http::Method::GET).unwrap();
+        assert_eq!(method, HttpMethod::Get);
+    }
+
+    #[test]
+    fn test_http_method_from_http_post() {
+        let method = HttpMethod::try_from(&http::Method::POST).unwrap();
+        assert_eq!(method, HttpMethod::Post);
+    }
+
+    #[test]
+    fn test_http_method_from_http_put() {
+        let method = HttpMethod::try_from(&http::Method::PUT).unwrap();
+        assert_eq!(method, HttpMethod::Put);
+    }
+
+    #[test]
+    fn test_http_method_from_http_delete() {
+        let method = HttpMethod::try_from(&http::Method::DELETE).unwrap();
+        assert_eq!(method, HttpMethod::Delete);
+    }
+
+    #[test]
+    fn test_http_method_from_http_patch() {
+        let method = HttpMethod::try_from(&http::Method::PATCH).unwrap();
+        assert_eq!(method, HttpMethod::Patch);
+    }
+
+    #[test]
+    fn test_http_method_unsupported() {
+        let result = HttpMethod::try_from(&http::Method::HEAD);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_http_method_options_unsupported() {
+        let result = HttpMethod::try_from(&http::Method::OPTIONS);
+        assert!(result.is_err());
+    }
+
+    // --- HttpMethod serde ---
+
+    #[test]
+    fn test_http_method_serde_roundtrip() {
+        for method in [HttpMethod::Get, HttpMethod::Post, HttpMethod::Put, HttpMethod::Delete, HttpMethod::Patch] {
+            let json = serde_json::to_value(method).unwrap();
+            let deserialized: HttpMethod = serde_json::from_value(json).unwrap();
+            assert_eq!(method, deserialized);
+        }
+    }
+
+    #[test]
+    fn test_http_method_serialize_lowercase() {
+        assert_eq!(serde_json::to_value(HttpMethod::Get).unwrap(), "get");
+        assert_eq!(serde_json::to_value(HttpMethod::Post).unwrap(), "post");
+    }
+
+    // --- RequestType serde ---
+
+    #[test]
+    fn test_request_type_serde_roundtrip() {
+        for rt in [RequestType::Sync, RequestType::Async, RequestType::SyncSse] {
+            let json = serde_json::to_value(rt).unwrap();
+            let deserialized: RequestType = serde_json::from_value(json).unwrap();
+            assert_eq!(rt, deserialized);
+        }
+    }
+
+    #[test]
+    fn test_request_type_serialize_values() {
+        assert_eq!(serde_json::to_value(RequestType::Sync).unwrap(), "sync");
+        assert_eq!(serde_json::to_value(RequestType::Async).unwrap(), "async");
+        assert_eq!(serde_json::to_value(RequestType::SyncSse).unwrap(), "sync_sse");
+    }
+
+    // --- AuthenticationMethod serde ---
+
+    #[test]
+    fn test_authentication_method_serde_roundtrip() {
+        for method in [
+            AuthenticationMethod::None,
+            AuthenticationMethod::Windmill,
+            AuthenticationMethod::ApiKey,
+            AuthenticationMethod::BasicHttp,
+            AuthenticationMethod::CustomScript,
+            AuthenticationMethod::Signature,
+        ] {
+            let json = serde_json::to_value(method).unwrap();
+            let deserialized: AuthenticationMethod = serde_json::from_value(json).unwrap();
+            assert_eq!(method, deserialized);
+        }
+    }
+
+    // --- validate_authentication_method ---
+
+    #[test]
+    fn test_validate_auth_none_ok() {
+        assert!(validate_authentication_method(AuthenticationMethod::None, None).is_ok());
+    }
+
+    #[test]
+    fn test_validate_auth_windmill_ok() {
+        assert!(validate_authentication_method(AuthenticationMethod::Windmill, None).is_ok());
+    }
+
+    #[test]
+    fn test_validate_auth_custom_script_requires_raw() {
+        assert!(validate_authentication_method(AuthenticationMethod::CustomScript, None).is_err());
+        assert!(validate_authentication_method(AuthenticationMethod::CustomScript, Some(false)).is_err());
+        assert!(validate_authentication_method(AuthenticationMethod::CustomScript, Some(true)).is_ok());
+    }
+
+    #[test]
+    fn test_validate_auth_signature_without_raw_ok() {
+        assert!(validate_authentication_method(AuthenticationMethod::Signature, None).is_ok());
+    }
+
+    // --- Route path regex ---
+
+    #[test]
+    fn test_valid_route_path() {
+        assert!(VALID_ROUTE_PATH_RE.is_match("users"));
+        assert!(VALID_ROUTE_PATH_RE.is_match("users/:id"));
+        assert!(VALID_ROUTE_PATH_RE.is_match("api/v1/users"));
+        assert!(VALID_ROUTE_PATH_RE.is_match("api/v1/:id"));
+        assert!(VALID_ROUTE_PATH_RE.is_match("files/*path"));
+    }
+
+    #[test]
+    fn test_invalid_route_path() {
+        assert!(!VALID_ROUTE_PATH_RE.is_match(""));
+        assert!(!VALID_ROUTE_PATH_RE.is_match("/leading-slash"));
+    }
+
+    #[test]
+    fn test_route_path_key_regex() {
+        assert!(ROUTE_PATH_KEY_RE.is_match("/:id"));
+        assert!(ROUTE_PATH_KEY_RE.is_match("/*path"));
+        assert!(ROUTE_PATH_KEY_RE.is_match("/users/:userId/posts/:postId"));
+    }
+
+    // --- HttpConfig deserialization ---
+
+    #[test]
+    fn test_http_config_request_full() {
+        let json = r#"{
+            "route_path": "api/v1/users",
+            "request_type": "async",
+            "authentication_method": "api_key",
+            "http_method": "post",
+            "is_static_website": false,
+            "workspaced_route": true,
+            "wrap_body": true,
+            "raw_string": false
+        }"#;
+        let config: HttpConfigRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(config.route_path, "api/v1/users");
+        assert_eq!(config.request_type, RequestType::Async);
+        assert_eq!(config.authentication_method, AuthenticationMethod::ApiKey);
+        assert_eq!(config.http_method, HttpMethod::Post);
+        assert_eq!(config.workspaced_route, Some(true));
+        assert_eq!(config.wrap_body, Some(true));
+    }
+
+    #[test]
+    fn test_http_config_request_minimal() {
+        let json = r#"{
+            "authentication_method": "none",
+            "http_method": "get",
+            "is_static_website": false
+        }"#;
+        let config: HttpConfigRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(config.route_path, "");
+        assert_eq!(config.request_type, RequestType::Sync);
+        assert!(config.workspaced_route.is_none());
+        assert!(config.summary.is_none());
+    }
 }
