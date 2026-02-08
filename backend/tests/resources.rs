@@ -25,6 +25,7 @@ async fn authed_get(port: u16, endpoint: &str, path: &str) -> reqwest::Response 
 
 #[sqlx::test(fixtures("base", "resources_test"))]
 async fn test_resource_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
     let base = format!("http://localhost:{port}/api/w/test-workspace/resources");
@@ -380,8 +381,10 @@ async fn test_resource_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "mcp")]
 #[sqlx::test(fixtures("base", "resources_test"))]
 async fn test_mcp_tools(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 

@@ -211,7 +211,7 @@ jobs:
           SQLX_OFFLINE: true
           DATABASE_URL: postgres://postgres:changeme@localhost:5432/windmill
           DISABLE_EMBEDDING: true
-          RUST_LOG: info
+          RUST_LOG: "off"
           RUST_LOG_STYLE: never
           CARGO_NET_GIT_FETCH_WITH_CLI: true
           WMDEBUG_FORCE_V0_WORKSPACE_DEPENDENCIES: 1
