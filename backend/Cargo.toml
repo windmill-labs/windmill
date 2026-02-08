@@ -120,7 +120,6 @@ zip = ["windmill-api/zip"]
 static_frontend = ["windmill-api/static_frontend"]
 scoped_cache = ["windmill-common/scoped_cache"]
 no_auth = ["windmill-api/no_auth"]
-test_job_debouncing = []
 private_registry_test = []
 # Languages
 python = ["windmill-worker/python", "windmill-api/python"]
