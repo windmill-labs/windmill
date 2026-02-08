@@ -72,11 +72,8 @@
 	/>
 {:else if item.type == 'raw_app'}
 	<RawAppRow
-		bind:deleteConfirmedCallback
 		marked={item.marked}
-		on:change={() => dispatch('rawAppChanged')}
 		app={item}
-		{moveDrawer}
 		{shareModal}
 		{deploymentDrawer}
 		{depth}

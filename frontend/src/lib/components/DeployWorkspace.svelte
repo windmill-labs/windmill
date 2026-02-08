@@ -6,7 +6,6 @@
 		AppService,
 		FlowService,
 		FolderService,
-		RawAppService,
 		ResourceService,
 		ScheduleService,
 		ScriptService,
@@ -229,11 +228,6 @@
 			})
 		} else if (kind == 'app') {
 			exists = await AppService.existsApp({
-				workspace: workspaceToDeployTo!,
-				path: path
-			})
-		} else if (kind == 'raw_app') {
-			exists = await RawAppService.existsRawApp({
 				workspace: workspaceToDeployTo!,
 				path: path
 			})
@@ -498,21 +492,6 @@
 						}
 					})
 				}
-			} else if (kind == 'raw_app') {
-				throw new Error('Raw app deploy not implemented yet')
-				// const app = await RawAppService.getRawAppData({
-				// 	workspace: $workspaceStore!,
-				// 	path: path
-				// })
-				// if (alreadyExists) {
-				// }
-				// await RawAppService.updateRawApp({
-				// 	workspace: $workspaceStore!,
-				// 	path: path,
-				// 	requestBody: {
-				// 		path: path
-				// 	}
-				// })
 			} else if (kind == 'folder') {
 				await FolderService.createFolder({
 					workspace: workspaceToDeployTo!,
@@ -616,21 +595,6 @@
 					path: path
 				})
 				return resource.schema
-			} else if (kind == 'raw_app') {
-				throw new Error('Raw app deploy not implemented yet')
-				// const app = await RawAppService.getRawAppData({
-				// 	workspace: workspace,
-				// 	path: path
-				// })
-				// if (alreadyExists) {
-				// }
-				// await RawAppService.updateRawApp({
-				// 	workspace: workspace,
-				// 	path: path,
-				// 	requestBody: {
-				// 		path: path
-				// 	}
-				// })
 			} else if (kind == 'folder') {
 				const folder = await FolderService.getFolder({
 					workspace: workspace,
