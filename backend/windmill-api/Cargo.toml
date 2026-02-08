@@ -36,7 +36,6 @@ postgres_trigger = ["dep:windmill-trigger-postgres", "windmill-store/postgres_tr
 mqtt_trigger = ["dep:windmill-trigger-mqtt", "windmill-store/mqtt_trigger"]
 native_trigger = ["dep:windmill-native-triggers", "windmill-native-triggers/native_trigger", "dep:strum", "oauth2"]
 sqs_trigger = ["dep:windmill-trigger-sqs", "windmill-store/sqs_trigger"]
-deno_core = ["dep:deno_core", "dep:deno_error"]
 gcp_trigger = ["dep:windmill-trigger-gcp", "windmill-store/gcp_trigger"]
 cloud = ["windmill-common/cloud", "windmill-api-auth/cloud", "windmill-store/cloud"]
 mcp = ["dep:windmill-mcp", "windmill-mcp/server", "windmill-mcp/auth", "windmill-api-auth/mcp", "windmill-store/mcp"]
@@ -155,12 +154,10 @@ aws-sdk-bedrock = { workspace = true, optional = true }
 aws-sdk-bedrockruntime = { workspace = true, optional = true }
 aws-smithy-types.workspace = true
 async-trait.workspace = true
-deno_error = { workspace = true, optional = true }
-deno_core = { workspace = true, optional = true }
+windmill-jseval.workspace = true
 tar.workspace = true
 flate2.workspace = true
 strum = { workspace = true, optional = true }
 dashmap.workspace = true
 
 [build-dependencies]
-deno_core = { workspace = true, optional = true }

@@ -974,6 +974,14 @@ pub async fn get_custom_pg_instance_password(db: &DB) -> Result<String> {
     )
 }
 
+/// Convert a JSON string to a `Box<RawValue>` without validation.
+///
+/// # Safety
+/// The caller must ensure the string is valid JSON.
+pub fn unsafe_raw(json: String) -> Box<serde_json::value::RawValue> {
+    unsafe { std::mem::transmute::<Box<str>, Box<serde_json::value::RawValue>>(json.into()) }
+}
+
 // Avoid JSON parsing for merging raw JSON values into an object
 pub fn merge_raw_values_to_object(
     pairs: &[(String, Box<serde_json::value::RawValue>)],

@@ -23,9 +23,7 @@ parquet = ["windmill-common/parquet", "dep:object_store"]
 flow_testing = []
 cloud = []
 sqlx = []
-deno_core = ["dep:deno_fetch", "dep:deno_webidl", "dep:deno_web", "dep:deno_net", "dep:deno_console", "dep:deno_url", "dep:deno_core",
-    "dep:deno_ast", "dep:deno_tls", "dep:deno_permissions", "dep:deno_io", "dep:deno_runtime", "dep:deno_telemetry", "dep:deno_error", "dep:winapi", "dep:rustls-pemfile",
-    "quickjs"]
+deno_core = ["dep:windmill-runtime-nativets"]
 libffi_mac = ["dep:libffi-sys"]
 otel = ["windmill-common/otel", "dep:opentelemetry", "dep:tracing-opentelemetry"]
 dind = ["dep:bollard"]
@@ -39,7 +37,6 @@ nu = ["dep:windmill-parser-nu"]
 java = ["dep:windmill-parser-java"]
 ruby = ["dep:windmill-parser-ruby"]
 duckdb = ["dep:libloading"]
-quickjs = ["dep:rquickjs"]
 bedrock = ["dep:aws-sdk-bedrockruntime", "windmill-common/bedrock"]
 
 [dependencies]
@@ -47,6 +44,8 @@ windmill-queue.workspace = true
 windmill-dep-map.workspace = true
 windmill-audit.workspace = true # there isn't really a reason for audit-worth actions to happen in the worker.
 windmill-common = { workspace = true, default-features = false }
+windmill-jseval.workspace = true
+windmill-runtime-nativets = { workspace = true, optional = true }
 windmill-mcp = { workspace = true, optional = true }
 windmill-macros.workspace = true
 windmill-parser.workspace = true
@@ -97,20 +96,6 @@ once_cell.workspace = true
 tokio-postgres.workspace = true
 bit-vec.workspace = true
 url.workspace = true
-deno_telemetry = { workspace = true, optional = true }
-deno_fetch = { workspace = true, optional = true }
-deno_webidl = { workspace = true, optional = true }
-deno_web = { workspace = true, optional = true }
-deno_net = { workspace = true, optional = true }
-deno_console = { workspace = true, optional = true }
-deno_url = { workspace = true, optional = true }
-deno_core = { workspace = true, optional = true }
-deno_ast = { workspace = true, optional = true }
-deno_tls = { workspace = true, optional = true }
-deno_permissions = { workspace = true, optional = true }
-deno_io = { workspace = true, optional = true }
-deno_error = { workspace = true, optional = true }
-rustls-pemfile = { workspace = true, optional = true }
 async-stream.workspace = true
 
 postgres-native-tls.workspace = true
@@ -137,7 +122,6 @@ object_store = { workspace = true, optional = true}
 convert_case.workspace = true
 yaml-rust.workspace = true
 backon.workspace = true
-winapi = { workspace = true, optional = true }
 pep440_rs.workspace = true
 process-wrap.workspace = true
 async-once-cell.workspace = true
@@ -150,7 +134,6 @@ prost.workspace = true
 axum.workspace = true
 bollard = { workspace = true, optional = true }
 oracle = { workspace = true, optional = true }
-rquickjs = { workspace = true, optional = true }
 hudsucker.workspace = true
 hyper-http-proxy.workspace = true
 hyper-tls.workspace = true
@@ -158,18 +141,4 @@ hyper-util.workspace = true
 rcgen.workspace = true
 
 [build-dependencies]
-deno_fetch = { workspace = true, optional = true }
-deno_webidl = { workspace = true, optional = true }
-deno_web = { workspace = true, optional = true }
-deno_net = { workspace = true, optional = true }
-deno_console = { workspace = true, optional = true }
-deno_url = { workspace = true, optional = true }
-deno_core = { workspace = true, optional = true }
-deno_ast = { workspace = true, optional = true }
-deno_tls = { workspace = true, optional = true }
-deno_permissions = { workspace = true, optional = true }
-deno_io = { workspace = true, optional = true }
-deno_runtime = { workspace = true, optional = true }
-deno_telemetry = { workspace = true, optional = true }
-winapi = { workspace = true, optional = true }
 libffi-sys = { workspace = true, optional = true }

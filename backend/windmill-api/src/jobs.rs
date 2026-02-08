@@ -12,8 +12,6 @@ pub use windmill_api_jobs::types::*;
 pub use windmill_api_sse::*;
 
 use axum::body::Body;
-#[cfg(feature = "deno_core")]
-use deno_core::{op2, serde_v8, v8, JsRuntime, OpState};
 use futures::{StreamExt, TryFutureExt};
 use itertools::Itertools;
 use quick_cache::sync::Cache;
@@ -2928,50 +2926,18 @@ struct BatchReRunQueryReturnType {
     schema: Option<serde_json::Value>,
 }
 
-#[cfg(feature = "deno_core")]
-#[op2]
-#[string]
-fn get_deno_core_job_value(state: &mut OpState) -> Option<String> {
-    let obj = state.borrow::<BatchReRunQueryReturnType>();
-    let str = serde_json::to_string(&obj).ok()?;
-    Some(str)
-}
-
-#[cfg(feature = "deno_core")]
 async fn batch_rerun_compute_js_expression(
     expr: String,
     job: BatchReRunQueryReturnType,
 ) -> error::Result<Box<RawValue>> {
-    let ext = deno_core::Extension {
-        name: "batch_rerun_arg_transform_ext",
-        ops: vec![get_deno_core_job_value()].into(),
-        ..Default::default()
-    };
-    let mut isolate =
-        JsRuntime::new(deno_core::RuntimeOptions { extensions: vec![ext], ..Default::default() });
-
-    {
-        let op_state = isolate.op_state();
-        let mut op_state = op_state.borrow_mut();
-        op_state.put(BatchReRunQueryReturnType { schema: None, ..job });
-    }
-    isolate
-        .execute_script(
-            "<batch_rerun_arg_transform>",
-            "let job = JSON.parse(Deno.core.ops.get_deno_core_job_value());",
-        )
-        .map_err(|e| Error::ExecutionErr(e.to_string()))?;
-
-    // Run user expr
-    let result = isolate
-        .execute_script("<batch_rerun_arg_transform>", expr)
-        .map_err(|e| Error::ExecutionErr(e.to_string()))?;
-    let mut scope = isolate.handle_scope();
-    let result = v8::Local::new(&mut scope, result);
-    let result: serde_json::Value =
-        serde_v8::from_v8(&mut scope, result).map_err(|e| Error::ExecutionErr(e.to_string()))?;
-    let result = JsonRawValue::from_string(result.to_string())?;
-    Ok(result)
+    let job_no_schema = BatchReRunQueryReturnType { schema: None, ..job };
+    let job_value =
+        serde_json::to_value(&job_no_schema).map_err(|e| Error::ExecutionErr(e.to_string()))?;
+    let mut globals = std::collections::HashMap::new();
+    globals.insert("job".to_string(), job_value);
+    windmill_jseval::eval_simple_js(expr, globals)
+        .await
+        .map_err(|e| Error::ExecutionErr(e.to_string()))
 }
 
 async fn batch_rerun_jobs(
@@ -3098,13 +3064,6 @@ async fn batch_rerun_handle_job(
                 args.insert(property_name.clone(), value.clone());
             }
             InputTransform::Javascript { expr } => {
-                #[cfg(not(feature = "deno_core"))]
-                Err(error::Error::ExecutionErr(
-                    format!("deno_core feature is not activated, cannot evaluate: {expr}")
-                        .to_string(),
-                ))?;
-
-                #[cfg(feature = "deno_core")]
                 args.insert(
                     property_name.clone(),
                     batch_rerun_compute_js_expression(expr.clone(), job.clone()).await?,
