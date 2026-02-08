@@ -11,6 +11,7 @@ members = [
     "./windmill-api-scripts",
     "./windmill-api-users",
     "./windmill-api-workspaces",
+    "./windmill-api-groups",
     "./windmill-api-auth",
     "./windmill-api-sse",
     "./windmill-api-jobs",
@@ -257,6 +258,7 @@ windmill-api-auth = { path = "./windmill-api-auth" }
 windmill-api-scripts = { path = "./windmill-api-scripts" }
 windmill-api-users = { path = "./windmill-api-users" }
 windmill-api-workspaces = { path = "./windmill-api-workspaces" }
+windmill-api-groups = { path = "./windmill-api-groups" }
 windmill-api-sse = { path = "./windmill-api-sse" }
 windmill-api-jobs = { path = "./windmill-api-jobs" }
 windmill-trigger = { path = "./windmill-trigger" }

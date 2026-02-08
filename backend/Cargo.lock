@@ -15803,6 +15803,7 @@ dependencies = [
  "uuid",
  "windmill-api-auth",
  "windmill-api-embeddings",
+ "windmill-api-groups",
  "windmill-api-jobs",
  "windmill-api-scripts",
  "windmill-api-sse",
@@ -15895,6 +15896,26 @@ dependencies = [
  "tracing",
  "windmill-common",
  "windmill-store",
+]
+
+[[package]]
+name = "windmill-api-groups"
+version = "1.628.3"
+dependencies = [
+ "axum 0.7.9",
+ "chrono",
+ "lazy_static",
+ "regex",
+ "serde",
+ "serde_json",
+ "sql-builder",
+ "sqlx",
+ "uuid",
+ "windmill-api-auth",
+ "windmill-api-workspaces",
+ "windmill-audit",
+ "windmill-common",
+ "windmill-git-sync",
 ]
 
 [[package]]

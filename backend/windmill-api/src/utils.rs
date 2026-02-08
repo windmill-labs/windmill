@@ -23,11 +23,7 @@ use windmill_common::error::JsonResult;
 #[cfg(feature = "enterprise")]
 use axum::Json;
 
-#[cfg(feature = "enterprise")]
-pub use windmill_common::usernames::INVALID_USERNAME_CHARS;
-pub use windmill_common::usernames::{
-    generate_instance_wide_unique_username, get_instance_username_or_create_pending,
-};
+pub use windmill_common::usernames::generate_instance_wide_unique_username;
 pub use windmill_common::utils::WithStarredInfoQuery;
 
 pub async fn generate_instance_username_for_all_users(db: &DB) -> error::Result<()> {
