@@ -12,6 +12,7 @@ path = "src/lib.rs"
 default = []
 enterprise = ["windmill-common/enterprise", "windmill-api-jobs/enterprise"]
 cloud = ["windmill-common/cloud"]
+python = ["dep:windmill-parser-py"]
 
 [dependencies]
 windmill-api-auth.workspace = true
@@ -40,4 +41,4 @@ rand.workspace = true
 itertools.workspace = true
 windmill-parser.workspace = true
 windmill-parser-ts.workspace = true
-windmill-parser-py.workspace = true
+windmill-parser-py = { workspace = true, optional = true }

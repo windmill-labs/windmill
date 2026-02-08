@@ -18,7 +18,7 @@ agent_worker_server = ["dep:windmill-worker"]
 enterprise_saml = ["dep:samael", "dep:libxml"]
 benchmark = []
 embedding = ["windmill-api-embeddings/embedding"]
-parquet = ["dep:datafusion", "dep:object_store", "windmill-common/parquet", "windmill-worker?/parquet", "windmill-api-users/parquet"]
+parquet = ["dep:datafusion", "dep:object_store", "windmill-common/parquet", "windmill-worker?/parquet", "windmill-api-users/parquet", "dep:aws-sigv4", "dep:aws-sdk-config"]
 prometheus = ["windmill-common/prometheus", "windmill-queue/prometheus", "dep:prometheus", "windmill-worker?/prometheus"]
 openidconnect = ["dep:openidconnect", "windmill-common/openidconnect", "windmill-store/openidconnect"]
 tantivy = ["dep:windmill-indexer"]
@@ -39,8 +39,8 @@ sqs_trigger = ["dep:windmill-trigger-sqs", "windmill-store/sqs_trigger"]
 gcp_trigger = ["dep:windmill-trigger-gcp", "windmill-store/gcp_trigger"]
 cloud = ["windmill-common/cloud", "windmill-api-auth/cloud", "windmill-store/cloud", "windmill-api-workspaces/cloud"]
 mcp = ["dep:windmill-mcp", "windmill-mcp/server", "windmill-mcp/auth", "windmill-api-auth/mcp", "windmill-store/mcp"]
-bedrock = ["dep:aws-sdk-bedrock", "dep:aws-sdk-bedrockruntime", "windmill-common/bedrock", "dep:aws-config"]
-python = ["windmill-dep-map/python"]
+bedrock = ["dep:aws-sdk-bedrock", "dep:aws-sdk-bedrockruntime", "windmill-common/bedrock", "dep:aws-config", "dep:aws-credential-types", "dep:aws-smithy-types"]
+python = ["windmill-dep-map/python", "dep:windmill-parser-py", "dep:windmill-parser-py-imports", "windmill-api-scripts/python", "windmill-trigger/python", "windmill-common/python"]
 no_auth = ["windmill-api-auth/no_auth", "windmill-store/no_auth", "windmill-api-users/no_auth"]
 
 [dependencies]
@@ -60,8 +60,8 @@ windmill-audit.workspace = true
 windmill-parser.workspace = true
 windmill-parser-sql.workspace = true
 windmill-parser-ts.workspace = true
-windmill-parser-py.workspace = true
-windmill-parser-py-imports.workspace = true
+windmill-parser-py = { workspace = true, optional = true }
+windmill-parser-py-imports = { workspace = true, optional = true }
 windmill-git-sync.workspace = true
 windmill-indexer = { workspace = true, optional = true }
 windmill-autoscaling.workspace = true
@@ -150,13 +150,13 @@ async-stream.workspace = true
 ulid.workspace = true
 rustls = { workspace = true }
 
-aws-sigv4.workspace = true
-aws-sdk-config.workspace = true
+aws-sigv4 = { workspace = true, optional = true }
+aws-sdk-config = { workspace = true, optional = true }
 aws-config = { workspace = true, optional = true }
-aws-credential-types.workspace = true
+aws-credential-types = { workspace = true, optional = true }
 aws-sdk-bedrock = { workspace = true, optional = true }
 aws-sdk-bedrockruntime = { workspace = true, optional = true }
-aws-smithy-types.workspace = true
+aws-smithy-types = { workspace = true, optional = true }
 async-trait.workspace = true
 windmill-jseval.workspace = true
 tar.workspace = true

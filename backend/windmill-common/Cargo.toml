@@ -22,6 +22,7 @@ scoped_cache = []
 cloud = []
 openidconnect = ["dep:openidconnect"]
 bedrock = ["dep:aws-sdk-bedrockruntime", "dep:aws-credential-types", "dep:aws-smithy-types", "dep:aws-config"]
+python = ["dep:windmill-parser-py"]
 
 [lib]
 name = "windmill_common"
@@ -90,7 +91,7 @@ crc.workspace = true
 windmill-macros.workspace = true
 windmill-parser-sql.workspace = true
 windmill-parser-ts.workspace = true
-windmill-parser-py.workspace = true
+windmill-parser-py = { workspace = true, optional = true }
 windmill-parser.workspace = true
 jsonwebtoken.workspace = true
 backon.workspace = true

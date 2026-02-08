@@ -832,6 +832,7 @@ async fn create_script_internal<'c>(
                     }
                 }
             }
+            #[cfg(feature = "python")]
             ScriptLang::Python3 => {
                 let args = windmill_parser_py::parse_python_signature(&ns.content, None, true);
                 match args {
