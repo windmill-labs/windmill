@@ -79,23 +79,15 @@ mod worker_flow;
 mod worker_lockfiles;
 mod worker_utils;
 
-#[cfg(all(feature = "private", feature = "enterprise", feature = "deno_core"))]
-pub use otel_tracing_proxy_ee::{
-    load_internal_otel_exporter, DENO_OTEL_INITIALIZED, OTLP_COLLECTOR_PORT,
-};
 #[cfg(all(feature = "private", feature = "enterprise"))]
-pub use otel_tracing_proxy_ee::{
-    set_current_job_context, start_jobs_otel_tracing, TRACING_PROXY_PORT,
-};
-pub use windmill_dep_map::trigger_dependents::trigger_dependents_to_recompute_dependencies;
+pub use otel_tracing_proxy_ee::start_jobs_otel_tracing;
+#[cfg(all(feature = "private", feature = "enterprise", feature = "deno_core"))]
+pub use otel_tracing_proxy_ee::{load_internal_otel_exporter, DENO_OTEL_INITIALIZED};
 pub use worker::*;
 
-pub use result_processor::handle_job_error;
-
 pub use bun_executor::{
-    build_loader, compute_bundle_local_and_remote_path, generate_dedicated_worker_wrapper,
-    get_common_bun_proc_envs, install_bun_lockfile, prebundle_bun_script, prepare_job_dir,
-    LoaderMode, BUN_DEDICATED_WORKER_ARGS, RELATIVE_BUN_BUILDER, RELATIVE_BUN_LOADER,
+    compute_bundle_local_and_remote_path, get_common_bun_proc_envs, install_bun_lockfile,
+    prebundle_bun_script, prepare_job_dir,
 };
 pub use deno_executor::generate_deno_lock;
 pub use prepare_deps::run_prepare_deps_cli;
