@@ -28,6 +28,8 @@ members = [
     "./windmill-worker",
     "./windmill-dep-map",
     "./windmill-common",
+    "./windmill-jseval",
+    "./windmill-runtime-nativets",
     "./windmill-mcp",
     "./windmill-audit",
     "./windmill-git-sync",
@@ -85,8 +87,7 @@ cloud = ["windmill-queue/cloud", "windmill-worker/cloud", "windmill-common/cloud
 jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemalloc-sys", "dep:tikv-jemalloc-ctl"]
 tantivy = ["dep:windmill-indexer", "windmill-api/tantivy", "windmill-indexer/enterprise", "windmill-indexer/parquet", "windmill-common/tantivy", "enterprise", "parquet"]
 sqlx = ["windmill-worker/sqlx"]
-deno_core = ["windmill-worker/deno_core", "windmill-api/deno_core", "dep:deno_core", "dep:v8"]
-quickjs = ["windmill-worker/quickjs"]
+deno_core = ["windmill-worker/deno_core", "dep:windmill-runtime-nativets"]
 deno_core_mac = ["deno_core", "windmill-worker/libffi_mac"]
 kafka = ["windmill-api/kafka"]
 kafka-gssapi = ["windmill-api/kafka-gssapi"]
@@ -193,13 +194,12 @@ serde_json.workspace = true
 serde_derive.workspace = true
 serde_yml.workspace = true
 serde.workspace = true
-deno_core = { workspace = true, optional = true }
+windmill-runtime-nativets = { workspace = true, optional = true }
 object_store = { workspace = true, optional = true }
 sha1 = { workspace = true, optional = true }
 constant_time_eq = { workspace = true, optional = true }
 quote.workspace = true
 memchr.workspace = true
-v8 = { workspace = true, optional = true }
 rustls.workspace = true
 pep440_rs.workspace = true
 strum.workspace = true
@@ -230,7 +230,6 @@ windmill-dep-map.workspace = true
 axum.workspace = true
 serde.workspace = true
 windmill-api-client.workspace = true
-deno_core = { workspace = true, features = ["include_js_files_for_snapshotting", "unsafe_use_unprotected_platform"] }
 tempfile.workspace = true
 
 
@@ -278,6 +277,8 @@ windmill-parser-bash = { path = "./parsers/windmill-parser-bash" }
 windmill-parser-sql = { path = "./parsers/windmill-parser-sql" }
 windmill-parser-graphql = { path = "./parsers/windmill-parser-graphql" }
 windmill-parser-php = { path = "./parsers/windmill-parser-php" }
+windmill-jseval = { path = "./windmill-jseval" }
+windmill-runtime-nativets = { path = "./windmill-runtime-nativets" }
 windmill-api-client = { path = "./windmill-api-client" }
 
 reqwest-retry = "^0"
