@@ -426,7 +426,7 @@ pub(crate) async fn tarball_workspace(
         .await?;
 
         for script in scripts {
-            let script = script.prefetch_cached(&db).await?;
+            let script = windmill_common::scripts::prefetch_cached_script(script, &db).await?;
             let ext = match script.language {
                 ScriptLang::Python3 => "py",
                 ScriptLang::Deno => {

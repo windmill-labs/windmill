@@ -819,7 +819,6 @@ use crate::{
     auth::{PermsCache, FLOW_PERMS_CACHE, HASH_PERMS_CACHE},
     db::{AuthedRef, UserDbWithAuthed},
     error::to_anyhow,
-    runnable_settings::RunnableSettings,
     scripts::{ScriptHash, ScriptRunnableSettingsHandle, ScriptRunnableSettingsInline},
 };
 
@@ -853,14 +852,13 @@ impl ScriptHashInfo<ScriptRunnableSettingsHandle> {
         self,
         db: &DB,
     ) -> error::Result<ScriptHashInfo<ScriptRunnableSettingsInline>> {
+        let rs = runnable_settings::from_handle(
+            self.runnable_settings.runnable_settings_handle,
+            db,
+        )
+        .await?;
         let (debouncing_settings, concurrency_settings) =
-            RunnableSettings::from_runnable_settings_handle(
-                self.runnable_settings.runnable_settings_handle,
-                db,
-            )
-            .await?
-            .prefetch_cached(db)
-            .await?;
+            runnable_settings::prefetch_cached(&rs, db).await?;
 
         Ok(ScriptHashInfo {
             path: self.path,

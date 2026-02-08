@@ -97,6 +97,7 @@ backon.workspace = true
 openidconnect = { workspace = true, optional = true }
 strum.workspace = true
 strum_macros.workspace = true
+windmill-types.workspace = true
 url.workspace = true
 urlencoding.workspace = true
 async-recursion.workspace = true

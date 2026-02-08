@@ -16164,6 +16164,7 @@ dependencies = [
  "windmill-parser-py",
  "windmill-parser-sql",
  "windmill-parser-ts",
+ "windmill-types",
 ]
 
 [[package]]
@@ -16924,6 +16925,23 @@ dependencies = [
  "windmill-git-sync",
  "windmill-queue",
  "windmill-trigger",
+]
+
+[[package]]
+name = "windmill-types"
+version = "1.628.3"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "hex",
+ "itertools 0.14.0",
+ "rand 0.9.0",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "strum 0.27.2",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
