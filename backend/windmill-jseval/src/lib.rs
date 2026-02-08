@@ -21,6 +21,7 @@ use std::sync::Arc;
 
 use lazy_static::lazy_static;
 use regex::Regex;
+#[cfg(feature = "quickjs")]
 use rquickjs::{
     async_with,
     prelude::{Async, Func, MutFn},
@@ -63,8 +64,9 @@ lazy_static! {
     .unwrap();
 }
 
-// ── Shared helper functions ───────────────────────────────────────────
+// ── Shared helper functions (quickjs-only) ──────────────────────────
 
+#[cfg(feature = "quickjs")]
 pub fn replace_with_await(expr: String, fn_name: &str) -> String {
     let sep = format!("{}(", fn_name);
     let mut split = expr.split(&sep);
@@ -75,10 +77,12 @@ pub fn replace_with_await(expr: String, fn_name: &str) -> String {
     s
 }
 
+#[cfg(feature = "quickjs")]
 pub fn replace_with_await_result(expr: String) -> String {
     RE.replace_all(&expr, "(await $r)").to_string()
 }
 
+#[cfg(feature = "quickjs")]
 fn add_closing_bracket(s: &str) -> String {
     let mut s = s.to_string();
     let mut level = 1;
@@ -194,9 +198,12 @@ pub async fn handle_full_regex(
     return None;
 }
 
+#[cfg(feature = "quickjs")]
 use windmill_common::utils::unsafe_raw;
 
 // ── QuickJS evaluation ───────────────────────────────────────────────
+
+#[cfg(feature = "quickjs")]
 
 /// Shared state for async operations within QuickJS
 #[derive(Clone)]
@@ -204,13 +211,7 @@ struct AsyncOpState {
     client: AuthedClient,
 }
 
-/// Evaluates a JavaScript expression using QuickJS runtime.
-///
-/// This function provides flow expression evaluation using QuickJS
-/// instead of deno_core/V8 for significantly faster startup times.
-///
-/// Unlike deno_core, this uses true async Rust callbacks for `variable()`,
-/// `resource()`, and `results.xxx` access - no pre-fetching required.
+#[cfg(feature = "quickjs")]
 pub async fn eval_timeout_quickjs(
     expr: String,
     transform_context: HashMap<String, Arc<Box<RawValue>>>,
@@ -301,9 +302,10 @@ pub async fn eval_timeout_quickjs(
     })??
 }
 
-/// Memory limit for QuickJS runtime (32MB).
+#[cfg(feature = "quickjs")]
 const QUICKJS_MEMORY_LIMIT: usize = 32 * 1024 * 1024;
 
+#[cfg(feature = "quickjs")]
 async fn eval_quickjs_inner(
     expr: &str,
     transform_context: HashMap<String, Arc<Box<RawValue>>>,
@@ -441,7 +443,7 @@ async fn eval_quickjs_inner(
     .await
 }
 
-/// Set up async variable() and resource() functions using true Rust async callbacks.
+#[cfg(feature = "quickjs")]
 fn setup_async_ops<'js>(
     ctx: &rquickjs::Ctx<'js>,
     globals: &Object<'js>,
@@ -509,7 +511,7 @@ fn setup_async_ops<'js>(
     Ok(())
 }
 
-/// Set up stub functions that throw errors when no client is available
+#[cfg(feature = "quickjs")]
 fn setup_stub_functions<'js>(
     ctx: &rquickjs::Ctx<'js>,
     _globals: &Object<'js>,
@@ -531,7 +533,7 @@ fn setup_stub_functions<'js>(
     Ok(())
 }
 
-/// Set up the `results` Proxy object with dynamic access to step results.
+#[cfg(feature = "quickjs")]
 fn setup_results_proxy<'js>(
     ctx: &rquickjs::Ctx<'js>,
     globals: &Object<'js>,
@@ -657,7 +659,7 @@ fn setup_results_proxy<'js>(
     Ok(())
 }
 
-/// Convert a serde_json::Value to a QuickJS Value
+#[cfg(feature = "quickjs")]
 fn json_to_js<'js>(
     ctx: &rquickjs::Ctx<'js>,
     val: &serde_json::Value,
@@ -696,6 +698,7 @@ fn json_to_js<'js>(
     }
 }
 
+#[cfg(feature = "quickjs")]
 fn should_add_return_quickjs(expr: &str) -> bool {
     let trimmed = expr.trim();
 
@@ -741,6 +744,7 @@ fn should_add_return_quickjs(expr: &str) -> bool {
     true
 }
 
+#[cfg(feature = "quickjs")]
 fn contains_semicolon_outside_strings(expr: &str) -> bool {
     let mut in_single_quote = false;
     let mut in_double_quote = false;
@@ -769,14 +773,14 @@ fn contains_semicolon_outside_strings(expr: &str) -> bool {
     false
 }
 
+#[cfg(feature = "quickjs")]
 fn quickjs_error_to_anyhow(err: rquickjs::CaughtError<'_>) -> anyhow::Error {
     anyhow::anyhow!("QuickJS evaluation error: {}", err)
 }
 
 // ── eval_simple_js for windmill-api batch rerun ──────────────────────
 
-/// Evaluate a JS expression with named JSON globals in scope.
-/// Used by windmill-api for batch rerun arg transforms.
+#[cfg(feature = "quickjs")]
 pub async fn eval_simple_js(
     expr: String,
     globals: HashMap<String, serde_json::Value>,
@@ -819,9 +823,32 @@ pub async fn eval_simple_js(
     })??
 }
 
+// ── Fallback stubs when quickjs is disabled ──────────────────────────
+
+#[cfg(not(feature = "quickjs"))]
+pub async fn eval_timeout_quickjs(
+    _expr: String,
+    _transform_context: HashMap<String, Arc<Box<RawValue>>>,
+    _flow_input: Option<mappable_rc::Marc<HashMap<String, Box<RawValue>>>>,
+    _flow_env: Option<&HashMap<String, Box<RawValue>>>,
+    _authed_client: Option<&windmill_common::client::AuthedClient>,
+    _by_id: Option<&IdContext>,
+    _ctx: Option<Vec<(String, String)>>,
+) -> anyhow::Result<Box<RawValue>> {
+    anyhow::bail!("quickjs feature is not enabled")
+}
+
+#[cfg(not(feature = "quickjs"))]
+pub async fn eval_simple_js(
+    _expr: String,
+    _globals: HashMap<String, serde_json::Value>,
+) -> anyhow::Result<Box<RawValue>> {
+    anyhow::bail!("quickjs feature is not enabled")
+}
+
 // ── Tests ────────────────────────────────────────────────────────────
 
-#[cfg(test)]
+#[cfg(all(test, feature = "quickjs"))]
 mod tests {
     use super::*;
     use serde_json::json;

@@ -13,7 +13,7 @@ default = []
 private = []
 mcp = ["dep:windmill-mcp"]
 prometheus = ["dep:prometheus", "windmill-common/prometheus"]
-enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "dep:pem", "dep:tokio-util"]
+enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "dep:pem", "dep:tokio-util", "dep:opentelemetry-proto", "dep:prost", "dep:hudsucker", "dep:rcgen", "dep:hyper-http-proxy", "dep:hyper-tls", "dep:hyper-util"]
 mssql = ["dep:tiberius"]
 mssql-kerberos = ["mssql", "tiberius/integrated-auth-gssapi"]  # Linux/Unix integrated auth
 mssql-winauth = ["mssql", "tiberius/winauth"]  # Windows integrated auth
@@ -37,6 +37,7 @@ nu = ["dep:windmill-parser-nu"]
 java = ["dep:windmill-parser-java"]
 ruby = ["dep:windmill-parser-ruby"]
 duckdb = ["dep:libloading"]
+quickjs = ["windmill-jseval/quickjs"]
 bedrock = ["dep:aws-sdk-bedrockruntime", "windmill-common/bedrock", "dep:aws-config", "dep:aws-credential-types", "dep:aws-smithy-types"]
 
 [dependencies]
@@ -127,18 +128,18 @@ process-wrap.workspace = true
 async-once-cell.workspace = true
 libloading = { workspace = true, optional = true }
 
-opentelemetry-proto.workspace = true
+opentelemetry-proto = { workspace = true, optional = true }
 opentelemetry = { workspace = true, optional = true }
 tracing-opentelemetry = { workspace = true, optional = true }
-prost.workspace = true
+prost = { workspace = true, optional = true }
 axum.workspace = true
 bollard = { workspace = true, optional = true }
 oracle = { workspace = true, optional = true }
-hudsucker.workspace = true
-hyper-http-proxy.workspace = true
-hyper-tls.workspace = true
-hyper-util.workspace = true
-rcgen.workspace = true
+hudsucker = { workspace = true, optional = true }
+hyper-http-proxy = { workspace = true, optional = true }
+hyper-tls = { workspace = true, optional = true }
+hyper-util = { workspace = true, optional = true }
+rcgen = { workspace = true, optional = true }
 
 [build-dependencies]
 libffi-sys = { workspace = true, optional = true }

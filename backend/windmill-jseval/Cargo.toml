@@ -10,10 +10,11 @@ path = "src/lib.rs"
 
 [features]
 default = []
+quickjs = ["dep:rquickjs"]
 
 [dependencies]
 windmill-common = { workspace = true, default-features = false }
-rquickjs.workspace = true
+rquickjs = { workspace = true, optional = true }
 serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
