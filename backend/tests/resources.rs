@@ -183,6 +183,14 @@ async fn test_resource_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     let list = resp.json::<Vec<serde_json::Value>>().await?;
     assert!(!list.is_empty());
 
+    // --- list_names ---
+    let resp = authed(client().get(format!("{base}/list_names/object")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    resp.json::<Vec<serde_json::Value>>().await?;
+
     // --- create ---
     let resp = authed(client().post(format!("{base}/create")))
         .json(&json!({
