@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
-use crate::db::ApiAuthed;
+use windmill_api_auth::{require_super_admin, ApiAuthed};
+use windmill_common::DB;
 
 use crate::workspaces::{
     archive_workspace_impl, check_w_id_conflict, CREATE_WORKSPACE_REQUIRE_SUPERADMIN,
     WM_FORK_PREFIX,
 };
-use crate::{db::DB, utils::require_super_admin};
 
 use axum::extract::Query;
 use axum::{
@@ -487,7 +487,7 @@ pub(crate) async fn change_workspace_id(
     );
 
     for schedule_path in &enabled_schedule_paths {
-        crate::schedule::clear_schedule(&mut tx, schedule_path, &old_id).await?;
+        windmill_queue::schedule::clear_schedule(&mut tx, schedule_path, &old_id).await?;
     }
 
     // Move queued jobs (not running) to new workspace using skip lock
