@@ -257,5 +257,33 @@ async fn test_flow_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     let resp = authed_get(port, "exists", "u/test-user/another_flow").await;
     assert_eq!(resp.json::<bool>().await?, false);
 
+    // ===== Hub endpoints (require external network, expect 500 or 200) =====
+
+    // --- hub/list ---
+    let resp = authed(client().get(format!(
+        "http://localhost:{port}/api/flows/hub/list"
+    )))
+    .send()
+    .await
+    .unwrap();
+    assert!(
+        resp.status() == 200 || resp.status() == 500,
+        "hub/list: unexpected status {}",
+        resp.status()
+    );
+
+    // --- hub/get ---
+    let resp = authed(client().get(format!(
+        "http://localhost:{port}/api/flows/hub/get/1"
+    )))
+    .send()
+    .await
+    .unwrap();
+    assert!(
+        resp.status() == 200 || resp.status() == 500,
+        "hub/get: unexpected status {}",
+        resp.status()
+    );
+
     Ok(())
 }

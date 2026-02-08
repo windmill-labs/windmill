@@ -557,6 +557,121 @@ async fn test_workspace_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         resp.text().await?
     );
 
+    // ===== Critical alerts (EE-gated, returns 404 in OSS) =====
+
+    // --- get critical_alerts ---
+    let resp = authed(client().get(format!("{base}/critical_alerts")))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        resp.status() == 200 || resp.status() == 404,
+        "critical_alerts: unexpected status {}",
+        resp.status()
+    );
+
+    // --- acknowledge critical alert (nonexistent id) ---
+    let resp = authed(client().post(format!("{base}/critical_alerts/1/acknowledge")))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        resp.status() == 200 || resp.status() == 404,
+        "acknowledge_critical_alert: unexpected status {}",
+        resp.status()
+    );
+
+    // --- acknowledge_all critical alerts ---
+    let resp = authed(client().post(format!("{base}/critical_alerts/acknowledge_all")))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        resp.status() == 200 || resp.status() == 404,
+        "acknowledge_all_critical_alerts: unexpected status {}",
+        resp.status()
+    );
+
+    // --- mute critical alerts ---
+    let resp = authed(client().post(format!("{base}/critical_alerts/mute")))
+        .json(&json!({"mute_critical_alerts": false}))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        resp.status() == 200 || resp.status() == 404,
+        "mute_critical_alerts: unexpected status {}",
+        resp.status()
+    );
+
+    // ===== Tarball export =====
+
+    // --- tarball (download workspace as tar archive) ---
+    let resp = authed(client().get(format!("{base}/tarball")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "tarball: {}", resp.status());
+
+    // ===== Fork operations (on the newly created workspace) =====
+
+    // --- create_fork (workspace-scoped, from new-test-ws) ---
+    let new_ws_base = format!("http://localhost:{port}/api/w/new-test-ws/workspaces");
+    let resp = authed(client().post(format!("{new_ws_base}/create_fork")))
+        .json(&json!({
+            "id": "wm-fork-test-ws",
+            "name": "Forked Test Workspace"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        200,
+        "create_fork: {}",
+        resp.text().await?
+    );
+
+    // verify fork exists
+    let resp = authed(client().post(format!("{global_base}/exists")))
+        .json(&json!({"id": "wm-fork-test-ws"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.json::<bool>().await?, true);
+
+    // --- change_workspace_id ---
+    let fork_ws_base = format!("http://localhost:{port}/api/w/wm-fork-test-ws/workspaces");
+    let resp = authed(client().post(format!("{fork_ws_base}/change_workspace_id")))
+        .json(&json!({
+            "new_id": "wm-fork-renamed",
+            "new_name": "Renamed Fork"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        200,
+        "change_workspace_id: {}",
+        resp.text().await?
+    );
+
+    // verify renamed workspace exists
+    let resp = authed(client().post(format!("{global_base}/exists")))
+        .json(&json!({"id": "wm-fork-renamed"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.json::<bool>().await?, true);
+
+    // clean up renamed fork
+    let resp = authed(client().delete(format!("{global_base}/delete/wm-fork-renamed")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
     // --- archive workspace (on the newly created one, not our main test workspace) ---
     let new_ws_base = format!("http://localhost:{port}/api/w/new-test-ws/workspaces");
     let resp = authed(client().post(format!("{new_ws_base}/archive")))

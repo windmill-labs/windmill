@@ -331,5 +331,59 @@ async fn test_script_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     let body = resp.text().await?;
     assert!(body.is_empty(), "expected empty string, got: {body}");
 
+    // ===== Hub endpoints (require external network, expect 500 or 200) =====
+
+    // --- hub/top ---
+    let resp = authed(client().get(format!(
+        "http://localhost:{port}/api/scripts/hub/top"
+    )))
+    .send()
+    .await
+    .unwrap();
+    assert!(
+        resp.status() == 200 || resp.status() == 500,
+        "hub/top: unexpected status {}",
+        resp.status()
+    );
+
+    // --- hub/get (raw script by path, needs hub/ prefix in path) ---
+    let resp = authed(client().get(format!(
+        "http://localhost:{port}/api/scripts/hub/get/hub/1/hello"
+    )))
+    .send()
+    .await
+    .unwrap();
+    assert!(
+        resp.status() == 200 || resp.status() == 500,
+        "hub/get: unexpected status {}",
+        resp.status()
+    );
+
+    // --- hub/get_full (full script by path, needs hub/ prefix in path) ---
+    let resp = authed(client().get(format!(
+        "http://localhost:{port}/api/scripts/hub/get_full/hub/1/hello"
+    )))
+    .send()
+    .await
+    .unwrap();
+    assert!(
+        resp.status() == 200 || resp.status() == 500,
+        "hub/get_full: unexpected status {}",
+        resp.status()
+    );
+
+    // --- integrations hub/list ---
+    let resp = authed(client().get(format!(
+        "http://localhost:{port}/api/integrations/hub/list"
+    )))
+    .send()
+    .await
+    .unwrap();
+    assert!(
+        resp.status() == 200 || resp.status() == 500,
+        "integrations hub/list: unexpected status {}",
+        resp.status()
+    );
+
     Ok(())
 }

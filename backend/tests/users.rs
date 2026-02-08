@@ -285,6 +285,70 @@ async fn test_user_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         );
     }
 
+    // ===== Auth (unauthed) endpoints =====
+    let auth_base = format!("http://localhost:{port}/api/auth");
+
+    // --- login (will fail: password hash in fixture is fake) ---
+    let resp = client()
+        .post(format!("{auth_base}/login"))
+        .json(&json!({"email": "test@windmill.dev", "password": "wrong-password"}))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        resp.status() == 401 || resp.status() == 500,
+        "login: unexpected status {}",
+        resp.status()
+    );
+
+    // --- logout (POST, with auth token) ---
+    let resp = authed(client().post(format!("{auth_base}/logout")))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        resp.status() == 200 || resp.status() == 303,
+        "logout POST: unexpected status {}",
+        resp.status()
+    );
+
+    // --- logout (GET, with auth token) ---
+    let resp = authed(client().get(format!("{auth_base}/logout")))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        resp.status() == 200 || resp.status() == 303,
+        "logout GET: unexpected status {}",
+        resp.status()
+    );
+
+    // --- request_password_reset (returns 400 if SMTP not configured) ---
+    let resp = client()
+        .post(format!("{auth_base}/request_password_reset"))
+        .json(&json!({"email": "test@windmill.dev"}))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        resp.status() == 200 || resp.status() == 400,
+        "request_password_reset: unexpected status {}",
+        resp.status()
+    );
+
+    // --- reset_password (EE-gated, invalid token) ---
+    let resp = client()
+        .post(format!("{auth_base}/reset_password"))
+        .json(&json!({"token": "invalid-token", "new_password": "new-pass"}))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        resp.status() == 400 || resp.status() == 500,
+        "reset_password: unexpected status {}",
+        resp.status()
+    );
+
     // ===== Workspace-scoped endpoints =====
 
     // --- whoami ---
