@@ -31,6 +31,7 @@ members = [
     "./windmill-queue",
     "./windmill-worker",
     "./windmill-dep-map",
+    "./windmill-types",
     "./windmill-common",
     "./windmill-jseval",
     "./windmill-runtime-nativets",
@@ -234,6 +235,7 @@ windmill-api = { path = "./windmill-api", default-features = false  }
 windmill-queue = { path = "./windmill-queue" }
 windmill-worker = { path = "./windmill-worker" }
 windmill-dep-map = { path = "./windmill-dep-map" }
+windmill-types = { path = "./windmill-types" }
 windmill-common = { path = "./windmill-common", default-features = false }
 windmill-audit = { path = "./windmill-audit" }
 windmill-git-sync = { path = "./windmill-git-sync" }

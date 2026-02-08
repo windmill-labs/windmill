@@ -134,12 +134,10 @@ impl ScriptWDraft<ScriptRunnableSettingsHandle> {
         db: &DB,
     ) -> error::Result<ScriptWDraft<ScriptRunnableSettingsInline>> {
         let (debouncing_settings, concurrency_settings) =
-            RunnableSettings::from_runnable_settings_handle(
+            windmill_common::runnable_settings::prefetch_cached_from_handle(
                 self.runnable_settings.runnable_settings_handle,
                 db,
             )
-            .await?
-            .prefetch_cached(db)
             .await?;
 
         Ok(ScriptWDraft {
@@ -851,11 +849,10 @@ async fn create_script_internal<'c>(
         }
     };
 
-    let runnable_settings_handle = RunnableSettings {
+    let runnable_settings_handle = windmill_common::runnable_settings::insert_rs(RunnableSettings {
         debouncing_settings: ns.debouncing_settings.insert_cached(&db).await?,
         concurrency_settings: ns.concurrency_settings.insert_cached(&db).await?,
-    }
-    .insert_cached(&db)
+    }, &db)
     .await?;
 
     let (
@@ -1294,9 +1291,11 @@ async fn get_script_by_path(
     };
     tx.commit().await?;
 
-    let script = not_found_if_none(script_o, "Script", path)?
-        .prefetch_cached(&db)
-        .await?;
+    let script = windmill_common::scripts::prefetch_cached_script_with_starred(
+        not_found_if_none(script_o, "Script", path)?,
+        &db,
+    )
+    .await?;
 
     Ok(Json(script))
 }
@@ -1830,7 +1829,7 @@ async fn get_script_by_hash(
 
     tx.commit().await?;
 
-    Ok(Json(r.prefetch_cached(&db).await?))
+    Ok(Json(windmill_common::scripts::prefetch_cached_script_with_starred(r, &db).await?))
 }
 
 async fn raw_script_by_hash(
@@ -2009,7 +2008,7 @@ async fn archive_script_by_hash(
         WebhookMessage::DeleteScript { workspace: w_id, hash: hash.to_string() },
     );
 
-    Ok(Json(script.prefetch_cached(&db).await?))
+    Ok(Json(windmill_common::scripts::prefetch_cached_script(script, &db).await?))
 }
 
 async fn delete_script_by_hash(
@@ -2053,7 +2052,7 @@ async fn delete_script_by_hash(
         WebhookMessage::DeleteScript { workspace: w_id, hash: hash.to_string() },
     );
 
-    Ok(Json(script.prefetch_cached(&db).await?))
+    Ok(Json(windmill_common::scripts::prefetch_cached_script(script, &db).await?))
 }
 
 #[derive(Deserialize)]
