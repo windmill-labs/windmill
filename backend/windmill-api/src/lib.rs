@@ -56,6 +56,8 @@ use tower_http::{
 };
 use windmill_common::db::UserDB;
 use windmill_common::worker::CLOUD_HOSTED;
+#[allow(unused_imports)]
+pub(crate) use windmill_common::BASE_URL;
 use windmill_common::{
     utils::{configure_client, GIT_VERSION},
     INSTANCE_NAME,
