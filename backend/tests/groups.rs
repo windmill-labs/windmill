@@ -151,5 +151,150 @@ async fn test_group_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     let names = resp.json::<Vec<String>>().await?;
     assert!(!names.contains(&"another_group".to_string()));
 
+    // ===== Global (instance group) endpoints =====
+    let global_base = format!("http://localhost:{port}/api/groups");
+
+    // --- create instance group ---
+    let resp = authed(client().post(format!("{global_base}/create")))
+        .json(&json!({"name": "test_igroup", "summary": "Test instance group"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        200,
+        "create igroup: {}",
+        resp.text().await?
+    );
+
+    // --- list instance groups ---
+    let resp = authed(client().get(format!("{global_base}/list")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let list = resp.json::<Vec<serde_json::Value>>().await?;
+    assert!(list.iter().any(|g| g["name"] == "test_igroup"));
+
+    // --- list_with_workspaces ---
+    let resp = authed(client().get(format!("{global_base}/list_with_workspaces")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    resp.json::<Vec<serde_json::Value>>().await?;
+
+    // --- get instance group ---
+    let resp = authed(client().get(format!("{global_base}/get/test_igroup")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body = resp.json::<serde_json::Value>().await?;
+    assert_eq!(body["name"], "test_igroup");
+    assert_eq!(body["summary"], "Test instance group");
+
+    // --- update instance group ---
+    let resp = authed(client().post(format!("{global_base}/update/test_igroup")))
+        .json(&json!({"new_summary": "Updated instance group"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        200,
+        "update igroup: {}",
+        resp.text().await?
+    );
+
+    // verify update
+    let resp = authed(client().get(format!("{global_base}/get/test_igroup")))
+        .send()
+        .await
+        .unwrap();
+    let body = resp.json::<serde_json::Value>().await?;
+    assert_eq!(body["summary"], "Updated instance group");
+
+    // --- adduser to instance group ---
+    let resp = authed(client().post(format!("{global_base}/adduser/test_igroup")))
+        .json(&json!({"email": "test@windmill.dev"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        200,
+        "adduser igroup: {}",
+        resp.text().await?
+    );
+
+    // verify membership
+    let resp = authed(client().get(format!("{global_base}/get/test_igroup")))
+        .send()
+        .await
+        .unwrap();
+    let body = resp.json::<serde_json::Value>().await?;
+    let emails = body["emails"].as_array().unwrap();
+    assert!(
+        emails
+            .iter()
+            .any(|e| e.as_str() == Some("test@windmill.dev")),
+        "expected test@windmill.dev in emails, got: {:?}",
+        emails
+    );
+
+    // --- removeuser from instance group ---
+    let resp = authed(client().post(format!(
+        "{global_base}/removeuser/test_igroup"
+    )))
+    .json(&json!({"email": "test@windmill.dev"}))
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    // --- export (EE-gated) ---
+    let resp = authed(client().get(format!("{global_base}/export")))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        resp.status() == 200 || resp.status() == 400,
+        "export igroups: unexpected status {}",
+        resp.status()
+    );
+
+    // --- overwrite (EE-gated) ---
+    let resp = authed(client().post(format!("{global_base}/overwrite")))
+        .json(&json!([]))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        resp.status() == 200 || resp.status() == 400,
+        "overwrite igroups: unexpected status {}",
+        resp.status()
+    );
+
+    // --- delete instance group ---
+    let resp = authed(client().delete(format!("{global_base}/delete/test_igroup")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        200,
+        "delete igroup: {}",
+        resp.text().await?
+    );
+
+    // verify deleted
+    let resp = authed(client().get(format!("{global_base}/list")))
+        .send()
+        .await
+        .unwrap();
+    let list = resp.json::<Vec<serde_json::Value>>().await?;
+    assert!(!list.iter().any(|g| g["name"] == "test_igroup"));
+
     Ok(())
 }

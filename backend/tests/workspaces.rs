@@ -587,5 +587,14 @@ async fn test_workspace_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         .unwrap();
     assert_eq!(resp.json::<bool>().await?, false);
 
+    // --- create_workspace_require_superadmin ---
+    let resp = authed(client().get(format!(
+        "{global_base}/create_workspace_require_superadmin"
+    )))
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 200);
+
     Ok(())
 }

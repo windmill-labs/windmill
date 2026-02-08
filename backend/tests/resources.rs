@@ -296,6 +296,16 @@ async fn test_resource_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     .unwrap();
     assert_eq!(resp.status(), 404);
 
+    // --- file_resource_type_to_file_ext_map ---
+    let resp = authed(client().get(format!(
+        "{base}/file_resource_type_to_file_ext_map"
+    )))
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 200);
+    resp.json::<serde_json::Value>().await?;
+
     // --- resource types ---
 
     // type/exists

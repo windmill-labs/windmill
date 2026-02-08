@@ -113,6 +113,178 @@ async fn test_user_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(resp.status(), 200);
     resp.json::<Vec<serde_json::Value>>().await?;
 
+    // --- username_info ---
+    let resp = authed(client().get(format!(
+        "{global_base}/username_info/test@windmill.dev"
+    )))
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body = resp.json::<serde_json::Value>().await?;
+    assert_eq!(body["username"], "test-user");
+
+    // --- global usage ---
+    let resp = authed(client().get(format!("{global_base}/usage")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    // --- tutorial_progress (get, then set, then get again) ---
+    let resp = authed(client().get(format!("{global_base}/tutorial_progress")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    resp.json::<serde_json::Value>().await?;
+
+    let resp = authed(client().post(format!("{global_base}/tutorial_progress")))
+        .json(&json!({"progress": 42, "skipped_all": false}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        200,
+        "set tutorial_progress: {}",
+        resp.text().await?
+    );
+
+    let resp = authed(client().get(format!("{global_base}/tutorial_progress")))
+        .send()
+        .await
+        .unwrap();
+    let body = resp.json::<serde_json::Value>().await?;
+    assert_eq!(body["progress"], 42);
+
+    // --- global update user ---
+    let resp = authed(client().post(format!(
+        "{global_base}/update/test2@windmill.dev"
+    )))
+    .json(&json!({"name": "Updated Test User 2"}))
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(
+        resp.status(),
+        200,
+        "global update user: {}",
+        resp.text().await?
+    );
+
+    // --- setpassword (EE-gated in OSS) ---
+    let resp = authed(client().post(format!("{global_base}/setpassword")))
+        .json(&json!({"password": "new-test-password-123"}))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        resp.status() == 200 || resp.status() == 500,
+        "setpassword: unexpected status {}",
+        resp.status()
+    );
+
+    // --- all_runnables ---
+    let resp = authed(client().get(format!("{global_base}/all_runnables")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    resp.json::<Vec<serde_json::Value>>().await?;
+
+    // --- onboarding (EE-gated in OSS) ---
+    let resp = authed(client().post(format!("{global_base}/onboarding")))
+        .json(&json!({"touch_point": "test", "use_case": "testing"}))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        resp.status() == 200 || resp.status() == 500,
+        "onboarding: unexpected status {}",
+        resp.status()
+    );
+
+    // --- decline_invite (no pending invite, but endpoint should handle gracefully) ---
+    let resp = authed(client().post(format!("{global_base}/decline_invite")))
+        .json(&json!({"workspace_id": "nonexistent-ws"}))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        resp.status() == 200 || resp.status() == 404,
+        "decline_invite: unexpected status {}",
+        resp.status()
+    );
+
+    // --- auth: is_first_time_setup (unauthed) ---
+    let resp = client()
+        .get(format!("http://localhost:{port}/api/auth/is_first_time_setup"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let is_first = resp.json::<bool>().await?;
+    assert_eq!(is_first, false);
+
+    // --- auth: is_smtp_configured (unauthed) ---
+    let resp = client()
+        .get(format!("http://localhost:{port}/api/auth/is_smtp_configured"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    resp.json::<bool>().await?;
+
+    // --- create user (global, EE-gated in OSS) ---
+    let resp = authed(client().post(format!("{global_base}/create")))
+        .json(&json!({
+            "email": "newglobaluser@windmill.dev",
+            "password": "test-password-123",
+            "super_admin": false,
+            "name": "New Global User"
+        }))
+        .send()
+        .await
+        .unwrap();
+    let create_status = resp.status();
+    assert!(
+        create_status == 201 || create_status == 500,
+        "create user: unexpected status {}",
+        create_status
+    );
+
+    if create_status == 201 {
+        // --- rename user (only if create succeeded / EE) ---
+        let resp = authed(client().post(format!(
+            "{global_base}/rename/newglobaluser@windmill.dev"
+        )))
+        .json(&json!({"new_username": "renamed-user"}))
+        .send()
+        .await
+        .unwrap();
+        assert_eq!(
+            resp.status(),
+            200,
+            "rename user: {}",
+            resp.text().await?
+        );
+
+        // --- global delete user ---
+        let resp = authed(client().delete(format!(
+            "{global_base}/delete/newglobaluser@windmill.dev"
+        )))
+        .send()
+        .await
+        .unwrap();
+        assert_eq!(
+            resp.status(),
+            200,
+            "global delete user: {}",
+            resp.text().await?
+        );
+    }
+
     // ===== Workspace-scoped endpoints =====
 
     // --- whoami ---
