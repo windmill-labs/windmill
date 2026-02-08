@@ -260,13 +260,6 @@ async fn test_parallel_nativets_stress(db: Pool<Postgres>) -> anyhow::Result<()>
     initialize_tracing().await;
     set_jwt_secret().await;
 
-    // V8 and rustls must be initialized before any JsRuntime is created
-    static RUNTIME_INIT: std::sync::Once = std::sync::Once::new();
-    RUNTIME_INIT.call_once(|| {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        windmill_runtime_nativets::setup_deno_runtime().expect("V8 init failed");
-    });
-
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
     let conn = Connection::Sql(db.clone());
