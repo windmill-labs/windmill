@@ -56,9 +56,11 @@ use tower_http::{
 };
 use windmill_common::db::UserDB;
 use windmill_common::worker::CLOUD_HOSTED;
+#[allow(unused_imports)]
+pub(crate) use windmill_common::BASE_URL;
 use windmill_common::{
     utils::{configure_client, GIT_VERSION},
-    BASE_URL, INSTANCE_NAME,
+    INSTANCE_NAME,
 };
 
 use crate::scim_oss::has_scim_token;
@@ -189,8 +191,6 @@ mod workspaces;
 #[cfg(feature = "private")]
 pub mod workspaces_ee;
 mod workspaces_export;
-mod workspaces_extra;
-mod workspaces_oss;
 
 #[cfg(feature = "mcp")]
 mod mcp;
@@ -210,9 +210,7 @@ lazy_static::lazy_static! {
     pub static ref SAML_METADATA: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 
 
-    pub static ref COOKIE_DOMAIN: Option<String> = std::env::var("COOKIE_DOMAIN").ok();
-
-    pub static ref IS_SECURE: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
+    // COOKIE_DOMAIN and IS_SECURE are now in windmill_common::utils
 
     pub static ref HTTP_CLIENT: Client = configure_client(reqwest::ClientBuilder::new()
         .user_agent("windmill/beta")
@@ -223,6 +221,8 @@ lazy_static::lazy_static! {
 
 
 }
+
+pub use windmill_common::utils::{COOKIE_DOMAIN, IS_SECURE};
 
 #[cfg(feature = "oauth2")]
 pub use windmill_oauth::OAUTH_CLIENTS;

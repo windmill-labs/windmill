@@ -69,9 +69,9 @@ jobs:
         with:
           ruby-version: '3.3'
           bundler-cache: false
-      - name: Install PowerShell
+      - name: Install PowerShell, mold and clang
         run: |
-          sudo apt-get update && sudo apt-get install -y powershell
+          sudo apt-get update && sudo apt-get install -y powershell mold clang
         working-directory: /
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
@@ -205,7 +205,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-duckdb-ffi-
       - name: cargo test
-        timeout-minutes: 20
+        timeout-minutes: 30
         env:
           SQLX_OFFLINE: true
           DATABASE_URL: postgres://postgres:changeme@localhost:5432/windmill
@@ -213,6 +213,7 @@ jobs:
           RUST_LOG: info
           RUST_LOG_STYLE: never
           CARGO_NET_GIT_FETCH_WITH_CLI: true
+          CARGO_BUILD_JOBS: 4
           WMDEBUG_FORCE_V0_WORKSPACE_DEPENDENCIES: 1
           WMDEBUG_FORCE_RUNNABLE_SETTINGS_V0: 1
           WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT: 1

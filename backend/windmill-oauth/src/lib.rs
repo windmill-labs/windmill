@@ -42,10 +42,10 @@ pub use oauth2::{
 // Re-export reqwest Client (version 0.12 compatible with async-oauth2)
 pub use reqwest::Client as HttpClient;
 
+pub use windmill_common::utils::{COOKIE_DOMAIN, IS_SECURE};
+
 lazy_static::lazy_static! {
     pub static ref BASE_URL: Arc<RwLock<String>> = Arc::new(RwLock::new("".to_string()));
-    pub static ref IS_SECURE: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
-    pub static ref COOKIE_DOMAIN: Option<String> = std::env::var("COOKIE_DOMAIN").ok();
 
     /// HTTP client for OAuth operations (reqwest 0.12, compatible with async-oauth2)
     pub static ref OAUTH_HTTP_CLIENT: reqwest::Client = reqwest::ClientBuilder::new()

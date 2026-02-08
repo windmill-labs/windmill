@@ -10,15 +10,15 @@ path = "src/lib.rs"
 
 [features]
 default = []
-private = ["windmill-audit/private", "windmill-common/private", "windmill-api-auth/private", "windmill-store/private", "windmill-trigger-kafka?/private", "windmill-trigger-postgres?/private", "windmill-trigger-mqtt?/private", "windmill-trigger-websocket?/private", "windmill-trigger-nats?/private", "windmill-trigger-sqs?/private", "windmill-trigger-gcp?/private", "windmill-trigger-email?/private"]
-enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker?/enterprise", "windmill-api-auth/enterprise", "windmill-store/enterprise", "windmill-api-jobs/enterprise", "windmill-trigger/enterprise", "windmill-trigger-kafka?/enterprise", "windmill-trigger-postgres?/enterprise", "windmill-trigger-mqtt?/enterprise", "windmill-trigger-websocket?/enterprise", "windmill-trigger-email?/enterprise", "windmill-trigger-nats?/enterprise", "windmill-trigger-sqs?/enterprise", "windmill-trigger-gcp?/enterprise", "windmill-trigger-http?/enterprise", "windmill-native-triggers?/enterprise"]
+private = ["windmill-audit/private", "windmill-common/private", "windmill-api-auth/private", "windmill-store/private", "windmill-api-users/private", "windmill-api-workspaces/private", "windmill-api-groups/private", "windmill-trigger-kafka?/private", "windmill-trigger-postgres?/private", "windmill-trigger-mqtt?/private", "windmill-trigger-websocket?/private", "windmill-trigger-nats?/private", "windmill-trigger-sqs?/private", "windmill-trigger-gcp?/private", "windmill-trigger-email?/private"]
+enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker?/enterprise", "windmill-api-auth/enterprise", "windmill-store/enterprise", "windmill-api-jobs/enterprise", "windmill-api-scripts/enterprise", "windmill-api-users/enterprise", "windmill-api-workspaces/enterprise", "windmill-api-groups/enterprise", "windmill-trigger/enterprise", "windmill-trigger-kafka?/enterprise", "windmill-trigger-postgres?/enterprise", "windmill-trigger-mqtt?/enterprise", "windmill-trigger-websocket?/enterprise", "windmill-trigger-email?/enterprise", "windmill-trigger-nats?/enterprise", "windmill-trigger-sqs?/enterprise", "windmill-trigger-gcp?/enterprise", "windmill-trigger-http?/enterprise", "windmill-native-triggers?/enterprise"]
 stripe = []
 inline_preview = ["dep:windmill-worker"]
 agent_worker_server = ["dep:windmill-worker"]
 enterprise_saml = ["dep:samael", "dep:libxml"]
 benchmark = []
 embedding = ["windmill-api-embeddings/embedding"]
-parquet = ["dep:datafusion", "dep:object_store", "windmill-common/parquet", "windmill-worker?/parquet"]
+parquet = ["dep:datafusion", "dep:object_store", "windmill-common/parquet", "windmill-worker?/parquet", "windmill-api-users/parquet"]
 prometheus = ["windmill-common/prometheus", "windmill-queue/prometheus", "dep:prometheus", "windmill-worker?/prometheus"]
 openidconnect = ["dep:openidconnect", "windmill-common/openidconnect", "windmill-store/openidconnect"]
 tantivy = ["dep:windmill-indexer"]
@@ -37,15 +37,19 @@ mqtt_trigger = ["dep:windmill-trigger-mqtt", "windmill-store/mqtt_trigger"]
 native_trigger = ["dep:windmill-native-triggers", "windmill-native-triggers/native_trigger", "dep:strum", "oauth2"]
 sqs_trigger = ["dep:windmill-trigger-sqs", "windmill-store/sqs_trigger"]
 gcp_trigger = ["dep:windmill-trigger-gcp", "windmill-store/gcp_trigger"]
-cloud = ["windmill-common/cloud", "windmill-api-auth/cloud", "windmill-store/cloud"]
+cloud = ["windmill-common/cloud", "windmill-api-auth/cloud", "windmill-store/cloud", "windmill-api-workspaces/cloud"]
 mcp = ["dep:windmill-mcp", "windmill-mcp/server", "windmill-mcp/auth", "windmill-api-auth/mcp", "windmill-store/mcp"]
 bedrock = ["dep:aws-sdk-bedrock", "dep:aws-sdk-bedrockruntime", "windmill-common/bedrock", "dep:aws-config"]
 python = ["windmill-dep-map/python"]
-no_auth = ["windmill-api-auth/no_auth", "windmill-store/no_auth"]
+no_auth = ["windmill-api-auth/no_auth", "windmill-store/no_auth", "windmill-api-users/no_auth"]
 
 [dependencies]
 windmill-mcp = { workspace = true, optional = true }
 windmill-api-auth.workspace = true
+windmill-api-scripts.workspace = true
+windmill-api-users.workspace = true
+windmill-api-workspaces.workspace = true
+windmill-api-groups.workspace = true
 windmill-api-sse.workspace = true
 windmill-api-jobs.workspace = true
 windmill-trigger.workspace = true

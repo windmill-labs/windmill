@@ -51,6 +51,9 @@ use std::sync::atomic::Ordering;
 use crate::worker::CLOUD_HOSTED;
 
 lazy_static::lazy_static! {
+    pub static ref COOKIE_DOMAIN: Option<String> = std::env::var("COOKIE_DOMAIN").ok();
+    pub static ref IS_SECURE: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
+
     pub static ref FORCE_IPV4: bool = std::env::var("FORCE_IPV4")
         .map(|v| v.to_lowercase() == "true" || v == "1")
         .unwrap_or(false);

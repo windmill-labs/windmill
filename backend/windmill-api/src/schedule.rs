@@ -1060,34 +1060,7 @@ pub struct EditSchedule {
     pub dynamic_skip: Option<String>,
 }
 
-pub async fn clear_schedule<'c>(
-    tx: &mut Transaction<'c, Postgres>,
-    path: &str,
-    w_id: &str,
-) -> Result<()> {
-    tracing::info!("Clearing schedule {}", path);
-    sqlx::query!(
-        "WITH to_delete AS (
-            SELECT id FROM v2_job_queue
-                JOIN v2_job j USING (id)
-            WHERE trigger_kind = 'schedule'
-                AND trigger = $1
-                AND j.workspace_id = $2
-                AND flow_step_id IS NULL
-                AND running = false
-            FOR UPDATE
-        ), deleted AS (
-            DELETE FROM v2_job_queue
-            WHERE id IN (SELECT id FROM to_delete)
-            RETURNING id
-        ) DELETE FROM v2_job WHERE id IN (SELECT id FROM deleted)",
-        path,
-        w_id
-    )
-    .execute(&mut **tx)
-    .await?;
-    Ok(())
-}
+pub use windmill_queue::schedule::clear_schedule;
 
 #[derive(Deserialize)]
 pub struct SetEnabled {
