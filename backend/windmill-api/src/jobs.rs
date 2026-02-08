@@ -38,7 +38,7 @@ use windmill_common::jobs::{
     format_completed_job_result, format_result, DynamicInput, ENTRYPOINT_OVERRIDE,
 };
 use windmill_common::runnable_settings::{
-    ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings, RunnableSettings,
+    ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings,
 };
 #[cfg(feature = "inline_preview")]
 use windmill_common::runtime_assets::{register_runtime_asset, InsertRuntimeAssetParams};
@@ -3471,9 +3471,7 @@ pub async fn run_workflow_as_code(
     let JobExtended { inner: job, raw_code, raw_lock, .. } = job;
 
     let (_debouncing_settings, concurrency_settings) =
-        RunnableSettings::from_runnable_settings_handle(job.runnable_settings_handle, &db)
-            .await?
-            .prefetch_cached(&db)
+        windmill_common::runnable_settings::prefetch_cached_from_handle(job.runnable_settings_handle, &db)
             .await?;
 
     let (job_payload, tag, _delete_after_use, timeout, on_behalf_of) = match job.job_kind {
@@ -4645,13 +4643,13 @@ fn register_potential_assets_on_inline_execution(
                 let columns = asset.columns.as_ref().map(|cols| {
                     cols.iter()
                         .map(|(col_name, col_access_type)| {
-                            (col_name.clone(), (*col_access_type).into())
+                            (col_name.clone(), windmill_common::assets::asset_access_type_from_parser(*col_access_type))
                         })
                         .collect()
                 });
                 register_runtime_asset(InsertRuntimeAssetParams {
-                    access_type: asset.access_type.map(|a| a.into()),
-                    asset_kind: asset.kind.into(),
+                    access_type: asset.access_type.map(windmill_common::assets::asset_access_type_from_parser),
+                    asset_kind: windmill_common::assets::asset_kind_from_parser(asset.kind),
                     asset_path: asset.path,
                     columns,
                     job_id,

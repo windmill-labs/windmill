@@ -24,7 +24,6 @@ use windmill_common::jobs::JobPayload;
 use windmill_common::jobs::JobTriggerKind;
 use windmill_common::runnable_settings::ConcurrencySettings;
 use windmill_common::runnable_settings::DebouncingSettings;
-use windmill_common::runnable_settings::RunnableSettings;
 use windmill_common::schedule::schedule_to_user;
 use windmill_common::scripts::ScriptHash;
 use windmill_common::triggers::TriggerMetadata;
@@ -345,9 +344,7 @@ pub async fn push_scheduled_job<'c>(
         .await?;
 
         let (debouncing_settings, concurrency_settings) =
-            RunnableSettings::from_runnable_settings_handle(runnable_settings_handle, db)
-                .await?
-                .prefetch_cached(db)
+            windmill_common::runnable_settings::prefetch_cached_from_handle(runnable_settings_handle, db)
                 .await?;
 
         if schedule.retry.is_some() {

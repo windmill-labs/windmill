@@ -1,0 +1,22 @@
+[package]
+name = "windmill-types"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_types"
+path = "src/lib.rs"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+sqlx = { workspace = true, features = ["postgres"] }
+rand.workspace = true
+hex.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+itertools.workspace = true
+strum.workspace = true

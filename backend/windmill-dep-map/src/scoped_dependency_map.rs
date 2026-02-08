@@ -327,7 +327,7 @@ SELECT importer_node_id, imported_path
                                 ));
                             }
                             FlowModuleValue::FlowScript { .. } => {
-                                return Err(Error::internal_err("FlowScript is not supposed to be in flow."));
+                                return Err(Error::internal_err("FlowScript is not supposed to be in flow.").into());
                             }
                             _ => {}
                         }
