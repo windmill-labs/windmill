@@ -86,8 +86,9 @@ pub use otel_tracing_proxy_ee::{load_internal_otel_exporter, DENO_OTEL_INITIALIZ
 pub use worker::*;
 
 pub use bun_executor::{
-    compute_bundle_local_and_remote_path, get_common_bun_proc_envs, install_bun_lockfile,
-    prebundle_bun_script, prepare_job_dir,
+    build_loader, compute_bundle_local_and_remote_path, generate_dedicated_worker_wrapper,
+    get_common_bun_proc_envs, install_bun_lockfile, prebundle_bun_script, prepare_job_dir,
+    LoaderMode, BUN_DEDICATED_WORKER_ARGS, RELATIVE_BUN_BUILDER, RELATIVE_BUN_LOADER,
 };
 pub use deno_executor::generate_deno_lock;
 pub use prepare_deps::run_prepare_deps_cli;
