@@ -26,7 +26,8 @@ use crate::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
         read_result, start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
     },
-    handle_child::{self}, get_proxy_envs_for_lang,
+    get_proxy_envs_for_lang,
+    handle_child::{self},
     universal_pkg_installer::{par_install_language_dependencies_seq, RequiredDependency},
     is_sandboxing_enabled, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUBY_CACHE_DIR, RUBY_REPOS,
     TRACING_PROXY_CA_CERT_PATH,
@@ -50,7 +51,6 @@ const NSJAIL_CONFIG_RUN_RUBY_CONTENT: &str = include_str!("../nsjail/run.ruby.co
 const NSJAIL_CONFIG_DOWNLOAD_RUBY_CONTENT: &str =
     include_str!("../nsjail/download.ruby.config.proto");
 const NSJAIL_CONFIG_LOCK_RUBY_CONTENT: &str = include_str!("../nsjail/lock.ruby.config.proto");
-
 
 #[allow(dead_code)]
 pub(crate) struct JobHandlerInput<'a> {

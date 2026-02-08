@@ -19,15 +19,17 @@ use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
     common::{
-        build_command_with_isolation, check_executor_binary_exists, create_args_and_out_file, get_reserved_variables,
-        read_result, start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
+        build_command_with_isolation, check_executor_binary_exists, create_args_and_out_file,
+        get_reserved_variables, read_result, start_child_process, OccupancyMetrics,
+        DEV_CONF_NSJAIL,
     },
+    get_proxy_envs_for_lang,
     handle_child::handle_child,
-    get_proxy_envs_for_lang, is_sandboxing_enabled, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
-    PROXY_ENVS, RUST_CACHE_DIR, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
+    is_sandboxing_enabled, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUST_CACHE_DIR,
+    TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
-use windmill_common::scripts::ScriptLang;
 use windmill_common::client::AuthedClient;
+use windmill_common::scripts::ScriptLang;
 
 #[cfg(windows)]
 use crate::SYSTEM_ROOT;
@@ -52,7 +54,6 @@ lazy_static::lazy_static! {
     static ref CARGO_HOME_DEFAULT: String = format!("{}\\.cargo", *HOME_DIR);
     static ref RUSTUP_HOME_DEFAULT: String = format!("{}\\.rustup", *HOME_DIR);
 }
-
 
 #[cfg(not(windows))]
 lazy_static::lazy_static! {

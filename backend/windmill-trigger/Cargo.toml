@@ -1,0 +1,44 @@
+[package]
+name = "windmill-trigger"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_trigger"
+path = "src/lib.rs"
+
+[features]
+default = []
+enterprise = ["windmill-common/enterprise", "windmill-api-jobs/enterprise"]
+cloud = ["windmill-common/cloud"]
+python = ["dep:windmill-parser-py"]
+
+[dependencies]
+windmill-api-auth.workspace = true
+windmill-api-jobs.workspace = true
+windmill-api-sse.workspace = true
+windmill-common = { workspace = true, default-features = false }
+windmill-queue.workspace = true
+windmill-audit.workspace = true
+windmill-git-sync.workspace = true
+axum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+http.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+async-trait.workspace = true
+sql-builder.workspace = true
+reqwest.workspace = true
+lazy_static.workspace = true
+hyper.workspace = true
+rand.workspace = true
+itertools.workspace = true
+windmill-parser.workspace = true
+windmill-parser-ts.workspace = true
+windmill-parser-py = { workspace = true, optional = true }

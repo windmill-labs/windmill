@@ -7,10 +7,8 @@ use windmill_queue::MiniPulledJob;
 use crate::{
     ai::{
         providers::{
-            anthropic::AnthropicQueryBuilder,
-            google_ai::GoogleAIQueryBuilder,
-            openai::{OpenAIQueryBuilder},
-            openrouter::OpenRouterQueryBuilder,
+            anthropic::AnthropicQueryBuilder, google_ai::GoogleAIQueryBuilder,
+            openai::OpenAIQueryBuilder, openrouter::OpenRouterQueryBuilder,
             other::OtherQueryBuilder,
         },
         types::*,

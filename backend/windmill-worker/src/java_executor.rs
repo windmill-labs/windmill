@@ -26,8 +26,8 @@ use crate::{
     },
     handle_child,
     universal_pkg_installer::{par_install_language_dependencies_all_at_once, RequiredDependency},
-    COURSIER_CACHE_DIR, is_sandboxing_enabled, DISABLE_NUSER, JAVA_CACHE_DIR,
-    JAVA_REPOSITORY_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    COURSIER_CACHE_DIR, is_sandboxing_enabled, DISABLE_NUSER, JAVA_CACHE_DIR, JAVA_REPOSITORY_DIR,
+    MAVEN_REPOS, NO_DEFAULT_MAVEN, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
 };
 use windmill_common::client::AuthedClient;
 

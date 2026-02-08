@@ -7,18 +7,15 @@
  */
 
 use axum::{body::Body, response::Response};
-use regex::Regex;
 use serde::{Deserialize, Deserializer};
-use sqlx::{Postgres, Transaction};
 #[cfg(feature = "enterprise")]
 use windmill_common::worker::CLOUD_HOSTED;
 use windmill_common::{
-    auth::{is_devops_email, is_super_admin_email},
-    error::{self, Error},
+    error::{self},
     DB,
 };
 
-use crate::{db::ApiAuthed, scopes::ScopeDefinition};
+pub use windmill_api_auth::{check_scopes, require_devops_role, require_super_admin};
 
 #[cfg(feature = "enterprise")]
 use windmill_common::error::JsonResult;
@@ -26,115 +23,8 @@ use windmill_common::error::JsonResult;
 #[cfg(feature = "enterprise")]
 use axum::Json;
 
-#[derive(Deserialize)]
-pub struct WithStarredInfoQuery {
-    pub with_starred_info: Option<bool>,
-}
-
-// Shared structs for bulk delete operations
-#[derive(Deserialize)]
-pub struct BulkDeleteRequest {
-    pub paths: Vec<String>,
-}
-
-pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {
-    let is_admin = is_super_admin_email(db, email).await?;
-
-    if !is_admin {
-        Err(Error::NotAuthorized(
-            "This endpoint requires the caller to be a super admin".to_owned(),
-        ))
-    } else {
-        Ok(())
-    }
-}
-
-pub fn check_scopes<F>(authed: &ApiAuthed, required: F) -> error::Result<()>
-where
-    F: FnOnce() -> String,
-{
-    if let Some(scopes) = authed.scopes.as_ref() {
-        let mut is_scoped_token = false;
-        let required_scope = ScopeDefinition::from_scope_string(&required())?;
-        for scope in scopes {
-            if !scope.starts_with("if_jobs:filter_tags:") {
-                if !is_scoped_token {
-                    is_scoped_token = true;
-                }
-
-                match ScopeDefinition::from_scope_string(scope) {
-                    Ok(scope) if scope.includes(&required_scope) => return Ok(()),
-                    _ => {}
-                }
-            }
-        }
-
-        if is_scoped_token {
-            return Err(Error::NotAuthorized(format!(
-                "Required scope: {}",
-                required_scope.as_string()
-            )));
-        }
-    }
-    Ok(())
-}
-
-pub async fn require_devops_role(db: &DB, email: &str) -> error::Result<()> {
-    let is_devops = is_devops_email(db, email).await?;
-
-    if is_devops {
-        Ok(())
-    } else {
-        Err(Error::NotAuthorized(
-            "This endpoint requires the caller to have the `devops` role".to_string(),
-        ))
-    }
-}
-
-lazy_static::lazy_static! {
-    pub static ref INVALID_USERNAME_CHARS: Regex = Regex::new(r"[^A-Za-z0-9_]").unwrap();
-}
-
-pub async fn generate_instance_wide_unique_username<'c>(
-    tx: &mut Transaction<'c, Postgres>,
-    email: &str,
-) -> error::Result<String> {
-    let mut username = email.split('@').next().unwrap().to_string();
-
-    username = INVALID_USERNAME_CHARS
-        .replace_all(&mut username, "")
-        .to_string();
-
-    if username.is_empty() {
-        username = "user".to_string()
-    }
-
-    let base_username = username.clone();
-    let mut username_conflict = true;
-    let mut i = 1;
-    while username_conflict {
-        if i > 1000 {
-            return Err(Error::internal_err(format!(
-                "too many username conflicts for {}",
-                email
-            )));
-        }
-        if i > 1 {
-            username = format!("{}{}", base_username, i)
-        }
-        username_conflict = sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM usr WHERE username = $1 and email != $2 UNION SELECT 1 FROM password WHERE username = $1 UNION SELECT 1 FROM pending_user WHERE username = $1)",
-                &username,
-                &email
-            )
-            .fetch_one(&mut **tx)
-            .await?
-            .unwrap_or(false);
-        i += 1;
-    }
-
-    Ok(username)
-}
+pub use windmill_common::usernames::generate_instance_wide_unique_username;
+pub use windmill_common::utils::WithStarredInfoQuery;
 
 pub async fn generate_instance_username_for_all_users(db: &DB) -> error::Result<()> {
     let mut tx = db.begin().await?;
@@ -172,45 +62,6 @@ pub async fn generate_instance_username_for_all_users(db: &DB) -> error::Result<
 
     tx.commit().await?;
     Ok(())
-}
-
-pub async fn get_instance_username_or_create_pending<'c>(
-    tx: &mut Transaction<'c, Postgres>,
-    email: &str,
-) -> error::Result<String> {
-    let user = sqlx::query_scalar!("SELECT username FROM password WHERE email = $1", email)
-        .fetch_optional(&mut **tx)
-        .await?;
-
-    if let Some(opt_username) = user {
-        if let Some(username) = opt_username {
-            Ok(username)
-        } else {
-            Err(Error::BadRequest(format!("No instance-wide username found for {email}. The user has different usernames for different workspaces. Ask the instance administrator to solve the conflict in the instance settings.")))
-        }
-    } else {
-        let pending_username =
-            sqlx::query_scalar!("SELECT username FROM pending_user WHERE email = $1", email)
-                .fetch_optional(&mut **tx)
-                .await?;
-
-        if let Some(username) = pending_username {
-            Ok(username)
-        } else {
-            let username = generate_instance_wide_unique_username(&mut *tx, email).await?;
-
-            sqlx::query!(
-                "INSERT INTO pending_user (email, username) VALUES ($1, $2)",
-                email,
-                username
-            )
-            .execute(&mut **tx)
-            .await
-            .map_err(|e| Error::internal_err(format!("creating pending user: {e:#}")))?;
-
-            Ok(username)
-        }
-    }
 }
 
 pub fn content_plain(body: Body) -> Response {
