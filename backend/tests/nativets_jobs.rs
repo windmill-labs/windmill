@@ -29,15 +29,6 @@ use windmill_common::jobs::{JobPayload, RawCode};
 use windmill_common::scripts::ScriptLang;
 
 #[cfg(feature = "deno_core")]
-fn init_nativets_runtime() {
-    static INIT: std::sync::Once = std::sync::Once::new();
-    INIT.call_once(|| {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        windmill_runtime_nativets::setup_deno_runtime().expect("V8 init failed");
-    });
-}
-
-#[cfg(feature = "deno_core")]
 fn nativets_code(content: &str) -> JobPayload {
     JobPayload::Code(RawCode {
         hash: None,
@@ -82,7 +73,6 @@ async fn push_and_wait(
 #[sqlx::test(fixtures("base"))]
 async fn test_nativets_jobs(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
-    init_nativets_runtime();
     set_jwt_secret().await;
 
     let server = ApiServer::start(db.clone()).await?;

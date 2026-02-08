@@ -46,6 +46,7 @@ lazy_static.workspace = true
 const_format.workspace = true
 futures.workspace = true
 sqlx.workspace = true
+rustls.workspace = true
 
 [build-dependencies]
 deno_fetch.workspace = true

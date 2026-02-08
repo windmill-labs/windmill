@@ -313,6 +313,9 @@ pub fn spawn_test_worker(
     conn: &Connection,
     port: u16,
 ) -> (KillpillSender, tokio::task::JoinHandle<()>) {
+    #[cfg(feature = "deno_core")]
+    windmill_runtime_nativets::setup_deno_runtime().expect("V8 init failed");
+
     std::fs::DirBuilder::new()
         .recursive(true)
         .create(windmill_worker::GO_BIN_CACHE_DIR)
