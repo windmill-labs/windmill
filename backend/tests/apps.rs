@@ -122,6 +122,26 @@ async fn test_app_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     let history = resp.json::<Vec<serde_json::Value>>().await?;
     assert!(!history.is_empty());
 
+    // --- get by version ---
+    let version = &history[0]["version"];
+    let resp = authed(client().get(format!(
+        "http://localhost:{port}/api/w/test-workspace/apps/get/v/{version}"
+    )))
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    // --- custom_path_exists ---
+    let resp = authed(client().get(format!(
+        "http://localhost:{port}/api/w/test-workspace/apps/custom_path_exists/nonexistent"
+    )))
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.json::<bool>().await?, false);
+
     // --- get_latest_version ---
     let resp = authed_get(port, "get_latest_version", "u/test-user/test_app").await;
     assert_eq!(resp.status(), 200);

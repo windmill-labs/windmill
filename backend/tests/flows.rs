@@ -135,6 +135,18 @@ async fn test_flow_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     let resp = authed_get(port, "deployment_status/p", "u/test-user/test_flow").await;
     assert_eq!(resp.status(), 200);
 
+    // --- get by version ---
+    let version = &history[0]["id"];
+    let resp = authed(client().get(format!(
+        "http://localhost:{port}/api/w/test-workspace/flows/get/v/{version}"
+    )))
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body = resp.json::<serde_json::Value>().await?;
+    assert_eq!(body["path"], "u/test-user/test_flow");
+
     // --- update ---
     let resp = authed(client().post(flow_url(port, "update", "u/test-user/test_flow")))
         .json(&new_flow("u/test-user/test_flow", "Updated flow"))

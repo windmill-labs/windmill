@@ -205,7 +205,7 @@ async fn test_script_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         history.len()
     );
 
-    // --- archive ---
+    // --- archive by path ---
     let resp = authed(client().post(script_url(
         port,
         "archive/p",
@@ -221,19 +221,34 @@ async fn test_script_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(resp.status(), 200);
     let body = resp.json::<serde_json::Value>().await?;
     assert_eq!(body["archived"], true);
+    let another_hash = body["hash"].as_str().unwrap().to_string();
 
-    // --- delete ---
+    // --- archive by hash ---
+    let resp = authed(client().post(script_url(port, "archive/h", &another_hash)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    // --- delete by hash ---
+    let resp = authed(client().post(script_url(port, "delete/h", &another_hash)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    // --- delete by path ---
     let resp = authed(client().post(script_url(
         port,
         "delete/p",
-        "u/test-user/another_script",
+        "u/test-user/test_script",
     )))
     .send()
     .await
     .unwrap();
     assert_eq!(resp.status(), 200);
 
-    let resp = authed_get(port, "exists/p", "u/test-user/another_script").await;
+    let resp = authed_get(port, "exists/p", "u/test-user/test_script").await;
     assert_eq!(resp.json::<bool>().await?, false);
 
     Ok(())
