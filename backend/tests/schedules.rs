@@ -174,6 +174,36 @@ async fn test_schedule_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     .unwrap();
     assert_eq!(resp.status(), 200);
 
+    // --- setdefaulthandler ---
+    let resp = authed(client().post(format!("{base}/setdefaulthandler")))
+        .json(&json!({
+            "handler_type": "error",
+            "override_existing": false,
+            "path": "u/test-user/scheduled_script",
+            "number_of_occurence": 1,
+            "number_of_occurence_exact": false
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        200,
+        "setdefaulthandler: {}",
+        resp.text().await?
+    );
+
+    // clear default handler
+    let resp = authed(client().post(format!("{base}/setdefaulthandler")))
+        .json(&json!({
+            "handler_type": "error",
+            "override_existing": false
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
     // --- delete ---
     let resp = authed(client().delete(schedule_url(
         port,

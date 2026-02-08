@@ -142,9 +142,33 @@ async fn test_app_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(resp.status(), 200);
     assert_eq!(resp.json::<bool>().await?, false);
 
+    // --- secret_of ---
+    let resp = authed_get(port, "secret_of", "u/test-user/test_app").await;
+    assert_eq!(resp.status(), 200);
+    let secret_id = resp.text().await?;
+    assert!(!secret_id.is_empty());
+
     // --- get_latest_version ---
     let resp = authed_get(port, "get_latest_version", "u/test-user/test_app").await;
     assert_eq!(resp.status(), 200);
+
+    // --- history_update ---
+    let app_body = authed_get(port, "get/p", "u/test-user/test_app").await;
+    let app = app_body.json::<serde_json::Value>().await?;
+    let app_id = &app["id"];
+    let resp = authed(client().post(format!(
+        "http://localhost:{port}/api/w/test-workspace/apps/history_update/a/{app_id}/v/{version}"
+    )))
+    .json(&json!({"deployment_msg": "deployed v1"}))
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(
+        resp.status(),
+        200,
+        "history_update: {}",
+        resp.text().await?
+    );
 
     // --- update ---
     let resp = authed(client().post(app_url(port, "update", "u/test-user/test_app")))

@@ -135,6 +135,21 @@ async fn test_flow_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     let resp = authed_get(port, "deployment_status/p", "u/test-user/test_flow").await;
     assert_eq!(resp.status(), 200);
 
+    // --- list_tokens ---
+    let resp = authed_get(port, "list_tokens", "u/test-user/test_flow").await;
+    assert_eq!(resp.status(), 200);
+    resp.json::<Vec<serde_json::Value>>().await?;
+
+    // --- list_paths_from_workspace_runnable ---
+    let resp = authed(client().get(format!(
+        "http://localhost:{port}/api/w/test-workspace/flows/list_paths_from_workspace_runnable/flow/u/test-user/test_flow"
+    )))
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 200);
+    resp.json::<Vec<String>>().await?;
+
     // --- get by version ---
     let version = &history[0]["id"];
     let resp = authed(client().get(format!(
@@ -167,6 +182,44 @@ async fn test_flow_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         history.len() >= 2,
         "expected at least 2 history entries, got {}",
         history.len()
+    );
+    let latest_version = &history[0]["id"];
+
+    // --- get by version + path ---
+    let resp = authed(client().get(format!(
+        "http://localhost:{port}/api/w/test-workspace/flows/get/v/{latest_version}/p/u/test-user/test_flow"
+    )))
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body = resp.json::<serde_json::Value>().await?;
+    assert_eq!(body["path"], "u/test-user/test_flow");
+
+    // --- history_update ---
+    let resp = authed(client().post(format!(
+        "http://localhost:{port}/api/w/test-workspace/flows/history_update/v/{latest_version}"
+    )))
+    .json(&json!({"deployment_msg": "deployed v2"}))
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 200, "history_update: {}", resp.text().await?);
+
+    // --- toggle_workspace_error_handler (EE-gated, expect 400 in OSS) ---
+    let resp = authed(client().post(flow_url(
+        port,
+        "toggle_workspace_error_handler",
+        "u/test-user/test_flow",
+    )))
+    .json(&json!({}))
+    .send()
+    .await
+    .unwrap();
+    assert!(
+        resp.status() == 200 || resp.status() == 400,
+        "toggle_workspace_error_handler: unexpected status {}",
+        resp.status()
     );
 
     // --- archive ---

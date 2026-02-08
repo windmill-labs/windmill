@@ -1,3 +1,4 @@
+use serde_json::json;
 use sqlx::{Pool, Postgres};
 
 mod common;
@@ -79,6 +80,31 @@ async fn test_user_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     let email = resp.text().await?;
     assert_eq!(email, "test@windmill.dev");
 
+    // --- exists ---
+    let resp = authed(client().post(format!("{base}/exists")))
+        .json(&json!({"username": "test-user"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.json::<bool>().await?, true);
+
+    let resp = authed(client().post(format!("{base}/exists")))
+        .json(&json!({"username": "nonexistent"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.json::<bool>().await?, false);
+
+    // --- list_usage ---
+    let resp = authed(client().get(format!("{base}/list_usage")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    resp.json::<Vec<serde_json::Value>>().await?;
+
     // --- is_owner ---
     let resp = authed(client().get(format!(
         "http://localhost:{port}/api/w/test-workspace/users/is_owner/u/test-user/test"
@@ -86,6 +112,22 @@ async fn test_user_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     .send()
     .await
     .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    // --- update (make non-admin, then revert) ---
+    let resp = authed(client().post(user_url(port, "update", "test-user")))
+        .json(&json!({"is_admin": false}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "update user: {}", resp.text().await?);
+
+    // revert back to admin
+    let resp = authed(client().post(user_url(port, "update", "test-user")))
+        .json(&json!({"is_admin": true}))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
 
     Ok(())
