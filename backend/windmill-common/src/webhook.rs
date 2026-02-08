@@ -152,3 +152,125 @@ impl WebhookShared {
         let _ = self.channel.send(WebhookPayload::InstanceEvent(event));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_webhook_message_create_script() {
+        let msg = WebhookMessage::CreateScript {
+            workspace: "demo".to_string(),
+            path: "f/test/script".to_string(),
+            hash: "abc123".to_string(),
+        };
+        let json = serde_json::to_value(&msg).unwrap();
+        assert_eq!(json["type"], "CreateScript");
+        assert_eq!(json["workspace"], "demo");
+        assert_eq!(json["path"], "f/test/script");
+        assert_eq!(json["hash"], "abc123");
+    }
+
+    #[test]
+    fn test_webhook_message_update_flow() {
+        let msg = WebhookMessage::UpdateFlow {
+            workspace: "staging".to_string(),
+            old_path: "f/old/flow".to_string(),
+            new_path: "f/new/flow".to_string(),
+        };
+        let json = serde_json::to_value(&msg).unwrap();
+        assert_eq!(json["type"], "UpdateFlow");
+        assert_eq!(json["old_path"], "f/old/flow");
+        assert_eq!(json["new_path"], "f/new/flow");
+    }
+
+    #[test]
+    fn test_webhook_message_delete_resource() {
+        let msg = WebhookMessage::DeleteResource {
+            workspace: "prod".to_string(),
+            path: "u/admin/db".to_string(),
+        };
+        let json = serde_json::to_value(&msg).unwrap();
+        assert_eq!(json["type"], "DeleteResource");
+        assert_eq!(json["workspace"], "prod");
+        assert_eq!(json["path"], "u/admin/db");
+    }
+
+    #[test]
+    fn test_webhook_message_create_folder() {
+        let msg = WebhookMessage::CreateFolder {
+            workspace: "demo".to_string(),
+            name: "shared".to_string(),
+        };
+        let json = serde_json::to_value(&msg).unwrap();
+        assert_eq!(json["type"], "CreateFolder");
+        assert_eq!(json["name"], "shared");
+    }
+
+    #[test]
+    fn test_webhook_message_resource_type() {
+        let msg = WebhookMessage::CreateResourceType {
+            name: "postgresql".to_string(),
+        };
+        let json = serde_json::to_value(&msg).unwrap();
+        assert_eq!(json["type"], "CreateResourceType");
+        assert_eq!(json["name"], "postgresql");
+        // Should NOT have workspace field
+        assert!(json.get("workspace").is_none());
+    }
+
+    #[test]
+    fn test_webhook_message_all_variants_have_type_tag() {
+        let messages: Vec<WebhookMessage> = vec![
+            WebhookMessage::CreateApp { workspace: "w".into(), path: "p".into() },
+            WebhookMessage::DeleteApp { workspace: "w".into(), path: "p".into() },
+            WebhookMessage::UpdateApp { workspace: "w".into(), old_path: "o".into(), new_path: "n".into() },
+            WebhookMessage::CreateFlow { workspace: "w".into(), path: "p".into() },
+            WebhookMessage::UpdateFlow { workspace: "w".into(), old_path: "o".into(), new_path: "n".into() },
+            WebhookMessage::ArchiveFlow { workspace: "w".into(), path: "p".into() },
+            WebhookMessage::DeleteFlow { workspace: "w".into(), path: "p".into() },
+            WebhookMessage::CreateFolder { workspace: "w".into(), name: "n".into() },
+            WebhookMessage::UpdateFolder { workspace: "w".into(), name: "n".into() },
+            WebhookMessage::DeleteFolder { workspace: "w".into(), name: "n".into() },
+            WebhookMessage::DeleteResource { workspace: "w".into(), path: "p".into() },
+            WebhookMessage::CreateResource { workspace: "w".into(), path: "p".into() },
+            WebhookMessage::UpdateResource { workspace: "w".into(), old_path: "o".into(), new_path: "n".into() },
+            WebhookMessage::CreateResourceType { name: "n".into() },
+            WebhookMessage::DeleteResourceType { name: "n".into() },
+            WebhookMessage::UpdateResourceType { name: "n".into() },
+            WebhookMessage::CreateScript { workspace: "w".into(), path: "p".into(), hash: "h".into() },
+            WebhookMessage::UpdateScript { workspace: "w".into(), path: "p".into(), hash: "h".into() },
+            WebhookMessage::DeleteScript { workspace: "w".into(), hash: "h".into() },
+            WebhookMessage::DeleteScriptPath { workspace: "w".into(), path: "p".into() },
+            WebhookMessage::CreateVariable { workspace: "w".into(), path: "p".into() },
+            WebhookMessage::UpdateVariable { workspace: "w".into(), old_path: "o".into(), new_path: "n".into() },
+            WebhookMessage::DeleteVariable { workspace: "w".into(), path: "p".into() },
+        ];
+
+        for msg in &messages {
+            let json = serde_json::to_value(msg).unwrap();
+            assert!(
+                json.get("type").is_some(),
+                "Missing 'type' tag in: {}",
+                serde_json::to_string(msg).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn test_webhook_message_type_tags_are_variant_names() {
+        let msg = WebhookMessage::CreateApp {
+            workspace: "w".into(),
+            path: "p".into(),
+        };
+        let json = serde_json::to_value(&msg).unwrap();
+        assert_eq!(json["type"], "CreateApp");
+
+        let msg = WebhookMessage::DeleteVariable {
+            workspace: "w".into(),
+            path: "p".into(),
+        };
+        let json = serde_json::to_value(&msg).unwrap();
+        assert_eq!(json["type"], "DeleteVariable");
+    }
+}

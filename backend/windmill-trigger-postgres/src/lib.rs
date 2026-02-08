@@ -550,3 +550,163 @@ pub fn generate_random_string() -> String {
 
     format!("{}_{}", timestamp, random_part)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_valid_publication_data() {
+        let json = r#"{
+            "table_to_track": [
+                {
+                    "schema_name": "public",
+                    "table_to_track": [
+                        {"table_name": "users"}
+                    ]
+                }
+            ],
+            "transaction_to_track": ["insert", "update"]
+        }"#;
+        let result: std::result::Result<PublicationData, _> = serde_json::from_str(json);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_publication_data_empty_schema_name() {
+        let json = r#"{
+            "table_to_track": [
+                {
+                    "schema_name": "",
+                    "table_to_track": []
+                }
+            ],
+            "transaction_to_track": ["insert"]
+        }"#;
+        let result: std::result::Result<PublicationData, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_publication_data_empty_table_name() {
+        let json = r#"{
+            "table_to_track": [
+                {
+                    "schema_name": "public",
+                    "table_to_track": [
+                        {"table_name": "  "}
+                    ]
+                }
+            ],
+            "transaction_to_track": ["insert"]
+        }"#;
+        let result: std::result::Result<PublicationData, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_publication_data_invalid_transaction_type() {
+        let json = r#"{
+            "transaction_to_track": ["insert", "truncate"]
+        }"#;
+        let result: std::result::Result<PublicationData, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_publication_data_too_many_transaction_types() {
+        let json = r#"{
+            "transaction_to_track": ["insert", "update", "delete", "insert"]
+        }"#;
+        let result: std::result::Result<PublicationData, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_publication_data_duplicate_schema_names() {
+        let json = r#"{
+            "table_to_track": [
+                {"schema_name": "public", "table_to_track": [{"table_name": "a"}]},
+                {"schema_name": "public", "table_to_track": [{"table_name": "b"}]}
+            ],
+            "transaction_to_track": ["insert"]
+        }"#;
+        let result: std::result::Result<PublicationData, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_publication_data_all_tables_in_schema() {
+        let json = r#"{
+            "table_to_track": [
+                {"schema_name": "public", "table_to_track": []}
+            ],
+            "transaction_to_track": ["insert"]
+        }"#;
+        let result: std::result::Result<PublicationData, _> = serde_json::from_str(json);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_publication_data_incompatible_tracking() {
+        let json = r#"{
+            "table_to_track": [
+                {"schema_name": "schema1", "table_to_track": []},
+                {"schema_name": "schema2", "table_to_track": [{"table_name": "t1", "columns_name": ["col1"]}]}
+            ],
+            "transaction_to_track": ["insert"]
+        }"#;
+        let result: std::result::Result<PublicationData, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_postgres_config_serialization() {
+        let config = PostgresConfig {
+            postgres_resource_path: "f/db/postgres".to_string(),
+            replication_slot_name: "slot_1".to_string(),
+            publication_name: "pub_1".to_string(),
+            basic_mode: Some(false),
+        };
+        let json = serde_json::to_value(&config).unwrap();
+        assert_eq!(json["postgres_resource_path"], "f/db/postgres");
+        assert_eq!(json["replication_slot_name"], "slot_1");
+    }
+
+    #[test]
+    fn test_generate_random_string_format() {
+        let s = generate_random_string();
+        assert!(s.contains('_'));
+        let parts: Vec<&str> = s.split('_').collect();
+        assert_eq!(parts.len(), 2);
+        assert_eq!(parts[1].len(), 10);
+    }
+
+    #[test]
+    fn test_relations_add_table() {
+        let mut rel = Relations::new("public".to_string(), vec![]);
+        rel.add_new_table(TableToTrack::new("users".to_string(), None, None));
+        assert_eq!(rel.table_to_track.len(), 1);
+        assert_eq!(rel.table_to_track[0].table_name, "users");
+    }
+
+    #[test]
+    fn test_table_to_track_with_where_clause() {
+        let tt = TableToTrack::new(
+            "orders".to_string(),
+            Some("status = 'active'".to_string()),
+            None,
+        );
+        assert_eq!(tt.where_clause, Some("status = 'active'".to_string()));
+    }
+
+    #[test]
+    fn test_table_to_track_with_columns() {
+        let tt = TableToTrack::new(
+            "users".to_string(),
+            None,
+            Some(vec!["id".to_string(), "email".to_string()]),
+        );
+        assert_eq!(tt.columns_name.as_ref().unwrap().len(), 2);
+    }
+}

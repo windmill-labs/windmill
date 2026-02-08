@@ -41,3 +41,86 @@ pub fn from_bytea_hex(s: &str) -> Result<Vec<u8>, ByteaHexParseError> {
 
     Ok(result)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_valid_bytea_hex() {
+        assert_eq!(from_bytea_hex("\\x48656c6c6f").unwrap(), b"Hello");
+    }
+
+    #[test]
+    fn test_empty_bytea_hex() {
+        assert_eq!(from_bytea_hex("\\x").unwrap(), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn test_single_byte() {
+        assert_eq!(from_bytea_hex("\\xff").unwrap(), vec![0xff]);
+    }
+
+    #[test]
+    fn test_all_zeros() {
+        assert_eq!(from_bytea_hex("\\x000000").unwrap(), vec![0, 0, 0]);
+    }
+
+    #[test]
+    fn test_missing_prefix() {
+        assert!(matches!(
+            from_bytea_hex("48656c6c6f"),
+            Err(ByteaHexParseError::InvalidPrefix)
+        ));
+    }
+
+    #[test]
+    fn test_wrong_prefix() {
+        assert!(matches!(
+            from_bytea_hex("0x48656c6c6f"),
+            Err(ByteaHexParseError::InvalidPrefix)
+        ));
+    }
+
+    #[test]
+    fn test_too_short() {
+        assert!(matches!(
+            from_bytea_hex("\\"),
+            Err(ByteaHexParseError::InvalidPrefix)
+        ));
+    }
+
+    #[test]
+    fn test_empty_string() {
+        assert!(matches!(
+            from_bytea_hex(""),
+            Err(ByteaHexParseError::InvalidPrefix)
+        ));
+    }
+
+    #[test]
+    fn test_odd_digits() {
+        assert!(matches!(
+            from_bytea_hex("\\xabc"),
+            Err(ByteaHexParseError::OddNumerOfDigits)
+        ));
+    }
+
+    #[test]
+    fn test_invalid_hex_chars() {
+        assert!(matches!(
+            from_bytea_hex("\\xzz"),
+            Err(ByteaHexParseError::ParseInt(_))
+        ));
+    }
+
+    #[test]
+    fn test_uppercase_hex() {
+        assert_eq!(from_bytea_hex("\\xABCD").unwrap(), vec![0xab, 0xcd]);
+    }
+
+    #[test]
+    fn test_mixed_case_hex() {
+        assert_eq!(from_bytea_hex("\\xAbCd").unwrap(), vec![0xab, 0xcd]);
+    }
+}

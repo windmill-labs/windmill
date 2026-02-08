@@ -568,3 +568,279 @@ pub fn add_raw_string(
 
 use anyhow::Context;
 use base64::Engine;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // --- decode_payload ---
+
+    #[test]
+    fn test_decode_payload_valid() {
+        let payload = base64::engine::general_purpose::STANDARD
+            .encode(r#"{"key": "value"}"#);
+        let result: HashMap<String, serde_json::Value> = decode_payload(payload).unwrap();
+        assert_eq!(result["key"], json!("value"));
+    }
+
+    #[test]
+    fn test_decode_payload_invalid_base64() {
+        let result: anyhow::Result<HashMap<String, serde_json::Value>> =
+            decode_payload("not-valid-base64!!!".to_string());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_decode_payload_invalid_json() {
+        let payload = base64::engine::general_purpose::STANDARD.encode("not json");
+        let result: anyhow::Result<HashMap<String, serde_json::Value>> = decode_payload(payload);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_decode_payload_empty_object() {
+        let payload = base64::engine::general_purpose::STANDARD.encode("{}");
+        let result: HashMap<String, serde_json::Value> = decode_payload(payload).unwrap();
+        assert!(result.is_empty());
+    }
+
+    // --- add_raw_string ---
+
+    #[test]
+    fn test_add_raw_string_some() {
+        let args = serde_json::Map::new();
+        let result = add_raw_string(Some("body content".to_string()), args);
+        assert_eq!(
+            result["raw_string"],
+            serde_json::Value::String("body content".to_string())
+        );
+    }
+
+    #[test]
+    fn test_add_raw_string_none() {
+        let args = serde_json::Map::new();
+        let result = add_raw_string(None, args);
+        assert!(!result.contains_key("raw_string"));
+    }
+
+    #[test]
+    fn test_add_raw_string_preserves_existing() {
+        let mut args = serde_json::Map::new();
+        args.insert("existing".to_string(), json!("value"));
+        let result = add_raw_string(Some("body".to_string()), args);
+        assert_eq!(result["existing"], json!("value"));
+        assert_eq!(result["raw_string"], json!("body"));
+    }
+
+    // --- RunJobQuery ---
+
+    #[test]
+    fn test_run_job_query_payload_as_args_none() {
+        let q = RunJobQuery::default();
+        let result = q.payload_as_args().unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_run_job_query_payload_as_args_valid() {
+        let encoded = base64::engine::general_purpose::STANDARD
+            .encode(r#"{"x": 42}"#);
+        let q = RunJobQuery {
+            payload: Some(encoded),
+            ..Default::default()
+        };
+        let result = q.payload_as_args().unwrap();
+        assert!(result.contains_key("x"));
+    }
+
+    #[test]
+    fn test_run_job_query_payload_as_args_invalid() {
+        let q = RunJobQuery {
+            payload: Some("invalid!!!".to_string()),
+            ..Default::default()
+        };
+        assert!(q.payload_as_args().is_err());
+    }
+
+    // --- ListCompletedQuery -> ListQueueQuery conversion ---
+
+    #[test]
+    fn test_list_completed_to_queue_query_conversion() {
+        let lcq = ListCompletedQuery {
+            script_path_start: Some("f/test".to_string()),
+            script_path_exact: None,
+            script_hash: None,
+            created_by: Some("admin".to_string()),
+            started_before: None,
+            started_after: None,
+            created_before: Some(chrono::Utc::now()),
+            created_after: None,
+            created_or_started_before: None,
+            created_or_started_after: None,
+            created_or_started_after_completed_jobs: None,
+            created_before_queue: None,
+            created_after_queue: None,
+            completed_after: None,
+            completed_before: None,
+            success: None,
+            running: Some(true),
+            parent_job: None,
+            order_desc: Some(true),
+            job_kinds: Some("script,flow".to_string()),
+            is_skipped: None,
+            is_flow_step: None,
+            suspended: None,
+            schedule_path: None,
+            args: None,
+            result: None,
+            tag: Some("custom".to_string()),
+            scheduled_for_before_now: None,
+            all_workspaces: None,
+            has_null_parent: None,
+            label: None,
+            is_not_schedule: None,
+            concurrency_key: None,
+            worker: None,
+            allow_wildcards: None,
+            trigger_kind: None,
+            trigger_path: None,
+            include_args: None,
+        };
+
+        let lqq: ListQueueQuery = lcq.into();
+        assert_eq!(lqq.script_path_start, Some("f/test".to_string()));
+        assert_eq!(lqq.created_by, Some("admin".to_string()));
+        assert_eq!(lqq.running, Some(true));
+        assert_eq!(lqq.job_kinds, Some("script,flow".to_string()));
+        assert_eq!(lqq.tag, Some("custom".to_string()));
+    }
+
+    #[test]
+    fn test_list_completed_to_queue_prefers_queue_created_fields() {
+        let specific_time = chrono::Utc::now();
+        let other_time = specific_time - chrono::Duration::hours(1);
+
+        let lcq = ListCompletedQuery {
+            script_path_start: None,
+            script_path_exact: None,
+            script_hash: None,
+            created_by: None,
+            started_before: None,
+            started_after: None,
+            created_before: Some(other_time),
+            created_after: Some(other_time),
+            created_or_started_before: None,
+            created_or_started_after: None,
+            created_or_started_after_completed_jobs: None,
+            created_before_queue: Some(specific_time),
+            created_after_queue: Some(specific_time),
+            completed_after: None,
+            completed_before: None,
+            success: None,
+            running: None,
+            parent_job: None,
+            order_desc: None,
+            job_kinds: None,
+            is_skipped: None,
+            is_flow_step: None,
+            suspended: None,
+            schedule_path: None,
+            args: None,
+            result: None,
+            tag: None,
+            scheduled_for_before_now: None,
+            all_workspaces: None,
+            has_null_parent: None,
+            label: None,
+            is_not_schedule: None,
+            concurrency_key: None,
+            worker: None,
+            allow_wildcards: None,
+            trigger_kind: None,
+            trigger_path: None,
+            include_args: None,
+        };
+
+        let lqq: ListQueueQuery = lcq.into();
+        assert_eq!(lqq.created_before, Some(specific_time));
+        assert_eq!(lqq.created_after, Some(specific_time));
+    }
+
+    // --- UnifiedJob field constants ---
+
+    #[test]
+    fn test_completed_job_fields_not_empty() {
+        let fields = UnifiedJob::completed_job_fields();
+        assert!(!fields.is_empty());
+        assert!(fields.iter().any(|f| f.contains("typ")));
+        assert!(fields.iter().any(|f| f.contains("workspace_id")));
+    }
+
+    #[test]
+    fn test_queued_job_fields_not_empty() {
+        let fields = UnifiedJob::queued_job_fields();
+        assert!(!fields.is_empty());
+        assert!(fields.iter().any(|f| f.contains("typ")));
+        assert!(fields.iter().any(|f| f.contains("scheduled_for")));
+    }
+
+    #[test]
+    fn test_completed_and_queued_fields_same_count() {
+        assert_eq!(
+            UnifiedJob::completed_job_fields().len(),
+            UnifiedJob::queued_job_fields().len(),
+            "CJ and QJ field lists must have the same number of columns for UNION queries"
+        );
+    }
+
+    // --- ListableCompletedJob serialization ---
+
+    #[test]
+    fn test_listable_completed_job_skip_none() {
+        let job = ListableCompletedJob {
+            r#type: "CompletedJob".to_string(),
+            workspace_id: "test".to_string(),
+            id: Uuid::nil(),
+            parent_job: None,
+            created_by: "admin".to_string(),
+            created_at: chrono::Utc::now(),
+            started_at: None,
+            duration_ms: 100,
+            success: true,
+            script_hash: None,
+            script_path: None,
+            deleted: false,
+            raw_code: None,
+            canceled: false,
+            canceled_by: None,
+            canceled_reason: None,
+            job_kind: JobKind::Script,
+            schedule_path: None,
+            permissioned_as: "u/admin".to_string(),
+            flow_status: None,
+            raw_flow: None,
+            is_flow_step: false,
+            language: None,
+            is_skipped: false,
+            email: "admin@test.com".to_string(),
+            visible_to_owner: true,
+            mem_peak: None,
+            tag: "default".to_string(),
+            priority: None,
+            labels: None,
+            args: None,
+        };
+
+        let json = serde_json::to_value(&job).unwrap();
+        let obj = json.as_object().unwrap();
+        assert!(!obj.contains_key("parent_job"));
+        assert!(!obj.contains_key("script_hash"));
+        assert!(!obj.contains_key("raw_code"));
+        assert!(!obj.contains_key("canceled_by"));
+        assert!(!obj.contains_key("mem_peak"));
+        assert!(!obj.contains_key("labels"));
+        assert!(obj.contains_key("type"));
+        assert!(obj.contains_key("workspace_id"));
+    }
+}
