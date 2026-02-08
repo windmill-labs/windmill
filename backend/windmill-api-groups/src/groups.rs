@@ -38,7 +38,7 @@ pub fn workspaced_service() -> Router {
         .route("/delete/:name", delete(delete_group))
         .route("/adduser/:name", post(add_user))
         .route("/removeuser/:name", post(remove_user))
-        .route("/is_owner", get(is_owner))
+        .route("/is_owner/:name", get(is_owner))
 }
 
 pub fn global_service() -> Router {
