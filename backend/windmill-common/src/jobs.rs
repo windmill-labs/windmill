@@ -564,6 +564,7 @@ pub fn get_has_preprocessor_from_content_and_lang(
             let args = windmill_parser_ts::parse_deno_signature(&content, true, true, None)?;
             args.has_preprocessor.unwrap_or(false)
         }
+        #[cfg(feature = "python")]
         ScriptLang::Python3 => {
             let args = windmill_parser_py::parse_python_signature(&content, None, true)?;
             args.has_preprocessor.unwrap_or(false)

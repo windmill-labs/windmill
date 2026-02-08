@@ -210,6 +210,7 @@ fn get_preprocessor_args_from_content_and_language(
             )?;
             Some(args.args)
         }
+        #[cfg(feature = "python")]
         ScriptLang::Python3 => {
             let args = windmill_parser_py::parse_python_signature(
                 &content,

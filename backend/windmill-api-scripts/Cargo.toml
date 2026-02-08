@@ -12,6 +12,7 @@ path = "src/lib.rs"
 default = []
 enterprise = ["windmill-common/enterprise"]
 private = ["windmill-common/private"]
+python = ["dep:windmill-parser-py"]
 
 [dependencies]
 windmill-common = { workspace = true, default-features = false }
@@ -37,4 +38,4 @@ tracing.workspace = true
 chrono.workspace = true
 lazy_static.workspace = true
 tokio.workspace = true
-windmill-parser-py.workspace = true
+windmill-parser-py = { workspace = true, optional = true }

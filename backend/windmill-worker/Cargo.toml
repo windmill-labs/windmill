@@ -37,7 +37,7 @@ nu = ["dep:windmill-parser-nu"]
 java = ["dep:windmill-parser-java"]
 ruby = ["dep:windmill-parser-ruby"]
 duckdb = ["dep:libloading"]
-bedrock = ["dep:aws-sdk-bedrockruntime", "windmill-common/bedrock"]
+bedrock = ["dep:aws-sdk-bedrockruntime", "windmill-common/bedrock", "dep:aws-config", "dep:aws-credential-types", "dep:aws-smithy-types"]
 
 [dependencies]
 windmill-queue.workspace = true
@@ -65,9 +65,9 @@ windmill-parser-graphql.workspace = true
 windmill-parser-php = { workspace = true, optional = true }
 windmill-git-sync.workspace = true
 aws-sdk-bedrockruntime = { workspace = true, optional = true }
-aws-config.workspace = true
-aws-credential-types.workspace = true
-aws-smithy-types.workspace = true
+aws-config = { workspace = true, optional = true }
+aws-credential-types = { workspace = true, optional = true }
+aws-smithy-types = { workspace = true, optional = true }
 flume.workspace = true
 sqlx.workspace = true
 uuid.workspace = true
