@@ -1346,7 +1346,7 @@ async fn test_mysql_job(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     let content = r#"
 -- ? name (varchar)
-SELECT CAST(CONCAT('hello ', ?) AS CHAR) AS result;
+SELECT CONCAT('hello ', CONVERT(? USING utf8mb4)) AS result;
 "#
     .to_owned();
 
