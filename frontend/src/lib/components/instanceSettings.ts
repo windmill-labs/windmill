@@ -150,7 +150,7 @@ export const settings: Record<string, Setting[]> = {
 			key: 'job_isolation',
 			fieldType: 'select',
 			description:
-				'Isolation mode for job execution. None: no isolation. Unshare: PID namespace isolation via unshare. Nsjail: full nsjail sandboxing.',
+				'Isolation mode for job execution. None: no isolation. Unshare: PID namespace isolation via unshare. Nsjail: full nsjail sandboxing. <a href="https://www.windmill.dev/docs/advanced/security_isolation">Learn more</a>',
 			storage: 'setting',
 			select_items: [
 				{
