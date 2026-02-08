@@ -69,9 +69,9 @@ jobs:
         with:
           ruby-version: '3.3'
           bundler-cache: false
-      - name: Install PowerShell
+      - name: Install PowerShell, mold and clang
         run: |
-          sudo apt-get update && sudo apt-get install -y powershell
+          sudo apt-get update && sudo apt-get install -y powershell mold clang
         working-directory: /
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
