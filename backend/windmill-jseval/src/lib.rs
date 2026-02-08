@@ -835,7 +835,7 @@ pub async fn eval_timeout_quickjs(
     _by_id: Option<&IdContext>,
     _ctx: Option<Vec<(String, String)>>,
 ) -> anyhow::Result<Box<RawValue>> {
-    anyhow::bail!("quickjs feature is not enabled")
+    anyhow::bail!("JavaScript expression evaluation requires the `quickjs` feature. Enable it with: cargo build --features quickjs")
 }
 
 #[cfg(not(feature = "quickjs"))]
@@ -843,7 +843,7 @@ pub async fn eval_simple_js(
     _expr: String,
     _globals: HashMap<String, serde_json::Value>,
 ) -> anyhow::Result<Box<RawValue>> {
-    anyhow::bail!("quickjs feature is not enabled")
+    anyhow::bail!("JavaScript expression evaluation requires the `quickjs` feature. Enable it with: cargo build --features quickjs")
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
