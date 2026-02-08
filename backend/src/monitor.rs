@@ -2103,7 +2103,11 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
     } else {
         let wc = WORKER_CONFIG.read().await;
         let config = config.unwrap();
-        let has_dedicated = config.dedicated_worker.is_some() || config.dedicated_workers.as_ref().is_some_and(|dws| !dws.is_empty());
+        let has_dedicated = config.dedicated_worker.is_some()
+            || config
+                .dedicated_workers
+                .as_ref()
+                .is_some_and(|dws| !dws.is_empty());
         if *wc != config || has_dedicated {
             if kill_if_change {
                 if has_dedicated

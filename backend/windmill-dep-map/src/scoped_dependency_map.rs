@@ -11,14 +11,10 @@ use windmill_common::{
 
 use std::collections::HashSet;
 
-use crate::worker_lockfiles::extract_referenced_paths;
-
-// TODO: To be removed in future versions
 lazy_static::lazy_static! {
     pub static ref WMDEBUG_NO_DMAP_DISSOLVE: bool = std::env::var("WMDEBUG_NO_DMAP_DISSOLVE").is_ok();
 }
 
-// TODO: Rename to DependencyRelation
 #[derive(Serialize)]
 pub struct DependencyMap {
     pub workspace_id: Option<String>,
@@ -48,7 +44,7 @@ impl ScopedDependencyMap {
     /// Calls DB, however is assumed to be called once per dependency job
     /// AND is scoped to smaller subset of data
     /// So it is not too expensive
-    pub(crate) async fn fetch_maybe_rearranged<'a>(
+    pub async fn fetch_maybe_rearranged<'a>(
         w_id: &str,
         importer_path: &str,
         importer_kind: &str,
@@ -123,7 +119,7 @@ SELECT importer_node_id, imported_path
 
     /// Add missing entries to `dependency_map`
     /// Remove matching entries
-    pub(crate) async fn patch<'c>(
+    pub async fn patch<'c>(
         &mut self,
         referenced_paths: Option<Vec<String>>,
         node_id: String, // Flow Step/Node ID
@@ -134,7 +130,7 @@ SELECT importer_node_id, imported_path
         Ok(tx)
     }
 
-    pub(crate) async fn patch_tx_ref<'c>(
+    pub async fn patch_tx_ref<'c>(
         &mut self,
         // NOTE: Referenced_paths should include all of the paths.
         referenced_paths: Option<Vec<String>>,
@@ -150,26 +146,12 @@ SELECT importer_node_id, imported_path
             return Ok(());
         };
 
-        // This does:
-        // 1. remove all relative imports from relative_imports that ARE tracked in dependency_map
-        // 2. remove corresponding trackers from dependency_map
-        //
-        // After this operation `relative_imports` variable has only untracked imports.
-        // We will handle those in the next expression.
-        //
-        // After all `reduce`'s called ScopedDependencyMap has only extra/orphan imports
-        // these are going to be clean up by calling [dissolve]
-        // NOTE: `retain` iterates over vec and remove the ones whose closures returned false.
         referenced_paths.retain(|imported_path| {
             !self
                 .to_delete
-                // As dmap is HashSet, removing is O(1) operation
-                // thus making entire process very efficient
-                // NOTE: `remove` returns true if item was removed and false if wasn't.
                 .remove(&(node_id.to_owned(), imported_path.to_owned()))
         });
 
-        // As mentioned above, usually this will always be empty.
         if !referenced_paths.is_empty() {
             tracing::info!("adding missing entries to dependency_map: importer_node_id - {}, importer_kind - {}, new_imported_paths - {:?}",
                 &node_id,
@@ -197,7 +179,7 @@ SELECT importer_node_id, imported_path
     }
 
     /// clean orphan entries from `dependency_map`
-    pub(crate) async fn dissolve<'a>(
+    pub async fn dissolve<'a>(
         self,
         mut tx: sqlx::Transaction<'a, sqlx::Postgres>,
     ) -> sqlx::Transaction<'a, sqlx::Postgres> {
@@ -210,7 +192,6 @@ SELECT importer_node_id, imported_path
 
         tracing::info!("dissolving dependency_map: {:?}", &self);
 
-        // We _could_ shove it into single query, but this query is rarely called AND let's keep it simple for redability.
         for (importer_node_id, imported_path) in self.to_delete.into_iter() {
             tracing::info!("cleaning orphan entry from dependency_map: importer_kind - {}, imported_path - {}, importer_node_id - {}",
                 &self.importer_kind,
@@ -218,7 +199,6 @@ SELECT importer_node_id, imported_path
                 &importer_node_id,
             );
 
-            // Dissolve MUST succeed. Error in dissolve MUST not block the execution.
             if let Err(err) = sqlx::query!(
                 "
         DELETE FROM dependency_map
@@ -265,7 +245,6 @@ SELECT importer_node_id, imported_path
             "discovered orphan entry in `dependency_map`. It will be healed automatically, however please report this issue to Windmill Team. It is also advised to rebuild maps in workspace settings in troubleshooting.",
         );
 
-        // MUST succeed. Error MUST not block the execution.
         if let Err(err) = sqlx::query!(
             "DELETE FROM dependency_map
                  WHERE importer_path = $1 AND importer_kind = $3::text::IMPORTER_KIND
@@ -286,7 +265,7 @@ SELECT importer_node_id, imported_path
         tx
     }
 
-    pub(crate) async fn rebuild_map_unchecked<'c>(
+    pub async fn rebuild_map_unchecked(
         w_id: &str,
         db: &sqlx::Pool<sqlx::Postgres>,
     ) -> Result<String> {
@@ -305,7 +284,7 @@ SELECT importer_node_id, imported_path
 
                 tx = dmap
                 .patch(
-                    extract_referenced_paths(&sd.code, &r.path, smd.language),
+                    crate::extract_referenced_paths(&sd.code, &r.path, smd.language),
                     "".into(),
                     tx,
                 )
@@ -318,18 +297,13 @@ SELECT importer_node_id, imported_path
             }
 
         // Fetch only top level versions and paths
-        // It is not fetching value
         tracing::info!(workspace_id = w_id, "Rebuilding dependency map for flows");
         for r in sqlx::query!("SELECT path, versions[array_upper(versions, 1)] as version FROM flow WHERE workspace_id = $1 AND archived = false", w_id).fetch_all(db).await? {
                 if let Some(version) = r.version {
-                    // To reduce stress on db try to fetch from cache
-                    // Since our flow versions are immutable it is safe to assume if we have cache for specific version/id it is up to date.
                     let flow_data = cache::flow::fetch_version(&db.clone().into(), version).await?;
 
-                    // Create map for specific flow
                     let mut dmap = ScopedDependencyMap::fetch(w_id, &r.path, "flow", db).await?;
 
-                    // Traverse retrieved flow modules
                     let mut tx = db.begin().await?;
                     let mut to_process = vec![];
                     let mut modules_to_check = flow_data.flow.modules.iter().collect::<Vec<_>>();
@@ -342,10 +316,9 @@ SELECT importer_node_id, imported_path
 
                     FlowValue::traverse_leafs(modules_to_check, &mut |fmv, id| {
                         match fmv {
-                            // Since we fetched from flow_version it is safe to assume all inline scripts are in form of RawScript.
                             FlowModuleValue::RawScript { content, language, .. } => {
                                 to_process.push((
-                                    extract_referenced_paths(
+                                    crate::extract_referenced_paths(
                                         content,
                                         &(r.path.clone() + "/flow"),
                                         Some(*language),
@@ -353,9 +326,7 @@ SELECT importer_node_id, imported_path
                                     id.clone(),
                                 ));
                             }
-                            // But just in case we will also handle other cases.
                             FlowModuleValue::FlowScript { .. } => {
-                                // Abort will cancel transaction.
                                 return Err(Error::internal_err("FlowScript is not supposed to be in flow."));
                             }
                             _ => {}
@@ -382,7 +353,6 @@ SELECT importer_node_id, imported_path
         tracing::info!(workspace_id = w_id, "Rebuilding dependency map for apps");
         for r in sqlx::query!("SELECT path, versions[array_upper(versions, 1)] as version FROM app WHERE workspace_id = $1", w_id).fetch_all(db).await? {
                 if let Some(version) = r.version {
-                    // TODO: Use cache when implemented.
                     let value = sqlx::query_scalar!(
                         "SELECT value FROM app_version WHERE id = $1 LIMIT 1",
                         version
@@ -395,7 +365,7 @@ SELECT importer_node_id, imported_path
                     let mut to_process = vec![];
                     traverse_app_inline_scripts(&value, None, &mut |ais, id| {
                         to_process.push((
-                            extract_referenced_paths(
+                            crate::extract_referenced_paths(
                                 &ais.content,
                                 &(r.path.clone() + "/app"),
                                 ais.language,
@@ -423,6 +393,7 @@ SELECT importer_node_id, imported_path
 
         Ok("Success".into())
     }
+
     /// Run if you want to rebuild maps on specific workspace.
     /// Potentially takes much time
     pub async fn rebuild_map(w_id: &str, db: &sqlx::Pool<sqlx::Postgres>) -> Result<String> {
@@ -459,11 +430,11 @@ SELECT importer_node_id, imported_path
         sqlx::query_as!(
             DependencyDependent,
             r#"
-            SELECT 
+            SELECT
                 importer_path,
-                importer_kind::text as "importer_kind!", -- sqlx thinks this is nullable somehow, so enfore with !
+                importer_kind::text as "importer_kind!",
                 array_agg(importer_node_id) as importer_node_ids
-            FROM dependency_map 
+            FROM dependency_map
             WHERE workspace_id = $1 AND imported_path = $2
             GROUP BY importer_path, importer_kind
             "#,

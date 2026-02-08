@@ -38,7 +38,8 @@ use sqlx::{FromRow, Postgres, Transaction};
 use std::{collections::HashMap, sync::Arc};
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
-use windmill_worker::{process_relative_imports, scoped_dependency_map::ScopedDependencyMap};
+use windmill_dep_map::process_relative_imports;
+use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
 
 use windmill_common::{
     assets::{
@@ -1146,7 +1147,6 @@ async fn create_script_internal<'c>(
             let content = ns.content.clone();
             let language = ns.language.clone();
             tokio::spawn(async move {
-                // wait for 10 seconds to make sure the script is deployed and that the CLI sync that pushed it (f one) is complete
                 tokio::time::sleep(std::time::Duration::from_secs(10)).await;
                 if let Err(e) = process_relative_imports(
                     &db2,

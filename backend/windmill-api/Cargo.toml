@@ -11,14 +11,15 @@ path = "src/lib.rs"
 [features]
 default = []
 private = ["windmill-audit/private", "windmill-common/private", "windmill-api-auth/private", "windmill-store/private", "windmill-trigger-kafka?/private", "windmill-trigger-postgres?/private", "windmill-trigger-mqtt?/private", "windmill-trigger-websocket?/private", "windmill-trigger-nats?/private", "windmill-trigger-sqs?/private", "windmill-trigger-gcp?/private", "windmill-trigger-email?/private"]
-enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker/enterprise", "windmill-api-auth/enterprise", "windmill-store/enterprise", "windmill-api-jobs/enterprise"]
+enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker?/enterprise", "windmill-api-auth/enterprise", "windmill-store/enterprise", "windmill-api-jobs/enterprise"]
 stripe = []
-agent_worker_server = []
+inline_preview = ["dep:windmill-worker"]
+agent_worker_server = ["dep:windmill-worker"]
 enterprise_saml = ["dep:samael", "dep:libxml"]
 benchmark = []
 embedding = ["windmill-api-embeddings/embedding"]
-parquet = ["dep:datafusion", "dep:object_store", "windmill-common/parquet", "windmill-worker/parquet"]
-prometheus = ["windmill-common/prometheus", "windmill-queue/prometheus", "dep:prometheus", "windmill-worker/prometheus"]
+parquet = ["dep:datafusion", "dep:object_store", "windmill-common/parquet", "windmill-worker?/parquet"]
+prometheus = ["windmill-common/prometheus", "windmill-queue/prometheus", "dep:prometheus", "windmill-worker?/prometheus"]
 openidconnect = ["dep:openidconnect", "windmill-common/openidconnect", "windmill-store/openidconnect"]
 tantivy = ["dep:windmill-indexer"]
 kafka = ["dep:windmill-trigger-kafka", "windmill-trigger-kafka/enterprise", "windmill-store/kafka"]
@@ -40,7 +41,7 @@ gcp_trigger = ["dep:windmill-trigger-gcp", "windmill-trigger-gcp/enterprise", "w
 cloud = ["windmill-common/cloud", "windmill-api-auth/cloud", "windmill-store/cloud"]
 mcp = ["dep:windmill-mcp", "windmill-mcp/server", "windmill-mcp/auth", "windmill-api-auth/mcp", "windmill-store/mcp"]
 bedrock = ["dep:aws-sdk-bedrock", "dep:aws-sdk-bedrockruntime", "windmill-common/bedrock", "dep:aws-config"]
-python = []
+python = ["windmill-dep-map/python"]
 no_auth = ["windmill-api-auth/no_auth", "windmill-store/no_auth"]
 
 [dependencies]
@@ -61,7 +62,8 @@ windmill-parser-py-imports.workspace = true
 windmill-git-sync.workspace = true
 windmill-indexer = { workspace = true, optional = true }
 windmill-autoscaling.workspace = true
-windmill-worker.workspace = true
+windmill-worker = { workspace = true, optional = true }
+windmill-dep-map.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
 anyhow.workspace = true

@@ -174,10 +174,18 @@ pub struct ProviderResource {
     #[serde(default, deserialize_with = "empty_string_as_none")]
     pub region: Option<String>,
     #[allow(dead_code)]
-    #[serde(alias = "awsAccessKeyId", default, deserialize_with = "empty_string_as_none")]
+    #[serde(
+        alias = "awsAccessKeyId",
+        default,
+        deserialize_with = "empty_string_as_none"
+    )]
     pub aws_access_key_id: Option<String>,
     #[allow(dead_code)]
-    #[serde(alias = "awsSecretAccessKey", default, deserialize_with = "empty_string_as_none")]
+    #[serde(
+        alias = "awsSecretAccessKey",
+        default,
+        deserialize_with = "empty_string_as_none"
+    )]
     pub aws_secret_access_key: Option<String>,
     /// Platform for Anthropic API (standard or google_vertex_ai)
     #[serde(default)]
@@ -202,10 +210,7 @@ impl ProviderWithResource {
 
     pub async fn get_base_url(&self, db: &DB) -> Result<String, Error> {
         self.kind
-            .get_base_url(
-                self.resource.base_url.clone(),
-                db,
-            )
+            .get_base_url(self.resource.base_url.clone(), db)
             .await
     }
 
@@ -295,8 +300,10 @@ impl TokenUsage {
         self.total_tokens = add_option(self.total_tokens, other.total_tokens);
         self.cache_read_input_tokens =
             add_option(self.cache_read_input_tokens, other.cache_read_input_tokens);
-        self.cache_write_input_tokens =
-            add_option(self.cache_write_input_tokens, other.cache_write_input_tokens);
+        self.cache_write_input_tokens = add_option(
+            self.cache_write_input_tokens,
+            other.cache_write_input_tokens,
+        );
     }
 }
 
@@ -704,7 +711,9 @@ impl OpenAPISchema {
         if let Some(ref other_definitions) = other.definitions {
             let definitions = self.definitions.get_or_insert_with(HashMap::new);
             for (key, value) in other_definitions {
-                definitions.entry(key.clone()).or_insert_with(|| value.clone());
+                definitions
+                    .entry(key.clone())
+                    .or_insert_with(|| value.clone());
             }
         }
 
@@ -861,7 +870,10 @@ mod tests {
         schema.make_strict();
 
         assert!(
-            matches!(schema.additional_properties, Some(AdditionalProperties::Bool(false))),
+            matches!(
+                schema.additional_properties,
+                Some(AdditionalProperties::Bool(false))
+            ),
             "Expected additionalProperties to be false"
         );
     }
@@ -874,33 +886,36 @@ mod tests {
         schema.make_strict();
 
         assert!(
-            matches!(schema.additional_properties, Some(AdditionalProperties::Bool(true))),
+            matches!(
+                schema.additional_properties,
+                Some(AdditionalProperties::Bool(true))
+            ),
             "Expected additionalProperties to remain true (user-specified)"
         );
     }
 
     #[test]
     fn test_make_strict_all_properties_required() {
-        let mut schema = object_schema(vec![
-            ("name", string_schema()),
-            ("age", integer_schema()),
-        ]);
+        let mut schema = object_schema(vec![("name", string_schema()), ("age", integer_schema())]);
         schema.required = Some(vec!["name".to_string()]); // Only name is required initially
 
         schema.make_strict();
 
         let required = schema.required.as_ref().expect("required should be set");
-        assert!(required.contains(&"name".to_string()), "name should be required");
-        assert!(required.contains(&"age".to_string()), "age should be required");
+        assert!(
+            required.contains(&"name".to_string()),
+            "name should be required"
+        );
+        assert!(
+            required.contains(&"age".to_string()),
+            "age should be required"
+        );
         assert_eq!(required.len(), 2, "Should have exactly 2 required fields");
     }
 
     #[test]
     fn test_make_strict_non_required_becomes_nullable() {
-        let mut schema = object_schema(vec![
-            ("name", string_schema()),
-            ("age", integer_schema()),
-        ]);
+        let mut schema = object_schema(vec![("name", string_schema()), ("age", integer_schema())]);
         schema.required = Some(vec!["name".to_string()]); // Only name is required
 
         schema.make_strict();
@@ -915,7 +930,10 @@ mod tests {
 
         match &age_prop.r#type {
             Some(SchemaType::Multiple(types)) => {
-                assert!(types.contains(&"integer".to_string()), "Should contain integer");
+                assert!(
+                    types.contains(&"integer".to_string()),
+                    "Should contain integer"
+                );
                 assert!(types.contains(&"null".to_string()), "Should contain null");
             }
             _ => panic!("Expected age to have multiple types including null"),
@@ -953,12 +971,18 @@ mod tests {
             .expect("nested property should exist");
 
         assert!(
-            matches!(nested_prop.additional_properties, Some(AdditionalProperties::Bool(false))),
+            matches!(
+                nested_prop.additional_properties,
+                Some(AdditionalProperties::Bool(false))
+            ),
             "Nested object should have additionalProperties: false"
         );
 
         // Nested object should have all properties required
-        let nested_required = nested_prop.required.as_ref().expect("nested required should be set");
+        let nested_required = nested_prop
+            .required
+            .as_ref()
+            .expect("nested required should be set");
         assert!(nested_required.contains(&"field".to_string()));
     }
 
@@ -975,7 +999,10 @@ mod tests {
 
         let items = schema.items.as_ref().expect("items should exist");
         assert!(
-            matches!(items.additional_properties, Some(AdditionalProperties::Bool(false))),
+            matches!(
+                items.additional_properties,
+                Some(AdditionalProperties::Bool(false))
+            ),
             "Array items should have additionalProperties: false"
         );
     }
@@ -994,7 +1021,10 @@ mod tests {
 
         for (i, variant) in schema.one_of.as_ref().unwrap().iter().enumerate() {
             assert!(
-                matches!(variant.additional_properties, Some(AdditionalProperties::Bool(false))),
+                matches!(
+                    variant.additional_properties,
+                    Some(AdditionalProperties::Bool(false))
+                ),
                 "oneOf variant {} should have additionalProperties: false",
                 i
             );
@@ -1015,7 +1045,10 @@ mod tests {
 
         for (i, variant) in schema.any_of.as_ref().unwrap().iter().enumerate() {
             assert!(
-                matches!(variant.additional_properties, Some(AdditionalProperties::Bool(false))),
+                matches!(
+                    variant.additional_properties,
+                    Some(AdditionalProperties::Bool(false))
+                ),
                 "anyOf variant {} should have additionalProperties: false",
                 i
             );
@@ -1028,10 +1061,7 @@ mod tests {
         let mut defs = HashMap::new();
         defs.insert("MyType".to_string(), Box::new(def_schema));
 
-        let mut schema = OpenAPISchema {
-            defs: Some(defs),
-            ..Default::default()
-        };
+        let mut schema = OpenAPISchema { defs: Some(defs), ..Default::default() };
 
         schema.make_strict();
 
@@ -1043,7 +1073,10 @@ mod tests {
             .expect("MyType def should exist");
 
         assert!(
-            matches!(my_type.additional_properties, Some(AdditionalProperties::Bool(false))),
+            matches!(
+                my_type.additional_properties,
+                Some(AdditionalProperties::Bool(false))
+            ),
             "$defs schema should have additionalProperties: false"
         );
     }
@@ -1054,10 +1087,7 @@ mod tests {
         let mut definitions = HashMap::new();
         definitions.insert("MyType".to_string(), Box::new(def_schema));
 
-        let mut schema = OpenAPISchema {
-            definitions: Some(definitions),
-            ..Default::default()
-        };
+        let mut schema = OpenAPISchema { definitions: Some(definitions), ..Default::default() };
 
         schema.make_strict();
 
@@ -1069,7 +1099,10 @@ mod tests {
             .expect("MyType definition should exist");
 
         assert!(
-            matches!(my_type.additional_properties, Some(AdditionalProperties::Bool(false))),
+            matches!(
+                my_type.additional_properties,
+                Some(AdditionalProperties::Bool(false))
+            ),
             "definitions schema should have additionalProperties: false"
         );
     }
@@ -1168,7 +1201,10 @@ mod tests {
         schema.make_strict();
 
         // allOf should be removed
-        assert!(schema.all_of.is_none(), "allOf should be removed after flattening");
+        assert!(
+            schema.all_of.is_none(),
+            "allOf should be removed after flattening"
+        );
 
         // Properties should be merged
         let props = schema.properties.as_ref().expect("properties should exist");
@@ -1183,7 +1219,10 @@ mod tests {
 
         // Should have additionalProperties: false (from make_strict)
         assert!(
-            matches!(schema.additional_properties, Some(AdditionalProperties::Bool(false))),
+            matches!(
+                schema.additional_properties,
+                Some(AdditionalProperties::Bool(false))
+            ),
             "Should have additionalProperties: false"
         );
     }
@@ -1205,8 +1244,14 @@ mod tests {
 
         // Both name and age should be in required (from merge + make_strict makes all required)
         let required = schema.required.as_ref().expect("required should be set");
-        assert!(required.contains(&"name".to_string()), "name should be required");
-        assert!(required.contains(&"age".to_string()), "age should be required");
+        assert!(
+            required.contains(&"name".to_string()),
+            "name should be required"
+        );
+        assert!(
+            required.contains(&"age".to_string()),
+            "age should be required"
+        );
     }
 
     #[test]
@@ -1265,7 +1310,7 @@ mod tests {
 
         let schema2 = OpenAPISchema {
             r#type: Some(SchemaType::Single("integer".to_string())),
-            minimum: Some(5.0),  // More restrictive
+            minimum: Some(5.0), // More restrictive
             maximum: Some(100.0),
             ..Default::default()
         };
@@ -1278,8 +1323,16 @@ mod tests {
         schema.flatten_all_of();
 
         // Should take the more restrictive minimum (5.0)
-        assert_eq!(schema.minimum, Some(5.0), "Should have more restrictive minimum");
-        assert_eq!(schema.maximum, Some(100.0), "Should have maximum from schema2");
+        assert_eq!(
+            schema.minimum,
+            Some(5.0),
+            "Should have more restrictive minimum"
+        );
+        assert_eq!(
+            schema.maximum,
+            Some(100.0),
+            "Should have maximum from schema2"
+        );
     }
 
     #[test]
@@ -1288,15 +1341,10 @@ mod tests {
         let mut defs = HashMap::new();
         defs.insert("MyType".to_string(), Box::new(def_schema));
 
-        let schema_with_defs = OpenAPISchema {
-            defs: Some(defs),
-            ..Default::default()
-        };
+        let schema_with_defs = OpenAPISchema { defs: Some(defs), ..Default::default() };
 
-        let mut schema = OpenAPISchema {
-            all_of: Some(vec![Box::new(schema_with_defs)]),
-            ..Default::default()
-        };
+        let mut schema =
+            OpenAPISchema { all_of: Some(vec![Box::new(schema_with_defs)]), ..Default::default() };
 
         schema.flatten_all_of();
 
@@ -1343,9 +1391,15 @@ mod tests {
 
         schema.sanitize_for_google();
 
-        assert!(schema.schema_url.is_none(), "Root $schema should be removed");
+        assert!(
+            schema.schema_url.is_none(),
+            "Root $schema should be removed"
+        );
         let field = schema.properties.as_ref().unwrap().get("field").unwrap();
-        assert!(field.schema_url.is_none(), "Nested $schema should be removed");
+        assert!(
+            field.schema_url.is_none(),
+            "Nested $schema should be removed"
+        );
     }
 
     #[test]
@@ -1365,7 +1419,10 @@ mod tests {
         schema.sanitize_for_google();
 
         let items = schema.items.as_ref().unwrap();
-        assert!(items.schema_url.is_none(), "Array items $schema should be removed");
+        assert!(
+            items.schema_url.is_none(),
+            "Array items $schema should be removed"
+        );
     }
 
     #[test]
@@ -1376,15 +1433,16 @@ mod tests {
             ..Default::default()
         };
 
-        let mut schema = OpenAPISchema {
-            one_of: Some(vec![Box::new(variant)]),
-            ..Default::default()
-        };
+        let mut schema =
+            OpenAPISchema { one_of: Some(vec![Box::new(variant)]), ..Default::default() };
 
         schema.sanitize_for_google();
 
         let variant = &schema.one_of.as_ref().unwrap()[0];
-        assert!(variant.schema_url.is_none(), "oneOf variant $schema should be removed");
+        assert!(
+            variant.schema_url.is_none(),
+            "oneOf variant $schema should be removed"
+        );
     }
 
     #[test]
@@ -1405,9 +1463,15 @@ mod tests {
 
         schema.sanitize_for_google();
 
-        assert!(schema.schema_url.is_none(), "Root $schema should be removed");
+        assert!(
+            schema.schema_url.is_none(),
+            "Root $schema should be removed"
+        );
         let my_type = schema.defs.as_ref().unwrap().get("MyType").unwrap();
-        assert!(my_type.schema_url.is_none(), "$defs schema $schema should be removed");
+        assert!(
+            my_type.schema_url.is_none(),
+            "$defs schema $schema should be removed"
+        );
     }
 
     #[test]
