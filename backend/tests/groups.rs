@@ -128,6 +128,14 @@ async fn test_group_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         .unwrap();
     assert_eq!(resp.status(), 200);
 
+    // --- is_owner ---
+    let resp = authed(client().get(group_url(port, "is_owner", "test_group")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.json::<bool>().await?, true);
+
     // --- delete ---
     let resp = authed(client().delete(group_url(port, "delete", "another_group")))
         .send()
