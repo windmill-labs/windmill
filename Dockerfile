@@ -23,7 +23,7 @@ RUN make
 
 FROM ${RUST_IMAGE} AS rust_base
 
-RUN apt-get update && apt-get install -y git libssl-dev pkg-config npm
+RUN apt-get update && apt-get install -y git libssl-dev pkg-config npm mold clang
 
 RUN apt-get -y update \
     && apt-get install -y \
