@@ -75,7 +75,7 @@ jobs:
         working-directory: /
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          cache: false
+          cache-workspaces: backend
           toolchain: 1.90.0
       - name: Read EE repo commit hash
         run: |
