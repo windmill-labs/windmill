@@ -42,7 +42,6 @@ fn new_app(path: &str, summary: &str) -> serde_json::Value {
 
 #[sqlx::test(fixtures("base"))]
 async fn test_app_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
-    initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
     let base = format!("http://localhost:{port}/api/w/test-workspace/apps");
