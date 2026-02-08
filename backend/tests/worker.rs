@@ -917,47 +917,50 @@ fn main(world: String) -> Result<String, String> {
     Ok(())
 }
 
-// #[sqlx::test(fixtures("base"))]
-// async fn test_csharp_job(db: Pool<Postgres>) -> anyhow::Result<()> {
-//     initialize_tracing().await;
-//     let server = ApiServer::start(db.clone()).await?;
-//     let port = server.addr.port();
-//
-//     let content = r#"
-// using System;
-//
-// class Script
-// {
-//     public static string Main(string world, int b = 2)
-//     {
-//         Console.WriteLine($"Hello {world} - {b}. This is a log line");
-//         return $"Hello {world} - {b}";
-//     }
-// }
-//         "#
-//     .to_owned();
-//
-//     let result = RunJob::from(JobPayload::Code(RawCode {
-//         hash: None,
-//         content,
-//         path: None,
-//         lock: None,
-//         language: ScriptLang::CSharp,
-//         custom_concurrency_key: None,
-//         concurrent_limit: None,
-//         concurrency_time_window_s: None,
-//         cache_ttl: None,
-//         dedicated_worker: None,
-//     }))
-//     .arg("world", json!("Arakis"))
-//     .arg("b", json!(3))
-//     .run_until_complete(&db, false, port)
-//     .await
-//     .json_result()
-//     .unwrap();
-//
-//     assert_eq!(result, serde_json::json!("Hello Arakis - 3"));
-// }
+#[cfg(feature = "csharp")]
+#[sqlx::test(fixtures("base"))]
+async fn test_csharp_job(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"
+using System;
+
+class Script
+{
+    public static string Main(string world, int b = 2)
+    {
+        Console.WriteLine($"Hello {world} - {b}. This is a log line");
+        return $"Hello {world} - {b}";
+    }
+}
+        "#
+    .to_owned();
+
+    let result = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::CSharp,
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+    }))
+    .arg("world", json!("Arakis"))
+    .arg("b", json!(3))
+    .run_until_complete(&db, false, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    assert_eq!(result, serde_json::json!("Hello Arakis - 3"));
+    Ok(())
+}
 
 #[sqlx::test(fixtures("base"))]
 async fn test_bash_job(db: Pool<Postgres>) -> anyhow::Result<()> {
@@ -1142,6 +1145,379 @@ public class Main {
     .run_until_complete(&db, false, port)
     .await;
     assert_eq!(job.json_result(), Some(json!("hello world")));
+    Ok(())
+}
+
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_nativets_job(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"
+export async function main(name: string): Promise<string> {
+    return `hello ${name}`;
+}
+        "#
+    .to_owned();
+
+    let result = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Nativets,
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+    }))
+    .arg("name", json!("world"))
+    .run_until_complete(&db, false, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    assert_eq!(result, serde_json::json!("hello world"));
+    Ok(())
+}
+
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_nativets_job_with_args(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"
+export async function main(a: number, b: number): Promise<number> {
+    return a + b;
+}
+        "#
+    .to_owned();
+
+    let result = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Nativets,
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+    }))
+    .arg("a", json!(3))
+    .arg("b", json!(7))
+    .run_until_complete(&db, false, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    assert_eq!(result, serde_json::json!(10));
+    Ok(())
+}
+
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_nativets_job_object_return(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"
+export async function main(items: string[]): Promise<{ count: number; items: string[] }> {
+    return { count: items.length, items };
+}
+        "#
+    .to_owned();
+
+    let result = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Nativets,
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+    }))
+    .arg("items", json!(["a", "b", "c"]))
+    .run_until_complete(&db, false, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    assert_eq!(result, json!({"count": 3, "items": ["a", "b", "c"]}));
+    Ok(())
+}
+
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_nativets_job_datetime(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // nativets passes Date-typed args as strings (no auto-conversion unlike Bun/Deno)
+    let content = r#"
+export async function main(a: Date) {
+    return typeof a;
+}
+        "#
+    .to_owned();
+
+    let result = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Nativets,
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+    }))
+    .arg("a", json!("2024-09-24T10:00:00.000Z"))
+    .run_until_complete(&db, false, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    assert_eq!(result, serde_json::json!("string"));
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_postgresql_job(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"
+-- $1 name
+SELECT 'hello ' || $1::text AS result;
+"#
+    .to_owned();
+
+    let result = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Postgresql,
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+    }))
+    .arg("name", json!("world"))
+    .arg(
+        "database",
+        json!({"host": "localhost", "port": 5432, "dbname": "windmill", "user": "postgres", "password": "changeme"}),
+    )
+    .run_until_complete(&db, false, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    assert_eq!(result, json!([{"result": "hello world"}]));
+    Ok(())
+}
+
+#[cfg(feature = "mysql")]
+#[sqlx::test(fixtures("base"))]
+async fn test_mysql_job(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"
+-- ? name (varchar)
+SELECT CONCAT('hello ', ?) AS result;
+"#
+    .to_owned();
+
+    let result = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Mysql,
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+    }))
+    .arg("name", json!("world"))
+    .arg(
+        "database",
+        json!({"host": "localhost", "port": 3306, "user": "root", "password": "changeme", "database": "windmill_test"}),
+    )
+    .run_until_complete(&db, false, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    assert_eq!(result, json!([{"result": "hello world"}]));
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_bunnative_job(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"
+export async function main(name: string): Promise<string> {
+    return `hello ${name}`;
+}
+        "#
+    .to_owned();
+
+    let result = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Bunnative,
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+    }))
+    .arg("name", json!("world"))
+    .run_until_complete(&db, false, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    assert_eq!(result, serde_json::json!("hello world"));
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_powershell_job(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"
+param($msg)
+Write-Output "hello $msg"
+"#
+    .to_owned();
+
+    let job = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Powershell,
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+    }))
+    .arg("msg", json!("world"))
+    .run_until_complete(&db, false, port)
+    .await;
+    assert_eq!(job.json_result(), Some(json!("hello world")));
+    Ok(())
+}
+
+#[cfg(feature = "php")]
+#[sqlx::test(fixtures("base"))]
+async fn test_php_job(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"
+<?php
+
+function main(string $name): string {
+    return "hello " . $name;
+}
+"#
+    .to_owned();
+
+    let result = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Php,
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+    }))
+    .arg("name", json!("world"))
+    .run_until_complete(&db, false, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    assert_eq!(result, serde_json::json!("hello world"));
+    Ok(())
+}
+
+#[cfg(feature = "ruby")]
+#[sqlx::test(fixtures("base"))]
+async fn test_ruby_job(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"
+def main(name:)
+  "hello #{name}"
+end
+"#
+    .to_owned();
+
+    let result = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Ruby,
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+    }))
+    .arg("name", json!("world"))
+    .run_until_complete(&db, false, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    assert_eq!(result, serde_json::json!("hello world"));
     Ok(())
 }
 

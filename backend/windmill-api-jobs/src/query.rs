@@ -371,3 +371,441 @@ pub fn list_completed_jobs_query(
 
     filter_list_completed_query(sqlb, lq, w_id, join_outstanding_wait_times)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn empty_queue_query() -> ListQueueQuery {
+        ListQueueQuery {
+            script_path_start: None,
+            script_path_exact: None,
+            script_hash: None,
+            created_by: None,
+            started_before: None,
+            started_after: None,
+            created_before: None,
+            created_after: None,
+            created_or_started_before: None,
+            created_or_started_after: None,
+            running: None,
+            parent_job: None,
+            order_desc: None,
+            job_kinds: None,
+            suspended: None,
+            args: None,
+            tag: None,
+            schedule_path: None,
+            scheduled_for_before_now: None,
+            all_workspaces: None,
+            is_flow_step: None,
+            has_null_parent: None,
+            is_not_schedule: None,
+            concurrency_key: None,
+            worker: None,
+            allow_wildcards: None,
+            trigger_kind: None,
+            trigger_path: None,
+            include_args: None,
+        }
+    }
+
+    fn empty_completed_query() -> ListCompletedQuery {
+        ListCompletedQuery {
+            script_path_start: None,
+            script_path_exact: None,
+            script_hash: None,
+            created_by: None,
+            started_before: None,
+            started_after: None,
+            created_before: None,
+            created_after: None,
+            created_or_started_before: None,
+            created_or_started_after: None,
+            created_or_started_after_completed_jobs: None,
+            created_before_queue: None,
+            created_after_queue: None,
+            completed_after: None,
+            completed_before: None,
+            success: None,
+            running: None,
+            parent_job: None,
+            order_desc: None,
+            job_kinds: None,
+            is_skipped: None,
+            is_flow_step: None,
+            suspended: None,
+            schedule_path: None,
+            args: None,
+            result: None,
+            tag: None,
+            scheduled_for_before_now: None,
+            all_workspaces: None,
+            has_null_parent: None,
+            label: None,
+            is_not_schedule: None,
+            concurrency_key: None,
+            worker: None,
+            allow_wildcards: None,
+            trigger_kind: None,
+            trigger_path: None,
+            include_args: None,
+        }
+    }
+
+    fn build_sql(sqlb: SqlBuilder) -> String {
+        sqlb.sql().unwrap_or_default()
+    }
+
+    // --- Queue query tests ---
+
+    #[test]
+    fn test_queue_basic_query() {
+        let lq = empty_queue_query();
+        let sqlb = list_queue_jobs_query(
+            "test_ws",
+            &lq,
+            &["v2_job_queue.id"],
+            Pagination { page: Some(1), per_page: Some(10) },
+            false,
+            None,
+        );
+        let sql = build_sql(sqlb);
+        assert!(sql.contains("v2_job_queue"));
+        assert!(sql.contains("v2_job_queue.workspace_id"));
+    }
+
+    #[test]
+    fn test_queue_filter_script_path_start() {
+        let lq = ListQueueQuery {
+            script_path_start: Some("f/test".to_string()),
+            ..empty_queue_query()
+        };
+        let sqlb = filter_list_queue_query(
+            SqlBuilder::select_from("v2_job_queue").clone(),
+            &lq,
+            "ws",
+            false,
+        );
+        let sql = build_sql(sqlb);
+        assert!(sql.contains("runnable_path"));
+        assert!(sql.contains("LIKE"));
+    }
+
+    #[test]
+    fn test_queue_filter_script_path_exact() {
+        let lq = ListQueueQuery {
+            script_path_exact: Some("f/test/script".to_string()),
+            ..empty_queue_query()
+        };
+        let sqlb = filter_list_queue_query(
+            SqlBuilder::select_from("v2_job_queue").clone(),
+            &lq,
+            "ws",
+            false,
+        );
+        let sql = build_sql(sqlb);
+        assert!(sql.contains("runnable_path"));
+    }
+
+    #[test]
+    fn test_queue_filter_running() {
+        let lq = ListQueueQuery {
+            running: Some(true),
+            ..empty_queue_query()
+        };
+        let sqlb = filter_list_queue_query(
+            SqlBuilder::select_from("v2_job_queue").clone(),
+            &lq,
+            "ws",
+            false,
+        );
+        let sql = build_sql(sqlb);
+        assert!(sql.contains("running"));
+    }
+
+    #[test]
+    fn test_queue_filter_job_kinds() {
+        let lq = ListQueueQuery {
+            job_kinds: Some("script,flow".to_string()),
+            ..empty_queue_query()
+        };
+        let sqlb = filter_list_queue_query(
+            SqlBuilder::select_from("v2_job_queue").clone(),
+            &lq,
+            "ws",
+            false,
+        );
+        let sql = build_sql(sqlb);
+        assert!(sql.contains("kind"));
+        assert!(sql.contains("IN"));
+    }
+
+    #[test]
+    fn test_queue_filter_suspended() {
+        let lq = ListQueueQuery {
+            suspended: Some(true),
+            ..empty_queue_query()
+        };
+        let sqlb = filter_list_queue_query(
+            SqlBuilder::select_from("v2_job_queue").clone(),
+            &lq,
+            "ws",
+            false,
+        );
+        let sql = build_sql(sqlb);
+        assert!(sql.contains("suspend"));
+    }
+
+    #[test]
+    fn test_queue_filter_is_not_schedule() {
+        let lq = ListQueueQuery {
+            is_not_schedule: Some(true),
+            ..empty_queue_query()
+        };
+        let sqlb = filter_list_queue_query(
+            SqlBuilder::select_from("v2_job_queue").clone(),
+            &lq,
+            "ws",
+            false,
+        );
+        let sql = build_sql(sqlb);
+        assert!(sql.contains("trigger_kind IS DISTINCT FROM"));
+    }
+
+    #[test]
+    fn test_queue_filter_has_null_parent() {
+        let lq = ListQueueQuery {
+            has_null_parent: Some(true),
+            ..empty_queue_query()
+        };
+        let sqlb = filter_list_queue_query(
+            SqlBuilder::select_from("v2_job_queue").clone(),
+            &lq,
+            "ws",
+            false,
+        );
+        let sql = build_sql(sqlb);
+        assert!(sql.contains("parent_job IS NULL"));
+    }
+
+    #[test]
+    fn test_queue_filter_is_flow_step_true() {
+        let lq = ListQueueQuery {
+            is_flow_step: Some(true),
+            ..empty_queue_query()
+        };
+        let sqlb = filter_list_queue_query(
+            SqlBuilder::select_from("v2_job_queue").clone(),
+            &lq,
+            "ws",
+            false,
+        );
+        let sql = build_sql(sqlb);
+        assert!(sql.contains("flow_step_id IS NOT NULL"));
+    }
+
+    #[test]
+    fn test_queue_filter_is_flow_step_false() {
+        let lq = ListQueueQuery {
+            is_flow_step: Some(false),
+            ..empty_queue_query()
+        };
+        let sqlb = filter_list_queue_query(
+            SqlBuilder::select_from("v2_job_queue").clone(),
+            &lq,
+            "ws",
+            false,
+        );
+        let sql = build_sql(sqlb);
+        assert!(sql.contains("flow_step_id IS NULL"));
+    }
+
+    #[test]
+    fn test_queue_admins_all_workspaces() {
+        let lq = ListQueueQuery {
+            all_workspaces: Some(true),
+            ..empty_queue_query()
+        };
+        let sqlb = filter_list_queue_query(
+            SqlBuilder::select_from("v2_job_queue").clone(),
+            &lq,
+            "admins",
+            false,
+        );
+        let sql = build_sql(sqlb);
+        assert!(!sql.contains("workspace_id"));
+    }
+
+    #[test]
+    fn test_queue_non_admins_ignores_all_workspaces() {
+        let lq = ListQueueQuery {
+            all_workspaces: Some(true),
+            ..empty_queue_query()
+        };
+        let sqlb = filter_list_queue_query(
+            SqlBuilder::select_from("v2_job_queue").clone(),
+            &lq,
+            "other_ws",
+            false,
+        );
+        let sql = build_sql(sqlb);
+        assert!(sql.contains("workspace_id"));
+    }
+
+    #[test]
+    fn test_queue_with_outstanding_wait_times() {
+        let lq = empty_queue_query();
+        let sqlb = filter_list_queue_query(
+            SqlBuilder::select_from("v2_job_queue").clone(),
+            &lq,
+            "ws",
+            true,
+        );
+        let sql = build_sql(sqlb);
+        assert!(sql.contains("outstanding_wait_time"));
+    }
+
+    #[test]
+    fn test_queue_schedule_path_filter() {
+        let lq = ListQueueQuery {
+            schedule_path: Some("f/test/schedule".to_string()),
+            ..empty_queue_query()
+        };
+        let sqlb = filter_list_queue_query(
+            SqlBuilder::select_from("v2_job_queue").clone(),
+            &lq,
+            "ws",
+            false,
+        );
+        let sql = build_sql(sqlb);
+        assert!(sql.contains("trigger"));
+        assert!(sql.contains("'schedule'"));
+    }
+
+    // --- Completed query tests ---
+
+    #[test]
+    fn test_completed_basic_query() {
+        let lq = empty_completed_query();
+        let sqlb = list_completed_jobs_query("test_ws", Some(10), 0, &lq, &["id"], false, None);
+        let sql = build_sql(sqlb);
+        assert!(sql.contains("v2_job_completed"));
+    }
+
+    #[test]
+    fn test_completed_filter_success_true() {
+        let lq = ListCompletedQuery {
+            success: Some(true),
+            ..empty_completed_query()
+        };
+        let sqlb = filter_list_completed_query(
+            SqlBuilder::select_from("v2_job_completed").clone(),
+            &lq,
+            "ws",
+            false,
+        );
+        let sql = build_sql(sqlb);
+        assert!(sql.contains("'success'"));
+    }
+
+    #[test]
+    fn test_completed_filter_success_false() {
+        let lq = ListCompletedQuery {
+            success: Some(false),
+            ..empty_completed_query()
+        };
+        let sqlb = filter_list_completed_query(
+            SqlBuilder::select_from("v2_job_completed").clone(),
+            &lq,
+            "ws",
+            false,
+        );
+        let sql = build_sql(sqlb);
+        assert!(sql.contains("'failure'"));
+    }
+
+    #[test]
+    fn test_completed_order_by_completed_at() {
+        let lq = ListCompletedQuery {
+            completed_after: Some(chrono::Utc::now()),
+            ..empty_completed_query()
+        };
+        let sqlb = list_completed_jobs_query("ws", Some(10), 0, &lq, &["id"], false, None);
+        let sql = build_sql(sqlb);
+        assert!(sql.contains("completed_at"));
+    }
+
+    #[test]
+    fn test_completed_filter_label() {
+        let lq = ListCompletedQuery {
+            label: Some("deploy".to_string()),
+            ..empty_completed_query()
+        };
+        let sqlb = filter_list_completed_query(
+            SqlBuilder::select_from("v2_job_completed").clone(),
+            &lq,
+            "ws",
+            false,
+        );
+        let sql = build_sql(sqlb);
+        assert!(sql.contains("wm_labels"));
+    }
+
+    #[test]
+    fn test_completed_filter_is_skipped() {
+        let lq = ListCompletedQuery {
+            is_skipped: Some(true),
+            ..empty_completed_query()
+        };
+        let sqlb = filter_list_completed_query(
+            SqlBuilder::select_from("v2_job_completed").clone(),
+            &lq,
+            "ws",
+            false,
+        );
+        let sql = build_sql(sqlb);
+        assert!(sql.contains("'skipped'"));
+    }
+
+    #[test]
+    fn test_completed_with_tags() {
+        let lq = empty_completed_query();
+        let sqlb = list_completed_jobs_query(
+            "ws",
+            Some(10),
+            0,
+            &lq,
+            &["id"],
+            false,
+            Some(vec!["tag1", "tag2"]),
+        );
+        let sql = build_sql(sqlb);
+        assert!(sql.contains("v2_job.tag"));
+        assert!(sql.contains("IN"));
+    }
+
+    #[test]
+    fn test_completed_no_limit() {
+        let lq = empty_completed_query();
+        let sqlb = list_completed_jobs_query("ws", None, 0, &lq, &["id"], false, None);
+        let sql = build_sql(sqlb);
+        assert!(!sql.contains("LIMIT"));
+    }
+
+    #[test]
+    fn test_completed_result_filter() {
+        let lq = ListCompletedQuery {
+            result: Some(r#"{"status": "ok"}"#.to_string()),
+            ..empty_completed_query()
+        };
+        let sqlb = filter_list_completed_query(
+            SqlBuilder::select_from("v2_job_completed").clone(),
+            &lq,
+            "ws",
+            false,
+        );
+        let sql = build_sql(sqlb);
+        assert!(sql.contains("result @>"));
+    }
+}
