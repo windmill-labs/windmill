@@ -12,7 +12,13 @@
 //! TypeScript scripts via the nativets runtime. By isolating this here,
 //! deno_core compilation no longer blocks windmill-worker or windmill-api.
 
-use std::{borrow::Cow, cell::RefCell, path::PathBuf, rc::Rc, sync::Arc};
+use std::{
+    borrow::Cow,
+    cell::RefCell,
+    path::PathBuf,
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
 
 // Re-export deno_telemetry for use by windmill-worker's otel proxy
 pub use deno_telemetry;
@@ -31,7 +37,7 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use serde_json::value::RawValue;
 use sqlx::types::Json;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use windmill_common::error::Error;
@@ -117,6 +123,23 @@ struct LogString {
 pub struct NativeAnnotation {
     pub useragent: Option<String>,
     pub proxy: Option<(String, Option<(String, String)>)>,
+}
+
+/// Serializes V8 isolate creation to work around a V8 bug in
+/// `WasmCodePointerTable::AllocateUninitializedEntry()` that causes SIGSEGV
+/// when multiple isolates are created concurrently on x86_64 Linux.
+/// See: https://github.com/denoland/deno_core/issues/952
+static V8_ISOLATE_CREATE_LOCK: Mutex<()> = Mutex::new(());
+
+/// Guard that terminates a running V8 isolate when dropped (e.g. on job cancellation).
+struct IsolateDropGuard(Arc<Mutex<Option<IsolateHandle>>>);
+
+impl Drop for IsolateDropGuard {
+    fn drop(&mut self) {
+        if let Some(handle) = self.0.lock().unwrap().take() {
+            handle.terminate_execution();
+        }
+    }
 }
 
 // ── Statics ──────────────────────────────────────────────────────────
@@ -330,7 +353,8 @@ pub async fn eval_fetch_timeout(
     otel_initialized: bool,
     stream_notifier_update: Option<Arc<dyn Fn() + Send + Sync + 'static>>,
 ) -> windmill_common::error::Result<(Box<RawValue>, bool)> {
-    let (sender, mut receiver) = oneshot::channel::<IsolateHandle>();
+    let isolate_handle: Arc<Mutex<Option<IsolateHandle>>> = Arc::new(Mutex::new(None));
+    let _isolate_guard = IsolateDropGuard(isolate_handle.clone());
     let (append_logs_sender, mut append_logs_receiver) = mpsc::unbounded_channel::<String>();
     let (result_stream_sender, mut result_stream_receiver) = mpsc::unbounded_channel::<String>();
 
@@ -434,7 +458,12 @@ pub async fn eval_fetch_timeout(
 
         let (memory_limit_tx, mut memory_limit_rx) = mpsc::unbounded_channel::<()>();
 
-        let mut js_runtime: JsRuntime = JsRuntime::new(options);
+        let mut js_runtime = {
+            let _lock = V8_ISOLATE_CREATE_LOCK
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            JsRuntime::new(options)
+        };
 
         // Bootstrap OpenTelemetry for fetch auto-instrumentation if OTEL was initialized.
         if otel_initialized {
@@ -463,9 +492,8 @@ pub async fn eval_fetch_timeout(
             op_state.put(LogString { s: log_sender });
         }
 
-        sender
-            .send(js_runtime.v8_isolate().thread_safe_handle())
-            .map_err(|_| Error::ExecutionErr("impossible to send v8 isolate".to_string()))?;
+        *isolate_handle.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some(js_runtime.v8_isolate().thread_safe_handle());
 
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -512,6 +540,7 @@ pub async fn eval_fetch_timeout(
                 r = eval_fetch(&mut js_runtime, &js_expr, Some(env_code), script_entrypoint_override, load_client, &job_id, otel_initialized) => Ok(r),
                 _ = memory_limit_rx.recv() => Err(Error::ExecutionErr("Memory limit reached, killing isolate".to_string()))
             };
+            *isolate_handle.lock().unwrap_or_else(|e| e.into_inner()) = None;
             drop(js_runtime);
             if let Ok(r) = r {
                 match handle.await {
@@ -535,16 +564,7 @@ pub async fn eval_fetch_timeout(
         Ok(r) as windmill_common::error::Result<(Box<RawValue>, bool)>
     });
 
-    let result = result_f.await.map_err(windmill_common::error::to_anyhow)?;
-    match result {
-        Ok((res, has_stream)) => Ok((res, has_stream)),
-        Err(e) => {
-            if let Ok(isolate) = receiver.try_recv() {
-                isolate.terminate_execution();
-            }
-            Err(e)
-        }
-    }
+    result_f.await.map_err(windmill_common::error::to_anyhow)?
 }
 
 async fn eval_fetch(
