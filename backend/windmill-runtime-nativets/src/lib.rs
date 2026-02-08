@@ -125,10 +125,9 @@ pub struct NativeAnnotation {
     pub proxy: Option<(String, Option<(String, String)>)>,
 }
 
-/// Serializes V8 isolate creation to work around a V8 bug in
-/// `WasmCodePointerTable::AllocateUninitializedEntry()` that causes SIGSEGV
-/// when multiple isolates are created concurrently on x86_64 Linux.
-/// See: https://github.com/denoland/deno_core/issues/952
+/// Serializes V8 isolate creation as defense-in-depth against concurrent
+/// creation races on x86_64 Linux. The primary fix is using the unprotected
+/// V8 platform (see `setup_deno_runtime`).
 static V8_ISOLATE_CREATE_LOCK: Mutex<()> = Mutex::new(());
 
 /// Guard that terminates a running V8 isolate when dropped (e.g. on job cancellation).
@@ -171,7 +170,14 @@ pub fn setup_deno_runtime() -> anyhow::Result<()> {
         println!("Unrecognized V8 flags: {:?}", unrecognized_v8_flags);
     }
 
-    deno_core::JsRuntime::init_platform(None, false);
+    // Use an unprotected platform that doesn't enforce thread-isolated allocations
+    // via Memory Protection Keys (pkeys). The default platform requires all V8-using
+    // threads to be descendants of the thread that called v8::Initialize, but tokio's
+    // spawn_blocking pool threads don't satisfy this. Without this, V8 crashes with
+    // SIGSEGV in WasmCodePointerTable::AllocateUninitializedEntry() on x86_64 Linux.
+    // See: https://github.com/denoland/deno_core/issues/952
+    let platform = deno_core::v8::new_unprotected_default_platform(0, false).make_shared();
+    deno_core::JsRuntime::init_platform(Some(platform), false);
     Ok(())
 }
 
@@ -458,8 +464,11 @@ pub async fn eval_fetch_timeout(
 
         let (memory_limit_tx, mut memory_limit_rx) = mpsc::unbounded_channel::<()>();
 
+        // Serialize isolate creation as extra safety net against concurrent V8
+        // isolate creation races. The main fix is the unprotected platform in
+        // setup_deno_runtime(), but this provides defense in depth.
         let mut js_runtime = {
-            let _lock = V8_ISOLATE_CREATE_LOCK
+            let _v8_lock = V8_ISOLATE_CREATE_LOCK
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
             JsRuntime::new(options)
