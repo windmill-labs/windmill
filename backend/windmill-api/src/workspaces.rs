@@ -12,11 +12,9 @@ use crate::users_oss::send_email_if_possible;
 use crate::utils::get_instance_username_or_create_pending;
 use crate::BASE_URL;
 use crate::{
-    db::DB,
-    users::{WorkspaceInvite, VALID_USERNAME},
-    utils::require_super_admin,
-    webhook_util::WebhookShared,
+    db::DB, users::WorkspaceInvite, utils::require_super_admin, webhook_util::WebhookShared,
 };
+use windmill_common::usernames::VALID_USERNAME;
 
 use axum::{
     extract::{Extension, Path, Query},

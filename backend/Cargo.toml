@@ -8,6 +8,8 @@ edition.workspace = true
 resolver = "2"
 members = [
     "./windmill-api",
+    "./windmill-api-scripts",
+    "./windmill-api-users",
     "./windmill-api-auth",
     "./windmill-api-sse",
     "./windmill-api-jobs",
@@ -251,6 +253,8 @@ windmill-mcp = {path = "./windmill-mcp"}
 windmill-oauth = {path = "./windmill-oauth"}
 windmill-macros = {path = "./windmill-macros"}
 windmill-api-auth = { path = "./windmill-api-auth" }
+windmill-api-scripts = { path = "./windmill-api-scripts" }
+windmill-api-users = { path = "./windmill-api-users" }
 windmill-api-sse = { path = "./windmill-api-sse" }
 windmill-api-jobs = { path = "./windmill-api-jobs" }
 windmill-trigger = { path = "./windmill-trigger" }
