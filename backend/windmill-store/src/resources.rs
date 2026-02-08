@@ -10,6 +10,7 @@ use std::collections::HashMap;
 
 use windmill_api_auth::{
     check_scopes, maybe_refresh_folders, require_owner_of_path, require_super_admin, ApiAuthed,
+    Tokened,
 };
 use windmill_common::db::DB;
 
@@ -60,6 +61,10 @@ pub fn workspaced_service() -> Router {
         .route("/get/*path", get(get_resource))
         .route("/exists/*path", get(exists_resource))
         .route("/get_value/*path", get(get_resource_value))
+        .route(
+            "/get_value_interpolated/*path",
+            get(get_resource_value_interpolated),
+        )
         .route("/update/*path", post(update_resource))
         .route("/update_value/*path", post(update_resource_value))
         .route("/delete/*path", delete(delete_resource))
@@ -432,6 +437,31 @@ async fn custom_component(
 pub struct JobInfo {
     pub job_id: Option<Uuid>,
     pub allow_cache: Option<bool>,
+}
+
+async fn get_resource_value_interpolated(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Tokened { token }: Tokened,
+    Path((w_id, path)): Path<(String, StripPath)>,
+    Query(job_info): Query<JobInfo>,
+) -> JsonResult<Option<serde_json::Value>> {
+    let path = path.to_path();
+    check_scopes(&authed, || format!("resources:read:{}", path))?;
+
+    let db_with_opt_authed =
+        DbWithOptAuthed::from_authed(&authed, db.clone(), Some(user_db.clone()));
+    get_resource_value_interpolated_internal(
+        &db_with_opt_authed,
+        w_id.as_str(),
+        path,
+        job_info.job_id,
+        Some(token.as_str()),
+        job_info.allow_cache.unwrap_or(false),
+    )
+    .await
+    .map(|success| Json(success))
 }
 
 pub async fn get_resource_value_interpolated_internal<'a>(
