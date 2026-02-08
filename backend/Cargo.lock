@@ -15807,6 +15807,7 @@ dependencies = [
  "windmill-api-scripts",
  "windmill-api-sse",
  "windmill-api-users",
+ "windmill-api-workspaces",
  "windmill-audit",
  "windmill-autoscaling",
  "windmill-common",
@@ -15983,6 +15984,34 @@ dependencies = [
  "windmill-audit",
  "windmill-common",
  "windmill-git-sync",
+]
+
+[[package]]
+name = "windmill-api-workspaces"
+version = "1.628.3"
+dependencies = [
+ "axum 0.7.9",
+ "chrono",
+ "hex",
+ "http 1.4.0",
+ "hyper 1.8.1",
+ "lazy_static",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+ "windmill-api-auth",
+ "windmill-api-jobs",
+ "windmill-api-users",
+ "windmill-audit",
+ "windmill-common",
+ "windmill-dep-map",
+ "windmill-git-sync",
+ "windmill-queue",
 ]
 
 [[package]]
