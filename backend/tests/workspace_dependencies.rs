@@ -7,7 +7,7 @@ mod workspace_dependencies {
     use sqlx::{Pool, Postgres};
     use tokio_stream::StreamExt;
     use windmill_common::scripts::ScriptLang;
-    use windmill_worker::workspace_dependencies::NewWorkspaceDependencies;
+    use windmill_dep_map::workspace_dependencies::NewWorkspaceDependencies;
     mod deps {
         pub const REQUIREMENTS_IN: &'static str = "tiny==0.1.3";
         //     pub const GO_MOD: &'static str = r##"

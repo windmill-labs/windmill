@@ -1,4 +1,3 @@
-use windmill_common::ai_types::OpenAIToolCall;
 use crate::ai::query_builder::StreamEventProcessor;
 use crate::ai::types::McpToolSource;
 use crate::ai::types::*;
@@ -21,6 +20,7 @@ use mappable_rc::Marc;
 use serde_json::value::RawValue;
 use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
+use windmill_common::ai_types::OpenAIToolCall;
 use windmill_common::flows::InputTransform;
 use windmill_common::jobs::JobPayload;
 

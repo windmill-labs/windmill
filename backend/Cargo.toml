@@ -26,6 +26,7 @@ members = [
     "./windmill-store",
     "./windmill-queue",
     "./windmill-worker",
+    "./windmill-dep-map",
     "./windmill-common",
     "./windmill-mcp",
     "./windmill-audit",
@@ -129,11 +130,12 @@ all_languages = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "
 # For windows we have another set of languages enabled
 all_languages_windows = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql-winauth", "bigquery", "csharp", "nu", "php", "java"]
 # Edition meta-features: shared groups
+inline_preview = ["windmill-api/inline_preview"]
 oss_core = [
     "embedding", "parquet", "openidconnect", "license",
     "http_trigger", "zip", "oauth2", "postgres_trigger",
     "mqtt_trigger", "websocket", "smtp", "native_trigger",
-    "static_frontend", "mcp", "bedrock"
+    "static_frontend", "mcp", "bedrock", "inline_preview"
 ]
 ce_core = ["oss_core", "private"]
 ee_core = [
@@ -224,6 +226,7 @@ tikv-jemalloc-ctl = { optional = true, workspace = true }
 serde_json.workspace = true
 reqwest.workspace = true
 windmill-queue = { workspace = true, features = ["failpoints"] }
+windmill-dep-map.workspace = true
 axum.workspace = true
 serde.workspace = true
 windmill-api-client.workspace = true
@@ -235,6 +238,7 @@ tempfile.workspace = true
 windmill-api = { path = "./windmill-api", default-features = false  }
 windmill-queue = { path = "./windmill-queue" }
 windmill-worker = { path = "./windmill-worker" }
+windmill-dep-map = { path = "./windmill-dep-map" }
 windmill-common = { path = "./windmill-common", default-features = false }
 windmill-audit = { path = "./windmill-audit" }
 windmill-git-sync = { path = "./windmill-git-sync" }

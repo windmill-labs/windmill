@@ -67,9 +67,12 @@ mod parity_tests {
         let quickjs_value: serde_json::Value = serde_json::from_str(quickjs_result.get())?;
 
         assert_eq!(
-            deno_value, quickjs_value,
+            deno_value,
+            quickjs_value,
             "Results differ for expression '{}'\ndeno_core: {}\nquickjs: {}",
-            expr, deno_result.get(), quickjs_result.get()
+            expr,
+            deno_result.get(),
+            quickjs_result.get()
         );
 
         Ok(())
@@ -615,10 +618,7 @@ mod parity_tests {
         env.insert("str".to_string(), Arc::new(to_raw_value(&json!("hello"))));
         env.insert("num".to_string(), Arc::new(to_raw_value(&json!(42))));
         env.insert("arr".to_string(), Arc::new(to_raw_value(&json!([1, 2, 3]))));
-        env.insert(
-            "obj".to_string(),
-            Arc::new(to_raw_value(&json!({"a": 1}))),
-        );
+        env.insert("obj".to_string(), Arc::new(to_raw_value(&json!({"a": 1}))));
         env.insert("n".to_string(), Arc::new(to_raw_value(&json!(null))));
 
         // typeof
@@ -746,7 +746,10 @@ mod parity_tests {
         // NOTE: We avoid the word "error" in expressions due to special handling in eval_timeout
 
         let mut env = HashMap::new();
-        env.insert("status".to_string(), Arc::new(to_raw_value(&json!("pending"))));
+        env.insert(
+            "status".to_string(),
+            Arc::new(to_raw_value(&json!("pending"))),
+        );
         env.insert("retries".to_string(), Arc::new(to_raw_value(&json!(3))));
         env.insert("maxRetries".to_string(), Arc::new(to_raw_value(&json!(5))));
 
@@ -805,20 +808,10 @@ mod parity_tests {
         test_parity("numbers.map(n => n * 2)", env.clone(), None).await?;
 
         // Block body (explicit return)
-        test_parity(
-            "numbers.map(n => { return n * 2; })",
-            env.clone(),
-            None,
-        )
-        .await?;
+        test_parity("numbers.map(n => { return n * 2; })", env.clone(), None).await?;
 
         // Multiple parameters
-        test_parity(
-            "numbers.reduce((acc, n) => acc + n, 0)",
-            env.clone(),
-            None,
-        )
-        .await?;
+        test_parity("numbers.reduce((acc, n) => acc + n, 0)", env.clone(), None).await?;
 
         // Destructuring in parameters
         test_parity(
@@ -957,12 +950,7 @@ mod parity_tests {
         .await?;
 
         // Deep clone pattern
-        test_parity(
-            "JSON.parse(JSON.stringify(config))",
-            env.clone(),
-            None,
-        )
-        .await?;
+        test_parity("JSON.parse(JSON.stringify(config))", env.clone(), None).await?;
 
         // Computed property names
         test_parity(
@@ -1048,12 +1036,7 @@ mod parity_tests {
         );
 
         // find and findIndex
-        test_parity(
-            "items.find(i => i.name === 'Banana')",
-            env.clone(),
-            None,
-        )
-        .await?;
+        test_parity("items.find(i => i.name === 'Banana')", env.clone(), None).await?;
 
         test_parity(
             "items.findIndex(i => i.name === 'Banana')",
@@ -1082,28 +1065,13 @@ mod parity_tests {
         test_parity("Array(3).fill(0)", env.clone(), None).await?;
 
         // Reverse (on copy to avoid mutation)
-        test_parity(
-            "[...items].reverse().map(i => i.name)",
-            env.clone(),
-            None,
-        )
-        .await?;
+        test_parity("[...items].reverse().map(i => i.name)", env.clone(), None).await?;
 
         // concat
-        test_parity(
-            "[1, 2].concat([3, 4], [5, 6])",
-            env.clone(),
-            None,
-        )
-        .await?;
+        test_parity("[1, 2].concat([3, 4], [5, 6])", env.clone(), None).await?;
 
         // join variations
-        test_parity(
-            "items.map(i => i.name).join(' | ')",
-            env.clone(),
-            None,
-        )
-        .await?;
+        test_parity("items.map(i => i.name).join(' | ')", env.clone(), None).await?;
 
         Ok(())
     }
@@ -1289,8 +1257,14 @@ mod parity_tests {
     async fn parity_edge_cases_empty_values() -> anyhow::Result<()> {
         let mut env = HashMap::new();
         env.insert("emptyArray".to_string(), Arc::new(to_raw_value(&json!([]))));
-        env.insert("emptyObject".to_string(), Arc::new(to_raw_value(&json!({}))));
-        env.insert("emptyString".to_string(), Arc::new(to_raw_value(&json!(""))));
+        env.insert(
+            "emptyObject".to_string(),
+            Arc::new(to_raw_value(&json!({}))),
+        );
+        env.insert(
+            "emptyString".to_string(),
+            Arc::new(to_raw_value(&json!(""))),
+        );
         env.insert("zero".to_string(), Arc::new(to_raw_value(&json!(0))));
 
         // Operations on empty values
@@ -1409,19 +1383,9 @@ mod parity_tests {
         let env = HashMap::new();
 
         // Basic Promise.resolve
-        test_parity(
-            "Promise.resolve(42)",
-            env.clone(),
-            None,
-        )
-        .await?;
+        test_parity("Promise.resolve(42)", env.clone(), None).await?;
 
-        test_parity(
-            "Promise.resolve({ key: 'value' })",
-            env.clone(),
-            None,
-        )
-        .await?;
+        test_parity("Promise.resolve({ key: 'value' })", env.clone(), None).await?;
 
         // Promise.all with resolved values
         test_parity(
@@ -1447,35 +1411,15 @@ mod parity_tests {
         );
 
         // Deduplicate using Set
-        test_parity(
-            "[...new Set(arr)]",
-            env.clone(),
-            None,
-        )
-        .await?;
+        test_parity("[...new Set(arr)]", env.clone(), None).await?;
 
         // Set size
-        test_parity(
-            "new Set(arr).size",
-            env.clone(),
-            None,
-        )
-        .await?;
+        test_parity("new Set(arr).size", env.clone(), None).await?;
 
         // Set.has
-        test_parity(
-            "new Set(arr).has(3)",
-            env.clone(),
-            None,
-        )
-        .await?;
+        test_parity("new Set(arr).has(3)", env.clone(), None).await?;
 
-        test_parity(
-            "new Set(arr).has(99)",
-            env.clone(),
-            None,
-        )
-        .await?;
+        test_parity("new Set(arr).has(99)", env.clone(), None).await?;
 
         Ok(())
     }
@@ -1798,32 +1742,17 @@ mod benchmark_tests {
         // QuickJS
         let start = Instant::now();
         for _ in 0..iterations {
-            let _ = eval_timeout_quickjs(
-                expr.to_string(),
-                env.clone(),
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
-            .await?;
+            let _ =
+                eval_timeout_quickjs(expr.to_string(), env.clone(), None, None, None, None, None)
+                    .await?;
         }
         let quickjs_duration = start.elapsed();
 
         // deno_core
         let start = Instant::now();
         for _ in 0..iterations {
-            let _ = eval_timeout(
-                expr.to_string(),
-                env.clone(),
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
-            .await?;
+            let _ =
+                eval_timeout(expr.to_string(), env.clone(), None, None, None, None, None).await?;
         }
         let deno_duration = start.elapsed();
 
@@ -1886,9 +1815,12 @@ mod flow_simulation_parity_tests {
         let quickjs_value: serde_json::Value = serde_json::from_str(quickjs_result.get())?;
 
         assert_eq!(
-            deno_value, quickjs_value,
+            deno_value,
+            quickjs_value,
             "Results differ for expression '{}'\ndeno_core: {}\nquickjs: {}",
-            expr, deno_result.get(), quickjs_result.get()
+            expr,
+            deno_result.get(),
+            quickjs_result.get()
         );
 
         Ok(())
@@ -1906,10 +1838,7 @@ mod flow_simulation_parity_tests {
         let mut transform_context = HashMap::new();
 
         // Step 'a' result: simple number
-        transform_context.insert(
-            "a".to_string(),
-            Arc::new(to_raw_value(&json!(42))),
-        );
+        transform_context.insert("a".to_string(), Arc::new(to_raw_value(&json!(42))));
 
         // Step 'b' result: object with nested data
         transform_context.insert(
@@ -1938,10 +1867,7 @@ mod flow_simulation_parity_tests {
         );
 
         // Step 'd' result: null (simulating a step that returned null)
-        transform_context.insert(
-            "d".to_string(),
-            Arc::new(to_raw_value(&json!(null))),
-        );
+        transform_context.insert("d".to_string(), Arc::new(to_raw_value(&json!(null))));
 
         // Step 'e' result: error object (simulating a failed step with continue_on_error)
         transform_context.insert(
@@ -2057,10 +1983,22 @@ mod flow_simulation_parity_tests {
         test_parity("b.data.total", ctx.clone(), fi.clone(), fe.clone()).await?;
         test_parity("b.data.users[0].name", ctx.clone(), fi.clone(), fe.clone()).await?;
         test_parity("b.data.users[1].roles", ctx.clone(), fi.clone(), fe.clone()).await?;
-        test_parity("b.data.metadata.hasMore", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity(
+            "b.data.metadata.hasMore",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
 
         // Deeply nested
-        test_parity("f.level1.level2.level3.level4.value", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity(
+            "f.level1.level2.level3.level4.value",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
 
         Ok(())
     }
@@ -2076,13 +2014,25 @@ mod flow_simulation_parity_tests {
         // Array methods
         test_parity("c.map(x => x * 2)", ctx.clone(), fi.clone(), fe.clone()).await?;
         test_parity("c.filter(x => x > 25)", ctx.clone(), fi.clone(), fe.clone()).await?;
-        test_parity("c.reduce((acc, x) => acc + x, 0)", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity(
+            "c.reduce((acc, x) => acc + x, 0)",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
         test_parity("c.find(x => x === 30)", ctx.clone(), fi.clone(), fe.clone()).await?;
         test_parity("c.some(x => x > 40)", ctx.clone(), fi.clone(), fe.clone()).await?;
         test_parity("c.every(x => x > 0)", ctx.clone(), fi.clone(), fe.clone()).await?;
 
         // Chained operations
-        test_parity("c.filter(x => x > 20).map(x => x / 10)", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity(
+            "c.filter(x => x > 20).map(x => x / 10)",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
 
         Ok(())
     }
@@ -2094,18 +2044,27 @@ mod flow_simulation_parity_tests {
         // Complex data extraction from step 'b'
         test_parity(
             "b.data.users.filter(u => u.active).map(u => u.name)",
-            ctx.clone(), fi.clone(), fe.clone()
-        ).await?;
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
 
         test_parity(
             "b.data.users.filter(u => u.roles.includes('admin'))[0]?.name",
-            ctx.clone(), fi.clone(), fe.clone()
-        ).await?;
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
 
         test_parity(
             "b.data.users.reduce((acc, u) => acc + (u.active ? 1 : 0), 0)",
-            ctx.clone(), fi.clone(), fe.clone()
-        ).await?;
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
 
         // Combining multiple step results
         test_parity("a + c[0]", ctx.clone(), fi.clone(), fe.clone()).await?;
@@ -2133,10 +2092,34 @@ mod flow_simulation_parity_tests {
     async fn parity_flow_input_nested() -> anyhow::Result<()> {
         let (ctx, fi, fe) = create_multi_step_flow_context();
 
-        test_parity("flow_input.config.timeout", ctx.clone(), fi.clone(), fe.clone()).await?;
-        test_parity("flow_input.config.retries", ctx.clone(), fi.clone(), fe.clone()).await?;
-        test_parity("flow_input.config.options", ctx.clone(), fi.clone(), fe.clone()).await?;
-        test_parity("flow_input.config.options[0]", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity(
+            "flow_input.config.timeout",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
+        test_parity(
+            "flow_input.config.retries",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
+        test_parity(
+            "flow_input.config.options",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
+        test_parity(
+            "flow_input.config.options[0]",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
 
         Ok(())
     }
@@ -2145,10 +2128,34 @@ mod flow_simulation_parity_tests {
     async fn parity_flow_input_array_operations() -> anyhow::Result<()> {
         let (ctx, fi, fe) = create_multi_step_flow_context();
 
-        test_parity("flow_input.items.length", ctx.clone(), fi.clone(), fe.clone()).await?;
-        test_parity("flow_input.items[0].id", ctx.clone(), fi.clone(), fe.clone()).await?;
-        test_parity("flow_input.items.map(i => i.value)", ctx.clone(), fi.clone(), fe.clone()).await?;
-        test_parity("flow_input.items.find(i => i.id === 2)", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity(
+            "flow_input.items.length",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
+        test_parity(
+            "flow_input.items[0].id",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
+        test_parity(
+            "flow_input.items.map(i => i.value)",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
+        test_parity(
+            "flow_input.items.find(i => i.id === 2)",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
 
         Ok(())
     }
@@ -2159,13 +2166,22 @@ mod flow_simulation_parity_tests {
 
         // Combining flow_input with step results
         test_parity("flow_input.count + a", ctx.clone(), fi.clone(), fe.clone()).await?;
-        test_parity("flow_input.config.timeout * b.data.total", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity(
+            "flow_input.config.timeout * b.data.total",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
 
         // Conditional based on flow_input
         test_parity(
             "flow_input.enabled ? b.data.users : []",
-            ctx.clone(), fi.clone(), fe.clone()
-        ).await?;
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
 
         Ok(())
     }
@@ -2189,18 +2205,30 @@ mod flow_simulation_parity_tests {
     async fn parity_flow_env_conditionals() -> anyhow::Result<()> {
         // Test flow_env conditionals with explicit flow_env reference in context
         let mut ctx = HashMap::new();
-        ctx.insert("env_val".to_string(), Arc::new(to_raw_value(&json!("production"))));
-        ctx.insert("debug_val".to_string(), Arc::new(to_raw_value(&json!(false))));
+        ctx.insert(
+            "env_val".to_string(),
+            Arc::new(to_raw_value(&json!("production"))),
+        );
+        ctx.insert(
+            "debug_val".to_string(),
+            Arc::new(to_raw_value(&json!(false))),
+        );
 
         test_parity(
             "env_val === 'production' ? 'prod' : 'dev'",
-            ctx.clone(), None, None
-        ).await?;
+            ctx.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         test_parity(
             "debug_val ? 'debug mode' : 'normal'",
-            ctx.clone(), None, None
-        ).await?;
+            ctx.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         Ok(())
     }
@@ -2214,16 +2242,34 @@ mod flow_simulation_parity_tests {
         let (ctx, fi, fe) = create_multi_step_flow_context();
 
         // Typical iterator expressions
-        test_parity("c", ctx.clone(), fi.clone(), fe.clone()).await?;  // Direct array
-        test_parity("b.data.users", ctx.clone(), fi.clone(), fe.clone()).await?;  // Nested array
+        test_parity("c", ctx.clone(), fi.clone(), fe.clone()).await?; // Direct array
+        test_parity("b.data.users", ctx.clone(), fi.clone(), fe.clone()).await?; // Nested array
         test_parity("flow_input.items", ctx.clone(), fi.clone(), fe.clone()).await?;
 
         // Transformed iterators
-        test_parity("c.map(x => ({value: x, doubled: x * 2}))", ctx.clone(), fi.clone(), fe.clone()).await?;
-        test_parity("b.data.users.filter(u => u.active)", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity(
+            "c.map(x => ({value: x, doubled: x * 2}))",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
+        test_parity(
+            "b.data.users.filter(u => u.active)",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
 
         // Range-like iteration
-        test_parity("Array.from({length: 5}, (_, i) => i)", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity(
+            "Array.from({length: 5}, (_, i) => i)",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
 
         Ok(())
     }
@@ -2232,13 +2278,19 @@ mod flow_simulation_parity_tests {
     async fn parity_forloop_inner_expressions() -> anyhow::Result<()> {
         // Simulate expressions inside a for-loop where flow_input.iter exists
         let mut ctx = HashMap::new();
-        ctx.insert("previous_result".to_string(), Arc::new(to_raw_value(&json!({"value": 42, "index": 2}))));
+        ctx.insert(
+            "previous_result".to_string(),
+            Arc::new(to_raw_value(&json!({"value": 42, "index": 2}))),
+        );
 
         let mut flow_input = HashMap::new();
-        flow_input.insert("iter".to_string(), to_raw_value(&json!({
-            "index": 2,
-            "value": {"id": 3, "name": "test_item"}
-        })));
+        flow_input.insert(
+            "iter".to_string(),
+            to_raw_value(&json!({
+                "index": 2,
+                "value": {"id": 3, "name": "test_item"}
+            })),
+        );
         flow_input.insert("name".to_string(), to_raw_value(&json!("parent_flow")));
 
         let fi = Some(mappable_rc::Marc::new(flow_input));
@@ -2251,8 +2303,11 @@ mod flow_simulation_parity_tests {
         // Combining iter with other flow_input
         test_parity(
             "`Item ${flow_input.iter.index} of ${flow_input.name}`",
-            ctx.clone(), fi.clone(), None
-        ).await?;
+            ctx.clone(),
+            fi.clone(),
+            None,
+        )
+        .await?;
 
         Ok(())
     }
@@ -2271,12 +2326,24 @@ mod flow_simulation_parity_tests {
         test_parity("flow_input.enabled", ctx.clone(), fi.clone(), None).await?;
 
         // Complex boolean conditions
-        test_parity("a > 40 && b.status === 'success'", ctx.clone(), fi.clone(), None).await?;
+        test_parity(
+            "a > 40 && b.status === 'success'",
+            ctx.clone(),
+            fi.clone(),
+            None,
+        )
+        .await?;
         test_parity("a < 50 || b.data.total > 5", ctx.clone(), fi.clone(), None).await?;
 
         // Conditions with array checks
         test_parity("b.data.users.length > 0", ctx.clone(), fi.clone(), None).await?;
-        test_parity("b.data.users.some(u => u.active)", ctx.clone(), fi.clone(), None).await?;
+        test_parity(
+            "b.data.users.some(u => u.active)",
+            ctx.clone(),
+            fi.clone(),
+            None,
+        )
+        .await?;
         test_parity("c.includes(30)", ctx.clone(), fi.clone(), None).await?;
 
         Ok(())
@@ -2291,16 +2358,40 @@ mod flow_simulation_parity_tests {
         let (ctx, fi, fe) = create_multi_step_flow_context();
 
         // Skip based on previous result
-        test_parity("previous_result === null", ctx.clone(), fi.clone(), fe.clone()).await?;
-        test_parity("previous_result.length === 0", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity(
+            "previous_result === null",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
+        test_parity(
+            "previous_result.length === 0",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
 
         // Skip based on flow_input
         test_parity("!flow_input.enabled", ctx.clone(), fi.clone(), fe.clone()).await?;
-        test_parity("flow_input.count === 0", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity(
+            "flow_input.count === 0",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
 
         // Skip based on step result
         test_parity("d === null", ctx.clone(), fi.clone(), fe.clone()).await?;
-        test_parity("e?.error !== undefined", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity(
+            "e?.error !== undefined",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
 
         Ok(())
     }
@@ -2311,7 +2402,13 @@ mod flow_simulation_parity_tests {
 
         // Stop conditions (avoid previous_result?.error pattern which has issues with error extraction)
         test_parity("a >= 42", ctx.clone(), fi.clone(), None).await?;
-        test_parity("b.data.metadata.hasMore === false", ctx.clone(), fi.clone(), None).await?;
+        test_parity(
+            "b.data.metadata.hasMore === false",
+            ctx.clone(),
+            fi.clone(),
+            None,
+        )
+        .await?;
         test_parity("b.status !== 'success'", ctx.clone(), fi.clone(), None).await?;
 
         Ok(())
@@ -2327,7 +2424,7 @@ mod flow_simulation_parity_tests {
         let mut ctx = HashMap::new();
         ctx.insert("a".to_string(), Arc::new(to_raw_value(&json!(42))));
         // 'b' was never executed (branch not taken)
-        ctx.insert("c".to_string(), Arc::new(to_raw_value(&json!(null))));  // Step returned null
+        ctx.insert("c".to_string(), Arc::new(to_raw_value(&json!(null)))); // Step returned null
 
         // Safe access to potentially missing step
         test_parity("a", ctx.clone(), None, None).await?;
@@ -2346,10 +2443,22 @@ mod flow_simulation_parity_tests {
 
         // Nullish coalescing
         test_parity("d ?? 'default'", ctx.clone(), fi.clone(), fe.clone()).await?;
-        test_parity("d?.value ?? 'not found'", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity(
+            "d?.value ?? 'not found'",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
 
         // With nested access
-        test_parity("b.data.missing?.value ?? 'fallback'", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity(
+            "b.data.missing?.value ?? 'fallback'",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
 
         Ok(())
     }
@@ -2370,8 +2479,11 @@ mod flow_simulation_parity_tests {
         // Conditional based on error
         test_parity(
             "e.error ? `Error: ${e.error.message}` : 'OK'",
-            ctx.clone(), fi.clone(), fe.clone()
-        ).await?;
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
 
         Ok(())
     }
@@ -2431,19 +2543,28 @@ mod flow_simulation_parity_tests {
         // Building objects from step results
         test_parity(
             "({ count: a, users: b.data.users })",
-            ctx.clone(), fi.clone(), fe.clone()
-        ).await?;
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
 
         test_parity(
             "({ ...flow_input.config, extra: 'value' })",
-            ctx.clone(), fi.clone(), fe.clone()
-        ).await?;
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
 
         // Computed properties
         test_parity(
             "({ [`step_${a}`]: b.status })",
-            ctx.clone(), fi.clone(), fe.clone()
-        ).await?;
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
 
         Ok(())
     }
@@ -2459,8 +2580,11 @@ mod flow_simulation_parity_tests {
         // Array from step results
         test_parity(
             "[b.data.users[0], b.data.users[2]]",
-            ctx.clone(), fi.clone(), fe.clone()
-        ).await?;
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
 
         Ok(())
     }
@@ -2473,12 +2597,18 @@ mod flow_simulation_parity_tests {
     async fn parity_multiline_data_processing() -> anyhow::Result<()> {
         let (ctx, fi, fe) = create_multi_step_flow_context();
 
-        test_parity(r#"
+        test_parity(
+            r#"
             let users = b.data.users;
             let activeUsers = users.filter(u => u.active);
             let adminUsers = activeUsers.filter(u => u.roles.includes('admin'));
             return adminUsers.map(u => u.name);
-        "#, ctx.clone(), fi.clone(), fe.clone()).await?;
+        "#,
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
 
         Ok(())
     }
@@ -2487,13 +2617,19 @@ mod flow_simulation_parity_tests {
     async fn parity_multiline_conditional_logic() -> anyhow::Result<()> {
         let (ctx, fi, _fe) = create_multi_step_flow_context();
 
-        test_parity(r#"
+        test_parity(
+            r#"
             if (flow_input.enabled) {
                 return { mode: 'enabled', data: b.data.users.filter(u => u.active) };
             } else {
                 return { mode: 'disabled', data: b.data.users };
             }
-        "#, ctx.clone(), fi.clone(), None).await?;
+        "#,
+            ctx.clone(),
+            fi.clone(),
+            None,
+        )
+        .await?;
 
         Ok(())
     }
@@ -2502,7 +2638,8 @@ mod flow_simulation_parity_tests {
     async fn parity_multiline_aggregation() -> anyhow::Result<()> {
         let (ctx, fi, _fe) = create_multi_step_flow_context();
 
-        test_parity(r#"
+        test_parity(
+            r#"
             const summary = {
                 stepA: a,
                 stepB_status: b.status,
@@ -2513,7 +2650,12 @@ mod flow_simulation_parity_tests {
                 enabled: flow_input.enabled
             };
             return summary;
-        "#, ctx.clone(), fi.clone(), None).await?;
+        "#,
+            ctx.clone(),
+            fi.clone(),
+            None,
+        )
+        .await?;
 
         Ok(())
     }
@@ -2540,8 +2682,14 @@ mod flow_simulation_parity_tests {
     #[tokio::test]
     async fn parity_large_numbers() -> anyhow::Result<()> {
         let mut ctx = HashMap::new();
-        ctx.insert("bigInt".to_string(), Arc::new(to_raw_value(&json!(9007199254740991_i64))));  // MAX_SAFE_INTEGER
-        ctx.insert("timestamp".to_string(), Arc::new(to_raw_value(&json!(1703980800000_i64))));  // Typical timestamp
+        ctx.insert(
+            "bigInt".to_string(),
+            Arc::new(to_raw_value(&json!(9007199254740991_i64))),
+        ); // MAX_SAFE_INTEGER
+        ctx.insert(
+            "timestamp".to_string(),
+            Arc::new(to_raw_value(&json!(1703980800000_i64))),
+        ); // Typical timestamp
 
         test_parity("bigInt", ctx.clone(), None, None).await?;
         test_parity("timestamp", ctx.clone(), None, None).await?;
@@ -2577,9 +2725,15 @@ mod flow_simulation_parity_tests {
     async fn parity_boolean_coercion_edge_cases() -> anyhow::Result<()> {
         let mut ctx = HashMap::new();
         ctx.insert("zero".to_string(), Arc::new(to_raw_value(&json!(0))));
-        ctx.insert("emptyString".to_string(), Arc::new(to_raw_value(&json!(""))));
+        ctx.insert(
+            "emptyString".to_string(),
+            Arc::new(to_raw_value(&json!(""))),
+        );
         ctx.insert("nullVal".to_string(), Arc::new(to_raw_value(&json!(null))));
-        ctx.insert("falseVal".to_string(), Arc::new(to_raw_value(&json!(false))));
+        ctx.insert(
+            "falseVal".to_string(),
+            Arc::new(to_raw_value(&json!(false))),
+        );
         ctx.insert("emptyArr".to_string(), Arc::new(to_raw_value(&json!([]))));
         ctx.insert("emptyObj".to_string(), Arc::new(to_raw_value(&json!({}))));
 
@@ -2588,12 +2742,12 @@ mod flow_simulation_parity_tests {
         test_parity("!!emptyString", ctx.clone(), None, None).await?;
         test_parity("!!nullVal", ctx.clone(), None, None).await?;
         test_parity("!!falseVal", ctx.clone(), None, None).await?;
-        test_parity("!!emptyArr", ctx.clone(), None, None).await?;  // [] is truthy!
-        test_parity("!!emptyObj", ctx.clone(), None, None).await?;  // {} is truthy!
+        test_parity("!!emptyArr", ctx.clone(), None, None).await?; // [] is truthy!
+        test_parity("!!emptyObj", ctx.clone(), None, None).await?; // {} is truthy!
 
         // Logical operators with falsy values
         test_parity("zero || 'default'", ctx.clone(), None, None).await?;
-        test_parity("zero ?? 'default'", ctx.clone(), None, None).await?;  // 0 is not nullish
+        test_parity("zero ?? 'default'", ctx.clone(), None, None).await?; // 0 is not nullish
         test_parity("nullVal ?? 'default'", ctx.clone(), None, None).await?;
 
         Ok(())
@@ -2609,8 +2763,20 @@ mod flow_simulation_parity_tests {
 
         test_parity("previous_result", ctx.clone(), fi.clone(), fe.clone()).await?;
         test_parity("previous_result[0]", ctx.clone(), fi.clone(), fe.clone()).await?;
-        test_parity("previous_result.length", ctx.clone(), fi.clone(), fe.clone()).await?;
-        test_parity("previous_result[4].key", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity(
+            "previous_result.length",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
+        test_parity(
+            "previous_result[4].key",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
 
         Ok(())
     }
@@ -2631,23 +2797,26 @@ mod flow_simulation_parity_tests {
                 "hasMore": true
             }))),
         );
-        ctx.insert("previous_result".to_string(), Arc::new(to_raw_value(&json!({
-            "items": [{"id": 1}, {"id": 2}, {"id": 3}],
-            "nextCursor": "abc123",
-            "hasMore": true
-        }))));
+        ctx.insert(
+            "previous_result".to_string(),
+            Arc::new(to_raw_value(&json!({
+                "items": [{"id": 1}, {"id": 2}, {"id": 3}],
+                "nextCursor": "abc123",
+                "hasMore": true
+            }))),
+        );
 
         // Iterator for next page
         test_parity(
             "previous_result.hasMore ? [previous_result.nextCursor] : []",
-            ctx.clone(), None, None
-        ).await?;
+            ctx.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         // Accumulating results
-        test_parity(
-            "fetch_result.items",
-            ctx.clone(), None, None
-        ).await?;
+        test_parity("fetch_result.items", ctx.clone(), None, None).await?;
 
         Ok(())
     }
@@ -2678,31 +2847,46 @@ mod flow_simulation_parity_tests {
             ]))),
         );
 
-        ctx.insert("previous_result".to_string(), Arc::new(to_raw_value(&json!([
-            {"date": "2024-01-15", "amount": 100, "type": "credit"},
-            {"date": "2024-01-17", "amount": 200, "type": "credit"}
-        ]))));
+        ctx.insert(
+            "previous_result".to_string(),
+            Arc::new(to_raw_value(&json!([
+                {"date": "2024-01-15", "amount": 100, "type": "credit"},
+                {"date": "2024-01-17", "amount": 200, "type": "credit"}
+            ]))),
+        );
 
         // Filter expression
         test_parity(
             "raw_data.records.filter(r => r.type === 'credit')",
-            ctx.clone(), None, None
-        ).await?;
+            ctx.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         // Sum expression
         test_parity(
             "credits.reduce((sum, r) => sum + r.amount, 0)",
-            ctx.clone(), None, None
-        ).await?;
+            ctx.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         // Summary
-        test_parity(r#"
+        test_parity(
+            r#"
             ({
                 totalCredits: credits.reduce((sum, r) => sum + r.amount, 0),
                 count: credits.length,
                 average: credits.reduce((sum, r) => sum + r.amount, 0) / credits.length
             })
-        "#, ctx.clone(), None, None).await?;
+        "#,
+            ctx.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         Ok(())
     }
@@ -2729,20 +2913,29 @@ mod flow_simulation_parity_tests {
         // Branch condition
         test_parity(
             "check_result.passed && check_result.score > 90",
-            ctx.clone(), None, None
-        ).await?;
+            ctx.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         // Skip condition
         test_parity(
             "!check_result.passed || check_result.score < 50",
-            ctx.clone(), None, None
-        ).await?;
+            ctx.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         // Decision logic
         test_parity(
             "check_result.passed && user_data.level === 'admin' ? 'approved' : 'pending'",
-            ctx.clone(), None, None
-        ).await?;
+            ctx.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         Ok(())
     }
@@ -2764,11 +2957,20 @@ mod flow_simulation_parity_tests {
             }))),
         );
         env.insert("nullObj".to_string(), Arc::new(to_raw_value(&json!(null))));
-        env.insert("undefinedField".to_string(), Arc::new(to_raw_value(&serde_json::Value::Null)));
+        env.insert(
+            "undefinedField".to_string(),
+            Arc::new(to_raw_value(&serde_json::Value::Null)),
+        );
 
         // Optional chaining on method calls
         test_parity("obj?.data?.items?.map(x => x * 2)", env.clone(), None, None).await?;
-        test_parity("obj?.data?.items?.filter(x => x > 1)", env.clone(), None, None).await?;
+        test_parity(
+            "obj?.data?.items?.filter(x => x > 1)",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
         test_parity("obj?.data?.items?.join(',')", env.clone(), None, None).await?;
         test_parity("obj?.data?.name?.toUpperCase()", env.clone(), None, None).await?;
         test_parity("obj?.data?.name?.split('')", env.clone(), None, None).await?;
@@ -2807,10 +3009,22 @@ mod flow_simulation_parity_tests {
         // Computed access with null/undefined
         test_parity("nullData?.users?.[key]", env.clone(), None, None).await?;
         test_parity("data?.missing?.[key]", env.clone(), None, None).await?;
-        test_parity("data?.users?.['nonexistent']?.name", env.clone(), None, None).await?;
+        test_parity(
+            "data?.users?.['nonexistent']?.name",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         // Dynamic key access
-        test_parity("data?.users?.[`user${index + 1}`]?.name", env.clone(), None, None).await?;
+        test_parity(
+            "data?.users?.[`user${index + 1}`]?.name",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         Ok(())
     }
@@ -2826,7 +3040,10 @@ mod flow_simulation_parity_tests {
                 "value": 42
             }))),
         );
-        env.insert("nullConfig".to_string(), Arc::new(to_raw_value(&json!(null))));
+        env.insert(
+            "nullConfig".to_string(),
+            Arc::new(to_raw_value(&json!(null))),
+        );
 
         // Optional function call syntax
         test_parity("config?.callback?.()", env.clone(), None, None).await?;
@@ -2857,16 +3074,49 @@ mod flow_simulation_parity_tests {
                 }
             }))),
         );
-        env.insert("emptyResponse".to_string(), Arc::new(to_raw_value(&json!({}))));
+        env.insert(
+            "emptyResponse".to_string(),
+            Arc::new(to_raw_value(&json!({}))),
+        );
 
         // Deep optional chaining
-        test_parity("response?.data?.result?.items?.[0]?.details?.metadata?.tags", env.clone(), None, None).await?;
-        test_parity("response?.data?.result?.items?.[0]?.details?.metadata?.tags?.[0]", env.clone(), None, None).await?;
-        test_parity("response?.data?.result?.items?.[1]?.details?.metadata?.tags", env.clone(), None, None).await?;
+        test_parity(
+            "response?.data?.result?.items?.[0]?.details?.metadata?.tags",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
+        test_parity(
+            "response?.data?.result?.items?.[0]?.details?.metadata?.tags?.[0]",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
+        test_parity(
+            "response?.data?.result?.items?.[1]?.details?.metadata?.tags",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         // Deep chaining with missing intermediate
-        test_parity("emptyResponse?.data?.result?.items?.[0]", env.clone(), None, None).await?;
-        test_parity("response?.data?.missing?.items?.[0]?.details", env.clone(), None, None).await?;
+        test_parity(
+            "emptyResponse?.data?.result?.items?.[0]",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
+        test_parity(
+            "response?.data?.missing?.items?.[0]?.details",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         Ok(())
     }
@@ -2889,19 +3139,55 @@ mod flow_simulation_parity_tests {
         env.insert("nullUser".to_string(), Arc::new(to_raw_value(&json!(null))));
 
         // Optional chaining with nullish coalescing
-        test_parity("user?.profile?.settings?.theme ?? 'light'", env.clone(), None, None).await?;
-        test_parity("user?.profile?.settings?.language ?? 'en'", env.clone(), None, None).await?;
-        test_parity("nullUser?.profile?.theme ?? 'default'", env.clone(), None, None).await?;
+        test_parity(
+            "user?.profile?.settings?.theme ?? 'light'",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
+        test_parity(
+            "user?.profile?.settings?.language ?? 'en'",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
+        test_parity(
+            "nullUser?.profile?.theme ?? 'default'",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         // Optional chaining with logical OR
-        test_parity("user?.profile?.settings?.disabled || false", env.clone(), None, None).await?;
+        test_parity(
+            "user?.profile?.settings?.disabled || false",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
         test_parity("user?.name || 'Anonymous'", env.clone(), None, None).await?;
 
         // Optional chaining with logical AND
-        test_parity("user?.profile?.settings?.notifications && 'enabled'", env.clone(), None, None).await?;
+        test_parity(
+            "user?.profile?.settings?.notifications && 'enabled'",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         // Optional chaining in ternary
-        test_parity("user?.profile?.settings?.theme === 'dark' ? 'Dark Mode' : 'Light Mode'", env.clone(), None, None).await?;
+        test_parity(
+            "user?.profile?.settings?.theme === 'dark' ? 'Dark Mode' : 'Light Mode'",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
         test_parity("nullUser?.active ? 'yes' : 'no'", env.clone(), None, None).await?;
 
         // Optional chaining with arithmetic
@@ -2931,21 +3217,63 @@ mod flow_simulation_parity_tests {
         env.insert("emptyData".to_string(), Arc::new(to_raw_value(&json!({}))));
 
         // Optional chaining before array methods
-        test_parity("data?.users?.filter(u => u.active)", env.clone(), None, None).await?;
+        test_parity(
+            "data?.users?.filter(u => u.active)",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
         test_parity("data?.users?.map(u => u.name)", env.clone(), None, None).await?;
-        test_parity("data?.users?.find(u => u.id === 2)?.name", env.clone(), None, None).await?;
-        test_parity("data?.users?.findIndex(u => u.id === 2)", env.clone(), None, None).await?;
+        test_parity(
+            "data?.users?.find(u => u.id === 2)?.name",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
+        test_parity(
+            "data?.users?.findIndex(u => u.id === 2)",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
         test_parity("data?.users?.some(u => u.active)", env.clone(), None, None).await?;
         test_parity("data?.users?.every(u => u.active)", env.clone(), None, None).await?;
-        test_parity("data?.users?.reduce((acc, u) => acc + (u.active ? 1 : 0), 0)", env.clone(), None, None).await?;
+        test_parity(
+            "data?.users?.reduce((acc, u) => acc + (u.active ? 1 : 0), 0)",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         // Optional chaining on missing arrays
-        test_parity("emptyData?.users?.filter(u => u.active)", env.clone(), None, None).await?;
+        test_parity(
+            "emptyData?.users?.filter(u => u.active)",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
         test_parity("data?.items?.map(i => i.value)", env.clone(), None, None).await?;
 
         // Chained optional access on array results
-        test_parity("data?.users?.filter(u => u.active)?.[0]?.name", env.clone(), None, None).await?;
-        test_parity("data?.users?.filter(u => u.id > 10)?.[0]?.name ?? 'Not found'", env.clone(), None, None).await?;
+        test_parity(
+            "data?.users?.filter(u => u.active)?.[0]?.name",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
+        test_parity(
+            "data?.users?.filter(u => u.id > 10)?.[0]?.name ?? 'Not found'",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         Ok(())
     }
@@ -2964,13 +3292,34 @@ mod flow_simulation_parity_tests {
                 }
             }))),
         );
-        env.insert("nullPerson".to_string(), Arc::new(to_raw_value(&json!(null))));
+        env.insert(
+            "nullPerson".to_string(),
+            Arc::new(to_raw_value(&json!(null))),
+        );
 
         // Template literals with optional chaining
-        test_parity("`Hello, ${person?.firstName ?? 'Guest'}!`", env.clone(), None, None).await?;
-        test_parity("`${person?.firstName} ${person?.lastName}`", env.clone(), None, None).await?;
+        test_parity(
+            "`Hello, ${person?.firstName ?? 'Guest'}!`",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
+        test_parity(
+            "`${person?.firstName} ${person?.lastName}`",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
         test_parity("`Location: ${person?.address?.city ?? 'Unknown'}, ${person?.address?.country ?? 'Unknown'}`", env.clone(), None, None).await?;
-        test_parity("`User: ${nullPerson?.name ?? 'Anonymous'}`", env.clone(), None, None).await?;
+        test_parity(
+            "`User: ${nullPerson?.name ?? 'Anonymous'}`",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         Ok(())
     }
@@ -2981,20 +3330,68 @@ mod flow_simulation_parity_tests {
 
         // Optional chaining on step results
         test_parity("a?.toString()", ctx.clone(), fi.clone(), fe.clone()).await?;
-        test_parity("b?.data?.users?.[0]?.name", ctx.clone(), fi.clone(), fe.clone()).await?;
-        test_parity("b?.data?.users?.find(u => u.id === 999)?.name", ctx.clone(), fi.clone(), fe.clone()).await?;
-        test_parity("b?.data?.users?.find(u => u.id === 999)?.name ?? 'Not found'", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity(
+            "b?.data?.users?.[0]?.name",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
+        test_parity(
+            "b?.data?.users?.find(u => u.id === 999)?.name",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
+        test_parity(
+            "b?.data?.users?.find(u => u.id === 999)?.name ?? 'Not found'",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
 
         // Optional chaining on missing nested properties (step 'b' exists but nested path may not)
-        test_parity("b?.missing?.nested?.value ?? 'default'", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity(
+            "b?.missing?.nested?.value ?? 'default'",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
 
         // Optional chaining on flow_input
-        test_parity("flow_input?.limit ?? 100", ctx.clone(), fi.clone(), fe.clone()).await?;
-        test_parity("flow_input?.missing?.nested?.value ?? 'fallback'", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity(
+            "flow_input?.limit ?? 100",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
+        test_parity(
+            "flow_input?.missing?.nested?.value ?? 'fallback'",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
 
         // Optional chaining on previous_result
-        test_parity("previous_result?.items?.[0]", ctx.clone(), fi.clone(), fe.clone()).await?;
-        test_parity("previous_result?.missing ?? []", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity(
+            "previous_result?.items?.[0]",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
+        test_parity(
+            "previous_result?.missing ?? []",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
 
         Ok(())
     }
@@ -3004,7 +3401,10 @@ mod flow_simulation_parity_tests {
         let mut env = HashMap::new();
         env.insert("zero".to_string(), Arc::new(to_raw_value(&json!(0))));
         env.insert("emptyStr".to_string(), Arc::new(to_raw_value(&json!(""))));
-        env.insert("falseVal".to_string(), Arc::new(to_raw_value(&json!(false))));
+        env.insert(
+            "falseVal".to_string(),
+            Arc::new(to_raw_value(&json!(false))),
+        );
         env.insert("nullVal".to_string(), Arc::new(to_raw_value(&json!(null))));
         env.insert(
             "nested".to_string(),
@@ -3032,7 +3432,13 @@ mod flow_simulation_parity_tests {
 
         // Empty object access
         test_parity("nested?.obj?.missing", env.clone(), None, None).await?;
-        test_parity("nested?.obj?.missing ?? 'not there'", env.clone(), None, None).await?;
+        test_parity(
+            "nested?.obj?.missing ?? 'not there'",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         // Chaining after primitives (should return undefined)
         test_parity("nested?.zero?.value", env.clone(), None, None).await?;
@@ -3146,15 +3552,39 @@ mod flow_simulation_parity_tests {
         test_parity("[1, 2, 3].length", env.clone(), None, None).await?;
         test_parity("[1, 2, 3].map(x => x * 2)", env.clone(), None, None).await?;
         test_parity("[1, 2, 3].filter(x => x > 1)", env.clone(), None, None).await?;
-        test_parity("[1, 2, 3].reduce((a, b) => a + b, 0)", env.clone(), None, None).await?;
+        test_parity(
+            "[1, 2, 3].reduce((a, b) => a + b, 0)",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         // Array with undefined values (different from holes)
-        test_parity("[1, undefined, 3].map(x => x ?? 'missing')", env.clone(), None, None).await?;
-        test_parity("[1, null, 3].map(x => x ?? 'missing')", env.clone(), None, None).await?;
+        test_parity(
+            "[1, undefined, 3].map(x => x ?? 'missing')",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
+        test_parity(
+            "[1, null, 3].map(x => x ?? 'missing')",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         // Array.from behavior
         test_parity("Array.from([1, 2, 3])", env.clone(), None, None).await?;
-        test_parity("Array.from({length: 3}, (_, i) => i)", env.clone(), None, None).await?;
+        test_parity(
+            "Array.from({length: 3}, (_, i) => i)",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         // Spread operator
         test_parity("[...arr]", env.clone(), None, None).await?;
@@ -3167,18 +3597,12 @@ mod flow_simulation_parity_tests {
     #[tokio::test]
     async fn parity_unicode_and_emoji() -> anyhow::Result<()> {
         let mut env = HashMap::new();
-        env.insert(
-            "emoji".to_string(),
-            Arc::new(to_raw_value(&json!("🎉"))),
-        );
+        env.insert("emoji".to_string(), Arc::new(to_raw_value(&json!("🎉"))));
         env.insert(
             "text_with_emoji".to_string(),
             Arc::new(to_raw_value(&json!("Hello 🌍 World!"))),
         );
-        env.insert(
-            "cafe".to_string(),
-            Arc::new(to_raw_value(&json!("café"))),
-        );
+        env.insert("cafe".to_string(), Arc::new(to_raw_value(&json!("café"))));
         env.insert(
             "chinese".to_string(),
             Arc::new(to_raw_value(&json!("你好世界"))),
@@ -3222,10 +3646,7 @@ mod flow_simulation_parity_tests {
             "negative_zero_str".to_string(),
             Arc::new(to_raw_value(&json!("-0"))),
         );
-        env.insert(
-            "num".to_string(),
-            Arc::new(to_raw_value(&json!(42))),
-        );
+        env.insert("num".to_string(), Arc::new(to_raw_value(&json!(42))));
 
         // Basic numeric operations
         test_parity("0 === 0", env.clone(), None, None).await?;
@@ -3244,8 +3665,20 @@ mod flow_simulation_parity_tests {
 
         // Safe integer checks
         test_parity("Number.isSafeInteger(42)", env.clone(), None, None).await?;
-        test_parity("Number.isSafeInteger(9007199254740991)", env.clone(), None, None).await?;
-        test_parity("Number.isSafeInteger(9007199254740992)", env.clone(), None, None).await?;
+        test_parity(
+            "Number.isSafeInteger(9007199254740991)",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
+        test_parity(
+            "Number.isSafeInteger(9007199254740992)",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         // Number parsing
         test_parity("parseInt('42')", env.clone(), None, None).await?;
@@ -3281,8 +3714,20 @@ mod flow_simulation_parity_tests {
         // Object.keys, Object.values, Object.entries
         // Note: Order might differ but we compare as sets
         test_parity("Object.keys(obj).sort()", env.clone(), None, None).await?;
-        test_parity("Object.values(obj).sort((a, b) => a - b)", env.clone(), None, None).await?;
-        test_parity("Object.entries(obj).sort((a, b) => a[0].localeCompare(b[0]))", env.clone(), None, None).await?;
+        test_parity(
+            "Object.values(obj).sort((a, b) => a - b)",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
+        test_parity(
+            "Object.entries(obj).sort((a, b) => a[0].localeCompare(b[0]))",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         // Object spread (order might differ)
         test_parity("{...obj, extra: 5}", env.clone(), None, None).await?;
@@ -3373,7 +3818,13 @@ mod flow_simulation_parity_tests {
         test_parity("text.match(/hello/i)", env.clone(), None, None).await?;
 
         // Email validation (basic pattern)
-        test_parity("/^[^@]+@[^@]+\\.[^@]+$/.test(email)", env.clone(), None, None).await?;
+        test_parity(
+            "/^[^@]+@[^@]+\\.[^@]+$/.test(email)",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         // Capturing groups (basic)
         test_parity("text.match(/(\\d+)/)", env.clone(), None, None).await?;
@@ -3399,19 +3850,49 @@ mod flow_simulation_parity_tests {
         test_parity("new Date(timestamp).toISOString()", env.clone(), None, None).await?;
 
         // UTC methods (timezone-independent)
-        test_parity("new Date(iso_date).getUTCFullYear()", env.clone(), None, None).await?;
+        test_parity(
+            "new Date(iso_date).getUTCFullYear()",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
         test_parity("new Date(iso_date).getUTCMonth()", env.clone(), None, None).await?;
         test_parity("new Date(iso_date).getUTCDate()", env.clone(), None, None).await?;
         test_parity("new Date(iso_date).getUTCHours()", env.clone(), None, None).await?;
-        test_parity("new Date(iso_date).getUTCMinutes()", env.clone(), None, None).await?;
+        test_parity(
+            "new Date(iso_date).getUTCMinutes()",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         // Date arithmetic
-        test_parity("new Date(timestamp + 86400000).toISOString()", env.clone(), None, None).await?;
-        test_parity("new Date(timestamp - 3600000).toISOString()", env.clone(), None, None).await?;
+        test_parity(
+            "new Date(timestamp + 86400000).toISOString()",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
+        test_parity(
+            "new Date(timestamp - 3600000).toISOString()",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         // Date comparison
         test_parity("new Date(iso_date).getTime() > 0", env.clone(), None, None).await?;
-        test_parity("new Date(iso_date).getTime() === Date.parse(iso_date)", env.clone(), None, None).await?;
+        test_parity(
+            "new Date(iso_date).getTime() === Date.parse(iso_date)",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         Ok(())
     }
@@ -3439,8 +3920,20 @@ mod flow_simulation_parity_tests {
         .await?;
 
         // Typeof for error prevention
-        test_parity("typeof b.missing === 'undefined'", ctx.clone(), fi.clone(), fe.clone()).await?;
-        test_parity("typeof b.data.total === 'number'", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity(
+            "typeof b.missing === 'undefined'",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
+        test_parity(
+            "typeof b.data.total === 'number'",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
 
         // Ternary with type checks
         test_parity(
@@ -3490,14 +3983,8 @@ mod flow_simulation_parity_tests {
             "key".to_string(),
             Arc::new(to_raw_value(&json!("dynamicKey"))),
         );
-        env.insert(
-            "prefix".to_string(),
-            Arc::new(to_raw_value(&json!("item"))),
-        );
-        env.insert(
-            "index".to_string(),
-            Arc::new(to_raw_value(&json!(42))),
-        );
+        env.insert("prefix".to_string(), Arc::new(to_raw_value(&json!("item"))));
+        env.insert("index".to_string(), Arc::new(to_raw_value(&json!(42))));
 
         // Computed property access
         test_parity("({a: 1, b: 2})[key] ?? 'missing'", env.clone(), None, None).await?;
@@ -3506,7 +3993,13 @@ mod flow_simulation_parity_tests {
         // Computed property creation
         test_parity("({[key]: 'value'})", env.clone(), None, None).await?;
         test_parity("({[prefix + '_' + index]: true})", env.clone(), None, None).await?;
-        test_parity("({[`${prefix}_${index}`]: 'computed'})", env.clone(), None, None).await?;
+        test_parity(
+            "({[`${prefix}_${index}`]: 'computed'})",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         Ok(())
     }
@@ -3525,15 +4018,39 @@ mod flow_simulation_parity_tests {
 
         // Nested destructuring
         test_parity("(({user: {name}}) => name)(data)", env.clone(), None, None).await?;
-        test_parity("(({items: [first, second, ...rest]}) => ({first, second, rest}))(data)", env.clone(), None, None).await?;
+        test_parity(
+            "(({items: [first, second, ...rest]}) => ({first, second, rest}))(data)",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         // Default values in destructuring
-        test_parity("(({missing = 'default'}) => missing)(data)", env.clone(), None, None).await?;
-        test_parity("(({user: {nickname = 'unknown'}}) => nickname)(data)", env.clone(), None, None).await?;
+        test_parity(
+            "(({missing = 'default'}) => missing)(data)",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
+        test_parity(
+            "(({user: {nickname = 'unknown'}}) => nickname)(data)",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         // Renaming in destructuring
         test_parity("(({user: u}) => u.name)(data)", env.clone(), None, None).await?;
-        test_parity("(({meta: {count: total}}) => total)(data)", env.clone(), None, None).await?;
+        test_parity(
+            "(({meta: {count: total}}) => total)(data)",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         Ok(())
     }
@@ -3557,7 +4074,13 @@ mod flow_simulation_parity_tests {
         // Simple arrow functions
         test_parity("numbers.map(x => x * 2)", env.clone(), None, None).await?;
         test_parity("numbers.filter(x => x > 2)", env.clone(), None, None).await?;
-        test_parity("numbers.reduce((a, b) => a + b, 0)", env.clone(), None, None).await?;
+        test_parity(
+            "numbers.reduce((a, b) => a + b, 0)",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         // Arrow functions with objects
         test_parity("users.map(u => u.name)", env.clone(), None, None).await?;
@@ -3565,15 +4088,45 @@ mod flow_simulation_parity_tests {
         test_parity("users.find(u => u.name === 'Bob')", env.clone(), None, None).await?;
 
         // Arrow functions returning objects (note the parentheses)
-        test_parity("numbers.map(x => ({value: x, doubled: x * 2}))", env.clone(), None, None).await?;
+        test_parity(
+            "numbers.map(x => ({value: x, doubled: x * 2}))",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         // Chained arrow function calls
-        test_parity("numbers.filter(x => x > 1).map(x => x * 10)", env.clone(), None, None).await?;
-        test_parity("users.filter(u => u.score > 80).map(u => u.name)", env.clone(), None, None).await?;
+        test_parity(
+            "numbers.filter(x => x > 1).map(x => x * 10)",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
+        test_parity(
+            "users.filter(u => u.score > 80).map(u => u.name)",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         // Arrow function with multiple params
-        test_parity("numbers.reduce((sum, val) => sum + val, 0)", env.clone(), None, None).await?;
-        test_parity("numbers.map((val, idx) => ({index: idx, value: val}))", env.clone(), None, None).await?;
+        test_parity(
+            "numbers.reduce((sum, val) => sum + val, 0)",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
+        test_parity(
+            "numbers.map((val, idx) => ({index: idx, value: val}))",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         Ok(())
     }
@@ -3583,8 +4136,14 @@ mod flow_simulation_parity_tests {
         let mut env = HashMap::new();
         env.insert("str_num".to_string(), Arc::new(to_raw_value(&json!("42"))));
         env.insert("num".to_string(), Arc::new(to_raw_value(&json!(42))));
-        env.insert("bool_true".to_string(), Arc::new(to_raw_value(&json!(true))));
-        env.insert("bool_false".to_string(), Arc::new(to_raw_value(&json!(false))));
+        env.insert(
+            "bool_true".to_string(),
+            Arc::new(to_raw_value(&json!(true))),
+        );
+        env.insert(
+            "bool_false".to_string(),
+            Arc::new(to_raw_value(&json!(false))),
+        );
         env.insert("null_val".to_string(), Arc::new(to_raw_value(&json!(null))));
         env.insert("empty_str".to_string(), Arc::new(to_raw_value(&json!(""))));
         env.insert("empty_arr".to_string(), Arc::new(to_raw_value(&json!([]))));
@@ -3650,8 +4209,20 @@ mod flow_simulation_parity_tests {
         test_parity("JSON.parse(json_str).count", env.clone(), None, None).await?;
 
         // Round-trip
-        test_parity("JSON.parse(JSON.stringify(obj)).name", env.clone(), None, None).await?;
-        test_parity("JSON.parse(JSON.stringify(obj)).values", env.clone(), None, None).await?;
+        test_parity(
+            "JSON.parse(JSON.stringify(obj)).name",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
+        test_parity(
+            "JSON.parse(JSON.stringify(obj)).values",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         Ok(())
     }
@@ -3661,7 +4232,10 @@ mod flow_simulation_parity_tests {
         let mut env = HashMap::new();
         env.insert("x".to_string(), Arc::new(to_raw_value(&json!(16))));
         env.insert("y".to_string(), Arc::new(to_raw_value(&json!(-5.7))));
-        env.insert("arr".to_string(), Arc::new(to_raw_value(&json!([3, 1, 4, 1, 5, 9]))));
+        env.insert(
+            "arr".to_string(),
+            Arc::new(to_raw_value(&json!([3, 1, 4, 1, 5, 9]))),
+        );
 
         // Basic Math functions
         test_parity("Math.abs(y)", env.clone(), None, None).await?;
@@ -3679,8 +4253,20 @@ mod flow_simulation_parity_tests {
         test_parity("Math.max(...arr)", env.clone(), None, None).await?;
 
         // Trigonometric (with rounding to avoid precision issues)
-        test_parity("Math.round(Math.sin(0) * 1000) / 1000", env.clone(), None, None).await?;
-        test_parity("Math.round(Math.cos(0) * 1000) / 1000", env.clone(), None, None).await?;
+        test_parity(
+            "Math.round(Math.sin(0) * 1000) / 1000",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
+        test_parity(
+            "Math.round(Math.cos(0) * 1000) / 1000",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         // Logarithmic
         test_parity("Math.log(1)", env.clone(), None, None).await?;
@@ -3752,7 +4338,13 @@ mod flow_simulation_parity_tests {
 
         // Copy and splice (to avoid mutating original)
         test_parity("[...arr].splice(1, 2)", env.clone(), None, None).await?;
-        test_parity("(() => { const a = [...arr]; a.splice(1, 2, 'x'); return a; })()", env.clone(), None, None).await?;
+        test_parity(
+            "(() => { const a = [...arr]; a.splice(1, 2, 'x'); return a; })()",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         Ok(())
     }
@@ -3774,13 +4366,37 @@ mod flow_simulation_parity_tests {
         );
 
         // Find error in step h's results
-        test_parity("h.find(r => r.error)?.error", ctx.clone(), fi.clone(), fe.clone()).await?;
-        test_parity("h.filter(r => r.error).length", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity(
+            "h.find(r => r.error)?.error",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
+        test_parity(
+            "h.filter(r => r.error).length",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
         test_parity("h.some(r => r.error)", ctx.clone(), fi.clone(), fe.clone()).await?;
-        test_parity("h.every(r => !r.error)", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity(
+            "h.every(r => !r.error)",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
 
         // Extract all successful results
-        test_parity("h.filter(r => r.success).map(r => r.data)", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity(
+            "h.filter(r => r.success).map(r => r.data)",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
 
         Ok(())
     }
@@ -3802,17 +4418,41 @@ mod flow_simulation_parity_tests {
         );
 
         // Nested expressions in templates
-        test_parity("`User: ${user.name} (${user.email})`", env.clone(), None, None).await?;
+        test_parity(
+            "`User: ${user.name} (${user.email})`",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
         test_parity("`Score: ${user.score.toFixed(1)}`", env.clone(), None, None).await?;
         test_parity("`Items: ${items.join(', ')}`", env.clone(), None, None).await?;
         test_parity("`Count: ${items.length}`", env.clone(), None, None).await?;
 
         // Conditional in template
-        test_parity("`Status: ${user.score >= 90 ? 'A' : 'B'}`", env.clone(), None, None).await?;
+        test_parity(
+            "`Status: ${user.score >= 90 ? 'A' : 'B'}`",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         // Method calls in template
-        test_parity("`Upper: ${user.name.toUpperCase()}`", env.clone(), None, None).await?;
-        test_parity("`First item: ${items[0].charAt(0).toUpperCase() + items[0].slice(1)}`", env.clone(), None, None).await?;
+        test_parity(
+            "`Upper: ${user.name.toUpperCase()}`",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
+        test_parity(
+            "`First item: ${items[0].charAt(0).toUpperCase() + items[0].slice(1)}`",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         Ok(())
     }
@@ -3842,10 +4482,7 @@ mod flow_simulation_parity_tests {
     #[tokio::test]
     async fn parity_es2022_string_at() -> anyhow::Result<()> {
         let mut env = HashMap::new();
-        env.insert(
-            "str".to_string(),
-            Arc::new(to_raw_value(&json!("hello"))),
-        );
+        env.insert("str".to_string(), Arc::new(to_raw_value(&json!("hello"))));
 
         // String.prototype.at() - ES2022
         test_parity("str.at(0)", env.clone(), None, None).await?;
@@ -3989,7 +4626,13 @@ mod flow_simulation_parity_tests {
         );
 
         // Object.groupBy() - ES2024
-        test_parity("Object.groupBy(items, item => item.type)", env.clone(), None, None).await?;
+        test_parity(
+            "Object.groupBy(items, item => item.type)",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         Ok(())
     }
@@ -4037,7 +4680,13 @@ mod flow_simulation_parity_tests {
         );
 
         // Named capture groups - may not work in QuickJS
-        test_parity("/(?<year>\\d{4})-(?<month>\\d{2})-(?<day>\\d{2})/.exec(date)?.groups?.year", env.clone(), None, None).await?;
+        test_parity(
+            "/(?<year>\\d{4})-(?<month>\\d{2})-(?<day>\\d{2})/.exec(date)?.groups?.year",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         Ok(())
     }
@@ -4068,8 +4717,20 @@ mod flow_simulation_parity_tests {
         test_parity("typeof atob", env.clone(), None, None).await?;
         test_parity("typeof btoa", env.clone(), None, None).await?;
         // If available, test actual usage
-        test_parity("typeof btoa === 'function' ? btoa('hello') : 'not_available'", env.clone(), None, None).await?;
-        test_parity("typeof atob === 'function' ? atob('aGVsbG8=') : 'not_available'", env.clone(), None, None).await?;
+        test_parity(
+            "typeof btoa === 'function' ? btoa('hello') : 'not_available'",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
+        test_parity(
+            "typeof atob === 'function' ? atob('aGVsbG8=') : 'not_available'",
+            env.clone(),
+            None,
+            None,
+        )
+        .await?;
 
         Ok(())
     }

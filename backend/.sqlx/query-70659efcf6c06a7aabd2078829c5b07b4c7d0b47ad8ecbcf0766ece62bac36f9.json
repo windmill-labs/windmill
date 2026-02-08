@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM ai_agent_memory WHERE workspace_id = $1 AND conversation_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "70659efcf6c06a7aabd2078829c5b07b4c7d0b47ad8ecbcf0766ece62bac36f9"
+}

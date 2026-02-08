@@ -117,9 +117,7 @@ impl QueryBuilder for OpenRouterQueryBuilder {
             .and_then(|images| images.first())
         {
             if let Some(base64_data) = image.image_url.url.strip_prefix("data:image/png;base64,") {
-                return Ok(ParsedResponse::Image {
-                    base64_data: base64_data.to_string(),
-                });
+                return Ok(ParsedResponse::Image { base64_data: base64_data.to_string() });
             }
         }
 

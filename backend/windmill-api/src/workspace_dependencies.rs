@@ -13,7 +13,7 @@ use windmill_common::{
     workspace_dependencies::WorkspaceDependencies,
     DB,
 };
-use windmill_worker::workspace_dependencies::{
+use windmill_dep_map::workspace_dependencies::{
     trigger_dependents_to_recompute_dependencies_in_the_background, NewWorkspaceDependencies,
 };
 

@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{self, FromRow};
 use uuid::Uuid;
 
+use crate::db::DB;
 use crate::error::Result;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, sqlx::Type)]
@@ -124,6 +125,23 @@ pub async fn add_message_to_conversation_tx(
         conversation_id
     )
     .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+/// Delete all memory for a conversation from the database
+pub async fn delete_conversation_memory(
+    db: &DB,
+    workspace_id: &str,
+    conversation_id: Uuid,
+) -> Result<()> {
+    sqlx::query!(
+        "DELETE FROM ai_agent_memory WHERE workspace_id = $1 AND conversation_id = $2",
+        workspace_id,
+        conversation_id
+    )
+    .execute(db)
     .await?;
 
     Ok(())

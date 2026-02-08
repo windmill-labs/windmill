@@ -7,11 +7,13 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::{
     common::{
-        build_command_with_isolation, create_args_and_out_file, get_reserved_variables, parse_npm_config, read_file, read_result,
-        start_child_process, OccupancyMetrics, StreamNotifier,
+        build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
+        parse_npm_config, read_file, read_result, start_child_process, OccupancyMetrics,
+        StreamNotifier,
     },
+    get_proxy_envs_for_lang,
     handle_child::handle_child,
-    get_proxy_envs_for_lang, DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, HOME_ENV, NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
+    DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, HOME_ENV, NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
 
@@ -94,7 +96,10 @@ async fn get_common_deno_proc_envs(
     }
 
     // Add proxy envs (including OTEL tracing proxy if enabled for deno)
-    for (k, v) in get_proxy_envs_for_lang(&ScriptLang::Deno).await.unwrap_or_default() {
+    for (k, v) in get_proxy_envs_for_lang(&ScriptLang::Deno)
+        .await
+        .unwrap_or_default()
+    {
         deno_envs.insert(k.to_string(), v);
     }
 

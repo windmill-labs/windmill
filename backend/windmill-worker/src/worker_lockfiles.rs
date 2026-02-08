@@ -1,20 +1,16 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs::{create_dir_all, remove_dir_all};
-use std::path::{Component, Path, PathBuf};
 
 #[cfg(feature = "python")]
 use crate::ansible_executor::{get_git_repos_lock, AnsibleDependencyLocks};
-use crate::scoped_dependency_map::{DependencyDependent, ScopedDependencyMap};
 use async_recursion::async_recursion;
-use chrono::{Duration, Utc};
 use itertools::Itertools;
 use serde::Serialize;
 use serde_json::value::RawValue;
 use serde_json::{from_value, json, Value};
 use sha2::Digest;
 use sqlx::types::Json;
-use tokio::time::timeout;
 use uuid::Uuid;
 use windmill_common::assets::{
     clear_static_asset_usage, insert_static_asset_usage, AssetUsageKind,
@@ -22,17 +18,15 @@ use windmill_common::assets::{
 use windmill_common::error::Error;
 use windmill_common::error::Result;
 use windmill_common::flows::{FlowModule, FlowModuleValue, FlowNodeId};
-use windmill_common::jobs::JobPayload;
-use windmill_common::runnable_settings::DebouncingSettings;
+use windmill_common::min_version::MIN_VERSION_SUPPORTS_DEBOUNCING_V2;
 use windmill_common::scripts::ScriptHash;
-use windmill_common::utils::WarnAfterExt;
 #[cfg(feature = "python")]
 use windmill_common::worker::PythonAnnotations;
-use windmill_common::min_version::MIN_VERSION_SUPPORTS_DEBOUNCING_V2;
 use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file, Connection};
 use windmill_common::workspace_dependencies::{
-    RawWorkspaceDependencies, WorkspaceDependencies, WorkspaceDependenciesPrefetched,
+    RawWorkspaceDependencies, WorkspaceDependenciesPrefetched,
 };
+use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
 #[cfg(feature = "python")]
 use windmill_parser_yaml::AnsibleRequirements;
 
@@ -44,13 +38,12 @@ use windmill_common::{
     scripts::ScriptLang,
     DB,
 };
+pub use windmill_dep_map::{
+    extract_referenced_paths, extract_relative_imports, process_relative_imports,
+};
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
-#[cfg(feature = "python")]
-use windmill_parser_py_imports::parse_relative_imports;
-use windmill_parser_ts::parse_expr_for_imports;
 use windmill_queue::{
-    append_logs, CanceledBy, MiniPulledJob, PushIsolationLevel,
-    WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT,
+    append_logs, CanceledBy, MiniPulledJob, WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT,
 };
 
 // TODO: To be removed in future versions
@@ -59,9 +52,6 @@ lazy_static::lazy_static! {
     static ref WMDEBUG_NO_NEW_FLOW_VERSION_ON_DJ: bool = std::env::var("WMDEBUG_NO_NEW_FLOW_VERSION_ON_DJ").is_ok();
     static ref WMDEBUG_NO_NEW_APP_VERSION_ON_DJ: bool = std::env::var("WMDEBUG_NO_NEW_APP_VERSION_ON_DJ").is_ok();
     static ref WMDEBUG_NO_COMPONENTS_TO_RELOCK: bool = std::env::var("WMDEBUG_NO_COMPONENTS_TO_RELOCK").is_ok();
-    static ref DEPENDENCY_JOB_DEBOUNCE_DELAY: usize = std::env::var("DEPENDENCY_JOB_DEBOUNCE_DELAY").ok().and_then(|flag| flag.parse().ok()).unwrap_or(
-        if cfg!(test) { /* if test we want increased debouncing delay */ 15 } else { 5 }
-    );
 }
 
 use crate::common::{MaybeLock, OccupancyMetrics};
@@ -83,103 +73,6 @@ use crate::{
     bun_executor::gen_bun_lockfile, deno_executor::generate_deno_lock,
     go_executor::install_go_dependencies,
 };
-
-fn try_normalize(path: &Path) -> Option<PathBuf> {
-    let mut ret = PathBuf::new();
-
-    for component in path.components() {
-        match component {
-            Component::Prefix(..) | Component::RootDir => return None,
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if !ret.pop() {
-                    return None;
-                }
-            }
-            Component::Normal(c) => {
-                ret.push(c);
-            }
-        }
-    }
-
-    Some(ret)
-}
-
-fn parse_ts_relative_imports(raw_code: &str, script_path: &str) -> error::Result<Vec<String>> {
-    let mut relative_imports = vec![];
-    let r = parse_expr_for_imports(raw_code, true)?;
-    for import in r {
-        let import = import.trim_end_matches(".ts");
-        if import.starts_with("/") {
-            relative_imports.push(import.trim_start_matches("/").to_string());
-        } else if import.starts_with(".") {
-            let normalized = try_normalize(std::path::Path::new(&format!(
-                "{}/../{}",
-                script_path, import
-            )));
-            if let Some(normalized) = normalized {
-                let normalized = normalized.to_str().unwrap().to_string();
-                relative_imports.push(normalized);
-            } else {
-                tracing::error!("error canonicalizing path: {script_path} with import {import}");
-            }
-        }
-    }
-
-    Ok(relative_imports)
-}
-
-pub fn extract_relative_imports(
-    raw_code: &str,
-    script_path: &str,
-    language: &Option<ScriptLang>,
-) -> Option<Vec<String>> {
-    match language {
-        #[cfg(feature = "python")]
-        Some(ScriptLang::Python3) => parse_relative_imports(&raw_code, script_path).ok(),
-        Some(ScriptLang::Bun) | Some(ScriptLang::Bunnative) | Some(ScriptLang::Deno) => {
-            parse_ts_relative_imports(&raw_code, script_path).ok()
-        }
-        _ => None,
-    }
-}
-
-pub fn extract_referenced_paths(
-    raw_code: &str,
-    script_path: &str,
-    language: Option<ScriptLang>,
-) -> Option<Vec<String>> {
-    let mut referenced_paths = vec![];
-    if let Some(wk_deps_refs) = language
-        .and_then(|l| l.extract_workspace_dependencies_annotated_refs(raw_code, script_path))
-        .map(|r| r.external)
-    {
-        let l = language.expect("should be some");
-        for wk_deps_ref in wk_deps_refs {
-            if let Some(path) = WorkspaceDependencies::to_path(&Some(wk_deps_ref), l).ok() {
-                referenced_paths.push(path);
-            };
-        }
-    } else if let (Some(l), true /* Only if it is not blacklisted */) = (
-        language,
-        WorkspaceDependenciesPrefetched::is_external_references_permitted(script_path),
-    ) {
-        // we assume all runnables without annotated dependencies reference default dependencies file.
-        WorkspaceDependencies::to_path(&None, l)
-            .ok()
-            .inspect(|p| referenced_paths.push(p.to_owned()));
-    }
-
-    if let Some(relative_imports) = extract_relative_imports(raw_code, script_path, &language) {
-        referenced_paths.extend(relative_imports);
-    }
-
-    if referenced_paths.is_empty() {
-        None
-    } else {
-        Some(referenced_paths)
-    }
-}
 
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_dependency_job(
@@ -362,315 +255,6 @@ fn remove_ansi_codes(s: &str) -> String {
         static ref ANSI_REGEX: regex::Regex = regex::Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").unwrap();
     }
     ANSI_REGEX.replace_all(s, "").to_string()
-}
-
-pub async fn process_relative_imports(
-    db: &sqlx::Pool<sqlx::Postgres>,
-    _job_id: Option<Uuid>,
-    args: Option<&Json<HashMap<String, Box<RawValue>>>>,
-    w_id: &str,
-    script_path: &str,
-    parent_path: Option<String>,
-    deployment_message: Option<String>,
-    code: &str,
-    script_lang: &Option<ScriptLang>,
-    permissioned_as_email: &str,
-    created_by: &str,
-    permissioned_as: &str,
-) -> error::Result<()> {
-    // TODO: Should be moved into handle_dependency_job body to be more consistent with how flows and apps are handled
-    {
-        let mut tx = db.begin().await?;
-        let mut dependency_map = ScopedDependencyMap::fetch_maybe_rearranged(
-            &w_id,
-            script_path,
-            "script",
-            &parent_path,
-            db,
-        )
-        .await?;
-
-        tx = dependency_map
-            .patch(
-                extract_referenced_paths(&code, script_path, *script_lang),
-                // Ideally should be None, but due to current implementation will use empty string to represent None.
-                "".into(),
-                tx,
-            )
-            .await?;
-
-        dependency_map.dissolve(tx).await.commit().await?;
-    }
-
-    {
-        let mut already_visited = args
-            .map(|x| {
-                x.get("already_visited")
-                    .map(|v| serde_json::from_str::<Vec<String>>(v.get()).ok())
-                    .flatten()
-            })
-            .flatten()
-            .unwrap_or_default();
-
-        // TODO: There is a race-condition.
-        // This can be old version.
-
-        // Check lines of code below, you will find that we get the latest version of the script/app/flow
-
-        // However the latest version does not necessarily mean that it is finalized.
-        // Instead we assume that this would be the version we would base on.
-
-        // So the script_importers might be behind. Thus some information like nodes_to_relock might be lost.
-        let importers = crate::scoped_dependency_map::ScopedDependencyMap::get_dependents(
-            script_path,
-            w_id,
-            db,
-        )
-        .await?;
-
-        already_visited.push(script_path.to_string());
-        // But currently we will do this extra db call for every script regardless of whether they have relative imports or not
-        // Script might have no relative imports but still be referenced by someone else.
-        match timeout(
-            core::time::Duration::from_secs(60),
-            Box::pin(trigger_dependents_to_recompute_dependencies(
-                w_id,
-                importers,
-                deployment_message,
-                parent_path,
-                permissioned_as_email,
-                created_by,
-                permissioned_as,
-                db,
-                already_visited,
-            )),
-        )
-        .warn_after_seconds(10)
-        .await
-        {
-            Ok(Err(e)) => {
-                tracing::error!(%e, "error triggering dependents to recompute dependencies")
-            }
-            Err(e) => {
-                tracing::error!(%e, "triggering dependents to recompute dependencies has timed out")
-            }
-            _ => {}
-        }
-    }
-
-    Ok(())
-}
-
-pub async fn trigger_dependents_to_recompute_dependencies(
-    w_id: &str,
-    importers: Vec<DependencyDependent>,
-    // imported_path: &str,
-    deployment_message: Option<String>,
-    parent_path: Option<String>,
-    email: &str,
-    created_by: &str,
-    permissioned_as: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
-    already_visited: Vec<String>,
-) -> error::Result<()> {
-    tracing::debug!(
-        "Triggering dependents to recompute dependencies: {}",
-        importers.iter().map(|dd| &dd.importer_path).join(",")
-    );
-    for DependencyDependent { importer_path, importer_kind, importer_node_ids } in importers.iter()
-    {
-        tracing::trace!("Processing dependency: {:?}", importer_path);
-        if already_visited.contains(importer_path) {
-            tracing::trace!("Skipping already visited dependency");
-            continue;
-        }
-
-        let mut tx = db.clone().begin().await?;
-        let mut args: HashMap<String, Box<RawValue>> = HashMap::new();
-        if let Some(ref dm) = deployment_message {
-            args.insert("deployment_message".to_string(), to_raw_value(&dm));
-        }
-        if let Some(ref p_path) = parent_path {
-            // NOTE:
-            // it's not used but maybe one day it will be useful. allows more back-compatibility for the workers when we need it
-            // also very useful for debugging/observability
-            // it adds that information to the job args so you can see from the runs page
-            args.insert("common_dependency_path".to_string(), to_raw_value(&p_path));
-        }
-
-        args.insert(
-            "already_visited".to_string(),
-            to_raw_value(&already_visited),
-        );
-
-        args.insert(
-            "triggered_by_relative_import".to_string(),
-            to_raw_value(&true),
-        );
-
-        let mut debouncing_settings = DebouncingSettings {
-            debounce_key: Some(format!("{w_id}:{importer_path}:dependency")),
-            debounce_delay_s: Some(5),
-            ..Default::default()
-        };
-
-        let job_payload = match importer_kind.as_str() {
-            // TODO: Make it query only non-archived
-            // Scripts
-            "script" => match sqlx::query_scalar!(
-                "SELECT hash FROM script WHERE path = $1 AND workspace_id = $2 AND deleted = false ORDER BY created_at DESC LIMIT 1",
-                importer_path,
-                w_id
-            )
-            .fetch_optional(&mut *tx)
-            .await?
-            {
-                Some(hash) => {
-                    tracing::debug!("newest hash for {} is: {hash}", importer_path);
-
-                    let info =
-                        windmill_common::get_script_info_for_hash(None, db, w_id, hash).await?;
-
-                    JobPayload::Dependencies {
-                        path: importer_path.clone(),
-                        hash: ScriptHash(hash),
-                        language: info.language,
-                        dedicated_worker: info.dedicated_worker,
-                        debouncing_settings,
-                    }
-                }
-                None => {
-                    ScopedDependencyMap::clear_map_for_item(
-                        importer_path,
-                        w_id,
-                        "script",
-                        tx,
-                        &None,
-                    )
-                    .await
-                    .commit()
-                    .await?;
-                    continue;
-                }
-            },
-
-            // Flows
-            "flow" => match sqlx::query_scalar!(
-                "SELECT id FROM flow_version WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
-                importer_path,
-                w_id
-            )
-            .fetch_optional(&mut *tx)
-            .await?
-            {
-                Some(version) => {
-                    tracing::debug!("Handling flow dependency update for: {}", importer_path);
-
-                    args.insert(
-                        "nodes_to_relock".to_string(),
-                        to_raw_value(&importer_node_ids),
-                    );
-
-                    debouncing_settings.debounce_args_to_accumulate = Some(vec!["nodes_to_relock".into()]);
-
-                    JobPayload::FlowDependencies {
-                        path: importer_path.clone(),
-                        version,
-                        dedicated_worker: None,
-                        debouncing_settings,
-                    }
-                }
-                None => {
-                    ScopedDependencyMap::clear_map_for_item(importer_path, w_id, "flow", tx, &None)
-                        .await
-                        .commit()
-                        .await?;
-                    continue;
-                }
-            },
-
-            // Apps
-            "app" => match sqlx::query_scalar!(
-                "SELECT id FROM app_version WHERE app_id = (SELECT id FROM app WHERE path = $1 AND workspace_id = $2) ORDER BY created_at DESC LIMIT 1",
-                importer_path,
-                w_id
-            )
-            .fetch_optional(&mut *tx)
-            .await?
-            {
-                Some(version) => {
-                    tracing::debug!("Handling app dependency update for: {}", importer_path);
-
-                    args.insert(
-                        "components_to_relock".to_string(),
-                        // TODO: unsafe. Importer Node Ids are not checked. They can simply be array of empty strings!
-                        to_raw_value(importer_node_ids),
-                    );
-
-                    debouncing_settings.debounce_args_to_accumulate = Some(vec!["components_to_relock".into()]);
-
-                    JobPayload::AppDependencies { path: importer_path.clone(), version, debouncing_settings }
-                }
-                None => {
-                    ScopedDependencyMap::clear_map_for_item(importer_path, w_id, "app", tx, &None)
-                        .await
-                        .commit()
-                        .await?;
-                    continue;
-                }
-            },
-
-            _ => {
-                tracing::error!(
-                    "unexpected importer kind: {kind:?} for path {path}",
-                    kind = importer_kind,
-                    path = importer_path
-                );
-                continue;
-            }
-        };
-
-        tracing::debug!("Pushing dependency job for: {}", importer_path);
-        let (job_uuid, new_tx) = windmill_queue::push(
-            db,
-            PushIsolationLevel::Transaction(tx),
-            &w_id,
-            job_payload,
-            windmill_queue::PushArgs { args: &args, extra: None },
-            &created_by,
-            email,
-            permissioned_as.to_string(),
-            Some("trigger.dependents.to.recompute.dependencies"),
-            // Schedule for future for debouncing.
-            Some(Utc::now() + Duration::seconds(*DEPENDENCY_JOB_DEBOUNCE_DELAY as i64)),
-            None,
-            None,
-            None,
-            None,
-            None,
-            false,
-            false,
-            None,
-            true,
-            Some("dependency".into()),
-            None,
-            None,
-            None,
-            None,
-            false,
-            None,
-            None,
-            None,
-        )
-        .await?;
-
-        tracing::info!(
-            "pushed dependency job due to common python path: {job_uuid} for path {path}",
-            path = importer_path,
-        );
-        new_tx.commit().await?;
-    }
-    Ok(())
 }
 
 pub async fn handle_flow_dependency_job(

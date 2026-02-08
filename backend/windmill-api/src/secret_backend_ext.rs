@@ -17,10 +17,7 @@
 #[cfg(all(feature = "private", feature = "enterprise"))]
 use std::sync::Arc;
 
-use windmill_common::{
-    db::DB,
-    error::Result,
-};
+use windmill_common::{db::DB, error::Result};
 
 #[cfg(all(feature = "private", feature = "enterprise"))]
 use windmill_common::error::Error;

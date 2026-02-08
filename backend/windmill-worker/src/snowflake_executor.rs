@@ -119,11 +119,16 @@ async fn poll_snowflake_async_query(
         })?;
 
         let status = response.status();
-        let body = response.text().await.map_err(|e| {
-            Error::ExecutionErr(format!("error reading poll response body: {}", e))
-        })?;
+        let body = response
+            .text()
+            .await
+            .map_err(|e| Error::ExecutionErr(format!("error reading poll response body: {}", e)))?;
 
-        tracing::debug!("Snowflake poll response status: {}, body: {}", status, &body[..body.len().min(500)]);
+        tracing::debug!(
+            "Snowflake poll response status: {}, body: {}",
+            status,
+            &body[..body.len().min(500)]
+        );
 
         if status == reqwest::StatusCode::ACCEPTED {
             // Still running, wait and poll again
@@ -243,13 +248,14 @@ fn do_snowflake_inner<'a>(
                 let body = raw_response.text().await.map_err(|e| {
                     Error::ExecutionErr(format!("error reading response body: {}", e))
                 })?;
-                let async_resp: SnowflakeAsyncResponse = serde_json::from_str(&body).map_err(|e| {
-                    Error::ExecutionErr(format!(
-                        "error decoding async response: {}. Body preview: {}",
-                        e,
-                        &body[..body.len().min(500)]
-                    ))
-                })?;
+                let async_resp: SnowflakeAsyncResponse =
+                    serde_json::from_str(&body).map_err(|e| {
+                        Error::ExecutionErr(format!(
+                            "error decoding async response: {}. Body preview: {}",
+                            e,
+                            &body[..body.len().min(500)]
+                        ))
+                    })?;
 
                 tracing::info!(
                     "Snowflake statement running asynchronously, polling for completion (handle: {})",
@@ -273,21 +279,27 @@ fn do_snowflake_inner<'a>(
             // Handle both sync (200) and async (202) responses
             let raw_response = handle_snowflake_result(result).await?;
             let status = raw_response.status();
-            let body = raw_response.text().await.map_err(|e| {
-                Error::ExecutionErr(format!("error reading response body: {}", e))
-            })?;
+            let body = raw_response
+                .text()
+                .await
+                .map_err(|e| Error::ExecutionErr(format!("error reading response body: {}", e)))?;
 
-            tracing::debug!("Snowflake response status: {}, body: {}", status, &body[..body.len().min(1000)]);
+            tracing::debug!(
+                "Snowflake response status: {}, body: {}",
+                status,
+                &body[..body.len().min(1000)]
+            );
 
             let response = if status == reqwest::StatusCode::ACCEPTED {
                 // Async execution - need to poll for results
-                let async_resp: SnowflakeAsyncResponse = serde_json::from_str(&body).map_err(|e| {
-                    Error::ExecutionErr(format!(
-                        "error decoding async response: {}. Body preview: {}",
-                        e,
-                        &body[..body.len().min(500)]
-                    ))
-                })?;
+                let async_resp: SnowflakeAsyncResponse =
+                    serde_json::from_str(&body).map_err(|e| {
+                        Error::ExecutionErr(format!(
+                            "error decoding async response: {}. Body preview: {}",
+                            e,
+                            &body[..body.len().min(500)]
+                        ))
+                    })?;
 
                 tracing::info!(
                     "Snowflake query running asynchronously, polling for results (handle: {})",

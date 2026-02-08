@@ -139,9 +139,7 @@ pub async fn eval_timeout_quickjs(
     )
     .await
     .map_err(|_| {
-        anyhow::anyhow!(
-            "The expression evaluation `{expr}` took too long to execute (>10000ms)"
-        )
+        anyhow::anyhow!("The expression evaluation `{expr}` took too long to execute (>10000ms)")
     })??
 }
 
@@ -328,7 +326,9 @@ fn setup_async_ops<'js>(
                     .get_resource_value_interpolated::<serde_json::Value>(&path, None)
                     .await
                 {
-                    Ok(value) => serde_json::to_string(&value).unwrap_or_else(|_| "null".to_string()),
+                    Ok(value) => {
+                        serde_json::to_string(&value).unwrap_or_else(|_| "null".to_string())
+                    }
                     Err(e) => format!("{}{}", ERR_PREFIX, e),
                 }
             }
@@ -419,27 +419,40 @@ fn setup_results_proxy<'js>(
                         Some(jr) => {
                             // Found in local cache, fetch result by job ID
                             match jr {
-                                JobResult::SingleJob(job_id) => {
-                                    client
-                                        .get_completed_job_result::<serde_json::Value>(&job_id.to_string(), None)
-                                        .await
-                                        .map_err(|e| format!("Failed to fetch result for step '{}': {}", step_id_clone, e))
-                                }
+                                JobResult::SingleJob(job_id) => client
+                                    .get_completed_job_result::<serde_json::Value>(
+                                        &job_id.to_string(),
+                                        None,
+                                    )
+                                    .await
+                                    .map_err(|e| {
+                                        format!(
+                                            "Failed to fetch result for step '{}': {}",
+                                            step_id_clone, e
+                                        )
+                                    }),
                                 JobResult::ListJob(job_ids) => {
                                     let futs = job_ids.iter().map(|job_id| {
                                         let client = client.clone();
                                         let job_id_str = job_id.to_string();
                                         async move {
                                             client
-                                                .get_completed_job_result::<serde_json::Value>(&job_id_str, None)
+                                                .get_completed_job_result::<serde_json::Value>(
+                                                    &job_id_str,
+                                                    None,
+                                                )
                                                 .await
                                         }
                                     });
                                     let results: Vec<_> = futures::future::join_all(futs).await;
-                                    let collected: Result<Vec<_>, _> = results.into_iter().collect();
-                                    collected
-                                        .map(serde_json::Value::Array)
-                                        .map_err(|e| format!("Failed to fetch results for step '{}': {}", step_id_clone, e))
+                                    let collected: Result<Vec<_>, _> =
+                                        results.into_iter().collect();
+                                    collected.map(serde_json::Value::Array).map_err(|e| {
+                                        format!(
+                                            "Failed to fetch results for step '{}': {}",
+                                            step_id_clone, e
+                                        )
+                                    })
                                 }
                             }
                         }
@@ -449,15 +462,21 @@ fn setup_results_proxy<'js>(
                             // Use .ok() to match deno_core behavior: return null for non-existent steps
                             // instead of throwing an error
                             Ok(client
-                                .get_result_by_id::<serde_json::Value>(&flow_job_id, &step_id_clone, None)
+                                .get_result_by_id::<serde_json::Value>(
+                                    &flow_job_id,
+                                    &step_id_clone,
+                                    None,
+                                )
                                 .await
-                                .ok()  // Swallow errors, convert to Option
-                                .unwrap_or(serde_json::Value::Null))  // None -> null
+                                .ok() // Swallow errors, convert to Option
+                                .unwrap_or(serde_json::Value::Null)) // None -> null
                         }
                     };
 
                     match result {
-                        Ok(value) => serde_json::to_string(&value).unwrap_or_else(|_| "null".to_string()),
+                        Ok(value) => {
+                            serde_json::to_string(&value).unwrap_or_else(|_| "null".to_string())
+                        }
                         Err(e) => format!("{}{}", ERR_PREFIX, e),
                     }
                 }
@@ -577,8 +596,24 @@ fn should_add_return_quickjs(expr: &str) -> bool {
     }
 
     let statement_prefixes = [
-        "const ", "let ", "var ", "if ", "if(", "for ", "for(", "while ", "while(", "switch ",
-        "switch(", "try ", "try{", "throw ", "function ", "class ", "async ", "await ",
+        "const ",
+        "let ",
+        "var ",
+        "if ",
+        "if(",
+        "for ",
+        "for(",
+        "while ",
+        "while(",
+        "switch ",
+        "switch(",
+        "try ",
+        "try{",
+        "throw ",
+        "function ",
+        "class ",
+        "async ",
+        "await ",
     ];
 
     for prefix in &statement_prefixes {

@@ -329,7 +329,11 @@ async fn handle_full_regex(
             // Use .ok() to match deno_core op_get_id behavior: return null for non-existent steps
             // instead of throwing an error
             let res = authed_client
-                .get_result_by_id::<Option<Box<RawValue>>>(&by_id.flow_job.to_string(), obj_key, query)
+                .get_result_by_id::<Option<Box<RawValue>>>(
+                    &by_id.flow_job.to_string(),
+                    obj_key,
+                    query,
+                )
                 .await
                 .ok()
                 .flatten();
@@ -1393,17 +1397,18 @@ async fn eval_fetch(
     // Uses job_id as trace_id so all spans are linked to the job.
     // span_id is a placeholder - it gets overwritten by the OTLP handler with the real parent span_id.
     #[cfg(all(feature = "private", feature = "enterprise"))]
-    let otel_context_inject = if crate::DENO_OTEL_INITIALIZED.load(std::sync::atomic::Ordering::SeqCst) {
-        let trace_id = job_id.as_simple().to_string();
-        format!(
-r#"globalThis.__enterSpan?.({{
+    let otel_context_inject =
+        if crate::DENO_OTEL_INITIALIZED.load(std::sync::atomic::Ordering::SeqCst) {
+            let trace_id = job_id.as_simple().to_string();
+            format!(
+                r#"globalThis.__enterSpan?.({{
     isRecording: () => true,
     spanContext: () => ({{ traceId: "{trace_id}", spanId: "ffffffffffffffff", traceFlags: 1 }})
 }});"#
-        )
-    } else {
-        String::new()
-    };
+            )
+        } else {
+            String::new()
+        };
 
     #[cfg(not(all(feature = "private", feature = "enterprise")))]
     let otel_context_inject = "";

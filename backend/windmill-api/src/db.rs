@@ -17,6 +17,7 @@ use tokio::task::JoinHandle;
 pub use windmill_common::db::DB;
 use windmill_common::{error::Error, utils::generate_lock_id};
 
+#[allow(unused_imports)]
 pub use windmill_api_auth::{ApiAuthed, OptJobAuthed};
 
 async fn current_database(conn: &mut PgConnection) -> Result<String, MigrateError> {

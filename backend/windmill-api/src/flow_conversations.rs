@@ -128,24 +128,26 @@ async fn delete_conversation(
     tx.commit().await?;
 
     // Delete associated memory in background (non-blocking cleanup)
-    let w_id_clone = w_id.clone();
-    let db_clone = db.clone();
-    tokio::spawn(async move {
-        if let Err(e) = windmill_worker::memory_oss::delete_conversation_memory(
-            &db_clone,
-            &w_id_clone,
-            conversation_id,
-        )
-        .await
-        {
-            tracing::error!(
-                "Failed to delete memory for conversation {} in workspace {}: {:?}",
+    {
+        let w_id_clone = w_id.clone();
+        let db_clone = db.clone();
+        tokio::spawn(async move {
+            if let Err(e) = windmill_common::flow_conversations::delete_conversation_memory(
+                &db_clone,
+                &w_id_clone,
                 conversation_id,
-                w_id_clone,
-                e
-            );
-        }
-    });
+            )
+            .await
+            {
+                tracing::error!(
+                    "Failed to delete memory for conversation {} in workspace {}: {:?}",
+                    conversation_id,
+                    w_id_clone,
+                    e
+                );
+            }
+        });
+    }
 
     Ok(format!("Conversation {} deleted", conversation_id))
 }

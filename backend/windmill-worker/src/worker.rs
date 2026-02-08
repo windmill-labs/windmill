@@ -131,12 +131,11 @@ use crate::{
     go_executor::handle_go_job,
     graphql_executor::do_graphql,
     handle_child::SLOW_LOGS,
-    handle_job_error,
     job_logger::NO_LOGS_AT_ALL,
     js_eval::{eval_fetch_timeout, transpile_ts},
     pg_executor::do_postgresql,
     pwsh_executor::handle_powershell_job,
-    result_processor::{process_result, start_background_processor},
+    result_processor::{handle_job_error, process_result, start_background_processor},
     schema::schema_validator_from_main_arg_sig,
     worker_flow::{handle_flow, SchedulePushZombieError},
     worker_lockfiles::{

@@ -19,7 +19,7 @@ jobs:
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          cache-workspaces: backend
+          cache: false
           toolchain: 1.90.0
       - name: cargo check
         working-directory: ./backend
@@ -40,7 +40,7 @@ jobs:
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          cache-workspaces: backend
+          cache: false
           toolchain: 1.90.0
       - name: cargo check
         working-directory: ./backend
@@ -74,7 +74,7 @@ jobs:
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          cache-workspaces: backend
+          cache: false
           toolchain: 1.90.0
       - name: cargo check
         working-directory: ./backend

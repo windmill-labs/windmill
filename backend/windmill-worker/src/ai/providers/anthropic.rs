@@ -500,7 +500,11 @@ impl QueryBuilder for AnthropicQueryBuilder {
             // For Vertex AI, the model is specified in the URL path
             // Expected base_url format: https://{region}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/anthropic/models
             // We append the model and :streamRawPredict
-            format!("{}/{}:streamRawPredict", base_url.trim_end_matches('/'), model)
+            format!(
+                "{}/{}:streamRawPredict",
+                base_url.trim_end_matches('/'),
+                model
+            )
         } else {
             format!("{}/messages", base_url)
         }

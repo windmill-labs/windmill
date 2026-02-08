@@ -32,7 +32,7 @@ dind = ["dep:bollard"]
 php = ["dep:windmill-parser-php"]
 mysql = ["dep:mysql_async"]
 oracledb = ["dep:oracle"]
-python = ["dep:windmill-parser-py", "dep:windmill-parser-py-imports"]
+python = ["dep:windmill-parser-py", "dep:windmill-parser-py-imports", "windmill-dep-map/python"]
 csharp = ["dep:windmill-parser-csharp"]
 rust = ["dep:windmill-parser-rust"]
 nu = ["dep:windmill-parser-nu"]
@@ -44,6 +44,7 @@ bedrock = ["dep:aws-sdk-bedrockruntime", "windmill-common/bedrock"]
 
 [dependencies]
 windmill-queue.workspace = true
+windmill-dep-map.workspace = true
 windmill-audit.workspace = true # there isn't really a reason for audit-worth actions to happen in the worker.
 windmill-common = { workspace = true, default-features = false }
 windmill-mcp = { workspace = true, optional = true }
