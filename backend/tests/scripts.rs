@@ -257,6 +257,10 @@ async fn test_script_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         resp.status()
     );
 
+    // --- get_triggers_count ---
+    let resp = authed_get(port, "get_triggers_count", "u/test-user/test_script").await;
+    assert_eq!(resp.status(), 200);
+
     // --- tokened_raw (global unauthed, token in URL) ---
     let resp = client()
         .get(format!(

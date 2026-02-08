@@ -206,6 +206,17 @@ async fn test_flow_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     .unwrap();
     assert_eq!(resp.status(), 200, "history_update: {}", resp.text().await?);
 
+    // --- get_triggers_count ---
+    let resp = authed(client().get(flow_url(
+        port,
+        "get_triggers_count",
+        "u/test-user/test_flow",
+    )))
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 200);
+
     // --- toggle_workspace_error_handler (EE-gated, expect 400 in OSS) ---
     let resp = authed(client().post(flow_url(
         port,

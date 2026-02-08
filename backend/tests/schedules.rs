@@ -218,5 +218,20 @@ async fn test_schedule_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     let resp = authed_get(port, "exists", "u/test-user/another_schedule").await;
     assert_eq!(resp.json::<bool>().await?, false);
 
+    // ===== Global endpoints =====
+
+    // --- preview ---
+    let resp = authed(client().post(format!(
+        "http://localhost:{port}/api/schedules/preview"
+    )))
+    .json(&json!({
+        "schedule": "0 0 */6 * * *",
+        "timezone": "UTC"
+    }))
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 200, "preview: {}", resp.text().await?);
+
     Ok(())
 }
