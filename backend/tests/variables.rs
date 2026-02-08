@@ -25,6 +25,7 @@ async fn authed_get(port: u16, endpoint: &str, path: &str) -> reqwest::Response 
 
 #[sqlx::test(fixtures("base", "variables_test"))]
 async fn test_variable_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
     let base = format!("http://localhost:{port}/api/w/test-workspace/variables");
