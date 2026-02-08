@@ -178,7 +178,7 @@ pub fn init_runtime_asset_loop(
     match RUNTIME_ASSET_SENDER.set(tx) {
         Ok(_) => {}
         Err(_) => {
-            tracing::error!("RUNTIME_ASSET_SENDER was already set, skipping");
+            tracing::debug!("RUNTIME_ASSET_SENDER was already set, skipping");
             return;
         }
     }
