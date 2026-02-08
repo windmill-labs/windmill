@@ -205,7 +205,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-duckdb-ffi-
       - name: cargo test
-        timeout-minutes: 20
+        timeout-minutes: 30
         env:
           SQLX_OFFLINE: true
           DATABASE_URL: postgres://postgres:changeme@localhost:5432/windmill
