@@ -1246,7 +1246,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         email = ?completed_job.permissioned_as_email,
         created_by = completed_job.created_by,
         is_flow_step = completed_job.is_flow_step(),
-        language = ?completed_job.script_lang,
+        language = completed_job.script_lang.map(|x| x.as_str()).unwrap_or_default(),
         scheduled_for = ?completed_job.scheduled_for,
         workspace_id = ?completed_job.workspace_id,
         success,
