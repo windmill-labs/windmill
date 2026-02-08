@@ -15707,6 +15707,7 @@ dependencies = [
  "windmill-api-client",
  "windmill-autoscaling",
  "windmill-common",
+ "windmill-dep-map",
  "windmill-git-sync",
  "windmill-indexer",
  "windmill-queue",
