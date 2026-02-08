@@ -152,6 +152,42 @@ async fn test_app_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     let resp = authed_get(port, "get_latest_version", "u/test-user/test_app").await;
     assert_eq!(resp.status(), 200);
 
+    // --- public_app (unauthed, by secret) ---
+    let resp = client()
+        .get(format!(
+            "http://localhost:{port}/api/w/test-workspace/apps_u/public_app/{secret_id}"
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        200,
+        "public_app: {}",
+        resp.text().await?
+    );
+
+    // --- secret_of_latest_version ---
+    let resp = authed_get(port, "secret_of_latest_version", "u/test-user/test_app").await;
+    assert_eq!(resp.status(), 200);
+    let secret = resp.text().await?;
+    assert!(!secret.is_empty());
+
+    // --- list_paths_from_workspace_runnable ---
+    let resp = authed(client().get(format!(
+        "{base}/list_paths_from_workspace_runnable/script/u/test-user/test_app"
+    )))
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(
+        resp.status(),
+        200,
+        "list_paths_from_workspace_runnable: {}",
+        resp.text().await?
+    );
+
+
     // --- history_update ---
     let app_body = authed_get(port, "get/p", "u/test-user/test_app").await;
     let app = app_body.json::<serde_json::Value>().await?;
