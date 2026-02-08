@@ -15,8 +15,11 @@ INSERT INTO workspace_key(workspace_id, kind, key) VALUES
 INSERT INTO workspace_settings (workspace_id) VALUES
 	('test-workspace');
 
-INSERT INTO password(email, password_hash, login_type, super_admin, verified, name)
-    VALUES ('test@windmill.dev', 'not-a-real-hash', 'password', true, true, 'Test User');
+INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES
+	('test-workspace', 'all', 'All users', '{}');
+
+INSERT INTO password(email, password_hash, login_type, super_admin, verified, name, username)
+    VALUES ('test@windmill.dev', 'not-a-real-hash', 'password', true, true, 'Test User', 'test-user');
 
 INSERT INTO password(email, password_hash, login_type, super_admin, verified, name)
     VALUES ('test2@windmill.dev', 'not-a-real-hash', 'password', false, true, 'Test User 2');
