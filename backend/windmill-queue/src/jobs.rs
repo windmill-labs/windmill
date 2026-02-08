@@ -41,15 +41,15 @@ use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
 use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
+use windmill_common::min_version::{
+    MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
+};
 use windmill_common::runnable_settings::{
     ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings, RunnableSettings,
     RunnableSettingsTrait,
 };
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{calculate_hash, configure_client, now_from_db};
-use windmill_common::min_version::{
-    MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
-};
 use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
 
 use windmill_common::{
@@ -67,11 +67,11 @@ use windmill_common::{
         StopAfterIf,
     },
     jobs::{get_payload_tag_from_prefixed_path, JobKind, JobPayload, QueuedJob, RawCode},
+    min_version::{MIN_VERSION_IS_AT_LEAST_1_432, MIN_VERSION_IS_AT_LEAST_1_440},
     schedule::Schedule,
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
     utils::{not_found_if_none, report_critical_error, StripPath, WarnAfterExt},
-    min_version::{MIN_VERSION_IS_AT_LEAST_1_432, MIN_VERSION_IS_AT_LEAST_1_440},
     worker::{
         to_raw_value, CLOUD_HOSTED, DISABLE_FLOW_SCRIPT, NO_LOGS, WORKER_PULL_QUERIES,
         WORKER_SUSPENDED_PULL_QUERY,
@@ -1175,11 +1175,14 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     }
 
     if completed_job.concurrent_limit.is_some()
-        || windmill_common::runnable_settings::prefetch_cached_from_handle(completed_job.runnable_settings_handle, db)
-            .await?
-            .1
-            .concurrent_limit
-            .is_some()
+        || windmill_common::runnable_settings::prefetch_cached_from_handle(
+            completed_job.runnable_settings_handle,
+            db,
+        )
+        .await?
+        .1
+        .concurrent_limit
+        .is_some()
     {
         let concurrency_key = concurrency_key(db, &completed_job.id).await?;
         if *DISABLE_CONCURRENCY_LIMIT || concurrency_key.is_none() {
@@ -1590,7 +1593,15 @@ async fn fetch_error_handler_from_db(
     db: &Pool<Postgres>,
     w_id: &str,
 ) -> Result<(Option<String>, Option<Json<Box<RawValue>>>, bool, bool), Error> {
-    sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>, Option<bool>, Option<bool>)>(
+    sqlx::query_as::<
+        _,
+        (
+            Option<String>,
+            Option<Json<Box<RawValue>>>,
+            Option<bool>,
+            Option<bool>,
+        ),
+    >(
         r#"
         SELECT
             error_handler->>'path',
@@ -1606,7 +1617,12 @@ async fn fetch_error_handler_from_db(
     .await
     .context("fetching error handler info from workspace_settings")?
     .map(|(path, extra_args, muted_on_cancel, muted_on_user_path)| {
-        (path, extra_args, muted_on_cancel.unwrap_or(false), muted_on_user_path.unwrap_or(false))
+        (
+            path,
+            extra_args,
+            muted_on_cancel.unwrap_or(false),
+            muted_on_user_path.unwrap_or(false),
+        )
     })
     .ok_or_else(|| Error::internal_err(format!("no workspace settings for id {w_id}")))
 }
@@ -1620,19 +1636,14 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
     let w_id = &queued_job.workspace_id;
 
     let now = chrono::Utc::now().timestamp();
-    let (error_handler, error_handler_extra_args, error_handler_muted_on_cancel, error_handler_muted_on_user_path) =
-        if let Some(cached) = WORKSPACE_ERROR_HANDLER_CACHE.get(w_id) {
-            if cached.4 > now {
-                (cached.0.clone(), cached.1.clone(), cached.2, cached.3)
-            } else {
-                let row = fetch_error_handler_from_db(db, w_id).await?;
-                let expiry = now + WORKSPACE_HANDLER_CACHE_TTL_SECONDS;
-                WORKSPACE_ERROR_HANDLER_CACHE.insert(
-                    w_id.clone(),
-                    (row.0.clone(), row.1.clone(), row.2, row.3, expiry),
-                );
-                row
-            }
+    let (
+        error_handler,
+        error_handler_extra_args,
+        error_handler_muted_on_cancel,
+        error_handler_muted_on_user_path,
+    ) = if let Some(cached) = WORKSPACE_ERROR_HANDLER_CACHE.get(w_id) {
+        if cached.4 > now {
+            (cached.0.clone(), cached.1.clone(), cached.2, cached.3)
         } else {
             let row = fetch_error_handler_from_db(db, w_id).await?;
             let expiry = now + WORKSPACE_HANDLER_CACHE_TTL_SECONDS;
@@ -1641,7 +1652,16 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
                 (row.0.clone(), row.1.clone(), row.2, row.3, expiry),
             );
             row
-        };
+        }
+    } else {
+        let row = fetch_error_handler_from_db(db, w_id).await?;
+        let expiry = now + WORKSPACE_HANDLER_CACHE_TTL_SECONDS;
+        WORKSPACE_ERROR_HANDLER_CACHE.insert(
+            w_id.clone(),
+            (row.0.clone(), row.1.clone(), row.2, row.3, expiry),
+        );
+        row
+    };
 
     if is_canceled && error_handler_muted_on_cancel {
         return Ok(());
@@ -1741,19 +1761,15 @@ pub async fn send_success_to_workspace_handler<'a, 'c, T: Serialize + Send + Syn
             } else {
                 let row = fetch_success_handler_from_db(db, w_id).await?;
                 let expiry = now + WORKSPACE_HANDLER_CACHE_TTL_SECONDS;
-                WORKSPACE_SUCCESS_HANDLER_CACHE.insert(
-                    w_id.clone(),
-                    (row.0.clone(), row.1.clone(), expiry),
-                );
+                WORKSPACE_SUCCESS_HANDLER_CACHE
+                    .insert(w_id.clone(), (row.0.clone(), row.1.clone(), expiry));
                 row
             }
         } else {
             let row = fetch_success_handler_from_db(db, w_id).await?;
             let expiry = now + WORKSPACE_HANDLER_CACHE_TTL_SECONDS;
-            WORKSPACE_SUCCESS_HANDLER_CACHE.insert(
-                w_id.clone(),
-                (row.0.clone(), row.1.clone(), expiry),
-            );
+            WORKSPACE_SUCCESS_HANDLER_CACHE
+                .insert(w_id.clone(), (row.0.clone(), row.1.clone(), expiry));
             row
         };
 
@@ -1811,23 +1827,22 @@ pub async fn try_schedule_next_job<'c>(
         &job.workspace_id
     );
 
-    let schedule_authed =
-        windmill_common::auth::fetch_authed_from_permissioned_as_conn(
-            &windmill_common::users::username_to_permissioned_as(
-                &schedule.edited_by,
-            ),
-            &schedule.email,
-            &job.workspace_id,
-            &mut *tx,
-        )
-        .await
-        .ok();
+    let schedule_authed = windmill_common::auth::fetch_authed_from_permissioned_as_conn(
+        &windmill_common::users::username_to_permissioned_as(&schedule.edited_by),
+        &schedule.email,
+        &job.workspace_id,
+        &mut *tx,
+    )
+    .await
+    .ok();
 
     let mut push_err = None;
 
     #[cfg(feature = "failpoints")]
     if schedule_failpoints::is_active(schedule_failpoints::ScheduleFailPoint::SavepointCreate) {
-        push_err = Some(Error::internal_err("failpoint: savepoint create".to_string()));
+        push_err = Some(Error::internal_err(
+            "failpoint: savepoint create".to_string(),
+        ));
     }
 
     if push_err.is_none() {
@@ -1852,25 +1867,39 @@ pub async fn try_schedule_next_job<'c>(
                     )),
                 };
                 #[cfg(feature = "failpoints")]
-                let push_result = if schedule_failpoints::is_active(schedule_failpoints::ScheduleFailPoint::Push) {
-                    if let Ok(sp) = push_result { sp.rollback().await.ok(); }
-                    Err(Error::internal_err("failpoint: push".to_string()))
-                } else if schedule_failpoints::is_active(schedule_failpoints::ScheduleFailPoint::PushQuotaExceeded) {
-                    if let Ok(sp) = push_result { sp.rollback().await.ok(); }
-                    Err(Error::QuotaExceeded("failpoint: push quota exceeded".to_string()))
-                } else {
-                    push_result
-                };
+                let push_result =
+                    if schedule_failpoints::is_active(schedule_failpoints::ScheduleFailPoint::Push)
+                    {
+                        if let Ok(sp) = push_result {
+                            sp.rollback().await.ok();
+                        }
+                        Err(Error::internal_err("failpoint: push".to_string()))
+                    } else if schedule_failpoints::is_active(
+                        schedule_failpoints::ScheduleFailPoint::PushQuotaExceeded,
+                    ) {
+                        if let Ok(sp) = push_result {
+                            sp.rollback().await.ok();
+                        }
+                        Err(Error::QuotaExceeded(
+                            "failpoint: push quota exceeded".to_string(),
+                        ))
+                    } else {
+                        push_result
+                    };
                 match push_result {
                     Ok(savepoint) => {
                         #[cfg(feature = "failpoints")]
-                        let savepoint_commit_fail = schedule_failpoints::is_active(schedule_failpoints::ScheduleFailPoint::SavepointCommit);
+                        let savepoint_commit_fail = schedule_failpoints::is_active(
+                            schedule_failpoints::ScheduleFailPoint::SavepointCommit,
+                        );
                         #[cfg(not(feature = "failpoints"))]
                         let savepoint_commit_fail = false;
 
                         if savepoint_commit_fail {
                             savepoint.rollback().await.ok();
-                            push_err = Some(Error::internal_err("failpoint: savepoint commit".to_string()));
+                            push_err = Some(Error::internal_err(
+                                "failpoint: savepoint commit".to_string(),
+                            ));
                         } else {
                             match savepoint.commit().await {
                                 Ok(()) => {}
@@ -1895,9 +1924,7 @@ pub async fn try_schedule_next_job<'c>(
                 }
             }
             Err(e) => {
-                tracing::error!(
-                    "Could not create savepoint for schedule push: {e:#}",
-                );
+                tracing::error!("Could not create savepoint for schedule push: {e:#}",);
                 push_err = Some(Error::internal_err(format!(
                     "Could not create savepoint: {e:#}"
                 )));
@@ -1920,8 +1947,12 @@ pub async fn try_schedule_next_job<'c>(
             .execute(&mut *tx)
             .await;
             #[cfg(feature = "failpoints")]
-            let disable_result = if schedule_failpoints::is_active(schedule_failpoints::ScheduleFailPoint::ScheduleDisable) {
-                Err(sqlx::Error::Protocol("failpoint: schedule disable".to_string()))
+            let disable_result = if schedule_failpoints::is_active(
+                schedule_failpoints::ScheduleFailPoint::ScheduleDisable,
+            ) {
+                Err(sqlx::Error::Protocol(
+                    "failpoint: schedule disable".to_string(),
+                ))
             } else {
                 disable_result
             };
@@ -2162,7 +2193,10 @@ pub async fn push_success_handler<'a, 'c, T: Serialize + Send + Sync>(
             on_behalf_of.permissioned_as.clone(),
         )
     } else {
-        (SUCCESS_HANDLER_USER_EMAIL, SUCCESS_HANDLER_USER_GROUP.to_string())
+        (
+            SUCCESS_HANDLER_USER_EMAIL,
+            SUCCESS_HANDLER_USER_GROUP.to_string(),
+        )
     };
 
     let tx = PushIsolationLevel::IsolatedRoot(db.clone());
@@ -2845,9 +2879,12 @@ impl PulledJobResult {
         };
 
         let DebouncingSettings { debounce_delay_s, debounce_args_to_accumulate, .. } =
-            windmill_common::runnable_settings::prefetch_cached_from_handle(j.runnable_settings_handle, db)
-                .await?
-                .0;
+            windmill_common::runnable_settings::prefetch_cached_from_handle(
+                j.runnable_settings_handle,
+                db,
+            )
+            .await?
+            .0;
 
         let (kind, j_id) = (j.kind, j.id);
         let is_djob_to_debounce = kind.is_dependency()
@@ -3136,10 +3173,17 @@ pub async fn pull(
 
                 #[cfg(feature = "private")]
                 let concurrency_settings = if let Some(ref j) = job {
-                    windmill_common::runnable_settings::prefetch_cached_from_handle(j.runnable_settings_handle, db)
-                        .await?
-                        .1
-                        .maybe_fallback(None, j.concurrent_limit, j.concurrency_time_window_s)
+                    windmill_common::runnable_settings::prefetch_cached_from_handle(
+                        j.runnable_settings_handle,
+                        db,
+                    )
+                    .await?
+                    .1
+                    .maybe_fallback(
+                        None,
+                        j.concurrent_limit,
+                        j.concurrency_time_window_s,
+                    )
                 } else {
                     Default::default()
                 };
@@ -3203,11 +3247,13 @@ pub async fn pull(
             });
         };
 
-        let concurrency_settings =
-            windmill_common::runnable_settings::prefetch_cached_from_handle(job.runnable_settings_handle, db)
-                .await?
-                .1
-                .maybe_fallback(None, job.concurrent_limit, job.concurrency_time_window_s);
+        let concurrency_settings = windmill_common::runnable_settings::prefetch_cached_from_handle(
+            job.runnable_settings_handle,
+            db,
+        )
+        .await?
+        .1
+        .maybe_fallback(None, job.concurrent_limit, job.concurrency_time_window_s);
 
         let has_concurent_limit = concurrency_settings.concurrent_limit.is_some();
 
@@ -4241,8 +4287,74 @@ async fn check_usage_limits(
 #[cfg(feature = "cloud")]
 use crate::cloud_usage::increment_usage_async;
 
-// #[instrument(level = "trace", skip_all)]
+// Thin wrapper that boxes the future to reduce async state machine sizes in callers.
+// Without this, the ~13KB future of push_inner is inlined into every caller's state machine,
+// causing stack overflows in deeply nested async call chains (e.g. flow execution).
 pub async fn push<'c, 'd>(
+    _db: &Pool<Postgres>,
+    tx: PushIsolationLevel<'c>,
+    workspace_id: &str,
+    job_payload: JobPayload,
+    args: PushArgs<'d>,
+    user: &str,
+    email: &str,
+    permissioned_as: String,
+    token_prefix: Option<&str>,
+    scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
+    schedule_path: Option<String>,
+    parent_job: Option<Uuid>,
+    root_job: Option<Uuid>,
+    flow_innermost_root_job: Option<Uuid>,
+    job_id: Option<Uuid>,
+    _is_flow_step: bool,
+    same_worker: bool,
+    pre_run_error: Option<&windmill_common::error::Error>,
+    visible_to_owner: bool,
+    tag: Option<String>,
+    custom_timeout: Option<i32>,
+    flow_step_id: Option<String>,
+    _priority_override: Option<i16>,
+    authed: Option<&Authed>,
+    running: bool,
+    end_user_email: Option<String>,
+    trigger: Option<TriggerMetadata>,
+    suspended_mode: Option<bool>,
+) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
+    Box::pin(push_inner(
+        _db,
+        tx,
+        workspace_id,
+        job_payload,
+        args,
+        user,
+        email,
+        permissioned_as,
+        token_prefix,
+        scheduled_for_o,
+        schedule_path,
+        parent_job,
+        root_job,
+        flow_innermost_root_job,
+        job_id,
+        _is_flow_step,
+        same_worker,
+        pre_run_error,
+        visible_to_owner,
+        tag,
+        custom_timeout,
+        flow_step_id,
+        _priority_override,
+        authed,
+        running,
+        end_user_email,
+        trigger,
+        suspended_mode,
+    ))
+    .await
+}
+
+// #[instrument(level = "trace", skip_all)]
+async fn push_inner<'c, 'd>(
     _db: &Pool<Postgres>,
     mut tx: PushIsolationLevel<'c>,
     workspace_id: &str,
@@ -5367,10 +5479,13 @@ pub async fn push<'c, 'd>(
         (job_kind, scheduled_for_o)
     };
 
-    let runnable_settings_handle = windmill_common::runnable_settings::insert_rs(RunnableSettings {
-        debouncing_settings: debouncing_settings.insert_cached(_db).await?,
-        concurrency_settings: concurrency_settings.insert_cached(_db).await?,
-    }, _db)
+    let runnable_settings_handle = windmill_common::runnable_settings::insert_rs(
+        RunnableSettings {
+            debouncing_settings: debouncing_settings.insert_cached(_db).await?,
+            concurrency_settings: concurrency_settings.insert_cached(_db).await?,
+        },
+        _db,
+    )
     .await?;
 
     let (guarded_concurrent_limit, guarded_concurrency_time_window_s) =
