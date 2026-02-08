@@ -39,10 +39,6 @@ pub mod job_logger;
 pub mod job_logger_ee;
 mod job_logger_oss;
 mod js_eval;
-#[cfg(test)]
-mod js_eval_parity_tests;
-#[cfg(feature = "quickjs")]
-pub mod js_eval_quickjs;
 pub mod memory_common;
 #[cfg(feature = "private")]
 pub mod memory_ee;
