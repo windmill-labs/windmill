@@ -175,6 +175,27 @@ async fn test_script_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     let resp = authed_get(port, "deployment_status/h", &hash).await;
     assert_eq!(resp.status(), 200);
 
+    // --- raw_unpinned by path ---
+    let resp = authed_get(port, "raw_unpinned/p", "u/test-user/test_script.ts").await;
+    assert_eq!(resp.status(), 200);
+    let body = resp.text().await?;
+    assert!(body.contains("return 42"));
+
+    // --- list_tokens ---
+    let resp = authed_get(port, "list_tokens", "u/test-user/test_script").await;
+    assert_eq!(resp.status(), 200);
+    resp.json::<Vec<serde_json::Value>>().await?;
+
+    // --- list_paths_from_workspace_runnable ---
+    let resp = authed_get(
+        port,
+        "list_paths_from_workspace_runnable",
+        "u/test-user/test_script",
+    )
+    .await;
+    assert_eq!(resp.status(), 200);
+    resp.json::<Vec<String>>().await?;
+
     // --- update script (create new version) ---
     let mut updated = new_script(
         "u/test-user/test_script",
@@ -203,6 +224,37 @@ async fn test_script_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         history.len() >= 2,
         "expected at least 2 history entries, got {}",
         history.len()
+    );
+
+    // --- history_update ---
+    let resp = authed(client().post(format!(
+        "{base}/history_update/h/{new_hash}/p/u/test-user/test_script"
+    )))
+    .json(&json!({"deployment_msg": "deployed v2"}))
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(
+        resp.status(),
+        200,
+        "history_update: {}",
+        resp.text().await?
+    );
+
+    // --- toggle_workspace_error_handler (EE-gated, expect 400 in OSS) ---
+    let resp = authed(client().post(script_url(
+        port,
+        "toggle_workspace_error_handler/p",
+        "u/test-user/test_script",
+    )))
+    .json(&json!({}))
+    .send()
+    .await
+    .unwrap();
+    assert!(
+        resp.status() == 200 || resp.status() == 400,
+        "toggle_workspace_error_handler: unexpected status {}",
+        resp.status()
     );
 
     // --- archive by path ---
@@ -237,16 +289,13 @@ async fn test_script_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         .unwrap();
     assert_eq!(resp.status(), 200);
 
-    // --- delete by path ---
-    let resp = authed(client().post(script_url(
-        port,
-        "delete/p",
-        "u/test-user/test_script",
-    )))
-    .send()
-    .await
-    .unwrap();
-    assert_eq!(resp.status(), 200);
+    // --- delete_bulk ---
+    let resp = authed(client().delete(format!("{base}/delete_bulk")))
+        .json(&json!({"paths": ["u/test-user/test_script"]}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "delete_bulk: {}", resp.text().await?);
 
     let resp = authed_get(port, "exists/p", "u/test-user/test_script").await;
     assert_eq!(resp.json::<bool>().await?, false);
