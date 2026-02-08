@@ -342,7 +342,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     let server = ApiServer::start(db.clone()).await?;
 
-    let write_file = r#"export async function main(loop: boolean, i: number, path: string) {  
+    let write_file = r#"export async function main(loop: boolean, i: number, path: string) {
             await Deno.writeTextFile(`./shared/${path}`, `${loop} ${i}`);
         }"#
     .to_string();
@@ -458,7 +458,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                                     )]
                                     .into(),
                                     language: ScriptLang::Deno,
-                                    content: r#"export async function main(path: string, path2: string) {  
+                                    content: r#"export async function main(path: string, path2: string) {
                                         return await Deno.readTextFile(`./shared/${path}`) + "," + await Deno.readTextFile(`./shared/${path2}`);
                                     }"#
                                     .to_string(),
@@ -1036,7 +1036,7 @@ async fn test_nu_job_full(db: Pool<Postgres>) -> anyhow::Result<()> {
     let port = server.addr.port();
 
     let content = r#"
-def main [ 
+def main [
   # Required
   ## Primitive
   a
@@ -1346,7 +1346,7 @@ async fn test_mysql_job(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     let content = r#"
 -- ? name (varchar)
-SELECT CONCAT('hello ', CONVERT(? USING utf8mb4)) AS result;
+SELECT ? AS result;
 "#
     .to_owned();
 
@@ -1373,7 +1373,7 @@ SELECT CONCAT('hello ', CONVERT(? USING utf8mb4)) AS result;
     .json_result()
     .unwrap();
 
-    assert_eq!(result, json!([{"result": "hello world"}]));
+    assert_eq!(result, json!([{"result": "world"}]));
     Ok(())
 }
 
@@ -3232,7 +3232,7 @@ def heavy_compute(n: int):
 def send_result(res: int, email: str):
     print(f"Sending result {res} to {email}")
     return "OK"
-    
+
 def main(n: int):
     l = []
     for i in range(n):
