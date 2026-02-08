@@ -257,6 +257,21 @@ async fn test_script_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         resp.status()
     );
 
+    // --- tokened_raw (global unauthed, token in URL) ---
+    let resp = client()
+        .get(format!(
+            "http://localhost:{port}/api/scripts_u/tokened_raw/test-workspace/SECRET_TOKEN/u/test-user/test_script.ts"
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        200,
+        "tokened_raw: {}",
+        resp.text().await?
+    );
+
     // --- archive by path ---
     let resp = authed(client().post(script_url(
         port,
@@ -299,6 +314,18 @@ async fn test_script_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     let resp = authed_get(port, "exists/p", "u/test-user/test_script").await;
     assert_eq!(resp.json::<bool>().await?, false);
+
+    // --- empty_ts (global unauthed) ---
+    let resp = client()
+        .get(format!(
+            "http://localhost:{port}/api/scripts_u/empty_ts/u/test-user/any_script"
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body = resp.text().await?;
+    assert!(body.is_empty(), "expected empty string, got: {body}");
 
     Ok(())
 }
