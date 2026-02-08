@@ -49,10 +49,10 @@ use windmill_common::{
     scripts::Schema,
     utils::{http_get_from_hub, not_found_if_none, paginate, Pagination, RunnableKind, StripPath},
 };
+use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT;
 use windmill_queue::{push, schedule::push_scheduled_job, PushIsolationLevel};
-use windmill_worker::scoped_dependency_map::ScopedDependencyMap;
 
 pub fn workspaced_service() -> Router {
     Router::new()

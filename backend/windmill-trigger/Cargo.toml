@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [features]
 default = []
-enterprise = ["windmill-common/enterprise"]
+enterprise = ["windmill-common/enterprise", "windmill-api-jobs/enterprise"]
 cloud = ["windmill-common/cloud"]
 
 [dependencies]

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            INSERT INTO workspace_dependencies(name, workspace_id, content, language, description)\n            VALUES ($1, $2, $3, $4, $5) \n            RETURNING id\n            ",
+  "query": "\n            INSERT INTO workspace_dependencies(name, workspace_id, content, language, description)\n            VALUES ($1, $2, $3, $4, $5)\n            RETURNING id\n            ",
   "describe": {
     "columns": [
       {
@@ -53,5 +53,5 @@
       false
     ]
   },
-  "hash": "5bec60e207a5933aa301f87c0afaeaa8e9a3a2c64e23ab42100d48039ba422b0"
+  "hash": "6c10c38a5d5e560d8d76159ce0ae118cf7191b06d72285e71256dd6d70c19451"
 }

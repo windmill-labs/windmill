@@ -396,7 +396,10 @@ fn string_date_to_mysql_date(s: &str) -> mysql_async::Value {
             get_capture_by_index(&caps, 1),
             get_capture_by_index(&caps, 2),
             get_capture_by_index(&caps, 3),
-            0, 0, 0, 0,
+            0,
+            0,
+            0,
+            0,
         );
     }
 
