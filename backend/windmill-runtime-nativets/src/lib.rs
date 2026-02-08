@@ -241,9 +241,7 @@ fn write_error_expr(expr: &str, uuid: &Uuid) {
     }
 }
 
-fn unsafe_raw(json: String) -> Box<RawValue> {
-    unsafe { std::mem::transmute::<Box<str>, Box<RawValue>>(json.into()) }
-}
+use windmill_common::utils::unsafe_raw;
 
 async fn append_result_stream(
     conn: &Connection,
@@ -426,8 +424,7 @@ pub async fn eval_fetch_timeout(
             is_main: true,
             extensions: exts,
             create_params: Some(
-                deno_core::v8::CreateParams::default()
-                    .heap_limits(0 as usize, 1024 * 1024 * 128 as usize),
+                deno_core::v8::CreateParams::default().heap_limits(0, 1024 * 1024 * 128),
             ),
             startup_snapshot: Some(RUNTIME_SNAPSHOT),
             module_loader: Some(Rc::new(deno_core::FsModuleLoader)),
@@ -453,7 +450,7 @@ pub async fn eval_fetch_timeout(
             if memory_limit_tx.send(()).is_err() {
                 tracing::error!("failed to send memory limit reached notification - isolate may already be terminating");
             };
-            return y * 2;
+            y * 2
         });
 
         let (log_sender, mut log_receiver) = mpsc::unbounded_channel::<String>();

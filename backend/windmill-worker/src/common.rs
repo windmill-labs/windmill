@@ -333,10 +333,7 @@ pub async fn read_file_bytes(path: &str) -> error::Result<Vec<u8>> {
     Ok(content)
 }
 
-//this skips more steps than from_str at the cost of being unsafe. The source must ALWAUS gemerate valid json or this can cause UB in the worst case
-pub fn unsafe_raw(json: String) -> Box<RawValue> {
-    unsafe { std::mem::transmute::<Box<str>, Box<RawValue>>(json.into()) }
-}
+pub use windmill_common::utils::unsafe_raw;
 
 fn check_result_too_big(size: usize) -> error::Result<()> {
     if *CLOUD_HOSTED && size > MAX_RESULT_SIZE {

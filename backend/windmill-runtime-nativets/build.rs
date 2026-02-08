@@ -7,7 +7,6 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-// #[cfg(feature = "deno_core")]
 pub struct PermissionsContainer;
 
 impl FetchPermissions for PermissionsContainer {

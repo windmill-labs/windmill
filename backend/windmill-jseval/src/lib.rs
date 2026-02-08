@@ -194,14 +194,7 @@ pub async fn handle_full_regex(
     return None;
 }
 
-// ── unsafe_raw helper ─────────────────────────────────────────────────
-
-/// Convert a JSON string to a Box<RawValue> without validation.
-/// # Safety
-/// The caller must ensure the string is valid JSON.
-pub fn unsafe_raw(json: String) -> Box<RawValue> {
-    unsafe { std::mem::transmute::<Box<str>, Box<RawValue>>(json.into()) }
-}
+use windmill_common::utils::unsafe_raw;
 
 // ── QuickJS evaluation ───────────────────────────────────────────────
 
@@ -257,8 +250,9 @@ pub async fn eval_timeout_quickjs(
         .cloned()
         .collect();
 
-    if !context_keys.contains(&"previous_result".to_string())
-        && (p_ids.is_some() && p_ids.as_ref().unwrap().iter().any(|x| expr.contains(x)))
+    if (!context_keys.contains(&"previous_result".to_string())
+        && p_ids.is_some()
+        && p_ids.as_ref().unwrap().iter().any(|x| expr.contains(x)))
         || expr.contains("error")
     {
         context_keys.push("previous_result".to_string());
