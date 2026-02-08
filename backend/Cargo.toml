@@ -65,6 +65,10 @@ path = "./src/main.rs"
 [profile.dev]
 opt-level = 0
 incremental = true
+split-debuginfo = "unpacked"
+
+[profile.dev.package."*"]
+debug = false
 
 [profile.release]
 lto = "thin"
