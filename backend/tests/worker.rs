@@ -1346,7 +1346,7 @@ async fn test_mysql_job(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     let content = r#"
 -- ? name (varchar)
-SELECT CONCAT('hello ', ?) AS result;
+SELECT CAST(CONCAT('hello ', ?) AS CHAR) AS result;
 "#
     .to_owned();
 
@@ -1492,7 +1492,7 @@ async fn test_ruby_job(db: Pool<Postgres>) -> anyhow::Result<()> {
     let port = server.addr.port();
 
     let content = r#"
-def main(name:)
+def main(name)
   "hello #{name}"
 end
 "#
@@ -3346,7 +3346,9 @@ async fn test_duckdb_ffi(db: Pool<Postgres>) -> anyhow::Result<()> {
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 async fn test_flow_substep_tag_availability_check(db: Pool<Postgres>) -> anyhow::Result<()> {
-    use windmill_common::worker::{CustomTags, SpecificTagData, SpecificTagType, CUSTOM_TAGS_PER_WORKSPACE};
+    use windmill_common::worker::{
+        CustomTags, SpecificTagData, SpecificTagType, CUSTOM_TAGS_PER_WORKSPACE,
+    };
 
     initialize_tracing().await;
 
@@ -3387,15 +3389,16 @@ async fn test_flow_substep_tag_availability_check(db: Pool<Postgres>) -> anyhow:
             .await;
 
     // The flow should fail because the tag is not available for test-workspace
-    assert!(!result.success, "Flow should have failed due to unavailable tag");
+    assert!(
+        !result.success,
+        "Flow should have failed due to unavailable tag"
+    );
 
     let result_json = result.json_result();
     assert!(result_json.is_some(), "Result should have error details");
 
     let error_result = result_json.unwrap();
-    let error_message = error_result["error"]["message"]
-        .as_str()
-        .unwrap_or("");
+    let error_message = error_result["error"]["message"].as_str().unwrap_or("");
 
     // Verify the error is about tag availability
     assert!(
