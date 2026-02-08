@@ -58,7 +58,7 @@ use windmill_common::db::UserDB;
 use windmill_common::worker::CLOUD_HOSTED;
 use windmill_common::{
     utils::{configure_client, GIT_VERSION},
-    BASE_URL, INSTANCE_NAME,
+    INSTANCE_NAME,
 };
 
 use crate::scim_oss::has_scim_token;
@@ -189,8 +189,6 @@ mod workspaces;
 #[cfg(feature = "private")]
 pub mod workspaces_ee;
 mod workspaces_export;
-mod workspaces_extra;
-mod workspaces_oss;
 
 #[cfg(feature = "mcp")]
 mod mcp;

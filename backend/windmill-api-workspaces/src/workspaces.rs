@@ -54,9 +54,6 @@ use windmill_dep_map::scoped_dependency_map::{
 };
 use windmill_git_sync::{handle_deployment_metadata, handle_fork_branch_creation, DeployedObject};
 
-#[cfg(feature = "enterprise")]
-use windmill_common::utils::require_admin_or_devops;
-
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Transaction};
