@@ -131,14 +131,13 @@ use crate::{
     go_executor::handle_go_job,
     graphql_executor::do_graphql,
     handle_child::SLOW_LOGS,
-    handle_job_error,
     job_logger::NO_LOGS_AT_ALL,
     js_eval::{eval_fetch_timeout, transpile_ts},
     pg_executor::do_postgresql,
     pwsh_executor::handle_powershell_job,
-    result_processor::{process_result, start_background_processor},
+    result_processor::{handle_job_error, process_result, start_background_processor},
     schema::schema_validator_from_main_arg_sig,
-    worker_flow::handle_flow,
+    worker_flow::{handle_flow, SchedulePushZombieError},
     worker_lockfiles::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
     },
@@ -2964,7 +2963,7 @@ pub async fn handle_queued_job(
                 // Not a preview: fetch from the cache or the database.
                 _ => cache::job::fetch_flow(db, &job.kind, job.runnable_id).await?,
             };
-            Box::pin(handle_flow(
+            match Box::pin(handle_flow(
                 job,
                 &flow_data,
                 db,
@@ -2978,8 +2977,19 @@ pub async fn handle_queued_job(
                 &killpill_rx,
             ))
             .warn_after_seconds(10)
-            .await?;
-            Ok(true)
+            .await
+            {
+                Err(err) if err.downcast_ref::<SchedulePushZombieError>().is_some() => {
+                    tracing::error!(
+                        "Schedule push zombie: {err}. Leaving flow job in queue for zombie detection to restart."
+                    );
+                    Ok(true)
+                }
+                other => {
+                    other?;
+                    Ok(true)
+                }
+            }
         } else {
             return Err(Error::internal_err(
                 "Could not handle flow job with agent worker".to_string(),
@@ -3015,7 +3025,7 @@ pub async fn handle_queued_job(
         #[cfg(not(feature = "enterprise"))]
         if let Connection::Sql(db) = conn {
             if (job.concurrent_limit.is_some() ||
-                windmill_common::runnable_settings::RunnableSettings::prefetch_cached_from_handle(job.runnable_settings_handle, db).await?.1.concurrent_limit.is_some())
+                windmill_common::runnable_settings::prefetch_cached_from_handle(job.runnable_settings_handle, db).await?.1.concurrent_limit.is_some())
                 && !job.kind.is_dependency() {
                 logs.push_str("---\n");
                 logs.push_str("WARNING: This job has concurrency limits enabled. Concurrency limits are an EE feature and the setting is ignored.\n");

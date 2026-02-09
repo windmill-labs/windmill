@@ -14,13 +14,11 @@ use sqlx::{
 };
 
 use tokio::task::JoinHandle;
-use windmill_audit::audit_oss::AuditAuthorable;
 pub use windmill_common::db::DB;
-use windmill_common::{
-    db::{Authable, Authed, AuthedRef},
-    error::Error,
-    utils::generate_lock_id,
-};
+use windmill_common::{error::Error, utils::generate_lock_id};
+
+#[allow(unused_imports)]
+pub use windmill_api_auth::{ApiAuthed, OptJobAuthed};
 
 async fn current_database(conn: &mut PgConnection) -> Result<String, MigrateError> {
     // language=SQL
@@ -64,6 +62,19 @@ lazy_static::lazy_static! {
                     (20260126235947, include_str!(
                         "../../custom_migrations/lowercase_emails_safe.sql"
                     ).to_string()),
+                    (20260206000000, "".to_string()),
+                    (20260207000001, include_str!(
+                        "../../migrations/20260207000001_concurrent_indexes_v2_job.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
+                    (20260207000002, include_str!(
+                        "../../migrations/20260207000002_concurrent_indexes_v2_job_completed.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
+                    (20260207000003, include_str!(
+                        "../../migrations/20260207000003_concurrent_indexes_v2_job_queue.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
+                    (20260207000004, include_str!(
+                        "../../migrations/20260207000004_concurrent_indexes_other.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
                     ].into_iter().collect();
 }
 
@@ -177,11 +188,31 @@ impl Migrate for CustomMigrator {
 
             if let Some(migration_sql) = OVERRIDDEN_MIGRATIONS.get(&migration.version) {
                 tracing::info!("Using custom migration for version {}", migration.version);
-                // tracing::info!("Migration SQL: {}", migration_sql);
 
-                self.inner
-                    .execute(&**migration_sql)
-                    .await?;
+                if migration_sql.contains("CONCURRENTLY") {
+                    // CONCURRENTLY operations cannot run inside a transaction block
+                    // or a multi-statement query (PostgreSQL requires top-level execution).
+                    // Split into individual statements and execute each separately.
+                    for stmt in migration_sql.split(';') {
+                        let stmt = stmt.trim();
+                        if !stmt.is_empty()
+                            && stmt.lines().any(|l| {
+                                let t = l.trim();
+                                !t.is_empty() && !t.starts_with("--")
+                            })
+                        {
+                            let summary: String = stmt.lines()
+                                .filter(|l| !l.trim().is_empty() && !l.trim().starts_with("--"))
+                                .collect::<Vec<_>>()
+                                .join(" ");
+                            tracing::info!("Executing: {summary}");
+                            self.inner.execute(stmt).await?;
+                            tracing::info!("Done: {summary}");
+                        }
+                    }
+                } else if !migration_sql.is_empty() {
+                    self.inner.execute(&**migration_sql).await?;
+                }
                 let _ = sqlx::query(
                     r#"
                 INSERT INTO _sqlx_migrations ( version, description, success, checksum, execution_time )
@@ -224,7 +255,8 @@ pub async fn migrate(
     if let Err(err) = sqlx::query!(
         "DELETE FROM _sqlx_migrations WHERE
         version=20250131115248 OR version=20250902085503 OR version=20250201145630 OR
-        version=20250201145631 OR version=20250201145632 OR version=20251006143821"
+        version=20250201145631 OR version=20250201145632 OR version=20251006143821 OR
+        version=20260207000001 OR version=20260207000002 OR version=20260207000003 OR version=20260207000004"
     )
     .execute(db)
     .await
@@ -256,121 +288,4 @@ pub async fn migrate(
 
     crate::live_migrations::custom_migrations(&mut custom_migrator, db).await?;
     Ok(None)
-}
-
-#[derive(Default, Clone, Debug)]
-pub struct OptJobAuthed {
-    pub job_id: Option<uuid::Uuid>,
-    pub authed: ApiAuthed,
-}
-
-#[derive(Clone, Debug, Default, Hash, Eq, PartialEq)]
-pub struct ApiAuthed {
-    pub email: String,
-    pub username: String,
-    pub is_admin: bool,
-    pub is_operator: bool,
-    pub groups: Vec<String>,
-    // (folder name, can write, is owner)
-    pub folders: Vec<(String, bool, bool)>,
-    pub scopes: Option<Vec<String>>,
-    pub username_override: Option<String>,
-    pub token_prefix: Option<String>,
-}
-
-impl ApiAuthed {
-    pub fn to_authed_ref<'e>(&'e self) -> AuthedRef<'e> {
-        AuthedRef {
-            email: &self.email,
-            username: &self.username,
-            is_admin: &self.is_admin,
-            is_operator: &self.is_operator,
-            groups: &self.groups,
-            folders: &self.folders,
-            scopes: &self.scopes,
-            token_prefix: &self.token_prefix,
-        }
-    }
-}
-
-impl From<ApiAuthed> for Authed {
-    fn from(value: ApiAuthed) -> Self {
-        Self {
-            email: value.email,
-            username: value.username,
-            is_admin: value.is_admin,
-            is_operator: value.is_operator,
-            groups: value.groups,
-            folders: value.folders,
-            scopes: value.scopes,
-            token_prefix: value.token_prefix,
-        }
-    }
-}
-
-impl From<Authed> for ApiAuthed {
-    fn from(value: Authed) -> Self {
-        Self {
-            email: value.email,
-            username: value.username,
-            is_admin: value.is_admin,
-            is_operator: value.is_operator,
-            groups: value.groups,
-            folders: value.folders,
-            scopes: value.scopes,
-            username_override: None, // Authed doesn't have this field, so default to None
-            token_prefix: value.token_prefix,
-        }
-    }
-}
-
-impl ApiAuthed {
-    pub fn display_username(&self) -> &str {
-        self.username_override.as_ref().unwrap_or(&self.username)
-    }
-}
-
-impl AuditAuthorable for ApiAuthed {
-    fn username(&self) -> &str {
-        self.username.as_str()
-    }
-    fn email(&self) -> &str {
-        self.email.as_str()
-    }
-    fn username_override(&self) -> Option<&str> {
-        self.username_override.as_deref()
-    }
-    fn token_prefix(&self) -> Option<&str> {
-        self.token_prefix.as_deref()
-    }
-}
-
-impl Authable for ApiAuthed {
-    fn is_admin(&self) -> bool {
-        self.is_admin
-    }
-
-    fn is_operator(&self) -> bool {
-        self.is_operator
-    }
-
-    fn groups(&self) -> &[String] {
-        &self.groups
-    }
-
-    fn folders(&self) -> &[(String, bool, bool)] {
-        &self.folders
-    }
-
-    fn scopes(&self) -> Option<&[std::string::String]> {
-        self.scopes.as_ref().map(|x| x.as_slice())
-    }
-
-    fn email(&self) -> &str {
-        &self.email
-    }
-
-    fn username(&self) -> &str {
-        &self.username
-    }
 }
