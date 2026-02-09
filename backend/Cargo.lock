@@ -15656,6 +15656,10 @@ name = "windmill"
 version = "1.628.3"
 dependencies = [
  "anyhow",
+ "async-nats",
+ "aws-config",
+ "aws-credential-types",
+ "aws-sdk-sqs",
  "axum 0.7.9",
  "base64 0.22.1",
  "chrono",
@@ -15669,7 +15673,9 @@ dependencies = [
  "once_cell",
  "prometheus",
  "rand 0.9.0",
+ "rdkafka",
  "reqwest 0.13.1",
+ "rumqttc",
  "rustls 0.23.35",
  "serde",
  "serde_derive",

@@ -87,6 +87,12 @@ impl ApiServer {
         Self::start_inner(db, true).await
     }
 
+    /// Start the API server with server_mode=true so trigger listeners are active.
+    /// Alias for `start_agent_mode` with a clearer name for trigger e2e tests.
+    pub async fn start_with_listeners(db: Pool<Postgres>) -> anyhow::Result<Self> {
+        Self::start_inner(db, true).await
+    }
+
     async fn start_inner(db: Pool<Postgres>, agent_mode: bool) -> anyhow::Result<Self> {
         let (tx, rx) = tokio::sync::broadcast::channel::<()>(1);
 
