@@ -1184,7 +1184,19 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         .concurrent_limit
         .is_some()
     {
-        let concurrency_key = concurrency_key(db, &completed_job.id).await?;
+        let concurrency_key = sqlx::query_scalar!(
+            "SELECT key FROM concurrency_key WHERE job_id = $1",
+            &completed_job.id
+        )
+        .fetch_optional(&mut *tx)
+        .warn_after_seconds(10)
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Could not get concurrency key for job {}: {e:#}",
+                completed_job.id
+            ))
+        })?;
         if *DISABLE_CONCURRENCY_LIMIT || concurrency_key.is_none() {
             tracing::warn!("Concurrency limit is disabled, skipping");
         } else {
@@ -1221,19 +1233,17 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         tracing::debug!("decremented concurrency counter");
     }
 
-    sqlx::query!("DELETE FROM job_perms WHERE job_id = $1", job_id)
-        .execute(&mut *tx)
-        .warn_after_seconds(10)
-        .await?;
+    tx.commit().warn_after_seconds(10).await?;
+
+    let _ = sqlx::query!("DELETE FROM job_perms WHERE job_id = $1", job_id)
+        .execute(db)
+        .await;
 
     if !success || has_stream {
-        sqlx::query!("DELETE FROM job_result_stream_v2 WHERE job_id = $1", job_id)
-            .execute(&mut *tx)
-            .warn_after_seconds(10)
-            .await?;
+        let _ = sqlx::query!("DELETE FROM job_result_stream_v2 WHERE job_id = $1", job_id)
+            .execute(db)
+            .await;
     }
-
-    tx.commit().warn_after_seconds(10).await?;
 
     tracing::info!(
         %job_id,
@@ -5386,7 +5396,7 @@ async fn push_inner<'c, 'd>(
             &runnable_path,
             job_kind,
             concurrency_settings.concurrency_key.clone(),
-            &mut tx,
+            &mut *tx,
             job_id,
         )
         .await?;
@@ -5709,7 +5719,7 @@ pub async fn insert_concurrency_key<'d, 'c>(
     script_path: &Option<String>,
     job_kind: JobKind,
     custom_concurrency_key: Option<String>,
-    tx: &mut Transaction<'c, Postgres>,
+    db: impl PgExecutor<'c>,
     job_id: Uuid,
 ) -> Result<(), Error> {
     let concurrency_key = custom_concurrency_key
@@ -5737,7 +5747,7 @@ pub async fn insert_concurrency_key<'d, 'c>(
         ));
     sqlx::query!(
         "WITH inserted_concurrency_counter AS (
-                INSERT INTO concurrency_counter (concurrency_id, job_uuids) 
+                INSERT INTO concurrency_counter (concurrency_id, job_uuids)
                 VALUES ($1, '{}'::jsonb)
                 ON CONFLICT DO NOTHING
             )
@@ -5745,7 +5755,7 @@ pub async fn insert_concurrency_key<'d, 'c>(
         concurrency_key,
         job_id,
     )
-    .execute(&mut **tx)
+    .execute(db)
     .warn_after_seconds(3)
     .await
     .map_err(|e| Error::internal_err(format!("Could not insert concurrency_key={concurrency_key} for job_id={job_id} script_path={script_path:?} workspace_id={workspace_id}: {e:#}")))?;
