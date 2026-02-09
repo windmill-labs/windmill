@@ -419,7 +419,7 @@
 						/>
 					{/await}
 					{#if customHandlerSchema && customHandlerSchema.properties && Object.keys(customHandlerSchema.properties).length === 0}
-						<div class="text-xs texg-gray-700">This error handler takes no extra arguments</div>
+						<div class="text-xs text-secondary">This error handler takes no extra arguments</div>
 					{/if}
 				</div>
 			{/if}

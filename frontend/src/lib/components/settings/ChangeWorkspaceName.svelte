@@ -39,7 +39,7 @@
 
 <div class="flex flex-col gap-1">
 	<p class="font-semibold text-xs text-emphasis">Workspace name</p>
-	<p class="text-xs text-secondary font-normal"> Displayable name </p>
+	<p class="text-xs text-secondary font-normal">Displayable name</p>
 	<div class="flex flex-row gap-2 items-center">
 		<p class="text-primary text-xs">{currentName}</p>
 		<Button
