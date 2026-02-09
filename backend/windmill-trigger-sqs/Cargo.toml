@@ -35,3 +35,4 @@ anyhow.workspace = true
 chrono.workspace = true
 backon.workspace = true
 thiserror.workspace = true
+aws-smithy-types.workspace = true
