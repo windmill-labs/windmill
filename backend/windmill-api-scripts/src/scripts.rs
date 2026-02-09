@@ -1496,7 +1496,7 @@ async fn toggle_workspace_error_handler(
         }
         None => {
             tx.commit().await?;
-            Err(Error::ExecutionErr(
+            Err(Error::BadRequest(
                 "Workspace error handler needs to be defined".to_string(),
             ))
         }
