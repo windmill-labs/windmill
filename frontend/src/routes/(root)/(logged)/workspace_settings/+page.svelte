@@ -1054,7 +1054,6 @@
 	// Navigation groups for sidebar
 	const navigationGroups = $derived([
 		{
-			title: 'Workspace',
 			items: [
 				{
 					id: 'general',
@@ -1069,6 +1068,12 @@
 					aiDescription: 'Users workspace settings'
 				},
 				{
+					id: 'ai',
+					label: 'Windmill AI',
+					aiId: 'workspace-settings-ai',
+					aiDescription: 'Windmill AI workspace settings'
+				},
+				{
 					id: 'premium',
 					label: 'Premium plans',
 					aiId: 'workspace-settings-premium',
@@ -1078,7 +1083,7 @@
 			]
 		},
 		{
-			title: 'Integration & deployment',
+			title: 'Git & deployment',
 			items: [
 				{
 					id: 'git_sync',
@@ -1093,7 +1098,12 @@
 					aiId: 'workspace-settings-deploy-to',
 					aiDescription: 'Deployment UI workspace settings',
 					isEE: true
-				},
+				}
+			]
+		},
+		{
+			title: 'Integrations',
+			items: [
 				{
 					id: 'slack',
 					label: 'Slack / Teams',
@@ -1107,11 +1117,17 @@
 					aiId: 'workspace-settings-webhook',
 					aiDescription: 'Webhook workspace settings',
 					showIf: WORKSPACE_SHOW_WEBHOOK_CLI_SYNC
+				},
+				{
+					id: 'native_triggers',
+					label: 'Native triggers (Beta)',
+					aiId: 'workspace-settings-integrations',
+					aiDescription: 'Workspace integrations for native triggers'
 				}
 			]
 		},
 		{
-			title: 'Handlers & AI',
+			title: 'Hooks',
 			items: [
 				{
 					id: 'error_handler',
@@ -1126,12 +1142,6 @@
 					aiId: 'workspace-settings-critical-alerts',
 					aiDescription: 'Critical alerts workspace settings',
 					isEE: true
-				},
-				{
-					id: 'ai',
-					label: 'Windmill AI',
-					aiId: 'workspace-settings-ai',
-					aiDescription: 'Windmill AI workspace settings'
 				}
 			]
 		},
@@ -1173,12 +1183,6 @@
 					label: 'Encryption',
 					aiId: 'workspace-settings-encryption',
 					aiDescription: 'Encryption workspace settings'
-				},
-				{
-					id: 'native_triggers',
-					label: 'Native triggers (Beta)',
-					aiId: 'workspace-settings-integrations',
-					aiDescription: 'Workspace integrations for native triggers'
 				}
 			]
 		}
