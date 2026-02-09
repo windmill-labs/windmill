@@ -586,7 +586,6 @@ pub async fn process_completed_job(
         duration,
         result_columns,
         preprocessed_args,
-        has_stream,
         from_cache,
         flow_runners,
         done_tx,
@@ -655,7 +654,6 @@ pub async fn process_completed_job(
             canceled_by.clone(),
             false,
             duration,
-            has_stream.unwrap_or(false),
             from_cache.unwrap_or(false),
         )
         .await?;
