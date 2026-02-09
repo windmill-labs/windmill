@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { emptyString, pick, sendUserToast } from '$lib/utils'
-	import { ChevronDown, Plus, Save, Shield } from 'lucide-svelte'
+	import { ChevronDown, Plus, Shield } from 'lucide-svelte'
 	import Alert from '../common/alert/Alert.svelte'
 	import Button from '../common/button/Button.svelte'
 	import SettingsPageHeader from '../settings/SettingsPageHeader.svelte'
+	import SettingsFooter from './SettingsFooter.svelte'
 	import ResourcePicker from '../ResourcePicker.svelte'
 	import Toggle from '../Toggle.svelte'
 	import Tooltip from '../Tooltip.svelte'
@@ -34,11 +35,13 @@
 	let {
 		s3ResourceSettings = $bindable(),
 		s3ResourceSavedSettings,
-		onSave = undefined
+		onSave = undefined,
+		onDiscard = undefined
 	}: {
 		s3ResourceSettings: S3ResourceSettings
 		s3ResourceSavedSettings: S3ResourceSettings
 		onSave?: () => void
+		onDiscard?: () => void
 	} = $props()
 
 	let advancedPermissionModalState:
@@ -292,18 +295,14 @@
 		</tbody>
 	</DataTable>
 
-	<div class="flex mt-5 mb-5 gap-1">
-		<Button
-			variant="accent"
-			unifiedSize="md"
-			startIcon={{ icon: Save }}
-			disabled={!hasUnsavedChanges}
-			on:click={() => {
-				editWindmillLFSSettings()
-				console.log('Saving S3 settings', s3ResourceSettings)
-			}}>Save storage settings</Button
-		>
-	</div>
+	<SettingsFooter
+		class="mt-5 mb-5"
+		inline
+		{hasUnsavedChanges}
+		onSave={editWindmillLFSSettings}
+		onDiscard={() => onDiscard?.()}
+		saveLabel="Save storage settings"
+	/>
 {/if}
 
 <Modal2

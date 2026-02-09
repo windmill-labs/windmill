@@ -76,6 +76,7 @@
 	} from '$lib/components/workspaceSettings/DataTableSettings.svelte'
 	import WorkspaceDependenciesSettings from '$lib/components/workspaceSettings/WorkspaceDependenciesSettings.svelte'
 	import SettingsFooter from '$lib/components/workspaceSettings/SettingsFooter.svelte'
+	import Label from '$lib/components/Label.svelte'
 
 	let slackInitialPath: string = $state('')
 	let slackScriptPath: string = $state('')
@@ -2008,12 +2009,18 @@ export async function main(
 							onSave={() => {
 								s3ResourceSavedSettings = clone(s3ResourceSettings)
 							}}
+							onDiscard={() => {
+								s3ResourceSettings = clone(s3ResourceSavedSettings)
+							}}
 						/>
 						<DucklakeSettings
 							bind:ducklakeSettings
 							bind:ducklakeSavedSettings
 							onSave={() => {
 								ducklakeSavedSettings = clone(ducklakeSettings)
+							}}
+							onDiscard={() => {
+								ducklakeSettings = clone(ducklakeSavedSettings)
 							}}
 						/>
 					{:else if tab == 'git_sync'}
@@ -2028,7 +2035,7 @@ export async function main(
 						<WorkspaceDependenciesSettings />
 					{:else if tab == 'default_app'}
 						<SettingsPageHeader
-							title="Workspace Default App"
+							title="Workspace default app"
 							description="If configured, users who are operators in this workspace will be redirected to this app automatically when logging into this workspace. Make sure the default app is shared with all the operators of this workspace before turning this feature on."
 							link="https://www.windmill.dev/docs/apps/default_app"
 						/>
@@ -2042,24 +2049,24 @@ export async function main(
 								turning this feature on.
 							</Alert>
 						{/if}
-						<div class="mt-5 flex gap-1">
+						<Label label="App" class="mt-6">
 							<ScriptPicker bind:scriptPath={workspaceDefaultAppPath} itemKind="app" />
-						</div>
-						<hr class="border-t my-8" />
-						<Section
-							label="Public App Rate Limiting"
-							description="Limit the number of public (anonymous) app executions per minute per server. Set to 0 or leave empty to disable. This is a per-server limit, not a global limit."
-							class="flex flex-col gap-6"
-						>
+						</Label>
+
+						<Label label="Rate Limiting" class="mt-6">
+							<div class="text-xs text-secondary">
+								Limit the number of public (anonymous) app executions per minute per server. Set to
+								0 or leave empty to disable. This is a per-server limit, not a global limit.
+							</div>
 							<div class="flex flex-row items-center gap-4">
 								<TextInput
 									inputProps={{ type: 'number', placeholder: '0 (disabled)' }}
 									bind:value={publicAppRateLimitPerMinute}
 									class="w-48"
 								/>
-								<span class="text-secondary text-sm">executions per minute per server</span>
+								<span class="text-hint text-2xs">executions per minute per server</span>
 							</div>
-						</Section>
+						</Label>
 
 						<SettingsFooter
 							class="mt-8"

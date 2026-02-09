@@ -52,9 +52,10 @@
 </script>
 
 <script>
-	import { Plus, Save, SettingsIcon } from 'lucide-svelte'
+	import { Plus, SettingsIcon } from 'lucide-svelte'
 
 	import Button from '../common/button/Button.svelte'
+	import SettingsFooter from './SettingsFooter.svelte'
 
 	import Description from '../Description.svelte'
 	import { random_adj } from '../random_positive_adjetive'
@@ -90,11 +91,13 @@
 		ducklakeSettings: DucklakeSettingsType
 		ducklakeSavedSettings: DucklakeSettingsType
 		onSave?: () => void
+		onDiscard?: () => void
 	}
 	let {
 		ducklakeSettings = $bindable(),
 		ducklakeSavedSettings = $bindable(),
-		onSave: onSaveProp = undefined
+		onSave: onSaveProp = undefined,
+		onDiscard = undefined
 	}: Props = $props()
 
 	function onNewDucklake() {
@@ -125,6 +128,11 @@
 				return [d.name, !deepEqual(saved, d)] as const
 			})
 		)
+	)
+
+	let hasUnsavedChanges = $derived(
+		ducklakeSavedSettings.ducklakes.length !== ducklakeSettings.ducklakes.length ||
+			!Object.values(ducklakeIsDirty).every((v) => v === false)
 	)
 
 	const customInstanceDbs = resource([], SettingService.listCustomInstanceDbs)
@@ -384,16 +392,13 @@
 		</Row>
 	</tbody>
 </DataTable>
-<Button
-	wrapperClasses="mt-6 mb-16 max-w-fit"
-	variant="accent"
-	startIcon={{ icon: Save }}
-	unifiedSize="md"
-	on:click={onSave}
-	disabled={ducklakeSavedSettings.ducklakes.length === ducklakeSettings.ducklakes.length &&
-		Object.values(ducklakeIsDirty).every((v) => v === false)}
->
-	Save ducklake settings
-</Button>
+<SettingsFooter
+	class="mt-6 mb-16"
+	inline
+	{hasUnsavedChanges}
+	{onSave}
+	onDiscard={() => onDiscard?.()}
+	saveLabel="Save ducklake settings"
+/>
 
 <ConfirmationModal {...confirmationModal.props} />
