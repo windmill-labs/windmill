@@ -21,6 +21,9 @@ pub struct EndpointTool {
     pub path_params_schema: Option<serde_json::Value>,
     pub query_params_schema: Option<serde_json::Value>,
     pub body_schema: Option<serde_json::Value>,
+    pub path_field_renames: Option<serde_json::Value>,
+    pub query_field_renames: Option<serde_json::Value>,
+    pub body_field_renames: Option<serde_json::Value>,
 }
 
 /// Convert a single endpoint tool to MCP tool
@@ -100,7 +103,9 @@ fn merge_schema_into(
 
     if let Some(required) = schema.get("required").and_then(|r| r.as_array()) {
         for req in required.iter().filter_map(|r| r.as_str()) {
-            combined_required.push(req.to_string());
+            if !combined_required.contains(&req.to_string()) {
+                combined_required.push(req.to_string());
+            }
         }
     }
 }

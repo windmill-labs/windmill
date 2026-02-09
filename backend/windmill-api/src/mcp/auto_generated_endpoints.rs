@@ -26,6 +26,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "query"
         ]
 })),
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("createVariable"),
@@ -84,6 +87,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "description"
         ]
 })),
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("deleteVariable"),
@@ -104,6 +110,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
 })),
         query_params_schema: None,
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("updateVariable"),
@@ -114,12 +123,13 @@ pub fn all_tools() -> Vec<EndpointTool> {
         path_params_schema: Some(serde_json::json!({
         "type": "object",
         "properties": {
-                "path": {
-                        "type": "string"
+                "path__path": {
+                        "type": "string",
+                        "description": "(path parameter)"
                 }
         },
         "required": [
-                "path"
+                "path__path"
         ]
 })),
         query_params_schema: Some(serde_json::json!({
@@ -135,10 +145,6 @@ pub fn all_tools() -> Vec<EndpointTool> {
         body_schema: Some(serde_json::json!({
         "type": "object",
         "properties": {
-                "path": {
-                        "type": "string",
-                        "description": "The path to the variable"
-                },
                 "value": {
                         "type": "string",
                         "description": "The new value of the variable"
@@ -150,8 +156,19 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "description": {
                         "type": "string",
                         "description": "The new description of the variable"
+                },
+                "path__body": {
+                        "type": "string",
+                        "description": "The path to the variable (body parameter)"
                 }
         }
+})),
+        path_field_renames: Some(serde_json::json!({
+        "path__path": "path"
+})),
+        query_field_renames: None,
+        body_field_renames: Some(serde_json::json!({
+        "path__body": "path"
 })),
     },
     EndpointTool {
@@ -186,6 +203,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "required": []
 })),
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("listVariable"),
@@ -213,6 +233,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "required": []
 })),
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("createResource"),
@@ -254,6 +277,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "resource_type"
         ]
 })),
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("deleteResource"),
@@ -274,6 +300,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
 })),
         query_params_schema: None,
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("updateResource"),
@@ -284,22 +313,19 @@ pub fn all_tools() -> Vec<EndpointTool> {
         path_params_schema: Some(serde_json::json!({
         "type": "object",
         "properties": {
-                "path": {
-                        "type": "string"
+                "path__path": {
+                        "type": "string",
+                        "description": "(path parameter)"
                 }
         },
         "required": [
-                "path"
+                "path__path"
         ]
 })),
         query_params_schema: None,
         body_schema: Some(serde_json::json!({
         "type": "object",
         "properties": {
-                "path": {
-                        "type": "string",
-                        "description": "The path to the resource"
-                },
                 "description": {
                         "type": "string",
                         "description": "The new description of the resource"
@@ -308,8 +334,19 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "resource_type": {
                         "type": "string",
                         "description": "The new resource_type to be associated with the resource"
+                },
+                "path__body": {
+                        "type": "string",
+                        "description": "The path to the resource (body parameter)"
                 }
         }
+})),
+        path_field_renames: Some(serde_json::json!({
+        "path__path": "path"
+})),
+        query_field_renames: None,
+        body_field_renames: Some(serde_json::json!({
+        "path__body": "path"
 })),
     },
     EndpointTool {
@@ -331,6 +368,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
 })),
         query_params_schema: None,
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("listResource"),
@@ -366,6 +406,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "required": []
 })),
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("listResourceType"),
@@ -376,6 +419,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
         path_params_schema: None,
         query_params_schema: None,
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("listScripts"),
@@ -467,6 +513,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "required": []
 })),
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("createScript"),
@@ -514,6 +563,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "language"
         ]
 })),
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("deleteScriptByHash"),
@@ -534,6 +586,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
 })),
         query_params_schema: None,
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("deleteScriptByPath"),
@@ -563,6 +618,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "required": []
 })),
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("getScriptByPath"),
@@ -591,6 +649,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "required": []
 })),
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("runScriptByPath"),
@@ -655,6 +716,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "description": "The arguments to pass to the script or flow",
         "additionalProperties": {}
 })),
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("listFlows"),
@@ -718,6 +782,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "required": []
 })),
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("getFlowByPath"),
@@ -746,6 +813,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "required": []
 })),
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("createFlow"),
@@ -789,6 +859,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
         ],
         "description": "Top-level flow definition containing metadata, configuration, and the flow structure"
 })),
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("updateFlow"),
@@ -799,12 +872,13 @@ pub fn all_tools() -> Vec<EndpointTool> {
         path_params_schema: Some(serde_json::json!({
         "type": "object",
         "properties": {
-                "path": {
-                        "type": "string"
+                "path__path": {
+                        "type": "string",
+                        "description": "(path parameter)"
                 }
         },
         "required": [
-                "path"
+                "path__path"
         ]
 })),
         query_params_schema: None,
@@ -825,22 +899,30 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "schema": {
                         "type": "object"
                 },
-                "path": {
-                        "type": "string"
-                },
                 "tag": {
                         "type": "string"
                 },
                 "deployment_message": {
                         "type": "string"
+                },
+                "path__body": {
+                        "type": "string",
+                        "description": "(body parameter)"
                 }
         },
         "required": [
                 "summary",
                 "value",
-                "path"
+                "path__body"
         ],
         "description": "Top-level flow definition containing metadata, configuration, and the flow structure"
+})),
+        path_field_renames: Some(serde_json::json!({
+        "path__path": "path"
+})),
+        query_field_renames: None,
+        body_field_renames: Some(serde_json::json!({
+        "path__body": "path"
 })),
     },
     EndpointTool {
@@ -871,6 +953,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "required": []
 })),
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("createApp"),
@@ -906,6 +991,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "policy"
         ]
 })),
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("updateApp"),
@@ -916,21 +1004,19 @@ pub fn all_tools() -> Vec<EndpointTool> {
         path_params_schema: Some(serde_json::json!({
         "type": "object",
         "properties": {
-                "path": {
-                        "type": "string"
+                "path__path": {
+                        "type": "string",
+                        "description": "(path parameter)"
                 }
         },
         "required": [
-                "path"
+                "path__path"
         ]
 })),
         query_params_schema: None,
         body_schema: Some(serde_json::json!({
         "type": "object",
         "properties": {
-                "path": {
-                        "type": "string"
-                },
                 "summary": {
                         "type": "string"
                 },
@@ -942,8 +1028,19 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 },
                 "deployment_message": {
                         "type": "string"
+                },
+                "path__body": {
+                        "type": "string",
+                        "description": "(body parameter)"
                 }
         }
+})),
+        path_field_renames: Some(serde_json::json!({
+        "path__path": "path"
+})),
+        query_field_renames: None,
+        body_field_renames: Some(serde_json::json!({
+        "path__body": "path"
 })),
     },
     EndpointTool {
@@ -1014,6 +1111,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "description": "The arguments to pass to the script or flow",
         "additionalProperties": {}
 })),
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("runScriptPreviewAndWaitResult"),
@@ -1067,6 +1167,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "language"
         ]
 })),
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("listQueue"),
@@ -1185,6 +1288,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "required": []
 })),
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("listJobs"),
@@ -1337,6 +1443,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "required": []
 })),
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("createSchedule"),
@@ -1521,6 +1630,9 @@ You should get the schema of the script or flow before creating the schedule to 
                 "args"
         ]
 })),
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("updateSchedule"),
@@ -1696,6 +1808,9 @@ You should get the schema of the script or flow before updating the schedule to 
                 "args"
         ]
 })),
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("deleteSchedule"),
@@ -1716,6 +1831,9 @@ You should get the schema of the script or flow before updating the schedule to 
 })),
         query_params_schema: None,
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("getSchedule"),
@@ -1736,6 +1854,9 @@ You should get the schema of the script or flow before updating the schedule to 
 })),
         query_params_schema: None,
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("listSchedules"),
@@ -1775,6 +1896,9 @@ You should get the schema of the script or flow before updating the schedule to 
         "required": []
 })),
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("listWorkers"),
@@ -1802,6 +1926,9 @@ You should get the schema of the script or flow before updating the schedule to 
         "required": []
 })),
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     }
     ]
 }
