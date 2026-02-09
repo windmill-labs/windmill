@@ -36,7 +36,7 @@
 	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
 	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
 	import { StaleWhileLoading } from '$lib/svelte5Utils.svelte'
-	import { TriangleAlertIcon } from 'lucide-svelte'
+	import { CalendarIcon, ClockIcon, TriangleAlertIcon } from 'lucide-svelte'
 	import DropdownV2 from './DropdownV2.svelte'
 	import TimeframeSelect, {
 		buildManualTimeframe,
@@ -776,6 +776,26 @@
 									</Button>
 								{/if}
 								<div class="flex-1"></div>
+								{#if !filters.job_trigger_kind}
+									<div class="flex flex-row gap-1 items-center">
+										<Toggle
+											id="cron-schedules"
+											bind:checked={filters.show_schedules}
+											options={{ right: 'Schedules' }}
+										/>
+										<span title="Schedules"><CalendarIcon size="14" /></span>
+									</div>
+								{/if}
+
+								<div class="flex flex-row gap-1 items-center">
+									<Toggle
+										size="sm"
+										bind:checked={filters.show_future_jobs}
+										id="planned-later"
+										options={{ right: 'Planned later' }}
+									/>
+									<span title="Planned later"><ClockIcon size={14} /></span>
+								</div>
 								<Toggle
 									size="xs"
 									bind:checked={autoRefresh}

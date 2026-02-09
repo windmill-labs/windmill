@@ -522,61 +522,48 @@
 
 	<!-- Kind -->
 	<RunOption label="Kind" for="kind">
-		{#if small}
-			<Select
-				items={[
-					{ label: 'All', value: 'all' },
-					{ label: 'Runs', value: 'runs', extra: runsTooltip }, // TODO fix tooltip
-					{ label: 'Previews', value: 'previews', extra: previewsTooltip }, // TODO fix tooltip
-					{ label: 'Deps', value: 'dependencies', extra: dependenciesTooltip }, // TODO fix tooltip
-					{ label: 'Sync', value: 'deploymentcallbacks', extra: syncTooltip } // TODO fix tooltip
-				]}
-				bind:value={jobKindsCat}
-			/>
-		{:else}
-			<ToggleButtonGroup bind:selected={jobKindsCat}>
-				{#snippet children({ item })}
-					<ToggleButton value="all" label="All" {item} />
-					<ToggleButton
-						value="runs"
-						label="Runs"
-						showTooltipIcon
-						tooltip="Runs are jobs that have no parent jobs (flows are jobs that are parent of the jobs they start), they have been triggered through the UI, a schedule or webhook"
-						{item}
-					/>
-					<ToggleButton
-						value="dependencies"
-						label="Deps"
-						showTooltipIcon
-						tooltip="Deploying a script, flow or an app launch a dependency job that create and then attach the lockfile to the deployed item. This mechanism ensure that logic is always executed with the exact same direct and indirect dependencies."
-						{item}
-					/>
-					<ToggleButtonMore
-						togglableItems={[
-							{
-								label: 'Previews',
-								value: 'previews',
-								tooltip: "Previews are jobs that have been started in the editor as 'Tests'"
-							},
-							{
-								label: 'Sync',
-								value: 'deploymentcallbacks',
-								tooltip:
-									'Sync jobs that are triggered on every script deployment to sync the workspace with the Git repository configured in the the workspace settings'
-							}
-						]}
-						{item}
-						bind:selected={
-							() => jobKindsCat,
-							(v) => {
-								resetFilter()
-								jobKindsCat = v
-							}
+		<ToggleButtonGroup bind:selected={jobKindsCat}>
+			{#snippet children({ item })}
+				<ToggleButton value="all" label="All" {item} />
+				<ToggleButton
+					value="runs"
+					label="Runs"
+					showTooltipIcon
+					tooltip="Runs are jobs that have no parent jobs (flows are jobs that are parent of the jobs they start), they have been triggered through the UI, a schedule or webhook"
+					{item}
+				/>
+				<ToggleButton
+					value="dependencies"
+					label="Deps"
+					showTooltipIcon
+					tooltip="Deploying a script, flow or an app launch a dependency job that create and then attach the lockfile to the deployed item. This mechanism ensure that logic is always executed with the exact same direct and indirect dependencies."
+					{item}
+				/>
+				<ToggleButtonMore
+					togglableItems={[
+						{
+							label: 'Previews',
+							value: 'previews',
+							tooltip: "Previews are jobs that have been started in the editor as 'Tests'"
+						},
+						{
+							label: 'Sync',
+							value: 'deploymentcallbacks',
+							tooltip:
+								'Sync jobs that are triggered on every script deployment to sync the workspace with the Git repository configured in the the workspace settings'
 						}
-					/>
-				{/snippet}
-			</ToggleButtonGroup>
-		{/if}
+					]}
+					{item}
+					bind:selected={
+						() => jobKindsCat,
+						(v) => {
+							resetFilter()
+							jobKindsCat = v
+						}
+					}
+				/>
+			{/snippet}
+		</ToggleButtonGroup>
 	</RunOption>
 	<!-- Status -->
 	<RunOption label="Status" for="status">
