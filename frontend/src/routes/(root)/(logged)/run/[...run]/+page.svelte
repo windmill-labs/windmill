@@ -772,7 +772,7 @@
 				{#if job}
 					<div class="mr-2 sm:mr-0 mt-12 mb-6">
 						<h3 class="text-xs font-semibold text-emphasis mb-1">Result</h3>
-						<div class="border rounded-md bg-surface-tertiary p-4 overflow-auto max-h-[400px]">
+						<div class="border rounded-md bg-surface-tertiary p-4 overflow-auto max-h-screen">
 							{#if job.result_stream || (job.type == 'CompletedJob' && job.result !== undefined)}
 								<DisplayResult
 									workspaceId={job?.workspace_id}

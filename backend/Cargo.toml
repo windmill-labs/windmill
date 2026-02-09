@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.628.2"
+version = "1.628.3"
 authors.workspace = true
 edition.workspace = true
 
@@ -8,9 +8,33 @@ edition.workspace = true
 resolver = "2"
 members = [
     "./windmill-api",
+    "./windmill-api-scripts",
+    "./windmill-api-users",
+    "./windmill-api-workspaces",
+    "./windmill-api-groups",
+    "./windmill-api-auth",
+    "./windmill-api-sse",
+    "./windmill-api-jobs",
+    "./windmill-trigger",
+    "./windmill-trigger-kafka",
+    "./windmill-trigger-postgres",
+    "./windmill-trigger-mqtt",
+    "./windmill-trigger-websocket",
+    "./windmill-trigger-email",
+    "./windmill-trigger-nats",
+    "./windmill-trigger-sqs",
+    "./windmill-trigger-gcp",
+    "./windmill-trigger-http",
+    "./windmill-native-triggers",
+    "./windmill-api-embeddings",
+    "./windmill-store",
     "./windmill-queue",
     "./windmill-worker",
+    "./windmill-dep-map",
+    "./windmill-types",
     "./windmill-common",
+    "./windmill-jseval",
+    "./windmill-runtime-nativets",
     "./windmill-mcp",
     "./windmill-audit",
     "./windmill-git-sync",
@@ -35,7 +59,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal"]
 
 [workspace.package]
-version = "1.628.2"
+version = "1.628.3"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -46,6 +70,10 @@ path = "./src/main.rs"
 [profile.dev]
 opt-level = 0
 incremental = true
+split-debuginfo = "unpacked"
+
+[profile.dev.package."*"]
+debug = false
 
 [profile.release]
 lto = "thin"
@@ -63,13 +91,13 @@ embedding = ["windmill-api/embedding"]
 parquet = ["windmill-api/parquet", "windmill-common/parquet", "windmill-worker/parquet", "dep:object_store"]
 prometheus = ["windmill-common/prometheus", "windmill-api/prometheus", "windmill-worker/prometheus", "windmill-queue/prometheus", "dep:prometheus"]
 flow_testing = ["windmill-worker/flow_testing"]
+quickjs = ["windmill-worker/quickjs", "windmill-api/quickjs"]
 openidconnect = ["windmill-api/openidconnect", "windmill-common/openidconnect"]
 cloud = ["windmill-queue/cloud", "windmill-worker/cloud", "windmill-common/cloud", "windmill-api/cloud"]
 jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemalloc-sys", "dep:tikv-jemalloc-ctl"]
 tantivy = ["dep:windmill-indexer", "windmill-api/tantivy", "windmill-indexer/enterprise", "windmill-indexer/parquet", "windmill-common/tantivy", "enterprise", "parquet"]
 sqlx = ["windmill-worker/sqlx"]
-deno_core = ["windmill-worker/deno_core", "windmill-api/deno_core", "dep:deno_core", "dep:v8"]
-quickjs = ["windmill-worker/quickjs"]
+deno_core = ["windmill-worker/deno_core", "dep:windmill-runtime-nativets"]
 deno_core_mac = ["deno_core", "windmill-worker/libffi_mac"]
 kafka = ["windmill-api/kafka"]
 kafka-gssapi = ["windmill-api/kafka-gssapi"]
@@ -92,7 +120,6 @@ zip = ["windmill-api/zip"]
 static_frontend = ["windmill-api/static_frontend"]
 scoped_cache = ["windmill-common/scoped_cache"]
 no_auth = ["windmill-api/no_auth"]
-test_job_debouncing = []
 private_registry_test = []
 # Languages
 python = ["windmill-worker/python", "windmill-api/python"]
@@ -113,11 +140,13 @@ all_languages = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "
 # For windows we have another set of languages enabled
 all_languages_windows = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql-winauth", "bigquery", "csharp", "nu", "php", "java"]
 # Edition meta-features: shared groups
+inline_preview = ["windmill-api/inline_preview"]
 oss_core = [
     "embedding", "parquet", "openidconnect", "license",
     "http_trigger", "zip", "oauth2", "postgres_trigger",
     "mqtt_trigger", "websocket", "smtp", "native_trigger",
-    "static_frontend", "mcp", "bedrock"
+    "static_frontend", "mcp", "bedrock", "inline_preview",
+    "quickjs"
 ]
 ce_core = ["oss_core", "private"]
 ee_core = [
@@ -137,7 +166,7 @@ ee_windows = ["ce_core", "ee_core", "all_languages_windows"]
 all_sqlx_features = ["all_languages", "enterprise", "enterprise_saml", "embedding", "parquet", "prometheus", "flow_testing",
  "openidconnect", "cloud", "jemalloc", "tantivy", "sqlx", "kafka", "kafka-gssapi", "nats", "otel", "dind", "websocket", "http_trigger",
   "postgres_trigger", "mcp", "mqtt_trigger", "sqs_trigger", "gcp_trigger", "smtp", "stripe",
-   "license", "oauth2", "zip", "static_frontend", "scoped_cache", "agent_worker_server", "bedrock", "native_trigger"]
+   "license", "oauth2", "zip", "static_frontend", "scoped_cache", "agent_worker_server", "bedrock", "native_trigger", "quickjs"]
 
 [patch.crates-io]
 object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7" }
@@ -175,25 +204,12 @@ serde_json.workspace = true
 serde_derive.workspace = true
 serde_yml.workspace = true
 serde.workspace = true
-deno_core = { workspace = true, optional = true }
+windmill-runtime-nativets = { workspace = true, optional = true }
 object_store = { workspace = true, optional = true }
 sha1 = { workspace = true, optional = true }
 constant_time_eq = { workspace = true, optional = true }
-quote.workspace = true
-memchr.workspace = true
-v8 = { workspace = true, optional = true }
 rustls.workspace = true
-pep440_rs.workspace = true
 strum.workspace = true
-aws-sigv4.workspace = true
-aws-sdk-config.workspace = true
-kube.workspace = true
-k8s-openapi.workspace = true
-libloading.workspace = true
-bitflags.workspace = true
-globset.workspace = true
-opentelemetry-proto.workspace = true
-systemstat.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-service = "0.7"
@@ -207,18 +223,26 @@ tikv-jemalloc-ctl = { optional = true, workspace = true }
 [dev-dependencies]
 serde_json.workspace = true
 reqwest.workspace = true
-windmill-queue.workspace = true
+windmill-queue = { workspace = true, features = ["failpoints"] }
+windmill-dep-map.workspace = true
 axum.workspace = true
 serde.workspace = true
 windmill-api-client.workspace = true
-deno_core = { workspace = true, features = ["include_js_files_for_snapshotting", "unsafe_use_unprotected_platform"] }
 tempfile.workspace = true
+rumqttc.workspace = true
+rdkafka.workspace = true
+async-nats.workspace = true
+aws-sdk-sqs.workspace = true
+aws-config.workspace = true
+aws-credential-types.workspace = true
 
 
 [workspace.dependencies]
 windmill-api = { path = "./windmill-api", default-features = false  }
 windmill-queue = { path = "./windmill-queue" }
 windmill-worker = { path = "./windmill-worker" }
+windmill-dep-map = { path = "./windmill-dep-map" }
+windmill-types = { path = "./windmill-types" }
 windmill-common = { path = "./windmill-common", default-features = false }
 windmill-audit = { path = "./windmill-audit" }
 windmill-git-sync = { path = "./windmill-git-sync" }
@@ -227,6 +251,26 @@ windmill-indexer = {path = "./windmill-indexer"}
 windmill-mcp = {path = "./windmill-mcp"}
 windmill-oauth = {path = "./windmill-oauth"}
 windmill-macros = {path = "./windmill-macros"}
+windmill-api-auth = { path = "./windmill-api-auth" }
+windmill-api-scripts = { path = "./windmill-api-scripts" }
+windmill-api-users = { path = "./windmill-api-users" }
+windmill-api-workspaces = { path = "./windmill-api-workspaces" }
+windmill-api-groups = { path = "./windmill-api-groups" }
+windmill-api-sse = { path = "./windmill-api-sse" }
+windmill-api-jobs = { path = "./windmill-api-jobs" }
+windmill-trigger = { path = "./windmill-trigger" }
+windmill-trigger-kafka = { path = "./windmill-trigger-kafka" }
+windmill-trigger-postgres = { path = "./windmill-trigger-postgres" }
+windmill-trigger-mqtt = { path = "./windmill-trigger-mqtt" }
+windmill-trigger-websocket = { path = "./windmill-trigger-websocket" }
+windmill-trigger-email = { path = "./windmill-trigger-email" }
+windmill-trigger-nats = { path = "./windmill-trigger-nats" }
+windmill-trigger-sqs = { path = "./windmill-trigger-sqs" }
+windmill-trigger-gcp = { path = "./windmill-trigger-gcp" }
+windmill-trigger-http = { path = "./windmill-trigger-http" }
+windmill-native-triggers = { path = "./windmill-native-triggers" }
+windmill-api-embeddings = { path = "./windmill-api-embeddings" }
+windmill-store = { path = "./windmill-store" }
 windmill-parser = { path = "./parsers/windmill-parser" }
 windmill-parser-ts = { path = "./parsers/windmill-parser-ts" }
 windmill-parser-py = { path = "./parsers/windmill-parser-py" }
@@ -242,6 +286,8 @@ windmill-parser-bash = { path = "./parsers/windmill-parser-bash" }
 windmill-parser-sql = { path = "./parsers/windmill-parser-sql" }
 windmill-parser-graphql = { path = "./parsers/windmill-parser-graphql" }
 windmill-parser-php = { path = "./parsers/windmill-parser-php" }
+windmill-jseval = { path = "./windmill-jseval" }
+windmill-runtime-nativets = { path = "./windmill-runtime-nativets" }
 windmill-api-client = { path = "./windmill-api-client" }
 
 reqwest-retry = "^0"

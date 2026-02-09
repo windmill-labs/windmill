@@ -10,6 +10,7 @@ use sqlx::{FromRow, Postgres};
 use uuid::Uuid;
 
 use crate::db::ApiAuthed;
+pub use windmill_common::flow_conversations::FlowConversation;
 use windmill_common::{
     db::{UserDB, DB},
     error::{JsonResult, Result},
@@ -22,17 +23,6 @@ pub fn workspaced_service() -> Router {
         .route("/list", get(list_conversations))
         .route("/delete/:conversation_id", delete(delete_conversation))
         .route("/:conversation_id/messages", get(list_messages))
-}
-
-#[derive(Serialize, FromRow, Debug)]
-pub struct FlowConversation {
-    pub id: Uuid,
-    pub workspace_id: String,
-    pub flow_path: String,
-    pub title: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub created_by: String,
 }
 
 #[derive(Serialize, FromRow, Debug)]
@@ -104,55 +94,6 @@ async fn list_conversations(
     Ok(Json(conversations))
 }
 
-pub async fn get_or_create_conversation_with_id(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    w_id: &str,
-    flow_path: &str,
-    username: &str,
-    title: &str,
-    conversation_id: Uuid,
-) -> Result<FlowConversation> {
-    // Check if conversation already exists
-    let existing_conversation = sqlx::query_as!(
-        FlowConversation,
-        "SELECT id, workspace_id, flow_path, title, created_at, updated_at, created_by
-         FROM flow_conversation
-         WHERE id = $1 AND workspace_id = $2",
-        conversation_id,
-        w_id
-    )
-    .fetch_optional(&mut **tx)
-    .await?;
-
-    if let Some(existing) = existing_conversation {
-        return Ok(existing);
-    }
-
-    // Truncate title to 25 char characters max
-    let title = if title.len() > 25 {
-        format!("{}...", &title[..25])
-    } else {
-        title.to_string()
-    };
-
-    // Create new conversation with provided ID
-    let conversation = sqlx::query_as!(
-        FlowConversation,
-        "INSERT INTO flow_conversation (id, workspace_id, flow_path, created_by, title)
-         VALUES ($1, $2, $3, $4, $5)
-         RETURNING id, workspace_id, flow_path, title, created_at, updated_at, created_by",
-        conversation_id,
-        w_id,
-        flow_path,
-        username,
-        title
-    )
-    .fetch_one(&mut **tx)
-    .await?;
-
-    Ok(conversation)
-}
-
 async fn delete_conversation(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -187,24 +128,26 @@ async fn delete_conversation(
     tx.commit().await?;
 
     // Delete associated memory in background (non-blocking cleanup)
-    let w_id_clone = w_id.clone();
-    let db_clone = db.clone();
-    tokio::spawn(async move {
-        if let Err(e) = windmill_worker::memory_oss::delete_conversation_memory(
-            &db_clone,
-            &w_id_clone,
-            conversation_id,
-        )
-        .await
-        {
-            tracing::error!(
-                "Failed to delete memory for conversation {} in workspace {}: {:?}",
+    {
+        let w_id_clone = w_id.clone();
+        let db_clone = db.clone();
+        tokio::spawn(async move {
+            if let Err(e) = windmill_common::flow_conversations::delete_conversation_memory(
+                &db_clone,
+                &w_id_clone,
                 conversation_id,
-                w_id_clone,
-                e
-            );
-        }
-    });
+            )
+            .await
+            {
+                tracing::error!(
+                    "Failed to delete memory for conversation {} in workspace {}: {:?}",
+                    conversation_id,
+                    w_id_clone,
+                    e
+                );
+            }
+        });
+    }
 
     Ok(format!("Conversation {} deleted", conversation_id))
 }

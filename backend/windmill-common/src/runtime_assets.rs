@@ -52,7 +52,7 @@ fn extract_assets_from_raw_value(
         if prefix {
             let s = serde_json::from_str::<String>(value.get()).ok()?;
             let (kind, path) = parse_asset_syntax(&s, false)?;
-            assets.push(RuntimeAsset { path: path.to_string(), kind: kind.into() });
+            assets.push(RuntimeAsset { path: path.to_string(), kind: crate::assets::asset_kind_from_parser(kind) });
         }
     }
     None
@@ -178,7 +178,7 @@ pub fn init_runtime_asset_loop(
     match RUNTIME_ASSET_SENDER.set(tx) {
         Ok(_) => {}
         Err(_) => {
-            tracing::error!("RUNTIME_ASSET_SENDER was already set, skipping");
+            tracing::debug!("RUNTIME_ASSET_SENDER was already set, skipping");
             return;
         }
     }

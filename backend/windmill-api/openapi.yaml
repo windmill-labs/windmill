@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.628.2
+  version: 1.628.3
   title: Windmill API
 
   contact:
@@ -7769,23 +7769,6 @@ paths:
                 items:
                   $ref: "#/components/schemas/ListableRawApp"
 
-  /w/{workspace}/raw_apps/exists/{path}:
-    get:
-      summary: does an app exisst at path
-      operationId: existsRawApp
-      tags:
-        - raw_app
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-      responses:
-        "200":
-          description: app exists
-          content:
-            application/json:
-              schema:
-                type: boolean
-
   /w/{workspace}/apps/get_data/v/{secretWithExtension}:
     get:
       summary: get raw app data by
@@ -8214,88 +8197,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AppWithLastVersion"
-
-  /w/{workspace}/raw_apps/create:
-    post:
-      summary: create raw app
-      operationId: createRawApp
-      tags:
-        - raw_app
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        description: new raw app
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                path:
-                  type: string
-                value:
-                  type: string
-                summary:
-                  type: string
-              required:
-                - path
-                - value
-                - summary
-      responses:
-        "201":
-          description: raw app created
-          content:
-            text/plain:
-              schema:
-                type: string
-
-  /w/{workspace}/raw_apps/update/{path}:
-    post:
-      summary: update app
-      operationId: updateRawApp
-      tags:
-        - raw_app
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/ScriptPath"
-      requestBody:
-        description: updateraw  app
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                path:
-                  type: string
-                summary:
-                  type: string
-                value:
-                  type: string
-      responses:
-        "200":
-          description: app updated
-          content:
-            text/plain:
-              schema:
-                type: string
-
-  /w/{workspace}/raw_apps/delete/{path}:
-    delete:
-      summary: delete raw app
-      operationId: deleteRawApp
-      tags:
-        - raw_app
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-      responses:
-        "200":
-          description: app deleted
-          content:
-            text/plain:
-              schema:
-                type: string
 
   /w/{workspace}/apps/delete/{path}:
     delete:

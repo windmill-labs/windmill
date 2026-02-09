@@ -30,7 +30,8 @@ use crate::{
         build_command_with_isolation, check_executor_binary_exists, create_args_and_out_file,
         get_reserved_variables, read_result, start_child_process, DEV_CONF_NSJAIL,
     },
-    handle_child::handle_child, get_proxy_envs_for_lang,
+    get_proxy_envs_for_lang,
+    handle_child::handle_child,
     CSHARP_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER, DOTNET_PATH, HOME_ENV, NSJAIL_PATH,
     NUGET_CONFIG, PATH_ENV, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
