@@ -387,7 +387,15 @@
 		{#if jobs?.length == 0 && (!showExternalJobs || externalJobs?.length == 0)}
 			<div class="text-xs text-secondary p-8"> No jobs found for the selected filters. </div>
 		{:else}
-			<div class="absolute inset-0">
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div
+				class="absolute inset-0"
+				oncontextmenu={(e) => {
+					e.preventDefault()
+					rightClickPopover?.open(e)
+				}}
+			>
 				<VirtualList
 					width="100%"
 					height={tableHeight}
@@ -431,10 +439,6 @@
 															!isJobReRunnable(jobOrDate.job))) &&
 													'opacity-20'
 											)}
-											oncontextmenu={(e) => {
-												e.preventDefault()
-												rightClickPopover?.open(e)
-											}}
 										>
 											<RunRow
 												{containsLabel}
