@@ -45,7 +45,7 @@ ${
 return ${eval_string.startsWith('return ') ? eval_string.substring(7) : eval_string}`
 }
 
-}                                                                                                                   
+}
 `
 }
 
@@ -254,7 +254,10 @@ export async function eval_like(
 		(message, error) => {
 			sendUserToast(message, error)
 		},
-		async (id) => waitJob(id),
+		async (id) => {
+			const workspaceId = ((context ?? {}) as any)?.ctx?.workspace
+			return await waitJob(id, workspaceId)
+		},
 		(id) => {
 			controlComponents[id]?.askNewResource?.()
 		},
