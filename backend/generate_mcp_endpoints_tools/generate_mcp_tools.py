@@ -50,6 +50,12 @@ def flatten_allof_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
 
     collect_from(schema)
 
+    # Preserve additional top-level keys from the original schema
+    preserved_keys = {'additionalProperties', 'title', 'nullable', 'default', 'example'}
+    for key in preserved_keys:
+        if key in schema and key not in merged:
+            merged[key] = schema[key]
+
     if not merged['required']:
         del merged['required']
 
