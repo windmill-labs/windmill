@@ -460,6 +460,11 @@ impl OpenAPISchema {
             Typ::Bool => Self::from_str("boolean"),
             Typ::Bytes => Self::from_str("string"),
             Typ::Datetime => Self::datetime(),
+            Typ::Date => Self {
+                r#type: Some(SchemaType::Single("string".to_string())),
+                format: Some("date".to_string()),
+                ..Default::default()
+            },
             Typ::Resource(_) => Self::from_str("string"),
             Typ::Email => Self::from_str("string"),
             Typ::Sql => Self::from_str("string"),
