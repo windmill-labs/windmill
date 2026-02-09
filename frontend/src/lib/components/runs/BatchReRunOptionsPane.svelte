@@ -160,12 +160,14 @@
 	)
 
 	const jobGroups = resource(() => readFieldsRecursively(selectedIds), fetchJobGroups)
+
+	let hideRunnableSelector = $derived(!(jobGroups.current?.length !== 1 && selectedIds.length > 1))
 </script>
 
 <div class="flex-1 flex flex-col h-full">
 	<div class="border overflow-auto rounded-md mb-4 flex-1">
 		<Splitpanes>
-			{#if jobGroups.current?.length !== 1 && selectedIds.length > 1}
+			{#if !hideRunnableSelector}
 				<Pane size={32} class="bg-surface-secondary relative">
 					<PanelSection
 						title="Runnables"
@@ -190,7 +192,7 @@
 					</PanelSection>
 				</Pane>
 			{/if}
-			<Pane size={68} class="relative">
+			<Pane size={hideRunnableSelector ? 100 : 68} class="relative">
 				<div class="flex flex-col absolute inset-0">
 					<PanelSection
 						title="Inputs"
