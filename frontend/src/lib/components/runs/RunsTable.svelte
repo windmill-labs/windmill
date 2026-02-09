@@ -406,7 +406,7 @@
 			<!-- svelte-ignore a11y_click_events_have_key_events -->
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
-				class="absolute inset-0"
+				class="absolute inset-0 -mt-3"
 				oncontextmenu={(e) => {
 					e.preventDefault()
 					rightClickPopover?.open(e)
@@ -431,7 +431,7 @@
 									{#if jobOrDate?.type === 'date'}
 										<div
 											class={twMerge(
-												'border-b py-2 font-semibold text-xs pl-4 h-[42px] flex items-end bg-surface-tertiary'
+												'border-b py-1.5 font-semibold text-xs pl-4 h-[42px] flex items-end bg-surface-tertiary'
 											)}
 										>
 											{jobOrDate.date}
