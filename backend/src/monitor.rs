@@ -1103,7 +1103,6 @@ async fn delete_expired_jobs_batch(
             job_retention_secs
         );
 
-        // Delete related records for this batch
         if let Err(e) = sqlx::query!(
             "DELETE FROM job_stats WHERE job_id = ANY($1)",
             &deleted_jobs
@@ -1783,6 +1782,19 @@ pub async fn monitor_db(
         }
     };
 
+    let cleanup_job_live_rows_f = async {
+        if server_mode && !initial_load {
+            if let Some(db) = conn.as_sql() {
+                if let Err(e) = cleanup_job_perms_orphaned(&db).await {
+                    tracing::error!("Error cleaning up orphaned job_perms: {:?}", e);
+                }
+                if let Err(e) = cleanup_job_result_stream_orphaned_jobs(&db).await {
+                    tracing::error!("Error cleaning up orphaned job_result_stream_v2: {:?}", e);
+                }
+            }
+        }
+    };
+
     // run every hour (60 minutes / 30 seconds = 120)
     let cleanup_worker_group_stats_f = async {
         if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(120) {
@@ -1956,6 +1968,7 @@ pub async fn monitor_db(
         cleanup_debounce_keys_f,
         cleanup_debounce_keys_completed_f,
         cleanup_flow_iterator_data_f,
+        cleanup_job_live_rows_f,
         cleanup_worker_group_stats_f,
         native_triggers_sync_f,
         cleanup_notify_events_f,
@@ -1963,7 +1976,7 @@ pub async fn monitor_db(
 }
 
 async fn vacuuming_tables(db: &Pool<Postgres>) -> error::Result<()> {
-    sqlx::query!("VACUUM v2_job, v2_job_completed, job_result_stream_v2, job_stats, job_logs, concurrency_key, log_file, metrics")
+    sqlx::query!("VACUUM v2_job, v2_job_completed, job_result_stream_v2, job_stats, job_logs, job_perms, concurrency_key, log_file, metrics")
         .execute(db)
         .await?;
     Ok(())
@@ -3058,6 +3071,37 @@ RETURNING key,job_id
                 );
             }
         }
+    }
+    Ok(())
+}
+
+async fn cleanup_job_perms_orphaned(db: &DB) -> error::Result<()> {
+    let result = sqlx::query_scalar!(
+        "DELETE FROM job_perms
+WHERE job_id NOT IN (SELECT id FROM v2_job_queue)
+RETURNING job_id"
+    )
+    .fetch_all(db)
+    .await?;
+
+    if !result.is_empty() {
+        tracing::info!("Cleaned up {} orphaned job_perms rows", result.len());
+    }
+    Ok(())
+}
+
+async fn cleanup_job_result_stream_orphaned_jobs(db: &DB) -> error::Result<()> {
+    let result = sqlx::query!(
+        "DELETE FROM job_result_stream_v2 WHERE job_id NOT IN (SELECT id FROM v2_job_queue) RETURNING job_id",
+    )
+    .fetch_all(db)
+    .await?;
+
+    if result.len() > 0 {
+        tracing::info!(
+            "Cleaned up {} orphaned job_result_stream_v2 rows",
+            result.len()
+        );
     }
     Ok(())
 }
