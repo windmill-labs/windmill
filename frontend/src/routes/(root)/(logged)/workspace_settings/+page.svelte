@@ -33,14 +33,7 @@
 		isCriticalAlertsUIOpen
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import {
-		clone,
-		emptyString,
-		encodeState,
-		cleanValueProperties,
-		orderedJsonStringify,
-		replaceFalseWithUndefined
-	} from '$lib/utils'
+	import { clone, emptyString, encodeState, hasUnsavedChanges } from '$lib/utils'
 	import { Slack } from 'lucide-svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
 
@@ -204,68 +197,17 @@
 	// Derived state for checking unsaved changes in error handler
 	let hasErrorHandlerChanges = $derived.by(() => {
 		if (tab !== 'error_handler') return false
-
-		// Check only error handler related fields
-		const savedValue = {
-			errorHandlerSelected: initialErrorHandlerSelected,
-			errorHandlerScriptPath: initialErrorHandlerScriptPath,
-			errorHandlerItemKind: initialErrorHandlerItemKind,
-			errorHandlerExtraArgs: initialErrorHandlerExtraArgs,
-			errorHandlerMutedOnCancel: initialErrorHandlerMutedOnCancel,
-			errorHandlerMutedOnUserPath: initialErrorHandlerMutedOnUserPath
-		}
-
-		const modifiedValue = {
-			errorHandlerSelected: errorHandlerSelected,
-			errorHandlerScriptPath: errorHandlerScriptPath,
-			errorHandlerItemKind: errorHandlerItemKind,
-			errorHandlerExtraArgs: errorHandlerExtraArgs,
-			errorHandlerMutedOnCancel: errorHandlerMutedOnCancel,
-			errorHandlerMutedOnUserPath: errorHandlerMutedOnUserPath
-		}
-
-		// Use the same comparison logic as UnsavedConfirmationModal
-		const draftOrDeployed = cleanValueProperties({
-			...savedValue,
-			path: undefined
-		})
-		const current = cleanValueProperties({
-			...modifiedValue,
-			path: undefined
-		})
-
-		return (
-			orderedJsonStringify(replaceFalseWithUndefined(draftOrDeployed)) !==
-			orderedJsonStringify(replaceFalseWithUndefined(current))
-		)
+		const changes = getErrorHandlerSettingsInitialAndModifiedValues()
+		if (!changes.savedValue || !changes.modifiedValue) return false
+		return hasUnsavedChanges(changes.savedValue, changes.modifiedValue)
 	})
 
 	// Derived state for checking unsaved changes in success handler
 	let hasSuccessHandlerChanges = $derived.by(() => {
 		if (tab !== 'error_handler') return false
-
-		// Check only success handler related fields
-		const savedValue = {
-			successHandlerScriptPath: initialSuccessHandlerScriptPath
-		}
-
-		const modifiedValue = {
-			successHandlerScriptPath: successHandlerScriptPath
-		}
-
-		// Use the same comparison logic as UnsavedConfirmationModal
-		const draftOrDeployed = cleanValueProperties({
-			...savedValue,
-			path: undefined
-		})
-		const current = cleanValueProperties({
-			...modifiedValue,
-			path: undefined
-		})
-
-		return (
-			orderedJsonStringify(replaceFalseWithUndefined(draftOrDeployed)) !==
-			orderedJsonStringify(replaceFalseWithUndefined(current))
+		return hasUnsavedChanges(
+			{ successHandlerScriptPath: initialSuccessHandlerScriptPath },
+			{ successHandlerScriptPath: successHandlerScriptPath }
 		)
 	})
 
@@ -283,115 +225,41 @@
 	// Derived state for checking unsaved changes in AI settings
 	let hasAiSettingsChanges = $derived.by(() => {
 		if (tab !== 'ai') return false
-
 		const changes = getAiSettingsInitialAndModifiedValues()
 		if (!changes.savedValue || !changes.modifiedValue) return false
-
-		// Use the same comparison logic as UnsavedConfirmationModal
-		const draftOrDeployed = cleanValueProperties({
-			...changes.savedValue,
-			path: undefined
-		})
-		const current = cleanValueProperties({
-			...changes.modifiedValue,
-			path: undefined
-		})
-
-		return (
-			orderedJsonStringify(replaceFalseWithUndefined(draftOrDeployed)) !==
-			orderedJsonStringify(replaceFalseWithUndefined(current))
-		)
+		return hasUnsavedChanges(changes.savedValue, changes.modifiedValue)
 	})
 
 	// Derived state for checking unsaved changes in deployment settings
 	let hasDeploySettingsChanges = $derived.by(() => {
 		if (tab !== 'deploy_to') return false
-
 		const changes = getDeploySettingsInitialAndModifiedValues()
 		if (!changes.savedValue || !changes.modifiedValue) return false
-
-		// Use the same comparison logic as UnsavedConfirmationModal
-		const draftOrDeployed = cleanValueProperties({
-			...changes.savedValue,
-			path: undefined
-		})
-		const current = cleanValueProperties({
-			...changes.modifiedValue,
-			path: undefined
-		})
-
-		const savedString = orderedJsonStringify(replaceFalseWithUndefined(draftOrDeployed))
-		const currentString = orderedJsonStringify(replaceFalseWithUndefined(current))
-
-		return savedString !== currentString
+		return hasUnsavedChanges(changes.savedValue, changes.modifiedValue)
 	})
 
 	// Derived state for checking unsaved changes in webhook settings
 	let hasWebhookChanges = $derived.by(() => {
 		if (tab !== 'webhook') return false
-
 		const changes = getWebhookSettingsInitialAndModifiedValues()
 		if (!changes.savedValue || !changes.modifiedValue) return false
-
-		// Use the same comparison logic as UnsavedConfirmationModal
-		const draftOrDeployed = cleanValueProperties({
-			...changes.savedValue,
-			path: undefined
-		})
-		const current = cleanValueProperties({
-			...changes.modifiedValue,
-			path: undefined
-		})
-
-		return (
-			orderedJsonStringify(replaceFalseWithUndefined(draftOrDeployed)) !==
-			orderedJsonStringify(replaceFalseWithUndefined(current))
-		)
+		return hasUnsavedChanges(changes.savedValue, changes.modifiedValue)
 	})
 
 	// Derived state for checking unsaved changes in encryption key settings
 	let hasEncryptionKeyChanges = $derived.by(() => {
 		if (tab !== 'encryption') return false
-
 		const changes = getEncryptionKeySettingsInitialAndModifiedValues()
 		if (!changes.savedValue || !changes.modifiedValue) return false
-
-		// Use the same comparison logic as UnsavedConfirmationModal
-		const draftOrDeployed = cleanValueProperties({
-			...changes.savedValue,
-			path: undefined
-		})
-		const current = cleanValueProperties({
-			...changes.modifiedValue,
-			path: undefined
-		})
-
-		return (
-			orderedJsonStringify(replaceFalseWithUndefined(draftOrDeployed)) !==
-			orderedJsonStringify(replaceFalseWithUndefined(current))
-		)
+		return hasUnsavedChanges(changes.savedValue, changes.modifiedValue)
 	})
 
 	// Derived state for checking unsaved changes in default app settings
 	let hasDefaultAppChanges = $derived.by(() => {
 		if (tab !== 'default_app') return false
-
 		const changes = getDefaultAppSettingsInitialAndModifiedValues()
 		if (!changes.savedValue || !changes.modifiedValue) return false
-
-		const draftOrDeployed = cleanValueProperties({
-			...changes.savedValue,
-			path: undefined
-		})
-		const current = cleanValueProperties({
-			...changes.modifiedValue,
-			path: undefined
-		})
-
-		return (
-			orderedJsonStringify(replaceFalseWithUndefined(draftOrDeployed)) !==
-			orderedJsonStringify(replaceFalseWithUndefined(current))
-		)
+		return hasUnsavedChanges(changes.savedValue, changes.modifiedValue)
 	})
 
 	// Validation effects
@@ -942,14 +810,6 @@
 
 	// Function to check if there are unsaved changes in AI settings
 	function getAiSettingsInitialAndModifiedValues() {
-		// Only check for unsaved changes when on the AI tab
-		if (tab !== 'ai') {
-			return {
-				savedValue: undefined,
-				modifiedValue: undefined
-			}
-		}
-
 		const savedValue = {
 			aiProviders: initialAiProviders,
 			defaultModel: initialDefaultModel,
@@ -980,14 +840,6 @@
 
 	// Function to check if there are unsaved changes in storage settings
 	function getStorageSettingsInitialAndModifiedValues() {
-		// Only check for unsaved changes when on the windmill_lfs tab
-		if (tab !== 'windmill_lfs') {
-			return {
-				savedValue: undefined,
-				modifiedValue: undefined
-			}
-		}
-
 		const savedValue = {
 			s3ResourceSettings: s3ResourceSavedSettings,
 			ducklakeSettings: ducklakeSavedSettings
@@ -1009,14 +861,6 @@
 
 	// Function to check if there are unsaved changes in deploy settings
 	function getDeploySettingsInitialAndModifiedValues() {
-		// Only check for unsaved changes when on the deploy_to tab
-		if (tab !== 'deploy_to') {
-			return {
-				savedValue: undefined,
-				modifiedValue: undefined
-			}
-		}
-
 		// Normalize empty strings to undefined for consistent comparison
 		const normalizeWorkspaceValue = (value: string | undefined) =>
 			value === '' ? undefined : value
@@ -1042,14 +886,6 @@
 
 	// Function to check if there are unsaved changes in webhook settings
 	function getWebhookSettingsInitialAndModifiedValues() {
-		// Only check for unsaved changes when on the webhook tab
-		if (tab !== 'webhook') {
-			return {
-				savedValue: undefined,
-				modifiedValue: undefined
-			}
-		}
-
 		// Normalize empty strings to undefined for consistent comparison
 		const normalizeWebhookValue = (value: string | undefined) =>
 			value && value.trim() !== '' ? value : undefined
@@ -1072,14 +908,6 @@
 
 	// Function to check if there are unsaved changes in encryption key settings
 	function getEncryptionKeySettingsInitialAndModifiedValues() {
-		// Only check for unsaved changes when on the encryption tab
-		if (tab !== 'encryption') {
-			return {
-				savedValue: undefined,
-				modifiedValue: undefined
-			}
-		}
-
 		const savedValue = {
 			editedWorkspaceEncryptionKey: initialEditedWorkspaceEncryptionKey
 		}
@@ -1098,13 +926,6 @@
 
 	// Function to check if there are unsaved changes in default app settings
 	function getDefaultAppSettingsInitialAndModifiedValues() {
-		if (tab !== 'default_app') {
-			return {
-				savedValue: undefined,
-				modifiedValue: undefined
-			}
-		}
-
 		return {
 			savedValue: {
 				defaultAppPath: initialWorkspaceDefaultAppPath,
@@ -1125,14 +946,6 @@
 
 	// Function to check if there are unsaved changes in error handler settings
 	function getErrorHandlerSettingsInitialAndModifiedValues() {
-		// Only check for unsaved changes when on the error_handler tab
-		if (tab !== 'error_handler') {
-			return {
-				savedValue: undefined,
-				modifiedValue: undefined
-			}
-		}
-
 		const savedValue = {
 			errorHandlerSelected: initialErrorHandlerSelected,
 			errorHandlerScriptPath: initialErrorHandlerScriptPath,
@@ -1166,95 +979,75 @@
 
 	// Combined function to check for unsaved changes across all tabs
 	function getAllUnsavedChanges() {
-		if (dataTableSettingsComponent) {
-			return dataTableSettingsComponent.unsavedChanges()
-		}
-
-		// Check AI settings
-		const aiChanges = getAiSettingsInitialAndModifiedValues()
-		if (aiChanges.savedValue && aiChanges.modifiedValue) {
-			return aiChanges
-		}
-
-		// Check storage settings
-		const storageChanges = getStorageSettingsInitialAndModifiedValues()
-		if (storageChanges.savedValue && storageChanges.modifiedValue) {
-			return storageChanges
-		}
-
-		// Check deploy settings
-		const deployChanges = getDeploySettingsInitialAndModifiedValues()
-		if (deployChanges.savedValue && deployChanges.modifiedValue) {
-			return deployChanges
-		}
-
-		// Check webhook settings
-		if (tab === 'webhook' && hasWebhookChanges) {
-			const webhookChanges = getWebhookSettingsInitialAndModifiedValues()
-			return webhookChanges
-		}
-
-		// Check encryption key settings
-		if (tab === 'encryption' && hasEncryptionKeyChanges) {
-			const encryptionKeyChanges = getEncryptionKeySettingsInitialAndModifiedValues()
-			return encryptionKeyChanges
-		}
-
-		// Check error/success handler settings (combined tab)
-		if (tab === 'error_handler' && (hasErrorHandlerChanges || hasSuccessHandlerChanges)) {
-			const errorValues = getErrorHandlerSettingsInitialAndModifiedValues()
-			return {
-				savedValue: {
-					...(errorValues.savedValue ?? {}),
-					successHandlerScriptPath: initialSuccessHandlerScriptPath
-				},
-				modifiedValue: {
-					...(errorValues.modifiedValue ?? {}),
-					successHandlerScriptPath: successHandlerScriptPath
+		switch (tab) {
+			case 'windmill_data_tables':
+				return dataTableSettingsComponent?.unsavedChanges() ?? { savedValue: {}, modifiedValue: {} }
+			case 'ai':
+				return getAiSettingsInitialAndModifiedValues()
+			case 'windmill_lfs':
+				return getStorageSettingsInitialAndModifiedValues()
+			case 'deploy_to':
+				return getDeploySettingsInitialAndModifiedValues()
+			case 'webhook':
+				return getWebhookSettingsInitialAndModifiedValues()
+			case 'encryption':
+				return getEncryptionKeySettingsInitialAndModifiedValues()
+			case 'error_handler': {
+				const errorValues = getErrorHandlerSettingsInitialAndModifiedValues()
+				return {
+					savedValue: {
+						...(errorValues.savedValue ?? {}),
+						successHandlerScriptPath: initialSuccessHandlerScriptPath
+					},
+					modifiedValue: {
+						...(errorValues.modifiedValue ?? {}),
+						successHandlerScriptPath: successHandlerScriptPath
+					}
 				}
 			}
-		}
-
-		// Check critical alerts settings
-		if (tab === 'critical_alerts' && hasCriticalAlertMuteChanges) {
-			return {
-				savedValue: { criticalAlertUIMuted: initialCriticalAlertUIMuted },
-				modifiedValue: { criticalAlertUIMuted: criticalAlertUIMuted }
-			}
-		}
-
-		// Check default app settings
-		if (tab === 'default_app' && hasDefaultAppChanges) {
-			return getDefaultAppSettingsInitialAndModifiedValues()
-		}
-
-		return {
-			savedValue: {},
-			modifiedValue: {}
+			case 'critical_alerts':
+				return {
+					savedValue: { criticalAlertUIMuted: initialCriticalAlertUIMuted },
+					modifiedValue: { criticalAlertUIMuted: criticalAlertUIMuted }
+				}
+			case 'default_app':
+				return getDefaultAppSettingsInitialAndModifiedValues()
+			default:
+				return { savedValue: {}, modifiedValue: {} }
 		}
 	}
 
 	// Combined function to discard changes based on current tab
 	function discardAllChanges() {
-		if (tab === 'ai') {
-			discardAiSettingsChanges()
-		} else if (tab === 'windmill_lfs') {
-			discardStorageSettingsChanges()
-		} else if (tab === 'deploy_to') {
-			discardDeploySettingsChanges()
-		} else if (tab === 'webhook') {
-			discardWebhookSettingsChanges()
-		} else if (tab === 'encryption') {
-			discardEncryptionKeySettingsChanges()
-		} else if (tab === 'error_handler') {
-			discardErrorHandlerSettingsChanges()
-			successHandlerScriptPath = initialSuccessHandlerScriptPath
-		} else if (tab === 'critical_alerts') {
-			criticalAlertUIMuted = initialCriticalAlertUIMuted
-		} else if (tab === 'windmill_data_tables') {
-			dataTableSettingsComponent?.discard()
-		} else if (tab === 'default_app') {
-			discardDefaultAppSettingsChanges()
+		switch (tab) {
+			case 'ai':
+				discardAiSettingsChanges()
+				break
+			case 'windmill_lfs':
+				discardStorageSettingsChanges()
+				break
+			case 'deploy_to':
+				discardDeploySettingsChanges()
+				break
+			case 'webhook':
+				discardWebhookSettingsChanges()
+				break
+			case 'encryption':
+				discardEncryptionKeySettingsChanges()
+				break
+			case 'error_handler':
+				discardErrorHandlerSettingsChanges()
+				successHandlerScriptPath = initialSuccessHandlerScriptPath
+				break
+			case 'critical_alerts':
+				criticalAlertUIMuted = initialCriticalAlertUIMuted
+				break
+			case 'windmill_data_tables':
+				dataTableSettingsComponent?.discard()
+				break
+			case 'default_app':
+				discardDefaultAppSettingsChanges()
+				break
 		}
 	}
 
