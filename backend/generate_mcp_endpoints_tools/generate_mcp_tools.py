@@ -160,18 +160,25 @@ def resolve_ref(ref_path: str, spec: Dict[str, Any], base_path: str = "") -> tup
 
     return (current if isinstance(current, dict) else None), spec
 
-def resolve_schema_refs(schema: Dict[str, Any], spec: Dict[str, Any], base_path: str = "") -> Dict[str, Any]:
+def resolve_schema_refs(schema: Dict[str, Any], spec: Dict[str, Any], base_path: str = "", _visited_refs: Optional[set] = None) -> Dict[str, Any]:
     """Recursively resolve all $ref references in a schema."""
+    if _visited_refs is None:
+        _visited_refs = set()
+
     if not isinstance(schema, dict):
         return schema
 
     # If this is a $ref, resolve it
     if '$ref' in schema:
         ref_path = schema['$ref']
+        if ref_path in _visited_refs:
+            # Circular reference detected - return empty object to break the cycle
+            return {"type": "object"}
+        _visited_refs = _visited_refs | {ref_path}
         resolved, resolved_spec = resolve_ref(ref_path, spec, base_path)
         if resolved:
             # Recursively resolve any refs in the resolved schema using the appropriate spec
-            return resolve_schema_refs(resolved, resolved_spec, base_path)
+            return resolve_schema_refs(resolved, resolved_spec, base_path, _visited_refs)
         else:
             print(f"Warning: Could not resolve $ref: {ref_path}")
             return schema
@@ -180,10 +187,10 @@ def resolve_schema_refs(schema: Dict[str, Any], spec: Dict[str, Any], base_path:
     resolved_schema = {}
     for key, value in schema.items():
         if isinstance(value, dict):
-            resolved_schema[key] = resolve_schema_refs(value, spec, base_path)
+            resolved_schema[key] = resolve_schema_refs(value, spec, base_path, _visited_refs)
         elif isinstance(value, list):
             resolved_schema[key] = [
-                resolve_schema_refs(item, spec, base_path) if isinstance(item, dict) else item
+                resolve_schema_refs(item, spec, base_path, _visited_refs) if isinstance(item, dict) else item
                 for item in value
             ]
         else:

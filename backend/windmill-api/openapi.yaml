@@ -5918,6 +5918,7 @@ paths:
     post:
       summary: create script
       operationId: createScript
+      x-mcp-tool: true
       tags:
         - script
       parameters:
@@ -6194,6 +6195,7 @@ paths:
     post:
       summary: delete script by hash (erase content but keep hash, require admin)
       operationId: deleteScriptByHash
+      x-mcp-tool: true
       tags:
         - script
       parameters:
@@ -6211,6 +6213,7 @@ paths:
     post:
       summary: delete script at a given path (require admin)
       operationId: deleteScriptByPath
+      x-mcp-tool: true
       tags:
         - script
       parameters:
@@ -6601,6 +6604,7 @@ paths:
     post:
       summary: run script by path
       operationId: runScriptByPath
+      x-mcp-tool: true
       tags:
         - job
       parameters:
@@ -7543,6 +7547,7 @@ paths:
     post:
       summary: create flow
       operationId: createFlow
+      x-mcp-tool: true
       tags:
         - flow
       parameters:
@@ -7573,6 +7578,7 @@ paths:
     post:
       summary: update flow
       operationId: updateFlow
+      x-mcp-tool: true
       tags:
         - flow
       parameters:
@@ -7630,6 +7636,7 @@ paths:
     delete:
       summary: delete flow by path
       operationId: deleteFlowByPath
+      x-mcp-tool: true
       tags:
         - flow
       parameters:
@@ -7872,6 +7879,7 @@ paths:
     post:
       summary: create app
       operationId: createApp
+      x-mcp-tool: true
       tags:
         - app
       parameters:
@@ -8219,6 +8227,7 @@ paths:
     post:
       summary: update app
       operationId: updateApp
+      x-mcp-tool: true
       tags:
         - app
       parameters:
@@ -8500,6 +8509,7 @@ paths:
     post:
       summary: run flow by path
       operationId: runFlowByPath
+      x-mcp-tool: true
       tags:
         - job
       parameters:
