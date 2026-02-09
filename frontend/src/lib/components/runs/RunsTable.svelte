@@ -12,7 +12,7 @@
 		RefreshCwIcon
 	} from 'lucide-svelte'
 	import Popover from '../Popover.svelte'
-	import { superadmin, userStore, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import './runs-grid.css'
 	import { useKeyPressed } from '$lib/svelte5Utils.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -20,7 +20,6 @@
 	import DropdownMenu, { type Props as DropdownMenuProps } from '../DropdownMenu.svelte'
 	import { isJobCancelable, isJobReRunnable } from '$lib/utils'
 	import { goto } from '$lib/navigation'
-	import DropdownV2 from '../DropdownV2.svelte'
 	import BarsStaggered from '../icons/BarsStaggered.svelte'
 
 	interface Props {
@@ -36,9 +35,8 @@
 		lastFetchWentToEnd?: boolean
 		perPage?: number
 		batchRerunOptionsIsOpen?: boolean
+		manualSelectionMode: undefined | 'cancel' | 'rerun'
 		onCancelJobs: (jobIds: string[]) => void
-		onCancelAllJobsMatchingFilters: () => void
-		onRerunAllJobsMatchingFilters: () => void
 	}
 
 	let {
@@ -51,10 +49,9 @@
 		activeLabel = null,
 		lastFetchWentToEnd = false,
 		perPage = 1000,
+		manualSelectionMode,
 		onCancelJobs,
-		batchRerunOptionsIsOpen = $bindable(),
-		onCancelAllJobsMatchingFilters,
-		onRerunAllJobsMatchingFilters
+		batchRerunOptionsIsOpen = $bindable()
 	}: Props = $props()
 
 	const keysPressed = useKeyPressed(['Shift', 'Control', 'Meta', 'A'], {
@@ -294,6 +291,23 @@
 			})
 		return actions
 	})
+
+	function jobIsSelectable(job: Job) {
+		if (
+			(rightClickPopover?.isOpen() && hoveredDropdownAction === 'cancel') ||
+			manualSelectionMode === 'cancel'
+		)
+			return isJobCancelable(job)
+		if (
+			(rightClickPopover?.isOpen() && hoveredDropdownAction === 'rerun') ||
+			manualSelectionMode === 'rerun' ||
+			batchRerunOptionsIsOpen
+		)
+			return isJobReRunnable(job)
+		return true
+	}
+
+	let selectableJobs = $derived(jobs?.filter(jobIsSelectable) ?? [])
 </script>
 
 <svelte:window
@@ -320,11 +334,29 @@
 	<div>
 		<div
 			class="grid sticky top-0 w-full min-h-6 my-2 pr-4 items-end"
-			class:grid-runs-table={!containsLabel && showTag}
-			class:grid-runs-table-with-labels={containsLabel && showTag}
-			class:grid-runs-table-no-tag={!containsLabel && !showTag}
-			class:grid-runs-table-with-labels-no-tag={containsLabel && !showTag}
+			class:grid-runs-table={!containsLabel && !manualSelectionMode && showTag}
+			class:grid-runs-table-with-labels={containsLabel && !manualSelectionMode && showTag}
+			class:grid-runs-table-selection={!containsLabel && manualSelectionMode && showTag}
+			class:grid-runs-table-with-labels-selection={containsLabel && manualSelectionMode && showTag}
+			class:grid-runs-table-no-tag={!containsLabel && !manualSelectionMode && !showTag}
+			class:grid-runs-table-with-labels-no-tag={containsLabel && !manualSelectionMode && !showTag}
+			class:grid-runs-table-selection-no-tag={!containsLabel && manualSelectionMode && !showTag}
+			class:grid-runs-table-with-labels-selection-no-tag={containsLabel &&
+				manualSelectionMode &&
+				!showTag}
 		>
+			{#if manualSelectionMode}
+				{@const allSelected = selectedIds.length === selectableJobs?.length}
+				<div class="w-4 h-4 ml-4">
+					<input
+						type="checkbox"
+						bind:checked={
+							() => allSelected,
+							() => (selectedIds = allSelected ? [] : (selectableJobs.map((j) => j.id) ?? []))
+						}
+					/>
+				</div>
+			{/if}
 			<div class="text-2xs px-4 flex flex-row items-center gap-2 leading-3">
 				{#if showExternalJobs && externalJobs.length > 0}
 					<div class="flex flex-row">
@@ -361,23 +393,7 @@
 			{#if showTag}
 				<div class="text-xs font-semibold leading-3">Tag</div>
 			{/if}
-			<div class="relative">
-				{#if $userStore?.is_admin || $superadmin}
-					<DropdownV2
-						class="right-0 -bottom-2 absolute"
-						items={[
-							{
-								displayName: 'Cancel all jobs matching filters',
-								action: () => onCancelAllJobsMatchingFilters()
-							},
-							{
-								displayName: 'Re-run all jobs matching filters',
-								action: () => onRerunAllJobsMatchingFilters()
-							}
-						]}
-					/>
-				{/if}
-			</div>
+			<div> </div>
 		</div>
 	</div>
 	<div
@@ -423,40 +439,27 @@
 									{:else}
 										{@const selected =
 											jobOrDate.job.id !== '-' && selectedIds.includes(jobOrDate.job.id)}
+										{@const nonSelectable = !jobIsSelectable(jobOrDate.job)}
 										<!-- svelte-ignore a11y_click_events_have_key_events -->
 										<!-- svelte-ignore a11y_no_static_element_interactions -->
 										<div
 											class={twMerge(
 												'flex flex-row items-center h-full w-full select-none transition-opacity',
-												rightClickPopover?.isOpen() &&
-													(!selected ||
-														(hoveredDropdownAction === 'cancel' &&
-															!isJobCancelable(jobOrDate.job))) &&
-													'opacity-20',
-												(rightClickPopover?.isOpen() || batchRerunOptionsIsOpen) &&
-													(!selected ||
-														(hoveredDropdownAction === 'rerun' &&
-															!isJobReRunnable(jobOrDate.job))) &&
-													'opacity-20'
+												nonSelectable || (rightClickPopover?.isOpen() && !selected)
+													? 'opacity-20'
+													: ''
 											)}
 										>
 											<RunRow
+												{manualSelectionMode}
 												{containsLabel}
 												{showTag}
 												job={jobOrDate.job}
 												{selected}
 												on:select={() => {
 													const jobId = jobOrDate.job.id
-													if (keysPressed.Control || keysPressed.Meta) {
-														if (batchRerunOptionsIsOpen && !isJobReRunnable(jobOrDate.job)) return
-														if (selectedIds.includes(jobOrDate.job.id)) {
-															selectedIds = selectedIds.filter((id) => id != jobId)
-														} else {
-															selectedIds.push(jobId)
-															selectedIds = selectedIds
-														}
-													} else if (keysPressed.Shift && selectedIds.length > 0) {
-														if (batchRerunOptionsIsOpen && !isJobReRunnable(jobOrDate.job)) return
+													if (keysPressed.Shift && selectedIds.length > 0) {
+														if (nonSelectable) return
 														const lastSelectedId = selectedIds[selectedIds.length - 1]
 														const lastSelectedIndex = flatJobs?.findIndex(
 															(jobOrDate) =>
@@ -472,6 +475,18 @@
 																.filter((jobOrDate) => jobOrDate.type === 'job')
 																.map((jobOrDate) => jobOrDate.job.id)
 															selectedIds = Array.from(new Set([...selectedIds, ...newSelectedIds]))
+														}
+													} else if (
+														keysPressed.Control ||
+														keysPressed.Meta ||
+														manualSelectionMode
+													) {
+														if (nonSelectable) return
+														if (selectedIds.includes(jobOrDate.job.id)) {
+															selectedIds = selectedIds.filter((id) => id != jobId)
+														} else {
+															selectedIds.push(jobId)
+															selectedIds = selectedIds
 														}
 													} else {
 														if (batchRerunOptionsIsOpen) batchRerunOptionsIsOpen = false

@@ -39,6 +39,7 @@
 	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
 	import { StaleWhileLoading } from '$lib/svelte5Utils.svelte'
 	import { TriangleAlertIcon } from 'lucide-svelte'
+	import DropdownV2 from './DropdownV2.svelte'
 
 	interface Props {
 		/** Initial path from route params (e.g., /runs/u/user/script) */
@@ -465,6 +466,8 @@
 	const warnJobLimitMsg = $derived(
 		`The exact number of concurrent jobs at the beginning of the time range may be incorrect as only the last ${filters.per_page} jobs are taken into account: a job that was started earlier than this limit will not be taken into account`
 	)
+
+	let manualSelectionMode: undefined | 'cancel' | 'rerun' = $state()
 </script>
 
 <ConfirmationModal
@@ -754,8 +757,7 @@
 										perPage={filters.per_page}
 										bind:batchRerunOptionsIsOpen
 										onCancelJobs={onCancelSelectedJobs}
-										{onCancelAllJobsMatchingFilters}
-										{onRerunAllJobsMatchingFilters}
+										{manualSelectionMode}
 									></RunsTable>
 								{:else}
 									<div class="gap-1 flex flex-col">
@@ -766,8 +768,45 @@
 								{/if}
 							</div>
 							<div
-								class="bg-surface-tertiary border rounded-b-md flex text-xs px-2 py-1 items-center gap-4"
+								class="bg-surface-tertiary border rounded-b-md flex text-xs px-1.5 py-1 items-center gap-4"
 							>
+								{#if !manualSelectionMode}
+									<DropdownV2
+										btnText="Batch actions"
+										items={[
+											{
+												displayName: 'Cancel jobs',
+												action: () => (manualSelectionMode = 'cancel')
+											},
+											{
+												displayName: 'Re-run jobs',
+												action: () => {
+													manualSelectionMode = 'rerun'
+													batchRerunOptionsIsOpen = true
+												}
+											},
+											{
+												displayName: 'Cancel all jobs matching filters',
+												action: () => onCancelAllJobsMatchingFilters()
+											},
+											{
+												displayName: 'Re-run all jobs matching filters',
+												action: () => onRerunAllJobsMatchingFilters()
+											}
+										]}
+									/>
+								{:else}
+									<Button
+										size="xs"
+										destructive
+										onClick={() => {
+											manualSelectionMode = undefined
+											batchRerunOptionsIsOpen = false
+										}}
+									>
+										Exit selection mode
+									</Button>
+								{/if}
 								<div class="flex-1"></div>
 								<Toggle
 									size="xs"
@@ -800,12 +839,34 @@
 						</div>
 					</div>
 				</Pane>
-				<AnimatedPane size={40} minSize={15} class="flex flex-col" opened={selectedIds.length > 0}>
+				<AnimatedPane
+					size={40}
+					minSize={15}
+					class="flex flex-col"
+					opened={selectedIds.length > 0 || !!manualSelectionMode}
+				>
 					<div class="mt-14 overflow-y-auto pr-4 ml-2 relative flex-1">
-						{#if batchRerunOptionsIsOpen}
+						{#if manualSelectionMode === 'cancel'}
+							<div
+								class="rounded-md bg-surface-tertiary border absolute inset-0 mb-4 flex flex-col items-center justify-center"
+							>
+								<div class="text-xs m-4 mb-2"> {selectedIds.length} jobs selected</div>
+								<Button
+									destructive
+									variant="accent"
+									disabled={!selectedIds.length}
+									onClick={() => onCancelSelectedJobs(selectedIds)}
+								>
+									Cancel {selectedIds.length} jobs
+								</Button>
+							</div>
+						{:else if batchRerunOptionsIsOpen}
 							<BatchReRunOptionsPane
 								{selectedIds}
-								onCancel={() => (batchRerunOptionsIsOpen = false)}
+								onCancel={() => (
+									(batchRerunOptionsIsOpen = false),
+									(manualSelectionMode = undefined)
+								)}
 								onConfirm={async (options) => {
 									await onReRunSelectedJobs(options)
 								}}

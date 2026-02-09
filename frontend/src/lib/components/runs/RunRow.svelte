@@ -37,6 +37,7 @@
 		containsLabel?: boolean
 		showTag?: boolean
 		activeLabel: string | null
+		manualSelectionMode?: undefined | 'cancel' | 'rerun'
 	}
 
 	let {
@@ -45,7 +46,8 @@
 		containerWidth = 0,
 		containsLabel = false,
 		showTag = true,
-		activeLabel
+		activeLabel,
+		manualSelectionMode
 	}: Props = $props()
 
 	let scheduleEditor: ScheduleEditor | undefined = $state(undefined)
@@ -68,14 +70,27 @@
 		selected ? 'bg-surface-accent-selected' : 'hover:bg-surface-hover',
 		'grid items-center h-full'
 	)}
-	class:grid-runs-table={!containsLabel && showTag}
-	class:grid-runs-table-with-labels={containsLabel && showTag}
-	class:grid-runs-table-no-tag={!containsLabel && !showTag}
-	class:grid-runs-table-with-labels-no-tag={containsLabel && !showTag}
+	class:grid-runs-table={!containsLabel && !manualSelectionMode && showTag}
+	class:grid-runs-table-with-labels={containsLabel && !manualSelectionMode && showTag}
+	class:grid-runs-table-selection={!containsLabel && manualSelectionMode && showTag}
+	class:grid-runs-table-with-labels-selection={containsLabel && manualSelectionMode && showTag}
+	class:grid-runs-table-no-tag={!containsLabel && !manualSelectionMode && !showTag}
+	class:grid-runs-table-with-labels-no-tag={containsLabel && !manualSelectionMode && !showTag}
+	class:grid-runs-table-selection-no-tag={!containsLabel && manualSelectionMode && !showTag}
+	class:grid-runs-table-with-labels-selection-no-tag={containsLabel &&
+		manualSelectionMode &&
+		!showTag}
 	style="width: {containerWidth}px"
 	onclick={() => dispatch('select')}
 	oncontextmenu={(e) => !selected && dispatch('select')}
 >
+	<!-- Selection column (only when in selection mode) -->
+	{#if manualSelectionMode}
+		<div class="w-4 h-4 ml-4 pointer-events-none">
+			<input type="checkbox" checked={selected} />
+		</div>
+	{/if}
+
 	<!-- Status -->
 	<div class="flex items-center justify-start pl-4">
 		<JobStatusIcon {job} {isExternal} />
