@@ -10,6 +10,7 @@
 		onDiscard,
 		saveLabel = 'Save settings',
 		disabled = false,
+		inline = false,
 		class: className
 	}: {
 		hasUnsavedChanges?: boolean
@@ -17,6 +18,7 @@
 		onDiscard: () => void
 		saveLabel?: string
 		disabled?: boolean
+		inline?: boolean
 		class?: string
 	} = $props()
 
@@ -67,8 +69,8 @@
 	})
 </script>
 
-<div class={twMerge('sticky bottom-0 z-10 w-full border-t bg-surface-tertiary', className)}>
-	<div class="flex items-center justify-end pt-4 pb-8">
+<div class={twMerge(inline ? 'w-full' : 'sticky bottom-0 z-10 w-full border-t bg-surface-tertiary', className)}>
+	<div class={inline ? 'flex items-center justify-end' : 'flex items-center justify-end pt-4 pb-8'}>
 		<div class="flex items-center gap-2">
 			{#if hasUnsavedChanges}
 				<div transition:fade={{ duration: 150 }}>

@@ -33,7 +33,7 @@
 	import { base } from '$lib/base'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import MsTeamsIcon from '$lib/components/icons/MSTeamsIcon.svelte'
-	import { emptySchema, emptyString, sendUserToast, tryEvery } from '$lib/utils'
+	import { classNames, emptySchema, emptyString, sendUserToast, tryEvery } from '$lib/utils'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import {
 		FlowService,
@@ -80,6 +80,7 @@
 		customScriptTemplate: string
 		customHandlerKind?: 'flow' | 'script'
 		customTabTooltip?: import('svelte').Snippet
+		noMargin?: boolean
 	}
 
 	let {
@@ -92,7 +93,8 @@
 		handlerExtraArgs = $bindable(),
 		customScriptTemplate,
 		customHandlerKind = $bindable('script'),
-		customTabTooltip
+		customTabTooltip,
+		noMargin = false
 	}: Props = $props()
 
 	let customHandlerSchema: Schema | undefined = $state()
@@ -343,7 +345,7 @@
 	})
 </script>
 
-<div class="mt-2 space-y-2">
+<div class={classNames('space-y-2', noMargin ? '' : 'mt-2')}>
 	<ToggleButtonGroup bind:selected={handlerSelected} disabled={!isEditable}>
 		{#snippet children({ item })}
 			<ToggleButton label="Slack" value="slack" {item} disabled={!isEditable} />

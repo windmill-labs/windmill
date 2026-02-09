@@ -241,7 +241,7 @@
 
 	// Derived state for checking unsaved changes in success handler
 	let hasSuccessHandlerChanges = $derived.by(() => {
-		if (tab !== 'success_handler') return false
+		if (tab !== 'error_handler') return false
 
 		// Check only success handler related fields
 		const savedValue = {
@@ -442,6 +442,10 @@
 		// Both 'slack' and 'teams' URLs map to 'slack' tab
 		if (selectedTab === 'teams') {
 			return 'slack'
+		}
+		// Both 'success_handler' and 'error_handler' URLs map to 'error_handler' tab
+		if (selectedTab === 'success_handler') {
+			return 'error_handler'
 		}
 		return selectedTab || 'users'
 	})
@@ -1216,10 +1220,19 @@
 			return encryptionKeyChanges
 		}
 
-		// Check error handler settings
-		const errorHandlerChanges = getErrorHandlerSettingsInitialAndModifiedValues()
-		if (errorHandlerChanges.savedValue && errorHandlerChanges.modifiedValue) {
-			return errorHandlerChanges
+		// Check error/success handler settings (combined tab)
+		if (tab === 'error_handler' && (hasErrorHandlerChanges || hasSuccessHandlerChanges)) {
+			const errorValues = getErrorHandlerSettingsInitialAndModifiedValues()
+			return {
+				savedValue: {
+					...(errorValues.savedValue ?? {}),
+					successHandlerScriptPath: initialSuccessHandlerScriptPath
+				},
+				modifiedValue: {
+					...(errorValues.modifiedValue ?? {}),
+					successHandlerScriptPath: successHandlerScriptPath
+				}
+			}
 		}
 
 		// Check critical alerts settings
@@ -1227,14 +1240,6 @@
 			return {
 				savedValue: { criticalAlertUIMuted: initialCriticalAlertUIMuted },
 				modifiedValue: { criticalAlertUIMuted: criticalAlertUIMuted }
-			}
-		}
-
-		// Check success handler settings
-		if (tab === 'success_handler' && hasSuccessHandlerChanges) {
-			return {
-				savedValue: { successHandlerScriptPath: initialSuccessHandlerScriptPath },
-				modifiedValue: { successHandlerScriptPath: successHandlerScriptPath }
 			}
 		}
 
@@ -1263,10 +1268,9 @@
 			discardEncryptionKeySettingsChanges()
 		} else if (tab === 'error_handler') {
 			discardErrorHandlerSettingsChanges()
+			successHandlerScriptPath = initialSuccessHandlerScriptPath
 		} else if (tab === 'critical_alerts') {
 			criticalAlertUIMuted = initialCriticalAlertUIMuted
-		} else if (tab === 'success_handler') {
-			successHandlerScriptPath = initialSuccessHandlerScriptPath
 		} else if (tab === 'windmill_data_tables') {
 			dataTableSettingsComponent?.discard()
 		} else if (tab === 'default_app') {
@@ -1333,20 +1337,13 @@
 			]
 		},
 		{
-			title: 'Error Handling & AI',
+			title: 'Handlers & AI',
 			items: [
 				{
 					id: 'error_handler',
-					label: 'Error Handler',
+					label: 'Error / Success Handler',
 					aiId: 'workspace-settings-error-handler',
-					aiDescription: 'Error handler workspace settings',
-					isEE: true
-				},
-				{
-					id: 'success_handler',
-					label: 'Success Handler',
-					aiId: 'workspace-settings-success-handler',
-					aiDescription: 'Success handler workspace settings',
+					aiDescription: 'Error and success handler workspace settings',
 					isEE: true
 				},
 				{
@@ -1784,119 +1781,116 @@
 						/>
 					{:else if tab == 'error_handler'}
 						<SettingsPageHeader
-							title="Workspace Error Handler"
-							description="Configure a centralized error handler that automatically executes when any script or flow in the workspace fails. On error, you can trigger a custom script or flow, send notifications via Slack or Microsoft Teams, or dispatch email alerts. The handler receives error details, job information, and context about the failed execution."
+							title="Workspace Error / Success Handler"
+							description="Configure handlers that automatically execute when scripts or flows in the workspace fail or succeed."
 							link="https://www.windmill.dev/docs/core_concepts/error_handling#workspace-error-handler"
 						/>
 						{#if !$enterpriseLicense}
-							<Alert type="warning" title="Workspace error handler is an EE feature">
-								Workspace error handler is a Windmill EE feature. It enables using your current
-								Slack connection or a custom script to send notifications anytime any job would
-								fail.
+							<Alert type="warning" title="Workspace error/success handler is an EE feature">
+								Workspace error and success handlers are Windmill EE features.
 							</Alert>
 						{/if}
-						<div class="flex flex-col gap-6 py-4">
-							<ErrorOrRecoveryHandler
-								isEditable={true}
-								errorOrRecovery="error"
-								showScriptHelpText={true}
-								bind:handlerSelected={errorHandlerSelected}
-								bind:handlerPath={errorHandlerScriptPath}
-								customScriptTemplate="/scripts/add?hub=hub%2F9083%2Fwindmill%2Fworkspace_error_handler_template"
-								bind:customHandlerKind={errorHandlerItemKind}
-								bind:handlerExtraArgs={errorHandlerExtraArgs}
-							>
-								{#snippet customTabTooltip()}
-									<Tooltip>
-										<div class="flex gap-20 items-start mt-3">
-											<div class="text-sm">
-												The following args will be passed to the error handler:
-												<ul class="mt-1 ml-2">
-													<li><b>path</b>: The path of the script or flow that errored.</li>
-													<li>
-														<b>email</b>: The email of the user who ran the script or flow that
-														errored.
-													</li>
-													<li><b>error</b>: The error details.</li>
-													<li><b>job_id</b>: The job id.</li>
-													<li><b>is_flow</b>: Whether the error comes from a flow.</li>
-													<li
-														><b>workspace_id</b>: The workspace id of the failed script or flow.</li
-													>
-												</ul>
-												<br />
-												The error handler will be executed by the automatically created group g/error_handler.
-												If your error handler requires variables or resources, you need to add them to
-												the group.
+
+						<Section label="Error Handler">
+							<div class="flex flex-col gap-6">
+								<ErrorOrRecoveryHandler
+									noMargin
+									isEditable={true}
+									errorOrRecovery="error"
+									showScriptHelpText={true}
+									bind:handlerSelected={errorHandlerSelected}
+									bind:handlerPath={errorHandlerScriptPath}
+									customScriptTemplate="/scripts/add?hub=hub%2F9083%2Fwindmill%2Fworkspace_error_handler_template"
+									bind:customHandlerKind={errorHandlerItemKind}
+									bind:handlerExtraArgs={errorHandlerExtraArgs}
+								>
+									{#snippet customTabTooltip()}
+										<Tooltip>
+											<div class="flex gap-20 items-start mt-3">
+												<div class="text-sm">
+													The following args will be passed to the error handler:
+													<ul class="mt-1 ml-2">
+														<li><b>path</b>: The path of the script or flow that errored.</li>
+														<li>
+															<b>email</b>: The email of the user who ran the script or flow that
+															errored.
+														</li>
+														<li><b>error</b>: The error details.</li>
+														<li><b>job_id</b>: The job id.</li>
+														<li><b>is_flow</b>: Whether the error comes from a flow.</li>
+														<li
+															><b>workspace_id</b>: The workspace id of the failed script or flow.</li
+														>
+													</ul>
+													<br />
+													The error handler will be executed by the automatically created group g/error_handler.
+													If your error handler requires variables or resources, you need to add them
+													to the group.
+												</div>
 											</div>
-										</div>
-									</Tooltip>
-								{/snippet}
-							</ErrorOrRecoveryHandler>
+										</Tooltip>
+									{/snippet}
+								</ErrorOrRecoveryHandler>
 
-							<div class="flex flex-col gap-6 items-start">
-								<Toggle
-									disabled={!$enterpriseLicense ||
-										((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-											!emptyString(errorHandlerScriptPath) &&
-											emptyString(errorHandlerExtraArgs['channel']))}
-									bind:checked={errorHandlerMutedOnCancel}
-									options={{ right: 'Do not run error handler for canceled jobs' }}
-								/>
-								<Toggle
-									disabled={!$enterpriseLicense ||
-										((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-											!emptyString(errorHandlerScriptPath) &&
-											emptyString(errorHandlerExtraArgs['channel']))}
-									bind:checked={errorHandlerMutedOnUserPath}
-									options={{ right: 'Do not run error handler for u/ scripts and flows' }}
-								/>
-							</div>
-						</div>
-
-						<SettingsFooter
-							hasUnsavedChanges={hasErrorHandlerChanges}
-							onSave={editErrorHandler}
-							onDiscard={discardErrorHandlerSettingsChanges}
-							saveLabel="Save error handler"
-							disabled={!$enterpriseLicense ||
-								((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-									!emptyString(errorHandlerScriptPath) &&
-									emptyString(errorHandlerExtraArgs['channel']))}
-						/>
-					{:else if tab == 'success_handler'}
-						<SettingsPageHeader
-							title="Workspace Success Handler"
-							description="Configure a script that automatically executes when any script or flow in the workspace completes successfully. The handler receives: <b>path</b>, <b>email</b>, <b>result</b>, <b>job_id</b>, <b>is_flow</b>, <b>workspace_id</b>, and <b>started_at</b>. The handler runs as the <b>g/success_handler</b> group. <i>Note: changes may take up to 60 seconds to propagate due to caching.</i>"
-							link="https://www.windmill.dev/docs/core_concepts/success_handling"
-						/>
-						<div class="flex flex-col gap-6 py-4">
-							{#if !$enterpriseLicense}
-								<Alert type="warning" title="Workspace success handler is an EE feature">
-									Workspace success handler is a Windmill Enterprise Edition feature that allows you
-									to run a script whenever any job in the workspace completes successfully.
-								</Alert>
-							{/if}
-							<div class="flex flex-col gap-4">
-								<div class="flex flex-row gap-2 items-center">
-									<ScriptPicker
-										disabled={!$enterpriseLicense}
-										initialPath={successHandlerScriptPath}
-										allowRefresh
-										itemKind="script"
-										on:select={(ev) => {
-											successHandlerScriptPath = ev?.detail?.path
-										}}
-										clearable
+								<div class="flex flex-col gap-6 items-start">
+									<Toggle
+										disabled={!$enterpriseLicense ||
+											((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
+												!emptyString(errorHandlerScriptPath) &&
+												emptyString(errorHandlerExtraArgs['channel']))}
+										bind:checked={errorHandlerMutedOnCancel}
+										options={{ right: 'Do not run error handler for canceled jobs' }}
 									/>
-									<Button
-										variant="default"
-										href={`${base}/scripts/add?lang=bun#` +
-											encodeState({
-												path: 'f/success_handler',
-												summary: 'Workspace Success Handler',
-												description: 'Called when any job in the workspace completes successfully',
-												content: `//native
+									<Toggle
+										disabled={!$enterpriseLicense ||
+											((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
+												!emptyString(errorHandlerScriptPath) &&
+												emptyString(errorHandlerExtraArgs['channel']))}
+										bind:checked={errorHandlerMutedOnUserPath}
+										options={{ right: 'Do not run error handler for u/ scripts and flows' }}
+									/>
+								</div>
+							</div>
+
+							<SettingsFooter
+								class="mt-6"
+								inline
+								hasUnsavedChanges={hasErrorHandlerChanges}
+								onSave={editErrorHandler}
+								onDiscard={discardErrorHandlerSettingsChanges}
+								saveLabel="Save error handler"
+								disabled={!$enterpriseLicense ||
+									((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
+										!emptyString(errorHandlerScriptPath) &&
+										emptyString(errorHandlerExtraArgs['channel']))}
+							/>
+						</Section>
+
+						<div class="pt-8 border-b mb-8"></div>
+
+						<Section label="Success Handler">
+							<div class="flex flex-col gap-6">
+								<div class="flex flex-col gap-4">
+									<div class="flex flex-row gap-2 items-center">
+										<ScriptPicker
+											disabled={!$enterpriseLicense}
+											initialPath={successHandlerScriptPath}
+											allowRefresh
+											itemKind="script"
+											on:select={(ev) => {
+												successHandlerScriptPath = ev?.detail?.path
+											}}
+											clearable
+										/>
+										<Button
+											variant="default"
+											href={`${base}/scripts/add?lang=bun#` +
+												encodeState({
+													path: 'f/success_handler',
+													summary: 'Workspace Success Handler',
+													description:
+														'Called when any job in the workspace completes successfully',
+													content: `//native
 
 // Workspace Success Handler
 // This script is called whenever a job completes successfully in this workspace.
@@ -1924,26 +1918,29 @@ export async function main(
   return { handled: true }
 }
 `,
-												language: 'bun',
-												kind: 'script'
-											})}
-										target="_blank"
-									>
-										Create from template
-									</Button>
+													language: 'bun',
+													kind: 'script'
+												})}
+											target="_blank"
+										>
+											Create from template
+										</Button>
+									</div>
 								</div>
 							</div>
-						</div>
 
-						<SettingsFooter
-							hasUnsavedChanges={hasSuccessHandlerChanges}
-							onSave={editSuccessHandler}
-							onDiscard={() => {
-								successHandlerScriptPath = initialSuccessHandlerScriptPath
-							}}
-							saveLabel="Save success handler"
-							disabled={!$enterpriseLicense}
-						/>
+							<SettingsFooter
+								class="mt-6"
+								inline
+								hasUnsavedChanges={hasSuccessHandlerChanges}
+								onSave={editSuccessHandler}
+								onDiscard={() => {
+									successHandlerScriptPath = initialSuccessHandlerScriptPath
+								}}
+								saveLabel="Save success handler"
+								disabled={!$enterpriseLicense}
+							/>
+						</Section>
 					{:else if tab == 'critical_alerts'}
 						<SettingsPageHeader
 							title="Workspace Critical Alerts"
