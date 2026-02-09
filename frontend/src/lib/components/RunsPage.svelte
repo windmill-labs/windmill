@@ -622,7 +622,6 @@
 						{folders}
 						{paths}
 						mobile={innerWidth < verySmallScreenWidth}
-						small={innerWidth < smallScreenWidth}
 					/>
 				</div>
 			</div>

@@ -46,7 +46,6 @@
 	import Select from '../select/Select.svelte'
 	import { safeSelectItems } from '../select/utils.svelte'
 	import RunOption from './RunOption.svelte'
-	import TooltipV2 from '$lib/components/meltComponents/Tooltip.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import { jobTriggerKinds, triggerDisplayNamesMap } from '../triggers/utils'
 	import type { JobTriggerKind } from '$lib/gen'
@@ -87,7 +86,6 @@
 			| 'worker'
 			| 'tag'
 			| 'schedulePath'
-		small?: boolean
 	}
 
 	let {
@@ -113,8 +111,7 @@
 		usernames = [],
 		folders = [],
 		allWorkspaces = $bindable(),
-		filterBy = $bindable('path'),
-		small = false
+		filterBy = $bindable('path')
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -176,39 +173,6 @@
 		worker = null
 	}
 </script>
-
-{#snippet runsTooltip()}
-	<TooltipV2 placement="right">
-		{#snippet text()}
-			'Runs are jobs that have no parent jobs (flows are jobs that are parent of the jobs they
-			start), they have been triggered through the UI, a schedule or webhook'
-		{/snippet}
-	</TooltipV2>
-{/snippet}
-{#snippet previewsTooltip()}
-	<TooltipV2 placement="right">
-		{#snippet text()}
-			'Previews are jobs that have been started in the editor as "Tests"'
-		{/snippet}
-	</TooltipV2>
-{/snippet}
-{#snippet dependenciesTooltip()}
-	<TooltipV2 placement="right">
-		{#snippet text()}
-			'Deploying a script, flow or an app launch a dependency job that creates and then attaches the
-			lockfile to the deployed item. This mechanism ensures that logic is always executed with the
-			exact same direct and indirect dependencies.'
-		{/snippet}
-	</TooltipV2>
-{/snippet}
-{#snippet syncTooltip()}
-	<TooltipV2 placement="right">
-		{#snippet text()}
-			'Sync jobs that are triggered on every script deployment to sync the workspace with the Git
-			repository configured in the workspace settings'
-		{/snippet}
-	</TooltipV2>
-{/snippet}
 
 {#if !mobile}
 	{#if $workspaceStore == 'admins'}
