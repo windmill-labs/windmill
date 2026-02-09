@@ -43,7 +43,7 @@
 </script>
 
 <script lang="ts">
-	import { Plus, Save } from 'lucide-svelte'
+	import { Plus } from 'lucide-svelte'
 
 	import Button from '../common/button/Button.svelte'
 
@@ -71,6 +71,7 @@
 	import ExploreAssetButton from '../ExploreAssetButton.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { clone } from '$lib/utils'
+	import SettingsFooter from './SettingsFooter.svelte'
 
 	type Props = {
 		dataTableSettings: DataTableSettingsType
@@ -149,6 +150,14 @@
 		}
 		return map
 	})
+
+	function onDiscard() {
+		tempSettings.dataTables = $state.snapshot(dataTableSettings.dataTables)
+	}
+
+	export function discard() {
+		onDiscard()
+	}
 
 	export function unsavedChanges(): { savedValue: any; modifiedValue: any } {
 		return { savedValue: dataTableSettings, modifiedValue: tempSettings }
@@ -286,12 +295,12 @@
 	</tbody>
 </DataTable>
 
-<Button
-	wrapperClasses="mt-4 mb-16 max-w-fit"
-	on:click={onSave}
-	variant="accent"
-	disabled={!hasUnsavedChanges}
-	startIcon={{ icon: Save }}>Save data table settings</Button
->
+<SettingsFooter
+	class="mt-8"
+	{hasUnsavedChanges}
+	{onSave}
+	{onDiscard}
+	saveLabel="Save data table settings"
+/>
 
 <ConfirmationModal {...confirmationModal.props} />

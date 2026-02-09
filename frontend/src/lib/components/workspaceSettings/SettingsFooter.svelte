@@ -9,13 +9,15 @@
 		onSave,
 		onDiscard,
 		saveLabel = 'Save settings',
-		disabled = false
+		disabled = false,
+		class: className
 	}: {
 		hasUnsavedChanges?: boolean
 		onSave: () => void | Promise<void>
 		onDiscard: () => void
 		saveLabel?: string
 		disabled?: boolean
+		class?: string
 	} = $props()
 
 	let saveStatus: 'success' | 'error' | null = $state(null)
@@ -65,7 +67,7 @@
 	})
 </script>
 
-<div class={twMerge('sticky bottom-0 z-10 w-full border-t bg-surface-tertiary')}>
+<div class={twMerge('sticky bottom-0 z-10 w-full border-t bg-surface-tertiary', className)}>
 	<div class="flex items-center justify-end pt-4 pb-8">
 		<div class="flex items-center gap-2">
 			{#if hasUnsavedChanges}

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { emptyString, pick, sendUserToast } from '$lib/utils'
-	import { ChevronDown, Plus, Shield } from 'lucide-svelte'
+	import { ChevronDown, Plus, Save, Shield } from 'lucide-svelte'
 	import Alert from '../common/alert/Alert.svelte'
 	import Button from '../common/button/Button.svelte'
 	import SettingsPageHeader from '../settings/SettingsPageHeader.svelte'
@@ -295,7 +295,8 @@
 	<div class="flex mt-5 mb-5 gap-1">
 		<Button
 			variant="accent"
-			size="xl"
+			unifiedSize="md"
+			startIcon={{ icon: Save }}
 			disabled={!hasUnsavedChanges}
 			on:click={() => {
 				editWindmillLFSSettings()

@@ -41,7 +41,7 @@
 		orderedJsonStringify,
 		replaceFalseWithUndefined
 	} from '$lib/utils'
-	import { Save, Slack } from 'lucide-svelte'
+	import { Slack } from 'lucide-svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
@@ -191,6 +191,7 @@
 	let ducklakeSavedSettings: DucklakeSettingsType = $state(untrack(() => ducklakeSettings))
 
 	let workspaceDefaultAppPath: string | undefined = $state(undefined)
+	let initialWorkspaceDefaultAppPath: string | undefined = $state(undefined)
 	let workspaceEncryptionKey: string | undefined = $state(undefined)
 	let editedWorkspaceEncryptionKey: string | undefined = $state(undefined)
 	let workspaceReencryptionInProgress: boolean = $state(false)
@@ -381,6 +382,28 @@
 		)
 	})
 
+	// Derived state for checking unsaved changes in default app settings
+	let hasDefaultAppChanges = $derived.by(() => {
+		if (tab !== 'default_app') return false
+
+		const changes = getDefaultAppSettingsInitialAndModifiedValues()
+		if (!changes.savedValue || !changes.modifiedValue) return false
+
+		const draftOrDeployed = cleanValueProperties({
+			...changes.savedValue,
+			path: undefined
+		})
+		const current = cleanValueProperties({
+			...changes.modifiedValue,
+			path: undefined
+		})
+
+		return (
+			orderedJsonStringify(replaceFalseWithUndefined(draftOrDeployed)) !==
+			orderedJsonStringify(replaceFalseWithUndefined(current))
+		)
+	})
+
 	// Validation effects
 	$effect(() => {
 		if (webhook !== undefined) {
@@ -518,24 +541,31 @@
 		}
 	}
 
-	async function editWorkspaceDefaultApp(appPath: string | undefined): Promise<void> {
-		if (emptyString(appPath)) {
+	async function editWorkspaceDefaultApp(): Promise<void> {
+		if (emptyString(workspaceDefaultAppPath)) {
 			await WorkspaceService.editWorkspaceDefaultApp({
 				workspace: $workspaceStore!,
 				requestBody: {
 					default_app_path: undefined
 				}
 			})
-			sendUserToast('Workspace default app reset')
 		} else {
 			await WorkspaceService.editWorkspaceDefaultApp({
 				workspace: $workspaceStore!,
 				requestBody: {
-					default_app_path: appPath
+					default_app_path: workspaceDefaultAppPath
 				}
 			})
-			sendUserToast('Workspace default app set')
 		}
+		initialWorkspaceDefaultAppPath = workspaceDefaultAppPath
+	}
+
+	async function saveDefaultAppSettings(): Promise<void> {
+		await editWorkspaceDefaultApp()
+		if (publicAppRateLimitPerMinute !== initialPublicAppRateLimitPerMinute) {
+			await editPublicAppRateLimit()
+		}
+		sendUserToast('App settings saved')
 	}
 
 	async function loadWorkspaceEncryptionKey(): Promise<void> {
@@ -648,6 +678,7 @@
 			| undefined
 		successHandlerScriptPath = (successHandler?.path ?? '').split('/').slice(1).join('/')
 		workspaceDefaultAppPath = settings.default_app
+		initialWorkspaceDefaultAppPath = settings.default_app
 
 		s3ResourceSettings = convertBackendSettingsToFrontendSettings(
 			settings.large_file_storage,
@@ -1081,6 +1112,33 @@
 		editedWorkspaceEncryptionKey = initialEditedWorkspaceEncryptionKey
 	}
 
+	// Function to check if there are unsaved changes in default app settings
+	function getDefaultAppSettingsInitialAndModifiedValues() {
+		if (tab !== 'default_app') {
+			return {
+				savedValue: undefined,
+				modifiedValue: undefined
+			}
+		}
+
+		return {
+			savedValue: {
+				defaultAppPath: initialWorkspaceDefaultAppPath,
+				publicAppRateLimitPerMinute: initialPublicAppRateLimitPerMinute
+			},
+			modifiedValue: {
+				defaultAppPath: workspaceDefaultAppPath,
+				publicAppRateLimitPerMinute: publicAppRateLimitPerMinute
+			}
+		}
+	}
+
+	// Function to discard unsaved default app settings changes
+	function discardDefaultAppSettingsChanges() {
+		workspaceDefaultAppPath = initialWorkspaceDefaultAppPath
+		publicAppRateLimitPerMinute = initialPublicAppRateLimitPerMinute
+	}
+
 	// Function to check if there are unsaved changes in error handler settings
 	function getErrorHandlerSettingsInitialAndModifiedValues() {
 		// Only check for unsaved changes when on the error_handler tab
@@ -1180,6 +1238,11 @@
 			}
 		}
 
+		// Check default app settings
+		if (tab === 'default_app' && hasDefaultAppChanges) {
+			return getDefaultAppSettingsInitialAndModifiedValues()
+		}
+
 		return {
 			savedValue: {},
 			modifiedValue: {}
@@ -1204,6 +1267,10 @@
 			criticalAlertUIMuted = initialCriticalAlertUIMuted
 		} else if (tab === 'success_handler') {
 			successHandlerScriptPath = initialSuccessHandlerScriptPath
+		} else if (tab === 'windmill_data_tables') {
+			dataTableSettingsComponent?.discard()
+		} else if (tab === 'default_app') {
+			discardDefaultAppSettingsChanges()
 		}
 	}
 
@@ -1971,15 +2038,7 @@ export async function main(
 						</Alert>
 					{/if}
 					<div class="mt-5 flex gap-1">
-						{#key workspaceDefaultAppPath}
-							<ScriptPicker
-								initialPath={workspaceDefaultAppPath}
-								itemKind="app"
-								on:select={(ev) => {
-									editWorkspaceDefaultApp(ev?.detail?.path)
-								}}
-							/>
-						{/key}
+						<ScriptPicker bind:scriptPath={workspaceDefaultAppPath} itemKind="app" />
 					</div>
 					<hr class="border-t my-8" />
 					<Section
@@ -1995,18 +2054,16 @@ export async function main(
 							/>
 							<span class="text-secondary text-sm">executions per minute per server</span>
 						</div>
-
-						<Button
-							disabled={publicAppRateLimitPerMinute === initialPublicAppRateLimitPerMinute}
-							size="sm"
-							on:click={editPublicAppRateLimit}
-							variant="default"
-							startIcon={{ icon: Save }}
-							btnClasses="w-fit"
-						>
-							Save rate limit
-						</Button>
 					</Section>
+
+					<SettingsFooter
+						class="mt-8"
+						hasUnsavedChanges={hasDefaultAppChanges}
+						onSave={saveDefaultAppSettings}
+						onDiscard={discardDefaultAppSettingsChanges}
+						saveLabel="Save app settings"
+						disabled={!$enterpriseLicense}
+					/>
 				{:else if tab == 'native_triggers'}
 					{#if $workspaceStore}
 						{#await import('$lib/components/workspaceSettings/WorkspaceIntegrations.svelte') then { default: WorkspaceIntegrations }}
@@ -2053,6 +2110,7 @@ export async function main(
 					</div>
 
 					<SettingsFooter
+						class="mt-8"
 						hasUnsavedChanges={hasEncryptionKeyChanges}
 						onSave={setWorkspaceEncryptionKey}
 						onDiscard={discardEncryptionKeySettingsChanges}

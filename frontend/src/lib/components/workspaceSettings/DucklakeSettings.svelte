@@ -52,7 +52,7 @@
 </script>
 
 <script>
-	import { Plus, SettingsIcon } from 'lucide-svelte'
+	import { Plus, Save, SettingsIcon } from 'lucide-svelte'
 
 	import Button from '../common/button/Button.svelte'
 
@@ -385,8 +385,10 @@
 	</tbody>
 </DataTable>
 <Button
-	wrapperClasses="mt-4 mb-16 max-w-fit"
+	wrapperClasses="mt-6 mb-16 max-w-fit"
 	variant="accent"
+	startIcon={{ icon: Save }}
+	unifiedSize="md"
 	on:click={onSave}
 	disabled={ducklakeSavedSettings.ducklakes.length === ducklakeSettings.ducklakes.length &&
 		Object.values(ducklakeIsDirty).every((v) => v === false)}
