@@ -16,7 +16,6 @@
 
 	import JobRunsPreview from '$lib/components/runs/JobRunsPreview.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import CalendarPicker from '$lib/components/common/calendarPicker/CalendarPicker.svelte'
 
 	import RunsTable from '$lib/components/runs/RunsTable.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -33,13 +32,17 @@
 	} from '$lib/components/runs/BatchReRunOptionsPane.svelte'
 	import { untrack } from 'svelte'
 	import { page } from '$app/state'
-	import RunOption from '$lib/components/runs/RunOption.svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
 	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
 	import { StaleWhileLoading } from '$lib/svelte5Utils.svelte'
 	import { TriangleAlertIcon } from 'lucide-svelte'
 	import DropdownV2 from './DropdownV2.svelte'
+	import TimeframeSelect, {
+		buildManualTimeframe,
+		runsTimeframes,
+		useUrlSyncedTimeframe
+	} from './runs/TimeframeSelect.svelte'
 
 	interface Props {
 		/** Initial path from route params (e.g., /runs/u/user/script) */
@@ -117,12 +120,18 @@
 		}
 	}
 
+	let _timeframe = useUrlSyncedTimeframe(runsTimeframes)
+	let timeframe = $derived(_timeframe.timeframe)
+
+	let manualTimeframe = $derived(timeframe.type === 'manual' ? timeframe : undefined)
+
 	let graph: 'RunChart' | 'ConcurrencyChart' = $state(
 		typeOfChart(page.url.searchParams.get('graph'))
 	)
 	let innerWidth = $state(window.innerWidth)
 	let jobsLoader = useJobsLoader(() => ({
 		filters,
+		timeframe,
 		jobKinds,
 		autoRefresh,
 		argError,
@@ -154,8 +163,7 @@
 	}
 
 	function reset() {
-		filters.min_ts = null
-		filters.max_ts = null
+		_timeframe.timeframe = { ...runsTimeframes[0] }
 		selectedIds = []
 		filters.schedule_path = null
 		selectedWorkspace = undefined
@@ -215,10 +223,11 @@
 	function getSelectedFilters() {
 		const argFilter = filters.arg && JSON.parse(filters.arg)
 		const resultFilter = filters.result && JSON.parse(filters.result)
+		const { minTs, maxTs } = timeframe.computeMinMax()
 		return {
 			workspace: $workspaceStore ?? '',
-			startedBefore: filters.max_ts ?? undefined,
-			startedAfter: filters.min_ts ?? undefined,
+			startedBefore: maxTs ?? undefined,
+			startedAfter: minTs ?? undefined,
 			schedulePath: filters.schedule_path ?? undefined,
 			scriptPathExact: filters.path === null || filters.path === '' ? undefined : filters.path,
 			createdBy: filters.user || undefined,
@@ -574,58 +583,13 @@
 
 			<div class="py-2 flex items-start gap-x-4 gap-y-2 flex-row grow min-w-0 justify-end">
 				<!-- Dates -->
-				<div class="flex flex-row gap-2">
-					<RunOption label="From" for="min-datetimes">
-						{#if filters.min_ts || filters.max_ts}
-							<input
-								type="text"
-								class="!text-sm text-primary !bg-surface-sunken h-9 !border-none"
-								value={filters.min_ts
-									? new Date(filters.min_ts).toLocaleString()
-									: 'zoom x axis to set min'}
-								disabled
-								name="min-datetimes"
-							/>
-						{/if}
-						<CalendarPicker
-							clearable={true}
-							bind:date={filters.min_ts}
-							on:clear={() => (filters.min_ts = null)}
-							label="From"
-							class={filters.min_ts || filters.max_ts
-								? ''
-								: 'relative top-0 bottom-0 left-0 right-0 h-[34px]'}
-						/>
-					</RunOption>
-
-					<RunOption label="To" for="max-datetimes">
-						{#if filters.max_ts || filters.min_ts}
-							<input
-								type="text"
-								class="!text-sm text-primary !bg-surface-secondary h-9 !border-none"
-								value={filters.max_ts
-									? new Date(filters.max_ts).toLocaleString()
-									: 'zoom x axis to set max'}
-								name="max-datetimes"
-								disabled
-							/>
-						{/if}
-						<CalendarPicker
-							clearable={true}
-							on:clear={() => (filters.max_ts = null)}
-							bind:date={filters.max_ts}
-							label="To"
-							class={filters.min_ts || filters.max_ts
-								? ''
-								: 'relative top-0 bottom-0 left-0 right-0 h-[34px]'}
-						/>
-					</RunOption>
-
-					{#if filters.min_ts || filters.max_ts}
-						<RunOption label="Reset" for="reset" noLabel>
-							<Button variant="default" size="xs" onClick={reset} btnClasses="h-9">Reset</Button>
-						</RunOption>
-					{/if}
+				<div class="mt-auto">
+					<TimeframeSelect
+						onClick={() => jobsLoader?.loadJobs(true)}
+						loading={jobsLoader?.loading}
+						items={runsTimeframes}
+						bind:value={_timeframe.timeframe}
+					/>
 				</div>
 
 				<!-- Filters 1 -->
@@ -650,17 +614,11 @@
 						bind:argFilter={filters.arg}
 						bind:resultFilter={filters.result}
 						on:change={reloadJobsWithoutFilterError}
-						on:successChange={(e) => {
-							if (e.detail == 'running' && filters.max_ts != undefined) {
-								filters.max_ts = null
-							}
-						}}
 						{usernames}
 						{folders}
 						{paths}
 						mobile={innerWidth < verySmallScreenWidth}
 						small={innerWidth < smallScreenWidth}
-						calendarSmall={!filters.min_ts && !filters.max_ts}
 					/>
 				</div>
 			</div>
@@ -696,16 +654,19 @@
 				{/if}
 			</div>
 			{#if graph === 'RunChart'}
+				{@const manualTimeframe = timeframe.type === 'manual' ? timeframe : undefined}
 				<RunChart
 					bind:selectedIds
 					canSelect
-					minTimeSet={filters.min_ts}
-					maxTimeSet={filters.max_ts}
-					maxIsNow={filters.max_ts == undefined}
+					minTimeSet={manualTimeframe?.minTs}
+					maxTimeSet={manualTimeframe?.maxTs}
+					maxIsNow={manualTimeframe?.maxTs == undefined}
 					jobs={completedJobs}
 					onZoom={async (zoom) => {
-						filters.min_ts = zoom.min.toISOString()
-						filters.max_ts = zoom.max.toISOString()
+						_timeframe.timeframe = buildManualTimeframe(
+							zoom.min.toISOString(),
+							zoom.max.toISOString()
+						)
 						jobsLoader?.loadJobs(true)
 					}}
 					onPointClicked={(ids) => {
@@ -714,13 +675,15 @@
 				/>
 			{:else if graph === 'ConcurrencyChart'}
 				<ConcurrentJobsChart
-					minTimeSet={filters.min_ts}
-					maxTimeSet={filters.max_ts}
-					maxIsNow={filters.max_ts == undefined}
+					minTimeSet={manualTimeframe?.minTs}
+					maxTimeSet={manualTimeframe?.maxTs}
+					maxIsNow={manualTimeframe?.maxTs == undefined}
 					{extendedJobs}
 					onZoom={async (zoom) => {
-						filters.min_ts = zoom.min.toISOString()
-						filters.max_ts = zoom.max.toISOString()
+						_timeframe.timeframe = buildManualTimeframe(
+							zoom.min.toISOString(),
+							zoom.max.toISOString()
+						)
 						jobsLoader?.loadJobs(true)
 					}}
 				/>

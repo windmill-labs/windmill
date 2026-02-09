@@ -1569,6 +1569,114 @@ export function formatDateShort(dateString: string | undefined): string {
 	}).format(date)
 }
 
+/**
+ * Formats a date range intelligently by omitting redundant information.
+ * Examples:
+ * - Before 01/03 7:32 PM (no "after" when only before date is in the past)
+ * - Before 01/03/2026 11:01 PM (different year)
+ * - 01:12 AM to 02:50 AM (same day)
+ * - 01/03 to 01/05 (same year, different days)
+ * - 12/31/2025 to 01/05/2026 (different years)
+ *
+ * @param before - The start/before date (can be string or Date or undefined)
+ * @param after - The end/after date (can be string or Date or undefined)
+ * @returns Formatted string representing the date range
+ */
+export function formatDateRange(
+	before: string | Date | undefined,
+	after: string | Date | undefined
+): string {
+	const now = new Date()
+	const beforeDate = before ? new Date(before) : undefined
+	const afterDate = after ? new Date(after) : undefined
+
+	// Helper to format time only
+	const formatTime = (date: Date) => {
+		return new Intl.DateTimeFormat('en-US', {
+			hour: '2-digit',
+			minute: '2-digit'
+		}).format(date)
+	}
+
+	// Helper to format date without year
+	const formatDateNoYear = (date: Date) => {
+		return new Intl.DateTimeFormat('en-US', {
+			month: '2-digit',
+			day: '2-digit'
+		}).format(date)
+	}
+
+	// Helper to format date with year
+	const formatDateWithYear = (date: Date) => {
+		return new Intl.DateTimeFormat('en-US', {
+			month: '2-digit',
+			day: '2-digit',
+			year: 'numeric'
+		}).format(date)
+	}
+
+	// Helper to check if dates are same day
+	const isSameDay = (d1: Date, d2: Date) => {
+		return (
+			d1.getFullYear() === d2.getFullYear() &&
+			d1.getMonth() === d2.getMonth() &&
+			d1.getDate() === d2.getDate()
+		)
+	}
+
+	// Helper to check if date is in current year
+	const isSameYear = (date: Date, reference: Date = now) => {
+		return date.getFullYear() === reference.getFullYear()
+	}
+
+	// Only before date provided
+	if (beforeDate && !afterDate) {
+		const timeStr = formatTime(beforeDate)
+
+		// If it's today, only show time
+		if (isSameDay(beforeDate, now)) {
+			return `Before ${timeStr}`
+		}
+
+		const needsYear = !isSameYear(beforeDate)
+		const dateStr = needsYear ? formatDateWithYear(beforeDate) : formatDateNoYear(beforeDate)
+		return `Before ${dateStr} ${timeStr}`
+	}
+
+	// Only after date provided
+	if (afterDate && !beforeDate) {
+		const timeStr = formatTime(afterDate)
+
+		// If it's today, only show time
+		if (isSameDay(afterDate, now)) {
+			return `After ${timeStr}`
+		}
+
+		const needsYear = !isSameYear(afterDate)
+		const dateStr = needsYear ? formatDateWithYear(afterDate) : formatDateNoYear(afterDate)
+		return `After ${dateStr} ${timeStr}`
+	}
+
+	// Both dates provided
+	if (beforeDate && afterDate) {
+		// Same day - only show times
+		if (isSameDay(beforeDate, afterDate)) {
+			return `${formatTime(beforeDate)} to ${formatTime(afterDate)}`
+		}
+
+		// Different days, same year
+		if (isSameYear(beforeDate, afterDate)) {
+			return `${formatDateNoYear(beforeDate)} to ${formatDateNoYear(afterDate)}`
+		}
+
+		// Different years
+		return `${formatDateWithYear(beforeDate)} to ${formatDateWithYear(afterDate)}`
+	}
+
+	// No dates provided
+	return ''
+}
+
 export function toJsonStr(result: any) {
 	try {
 		// console.log(result)

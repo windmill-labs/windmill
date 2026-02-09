@@ -184,13 +184,13 @@
 			unifiedSize="md"
 			wrapperClasses="h-full"
 			{disabled}
+			iconOnly
+			endIcon={{ icon: X }}
 			on:click={() => {
 				value = null
 				dispatch('clear')
 			}}
-		>
-			<X size={14} />
-		</Button>
+		></Button>
 	{/if}
 	<!-- <div>
 		<ToggleButtonGroup bind:selected={format} let:item>

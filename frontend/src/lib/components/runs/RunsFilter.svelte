@@ -15,8 +15,6 @@
 			.default(null),
 		show_skipped: z.boolean().default(false),
 		show_schedules: z.boolean().default(true),
-		min_ts: z.string().nullable().default(null),
-		max_ts: z.string().nullable().default(null),
 		schedule_path: z.string().nullable().default(null),
 		job_kinds: z.string().default('runs'),
 		all_workspaces: z.boolean().default(false),
@@ -90,7 +88,6 @@
 			| 'tag'
 			| 'schedulePath'
 		small?: boolean
-		calendarSmall?: boolean
 	}
 
 	let {
@@ -116,9 +113,8 @@
 		usernames = [],
 		folders = [],
 		allWorkspaces = $bindable(),
-		filterBy = $bindable(),
-		small = false,
-		calendarSmall = false
+		filterBy = $bindable('path'),
+		small = false
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -526,7 +522,7 @@
 
 	<!-- Kind -->
 	<RunOption label="Kind" for="kind">
-		{#if small && !calendarSmall}
+		{#if small}
 			<Select
 				items={[
 					{ label: 'All', value: 'all' },
