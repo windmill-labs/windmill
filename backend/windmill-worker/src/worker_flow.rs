@@ -5094,6 +5094,10 @@ pub async fn get_previous_job_result(
         Some(FlowStatusModule::Success { flow_jobs: Some(flow_jobs), .. }) => {
             Ok(Some(retrieve_flow_jobs_results(db, w_id, flow_jobs).await?))
         }
+        Some(FlowStatusModule::Success { job, .. }) if *job == Uuid::nil() => {
+            // Empty branch — no real job was executed, return empty object
+            Ok(None)
+        }
         Some(FlowStatusModule::Success { job, .. }) => Ok(Some(
             sqlx::query_scalar!(
                 "SELECT result AS \"result!: Json<Box<RawValue>>\"
