@@ -1233,6 +1233,7 @@
 										initialWorkspaceToDeployTo = workspaceToDeployTo
 										initialDeployUiSettings = clone(deployUiSettings)
 									}}
+									onDiscard={discardDeploySettingsChanges}
 									onWorkspaceToDeployToSave={(newWorkspaceToDeployTo) => {
 										// Update initial state after workspace to deploy to is saved
 										initialWorkspaceToDeployTo = newWorkspaceToDeployTo

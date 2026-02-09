@@ -10,6 +10,7 @@
 	import { emptyString } from '$lib/utils'
 	import { validateDeployPathFilters } from '$lib/validators/workspaceSettings'
 	import Alert from './common/alert/Alert.svelte'
+	import SettingsFooter from './workspaceSettings/SettingsFooter.svelte'
 
 	let deployableWorkspaces = $derived(
 		$usersWorkspaceStore?.workspaces.map((w) => w.id).filter((w) => w != $workspaceStore)
@@ -44,6 +45,7 @@
 		}),
 		hasUnsavedChanges = false,
 		onSave,
+		onDiscard,
 		onWorkspaceToDeployToSave
 	}: {
 		workspaceToDeployTo: string | undefined
@@ -53,6 +55,7 @@
 		}
 		hasUnsavedChanges?: boolean
 		onSave?: () => void
+		onDiscard: () => void
 		onWorkspaceToDeployToSave?: (workspaceToDeployTo: string | undefined) => void
 	} = $props()
 
@@ -270,13 +273,12 @@
 	</Alert>
 {/if}
 {#if $enterpriseLicense}
-	<div class="flex mt-5 mb-5 gap-1">
-		<Button
-			variant="accent"
-			disabled={workspaceToDeployTo == undefined || hasValidationErrors || !hasUnsavedChanges}
-			on:click={() => {
-				editWindmillDeploymentUISettings()
-			}}>Save Deployment UI settings</Button
-		>
-	</div>
+	<SettingsFooter
+		{hasUnsavedChanges}
+		onSave={editWindmillDeploymentUISettings}
+		{onDiscard}
+		saveLabel="Save deployment UI"
+		disabled={workspaceToDeployTo == undefined || hasValidationErrors}
+		class="border-none"
+	/>
 {/if}
