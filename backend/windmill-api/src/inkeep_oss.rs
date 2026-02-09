@@ -15,6 +15,7 @@ pub fn global_service() -> Router {
 
 #[cfg(not(feature = "private"))]
 async fn inkeep_not_available() -> windmill_common::error::Result<()> {
+    println!("Inkeep not available - Enterprise Edition feature");
     Err(Error::Generic(
         http::StatusCode::FORBIDDEN,
         "Inkeep AI documentation assistant is only available in Windmill Enterprise Edition"
