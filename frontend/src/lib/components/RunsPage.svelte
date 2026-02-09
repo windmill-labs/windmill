@@ -306,13 +306,13 @@
 		}
 	}
 
-	async function onCancelSelectedJobs() {
+	async function onCancelSelectedJobs(jobIdsToCancel: string[]) {
 		forceCancelInPopup = true
 		askingForConfirmation = {
-			confirmBtnText: `Cancel ${selectedIds.length} jobs`,
-			title: 'Confirm cancelling the selected jobs',
+			confirmBtnText: `Cancel ${jobIdsToCancel.length} jobs`,
+			title: `Confirm cancelling ${jobIdsToCancel.length} jobs`,
 			onConfirm: (forceCancel) => {
-				cancelJobs(selectedIds, forceCancel)
+				cancelJobs(jobIdsToCancel, forceCancel)
 			}
 		}
 	}
@@ -752,6 +752,7 @@
 										bind:this={runsTable}
 										perPage={filters.per_page}
 										bind:batchRerunOptionsIsOpen
+										onCancel={onCancelSelectedJobs}
 									></RunsTable>
 								{:else}
 									<div class="gap-1 flex flex-col">
