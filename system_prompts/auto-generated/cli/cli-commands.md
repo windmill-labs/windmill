@@ -2,7 +2,7 @@
 
 The Windmill CLI (`wmill`) provides commands for managing scripts, flows, apps, and other resources.
 
-Current version: 1.624.0
+Current version: 1.628.3
 
 ## Global Options
 
@@ -387,7 +387,8 @@ workspace related commands
   - `--create-username <username:string>` - Specify your own username in the newly created workspace. Ignored if --create is not specified, the workspace already exists or automatic username creation is enabled on the instance.
 - `workspace remove <workspace_name:string>` - Remove a workspace
 - `workspace whoami` - Show the currently active user
-- `workspace list` - List workspaces on the remote server that you have access to
+- `workspace list` - List local workspace profiles
+- `workspace list-remote` - List workspaces on the remote server that you have access to
 - `workspace bind` - Bind the current Git branch to the active workspace
   - `--branch <branch:string>` - Specify branch (defaults to current)
 - `workspace unbind` - Remove workspace binding from the current Git branch

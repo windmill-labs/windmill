@@ -35,6 +35,7 @@ from utils import (
     CLI_GUIDANCE_DIR,
     CLI_MAIN,
     CLI_COMMANDS_DIR,
+    PLUGIN_SKILLS_DIR,
     # Language metadata
     LANGUAGE_METADATA,
     TS_SDK_LANGUAGES,
@@ -904,6 +905,56 @@ def generate_skills_ts_export(skills: list[str], schema_yaml_content: dict[str, 
     return ts
 
 
+def generate_plugin_skills(skills: list[str], schema_yaml_content: dict[str, str]) -> int:
+    """Generate fully-assembled skill files for the Claude plugin.
+
+    Replicates what `wmill init` does: writes each skill's SKILL.md content,
+    and for skills with schema mappings (triggers, schedules), appends the
+    formatted schema YAML.
+
+    Args:
+        skills: List of skill names that were generated.
+        schema_yaml_content: Dict mapping schema keys (e.g., 'http_trigger') to YAML content.
+
+    Returns:
+        Number of skills written.
+    """
+    print("Generating plugin skill files...")
+
+    PLUGIN_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+
+    count = 0
+    for skill_name in skills:
+        skill_source = OUTPUT_SKILLS_DIR / skill_name / "SKILL.md"
+        if not skill_source.exists():
+            print(f"  Warning: Skill source not found for '{skill_name}', skipping")
+            continue
+
+        content = skill_source.read_text()
+
+        # Append schemas for skills that have schema mappings (mirrors init.ts logic)
+        if skill_name in SCHEMA_MAPPINGS:
+            schema_docs = []
+            for schema_name, file_suffix in SCHEMA_MAPPINGS[skill_name]:
+                schema_yaml = schema_yaml_content.get(file_suffix)
+                if schema_yaml:
+                    schema_docs.append(
+                        f"## {schema_name} (`*.{file_suffix}.yaml`)\n\n"
+                        f"Must be a YAML file that adheres to the following schema:\n\n"
+                        f"```yaml\n{schema_yaml.strip()}\n```"
+                    )
+            if schema_docs:
+                content = content + "\n\n" + "\n\n".join(schema_docs)
+
+        plugin_skill_dir = PLUGIN_SKILLS_DIR / skill_name
+        plugin_skill_dir.mkdir(parents=True, exist_ok=True)
+        (plugin_skill_dir / "SKILL.md").write_text(content)
+        count += 1
+
+    print(f"  Generated {count} plugin skills in {PLUGIN_SKILLS_DIR}")
+    return count
+
+
 # =============================================================================
 # Main Entry Point
 # =============================================================================
@@ -1097,6 +1148,9 @@ export function getFlowPrompt(): string {
     skills_ts = generate_skills_ts_export(skills, schema_yaml_content)
     (CLI_GUIDANCE_DIR / "skills.ts").write_text(skills_ts)
 
+    # Generate fully-assembled skills for Claude plugin
+    plugin_skills_count = generate_plugin_skills(skills, schema_yaml_content)
+
     print(f"\nGenerated files:")
     print(f"  - auto-generated/sdks/typescript.md")
     print(f"  - auto-generated/sdks/python.md")
@@ -1109,6 +1163,8 @@ export function getFlowPrompt(): string {
     print(f"  - auto-generated/schemas/ ({len(schema_yaml_content)} schema files)")
     print(f"\nGenerated for CLI:")
     print(f"  - cli/src/guidance/skills.ts")
+    print(f"\nGenerated for Claude plugin:")
+    print(f"  - windmill-claude-plugin/.../skills/ ({plugin_skills_count} skills)")
     print("\nDone!")
 
 

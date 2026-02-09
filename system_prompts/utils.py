@@ -32,6 +32,8 @@ OUTPUT_CLI_DIR = SCRIPT_DIR / "auto-generated" / "cli"
 OUTPUT_SKILLS_DIR = SCRIPT_DIR / "auto-generated" / "skills"
 OUTPUT_SCHEMAS_DIR = SCRIPT_DIR / "auto-generated" / "schemas"
 
+PLUGIN_SKILLS_DIR = ROOT_DIR.parent / "windmill-claude-plugin" / ".claude-plugin" / "plugins" / "windmill-code-plugin" / "skills"
+
 # =============================================================================
 # Schema Mappings for Triggers and Schedules
 # =============================================================================
