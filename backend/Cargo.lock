@@ -16882,6 +16882,7 @@ dependencies = [
  "aws-credential-types",
  "aws-sdk-sqs",
  "aws-sdk-sts",
+ "aws-smithy-types",
  "axum 0.7.9",
  "backon",
  "chrono",
