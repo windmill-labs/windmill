@@ -47,6 +47,7 @@
 
 	let { initialPath }: Props = $props()
 
+	let batchRerunOptionsIsOpen = $state(false)
 	let filters = useSearchParams(runsFiltersSchema)
 
 	// Initialize path filter from route param if provided and not already set via query params
@@ -67,8 +68,6 @@
 	let selectedIds: string[] = $state([])
 	let loadingSelectedIds = $state(false)
 	let selectedWorkspace: string | undefined = $state(undefined)
-
-	let batchReRunOptions: BatchReRunOptions | undefined = $state(undefined)
 
 	let jobKinds: string | undefined = $derived(computeJobKinds(filters.job_kinds))
 	let paths: string[] = $state([])
@@ -159,7 +158,6 @@
 		filters.max_ts = null
 		selectedIds = []
 		filters.schedule_path = null
-		batchReRunOptions = undefined
 		selectedWorkspace = undefined
 		jobsLoader?.loadJobs(true)
 	}
@@ -319,7 +317,7 @@
 		}
 	}
 
-	async function reRunJobs(jobIdsToReRun: string[]) {
+	async function reRunJobs(jobIdsToReRun: string[], batchReRunOptions: BatchReRunOptions) {
 		if (!$workspaceStore) return
 
 		if (askingForConfirmation) {
@@ -328,8 +326,8 @@
 
 		const body: Parameters<typeof JobService.batchReRunJobs>[0]['requestBody'] = {
 			job_ids: jobIdsToReRun,
-			script_options_by_path: batchReRunOptions?.script ?? {},
-			flow_options_by_path: batchReRunOptions?.flow ?? {}
+			script_options_by_path: batchReRunOptions.script ?? {},
+			flow_options_by_path: batchReRunOptions.flow ?? {}
 		}
 
 		// workaround because EventSource does not support POST requests
@@ -387,7 +385,6 @@
 		})
 
 		selectedIds = []
-		batchReRunOptions = undefined
 		jobsLoader?.loadJobs(true, true)
 	}
 
@@ -405,14 +402,14 @@
 		})
 	}
 
-	async function onReRunSelectedJobs() {
+	async function onReRunSelectedJobs(batchReRunOptions: BatchReRunOptions) {
 		const jobIdsToReRun = selectedIds
 		askingForConfirmation = {
 			title: `Confirm re-running the selected jobs`,
 			confirmBtnText: `Re-run ${jobIdsToReRun.length} jobs`,
 			type: 'reload',
 			onConfirm: async () => {
-				await reRunJobs(jobIdsToReRun)
+				await reRunJobs(jobIdsToReRun, batchReRunOptions)
 			}
 		}
 	}
@@ -754,13 +751,7 @@
 										on:filterByWorker={filterByWorker}
 										bind:this={runsTable}
 										perPage={filters.per_page}
-										bind:batchRerunOptionsIsOpen={
-											() => !!batchReRunOptions,
-											(opened) => {
-												if (!opened) batchReRunOptions = undefined
-												else batchReRunOptions = { flow: {}, script: {} }
-											}
-										}
+										bind:batchRerunOptionsIsOpen
 									></RunsTable>
 								{:else}
 									<div class="gap-1 flex flex-col">
@@ -807,8 +798,14 @@
 				</Pane>
 				<AnimatedPane size={40} minSize={15} class="flex flex-col" opened={selectedIds.length > 0}>
 					<div class="mt-14 overflow-y-auto pr-4 ml-2 relative flex-1">
-						{#if !!batchReRunOptions}
-							<BatchReRunOptionsPane {selectedIds} bind:options={batchReRunOptions} />
+						{#if batchRerunOptionsIsOpen}
+							<BatchReRunOptionsPane
+								{selectedIds}
+								onCancel={() => (batchRerunOptionsIsOpen = false)}
+								onConfirm={async (options) => {
+									await onReRunSelectedJobs(options)
+								}}
+							/>
 						{:else if selectedIds.length === 1}
 							{#if selectedIds[0] === '-'}
 								<div class="p-4">There is no information available for this job</div>

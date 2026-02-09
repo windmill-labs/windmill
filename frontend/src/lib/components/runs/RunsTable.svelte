@@ -4,7 +4,7 @@
 	import VirtualList from '@tutorlatin/svelte-tiny-virtual-list'
 	import { createEventDispatcher } from 'svelte'
 	import Tooltip from '../Tooltip.svelte'
-	import { AlertTriangle, CircleXIcon, RefreshCwIcon } from 'lucide-svelte'
+	import { AlertTriangle, CircleXIcon, ExternalLinkIcon, RefreshCwIcon } from 'lucide-svelte'
 	import Popover from '../Popover.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import './runs-grid.css'
@@ -13,6 +13,7 @@
 	import RightClickPopover from '../RightClickPopover.svelte'
 	import DropdownMenu from '../DropdownMenu.svelte'
 	import { isJobCancelable, isJobReRunnable } from '$lib/utils'
+	import { goto } from '$lib/navigation'
 
 	interface Props {
 		//import InfiniteLoading from 'svelte-infinite-loading'
@@ -47,6 +48,7 @@
 	const keysPressed = useKeyPressed(['Shift', 'Control', 'Meta', 'A'], {
 		onKeyDown(key, e) {
 			if (key === 'A' && (keysPressed.Control || keysPressed.Meta)) {
+				if (batchRerunOptionsIsOpen) return
 				e.preventDefault()
 				e.stopPropagation()
 				selectedIds = flatJobs
@@ -364,6 +366,7 @@
 												on:select={() => {
 													const jobId = jobOrDate.job.id
 													if (keysPressed.Control || keysPressed.Meta) {
+														if (batchRerunOptionsIsOpen && !isJobReRunnable(jobOrDate.job)) return
 														if (selectedIds.includes(jobOrDate.job.id)) {
 															selectedIds = selectedIds.filter((id) => id != jobId)
 														} else {
@@ -371,6 +374,7 @@
 															selectedIds = selectedIds
 														}
 													} else if (keysPressed.Shift && selectedIds.length > 0) {
+														if (batchRerunOptionsIsOpen && !isJobReRunnable(jobOrDate.job)) return
 														const lastSelectedId = selectedIds[selectedIds.length - 1]
 														const lastSelectedIndex = flatJobs?.findIndex(
 															(jobOrDate) =>
@@ -452,6 +456,17 @@
 	<DropdownMenu
 		closeCallback={() => rightClickPopover?.close()}
 		items={[
+			...(selectedIds.length === 1
+				? [
+						{
+							label: 'Show run details',
+							icon: ExternalLinkIcon,
+							onClick: () => {
+								goto(`/run/${selectedIds[0]}`)
+							}
+						}
+					]
+				: []),
 			...(cancellable
 				? [
 						{

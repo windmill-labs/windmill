@@ -38,4 +38,13 @@
 			</button>
 		</li>
 	{/each}
+	{#if items.length === 0}
+		<li class="w-full">
+			<div
+				class="px-3 h-9 text-xs font-normal w-full text-left flex items-center gap-2.5 text-hint"
+			>
+				No actions available
+			</div>
+		</li>
+	{/if}
 </ul>
