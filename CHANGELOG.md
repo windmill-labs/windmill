@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.629.0](https://github.com/windmill-labs/windmill/compare/v1.628.3...v1.629.0) (2026-02-09)
+
+
+### Features
+
+* customer portal extra workspace stats ([#7841](https://github.com/windmill-labs/windmill/issues/7841)) ([153dd32](https://github.com/windmill-labs/windmill/commit/153dd32187a3e32e3f26ab88b62195a0f9a359b9))
+
+
+### Bug Fixes
+
+* adapt mysql and ruby test assertions ([477832d](https://github.com/windmill-labs/windmill/commit/477832dbeeafb88fd16c174d5d1df8ed042e6f31))
+* add missing :name param to groups/is_owner route ([fa53a87](https://github.com/windmill-labs/windmill/commit/fa53a87107158c9e8a7e5b522242b0076a78ce46))
+* **backend:** prevent sqs hanging ([#7857](https://github.com/windmill-labs/windmill/issues/7857)) ([a3fc27b](https://github.com/windmill-labs/windmill/commit/a3fc27b23224aef2949c19f7c123d28e6cfaf968))
+* box push() future to prevent stack overflow in nested async chains ([67c8aef](https://github.com/windmill-labs/windmill/commit/67c8aef9faea5afe8ce330b477f16b4aed1779a5))
+* **frontend:** reorganize workspace settings ([#7788](https://github.com/windmill-labs/windmill/issues/7788)) ([dd42184](https://github.com/windmill-labs/windmill/commit/dd421845ba148bba70bcbafbc6a39f3012eb037c))
+* improve scheduling reliability in extreme pool contention conditions ([#7825](https://github.com/windmill-labs/windmill/issues/7825)) ([bbb397b](https://github.com/windmill-labs/windmill/commit/bbb397b6ad954052f0bd33cc4ff8897eed66e4db))
+* improve tracing behavior with NO_PROXY ([4cce13f](https://github.com/windmill-labs/windmill/commit/4cce13f5228a05da1bbce43bed7e856ce0bcf979))
+* incorrect raw app public workspaceStore derived ([edb0d4a](https://github.com/windmill-labs/windmill/commit/edb0d4a05da567b3b0be5d94c9b2856d68ecb0ff))
+* increase test thread stack size to 8MB in CI ([5548098](https://github.com/windmill-labs/windmill/commit/5548098e083af76a0b7d6f645a5458592d9c8ddc))
+* install mold+clang in Docker for cargo linker config ([99bc383](https://github.com/windmill-labs/windmill/commit/99bc383f9e94a415ff1dcef1c45ccc4c8dab1a9e))
+* make V8 runtime init idempotent and auto-initialize before isolate creation ([aa9f3da](https://github.com/windmill-labs/windmill/commit/aa9f3da429da92a059aaabb28481d33b8dacd37b))
+* parse Python datetime.datetime and datetime.date type annotations ([#7856](https://github.com/windmill-labs/windmill/issues/7856)) ([ff70a4e](https://github.com/windmill-labs/windmill/commit/ff70a4e9d105cac58c0fb0aba8fbec9875533aa4))
+* prevent V8 SIGSEGV by serializing isolate creation and fixing use-after-free ([05106d7](https://github.com/windmill-labs/windmill/commit/05106d7deeda92b7ae0e1708554f6dcb088c4a08))
+* reduce DB pool contention by eliminating dual-connection patterns ([#7861](https://github.com/windmill-labs/windmill/issues/7861)) ([4343b73](https://github.com/windmill-labs/windmill/commit/4343b73485843c3b482c21e60052f171ada9b843))
+* remove mold linker config that breaks Docker builds ([fea0954](https://github.com/windmill-labs/windmill/commit/fea0954f20f9f7c5a43b25b23df530faeac94999))
+* restart after empty branchone + improve UI ([#7838](https://github.com/windmill-labs/windmill/issues/7838)) ([b1d6ac9](https://github.com/windmill-labs/windmill/commit/b1d6ac91bd3af073feac0b31d97f7b4414d8786e))
+* use unprotected V8 platform to prevent SIGSEGV on x86_64 Linux ([90d0103](https://github.com/windmill-labs/windmill/commit/90d010347c65086b17f9802dd9a7d2da90dc68eb))
+* wmill workspace list to list local profiles ([#7843](https://github.com/windmill-labs/windmill/issues/7843)) ([f924a82](https://github.com/windmill-labs/windmill/commit/f924a8268461c49a0fec26e3216ec9546601b8de))
+
 ## [1.628.3](https://github.com/windmill-labs/windmill/compare/v1.628.2...v1.628.3) (2026-02-06)
 
 
