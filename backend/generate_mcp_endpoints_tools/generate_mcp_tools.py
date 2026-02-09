@@ -148,6 +148,11 @@ def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Opt
                     # Log warning when a required field is missing from schema properties
                     print(f"Warning: Required field '{field}' not found in body schema properties", file=sys.stderr)
     
+    # Sanitize empty schemas for JSON Schema draft 2020-12 compliance
+    path_params_schema = sanitize_empty_schemas(path_params_schema)
+    query_params_schema = sanitize_empty_schemas(query_params_schema)
+    body_schema = sanitize_empty_schemas(body_schema)
+
     # Convert enums to descriptions for client compatibility
     path_params_schema = convert_enums_to_descriptions(path_params_schema)
     query_params_schema = convert_enums_to_descriptions(query_params_schema)
@@ -318,6 +323,31 @@ def convert_enums_to_descriptions(schema: Any) -> Any:
         enum_desc = f"Possible values: {values_str}"
         result['description'] = f"{existing}. {enum_desc}" if existing else enum_desc
 
+    return result
+
+def sanitize_empty_schemas(schema: Any) -> Any:
+    """Replace empty {} schemas with valid JSON Schema draft 2020-12 equivalents.
+
+    In OpenAPI, {} means 'any value' but strict JSON Schema validators (e.g. Claude's API)
+    reject empty objects. This converts them to proper schemas.
+    """
+    if isinstance(schema, list):
+        return [sanitize_empty_schemas(item) for item in schema]
+    if not isinstance(schema, dict):
+        return schema
+
+    result = {}
+    for key, value in schema.items():
+        if key == 'additionalProperties' and isinstance(value, dict) and len(value) == 0:
+            result[key] = True
+        elif key == 'properties' and isinstance(value, dict):
+            # properties is a map of name -> schema; sanitize each property schema
+            result[key] = {
+                k: {"type": "object"} if isinstance(v, dict) and len(v) == 0 else sanitize_empty_schemas(v)
+                for k, v in value.items()
+            }
+        else:
+            result[key] = sanitize_empty_schemas(value)
     return result
 
 def extract_request_body_schema(request_body: Dict[str, Any], spec: Dict[str, Any], base_path: str = "") -> Optional[Dict[str, Any]]:
