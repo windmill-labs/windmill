@@ -900,6 +900,6 @@
 	:global(.bottom-splitpane-wrapper .splitpanes__splitter) {
 		background-color: transparent !important;
 		border: none !important;
-		opacity: 0 !important;
+		/* opacity: 0 !important; */
 	}
 </style>
