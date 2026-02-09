@@ -682,6 +682,7 @@ export function setInputCat(
 	enum_: any,
 	contentEncoding: string | undefined
 ): InputCat {
+	console.log(type, format, itemsType)
 	if (type === 'number' || type === 'integer') {
 		return 'number'
 	} else if (type === 'boolean') {

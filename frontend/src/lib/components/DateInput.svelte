@@ -19,31 +19,25 @@
 		autofocus = false,
 		minDate = undefined,
 		maxDate = undefined,
-		dateFormat = 'dd-MM-yyyy',
+		dateFormat = undefined,
 		disabled = false
 	}: Props = $props()
 
-	const defaultDateFormat = 'dd-MM-yyyy'
-	const defaultHtmlDateFormat = 'yyyy-MM-dd'
-
-	// Ensure we always have a valid format (prop can be undefined or empty string)
-	function getFormat() {
-		return dateFormat && dateFormat.length > 0 ? dateFormat : defaultDateFormat
-	}
+	const legacyDateFormat = 'dd-MM-yyyy'
+	const isoDateFormat = 'yyyy-MM-dd'
 
 	const dispatch = createEventDispatcher()
 
-	function computeDate(v: string | null | undefined, formatStr: string) {
+	function computeDate(v: string | null | undefined) {
 		if (v && v.length > 0) {
 			try {
-				let parsedDate = parse(v, formatStr, new Date())
+				let parsedDate = parse(v, isoDateFormat, new Date())
 				if (parsedDate.toString() === 'Invalid Date') {
-					console.debug('falling back to default html date format')
-					parsedDate = parse(v, defaultHtmlDateFormat, new Date())
+					parsedDate = parse(v, legacyDateFormat, new Date())
 				}
-				return format(parsedDate, defaultHtmlDateFormat)
+				return format(parsedDate, isoDateFormat)
 			} catch (error) {
-				console.error(`Failed to parse date: ${v} with format ${formatStr}`, error)
+				console.error(`Failed to parse date: ${v}`, error)
 				return undefined
 			}
 		} else {
@@ -51,14 +45,13 @@
 		}
 	}
 
-	let date: string | undefined = $derived(computeDate(value, getFormat()))
+	let date: string | undefined = $derived(computeDate(value))
 
 	function updateValue(newDate: string | undefined) {
 		if (newDate && isValid(new Date(newDate))) {
 			try {
 				const dateFromValue = new Date(newDate + 'T00:00:00')
-				const parsedDate = format(dateFromValue, getFormat())
-				value = parsedDate
+				value = format(dateFromValue, isoDateFormat)
 				dispatch('change', value)
 			} catch (error) {
 				console.error('Failed to parse date:', error)

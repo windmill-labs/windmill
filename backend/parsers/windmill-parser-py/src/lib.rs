@@ -497,6 +497,7 @@ fn parse_typ(id: &str, enums: &HashMap<String, EnumInfo>, module: Option<&[Stmt]
         "bytes" => Typ::Bytes,
         "datetime" => Typ::Datetime,
         "datetime.datetime" => Typ::Datetime,
+        "date" => Typ::Date,
         "datetime.date" => Typ::Date,
         "Sql" | "sql" => Typ::Sql,
         x @ _ if x.starts_with("DynSelect_") => {
