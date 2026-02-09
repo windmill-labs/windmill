@@ -1539,7 +1539,9 @@
 										error={webhookValidationError}
 									/>
 									{#if webhookValidationError}
-										<div class="text-xs text-red-600">{webhookValidationError}</div>
+										<div class="text-xs text-red-600 dark:text-red-400"
+											>{webhookValidationError}</div
+										>
 									{/if}
 								</div>
 							</div>

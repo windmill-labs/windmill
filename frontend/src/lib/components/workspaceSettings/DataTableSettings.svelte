@@ -136,6 +136,7 @@
 		} catch (e) {
 			sendUserToast(e, true)
 			console.error('Error saving data table settings', e)
+			throw e
 		}
 	}
 

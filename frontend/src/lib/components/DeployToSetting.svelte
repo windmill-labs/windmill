@@ -150,8 +150,7 @@
 
 <h3 class="mt-6 text-xs font-semibold text-emphasis">Workspace to link to</h3>
 <div class="flex min-w-0 mt-1">
-	<select bind:value={workspaceToDeployTo}
-	>
+	<select bind:value={workspaceToDeployTo}>
 		{#if deployableWorkspaces?.length == 0}
 			<option disabled>No workspace deployable to</option>
 		{/if}
@@ -203,7 +202,9 @@
 						</button>
 					</div>
 					{#if pathValidationErrors[idx]}
-						<div class="text-xs text-red-600 mt-1">{pathValidationErrors[idx]}</div>
+						<div class="text-xs text-red-600 dark:text-red-400 mt-1"
+							>{pathValidationErrors[idx]}</div
+						>
 					{/if}
 				</div>
 			{/each}

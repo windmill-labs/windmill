@@ -14,7 +14,7 @@
 </script>
 
 <div class={twMerge('flex flex-col gap-2 mb-6', className)}>
-	<div class="flex items-start justify-between gap-4">
+	<div class="flex items-center justify-between gap-4">
 		<div class="flex-1 min-w-0">
 			<h2 class="text-lg font-semibold text-emphasis">{title}</h2>
 		</div>
