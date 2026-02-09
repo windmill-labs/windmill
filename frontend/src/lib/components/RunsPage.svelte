@@ -776,12 +776,13 @@
 										items={[
 											{
 												displayName: 'Cancel jobs',
-												action: () => (manualSelectionMode = 'cancel')
+												action: () => ((manualSelectionMode = 'cancel'), (selectedIds = []))
 											},
 											{
 												displayName: 'Re-run jobs',
 												action: () => {
 													manualSelectionMode = 'rerun'
+													selectedIds = []
 													batchRerunOptionsIsOpen = true
 												}
 											},
@@ -850,7 +851,6 @@
 							<div
 								class="rounded-md bg-surface-tertiary border absolute inset-0 mb-4 flex flex-col items-center justify-center"
 							>
-								<div class="text-xs m-4 mb-2"> {selectedIds.length} jobs selected</div>
 								<Button
 									destructive
 									variant="accent"
