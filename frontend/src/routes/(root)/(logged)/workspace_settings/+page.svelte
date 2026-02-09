@@ -1209,7 +1209,7 @@
 
 		<div class="flex grow min-h-0 pb-4">
 			<!-- Sidebar Navigation -->
-			<div class="w-60 shrink-0 h-full overflow-auto pb-6 pr-4 -ml-2">
+			<div class="w-60 shrink-0 h-full overflow-auto pb-4 pr-4 -ml-2">
 				<SidebarNavigation
 					groups={navigationGroups}
 					selectedId={tab}
