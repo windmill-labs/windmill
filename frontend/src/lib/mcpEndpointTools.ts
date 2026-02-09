@@ -530,7 +530,7 @@ export const mcpEndpointTools: EndpointTool[] = [
     {
         name: "createScript",
         description: "create script",
-        instructions: "",
+        instructions: "To create a script, specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed.",
         path: "/w/{workspace}/scripts/create",
         method: "POST",
         pathParamsSchema: undefined,
@@ -666,7 +666,7 @@ export const mcpEndpointTools: EndpointTool[] = [
     {
         name: "runScriptByPath",
         description: "run script by path",
-        instructions: "",
+        instructions: "You should first use getScriptByPath to retrieve the script's schema and understand what arguments are expected.",
         path: "/w/{workspace}/jobs/run/p/{path}",
         method: "POST",
         pathParamsSchema: {
@@ -1056,7 +1056,7 @@ export const mcpEndpointTools: EndpointTool[] = [
     {
         name: "runFlowByPath",
         description: "run flow by path",
-        instructions: "",
+        instructions: "You should first use getFlowByPath to retrieve the flow's schema and understand what arguments are expected.",
         path: "/w/{workspace}/jobs/run/f/{path}",
         method: "POST",
         pathParamsSchema: {

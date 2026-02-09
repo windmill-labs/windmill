@@ -5919,6 +5919,7 @@ paths:
       summary: create script
       operationId: createScript
       x-mcp-tool: true
+      x-mcp-instructions: "To create a script, specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed."
       x-mcp-tool-include-fields:
         - path
         - content
@@ -6614,6 +6615,7 @@ paths:
       summary: run script by path
       operationId: runScriptByPath
       x-mcp-tool: true
+      x-mcp-instructions: "You should first use getScriptByPath to retrieve the script's schema and understand what arguments are expected."
       tags:
         - job
       parameters:
@@ -8559,6 +8561,7 @@ paths:
       summary: run flow by path
       operationId: runFlowByPath
       x-mcp-tool: true
+      x-mcp-instructions: "You should first use getFlowByPath to retrieve the flow's schema and understand what arguments are expected."
       tags:
         - job
       parameters:

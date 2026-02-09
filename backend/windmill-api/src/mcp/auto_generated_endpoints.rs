@@ -520,7 +520,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
     EndpointTool {
         name: Cow::Borrowed("createScript"),
         description: Cow::Borrowed("create script"),
-        instructions: Cow::Borrowed(""),
+        instructions: Cow::Borrowed("To create a script, specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed."),
         path: Cow::Borrowed("/w/{workspace}/scripts/create"),
         method: Cow::Borrowed("POST"),
         path_params_schema: None,
@@ -656,7 +656,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
     EndpointTool {
         name: Cow::Borrowed("runScriptByPath"),
         description: Cow::Borrowed("run script by path"),
-        instructions: Cow::Borrowed(""),
+        instructions: Cow::Borrowed("You should first use getScriptByPath to retrieve the script's schema and understand what arguments are expected."),
         path: Cow::Borrowed("/w/{workspace}/jobs/run/p/{path}"),
         method: Cow::Borrowed("POST"),
         path_params_schema: Some(serde_json::json!({
@@ -1046,7 +1046,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
     EndpointTool {
         name: Cow::Borrowed("runFlowByPath"),
         description: Cow::Borrowed("run flow by path"),
-        instructions: Cow::Borrowed(""),
+        instructions: Cow::Borrowed("You should first use getFlowByPath to retrieve the flow's schema and understand what arguments are expected."),
         path: Cow::Borrowed("/w/{workspace}/jobs/run/f/{path}"),
         method: Cow::Borrowed("POST"),
         path_params_schema: Some(serde_json::json!({
