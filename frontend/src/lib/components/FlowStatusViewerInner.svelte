@@ -24,7 +24,7 @@
 	import ModuleStatus from './ModuleStatus.svelte'
 	import { clone, isScriptPreview, msToSec, readFieldsRecursively, truncateRev } from '$lib/utils'
 	import JobArgs from './JobArgs.svelte'
-	import { ChevronDown, ExternalLink, Hourglass } from 'lucide-svelte'
+	import { ChevronDown, ExternalLink, Hourglass, Hash } from 'lucide-svelte'
 	import { deepEqual } from 'fast-equals'
 	import FlowTimeline from './FlowTimeline.svelte'
 	import { dfs } from './flows/dfs'
@@ -1295,6 +1295,21 @@
 	let totalEventsWaiting = $derived(
 		Object.values(suspendStatus?.val ?? {}).reduce((a, b) => a + (b?.nb ?? 0), 0)
 	)
+
+	// Hash navigation functions
+	function scrollToSection(sectionId: string) {
+		const element = document.getElementById(sectionId)
+		if (element) {
+			element.scrollIntoView({ behavior: 'smooth' })
+		}
+	}
+
+	function handleSectionHashClick(sectionId: string) {
+		const url = new URL(window.location.href)
+		url.hash = sectionId
+		window.history.pushState({}, '', url.toString())
+		scrollToSection(sectionId)
+	}
 </script>
 
 <JobLoader workspaceOverride={workspaceId} {noLogs} noCode bind:this={jobLoader} />
@@ -1375,8 +1390,24 @@
 					</div>
 				{:else}
 					<!-- Default single-column result -->
-					<h3 class="text-xs font-semibold text-emphasis mb-1">Result</h3>
-					<div class="flex-1 overflow-auto rounded-md border bg-surface-tertiary p-4 max-h-screen">
+					<div id="result">
+						<h3
+							class="text-sm font-semibold text-emphasis mb-1 flex items-center gap-2 group sticky top-0 bg-surface py-2 z-50"
+						>
+							Result
+							<button
+								type="button"
+								onclick={() => handleSectionHashClick('result')}
+								class="text-muted-foreground hover:text-primary transition-colors opacity-0 group-hover:opacity-100"
+								title="Link to this section"
+							>
+								<Hash size={14} />
+							</button>
+						</h3>
+					</div>
+					<div
+						class="flex-1 overflow-auto rounded-md border bg-surface-tertiary p-4 max-h-[calc(100vh-60px)]"
+					>
 						{#if job !== undefined && (job.result_stream || (job.type == 'CompletedJob' && 'result' in job && job.result !== undefined))}
 							<DisplayResult
 								workspaceId={job?.workspace_id}
