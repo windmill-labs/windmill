@@ -598,7 +598,7 @@
 				>
 			{/if}
 			{#if job?.type === 'CompletedJob' && job?.job_kind === 'flow' && selectedJobStep !== undefined && selectedJobStepIsTopLevel && job.id}
-				<FlowRestartButton
+					<FlowRestartButton
 					jobId={job.id}
 					{selectedJobStep}
 					{selectedJobStepType}
@@ -607,7 +607,7 @@
 						goto('/run/' + newJobId + '?workspace=' + $workspaceStore)
 					}}
 					flowPath={job.script_path}
-					flowVersionId={job.script_hash ? Number(job.script_hash) : undefined}
+					flowVersionId={job.script_hash ? parseInt(job.script_hash, 16) : undefined}
 					disabled={!$enterpriseLicense}
 					enterpriseOnly={!$enterpriseLicense}
 				/>

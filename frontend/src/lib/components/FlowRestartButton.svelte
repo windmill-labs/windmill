@@ -71,11 +71,10 @@
 				path: flowPath
 			})
 			if (flowVersions.length > 0) {
-				const match = flowVersionId
-					? flowVersions.find((v) => v.id === flowVersionId)
-					: undefined
+				const match = flowVersionId ? flowVersions.find((v) => v.id === flowVersionId) : undefined
 				runVersionInList = match !== undefined
-				selectedFlowVersion = match?.id ?? (flowVersionId ? RUN_VERSION_SENTINEL : flowVersions[0].id)
+				selectedFlowVersion =
+					match?.id ?? (flowVersionId ? RUN_VERSION_SENTINEL : flowVersions[0].id)
 			}
 			versionsLoaded = true
 		} catch (e) {
@@ -91,15 +90,8 @@
 
 	function formatVersionLabel(version: FlowVersion): string {
 		const name = emptyString(version.deployment_msg) ? `v${version.id}` : version.deployment_msg!
-		const date = new Date(version.created_at).toLocaleDateString()
-		return `${name} - ${date}`
+		return `${name} - ${new Date(version.created_at).toLocaleString()}`
 	}
-
-	$effect(() => {
-		if (flowPath) {
-			loadFlowVersions()
-		}
-	})
 
 	function handleRestart() {
 		if (onRestart) {
@@ -125,7 +117,11 @@
 					{@const isLatest = i === 0}
 					{@const isSameAsRun = flowVersionId !== undefined && version.id === flowVersionId}
 					<option value={version.id}>
-						{formatVersionLabel(version)}{isSameAsRun ? ' (Same as run)' : isLatest ? ' (Latest)' : ''}
+						{formatVersionLabel(version)}{isSameAsRun
+							? ' (Same as run)'
+							: isLatest
+								? ' (Latest)'
+								: ''}
 					</option>
 				{/each}
 			</select>
@@ -165,12 +161,13 @@
 		<Popover
 			floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}
 			disablePopup={!flowPath}
+			on:openChange={(e) => { if (e.detail) loadFlowVersions() }}
 		>
 			{#snippet trigger()}
 				{@render singleRestartButton()}
 			{/snippet}
 			{#snippet content()}
-				<div class="flex flex-col gap-4 text-primary p-4 min-w-80">
+				<div class="flex flex-col gap-4 text-primary p-4 w-80">
 					{@render flowVersionSelector()}
 
 					<Button variant="accent" onClick={handleRestart}>Restart</Button>
@@ -179,7 +176,10 @@
 		</Popover>
 	{/if}
 {:else}
-	<Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}>
+	<Popover
+		floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}
+		on:openChange={(e) => { if (e.detail) loadFlowVersions() }}
+	>
 		{#snippet trigger()}
 			<Button
 				title={`Re-start this flow from step ${selectedJobStep} (included).${enterpriseOnly ? ' This is a feature only available in enterprise edition.' : ''}`}
@@ -199,7 +199,7 @@
 			</Button>
 		{/snippet}
 		{#snippet content()}
-			<div class="flex flex-col gap-4 text-primary p-4 min-w-80">
+			<div class="flex flex-col gap-4 text-primary p-4 w-80">
 				<label>
 					<div class="pb-1 text-xs font-semibold text-emphasis"
 						>{selectedJobStepType == 'forloop' ? 'From iteration #' : 'From branch'}</div
