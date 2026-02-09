@@ -1,5 +1,1 @@
-<<<<<<< hc/airgapped-telemetry
-bb32d562120dc34bbd8d659d92a0d4b8824b8c4c
-=======
 cd2713671bc7ac5762302704ee4ecb81e023301f
->>>>>>> main
