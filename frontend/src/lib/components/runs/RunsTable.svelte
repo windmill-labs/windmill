@@ -6,7 +6,7 @@
 	import Tooltip from '../Tooltip.svelte'
 	import { AlertTriangle, CircleXIcon, ExternalLinkIcon, RefreshCwIcon } from 'lucide-svelte'
 	import Popover from '../Popover.svelte'
-	import { workspaceStore } from '$lib/stores'
+	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import './runs-grid.css'
 	import { useKeyPressed } from '$lib/svelte5Utils.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -14,6 +14,7 @@
 	import DropdownMenu from '../DropdownMenu.svelte'
 	import { isJobCancelable, isJobReRunnable } from '$lib/utils'
 	import { goto } from '$lib/navigation'
+	import DropdownV2 from '../DropdownV2.svelte'
 
 	interface Props {
 		//import InfiniteLoading from 'svelte-infinite-loading'
@@ -28,7 +29,9 @@
 		lastFetchWentToEnd?: boolean
 		perPage?: number
 		batchRerunOptionsIsOpen?: boolean
-		onCancel?: (jobIds: string[]) => void
+		onCancelJobs: (jobIds: string[]) => void
+		onCancelAllJobsMatchingFilters: () => void
+		onRerunAllJobsMatchingFilters: () => void
 	}
 
 	let {
@@ -41,8 +44,10 @@
 		activeLabel = null,
 		lastFetchWentToEnd = false,
 		perPage = 1000,
-		onCancel,
-		batchRerunOptionsIsOpen = $bindable()
+		onCancelJobs,
+		batchRerunOptionsIsOpen = $bindable(),
+		onCancelAllJobsMatchingFilters,
+		onRerunAllJobsMatchingFilters
 	}: Props = $props()
 
 	const keysPressed = useKeyPressed(['Shift', 'Control', 'Meta', 'A'], {
@@ -299,7 +304,23 @@
 			{#if showTag}
 				<div class="text-xs font-semibold leading-3">Tag</div>
 			{/if}
-			<div class=""></div>
+			<div class="relative">
+				{#if $userStore?.is_admin || $superadmin}
+					<DropdownV2
+						class="right-0 -bottom-2 absolute"
+						items={[
+							{
+								displayName: 'Cancel all jobs matching filters',
+								action: () => onCancelAllJobsMatchingFilters()
+							},
+							{
+								displayName: 'Re-run all jobs matching filters',
+								action: () => onRerunAllJobsMatchingFilters()
+							}
+						]}
+					/>
+				{/if}
+			</div>
 		</div>
 	</div>
 	<div
@@ -473,7 +494,7 @@
 							label: 'Cancel',
 							icon: CircleXIcon,
 							right: selectedIds.length >= 2 ? `${cancellable}` : undefined,
-							onClick: () => onCancel?.(selectedIdsPossibleActions.cancellableJobIds),
+							onClick: () => onCancelJobs?.(selectedIdsPossibleActions.cancellableJobIds),
 							onHover: (hover) => (hoveredDropdownAction = hover ? 'cancel' : null)
 						}
 					]

@@ -66,7 +66,6 @@
 	}
 
 	let selectedIds: string[] = $state([])
-	let loadingSelectedIds = $state(false)
 	let selectedWorkspace: string | undefined = $state(undefined)
 
 	let jobKinds: string | undefined = $derived(computeJobKinds(filters.job_kinds))
@@ -284,7 +283,7 @@
 		sendUserToast(`Canceled ${uuids.length} jobs`)
 	}
 
-	async function onCancelFilteredJobs() {
+	async function onCancelAllJobsMatchingFilters() {
 		forceCancelInPopup = false
 		askingForConfirmation = {
 			title: 'Confirm cancelling all jobs corresponding to the selected filters',
@@ -388,18 +387,23 @@
 		jobsLoader?.loadJobs(true, true)
 	}
 
-	async function onReRunFilteredJobs() {
+	async function onRerunAllJobsMatchingFilters() {
 		const selectedFilters = getSelectedFilters()
 		selectedIds = []
-		loadingSelectedIds = true
+
+		const loadingToast = sendUserToast('Loading job ids', 'info')
 
 		if (filters.job_kinds !== 'runs') {
 			sendUserToast('Batch re-run is only supported for scripts and flows', true)
+			loadingToast.destroy()
+			return
 		}
 		selectedIds = await JobService.listFilteredJobsUuids({
 			...selectedFilters,
 			jobKinds: 'script,flow'
 		})
+		loadingToast.destroy()
+		batchRerunOptionsIsOpen = true
 	}
 
 	async function onReRunSelectedJobs(batchReRunOptions: BatchReRunOptions) {
@@ -435,9 +439,6 @@
 		filters.job_kinds = 'all'
 	}
 
-	$effect(() => {
-		loadingSelectedIds && selectedIds.length && setTimeout(() => (loadingSelectedIds = false), 250)
-	})
 	$effect(() => {
 		if ($workspaceStore) {
 			untrack(() => {
@@ -752,7 +753,9 @@
 										bind:this={runsTable}
 										perPage={filters.per_page}
 										bind:batchRerunOptionsIsOpen
-										onCancel={onCancelSelectedJobs}
+										onCancelJobs={onCancelSelectedJobs}
+										{onCancelAllJobsMatchingFilters}
+										{onRerunAllJobsMatchingFilters}
 									></RunsTable>
 								{:else}
 									<div class="gap-1 flex flex-col">
