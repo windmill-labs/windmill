@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 // Deploy path filter validation
-export const deployPathFilterSchema = z
+const deployPathFilterSchema = z
 	.string()
 	.min(1, 'Path filter cannot be empty')
 	.refine(
@@ -32,22 +32,8 @@ export const deployPathFilterSchema = z
 		}
 	)
 
-// Deploy UI settings validation
-export const deployUiSettingsSchema = z.object({
-	include_path: z.array(deployPathFilterSchema),
-	include_type: z.object({
-		scripts: z.boolean(),
-		flows: z.boolean(),
-		apps: z.boolean(),
-		resources: z.boolean(),
-		variables: z.boolean(),
-		secrets: z.boolean(),
-		triggers: z.boolean()
-	})
-})
-
 // Webhook URL validation
-export const webhookUrlSchema = z
+const webhookUrlSchema = z
 	.string()
 	.refine(
 		(val) => {
@@ -67,49 +53,10 @@ export const webhookUrlSchema = z
 	.or(z.literal(''))
 
 // Workspace encryption key validation
-export const encryptionKeySchema = z.string().regex(/^[a-zA-Z0-9]{64}$/, {
+const encryptionKeySchema = z.string().regex(/^[a-zA-Z0-9]{64}$/, {
 	message: 'Encryption key must be exactly 64 characters long and contain only letters and numbers'
 })
 
-// Script/Flow path validation for handlers
-export const handlerPathSchema = z
-	.string()
-	.min(1, 'Handler path cannot be empty')
-	.refine(
-		(val) => {
-			// Basic path validation - should not start/end with slash and follow f/ or u/ pattern
-			const pathPattern = /^[fu]\/[a-zA-Z0-9/_-]+$/
-			return pathPattern.test(val)
-		},
-		{
-			message: 'Handler path must start with f/ or u/ and contain valid characters'
-		}
-	)
-	.optional()
-
-// Workspace ID validation
-export const workspaceIdSchema = z
-	.string()
-	.min(1, 'Workspace ID cannot be empty')
-	.regex(/^\w+(-\w+)*$/, {
-		message: 'ID can only contain letters, numbers and dashes and must not finish by a dash'
-	})
-
-// Complete workspace settings validation schema
-export const workspaceSettingsSchema = z.object({
-	deploy_to: z.string().optional(),
-	deploy_ui: deployUiSettingsSchema.optional(),
-	webhook: webhookUrlSchema,
-	error_handler_path: handlerPathSchema,
-	success_handler_path: handlerPathSchema
-})
-
-// Type exports for TypeScript
-export type DeployPathFilter = z.infer<typeof deployPathFilterSchema>
-export type DeployUiSettings = z.infer<typeof deployUiSettingsSchema>
-export type WorkspaceSettings = z.infer<typeof workspaceSettingsSchema>
-
-// Validation helper functions
 export function validateDeployPathFilters(paths: string[]): {
 	isValid: boolean
 	errors: Record<number, string>
