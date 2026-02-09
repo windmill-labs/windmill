@@ -69,7 +69,12 @@
 	})
 </script>
 
-<div class={twMerge(inline ? 'w-full' : 'sticky bottom-0 z-10 w-full border-t bg-surface-tertiary', className)}>
+<div
+	class={twMerge(
+		inline ? 'w-full' : 'sticky bottom-0 z-10 w-full border-t bg-surface-tertiary',
+		className
+	)}
+>
 	<div class={inline ? 'flex items-center justify-end' : 'flex items-center justify-end pt-4 pb-8'}>
 		<div class="flex items-center gap-2">
 			{#if hasUnsavedChanges}
@@ -78,7 +83,7 @@
 						variant="default"
 						size="sm"
 						startIcon={{ icon: X }}
-						on:click={onDiscard}
+						onClick={onDiscard}
 						disabled={isSaving}
 					>
 						Discard
@@ -95,7 +100,7 @@
 						classes: isSaving ? 'animate-spin' : ''
 					}}
 					disabled={!hasUnsavedChanges || disabled || isSaving}
-					on:click={handleSave}
+					onClick={handleSave}
 				>
 					{isSaving ? 'Saving...' : saveLabel}
 				</Button>
@@ -103,14 +108,14 @@
 				<!-- Success icon overlay -->
 				{#if saveStatus === 'success'}
 					<div
-						class="absolute inset-0 flex items-center justify-center bg-green-200 rounded-md"
+						class="absolute inset-0 flex items-center justify-center bg-green-200 dark:bg-green-800 rounded-md"
 						transition:fly={{ y: -10, duration: 300 }}
 					>
-						<CheckCircle2 class="w-5 h-5 text-green-700" />
+						<CheckCircle2 class="w-5 h-5 text-green-700 dark:text-green-300" />
 					</div>
 				{:else if saveStatus === 'error'}
 					<div
-						class="absolute inset-0 flex items-center justify-center bg-red-500 rounded-md"
+						class="absolute inset-0 flex items-center justify-center bg-red-500 dark:bg-red-700 rounded-md"
 						transition:fly={{ y: -10, duration: 300 }}
 					>
 						<AlertCircle class="w-5 h-5 text-white" />

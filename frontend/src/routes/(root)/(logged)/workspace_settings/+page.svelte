@@ -323,17 +323,6 @@
 		const savedString = orderedJsonStringify(replaceFalseWithUndefined(draftOrDeployed))
 		const currentString = orderedJsonStringify(replaceFalseWithUndefined(current))
 
-		console.log('Deploy Settings Dirty Detection:', {
-			tab,
-			savedValue: changes.savedValue,
-			modifiedValue: changes.modifiedValue,
-			draftOrDeployed,
-			current,
-			savedString,
-			currentString,
-			hasChanges: savedString !== currentString
-		})
-
 		return savedString !== currentString
 	})
 
@@ -1041,18 +1030,6 @@
 			workspaceToDeployTo: normalizeWorkspaceValue(workspaceToDeployTo),
 			deployUiSettings: deployUiSettings
 		}
-
-		console.log('getDeploySettingsInitialAndModifiedValues:', {
-			tab,
-			initialWorkspaceToDeployTo,
-			workspaceToDeployTo,
-			normalizedInitial: normalizeWorkspaceValue(initialWorkspaceToDeployTo),
-			normalizedCurrent: normalizeWorkspaceValue(workspaceToDeployTo),
-			initialDeployUiSettings,
-			deployUiSettings,
-			savedValue,
-			modifiedValue
-		})
 
 		return { savedValue, modifiedValue }
 	}

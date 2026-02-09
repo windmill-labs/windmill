@@ -33,7 +33,7 @@
 </script>
 
 <div class={twMerge('flex flex-col gap-6', className)}>
-	{#each groups as group}
+	{#each groups as group (group.title)}
 		<div class="flex flex-col gap-1">
 			{#if group.title}
 				<div class="text-sm font-semibold text-emphasis px-2 mb-1">
@@ -41,7 +41,7 @@
 				</div>
 			{/if}
 			<nav class="flex flex-col gap-0.5">
-				{#each group.items as item}
+				{#each group.items as item (item.id)}
 					{#if item.showIf !== false}
 						{@const isSelected = selectedId === item.id}
 						<Button
