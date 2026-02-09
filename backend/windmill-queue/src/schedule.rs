@@ -468,7 +468,7 @@ pub async fn push_scheduled_job<'c>(
     let push_authed = match push_authed {
         Some(a) => Some(a),
         None => {
-            obo_authed = windmill_common::auth::fetch_authed_from_permissioned_as_conn(
+            obo_authed = windmill_common::auth::fetch_authed_from_permissioned_as(
                 &permissioned_as,
                 email,
                 &schedule.workspace_id,
