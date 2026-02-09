@@ -944,13 +944,21 @@
 		publicAppRateLimitPerMinute = initialPublicAppRateLimitPerMinute
 	}
 
+	// Strip keys from extraArgs that are auto-managed by child components:
+	// - 'slack': computed by ErrorOrRecoveryHandler's $effect based on handler type
+	// - 'channel_name': display metadata stripped by SchemaForm's removeExtraKey()
+	function normalizeHandlerExtraArgs(args: Record<string, any>): Record<string, any> {
+		const { slack: _, channel_name: __, ...rest } = args
+		return rest
+	}
+
 	// Function to check if there are unsaved changes in error handler settings
 	function getErrorHandlerSettingsInitialAndModifiedValues() {
 		const savedValue = {
 			errorHandlerSelected: initialErrorHandlerSelected,
 			errorHandlerScriptPath: initialErrorHandlerScriptPath,
 			errorHandlerItemKind: initialErrorHandlerItemKind,
-			errorHandlerExtraArgs: initialErrorHandlerExtraArgs,
+			errorHandlerExtraArgs: normalizeHandlerExtraArgs(initialErrorHandlerExtraArgs),
 			errorHandlerMutedOnCancel: initialErrorHandlerMutedOnCancel,
 			errorHandlerMutedOnUserPath: initialErrorHandlerMutedOnUserPath
 		}
@@ -959,7 +967,7 @@
 			errorHandlerSelected: errorHandlerSelected,
 			errorHandlerScriptPath: errorHandlerScriptPath,
 			errorHandlerItemKind: errorHandlerItemKind,
-			errorHandlerExtraArgs: errorHandlerExtraArgs,
+			errorHandlerExtraArgs: normalizeHandlerExtraArgs(errorHandlerExtraArgs),
 			errorHandlerMutedOnCancel: errorHandlerMutedOnCancel,
 			errorHandlerMutedOnUserPath: errorHandlerMutedOnUserPath
 		}
