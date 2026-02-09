@@ -43,6 +43,7 @@
 		runsTimeframes,
 		useUrlSyncedTimeframe
 	} from './runs/TimeframeSelect.svelte'
+	import RunOption from './runs/RunOption.svelte'
 
 	interface Props {
 		/** Initial path from route params (e.g., /runs/u/user/script) */
@@ -581,16 +582,19 @@
 				/>
 			</div>
 
-			<div class="py-2 flex items-start gap-x-4 gap-y-2 flex-row grow min-w-0 justify-end">
+			<div class="py-2 flex items-start gap-2 flex-row grow min-w-0 justify-end">
 				<!-- Dates -->
-				<div class="mt-auto">
+				<RunOption label="Reset" for="reset" noLabel>
+					<Button variant="default" unifiedSize="md" onClick={reset}>Reset</Button>
+				</RunOption>
+				<RunOption label="Timeframe" for="timeframe" noLabel>
 					<TimeframeSelect
 						onClick={() => jobsLoader?.loadJobs(true)}
 						loading={jobsLoader?.loading}
 						items={runsTimeframes}
 						bind:value={_timeframe.timeframe}
 					/>
-				</div>
+				</RunOption>
 
 				<!-- Filters 1 -->
 				<div class="flex flex-row gap-2">
