@@ -16,7 +16,6 @@
 		AppService,
 		FlowService,
 		FolderService,
-		RawAppService,
 		ResourceService,
 		ScheduleService,
 		ScriptService,
@@ -112,7 +111,6 @@
 			} else if (kind === 'folder') {
 				const folder = await FolderService.getFolder({ workspace, name: path.slice(2) })
 				return folder.summary
-
 			}
 		} catch (error) {
 			console.error(`Failed to fetch summary for ${kind}:${path}`, error)
@@ -122,7 +120,9 @@
 
 	async function fetchSummaries(diffs: WorkspaceItemDiff[]) {
 		// Only fetch summaries for scripts, flows, and apps
-		const itemsToFetch = diffs.filter((diff) => ['script', 'flow', 'app', 'folder'].includes(diff.kind))
+		const itemsToFetch = diffs.filter((diff) =>
+			['script', 'flow', 'app', 'folder'].includes(diff.kind)
+		)
 
 		for (const diff of itemsToFetch) {
 			const key = getItemKey(diff)
@@ -197,21 +197,6 @@
 					path: path
 				})
 				return resource.schema
-			} else if (kind == 'raw_app') {
-				throw new Error('Raw app deploy not implemented yet')
-				// const app = await RawAppService.getRawAppData({
-				// 	workspace: workspace,
-				// 	path: path
-				// })
-				// if (alreadyExists) {
-				// }
-				// await RawAppService.updateRawApp({
-				// 	workspace: workspace,
-				// 	path: path,
-				// 	requestBody: {
-				// 		path: path
-				// 	}
-				// })
 			} else if (kind == 'folder') {
 				const folder = await FolderService.getFolder({
 					workspace: workspace,
@@ -289,11 +274,6 @@
 			})
 		} else if (kind == 'app') {
 			exists = await AppService.existsApp({
-				workspace: workspace,
-				path: path
-			})
-		} else if (kind == 'raw_app') {
-			exists = await RawAppService.existsRawApp({
 				workspace: workspace,
 				path: path
 			})
@@ -572,21 +552,6 @@
 						}
 					})
 				}
-			} else if (kind == 'raw_app') {
-				throw new Error('Raw app deploy not implemented yet')
-				// const app = await RawAppService.getRawAppData({
-				// 	workspace: workspaceFrom,
-				// 	path: path
-				// })
-				// if (alreadyExists) {
-				// }
-				// await RawAppService.updateRawApp({
-				// 	workspace: workspaceFrom,
-				// 	path: path,
-				// 	requestBody: {
-				// 		path: path
-				// 	}
-				// })
 			} else if (kind == 'folder') {
 				await FolderService.createFolder({
 					workspace: workspaceToDeployTo,
@@ -915,7 +880,6 @@
 							kind={diff.kind}
 							canFavorite={false}
 							workspaceId=""
-							starred={false}
 						>
 							{#snippet customSummary()}
 								{#if oldSummary != newSummary && isSelectable && existsInBothWorkspaces}

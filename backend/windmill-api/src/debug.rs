@@ -21,22 +21,23 @@
 //! - A completed job entry in v2_job_completed
 //! - An audit log entry identical to script preview runs
 
-use axum::{extract::Path, routing::{get, post}, Extension, Json, Router};
+use axum::{
+    extract::Path,
+    routing::{get, post},
+    Extension, Json, Router,
+};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use chrono::Utc;
-use ed25519_dalek::{SigningKey, Signer};
+use ed25519_dalek::{Signer, SigningKey};
 use serde::{Deserialize, Serialize};
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use sqlx::types::Json as SqlxJson;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
-    db::UserDB,
-    error::JsonResult,
-    jobs::JobKind,
-    scripts::ScriptLang,
+    db::UserDB, error::JsonResult, jobs::JobKind, scripts::ScriptLang,
     users::username_to_permissioned_as,
 };
 
@@ -279,7 +280,8 @@ async fn sign_debug_request(
         job_id,
         w_id,
         now,
-        SqlxJson(serde_json::json!({"debug_session": true, "language": request.language})) as SqlxJson<serde_json::Value>,
+        SqlxJson(serde_json::json!({"debug_session": true, "language": request.language}))
+            as SqlxJson<serde_json::Value>,
     )
     .execute(&mut *tx)
     .await?;
@@ -400,10 +402,13 @@ async fn sign_expression(
         ActionKind::Execute,
         &w_id,
         Some(&resource),
-        Some([
-            ("job_id", request.job_id.as_str()),
-            ("expression", request.expression.as_str()),
-        ].into()),
+        Some(
+            [
+                ("job_id", request.job_id.as_str()),
+                ("expression", request.expression.as_str()),
+            ]
+            .into(),
+        ),
     )
     .await?;
 

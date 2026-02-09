@@ -126,6 +126,7 @@ pub fn global_service() -> Router {
     Router::new()
         .route("/hub/list", get(list_hub_apps))
         .route("/hub/get/:id", get(get_hub_app_by_id))
+        .route("/hub/get_raw/:id", get(get_hub_raw_app_by_id))
 }
 
 #[derive(FromRow, Deserialize, Serialize)]
@@ -1312,6 +1313,24 @@ pub async fn get_hub_app_by_id(
     Ok(Json(value))
 }
 
+pub async fn get_hub_raw_app_by_id(
+    Path(id): Path<i32>,
+    Extension(db): Extension<DB>,
+) -> JsonResult<Box<serde_json::value::RawValue>> {
+    let value = http_get_from_hub(
+        &HTTP_CLIENT,
+        &format!("{}/raw_apps/{}/json", *HUB_BASE_URL.read().await, id),
+        false,
+        None,
+        Some(&db),
+    )
+    .await?
+    .json()
+    .await
+    .map_err(to_anyhow)?;
+    Ok(Json(value))
+}
+
 async fn delete_app(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1392,7 +1411,7 @@ async fn delete_app(
         deployed_object,
         Some(format!("App '{}' deleted", path)),
         true,
-    None,
+        None,
     )
     .await?;
 
@@ -1909,6 +1928,15 @@ async fn execute_component(
             (policy, policy_triggerables)
         }
     };
+
+    // Check rate limit for anonymous (public) executions
+    if matches!(policy.execution_mode, ExecutionMode::Anonymous) && opt_authed.is_none() {
+        if let Some(limit) = crate::workspaces::get_public_app_rate_limit(&db, &w_id).await? {
+            if limit > 0 {
+                crate::public_app_rate_limit::check_and_increment(&w_id, limit)?;
+            }
+        }
+    }
 
     // Execution is publisher and an user is authenticated: check if the user is authorized to
     // execute the app.

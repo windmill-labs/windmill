@@ -28,7 +28,6 @@
 {#if item.type == 'script'}
 	<ScriptRow
 		bind:deleteConfirmedCallback
-		starred={item.starred ?? false}
 		marked={item.marked}
 		on:change={() => dispatch('scriptChanged')}
 		script={item}
@@ -46,7 +45,6 @@
 {:else if item.type == 'flow'}
 	<FlowRow
 		bind:deleteConfirmedCallback
-		starred={item.starred ?? false}
 		marked={item.marked}
 		on:change={() => dispatch('flowChanged')}
 		flow={item}
@@ -63,7 +61,6 @@
 {:else if item.type == 'app'}
 	<AppRow
 		bind:deleteConfirmedCallback
-		starred={item.starred ?? false}
 		marked={item.marked}
 		on:change={() => dispatch('appChanged')}
 		app={item}
@@ -75,12 +72,8 @@
 	/>
 {:else if item.type == 'raw_app'}
 	<RawAppRow
-		bind:deleteConfirmedCallback
-		starred={item.starred ?? false}
 		marked={item.marked}
-		on:change={() => dispatch('rawAppChanged')}
 		app={item}
-		{moveDrawer}
 		{shareModal}
 		{deploymentDrawer}
 		{depth}

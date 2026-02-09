@@ -18,6 +18,7 @@ pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_assets))
         .route("/list_by_usages", post(list_assets_by_usages))
+        .route("/list_favorites", get(list_favorites))
 }
 
 #[derive(Deserialize)]
@@ -158,6 +159,7 @@ async fn list_assets(
                         'path', asset.usage_path,
                         'kind', asset.usage_kind,
                         'access_type', asset.usage_access_type,
+                        'columns', asset.columns,
                         'created_at', asset.created_at,
                         'metadata', (CASE
                             WHEN asset.usage_kind = 'job' THEN
@@ -182,7 +184,13 @@ async fn list_assets(
         FROM asset
         INNER JOIN asset_summary ON asset.path = asset_summary.path AND asset.kind = asset_summary.kind
         LEFT JOIN resource ON asset.kind = 'resource'
-          AND array_to_string((string_to_array(asset.path, '/'))[1:3], '/') = resource.path
+          AND (
+            -- Extract base path before '?' for ?table= syntax
+            CASE
+              WHEN asset.path LIKE '%?%' THEN split_part(asset.path, '?', 1)
+              ELSE asset.path
+            END
+          ) = resource.path
           AND resource.workspace_id = $1
         LEFT JOIN v2_job job ON asset.usage_kind = 'job'
           AND asset.usage_path = job.id::text
@@ -266,11 +274,12 @@ async fn list_assets_by_usages(
     for usage in body.usages {
         let assets = sqlx::query_scalar!(
             r#"SELECT
-                jsonb_build_object(
+                jsonb_strip_nulls(jsonb_build_object(
                     'path', path,
                     'kind', kind,
-                    'access_type', usage_access_type
-                ) as "list!: _"
+                    'access_type', usage_access_type,
+                    'columns', columns
+                )) as "list!: _"
             FROM asset
             WHERE workspace_id = $1 AND usage_path = $2 AND usage_kind = $3
             ORDER BY path, kind"#,
@@ -283,4 +292,30 @@ async fn list_assets_by_usages(
         assets_vec.push(assets);
     }
     Ok(Json(assets_vec))
+}
+
+async fn list_favorites(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<Vec<Value>> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    let favorites = sqlx::query_scalar!(
+        r#"SELECT
+            jsonb_strip_nulls(jsonb_build_object(
+                'path', favorite.path
+            )) as "favorite_asset!: _"
+        FROM favorite
+        WHERE favorite.workspace_id = $1
+          AND favorite.usr = $2
+          AND favorite_kind = 'asset'
+        "#,
+        &w_id,
+        &authed.username
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    Ok(Json(favorites))
 }

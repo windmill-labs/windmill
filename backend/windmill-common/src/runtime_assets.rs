@@ -1,13 +1,19 @@
-use std::{collections::HashMap, sync::OnceLock};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::OnceLock,
+};
 
 use itertools::Itertools;
 use serde_json::value::RawValue;
-use sqlx::{Pool, Postgres, QueryBuilder};
+use sqlx::{types::Json, Pool, Postgres, QueryBuilder};
 use tokio::sync::mpsc;
 use windmill_parser::asset_parser::parse_asset_syntax;
 
 use crate::{
-    assets::{merge_asset_usage_access_types, AssetKind, AssetUsageAccessType, AssetUsageKind},
+    assets::{
+        merge_asset_columns, merge_asset_usage_access_types, AssetKind, AssetUsageAccessType,
+        AssetUsageKind,
+    },
     error,
 };
 
@@ -46,7 +52,7 @@ fn extract_assets_from_raw_value(
         if prefix {
             let s = serde_json::from_str::<String>(value.get()).ok()?;
             let (kind, path) = parse_asset_syntax(&s, false)?;
-            assets.push(RuntimeAsset { path: path.to_string(), kind: kind.into() });
+            assets.push(RuntimeAsset { path: path.to_string(), kind: crate::assets::asset_kind_from_parser(kind) });
         }
     }
     None
@@ -59,6 +65,7 @@ pub struct InsertRuntimeAssetParams {
     pub job_id: uuid::Uuid,
     pub access_type: Option<AssetUsageAccessType>,
     pub created_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub columns: Option<BTreeMap<String, AssetUsageAccessType>>,
 }
 
 async fn insert_runtime_assets(
@@ -66,13 +73,14 @@ async fn insert_runtime_assets(
     assets: &[InsertRuntimeAssetParams],
 ) -> error::Result<()> {
     for chunk in assets.chunks(1000) {
-        let mut query_builder = QueryBuilder::new("INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind, created_at) ");
+        let mut query_builder = QueryBuilder::new("INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, columns, usage_kind, created_at) ");
         query_builder.push_values(chunk, |mut b, asset| {
             b.push_bind(&asset.workspace_id)
                 .push_bind(&asset.asset_path)
                 .push_bind(&asset.asset_kind)
                 .push_bind(&asset.access_type)
                 .push_bind(asset.job_id.to_string())
+                .push_bind(Json(&asset.columns))
                 .push_bind(&AssetUsageKind::Job)
                 .push_bind(&asset.created_at);
         });
@@ -104,6 +112,7 @@ async fn prune_runtime_assets(
             // Same job used the same asset multiple times
             last_same_job.access_type =
                 merge_asset_usage_access_types(last_same_job.access_type, asset.access_type);
+            last_same_job.columns = merge_asset_columns(&last_same_job.columns, &asset.columns);
         } else if v.len() < max_n {
             v.push(asset);
         }
@@ -169,7 +178,7 @@ pub fn init_runtime_asset_loop(
     match RUNTIME_ASSET_SENDER.set(tx) {
         Ok(_) => {}
         Err(_) => {
-            tracing::error!("RUNTIME_ASSET_SENDER was already set, skipping");
+            tracing::debug!("RUNTIME_ASSET_SENDER was already set, skipping");
             return;
         }
     }

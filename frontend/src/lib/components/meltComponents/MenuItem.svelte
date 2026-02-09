@@ -57,6 +57,7 @@
 		{target}
 		onfocusin={onFocusIn}
 		onfocusout={onFocusOut}
+		onclick={onClick}
 	>
 		{@render children?.()}
 	</a>

@@ -24,11 +24,6 @@ on:
         description: "Tag the image"
         required: true
         default: "test"
-      nsjail:
-        description: "Build nsjail image (true, false)"
-        required: false
-        default: false
-        type: boolean
       slim:
         description: "Build slim image (true, false)"
         required: false
@@ -97,7 +92,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            features=embedding,parquet,openidconnect,jemalloc,license,http_trigger,zip,oauth2,dind,postgres_trigger,mqtt_trigger,websocket,smtp,native_trigger,static_frontend,agent_worker_server,all_languages,deno_core,mcp,bedrock,private
+            features=ce
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }}
             ${{ steps.meta-public.outputs.tags }}
@@ -106,7 +101,7 @@ jobs:
 
   build_ee:
     runs-on: ubicloud
-    if: (github.event_name != 'workflow_dispatch') || (github.event.inputs.ee || github.event.inputs.nsjail)
+    if: (github.event_name != 'workflow_dispatch') || github.event.inputs.ee
     steps:
       - uses: actions/checkout@v4
         with:
@@ -159,7 +154,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,agent_worker_server,tantivy,license,http_trigger,zip,oauth2,kafka,sqs_trigger,nats,otel,dind,postgres_trigger,mqtt_trigger,gcp_trigger,websocket,smtp,native_trigger,static_frontend,all_languages,private,deno_core,mcp,bedrock
+            features=ee
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}
             ${{ steps.meta-ee-public.outputs.tags }}
@@ -370,67 +365,10 @@ jobs:
   #         ignore-unchanged: true
   #         only-fixed: true
 
-  build_ee_nsjail:
-    needs: [build_ee]
-    runs-on: ubicloud
-    if: (github.event_name != 'pull_request') && ((github.event_name != 'workflow_dispatch') || (github.event.inputs.ee || github.event.inputs.nsjail))
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: ${{ github.ref }}
-
-      # - name: Set up Docker Buildx
-      #   uses: docker/setup-buildx-action@v2
-
-      - uses: depot/setup-action@v1
-
-      - name: Docker meta
-        id: meta-ee-public
-        uses: docker/metadata-action@v5
-        with:
-          images: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-nsjail
-          flavor: |
-            latest=false
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,enable=true,priority=100,prefix=,suffix=,format=short
-            type=ref,event=branch
-            type=ref,event=pr
-
-      - name: Login to registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Update Dockerfile image reference
-        run: |
-          sed -i 's|FROM ghcr.io/windmill-labs/windmill-ee:dev|FROM ghcr.io/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}|' ./docker/DockerfileNsjail
-          cat ./docker/DockerfileNsjail | grep "FROM"
-
-      - name: Build and push publicly ee
-        uses: depot/build-push-action@v1
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          file: "./docker/DockerfileNsjail"
-          tags: |
-            ${{ steps.meta-ee-public.outputs.tags }}
-          labels: |
-            ${{ steps.meta-ee-public.outputs.labels }}
-            org.opencontainers.image.licenses=Windmill-Enterprise-License
-
   publish_ecr_s3:
-    needs: [build_ee_nsjail]
+    needs: [build_ee_full]
     runs-on: ubicloud-standard-2-arm
-    if: (github.event_name != 'pull_request') && (github.event_name !=
-      'workflow_dispatch')
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -449,23 +387,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: get git hash
-        if: github.event_name != 'pull_request'
-        id: git_hash
-        run: |
-          git_hash=$(git rev-parse --short "$GITHUB_SHA")
-          echo "GIT_HASH=${git_hash:0:7}" >> "$GITHUB_OUTPUT"
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - uses: shrink/actions-docker-extract@v3
-        if: github.event_name != 'pull_request'
         id: extract
         with:
           image: |-
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-nsjail:${{ steps.git_hash.outputs.GIT_HASH }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-full:${{ steps.version.outputs.VERSION }}
           path: "/static_frontend/."
 
       - uses: reggionick/s3-deploy@v4
-        if: github.event_name != 'pull_request'
         with:
           folder: ${{ steps.extract.outputs.destination }}
           bucket: windmill-frontend

@@ -84,10 +84,11 @@ use windmill_common::{
 use windmill_common::{client::AuthedClient, global_settings::APP_WORKSPACED_ROUTE_SETTING};
 use windmill_queue::{cancel_job, get_queued_job_v2, SameWorkerPayload};
 use windmill_worker::{
-    handle_job_error, JobCompletedSender, OtelTracingProxySettings, SameWorkerSender,
-    BUNFIG_INSTALL_SCOPES, INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, MAVEN_REPOS,
-    NO_DEFAULT_MAVEN, NPM_CONFIG_REGISTRY, NUGET_CONFIG, OTEL_TRACING_PROXY_SETTINGS,
-    PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL,
+    result_processor::handle_job_error, JobCompletedSender, OtelTracingProxySettings,
+    SameWorkerSender, BUNFIG_INSTALL_SCOPES, INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT,
+    KEEP_JOB_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN, NPM_CONFIG_REGISTRY, NUGET_CONFIG,
+    OTEL_TRACING_PROXY_SETTINGS, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, POWERSHELL_REPO_PAT,
+    POWERSHELL_REPO_URL,
 };
 
 #[cfg(feature = "parquet")]
@@ -1883,7 +1884,6 @@ pub async fn monitor_db(
     };
 
     let update_min_worker_version_f = async {
-        #[cfg(not(feature = "test_job_debouncing"))]
         windmill_common::min_version::update_min_version(
             conn,
             _worker_mode,
@@ -2103,7 +2103,11 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
     } else {
         let wc = WORKER_CONFIG.read().await;
         let config = config.unwrap();
-        let has_dedicated = config.dedicated_worker.is_some() || config.dedicated_workers.as_ref().is_some_and(|dws| !dws.is_empty());
+        let has_dedicated = config.dedicated_worker.is_some()
+            || config
+                .dedicated_workers
+                .as_ref()
+                .is_some_and(|dws| !dws.is_empty());
         if *wc != config || has_dedicated {
             if kill_if_change {
                 if has_dedicated

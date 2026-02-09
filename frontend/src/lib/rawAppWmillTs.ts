@@ -90,5 +90,6 @@ window.addEventListener('message', (e) => {
 		} else {
 			console.error('No job found for', e.data.reqId)
 		}
+		delete reqs[e.data.reqId]
 	}
 })
