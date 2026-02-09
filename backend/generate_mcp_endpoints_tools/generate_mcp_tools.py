@@ -142,10 +142,15 @@ def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Opt
                     # Log warning when a required field is missing from schema properties
                     print(f"Warning: Required field '{field}' not found in body schema properties", file=sys.stderr)
     
+    # Convert enums to descriptions for client compatibility
+    path_params_schema = convert_enums_to_descriptions(path_params_schema)
+    query_params_schema = convert_enums_to_descriptions(query_params_schema)
+    body_schema = convert_enums_to_descriptions(body_schema)
+
     # Return None for empty schemas
-    path_params_schema = path_params_schema if path_params_schema['properties'] else None
-    query_params_schema = query_params_schema if query_params_schema['properties'] else None
-    
+    path_params_schema = path_params_schema if path_params_schema and path_params_schema.get('properties') else None
+    query_params_schema = query_params_schema if query_params_schema and query_params_schema.get('properties') else None
+
     return (path_params_schema, query_params_schema, body_schema)
 
 # Cache for loaded external files
@@ -244,6 +249,25 @@ def resolve_schema_refs(schema: Dict[str, Any], spec: Dict[str, Any], base_path:
             resolved_schema[key] = value
 
     return resolved_schema
+
+def convert_enums_to_descriptions(schema: Any) -> Any:
+    """Recursively convert enum arrays into description text to avoid client compatibility issues."""
+    if isinstance(schema, list):
+        return [convert_enums_to_descriptions(item) for item in schema]
+    if not isinstance(schema, dict):
+        return schema
+
+    result = {}
+    for key, value in schema.items():
+        if key == 'enum':
+            # Move enum values into description instead
+            values_str = ', '.join(str(v) for v in value)
+            existing = result.get('description', '')
+            enum_desc = f"Possible values: {values_str}"
+            result['description'] = f"{existing}. {enum_desc}" if existing else enum_desc
+        else:
+            result[key] = convert_enums_to_descriptions(value)
+    return result
 
 def extract_request_body_schema(request_body: Dict[str, Any], spec: Dict[str, Any], base_path: str = "") -> Optional[Dict[str, Any]]:
     """Extract request body schema from OpenAPI requestBody definition and resolve refs."""

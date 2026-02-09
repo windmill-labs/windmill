@@ -493,42 +493,11 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 },
                 "language": {
                         "type": "string",
-                        "enum": [
-                                "python3",
-                                "deno",
-                                "go",
-                                "bash",
-                                "powershell",
-                                "postgresql",
-                                "mysql",
-                                "bigquery",
-                                "snowflake",
-                                "mssql",
-                                "oracledb",
-                                "graphql",
-                                "nativets",
-                                "bun",
-                                "php",
-                                "rust",
-                                "ansible",
-                                "csharp",
-                                "nu",
-                                "java",
-                                "ruby",
-                                "duckdb",
-                                "bunnative"
-                        ]
+                        "description": "Possible values: python3, deno, go, bash, powershell, postgresql, mysql, bigquery, snowflake, mssql, oracledb, graphql, nativets, bun, php, rust, ansible, csharp, nu, java, ruby, duckdb, bunnative"
                 },
                 "kind": {
                         "type": "string",
-                        "enum": [
-                                "script",
-                                "failure",
-                                "trigger",
-                                "command",
-                                "approval",
-                                "preprocessor"
-                        ]
+                        "description": "Possible values: script, failure, trigger, command, approval, preprocessor"
                 },
                 "tag": {
                         "type": "string"
@@ -1076,42 +1045,14 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 },
                 "language": {
                         "type": "string",
-                        "enum": [
-                                "python3",
-                                "deno",
-                                "go",
-                                "bash",
-                                "powershell",
-                                "postgresql",
-                                "mysql",
-                                "bigquery",
-                                "snowflake",
-                                "mssql",
-                                "oracledb",
-                                "graphql",
-                                "nativets",
-                                "bun",
-                                "php",
-                                "rust",
-                                "ansible",
-                                "csharp",
-                                "nu",
-                                "java",
-                                "ruby",
-                                "duckdb",
-                                "bunnative"
-                        ]
+                        "description": "Possible values: python3, deno, go, bash, powershell, postgresql, mysql, bigquery, snowflake, mssql, oracledb, graphql, nativets, bun, php, rust, ansible, csharp, nu, java, ruby, duckdb, bunnative"
                 },
                 "tag": {
                         "type": "string"
                 },
                 "kind": {
                         "type": "string",
-                        "enum": [
-                                "code",
-                                "identity",
-                                "http"
-                        ]
+                        "description": "Possible values: code, identity, http"
                 },
                 "dedicated_worker": {
                         "type": "boolean"
@@ -1171,22 +1112,8 @@ pub fn all_tools() -> Vec<EndpointTool> {
                         "description": "mask to filter by trigger path"
                 },
                 "trigger_kind": {
-                        "description": "trigger kind (schedule, http, websocket...)",
-                        "type": "string",
-                        "enum": [
-                                "webhook",
-                                "default_email",
-                                "email",
-                                "schedule",
-                                "http",
-                                "websocket",
-                                "postgres",
-                                "kafka",
-                                "nats",
-                                "mqtt",
-                                "sqs",
-                                "gcp"
-                        ]
+                        "description": "trigger kind (schedule, http, websocket...). Possible values: webhook, default_email, email, schedule, http, websocket, postgres, kafka, nats, mqtt, sqs, gcp",
+                        "type": "string"
                 },
                 "script_hash": {
                         "type": "string",
@@ -1379,22 +1306,8 @@ pub fn all_tools() -> Vec<EndpointTool> {
                         "description": "number of items to return for a given page (default 30, max 100)"
                 },
                 "trigger_kind": {
-                        "description": "trigger kind (schedule, http, websocket...)",
-                        "type": "string",
-                        "enum": [
-                                "webhook",
-                                "default_email",
-                                "email",
-                                "schedule",
-                                "http",
-                                "websocket",
-                                "postgres",
-                                "kafka",
-                                "nats",
-                                "mqtt",
-                                "sqs",
-                                "gcp"
-                        ]
+                        "description": "trigger kind (schedule, http, websocket...). Possible values: webhook, default_email, email, schedule, http, websocket, postgres, kafka, nats, mqtt, sqs, gcp",
+                        "type": "string"
                 },
                 "is_skipped": {
                         "type": "boolean",
