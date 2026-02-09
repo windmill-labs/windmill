@@ -297,15 +297,21 @@ def convert_enums_to_descriptions(schema: Any) -> Any:
         return schema
 
     result = {}
+    enum_value = None
+    # First pass: copy all non-enum keys so 'description' is available before enum processing
     for key, value in schema.items():
         if key == 'enum':
-            # Move enum values into description instead
-            values_str = ', '.join(str(v) for v in value)
-            existing = result.get('description', '')
-            enum_desc = f"Possible values: {values_str}"
-            result['description'] = f"{existing}. {enum_desc}" if existing else enum_desc
+            enum_value = value
         else:
             result[key] = convert_enums_to_descriptions(value)
+
+    # Second pass: process enum using the already-copied description
+    if enum_value is not None:
+        values_str = ', '.join(str(v) for v in enum_value)
+        existing = result.get('description', '')
+        enum_desc = f"Possible values: {values_str}"
+        result['description'] = f"{existing}. {enum_desc}" if existing else enum_desc
+
     return result
 
 def extract_request_body_schema(request_body: Dict[str, Any], spec: Dict[str, Any], base_path: str = "") -> Optional[Dict[str, Any]]:
