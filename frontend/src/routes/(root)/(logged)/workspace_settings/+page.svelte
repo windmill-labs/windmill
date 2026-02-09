@@ -1298,7 +1298,7 @@
 				},
 				{
 					id: 'premium',
-					label: 'Premium Plans',
+					label: 'Premium plans',
 					aiId: 'workspace-settings-premium',
 					aiDescription: 'Premium plans workspace settings',
 					showIf: isCloudHosted()
@@ -1306,11 +1306,11 @@
 			]
 		},
 		{
-			title: 'Integration & Deployment',
+			title: 'Integration & deployment',
 			items: [
 				{
 					id: 'git_sync',
-					label: 'Git Sync',
+					label: 'Git sync',
 					aiId: 'workspace-settings-git-sync',
 					aiDescription: 'Git sync workspace settings'
 				},
@@ -1342,14 +1342,14 @@
 			items: [
 				{
 					id: 'error_handler',
-					label: 'Error / Success Handler',
+					label: 'Error / success handler',
 					aiId: 'workspace-settings-error-handler',
 					aiDescription: 'Error and success handler workspace settings',
 					isEE: true
 				},
 				{
 					id: 'critical_alerts',
-					label: 'Critical Alerts',
+					label: 'Critical alerts',
 					aiId: 'workspace-settings-critical-alerts',
 					aiDescription: 'Critical alerts workspace settings',
 					isEE: true
@@ -1363,17 +1363,17 @@
 			]
 		},
 		{
-			title: 'Data & Storage',
+			title: 'Data & storage',
 			items: [
 				{
 					id: 'windmill_data_tables',
-					label: 'Data Tables',
+					label: 'Data tables',
 					aiId: 'workspace-settings-windmill-data-tables',
 					aiDescription: 'Data tables workspace settings'
 				},
 				{
 					id: 'windmill_lfs',
-					label: 'Object Storage (S3)',
+					label: 'Object storage (S3)',
 					aiId: 'workspace-settings-windmill-lfs',
 					aiDescription: 'Object Storage (S3) workspace settings'
 				}
@@ -1403,7 +1403,7 @@
 				},
 				{
 					id: 'native_triggers',
-					label: 'Native Triggers (Beta)',
+					label: 'Native triggers (Beta)',
 					aiId: 'workspace-settings-integrations',
 					aiDescription: 'Workspace integrations for native triggers'
 				}
@@ -1448,7 +1448,7 @@
 						<WorkspaceUserSettings />
 					{:else if tab == 'deploy_to'}
 						<SettingsPageHeader
-							title="Link this Workspace to another Staging / Prod Workspace"
+							title="Link this workspace to another staging / prod workspace"
 							description="Connecting this workspace with another staging/production workspace enables web-based deployment to that workspace."
 							link="https://www.windmill.dev/docs/core_concepts/staging_prod"
 						/>
@@ -1747,7 +1747,7 @@
 						</div>
 					{:else if tab == 'webhook'}
 						<SettingsPageHeader
-							title="Workspace Webhook"
+							title="Workspace webhook"
 							description="Connect your Windmill workspace to an external service to sync or get notified about any change."
 							link="https://www.windmill.dev/docs/core_concepts/webhooks#workspace-webhook"
 						/>
@@ -1782,7 +1782,7 @@
 						/>
 					{:else if tab == 'error_handler'}
 						<SettingsPageHeader
-							title="Workspace Error / Success Handler"
+							title="Workspace error / success handler"
 							description="Configure handlers that automatically execute when scripts or flows in the workspace fail or succeed."
 							link="https://www.windmill.dev/docs/core_concepts/error_handling#workspace-error-handler"
 						/>
@@ -1792,7 +1792,7 @@
 							</Alert>
 						{/if}
 
-						<Section label="Error Handler">
+						<Section label="Error handler">
 							<div class="flex flex-col gap-6">
 								<ErrorOrRecoveryHandler
 									noMargin
@@ -1869,7 +1869,7 @@
 
 						<div class="pt-8 border-b mb-8"></div>
 
-						<Section label="Success Handler">
+						<Section label="Success handler">
 							<div class="flex flex-col gap-6">
 								<div class="flex flex-col gap-4">
 									<div class="flex flex-row gap-2 items-center">
@@ -1944,7 +1944,7 @@ export async function main(
 						</Section>
 					{:else if tab == 'critical_alerts'}
 						<SettingsPageHeader
-							title="Workspace Critical Alerts"
+							title="Workspace critical alerts"
 							description="Critical alerts within the scope of a workspace are sent to the workspace admins through a UI notification."
 							link="https://www.windmill.dev/docs/core_concepts/critical_alerts"
 						/>
@@ -2053,7 +2053,7 @@ export async function main(
 							<ScriptPicker bind:scriptPath={workspaceDefaultAppPath} itemKind="app" />
 						</Label>
 
-						<Label label="Rate Limiting" class="mt-6">
+						<Label label="Rate limiting" class="mt-6">
 							<div class="text-xs text-secondary">
 								Limit the number of public (anonymous) app executions per minute per server. Set to
 								0 or leave empty to disable. This is a per-server limit, not a global limit.
@@ -2088,7 +2088,7 @@ export async function main(
 						{/if}
 					{:else if tab == 'encryption'}
 						<SettingsPageHeader
-							title="Workspace Secret Encryption"
+							title="Workspace secret encryption"
 							description="When updating the encryption key of a workspace, all secrets will be re-encrypted with the new key and the previous key will be replaced by the new one. If you're manually updating the key to match another workspace key from another Windmill instance, make sure not to use the 'SECRET_SALT' environment variable or, if you're using it, make sure it the salt matches across both instances."
 							link="https://www.windmill.dev/docs/core_concepts/workspace_secret_encryption"
 						/>

@@ -109,7 +109,7 @@
 </Portal>
 
 <SettingsPageHeader
-	title="Workspace Object Storage (S3/Azure Blob/GCS)"
+	title="Workspace object storage (S3/Azure Blob/GCS)"
 	description="Connect your Windmill workspace to your S3 bucket, Azure Blob storage, or Google Cloud Storage to enable users to read and write from object storage without having to have access to the credentials."
 	link="https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill#workspace-object-storage"
 />
