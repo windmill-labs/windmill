@@ -244,7 +244,26 @@ pub fn permissioned_as_to_username(permissioned_as: &str) -> String {
     }
 }
 
-pub async fn fetch_authed_from_permissioned_as_conn(
+pub fn fetch_authed_from_permissioned_as<'a, A>(
+    permissioned_as: &'a str,
+    email: &'a str,
+    w_id: &'a str,
+    db: A,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Authed>> + Send + 'a>>
+where
+    A: sqlx::Acquire<'a, Database = sqlx::Postgres> + Send + 'a,
+{
+    Box::pin(async move {
+        let mut conn = db
+            .acquire()
+            .await
+            .map_err(|e| Error::internal_err(format!("acquiring connection: {e:#}")))?;
+
+        fetch_authed_from_permissioned_as_inner(permissioned_as, email, w_id, &mut *conn).await
+    })
+}
+
+async fn fetch_authed_from_permissioned_as_inner(
     permissioned_as: &str,
     email: &str,
     w_id: &str,
@@ -405,12 +424,7 @@ pub async fn create_token_for_owner(
         Ok(Some(jp)) => jp.into(),
         _ => {
             tracing::warn!("Could not get permissions for job {job_id} from job_perms table, getting permissions directly...");
-            let mut conn = db
-                .acquire()
-                .await
-                .map_err(|e| Error::internal_err(format!("acquiring connection: {e:#}")))?;
-
-            fetch_authed_from_permissioned_as_conn(owner, email, w_id, &mut conn)
+            fetch_authed_from_permissioned_as(owner, email, w_id, db)
                 .await
                 .map_err(|e| {
                     Error::internal_err(format!(

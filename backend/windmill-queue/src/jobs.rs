@@ -53,7 +53,7 @@ use windmill_common::utils::{calculate_hash, configure_client, now_from_db};
 use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
 
 use windmill_common::{
-    auth::{fetch_authed_from_permissioned_as_conn, permissioned_as_to_username},
+    auth::permissioned_as_to_username,
     cache::{self, FlowData},
     db::{Authed, UserDB},
     error::{self, Error},
@@ -1827,7 +1827,7 @@ pub async fn try_schedule_next_job<'c>(
         &job.workspace_id
     );
 
-    let schedule_authed = windmill_common::auth::fetch_authed_from_permissioned_as_conn(
+    let schedule_authed = windmill_common::auth::fetch_authed_from_permissioned_as(
         &windmill_common::users::username_to_permissioned_as(&schedule.edited_by),
         &schedule.email,
         &job.workspace_id,
@@ -5418,7 +5418,7 @@ async fn push_inner<'c, 'd>(
             if authed.is_some() {
                 tracing::warn!("Authed passed to push is not the same as permissioned_as, refetching direclty permissions for job {job_id}...")
             }
-            fetch_authed_from_permissioned_as_conn(
+            windmill_common::auth::fetch_authed_from_permissioned_as(
                 &permissioned_as,
                 email,
                 workspace_id,
