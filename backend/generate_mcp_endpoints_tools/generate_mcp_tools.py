@@ -55,7 +55,7 @@ def flatten_allof_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
 
     return merged
 
-def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Optional[Dict[str, Any]], spec: Dict[str, Any], required_fields: Optional[List[str]] = None, base_path: str = "", include_fields: Optional[List[str]] = None, opaque_fields: Optional[List[str]] = None) -> tuple:
+def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Optional[Dict[str, Any]], spec: Dict[str, Any], required_fields: Optional[List[str]] = None, base_path: str = "", include_fields: Optional[List[str]] = None, opaque_fields: Optional[List[str]] = None, exclude_query_params: bool = False) -> tuple:
     """Extract separate schemas for path parameters, query parameters, and request body."""
     path_params_schema = {
         "type": "object",
@@ -98,7 +98,7 @@ def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Opt
                 path_params_schema['properties'][param_name] = param_schema
                 if param_required:
                     path_params_schema['required'].append(param_name)
-        elif param_in == 'query':
+        elif param_in == 'query' and not exclude_query_params:
             query_params_schema['properties'][param_name] = param_schema
             if param_required:
                 query_params_schema['required'].append(param_name)
@@ -368,6 +368,7 @@ def find_mcp_tools(spec: Dict[str, Any]) -> List[Dict[str, Any]]:
                     'required_fields': operation.get('x-mcp-required-fields', []),
                     'include_fields': operation.get('x-mcp-tool-include-fields'),
                     'opaque_fields': operation.get('x-mcp-tool-opaque-fields'),
+                    'exclude_query_params': operation.get('x-mcp-tool-exclude-query-params', False),
                 }
                 tools.append(tool)
     
@@ -405,7 +406,7 @@ export const mcpEndpointTools: EndpointTool[] = [];
         # Generate separate schemas
         path_params_schema, query_params_schema, body_schema, path_field_renames, query_field_renames, body_field_renames = extract_separate_schemas(
             tool['parameters'], tool['requestBody'], spec, tool['required_fields'], base_path,
-            tool.get('include_fields'), tool.get('opaque_fields')
+            tool.get('include_fields'), tool.get('opaque_fields'), tool.get('exclude_query_params', False)
         )
 
         # Convert schemas to TypeScript - use 'as const' for better type inference
@@ -481,7 +482,7 @@ pub fn all_tools() -> Vec<EndpointTool> {{
         # Generate separate schemas
         path_params_schema, query_params_schema, body_schema, path_field_renames, query_field_renames, body_field_renames = extract_separate_schemas(
             tool['parameters'], tool['requestBody'], spec, tool['required_fields'], base_path,
-            tool.get('include_fields'), tool.get('opaque_fields')
+            tool.get('include_fields'), tool.get('opaque_fields'), tool.get('exclude_query_params', False)
         )
 
         path_params_rust = schema_to_rust_value(path_params_schema)

@@ -6616,6 +6616,7 @@ paths:
       operationId: runScriptByPath
       x-mcp-tool: true
       x-mcp-instructions: "You should first use getScriptByPath to retrieve the script's schema and understand what arguments are expected."
+      x-mcp-tool-exclude-query-params: true
       tags:
         - job
       parameters:
@@ -8562,6 +8563,7 @@ paths:
       operationId: runFlowByPath
       x-mcp-tool: true
       x-mcp-instructions: "You should first use getFlowByPath to retrieve the flow's schema and understand what arguments are expected."
+      x-mcp-tool-exclude-query-params: true
       tags:
         - job
       parameters:

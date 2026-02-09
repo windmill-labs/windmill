@@ -670,47 +670,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "path"
         ]
 })),
-        query_params_schema: Some(serde_json::json!({
-        "type": "object",
-        "properties": {
-                "scheduled_for": {
-                        "type": "string",
-                        "format": "date-time",
-                        "description": "when to schedule this job (leave empty for immediate run)"
-                },
-                "scheduled_in_secs": {
-                        "type": "integer",
-                        "description": "schedule the script to execute in the number of seconds starting now"
-                },
-                "skip_preprocessor": {
-                        "type": "boolean",
-                        "description": "skip the preprocessor"
-                },
-                "parent_job": {
-                        "type": "string",
-                        "format": "uuid",
-                        "description": "The parent job that is at the origin and responsible for the execution of this script if any"
-                },
-                "tag": {
-                        "type": "string",
-                        "description": "Override the tag to use"
-                },
-                "cache_ttl": {
-                        "type": "string",
-                        "description": "Override the cache time to live (in seconds). Can not be used to disable caching, only override with a new cache ttl"
-                },
-                "job_id": {
-                        "type": "string",
-                        "format": "uuid",
-                        "description": "The job id to assign to the created job. if missing, job is chosen randomly using the ULID scheme. If a job id already exists in the queue or as a completed job, the request to create one will fail (Bad Request)"
-                },
-                "invisible_to_owner": {
-                        "type": "boolean",
-                        "description": "make the run invisible to the the script owner (default false)"
-                }
-        },
-        "required": []
-})),
+        query_params_schema: None,
         body_schema: Some(serde_json::json!({
         "type": "object",
         "description": "The arguments to pass to the script or flow",
@@ -1060,52 +1020,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "path"
         ]
 })),
-        query_params_schema: Some(serde_json::json!({
-        "type": "object",
-        "properties": {
-                "scheduled_for": {
-                        "type": "string",
-                        "format": "date-time",
-                        "description": "when to schedule this job (leave empty for immediate run)"
-                },
-                "scheduled_in_secs": {
-                        "type": "integer",
-                        "description": "schedule the script to execute in the number of seconds starting now"
-                },
-                "skip_preprocessor": {
-                        "type": "boolean",
-                        "description": "skip the preprocessor"
-                },
-                "parent_job": {
-                        "type": "string",
-                        "format": "uuid",
-                        "description": "The parent job that is at the origin and responsible for the execution of this script if any"
-                },
-                "tag": {
-                        "type": "string",
-                        "description": "Override the tag to use"
-                },
-                "job_id": {
-                        "type": "string",
-                        "format": "uuid",
-                        "description": "The job id to assign to the created job. if missing, job is chosen randomly using the ULID scheme. If a job id already exists in the queue or as a completed job, the request to create one will fail (Bad Request)"
-                },
-                "include_header": {
-                        "type": "string",
-                        "description": "List of headers's keys (separated with ',') whove value are added to the args\nHeader's key lowercased and '-'' replaced to '_' such that 'Content-Type' becomes the 'content_type' arg key\n"
-                },
-                "invisible_to_owner": {
-                        "type": "boolean",
-                        "description": "make the run invisible to the the flow owner (default false)"
-                },
-                "memory_id": {
-                        "type": "string",
-                        "format": "uuid",
-                        "description": "memory ID for chat-enabled flows"
-                }
-        },
-        "required": []
-})),
+        query_params_schema: None,
         body_schema: Some(serde_json::json!({
         "type": "object",
         "description": "The arguments to pass to the script or flow",
