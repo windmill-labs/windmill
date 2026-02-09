@@ -5919,6 +5919,15 @@ paths:
       summary: create script
       operationId: createScript
       x-mcp-tool: true
+      x-mcp-tool-include-fields:
+        - path
+        - content
+        - language
+        - summary
+        - description
+        - kind
+        - tag
+        - deployment_message
       tags:
         - script
       parameters:
@@ -7548,6 +7557,17 @@ paths:
       summary: create flow
       operationId: createFlow
       x-mcp-tool: true
+      x-mcp-tool-include-fields:
+        - path
+        - summary
+        - description
+        - value
+        - schema
+        - tag
+        - deployment_message
+      x-mcp-tool-opaque-fields:
+        - value
+        - schema
       tags:
         - flow
       parameters:
@@ -7579,6 +7599,17 @@ paths:
       summary: update flow
       operationId: updateFlow
       x-mcp-tool: true
+      x-mcp-tool-include-fields:
+        - path
+        - summary
+        - description
+        - value
+        - schema
+        - tag
+        - deployment_message
+      x-mcp-tool-opaque-fields:
+        - value
+        - schema
       tags:
         - flow
       parameters:
@@ -7880,6 +7911,15 @@ paths:
       summary: create app
       operationId: createApp
       x-mcp-tool: true
+      x-mcp-tool-include-fields:
+        - path
+        - value
+        - summary
+        - policy
+        - deployment_message
+      x-mcp-tool-opaque-fields:
+        - value
+        - policy
       tags:
         - app
       parameters:
@@ -8228,6 +8268,15 @@ paths:
       summary: update app
       operationId: updateApp
       x-mcp-tool: true
+      x-mcp-tool-include-fields:
+        - path
+        - value
+        - summary
+        - policy
+        - deployment_message
+      x-mcp-tool-opaque-fields:
+        - value
+        - policy
       tags:
         - app
       parameters:

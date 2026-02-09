@@ -29,7 +29,33 @@ def load_openapi_spec(file_path: str) -> Dict[str, Any]:
         print(f"Error loading OpenAPI spec: {e}", file=sys.stderr)
         sys.exit(1)
 
-def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Optional[Dict[str, Any]], spec: Dict[str, Any], required_fields: Optional[List[str]] = None, base_path: str = "") -> tuple:
+def flatten_allof_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
+    """Flatten an allOf schema into a single object schema by merging all properties."""
+    if 'allOf' not in schema:
+        return schema
+
+    merged = {"type": "object", "properties": {}, "required": []}
+
+    def collect_from(s: Dict[str, Any]):
+        if 'allOf' in s:
+            for item in s['allOf']:
+                if isinstance(item, dict):
+                    collect_from(item)
+        if 'properties' in s:
+            merged['properties'].update(s['properties'])
+        if 'required' in s and isinstance(s['required'], list):
+            merged['required'].extend(s['required'])
+        if 'description' in s and 'description' not in merged:
+            merged['description'] = s['description']
+
+    collect_from(schema)
+
+    if not merged['required']:
+        del merged['required']
+
+    return merged
+
+def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Optional[Dict[str, Any]], spec: Dict[str, Any], required_fields: Optional[List[str]] = None, base_path: str = "", include_fields: Optional[List[str]] = None, opaque_fields: Optional[List[str]] = None) -> tuple:
     """Extract separate schemas for path parameters, query parameters, and request body."""
     path_params_schema = {
         "type": "object",
@@ -80,7 +106,28 @@ def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Opt
     # Process request body if present
     if request_body:
         body_schema = extract_request_body_schema(request_body, spec, base_path)
-        
+
+        # Flatten allOf schemas into a single object schema for filtering
+        if body_schema and (include_fields is not None or opaque_fields):
+            body_schema = flatten_allof_schema(body_schema)
+
+        # Apply include_fields filter: only keep listed top-level properties
+        if body_schema and include_fields is not None and 'properties' in body_schema:
+            body_schema['properties'] = {
+                k: v for k, v in body_schema['properties'].items()
+                if k in include_fields
+            }
+            if 'required' in body_schema:
+                body_schema['required'] = [
+                    r for r in body_schema['required'] if r in include_fields
+                ]
+
+        # Apply opaque_fields: simplify listed properties to {"type": "object"}
+        if body_schema and opaque_fields and 'properties' in body_schema:
+            for field in opaque_fields:
+                if field in body_schema['properties']:
+                    body_schema['properties'][field] = {"type": "object"}
+
         # If we have required fields specified and a body schema, update the required array
         if body_schema and required_fields:
             if 'required' not in body_schema:
@@ -250,6 +297,8 @@ def find_mcp_tools(spec: Dict[str, Any]) -> List[Dict[str, Any]]:
                     'parameters': operation.get('parameters', []),
                     'requestBody': operation.get('requestBody'),
                     'required_fields': operation.get('x-mcp-required-fields', []),
+                    'include_fields': operation.get('x-mcp-tool-include-fields'),
+                    'opaque_fields': operation.get('x-mcp-tool-opaque-fields'),
                 }
                 tools.append(tool)
     
@@ -286,7 +335,8 @@ export const mcpEndpointTools: EndpointTool[] = [];
 
         # Generate separate schemas
         path_params_schema, query_params_schema, body_schema = extract_separate_schemas(
-            tool['parameters'], tool['requestBody'], spec, tool['required_fields'], base_path
+            tool['parameters'], tool['requestBody'], spec, tool['required_fields'], base_path,
+            tool.get('include_fields'), tool.get('opaque_fields')
         )
 
         # Convert schemas to TypeScript - use 'as const' for better type inference
@@ -352,7 +402,8 @@ pub fn all_tools() -> Vec<EndpointTool> {{
 
         # Generate separate schemas
         path_params_schema, query_params_schema, body_schema = extract_separate_schemas(
-            tool['parameters'], tool['requestBody'], spec, tool['required_fields'], base_path
+            tool['parameters'], tool['requestBody'], spec, tool['required_fields'], base_path,
+            tool.get('include_fields'), tool.get('opaque_fields')
         )
 
         path_params_rust = schema_to_rust_value(path_params_schema)
