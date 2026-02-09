@@ -271,7 +271,9 @@ export const mcpEndpointTools: EndpointTool[] = [
                         "type": "string",
                         "description": "The path to the resource"
                 },
-                "value": {},
+                "value": {
+                        "type": "object"
+                },
                 "description": {
                         "type": "string",
                         "description": "The description of the resource"
@@ -340,7 +342,9 @@ export const mcpEndpointTools: EndpointTool[] = [
                         "type": "string",
                         "description": "The new description of the resource"
                 },
-                "value": {},
+                "value": {
+                        "type": "object"
+                },
                 "resource_type": {
                         "type": "string",
                         "description": "The new resource_type to be associated with the resource"
@@ -684,7 +688,7 @@ export const mcpEndpointTools: EndpointTool[] = [
         bodySchema: {
         "type": "object",
         "description": "The arguments to pass to the script or flow",
-        "additionalProperties": {}
+        "additionalProperties": true
 },
         pathFieldRenames: undefined,
         queryFieldRenames: undefined,
@@ -1034,7 +1038,7 @@ export const mcpEndpointTools: EndpointTool[] = [
         bodySchema: {
         "type": "object",
         "description": "The arguments to pass to the script or flow",
-        "additionalProperties": {}
+        "additionalProperties": true
 },
         pathFieldRenames: undefined,
         queryFieldRenames: undefined,
@@ -1066,7 +1070,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "language": {
                         "type": "string",
@@ -1406,7 +1410,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "enabled": {
                         "type": "boolean",
@@ -1427,7 +1431,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "on_failure_extra_args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "on_recovery": {
                         "type": "string",
@@ -1440,7 +1444,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "on_recovery_extra_args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "on_success": {
                         "type": "string",
@@ -1449,7 +1453,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "on_success_extra_args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "ws_error_handler_muted": {
                         "type": "boolean",
@@ -1588,7 +1592,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "on_failure": {
                         "type": "string",
@@ -1605,7 +1609,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "on_failure_extra_args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "on_recovery": {
                         "type": "string",
@@ -1618,7 +1622,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "on_recovery_extra_args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "on_success": {
                         "type": "string",
@@ -1627,7 +1631,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "on_success_extra_args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "ws_error_handler_muted": {
                         "type": "boolean",

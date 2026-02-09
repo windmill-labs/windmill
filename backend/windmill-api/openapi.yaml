@@ -1049,7 +1049,8 @@ paths:
             schema:
               type: object
               properties:
-                value: {}
+                value:
+                  type: object
 
       responses:
         "200":
@@ -4722,7 +4723,8 @@ paths:
             schema:
               type: object
               properties:
-                value: {}
+                value:
+                  type: object
       responses:
         "200":
           description: resource value updated
@@ -4892,7 +4894,8 @@ paths:
                   properties:
                     path:
                       type: string
-                    value: {}
+                    value:
+                      type: object
                   required:
                     - path
                     - value
@@ -5428,7 +5431,8 @@ paths:
                     properties:
                       summary:
                         type: string
-                      value: {}
+                      value:
+                        type: object
                     required:
                       - summary
                       - value
@@ -5456,7 +5460,8 @@ paths:
                     properties:
                       summary:
                         type: string
-                      value: {}
+                      value:
+                        type: object
                     required:
                       - summary
                       - value
@@ -5875,7 +5880,8 @@ paths:
                 typ:
                   type: string
                   enum: ["flow", "script", "app"]
-                value: {}
+                value:
+                  type: object
               required:
                 - path
                 - typ
@@ -7204,7 +7210,8 @@ paths:
                   properties:
                     path:
                       type: string
-                    value: {}
+                    value:
+                      type: object
                   required:
                     - path
                     - value
@@ -7851,7 +7858,8 @@ paths:
                   properties:
                     path:
                       type: string
-                    value: {}
+                    value:
+                      type: object
                   required:
                     - path
                     - value
@@ -7937,7 +7945,8 @@ paths:
               properties:
                 path:
                   type: string
-                value: {}
+                value:
+                  type: object
                 summary:
                   type: string
                 policy:
@@ -7982,7 +7991,8 @@ paths:
                   properties:
                     path:
                       type: string
-                    value: {}
+                    value:
+                      type: object
                     summary:
                       type: string
                     policy:
@@ -8297,7 +8307,8 @@ paths:
                   type: string
                 summary:
                   type: string
-                value: {}
+                value:
+                  type: object
                 policy:
                   $ref: "#/components/schemas/Policy"
                 deployment_message:
@@ -8336,7 +8347,8 @@ paths:
                       type: string
                     summary:
                       type: string
-                    value: {}
+                    value:
+                      type: object
                     policy:
                       $ref: "#/components/schemas/Policy"
                     deployment_message:
@@ -17959,7 +17971,7 @@ components:
     ScriptArgs:
       type: object
       description: The arguments to pass to the script or flow
-      additionalProperties: {}
+      additionalProperties: true
 
     Input:
       type: object
@@ -19193,7 +19205,8 @@ components:
         path:
           type: string
           description: The path to the resource
-        value: {}
+        value:
+          type: object
         description:
           type: string
           description: The description of the resource
@@ -19214,7 +19227,8 @@ components:
         description:
           type: string
           description: The new description of the resource
-        value: {}
+        value:
+          type: object
         resource_type:
           type: string
           description: The new resource_type to be associated with the resource
@@ -19230,7 +19244,8 @@ components:
           type: string
         resource_type:
           type: string
-        value: {}
+        value:
+          type: object
         is_oauth:
           type: boolean
         extra_perms:
@@ -19258,7 +19273,8 @@ components:
           type: string
         resource_type:
           type: string
-        value: {}
+        value:
+          type: object
         is_oauth:
           type: boolean
         extra_perms:
@@ -20090,7 +20106,8 @@ components:
             properties:
               key:
                 type: string
-              value: {}
+              value:
+                type: object
             required:
               - key
               - value
@@ -20149,7 +20166,8 @@ components:
             properties:
               key:
                 type: string
-              value: {}
+              value:
+                type: object
             required:
               - key
               - value
@@ -20209,7 +20227,8 @@ components:
             properties:
               key:
                 type: string
-              value: {}
+              value:
+                type: object
             required:
               - key
               - value
@@ -21018,7 +21037,8 @@ components:
             properties:
               key:
                 type: string
-              value: {}
+              value:
+                type: object
             required:
               - key
               - value
@@ -21078,7 +21098,8 @@ components:
             properties:
               key:
                 type: string
-              value: {}
+              value:
+                type: object
             required:
               - key
               - value
@@ -21124,7 +21145,8 @@ components:
             properties:
               key:
                 type: string
-              value: {}
+              value:
+                type: object
             required:
               - key
               - value

@@ -261,7 +261,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
                         "type": "string",
                         "description": "The path to the resource"
                 },
-                "value": {},
+                "value": {
+                        "type": "object"
+                },
                 "description": {
                         "type": "string",
                         "description": "The description of the resource"
@@ -330,7 +332,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
                         "type": "string",
                         "description": "The new description of the resource"
                 },
-                "value": {},
+                "value": {
+                        "type": "object"
+                },
                 "resource_type": {
                         "type": "string",
                         "description": "The new resource_type to be associated with the resource"
@@ -674,7 +678,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
         body_schema: Some(serde_json::json!({
         "type": "object",
         "description": "The arguments to pass to the script or flow",
-        "additionalProperties": {}
+        "additionalProperties": true
 })),
         path_field_renames: None,
         query_field_renames: None,
@@ -1024,7 +1028,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
         body_schema: Some(serde_json::json!({
         "type": "object",
         "description": "The arguments to pass to the script or flow",
-        "additionalProperties": {}
+        "additionalProperties": true
 })),
         path_field_renames: None,
         query_field_renames: None,
@@ -1056,7 +1060,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "language": {
                         "type": "string",
@@ -1399,7 +1403,7 @@ You should get the schema of the script or flow before creating the schedule to 
                 "args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "enabled": {
                         "type": "boolean",
@@ -1420,7 +1424,7 @@ You should get the schema of the script or flow before creating the schedule to 
                 "on_failure_extra_args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "on_recovery": {
                         "type": "string",
@@ -1433,7 +1437,7 @@ You should get the schema of the script or flow before creating the schedule to 
                 "on_recovery_extra_args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "on_success": {
                         "type": "string",
@@ -1442,7 +1446,7 @@ You should get the schema of the script or flow before creating the schedule to 
                 "on_success_extra_args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "ws_error_handler_muted": {
                         "type": "boolean",
@@ -1584,7 +1588,7 @@ You should get the schema of the script or flow before updating the schedule to 
                 "args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "on_failure": {
                         "type": "string",
@@ -1601,7 +1605,7 @@ You should get the schema of the script or flow before updating the schedule to 
                 "on_failure_extra_args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "on_recovery": {
                         "type": "string",
@@ -1614,7 +1618,7 @@ You should get the schema of the script or flow before updating the schedule to 
                 "on_recovery_extra_args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "on_success": {
                         "type": "string",
@@ -1623,7 +1627,7 @@ You should get the schema of the script or flow before updating the schedule to 
                 "on_success_extra_args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "ws_error_handler_muted": {
                         "type": "boolean",
