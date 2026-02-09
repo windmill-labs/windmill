@@ -55,7 +55,8 @@
           nodejs
           postgresql
           pkg-config
-          clang
+          llvmPackages_18.clang
+          mold
           cmake
         ];
         coursier = pkgs.fetchFromGitHub {
@@ -303,6 +304,12 @@
           # RUST_LOG = "debug";
           # RUST_LOG = "kube=debug";
 
+          # Override cargo linker to use clang 18 (stdenv brings clang 21 which causes SIGSEGV with mold)
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER = "${pkgs.llvmPackages_18.clang}/bin/clang";
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER = "${pkgs.llvmPackages_18.clang}/bin/clang";
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS = "-C link-arg=-fuse-ld=mold -C link-arg=-Wl,-rpath,${pkgs.lib.makeLibraryPath [ pkgs.openssl ]}";
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS = "-C link-arg=-fuse-ld=mold -C link-arg=-Wl,-rpath,${pkgs.lib.makeLibraryPath [ pkgs.openssl ]}";
+
           # See this issue: https://github.com/NixOS/nixpkgs/issues/370494
           # Allows to build jemalloc on nixos
           CFLAGS = "-Wno-error=int-conversion";
@@ -310,6 +317,7 @@
           # Need to tell bindgen where to find libclang
           LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
 
+          # LD_LIBRARY_PATH set in shellHook with a wrapper to avoid leaking into git/ssh
           # LD_LIBRARY_PATH = "${pkgs.gcc.lib}/lib";
 
           # Set C flags for Rust's bindgen program. Unlike ordinary C
