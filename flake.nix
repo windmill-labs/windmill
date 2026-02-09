@@ -58,6 +58,8 @@
           llvmPackages_18.clang
           mold
           cmake
+          cyrus_sasl
+          krb5
         ];
         coursier = pkgs.fetchFromGitHub {
           owner = "coursier";
@@ -67,7 +69,7 @@
         };
 
         PKG_CONFIG_PATH = pkgs.lib.makeSearchPath "lib/pkgconfig"
-          (with pkgs; [ openssl.dev libxml2.dev xmlsec.dev libxslt.dev ]);
+          (with pkgs; [ openssl.dev libxml2.dev xmlsec.dev libxslt.dev cyrus_sasl.dev krb5.dev ]);
         RUSTY_V8_ARCHIVE = let
           # NOTE: needs to be same as in Cargo.toml
           version = "130.0.7";
@@ -307,8 +309,10 @@
           # Override cargo linker to use clang 18 (stdenv brings clang 21 which causes SIGSEGV with mold)
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER = "${pkgs.llvmPackages_18.clang}/bin/clang";
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER = "${pkgs.llvmPackages_18.clang}/bin/clang";
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS = "-C link-arg=-fuse-ld=mold -C link-arg=-Wl,-rpath,${pkgs.lib.makeLibraryPath [ pkgs.openssl ]}";
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS = "-C link-arg=-fuse-ld=mold -C link-arg=-Wl,-rpath,${pkgs.lib.makeLibraryPath [ pkgs.openssl ]}";
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS = "-C link-arg=-fuse-ld=mold -C link-arg=-Wl,-rpath,${pkgs.lib.makeLibraryPath [ pkgs.openssl pkgs.libffi pkgs.cyrus_sasl pkgs.krb5 ]}";
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS = "-C link-arg=-fuse-ld=mold -C link-arg=-Wl,-rpath,${pkgs.lib.makeLibraryPath [ pkgs.openssl pkgs.libffi pkgs.cyrus_sasl pkgs.krb5 ]}";
+          # rpath for build scripts and proc macros (host compilation)
+          CARGO_HOST_RUSTFLAGS = "-C link-arg=-Wl,-rpath,${pkgs.lib.makeLibraryPath [ pkgs.openssl pkgs.libffi pkgs.cyrus_sasl pkgs.krb5 ]}";
 
           # See this issue: https://github.com/NixOS/nixpkgs/issues/370494
           # Allows to build jemalloc on nixos
