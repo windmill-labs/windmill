@@ -1084,7 +1084,8 @@
 					id: 'git_sync',
 					label: 'Git sync',
 					aiId: 'workspace-settings-git-sync',
-					aiDescription: 'Git sync workspace settings'
+					aiDescription: 'Git sync workspace settings',
+					isEE: true
 				},
 				{
 					id: 'deploy_to',

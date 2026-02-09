@@ -10,14 +10,12 @@
 </script>
 
 <Tooltip>
-	<Badge verySmall color="blue" class="px-2">
-		EE only
+	<Badge verySmall color="blue" class="px-2">EE only</Badge>
+	{#snippet text()}
 		{#if children}
 			{@render children()}
+		{:else}
+			Enterprise Edition only feature
 		{/if}
-	</Badge>
-
-	{#snippet text()}
-		Enterprise Edition only feature
 	{/snippet}
 </Tooltip>

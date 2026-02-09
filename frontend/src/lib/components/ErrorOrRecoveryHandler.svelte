@@ -299,21 +299,26 @@
 		teams: undefined as string | undefined,
 		email: undefined as string[] | undefined
 	})
+	let handlerPathCache: Partial<Record<ErrorHandler, string | undefined>> = $state({})
 	$effect(() => {
 		if (lastHandlerSelected !== handlerSelected && lastHandlerSelected !== undefined) {
 			if (lastHandlerSelected != 'custom') {
 				const key = lastHandlerSelected === 'email' ? EMAIL_RECIPIENTS_KEY : CHANNEL_KEY
 				handlerCache[lastHandlerSelected] = handlerExtraArgs[key]
 			}
+			handlerPathCache[lastHandlerSelected] = handlerPath
 
 			if (handlerSelected === 'custom') {
-				handlerExtraArgs[CHANNEL_KEY] = ''
-				handlerExtraArgs[EMAIL_RECIPIENTS_KEY] = []
-				handlerPath = undefined
+				delete handlerExtraArgs[CHANNEL_KEY]
+				delete handlerExtraArgs[EMAIL_RECIPIENTS_KEY]
+				handlerPath = handlerPathCache['custom']
 			} else if (handlerSelected === 'email') {
 				handlerExtraArgs[EMAIL_RECIPIENTS_KEY] = handlerCache[handlerSelected] ?? []
+				delete handlerExtraArgs[CHANNEL_KEY]
 			} else {
 				handlerExtraArgs[CHANNEL_KEY] = handlerCache[handlerSelected] ?? ''
+				delete handlerExtraArgs[EMAIL_RECIPIENTS_KEY]
+				handlerPath = handlerPathCache[handlerSelected]
 			}
 		}
 

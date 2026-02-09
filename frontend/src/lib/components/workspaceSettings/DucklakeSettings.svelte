@@ -165,6 +165,7 @@
 		} catch (e) {
 			sendUserToast(e, true)
 			console.error('Error saving ducklake settings', e)
+			throw e
 		}
 	}
 
