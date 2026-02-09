@@ -10,6 +10,7 @@ fn to_str(typ: Typ) -> String {
         Typ::List(t) => format!("list-{}", to_str(*t)),
         Typ::Bytes => "bytes".to_string(),
         Typ::Datetime => "datetime".to_string(),
+        Typ::Date => "date".to_string(),
         _ => "unknown".to_string(),
     }
 }
