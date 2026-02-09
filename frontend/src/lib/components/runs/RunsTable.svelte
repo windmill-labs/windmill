@@ -4,17 +4,24 @@
 	import VirtualList from '@tutorlatin/svelte-tiny-virtual-list'
 	import { createEventDispatcher } from 'svelte'
 	import Tooltip from '../Tooltip.svelte'
-	import { AlertTriangle, CircleXIcon, ExternalLinkIcon, RefreshCwIcon } from 'lucide-svelte'
+	import {
+		AlertTriangle,
+		CircleXIcon,
+		Code2Icon,
+		ExternalLinkIcon,
+		RefreshCwIcon
+	} from 'lucide-svelte'
 	import Popover from '../Popover.svelte'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import './runs-grid.css'
 	import { useKeyPressed } from '$lib/svelte5Utils.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import RightClickPopover from '../RightClickPopover.svelte'
-	import DropdownMenu from '../DropdownMenu.svelte'
+	import DropdownMenu, { type Props as DropdownMenuProps } from '../DropdownMenu.svelte'
 	import { isJobCancelable, isJobReRunnable } from '$lib/utils'
 	import { goto } from '$lib/navigation'
 	import DropdownV2 from '../DropdownV2.svelte'
+	import BarsStaggered from '../icons/BarsStaggered.svelte'
 
 	interface Props {
 		//import InfiniteLoading from 'svelte-infinite-loading'
@@ -234,9 +241,59 @@
 		}
 		return { cancellableJobIds, rerunnableJobIds }
 	})
-	let rerunnable = $derived(selectedIdsPossibleActions.rerunnableJobIds.length)
-	let cancellable = $derived(selectedIdsPossibleActions.cancellableJobIds.length)
 	let hoveredDropdownAction: 'cancel' | 'rerun' | null = $state(null)
+
+	let dropdownActions: DropdownMenuProps['items'] = $derived.by(() => {
+		let rerunnable = selectedIdsPossibleActions.rerunnableJobIds.length
+		let cancellable = selectedIdsPossibleActions.cancellableJobIds.length
+		const actions: DropdownMenuProps['items'] = []
+		if (selectedIds.length === 1) {
+			actions.push({
+				label: 'Show run details',
+				icon: ExternalLinkIcon,
+				onClick: () => goto(`/run/${selectedIds[0]}`)
+			})
+			const job = flatJobs?.find(
+				(jobOrDate) => jobOrDate.type === 'job' && jobOrDate.job.id === selectedIds[0]
+			)
+			if (job?.type === 'job') {
+				if (job.job.job_kind === 'script') {
+					actions.push({
+						label: 'Go to script page',
+						icon: Code2Icon,
+						onClick: () => goto(`/scripts/get/${job.job.script_hash}`)
+					})
+				}
+				if (job.job.job_kind === 'flow') {
+					actions.push({
+						label: 'Go to flow page',
+						icon: BarsStaggered,
+						onClick: () => goto(`/flows/get/${job.job.script_path}`)
+					})
+				}
+			}
+		}
+		if (rerunnable)
+			actions.push({
+				label: 'Run again',
+				icon: RefreshCwIcon,
+				right: selectedIds.length >= 2 ? `${rerunnable}` : undefined,
+				onClick: () => {
+					selectedIds = selectedIdsPossibleActions.rerunnableJobIds
+					batchRerunOptionsIsOpen = true
+				},
+				onHover: (hover) => (hoveredDropdownAction = hover ? 'rerun' : null)
+			})
+		if (cancellable)
+			actions.push({
+				label: 'Cancel',
+				icon: CircleXIcon,
+				right: selectedIds.length >= 2 ? `${cancellable}` : undefined,
+				onClick: () => onCancelJobs?.(selectedIdsPossibleActions.cancellableJobIds),
+				onHover: (hover) => (hoveredDropdownAction = hover ? 'cancel' : null)
+			})
+		return actions
+	})
 </script>
 
 <svelte:window
@@ -474,47 +531,7 @@
 </div>
 
 <RightClickPopover bind:this={rightClickPopover}>
-	<DropdownMenu
-		closeCallback={() => rightClickPopover?.close()}
-		items={[
-			...(selectedIds.length === 1
-				? [
-						{
-							label: 'Show run details',
-							icon: ExternalLinkIcon,
-							onClick: () => {
-								goto(`/run/${selectedIds[0]}`)
-							}
-						}
-					]
-				: []),
-			...(cancellable
-				? [
-						{
-							label: 'Cancel',
-							icon: CircleXIcon,
-							right: selectedIds.length >= 2 ? `${cancellable}` : undefined,
-							onClick: () => onCancelJobs?.(selectedIdsPossibleActions.cancellableJobIds),
-							onHover: (hover) => (hoveredDropdownAction = hover ? 'cancel' : null)
-						}
-					]
-				: []),
-			...(rerunnable
-				? [
-						{
-							label: 'Run again',
-							icon: RefreshCwIcon,
-							right: selectedIds.length >= 2 ? `${rerunnable}` : undefined,
-							onClick: () => {
-								selectedIds = selectedIdsPossibleActions.rerunnableJobIds
-								batchRerunOptionsIsOpen = true
-							},
-							onHover: (hover) => (hoveredDropdownAction = hover ? 'rerun' : null)
-						}
-					]
-				: [])
-		]}
-	/>
+	<DropdownMenu closeCallback={() => rightClickPopover?.close()} items={dropdownActions} />
 </RightClickPopover>
 
 <style>

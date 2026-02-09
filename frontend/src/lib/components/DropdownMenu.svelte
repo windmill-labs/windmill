@@ -6,7 +6,7 @@
 		onClick?: () => void
 		onHover?: (hover: boolean) => void
 	}
-	type Props = {
+	export type Props = {
 		closeCallback?: () => void
 		items: Item[]
 	}
