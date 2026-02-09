@@ -108,6 +108,9 @@ export function argSigToJsonSchemaType(
   } else if (t === "datetime") {
     newS.type = "string";
     newS.format = "date-time";
+  } else if (t === "date") {
+    newS.type = "string";
+    newS.format = "date";
   } else if (typeof t !== "string" && "oneof" in t) {
     newS.type = "object";
     if (t.oneof) {

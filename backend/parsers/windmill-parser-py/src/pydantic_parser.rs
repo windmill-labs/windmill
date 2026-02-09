@@ -295,6 +295,7 @@ fn extract_field_type(
             "bool" => Typ::Bool,
             "bytes" => Typ::Bytes,
             "datetime" => Typ::Datetime,
+            "date" => Typ::Date,
             "Any" => Typ::Unknown, // typing.Any maps to Unknown
             // Custom class - check if it's a model
             custom_type => {

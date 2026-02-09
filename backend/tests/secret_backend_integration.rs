@@ -26,28 +26,56 @@
 #[cfg(all(feature = "private", feature = "enterprise"))]
 mod tests {
     use sqlx::{Pool, Postgres};
-    use std::collections::HashMap;
     use windmill_common::secret_backend::{
         migrate_secrets_to_database, migrate_secrets_to_vault, test_vault_connection,
         SecretBackend, VaultBackend, VaultSettings,
     };
+    use windmill_common::variables::{build_crypt, decrypt, encrypt};
 
-    /// Check if vault tests should run (requires RUN_VAULT_TESTS=1 env var)
+    /// Plaintext values for test secrets. The fixture inserts PLACEHOLDERs that
+    /// `encrypt_fixture_secrets` replaces with properly encrypted values.
+    const TEST_SECRETS: &[(&str, &str, &str)] = &[
+        ("test-workspace", "u/test-user/db_password", "db-pass-123"),
+        ("test-workspace", "u/test-user/api_key", "api-key-abc"),
+        (
+            "test-workspace-2",
+            "u/test-user/other_secret",
+            "other-secret-value",
+        ),
+    ];
+
+    /// Encrypt the PLACEHOLDER values inserted by the fixture using the real
+    /// workspace encryption keys, so migration tests can decrypt them correctly.
+    async fn encrypt_fixture_secrets(db: &Pool<Postgres>) {
+        for &(workspace_id, path, plaintext) in TEST_SECRETS {
+            let mc = build_crypt(db, workspace_id).await.unwrap();
+            let encrypted = encrypt(&mc, plaintext);
+            sqlx::query!(
+                "UPDATE variable SET value = $1 WHERE workspace_id = $2 AND path = $3 AND is_secret = true",
+                encrypted,
+                workspace_id,
+                path,
+            )
+            .execute(db)
+            .await
+            .unwrap();
+        }
+    }
+
     fn should_run_vault_tests() -> bool {
         std::env::var("RUN_VAULT_TESTS")
             .map(|v| v == "1" || v.to_lowercase() == "true")
             .unwrap_or(false)
     }
 
-    /// Set up BASE_URL for JWT tests (required for OIDC issuer URL generation)
+    #[cfg(feature = "openidconnect")]
     async fn setup_base_url() {
-        let base_url = std::env::var("BASE_URL")
-            .unwrap_or_else(|_| "http://localhost:8000".to_string());
+        let base_url =
+            std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8000".to_string());
         let mut url = windmill_common::BASE_URL.write().await;
         *url = base_url;
     }
 
-    /// Skip test if RUN_VAULT_TESTS is not set
     macro_rules! skip_if_no_vault {
         () => {
             if !should_run_vault_tests() {
@@ -71,6 +99,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "openidconnect")]
     fn vault_settings_jwt() -> VaultSettings {
         VaultSettings {
             address: std::env::var("VAULT_ADDR")
@@ -163,6 +192,7 @@ mod tests {
     // ==================== JWT Auth Tests ====================
 
     /// Test Vault connection with JWT authentication
+    #[cfg(feature = "openidconnect")]
     #[sqlx::test(fixtures("base", "secret_backend"))]
     async fn test_vault_connection_jwt(db: Pool<Postgres>) {
         skip_if_no_vault!();
@@ -236,70 +266,51 @@ mod tests {
 
         let settings = vault_settings_static_token();
 
-        // Verify Vault connection
         test_vault_connection(&settings, Some(&db))
             .await
             .expect("Failed to connect to Vault");
 
-        // Check initial state
-        let secrets_before = sqlx::query!(
-            "SELECT workspace_id, path, value FROM variable WHERE is_secret = true ORDER BY workspace_id, path"
-        )
-        .fetch_all(&db)
-        .await
-        .expect("Failed to query secrets");
+        // Encrypt fixture placeholders with real workspace keys
+        encrypt_fixture_secrets(&db).await;
 
-        println!(
-            "Found {} secrets in database before migration:",
-            secrets_before.len()
-        );
-        for s in &secrets_before {
-            println!("  - {}/{}: {} chars", s.workspace_id, s.path, s.value.len());
-        }
+        let secret_count = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM variable WHERE is_secret = true"
+        )
+        .fetch_one(&db)
+        .await
+        .expect("Failed to count secrets");
+        println!("Found {} secrets in database before migration", secret_count.unwrap_or(0));
 
         // Run migration
-        println!("\nMigrating secrets to Vault...");
+        println!("Migrating secrets to Vault...");
         let report = migrate_secrets_to_vault(&db, &settings)
             .await
             .expect("Migration to Vault failed");
 
-        println!("Migration report:");
-        println!("  Total secrets: {}", report.total_secrets);
-        println!("  Migrated: {}", report.migrated_count);
-        println!("  Failed: {}", report.failed_count);
+        println!("Migration report: total={}, migrated={}, failed={}",
+            report.total_secrets, report.migrated_count, report.failed_count);
 
         if !report.failures.is_empty() {
-            println!("  Failures:");
             for f in &report.failures {
-                println!("    - {}/{}: {}", f.workspace_id, f.path, f.error);
+                println!("  FAIL: {}/{}: {}", f.workspace_id, f.path, f.error);
             }
         }
 
         assert_eq!(report.failed_count, 0, "Migration had failures");
         assert!(report.migrated_count > 0, "No secrets were migrated");
 
-        // Verify secrets in Vault
-        println!("\nVerifying secrets in Vault...");
+        // Verify decrypted values in Vault match original plaintexts
         let vault_backend = VaultBackend::new(settings.clone());
-
-        for secret in &secrets_before {
-            let result = vault_backend
-                .get_secret(&secret.workspace_id, &secret.path)
-                .await;
-            assert!(
-                result.is_ok(),
-                "Failed to read secret {}/{} from Vault: {:?}",
-                secret.workspace_id,
-                secret.path,
-                result.err()
-            );
-            println!(
-                "  ✓ {}/{} exists in Vault",
-                secret.workspace_id, secret.path
-            );
+        for &(ws, path, expected_plaintext) in TEST_SECRETS {
+            let value = vault_backend
+                .get_secret(ws, path)
+                .await
+                .unwrap_or_else(|e| panic!("Failed to read {}/{} from Vault: {:?}", ws, path, e));
+            assert_eq!(value, expected_plaintext, "Vault value mismatch for {}/{}", ws, path);
+            println!("  ✓ {}/{} correct in Vault", ws, path);
         }
 
-        println!("\n✓ Migration to Vault completed successfully");
+        println!("✓ Migration to Vault completed successfully");
     }
 
     /// Test migration from Vault back to database
@@ -313,49 +324,50 @@ mod tests {
             .await
             .expect("Failed to connect to Vault");
 
+        encrypt_fixture_secrets(&db).await;
+
         // First migrate TO Vault
         println!("Setting up: migrating secrets to Vault first...");
         let to_vault = migrate_secrets_to_vault(&db, &settings)
             .await
             .expect("Initial migration to Vault failed");
         assert!(to_vault.migrated_count > 0, "No secrets to test with");
-        println!("  Migrated {} secrets to Vault", to_vault.migrated_count);
 
         // Clear database values
-        println!("\nClearing database secret values...");
         sqlx::query!("UPDATE variable SET value = 'CLEARED' WHERE is_secret = true")
             .execute(&db)
             .await
             .expect("Failed to clear values");
 
         // Migrate back from Vault
-        println!("\nMigrating secrets from Vault to database...");
+        println!("Migrating secrets from Vault to database...");
         let report = migrate_secrets_to_database(&db, &settings)
             .await
             .expect("Migration to database failed");
 
-        println!("Migration report:");
-        println!("  Total secrets: {}", report.total_secrets);
-        println!("  Migrated: {}", report.migrated_count);
-        println!("  Failed: {}", report.failed_count);
+        println!("Migration report: total={}, migrated={}, failed={}",
+            report.total_secrets, report.migrated_count, report.failed_count);
 
         assert_eq!(report.failed_count, 0, "Migration had failures");
         assert!(report.migrated_count > 0, "No secrets were migrated");
 
-        // Verify restored
-        let restored = sqlx::query!(
-            "SELECT COUNT(*) as count FROM variable WHERE is_secret = true AND value != 'CLEARED'"
-        )
-        .fetch_one(&db)
-        .await
-        .expect("Failed to count restored");
+        // Verify restored values decrypt to the original plaintexts
+        for &(ws, path, expected_plaintext) in TEST_SECRETS {
+            let row = sqlx::query_scalar!(
+                "SELECT value FROM variable WHERE workspace_id = $1 AND path = $2 AND is_secret = true",
+                ws, path
+            )
+            .fetch_one(&db)
+            .await
+            .unwrap_or_else(|_| panic!("Secret {}/{} not found in DB after migration", ws, path));
 
-        assert!(
-            restored.count.unwrap_or(0) > 0,
-            "No secrets were restored in database"
-        );
+            let mc = build_crypt(&db, ws).await.unwrap();
+            let decrypted = decrypt(&mc, row).expect("Failed to decrypt restored value");
+            assert_eq!(decrypted, expected_plaintext, "Restored value mismatch for {}/{}", ws, path);
+            println!("  ✓ {}/{} correctly restored in DB", ws, path);
+        }
 
-        println!("\n✓ Migration to database completed successfully");
+        println!("✓ Migration to database completed successfully");
     }
 
     // ==================== Variable Rename Tests ====================
@@ -443,68 +455,47 @@ mod tests {
             .await
             .expect("Failed to connect to Vault");
 
-        // Get original secrets
-        let original: HashMap<(String, String), String> = sqlx::query!(
-            "SELECT workspace_id, path, value FROM variable WHERE is_secret = true"
-        )
-        .fetch_all(&db)
-        .await
-        .expect("Failed to query")
-        .into_iter()
-        .map(|r| ((r.workspace_id, r.path), r.value))
-        .collect();
+        encrypt_fixture_secrets(&db).await;
 
-        println!("Original secrets: {} entries", original.len());
-
-        // Step 1: DB -> Vault
-        println!("\n=== Step 1: Migrate DB -> Vault ===");
+        println!("=== Step 1: Migrate DB -> Vault ===");
         let to_vault = migrate_secrets_to_vault(&db, &settings)
             .await
             .expect("Migration to Vault failed");
-        println!("Migrated {} secrets to Vault", to_vault.migrated_count);
         assert_eq!(to_vault.failed_count, 0);
+        println!("Migrated {} secrets to Vault", to_vault.migrated_count);
 
-        // Step 2: Clear DB
-        println!("\n=== Step 2: Clear database values ===");
+        println!("=== Step 2: Clear database values ===");
         sqlx::query!("UPDATE variable SET value = 'ROUND_TRIP_CLEARED' WHERE is_secret = true")
             .execute(&db)
             .await
             .expect("Failed to clear");
 
-        // Step 3: Vault -> DB
-        println!("\n=== Step 3: Migrate Vault -> DB ===");
+        println!("=== Step 3: Migrate Vault -> DB ===");
         let to_db = migrate_secrets_to_database(&db, &settings)
             .await
             .expect("Migration to database failed");
-        println!("Migrated {} secrets to database", to_db.migrated_count);
         assert_eq!(to_db.failed_count, 0);
+        println!("Migrated {} secrets to database", to_db.migrated_count);
 
-        // Step 4: Verify
-        println!("\n=== Step 4: Verify round-trip integrity ===");
-        let restored: HashMap<(String, String), String> = sqlx::query!(
-            "SELECT workspace_id, path, value FROM variable WHERE is_secret = true"
-        )
-        .fetch_all(&db)
-        .await
-        .expect("Failed to query")
-        .into_iter()
-        .map(|r| ((r.workspace_id, r.path), r.value))
-        .collect();
-
-        for ((ws, path), _) in &original {
-            let restored_value = restored
-                .get(&(ws.clone(), path.clone()))
-                .expect(&format!("Secret {}/{} not found after round-trip", ws, path));
-
-            assert_ne!(
-                restored_value, "ROUND_TRIP_CLEARED",
-                "Secret {}/{} was not restored",
+        println!("=== Step 4: Verify round-trip integrity ===");
+        for &(ws, path, expected_plaintext) in TEST_SECRETS {
+            let encrypted = sqlx::query_scalar!(
+                "SELECT value FROM variable WHERE workspace_id = $1 AND path = $2 AND is_secret = true",
                 ws, path
-            );
-            println!("  ✓ {}/{}: restored", ws, path);
+            )
+            .fetch_one(&db)
+            .await
+            .unwrap_or_else(|_| panic!("Secret {}/{} not found after round-trip", ws, path));
+
+            assert_ne!(encrypted, "ROUND_TRIP_CLEARED", "Secret {}/{} was not restored", ws, path);
+
+            let mc = build_crypt(&db, ws).await.unwrap();
+            let decrypted = decrypt(&mc, encrypted).expect("Failed to decrypt");
+            assert_eq!(decrypted, expected_plaintext, "Round-trip value mismatch for {}/{}", ws, path);
+            println!("  ✓ {}/{}: round-trip OK", ws, path);
         }
 
-        println!("\n✓ Full round-trip completed successfully!");
+        println!("✓ Full round-trip completed successfully!");
     }
 
     // ==================== Workspace Isolation Test ====================
@@ -517,7 +508,8 @@ mod tests {
         let settings = vault_settings_static_token();
         let backend = VaultBackend::new(settings.clone());
 
-        // First migrate secrets to Vault
+        encrypt_fixture_secrets(&db).await;
+
         migrate_secrets_to_vault(&db, &settings)
             .await
             .expect("Migration failed");
@@ -542,7 +534,7 @@ mod tests {
         assert!(ws1.is_ok(), "Same-workspace access should work");
         println!("✓ Same-workspace access works");
 
-        println!("\n✓ Workspace isolation verified!");
+        println!("✓ Workspace isolation verified!");
     }
 }
 

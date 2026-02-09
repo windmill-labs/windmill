@@ -899,11 +899,6 @@ class AIChatManager {
 	}
 
 	saveAndClear = async () => {
-		console.log('saveAndClear called', {
-			hasAbortController: !!this.abortController,
-			isLoading: this.loading,
-			stack: new Error().stack
-		})
 		this.cancel('saveAndClear')
 		await this.historyManager.save(this.displayMessages, this.messages)
 		this.displayMessages = []

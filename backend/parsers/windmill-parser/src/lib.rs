@@ -65,6 +65,7 @@ pub enum Typ {
     List(Box<Typ>),
     Bytes,
     Datetime,
+    Date,
     Resource(String),
     Email,
     Sql,

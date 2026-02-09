@@ -34,7 +34,7 @@ fn make_rules_for_arg_typ(typ: &Typ) -> Vec<SchemaValidationRule> {
             rules.push(SchemaValidationRule::IsString);
             rules.push(SchemaValidationRule::IsBytes);
         }
-        Typ::Datetime => {
+        Typ::Datetime | Typ::Date => {
             rules.push(SchemaValidationRule::IsString);
             rules.push(SchemaValidationRule::IsDatetime);
         }
