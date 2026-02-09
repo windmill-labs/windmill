@@ -255,7 +255,7 @@
 					<div class="text-emphasis font-semibold text-xs flex flex-col gap-1 w-full">
 						<div class="flex items-center justify-between gap-2 w-full">
 							{#if setting.fieldType != 'smtp_connect'}
-								<div class="flex gap-1">
+								<div class="flex gap-1 items-baseline">
 									<span class="text-emphasis font-semibold text-xs pb-1">{setting.label}</span>
 									{#if setting.ee_only != undefined && !$enterpriseLicense}
 										{#if setting.ee_only != ''}
@@ -834,7 +834,10 @@
 						{/if}
 					</div>
 				{:else if setting.fieldType == 'otel_tracing_proxy'}
-					{@const tracingProxyVal = $values[setting.key] ?? { enabled: false, enabled_languages: [...OTEL_TRACING_PROXY_LANGUAGES] }}
+					{@const tracingProxyVal = $values[setting.key] ?? {
+						enabled: false,
+						enabled_languages: [...OTEL_TRACING_PROXY_LANGUAGES]
+					}}
 					<div class="flex flex-col gap-4">
 						<Toggle
 							id="otel_tracing_proxy_enabled"

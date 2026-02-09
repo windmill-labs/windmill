@@ -57,7 +57,8 @@
 </script>
 
 <div class="flex flex-col gap-1">
-	<p class="font-medium text-xs text-emphasis">Workspace ID</p>
+	<p class="font-semibold text-xs text-emphasis">Workspace ID</p>
+	<p class="text-xs text-secondary font-normal">Slug to uniquely identify your workspace</p>
 	<div class="flex flex-row gap-0.5 items-center">
 		<p class="text-xs font-normal text-primary">{$workspaceStore ?? ''}</p>
 		{#if !isCloudHosted() || $superadmin}
@@ -65,9 +66,8 @@
 				on:click={() => {
 					open = true
 				}}
-				size="xs"
-				spacingSize="xs2"
-				color="light"
+				unifiedSize="sm"
+				variant="subtle"
 				iconOnly
 				startIcon={{
 					icon: Pen
@@ -75,7 +75,6 @@
 			/>
 		{/if}
 	</div>
-	<p class="text-xs text-secondary font-normal">Slug to uniquely identify your workspace</p>
 </div>
 
 <Modal bind:open title="Change workspace ID">
@@ -106,7 +105,6 @@
 
 	{#snippet actions()}
 		<Button
-			size="sm"
 			variant="accent"
 			disabled={checking || errorId.length > 0 || !newName || !newId}
 			{loading}

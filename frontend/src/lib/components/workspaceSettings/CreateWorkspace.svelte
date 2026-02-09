@@ -424,11 +424,11 @@
 		<label class="flex flex-col gap-1">
 			<span class="text-xs font-semibold text-emphasis">Workspace ID</span>
 			{#if isFork}
-				<span class="text-2xs text-secondary"
+				<span class="text-xs text-secondary"
 					>Slug to uniquely identify your fork (this will also set the branch name)</span
 				>
 			{:else}
-				<span class="text-2xs text-secondary">Slug to uniquely identify your workspace</span>
+				<span class="text-xs text-secondary">Slug to uniquely identify your workspace</span>
 			{/if}
 
 			{#if isFork}

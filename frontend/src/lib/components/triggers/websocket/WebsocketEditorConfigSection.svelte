@@ -161,7 +161,7 @@
 						{/key}
 					{/await}
 					{#if urlRunnableSchema.properties && Object.keys(urlRunnableSchema.properties).length === 0}
-						<div class="text-xs texg-gray-700">This runnable takes no arguments</div>
+						<div class="text-xs text-secondary">This runnable takes no arguments</div>
 					{/if}
 				{:else}
 					<Loader2 class="animate-spin mt-2" />

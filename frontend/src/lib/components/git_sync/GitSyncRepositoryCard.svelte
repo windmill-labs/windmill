@@ -361,7 +361,7 @@
 	<div class="space-y-4">
 		<!-- Resource Picker -->
 		<div class="flex gap-2 items-center">
-			<div class="font-semibold">Resource:</div>
+			<div class="font-semibold text-xs text-emphasis">Resource:</div>
 			<div class="flex-1">
 				<ResourcePicker
 					bind:value={repo.git_repo_resource_path}
@@ -384,7 +384,7 @@
 
 		<!-- Display resource info when disabled (saved connection) -->
 		{#if !repo.isUnsavedConnection && repo.git_repo_resource_path}
-			<div class="ml-2 text-xs">
+			<div class="text-xs">
 				{#if loadingResourceInfo}
 					<div class="flex items-center gap-1 text-secondary">
 						<RotateCw size={12} class="animate-spin" />
@@ -392,7 +392,7 @@
 					</div>
 				{:else if resourceInfo?.url}
 					<div class="flex items-center gap-2 text-secondary">
-						<span class="font-medium">Git URL:</span>
+						<span class="text-xs text-secondary">Git URL:</span>
 						<code class="bg-surface-secondary px-2 py-1 rounded text-primary"
 							>{resourceInfo.url}</code
 						>
@@ -544,12 +544,13 @@
 			<div class="flex flex-col">
 				<h3 class="text-xs font-semibold text-emphasis">{displayTitle}</h3>
 				{#if displayDescription}
-					<p class="text-2xs text-secondary">{displayDescription}
-					{#if mode === 'promotion'}
-						<a target="_blank" href="https://www.windmill.dev/docs/advanced/deploy_gh_gl"
-							>Learn more about Git Promotion</a
-						>
-					{/if}
+					<p class="text-2xs text-secondary"
+						>{displayDescription}
+						{#if mode === 'promotion'}
+							<a target="_blank" href="https://www.windmill.dev/docs/advanced/deploy_gh_gl"
+								>Learn more about Git Promotion</a
+							>
+						{/if}
 					</p>
 				{/if}
 			</div>
@@ -580,16 +581,17 @@
 	{#if variant === 'primary-sync' || variant === 'primary-promotion'}
 		<!-- Primary Repository Layout -->
 		<div class="rounded-lg border bg-surface p-4 mb-4">
-			<div class="flex items-center justify-between mb-4">
-				<div class="flex flex-col">
-					<h3 class="text-xl font-semibold">{displayTitle}</h3>
-					{#if displayDescription}
-						<p class="text-sm text-secondary">{displayDescription}</p>
-					{/if}
+			<div class="flex flex-col mb-4 gap-2">
+				<div class="flex items-center justify-between">
+					<h3 class="text-sm font-semibold">{displayTitle}</h3>
+
+					<div class="flex items-center gap-2">
+						{@render headerActions()}
+					</div>
 				</div>
-				<div class="flex items-center gap-2">
-					{@render headerActions()}
-				</div>
+				{#if displayDescription}
+					<p class="text-xs text-secondary">{displayDescription}</p>
+				{/if}
 			</div>
 			{@render repositoryContent()}
 		</div>

@@ -5,8 +5,8 @@
 	import { AI_PROVIDERS, fetchAvailableModels } from '../copilot/lib'
 	import { supportsAutocomplete } from '../copilot/utils'
 	import TestAiKey from '../copilot/TestAIKey.svelte'
-	import Description from '../Description.svelte'
 	import Label from '../Label.svelte'
+	import SettingsPageHeader from '../settings/SettingsPageHeader.svelte'
 	import ResourcePicker from '../ResourcePicker.svelte'
 	import Toggle from '../Toggle.svelte'
 	import Select from '../select/Select.svelte'
@@ -18,8 +18,9 @@
 	import ModelTokenLimits from './ModelTokenLimits.svelte'
 	import { setCopilotInfo } from '$lib/aiStore'
 	import AIPromptsModal from '../settings/AIPromptsModal.svelte'
-	import { Save, Settings } from 'lucide-svelte'
+	import { Settings } from 'lucide-svelte'
 	import { slide } from 'svelte/transition'
+	import SettingsFooter from './SettingsFooter.svelte'
 
 	let {
 		aiProviders = $bindable(),
@@ -28,7 +29,9 @@
 		customPrompts = $bindable(),
 		maxTokensPerModel = $bindable(),
 		usingOpenaiClientCredentialsOauth = $bindable(),
-		onSave
+		onSave,
+		onDiscard,
+		hasUnsavedChanges = false
 	}: {
 		aiProviders: Exclude<AIConfig['providers'], undefined>
 		codeCompletionModel: string | undefined
@@ -37,6 +40,8 @@
 		maxTokensPerModel: Record<string, number>
 		usingOpenaiClientCredentialsOauth: boolean
 		onSave?: () => void
+		onDiscard?: () => void
+		hasUnsavedChanges?: boolean
 	} = $props()
 
 	let fetchedAiModels = $state(false)
@@ -170,29 +175,13 @@
 	const autocompleteModels = $derived(selectedAiModels.filter(supportsAutocomplete))
 </script>
 
-<div class="flex flex-col gap-4 mt-4">
-	<div class="flex flex-col gap-1">
-		<div class="text-emphasis text-sm font-semibold flex flex-row gap-2 justify-between">
-			Windmill AI <Button
-				variant="accent"
-				unifiedSize="md"
-				wrapperClasses="self-start"
-				disabled={!Object.values(aiProviders).every((p) => p.resource_path) ||
-					(codeCompletionModel != undefined && codeCompletionModel.length === 0) ||
-					(Object.keys(aiProviders).length > 0 && !defaultModel)}
-				onClick={editCopilotConfig}
-				startIcon={{ icon: Save }}
-			>
-				Save AI settings
-			</Button></div
-		>
-		<Description link="https://www.windmill.dev/docs/core_concepts/ai_generation">
-			Windmill AI integrates with your favorite AI providers and models.
-		</Description>
-	</div>
-</div>
+<SettingsPageHeader
+	title="Windmill AI"
+	description="Windmill AI integrates with your favorite AI providers and models."
+	link="https://www.windmill.dev/docs/core_concepts/ai_generation"
+/>
 
-<div class="flex flex-col gap-8 mt-4">
+<div class="flex flex-col gap-6 mt-4 pb-8">
 	<Label label="AI Providers">
 		<div class="flex flex-col gap-4 p-4 rounded-md border bg-surface-tertiary">
 			{#each Object.entries(AI_PROVIDERS) as [provider, details]}
@@ -377,8 +366,6 @@
 			{/if}
 		</div>
 	</Label>
-
-	<div class="py-6"></div>
 </div>
 
 <AIPromptsModal
@@ -387,4 +374,14 @@
 	onReset={resetPrompts}
 	hasChanges={hasPromptsChanges}
 	isWorkspaceSettings={true}
+/>
+
+<SettingsFooter
+	{hasUnsavedChanges}
+	onSave={editCopilotConfig}
+	onDiscard={() => onDiscard?.()}
+	saveLabel="Save AI settings"
+	disabled={!Object.values(aiProviders).every((p) => p.resource_path) ||
+		(codeCompletionModel != undefined && codeCompletionModel.length === 0) ||
+		(Object.keys(aiProviders).length > 0 && !defaultModel)}
 />
