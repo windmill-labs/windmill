@@ -1414,7 +1414,7 @@
 	])
 </script>
 
-<CenteredPage wrapperClasses="pb-0">
+<CenteredPage wrapperClasses="pb-0 h-screen" handleOverflow={false} class="flex flex-col h-full">
 	{#if $userStore?.is_admin || $superadmin}
 		<PageHeader title="Workspace settings: {$workspaceStore}"
 			>{#if $superadmin}
@@ -1424,9 +1424,9 @@
 			{/if}</PageHeader
 		>
 
-		<div class="flex gap-6 pb-10">
+		<div class="flex grow min-h-0">
 			<!-- Sidebar Navigation -->
-			<div class="w-64 shrink-0 p-4 rounded-md h-fit">
+			<div class="w-64 shrink-0 h-full overflow-auto pb-6 pr-6 -ml-2">
 				<SidebarNavigation
 					groups={navigationGroups}
 					selectedId={tab}
@@ -1439,456 +1439,464 @@
 			</div>
 
 			<!-- Main Content -->
-			<div class="flex-1 min-w-0 min-h-screen h-fit bg-surface-tertiary px-8 py-4 rounded-md">
-				{#if !loadedSettings}
-					<Skeleton layout={[1, [40]]} />
-				{:else if tab == 'users'}
-					<WorkspaceUserSettings />
-				{:else if tab == 'deploy_to'}
-					<SettingsPageHeader
-						title="Link this Workspace to another Staging / Prod Workspace"
-						description="Connecting this workspace with another staging/production workspace enables web-based deployment to that workspace."
-						link="https://www.windmill.dev/docs/core_concepts/staging_prod"
-					/>
-					{#if $enterpriseLicense}
-						<DeployToSetting
-							bind:workspaceToDeployTo
-							bind:deployUiSettings
-							hasUnsavedChanges={hasDeploySettingsChanges}
-							onSave={() => {
-								// Update initial state after successful save
-								initialWorkspaceToDeployTo = workspaceToDeployTo
-								initialDeployUiSettings = clone(deployUiSettings)
-							}}
-							onWorkspaceToDeployToSave={(newWorkspaceToDeployTo) => {
-								// Update initial state after workspace to deploy to is saved
-								initialWorkspaceToDeployTo = newWorkspaceToDeployTo
-							}}
+			<div
+				class="flex-1 min-w-0 h-full overflow-auto rounded-md bg-surface-tertiary shadow-sm"
+				style="scrollbar-gutter: stable both-edges;"
+			>
+				<div class="h-fit px-4 py-4">
+					{#if !loadedSettings}
+						<Skeleton layout={[1, [40]]} />
+					{:else if tab == 'users'}
+						<WorkspaceUserSettings />
+					{:else if tab == 'deploy_to'}
+						<SettingsPageHeader
+							title="Link this Workspace to another Staging / Prod Workspace"
+							description="Connecting this workspace with another staging/production workspace enables web-based deployment to that workspace."
+							link="https://www.windmill.dev/docs/core_concepts/staging_prod"
 						/>
-					{:else}
-						<div class="my-2"
-							><Alert type="warning" title="Enterprise license required"
-								>Deploy to staging/prod from the web UI is only available with an enterprise license</Alert
-							></div
-						>
-					{/if}
-				{:else if tab == 'premium'}
-					<PremiumInfo {customer_id} {plan} />
-				{:else if tab == 'slack'}
-					<SettingsPageHeader
-						title="Workspace connections to Slack and Teams"
-						description="With workspace connections, you can trigger scripts or flows with a '/windmill' command with your Slack or Teams bot or set the workspace error handler to send notifications to your Slack or Teams channel."
-						link="https://www.windmill.dev/docs/core_concepts/error_handling#workspace-error-handler"
-					/>
-					<div class="space-y-6">
-						<Tabs
-							selected={slack_tabs}
-							on:selected={(e) => {
-								const params = new URLSearchParams($page.url.searchParams)
-								if (e.detail === 'teams_commands') {
-									params.set('tab', 'teams')
-								} else {
-									params.set('tab', 'slack')
-								}
-								goto(`?${params.toString()}`)
-							}}
-						>
-							<Tab value="slack_commands" label="Slack" />
-							<Tab value="teams_commands" label="Teams" />
-						</Tabs>
-
-						{#if slack_tabs === 'slack_commands'}
-							<ConnectionSection
-								platform="slack"
-								teamName={slack_team_name}
-								bind:scriptPath={slackScriptPath}
-								bind:initialPath={slackInitialPath}
-								bind:itemKind
-								onDisconnect={async () => {
-									if (slackOAuthConfigLoaded) {
-										deleteSlackOAuthConfig()
-									} else {
-										await OauthService.disconnectSlack({ workspace: $workspaceStore ?? '' })
-										loadSettings()
-										sendUserToast('Disconnected Slack')
-									}
+						{#if $enterpriseLicense}
+							<DeployToSetting
+								bind:workspaceToDeployTo
+								bind:deployUiSettings
+								hasUnsavedChanges={hasDeploySettingsChanges}
+								onSave={() => {
+									// Update initial state after successful save
+									initialWorkspaceToDeployTo = workspaceToDeployTo
+									initialDeployUiSettings = clone(deployUiSettings)
 								}}
-								onSelect={editSlackCommand}
-								connectHref="{base}/api/oauth/connect_slack"
-								createScriptHref="{base}/scripts/add?hub=hub%2F28071%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
-								createFlowHref="{base}/flows/add?hub=28"
-								documentationLink="https://www.windmill.dev/docs/integrations/slack"
-								onLoadSettings={loadSettings}
-								display_name={slack_team_name}
-								hideConnectButton={useCustomSlackApp && !slackOAuthConfigLoaded}
-								isOAuthEnabled={isSlackOAuthEnabled}
-								workspaceSpecificConnection={slackOAuthConfigLoaded}
+								onWorkspaceToDeployToSave={(newWorkspaceToDeployTo) => {
+									// Update initial state after workspace to deploy to is saved
+									initialWorkspaceToDeployTo = newWorkspaceToDeployTo
+								}}
+							/>
+						{:else}
+							<div class="my-2"
+								><Alert type="warning" title="Enterprise license required"
+									>Deploy to staging/prod from the web UI is only available with an enterprise
+									license</Alert
+								></div
 							>
-								{#snippet workspaceConfig()}
-									<!-- Workspace OAuth Configuration Section -->
-									{#if !slack_team_name}
-										<div class="flex flex-col gap-1">
-											<!-- Show toggle buttons for app type selection -->
-											<ToggleButtonGroup bind:selected={slackAppType}>
-												{#snippet children({ item })}
-													<ToggleButton
-														{item}
-														value="instance"
-														label="Instance specific Slack app"
-													/>
-													<ToggleButton
-														{item}
-														value="workspace"
-														label="Workspace specific Slack app"
-													/>
-												{/snippet}
-											</ToggleButtonGroup>
-											<div class="text-2xs text-hint"
-												>Use the Slack app configured at the instance level if you want to use the
-												same Slack app for all workspaces. Configure your Slack app here if you want
-												to use a specific Slack app for this workspace.</div
-											>
-										</div>
-									{/if}
-									{#if slackOAuthConfigLoaded}
-										<!-- Show saved config with delete button -->
-										<div class="flex flex-col gap-1">
-											<div class="text-xs text-primary font-normal">Client ID</div>
-											<TextInput
-												inputProps={{
-													type: 'text',
-													readonly: true
-												}}
-												value={slackOAuthClientId}
-											/>
-											<div class="text-2xs text-hint"
-												>Client ID for the Slack app configured at the workspace level</div
-											>
-										</div>
-									{:else if slackAppType === 'workspace'}
-										<div class="flex flex-col gap-6">
-											<label class="flex flex-col gap-1">
-												<span class="text-primary font-semibold text-xs">Client ID</span>
+						{/if}
+					{:else if tab == 'premium'}
+						<PremiumInfo {customer_id} {plan} />
+					{:else if tab == 'slack'}
+						<SettingsPageHeader
+							title="Workspace connections to Slack and Teams"
+							description="With workspace connections, you can trigger scripts or flows with a '/windmill' command with your Slack or Teams bot or set the workspace error handler to send notifications to your Slack or Teams channel."
+							link="https://www.windmill.dev/docs/core_concepts/error_handling#workspace-error-handler"
+						/>
+						<div class="space-y-6">
+							<Tabs
+								selected={slack_tabs}
+								on:selected={(e) => {
+									const params = new URLSearchParams($page.url.searchParams)
+									if (e.detail === 'teams_commands') {
+										params.set('tab', 'teams')
+									} else {
+										params.set('tab', 'slack')
+									}
+									goto(`?${params.toString()}`)
+								}}
+							>
+								<Tab value="slack_commands" label="Slack" />
+								<Tab value="teams_commands" label="Teams" />
+							</Tabs>
+
+							{#if slack_tabs === 'slack_commands'}
+								<ConnectionSection
+									platform="slack"
+									teamName={slack_team_name}
+									bind:scriptPath={slackScriptPath}
+									bind:initialPath={slackInitialPath}
+									bind:itemKind
+									onDisconnect={async () => {
+										if (slackOAuthConfigLoaded) {
+											deleteSlackOAuthConfig()
+										} else {
+											await OauthService.disconnectSlack({ workspace: $workspaceStore ?? '' })
+											loadSettings()
+											sendUserToast('Disconnected Slack')
+										}
+									}}
+									onSelect={editSlackCommand}
+									connectHref="{base}/api/oauth/connect_slack"
+									createScriptHref="{base}/scripts/add?hub=hub%2F28071%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
+									createFlowHref="{base}/flows/add?hub=28"
+									documentationLink="https://www.windmill.dev/docs/integrations/slack"
+									onLoadSettings={loadSettings}
+									display_name={slack_team_name}
+									hideConnectButton={useCustomSlackApp && !slackOAuthConfigLoaded}
+									isOAuthEnabled={isSlackOAuthEnabled}
+									workspaceSpecificConnection={slackOAuthConfigLoaded}
+								>
+									{#snippet workspaceConfig()}
+										<!-- Workspace OAuth Configuration Section -->
+										{#if !slack_team_name}
+											<div class="flex flex-col gap-1">
+												<!-- Show toggle buttons for app type selection -->
+												<ToggleButtonGroup bind:selected={slackAppType}>
+													{#snippet children({ item })}
+														<ToggleButton
+															{item}
+															value="instance"
+															label="Instance specific Slack app"
+														/>
+														<ToggleButton
+															{item}
+															value="workspace"
+															label="Workspace specific Slack app"
+														/>
+													{/snippet}
+												</ToggleButtonGroup>
+												<div class="text-2xs text-hint"
+													>Use the Slack app configured at the instance level if you want to use the
+													same Slack app for all workspaces. Configure your Slack app here if you
+													want to use a specific Slack app for this workspace.</div
+												>
+											</div>
+										{/if}
+										{#if slackOAuthConfigLoaded}
+											<!-- Show saved config with delete button -->
+											<div class="flex flex-col gap-1">
+												<div class="text-xs text-primary font-normal">Client ID</div>
 												<TextInput
 													inputProps={{
 														type: 'text',
-														placeholder: '1234567890.1234567890'
+														readonly: true
 													}}
-													bind:value={slackOAuthClientId}
+													value={slackOAuthClientId}
 												/>
-											</label>
-
-											<label class="flex flex-col gap-1">
-												<span class="text-primary font-semibold text-xs">Client secret</span>
-												<TextInput
-													inputProps={{
-														type: 'password',
-														placeholder: 'Enter client secret'
-													}}
-													bind:value={slackOAuthClientSecret}
-												/>
-											</label>
-
-											<CollapseLink text="Instructions">
-												<div class="text-xs text-secondary">
-													Create a Slack app at{' '}
-													<a
-														href="https://api.slack.com/apps"
-														target="_blank"
-														rel="noopener noreferrer"
-														class="text-blue-600 dark:text-blue-400 hover:underline"
-													>
-														Slack API
-													</a>. Set the redirect URI to:{' '}
-													<code class="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">
-														{window.location.origin}{base}/oauth/callback_slack
-													</code>
-												</div>
-											</CollapseLink>
-
-											<div class="pt-2">
-												<Button
-													size="xs"
-													variant="accent"
-													onclick={saveAndConnectSlack}
-													disabled={!slackOAuthClientId || !slackOAuthClientSecret}
-													startIcon={{ icon: Slack }}
-													btnClasses="w-fit"
+												<div class="text-2xs text-hint"
+													>Client ID for the Slack app configured at the workspace level</div
 												>
-													Connect to Slack
-												</Button>
 											</div>
-										</div>
-									{:else if !isSlackOAuthEnabled}
-										<Alert type="warning" title="Slack OAuth not configured">
-											Slack OAuth is not configured at the instance level. Please ask your
-											administrator to configure Slack OAuth settings in the instance settings
-											before you can use Slack features.
-										</Alert>
-									{/if}
-								{/snippet}
-							</ConnectionSection>
-						{:else if slack_tabs === 'teams_commands'}
-							{#if !$enterpriseLicense}
-								<div class="pt-4"></div>
-								<Alert type="warning" title="Workspace Teams commands is an EE feature">
-									Workspace Teams commands is a Windmill EE feature. It enables using your current
-									Slack / Teams connection to run a custom script and send notifications.
-								</Alert>
-								<div class="pb-2"></div>
-							{:else}
-								<ConnectionSection
-									platform="teams"
-									teamName={teams_team_id}
-									bind:scriptPath={teamsScriptPath}
-									bind:initialPath={teamsInitialPath}
-									bind:itemKind
-									onDisconnect={async () => {
-										await OauthService.disconnectTeams({ workspace: $workspaceStore ?? '' })
-										loadSettings()
-										sendUserToast('Disconnected Teams')
-									}}
-									onSelect={editTeamsCommand}
-									connectHref={undefined}
-									createScriptHref="{base}/scripts/add?hub=hub%2F11591%2Fteams%2FExample%20of%20responding%20to%20a%20Microsoft%20Teams%20command"
-									createFlowHref="{base}/flows/add?hub=58"
-									documentationLink="https://www.windmill.dev/docs/integrations/teams"
-									onLoadSettings={loadSettings}
-									display_name={teams_team_name}
-									isOAuthEnabled={isTeamsOAuthEnabled}
-								>
-									{#snippet workspaceConfig()}
-										{#if !isTeamsOAuthEnabled}
-											<Alert type="warning" title="Teams OAuth not configured">
-												Teams OAuth is not configured at the instance level. Please ask your
-												administrator to configure Teams OAuth settings in the instance settings
-												before you can use Teams features.
+										{:else if slackAppType === 'workspace'}
+											<div class="flex flex-col gap-6">
+												<label class="flex flex-col gap-1">
+													<span class="text-primary font-semibold text-xs">Client ID</span>
+													<TextInput
+														inputProps={{
+															type: 'text',
+															placeholder: '1234567890.1234567890'
+														}}
+														bind:value={slackOAuthClientId}
+													/>
+												</label>
+
+												<label class="flex flex-col gap-1">
+													<span class="text-primary font-semibold text-xs">Client secret</span>
+													<TextInput
+														inputProps={{
+															type: 'password',
+															placeholder: 'Enter client secret'
+														}}
+														bind:value={slackOAuthClientSecret}
+													/>
+												</label>
+
+												<CollapseLink text="Instructions">
+													<div class="text-xs text-secondary">
+														Create a Slack app at{' '}
+														<a
+															href="https://api.slack.com/apps"
+															target="_blank"
+															rel="noopener noreferrer"
+															class="text-blue-600 dark:text-blue-400 hover:underline"
+														>
+															Slack API
+														</a>. Set the redirect URI to:{' '}
+														<code class="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">
+															{window.location.origin}{base}/oauth/callback_slack
+														</code>
+													</div>
+												</CollapseLink>
+
+												<div class="pt-2">
+													<Button
+														size="xs"
+														variant="accent"
+														onclick={saveAndConnectSlack}
+														disabled={!slackOAuthClientId || !slackOAuthClientSecret}
+														startIcon={{ icon: Slack }}
+														btnClasses="w-fit"
+													>
+														Connect to Slack
+													</Button>
+												</div>
+											</div>
+										{:else if !isSlackOAuthEnabled}
+											<Alert type="warning" title="Slack OAuth not configured">
+												Slack OAuth is not configured at the instance level. Please ask your
+												administrator to configure Slack OAuth settings in the instance settings
+												before you can use Slack features.
 											</Alert>
 										{/if}
 									{/snippet}
 								</ConnectionSection>
+							{:else if slack_tabs === 'teams_commands'}
+								{#if !$enterpriseLicense}
+									<div class="pt-4"></div>
+									<Alert type="warning" title="Workspace Teams commands is an EE feature">
+										Workspace Teams commands is a Windmill EE feature. It enables using your current
+										Slack / Teams connection to run a custom script and send notifications.
+									</Alert>
+									<div class="pb-2"></div>
+								{:else}
+									<ConnectionSection
+										platform="teams"
+										teamName={teams_team_id}
+										bind:scriptPath={teamsScriptPath}
+										bind:initialPath={teamsInitialPath}
+										bind:itemKind
+										onDisconnect={async () => {
+											await OauthService.disconnectTeams({ workspace: $workspaceStore ?? '' })
+											loadSettings()
+											sendUserToast('Disconnected Teams')
+										}}
+										onSelect={editTeamsCommand}
+										connectHref={undefined}
+										createScriptHref="{base}/scripts/add?hub=hub%2F11591%2Fteams%2FExample%20of%20responding%20to%20a%20Microsoft%20Teams%20command"
+										createFlowHref="{base}/flows/add?hub=58"
+										documentationLink="https://www.windmill.dev/docs/integrations/teams"
+										onLoadSettings={loadSettings}
+										display_name={teams_team_name}
+										isOAuthEnabled={isTeamsOAuthEnabled}
+									>
+										{#snippet workspaceConfig()}
+											{#if !isTeamsOAuthEnabled}
+												<Alert type="warning" title="Teams OAuth not configured">
+													Teams OAuth is not configured at the instance level. Please ask your
+													administrator to configure Teams OAuth settings in the instance settings
+													before you can use Teams features.
+												</Alert>
+											{/if}
+										{/snippet}
+									</ConnectionSection>
+								{/if}
 							{/if}
-						{/if}
-					</div>
-				{:else if tab == 'general'}
-					<SettingsPageHeader
-						title="General"
-						description="Configure general workspace settings."
-						link="https://www.windmill.dev/docs/core_concepts/workspace_settings"
-					/>
+						</div>
+					{:else if tab == 'general'}
+						<SettingsPageHeader
+							title="General"
+							description="Configure general workspace settings."
+							link="https://www.windmill.dev/docs/core_concepts/workspace_settings"
+						/>
 
-					<div class="flex flex-col gap-6">
-						<ChangeWorkspaceName />
-						<ChangeWorkspaceId />
-						<ChangeWorkspaceColor />
-					</div>
+						<div class="flex flex-col gap-6">
+							<ChangeWorkspaceName />
+							<ChangeWorkspaceId />
+							<ChangeWorkspaceColor />
+						</div>
 
-					<div class="text-xs font-semibold text-emphasis mt-6 mb-1">Export workspace</div>
-					<div class="flex justify-start">
-						<Button
-							size="sm"
-							href="{base}/api/w/{$workspaceStore ?? ''}/workspaces/tarball?archive_type=zip"
-							target="_blank"
-						>
-							Export workspace as zip file
-						</Button>
-					</div>
-
-					<div class="mt-12"></div>
-					<span class="text-sm font-semibold text-emphasis">Delete workspace</span>
-					{#if !$superadmin}
-						<p class="text-2xs text-secondary">
-							Only instance superadmins can delete a workspace.
-						</p>
-					{/if}
-					{#if $workspaceStore === 'admins' || $workspaceStore === 'starter'}
-						<p class="text-2xs text-secondary">
-							This workspace cannot be deleted as it has a special function. Consult the
-							documentation for more information.
-						</p>
-					{/if}
-					<div class="flex gap-2">
-						<Button
-							destructive
-							disabled={$workspaceStore === 'admins' || $workspaceStore === 'starter'}
-							unifiedSize="md"
-							btnClasses="mt-2"
-							on:click={async () => {
-								await WorkspaceService.archiveWorkspace({ workspace: $workspaceStore ?? '' })
-								sendUserToast(`Archived workspace ${$workspaceStore}`)
-								workspaceStore.set(undefined)
-								usersWorkspaceStore.set(undefined)
-								goto('/user/workspaces')
-							}}
-						>
-							Archive workspace
-						</Button>
-
-						{#if $superadmin}
+						<div class="text-xs font-semibold text-emphasis mt-6 mb-1">Export workspace</div>
+						<div class="flex justify-start">
 							<Button
-								color="red"
-								disabled={$workspaceStore === 'admins' || $workspaceStore === 'starter'}
 								size="sm"
+								href="{base}/api/w/{$workspaceStore ?? ''}/workspaces/tarball?archive_type=zip"
+								target="_blank"
+							>
+								Export workspace as zip file
+							</Button>
+						</div>
+
+						<div class="mt-12"></div>
+						<span class="text-sm font-semibold text-emphasis">Delete workspace</span>
+						{#if !$superadmin}
+							<p class="text-2xs text-secondary">
+								Only instance superadmins can delete a workspace.
+							</p>
+						{/if}
+						{#if $workspaceStore === 'admins' || $workspaceStore === 'starter'}
+							<p class="text-2xs text-secondary">
+								This workspace cannot be deleted as it has a special function. Consult the
+								documentation for more information.
+							</p>
+						{/if}
+						<div class="flex gap-2">
+							<Button
+								destructive
+								disabled={$workspaceStore === 'admins' || $workspaceStore === 'starter'}
+								unifiedSize="md"
 								btnClasses="mt-2"
 								on:click={async () => {
-									await WorkspaceService.deleteWorkspace({ workspace: $workspaceStore ?? '' })
-									sendUserToast(`Deleted workspace ${$workspaceStore}`)
+									await WorkspaceService.archiveWorkspace({ workspace: $workspaceStore ?? '' })
+									sendUserToast(`Archived workspace ${$workspaceStore}`)
 									workspaceStore.set(undefined)
 									usersWorkspaceStore.set(undefined)
 									goto('/user/workspaces')
 								}}
 							>
-								Delete workspace (superadmin)
+								Archive workspace
 							</Button>
-						{/if}
-					</div>
-				{:else if tab == 'webhook'}
-					<SettingsPageHeader
-						title="Workspace Webhook"
-						description="Connect your Windmill workspace to an external service to sync or get notified about any change."
-						link="https://www.windmill.dev/docs/core_concepts/webhooks#workspace-webhook"
-					/>
 
-					<div class="flex flex-col gap-1 pb-8">
-						<div class="text-xs font-semibold text-emphasis"> URL to send requests to</div>
-						<div class="text-secondary text-xs">
-							This URL will be POSTed to with a JSON body depending on the type of event. The type
-							is indicated by the type field. The other fields are dependent on the type.
-						</div>
-
-						<div class="flex flex-col gap-2">
-							<TextInput
-								bind:value={webhook}
-								inputProps={{
-									placeholder: 'https://your-endpoint.com/webhook'
-								}}
-								error={webhookValidationError}
-							/>
-							{#if webhookValidationError}
-								<div class="text-xs text-red-600">{webhookValidationError}</div>
+							{#if $superadmin}
+								<Button
+									color="red"
+									disabled={$workspaceStore === 'admins' || $workspaceStore === 'starter'}
+									size="sm"
+									btnClasses="mt-2"
+									on:click={async () => {
+										await WorkspaceService.deleteWorkspace({ workspace: $workspaceStore ?? '' })
+										sendUserToast(`Deleted workspace ${$workspaceStore}`)
+										workspaceStore.set(undefined)
+										usersWorkspaceStore.set(undefined)
+										goto('/user/workspaces')
+									}}
+								>
+									Delete workspace (superadmin)
+								</Button>
 							{/if}
 						</div>
-					</div>
+					{:else if tab == 'webhook'}
+						<SettingsPageHeader
+							title="Workspace Webhook"
+							description="Connect your Windmill workspace to an external service to sync or get notified about any change."
+							link="https://www.windmill.dev/docs/core_concepts/webhooks#workspace-webhook"
+						/>
 
-					<SettingsFooter
-						hasUnsavedChanges={hasWebhookChanges}
-						onSave={editWebhook}
-						onDiscard={discardWebhookSettingsChanges}
-						saveLabel="Save webhook"
-						disabled={!!webhookValidationError}
-					/>
-				{:else if tab == 'error_handler'}
-					<SettingsPageHeader
-						title="Workspace Error Handler"
-						description="Configure a centralized error handler that automatically executes when any script or flow in the workspace fails. On error, you can trigger a custom script or flow, send notifications via Slack or Microsoft Teams, or dispatch email alerts. The handler receives error details, job information, and context about the failed execution."
-						link="https://www.windmill.dev/docs/core_concepts/error_handling#workspace-error-handler"
-					/>
-					{#if !$enterpriseLicense}
-						<Alert type="warning" title="Workspace error handler is an EE feature">
-							Workspace error handler is a Windmill EE feature. It enables using your current Slack
-							connection or a custom script to send notifications anytime any job would fail.
-						</Alert>
-					{/if}
-					<div class="flex flex-col gap-6 py-4">
-						<ErrorOrRecoveryHandler
-							isEditable={true}
-							errorOrRecovery="error"
-							showScriptHelpText={true}
-							bind:handlerSelected={errorHandlerSelected}
-							bind:handlerPath={errorHandlerScriptPath}
-							customScriptTemplate="/scripts/add?hub=hub%2F9083%2Fwindmill%2Fworkspace_error_handler_template"
-							bind:customHandlerKind={errorHandlerItemKind}
-							bind:handlerExtraArgs={errorHandlerExtraArgs}
-						>
-							{#snippet customTabTooltip()}
-								<Tooltip>
-									<div class="flex gap-20 items-start mt-3">
-										<div class="text-sm">
-											The following args will be passed to the error handler:
-											<ul class="mt-1 ml-2">
-												<li><b>path</b>: The path of the script or flow that errored.</li>
-												<li>
-													<b>email</b>: The email of the user who ran the script or flow that
-													errored.
-												</li>
-												<li><b>error</b>: The error details.</li>
-												<li><b>job_id</b>: The job id.</li>
-												<li><b>is_flow</b>: Whether the error comes from a flow.</li>
-												<li><b>workspace_id</b>: The workspace id of the failed script or flow.</li>
-											</ul>
-											<br />
-											The error handler will be executed by the automatically created group g/error_handler.
-											If your error handler requires variables or resources, you need to add them to
-											the group.
-										</div>
-									</div>
-								</Tooltip>
-							{/snippet}
-						</ErrorOrRecoveryHandler>
+						<div class="flex flex-col gap-1 pb-8">
+							<div class="text-xs font-semibold text-emphasis"> URL to send requests to</div>
+							<div class="text-secondary text-xs">
+								This URL will be POSTed to with a JSON body depending on the type of event. The type
+								is indicated by the type field. The other fields are dependent on the type.
+							</div>
 
-						<div class="flex flex-col gap-6 items-start">
-							<Toggle
-								disabled={!$enterpriseLicense ||
-									((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-										!emptyString(errorHandlerScriptPath) &&
-										emptyString(errorHandlerExtraArgs['channel']))}
-								bind:checked={errorHandlerMutedOnCancel}
-								options={{ right: 'Do not run error handler for canceled jobs' }}
-							/>
-							<Toggle
-								disabled={!$enterpriseLicense ||
-									((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-										!emptyString(errorHandlerScriptPath) &&
-										emptyString(errorHandlerExtraArgs['channel']))}
-								bind:checked={errorHandlerMutedOnUserPath}
-								options={{ right: 'Do not run error handler for u/ scripts and flows' }}
-							/>
+							<div class="flex flex-col gap-2">
+								<TextInput
+									bind:value={webhook}
+									inputProps={{
+										placeholder: 'https://your-endpoint.com/webhook'
+									}}
+									error={webhookValidationError}
+								/>
+								{#if webhookValidationError}
+									<div class="text-xs text-red-600">{webhookValidationError}</div>
+								{/if}
+							</div>
 						</div>
-					</div>
 
-					<SettingsFooter
-						hasUnsavedChanges={hasErrorHandlerChanges}
-						onSave={editErrorHandler}
-						onDiscard={discardErrorHandlerSettingsChanges}
-						saveLabel="Save error handler"
-						disabled={!$enterpriseLicense ||
-							((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-								!emptyString(errorHandlerScriptPath) &&
-								emptyString(errorHandlerExtraArgs['channel']))}
-					/>
-				{:else if tab == 'success_handler'}
-					<SettingsPageHeader
-						title="Workspace Success Handler"
-						description="Configure a script that automatically executes when any script or flow in the workspace completes successfully. The handler receives: <b>path</b>, <b>email</b>, <b>result</b>, <b>job_id</b>, <b>is_flow</b>, <b>workspace_id</b>, and <b>started_at</b>. The handler runs as the <b>g/success_handler</b> group. <i>Note: changes may take up to 60 seconds to propagate due to caching.</i>"
-						link="https://www.windmill.dev/docs/core_concepts/success_handling"
-					/>
-					<div class="flex flex-col gap-6 py-4">
+						<SettingsFooter
+							hasUnsavedChanges={hasWebhookChanges}
+							onSave={editWebhook}
+							onDiscard={discardWebhookSettingsChanges}
+							saveLabel="Save webhook"
+							disabled={!!webhookValidationError}
+						/>
+					{:else if tab == 'error_handler'}
+						<SettingsPageHeader
+							title="Workspace Error Handler"
+							description="Configure a centralized error handler that automatically executes when any script or flow in the workspace fails. On error, you can trigger a custom script or flow, send notifications via Slack or Microsoft Teams, or dispatch email alerts. The handler receives error details, job information, and context about the failed execution."
+							link="https://www.windmill.dev/docs/core_concepts/error_handling#workspace-error-handler"
+						/>
 						{#if !$enterpriseLicense}
-							<Alert type="warning" title="Workspace success handler is an EE feature">
-								Workspace success handler is a Windmill Enterprise Edition feature that allows you
-								to run a script whenever any job in the workspace completes successfully.
+							<Alert type="warning" title="Workspace error handler is an EE feature">
+								Workspace error handler is a Windmill EE feature. It enables using your current
+								Slack connection or a custom script to send notifications anytime any job would
+								fail.
 							</Alert>
 						{/if}
-						<div class="flex flex-col gap-4">
-							<div class="flex flex-row gap-2 items-center">
-								<ScriptPicker
-									disabled={!$enterpriseLicense}
-									initialPath={successHandlerScriptPath}
-									allowRefresh
-									itemKind="script"
-									on:select={(ev) => {
-										successHandlerScriptPath = ev?.detail?.path
-									}}
-									clearable
+						<div class="flex flex-col gap-6 py-4">
+							<ErrorOrRecoveryHandler
+								isEditable={true}
+								errorOrRecovery="error"
+								showScriptHelpText={true}
+								bind:handlerSelected={errorHandlerSelected}
+								bind:handlerPath={errorHandlerScriptPath}
+								customScriptTemplate="/scripts/add?hub=hub%2F9083%2Fwindmill%2Fworkspace_error_handler_template"
+								bind:customHandlerKind={errorHandlerItemKind}
+								bind:handlerExtraArgs={errorHandlerExtraArgs}
+							>
+								{#snippet customTabTooltip()}
+									<Tooltip>
+										<div class="flex gap-20 items-start mt-3">
+											<div class="text-sm">
+												The following args will be passed to the error handler:
+												<ul class="mt-1 ml-2">
+													<li><b>path</b>: The path of the script or flow that errored.</li>
+													<li>
+														<b>email</b>: The email of the user who ran the script or flow that
+														errored.
+													</li>
+													<li><b>error</b>: The error details.</li>
+													<li><b>job_id</b>: The job id.</li>
+													<li><b>is_flow</b>: Whether the error comes from a flow.</li>
+													<li
+														><b>workspace_id</b>: The workspace id of the failed script or flow.</li
+													>
+												</ul>
+												<br />
+												The error handler will be executed by the automatically created group g/error_handler.
+												If your error handler requires variables or resources, you need to add them to
+												the group.
+											</div>
+										</div>
+									</Tooltip>
+								{/snippet}
+							</ErrorOrRecoveryHandler>
+
+							<div class="flex flex-col gap-6 items-start">
+								<Toggle
+									disabled={!$enterpriseLicense ||
+										((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
+											!emptyString(errorHandlerScriptPath) &&
+											emptyString(errorHandlerExtraArgs['channel']))}
+									bind:checked={errorHandlerMutedOnCancel}
+									options={{ right: 'Do not run error handler for canceled jobs' }}
 								/>
-								<Button
-									variant="default"
-									href={`${base}/scripts/add?lang=bun#` +
-										encodeState({
-											path: 'f/success_handler',
-											summary: 'Workspace Success Handler',
-											description: 'Called when any job in the workspace completes successfully',
-											content: `//native
+								<Toggle
+									disabled={!$enterpriseLicense ||
+										((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
+											!emptyString(errorHandlerScriptPath) &&
+											emptyString(errorHandlerExtraArgs['channel']))}
+									bind:checked={errorHandlerMutedOnUserPath}
+									options={{ right: 'Do not run error handler for u/ scripts and flows' }}
+								/>
+							</div>
+						</div>
+
+						<SettingsFooter
+							hasUnsavedChanges={hasErrorHandlerChanges}
+							onSave={editErrorHandler}
+							onDiscard={discardErrorHandlerSettingsChanges}
+							saveLabel="Save error handler"
+							disabled={!$enterpriseLicense ||
+								((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
+									!emptyString(errorHandlerScriptPath) &&
+									emptyString(errorHandlerExtraArgs['channel']))}
+						/>
+					{:else if tab == 'success_handler'}
+						<SettingsPageHeader
+							title="Workspace Success Handler"
+							description="Configure a script that automatically executes when any script or flow in the workspace completes successfully. The handler receives: <b>path</b>, <b>email</b>, <b>result</b>, <b>job_id</b>, <b>is_flow</b>, <b>workspace_id</b>, and <b>started_at</b>. The handler runs as the <b>g/success_handler</b> group. <i>Note: changes may take up to 60 seconds to propagate due to caching.</i>"
+							link="https://www.windmill.dev/docs/core_concepts/success_handling"
+						/>
+						<div class="flex flex-col gap-6 py-4">
+							{#if !$enterpriseLicense}
+								<Alert type="warning" title="Workspace success handler is an EE feature">
+									Workspace success handler is a Windmill Enterprise Edition feature that allows you
+									to run a script whenever any job in the workspace completes successfully.
+								</Alert>
+							{/if}
+							<div class="flex flex-col gap-4">
+								<div class="flex flex-row gap-2 items-center">
+									<ScriptPicker
+										disabled={!$enterpriseLicense}
+										initialPath={successHandlerScriptPath}
+										allowRefresh
+										itemKind="script"
+										on:select={(ev) => {
+											successHandlerScriptPath = ev?.detail?.path
+										}}
+										clearable
+									/>
+									<Button
+										variant="default"
+										href={`${base}/scripts/add?lang=bun#` +
+											encodeState({
+												path: 'f/success_handler',
+												summary: 'Workspace Success Handler',
+												description: 'Called when any job in the workspace completes successfully',
+												content: `//native
 
 // Workspace Success Handler
 // This script is called whenever a job completes successfully in this workspace.
@@ -1916,208 +1924,209 @@ export async function main(
   return { handled: true }
 }
 `,
-											language: 'bun',
-											kind: 'script'
-										})}
-									target="_blank"
+												language: 'bun',
+												kind: 'script'
+											})}
+										target="_blank"
+									>
+										Create from template
+									</Button>
+								</div>
+							</div>
+						</div>
+
+						<SettingsFooter
+							hasUnsavedChanges={hasSuccessHandlerChanges}
+							onSave={editSuccessHandler}
+							onDiscard={() => {
+								successHandlerScriptPath = initialSuccessHandlerScriptPath
+							}}
+							saveLabel="Save success handler"
+							disabled={!$enterpriseLicense}
+						/>
+					{:else if tab == 'critical_alerts'}
+						<SettingsPageHeader
+							title="Workspace Critical Alerts"
+							description="Critical alerts within the scope of a workspace are sent to the workspace admins through a UI notification."
+							link="https://www.windmill.dev/docs/core_concepts/critical_alerts"
+						/>
+						<div class="flex flex-col gap-6 py-4">
+							{#if !$enterpriseLicense}
+								<Alert type="warning" title="Workspace critical alerts is an EE feature">
+									Workspace critical alerts is a Windmill Enterprise Edition feature that sends
+									notifications to workspace admins when critical events occur.
+								</Alert>
+							{/if}
+							<Toggle
+								disabled={!$enterpriseLicense}
+								bind:checked={criticalAlertUIMuted}
+								options={{ right: 'Mute critical alerts UI for this workspace' }}
+							/>
+
+							<div class="flex gap-2">
+								<Button
+									disabled={!$enterpriseLicense}
+									on:click={() => isCriticalAlertsUIOpen.set(true)}
+									btnClasses="w-fit"
 								>
-									Create from template
+									Show critical alerts
 								</Button>
 							</div>
 						</div>
-					</div>
 
-					<SettingsFooter
-						hasUnsavedChanges={hasSuccessHandlerChanges}
-						onSave={editSuccessHandler}
-						onDiscard={() => {
-							successHandlerScriptPath = initialSuccessHandlerScriptPath
-						}}
-						saveLabel="Save success handler"
-						disabled={!$enterpriseLicense}
-					/>
-				{:else if tab == 'critical_alerts'}
-					<SettingsPageHeader
-						title="Workspace Critical Alerts"
-						description="Critical alerts within the scope of a workspace are sent to the workspace admins through a UI notification."
-						link="https://www.windmill.dev/docs/core_concepts/critical_alerts"
-					/>
-					<div class="flex flex-col gap-6 py-4">
-						{#if !$enterpriseLicense}
-							<Alert type="warning" title="Workspace critical alerts is an EE feature">
-								Workspace critical alerts is a Windmill Enterprise Edition feature that sends
-								notifications to workspace admins when critical events occur.
-							</Alert>
-						{/if}
-						<Toggle
+						<SettingsFooter
+							hasUnsavedChanges={hasCriticalAlertMuteChanges}
+							onSave={editCriticalAlertMuteSetting}
+							onDiscard={() => {
+								criticalAlertUIMuted = initialCriticalAlertUIMuted
+							}}
+							saveLabel="Save mute setting"
 							disabled={!$enterpriseLicense}
-							bind:checked={criticalAlertUIMuted}
-							options={{ right: 'Mute critical alerts UI for this workspace' }}
 						/>
-
-						<div class="flex gap-2">
-							<Button
-								disabled={!$enterpriseLicense}
-								on:click={() => isCriticalAlertsUIOpen.set(true)}
-								btnClasses="w-fit"
-							>
-								Show critical alerts
-							</Button>
-						</div>
-					</div>
-
-					<SettingsFooter
-						hasUnsavedChanges={hasCriticalAlertMuteChanges}
-						onSave={editCriticalAlertMuteSetting}
-						onDiscard={() => {
-							criticalAlertUIMuted = initialCriticalAlertUIMuted
-						}}
-						saveLabel="Save mute setting"
-						disabled={!$enterpriseLicense}
-					/>
-				{:else if tab == 'ai'}
-					<AISettings
-						bind:aiProviders
-						bind:codeCompletionModel
-						bind:defaultModel
-						bind:customPrompts
-						bind:maxTokensPerModel
-						bind:usingOpenaiClientCredentialsOauth
-						hasUnsavedChanges={hasAiSettingsChanges}
-						onDiscard={discardAiSettingsChanges}
-						onSave={() => {
-							// Update initial state after successful save
-							initialAiProviders = clone(aiProviders)
-							initialDefaultModel = defaultModel
-							initialCodeCompletionModel = codeCompletionModel
-							initialCustomPrompts = clone(customPrompts)
-							initialMaxTokensPerModel = clone(maxTokensPerModel)
-						}}
-					/>
-				{:else if tab == 'windmill_data_tables'}
-					<DataTableSettings bind:dataTableSettings bind:this={dataTableSettingsComponent} />
-				{:else if tab == 'windmill_lfs'}
-					<StorageSettings
-						bind:s3ResourceSettings
-						{s3ResourceSavedSettings}
-						onSave={() => {
-							s3ResourceSavedSettings = clone(s3ResourceSettings)
-						}}
-					/>
-					<DucklakeSettings
-						bind:ducklakeSettings
-						bind:ducklakeSavedSettings
-						onSave={() => {
-							ducklakeSavedSettings = clone(ducklakeSettings)
-						}}
-					/>
-				{:else if tab == 'git_sync'}
-					{#if $workspaceStore}
-						<GitSyncSection />
-					{:else}
-						<div class="flex items-center justify-center p-8">
-							<div class="text-sm text-secondary">Loading workspace...</div>
-						</div>
-					{/if}
-				{:else if tab == 'dependencies'}
-					<WorkspaceDependenciesSettings />
-				{:else if tab == 'default_app'}
-					<SettingsPageHeader
-						title="Workspace Default App"
-						description="If configured, users who are operators in this workspace will be redirected to this app automatically when logging into this workspace. Make sure the default app is shared with all the operators of this workspace before turning this feature on."
-						link="https://www.windmill.dev/docs/apps/default_app"
-					/>
-					{#if !$enterpriseLicense}
-						<Alert type="warning" title="Windmill EE only feature">
-							Default app can only be set on Windmill Enterprise Edition.
-						</Alert>
-					{:else}
-						<Alert type="info" title="Default app must be accessible to all operators">
-							Make sure the default app is shared with all the operators of this workspace before
-							turning this feature on.
-						</Alert>
-					{/if}
-					<div class="mt-5 flex gap-1">
-						<ScriptPicker bind:scriptPath={workspaceDefaultAppPath} itemKind="app" />
-					</div>
-					<hr class="border-t my-8" />
-					<Section
-						label="Public App Rate Limiting"
-						description="Limit the number of public (anonymous) app executions per minute per server. Set to 0 or leave empty to disable. This is a per-server limit, not a global limit."
-						class="flex flex-col gap-6"
-					>
-						<div class="flex flex-row items-center gap-4">
-							<TextInput
-								inputProps={{ type: 'number', placeholder: '0 (disabled)' }}
-								bind:value={publicAppRateLimitPerMinute}
-								class="w-48"
-							/>
-							<span class="text-secondary text-sm">executions per minute per server</span>
-						</div>
-					</Section>
-
-					<SettingsFooter
-						class="mt-8"
-						hasUnsavedChanges={hasDefaultAppChanges}
-						onSave={saveDefaultAppSettings}
-						onDiscard={discardDefaultAppSettingsChanges}
-						saveLabel="Save app settings"
-						disabled={!$enterpriseLicense}
-					/>
-				{:else if tab == 'native_triggers'}
-					{#if $workspaceStore}
-						{#await import('$lib/components/workspaceSettings/WorkspaceIntegrations.svelte') then { default: WorkspaceIntegrations }}
-							<WorkspaceIntegrations />
-						{/await}
-					{:else}
-						<div class="flex items-center justify-center p-8">
-							<div class="text-sm text-secondary">Loading workspace...</div>
-						</div>
-					{/if}
-				{:else if tab == 'encryption'}
-					<SettingsPageHeader
-						title="Workspace Secret Encryption"
-						description="When updating the encryption key of a workspace, all secrets will be re-encrypted with the new key and the previous key will be replaced by the new one. If you're manually updating the key to match another workspace key from another Windmill instance, make sure not to use the 'SECRET_SALT' environment variable or, if you're using it, make sure it the salt matches across both instances."
-						link="https://www.windmill.dev/docs/core_concepts/workspace_secret_encryption"
-					/>
-					<div class="mt-5 mb-6"></div>
-					<label for="workspace-encryption-key" class="text-xs font-semibold text-emphasis mt-1">
-						Workspace encryption key
-					</label>
-					<div class="flex flex-col gap-1">
-						<div class="flex gap-2">
-							<TextInput
-								inputProps={{
-									id: 'workspace-encryption-key',
-									placeholder: '*'.repeat(64)
-								}}
-								bind:value={editedWorkspaceEncryptionKey}
-								error={encryptionKeyValidationError}
-							/>
-							<Button
-								variant="default"
-								unifiedSize="md"
-								on:click={() => {
-									loadWorkspaceEncryptionKey()
-								}}>Load current key</Button
-							>
-						</div>
-						{#if encryptionKeyValidationError}
-							<div class="text-xs text-red-600">
-								{encryptionKeyValidationError}
+					{:else if tab == 'ai'}
+						<AISettings
+							bind:aiProviders
+							bind:codeCompletionModel
+							bind:defaultModel
+							bind:customPrompts
+							bind:maxTokensPerModel
+							bind:usingOpenaiClientCredentialsOauth
+							hasUnsavedChanges={hasAiSettingsChanges}
+							onDiscard={discardAiSettingsChanges}
+							onSave={() => {
+								// Update initial state after successful save
+								initialAiProviders = clone(aiProviders)
+								initialDefaultModel = defaultModel
+								initialCodeCompletionModel = codeCompletionModel
+								initialCustomPrompts = clone(customPrompts)
+								initialMaxTokensPerModel = clone(maxTokensPerModel)
+							}}
+						/>
+					{:else if tab == 'windmill_data_tables'}
+						<DataTableSettings bind:dataTableSettings bind:this={dataTableSettingsComponent} />
+					{:else if tab == 'windmill_lfs'}
+						<StorageSettings
+							bind:s3ResourceSettings
+							{s3ResourceSavedSettings}
+							onSave={() => {
+								s3ResourceSavedSettings = clone(s3ResourceSettings)
+							}}
+						/>
+						<DucklakeSettings
+							bind:ducklakeSettings
+							bind:ducklakeSavedSettings
+							onSave={() => {
+								ducklakeSavedSettings = clone(ducklakeSettings)
+							}}
+						/>
+					{:else if tab == 'git_sync'}
+						{#if $workspaceStore}
+							<GitSyncSection />
+						{:else}
+							<div class="flex items-center justify-center p-8">
+								<div class="text-sm text-secondary">Loading workspace...</div>
 							</div>
 						{/if}
-					</div>
+					{:else if tab == 'dependencies'}
+						<WorkspaceDependenciesSettings />
+					{:else if tab == 'default_app'}
+						<SettingsPageHeader
+							title="Workspace Default App"
+							description="If configured, users who are operators in this workspace will be redirected to this app automatically when logging into this workspace. Make sure the default app is shared with all the operators of this workspace before turning this feature on."
+							link="https://www.windmill.dev/docs/apps/default_app"
+						/>
+						{#if !$enterpriseLicense}
+							<Alert type="warning" title="Windmill EE only feature">
+								Default app can only be set on Windmill Enterprise Edition.
+							</Alert>
+						{:else}
+							<Alert type="info" title="Default app must be accessible to all operators">
+								Make sure the default app is shared with all the operators of this workspace before
+								turning this feature on.
+							</Alert>
+						{/if}
+						<div class="mt-5 flex gap-1">
+							<ScriptPicker bind:scriptPath={workspaceDefaultAppPath} itemKind="app" />
+						</div>
+						<hr class="border-t my-8" />
+						<Section
+							label="Public App Rate Limiting"
+							description="Limit the number of public (anonymous) app executions per minute per server. Set to 0 or leave empty to disable. This is a per-server limit, not a global limit."
+							class="flex flex-col gap-6"
+						>
+							<div class="flex flex-row items-center gap-4">
+								<TextInput
+									inputProps={{ type: 'number', placeholder: '0 (disabled)' }}
+									bind:value={publicAppRateLimitPerMinute}
+									class="w-48"
+								/>
+								<span class="text-secondary text-sm">executions per minute per server</span>
+							</div>
+						</Section>
 
-					<SettingsFooter
-						class="mt-8"
-						hasUnsavedChanges={hasEncryptionKeyChanges}
-						onSave={setWorkspaceEncryptionKey}
-						onDiscard={discardEncryptionKeySettingsChanges}
-						saveLabel="Save & Re-encrypt workspace"
-						disabled={!!encryptionKeyValidationError || workspaceReencryptionInProgress}
-					/>
-				{/if}
+						<SettingsFooter
+							class="mt-8"
+							hasUnsavedChanges={hasDefaultAppChanges}
+							onSave={saveDefaultAppSettings}
+							onDiscard={discardDefaultAppSettingsChanges}
+							saveLabel="Save app settings"
+							disabled={!$enterpriseLicense}
+						/>
+					{:else if tab == 'native_triggers'}
+						{#if $workspaceStore}
+							{#await import('$lib/components/workspaceSettings/WorkspaceIntegrations.svelte') then { default: WorkspaceIntegrations }}
+								<WorkspaceIntegrations />
+							{/await}
+						{:else}
+							<div class="flex items-center justify-center p-8">
+								<div class="text-sm text-secondary">Loading workspace...</div>
+							</div>
+						{/if}
+					{:else if tab == 'encryption'}
+						<SettingsPageHeader
+							title="Workspace Secret Encryption"
+							description="When updating the encryption key of a workspace, all secrets will be re-encrypted with the new key and the previous key will be replaced by the new one. If you're manually updating the key to match another workspace key from another Windmill instance, make sure not to use the 'SECRET_SALT' environment variable or, if you're using it, make sure it the salt matches across both instances."
+							link="https://www.windmill.dev/docs/core_concepts/workspace_secret_encryption"
+						/>
+						<div class="mt-5 mb-6"></div>
+						<label for="workspace-encryption-key" class="text-xs font-semibold text-emphasis mt-1">
+							Workspace encryption key
+						</label>
+						<div class="flex flex-col gap-1">
+							<div class="flex gap-2">
+								<TextInput
+									inputProps={{
+										id: 'workspace-encryption-key',
+										placeholder: '*'.repeat(64)
+									}}
+									bind:value={editedWorkspaceEncryptionKey}
+									error={encryptionKeyValidationError}
+								/>
+								<Button
+									variant="default"
+									unifiedSize="md"
+									on:click={() => {
+										loadWorkspaceEncryptionKey()
+									}}>Load current key</Button
+								>
+							</div>
+							{#if encryptionKeyValidationError}
+								<div class="text-xs text-red-600">
+									{encryptionKeyValidationError}
+								</div>
+							{/if}
+						</div>
+
+						<SettingsFooter
+							class="mt-8"
+							hasUnsavedChanges={hasEncryptionKeyChanges}
+							onSave={setWorkspaceEncryptionKey}
+							onDiscard={discardEncryptionKeySettingsChanges}
+							saveLabel="Save & Re-encrypt workspace"
+							disabled={!!encryptionKeyValidationError || workspaceReencryptionInProgress}
+						/>
+					{/if}
+				</div>
 			</div>
 		</div>
 	{:else}
