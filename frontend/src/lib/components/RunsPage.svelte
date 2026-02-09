@@ -682,7 +682,7 @@
 
 				{#if graph !== 'RunChart'}
 					<Select
-						class="ml-auto"
+						class="ml-2"
 						bind:value={lookback}
 						items={[
 							{ label: 'None', value: 0 },
