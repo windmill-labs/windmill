@@ -149,11 +149,17 @@ pub struct RunJob {
     pub payload: JobPayload,
     pub args: serde_json::Map<String, serde_json::Value>,
     pub scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
+    pub email: String,
 }
 
 impl From<JobPayload> for RunJob {
     fn from(payload: JobPayload) -> Self {
-        Self { payload, args: Default::default(), scheduled_for_o: None }
+        Self {
+            payload,
+            args: Default::default(),
+            scheduled_for_o: None,
+            email: "test@windmill.dev".to_string(),
+        }
     }
 }
 
@@ -171,8 +177,13 @@ impl RunJob {
         self
     }
 
+    pub fn email(mut self, email: impl Into<String>) -> Self {
+        self.email = email.into();
+        self
+    }
+
     pub async fn push(self, db: &Pool<Postgres>) -> Uuid {
-        let RunJob { payload, args, scheduled_for_o } = self;
+        let RunJob { payload, args, scheduled_for_o, email } = self;
         let mut hm_args = std::collections::HashMap::new();
         for (k, v) in args {
             hm_args.insert(k, windmill_common::worker::to_raw_value(&v));
@@ -186,7 +197,7 @@ impl RunJob {
             payload,
             windmill_queue::PushArgs::from(&hm_args),
             /* user */ "test-user",
-            /* email  */ "test@windmill.dev",
+            /* email  */ &email,
             /* permissioned_as */ "u/test-user".to_string(),
             /* token_prefix */ None,
             scheduled_for_o,

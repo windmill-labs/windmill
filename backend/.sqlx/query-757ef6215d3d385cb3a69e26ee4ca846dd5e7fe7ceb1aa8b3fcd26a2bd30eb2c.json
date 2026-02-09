@@ -40,7 +40,8 @@
                 "sqs",
                 "gcp",
                 "mqtt",
-                "nextcloud"
+                "nextcloud",
+                "google"
               ]
             }
           }
