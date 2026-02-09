@@ -244,19 +244,6 @@ pub fn permissioned_as_to_username(permissioned_as: &str) -> String {
     }
 }
 
-pub async fn fetch_authed_from_permissioned_as(
-    permissioned_as: String,
-    email: String,
-    w_id: &str,
-    db: &DB,
-) -> Result<Authed> {
-    let mut conn = db
-        .acquire()
-        .await
-        .map_err(|e| Error::internal_err(format!("acquiring connection: {e:#}")))?;
-    fetch_authed_from_permissioned_as_conn(&permissioned_as, &email, w_id, &mut conn).await
-}
-
 pub async fn fetch_authed_from_permissioned_as_conn(
     permissioned_as: &str,
     email: &str,
@@ -418,7 +405,12 @@ pub async fn create_token_for_owner(
         Ok(Some(jp)) => jp.into(),
         _ => {
             tracing::warn!("Could not get permissions for job {job_id} from job_perms table, getting permissions directly...");
-            fetch_authed_from_permissioned_as(owner.to_string(), email.to_string(), w_id, db)
+            let mut conn = db
+                .acquire()
+                .await
+                .map_err(|e| Error::internal_err(format!("acquiring connection: {e:#}")))?;
+
+            fetch_authed_from_permissioned_as_conn(owner, email, w_id, &mut conn)
                 .await
                 .map_err(|e| {
                     Error::internal_err(format!(

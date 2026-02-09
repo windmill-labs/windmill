@@ -18,7 +18,7 @@ use http::request::Parts;
 
 use windmill_audit::audit_oss::AuditAuthorable;
 use windmill_common::{
-    auth::{fetch_authed_from_permissioned_as, is_devops_email, is_super_admin_email},
+    auth::{fetch_authed_from_permissioned_as_conn, is_devops_email, is_super_admin_email},
     db::{Authable, Authed, AuthedRef},
     error::{self, Error, Result},
     users::username_to_permissioned_as,
@@ -447,8 +447,15 @@ pub async fn fetch_api_authed_from_permissioned_as(
         }
         _ => {
             tracing::debug!("API authed cache miss for user {}", email);
-            let authed =
-                fetch_authed_from_permissioned_as(permissioned_as, email.clone(), w_id, db).await?;
+
+            let authed = {
+                let mut conn = db
+                    .acquire()
+                    .await
+                    .map_err(|e| Error::internal_err(format!("acquiring connection: {e:#}")))?;
+                fetch_authed_from_permissioned_as_conn(&permissioned_as, &email, w_id, &mut conn)
+                    .await?
+            };
 
             let api_authed = ApiAuthed {
                 username: authed.username,
