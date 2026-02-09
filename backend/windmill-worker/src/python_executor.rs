@@ -1020,7 +1020,15 @@ async fn prepare_wrapper(
                 let name = &x.name;
                 format!(
                     "if \"{name}\" in kwargs and kwargs[\"{name}\"] is not None:\n    \
-                                     kwargs[\"{name}\"] = date.fromisoformat(kwargs[\"{name}\"])\n",
+                                     try:\n        \
+                                         kwargs[\"{name}\"] = date.fromisoformat(kwargs[\"{name}\"])\n    \
+                                     except ValueError:\n        \
+                                         for _fmt in (\"%d-%m-%Y\", \"%m/%d/%Y\", \"%d/%m/%Y\", \"%Y/%m/%d\"):\n            \
+                                             try:\n                \
+                                                 kwargs[\"{name}\"] = datetime.strptime(kwargs[\"{name}\"], _fmt).date()\n                \
+                                                 break\n            \
+                                             except ValueError:\n                \
+                                                 continue\n",
                 )
             }
             _ => "".to_string(),
@@ -1053,7 +1061,7 @@ async fn prepare_wrapper(
     let import_datetime = match (has_datetime, has_date) {
         (true, true) => "from datetime import datetime, date",
         (true, false) => "from datetime import datetime",
-        (false, true) => "from datetime import date",
+        (false, true) => "from datetime import datetime, date",
         (false, false) => "",
     };
     let spread = if sig.star_kwargs {

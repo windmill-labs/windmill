@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "DELETE FROM raw_app WHERE path = $1 AND workspace_id = $2",
+  "query": "DELETE FROM email_trigger WHERE workspace_id = $1 AND path = $2",
   "describe": {
     "columns": [],
     "parameters": {
@@ -11,5 +11,5 @@
     },
     "nullable": []
   },
-  "hash": "b2b2b7251be2b80207f47b10eeff78d61c84161caaf16b8fd25d82b97aac1186"
+  "hash": "40971d637c5b4d2af8e67872722880058cc067fca5e807ab3e1ed17d180cb7f7"
 }
