@@ -1235,16 +1235,6 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 
     tx.commit().warn_after_seconds(10).await?;
 
-    let _ = sqlx::query!("DELETE FROM job_perms WHERE job_id = $1", job_id)
-        .execute(db)
-        .await;
-
-    if !success || has_stream {
-        let _ = sqlx::query!("DELETE FROM job_result_stream_v2 WHERE job_id = $1", job_id)
-            .execute(db)
-            .await;
-    }
-
     tracing::info!(
         %job_id,
         root_job = ?completed_job.flow_innermost_root_job.map(|x| x.to_string()).unwrap_or_else(|| String::new()),
