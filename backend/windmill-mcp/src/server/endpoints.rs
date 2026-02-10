@@ -63,6 +63,7 @@ pub fn endpoint_tool_to_mcp_tool(tool: &EndpointTool) -> Tool {
         icons: None,
         annotations: Some(annotations),
         meta: None,
+        execution: None,
     }
 }
 

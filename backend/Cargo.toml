@@ -469,7 +469,7 @@ nkeys = "0.4.4"
 nu-parser = { version = "0.101.0", default-features = false }
 globset = "0.4.16"
 croner = "2.2.0"
-rmcp = { version = "^0", features = ["client", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"] }
+rmcp = { version = "=0.15.0", features = ["client", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"] }
 rquickjs = { version = "0.8", features = ["futures", "parallel", "macro"] }
 process-wrap = { version = "8.2.1", features = ["tokio1"] }
 
