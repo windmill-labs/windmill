@@ -487,8 +487,7 @@ export const settings: Record<string, Setting[]> = {
 			label: '',
 			key: 'indexer_settings',
 			fieldType: 'indexer_rates',
-			storage: 'setting',
-			ee_only: 'Full text search across jobs and service logs is an EE feature'
+			storage: 'setting'
 		}
 	],
 
@@ -552,7 +551,8 @@ export const instanceSettingsNavigationGroups = [
 				id: 'scim_saml',
 				label: 'SCIM/SAML',
 				aiId: 'instance-settings-scim-saml',
-				aiDescription: 'Instance SCIM/SAML settings'
+				aiDescription: 'Instance SCIM/SAML settings',
+				isEE: true
 			}
 		]
 	},
@@ -580,19 +580,22 @@ export const instanceSettingsNavigationGroups = [
 				id: 'alerts',
 				label: 'Alerts',
 				aiId: 'instance-settings-alerts',
-				aiDescription: 'Instance alerts settings'
+				aiDescription: 'Instance alerts settings',
+				isEE: true
 			},
 			{
 				id: 'otel_prom',
 				label: 'OTEL/Prometheus',
 				aiId: 'instance-settings-otel-prom',
-				aiDescription: 'Instance OTEL/Prometheus settings'
+				aiDescription: 'Instance OTEL/Prometheus settings',
+				isEE: true
 			},
 			{
 				id: 'indexer',
 				label: 'Indexer',
 				aiId: 'instance-settings-indexer',
-				aiDescription: 'Instance indexer settings'
+				aiDescription: 'Instance indexer settings',
+				isEE: true
 			}
 		]
 	},

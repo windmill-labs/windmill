@@ -15,7 +15,7 @@
 		SettingService,
 		type ListAvailablePythonVersionsResponse
 	} from '$lib/gen'
-	import { Button, SecondsInput, Section, Skeleton } from './common'
+	import { Alert, Button, SecondsInput, Section, Skeleton } from './common'
 	import Password from './Password.svelte'
 	import { classNames } from '$lib/utils'
 	import Popover from './Popover.svelte'
@@ -526,6 +526,8 @@
 				{:else if setting.fieldType == 'critical_error_channels'}
 					<CriticalAlertChannels {values} {openSmtpSettings} {oauths} />
 				{:else if setting.fieldType == 'indexer_rates'}
+					<Alert type="info" title="Full text search across jobs and service logs is an EE feature"
+					></Alert>
 					<div class="flex flex-col gap-16 mt-4">
 						{#if $values[setting.key]}
 							<Section label="Memory" class="space-y-6">

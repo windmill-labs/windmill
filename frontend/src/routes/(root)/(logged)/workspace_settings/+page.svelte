@@ -1737,7 +1737,7 @@ export async function main(
 							/>
 							<div class="flex flex-col gap-6 py-4">
 								{#if !$enterpriseLicense}
-									<Alert type="warning" title="Workspace critical alerts is an EE feature">
+									<Alert type="info" title="Workspace critical alerts is an EE feature">
 										Workspace critical alerts is a Windmill Enterprise Edition feature that sends
 										notifications to workspace admins when critical events occur.
 									</Alert>
