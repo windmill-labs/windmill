@@ -11,7 +11,7 @@ env:
 
 jobs:
   cargo_build_windows:
-    runs-on: windows-latest
+    runs-on: blacksmith-16vcpu-windows-2025
     steps:
       - uses: actions/checkout@v4
 
@@ -30,11 +30,10 @@ jobs:
           token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
           fetch-depth: 0
 
-      - name: Setup Rust
-        uses: actions-rs/toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
+          cache-workspaces: backend
           toolchain: 1.90.0
-          override: true
 
       - name: Substitute EE code
         shell: bash
@@ -42,13 +41,13 @@ jobs:
           ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
 
       - name: Cargo build dynamic libraries windows
-        timeout-minutes: 90
+        timeout-minutes: 180
         run: |
           cd backend/windmill-duckdb-ffi-internal
           cargo build --release -p windmill_duckdb_ffi_internal
 
       - name: Cargo build binary windows
-        timeout-minutes: 90
+        timeout-minutes: 180
         run: |
           vcpkg.exe install openssl-windows:x64-windows
           vcpkg.exe install openssl:x64-windows-static
