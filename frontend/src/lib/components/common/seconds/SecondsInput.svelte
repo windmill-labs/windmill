@@ -31,7 +31,7 @@
 		disabled = false,
 		max = undefined,
 		size = 'md',
-		clearable = true,
+		clearable = false,
 		defaultValue = undefined,
 		onfocus
 	}: Props = $props()

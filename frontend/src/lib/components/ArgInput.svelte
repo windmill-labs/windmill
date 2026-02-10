@@ -668,7 +668,12 @@
 	<div class="flex space-x-1">
 		{#if inputCat == 'number'}
 			{#if extra['seconds'] !== undefined}
-				<SecondsInput bind:seconds={value} onfocus={bubble('focus')} {defaultValue} />
+				<SecondsInput
+					bind:seconds={value}
+					onfocus={bubble('focus')}
+					{defaultValue}
+					clearable={extra['clearable'] !== false}
+				/>
 			{:else if extra['min'] != undefined && extra['max'] != undefined}
 				<Range bind:value min={extra['min']} max={extra['max']} {defaultValue} />
 			{:else if extra?.currency}
