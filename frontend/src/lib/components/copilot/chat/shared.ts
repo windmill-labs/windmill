@@ -990,7 +990,7 @@ const searchWorkspaceSchema = z.object({
 const searchWorkspaceToolDef = createToolDef(
 	searchWorkspaceSchema,
 	'search_workspace',
-	'Search for scripts and flows in the workspace. Use this when a user asks about existing building blocks, wants to find a script/flow, or asks "what do I have for X".'
+	'Search for scripts and flows in the workspace. Use this when a user asks about existing building blocks, wants to find a script/flow, or asks "what do I have for X". Always search really broadly, use this tool with different queries.'
 )
 
 const workspaceRunnablesSearch = new WorkspaceRunnablesSearch()
