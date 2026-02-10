@@ -21,10 +21,12 @@ use windmill_queue::append_logs;
 use crate::{
     common::{start_child_process, OccupancyMetrics},
     handle_child::handle_child,
-    python_executor::{INDEX_CERT, NATIVE_CERT, PYTHON_PATH, UV_PATH},
+    python_executor::{INDEX_CERT, NATIVE_CERT, PYTHON_PATH},
     HOME_ENV, INSTANCE_PYTHON_VERSION, PATH_ENV, PROXY_ENVS, PY_INSTALL_DIR, UV_CACHE_DIR,
     WIN_ENVS,
 };
+#[cfg(unix)]
+use crate::python_executor::UV_PATH;
 
 impl From<PyV> for PyVAlias {
     fn from(value: PyV) -> Self {

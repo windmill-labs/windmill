@@ -752,10 +752,12 @@ pub async fn get_git_ssh_cmd(
             })?;
             content.push_str("\n");
 
-            let file = write_file(job_dir, &id_file_name, &content)?;
+            #[cfg(not(unix))]
+            let _ = write_file(job_dir, &id_file_name, &content)?;
 
             #[cfg(unix)]
             {
+                let file = write_file(job_dir, &id_file_name, &content)?;
                 let perm = std::os::unix::fs::PermissionsExt::from_mode(0o600);
                 file.set_permissions(perm)?;
             }
@@ -1218,10 +1220,10 @@ fi
             ANSIBLE_PLAYBOOK_PATH.as_str()
         );
 
-        let file = write_file(job_dir, "wrapper.sh", &wrapper)?;
+        let _file = write_file(job_dir, "wrapper.sh", &wrapper)?;
 
         #[cfg(unix)]
-        file.metadata()?.permissions().set_mode(0o777);
+        _file.metadata()?.permissions().set_mode(0o777);
         // let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
