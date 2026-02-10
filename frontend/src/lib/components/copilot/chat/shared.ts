@@ -928,17 +928,19 @@ export class WorkspaceRunnablesSearch {
 		const scripts = this.scripts
 		if (!scripts) return []
 
-		const results = this.uf.search(
-			scripts.map((s) => (emptyString(s.summary) ? s.path : s.summary + ' (' + s.path + ')')),
-			query.trim()
+		const haystack = scripts.map((s) =>
+			emptyString(s.summary) ? s.path : s.summary + ' (' + s.path + ')'
 		)
-		return (
-			results[2]?.map((id) => ({
+		const [idxs, , order] = this.uf.search(haystack, query.trim())
+		if (!idxs || !order) return []
+		return order.map((orderIdx) => {
+			const haystackIdx = idxs[orderIdx]
+			return {
 				type: 'script' as const,
-				path: scripts[id].path,
-				summary: scripts[id].summary
-			})) ?? []
-		)
+				path: scripts[haystackIdx].path,
+				summary: scripts[haystackIdx].summary
+			}
+		})
 	}
 
 	async searchFlows(query: string, workspace: string) {
@@ -946,17 +948,19 @@ export class WorkspaceRunnablesSearch {
 		const flows = this.flows
 		if (!flows) return []
 
-		const results = this.uf.search(
-			flows.map((f) => (emptyString(f.summary) ? f.path : f.summary + ' (' + f.path + ')')),
-			query.trim()
+		const haystack = flows.map((f) =>
+			emptyString(f.summary) ? f.path : f.summary + ' (' + f.path + ')'
 		)
-		return (
-			results[2]?.map((id) => ({
+		const [idxs, , order] = this.uf.search(haystack, query.trim())
+		if (!idxs || !order) return []
+		return order.map((orderIdx) => {
+			const haystackIdx = idxs[orderIdx]
+			return {
 				type: 'flow' as const,
-				path: flows[id].path,
-				summary: flows[id].summary
-			})) ?? []
-		)
+				path: flows[haystackIdx].path,
+				summary: flows[haystackIdx].summary
+			}
+		})
 	}
 
 	async search(query: string, workspace: string, type: 'all' | 'scripts' | 'flows' = 'all') {
