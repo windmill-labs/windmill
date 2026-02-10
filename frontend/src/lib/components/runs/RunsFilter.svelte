@@ -514,7 +514,7 @@
 							label: 'Sync',
 							value: 'deploymentcallbacks',
 							tooltip:
-								'Sync jobs that are triggered on every script deployment to sync the workspace with the Git repository configured in the the workspace settings'
+								'Sync jobs that are triggered on every script deployment to sync the workspace with the Git repository configured in the workspace settings'
 						}
 					]}
 					{item}
@@ -868,7 +868,7 @@
 										value="deploymentcallbacks"
 										label="Sync"
 										showTooltipIcon
-										tooltip="Sync jobs that are triggered on every script deployment to sync the workspace with the Git repository configured in the the workspace settings"
+										tooltip="Sync jobs that are triggered on every script deployment to sync the workspace with the Git repository configured in the workspace settings"
 										{item}
 									/>
 								{/snippet}
