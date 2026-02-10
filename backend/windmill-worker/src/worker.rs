@@ -12,7 +12,6 @@
 use anyhow::anyhow;
 use futures::TryFutureExt;
 use tokio::sync::Mutex;
-use tokio::time::sleep;
 use tokio::time::timeout;
 use windmill_common::client::AuthedClient;
 use windmill_common::jobs::WorkerInternalServerInlineUtils;
@@ -3064,7 +3063,7 @@ pub async fn handle_queued_job(
             .flatten()
         {
             tracing::debug!("Debug: {} going to sleep for {}", job.id, dbg_djob_sleep);
-            sleep(std::time::Duration::from_secs(dbg_djob_sleep as u64)).await;
+            tokio::time::sleep(std::time::Duration::from_secs(dbg_djob_sleep as u64)).await;
         }
 
         tracing::debug!(

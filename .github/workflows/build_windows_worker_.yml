@@ -40,6 +40,15 @@ jobs:
         run: |
           ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
 
+      - name: Cargo check (fail fast on warnings)
+        timeout-minutes: 60
+        env:
+          RUSTFLAGS: "-D warnings"
+        run: |
+          mkdir frontend/build && cd backend
+          New-Item -Path . -Name "windmill-api/openapi-deref.yaml" -ItemType "File" -Force
+          cargo check --features=ee_windows
+
       - name: Cargo build dynamic libraries windows
         timeout-minutes: 180
         run: |
@@ -54,8 +63,7 @@ jobs:
           vcpkg.exe integrate install
           $env:VCPKGRS_DYNAMIC=1
           $env:OPENSSL_DIR="${Env:VCPKG_INSTALLATION_ROOT}\installed\x64-windows-static"
-          mkdir frontend/build && cd backend
-          New-Item -Path . -Name "windmill-api/openapi-deref.yaml" -ItemType "File" -Force
+          cd backend
           cargo build --release --features=ee_windows
       - name: Rename binary with corresponding architecture
         run: |
