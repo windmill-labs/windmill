@@ -491,7 +491,8 @@
 													} else {
 														if (batchRerunOptionsIsOpen) batchRerunOptionsIsOpen = false
 														if (
-															JSON.stringify(selectedIds) !== JSON.stringify([jobOrDate.job.id]) ||
+															selectedIds.length !== 1 ||
+															selectedIds[0] !== jobOrDate.job.id ||
 															selectedWorkspace !== jobOrDate.job.workspace_id
 														) {
 															selectedWorkspace = jobOrDate.job.workspace_id
