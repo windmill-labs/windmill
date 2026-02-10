@@ -17,7 +17,9 @@ import {
 	buildTestRunArgs,
 	buildContextString,
 	type ScriptLintResult,
-	formatScriptLintResult
+	formatScriptLintResult,
+	createSearchWorkspaceTool,
+	createGetRunnableDetailsTool
 } from '../shared'
 import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
 import { getModelContextWindow } from '../../lib'
@@ -329,6 +331,8 @@ export function prepareScriptTools(
 	}
 	tools.push(testRunScriptTool)
 	tools.push(getLintErrorsTool)
+	tools.push(createSearchWorkspaceTool())
+	tools.push(createGetRunnableDetailsTool())
 	return tools
 }
 

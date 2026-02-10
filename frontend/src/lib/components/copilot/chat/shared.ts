@@ -976,3 +976,129 @@ export class WorkspaceRunnablesSearch {
 		return results
 	}
 }
+
+const searchWorkspaceSchema = z.object({
+	query: z.string().describe('Search query (e.g. "stripe", "send email", "ETL")'),
+	type: z
+		.enum(['all', 'scripts', 'flows'])
+		.optional()
+		.describe('Filter by type. Defaults to "all".')
+})
+
+const searchWorkspaceToolDef = createToolDef(
+	searchWorkspaceSchema,
+	'search_workspace',
+	'Search for scripts and flows in the workspace. Use this when a user asks about existing building blocks, wants to find a script/flow, or asks "what do I have for X".'
+)
+
+const workspaceRunnablesSearch = new WorkspaceRunnablesSearch()
+
+export const createSearchWorkspaceTool = () => ({
+	def: searchWorkspaceToolDef,
+	fn: async ({
+		args,
+		workspace,
+		toolId,
+		toolCallbacks
+	}: {
+		args: any
+		workspace: string
+		toolId: string
+		toolCallbacks: ToolCallbacks
+	}) => {
+		const parsedArgs = searchWorkspaceSchema.parse(args)
+		const type = parsedArgs.type ?? 'all'
+		toolCallbacks.setToolStatus(toolId, {
+			content: `Searching workspace ${type} for "${parsedArgs.query}"...`
+		})
+
+		const results = await workspaceRunnablesSearch.search(parsedArgs.query, workspace, type)
+
+		toolCallbacks.setToolStatus(toolId, {
+			content: `Found ${results.length} result(s) for "${parsedArgs.query}"`
+		})
+		return JSON.stringify(results, null, 2)
+	}
+})
+
+const getRunnableDetailsSchema = z.object({
+	path: z.string().describe('The path of the script or flow (e.g. "f/marketing/send_email")'),
+	type: z.enum(['script', 'flow']).describe('Whether this is a script or a flow')
+})
+
+const getRunnableDetailsToolDef = createToolDef(
+	getRunnableDetailsSchema,
+	'get_runnable_details',
+	'Get details (summary, description, inputs schema, content) of a specific script or flow by path'
+)
+
+export const createGetRunnableDetailsTool = () => ({
+	def: getRunnableDetailsToolDef,
+	fn: async ({
+		args,
+		workspace,
+		toolId,
+		toolCallbacks
+	}: {
+		args: any
+		workspace: string
+		toolId: string
+		toolCallbacks: ToolCallbacks
+	}) => {
+		const parsedArgs = getRunnableDetailsSchema.parse(args)
+		const { path, type } = parsedArgs
+		toolCallbacks.setToolStatus(toolId, {
+			content: `Getting ${type} details for "${path}"...`
+		})
+
+		try {
+			if (type === 'script') {
+				const script = await ScriptService.getScriptByPath({ workspace, path })
+				toolCallbacks.setToolStatus(toolId, {
+					content: `Retrieved script details for "${path}"`
+				})
+				return JSON.stringify(
+					{
+						path: script.path,
+						summary: script.summary,
+						description: script.description,
+						language: script.language,
+						schema: script.schema,
+						content: script.content
+					},
+					null,
+					2
+				)
+			} else {
+				const flow = await FlowService.getFlowByPath({ workspace, path })
+				const modules = flow.value?.modules ?? []
+				toolCallbacks.setToolStatus(toolId, {
+					content: `Retrieved flow details for "${path}"`
+				})
+				return JSON.stringify(
+					{
+						path: flow.path,
+						summary: flow.summary,
+						description: flow.description,
+						schema: flow.schema,
+						module_count: modules.length,
+						modules: modules.map((m) => ({
+							id: m.id,
+							summary: m.summary,
+							value_type: m.value?.type
+						}))
+					},
+					null,
+					2
+				)
+			}
+		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : String(error)
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Error getting ${type} details`,
+				error: errorMessage
+			})
+			return `Error getting ${type} details for "${path}": ${errorMessage}`
+		}
+	}
+})

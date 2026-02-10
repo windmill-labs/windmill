@@ -3,13 +3,11 @@ import type {
 	ChatCompletionTool,
 	ChatCompletionUserMessageParam
 } from 'openai/resources/index.mjs'
-import { WorkspaceRunnablesSearch, type Tool } from '../shared'
-import { ResourceService, ScriptService, FlowService } from '$lib/gen'
+import { createSearchWorkspaceTool, createGetRunnableDetailsTool, type Tool } from '../shared'
+import { ResourceService } from '$lib/gen'
 import { workspaceStore } from '$lib/stores'
 import { get } from 'svelte/store'
 import { triggerablesByAi } from '../sharedChatState.svelte'
-
-const workspaceRunnablesSearch = new WorkspaceRunnablesSearch()
 
 export const CHAT_SYSTEM_PROMPT = `
 You are Windmill's intelligent assistant, designed to help users navigate the application and answer questions about its functionality. It is your only purpose to help the user in the context of the windmill application.
@@ -341,54 +339,6 @@ export const getDocumentationTool: Tool<{}> = {
 	}
 }
 
-const SEARCH_WORKSPACE_TOOL: ChatCompletionTool = {
-	type: 'function',
-	function: {
-		name: 'search_workspace',
-		description:
-			'Search for scripts and flows in the workspace. Use this when a user asks about existing building blocks, wants to find a script/flow, or asks "what do I have for X".',
-		parameters: {
-			type: 'object',
-			properties: {
-				query: {
-					type: 'string',
-					description: 'Search query (e.g. "stripe", "send email", "ETL")'
-				},
-				type: {
-					type: 'string',
-					enum: ['all', 'scripts', 'flows'],
-					description: 'Filter by type. Defaults to "all".'
-				}
-			},
-			required: ['query']
-		}
-	}
-}
-
-const GET_RUNNABLE_DETAILS_TOOL: ChatCompletionTool = {
-	type: 'function',
-	function: {
-		name: 'get_runnable_details',
-		description:
-			'Get details (summary, description, inputs schema) of a specific script or flow by path',
-		parameters: {
-			type: 'object',
-			properties: {
-				path: {
-					type: 'string',
-					description: 'The path of the script or flow (e.g. "f/marketing/send_email")'
-				},
-				type: {
-					type: 'string',
-					enum: ['script', 'flow'],
-					description: 'Whether this is a script or a flow'
-				}
-			},
-			required: ['path', 'type']
-		}
-	}
-}
-
 const getAvailableResourcesTool: Tool<{}> = {
 	def: GET_AVAILABLE_RESOURCES_TOOL,
 	fn: async ({ args, toolId, toolCallbacks }) => {
@@ -408,94 +358,14 @@ const getAvailableResourcesTool: Tool<{}> = {
 	}
 }
 
-const searchWorkspaceTool: Tool<{}> = {
-	def: SEARCH_WORKSPACE_TOOL,
-	fn: async ({ args, toolId, toolCallbacks }) => {
-		const query = args.query as string
-		const type = (args.type as 'all' | 'scripts' | 'flows') ?? 'all'
-		const workspace = get(workspaceStore) as string
-		toolCallbacks.setToolStatus(toolId, {
-			content: `Searching workspace ${type} for "${query}"...`
-		})
-
-		const results = await workspaceRunnablesSearch.search(query, workspace, type)
-
-		toolCallbacks.setToolStatus(toolId, {
-			content: `Found ${results.length} result(s) for "${query}"`
-		})
-		return JSON.stringify(results, null, 2)
-	}
-}
-
-const getRunnableDetailsTool: Tool<{}> = {
-	def: GET_RUNNABLE_DETAILS_TOOL,
-	fn: async ({ args, toolId, toolCallbacks }) => {
-		const path = args.path as string
-		const type = args.type as 'script' | 'flow'
-		const workspace = get(workspaceStore) as string
-		toolCallbacks.setToolStatus(toolId, {
-			content: `Getting ${type} details for "${path}"...`
-		})
-
-		try {
-			if (type === 'script') {
-				const script = await ScriptService.getScriptByPath({ workspace, path })
-				toolCallbacks.setToolStatus(toolId, {
-					content: `Retrieved script details for "${path}"`
-				})
-				return JSON.stringify(
-					{
-						path: script.path,
-						summary: script.summary,
-						description: script.description,
-						language: script.language,
-						schema: script.schema
-					},
-					null,
-					2
-				)
-			} else {
-				const flow = await FlowService.getFlowByPath({ workspace, path })
-				const modules = flow.value?.modules ?? []
-				toolCallbacks.setToolStatus(toolId, {
-					content: `Retrieved flow details for "${path}"`
-				})
-				return JSON.stringify(
-					{
-						path: flow.path,
-						summary: flow.summary,
-						description: flow.description,
-						schema: flow.schema,
-						module_count: modules.length,
-						modules: modules.map((m) => ({
-							id: m.id,
-							summary: m.summary,
-							value_type: m.value?.type
-						}))
-					},
-					null,
-					2
-				)
-			}
-		} catch (error) {
-			const errorMessage = error instanceof Error ? error.message : String(error)
-			toolCallbacks.setToolStatus(toolId, {
-				content: `Error getting ${type} details`,
-				error: errorMessage
-			})
-			return `Error getting ${type} details for "${path}": ${errorMessage}`
-		}
-	}
-}
-
 export const navigatorTools: Tool<{}>[] = [
 	getTriggerableComponentsTool,
 	triggerComponentTool,
 	getDocumentationTool,
 	getCurrentPageNameTool,
 	getAvailableResourcesTool,
-	searchWorkspaceTool,
-	getRunnableDetailsTool
+	createSearchWorkspaceTool(),
+	createGetRunnableDetailsTool()
 ]
 
 export function prepareNavigatorSystemMessage(
