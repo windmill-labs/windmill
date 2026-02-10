@@ -152,7 +152,8 @@
 				console.log('app', app)
 				let result: { kind: Kind; path: string }[] = []
 				if (app.raw_app) {
-					for (const runnable of Object.values(app.value.runnables as Record<string, Runnable>)) {
+					const rawAppValue = app.value as { runnables?: Record<string, Runnable> }
+					for (const runnable of Object.values(rawAppValue.runnables ?? {})) {
 						if (isRunnableByPath(runnable)) {
 							if (runnable.runType == 'script') {
 								result.push({ kind: 'script', path: runnable.path })
