@@ -24,7 +24,7 @@
 	let maxChecked: boolean = $state(max != undefined)
 </script>
 
-<div class="flex flex-col gap-2">
+<div class="flex flex-col gap-4 p-4 border rounded-md">
 	<div class="grid grid-cols-2 gap-4">
 		<Label label="Min" class="w-full col-span-1">
 			{#snippet header()}
@@ -80,13 +80,15 @@
 			/>
 		</Label>
 	</div>
-	<div class="flex gap-2">
+	<div class="flex gap-2 items-center">
 		<Label label="Currency">
 			{#snippet header()}
-				<Tooltip light small>
-					Select a currency to display the number in. If a currency is selected, you can also select
-					a locale to format the number according to that locale.
-				</Tooltip>
+				<div class="-my-1">
+					<Tooltip light small>
+						Select a currency to display the number in. If a currency is selected, you can also
+						select a locale to format the number according to that locale.
+					</Tooltip>
+				</div>
 			{/snippet}
 			<Select
 				bind:value={
