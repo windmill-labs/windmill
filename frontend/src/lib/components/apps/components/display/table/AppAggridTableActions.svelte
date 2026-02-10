@@ -32,7 +32,7 @@
 		onRemove: (id: string, rowIndex: number) => void
 		wrapActions?: boolean | undefined
 		selectRow: (params: ICellRendererParams<any>) => void
-		setModalRow: (row: ICellRendererParams<any>) => void
+		setModalRow: (row?: ICellRendererParams<any>) => void
 	}
 
 	let {
@@ -225,6 +225,7 @@
 								dispatch('toggleRow')
 								p && (selectRow(p), setModalRow(p))
 							}}
+							onClose={() => setModalRow(undefined)}
 						/>
 					{:else if action.type == 'checkboxcomponent'}
 						<AppCheckbox
@@ -298,6 +299,7 @@
 							dispatch('toggleRow')
 							p && (selectRow(p), setModalRow(p))
 						}}
+						onClose={() => setModalRow(undefined)}
 					/>
 				{:else if action.type == 'checkboxcomponent'}
 					<AppCheckbox
