@@ -1,5 +1,7 @@
 import {
 	ScriptService,
+	FlowService,
+	type Flow,
 	type FlowModule,
 	type InputTransform,
 	type RawScript,
@@ -208,10 +210,7 @@ function getExpectedFormat(schema: z.ZodType): string | null {
 	let current = schema
 
 	// Unwrap optional/nullable to get inner type
-	while (
-		(current as any)._def.type === 'optional' ||
-		(current as any)._def.type === 'nullable'
-	) {
+	while ((current as any)._def.type === 'optional' || (current as any)._def.type === 'nullable') {
 		current = (current as any)._def.innerType
 		if (!current || !(current as any)._def) break
 	}
@@ -378,6 +377,68 @@ class WorkspaceScriptsSearch {
 	}
 }
 
+class WorkspaceFlowsSearch {
+	private uf: uFuzzy
+	private workspace: string | undefined = undefined
+	private flows: Flow[] | undefined = undefined
+
+	constructor() {
+		this.uf = new uFuzzy()
+	}
+
+	private async init(workspace: string) {
+		this.flows = await FlowService.listFlows({ workspace })
+		this.workspace = workspace
+	}
+
+	async search(query: string, workspace: string) {
+		if (this.flows === undefined || this.workspace !== workspace) {
+			await this.init(workspace)
+		}
+
+		const flows = this.flows
+
+		if (!flows) {
+			throw new Error('Failed to load flows')
+		}
+
+		const results = this.uf.search(
+			flows.map((f) => (emptyString(f.summary) ? f.path : f.summary + ' (' + f.path + ')')),
+			query.trim()
+		)
+		return (
+			results[2]?.map((id) => ({
+				path: flows[id].path,
+				summary: flows[id].summary
+			})) ?? []
+		)
+	}
+}
+
+const searchFlowsSchema = z.object({
+	query: z
+		.string()
+		.describe('The query to search for, e.g. "process invoices", "send notification", etc.')
+})
+
+const searchFlowsToolDef = createToolDef(
+	searchFlowsSchema,
+	'search_flows',
+	'Search for flows in the workspace. Returns array of {path, summary} objects. Use this to find existing flows that can be referenced as sub-flow modules.'
+)
+
+const getFlowDetailsSchema = z.object({
+	path: z.string().describe('The path of the flow to inspect')
+})
+
+const getFlowDetailsToolDef = createToolDef(
+	getFlowDetailsSchema,
+	'get_flow_details',
+	'Get details of a workspace flow including its modules structure, input schema, and module summaries. Use after search_flows to understand a flow before referencing it.'
+)
+
+const workspaceFlowsSearch = new WorkspaceFlowsSearch()
+
 // Will be overridden by setSchema
 const testRunFlowSchema = z.object({
 	args: z
@@ -462,6 +523,54 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 					'"'
 			})
 			return JSON.stringify(scriptResults)
+		}
+	},
+	{
+		def: searchFlowsToolDef,
+		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'Searching for workspace flows related to "' + args.query + '"...'
+			})
+			const parsedArgs = searchFlowsSchema.parse(args)
+			const flowResults = await workspaceFlowsSearch.search(parsedArgs.query, workspace)
+			toolCallbacks.setToolStatus(toolId, {
+				content:
+					'Found ' + flowResults.length + ' flows in the workspace related to "' + args.query + '"'
+			})
+			return JSON.stringify(flowResults)
+		}
+	},
+	{
+		def: getFlowDetailsToolDef,
+		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
+			const parsedArgs = getFlowDetailsSchema.parse(args)
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'Getting details for flow "' + parsedArgs.path + '"...'
+			})
+			const flow = await FlowService.getFlowByPath({
+				workspace,
+				path: parsedArgs.path
+			})
+			const modules = flow.value?.modules ?? []
+			const moduleSummaries = modules.map((m: FlowModule) => ({
+				id: m.id,
+				summary: m.summary,
+				type: m.value.type,
+				...(m.value.type === 'script' ? { path: m.value.path } : {}),
+				...(m.value.type === 'flow' ? { path: m.value.path } : {}),
+				...(m.value.type === 'rawscript' ? { language: m.value.language } : {})
+			}))
+			const result = {
+				path: flow.path,
+				summary: flow.summary,
+				description: flow.description,
+				schema: flow.schema,
+				modules: moduleSummaries
+			}
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'Retrieved details for flow "' + parsedArgs.path + '"'
+			})
+			return JSON.stringify(result)
 		}
 	},
 	{
@@ -748,8 +857,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 						const path = e.path
 						// Try to find module id for better context
 						const moduleIndex = typeof path[0] === 'number' ? path[0] : undefined
-						const moduleId =
-							moduleIndex !== undefined ? parsedModules[moduleIndex]?.id : undefined
+						const moduleId = moduleIndex !== undefined ? parsedModules[moduleIndex]?.id : undefined
 						const fieldPath = path.slice(1).join('.')
 
 						let message = e.message
@@ -852,6 +960,8 @@ export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionS
 - **View existing inline script code** → \`inspect_inline_script\`
 - **Change module code only** → \`set_module_code\`
 - **Get language-specific coding instructions** → \`get_instructions_for_code_generation\` (call BEFORE writing code)
+- **Find workspace flows** → \`search_flows\` (find existing flows to reuse as sub-flow modules)
+- **Get flow details** → \`get_flow_details\` (inspect a flow's input schema and modules before referencing it)
 - **Find workspace scripts** → \`search_scripts\`
 - **Find Windmill Hub scripts** → \`search_hub_scripts\`
 
@@ -1058,18 +1168,25 @@ Example: Before writing TypeScript/Bun code, call \`get_instructions_for_code_ge
 
 ### Creating Flows
 
-1. **Search for existing scripts first** (unless user explicitly asks to write from scratch):
-   - First: \`search_scripts\` to find workspace scripts
+1. **Search for existing flows and scripts first** (unless user explicitly asks to write from scratch):
+   - First: \`search_flows\` to find existing flows that could be reused as sub-flow modules
+   - Then: \`search_scripts\` to find workspace scripts
    - Then: \`search_hub_scripts\` (only consider highly relevant results)
-   - Only create raw scripts if no suitable script is found
+   - Only create raw scripts if no suitable flow or script is found
 
-2. **Build the complete flow using \`set_flow_json\`:**
+2. **When referencing an existing flow as a sub-module:**
+   - Use \`get_flow_details\` to understand the flow's input schema
+   - Use \`type: "flow"\` with \`path\` in the module value
+   - Define \`input_transforms\` matching the referenced flow's input schema
+
+3. **Build the complete flow using \`set_flow_json\`:**
+   - If using existing flow: use \`type: "flow"\` with \`path\`
    - If using existing script: use \`type: "script"\` with \`path\`
    - If creating rawscript: use \`type: "rawscript"\` with \`language\` and \`content\`
    - **First call \`get_instructions_for_code_generation\` to get the correct code format**
    - Always define \`input_transforms\` to connect parameters to flow inputs or previous step results
 
-3. **After making code changes, ALWAYS use \`get_lint_errors\` to check for issues.** Fix any errors before proceeding with testing.
+4. **After making code changes, ALWAYS use \`get_lint_errors\` to check for issues.** Fix any errors before proceeding with testing.
 
 ### AI Agent Modules
 
