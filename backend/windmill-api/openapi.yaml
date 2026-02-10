@@ -5932,6 +5932,17 @@ paths:
     post:
       summary: create script
       operationId: createScript
+      x-mcp-tool: true
+      x-mcp-instructions: "To create a script, specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed."
+      x-mcp-tool-include-fields:
+        - path
+        - content
+        - language
+        - summary
+        - description
+        - kind
+        - tag
+        - deployment_message
       tags:
         - script
       parameters:
@@ -6208,6 +6219,7 @@ paths:
     post:
       summary: delete script by hash (erase content but keep hash, require admin)
       operationId: deleteScriptByHash
+      x-mcp-tool: true
       tags:
         - script
       parameters:
@@ -6225,6 +6237,7 @@ paths:
     post:
       summary: delete script at a given path (require admin)
       operationId: deleteScriptByPath
+      x-mcp-tool: true
       tags:
         - script
       parameters:
@@ -6615,6 +6628,9 @@ paths:
     post:
       summary: run script by path
       operationId: runScriptByPath
+      x-mcp-tool: true
+      x-mcp-instructions: "You should first use getScriptByPath to retrieve the script's schema and understand what arguments are expected."
+      x-mcp-tool-include-query-params: []
       tags:
         - job
       parameters:
@@ -7557,6 +7573,18 @@ paths:
     post:
       summary: create flow
       operationId: createFlow
+      x-mcp-tool: true
+      x-mcp-tool-include-fields:
+        - path
+        - summary
+        - description
+        - value
+        - schema
+        - tag
+        - deployment_message
+      x-mcp-tool-opaque-fields:
+        - value
+        - schema
       tags:
         - flow
       parameters:
@@ -7587,6 +7615,18 @@ paths:
     post:
       summary: update flow
       operationId: updateFlow
+      x-mcp-tool: true
+      x-mcp-tool-include-fields:
+        - path
+        - summary
+        - description
+        - value
+        - schema
+        - tag
+        - deployment_message
+      x-mcp-tool-opaque-fields:
+        - value
+        - schema
       tags:
         - flow
       parameters:
@@ -7644,6 +7684,7 @@ paths:
     delete:
       summary: delete flow by path
       operationId: deleteFlowByPath
+      x-mcp-tool: true
       tags:
         - flow
       parameters:
@@ -7886,6 +7927,16 @@ paths:
     post:
       summary: create app
       operationId: createApp
+      x-mcp-tool: true
+      x-mcp-tool-include-fields:
+        - path
+        - value
+        - summary
+        - policy
+        - deployment_message
+      x-mcp-tool-opaque-fields:
+        - value
+        - policy
       tags:
         - app
       parameters:
@@ -8233,6 +8284,16 @@ paths:
     post:
       summary: update app
       operationId: updateApp
+      x-mcp-tool: true
+      x-mcp-tool-include-fields:
+        - path
+        - value
+        - summary
+        - policy
+        - deployment_message
+      x-mcp-tool-opaque-fields:
+        - value
+        - policy
       tags:
         - app
       parameters:
@@ -8514,6 +8575,9 @@ paths:
     post:
       summary: run flow by path
       operationId: runFlowByPath
+      x-mcp-tool: true
+      x-mcp-instructions: "You should first use getFlowByPath to retrieve the flow's schema and understand what arguments are expected."
+      x-mcp-tool-include-query-params: []
       tags:
         - job
       parameters:
@@ -17909,7 +17973,7 @@ components:
     ScriptArgs:
       type: object
       description: The arguments to pass to the script or flow
-      additionalProperties: {}
+      additionalProperties: true
 
     Input:
       type: object
@@ -21916,8 +21980,7 @@ components:
         created_at:
           type: string
           format: date-time
-        value:
-          type: object
+        value: {}
         policy:
           $ref: "#/components/schemas/Policy"
         execution_mode:
@@ -22466,8 +22529,7 @@ components:
       properties:
         name:
           type: string
-        value:
-          type: object
+        value: {}
       required:
         - name
         - value
