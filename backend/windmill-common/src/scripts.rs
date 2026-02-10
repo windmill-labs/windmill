@@ -395,8 +395,8 @@ pub async fn clone_script<'c>(
         content: s.content,
         schema: s.schema,
         is_template: s.is_template,
-        // TODO: Make it either None everywhere (particularly when raw reqs are calculated)
-        // Or handle this case and conditionally make Some (only with raw reqs)
+        // lock is None here to keep it out of hash calculation, but the actual lock
+        // value is preserved in the SQL INSERT below
         lock: None,
         language: s.language,
         kind: Some(s.kind),
@@ -448,7 +448,7 @@ pub async fn clone_script<'c>(
     codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, runnable_settings_handle)
 
     SELECT  workspace_id, $1, path, array_prepend($2::bigint, COALESCE(parent_hashes, '{}'::bigint[])), summary, description, \
-            content, created_by, schema, is_template, extra_perms, NULL, language, kind, tag, \
+            content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
             draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, \
             dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
             delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \

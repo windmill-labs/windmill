@@ -159,6 +159,7 @@ pub async fn handle_dependency_job(
         script_path,
         occupancy_metrics,
         &raw_workspace_dependencies_o,
+        script_data.lock.as_deref(),
         triggered_by_relative_import,
     )
     .await;
@@ -1120,6 +1121,7 @@ async fn lock_modules<'c>(
             ),
             occupancy_metrics,
             raw_workspace_dependencies_o,
+            e.lock.as_deref(),
             triggered_by_relative_import,
         )
         .await;
@@ -1617,6 +1619,7 @@ async fn lock_modules_app(
                                 }
                             }
                             logs.push_str("Found lockable inline script. Generating lock...\n");
+                            let existing_lock = v.get("lock").and_then(|x| x.as_str());
                             let new_lock = capture_dependency_job(
                                 &job.id,
                                 &language,
@@ -1632,8 +1635,8 @@ async fn lock_modules_app(
                                 token,
                                 &format!("{}/app", job.runnable_path()),
                                 occupancy_metrics,
-                                // TODO:
                                 &None,
+                                existing_lock,
                                 triggered_by_relative_import,
                             )
                             .await;
@@ -2225,44 +2228,36 @@ async fn capture_dependency_job(
     script_path: &str,
     occupancy_metrics: &mut OccupancyMetrics,
     raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
+    existing_lock: Option<&str>,
     triggered_by_relative_import: bool,
 ) -> error::Result<String> {
     // Check if any imported script's lockfile has changed
+    // If triggered by relative import AND we have existing lock AND no imports changed -> skip relock
     if triggered_by_relative_import {
-        let has_changed_import = sqlx::query_scalar!(
-            "SELECT EXISTS (
-                SELECT 1 FROM dependency_map dm
-                LEFT JOIN script_lock_hash slh
-                    ON slh.workspace_id = dm.workspace_id
-                    AND slh.path = dm.imported_path
-                WHERE dm.workspace_id = $1
-                AND dm.importer_path = $2
-                AND (dm.imported_lockfile_hash IS NULL
-                     OR slh.lockfile_hash IS NULL
-                     OR dm.imported_lockfile_hash != slh.lockfile_hash)
-            )",
-            w_id,
-            script_path
-        )
-        .fetch_one(db)
-        .await?
-        .unwrap_or(false);
-
-        if !has_changed_import {
-            // All imports' lockfile hashes match - return current lock
-            if let Some(current_lock) = sqlx::query_scalar!(
-                "SELECT lock FROM script WHERE workspace_id = $1 AND path = $2 AND deleted = false ORDER BY created_at DESC LIMIT 1",
+        if let Some(lock) = existing_lock {
+            if !sqlx::query_scalar!(
+                "SELECT EXISTS (
+                    SELECT 1 FROM dependency_map dm
+                    LEFT JOIN script_lock_hash slh
+                        ON slh.workspace_id = dm.workspace_id
+                        AND slh.path = dm.imported_path
+                    WHERE dm.workspace_id = $1
+                    AND dm.importer_path = $2
+                    AND (dm.imported_lockfile_hash IS NULL
+                         OR slh.lockfile_hash IS NULL
+                         OR dm.imported_lockfile_hash != slh.lockfile_hash)
+                )",
                 w_id,
                 script_path
             )
-            .fetch_optional(db)
+            .fetch_one(db)
             .await?
-            .flatten()
+            .unwrap_or(true)
             {
                 let log_msg = "\nSkipping relock - all imported lockfiles unchanged".to_string();
                 tracing::info!(workspace_id = %w_id, job_id = %job_id, "{log_msg}");
                 append_logs(job_id, w_id, log_msg, &db.into()).await;
-                return Ok(current_lock);
+                return Ok(lock.to_string());
             }
         }
     }
