@@ -50,6 +50,7 @@
           xmlsec.dev
           libxslt.dev
           libclang.dev
+          curl.dev
           libffi # For deno_ffi
           libtool
           nodejs
