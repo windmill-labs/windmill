@@ -30,6 +30,8 @@
 		requirePreexistingUserForOauth?: boolean
 		baseUrl?: string
 		scim?: import('svelte').Snippet
+		tab?: 'sso' | 'oauth' | 'scim'
+		hideTabs?: boolean
 	}
 
 	let {
@@ -37,7 +39,9 @@
 		oauths = $bindable(),
 		requirePreexistingUserForOauth = $bindable(),
 		baseUrl,
-		scim
+		scim,
+		tab = $bindable('sso'),
+		hideTabs = false
 	}: Props = $props()
 
 	$effect(() => {
@@ -86,8 +90,6 @@
 	let ssoPopoverOpen = $state(false)
 	let ssoClientName = $state('')
 	let ssoNameInput = $state<HTMLInputElement>()
-
-	let tab: 'sso' | 'oauth' | 'scim' = $state('sso')
 
 	function createOAuthClient(name: string) {
 		if (oauths && name) {
@@ -212,13 +214,15 @@
 	}
 </script>
 
-<div>
-	<Tabs bind:selected={tab} class="mb-4">
-		<Tab value="sso" label="SSO" />
-		<Tab value="oauth" label="OAuth" />
-		<Tab value="scim" label="SCIM/SAML" />
-	</Tabs>
-</div>
+{#if !hideTabs}
+	<div>
+		<Tabs bind:selected={tab} class="mb-4">
+			<Tab value="sso" label="SSO" />
+			<Tab value="oauth" label="OAuth" />
+			<Tab value="scim" label="SCIM/SAML" />
+		</Tabs>
+	</div>
+{/if}
 
 <div class="mb-6">
 	{#if oauths}

@@ -22,9 +22,17 @@
 		tab?: string
 		hideTabs?: boolean
 		closeDrawer?: (() => void) | undefined
+		authSubTab?: 'sso' | 'oauth' | 'scim'
+		onNavigateToTab?: (category: string) => void
 	}
 
-	let { tab = $bindable('Core'), hideTabs = false, closeDrawer = () => {} }: Props = $props()
+	let {
+		tab = $bindable('Core'),
+		hideTabs = false,
+		closeDrawer = () => {},
+		authSubTab = $bindable('sso'),
+		onNavigateToTab
+	}: Props = $props()
 
 	let values: Writable<Record<string, any>> = writable({})
 	let initialOauths: Record<string, any> = {}
@@ -260,7 +268,11 @@
 	}
 
 	function openSmtpSettings() {
-		tab = 'SMTP'
+		if (onNavigateToTab) {
+			onNavigateToTab('SMTP')
+		} else {
+			tab = 'SMTP'
+		}
 	}
 
 	// --- Per-category dirty state tracking ---
@@ -430,7 +442,7 @@
 <div class="pb-12">
 	<!-- svelte-ignore a11y_label_has_associated_control -->
 	{#if hideTabs}
-		{@render tabsContent()}
+		{@render categoryContent(tab)}
 	{:else}
 		<Tabs bind:selected={tab}>
 			{#each settingsKeys as category}
@@ -439,128 +451,109 @@
 
 			{#snippet content()}
 				<div class="pt-4"></div>
-				{@render tabsContent()}
+				{#each Object.keys(settings) as category}
+					<TabContent value={category}>
+						{@render categoryContent(category)}
+					</TabContent>
+				{/each}
 			{/snippet}
 		</Tabs>
 	{/if}
 
-	{#snippet tabsContent()}
-		{#each Object.keys(settings) as category}
-			<TabContent value={category}>
-				{#if category == 'SMTP'}
-					<div class="text-secondary pb-4 text-xs">
-						Setting SMTP unlocks sending emails upon adding new users to the workspace or the
-						instance or sending critical alerts via email.
-						<a target="_blank" href="https://www.windmill.dev/docs/advanced/instance_settings#smtp"
-							>Learn more <ExternalLink size={12} class="inline-block" /></a
-						>
-					</div>
-				{:else if category == 'Indexer/Search'}
-					<div class="text-secondary pb-4 text-xs"
-						>The indexer service unlocks full text search across jobs and service logs. It requires
-						spinning up its own separate container
-						<a target="_blank" href="https://www.windmill.dev/docs/core_concepts/search_bar#setup"
-							>Learn how to <ExternalLink size={12} class="inline-block" /></a
-						></div
-					>
-				{:else if category == 'Alerts'}
-					<div class="text-secondary pb-4 text-xs">
-						Critical alerts automatically notify administrators about system events like job
-						crashes, license issues, worker failures, and queue delays through email, Slack, or
-						Teams.
-						<a target="_blank" href="https://www.windmill.dev/docs/core_concepts/critical_alerts"
-							>Learn more <ExternalLink size={12} class="inline-block" /></a
-						>
-					</div>
-				{:else if category == 'Registries'}
-					<div class="text-secondary pb-4 text-xs">
-						Add private registries for Pip, Bun and npm. <a
-							target="_blank"
-							href="https://www.windmill.dev/docs/advanced/imports">Learn more</a
-						>
-					</div>
-				{:else if category == 'Slack'}
-					<div class="text-secondary pb-4 text-xs">
-						Connecting your instance to a Slack workspace enables critical alerts to be sent to a
-						Slack channel.
-						<a target="_blank" href="https://www.windmill.dev/docs/misc/saml_and_scim">Learn more</a
-						>
-					</div>
-				{:else if category == 'SCIM/SAML'}
-					<div class="text-secondary pb-4 text-xs">
-						Setting up SAML and SCIM allows you to authenticate users using your identity provider.
-						<a target="_blank" href="https://www.windmill.dev/docs/advanced/instance_settings#slack"
-							>Learn more</a
-						>
-					</div>
-				{:else if category == 'Debug'}
-					<div class="text-secondary pb-4 text-xs">
-						Enable debug mode to get more detailed logs.
-					</div>
-				{:else if category == 'Telemetry'}
-					<div class="text-primary pb-4 text-xs">
-						Anonymous usage data is collected to help improve Windmill.
-						<br />The following information is collected:
-						<ul class="list-disc list-inside pl-2">
-							<li>version of your instances</li>
-							<li>instance base URL</li>
-							<li>job usage (language, total duration, count)</li>
-							<li>login type usage (login type, count)</li>
-							<li>worker usage (worker, worker instance, vCPUs, memory)</li>
-							<li>user usage (author count, operator count)</li>
-							<li>superadmin email addresses</li>
-							<li>vCPU usage</li>
-							<li>memory usage</li>
-							<li>development instance status</li>
-						</ul>
-					</div>
-					{#if $enterpriseLicense}
-						<div class="text-primary pb-4 text-xs">
-							On Enterprise Edition, you must send data to check that usage is in line with the
-							terms of the subscription. You can either enable telemetry or regularly send usage
-							data by clicking the button below.
-						</div>
-						<Button
-							on:click={sendStats}
-							variant="default"
-							btnClasses="w-auto"
-							wrapperClasses="mb-4"
-							loading={sendingStats}
-							size="xs"
-						>
-							Send usage
-						</Button>
-					{/if}
-				{:else if category == 'Auth/OAuth/SAML'}
-					<AuthSettings
-						bind:oauths
-						bind:snowflakeAccountIdentifier
-						bind:requirePreexistingUserForOauth
-						baseUrl={$values?.base_url}
-					>
-						{#snippet scim()}
-							<div class="flex-col flex gap-6 pb-4">
-								{#each scimSamlSetting as setting}
-									<InstanceSetting
-										on:closeDrawer={() => closeDrawer?.()}
-										{loading}
-										{setting}
-										{values}
-										{version}
-										{oauths}
-									/>
-								{/each}
-							</div>
-						{/snippet}
-					</AuthSettings>
-				{/if}
-
-				<div class="flex-col flex gap-6 pb-6">
-					{#each settings[category] as setting}
-						<!-- slack connect is handled with the alert channels settings, smtp_connect is handled in InstanceSetting -->
-						{#if setting.fieldType != 'slack_connect'}
+	{#snippet categoryContent(category: string)}
+		{#if category == 'SMTP'}
+			<div class="text-secondary pb-4 text-xs">
+				Setting SMTP unlocks sending emails upon adding new users to the workspace or the instance
+				or sending critical alerts via email.
+				<a target="_blank" href="https://www.windmill.dev/docs/advanced/instance_settings#smtp"
+					>Learn more <ExternalLink size={12} class="inline-block" /></a
+				>
+			</div>
+		{:else if category == 'Indexer/Search'}
+			<div class="text-secondary pb-4 text-xs"
+				>The indexer service unlocks full text search across jobs and service logs. It requires
+				spinning up its own separate container
+				<a target="_blank" href="https://www.windmill.dev/docs/core_concepts/search_bar#setup"
+					>Learn how to <ExternalLink size={12} class="inline-block" /></a
+				></div
+			>
+		{:else if category == 'Alerts'}
+			<div class="text-secondary pb-4 text-xs">
+				Critical alerts automatically notify administrators about system events like job crashes,
+				license issues, worker failures, and queue delays through email, Slack, or Teams.
+				<a target="_blank" href="https://www.windmill.dev/docs/core_concepts/critical_alerts"
+					>Learn more <ExternalLink size={12} class="inline-block" /></a
+				>
+			</div>
+		{:else if category == 'Registries'}
+			<div class="text-secondary pb-4 text-xs">
+				Add private registries for Pip, Bun and npm. <a
+					target="_blank"
+					href="https://www.windmill.dev/docs/advanced/imports">Learn more</a
+				>
+			</div>
+		{:else if category == 'Slack'}
+			<div class="text-secondary pb-4 text-xs">
+				Connecting your instance to a Slack workspace enables critical alerts to be sent to a Slack
+				channel.
+				<a target="_blank" href="https://www.windmill.dev/docs/misc/saml_and_scim">Learn more</a>
+			</div>
+		{:else if category == 'SCIM/SAML'}
+			<div class="text-secondary pb-4 text-xs">
+				Setting up SAML and SCIM allows you to authenticate users using your identity provider.
+				<a target="_blank" href="https://www.windmill.dev/docs/advanced/instance_settings#slack"
+					>Learn more</a
+				>
+			</div>
+		{:else if category == 'Debug'}
+			<div class="text-secondary pb-4 text-xs"> Enable debug mode to get more detailed logs. </div>
+		{:else if category == 'Telemetry'}
+			<div class="text-primary pb-4 text-xs">
+				Anonymous usage data is collected to help improve Windmill.
+				<br />The following information is collected:
+				<ul class="list-disc list-inside pl-2">
+					<li>version of your instances</li>
+					<li>instance base URL</li>
+					<li>job usage (language, total duration, count)</li>
+					<li>login type usage (login type, count)</li>
+					<li>worker usage (worker, worker instance, vCPUs, memory)</li>
+					<li>user usage (author count, operator count)</li>
+					<li>superadmin email addresses</li>
+					<li>vCPU usage</li>
+					<li>memory usage</li>
+					<li>development instance status</li>
+				</ul>
+			</div>
+			{#if $enterpriseLicense}
+				<div class="text-primary pb-4 text-xs">
+					On Enterprise Edition, you must send data to check that usage is in line with the terms of
+					the subscription. You can either enable telemetry or regularly send usage data by clicking
+					the button below.
+				</div>
+				<Button
+					on:click={sendStats}
+					variant="default"
+					btnClasses="w-auto"
+					wrapperClasses="mb-4"
+					loading={sendingStats}
+					size="xs"
+				>
+					Send usage
+				</Button>
+			{/if}
+		{:else if category == 'Auth/OAuth/SAML'}
+			<AuthSettings
+				bind:oauths
+				bind:snowflakeAccountIdentifier
+				bind:requirePreexistingUserForOauth
+				baseUrl={$values?.base_url}
+				bind:tab={authSubTab}
+				{hideTabs}
+			>
+				{#snippet scim()}
+					<div class="flex-col flex gap-6 pb-4">
+						{#each scimSamlSetting as setting}
 							<InstanceSetting
-								{openSmtpSettings}
 								on:closeDrawer={() => closeDrawer?.()}
 								{loading}
 								{setting}
@@ -568,21 +561,37 @@
 								{version}
 								{oauths}
 							/>
-						{/if}
-					{/each}
-				</div>
+						{/each}
+					</div>
+				{/snippet}
+			</AuthSettings>
+		{/if}
 
-				{#if !loading}
-					<SettingsFooter
-						hasUnsavedChanges={dirtyCategories[category] ?? false}
-						disabled={invalidCategories[category] ?? false}
-						onSave={() => saveCategorySettings(category)}
-						onDiscard={() => discardCategory(category)}
-						saveLabel={`Save ${category.toLowerCase()} settings`}
-						class="bg-surface"
+		<div class="flex-col flex gap-6 pb-6">
+			{#each settings[category] as setting}
+				<!-- slack connect is handled with the alert channels settings, smtp_connect is handled in InstanceSetting -->
+				{#if setting.fieldType != 'slack_connect'}
+					<InstanceSetting
+						{openSmtpSettings}
+						on:closeDrawer={() => closeDrawer?.()}
+						{loading}
+						{setting}
+						{values}
+						{version}
+						{oauths}
 					/>
 				{/if}
-			</TabContent>
-		{/each}
+			{/each}
+		</div>
+
+		{#if !loading}
+			<SettingsFooter
+				hasUnsavedChanges={dirtyCategories[category] ?? false}
+				disabled={invalidCategories[category] ?? false}
+				onSave={() => saveCategorySettings(category)}
+				onDiscard={() => discardCategory(category)}
+				saveLabel={`Save ${category.toLowerCase()} settings`}
+			/>
+		{/if}
 	{/snippet}
 </div>

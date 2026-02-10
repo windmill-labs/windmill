@@ -38,8 +38,8 @@
 	}
 </script>
 
-<Drawer bind:this={drawer} size="1100px" {disableChatOffset}>
-	<DrawerContent noPadding title="Instance settings" on:close={closeDrawer}>
+<Drawer bind:this={drawer} size="1200px" {disableChatOffset}>
+	<DrawerContent noPadding overflow_y={false} title="Instance settings" on:close={closeDrawer}>
 		{#snippet actions()}
 			<MeltTooltip disablePopup={!uptodateVersion}>
 				<div class="text-xs text-secondary flex items-center gap-1">

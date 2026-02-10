@@ -514,3 +514,135 @@ export const settings: Record<string, Setting[]> = {
 }
 
 export const settingsKeys = Object.keys(settings)
+
+// --- Sidebar navigation for instance settings ---
+export const instanceSettingsNavigationGroups = [
+	{
+		items: [
+			{
+				id: 'users',
+				label: 'Users',
+				aiId: 'instance-settings-users',
+				aiDescription: 'Instance users settings'
+			},
+			{
+				id: 'general',
+				label: 'General',
+				aiId: 'instance-settings-general',
+				aiDescription: 'Instance general settings'
+			}
+		]
+	},
+	{
+		title: 'Authentication',
+		items: [
+			{
+				id: 'sso',
+				label: 'SSO',
+				aiId: 'instance-settings-sso',
+				aiDescription: 'Instance SSO settings'
+			},
+			{
+				id: 'oauth',
+				label: 'OAuth',
+				aiId: 'instance-settings-oauth',
+				aiDescription: 'Instance OAuth settings'
+			},
+			{
+				id: 'scim_saml',
+				label: 'SCIM/SAML',
+				aiId: 'instance-settings-scim-saml',
+				aiDescription: 'Instance SCIM/SAML settings'
+			}
+		]
+	},
+	{
+		title: 'Infrastructure',
+		items: [
+			{
+				id: 'smtp',
+				label: 'SMTP',
+				aiId: 'instance-settings-smtp',
+				aiDescription: 'Instance SMTP settings'
+			},
+			{
+				id: 'registries',
+				label: 'Registries',
+				aiId: 'instance-settings-registries',
+				aiDescription: 'Instance registries settings'
+			}
+		]
+	},
+	{
+		title: 'Monitoring',
+		items: [
+			{
+				id: 'alerts',
+				label: 'Alerts',
+				aiId: 'instance-settings-alerts',
+				aiDescription: 'Instance alerts settings'
+			},
+			{
+				id: 'otel_prom',
+				label: 'OTEL/Prometheus',
+				aiId: 'instance-settings-otel-prom',
+				aiDescription: 'Instance OTEL/Prometheus settings'
+			},
+			{
+				id: 'indexer',
+				label: 'Indexer',
+				aiId: 'instance-settings-indexer',
+				aiDescription: 'Instance indexer settings'
+			}
+		]
+	},
+	{
+		title: 'Advanced',
+		items: [
+			{
+				id: 'telemetry',
+				label: 'Telemetry',
+				aiId: 'instance-settings-telemetry',
+				aiDescription: 'Instance telemetry settings'
+			},
+			{
+				id: 'secret_storage',
+				label: 'Secret Storage',
+				aiId: 'instance-settings-secret-storage',
+				aiDescription: 'Instance secret storage settings'
+			}
+		]
+	}
+]
+
+export const tabToCategoryMap: Record<string, string> = {
+	general: 'Core',
+	sso: 'Auth/OAuth/SAML',
+	oauth: 'Auth/OAuth/SAML',
+	scim_saml: 'Auth/OAuth/SAML',
+	smtp: 'SMTP',
+	registries: 'Registries',
+	alerts: 'Alerts',
+	otel_prom: 'OTEL/Prom',
+	indexer: 'Indexer',
+	telemetry: 'Telemetry',
+	secret_storage: 'Secret Storage'
+}
+
+export const tabToAuthSubTab: Record<string, 'sso' | 'oauth' | 'scim'> = {
+	sso: 'sso',
+	oauth: 'oauth',
+	scim_saml: 'scim'
+}
+
+export const categoryToTabMap: Record<string, string> = {
+	Core: 'general',
+	SMTP: 'smtp',
+	'Auth/OAuth/SAML': 'sso',
+	Registries: 'registries',
+	Alerts: 'alerts',
+	'OTEL/Prom': 'otel_prom',
+	Indexer: 'indexer',
+	Telemetry: 'telemetry',
+	'Secret Storage': 'secret_storage'
+}
