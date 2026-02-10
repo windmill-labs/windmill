@@ -21,7 +21,7 @@
 	let { value: _uncheckedValue = $bindable(), disabled = false, actions }: Props = $props()
 
 	let value = $derived.by(() => {
-		if (typeof _uncheckedValue !== 'object') return undefined
+		if (!_uncheckedValue || typeof _uncheckedValue !== 'object') return undefined
 		return _uncheckedValue
 	})
 
