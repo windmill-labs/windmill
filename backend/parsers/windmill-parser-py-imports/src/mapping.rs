@@ -381,5 +381,6 @@ pub static SHORT_IMPORTS_MAP: PyMap = phf_map! {
     "docx" => "python-docx",
     "vt" => "vt-py",
     "grpc" => "grpcio",
+    "serpapi" => "google-search-results",
     // Add new entry here ^
 };

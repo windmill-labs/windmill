@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.628.3
+  version: 1.629.1
   title: Windmill API
 
   contact:
@@ -1305,6 +1305,20 @@ paths:
       responses:
         "200":
           description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /settings/get_stats:
+    get:
+      summary: get encrypted telemetry stats (EE only)
+      operationId: getStats
+      tags:
+        - setting
+      responses:
+        "200":
+          description: base64-encoded encrypted telemetry blob
           content:
             text/plain:
               schema:
