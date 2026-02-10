@@ -15,7 +15,7 @@ import { sendUserToast } from '$lib/toast'
 import { tweened, type Tweened } from 'svelte/motion'
 import { subtractDaysFromDateString } from '$lib/utils'
 import { CancelablePromiseUtils } from '$lib/cancelable-promise-utils'
-import type { RunsFilters } from './RunsFilter.svelte'
+import type { RunsFilters } from './runsFilter'
 import type { Timeframe } from './TimeframeSelect.svelte'
 
 export function computeJobKinds(jobKindsCat: string | null): string {

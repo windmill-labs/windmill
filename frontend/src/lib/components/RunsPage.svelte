@@ -19,7 +19,7 @@
 
 	import RunsTable from '$lib/components/runs/RunsTable.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import RunsFilter, { runsFiltersSchema } from '$lib/components/runs/RunsFilter.svelte'
+	import { runsFiltersSchema } from '$lib/components/runs/runsFilter'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import RunsQueue from '$lib/components/runs/RunsQueue.svelte'
@@ -36,14 +36,13 @@
 	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
 	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
 	import { StaleWhileLoading } from '$lib/svelte5Utils.svelte'
-	import { CalendarIcon, ClockIcon, TriangleAlertIcon } from 'lucide-svelte'
+	import { TriangleAlertIcon } from 'lucide-svelte'
 	import DropdownV2 from './DropdownV2.svelte'
 	import TimeframeSelect, {
 		buildManualTimeframe,
 		runsTimeframes,
 		useUrlSyncedTimeframe
 	} from './runs/TimeframeSelect.svelte'
-	import RunOption from './runs/RunOption.svelte'
 
 	interface Props {
 		/** Initial path from route params (e.g., /runs/u/user/script) */
@@ -469,7 +468,6 @@
 	})
 
 	const smallScreenWidth = 1920
-	const verySmallScreenWidth = 1300
 
 	let forceCancelInPopup = $state(false)
 
@@ -547,25 +545,23 @@
 {:else}
 	<div class="w-full h-screen flex flex-col" bind:clientWidth={innerWidth}>
 		<!-- Header and filters -->
-		<div class="flex flex-row items-start w-full px-4 gap-8">
+		<div class="flex flex-row items-start w-full px-4 gap-8 py-3">
 			<div class="flex flex-row items-center h-full gap-6">
-				<div class="flex flex-row items-center gap-1">
-					<h1
-						class={twMerge(
-							'!text-2xl font-semibold leading-6 tracking-tight',
-							$userStore?.operator ? 'pl-10' : ''
-						)}
-					>
-						Runs
-					</h1>
+				<h1
+					class={twMerge(
+						'!text-2xl font-semibold leading-6 tracking-tight',
+						$userStore?.operator ? 'pl-10' : ''
+					)}
+				>
+					Runs
+				</h1>
 
-					<Tooltip
-						documentationLink="https://www.windmill.dev/docs/core_concepts/monitor_past_and_future_runs"
-					>
-						All past and schedule executions of scripts and flows, including previews. You only see
-						your own runs or runs of groups you belong to unless you are an admin.
-					</Tooltip>
-				</div>
+				<Tooltip
+					documentationLink="https://www.windmill.dev/docs/core_concepts/monitor_past_and_future_runs"
+				>
+					All past and schedule executions of scripts and flows, including previews. You only see
+					your own runs or runs of groups you belong to unless you are an admin.
+				</Tooltip>
 
 				<!-- Queue -->
 				<RunsQueue
@@ -582,53 +578,18 @@
 				/>
 			</div>
 
-			<div class="py-2 flex items-start gap-2 flex-row grow min-w-0 justify-end">
-				<!-- Dates -->
-				<RunOption label="Reset" for="reset" noLabel>
-					<Button variant="default" unifiedSize="md" onClick={reset}>Reset</Button>
-				</RunOption>
-				<RunOption label="Timeframe" for="timeframe" noLabel>
-					<TimeframeSelect
-						onClick={() => jobsLoader?.loadJobs(true)}
-						loading={jobsLoader?.loading}
-						items={runsTimeframes}
-						bind:value={_timeframe.timeframe}
-					/>
-				</RunOption>
-
-				<!-- Filters 1 -->
-				<div class="flex flex-row gap-2">
-					<RunsFilter
-						bind:allowWildcards={filters.allow_wildcards}
-						bind:user={filters.user}
-						bind:folder={filters.folder}
-						bind:label={filters.label}
-						bind:concurrencyKey={filters.concurrency_key}
-						bind:tag={filters.tag}
-						bind:worker={filters.worker}
-						bind:showSkipped={filters.show_skipped}
-						bind:path={filters.path}
-						bind:success={filters.success}
-						bind:jobTriggerKind={filters.job_trigger_kind}
-						bind:argError
-						bind:resultError
-						bind:jobKindsCat={filters.job_kinds}
-						bind:allWorkspaces={filters.all_workspaces}
-						bind:schedulePath={filters.schedule_path}
-						bind:argFilter={filters.arg}
-						bind:resultFilter={filters.result}
-						on:change={reloadJobsWithoutFilterError}
-						{usernames}
-						{folders}
-						{paths}
-						mobile={innerWidth < verySmallScreenWidth}
-					/>
-				</div>
+			<div>
+				<TimeframeSelect
+					onClick={() => jobsLoader?.loadJobs(true)}
+					loading={jobsLoader?.loading}
+					items={runsTimeframes}
+					bind:value={_timeframe.timeframe}
+				/>
 			</div>
 		</div>
 
 		<!-- Graph -->
-		<div class="p-2 px-4 bg-surface-tertiary mx-4 mt-2 border rounded-md">
+		<div class="p-2 px-4 bg-surface-tertiary mx-4 border rounded-md">
 			<div class="relative z-10 mb-2 flex gap-2">
 				<Tabs bind:selected={graph}>
 					<Tab value="RunChart" label="Duration" />
@@ -697,7 +658,7 @@
 			<Splitpanes>
 				<Pane minSize={40}>
 					<div class="h-full flex">
-						<div class="flex flex-col flex-1 m-4 mr-2">
+						<div class="flex flex-col flex-1 m-4 mt-2 mr-2">
 							<!-- Runs table. Add overflow-hidden because scroll is handled inside the runs table based on this wrapper height -->
 							<div class="grow min-h-0 overflow-y-hidden overflow-x-auto">
 								{#if jobs}
@@ -776,26 +737,6 @@
 									</Button>
 								{/if}
 								<div class="flex-1"></div>
-								{#if !filters.job_trigger_kind}
-									<div class="flex flex-row gap-1 items-center">
-										<Toggle
-											id="cron-schedules"
-											bind:checked={filters.show_schedules}
-											options={{ right: 'Schedules' }}
-										/>
-										<span title="Schedules"><CalendarIcon size="14" /></span>
-									</div>
-								{/if}
-
-								<div class="flex flex-row gap-1 items-center">
-									<Toggle
-										size="sm"
-										bind:checked={filters.show_future_jobs}
-										id="planned-later"
-										options={{ right: 'Planned later' }}
-									/>
-									<span title="Planned later"><ClockIcon size={14} /></span>
-								</div>
 								<Toggle
 									size="xs"
 									bind:checked={autoRefresh}
@@ -833,7 +774,7 @@
 					class="flex flex-col"
 					opened={selectedIds.length > 0 || !!manualSelectionMode}
 				>
-					<div class="mt-14 overflow-y-auto pr-4 ml-2 relative flex-1">
+					<div class="mt-12 overflow-y-auto pr-4 ml-2 relative flex-1">
 						{#if manualSelectionMode === 'cancel'}
 							<div
 								class="rounded-md bg-surface-tertiary border absolute inset-0 mb-4 flex flex-col items-center justify-center"

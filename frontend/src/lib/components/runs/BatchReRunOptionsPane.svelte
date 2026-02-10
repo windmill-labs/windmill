@@ -193,7 +193,7 @@
 				</Pane>
 			{/if}
 			<Pane size={hideRunnableSelector ? 100 : 68} class="relative">
-				<div class="flex flex-col absolute inset-0">
+				<div class="flex flex-col absolute inset-0 bg-surface-tertiary">
 					<PanelSection
 						title="Inputs"
 						class="overflow-y-scroll flex-1"
