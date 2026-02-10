@@ -261,7 +261,10 @@ fn convert_content_to_anthropic(content: &Option<OpenAIContent>) -> Vec<Anthropi
                 match part {
                     ContentPart::Text { text } => {
                         if !text.is_empty() {
-                            result.push(AnthropicRequestContent::Text { text: text.clone(), cache_control: None });
+                            result.push(AnthropicRequestContent::Text {
+                                text: text.clone(),
+                                cache_control: None,
+                            });
                         }
                     }
                     ContentPart::ImageUrl { image_url } => {
@@ -398,7 +401,11 @@ impl AnthropicQueryBuilder {
             Some(s) if !s.is_empty() => Some(vec![AnthropicSystemContent {
                 r#type: "text".to_string(),
                 text: s.to_string(),
-                cache_control: Some(CacheControl::ephemeral()),
+                cache_control: if self.is_vertex() {
+                    None
+                } else {
+                    Some(CacheControl::ephemeral())
+                },
             }]),
             _ => None,
         };
@@ -424,23 +431,27 @@ impl AnthropicQueryBuilder {
         let max_tokens = Some(args.max_tokens.unwrap_or(64000));
 
         // Apply cache_control on the last custom tool
-        if let Some(ref mut tools_vec) = tools_option {
-            if let Some(AnthropicTool::Custom(ref mut custom)) = tools_vec.last_mut() {
-                custom.cache_control = Some(CacheControl::ephemeral());
+        if !self.is_vertex() {
+            if let Some(ref mut tools_vec) = tools_option {
+                if let Some(AnthropicTool::Custom(ref mut custom)) = tools_vec.last_mut() {
+                    custom.cache_control = Some(CacheControl::ephemeral());
+                }
             }
         }
 
         // Apply cache_control on the last content block of the last message
-        if let Some(last_msg) = anthropic_messages.last_mut() {
-            if let Some(last_block) = last_msg.content.last_mut() {
-                match last_block {
-                    AnthropicRequestContent::Text { cache_control, .. } => {
-                        *cache_control = Some(CacheControl::ephemeral());
+        if !self.is_vertex() {
+            if let Some(last_msg) = anthropic_messages.last_mut() {
+                if let Some(last_block) = last_msg.content.last_mut() {
+                    match last_block {
+                        AnthropicRequestContent::Text { cache_control, .. } => {
+                            *cache_control = Some(CacheControl::ephemeral());
+                        }
+                        AnthropicRequestContent::ToolResult { cache_control, .. } => {
+                            *cache_control = Some(CacheControl::ephemeral());
+                        }
+                        _ => {}
                     }
-                    AnthropicRequestContent::ToolResult { cache_control, .. } => {
-                        *cache_control = Some(CacheControl::ephemeral());
-                    }
-                    _ => {}
                 }
             }
         }
