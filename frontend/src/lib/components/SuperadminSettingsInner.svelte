@@ -98,6 +98,23 @@
 			sendUserToast('Error updating user', true)
 		}
 	}
+
+	// --- Tab change interception for unsaved changes ---
+	let pendingTab: string | undefined = $state(undefined)
+	let showUnsavedChangesModal = $state(false)
+
+	function handleTabSelected(e: CustomEvent<string>) {
+		const newTab = e.detail
+		if (newTab === tab) return
+
+		// Check if current tab (if it's a settings tab) has unsaved changes
+		if (tab !== 'users' && instanceSettings?.isDirty(tab)) {
+			pendingTab = newTab
+			showUnsavedChangesModal = true
+		} else {
+			tab = newTab
+		}
+	}
 </script>
 
 <SearchItems
@@ -107,7 +124,7 @@
 	f={(x) => x.email + ' ' + x.name + ' ' + x.company}
 />
 
-<div class="flex flex-col h-full w-full">
+<div class="flex flex-col h-full w-full px-6 pt-4">
 	<div>
 		<div class="flex justify-between">
 			<div class="text-xs pt-1 text-primary flex flex-col">
@@ -129,7 +146,7 @@
 		</div>
 	{/if}
 	<div class="pt-4 h-full">
-		<Tabs bind:selected={tab}>
+		<Tabs bind:selected={tab} deferSelectedUpdate on:selected={handleTabSelected}>
 			<Tab
 				value="users"
 				aiId="instance-settings-users"
@@ -373,23 +390,35 @@
 					</div>
 				</TabContent>
 				<TabContent value="" values={settingsKeys}>
-					<InstanceSettings bind:this={instanceSettings} hideTabs hideSave bind:tab {closeDrawer} />
+					<InstanceSettings bind:this={instanceSettings} hideTabs bind:tab {closeDrawer} />
 				</TabContent>
 			{/snippet}
 		</Tabs>
 	</div>
 </div>
-{#if tab != 'users'}
-	<div class="absolute bottom-2 w-[95%] z-10">
-		<Button
-			variant="accent"
-			on:click={() => {
-				instanceSettings?.saveSettings()
-			}}
-		>
-			Save
-		</Button>
-	</div>{/if}
+{#if showUnsavedChangesModal}
+	<ConfirmationModal
+		open={showUnsavedChangesModal}
+		title="Unsaved changes detected"
+		confirmationText="Discard changes"
+		on:canceled={() => {
+			showUnsavedChangesModal = false
+			pendingTab = undefined
+		}}
+		on:confirmed={() => {
+			if (pendingTab !== undefined) {
+				instanceSettings?.discardCategory(tab)
+				tab = pendingTab
+			}
+			showUnsavedChangesModal = false
+			pendingTab = undefined
+		}}
+	>
+		<div class="flex flex-col w-full space-y-4">
+			<span>You have unsaved changes. Are you sure you want to discard them?</span>
+		</div>
+	</ConfirmationModal>
+{/if}
 
 <ConfirmationModal
 	open={Boolean(deleteConfirmedCallback)}

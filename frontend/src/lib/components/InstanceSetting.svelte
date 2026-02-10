@@ -458,7 +458,7 @@
 													License key cannot be renewed during trial ({attemptedAt})
 												</span>
 											{:else}
-												<span class="text-red-300">
+												<span class="text-red-600 dark:text-red-400">
 													Latest key renewal failed on {attemptedAt}: {latestKeyRenewalAttempt?.result.replace(
 														'error: ',
 														''
@@ -929,7 +929,7 @@
 					<SecretBackendConfig {values} disabled={loading} />
 				{/if}
 				{#if hasError}
-					<span class="text-red-500 dark:text-red-400 text-sm">
+					<span class="text-red-600 dark:text-red-400 text-xs">
 						{setting.error ?? ''}
 					</span>
 				{/if}

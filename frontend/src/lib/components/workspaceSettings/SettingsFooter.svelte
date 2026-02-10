@@ -86,7 +86,7 @@
 						onClick={onDiscard}
 						disabled={isSaving}
 					>
-						Discard
+						Discard changes
 					</Button>
 				</div>
 			{/if}

@@ -19,8 +19,8 @@
 	}
 </script>
 
-<Drawer bind:this={drawer} size="1000px" {disableChatOffset}>
-	<DrawerContent overflow_y={true} title="Instance settings" on:close={closeDrawer}>
+<Drawer bind:this={drawer} size="1100px" {disableChatOffset}>
+	<DrawerContent noPadding title="Instance settings" on:close={closeDrawer}>
 		<SuperadminSettingsInner {closeDrawer} />
 	</DrawerContent>
 </Drawer>

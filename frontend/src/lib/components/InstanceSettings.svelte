@@ -16,20 +16,15 @@
 	import InstanceSetting from './InstanceSetting.svelte'
 	import { writable, type Writable } from 'svelte/store'
 	import { ExternalLink } from 'lucide-svelte'
+	import SettingsFooter from './workspaceSettings/SettingsFooter.svelte'
 
 	interface Props {
 		tab?: string
 		hideTabs?: boolean
-		hideSave?: boolean
 		closeDrawer?: (() => void) | undefined
 	}
 
-	let {
-		tab = $bindable('Core'),
-		hideTabs = false,
-		hideSave = false,
-		closeDrawer = () => {}
-	}: Props = $props()
+	let { tab = $bindable('Core'), hideTabs = false, closeDrawer = () => {} }: Props = $props()
 
 	let values: Writable<Record<string, any>> = writable({})
 	let initialOauths: Record<string, any> = {}
@@ -75,6 +70,24 @@
 				)
 			).flat()
 		)
+		// Normalize null to the field type's default so inputs don't appear dirty on load
+		const allSettings = [...Object.values(settings), scimSamlSetting].flat()
+		for (const s of allSettings) {
+			if (initialValues[s.key] == null) {
+				if (s.fieldType === 'boolean') {
+					initialValues[s.key] = false
+				} else if (
+					s.fieldType === 'text' ||
+					s.fieldType === 'textarea' ||
+					s.fieldType === 'codearea' ||
+					s.fieldType === 'password'
+				) {
+					initialValues[s.key] = ''
+				} else if (s.fieldType === 'secret_backend') {
+					initialValues[s.key] = { type: 'Database' }
+				}
+			}
+		}
 		let nvalues = JSON.parse(JSON.stringify(initialValues))
 		if (nvalues['base_url'] == undefined) {
 			nvalues['base_url'] = window.location.origin
@@ -249,6 +262,169 @@
 	function openSmtpSettings() {
 		tab = 'SMTP'
 	}
+
+	// --- Per-category dirty state tracking ---
+
+	// Trigger to force re-derivation when initialValues changes (after save/load)
+	let dirtyCheckTrigger = $state(0)
+
+	function getSettingsForCategory(category: string) {
+		if (category === 'Auth/OAuth/SAML') {
+			return scimSamlSetting
+		}
+		return settings[category] ?? []
+	}
+
+	let dirtyCategories: Record<string, boolean> = $derived.by(() => {
+		void dirtyCheckTrigger
+		const currentValues = $values
+		const result: Record<string, boolean> = {}
+		for (const category of settingsKeys) {
+			if (category === 'Auth/OAuth/SAML') {
+				const scimDirty = scimSamlSetting.some(
+					(s) => !deepEqual(initialValues[s.key], currentValues?.[s.key])
+				)
+				const oauthsDirty = !deepEqual(initialOauths, oauths)
+				const requirePreexistingDirty =
+					initialRequirePreexistingUserForOauth !== requirePreexistingUserForOauth
+				result[category] = scimDirty || oauthsDirty || requirePreexistingDirty
+			} else {
+				const categorySettings = settings[category] ?? []
+				result[category] = categorySettings.some(
+					(s) => !deepEqual(initialValues[s.key], currentValues?.[s.key])
+				)
+			}
+		}
+		return result
+	})
+
+	let invalidCategories: Record<string, boolean> = $derived.by(() => {
+		const currentValues = $values
+		const result: Record<string, boolean> = {}
+		for (const category of settingsKeys) {
+			const categorySettings = getSettingsForCategory(category)
+			result[category] = categorySettings.some(
+				(s) => s.isValid && !s.isValid(currentValues?.[s.key])
+			)
+		}
+		return result
+	})
+
+	export function isDirty(category: string): boolean {
+		return dirtyCategories[category] ?? false
+	}
+
+	export function discardCategory(category: string) {
+		if (category === 'Auth/OAuth/SAML') {
+			for (const s of scimSamlSetting) {
+				$values[s.key] = JSON.parse(JSON.stringify(initialValues[s.key]))
+			}
+			oauths = JSON.parse(JSON.stringify(initialOauths))
+			requirePreexistingUserForOauth = initialRequirePreexistingUserForOauth
+			const account_identifier =
+				initialOauths?.snowflake_oauth?.connect_config?.extra_params?.account_identifier
+			snowflakeAccountIdentifier = account_identifier ?? ''
+		} else {
+			const categorySettings = settings[category] ?? []
+			for (const s of categorySettings) {
+				$values[s.key] = JSON.parse(JSON.stringify(initialValues[s.key]))
+			}
+		}
+	}
+
+	export async function saveCategorySettings(category: string) {
+		// Category-specific pre-processing
+		if (category === 'Auth/OAuth/SAML') {
+			if (
+				oauths?.snowflake_oauth &&
+				oauths?.snowflake_oauth?.connect_config?.extra_params?.account_identifier !==
+					snowflakeAccountIdentifier
+			) {
+				setupSnowflakeUrls()
+			}
+		}
+
+		if (category === 'Alerts' && $values?.critical_error_channels) {
+			$values.critical_error_channels = $values.critical_error_channels.filter((entry: any) => {
+				if (!entry || typeof entry !== 'object') return false
+				if ('teams_channel' in entry) return isValidTeamsChannel(entry.teams_channel)
+				if ('slack_channel' in entry)
+					return typeof entry.slack_channel === 'string' && entry.slack_channel.trim() !== ''
+				if ('email' in entry) return typeof entry.email === 'string' && entry.email.trim() !== ''
+				return false
+			})
+		}
+
+		if (
+			category === 'Core' &&
+			$values?.['license_key'] &&
+			typeof $values['license_key'] === 'string'
+		) {
+			$values['license_key'] = $values['license_key'].trim()
+		}
+
+		let shouldReloadPage = false
+		const categorySettings = getSettingsForCategory(category)
+
+		let licenseKeySet = false
+		await Promise.all(
+			categorySettings
+				.filter((x) => {
+					return (
+						x.storage === 'setting' &&
+						!deepEqual(initialValues?.[x.key], $values?.[x.key]) &&
+						($values?.[x.key] !== '' ||
+							initialValues?.[x.key] !== undefined ||
+							initialValues?.[x.key] !== null)
+					)
+				})
+				.map(async (x) => {
+					if (x.key === 'license_key') licenseKeySet = true
+					if (x.requiresReloadOnChange) shouldReloadPage = true
+					return await SettingService.setGlobal({
+						key: x.key,
+						requestBody: { value: $values?.[x.key] }
+					})
+				})
+		)
+
+		// Update only the saved category's initial values
+		for (const s of categorySettings) {
+			initialValues[s.key] = JSON.parse(JSON.stringify($values[s.key]))
+		}
+
+		// Handle Auth/OAuth/SAML-specific saves
+		if (category === 'Auth/OAuth/SAML') {
+			if (!deepEqual(initialOauths, oauths)) {
+				await SettingService.setGlobal({
+					key: 'oauths',
+					requestBody: { value: oauths }
+				})
+				initialOauths = JSON.parse(JSON.stringify(oauths))
+			}
+			if (initialRequirePreexistingUserForOauth !== requirePreexistingUserForOauth) {
+				await SettingService.setGlobal({
+					key: 'require_preexisting_user_for_oauth',
+					requestBody: { value: requirePreexistingUserForOauth }
+				})
+				initialRequirePreexistingUserForOauth = requirePreexistingUserForOauth
+			}
+		}
+
+		if (licenseKeySet) setLicense()
+
+		// Force dirty state re-check
+		dirtyCheckTrigger++
+
+		if (shouldReloadPage) {
+			sendUserToast('Settings updated, reloading page...')
+			await sleep(1000)
+			window.location.reload()
+		} else {
+			sendUserToast('Settings updated')
+			dispatch('saved')
+		}
+	}
 </script>
 
 <div class="pb-12">
@@ -289,8 +465,9 @@
 					>
 				{:else if category == 'Alerts'}
 					<div class="text-secondary pb-4 text-xs">
-						Critical alerts automatically notify administrators about system events like job crashes,
-						license issues, worker failures, and queue delays through email, Slack, or Teams.
+						Critical alerts automatically notify administrators about system events like job
+						crashes, license issues, worker failures, and queue delays through email, Slack, or
+						Teams.
 						<a target="_blank" href="https://www.windmill.dev/docs/core_concepts/critical_alerts"
 							>Learn more <ExternalLink size={12} class="inline-block" /></a
 						>
@@ -378,7 +555,7 @@
 					</AuthSettings>
 				{/if}
 
-				<div class="flex-col flex gap-6 pb-4">
+				<div class="flex-col flex gap-6 pb-6">
 					{#each settings[category] as setting}
 						<!-- slack connect is handled with the alert channels settings, smtp_connect is handled in InstanceSetting -->
 						{#if setting.fieldType != 'slack_connect'}
@@ -394,12 +571,18 @@
 						{/if}
 					{/each}
 				</div>
+
+				{#if !loading}
+					<SettingsFooter
+						hasUnsavedChanges={dirtyCategories[category] ?? false}
+						disabled={invalidCategories[category] ?? false}
+						onSave={() => saveCategorySettings(category)}
+						onDiscard={() => discardCategory(category)}
+						saveLabel={`Save ${category.toLowerCase()} settings`}
+						class="bg-surface"
+					/>
+				{/if}
 			</TabContent>
 		{/each}
 	{/snippet}
 </div>
-
-{#if !hideSave}
-	<Button on:click={saveSettings} variant="accent">Save settings</Button>
-	<div class="pb-8"></div>
-{/if}
