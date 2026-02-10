@@ -117,6 +117,7 @@ const BIND_ADDR_ENV: &str = "SERVER_BIND_ADDR";
 
 #[cfg(target_os = "linux")]
 mod cgroups;
+mod db_connect;
 #[cfg(feature = "private")]
 pub mod ee;
 mod ee_oss;
@@ -665,7 +666,7 @@ async fn windmill_main() -> anyhow::Result<()> {
     } else {
         println!("Connecting to database...");
 
-        let db = windmill_common::initial_connection().await?;
+        let db = crate::db_connect::initial_connection().await?;
 
         let num_version = sqlx::query_scalar!("SELECT version()").fetch_one(&db).await;
 
@@ -770,8 +771,12 @@ async fn windmill_main() -> anyhow::Result<()> {
     let conn = if mode == Mode::Agent {
         conn
     } else {
-        // This time we use a pool of connections
-        let db = windmill_common::connect_db(
+        // Drop the initial connection pool before creating the main one.
+        // With low PostgreSQL max_connections, both pools existing simultaneously
+        // can exhaust all available connection slots, causing connect_db to hang.
+        drop(conn);
+
+        let db = crate::db_connect::connect_db(
             server_mode,
             indexer_mode,
             worker_mode,
