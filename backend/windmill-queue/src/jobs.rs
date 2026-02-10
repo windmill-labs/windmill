@@ -53,7 +53,7 @@ use windmill_common::utils::{calculate_hash, configure_client, now_from_db};
 use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
 
 use windmill_common::{
-    auth::{fetch_authed_from_permissioned_as, permissioned_as_to_username},
+    auth::permissioned_as_to_username,
     cache::{self, FlowData},
     db::{Authed, UserDB},
     error::{self, Error},
@@ -782,7 +782,6 @@ pub async fn add_completed_job_error(
         flow_is_done,
         duration,
         false,
-        false,
     )
     .warn_after_seconds(10)
     .await?;
@@ -818,7 +817,6 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     canceled_by: Option<CanceledBy>,
     flow_is_done: bool,
     duration: Option<i64>,
-    has_stream: bool,
     from_cache: bool,
 ) -> Result<(Uuid, i64), Error> {
     // tracing::error!("Start");
@@ -844,7 +842,6 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             &canceled_by,
             flow_is_done,
             duration,
-            has_stream,
             from_cache,
         )
         .warn_after_seconds(10)
@@ -904,7 +901,6 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     canceled_by: &Option<CanceledBy>,
     flow_is_done: bool,
     duration: Option<i64>,
-    has_stream: bool,
     from_cache: bool,
 ) -> windmill_common::error::Result<(Option<Uuid>, i64, bool)> {
     // let start = std::time::Instant::now();
@@ -1184,7 +1180,19 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         .concurrent_limit
         .is_some()
     {
-        let concurrency_key = concurrency_key(db, &completed_job.id).await?;
+        let concurrency_key = sqlx::query_scalar!(
+            "SELECT key FROM concurrency_key WHERE job_id = $1",
+            &completed_job.id
+        )
+        .fetch_optional(&mut *tx)
+        .warn_after_seconds(10)
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Could not get concurrency key for job {}: {e:#}",
+                completed_job.id
+            ))
+        })?;
         if *DISABLE_CONCURRENCY_LIMIT || concurrency_key.is_none() {
             tracing::warn!("Concurrency limit is disabled, skipping");
         } else {
@@ -1219,18 +1227,6 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             );
         }
         tracing::debug!("decremented concurrency counter");
-    }
-
-    sqlx::query!("DELETE FROM job_perms WHERE job_id = $1", job_id)
-        .execute(&mut *tx)
-        .warn_after_seconds(10)
-        .await?;
-
-    if !success || has_stream {
-        sqlx::query!("DELETE FROM job_result_stream_v2 WHERE job_id = $1", job_id)
-            .execute(&mut *tx)
-            .warn_after_seconds(10)
-            .await?;
     }
 
     tx.commit().warn_after_seconds(10).await?;
@@ -1827,7 +1823,7 @@ pub async fn try_schedule_next_job<'c>(
         &job.workspace_id
     );
 
-    let schedule_authed = windmill_common::auth::fetch_authed_from_permissioned_as_conn(
+    let schedule_authed = windmill_common::auth::fetch_authed_from_permissioned_as(
         &windmill_common::users::username_to_permissioned_as(&schedule.edited_by),
         &schedule.email,
         &job.workspace_id,
@@ -5386,7 +5382,7 @@ async fn push_inner<'c, 'd>(
             &runnable_path,
             job_kind,
             concurrency_settings.concurrency_key.clone(),
-            &mut tx,
+            &mut *tx,
             job_id,
         )
         .await?;
@@ -5418,11 +5414,11 @@ async fn push_inner<'c, 'd>(
             if authed.is_some() {
                 tracing::warn!("Authed passed to push is not the same as permissioned_as, refetching direclty permissions for job {job_id}...")
             }
-            fetch_authed_from_permissioned_as(
-                permissioned_as.clone(),
-                email.to_string(),
+            windmill_common::auth::fetch_authed_from_permissioned_as(
+                &permissioned_as,
+                email,
                 workspace_id,
-                _db,
+                &mut *tx,
             )
             .await
             .map_err(|e| {
@@ -5709,7 +5705,7 @@ pub async fn insert_concurrency_key<'d, 'c>(
     script_path: &Option<String>,
     job_kind: JobKind,
     custom_concurrency_key: Option<String>,
-    tx: &mut Transaction<'c, Postgres>,
+    db: impl PgExecutor<'c>,
     job_id: Uuid,
 ) -> Result<(), Error> {
     let concurrency_key = custom_concurrency_key
@@ -5737,7 +5733,7 @@ pub async fn insert_concurrency_key<'d, 'c>(
         ));
     sqlx::query!(
         "WITH inserted_concurrency_counter AS (
-                INSERT INTO concurrency_counter (concurrency_id, job_uuids) 
+                INSERT INTO concurrency_counter (concurrency_id, job_uuids)
                 VALUES ($1, '{}'::jsonb)
                 ON CONFLICT DO NOTHING
             )
@@ -5745,7 +5741,7 @@ pub async fn insert_concurrency_key<'d, 'c>(
         concurrency_key,
         job_id,
     )
-    .execute(&mut **tx)
+    .execute(db)
     .warn_after_seconds(3)
     .await
     .map_err(|e| Error::internal_err(format!("Could not insert concurrency_key={concurrency_key} for job_id={job_id} script_path={script_path:?} workspace_id={workspace_id}: {e:#}")))?;

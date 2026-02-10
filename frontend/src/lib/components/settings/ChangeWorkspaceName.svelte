@@ -38,24 +38,22 @@
 </script>
 
 <div class="flex flex-col gap-1">
-	<p class="font-medium text-xs text-emphasis">Workspace name</p>
-	<div class="flex flex-row gap-0.5 items-center">
-		<p class="text-xs font-normal text-primary">{currentName}</p>
+	<p class="font-semibold text-xs text-emphasis">Workspace name</p>
+	<p class="text-xs text-secondary font-normal">Displayable name</p>
+	<div class="flex flex-row gap-2 items-center">
+		<p class="text-primary text-xs">{currentName}</p>
 		<Button
 			on:click={() => {
 				open = true
 			}}
-			size="xs"
-			spacingSize="xs2"
-			color="light"
+			unifiedSize="sm"
 			iconOnly
+			variant="subtle"
 			startIcon={{
 				icon: Pen
 			}}
 		/>
 	</div>
-
-	<p class="text-2xs text-secondary font-normal"> Displayable name </p>
 </div>
 
 <Modal bind:open title="Change workspace name">
