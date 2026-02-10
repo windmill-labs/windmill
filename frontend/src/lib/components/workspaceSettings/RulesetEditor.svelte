@@ -30,7 +30,6 @@
 	let name = $state(rule?.name ?? '')
 	let requireForkOrBranch = $state(hasRule('RequireForkOrBranchToDeploy'))
 	let disableFork = $state(hasRule('DisableWorkspaceForking'))
-	let disableMergeUI = $state(hasRule('DisableMergeUIInForks'))
 	let selectedGroups = $state<string[]>(rule?.bypass_groups?.map((g) => g.replace('g/', '')) ?? [])
 	let selectedUsers = $state<string[]>(rule?.bypass_users?.map((u) => u.replace('u/', '')) ?? [])
 
@@ -38,7 +37,6 @@
 	let initialName = $state(rule?.name ?? '')
 	let initialRequireForkOrBranch = $state(hasRule('RequireForkOrBranchToDeploy'))
 	let initialDisableFork = $state(hasRule('DisableWorkspaceForking'))
-	let initialDisableMergeUI = $state(hasRule('DisableMergeUIInForks'))
 	let initialSelectedGroups = $state<string[]>(
 		rule?.bypass_groups ? rule.bypass_groups.map((g) => g.replace('g/', '')) : []
 	)
@@ -106,7 +104,6 @@
 			: name !== initialName ||
 					requireForkOrBranch !== initialRequireForkOrBranch ||
 					disableFork !== initialDisableFork ||
-					disableMergeUI !== initialDisableMergeUI ||
 					JSON.stringify([...selectedGroups].sort()) !==
 						JSON.stringify([...initialSelectedGroups].sort()) ||
 					JSON.stringify([...selectedUsers].sort()) !== JSON.stringify([...initialSelectedUsers].sort())
@@ -143,7 +140,6 @@
 					rules: [
 						...(requireForkOrBranch ? ['RequireForkOrBranchToDeploy' as ProtectionRuleKind] : []),
 						...(disableFork ? ['DisableWorkspaceForking' as ProtectionRuleKind] : []),
-						...(disableMergeUI ? ['DisableMergeUIInForks' as ProtectionRuleKind] : [])
 					],
 					bypass_groups: selectedGroups,
 					bypass_users: selectedUsers
@@ -169,7 +165,6 @@
 					rules: [
 						...(requireForkOrBranch ? ['RequireForkOrBranchToDeploy' as ProtectionRuleKind] : []),
 						...(disableFork ? ['DisableWorkspaceForking' as ProtectionRuleKind] : []),
-						...(disableMergeUI ? ['DisableMergeUIInForks' as ProtectionRuleKind] : [])
 					],
 					bypass_groups: selectedGroups,
 					bypass_users: selectedUsers
@@ -182,7 +177,6 @@
 			initialName = name
 			initialRequireForkOrBranch = requireForkOrBranch
 			initialDisableFork = disableFork
-			initialDisableMergeUI = disableMergeUI
 			initialSelectedGroups = clone(selectedGroups)
 			initialSelectedUsers = clone(selectedUsers)
 

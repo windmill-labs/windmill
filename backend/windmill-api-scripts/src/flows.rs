@@ -433,7 +433,7 @@ async fn create_flow(
 
     if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
         &w_id,
-        &ProtectionRuleKind::RequireForkOrBranchToDeploy,
+        &ProtectionRuleKind::DisableDirectDeployments,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
@@ -881,7 +881,7 @@ async fn update_flow(
 
     if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
         &w_id,
-        &ProtectionRuleKind::RequireForkOrBranchToDeploy,
+        &ProtectionRuleKind::DisableDirectDeployments,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,

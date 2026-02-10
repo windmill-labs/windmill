@@ -3794,12 +3794,6 @@ paths:
           in: query
           schema:
             type: boolean
-        - name: deployed_from_workspace
-          in: query
-          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
-          required: false
-          schema:
-            type: string
       requestBody:
         description: new variable
         required: true
@@ -3903,12 +3897,6 @@ paths:
           in: query
           schema:
             type: boolean
-        - name: deployed_from_workspace
-          in: query
-          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
-          required: false
-          schema:
-            type: string
       requestBody:
         description: updated variable
         required: true
@@ -4761,12 +4749,6 @@ paths:
           in: query
           schema:
             type: boolean
-        - name: deployed_from_workspace
-          in: query
-          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
-          required: false
-          schema:
-            type: string
       requestBody:
         description: new resource
         required: true
@@ -4842,12 +4824,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
-        - name: deployed_from_workspace
-          in: query
-          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
-          required: false
-          schema:
-            type: string
       requestBody:
         description: updated resource
         required: true
@@ -4872,12 +4848,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
-        - name: deployed_from_workspace
-          in: query
-          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
-          required: false
-          schema:
-            type: string
       requestBody:
         description: updated resource
         required: true
@@ -5125,12 +5095,6 @@ paths:
         - resource
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - name: deployed_from_workspace
-          in: query
-          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
-          required: false
-          schema:
-            type: string
       requestBody:
         description: new resource_type
         required: true
@@ -5187,12 +5151,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
-        - name: deployed_from_workspace
-          in: query
-          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
-          required: false
-          schema:
-            type: string
       requestBody:
         description: updated resource_type
         required: true
@@ -6098,12 +6056,6 @@ paths:
         - script
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - name: deployed_from_workspace
-          in: query
-          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
-          required: false
-          schema:
-            type: string
       requestBody:
         description: Partially filled script
         required: true
@@ -7729,12 +7681,6 @@ paths:
         - flow
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - name: deployed_from_workspace
-          in: query
-          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
-          required: false
-          schema:
-            type: string
       requestBody:
         description: Partially filled flow
         required: true
@@ -7766,12 +7712,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
-        - name: deployed_from_workspace
-          in: query
-          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
-          required: false
-          schema:
-            type: string
       requestBody:
         description: Partially filled flow
         required: true
@@ -8070,12 +8010,6 @@ paths:
         - app
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - name: deployed_from_workspace
-          in: query
-          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
-          required: false
-          schema:
-            type: string
       requestBody:
         description: new app
         required: true
@@ -8118,12 +8052,6 @@ paths:
         - app
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - name: deployed_from_workspace
-          in: query
-          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
-          required: false
-          schema:
-            type: string
       requestBody:
         description: new app
         required: true
@@ -8430,12 +8358,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
-        - name: deployed_from_workspace
-          in: query
-          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
-          required: false
-          schema:
-            type: string
       requestBody:
         description: update app
         required: true
@@ -8472,12 +8394,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
-        - name: deployed_from_workspace
-          in: query
-          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
-          required: false
-          schema:
-            type: string
       requestBody:
         description: update app
         required: true
@@ -14142,12 +14058,6 @@ paths:
         - folder
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - name: deployed_from_workspace
-          in: query
-          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
-          required: false
-          schema:
-            type: string
       requestBody:
         description: create folder
         required: true
@@ -14186,12 +14096,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Name"
-        - name: deployed_from_workspace
-          in: query
-          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
-          required: false
-          schema:
-            type: string
       requestBody:
         description: update folder
         required: true
@@ -23164,9 +23068,8 @@ components:
     ProtectionRuleKind:
       type: string
       enum:
-        - RequireForkOrBranchToDeploy
+        - DisableDirectDeployments
         - DisableWorkspaceForking
-        - DisableMergeUIInForks
     RuleBypasserGroups:
       type: array
       description: Groups that can bypass this ruleset

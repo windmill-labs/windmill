@@ -65,9 +65,8 @@ bitflags::bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     // #[sqlx(transparent)]
     pub struct ProtectionRules: i32 {
-        const REQUIRE_FORK_OR_BRANCH_TO_DEPLOY =    1 << 0;
+        const DISABLE_DIRECT_DEPLOYMENT =           1 << 0;
         const DISABLE_WORKSPACE_FORKING =           1 << 1;
-        const DISABLE_MERGE_UI_IN_FORKS =           1 << 2;
     }
 }
 
@@ -75,33 +74,28 @@ sqlx_bitflags!(ProtectionRules => i32);
 
 #[derive(Serialize, Deserialize, strum_macros::EnumIter)]
 pub enum ProtectionRuleKind {
-    RequireForkOrBranchToDeploy,
+    DisableDirectDeployment,
     DisableWorkspaceForking,
-    DisableMergeUIInForks,
 }
 
 impl ProtectionRuleKind {
     pub const fn flag(&self) -> ProtectionRules {
         match self {
-            ProtectionRuleKind::RequireForkOrBranchToDeploy => {
-                ProtectionRules::REQUIRE_FORK_OR_BRANCH_TO_DEPLOY
+            ProtectionRuleKind::DisableDirectDeployment => {
+                ProtectionRules::DISABLE_DIRECT_DEPLOYMENT
             }
             ProtectionRuleKind::DisableWorkspaceForking => {
                 ProtectionRules::DISABLE_WORKSPACE_FORKING
             }
-            ProtectionRuleKind::DisableMergeUIInForks => ProtectionRules::DISABLE_MERGE_UI_IN_FORKS,
         }
     }
 
     pub const fn msg(&self) -> &str {
         match self {
-            ProtectionRuleKind::RequireForkOrBranchToDeploy => {
+            ProtectionRuleKind::DisableDirectDeployment => {
                 "Cannot directly deploy in this workspace. Fork or Pull request required."
             }
             ProtectionRuleKind::DisableWorkspaceForking => "Forking this workspace is forbidden",
-            ProtectionRuleKind::DisableMergeUIInForks => {
-                "UI deployment to parent is forbidden. Use a pull request instead"
-            }
         }
     }
 }

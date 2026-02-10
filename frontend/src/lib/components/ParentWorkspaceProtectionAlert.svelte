@@ -22,15 +22,15 @@
 	let overrideChecked = $state(false)
 
 	let activeDeployRulesets = $derived(
-		getActiveRulesetsForKindInRulesets(parentRulesets, 'DisableMergeUIInForks')
+		getActiveRulesetsForKindInRulesets(parentRulesets, 'DisableDirectDeployment')
 	)
 
 	let canBypass = $derived(
-		canUserBypassRuleKindInRulesets(parentRulesets, 'DisableMergeUIInForks', $userStore)
+		canUserBypassRuleKindInRulesets(parentRulesets, 'DisableDirectDeployment', $userStore)
 	)
 
 	let canDeploy = $derived(
-		!isRuleActiveInRulesets(parentRulesets, 'DisableMergeUIInForks') ||
+		!isRuleActiveInRulesets(parentRulesets, 'DisableDirectDeployment') ||
 			(canBypass && overrideChecked)
 	)
 

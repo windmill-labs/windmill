@@ -176,7 +176,7 @@ async fn create_folder(
 ) -> Result<String> {
     if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
         &w_id,
-        &ProtectionRuleKind::RequireForkOrBranchToDeploy,
+        &ProtectionRuleKind::DisableDirectDeployments,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
@@ -330,7 +330,7 @@ async fn update_folder(
 
     if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
         &w_id,
-        &ProtectionRuleKind::RequireForkOrBranchToDeploy,
+        &ProtectionRuleKind::DisableDirectDeployments,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,

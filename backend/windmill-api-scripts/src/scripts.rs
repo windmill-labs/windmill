@@ -548,7 +548,7 @@ async fn create_script(
 ) -> Result<(StatusCode, String)> {
     if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
         &w_id,
-        &ProtectionRuleKind::RequireForkOrBranchToDeploy,
+        &ProtectionRuleKind::DisableDirectDeployments,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,

@@ -686,7 +686,7 @@ async fn create_resource(
     check_scopes(&authed, || format!("resources:write:{}", resource.path))?;
     if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
         &w_id,
-        &ProtectionRuleKind::RequireForkOrBranchToDeploy,
+        &ProtectionRuleKind::DisableDirectDeployments,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
@@ -931,7 +931,7 @@ async fn update_resource(
     check_scopes(&authed, || format!("resources:write:{}", path))?;
     if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
         &w_id,
-        &ProtectionRuleKind::RequireForkOrBranchToDeploy,
+        &ProtectionRuleKind::DisableDirectDeployments,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
@@ -1069,7 +1069,7 @@ async fn update_resource_value(
     check_scopes(&authed, || format!("resources:write:{}", path))?;
     if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
         &w_id,
-        &ProtectionRuleKind::RequireForkOrBranchToDeploy,
+        &ProtectionRuleKind::DisableDirectDeployments,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
@@ -1232,7 +1232,7 @@ async fn create_resource_type(
 ) -> Result<(StatusCode, String)> {
     if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
         &w_id,
-        &ProtectionRuleKind::RequireForkOrBranchToDeploy,
+        &ProtectionRuleKind::DisableDirectDeployments,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
@@ -1385,7 +1385,7 @@ async fn update_resource_type(
     use sql_builder::prelude::*;
     if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
         &w_id,
-        &ProtectionRuleKind::RequireForkOrBranchToDeploy,
+        &ProtectionRuleKind::DisableDirectDeployments,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
