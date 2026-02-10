@@ -776,6 +776,7 @@ export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionS
 - **Change module code only** → \`set_module_code\`
 - **Get language-specific coding instructions** → \`get_instructions_for_code_generation\` (call BEFORE writing code)
 - **Find workspace scripts and flows** → \`search_workspace\`
+- **Get details of a specific script or flow** → \`get_runnable_details\`
 - **Find Windmill Hub scripts** → \`search_hub_scripts\`
 
 **Testing & Linting:**
@@ -983,6 +984,7 @@ Example: Before writing TypeScript/Bun code, call \`get_instructions_for_code_ge
 
 1. **Search for existing scripts first** (unless user explicitly asks to write from scratch):
    - First: \`search_workspace\` to find workspace scripts and flows
+   - Use \`get_runnable_details\` to inspect a specific script or flow (inputs, description, code)
    - Then: \`search_hub_scripts\` (only consider highly relevant results)
    - Only create raw scripts if no suitable script is found
 
