@@ -190,6 +190,9 @@ pub struct ProviderResource {
     /// Platform for Anthropic API (standard or google_vertex_ai)
     #[serde(default)]
     pub platform: AnthropicPlatform,
+    /// Enable 1M context window for Anthropic
+    #[serde(alias = "enable1mContext", default)]
+    pub enable_1m_context: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -231,6 +234,10 @@ impl ProviderWithResource {
 
     pub fn get_platform(&self) -> &AnthropicPlatform {
         &self.resource.platform
+    }
+
+    pub fn get_enable_1m_context(&self) -> bool {
+        self.resource.enable_1m_context
     }
 }
 
