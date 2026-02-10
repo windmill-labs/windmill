@@ -1089,7 +1089,6 @@ export const createGetRunnableDetailsTool = () => ({
 				)
 			} else {
 				const flow = await FlowService.getFlowByPath({ workspace, path })
-				const modules = flow.value?.modules ?? []
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Retrieved flow details for "${path}"`
 				})
@@ -1104,12 +1103,6 @@ export const createGetRunnableDetailsTool = () => ({
 						summary: flow.summary,
 						description: flow.description,
 						schema: flow.schema,
-						module_count: modules.length,
-						modules: modules.map((m) => ({
-							id: m.id,
-							summary: m.summary,
-							value_type: m.value?.type
-						})),
 						value: truncatedValue
 					},
 					null,
