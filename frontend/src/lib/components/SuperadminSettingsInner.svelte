@@ -15,7 +15,8 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { ExternalLink } from 'lucide-svelte'
+	import { ExternalLink, UserPlus } from 'lucide-svelte'
+	import Popover from './meltComponents/Popover.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import ChangeInstanceUsername from './ChangeInstanceUsername.svelte'
 	import { isCloudHosted } from '$lib/cloud'
@@ -30,6 +31,7 @@
 		tabToAuthSubTab,
 		categoryToTabMap
 	} from './instanceSettings'
+	import TextInput from './text_input/TextInput.svelte'
 
 	let filter = $state('')
 
@@ -216,10 +218,6 @@
 								</div>
 							{/if}
 
-							<div class="py-2 mb-6">
-								<InviteGlobalUser on:new={() => listUsers(activeOnly)} />
-							</div>
-
 							<div class="flex flex-row justify-between">
 								<h3 class="text-sm font-semibold text-emphasis">All instance users</h3>
 								<Toggle
@@ -232,8 +230,28 @@
 								/>
 							</div>
 							<div class="pb-1"></div>
-							<div>
-								<input placeholder="Search users" bind:value={filter} class="input mt-1" />
+							<div class="flex flex-row gap-2 items-center">
+								<TextInput
+									inputProps={{ placeholder: 'Search users' }}
+									bind:value={filter}
+									class="w-60"
+								/>
+								<Popover placement="bottom-end" disableFocusTrap>
+									{#snippet trigger()}
+										<Button
+											variant="accent"
+											unifiedSize="md"
+											startIcon={{ icon: UserPlus }}
+											nonCaptureEvent
+											wrapperClasses="w-fit shrink-0"
+										>
+											Add new user
+										</Button>
+									{/snippet}
+									{#snippet content()}
+										<InviteGlobalUser {close} on:new={() => listUsers(activeOnly)} />
+									{/snippet}
+								</Popover>
 							</div>
 							<div class="mt-2 overflow-auto">
 								<TableCustom>
