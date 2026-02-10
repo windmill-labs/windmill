@@ -532,7 +532,25 @@
 					Send usage
 				</Button>
 			{/if}
-		{:else if category == 'Secret Storage'}
+		{:else if category == 'Jobs'}
+		<SettingsPageHeader
+			title="Jobs"
+			description="Configure default timeouts and retention policies for job execution."
+			link="https://www.windmill.dev/docs/advanced/instance_settings#jobs"
+		/>
+	{:else if category == 'Object Storage'}
+		<SettingsPageHeader
+			title="Object Storage"
+			description="Configure S3-compatible storage for large logs and distributed dependency caching."
+			link="https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill"
+		/>
+	{:else if category == 'Private Hub'}
+		<SettingsPageHeader
+			title="Private Hub"
+			description="Connect to a Private Hub instance for sharing custom scripts and integrations."
+			link="https://www.windmill.dev/docs/core_concepts/private_hub"
+		/>
+	{:else if category == 'Secret Storage'}
 			<SettingsPageHeader
 				title="Secret Storage"
 				description="Configure where secrets (secret variables) are stored."

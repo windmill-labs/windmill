@@ -130,32 +130,6 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting'
 		},
 		{
-			label: 'Default timeout',
-			key: 'job_default_timeout',
-			description:
-				'Default timeout for individual jobs. <a href="https://www.windmill.dev/docs/core_concepts/jobs#retention-policy">Learn more</a>',
-			fieldType: 'seconds',
-			storage: 'setting',
-			cloudonly: false
-		},
-		{
-			label: 'Keep job directories for debug',
-			key: 'keep_job_dir',
-			fieldType: 'boolean',
-			description: 'Keep Job directories after execution at /tmp/windmill/WORKER/JOB_ID',
-			storage: 'setting'
-		},
-		{
-			label: 'Max timeout for sync endpoints',
-			description:
-				'Maximum amount of time (measured in seconds) that a <a href="https://www.windmill.dev/docs/core_concepts/webhooks">sync endpoint</a> is allowed to run before it is forcibly stopped or timed out.',
-			key: 'timeout_wait_result',
-			cloudonly: true,
-			fieldType: 'seconds',
-			placeholder: '60',
-			storage: 'setting'
-		},
-		{
 			label: 'License key',
 			description:
 				'License key required to use the EE (switch image for windmill-ee). <a href="https://www.windmill.dev/docs/advanced/instance_settings#license-key">Learn more</a>',
@@ -174,6 +148,43 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
+			label: 'App workspace prefix',
+			description:
+				'When enabled apps will be accessible at /a/{workspace_id}/{custom_path} instead of /a/{custom_path} allowing you to define same custom path for apps in different workspace without conflict',
+			key: 'app_workspaced_route',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: ''
+		}
+	],
+	Jobs: [
+		{
+			label: 'Default timeout',
+			key: 'job_default_timeout',
+			description:
+				'Default timeout for individual jobs. <a href="https://www.windmill.dev/docs/core_concepts/jobs#retention-policy">Learn more</a>',
+			fieldType: 'seconds',
+			storage: 'setting',
+			cloudonly: false
+		},
+		{
+			label: 'Max timeout for sync endpoints',
+			description:
+				'Maximum amount of time (measured in seconds) that a <a href="https://www.windmill.dev/docs/core_concepts/webhooks">sync endpoint</a> is allowed to run before it is forcibly stopped or timed out.',
+			key: 'timeout_wait_result',
+			cloudonly: true,
+			fieldType: 'seconds',
+			placeholder: '60',
+			storage: 'setting'
+		},
+		{
+			label: 'Keep job directories for debug',
+			key: 'keep_job_dir',
+			fieldType: 'boolean',
+			description: 'Keep Job directories after execution at /tmp/windmill/WORKER/JOB_ID',
+			storage: 'setting'
+		},
+		{
 			label: 'Retention period in secs',
 			key: 'retention_period_secs',
 			description:
@@ -183,17 +194,9 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: 'You can only adjust this setting to above 30 days in the EE version',
 			cloudonly: false
-		},
-		{
-			label: 'Delete logs from s3 periodically',
-			description:
-				'Job and service logs are periodically deleted from disk. When this setting is on, they will also be deleted from the object storage.',
-			key: 'monitor_logs_on_s3',
-			fieldType: 'boolean',
-			storage: 'setting',
-			ee_only: ''
-		},
-
+		}
+	],
+	'Object Storage': [
 		{
 			label: 'Instance object storage',
 			description:
@@ -203,17 +206,17 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: ''
 		},
-
 		{
-			label: 'Azure OpenAI base path',
+			label: 'Delete logs from s3 periodically',
 			description:
-				'All workspaces using an OpenAI resource for Windmill AI will run on the specified deployed model. Format: https://{your-resource-name}.openai.azure.com/openai/deployments/{deployment-id}. <a href="https://www.windmill.dev/docs/core_concepts/ai_generation#azure-openai-advanced-models">Learn more</a>',
-			key: 'openai_azure_base_path',
-			fieldType: 'text',
+				'Job and service logs are periodically deleted from disk. When this setting is on, they will also be deleted from the object storage.',
+			key: 'monitor_logs_on_s3',
+			fieldType: 'boolean',
 			storage: 'setting',
-			ee_only: '',
-			hiddenIfEmpty: true
-		},
+			ee_only: ''
+		}
+	],
+	'Private Hub': [
 		{
 			label: 'Private Hub base url',
 			description:
@@ -244,7 +247,6 @@ export const settings: Record<string, Setting[]> = {
 			key: 'hub_accessible_url',
 			fieldType: 'text',
 			hiddenIfNull: true,
-
 			storage: 'setting',
 			ee_only: '',
 			requiresReloadOnChange: true
@@ -259,13 +261,14 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
-			label: 'App workspace prefix',
+			label: 'Azure OpenAI base path',
 			description:
-				'When enabled apps will be accessible at /a/{workspace_id}/{custom_path} instead of /a/{custom_path} allowing you to define same custom path for apps in different workspace without conflict',
-			key: 'app_workspaced_route',
-			fieldType: 'boolean',
+				'All workspaces using an OpenAI resource for Windmill AI will run on the specified deployed model. Format: https://{your-resource-name}.openai.azure.com/openai/deployments/{deployment-id}. <a href="https://www.windmill.dev/docs/core_concepts/ai_generation#azure-openai-advanced-models">Learn more</a>',
+			key: 'openai_azure_base_path',
+			fieldType: 'text',
 			storage: 'setting',
-			ee_only: ''
+			ee_only: '',
+			hiddenIfEmpty: true
 		}
 	],
 	SMTP: [
@@ -570,6 +573,13 @@ export const instanceSettingsNavigationGroups = [
 				label: 'Registries',
 				aiId: 'instance-settings-registries',
 				aiDescription: 'Instance registries settings'
+			},
+			{
+				id: 'object_storage',
+				label: 'Object Storage',
+				aiId: 'instance-settings-object-storage',
+				aiDescription: 'Instance object storage settings',
+				isEE: true
 			}
 		]
 	},
@@ -603,6 +613,19 @@ export const instanceSettingsNavigationGroups = [
 		title: 'Advanced',
 		items: [
 			{
+				id: 'jobs',
+				label: 'Jobs',
+				aiId: 'instance-settings-jobs',
+				aiDescription: 'Instance jobs settings'
+			},
+			{
+				id: 'private_hub',
+				label: 'Private Hub',
+				aiId: 'instance-settings-private-hub',
+				aiDescription: 'Instance private hub settings',
+				isEE: true
+			},
+			{
 				id: 'telemetry',
 				label: 'Telemetry',
 				aiId: 'instance-settings-telemetry',
@@ -629,7 +652,10 @@ export const tabToCategoryMap: Record<string, string> = {
 	otel_prom: 'OTEL/Prom',
 	indexer: 'Indexer',
 	telemetry: 'Telemetry',
-	secret_storage: 'Secret Storage'
+	secret_storage: 'Secret Storage',
+	object_storage: 'Object Storage',
+	jobs: 'Jobs',
+	private_hub: 'Private Hub'
 }
 
 export const tabToAuthSubTab: Record<string, 'sso' | 'oauth' | 'scim'> = {
@@ -647,5 +673,8 @@ export const categoryToTabMap: Record<string, string> = {
 	'OTEL/Prom': 'otel_prom',
 	Indexer: 'indexer',
 	Telemetry: 'telemetry',
-	'Secret Storage': 'secret_storage'
+	'Secret Storage': 'secret_storage',
+	'Object Storage': 'object_storage',
+	Jobs: 'jobs',
+	'Private Hub': 'private_hub'
 }
