@@ -21,7 +21,15 @@ import { workspaceStore } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import type { FunctionParameters } from 'openai/resources/shared.mjs'
 import { z } from 'zod'
-import { ScriptService, JobService, type CompletedJob, type FlowModule } from '$lib/gen'
+import {
+	ScriptService,
+	JobService,
+	type CompletedJob,
+	type FlowModule,
+	type Script
+} from '$lib/gen'
+import uFuzzy from '@leeoniya/ufuzzy'
+import { emptyString } from '$lib/utils'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { getCurrentModel } from '$lib/aiStore'
 import { type editor as meditor } from 'monaco-editor'
@@ -523,6 +531,47 @@ export function createToolDef(
 			description,
 			parameters
 		}
+	}
+}
+
+export class WorkspaceScriptsSearch {
+	private uf: uFuzzy
+	private workspace: string | undefined = undefined
+	private scripts: Script[] | undefined = undefined
+
+	constructor() {
+		this.uf = new uFuzzy()
+	}
+
+	private async init(workspace: string) {
+		this.scripts = await ScriptService.listScripts({
+			workspace
+		})
+		this.workspace = workspace
+	}
+
+	async search(query: string, workspace: string) {
+		if (this.scripts === undefined || this.workspace !== workspace) {
+			await this.init(workspace)
+		}
+
+		const scripts = this.scripts
+
+		if (!scripts) {
+			throw new Error('Failed to load scripts')
+		}
+
+		const results = this.uf.search(
+			scripts.map((s) => (emptyString(s.summary) ? s.path : s.summary + ' (' + s.path + ')')),
+			query.trim()
+		)
+		const scriptResults =
+			results[2]?.map((id) => ({
+				path: scripts[id].path,
+				summary: scripts[id].summary
+			})) ?? []
+
+		return scriptResults
 	}
 }
 

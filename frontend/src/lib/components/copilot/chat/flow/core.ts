@@ -3,7 +3,6 @@ import {
 	type FlowModule,
 	type InputTransform,
 	type RawScript,
-	type Script,
 	JobService
 } from '$lib/gen'
 import type {
@@ -11,8 +10,6 @@ import type {
 	ChatCompletionUserMessageParam
 } from 'openai/resources/chat/completions.mjs'
 import { z } from 'zod'
-import uFuzzy from '@leeoniya/ufuzzy'
-import { emptyString } from '$lib/utils'
 import {
 	createDbSchemaTool,
 	getFormattedResourceTypes,
@@ -31,7 +28,8 @@ import {
 	findModuleById,
 	SPECIAL_MODULE_IDS,
 	formatScriptLintResult,
-	type ScriptLintResult
+	type ScriptLintResult,
+	WorkspaceScriptsSearch
 } from '../shared'
 import type { ContextElement } from '../context'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
@@ -208,10 +206,7 @@ function getExpectedFormat(schema: z.ZodType): string | null {
 	let current = schema
 
 	// Unwrap optional/nullable to get inner type
-	while (
-		(current as any)._def.type === 'optional' ||
-		(current as any)._def.type === 'nullable'
-	) {
+	while ((current as any)._def.type === 'optional' || (current as any)._def.type === 'nullable') {
 		current = (current as any)._def.innerType
 		if (!current || !(current as any)._def) break
 	}
@@ -336,47 +331,6 @@ const setFlowJsonToolDef = createToolDef(
 	'Set the entire flow by providing the complete flow object. This replaces all existing modules and schema.',
 	{ strict: false }
 )
-
-class WorkspaceScriptsSearch {
-	private uf: uFuzzy
-	private workspace: string | undefined = undefined
-	private scripts: Script[] | undefined = undefined
-
-	constructor() {
-		this.uf = new uFuzzy()
-	}
-
-	private async init(workspace: string) {
-		this.scripts = await ScriptService.listScripts({
-			workspace
-		})
-		this.workspace = workspace
-	}
-
-	async search(query: string, workspace: string) {
-		if (this.scripts === undefined || this.workspace !== workspace) {
-			await this.init(workspace)
-		}
-
-		const scripts = this.scripts
-
-		if (!scripts) {
-			throw new Error('Failed to load scripts')
-		}
-
-		const results = this.uf.search(
-			scripts.map((s) => (emptyString(s.summary) ? s.path : s.summary + ' (' + s.path + ')')),
-			query.trim()
-		)
-		const scriptResults =
-			results[2]?.map((id) => ({
-				path: scripts[id].path,
-				summary: scripts[id].summary
-			})) ?? []
-
-		return scriptResults
-	}
-}
 
 // Will be overridden by setSchema
 const testRunFlowSchema = z.object({
@@ -748,8 +702,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 						const path = e.path
 						// Try to find module id for better context
 						const moduleIndex = typeof path[0] === 'number' ? path[0] : undefined
-						const moduleId =
-							moduleIndex !== undefined ? parsedModules[moduleIndex]?.id : undefined
+						const moduleId = moduleIndex !== undefined ? parsedModules[moduleIndex]?.id : undefined
 						const fieldPath = path.slice(1).join('.')
 
 						let message = e.message

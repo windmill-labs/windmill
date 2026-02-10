@@ -1,4 +1,4 @@
-import { ResourceService, JobService } from '$lib/gen/services.gen'
+import { ResourceService, JobService, ScriptService } from '$lib/gen/services.gen'
 import type { AIProvider, AIProviderModel, ResourceType, ScriptLang } from '$lib/gen/types.gen'
 import { capitalize, isObject, toCamel } from '$lib/utils'
 import { get } from 'svelte/store'
@@ -17,7 +17,8 @@ import {
 	buildTestRunArgs,
 	buildContextString,
 	type ScriptLintResult,
-	formatScriptLintResult
+	formatScriptLintResult,
+	WorkspaceScriptsSearch
 } from '../shared'
 import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
 import { getModelContextWindow } from '../../lib'
@@ -177,7 +178,8 @@ function buildChatSystemPrompt(currentModel: AIProviderModel) {
 	- The user can ask you questions about a list of \`DATABASES\` that are available in the user's workspace. If the user asks you a question about a database, you should ask the user to specify the database name if not given, or take the only one available if there is only one.
 	- You can also receive a \`DIFF\` of the changes that have been made to the code. You should use this diff to give better answers.
 	- Before giving your answer, check again that you carefully followed these instructions.
-	- When asked to create a script that communicates with an external service, you can use the \`search_hub_scripts\` tool to search for relevant scripts in the hub. Make sure the language is the same as what the user is coding in. If you do not find any relevant scripts, you can use the \`search_npm_packages\` tool to search for relevant packages and their documentation. Always give a link to the documentation in your answer if possible.
+	- If the user mentions a specific script or wants to find existing scripts in the workspace, use the \`search_workspace_scripts\` tool. You can then use \`get_script_details\` to read the script's code and understand its inputs.
+	- When asked to create a script that communicates with an external service, first check if a workspace script already exists with \`search_workspace_scripts\`, then use \`search_hub_scripts\` to search for relevant scripts in the hub. Make sure the language is the same as what the user is coding in. If you do not find any relevant scripts, you can use the \`search_npm_packages\` tool to search for relevant packages and their documentation. Always give a link to the documentation in your answer if possible.
 	- After applying code changes with the \`${editToolName}\` tool, ALWAYS use the \`get_lint_errors\` tool to check for lint errors. If there are errors, fix them before proceeding. Then use the \`test_run_script\` tool to test the code, and iterate on the code until it works as expected (MAX 3 times). If the user cancels the test run, do not try again and wait for the next user instruction.
 
 	Important:
@@ -311,6 +313,8 @@ export function prepareScriptTools(
 	context: ContextElement[]
 ): Tool<ScriptChatHelpers>[] {
 	const tools: Tool<ScriptChatHelpers>[] = []
+	tools.push(searchWorkspaceScriptsTool)
+	tools.push(getScriptDetailsTool)
 	if (['python3', 'php', 'bun', 'deno', 'nativets', 'bunnative'].includes(language)) {
 		tools.push(resourceTypeTool)
 	}
@@ -567,6 +571,89 @@ export const searchNpmPackagesTool: Tool<ScriptChatHelpers> = {
 		const result = await searchExternalIntegrationResources(args)
 		toolCallbacks.setToolStatus(toolId, { content: 'Retrieved relevant packages' })
 		return result
+	}
+}
+
+const SEARCH_WORKSPACE_SCRIPTS_TOOL: ChatCompletionFunctionTool = {
+	type: 'function',
+	function: {
+		name: 'search_workspace_scripts',
+		description:
+			'Search for scripts in the workspace by query. Use this when the user mentions a specific script, wants to find existing scripts, or wants to reuse code from another script.',
+		parameters: {
+			type: 'object',
+			properties: {
+				query: {
+					type: 'string',
+					description: 'The search query (e.g. script name, functionality like "send email")'
+				}
+			},
+			required: ['query']
+		}
+	}
+}
+
+const GET_SCRIPT_DETAILS_TOOL: ChatCompletionFunctionTool = {
+	type: 'function',
+	function: {
+		name: 'get_script_details',
+		description:
+			'Get the full details of a workspace script including its code, inputs schema, and description. Use after search_workspace_scripts to inspect a specific script.',
+		parameters: {
+			type: 'object',
+			properties: {
+				path: {
+					type: 'string',
+					description: 'The path of the script (e.g. "f/marketing/send_email")'
+				}
+			},
+			required: ['path']
+		}
+	}
+}
+
+const workspaceScriptsSearch = new WorkspaceScriptsSearch()
+
+export const searchWorkspaceScriptsTool: Tool<ScriptChatHelpers> = {
+	def: SEARCH_WORKSPACE_SCRIPTS_TOOL,
+	fn: async ({ args, workspace, toolId, toolCallbacks }) => {
+		toolCallbacks.setToolStatus(toolId, {
+			content: 'Searching for workspace scripts related to "' + args.query + '"...'
+		})
+		const scriptResults = await workspaceScriptsSearch.search(args.query, workspace)
+		toolCallbacks.setToolStatus(toolId, {
+			content:
+				'Found ' +
+				scriptResults.length +
+				' scripts in the workspace related to "' +
+				args.query +
+				'"'
+		})
+		return JSON.stringify(scriptResults)
+	}
+}
+
+export const getScriptDetailsTool: Tool<ScriptChatHelpers> = {
+	def: GET_SCRIPT_DETAILS_TOOL,
+	fn: async ({ args, workspace, toolId, toolCallbacks }) => {
+		toolCallbacks.setToolStatus(toolId, {
+			content: 'Getting details for script "' + args.path + '"...'
+		})
+		const script = await ScriptService.getScriptByPath({
+			workspace,
+			path: args.path
+		})
+		toolCallbacks.setToolStatus(toolId, {
+			content: 'Retrieved details for "' + args.path + '"'
+		})
+		return JSON.stringify({
+			path: script.path,
+			summary: script.summary,
+			description: script.description,
+			language: script.language,
+			schema: script.schema,
+			content: script.content
+		})
 	}
 }
 
