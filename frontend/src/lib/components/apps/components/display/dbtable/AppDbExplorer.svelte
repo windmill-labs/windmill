@@ -180,7 +180,8 @@
 		loading: false,
 		page: 0,
 		newChange: { row: 0, column: '', value: undefined },
-		ready: undefined as boolean | undefined
+		ready: undefined as boolean | undefined,
+		openedModalRow: {}
 	})
 
 	let lastResource: string | undefined = undefined
