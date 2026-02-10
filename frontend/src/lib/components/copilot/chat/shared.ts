@@ -668,6 +668,7 @@ export async function buildSchemaForTool(
 // Constants for result formatting
 const MAX_RESULT_LENGTH = 12000
 const MAX_LOG_LENGTH = 4000
+const MAX_RUNNABLE_CONTENT_LENGTH = 20000
 
 export interface TestRunConfig {
 	jobStarter: () => Promise<string>
@@ -1057,6 +1058,11 @@ export const createGetRunnableDetailsTool = () => ({
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Retrieved script details for "${path}"`
 				})
+				const content = script.content ?? ''
+				const truncatedContent =
+					content.length > MAX_RUNNABLE_CONTENT_LENGTH
+						? content.slice(0, MAX_RUNNABLE_CONTENT_LENGTH) + '\n... (truncated)'
+						: content
 				return JSON.stringify(
 					{
 						path: script.path,
@@ -1064,7 +1070,7 @@ export const createGetRunnableDetailsTool = () => ({
 						description: script.description,
 						language: script.language,
 						schema: script.schema,
-						content: script.content
+						content: truncatedContent
 					},
 					null,
 					2
@@ -1075,6 +1081,11 @@ export const createGetRunnableDetailsTool = () => ({
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Retrieved flow details for "${path}"`
 				})
+				const flowValue = JSON.stringify(flow.value, null, 2)
+				const truncatedValue =
+					flowValue.length > MAX_RUNNABLE_CONTENT_LENGTH
+						? flowValue.slice(0, MAX_RUNNABLE_CONTENT_LENGTH) + '\n... (truncated)'
+						: flowValue
 				return JSON.stringify(
 					{
 						path: flow.path,
@@ -1086,7 +1097,8 @@ export const createGetRunnableDetailsTool = () => ({
 							id: m.id,
 							summary: m.summary,
 							value_type: m.value?.type
-						}))
+						})),
+						value: truncatedValue
 					},
 					null,
 					2
