@@ -9,9 +9,9 @@ import type {
 import { capitalize } from '$lib/utils'
 export type Asset = _Asset
 export type AssetKind = _AssetKind
-export type AssetWithAccessType = Asset & { access_type?: AssetUsageAccessType }
+export type AssetWithAccessType = Asset & { access_type?: AssetUsageAccessType | null }
 export type AssetWithAltAccessType = AssetWithAccessType & {
-	alt_access_type?: AssetUsageAccessType
+	alt_access_type?: AssetUsageAccessType | null
 	columns?: Record<string, AssetUsageAccessType>
 }
 export type AssetUsage = ListAssetsResponse['assets'][number]['usages'][number]
@@ -31,7 +31,11 @@ export function formatAsset(asset: Asset): string {
 }
 
 export function formatShortAssetPath(asset: Asset): string {
-	return asset.path.split('/').pop() || asset.path
+	if (asset.kind === 'datatable' && asset.path === 'main') return 'Main data table'
+	if (asset.kind === 'ducklake' && asset.path === 'main') return 'Main ducklake'
+	const s = asset.path.split('/').pop() || asset.path
+	if (s.includes('?table=')) return s.split('?table=')[1]
+	return s
 }
 
 export function getAssetUsagePageUri(usage: AssetUsage) {

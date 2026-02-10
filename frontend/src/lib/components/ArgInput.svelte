@@ -258,7 +258,11 @@
 			nvalue = structuredClone($state.snapshot(defaultValue))
 			if (defaultValue === undefined || defaultValue === null) {
 				if (inputCat === 'string') {
-					nvalue = nullable ? null : format === 'uuid' && extra?.['x-auto-generate'] ? randomUUID() : ''
+					nvalue = nullable
+						? null
+						: format === 'uuid' && extra?.['x-auto-generate']
+							? randomUUID()
+							: ''
 				} else if (inputCat == 'enum' && required) {
 					let firstV = enum_?.[0]
 					if (typeof firstV === 'string') {
@@ -1177,7 +1181,6 @@
 										titleClass="text-2xs"
 									/>
 								{/if}
-	
 							{:else if disabled}
 								<textarea disabled></textarea>
 							{:else}

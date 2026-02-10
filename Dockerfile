@@ -23,7 +23,7 @@ RUN make
 
 FROM ${RUST_IMAGE} AS rust_base
 
-RUN apt-get update && apt-get install -y git libssl-dev pkg-config npm
+RUN apt-get update && apt-get install -y git libssl-dev pkg-config npm mold clang
 
 RUN apt-get -y update \
     && apt-get install -y \
@@ -97,7 +97,7 @@ ARG features=""
 
 COPY --from=planner /windmill/recipe.json recipe.json
 
-RUN apt-get update && apt-get install -y libxml2-dev=2.9.* libxmlsec1-dev=1.2.* clang=1:14.0-55.* libclang-dev=1:14.0-55.* cmake=3.25.* && \
+RUN apt-get update && apt-get install -y libxml2-dev=2.9.* libxmlsec1-dev=1.2.* libkrb5-dev libsasl2-dev libcurl4-openssl-dev clang=1:14.0-55.* libclang-dev=1:14.0-55.* cmake=3.25.* && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -149,7 +149,7 @@ ENV PATH /usr/local/bin:/root/.local/bin:/tmp/.local/bin:$PATH
 
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends netbase tzdata ca-certificates wget curl jq unzip build-essential unixodbc xmlsec1 software-properties-common tini \
+    && apt-get install -y --no-install-recommends netbase tzdata ca-certificates wget curl jq unzip build-essential unixodbc xmlsec1 software-properties-common tini libsasl2-modules-gssapi-mit \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

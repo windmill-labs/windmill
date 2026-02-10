@@ -6,6 +6,31 @@ use serde::Serialize;
 use tokio::time::Instant;
 
 #[derive(Serialize)]
+pub struct PoolStats {
+    pub peak_active_conns: u32,
+    pub pool_saturation_histogram: Vec<u32>,
+}
+
+impl PoolStats {
+    pub fn new(pool_size: u32) -> Self {
+        PoolStats {
+            peak_active_conns: 0,
+            pool_saturation_histogram: vec![0; pool_size as usize + 1],
+        }
+    }
+
+    pub fn sample(&mut self, pool_size: u32, num_idle: u32) {
+        let active = pool_size.saturating_sub(num_idle);
+        if active > self.peak_active_conns {
+            self.peak_active_conns = active;
+        }
+        if let Some(bucket) = self.pool_saturation_histogram.get_mut(active as usize) {
+            *bucket += 1;
+        }
+    }
+}
+
+#[derive(Serialize)]
 pub struct BenchmarkInfo {
     #[serde(skip)]
     pub start: Instant,
@@ -14,6 +39,7 @@ pub struct BenchmarkInfo {
     timings: Vec<BenchmarkIter>,
     pub iter_durations: Vec<u64>,
     pub total_duration: Option<u64>,
+    pub pool_stats: Option<PoolStats>,
 }
 
 impl BenchmarkInfo {
@@ -24,6 +50,17 @@ impl BenchmarkInfo {
             start: Instant::now(),
             iter_durations: vec![],
             total_duration: None,
+            pool_stats: None,
+        }
+    }
+
+    pub fn init_pool_stats(&mut self, pool_size: u32) {
+        self.pool_stats = Some(PoolStats::new(pool_size));
+    }
+
+    pub fn sample_pool(&mut self, pool_size: u32, num_idle: u32) {
+        if let Some(stats) = self.pool_stats.as_mut() {
+            stats.sample(pool_size, num_idle);
         }
     }
 
@@ -40,8 +77,11 @@ impl BenchmarkInfo {
         let total_duration = self.start.elapsed().as_millis() as u64;
         self.total_duration = Some(total_duration as u64);
 
+        let pool_info = self.pool_stats.as_ref().map_or(String::new(), |ps| {
+            format!(", peak active conns: {}", ps.peak_active_conns)
+        });
         println!(
-            "Writing benchmark {path}, duration of benchmark: {total_duration}ms and RPS: {}",
+            "Writing benchmark {path}, duration of benchmark: {total_duration}ms and RPS: {}{pool_info}",
             self.iters as f64 / total_duration as f64 * 1000.0
         );
         write_file(TMP_DIR, path, &serde_json::to_string(&self).unwrap()).expect("write profiling");
@@ -220,6 +260,7 @@ pub async fn benchmark_init(benchmark_jobs: i32, db: &DB) {
                 .await
                 .unwrap_or_else(|_e| panic!("failed to insert parallelflow jobs (4)"));
             }
+            "none" => {}
             _ => {
                 let uuids = sqlx::query_scalar!("INSERT INTO v2_job (id, runnable_id, runnable_path, kind, script_lang, tag, created_by, permissioned_as, permissioned_as_email, workspace_id) (SELECT gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9 FROM generate_series(1, $10)) RETURNING id",
                     None::<i64>,

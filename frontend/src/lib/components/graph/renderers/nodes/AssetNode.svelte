@@ -250,7 +250,7 @@
 	const isSelected = $derived(assetEq(flowGraphAssetsCtx?.val.selectedAsset, data.asset))
 	const cachedResourceMetadata = $derived.by(() => {
 		if (data.asset.kind !== 'resource') return undefined
-		let truncatedPath = data.asset.path.split('/').slice(0, 3).join('/')
+		let truncatedPath = data.asset.path.split('?table=')[0]
 		return flowGraphAssetsCtx?.val.resourceMetadataCache[truncatedPath]
 	})
 	const usageCount = $derived(flowGraphAssetsCtx?.val.computeAssetsCount?.(data.asset))

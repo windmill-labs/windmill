@@ -244,17 +244,43 @@ pub fn permissioned_as_to_username(permissioned_as: &str) -> String {
     }
 }
 
-pub async fn fetch_authed_from_permissioned_as(
-    permissioned_as: String,
-    email: String,
+pub fn fetch_authed_from_permissioned_as<'a, A>(
+    permissioned_as: &'a str,
+    email: &'a str,
+    w_id: &'a str,
+    db: A,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Authed>> + Send + 'a>>
+where
+    A: sqlx::Acquire<'a, Database = sqlx::Postgres> + Send + 'a,
+{
+    Box::pin(async move {
+        let mut conn = db
+            .acquire()
+            .await
+            .map_err(|e| Error::internal_err(format!("acquiring connection: {e:#}")))?;
+
+        fetch_authed_from_permissioned_as_inner(permissioned_as, email, w_id, &mut *conn).await
+    })
+}
+
+async fn fetch_authed_from_permissioned_as_inner(
+    permissioned_as: &str,
+    email: &str,
     w_id: &str,
-    db: &DB,
+    conn: &mut sqlx::PgConnection,
 ) -> Result<Authed> {
-    let super_admin =
-        permissioned_as == SUPERADMIN_SYNC_EMAIL || is_super_admin_email(db, &email).await?;
+    let is_super_admin = permissioned_as == SUPERADMIN_SYNC_EMAIL
+        || email == SUPERADMIN_SECRET_EMAIL
+        || email == SUPERADMIN_NOTIFICATION_EMAIL
+        || sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
+            .fetch_optional(&mut *conn)
+            .await
+            .map_err(|e| Error::internal_err(format!("fetching super admin: {e:#}")))?
+            .unwrap_or(false);
+
     if let Some((prefix, name)) = permissioned_as.split_once('/') {
         if prefix == "u" {
-            let (is_admin, is_operator) = if super_admin {
+            let (is_admin, is_operator) = if is_super_admin {
                 (true, false)
             } else {
                 let r = sqlx::query!(
@@ -263,7 +289,7 @@ pub async fn fetch_authed_from_permissioned_as(
                     name,
                     &w_id
                 )
-                .fetch_optional(db)
+                .fetch_optional(&mut *conn)
                 .await?;
                 if let Some(r) = r {
                     (r.is_admin, r.operator)
@@ -274,12 +300,12 @@ pub async fn fetch_authed_from_permissioned_as(
                 }
             };
 
-            let groups = get_groups_for_user(w_id, &name, &email, db).await?;
+            let groups = get_groups_for_user(w_id, &name, email, &mut *conn).await?;
 
-            let folders = get_folders_for_user(w_id, &name, &groups, db).await?;
+            let folders = get_folders_for_user(w_id, &name, &groups, &mut *conn).await?;
 
             Ok(Authed {
-                email,
+                email: email.to_string(),
                 username: name.to_string(),
                 is_admin,
                 is_operator,
@@ -290,9 +316,9 @@ pub async fn fetch_authed_from_permissioned_as(
             })
         } else {
             let groups = vec![name.to_string()];
-            let folders = get_folders_for_user(&w_id, "", &groups, db).await?;
+            let folders = get_folders_for_user(&w_id, "", &groups, &mut *conn).await?;
             Ok(Authed {
-                email,
+                email: email.to_string(),
                 username: format!("group-{name}"),
                 is_admin: false,
                 groups,
@@ -303,26 +329,24 @@ pub async fn fetch_authed_from_permissioned_as(
             })
         }
     } else {
-        let groups = vec![];
-        let folders = vec![];
         Ok(Authed {
-            email,
-            username: permissioned_as,
-            is_admin: super_admin,
+            email: email.to_string(),
+            username: permissioned_as.to_string(),
+            is_admin: is_super_admin,
             is_operator: true,
-            groups,
-            folders,
+            groups: vec![],
+            folders: vec![],
             scopes: None,
             token_prefix: None,
         })
     }
 }
 
-pub async fn get_folders_for_user(
+pub async fn get_folders_for_user<'e, E: sqlx::PgExecutor<'e>>(
     w_id: &str,
     username: &str,
     groups: &[String],
-    db: &DB,
+    db: E,
 ) -> Result<Vec<(String, bool, bool)>> {
     let mut perms = groups
         .into_iter()
@@ -344,11 +368,11 @@ pub async fn get_folders_for_user(
     Ok(folders)
 }
 
-pub async fn get_groups_for_user(
+pub async fn get_groups_for_user<'e, E: sqlx::PgExecutor<'e>>(
     w_id: &str,
     username: &str,
     email: &str,
-    db: &DB,
+    db: E,
 ) -> Result<Vec<String>> {
     let groups = sqlx::query_scalar!(
         "SELECT group_ FROM usr_to_group where usr = $1 AND workspace_id = $2 UNION ALL SELECT igroup FROM email_to_igroup WHERE email = $3",
@@ -400,7 +424,7 @@ pub async fn create_token_for_owner(
         Ok(Some(jp)) => jp.into(),
         _ => {
             tracing::warn!("Could not get permissions for job {job_id} from job_perms table, getting permissions directly...");
-            fetch_authed_from_permissioned_as(owner.to_string(), email.to_string(), w_id, db)
+            fetch_authed_from_permissioned_as(owner, email, w_id, db)
                 .await
                 .map_err(|e| {
                     Error::internal_err(format!(

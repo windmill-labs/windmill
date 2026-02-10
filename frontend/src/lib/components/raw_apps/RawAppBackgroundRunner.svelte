@@ -37,7 +37,7 @@
 			let error = false
 			let result
 			try {
-				result = await waitJob(uuid)
+				result = await waitJob(uuid, workspace)
 			} catch (e) {
 				error = true
 				console.log('e', e)

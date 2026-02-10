@@ -6,41 +6,17 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
 use serde_json::{from_value, Value};
 use tokio::sync::RwLock;
 
 use crate::{error, scripts::ScriptLang};
 
+pub use windmill_types::apps::*;
+
 lazy_static::lazy_static! {
     pub static ref APP_WORKSPACED_ROUTE: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
-}
-
-/// Id in the `app_script` table.
-#[derive(Serialize, Deserialize, Debug, Copy, Clone, Hash, Eq, PartialEq)]
-#[serde(transparent)]
-pub struct AppScriptId(pub i64);
-
-#[derive(Deserialize)]
-pub struct ListAppQuery {
-    pub starred_only: Option<bool>,
-    pub path_exact: Option<String>,
-    pub path_start: Option<String>,
-    pub include_draft_only: Option<bool>,
-    pub with_deployment_msg: Option<bool>,
-}
-
-#[derive(Deserialize)]
-pub struct RawAppValue {
-    pub files: HashMap<String, String>,
-}
-
-pub struct AppInlineScript {
-    pub language: Option<ScriptLang>,
-    pub content: String,
-    pub lock: Option<String>,
 }
 
 /// Traverse FlowValue while invoking provided by caller callback on leafs

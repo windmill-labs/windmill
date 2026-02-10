@@ -17,9 +17,12 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install mold and clang
+        run: sudo apt-get update && sudo apt-get install -y mold clang
+
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          cache-workspaces: backend
+          cache: false
           toolchain: 1.90.0
       - name: cargo check
         working-directory: ./backend
@@ -33,14 +36,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: install xmlsec1
+      - name: install xmlsec1 and gssapi
         run: |
           sudo apt-get update
-          sudo apt-get install -y libxml2-dev libxmlsec1-dev
+          sudo apt-get install -y libxml2-dev libxmlsec1-dev libkrb5-dev libsasl2-dev libcurl4-openssl-dev mold clang
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          cache-workspaces: backend
+          cache: false
           toolchain: 1.90.0
       - name: cargo check
         working-directory: ./backend
@@ -72,9 +75,12 @@ jobs:
         run: |
           ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
 
+      - name: Install mold and clang
+        run: sudo apt-get update && sudo apt-get install -y mold clang
+
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          cache-workspaces: backend
+          cache: false
           toolchain: 1.90.0
       - name: cargo check
         working-directory: ./backend
@@ -100,10 +106,10 @@ jobs:
           token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
           fetch-depth: 0
 
-      - name: install xmlsec1
+      - name: install xmlsec1 and gssapi
         run: |
           sudo apt-get update
-          sudo apt-get install -y libxml2-dev libxmlsec1-dev
+          sudo apt-get install -y libxml2-dev libxmlsec1-dev libkrb5-dev libsasl2-dev libcurl4-openssl-dev mold clang
 
       - name: Substitute EE code (EE logic is behind feature flag)
         run: |
