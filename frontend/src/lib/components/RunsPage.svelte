@@ -734,11 +734,12 @@
 								{/if}
 							</div>
 							<div
-								class="bg-surface-tertiary border rounded-b-md flex text-xs px-1.5 py-1 items-center gap-4"
+								class="bg-surface-tertiary border rounded-b-md flex text-xs px-2 py-1 items-center gap-4"
 							>
 								{#if !manualSelectionMode}
 									<DropdownV2
 										btnText="Batch actions"
+										size="xs"
 										items={[
 											{
 												displayName: 'Cancel jobs',
