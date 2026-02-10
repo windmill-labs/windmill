@@ -277,6 +277,7 @@ export function buildContextString(selectedContext: ContextElement[]): string {
 	let hasDiff = false
 	let hasFlowModule = false
 	let hasError = false
+	let workspaceItemsContext = ''
 
 	let result = '\n\n'
 	for (const context of selectedContext) {
@@ -311,6 +312,22 @@ export function buildContextString(selectedContext: ContextElement[]): string {
 		} else if (context.type === 'flow_module') {
 			hasFlowModule = true
 			flowModuleContext += `${context.id}\n`
+		} else if (context.type === 'workspace_script') {
+			workspaceItemsContext += `\nWORKSPACE SCRIPT (${context.path}):\n`
+			workspaceItemsContext += `Summary: ${context.summary}\n`
+			workspaceItemsContext += `Language: ${context.language}\n`
+			if (context.schema) {
+				workspaceItemsContext += `Inputs: ${JSON.stringify(context.schema)}\n`
+			}
+			workspaceItemsContext += `Code:\n${context.content}\n`
+		} else if (context.type === 'workspace_flow') {
+			workspaceItemsContext += `\nWORKSPACE FLOW (${context.path}):\n`
+			workspaceItemsContext += `Summary: ${context.summary}\n`
+			workspaceItemsContext += `Description: ${context.description}\n`
+			workspaceItemsContext += `Modules: ${JSON.stringify(context.modules)}\n`
+			if (context.schema) {
+				workspaceItemsContext += `Inputs: ${JSON.stringify(context.schema)}\n`
+			}
 		}
 	}
 
@@ -328,6 +345,9 @@ export function buildContextString(selectedContext: ContextElement[]): string {
 	}
 	if (hasFlowModule) {
 		result += '\n' + flowModuleContext
+	}
+	if (workspaceItemsContext) {
+		result += '\n' + workspaceItemsContext
 	}
 
 	return result

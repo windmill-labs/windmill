@@ -2,13 +2,29 @@
 	import FlowModuleIcon from '$lib/components/flows/FlowModuleIcon.svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import type { FlowModule } from '$lib/gen/types.gen'
-	import { ContextIconMap, type ContextElement } from './context'
-	import { ArrowLeft, Diff, Database, ChevronRight } from 'lucide-svelte'
+	import { ScriptService, FlowService } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
+	import {
+		ContextIconMap,
+		type ContextElement,
+		type WorkspaceScriptElement,
+		type WorkspaceFlowElement
+	} from './context'
+	import {
+		ArrowLeft,
+		Diff,
+		Database,
+		ChevronRight,
+		FileCode2,
+		GitBranch,
+		Loader2
+	} from 'lucide-svelte'
 
 	interface Props {
 		availableContext: ContextElement[]
 		selectedContext: ContextElement[]
 		onSelect: (element: ContextElement) => void
+		onSelectWorkspaceItem?: (element: ContextElement) => void
 		setShowing?: (showing: boolean) => void
 		showAllAvailable?: boolean
 		stringSearch?: string
@@ -19,6 +35,7 @@
 		availableContext,
 		selectedContext,
 		onSelect,
+		onSelectWorkspaceItem,
 		setShowing,
 		showAllAvailable = false,
 		stringSearch = '',
@@ -26,18 +43,33 @@
 	}: Props = $props()
 
 	// Current view state: 'categories' or specific category type
-	let currentView = $state<'categories' | 'diffs' | 'modules' | 'databases'>('categories')
+	let currentView = $state<
+		'categories' | 'diffs' | 'modules' | 'databases' | 'scripts' | 'flows'
+	>('categories')
 
 	// Selected index for keyboard navigation
 	let itemSelectedIndex = $state(0)
 	let categorySelectedIndex = $state(0)
 
+	// Workspace search state
+	let workspaceSearchQuery = $state('')
+	let workspaceSearchResults = $state<{ path: string; summary: string }[]>([])
+	let workspaceSearchLoading = $state(false)
+	let searchInputElement = $state<HTMLInputElement | undefined>(undefined)
+	let searchDebounceTimer: ReturnType<typeof setTimeout> | undefined = undefined
+
 	// Category definitions
 	const categories = [
-		{ id: 'diffs', label: 'Diffs', icon: Diff },
-		{ id: 'modules', label: 'Modules', icon: BarsStaggered },
-		{ id: 'databases', label: 'Databases', icon: Database }
+		{ id: 'diffs' as const, label: 'Diffs', icon: Diff, searchable: false },
+		{ id: 'modules' as const, label: 'Modules', icon: BarsStaggered, searchable: false },
+		{ id: 'databases' as const, label: 'Databases', icon: Database, searchable: false },
+		{ id: 'scripts' as const, label: 'Scripts', icon: FileCode2, searchable: true },
+		{ id: 'flows' as const, label: 'Flows', icon: GitBranch, searchable: true }
 	]
+
+	const isSearchableView = $derived(
+		currentView === 'scripts' || currentView === 'flows'
+	)
 
 	const filteredAvailableContext = $derived(
 		availableContext.filter((context) => {
@@ -68,12 +100,14 @@
 	})
 
 	const currentCategoryItems = $derived(
-		currentView !== 'categories' ? contextByCategory[currentView] : []
+		currentView !== 'categories' && !isSearchableView ? contextByCategory[currentView] : []
 	)
 
-	// Filter to only show categories with items
+	// Filter to only show categories with items (non-searchable) or always show (searchable)
 	const availableCategories = $derived(
-		categories.filter((cat) => contextByCategory[cat.id].length > 0)
+		categories.filter(
+			(cat) => cat.searchable || contextByCategory[cat.id]?.length > 0
+		)
 	)
 
 	// Report view changes
@@ -81,6 +115,8 @@
 		if (onViewChange) {
 			if (currentView === 'categories') {
 				onViewChange(availableCategories.length)
+			} else if (isSearchableView) {
+				onViewChange(workspaceSearchResults.length + 2) // +2 for back button and search input
 			} else {
 				onViewChange(currentCategoryItems.length + 1)
 			}
@@ -89,15 +125,143 @@
 
 	function handleCategoryClick(categoryId: string) {
 		currentView = categoryId as typeof currentView
+		itemSelectedIndex = 0
+		if (categoryId === 'scripts' || categoryId === 'flows') {
+			workspaceSearchQuery = ''
+			workspaceSearchResults = []
+			// Focus the search input after rendering
+			setTimeout(() => searchInputElement?.focus(), 0)
+		}
 	}
 
 	function handleBackClick() {
 		currentView = 'categories'
 		itemSelectedIndex = 0
+		workspaceSearchQuery = ''
+		workspaceSearchResults = []
+	}
+
+	async function searchWorkspaceItems(query: string) {
+		const workspace = $workspaceStore
+		if (!workspace) return
+
+		workspaceSearchLoading = true
+		try {
+			if (currentView === 'scripts') {
+				const scripts = await ScriptService.listScripts({
+					workspace,
+					pathStart: query || undefined,
+					perPage: 15
+				})
+				workspaceSearchResults = scripts.map((s) => ({
+					path: s.path,
+					summary: s.summary
+				}))
+			} else if (currentView === 'flows') {
+				const flows = await FlowService.listFlows({
+					workspace,
+					pathStart: query || undefined,
+					perPage: 15
+				})
+				workspaceSearchResults = flows.map((f) => ({
+					path: f.path,
+					summary: f.summary
+				}))
+			}
+		} catch (err) {
+			console.error('Error searching workspace items', err)
+			workspaceSearchResults = []
+		} finally {
+			workspaceSearchLoading = false
+		}
+	}
+
+	function handleSearchInput() {
+		if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+		searchDebounceTimer = setTimeout(() => {
+			searchWorkspaceItems(workspaceSearchQuery)
+		}, 300)
+	}
+
+	async function handleWorkspaceItemSelect(path: string) {
+		const workspace = $workspaceStore
+		if (!workspace || !onSelectWorkspaceItem) return
+
+		try {
+			if (currentView === 'scripts') {
+				const script = await ScriptService.getScriptByPath({ workspace, path })
+				const element: WorkspaceScriptElement & { deletable: boolean } = {
+					type: 'workspace_script',
+					path: script.path,
+					title: script.path,
+					summary: script.summary,
+					language: script.language,
+					content: script.content,
+					schema: script.schema,
+					deletable: true
+				}
+				onSelectWorkspaceItem(element)
+			} else if (currentView === 'flows') {
+				const flow = await FlowService.getFlowByPath({ workspace, path })
+				const modules =
+					flow.value?.modules?.map((m) => ({
+						id: m.id,
+						summary: m.summary || '',
+						type: m.value.type
+					})) || []
+				const element: WorkspaceFlowElement & { deletable: boolean } = {
+					type: 'workspace_flow',
+					path: flow.path,
+					title: flow.path,
+					summary: flow.summary,
+					description: flow.description || '',
+					modules,
+					schema: flow.schema,
+					deletable: true
+				}
+				onSelectWorkspaceItem(element)
+			}
+		} catch (err) {
+			console.error('Error fetching workspace item', err)
+		}
+		currentView = 'categories'
+		workspaceSearchQuery = ''
+		workspaceSearchResults = []
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {
-		if (stringSearch.length > 0) {
+		if (isSearchableView) {
+			// Navigation in workspace search view
+			if (e.key === 'ArrowDown') {
+				e.preventDefault()
+				e.stopPropagation()
+				if (workspaceSearchResults.length > 0) {
+					itemSelectedIndex = (itemSelectedIndex + 1) % workspaceSearchResults.length
+				}
+			} else if (e.key === 'ArrowUp') {
+				e.preventDefault()
+				e.stopPropagation()
+				if (workspaceSearchResults.length > 0) {
+					itemSelectedIndex =
+						(itemSelectedIndex - 1 + workspaceSearchResults.length) %
+						workspaceSearchResults.length
+				}
+			} else if (e.key === 'Enter') {
+				// Only select if not typing in the search input, or if results exist
+				if (workspaceSearchResults.length > 0) {
+					e.preventDefault()
+					e.stopPropagation()
+					const selectedItem = workspaceSearchResults[itemSelectedIndex]
+					if (selectedItem) {
+						handleWorkspaceItemSelect(selectedItem.path)
+					}
+				}
+			} else if (e.key === 'Escape') {
+				e.preventDefault()
+				e.stopPropagation()
+				handleBackClick()
+			}
+		} else if (stringSearch.length > 0) {
 			// Navigation in search view (flat list)
 			if (e.key === 'ArrowDown') {
 				e.preventDefault()
@@ -188,6 +352,13 @@
 			itemSelectedIndex = 0
 		}
 	})
+
+	// Trigger initial search when entering a searchable category
+	$effect(() => {
+		if (isSearchableView) {
+			searchWorkspaceItems('')
+		}
+	})
 </script>
 
 <div
@@ -244,6 +415,68 @@
 		{/each}
 		{#if availableCategories.length === 0}
 			<div class="text-center text-primary text-xs py-2">No available context</div>
+		{/if}
+	{:else if isSearchableView}
+		<!-- Workspace search view (scripts/flows) -->
+		<button
+			class="hover:bg-surface-hover rounded-md text-left flex flex-row gap-1 items-center font-normal transition-colors mb-1"
+			onclick={handleBackClick}
+		>
+			<ArrowLeft size={12} />
+			<span class="text-xs">Go back</span>
+		</button>
+
+		<input
+			bind:this={searchInputElement}
+			bind:value={workspaceSearchQuery}
+			oninput={handleSearchInput}
+			type="text"
+			placeholder="Search {currentView}..."
+			class="w-full text-xs px-2 py-1 rounded-md border border-gray-200 dark:border-gray-700 bg-surface mb-1 outline-none focus:border-blue-500"
+		/>
+
+		{#if workspaceSearchLoading}
+			<div class="flex items-center justify-center py-2 gap-1">
+				<Loader2 size={14} class="animate-spin" />
+				<span class="text-xs text-secondary">Searching...</span>
+			</div>
+		{:else if workspaceSearchResults.length === 0}
+			<div class="text-center text-secondary text-xs py-2">
+				{workspaceSearchQuery ? 'No results found' : 'Type to search'}
+			</div>
+		{:else}
+			{#each workspaceSearchResults as item, i}
+				{@const isAlreadySelected = selectedContext.some(
+					(c) =>
+						((c.type === 'workspace_script' && currentView === 'scripts') ||
+							(c.type === 'workspace_flow' && currentView === 'flows')) &&
+						c.title === item.path
+				)}
+				<button
+					class="hover:bg-surface-hover rounded-md p-1 text-left flex flex-col font-normal transition-colors {i ===
+					itemSelectedIndex
+						? 'bg-surface-hover'
+						: ''} {isAlreadySelected ? 'opacity-50' : ''}"
+					onclick={() => {
+						if (!isAlreadySelected) {
+							handleWorkspaceItemSelect(item.path)
+						}
+					}}
+					disabled={isAlreadySelected}
+				>
+					<div class="flex flex-row gap-1 items-center">
+						{#if currentView === 'scripts'}
+							<FileCode2 size={14} class="shrink-0" />
+						{:else}
+							<GitBranch size={14} class="shrink-0" />
+						{/if}
+						<span class="truncate">{item.path}</span>
+					</div>
+					{#if item.summary}
+						<span class="truncate text-secondary pl-5">{item.summary}</span>
+					{/if}
+				</button>
+			{/each}
 		{/if}
 	{:else}
 		<!-- Category items view -->
