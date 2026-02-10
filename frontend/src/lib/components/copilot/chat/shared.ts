@@ -979,7 +979,7 @@ export class WorkspaceRunnablesSearch {
 }
 
 const searchWorkspaceSchema = z.object({
-	query: z.string().describe('Search query (e.g. "stripe", "send email", "ETL")'),
+	query: z.string().describe('Comma separated list of keywords to search for (e.g. "stripe, send email, ETL")'),
 	type: z
 		.enum(['all', 'scripts', 'flows'])
 		.describe(
@@ -990,7 +990,7 @@ const searchWorkspaceSchema = z.object({
 const searchWorkspaceToolDef = createToolDef(
 	searchWorkspaceSchema,
 	'search_workspace',
-	'Search for scripts and flows in the workspace. Use this when a user asks about existing building blocks, wants to find a script/flow, or asks "what do I have for X". Always search really broadly, use this tool with different queries.'
+	'Search for scripts and flows in the workspace. Use this when a user asks about existing building blocks, wants to find a script/flow, or asks "what do I have for X". ALWAYS search really broadly.'
 )
 
 const workspaceRunnablesSearch = new WorkspaceRunnablesSearch()
@@ -1011,13 +1011,24 @@ export const createSearchWorkspaceTool = () => ({
 		const parsedArgs = searchWorkspaceSchema.parse(args)
 		const type = parsedArgs.type
 		toolCallbacks.setToolStatus(toolId, {
-			content: `Searching workspace ${type} for "${parsedArgs.query}"...`
+			content: `Searching workspace...`
 		})
 
-		const results = await workspaceRunnablesSearch.search(parsedArgs.query, workspace, type)
+		const results: { type: 'script' | 'flow'; path: string; summary: string }[] = []
+		const keywords = parsedArgs.query.split(',').map((keyword) => keyword.trim())
+		const seenPaths = new Set<string>();
+		for (const keyword of keywords) {
+			const keywordResults = await workspaceRunnablesSearch.search(keyword, workspace, type)
+			for (const result of keywordResults) {
+				if (!seenPaths.has(result.path)) {
+					results.push(result)
+					seenPaths.add(result.path)
+				}
+			}
+		}
 
 		toolCallbacks.setToolStatus(toolId, {
-			content: `Found ${results.length} result(s) for "${parsedArgs.query}"`
+			content: `Found ${results.length} result(s)`
 		})
 		return JSON.stringify(results, null, 2)
 	}
