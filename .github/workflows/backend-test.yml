@@ -72,7 +72,7 @@ jobs:
           bundler-cache: false
       - name: Install PowerShell, mold and clang
         run: |
-          sudo apt-get update && sudo apt-get install -y powershell mold clang
+          sudo apt-get update && sudo apt-get install -y powershell mold clang libcurl4-openssl-dev
         working-directory: /
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
