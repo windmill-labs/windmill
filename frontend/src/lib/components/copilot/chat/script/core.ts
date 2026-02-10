@@ -1,6 +1,12 @@
-import { ResourceService, JobService } from '$lib/gen/services.gen'
-import type { AIProvider, AIProviderModel, ResourceType, ScriptLang } from '$lib/gen/types.gen'
-import { capitalize, isObject, toCamel } from '$lib/utils'
+import { ResourceService, JobService, FlowService } from '$lib/gen/services.gen'
+import type {
+	AIProvider,
+	AIProviderModel,
+	Flow,
+	ResourceType,
+	ScriptLang
+} from '$lib/gen/types.gen'
+import { capitalize, emptyString, isObject, toCamel } from '$lib/utils'
 import { get } from 'svelte/store'
 import { compile, phpCompile, pythonCompile } from '../../utils'
 import type {
@@ -16,9 +22,11 @@ import {
 	executeTestRun,
 	buildTestRunArgs,
 	buildContextString,
+	extractAllModules,
 	type ScriptLintResult,
 	formatScriptLintResult
 } from '../shared'
+import uFuzzy from '@leeoniya/ufuzzy'
 import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
 import { getModelContextWindow } from '../../lib'
 import type { ReviewChangesOpts } from '../monaco-adapter'
@@ -178,6 +186,7 @@ function buildChatSystemPrompt(currentModel: AIProviderModel) {
 	- You can also receive a \`DIFF\` of the changes that have been made to the code. You should use this diff to give better answers.
 	- Before giving your answer, check again that you carefully followed these instructions.
 	- When asked to create a script that communicates with an external service, you can use the \`search_hub_scripts\` tool to search for relevant scripts in the hub. Make sure the language is the same as what the user is coding in. If you do not find any relevant scripts, you can use the \`search_npm_packages\` tool to search for relevant packages and their documentation. Always give a link to the documentation in your answer if possible.
+	- If the user mentions a flow, you can use the \`search_flows\` tool to find it, and then \`get_flow_details\` to read its details and possibly reuse any inline script module inside it.
 	- After applying code changes with the \`${editToolName}\` tool, ALWAYS use the \`get_lint_errors\` tool to check for lint errors. If there are errors, fix them before proceeding. Then use the \`test_run_script\` tool to test the code, and iterate on the code until it works as expected (MAX 3 times). If the user cancels the test run, do not try again and wait for the next user instruction.
 
 	Important:
@@ -329,6 +338,8 @@ export function prepareScriptTools(
 	}
 	tools.push(testRunScriptTool)
 	tools.push(getLintErrorsTool)
+	tools.push(searchFlowsTool)
+	tools.push(getFlowDetailsTool)
 	return tools
 }
 
@@ -907,5 +918,142 @@ export const getLintErrorsTool: Tool<ScriptChatHelpers> = {
 		toolCallbacks.setToolStatus(toolId, { content: status })
 
 		return formatScriptLintResult(lintResult)
+	}
+}
+
+// ============= Flow Search Tools =============
+
+class WorkspaceFlowsSearch {
+	private uf: uFuzzy
+	private workspace: string | undefined = undefined
+	private flows: Flow[] | undefined = undefined
+
+	constructor() {
+		this.uf = new uFuzzy()
+	}
+
+	private async init(workspace: string) {
+		if (this.flows === undefined || this.workspace !== workspace) {
+			this.flows = await FlowService.listFlows({ workspace })
+			this.workspace = workspace
+		}
+	}
+
+	async search(query: string, workspace: string) {
+		await this.init(workspace)
+		const flows = this.flows
+		if (!flows) return []
+
+		const results = this.uf.search(
+			flows.map((f) => (emptyString(f.summary) ? f.path : f.summary + ' (' + f.path + ')')),
+			query.trim()
+		)
+		return (
+			results[2]?.map((id) => ({
+				path: flows[id].path,
+				summary: flows[id].summary,
+				description: flows[id].description
+			})) ?? []
+		)
+	}
+}
+
+const workspaceFlowsSearch = new WorkspaceFlowsSearch()
+
+const SEARCH_FLOWS_TOOL: ChatCompletionFunctionTool = {
+	type: 'function',
+	function: {
+		name: 'search_flows',
+		description:
+			'Search for flows in the workspace. Use this when the user mentions a flow, wants to find existing flows, or wants to reuse inline script code from a flow.',
+		parameters: {
+			type: 'object',
+			properties: {
+				query: {
+					type: 'string',
+					description: 'The search query (e.g. "invoice processing", "stripe webhook")'
+				}
+			},
+			required: ['query'],
+			additionalProperties: false
+		},
+		strict: true
+	}
+}
+
+export const searchFlowsTool: Tool<ScriptChatHelpers> = {
+	def: SEARCH_FLOWS_TOOL,
+	fn: async ({ args, workspace, toolId, toolCallbacks }) => {
+		toolCallbacks.setToolStatus(toolId, {
+			content: 'Searching for flows related to "' + args.query + '"...'
+		})
+		const flowResults = await workspaceFlowsSearch.search(args.query, workspace)
+		toolCallbacks.setToolStatus(toolId, {
+			content: 'Found ' + flowResults.length + ' flow(s) related to "' + args.query + '"'
+		})
+		return JSON.stringify(flowResults)
+	}
+}
+
+const MAX_INLINE_SCRIPT_LENGTH = 2000
+
+const GET_FLOW_DETAILS_TOOL: ChatCompletionFunctionTool = {
+	type: 'function',
+	function: {
+		name: 'get_flow_details',
+		description:
+			'Get the details of a flow including its modules and inline script code. Use after search_flows to inspect a specific flow and potentially reuse its inline scripts.',
+		parameters: {
+			type: 'object',
+			properties: {
+				path: {
+					type: 'string',
+					description: 'The path of the flow (e.g. "f/ops/process_invoices")'
+				}
+			},
+			required: ['path'],
+			additionalProperties: false
+		},
+		strict: true
+	}
+}
+
+export const getFlowDetailsTool: Tool<ScriptChatHelpers> = {
+	def: GET_FLOW_DETAILS_TOOL,
+	fn: async ({ args, workspace, toolId, toolCallbacks }) => {
+		toolCallbacks.setToolStatus(toolId, {
+			content: 'Fetching flow details for "' + args.path + '"...'
+		})
+		const flow = await FlowService.getFlowByPath({ workspace, path: args.path })
+		const modules = extractAllModules(flow.value.modules)
+		const moduleDetails = modules.map((m) => {
+			const base: Record<string, unknown> = {
+				id: m.id,
+				summary: m.summary,
+				type: m.value.type
+			}
+			if (m.value.type === 'rawscript') {
+				base.language = m.value.language
+				const content = m.value.content ?? ''
+				base.content =
+					content.length > MAX_INLINE_SCRIPT_LENGTH
+						? content.slice(0, MAX_INLINE_SCRIPT_LENGTH) + '...(truncated)'
+						: content
+			} else if (m.value.type === 'script') {
+				base.path = m.value.path
+			}
+			return base
+		})
+		const result = {
+			path: flow.path,
+			summary: flow.summary,
+			description: flow.description,
+			schema: flow.schema,
+			modules: moduleDetails
+		}
+		toolCallbacks.setToolStatus(toolId, {
+			content: 'Retrieved flow details for "' + args.path + '"'
+		})
+		return JSON.stringify(result)
 	}
 }
