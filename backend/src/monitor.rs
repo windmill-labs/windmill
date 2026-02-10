@@ -57,6 +57,7 @@ use windmill_common::{
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
         LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING,
         NUGET_CONFIG_SETTING, OTEL_SETTING, OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING,
+        UV_INDEX_STRATEGY_SETTING,
         POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
@@ -88,7 +89,7 @@ use windmill_worker::{
     SameWorkerSender, BUNFIG_INSTALL_SCOPES, INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT,
     KEEP_JOB_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN, NPM_CONFIG_REGISTRY, NUGET_CONFIG,
     OTEL_TRACING_PROXY_SETTINGS, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, POWERSHELL_REPO_PAT,
-    POWERSHELL_REPO_URL,
+    POWERSHELL_REPO_URL, UV_INDEX_STRATEGY,
 };
 
 #[cfg(feature = "parquet")]
@@ -317,6 +318,7 @@ pub async fn initial_load(
         reload_job_default_timeout_setting(&conn).await;
         reload_extra_pip_index_url_setting(&conn).await;
         reload_pip_index_url_setting(&conn).await;
+        reload_uv_index_strategy_setting(&conn).await;
         reload_npm_config_registry_setting(&conn).await;
         reload_bunfig_install_scopes_setting(&conn).await;
         reload_instance_python_version_setting(&conn).await;
@@ -1246,6 +1248,16 @@ pub async fn reload_pip_index_url_setting(conn: &Connection) {
         PIP_INDEX_URL_SETTING,
         "PIP_INDEX_URL",
         PIP_INDEX_URL.clone(),
+    )
+    .await;
+}
+
+pub async fn reload_uv_index_strategy_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(
+        conn,
+        UV_INDEX_STRATEGY_SETTING,
+        "UV_INDEX_STRATEGY",
+        UV_INDEX_STRATEGY.clone(),
     )
     .await;
 }

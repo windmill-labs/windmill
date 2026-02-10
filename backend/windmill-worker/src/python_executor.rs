@@ -135,6 +135,7 @@ use crate::{
     worker_utils::ping_job_status,
     PyV, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PIP_EXTRA_INDEX_URL,
     PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TRACING_PROXY_CA_CERT_PATH, TZ_ENV, UV_CACHE_DIR,
+    UV_INDEX_STRATEGY,
 };
 use windmill_common::client::AuthedClient;
 
@@ -271,11 +272,6 @@ pub async fn uv_pip_compile(
             "--strip-extras",
             "-o",
             "requirements.txt",
-            // Prefer main index over extra
-            // https://docs.astral.sh/uv/pip/compatibility/#packages-that-exist-on-multiple-indexes
-            // TODO: Use env variable that can be toggled from UI
-            "--index-strategy",
-            "unsafe-best-match",
             // Target to /tmp/windmill/cache/uv
             "--cache-dir",
             UV_CACHE_DIR,
@@ -321,6 +317,9 @@ pub async fn uv_pip_compile(
         #[cfg(unix)]
         let uv_cmd = UV_PATH.as_str();
 
+        let uv_index_strategy = UV_INDEX_STRATEGY.read().await;
+        let uv_index_strategy = uv_index_strategy.as_deref().unwrap_or("unsafe-best-match");
+
         let mut child_cmd = Command::new(uv_cmd);
         child_cmd
             .current_dir(job_dir)
@@ -328,6 +327,7 @@ pub async fn uv_pip_compile(
             .env("HOME", HOME_ENV.to_string())
             .env("PATH", PATH_ENV.to_string())
             .env("UV_PYTHON_INSTALL_DIR", PY_INSTALL_DIR.to_string())
+            .env("UV_INDEX_STRATEGY", uv_index_strategy)
             .envs(PROXY_ENVS.clone())
             .args(&args)
             .stdout(Stdio::piped())
@@ -1353,6 +1353,9 @@ async fn spawn_uv_install(
     py_path: Option<String>,
     worker_dir: &str,
 ) -> Result<Box<dyn TokioChildWrapper>, Error> {
+    let uv_index_strategy_guard = UV_INDEX_STRATEGY.read().await;
+    let uv_index_strategy = uv_index_strategy_guard.as_deref().unwrap_or("unsafe-best-match");
+
     if !*DISABLE_NSJAIL {
         tracing::info!(
             workspace_id = %w_id,
@@ -1375,6 +1378,7 @@ async fn spawn_uv_install(
         if *NATIVE_CERT {
             vars.push(("UV_NATIVE_TLS", "true"));
         }
+
         let _owner;
         if let Some(py_path) = py_path.as_ref() {
             _owner = format!(
@@ -1385,6 +1389,7 @@ async fn spawn_uv_install(
         }
         vars.push(("REQ", &req));
         vars.push(("TARGET", venv_p));
+        vars.push(("UV_INDEX_STRATEGY", uv_index_strategy));
 
         std::fs::create_dir_all(venv_p)?;
         let nsjail_proto = format!("{req}.config.proto");
@@ -1430,11 +1435,6 @@ async fn spawn_uv_install(
             "--no-config",
             "--link-mode=copy",
             "--system",
-            // Prefer main index over extra
-            // https://docs.astral.sh/uv/pip/compatibility/#packages-that-exist-on-multiple-indexes
-            // TODO: Use env variable that can be toggled from UI
-            "--index-strategy",
-            "unsafe-best-match",
             "--target",
             venv_p,
             "--no-cache",
@@ -1464,6 +1464,7 @@ async fn spawn_uv_install(
 
         let mut envs = vec![("PATH", PATH_ENV.as_str())];
         envs.push(("HOME", HOME_ENV.as_str()));
+        envs.push(("UV_INDEX_STRATEGY", uv_index_strategy));
 
         if let Some(url) = pip_index_url.as_ref() {
             command_args.extend(["--index-url", url]);

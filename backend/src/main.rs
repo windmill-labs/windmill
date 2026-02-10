@@ -46,8 +46,8 @@ use windmill_common::{
         KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING,
         MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
         NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING,
-        OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
-        POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, UV_INDEX_STRATEGY_SETTING,
+        POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         RUBY_REPOS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING,
         TIMEOUT_WAIT_RESULT_SETTING,
@@ -103,7 +103,7 @@ use crate::monitor::{
     reload_jwt_secret_setting, reload_license_key, reload_npm_config_registry_setting,
     reload_otel_tracing_proxy_setting, reload_pip_index_url_setting,
     reload_retention_period_setting, reload_scim_token_setting, reload_smtp_config,
-    reload_worker_config, MonitorIteration,
+    reload_uv_index_strategy_setting, reload_worker_config, MonitorIteration,
 };
 
 #[cfg(feature = "parquet")]
@@ -1560,6 +1560,7 @@ async fn process_notify_event(
                 SCIM_TOKEN_SETTING => reload_scim_token_setting(conn).await,
                 EXTRA_PIP_INDEX_URL_SETTING => reload_extra_pip_index_url_setting(conn).await,
                 PIP_INDEX_URL_SETTING => reload_pip_index_url_setting(conn).await,
+                UV_INDEX_STRATEGY_SETTING => reload_uv_index_strategy_setting(conn).await,
                 INSTANCE_PYTHON_VERSION_SETTING => {
                     reload_instance_python_version_setting(conn).await
                 }
