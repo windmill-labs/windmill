@@ -1,6 +1,5 @@
 <script lang="ts">
 	import Label from './Label.svelte'
-	import Toggle from './Toggle.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { selectOptions } from './apps/editor/component'
 	import Select from './select/Select.svelte'
@@ -19,9 +18,6 @@
 		currency = $bindable(),
 		currencyLocale = $bindable()
 	}: Props = $props()
-
-	let minChecked: boolean = $state(min != undefined)
-	let maxChecked: boolean = $state(max != undefined)
 </script>
 
 <div class="flex flex-col gap-4 p-4 border rounded-md">
@@ -33,22 +29,8 @@
 					a range slider.
 				</Tooltip>
 			{/snippet}
-			{#snippet action()}
-				<Toggle
-					bind:checked={minChecked}
-					on:change={(e) => {
-						if (e.detail) {
-							min = 0
-						} else {
-							min = undefined
-						}
-					}}
-					options={{ right: 'Enabled' }}
-					size="xs"
-				/>
-			{/snippet}
 			<TextInput
-				inputProps={{ type: 'number', disabled: !minChecked }}
+				inputProps={{ type: 'number' }}
 				bind:value={() => min?.toString(), (v) => (min = v ? parseInt(v) : undefined)}
 			/>
 		</Label>
@@ -60,22 +42,8 @@
 					a range slider.
 				</Tooltip>
 			{/snippet}
-			{#snippet action()}
-				<Toggle
-					bind:checked={maxChecked}
-					on:change={(e) => {
-						if (e.detail) {
-							max = 42
-						} else {
-							max = undefined
-						}
-					}}
-					options={{ right: 'Enabled' }}
-					size="xs"
-				/>
-			{/snippet}
 			<TextInput
-				inputProps={{ type: 'number', disabled: !maxChecked }}
+				inputProps={{ type: 'number' }}
 				bind:value={() => max?.toString(), (v) => (max = v ? parseInt(v) : undefined)}
 			/>
 		</Label>
