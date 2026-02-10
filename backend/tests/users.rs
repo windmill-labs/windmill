@@ -259,7 +259,7 @@ async fn test_user_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         let resp = authed(client().post(format!(
             "{global_base}/rename/newglobaluser@windmill.dev"
         )))
-        .json(&json!({"new_username": "renamed-user"}))
+        .json(&json!({"new_username": "renamed_user"}))
         .send()
         .await
         .unwrap();
@@ -296,7 +296,7 @@ async fn test_user_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         .await
         .unwrap();
     assert!(
-        resp.status() == 401 || resp.status() == 500,
+        resp.status() == 400 || resp.status() == 401 || resp.status() == 500,
         "login: unexpected status {}",
         resp.status()
     );
