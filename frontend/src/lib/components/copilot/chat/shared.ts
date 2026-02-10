@@ -21,7 +21,17 @@ import { workspaceStore } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import type { FunctionParameters } from 'openai/resources/shared.mjs'
 import { z } from 'zod'
-import { ScriptService, JobService, type CompletedJob, type FlowModule } from '$lib/gen'
+import {
+	ScriptService,
+	FlowService,
+	JobService,
+	type CompletedJob,
+	type FlowModule,
+	type Script,
+	type Flow
+} from '$lib/gen'
+import uFuzzy from '@leeoniya/ufuzzy'
+import { emptyString } from '$lib/utils'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { getCurrentModel } from '$lib/aiStore'
 import { type editor as meditor } from 'monaco-editor'
@@ -885,4 +895,80 @@ export function formatScriptLintResult(lintResult: ScriptLintResult): string {
 	}
 
 	return response
+}
+
+// ============= Workspace Runnables Search =============
+
+export class WorkspaceRunnablesSearch {
+	private uf: uFuzzy
+	private workspace: string | undefined = undefined
+	private scripts: Script[] | undefined = undefined
+	private flows: Flow[] | undefined = undefined
+
+	constructor() {
+		this.uf = new uFuzzy()
+	}
+
+	private async initScripts(workspace: string) {
+		if (this.scripts === undefined || this.workspace !== workspace) {
+			this.scripts = await ScriptService.listScripts({ workspace })
+			this.workspace = workspace
+		}
+	}
+
+	private async initFlows(workspace: string) {
+		if (this.flows === undefined || this.workspace !== workspace) {
+			this.flows = await FlowService.listFlows({ workspace })
+			this.workspace = workspace
+		}
+	}
+
+	async searchScripts(query: string, workspace: string) {
+		await this.initScripts(workspace)
+		const scripts = this.scripts
+		if (!scripts) return []
+
+		const results = this.uf.search(
+			scripts.map((s) => (emptyString(s.summary) ? s.path : s.summary + ' (' + s.path + ')')),
+			query.trim()
+		)
+		return (
+			results[2]?.map((id) => ({
+				type: 'script' as const,
+				path: scripts[id].path,
+				summary: scripts[id].summary
+			})) ?? []
+		)
+	}
+
+	async searchFlows(query: string, workspace: string) {
+		await this.initFlows(workspace)
+		const flows = this.flows
+		if (!flows) return []
+
+		const results = this.uf.search(
+			flows.map((f) => (emptyString(f.summary) ? f.path : f.summary + ' (' + f.path + ')')),
+			query.trim()
+		)
+		return (
+			results[2]?.map((id) => ({
+				type: 'flow' as const,
+				path: flows[id].path,
+				summary: flows[id].summary
+			})) ?? []
+		)
+	}
+
+	async search(query: string, workspace: string, type: 'all' | 'scripts' | 'flows' = 'all') {
+		const results: { type: 'script' | 'flow'; path: string; summary: string }[] = []
+
+		if (type === 'all' || type === 'scripts') {
+			results.push(...(await this.searchScripts(query, workspace)))
+		}
+		if (type === 'all' || type === 'flows') {
+			results.push(...(await this.searchFlows(query, workspace)))
+		}
+
+		return results
+	}
 }

@@ -3,11 +3,13 @@ import type {
 	ChatCompletionTool,
 	ChatCompletionUserMessageParam
 } from 'openai/resources/index.mjs'
-import type { Tool } from '../shared'
-import { ResourceService } from '$lib/gen'
+import { WorkspaceRunnablesSearch, type Tool } from '../shared'
+import { ResourceService, ScriptService, FlowService } from '$lib/gen'
 import { workspaceStore } from '$lib/stores'
 import { get } from 'svelte/store'
 import { triggerablesByAi } from '../sharedChatState.svelte'
+
+const workspaceRunnablesSearch = new WorkspaceRunnablesSearch()
 
 export const CHAT_SYSTEM_PROMPT = `
 You are Windmill's intelligent assistant, designed to help users navigate the application and answer questions about its functionality. It is your only purpose to help the user in the context of the windmill application.
@@ -15,9 +17,11 @@ Windmill is an open-source developer platform for building internal tools, API i
 
 You have access to these tools:
 1. View current buttons and inputs on the page (get_triggerable_components)
-2. Execute buttons and inputs (trigger_component) 
+2. Execute buttons and inputs (trigger_component)
 3. Get documentation for user requests (get_documentation)
 4. Change the AI mode to the one specified (change_mode)
+5. Search for scripts and flows in the workspace (search_workspace)
+6. Get detailed information about a specific script or flow (get_runnable_details)
 
 INSTRUCTIONS:
 - When users ask about application features or concepts, first use get_documentation internally to retrieve accurate information about how to fulfill the user's request.
@@ -30,6 +34,10 @@ INSTRUCTIONS:
 - For form inputs where format starts with "resource-" and is not "resource-obj", fetch the available resources using get_available_resources, and then use the resource_path prefixed with "$res:" to fill the input.
 - If you are not sure about an input, set the ones you are sure about, and then ask the user for the value of the input you are not sure about.
 - If the user asks you to make an API call, switch to API mode with the change_mode tool before using the new tools you'll have access to to make the API call.
+
+- When users ask about existing scripts, flows, or building blocks in their workspace, use search_workspace to find them.
+- When users want to understand a specific script or flow (inputs, description, what it does), use get_runnable_details.
+- When users ask you to navigate to a specific script or flow, first search for it, then use the navigation tools to go to it.
 
 GENERAL PRINCIPLES:
 - Be concise but thorough
@@ -333,6 +341,54 @@ export const getDocumentationTool: Tool<{}> = {
 	}
 }
 
+const SEARCH_WORKSPACE_TOOL: ChatCompletionTool = {
+	type: 'function',
+	function: {
+		name: 'search_workspace',
+		description:
+			'Search for scripts and flows in the workspace. Use this when a user asks about existing building blocks, wants to find a script/flow, or asks "what do I have for X".',
+		parameters: {
+			type: 'object',
+			properties: {
+				query: {
+					type: 'string',
+					description: 'Search query (e.g. "stripe", "send email", "ETL")'
+				},
+				type: {
+					type: 'string',
+					enum: ['all', 'scripts', 'flows'],
+					description: 'Filter by type. Defaults to "all".'
+				}
+			},
+			required: ['query']
+		}
+	}
+}
+
+const GET_RUNNABLE_DETAILS_TOOL: ChatCompletionTool = {
+	type: 'function',
+	function: {
+		name: 'get_runnable_details',
+		description:
+			'Get details (summary, description, inputs schema) of a specific script or flow by path',
+		parameters: {
+			type: 'object',
+			properties: {
+				path: {
+					type: 'string',
+					description: 'The path of the script or flow (e.g. "f/marketing/send_email")'
+				},
+				type: {
+					type: 'string',
+					enum: ['script', 'flow'],
+					description: 'Whether this is a script or a flow'
+				}
+			},
+			required: ['path', 'type']
+		}
+	}
+}
+
 const getAvailableResourcesTool: Tool<{}> = {
 	def: GET_AVAILABLE_RESOURCES_TOOL,
 	fn: async ({ args, toolId, toolCallbacks }) => {
@@ -352,12 +408,94 @@ const getAvailableResourcesTool: Tool<{}> = {
 	}
 }
 
+const searchWorkspaceTool: Tool<{}> = {
+	def: SEARCH_WORKSPACE_TOOL,
+	fn: async ({ args, toolId, toolCallbacks }) => {
+		const query = args.query as string
+		const type = (args.type as 'all' | 'scripts' | 'flows') ?? 'all'
+		const workspace = get(workspaceStore) as string
+		toolCallbacks.setToolStatus(toolId, {
+			content: `Searching workspace ${type} for "${query}"...`
+		})
+
+		const results = await workspaceRunnablesSearch.search(query, workspace, type)
+
+		toolCallbacks.setToolStatus(toolId, {
+			content: `Found ${results.length} result(s) for "${query}"`
+		})
+		return JSON.stringify(results, null, 2)
+	}
+}
+
+const getRunnableDetailsTool: Tool<{}> = {
+	def: GET_RUNNABLE_DETAILS_TOOL,
+	fn: async ({ args, toolId, toolCallbacks }) => {
+		const path = args.path as string
+		const type = args.type as 'script' | 'flow'
+		const workspace = get(workspaceStore) as string
+		toolCallbacks.setToolStatus(toolId, {
+			content: `Getting ${type} details for "${path}"...`
+		})
+
+		try {
+			if (type === 'script') {
+				const script = await ScriptService.getScriptByPath({ workspace, path })
+				toolCallbacks.setToolStatus(toolId, {
+					content: `Retrieved script details for "${path}"`
+				})
+				return JSON.stringify(
+					{
+						path: script.path,
+						summary: script.summary,
+						description: script.description,
+						language: script.language,
+						schema: script.schema
+					},
+					null,
+					2
+				)
+			} else {
+				const flow = await FlowService.getFlowByPath({ workspace, path })
+				const modules = flow.value?.modules ?? []
+				toolCallbacks.setToolStatus(toolId, {
+					content: `Retrieved flow details for "${path}"`
+				})
+				return JSON.stringify(
+					{
+						path: flow.path,
+						summary: flow.summary,
+						description: flow.description,
+						schema: flow.schema,
+						module_count: modules.length,
+						modules: modules.map((m) => ({
+							id: m.id,
+							summary: m.summary,
+							value_type: m.value?.type
+						}))
+					},
+					null,
+					2
+				)
+			}
+		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : String(error)
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Error getting ${type} details`,
+				error: errorMessage
+			})
+			return `Error getting ${type} details for "${path}": ${errorMessage}`
+		}
+	}
+}
+
 export const navigatorTools: Tool<{}>[] = [
 	getTriggerableComponentsTool,
 	triggerComponentTool,
 	getDocumentationTool,
 	getCurrentPageNameTool,
-	getAvailableResourcesTool
+	getAvailableResourcesTool,
+	searchWorkspaceTool,
+	getRunnableDetailsTool
 ]
 
 export function prepareNavigatorSystemMessage(

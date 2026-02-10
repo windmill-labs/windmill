@@ -3,10 +3,13 @@ import type {
 	ChatCompletionUserMessageParam
 } from 'openai/resources/chat/completions.mjs'
 import { z } from 'zod'
-import { createSearchHubScriptsTool, createToolDef, type Tool } from '../shared'
-import { FlowService, ScriptService, type Flow, type Script } from '$lib/gen'
-import uFuzzy from '@leeoniya/ufuzzy'
-import { emptyString } from '$lib/utils'
+import {
+	createSearchHubScriptsTool,
+	createToolDef,
+	WorkspaceRunnablesSearch,
+	type Tool
+} from '../shared'
+import { ScriptService } from '$lib/gen'
 import { aiChatManager } from '../AIChatManager.svelte'
 import type {
 	ContextElement,
@@ -385,80 +388,6 @@ const getListWorkspaceRunnablesToolDef = memo(() =>
 		'Search for workspace scripts and flows by query. Returns fully qualified paths that can be used in backend runnables.'
 	)
 )
-
-class WorkspaceRunnablesSearch {
-	private uf: uFuzzy
-	private workspace: string | undefined = undefined
-	private scripts: Script[] | undefined = undefined
-	private flows: Flow[] | undefined = undefined
-
-	constructor() {
-		this.uf = new uFuzzy()
-	}
-
-	private async initScripts(workspace: string) {
-		if (this.scripts === undefined || this.workspace !== workspace) {
-			this.scripts = await ScriptService.listScripts({ workspace })
-			this.workspace = workspace
-		}
-	}
-
-	private async initFlows(workspace: string) {
-		if (this.flows === undefined || this.workspace !== workspace) {
-			this.flows = await FlowService.listFlows({ workspace })
-			this.workspace = workspace
-		}
-	}
-
-	async searchScripts(query: string, workspace: string) {
-		await this.initScripts(workspace)
-		const scripts = this.scripts
-		if (!scripts) return []
-
-		const results = this.uf.search(
-			scripts.map((s) => (emptyString(s.summary) ? s.path : s.summary + ' (' + s.path + ')')),
-			query.trim()
-		)
-		return (
-			results[2]?.map((id) => ({
-				type: 'script' as const,
-				path: scripts[id].path,
-				summary: scripts[id].summary
-			})) ?? []
-		)
-	}
-
-	async searchFlows(query: string, workspace: string) {
-		await this.initFlows(workspace)
-		const flows = this.flows
-		if (!flows) return []
-
-		const results = this.uf.search(
-			flows.map((f) => (emptyString(f.summary) ? f.path : f.summary + ' (' + f.path + ')')),
-			query.trim()
-		)
-		return (
-			results[2]?.map((id) => ({
-				type: 'flow' as const,
-				path: flows[id].path,
-				summary: flows[id].summary
-			})) ?? []
-		)
-	}
-
-	async search(query: string, workspace: string, type: 'all' | 'scripts' | 'flows' = 'all') {
-		const results: { type: 'script' | 'flow'; path: string; summary: string }[] = []
-
-		if (type === 'all' || type === 'scripts') {
-			results.push(...(await this.searchScripts(query, workspace)))
-		}
-		if (type === 'all' || type === 'flows') {
-			results.push(...(await this.searchFlows(query, workspace)))
-		}
-
-		return results
-	}
-}
 
 const workspaceRunnablesSearch = new WorkspaceRunnablesSearch()
 
