@@ -323,16 +323,25 @@ impl McpBackend for WindmillBackend {
             workspace_id,
             args_map,
             &endpoint_tool.path_params_schema,
+            &endpoint_tool.path_field_renames,
         )?;
-        let query_string = build_query_string(args_map, &endpoint_tool.query_params_schema);
+        let query_string = build_query_string(
+            args_map,
+            &endpoint_tool.query_params_schema,
+            &endpoint_tool.query_field_renames,
+        );
         let full_url = format!(
             "{}/api{}{}",
             self.base_internal_url, path_template, query_string
         );
 
         // Prepare request body
-        let body_json =
-            build_request_body(&endpoint_tool.method, args_map, &endpoint_tool.body_schema);
+        let body_json = build_request_body(
+            &endpoint_tool.method,
+            args_map,
+            &endpoint_tool.body_schema,
+            &endpoint_tool.body_field_renames,
+        );
 
         // Create and execute request
         let response = create_http_request(

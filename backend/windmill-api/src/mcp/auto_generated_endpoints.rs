@@ -26,6 +26,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "query"
         ]
 })),
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("createVariable"),
@@ -84,6 +87,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "description"
         ]
 })),
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("deleteVariable"),
@@ -104,6 +110,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
 })),
         query_params_schema: None,
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("updateVariable"),
@@ -114,12 +123,13 @@ pub fn all_tools() -> Vec<EndpointTool> {
         path_params_schema: Some(serde_json::json!({
         "type": "object",
         "properties": {
-                "path": {
-                        "type": "string"
+                "path__path": {
+                        "type": "string",
+                        "description": "(path parameter)"
                 }
         },
         "required": [
-                "path"
+                "path__path"
         ]
 })),
         query_params_schema: Some(serde_json::json!({
@@ -135,10 +145,6 @@ pub fn all_tools() -> Vec<EndpointTool> {
         body_schema: Some(serde_json::json!({
         "type": "object",
         "properties": {
-                "path": {
-                        "type": "string",
-                        "description": "The path to the variable"
-                },
                 "value": {
                         "type": "string",
                         "description": "The new value of the variable"
@@ -150,8 +156,19 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "description": {
                         "type": "string",
                         "description": "The new description of the variable"
+                },
+                "path__body": {
+                        "type": "string",
+                        "description": "The path to the variable (body parameter)"
                 }
         }
+})),
+        path_field_renames: Some(serde_json::json!({
+        "path__path": "path"
+})),
+        query_field_renames: None,
+        body_field_renames: Some(serde_json::json!({
+        "path__body": "path"
 })),
     },
     EndpointTool {
@@ -186,6 +203,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "required": []
 })),
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("listVariable"),
@@ -213,6 +233,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "required": []
 })),
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("createResource"),
@@ -238,7 +261,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
                         "type": "string",
                         "description": "The path to the resource"
                 },
-                "value": {},
+                "value": {
+                        "type": "object"
+                },
                 "description": {
                         "type": "string",
                         "description": "The description of the resource"
@@ -254,6 +279,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "resource_type"
         ]
 })),
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("deleteResource"),
@@ -274,6 +302,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
 })),
         query_params_schema: None,
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("updateResource"),
@@ -284,32 +315,42 @@ pub fn all_tools() -> Vec<EndpointTool> {
         path_params_schema: Some(serde_json::json!({
         "type": "object",
         "properties": {
-                "path": {
-                        "type": "string"
+                "path__path": {
+                        "type": "string",
+                        "description": "(path parameter)"
                 }
         },
         "required": [
-                "path"
+                "path__path"
         ]
 })),
         query_params_schema: None,
         body_schema: Some(serde_json::json!({
         "type": "object",
         "properties": {
-                "path": {
-                        "type": "string",
-                        "description": "The path to the resource"
-                },
                 "description": {
                         "type": "string",
                         "description": "The new description of the resource"
                 },
-                "value": {},
+                "value": {
+                        "type": "object"
+                },
                 "resource_type": {
                         "type": "string",
                         "description": "The new resource_type to be associated with the resource"
+                },
+                "path__body": {
+                        "type": "string",
+                        "description": "The path to the resource (body parameter)"
                 }
         }
+})),
+        path_field_renames: Some(serde_json::json!({
+        "path__path": "path"
+})),
+        query_field_renames: None,
+        body_field_renames: Some(serde_json::json!({
+        "path__body": "path"
 })),
     },
     EndpointTool {
@@ -331,6 +372,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
 })),
         query_params_schema: None,
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("listResource"),
@@ -366,6 +410,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "required": []
 })),
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("listResourceType"),
@@ -376,6 +423,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
         path_params_schema: None,
         query_params_schema: None,
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("listScripts"),
@@ -458,11 +508,123 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "without_description": {
                         "type": "boolean",
                         "description": "(default false)\nIf true, the description field will be omitted from the response.\n"
+                },
+                "dedicated_worker": {
+                        "type": "boolean",
+                        "description": "(default regardless)\nIf true, show only scripts with dedicated_worker enabled.\nIf false, show only scripts with dedicated_worker disabled.\n"
                 }
         },
         "required": []
 })),
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
+    },
+    EndpointTool {
+        name: Cow::Borrowed("createScript"),
+        description: Cow::Borrowed("create script"),
+        instructions: Cow::Borrowed("To create a script, specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed."),
+        path: Cow::Borrowed("/w/{workspace}/scripts/create"),
+        method: Cow::Borrowed("POST"),
+        path_params_schema: None,
+        query_params_schema: None,
+        body_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string"
+                },
+                "summary": {
+                        "type": "string"
+                },
+                "description": {
+                        "type": "string"
+                },
+                "content": {
+                        "type": "string"
+                },
+                "language": {
+                        "type": "string",
+                        "description": "Possible values: python3, deno, go, bash, powershell, postgresql, mysql, bigquery, snowflake, mssql, oracledb, graphql, nativets, bun, php, rust, ansible, csharp, nu, java, ruby, duckdb, bunnative"
+                },
+                "kind": {
+                        "type": "string",
+                        "description": "Possible values: script, failure, trigger, command, approval, preprocessor"
+                },
+                "tag": {
+                        "type": "string"
+                },
+                "deployment_message": {
+                        "type": "string"
+                }
+        },
+        "required": [
+                "path",
+                "summary",
+                "description",
+                "content",
+                "language"
+        ]
+})),
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
+    },
+    EndpointTool {
+        name: Cow::Borrowed("deleteScriptByHash"),
+        description: Cow::Borrowed("delete script by hash (erase content but keep hash, require admin)"),
+        instructions: Cow::Borrowed(""),
+        path: Cow::Borrowed("/w/{workspace}/scripts/delete/h/{hash}"),
+        method: Cow::Borrowed("POST"),
+        path_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "hash": {
+                        "type": "string"
+                }
+        },
+        "required": [
+                "hash"
+        ]
+})),
+        query_params_schema: None,
+        body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
+    },
+    EndpointTool {
+        name: Cow::Borrowed("deleteScriptByPath"),
+        description: Cow::Borrowed("delete script at a given path (require admin)"),
+        instructions: Cow::Borrowed(""),
+        path: Cow::Borrowed("/w/{workspace}/scripts/delete/p/{path}"),
+        method: Cow::Borrowed("POST"),
+        path_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string"
+                }
+        },
+        "required": [
+                "path"
+        ]
+})),
+        query_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "keep_captures": {
+                        "type": "boolean",
+                        "description": "keep captures"
+                }
+        },
+        "required": []
+})),
+        body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("getScriptByPath"),
@@ -491,6 +653,36 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "required": []
 })),
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
+    },
+    EndpointTool {
+        name: Cow::Borrowed("runScriptByPath"),
+        description: Cow::Borrowed("run script by path"),
+        instructions: Cow::Borrowed("You should first use getScriptByPath to retrieve the script's schema and understand what arguments are expected."),
+        path: Cow::Borrowed("/w/{workspace}/jobs/run/p/{path}"),
+        method: Cow::Borrowed("POST"),
+        path_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string"
+                }
+        },
+        "required": [
+                "path"
+        ]
+})),
+        query_params_schema: None,
+        body_schema: Some(serde_json::json!({
+        "type": "object",
+        "description": "The arguments to pass to the script or flow",
+        "additionalProperties": true
+})),
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("listFlows"),
@@ -545,11 +737,18 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "without_description": {
                         "type": "boolean",
                         "description": "(default false)\nIf true, the description field will be omitted from the response.\n"
+                },
+                "dedicated_worker": {
+                        "type": "boolean",
+                        "description": "(default regardless)\nIf true, show only flows with dedicated_worker enabled.\nIf false, show only flows with dedicated_worker disabled.\n"
                 }
         },
         "required": []
 })),
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("getFlowByPath"),
@@ -578,6 +777,262 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "required": []
 })),
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
+    },
+    EndpointTool {
+        name: Cow::Borrowed("createFlow"),
+        description: Cow::Borrowed("create flow"),
+        instructions: Cow::Borrowed(""),
+        path: Cow::Borrowed("/w/{workspace}/flows/create"),
+        method: Cow::Borrowed("POST"),
+        path_params_schema: None,
+        query_params_schema: None,
+        body_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "summary": {
+                        "type": "string",
+                        "description": "Short description of what this flow does"
+                },
+                "description": {
+                        "type": "string",
+                        "description": "Detailed documentation for this flow"
+                },
+                "value": {
+                        "type": "object"
+                },
+                "schema": {
+                        "type": "object"
+                },
+                "path": {
+                        "type": "string"
+                },
+                "tag": {
+                        "type": "string"
+                },
+                "deployment_message": {
+                        "type": "string"
+                }
+        },
+        "required": [
+                "summary",
+                "value",
+                "path"
+        ],
+        "description": "Top-level flow definition containing metadata, configuration, and the flow structure"
+})),
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
+    },
+    EndpointTool {
+        name: Cow::Borrowed("updateFlow"),
+        description: Cow::Borrowed("update flow"),
+        instructions: Cow::Borrowed(""),
+        path: Cow::Borrowed("/w/{workspace}/flows/update/{path}"),
+        method: Cow::Borrowed("POST"),
+        path_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "path__path": {
+                        "type": "string",
+                        "description": "(path parameter)"
+                }
+        },
+        "required": [
+                "path__path"
+        ]
+})),
+        query_params_schema: None,
+        body_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "summary": {
+                        "type": "string",
+                        "description": "Short description of what this flow does"
+                },
+                "description": {
+                        "type": "string",
+                        "description": "Detailed documentation for this flow"
+                },
+                "value": {
+                        "type": "object"
+                },
+                "schema": {
+                        "type": "object"
+                },
+                "tag": {
+                        "type": "string"
+                },
+                "deployment_message": {
+                        "type": "string"
+                },
+                "path__body": {
+                        "type": "string",
+                        "description": "(body parameter)"
+                }
+        },
+        "required": [
+                "summary",
+                "value",
+                "path__body"
+        ],
+        "description": "Top-level flow definition containing metadata, configuration, and the flow structure"
+})),
+        path_field_renames: Some(serde_json::json!({
+        "path__path": "path"
+})),
+        query_field_renames: None,
+        body_field_renames: Some(serde_json::json!({
+        "path__body": "path"
+})),
+    },
+    EndpointTool {
+        name: Cow::Borrowed("deleteFlowByPath"),
+        description: Cow::Borrowed("delete flow by path"),
+        instructions: Cow::Borrowed(""),
+        path: Cow::Borrowed("/w/{workspace}/flows/delete/{path}"),
+        method: Cow::Borrowed("DELETE"),
+        path_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string"
+                }
+        },
+        "required": [
+                "path"
+        ]
+})),
+        query_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "keep_captures": {
+                        "type": "boolean",
+                        "description": "keep captures"
+                }
+        },
+        "required": []
+})),
+        body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
+    },
+    EndpointTool {
+        name: Cow::Borrowed("createApp"),
+        description: Cow::Borrowed("create app"),
+        instructions: Cow::Borrowed(""),
+        path: Cow::Borrowed("/w/{workspace}/apps/create"),
+        method: Cow::Borrowed("POST"),
+        path_params_schema: None,
+        query_params_schema: None,
+        body_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string"
+                },
+                "value": {
+                        "type": "object"
+                },
+                "summary": {
+                        "type": "string"
+                },
+                "policy": {
+                        "type": "object"
+                },
+                "deployment_message": {
+                        "type": "string"
+                }
+        },
+        "required": [
+                "path",
+                "value",
+                "summary",
+                "policy"
+        ]
+})),
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
+    },
+    EndpointTool {
+        name: Cow::Borrowed("updateApp"),
+        description: Cow::Borrowed("update app"),
+        instructions: Cow::Borrowed(""),
+        path: Cow::Borrowed("/w/{workspace}/apps/update/{path}"),
+        method: Cow::Borrowed("POST"),
+        path_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "path__path": {
+                        "type": "string",
+                        "description": "(path parameter)"
+                }
+        },
+        "required": [
+                "path__path"
+        ]
+})),
+        query_params_schema: None,
+        body_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "summary": {
+                        "type": "string"
+                },
+                "value": {
+                        "type": "object"
+                },
+                "policy": {
+                        "type": "object"
+                },
+                "deployment_message": {
+                        "type": "string"
+                },
+                "path__body": {
+                        "type": "string",
+                        "description": "(body parameter)"
+                }
+        }
+})),
+        path_field_renames: Some(serde_json::json!({
+        "path__path": "path"
+})),
+        query_field_renames: None,
+        body_field_renames: Some(serde_json::json!({
+        "path__body": "path"
+})),
+    },
+    EndpointTool {
+        name: Cow::Borrowed("runFlowByPath"),
+        description: Cow::Borrowed("run flow by path"),
+        instructions: Cow::Borrowed("You should first use getFlowByPath to retrieve the flow's schema and understand what arguments are expected."),
+        path: Cow::Borrowed("/w/{workspace}/jobs/run/f/{path}"),
+        method: Cow::Borrowed("POST"),
+        path_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string"
+                }
+        },
+        "required": [
+                "path"
+        ]
+})),
+        query_params_schema: None,
+        body_schema: Some(serde_json::json!({
+        "type": "object",
+        "description": "The arguments to pass to the script or flow",
+        "additionalProperties": true
+})),
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("runScriptPreviewAndWaitResult"),
@@ -605,45 +1060,18 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "language": {
                         "type": "string",
-                        "enum": [
-                                "python3",
-                                "deno",
-                                "go",
-                                "bash",
-                                "powershell",
-                                "postgresql",
-                                "mysql",
-                                "bigquery",
-                                "snowflake",
-                                "mssql",
-                                "oracledb",
-                                "graphql",
-                                "nativets",
-                                "bun",
-                                "php",
-                                "rust",
-                                "ansible",
-                                "csharp",
-                                "nu",
-                                "java",
-                                "ruby",
-                                "duckdb"
-                        ]
+                        "description": "Possible values: python3, deno, go, bash, powershell, postgresql, mysql, bigquery, snowflake, mssql, oracledb, graphql, nativets, bun, php, rust, ansible, csharp, nu, java, ruby, duckdb, bunnative"
                 },
                 "tag": {
                         "type": "string"
                 },
                 "kind": {
                         "type": "string",
-                        "enum": [
-                                "code",
-                                "identity",
-                                "http"
-                        ]
+                        "description": "Possible values: code, identity, http"
                 },
                 "dedicated_worker": {
                         "type": "boolean"
@@ -658,6 +1086,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "language"
         ]
 })),
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("listQueue"),
@@ -703,22 +1134,8 @@ pub fn all_tools() -> Vec<EndpointTool> {
                         "description": "mask to filter by trigger path"
                 },
                 "trigger_kind": {
-                        "description": "trigger kind (schedule, http, websocket...)",
-                        "type": "string",
-                        "enum": [
-                                "webhook",
-                                "default_email",
-                                "email",
-                                "schedule",
-                                "http",
-                                "websocket",
-                                "postgres",
-                                "kafka",
-                                "nats",
-                                "mqtt",
-                                "sqs",
-                                "gcp"
-                        ]
+                        "description": "trigger kind (schedule, http, websocket...). Possible values: webhook, default_email, email, schedule, http, websocket, postgres, kafka, nats, mqtt, sqs, gcp",
+                        "type": "string"
                 },
                 "script_hash": {
                         "type": "string",
@@ -790,6 +1207,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "required": []
 })),
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("listJobs"),
@@ -911,22 +1331,8 @@ pub fn all_tools() -> Vec<EndpointTool> {
                         "description": "number of items to return for a given page (default 30, max 100)"
                 },
                 "trigger_kind": {
-                        "description": "trigger kind (schedule, http, websocket...)",
-                        "type": "string",
-                        "enum": [
-                                "webhook",
-                                "default_email",
-                                "email",
-                                "schedule",
-                                "http",
-                                "websocket",
-                                "postgres",
-                                "kafka",
-                                "nats",
-                                "mqtt",
-                                "sqs",
-                                "gcp"
-                        ]
+                        "description": "trigger kind (schedule, http, websocket...). Possible values: webhook, default_email, email, schedule, http, websocket, postgres, kafka, nats, mqtt, sqs, gcp",
+                        "type": "string"
                 },
                 "is_skipped": {
                         "type": "boolean",
@@ -956,6 +1362,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
         "required": []
 })),
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("createSchedule"),
@@ -973,75 +1382,75 @@ You should get the schema of the script or flow before creating the schedule to 
         "properties": {
                 "path": {
                         "type": "string",
-                        "description": "The path where the schedule will be created"
+                        "description": "The unique path identifier for this schedule"
                 },
                 "schedule": {
                         "type": "string",
-                        "description": "The cron schedule to trigger the script or flow. Should include seconds."
+                        "description": "Cron expression with 6 fields (seconds, minutes, hours, day of month, month, day of week). Example '0 0 12 * * *' for daily at noon"
                 },
                 "timezone": {
                         "type": "string",
-                        "description": "The timezone to use for the cron schedule"
+                        "description": "IANA timezone for the schedule (e.g., 'UTC', 'Europe/Paris', 'America/New_York')"
                 },
                 "script_path": {
                         "type": "string",
-                        "description": "The path to the script or flow to trigger"
+                        "description": "Path to the script or flow to execute when triggered"
                 },
                 "is_flow": {
                         "type": "boolean",
-                        "description": "Whether the schedule is for a flow"
+                        "description": "True if script_path points to a flow, false if it points to a script"
                 },
                 "args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "enabled": {
                         "type": "boolean",
-                        "description": "Whether the schedule is enabled"
+                        "description": "Whether the schedule is currently active and will trigger jobs"
                 },
                 "on_failure": {
                         "type": "string",
-                        "description": "The path to the script or flow to trigger on failure"
+                        "description": "Path to a script or flow to run when the scheduled job fails"
                 },
                 "on_failure_times": {
                         "type": "number",
-                        "description": "The number of times to retry on failure"
+                        "description": "Number of consecutive failures before the on_failure handler is triggered (default 1)"
                 },
                 "on_failure_exact": {
                         "type": "boolean",
-                        "description": "Whether the schedule should only run on the exact time"
+                        "description": "If true, trigger on_failure handler only on exactly N failures, not on every failure after N"
                 },
                 "on_failure_extra_args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "on_recovery": {
                         "type": "string",
-                        "description": "The path to the script or flow to trigger on recovery"
+                        "description": "Path to a script or flow to run when the schedule recovers after failures"
                 },
                 "on_recovery_times": {
                         "type": "number",
-                        "description": "The number of times to retry on recovery"
+                        "description": "Number of consecutive successes before the on_recovery handler is triggered (default 1)"
                 },
                 "on_recovery_extra_args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "on_success": {
                         "type": "string",
-                        "description": "The path to the script or flow to trigger on success"
+                        "description": "Path to a script or flow to run after each successful execution"
                 },
                 "on_success_extra_args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "ws_error_handler_muted": {
                         "type": "boolean",
-                        "description": "Whether the WebSocket error handler is muted"
+                        "description": "If true, the workspace-level error handler will not be triggered for this schedule's failures"
                 },
                 "retry": {
                         "type": "object",
@@ -1103,32 +1512,32 @@ You should get the schema of the script or flow before creating the schedule to 
                 },
                 "no_flow_overlap": {
                         "type": "boolean",
-                        "description": "Whether the schedule should not run if a flow is already running"
+                        "description": "If true, skip this schedule's execution if the previous run is still in progress (prevents concurrent runs)"
                 },
                 "summary": {
                         "type": "string",
-                        "description": "The summary of the schedule"
+                        "description": "Short summary describing the purpose of this schedule"
                 },
                 "description": {
                         "type": "string",
-                        "description": "The description of the schedule"
+                        "description": "Detailed description of what this schedule does"
                 },
                 "tag": {
                         "type": "string",
-                        "description": "The tag of the schedule"
+                        "description": "Worker tag to route jobs to specific worker groups"
                 },
                 "paused_until": {
                         "type": "string",
-                        "description": "The date and time the schedule will be paused until",
-                        "format": "date-time"
+                        "format": "date-time",
+                        "description": "ISO 8601 datetime until which the schedule is paused. Schedule resumes automatically after this time"
                 },
                 "cron_version": {
                         "type": "string",
-                        "description": "The version of the cron schedule to use (last is v2)"
+                        "description": "Cron parser version. Use 'v2' for extended syntax with additional features"
                 },
                 "dynamic_skip": {
                         "type": "string",
-                        "description": "Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean."
+                        "description": "Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean to skip (true) or run (false)"
                 }
         },
         "required": [
@@ -1140,6 +1549,9 @@ You should get the schema of the script or flow before creating the schedule to 
                 "args"
         ]
 })),
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("updateSchedule"),
@@ -1167,59 +1579,59 @@ You should get the schema of the script or flow before updating the schedule to 
         "properties": {
                 "schedule": {
                         "type": "string",
-                        "description": "The cron schedule to trigger the script or flow. Should include seconds."
+                        "description": "Cron expression with 6 fields (seconds, minutes, hours, day of month, month, day of week). Example '0 0 12 * * *' for daily at noon"
                 },
                 "timezone": {
                         "type": "string",
-                        "description": "The timezone to use for the cron schedule"
+                        "description": "IANA timezone for the schedule (e.g., 'UTC', 'Europe/Paris', 'America/New_York')"
                 },
                 "args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "on_failure": {
                         "type": "string",
-                        "description": "The path to the script or flow to trigger on failure"
+                        "description": "Path to a script or flow to run when the scheduled job fails"
                 },
                 "on_failure_times": {
                         "type": "number",
-                        "description": "The number of times to retry on failure"
+                        "description": "Number of consecutive failures before the on_failure handler is triggered (default 1)"
                 },
                 "on_failure_exact": {
                         "type": "boolean",
-                        "description": "Whether the schedule should only run on the exact time"
+                        "description": "If true, trigger on_failure handler only on exactly N failures, not on every failure after N"
                 },
                 "on_failure_extra_args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "on_recovery": {
                         "type": "string",
-                        "description": "The path to the script or flow to trigger on recovery"
+                        "description": "Path to a script or flow to run when the schedule recovers after failures"
                 },
                 "on_recovery_times": {
                         "type": "number",
-                        "description": "The number of times to retry on recovery"
+                        "description": "Number of consecutive successes before the on_recovery handler is triggered (default 1)"
                 },
                 "on_recovery_extra_args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "on_success": {
                         "type": "string",
-                        "description": "The path to the script or flow to trigger on success"
+                        "description": "Path to a script or flow to run after each successful execution"
                 },
                 "on_success_extra_args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "ws_error_handler_muted": {
                         "type": "boolean",
-                        "description": "Whether the WebSocket error handler is muted"
+                        "description": "If true, the workspace-level error handler will not be triggered for this schedule's failures"
                 },
                 "retry": {
                         "type": "object",
@@ -1281,32 +1693,32 @@ You should get the schema of the script or flow before updating the schedule to 
                 },
                 "no_flow_overlap": {
                         "type": "boolean",
-                        "description": "Whether the schedule should not run if a flow is already running"
+                        "description": "If true, skip this schedule's execution if the previous run is still in progress (prevents concurrent runs)"
                 },
                 "summary": {
                         "type": "string",
-                        "description": "The summary of the schedule"
+                        "description": "Short summary describing the purpose of this schedule"
                 },
                 "description": {
                         "type": "string",
-                        "description": "The description of the schedule"
+                        "description": "Detailed description of what this schedule does"
                 },
                 "tag": {
                         "type": "string",
-                        "description": "The tag of the schedule"
+                        "description": "Worker tag to route jobs to specific worker groups"
                 },
                 "paused_until": {
                         "type": "string",
-                        "description": "The date and time the schedule will be paused until",
-                        "format": "date-time"
+                        "format": "date-time",
+                        "description": "ISO 8601 datetime until which the schedule is paused. Schedule resumes automatically after this time"
                 },
                 "cron_version": {
                         "type": "string",
-                        "description": "The version of the cron schedule to use (last is v2)"
+                        "description": "Cron parser version. Use 'v2' for extended syntax with additional features"
                 },
                 "dynamic_skip": {
                         "type": "string",
-                        "description": "Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean."
+                        "description": "Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean to skip (true) or run (false)"
                 }
         },
         "required": [
@@ -1315,6 +1727,9 @@ You should get the schema of the script or flow before updating the schedule to 
                 "args"
         ]
 })),
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("deleteSchedule"),
@@ -1335,6 +1750,9 @@ You should get the schema of the script or flow before updating the schedule to 
 })),
         query_params_schema: None,
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("getSchedule"),
@@ -1355,6 +1773,9 @@ You should get the schema of the script or flow before updating the schedule to 
 })),
         query_params_schema: None,
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("listSchedules"),
@@ -1394,6 +1815,9 @@ You should get the schema of the script or flow before updating the schedule to 
         "required": []
 })),
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("listWorkers"),
@@ -1421,6 +1845,9 @@ You should get the schema of the script or flow before updating the schedule to 
         "required": []
 })),
         body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
     }
     ]
 }
