@@ -216,6 +216,8 @@
 							id={action.id}
 							customCss={action.customCss}
 							configuration={action.configuration}
+							onOpenRecomputeIds={action.onOpenRecomputeIds}
+							onCloseRecomputeIds={action.onCloseRecomputeIds}
 							verticalAlignment="center"
 							preclickAction={async () => {
 								dispatch('toggleRow')
@@ -287,6 +289,8 @@
 						id={action.id}
 						customCss={action.customCss}
 						configuration={action.configuration}
+						onOpenRecomputeIds={action.onOpenRecomputeIds}
+						onCloseRecomputeIds={action.onCloseRecomputeIds}
 						verticalAlignment="center"
 						preclickAction={async () => {
 							dispatch('toggleRow')
