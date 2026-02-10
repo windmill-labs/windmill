@@ -3092,7 +3092,13 @@ RETURNING job_id"
 
 async fn cleanup_job_result_stream_orphaned_jobs(db: &DB) -> error::Result<()> {
     let result = sqlx::query!(
-        "DELETE FROM job_result_stream_v2 WHERE job_id NOT IN (SELECT id FROM v2_job_queue) RETURNING job_id",
+        "DELETE FROM job_result_stream_v2
+         WHERE job_id NOT IN (SELECT id FROM v2_job_queue)
+           AND job_id NOT IN (
+               SELECT id FROM v2_job_completed
+               WHERE completed_at > NOW() - INTERVAL '60 seconds'
+           )
+         RETURNING job_id",
     )
     .fetch_all(db)
     .await?;
