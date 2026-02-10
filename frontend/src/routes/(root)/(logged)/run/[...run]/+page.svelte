@@ -355,7 +355,7 @@
 		}
 	}
 
-	let showEditButton = $derived(!isRuleActive('RequireForkOrBranchToDeploy'))
+	let showEditButton = $derived(!isRuleActive('DisableDirectDeployment'))
 
 	$effect(() => {
 		job?.id && lastJobId !== job.id && untrack(() => getConcurrencyKey(job))

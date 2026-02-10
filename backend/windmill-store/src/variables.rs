@@ -342,7 +342,7 @@ async fn create_variable(
     check_scopes(&authed, || format!("variables:write:{}", variable.path))?;
     if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
         &w_id,
-        &ProtectionRuleKind::DisableDirectDeployments,
+        &ProtectionRuleKind::DisableDirectDeployment,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
@@ -629,7 +629,7 @@ async fn update_variable(
 
     if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
         &w_id,
-        &ProtectionRuleKind::DisableDirectDeployments,
+        &ProtectionRuleKind::DisableDirectDeployment,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,

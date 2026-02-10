@@ -7,11 +7,11 @@
 	} from '$lib/workspaceProtectionRules.svelte'
 	import { Alert } from './common'
 
-	let activeDeployRulesets = $derived(getActiveRulesetsForKind('RequireForkOrBranchToDeploy'))
-	let canBypass = $derived(canUserBypassRuleKind('RequireForkOrBranchToDeploy', $userStore))
+	let activeDeployRulesets = $derived(getActiveRulesetsForKind('DisableDirectDeployment'))
+	let canBypass = $derived(canUserBypassRuleKind('DisableDirectDeployment', $userStore))
 	let overrideChecked = $state(false)
 	let canEdit = $derived(
-		!isRuleActive('RequireForkOrBranchToDeploy') || (canBypass && overrideChecked)
+		!isRuleActive('DisableDirectDeployment') || (canBypass && overrideChecked)
 	)
 
 	let {
@@ -31,7 +31,7 @@
 			<div class="flex flex-col gap-2">
 				<p>
 					The rule{activeDeployRulesets.length > 1 ? "s" : ""} <b>{activeDeployRulesets.map((r) => r.name).join(', ')}</b> restrict{activeDeployRulesets.length > 1 ? "" : "s"} direct edits to
-					this workspace. Use either a fork and the deployment UI, or a git sync based workflow (such as a PR on your synced repo) to make changes.
+					this workspace. You will need to either fork the workspace, or make your changes locally and submit a PR to an authorized user.
 				</p>
 				{#if canBypass}
 					<label class="flex items-center gap-2 cursor-pointer">

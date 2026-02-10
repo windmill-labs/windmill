@@ -28,14 +28,14 @@
 
 	// Editable state
 	let name = $state(rule?.name ?? '')
-	let requireForkOrBranch = $state(hasRule('RequireForkOrBranchToDeploy'))
+	let disableDirectDeployment = $state(hasRule('DisableDirectDeployment'))
 	let disableFork = $state(hasRule('DisableWorkspaceForking'))
 	let selectedGroups = $state<string[]>(rule?.bypass_groups?.map((g) => g.replace('g/', '')) ?? [])
 	let selectedUsers = $state<string[]>(rule?.bypass_users?.map((u) => u.replace('u/', '')) ?? [])
 
 	// Initial state for unsaved changes tracking
 	let initialName = $state(rule?.name ?? '')
-	let initialRequireForkOrBranch = $state(hasRule('RequireForkOrBranchToDeploy'))
+	let initialDisableDirectDeployment = $state(hasRule('DisableDirectDeployment'))
 	let initialDisableFork = $state(hasRule('DisableWorkspaceForking'))
 	let initialSelectedGroups = $state<string[]>(
 		rule?.bypass_groups ? rule.bypass_groups.map((g) => g.replace('g/', '')) : []
@@ -96,13 +96,12 @@
 	const hasUnsavedChanges = $derived(
 		isCreateMode
 			? name.trim() !== '' ||
-					requireForkOrBranch ||
+					disableDirectDeployment ||
 					disableFork ||
-					disableMergeUI ||
 					selectedGroups.length > 0 ||
 					selectedUsers.length > 0
 			: name !== initialName ||
-					requireForkOrBranch !== initialRequireForkOrBranch ||
+					disableDirectDeployment !== initialDisableDirectDeployment ||
 					disableFork !== initialDisableFork ||
 					JSON.stringify([...selectedGroups].sort()) !==
 						JSON.stringify([...initialSelectedGroups].sort()) ||
@@ -138,7 +137,7 @@
 				requestBody: {
 					name,
 					rules: [
-						...(requireForkOrBranch ? ['RequireForkOrBranchToDeploy' as ProtectionRuleKind] : []),
+						...(disableDirectDeployment ? ['DisableDirectDeployment' as ProtectionRuleKind] : []),
 						...(disableFork ? ['DisableWorkspaceForking' as ProtectionRuleKind] : []),
 					],
 					bypass_groups: selectedGroups,
@@ -163,7 +162,7 @@
 				ruleName: initialName,
 				requestBody: {
 					rules: [
-						...(requireForkOrBranch ? ['RequireForkOrBranchToDeploy' as ProtectionRuleKind] : []),
+						...(disableDirectDeployment ? ['DisableDirectDeployment' as ProtectionRuleKind] : []),
 						...(disableFork ? ['DisableWorkspaceForking' as ProtectionRuleKind] : []),
 					],
 					bypass_groups: selectedGroups,
@@ -175,7 +174,7 @@
 
 			// Update initial state
 			initialName = name
-			initialRequireForkOrBranch = requireForkOrBranch
+			initialDisableDirectDeployment = disableDirectDeployment
 			initialDisableFork = disableFork
 			initialSelectedGroups = clone(selectedGroups)
 			initialSelectedUsers = clone(selectedUsers)
@@ -265,12 +264,12 @@
 		class="space-y-4"
 	>
 		<div class="flex flex-col gap-4">
-			<!-- Require Fork or Branch -->
+			<!-- Disable Direct Deployment -->
 			<div class="flex flex-col gap-2">
 				<Toggle
-					bind:checked={requireForkOrBranch}
+					bind:checked={disableDirectDeployment}
 					options={{
-						right: 'Require fork or git branch for changes'
+						right: 'Disable direct deployment'
 					}}
 				/>
 				<div class="text-xs text-secondary ml-6">
@@ -289,19 +288,6 @@
 				<div class="text-xs text-secondary ml-6">Users cannot create forks of this workspace.</div>
 			</div>
 
-			<!-- Disable Merge UI -->
-			<div class="flex flex-col gap-2">
-				<Toggle
-					bind:checked={disableMergeUI}
-					options={{
-						right: 'Disable merge UI for forks'
-					}}
-				/>
-				<div class="text-xs text-secondary ml-6">
-					Users cannot deploy fork changes through the web UI. Merges must be done through external
-					processes such as a PR on the Git Sync repo.
-				</div>
-			</div>
 		</div>
 	</Section>
 

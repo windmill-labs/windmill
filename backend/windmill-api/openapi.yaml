@@ -23068,7 +23068,7 @@ components:
     ProtectionRuleKind:
       type: string
       enum:
-        - DisableDirectDeployments
+        - DisableDirectDeployment
         - DisableWorkspaceForking
     RuleBypasserGroups:
       type: array
