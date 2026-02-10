@@ -43,6 +43,7 @@
 		additionalInformation?: AdditionalInformation | undefined
 		workspaceToDeployTo?: string | undefined
 		hideButton?: boolean
+		canDeployToWorkspace?: boolean
 	}
 
 	let {
@@ -50,7 +51,8 @@
 		initialPath = '',
 		additionalInformation = undefined,
 		workspaceToDeployTo = $bindable(undefined),
-		hideButton = false
+		hideButton = false,
+		canDeployToWorkspace = $bindable(false)
 	}: Props = $props()
 
 	let canSeeTarget: 'yes' | 'cant-deploy-to-workspace' | 'cant-see-all-deps' | undefined =
@@ -735,7 +737,7 @@
 							>
 						{/if}
 					{:else}
-						<Button color="light" size="xs" on:click={() => deploy(kind, path)}>Deploy</Button>
+						<Button color="light" size="xs" disabled={!canDeployToWorkspace} on:click={() => deploy(kind, path)}>Deploy</Button>
 					{/if}
 				</div>
 			{/each}
@@ -743,7 +745,7 @@
 
 		{#if !hideButton}
 			<div class="mt-16 flex flex-row-reverse max-w-3xl"
-				><Button on:click={deployAll}>Deploy all toggled</Button></div
+				><Button on:click={deployAll} disabled={!canDeployToWorkspace}>Deploy all toggled</Button></div
 			>
 		{/if}
 	{:else if canSeeTarget == 'cant-see-all-deps'}

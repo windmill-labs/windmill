@@ -8,6 +8,7 @@
 
 use windmill_api_auth::{check_scopes, maybe_refresh_folders, require_owner_of_path, ApiAuthed};
 use windmill_common::db::DB;
+use windmill_common::workspaces::{check_user_against_rule, ProtectionRuleKind, RuleCheckResult};
 
 use crate::secret_backend_ext::{
     delete_secret_from_backend, get_secret_value, is_vault_stored_value, rename_vault_secret,
@@ -339,6 +340,19 @@ async fn create_variable(
     Json(variable): Json<CreateVariable>,
 ) -> Result<(StatusCode, String)> {
     check_scopes(&authed, || format!("variables:write:{}", variable.path))?;
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
     if *CLOUD_HOSTED {
         let nb_variables = sqlx::query_scalar!(
             "SELECT COUNT(*) FROM variable WHERE workspace_id = $1",
@@ -438,6 +452,18 @@ async fn delete_variable(
     let path = path.to_path();
 
     check_scopes(&authed, || format!("variables:write:{}", path))?;
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
 
     // Check if variable is a secret before deleting (for Vault cleanup)
     let is_secret = sqlx::query_scalar!(
@@ -513,6 +539,19 @@ async fn delete_variables_bulk(
 ) -> JsonResult<Vec<String>> {
     for path in &request.paths {
         check_scopes(&authed, || format!("variables:write:{}", path))?;
+    }
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
     }
 
     // Query which paths are secrets before deletion (for Vault cleanup)
@@ -612,6 +651,19 @@ async fn update_variable(
     Json(ns): Json<EditVariable>,
 ) -> Result<String> {
     use sql_builder::prelude::*;
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
 
     let path = path.to_path();
     check_scopes(&authed, || format!("variables:write:{}", path))?;
