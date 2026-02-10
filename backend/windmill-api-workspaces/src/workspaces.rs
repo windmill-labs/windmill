@@ -26,6 +26,7 @@ use hex;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
+use strum::{IntoEnumIterator};
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
@@ -38,7 +39,7 @@ use windmill_common::workspaces::GitRepositorySettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 use windmill_common::workspaces::{
-    check_user_against_rule, get_datatable_resource_from_db_unchecked, DataTable, DataTableCatalogResourceType, ProtectionRuleKind, RuleCheckResult, WorkspaceGitSyncSettings
+    check_user_against_rule, get_datatable_resource_from_db_unchecked, DataTable, DataTableCatalogResourceType, ProtectionRuleKind, ProtectionRules, ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::PgDatabase;

@@ -34,7 +34,7 @@ http_trigger = ["dep:matchit", "dep:windmill-trigger-http", "windmill-store/http
 static_frontend = ["dep:rust-embed"]
 postgres_trigger = ["dep:windmill-trigger-postgres", "windmill-store/postgres_trigger"]
 mqtt_trigger = ["dep:windmill-trigger-mqtt", "windmill-store/mqtt_trigger"]
-native_trigger = ["dep:windmill-native-triggers", "windmill-native-triggers/native_trigger", "oauth2"]
+native_trigger = ["dep:windmill-native-triggers", "windmill-native-triggers/native_trigger", "dep:strum", "oauth2"]
 sqs_trigger = ["dep:windmill-trigger-sqs", "windmill-store/sqs_trigger"]
 gcp_trigger = ["dep:windmill-trigger-gcp", "windmill-store/gcp_trigger"]
 cloud = ["windmill-common/cloud", "windmill-api-auth/cloud", "windmill-store/cloud", "windmill-api-workspaces/cloud"]
@@ -150,7 +150,6 @@ indexmap.workspace = true
 async-stream.workspace = true
 ulid.workspace = true
 rustls = { workspace = true }
-strum.workspace = true
 
 aws-sigv4 = { workspace = true, optional = true }
 aws-sdk-config = { workspace = true, optional = true }
@@ -163,6 +162,7 @@ async-trait.workspace = true
 windmill-jseval.workspace = true
 tar.workspace = true
 flate2.workspace = true
+strum = { workspace = true, optional = true }
 dashmap.workspace = true
 
 [build-dependencies]

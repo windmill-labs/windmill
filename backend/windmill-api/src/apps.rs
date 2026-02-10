@@ -216,11 +216,6 @@ pub struct AppHistoryUpdate {
     pub deployment_msg: Option<String>,
 }
 
-#[derive(Deserialize)]
-struct DeployedFromQuery {
-    deployed_from_workspace: Option<String>,
-}
-
 pub type StaticFields = HashMap<String, Box<RawValue>>;
 pub type OneOfFields = HashMap<String, Vec<Box<RawValue>>>;
 pub type AllowUserResources = Vec<String>;
@@ -1048,7 +1043,6 @@ async fn create_app_raw<'a>(
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
-    Query(deployed_from): Query<DeployedFromQuery>,
     multipart: Multipart,
 ) -> Result<(StatusCode, String)> {
     if authed.is_operator {
@@ -1057,15 +1051,9 @@ async fn create_app_raw<'a>(
         ));
     }
 
-    let rule_kind = if deployed_from.deployed_from_workspace.is_some() {
-        ProtectionRuleKind::DisableMergeUIInForks
-    } else {
-        ProtectionRuleKind::RequireForkOrBranchToDeploy
-    };
-
     if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
         &w_id,
-        &rule_kind,
+        &ProtectionRuleKind::RequireForkOrBranchToDeploy,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
@@ -1126,7 +1114,6 @@ async fn create_app(
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
-    Query(deployed_from): Query<DeployedFromQuery>,
     Json(app): Json<CreateApp>,
 ) -> Result<(StatusCode, String)> {
     if authed.is_operator {
@@ -1137,15 +1124,9 @@ async fn create_app(
     let path = app.path.clone();
     check_scopes(&authed, || format!("apps:write:{}", &path))?;
 
-    let rule_kind = if deployed_from.deployed_from_workspace.is_some() {
-        ProtectionRuleKind::DisableMergeUIInForks
-    } else {
-        ProtectionRuleKind::RequireForkOrBranchToDeploy
-    };
-
     if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
         &w_id,
-        &rule_kind,
+        &ProtectionRuleKind::RequireForkOrBranchToDeploy,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
@@ -1489,7 +1470,6 @@ async fn update_app(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    Query(deployed_from): Query<DeployedFromQuery>,
     Json(ns): Json<EditApp>,
 ) -> Result<String> {
     if authed.is_operator {
@@ -1501,15 +1481,10 @@ async fn update_app(
     let path = path.to_path();
     check_scopes(&authed, || format!("apps:write:{}", path))?;
 
-    let rule_kind = if deployed_from.deployed_from_workspace.is_some() {
-        ProtectionRuleKind::DisableMergeUIInForks
-    } else {
-        ProtectionRuleKind::RequireForkOrBranchToDeploy
-    };
 
     if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
         &w_id,
-        &rule_kind,
+        &ProtectionRuleKind::RequireForkOrBranchToDeploy,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
@@ -1542,7 +1517,6 @@ async fn update_app_raw<'a>(
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
-    Query(deployed_from): Query<DeployedFromQuery>,
     Path((w_id, path)): Path<(String, StripPath)>,
     multipart: Multipart,
 ) -> Result<String> {
@@ -1552,15 +1526,10 @@ async fn update_app_raw<'a>(
         ));
     }
 
-    let rule_kind = if deployed_from.deployed_from_workspace.is_some() {
-        ProtectionRuleKind::DisableMergeUIInForks
-    } else {
-        ProtectionRuleKind::RequireForkOrBranchToDeploy
-    };
 
     if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
         &w_id,
-        &rule_kind,
+        &ProtectionRuleKind::RequireForkOrBranchToDeploy,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
