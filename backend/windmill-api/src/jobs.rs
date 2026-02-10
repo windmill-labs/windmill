@@ -2133,6 +2133,16 @@ pub async fn resume_suspended_flow_as_owner(
     require_owner_of_path(&authed, flow_path)?;
     check_scopes(&authed, || format!("jobs:run:flows:{}", flow_path))?;
 
+    // Check approval conditions (self-approval, required groups, etc.)
+    if let Some(ref flow_status_value) = flow.flow_status {
+        if let Ok(flow_status) =
+            serde_json::from_value::<FlowStatus>(flow_status_value.clone())
+        {
+            let trigger_email = flow.email.as_deref().unwrap_or("");
+            conditionally_require_authed_user(Some(authed.clone()), flow_status, trigger_email)?;
+        }
+    }
+
     let value = value.unwrap_or(serde_json::Value::Null);
 
     insert_resume_job(
@@ -2411,6 +2421,7 @@ struct FlowInfo {
     flow_status: Option<serde_json::Value>,
     suspend: i32,
     script_path: Option<String>,
+    email: Option<String>,
 }
 
 /// Get flow info from either a step job (by looking up its parent) or a flow job directly.
@@ -2429,6 +2440,7 @@ async fn get_flow_info_for_resume(job_id: Uuid, db: &DB) -> error::Result<(FlowI
             s.flow_status,
             q.suspend AS "suspend!",
             j.runnable_path AS script_path,
+            j.permissioned_as_email AS email,
             (ji.kind IN ('flow', 'flowpreview')) AS "is_flow_level!"
         FROM job_info ji
         JOIN v2_job_queue q ON q.id = CASE
@@ -2450,6 +2462,7 @@ async fn get_flow_info_for_resume(job_id: Uuid, db: &DB) -> error::Result<(FlowI
         flow_status: result.flow_status,
         suspend: result.suspend,
         script_path: result.script_path,
+        email: Some(result.email),
     };
 
     Ok((flow_info, result.is_flow_level))
@@ -2462,7 +2475,7 @@ async fn get_suspended_flow_info<'c>(
     let flow = sqlx::query_as!(
             FlowInfo,
             r#"
-            SELECT j.id AS "id!", COALESCE(s.flow_status, s.workflow_as_code_status) as flow_status, q.suspend AS "suspend!", j.runnable_path as script_path
+            SELECT j.id AS "id!", COALESCE(s.flow_status, s.workflow_as_code_status) as flow_status, q.suspend AS "suspend!", j.runnable_path as script_path, j.permissioned_as_email as email
             FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_status s USING (id)
             WHERE j.id = $1
             "#,

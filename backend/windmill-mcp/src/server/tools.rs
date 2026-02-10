@@ -184,6 +184,7 @@ pub fn create_tool_from_item<T: ToolableItem, B: McpBackend>(
             idempotent_hint: Some(false), // Are not guaranteed to be idempotent
             open_world_hint: Some(true),  // Can interact with external services
         }),
+        execution: None,
         meta: None,
         execution: None,
     }

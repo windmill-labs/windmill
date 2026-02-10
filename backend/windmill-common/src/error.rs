@@ -249,7 +249,7 @@ impl IntoResponse for Error {
         let status = match self {
             Self::NotFound(_) => axum::http::StatusCode::NOT_FOUND,
             Self::NotAuthorized(_) => axum::http::StatusCode::UNAUTHORIZED,
-            Self::RequireAdmin(_) => axum::http::StatusCode::FORBIDDEN,
+            Self::RequireAdmin(_) | Self::PermissionDenied(_) => axum::http::StatusCode::FORBIDDEN,
             Self::SqlErr { .. }
             | Self::BadRequest(_)
             | Self::AIError(_)
