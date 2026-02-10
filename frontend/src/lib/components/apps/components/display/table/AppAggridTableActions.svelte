@@ -32,6 +32,7 @@
 		onRemove: (id: string, rowIndex: number) => void
 		wrapActions?: boolean | undefined
 		selectRow: (params: ICellRendererParams<any>) => void
+		setModalRow: (row: ICellRendererParams<any>) => void
 	}
 
 	let {
@@ -44,7 +45,8 @@
 		onSet,
 		onRemove,
 		wrapActions = undefined,
-		selectRow
+		selectRow,
+		setModalRow
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -221,7 +223,7 @@
 							verticalAlignment="center"
 							preclickAction={async () => {
 								dispatch('toggleRow')
-								p && selectRow(p)
+								p && (selectRow(p), setModalRow(p))
 							}}
 						/>
 					{:else if action.type == 'checkboxcomponent'}
@@ -294,7 +296,7 @@
 						verticalAlignment="center"
 						preclickAction={async () => {
 							dispatch('toggleRow')
-							p && selectRow(p)
+							p && (selectRow(p), setModalRow(p))
 						}}
 					/>
 				{:else if action.type == 'checkboxcomponent'}
