@@ -21,7 +21,17 @@ import { workspaceStore } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import type { FunctionParameters } from 'openai/resources/shared.mjs'
 import { z } from 'zod'
-import { ScriptService, JobService, type CompletedJob, type FlowModule } from '$lib/gen'
+import {
+	ScriptService,
+	FlowService,
+	JobService,
+	type CompletedJob,
+	type FlowModule,
+	type Script,
+	type Flow
+} from '$lib/gen'
+import uFuzzy from '@leeoniya/ufuzzy'
+import { emptyString } from '$lib/utils'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { getCurrentModel } from '$lib/aiStore'
 import { type editor as meditor } from 'monaco-editor'
@@ -658,6 +668,7 @@ export async function buildSchemaForTool(
 // Constants for result formatting
 const MAX_RESULT_LENGTH = 12000
 const MAX_LOG_LENGTH = 4000
+const MAX_RUNNABLE_CONTENT_LENGTH = 20000
 
 export interface TestRunConfig {
 	jobStarter: () => Promise<string>
@@ -886,3 +897,228 @@ export function formatScriptLintResult(lintResult: ScriptLintResult): string {
 
 	return response
 }
+
+// ============= Workspace Runnables Search =============
+
+export class WorkspaceRunnablesSearch {
+	private uf: uFuzzy
+	private scriptsWorkspace: string | undefined = undefined
+	private flowsWorkspace: string | undefined = undefined
+	private scripts: Script[] | undefined = undefined
+	private flows: Flow[] | undefined = undefined
+
+	constructor() {
+		this.uf = new uFuzzy()
+	}
+
+	private async initScripts(workspace: string) {
+		if (this.scripts === undefined || this.scriptsWorkspace !== workspace) {
+			this.scripts = await ScriptService.listScripts({ workspace })
+			this.scriptsWorkspace = workspace
+		}
+	}
+
+	private async initFlows(workspace: string) {
+		if (this.flows === undefined || this.flowsWorkspace !== workspace) {
+			this.flows = await FlowService.listFlows({ workspace })
+			this.flowsWorkspace = workspace
+		}
+	}
+
+	async searchScripts(query: string, workspace: string) {
+		await this.initScripts(workspace)
+		const scripts = this.scripts
+		if (!scripts) return []
+
+		const haystack = scripts.map((s) =>
+			emptyString(s.summary) ? s.path : s.summary + ' (' + s.path + ')'
+		)
+		const [idxs, , order] = this.uf.search(haystack, query.trim())
+		if (!idxs || !order) return []
+		return order.map((orderIdx) => {
+			const haystackIdx = idxs[orderIdx]
+			return {
+				type: 'script' as const,
+				path: scripts[haystackIdx].path,
+				summary: scripts[haystackIdx].summary
+			}
+		})
+	}
+
+	async searchFlows(query: string, workspace: string) {
+		await this.initFlows(workspace)
+		const flows = this.flows
+		if (!flows) return []
+
+		const haystack = flows.map((f) =>
+			emptyString(f.summary) ? f.path : f.summary + ' (' + f.path + ')'
+		)
+		const [idxs, , order] = this.uf.search(haystack, query.trim())
+		if (!idxs || !order) return []
+		return order.map((orderIdx) => {
+			const haystackIdx = idxs[orderIdx]
+			return {
+				type: 'flow' as const,
+				path: flows[haystackIdx].path,
+				summary: flows[haystackIdx].summary
+			}
+		})
+	}
+
+	async search(query: string, workspace: string, type: 'all' | 'scripts' | 'flows' = 'all') {
+		const results: { type: 'script' | 'flow'; path: string; summary: string }[] = []
+
+		if (type === 'all' || type === 'scripts') {
+			results.push(...(await this.searchScripts(query, workspace)))
+		}
+		if (type === 'all' || type === 'flows') {
+			results.push(...(await this.searchFlows(query, workspace)))
+		}
+
+		return results
+	}
+}
+
+const searchWorkspaceSchema = z.object({
+	query: z
+		.string()
+		.describe('Comma separated list of keywords to search for (e.g. "stripe, send email, ETL")'),
+	type: z
+		.enum(['all', 'scripts', 'flows'])
+		.describe(
+			'Filter by type: "all" for both scripts and flows, "scripts" for scripts only, "flows" for flows only.'
+		)
+})
+
+const searchWorkspaceToolDef = createToolDef(
+	searchWorkspaceSchema,
+	'search_workspace',
+	'Search for scripts and flows in the workspace. Use this when a user asks about existing building blocks, wants to find a script/flow, or asks "what do I have for X". ALWAYS search really broadly.'
+)
+
+const workspaceRunnablesSearch = new WorkspaceRunnablesSearch()
+
+export const createSearchWorkspaceTool = () => ({
+	def: searchWorkspaceToolDef,
+	fn: async ({
+		args,
+		workspace,
+		toolId,
+		toolCallbacks
+	}: {
+		args: any
+		workspace: string
+		toolId: string
+		toolCallbacks: ToolCallbacks
+	}) => {
+		const parsedArgs = searchWorkspaceSchema.parse(args)
+		const type = parsedArgs.type
+		toolCallbacks.setToolStatus(toolId, {
+			content: `Searching workspace...`
+		})
+
+		const results: { type: 'script' | 'flow'; path: string; summary: string }[] = []
+		const keywords = parsedArgs.query.split(',').map((keyword) => keyword.trim())
+		const seenPaths = new Set<string>()
+		for (const keyword of keywords) {
+			const keywordResults = await workspaceRunnablesSearch.search(keyword, workspace, type)
+			for (const result of keywordResults) {
+				if (!seenPaths.has(result.path)) {
+					results.push(result)
+					seenPaths.add(result.path)
+				}
+			}
+		}
+
+		toolCallbacks.setToolStatus(toolId, {
+			content: `Found ${results.length} result(s)`
+		})
+		return JSON.stringify(results, null, 2)
+	}
+})
+
+const getRunnableDetailsSchema = z.object({
+	path: z.string().describe('The path of the script or flow (e.g. "f/marketing/send_email")'),
+	type: z.enum(['script', 'flow']).describe('Whether this is a script or a flow')
+})
+
+const getRunnableDetailsToolDef = createToolDef(
+	getRunnableDetailsSchema,
+	'get_runnable_details',
+	'Get details (summary, description, inputs schema, content) of a specific script or flow by path'
+)
+
+export const createGetRunnableDetailsTool = () => ({
+	def: getRunnableDetailsToolDef,
+	fn: async ({
+		args,
+		workspace,
+		toolId,
+		toolCallbacks
+	}: {
+		args: any
+		workspace: string
+		toolId: string
+		toolCallbacks: ToolCallbacks
+	}) => {
+		const parsedArgs = getRunnableDetailsSchema.parse(args)
+		const { path, type } = parsedArgs
+		toolCallbacks.setToolStatus(toolId, {
+			content: `Getting ${type} details for "${path}"...`
+		})
+
+		try {
+			if (type === 'script') {
+				const script = await ScriptService.getScriptByPath({ workspace, path })
+				toolCallbacks.setToolStatus(toolId, {
+					content: `Retrieved script details for "${path}"`
+				})
+				const content = script.content ?? ''
+				const truncatedContent =
+					content.length > MAX_RUNNABLE_CONTENT_LENGTH
+						? content.slice(0, MAX_RUNNABLE_CONTENT_LENGTH) + '\n... (truncated)'
+						: content
+				return JSON.stringify(
+					{
+						path: script.path,
+						summary: script.summary,
+						description: script.description,
+						language: script.language,
+						schema: script.schema,
+						content: truncatedContent
+					},
+					null,
+					2
+				)
+			} else {
+				const flow = await FlowService.getFlowByPath({ workspace, path })
+				toolCallbacks.setToolStatus(toolId, {
+					content: `Retrieved flow details for "${path}"`
+				})
+				const flowValue = JSON.stringify(flow.value, null, 2)
+				const truncatedValue =
+					flowValue.length > MAX_RUNNABLE_CONTENT_LENGTH
+						? flowValue.slice(0, MAX_RUNNABLE_CONTENT_LENGTH) + '\n... (truncated)'
+						: flowValue
+				return JSON.stringify(
+					{
+						path: flow.path,
+						summary: flow.summary,
+						description: flow.description,
+						schema: flow.schema,
+						value: truncatedValue
+					},
+					null,
+					2
+				)
+			}
+		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : String(error)
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Error getting ${type} details`,
+				error: errorMessage
+			})
+			return `Error getting ${type} details for "${path}": ${errorMessage}`
+		}
+	}
+})
