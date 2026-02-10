@@ -149,7 +149,6 @@
 				})
 			} else if (kind == 'app') {
 				const app = await AppService.getAppByPath({ workspace: $workspaceStore!, path })
-				console.log('app', app)
 				let result: { kind: Kind; path: string }[] = []
 				if (app.raw_app) {
 					for (const runnable of Object.values(app.value.runnables as Record<string, Runnable>)) {

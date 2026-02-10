@@ -1,0 +1,66 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                                SELECT\n                                    flow_version.id AS version,\n                                    flow_version.value->>'early_return' as early_return,\n                                    flow_version.value->>'preprocessor_module' IS NOT NULL as has_preprocessor,\n                                    (flow_version.value->>'chat_input_enabled')::boolean as chat_input_enabled,\n                                    flow.tag,\n                                    flow.dedicated_worker,\n                                    flow.on_behalf_of_email,\n                                    flow.edited_by\n                                FROM\n                                    flow_version\n                                INNER JOIN flow\n                                    ON flow.path = flow_version.path AND\n                                       flow.workspace_id = flow_version.workspace_id\n                                WHERE\n                                    flow_version.workspace_id = $1 AND\n                                    flow_version.path = $2 AND\n                                    flow_version.id = $3\n                            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "version",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "early_return",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "has_preprocessor",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "chat_input_enabled",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "tag",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "dedicated_worker",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "on_behalf_of_email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "edited_by",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      null,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "209dc4c1b91eeab1c12ffcd9f9e16f315c689ca772c736b333dcdf07c8086087"
+}

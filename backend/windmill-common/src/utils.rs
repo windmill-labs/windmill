@@ -145,6 +145,13 @@ lazy_static::lazy_static! {
             tracing::info!("Mode not specified, defaulting to standalone");
             Mode::Standalone
         });
+        #[cfg(feature = "benchmark")]
+        let mode = {
+            if mode != Mode::Worker {
+                println!("Benchmark mode: forcing MODE=worker");
+            }
+            Mode::Worker
+        };
         ModeAndAddons {
             indexer: search_addon,
             mode,
