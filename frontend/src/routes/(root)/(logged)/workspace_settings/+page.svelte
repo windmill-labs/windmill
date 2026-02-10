@@ -1270,7 +1270,7 @@
 							{/if}
 						{:else if tab == 'rulesets'}
 							<SettingsPageHeader
-								title="Workspace Protection Rulsets"
+								title="Workspace Protection Rulesets"
 								description="Create and manage protection rules that define restrictions and specify which groups and users can bypass those restrictions. Users not in any bypass list will be subject to the configured rules."
 							/>
 							<WorkspaceRulesets />

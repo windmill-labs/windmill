@@ -62,7 +62,7 @@
 			<p>
 				The workspace {parentWorkspaceId} has a protection rule{activeDeployRulesets.length > 1 ? 's' : ''}
 				<b>{activeDeployRulesets.map((r) => r.name).join(', ')}</b>
-				that restrict{activeDeployRulesets.length > 1 ? '' : 's'} direct deployments. You need to merge changes through the synced git repo with Git Sync, or by asking an user with the rights to bypass this rule.
+				that restrict{activeDeployRulesets.length > 1 ? '' : 's'} direct deployments. You need to merge changes through the synced git repo with Git Sync, or by asking a user with the rights to bypass this rule.
 			</p>
 			{#if canBypass}
 				<label class="flex items-center gap-2 cursor-pointer">

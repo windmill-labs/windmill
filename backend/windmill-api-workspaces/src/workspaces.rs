@@ -4450,10 +4450,9 @@ async fn update_protection_rule(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, rule_name)): Path<(String, String)>,
-    ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(req): Json<UpdateProtectionRuleRequest>,
 ) -> Result<String> {
-    require_admin(is_admin, &username)?;
+    require_admin(authed.is_admin, &authed.username)?;
 
     let mut tx = db.begin().await?;
 
@@ -4526,9 +4525,8 @@ async fn delete_protection_rule(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, rule_name)): Path<(String, String)>,
-    ApiAuthed { is_admin, username, .. }: ApiAuthed,
 ) -> Result<String> {
-    require_admin(is_admin, &username)?;
+    require_admin(authed.is_admin, &authed.username)?;
 
     let mut tx = db.begin().await?;
 

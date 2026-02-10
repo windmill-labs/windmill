@@ -364,7 +364,7 @@ pub async fn check_user_against_rule(
                     .iter()
                     .any(|g| user_groups.contains(g))
             {
-                return Ok(RuleCheckResult::Allowed);
+                continue;
             }
             return Ok(RuleCheckResult::Blocked(format!(
                 "Ruleset {} of {} blocked this action: {}",
