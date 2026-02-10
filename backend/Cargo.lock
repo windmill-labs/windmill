@@ -16088,6 +16088,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "sqlx",
+ "strum 0.27.2",
  "tokio",
  "tracing",
  "uuid",

@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE workspace_protection_rule\n            SET rules = $1, bypass_groups = $2, bypass_users = $3\n            WHERE workspace_id = $4 AND name = $5\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "TextArray",
+        "TextArray",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "65b12bed9438900518b20dc268d71a2dba6ec66aee2971faef76b6ed56a05b6f"
+}

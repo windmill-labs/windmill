@@ -6,6 +6,7 @@
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
+	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
@@ -45,6 +46,8 @@
 	let filter = $state('')
 	let variables = $state(undefined) as ListableVariableW[] | undefined
 	let filteredItems = $state(undefined) as (ListableVariableW & { marked?: string })[] | undefined
+
+	let showCreateButtons = $state(false)
 	let contextualVariables: ContextualVariable[] = $state([])
 	let shareModal: ShareModal | undefined = $state()
 	let variableEditor: VariableEditor | undefined = $state()
@@ -183,28 +186,31 @@
 			tooltip="Save and permission strings to be reused in Scripts and Flows."
 			documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
 		>
-			<div class="flex flex-row justify-end">
-				{#if tab == 'contextual' && ($userStore?.is_admin || $userStore?.is_super_admin)}
-					<Button
-						unifiedSize="md"
-						variant="accent"
-						startIcon={{ icon: Plus }}
-						on:click={() => contextualVariableEditor?.initNew()}
-					>
-						New&nbsp;contextual&nbsp;variable
-					</Button>
-				{:else}
-					<Button
-						unifiedSize="md"
-						variant="accent"
-						startIcon={{ icon: Plus }}
-						on:click={() => variableEditor?.initNew()}
-					>
-						New&nbsp;variable
-					</Button>
-				{/if}
-			</div>
+			{#if showCreateButtons}
+				<div class="flex flex-row justify-end">
+					{#if tab == 'contextual' && ($userStore?.is_admin || $userStore?.is_super_admin)}
+						<Button
+							unifiedSize="md"
+							variant="accent"
+							startIcon={{ icon: Plus }}
+							on:click={() => contextualVariableEditor?.initNew()}
+						>
+							New&nbsp;contextual&nbsp;variable
+						</Button>
+					{:else}
+						<Button
+							unifiedSize="md"
+							variant="accent"
+							startIcon={{ icon: Plus }}
+							on:click={() => variableEditor?.initNew()}
+						>
+							New&nbsp;variable
+						</Button>
+					{/if}
+				</div>
+			{/if}
 		</PageHeader>
+		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => showCreateButtons = v} />
 
 		<VariableEditor bind:this={variableEditor} on:create={loadVariables} />
 		<ContextualVariableEditor
@@ -404,7 +410,7 @@
 														displayName: 'Edit',
 														icon: Pen,
 														action: () => variableEditor?.editVariable(path),
-														disabled: !canWrite
+														disabled: !canWrite || !showCreateButtons
 													},
 													{
 														displayName: 'Delete',
@@ -419,7 +425,7 @@
 																}
 															}
 														},
-														disabled: !owner
+														disabled: !owner || !showCreateButtons
 													},
 													...(isDeployable(
 														is_secret ? 'secret' : 'variable',
