@@ -237,6 +237,121 @@ mod suspend_resume {
         Ok(())
     }
 
+    /// Test that self-approval is blocked when self_approval_disabled is true.
+    ///
+    /// This test verifies that when a flow has an approval step with self_approval_disabled=true,
+    /// the user who triggered the flow cannot approve it themselves via the owner endpoint
+    /// (POST /jobs/flow/resume/:id).
+    ///
+    /// Bug context: The owner endpoint was missing the approval condition check, allowing
+    /// users to bypass self-approval restrictions by using the UI resume button instead
+    /// of the HMAC-signed approval link.
+    #[cfg(feature = "enterprise")]
+    #[cfg(feature = "deno_core")]
+    #[sqlx::test(fixtures("base"))]
+    async fn test_self_approval_disabled_blocks_owner_resume(db: Pool<Postgres>) -> anyhow::Result<()> {
+        initialize_tracing().await;
+
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        // Flow with self_approval_disabled=true on the approval step
+        let flow_with_self_approval_disabled: FlowValue = serde_json::from_value(json!({
+            "modules": [{
+                "id": "a",
+                "value": {
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main() { return 'step1'; }"
+                },
+                "suspend": {
+                    "required_events": 1,
+                    "user_auth_required": true,
+                    "self_approval_disabled": true
+                }
+            }, {
+                "id": "b",
+                "value": {
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main() { return 'step2 - after approval'; }"
+                }
+            }]
+        }))
+        .unwrap();
+
+        // Push flow as NON-ADMIN user (test-user-2) - admins bypass self-approval check
+        // Use a path owned by test-user-2 so require_owner_of_path succeeds
+        let flow = RunJob::from(JobPayload::RawFlow {
+            value: flow_with_self_approval_disabled,
+            path: Some("u/test-user-2/test_approval".to_string()),
+            restarted_from: None,
+        })
+        .push_as(&db, "test-user-2", "test2@windmill.dev")
+        .await;
+
+        let queue = listen_for_queue(&db).await;
+        let db_ = db.clone();
+
+        in_test_worker(
+            &db,
+            async move {
+                let db = db_;
+
+                // Wait for flow to suspend at approval step
+                wait_until_flow_suspends(flow, queue, &db).await;
+
+                // Create a token for the same non-admin user who triggered the flow
+                // This simulates clicking "Resume" in the UI as the flow owner
+                // Args: db, w_id, owner, label, expires_in, email, job_id, perms, audit_span
+                let token = windmill_common::auth::create_token_for_owner(
+                    &db,
+                    "test-workspace",
+                    "u/test-user-2",
+                    "test-token",
+                    100,
+                    "test2@windmill.dev",
+                    &Uuid::nil(),
+                    None,
+                    None,
+                )
+                .await
+                .unwrap();
+
+                // Try to resume via the owner endpoint (POST /jobs/flow/resume/:id)
+                // This should FAIL because self_approval_disabled=true and the user
+                // is the same as the one who triggered the flow
+                let response = reqwest::Client::new()
+                    .post(format!(
+                        "http://localhost:{port}/api/w/test-workspace/jobs/flow/resume/{flow}"
+                    ))
+                    .header("Authorization", format!("Bearer {token}"))
+                    .header("Content-Type", "application/json")
+                    .body("{}")
+                    .send()
+                    .await
+                    .unwrap();
+
+                let status = response.status();
+
+                // The request should be rejected with 403 Forbidden
+                // (currently this test FAILS because the bug allows self-approval)
+                assert!(
+                    status == reqwest::StatusCode::FORBIDDEN,
+                    "Self-approval should be blocked when self_approval_disabled=true. \
+                     Expected 403 Forbidden, got {}. Response: {}",
+                    status,
+                    response.text().await.unwrap_or_default()
+                );
+            },
+            port,
+        )
+        .await;
+
+        server.close().await.unwrap();
+        Ok(())
+    }
+
     #[cfg(feature = "deno_core")]
     #[sqlx::test(fixtures("base"))]
     async fn cancel_after_suspend(db: Pool<Postgres>) -> anyhow::Result<()> {
