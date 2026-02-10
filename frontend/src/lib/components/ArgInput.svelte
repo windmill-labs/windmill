@@ -670,7 +670,7 @@
 			{#if extra['min'] != undefined && extra['max'] != undefined}
 				<Range bind:value min={extra['min']} max={extra['max']} {defaultValue} />
 			{:else if extra['seconds'] !== undefined}
-				<SecondsInput bind:seconds={value} on:focus />
+				<SecondsInput bind:seconds={value} onfocus={bubble('focus')} />
 			{:else if extra?.currency}
 				<CurrencyInput
 					inputClasses={{
