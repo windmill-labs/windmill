@@ -28,7 +28,7 @@
 
 	let filter = $state('')
 
-	let { closeDrawer } = $props()
+	let { closeDrawer, showHeaderInfo = true } = $props()
 
 	function removeHash() {
 		const index = $page.url.href.lastIndexOf('#')
@@ -125,27 +125,29 @@
 />
 
 <div class="flex flex-col h-full w-full px-6 pt-4">
-	<div>
-		<div class="flex justify-between">
-			<div class="text-xs pt-1 text-primary flex flex-col">
-				<div>Windmill <Version /></div>
-			</div>
-			<div><Uptodate /></div></div
-		>
-	</div>
-	{#if $workspaceStore !== 'admins'}
-		<div class="flex flex-row-reverse">
-			<Button
-				variant="default"
-				target="_blank"
-				href="{base}/?workspace=admins"
-				endIcon={{ icon: ExternalLink }}
+	{#if showHeaderInfo}
+		<div>
+			<div class="flex justify-between">
+				<div class="text-xs pt-1 text-primary flex flex-col">
+					<div>Windmill <Version /></div>
+				</div>
+				<div><Uptodate /></div></div
 			>
-				Admins workspace
-			</Button>
 		</div>
+		{#if $workspaceStore !== 'admins'}
+			<div class="flex flex-row-reverse">
+				<Button
+					variant="default"
+					target="_blank"
+					href="{base}/?workspace=admins"
+					endIcon={{ icon: ExternalLink }}
+				>
+					Admins workspace
+				</Button>
+			</div>
+		{/if}
 	{/if}
-	<div class="pt-4 h-full">
+	<div class="{showHeaderInfo ? 'pt-4' : ''} h-full">
 		<Tabs bind:selected={tab} deferSelectedUpdate on:selected={handleTabSelected}>
 			<Tab
 				value="users"
