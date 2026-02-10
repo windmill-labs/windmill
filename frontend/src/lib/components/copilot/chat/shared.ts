@@ -982,8 +982,9 @@ const searchWorkspaceSchema = z.object({
 	query: z.string().describe('Search query (e.g. "stripe", "send email", "ETL")'),
 	type: z
 		.enum(['all', 'scripts', 'flows'])
-		.optional()
-		.describe('Filter by type. Defaults to "all".')
+		.describe(
+			'Filter by type: "all" for both scripts and flows, "scripts" for scripts only, "flows" for flows only.'
+		)
 })
 
 const searchWorkspaceToolDef = createToolDef(
@@ -1008,7 +1009,7 @@ export const createSearchWorkspaceTool = () => ({
 		toolCallbacks: ToolCallbacks
 	}) => {
 		const parsedArgs = searchWorkspaceSchema.parse(args)
-		const type = parsedArgs.type ?? 'all'
+		const type = parsedArgs.type
 		toolCallbacks.setToolStatus(toolId, {
 			content: `Searching workspace ${type} for "${parsedArgs.query}"...`
 		})
