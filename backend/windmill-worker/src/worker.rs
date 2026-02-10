@@ -12,7 +12,6 @@
 use anyhow::anyhow;
 use futures::TryFutureExt;
 use tokio::sync::Mutex;
-use tokio::time::sleep;
 use tokio::time::timeout;
 use windmill_common::client::AuthedClient;
 use windmill_common::jobs::WorkerInternalServerInlineUtils;
@@ -1618,6 +1617,11 @@ pub async fn run_worker(
     #[cfg(feature = "benchmark")]
     let mut infos = BenchmarkInfo::new();
 
+    #[cfg(feature = "benchmark")]
+    if let Some(db) = conn.as_sql() {
+        infos.init_pool_stats(db.size());
+    }
+
     let vacuum_shift = rand::rng().random_range(0..VACUUM_PERIOD);
 
     IS_READY.store(true, Ordering::Relaxed);
@@ -2067,6 +2071,9 @@ pub async fn run_worker(
                             #[cfg(feature = "benchmark")]
                             {
                                 add_time!(bench, "sent to dedicated worker");
+                                if let Some(db) = conn.as_sql() {
+                                    infos.sample_pool(db.size(), db.num_idle() as u32);
+                                }
                                 infos.add_iter(bench, true);
                             }
 
@@ -2137,6 +2144,9 @@ pub async fn run_worker(
                                 #[cfg(feature = "benchmark")]
                                 {
                                     add_time!(bench, "sent to flow runner");
+                                    if let Some(db) = conn.as_sql() {
+                                        infos.sample_pool(db.size(), db.num_idle() as u32);
+                                    }
                                     infos.add_iter(bench, true);
                                 }
 
@@ -2437,6 +2447,9 @@ pub async fn run_worker(
                 {
                     if started {
                         add_time!(bench, "job processed");
+                        if let Some(db) = conn.as_sql() {
+                            infos.sample_pool(db.size(), db.num_idle() as u32);
+                        }
                         infos.add_iter(bench, true);
                     }
                 }
@@ -2465,6 +2478,9 @@ pub async fn run_worker(
                 #[cfg(feature = "benchmark")]
                 {
                     add_time!(bench, "sleep because empty job queue");
+                    if let Some(db) = conn.as_sql() {
+                        infos.sample_pool(db.size(), db.num_idle() as u32);
+                    }
                     infos.add_iter(bench, false);
                 }
                 #[cfg(feature = "prometheus")]
@@ -3047,7 +3063,7 @@ pub async fn handle_queued_job(
             .flatten()
         {
             tracing::debug!("Debug: {} going to sleep for {}", job.id, dbg_djob_sleep);
-            sleep(std::time::Duration::from_secs(dbg_djob_sleep as u64)).await;
+            tokio::time::sleep(std::time::Duration::from_secs(dbg_djob_sleep as u64)).await;
         }
 
         tracing::debug!(

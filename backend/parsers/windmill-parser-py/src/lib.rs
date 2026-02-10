@@ -422,11 +422,15 @@ fn parse_expr(
     match e.as_ref() {
         Expr::Name(ExprName { id, .. }) => (parse_typ(id.as_ref(), enums, module), false),
         Expr::Attribute(x) => {
-            if x.value
-                .as_name_expr()
-                .is_some_and(|x| x.id.as_str() == "wmill")
-            {
-                (parse_typ(x.attr.as_str(), enums, module), false)
+            if let Some(name) = x.value.as_name_expr() {
+                match name.id.as_str() {
+                    "wmill" => (parse_typ(x.attr.as_str(), enums, module), false),
+                    "datetime" => {
+                        let full_name = format!("datetime.{}", x.attr.as_str());
+                        (parse_typ(&full_name, enums, module), false)
+                    }
+                    _ => (Typ::Unknown, false),
+                }
             } else {
                 (Typ::Unknown, false)
             }
@@ -493,6 +497,8 @@ fn parse_typ(id: &str, enums: &HashMap<String, EnumInfo>, module: Option<&[Stmt]
         "bytes" => Typ::Bytes,
         "datetime" => Typ::Datetime,
         "datetime.datetime" => Typ::Datetime,
+        "date" => Typ::Date,
+        "datetime.date" => Typ::Date,
         "Sql" | "sql" => Typ::Sql,
         x @ _ if x.starts_with("DynSelect_") => {
             Typ::DynSelect(x.strip_prefix("DynSelect_").unwrap().to_string())
@@ -620,7 +626,7 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
                     Arg {
                         otyp: None,
                         name: "name".to_string(),
-                        typ: Typ::Unknown,
+                        typ: Typ::Datetime,
                         default: Some(json!("<function call>")),
                         has_default: true,
                         oidx: None
@@ -709,7 +715,7 @@ def main(test1: str,
                     Arg {
                         otyp: None,
                         name: "name".to_string(),
-                        typ: Typ::Unknown,
+                        typ: Typ::Datetime,
                         default: Some(json!("<function call>")),
                         has_default: true,
                         oidx: None

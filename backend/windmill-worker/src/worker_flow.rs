@@ -1365,35 +1365,31 @@ pub async fn update_flow_status_after_job_completion_internal(
                 let args_hm = args.unwrap_or_default().0;
                 let args = PushArgs::from(&args_hm);
                 if let Some(ck) = concurrency_key {
-                    let mut tx = db.begin().await?;
                     insert_concurrency_key(
                         &flow_job.workspace_id,
                         &args,
                         &flow_job.runnable_path,
                         JobKind::Flow,
                         Some(ck),
-                        &mut tx,
+                        db,
                         flow,
                     )
                     .await?;
-                    tx.commit().await?;
                 }
                 if let Some(t) = tag {
                     tag = Some(interpolate_args(t, &args, &flow_job.workspace_id));
                 }
             } else if concurrent_limit.is_some() {
-                let mut tx = db.begin().await?;
                 insert_concurrency_key(
                     &flow_job.workspace_id,
                     &PushArgs::from(&HashMap::new()),
                     &flow_job.runnable_path,
                     JobKind::Flow,
                     concurrency_key,
-                    &mut tx,
+                    db,
                     flow,
                 )
                 .await?;
-                tx.commit().await?;
             }
 
             // let tag = tag_and_concurrency_key.and_then(|tc| tc.tag.map(|t| interpolate_args(t.clone(), &args, &workspace_id)));
@@ -1644,7 +1640,6 @@ pub async fn update_flow_status_after_job_completion_internal(
                     true,
                     None,
                     false,
-                    false,
                 )
                 .await?;
                 duration
@@ -1664,7 +1659,6 @@ pub async fn update_flow_status_after_job_completion_internal(
                     canceled_by.clone(),
                     true,
                     None,
-                    false,
                     false,
                 )
                 .await?;
@@ -3257,7 +3251,7 @@ async fn push_next_flow_job(
                 "UPDATE v2_job_runtime SET ping = now() WHERE id = $1 AND ping < now()",
                 flow_job.id,
             )
-            .execute(db)
+            .execute(&mut *tx)
             .warn_after_seconds(3)
             .await?;
         }
@@ -5097,6 +5091,10 @@ pub async fn get_previous_job_result(
     match flow_status.modules.get(prev) {
         Some(FlowStatusModule::Success { flow_jobs: Some(flow_jobs), .. }) => {
             Ok(Some(retrieve_flow_jobs_results(db, w_id, flow_jobs).await?))
+        }
+        Some(FlowStatusModule::Success { job, .. }) if *job == Uuid::nil() => {
+            // Empty branch — no real job was executed, return empty object
+            Ok(None)
         }
         Some(FlowStatusModule::Success { job, .. }) => Ok(Some(
             sqlx::query_scalar!(

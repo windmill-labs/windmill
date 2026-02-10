@@ -1297,6 +1297,15 @@ export function cleanValueProperties(obj: Value) {
 	}
 }
 
+export function hasUnsavedChanges(saved: Value, modified: Value): boolean {
+	const normalizedSaved = cleanValueProperties({ ...saved, path: undefined })
+	const normalizedModified = cleanValueProperties({ ...modified, path: undefined })
+	return (
+		orderedJsonStringify(replaceFalseWithUndefined(normalizedSaved)) !==
+		orderedJsonStringify(replaceFalseWithUndefined(normalizedModified))
+	)
+}
+
 export function orderedJsonStringify(obj: any, space?: string | number) {
 	const allKeys = new Set()
 	JSON.stringify(

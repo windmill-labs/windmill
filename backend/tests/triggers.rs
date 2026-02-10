@@ -1272,3 +1272,431 @@ async fn test_schedule_insert_and_query(db: Pool<Postgres>) -> anyhow::Result<()
 
     Ok(())
 }
+
+// ============================================================================
+// MQTT Trigger Tests (DB-level)
+// ============================================================================
+
+#[sqlx::test(fixtures("base"))]
+async fn test_mqtt_trigger_insert(db: Pool<Postgres>) -> anyhow::Result<()> {
+    sqlx::query(
+        r#"
+        INSERT INTO mqtt_trigger (
+            path, mqtt_resource_path, subscribe_topics, client_version,
+            script_path, is_flow, workspace_id, edited_by, email
+        )
+        VALUES ($1, $2, ARRAY[$3::jsonb], $4::mqtt_client_version, $5, $6, $7, $8, $9)
+        "#,
+    )
+    .bind("f/test/mqtt_trigger")
+    .bind("u/admin/mqtt_resource")
+    .bind(json!({"topic": "test/+", "qos": "qos1"}))
+    .bind("v5")
+    .bind("f/test/mqtt_handler")
+    .bind(false)
+    .bind("test-workspace")
+    .bind("test-user")
+    .bind("test@windmill.dev")
+    .execute(&db)
+    .await?;
+
+    let trigger = sqlx::query!(
+        r#"
+        SELECT mqtt_resource_path, client_version AS "client_version: String",
+               script_path, mode AS "mode: String"
+        FROM mqtt_trigger
+        WHERE workspace_id = $1 AND path = $2
+        "#,
+        "test-workspace",
+        "f/test/mqtt_trigger",
+    )
+    .fetch_one(&db)
+    .await?;
+
+    assert_eq!(trigger.mqtt_resource_path, "u/admin/mqtt_resource");
+    assert_eq!(trigger.client_version, "v5");
+    assert_eq!(trigger.script_path, "f/test/mqtt_handler");
+    assert_eq!(trigger.mode, "enabled");
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_mqtt_trigger_update(db: Pool<Postgres>) -> anyhow::Result<()> {
+    sqlx::query(
+        r#"
+        INSERT INTO mqtt_trigger (
+            path, mqtt_resource_path, subscribe_topics, client_version,
+            script_path, is_flow, workspace_id, edited_by, email
+        )
+        VALUES ($1, $2, ARRAY[$3::jsonb], $4::mqtt_client_version, $5, $6, $7, $8, $9)
+        "#,
+    )
+    .bind("f/test/mqtt_trigger")
+    .bind("u/admin/mqtt_resource")
+    .bind(json!({"topic": "test/+", "qos": "qos1"}))
+    .bind("v5")
+    .bind("f/test/old_handler")
+    .bind(false)
+    .bind("test-workspace")
+    .bind("test-user")
+    .bind("test@windmill.dev")
+    .execute(&db)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE mqtt_trigger SET script_path = $1 WHERE workspace_id = $2 AND path = $3",
+        "f/test/new_handler",
+        "test-workspace",
+        "f/test/mqtt_trigger",
+    )
+    .execute(&db)
+    .await?;
+
+    let trigger = sqlx::query!(
+        "SELECT script_path FROM mqtt_trigger WHERE workspace_id = $1 AND path = $2",
+        "test-workspace",
+        "f/test/mqtt_trigger",
+    )
+    .fetch_one(&db)
+    .await?;
+
+    assert_eq!(trigger.script_path, "f/test/new_handler");
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_mqtt_trigger_delete(db: Pool<Postgres>) -> anyhow::Result<()> {
+    sqlx::query(
+        r#"
+        INSERT INTO mqtt_trigger (
+            path, mqtt_resource_path, subscribe_topics, client_version,
+            script_path, is_flow, workspace_id, edited_by, email
+        )
+        VALUES ($1, $2, ARRAY[$3::jsonb], $4::mqtt_client_version, $5, $6, $7, $8, $9)
+        "#,
+    )
+    .bind("f/test/mqtt_trigger")
+    .bind("u/admin/mqtt_resource")
+    .bind(json!({"topic": "test/+", "qos": "qos1"}))
+    .bind("v5")
+    .bind("f/test/mqtt_handler")
+    .bind(false)
+    .bind("test-workspace")
+    .bind("test-user")
+    .bind("test@windmill.dev")
+    .execute(&db)
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM mqtt_trigger WHERE workspace_id = $1 AND path = $2",
+        "test-workspace",
+        "f/test/mqtt_trigger",
+    )
+    .execute(&db)
+    .await?;
+
+    let count = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM mqtt_trigger WHERE workspace_id = $1 AND path = $2",
+        "test-workspace",
+        "f/test/mqtt_trigger",
+    )
+    .fetch_one(&db)
+    .await?;
+
+    assert_eq!(count, Some(0));
+
+    Ok(())
+}
+
+// ============================================================================
+// GCP Trigger Tests (DB-level)
+// ============================================================================
+
+#[sqlx::test(fixtures("base"))]
+async fn test_gcp_trigger_insert_pull(db: Pool<Postgres>) -> anyhow::Result<()> {
+    sqlx::query(
+        r#"
+        INSERT INTO gcp_trigger (
+            path, gcp_resource_path, topic_id, subscription_id,
+            delivery_type, subscription_mode, script_path, is_flow,
+            workspace_id, edited_by, email
+        )
+        VALUES ($1, $2, $3, $4, $5::delivery_mode, $6::gcp_subscription_mode, $7, $8, $9, $10, $11)
+        "#,
+    )
+    .bind("f/test/gcp_trigger_pull")
+    .bind("u/admin/gcp_resource")
+    .bind("my-topic")
+    .bind("my-subscription")
+    .bind("pull")
+    .bind("create_update")
+    .bind("f/test/gcp_handler")
+    .bind(false)
+    .bind("test-workspace")
+    .bind("test-user")
+    .bind("test@windmill.dev")
+    .execute(&db)
+    .await?;
+
+    let trigger = sqlx::query!(
+        r#"
+        SELECT gcp_resource_path, topic_id, subscription_id,
+               delivery_type AS "delivery_type: String",
+               subscription_mode AS "subscription_mode: String",
+               mode AS "mode: String"
+        FROM gcp_trigger
+        WHERE workspace_id = $1 AND path = $2
+        "#,
+        "test-workspace",
+        "f/test/gcp_trigger_pull",
+    )
+    .fetch_one(&db)
+    .await?;
+
+    assert_eq!(trigger.gcp_resource_path, "u/admin/gcp_resource");
+    assert_eq!(trigger.topic_id, "my-topic");
+    assert_eq!(trigger.subscription_id, "my-subscription");
+    assert_eq!(trigger.delivery_type, "pull");
+    assert_eq!(trigger.subscription_mode, "create_update");
+    assert_eq!(trigger.mode, "enabled");
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_gcp_trigger_insert_push(db: Pool<Postgres>) -> anyhow::Result<()> {
+    sqlx::query(
+        r#"
+        INSERT INTO gcp_trigger (
+            path, gcp_resource_path, topic_id, subscription_id,
+            delivery_type, delivery_config, subscription_mode,
+            script_path, is_flow, workspace_id, edited_by, email
+        )
+        VALUES ($1, $2, $3, $4, $5::delivery_mode, $6::jsonb, $7::gcp_subscription_mode, $8, $9, $10, $11, $12)
+        "#,
+    )
+    .bind("f/test/gcp_trigger_push")
+    .bind("u/admin/gcp_resource")
+    .bind("my-topic")
+    .bind("my-push-subscription")
+    .bind("push")
+    .bind(json!({"endpoint": "https://example.com/push"}))
+    .bind("create_update")
+    .bind("f/test/gcp_handler")
+    .bind(false)
+    .bind("test-workspace")
+    .bind("test-user")
+    .bind("test@windmill.dev")
+    .execute(&db)
+    .await?;
+
+    let trigger = sqlx::query!(
+        r#"
+        SELECT delivery_type AS "delivery_type: String",
+               delivery_config
+        FROM gcp_trigger
+        WHERE workspace_id = $1 AND path = $2
+        "#,
+        "test-workspace",
+        "f/test/gcp_trigger_push",
+    )
+    .fetch_one(&db)
+    .await?;
+
+    assert_eq!(trigger.delivery_type, "push");
+    assert!(trigger.delivery_config.is_some());
+    assert_eq!(
+        trigger.delivery_config.unwrap()["endpoint"],
+        "https://example.com/push"
+    );
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_gcp_trigger_unique_constraint(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let insert_query = r#"
+        INSERT INTO gcp_trigger (
+            path, gcp_resource_path, topic_id, subscription_id,
+            delivery_type, subscription_mode, script_path, is_flow,
+            workspace_id, edited_by, email
+        )
+        VALUES ($1, $2, $3, $4, $5::delivery_mode, $6::gcp_subscription_mode, $7, $8, $9, $10, $11)
+    "#;
+
+    sqlx::query(insert_query)
+        .bind("f/test/gcp_trigger_1")
+        .bind("u/admin/gcp_resource")
+        .bind("my-topic")
+        .bind("shared-subscription")
+        .bind("pull")
+        .bind("create_update")
+        .bind("f/test/gcp_handler")
+        .bind(false)
+        .bind("test-workspace")
+        .bind("test-user")
+        .bind("test@windmill.dev")
+        .execute(&db)
+        .await?;
+
+    // Inserting a second trigger with same (subscription_id, gcp_resource_path, workspace_id) should fail
+    let result = sqlx::query(insert_query)
+        .bind("f/test/gcp_trigger_2")
+        .bind("u/admin/gcp_resource")
+        .bind("my-topic")
+        .bind("shared-subscription")
+        .bind("pull")
+        .bind("create_update")
+        .bind("f/test/gcp_handler_2")
+        .bind(false)
+        .bind("test-workspace")
+        .bind("test-user")
+        .bind("test@windmill.dev")
+        .execute(&db)
+        .await;
+
+    assert!(
+        result.is_err(),
+        "should fail due to unique constraint on (subscription_id, gcp_resource_path, workspace_id)"
+    );
+
+    Ok(())
+}
+
+// ============================================================================
+// Email Trigger Tests (DB-level)
+// ============================================================================
+
+#[sqlx::test(fixtures("base"))]
+async fn test_email_trigger_insert(db: Pool<Postgres>) -> anyhow::Result<()> {
+    sqlx::query!(
+        r#"
+        INSERT INTO email_trigger (
+            path, local_part, workspaced_local_part, script_path,
+            is_flow, workspace_id, edited_by, email
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        "#,
+        "f/test/email_trigger",
+        "support",
+        true,
+        "f/test/email_handler",
+        false,
+        "test-workspace",
+        "test-user",
+        "test@windmill.dev",
+    )
+    .execute(&db)
+    .await?;
+
+    let trigger = sqlx::query!(
+        r#"
+        SELECT local_part, workspaced_local_part, script_path,
+               mode AS "mode: String"
+        FROM email_trigger
+        WHERE workspace_id = $1 AND path = $2
+        "#,
+        "test-workspace",
+        "f/test/email_trigger",
+    )
+    .fetch_one(&db)
+    .await?;
+
+    assert_eq!(trigger.local_part, "support");
+    assert_eq!(trigger.workspaced_local_part, true);
+    assert_eq!(trigger.script_path, "f/test/email_handler");
+    assert_eq!(trigger.mode, "enabled");
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_email_trigger_update(db: Pool<Postgres>) -> anyhow::Result<()> {
+    sqlx::query!(
+        r#"
+        INSERT INTO email_trigger (
+            path, local_part, workspaced_local_part, script_path,
+            is_flow, workspace_id, edited_by, email
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        "#,
+        "f/test/email_trigger",
+        "support",
+        true,
+        "f/test/old_handler",
+        false,
+        "test-workspace",
+        "test-user",
+        "test@windmill.dev",
+    )
+    .execute(&db)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE email_trigger SET script_path = $1, local_part = $2 WHERE workspace_id = $3 AND path = $4",
+        "f/test/new_handler",
+        "billing",
+        "test-workspace",
+        "f/test/email_trigger",
+    )
+    .execute(&db)
+    .await?;
+
+    let trigger = sqlx::query!(
+        "SELECT script_path, local_part FROM email_trigger WHERE workspace_id = $1 AND path = $2",
+        "test-workspace",
+        "f/test/email_trigger",
+    )
+    .fetch_one(&db)
+    .await?;
+
+    assert_eq!(trigger.script_path, "f/test/new_handler");
+    assert_eq!(trigger.local_part, "billing");
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_email_trigger_delete(db: Pool<Postgres>) -> anyhow::Result<()> {
+    sqlx::query!(
+        r#"
+        INSERT INTO email_trigger (
+            path, local_part, workspaced_local_part, script_path,
+            is_flow, workspace_id, edited_by, email
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        "#,
+        "f/test/email_trigger",
+        "support",
+        true,
+        "f/test/email_handler",
+        false,
+        "test-workspace",
+        "test-user",
+        "test@windmill.dev",
+    )
+    .execute(&db)
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM email_trigger WHERE workspace_id = $1 AND path = $2",
+        "test-workspace",
+        "f/test/email_trigger",
+    )
+    .execute(&db)
+    .await?;
+
+    let count = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM email_trigger WHERE workspace_id = $1 AND path = $2",
+        "test-workspace",
+        "f/test/email_trigger",
+    )
+    .fetch_one(&db)
+    .await?;
+
+    assert_eq!(count, Some(0));
+
+    Ok(())
+}

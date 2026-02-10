@@ -3,7 +3,7 @@
 	import { sendUserToast } from '$lib/utils'
 	import { Button, Alert } from '$lib/components/common'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
-	import Description from '$lib/components/Description.svelte'
+	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
 	import { Check, X, ExternalLink, Cog, Plug } from 'lucide-svelte'
 	import { NextcloudIcon } from '$lib/components/icons'
 	import { WorkspaceIntegrationService, type NativeServiceName } from '$lib/gen'
@@ -203,18 +203,12 @@
 	})
 </script>
 
-<div class="flex flex-col gap-6 my-8">
-	<div class="flex flex-col gap-1">
-		<div class="text-sm font-semibold text-emphasis">Native Triggers (Beta)</div>
-		<Description>
-			Connect your workspace to external services for native triggers and enhanced functionality.
-			These connections are shared across all workspace members and are required for native triggers
-			to work.
-		</Description>
-		<Description link="https://www.windmill.dev/docs/integrations/native-triggers">
-			Learn more about native triggers and workspace integrations.
-		</Description>
-	</div>
+<div class="flex flex-col gap-6">
+	<SettingsPageHeader
+		title="Native Triggers (Beta)"
+		description="Connect your workspace to external services for native triggers and enhanced functionality. These connections are shared across all workspace members and are required for native triggers to work."
+		link="https://www.windmill.dev/docs/integrations/native-triggers"
+	/>
 
 	<Alert type="warning" title="Beta Feature">
 		<p>Native Triggers is currently in beta. Nextcloud integration requires:</p>
@@ -230,7 +224,9 @@
 				</a>
 				to be enabled on your Nextcloud instance.
 			</li>
-			<li>The Windmill integration app to be installed on your Nextcloud instance (not yet released).</li>
+			<li
+				>The Windmill integration app to be installed on your Nextcloud instance (not yet released).</li
+			>
 		</ul>
 	</Alert>
 

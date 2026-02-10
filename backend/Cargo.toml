@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.628.3"
+version = "1.629.1"
 authors.workspace = true
 edition.workspace = true
 
@@ -59,7 +59,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal"]
 
 [workspace.package]
-version = "1.628.3"
+version = "1.629.1"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -229,6 +229,12 @@ axum.workspace = true
 serde.workspace = true
 windmill-api-client.workspace = true
 tempfile.workspace = true
+rumqttc.workspace = true
+rdkafka.workspace = true
+async-nats.workspace = true
+aws-sdk-sqs.workspace = true
+aws-config.workspace = true
+aws-credential-types.workspace = true
 
 
 [workspace.dependencies]
@@ -413,7 +419,7 @@ const_format = { version = "0.2.35", features = ["rust_1_64", "rust_1_51"] }
 const-str = "0.5"
 constant_time_eq = "0.3.1"
 rsa = "^0"
-aes-gcm = "^0"
+aes-gcm = "0.10.3"
 async_zip = { version = "0.0.17", features = ["tokio", "tokio-fs", "deflate", "chrono"] }
 once_cell = "1.17.1"
 dashmap = "6.1.0"
