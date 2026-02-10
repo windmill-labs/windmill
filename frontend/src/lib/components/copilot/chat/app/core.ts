@@ -6,7 +6,7 @@ import { z } from 'zod'
 import {
 	createSearchHubScriptsTool,
 	createToolDef,
-	WorkspaceRunnablesSearch,
+	createSearchWorkspaceTool,
 	type Tool
 } from '../shared'
 import { aiChatManager } from '../AIChatManager.svelte'
@@ -368,28 +368,6 @@ const getGetSelectedContextToolDef = memo(() =>
 	)
 )
 
-// ============= Workspace Runnables Search =============
-
-const getListWorkspaceRunnablesSchema = memo(() =>
-	z.object({
-		query: z.string().describe('The search query to find workspace scripts and flows'),
-		type: z
-			.enum(['all', 'scripts', 'flows'])
-			.describe(
-				'Filter by type: "scripts" for scripts only, "flows" for flows only, "all" for both. Defaults to "all".'
-			)
-	})
-)
-const getListWorkspaceRunnablesToolDef = memo(() =>
-	createToolDef(
-		getListWorkspaceRunnablesSchema(),
-		'list_workspace_runnables',
-		'Search for workspace scripts and flows by query. Returns fully qualified paths that can be used in backend runnables.'
-	)
-)
-
-const workspaceRunnablesSearch = new WorkspaceRunnablesSearch()
-
 // ============= Lint Result Formatting =============
 
 function formatLintMessages(messages: Record<string, string[]>): string {
@@ -670,23 +648,7 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 		}
 	},
 	// Search tools
-	{
-		def: getListWorkspaceRunnablesToolDef(),
-		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
-			const parsedArgs = getListWorkspaceRunnablesSchema().parse(args)
-			const type = parsedArgs.type ?? 'all'
-			toolCallbacks.setToolStatus(toolId, {
-				content: `Searching workspace ${type} for "${parsedArgs.query}"...`
-			})
-
-			const results = await workspaceRunnablesSearch.search(parsedArgs.query, workspace, type)
-
-			toolCallbacks.setToolStatus(toolId, {
-				content: `Found ${results.length} workspace runnables matching "${parsedArgs.query}"`
-			})
-			return JSON.stringify(results, null, 2)
-		}
-	},
+	createSearchWorkspaceTool(),
 	// Hub scripts search (reuse from shared)
 	createSearchHubScriptsTool(false),
 	// Data table tools
@@ -841,7 +803,7 @@ For inline scripts, the code must have a \`main\` function as its entrypoint.
 - \`lint()\`: Lint all files. Returns errors/warnings grouped by frontend/backend. Use this to check for issues after making changes.
 
 ### Discovery
-- \`list_workspace_runnables(query, type?)\`: Search workspace scripts and flows
+- \`search_workspace(query, type?)\`: Search workspace scripts and flows
 - \`search_hub_scripts(query)\`: Search hub scripts
 
 ### Data Tables
@@ -988,7 +950,7 @@ When you are using the windmill-client, do not forget that as id for variables o
 3. Make changes using \`set_frontend_file\` and \`set_backend_runnable\`. These return lint diagnostics.
 4. Use \`lint()\` at the end to check for and fix any remaining errors
 
-When creating a new app, use \`list_workspace_runnables\` or \`search_hub_scripts\` to find existing scripts/flows to reuse.
+When creating a new app, use \`search_workspace\` or \`search_hub_scripts\` to find existing scripts/flows to reuse.
 
 `
 
