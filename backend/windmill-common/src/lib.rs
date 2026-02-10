@@ -664,153 +664,6 @@ pub async fn get_database_url() -> Result<DatabaseUrl, Error> {
     Ok(database_url.clone())
 }
 
-pub async fn initial_connection() -> Result<sqlx::Pool<sqlx::Postgres>, error::Error> {
-    let connect_options = get_database_url().await?.connect_options().await?;
-    sqlx::postgres::PgPoolOptions::new()
-        .max_connections(2)
-        .connect_with(connect_options)
-        .await
-        .map_err(|err| Error::ConnectingToDatabase(err.to_string()))
-}
-
-pub async fn connect_db(
-    server_mode: bool,
-    indexer_mode: bool,
-    worker_mode: bool,
-    #[cfg(feature = "private")] mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
-) -> anyhow::Result<sqlx::Pool<sqlx::Postgres>> {
-    use anyhow::Context;
-
-    let database_url = get_database_url().await?;
-
-    let max_connections = match std::env::var("DATABASE_CONNECTIONS") {
-        Ok(n) => n.parse::<u32>().context("invalid DATABASE_CONNECTIONS")?,
-        Err(_) => {
-            if server_mode {
-                DEFAULT_MAX_CONNECTIONS_SERVER
-            } else if indexer_mode {
-                DEFAULT_MAX_CONNECTIONS_INDEXER
-            } else {
-                DEFAULT_MAX_CONNECTIONS_WORKER
-                    + std::env::var("NUM_WORKERS")
-                        .ok()
-                        .map(|x| x.parse().ok())
-                        .flatten()
-                        .unwrap_or(1)
-                    - 1
-            }
-        }
-    };
-
-    let pool = connect(database_url.clone(), max_connections, worker_mode).await?;
-    #[cfg(all(feature = "enterprise", feature = "private"))]
-    let pool2 = pool.clone();
-    #[cfg(all(feature = "enterprise", feature = "private"))]
-    if let DatabaseUrl::IamRds(database_url) = database_url {
-        tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    _ = killpill_rx.recv() => {
-                        break;
-                    }
-                    _ = tokio::time::sleep(std::time::Duration::from_secs(10)) => {
-                        let needs_refresh = {
-                            let read_guard = database_url.read().await;
-                            read_guard.needs_refresh()
-                        };
-                        if needs_refresh {
-                            let new_url = tokio::time::timeout(std::time::Duration::from_secs(10), get_database_url()).await;
-                            match new_url {
-                                Ok(Ok(new_url)) => {
-                                    match new_url.connect_options().await {
-                                        Ok(connect_options) => {
-                                            pool2.set_connect_options(connect_options);
-                                            tracing::info!("Refreshed IAM RDS URL successfully");
-                                        }
-                                        Err(e) => {
-                                            tracing::error!("Error getting IAM RDS connect options, retrying in 10s: {}", e);
-                                            continue;
-                                        }
-                                    }
-                                }
-                                Ok(Err(e)) => {
-                                    tracing::error!("Error refreshing IAM RDS URL, trying again in 10s: {}", e);
-                                    continue;
-                                }
-                                Err(e) => {
-                                    tracing::error!("Timeout after 10s refreshing IAM RDS URL, trying again in 10 seconds: {}", e);
-                                    continue;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        });
-    }
-
-    Ok(pool)
-}
-
-pub async fn connect(
-    database_url: DatabaseUrl,
-    max_connections: u32,
-    worker_mode: bool,
-) -> Result<sqlx::Pool<sqlx::Postgres>, error::Error> {
-    use sqlx::Executor;
-    use std::time::Duration;
-    sqlx::postgres::PgPoolOptions::new()
-        .min_connections((max_connections / 5).clamp(3, max_connections))
-        .max_connections(max_connections)
-        .max_lifetime(Duration::from_secs(30 * 60)) // 30 mins
-        .after_connect(move |conn, _| {
-            if worker_mode {
-                Box::pin(async move {
-                    if let Err(e) = conn
-                        .execute(
-                            r#"
-        SET enable_seqscan = OFF;
-        SET statement_timeout = '5min';
-        SET idle_in_transaction_session_timeout = '10min';
-        SET tcp_keepalives_idle = 300;
-        SET tcp_keepalives_interval = 60;
-        SET tcp_keepalives_count = 10;"#,
-                        )
-                        .await
-                    {
-                        tracing::error!("Error setting postgres settings: {}", e);
-                    }
-                    Ok(())
-                })
-            } else {
-                Box::pin(async move {
-                    if let Err(e) = conn
-                        .execute(
-                            r#"
-        SET statement_timeout = '5min';
-        SET idle_in_transaction_session_timeout = '10min';
-        SET tcp_keepalives_idle = 300;
-        SET tcp_keepalives_interval = 60;
-        SET tcp_keepalives_count = 10;"#,
-                        )
-                        .await
-                    {
-                        tracing::error!("Error setting postgres settings: {}", e);
-                    }
-                    Ok(())
-                })
-            }
-        })
-        .connect_with(
-            database_url
-                .connect_options()
-                .await?
-                .statement_cache_capacity(400),
-        )
-        .await
-        .map_err(|err| Error::ConnectingToDatabase(err.to_string()))
-}
-
 type Tag = String;
 
 pub use db::DB;
@@ -852,11 +705,9 @@ impl ScriptHashInfo<ScriptRunnableSettingsHandle> {
         self,
         db: &DB,
     ) -> error::Result<ScriptHashInfo<ScriptRunnableSettingsInline>> {
-        let rs = runnable_settings::from_handle(
-            self.runnable_settings.runnable_settings_handle,
-            db,
-        )
-        .await?;
+        let rs =
+            runnable_settings::from_handle(self.runnable_settings.runnable_settings_handle, db)
+                .await?;
         let (debouncing_settings, concurrency_settings) =
             runnable_settings::prefetch_cached(&rs, db).await?;
 
@@ -1176,25 +1027,25 @@ pub fn get_flow_version_info_from_version<
             _ => {
                 tracing::debug!("Fetching flow version info for {version} ({path})");
                 let mut conn = db.acquire().await?;
-                let flow_info = 
+                let flow_info =
                         sqlx::query_as!(
                             FlowVersionInfo,
                             r#"
                                 SELECT
                                     flow_version.id AS version,
-                                    flow_version.value->>'early_return' as early_return, 
-                                    flow_version.value->>'preprocessor_module' IS NOT NULL as has_preprocessor, 
-                                    (flow_version.value->>'chat_input_enabled')::boolean as chat_input_enabled, 
-                                    flow.tag, 
-                                    flow.dedicated_worker, 
-                                    flow.on_behalf_of_email, 
+                                    flow_version.value->>'early_return' as early_return,
+                                    flow_version.value->>'preprocessor_module' IS NOT NULL as has_preprocessor,
+                                    (flow_version.value->>'chat_input_enabled')::boolean as chat_input_enabled,
+                                    flow.tag,
+                                    flow.dedicated_worker,
+                                    flow.on_behalf_of_email,
                                     flow.edited_by
-                                FROM 
+                                FROM
                                     flow_version
                                 INNER JOIN flow
                                     ON flow.path = flow_version.path AND
                                        flow.workspace_id = flow_version.workspace_id
-                                WHERE 
+                                WHERE
                                     flow_version.workspace_id = $1 AND
                                     flow_version.path = $2 AND
                                     flow_version.id = $3
