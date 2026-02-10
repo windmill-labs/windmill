@@ -58,6 +58,7 @@ pub fn global_service() -> Router {
         .route("/test_smtp", post(test_email))
         .route("/test_license_key", post(test_license_key))
         .route("/send_stats", post(send_stats))
+        .route("/get_stats", get(get_stats))
         .route(
             "/latest_key_renewal_attempt",
             get(get_latest_key_renewal_attempt),
@@ -432,6 +433,25 @@ pub async fn send_stats(Extension(db): Extension<DB>, authed: ApiAuthed) -> Resu
     .await?;
 
     Ok("Sent stats".to_string())
+}
+
+#[cfg(feature = "enterprise")]
+pub async fn get_stats(Extension(db): Extension<DB>, authed: ApiAuthed) -> Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+    let stats = windmill_common::stats_oss::get_stats_payload(
+        &db,
+        &windmill_common::stats_oss::SendStatsReason::Manual,
+    )
+    .await?;
+    let encrypted = windmill_common::stats_oss::encrypt_stats(&stats)?;
+    Ok(encrypted)
+}
+
+#[cfg(not(feature = "enterprise"))]
+pub async fn get_stats() -> Result<String> {
+    Err(error::Error::BadRequest(
+        "Downloading telemetry is only available on enterprise edition".to_string(),
+    ))
 }
 
 #[derive(serde::Serialize)]
