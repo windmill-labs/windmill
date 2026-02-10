@@ -1375,6 +1375,19 @@ async fn delete_app(
         ));
     }
 
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
     // Check if it's a raw app before deletion
     let is_raw_app = sqlx::query_scalar!(
         "SELECT app_version.raw_app FROM app

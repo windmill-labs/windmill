@@ -1916,6 +1916,18 @@ async fn archive_script_by_path(
     }
     let path = path.to_path();
     check_scopes(&authed, || format!("scripts:write:{}", path))?;
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
     let mut tx = user_db.begin(&authed).await?;
 
     require_owner_of_path(&authed, path)?;
@@ -1983,6 +1995,18 @@ async fn archive_script_by_hash(
             "Operators cannot archive scripts for security reasons".to_string(),
         ));
     }
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
     let mut tx = user_db.begin(&authed).await?;
 
     let script = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(
@@ -2028,9 +2052,20 @@ async fn delete_script_by_hash(
     Extension(db): Extension<DB>,
     Path((w_id, hash)): Path<(String, ScriptHash)>,
 ) -> JsonResult<Script<ScriptRunnableSettingsInline>> {
-    let mut tx = user_db.begin(&authed).await?;
-
     require_admin(authed.is_admin, &authed.username)?;
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+    let mut tx = user_db.begin(&authed).await?;
     let script = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(
         "UPDATE script SET content = '', archived = true, deleted = true, lock = '', schema = null WHERE hash = $1 AND \
          workspace_id = $2 RETURNING *",
@@ -2086,6 +2121,19 @@ async fn delete_script_by_path(
         return Err(Error::BadRequest(
             "Cannot delete the global setup app".to_string(),
         ));
+    }
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
     }
 
     let mut tx = user_db.begin(&authed).await?;
@@ -2212,6 +2260,19 @@ async fn delete_scripts_bulk(
         return Err(Error::BadRequest(
             "Cannot delete the global setup app".to_string(),
         ));
+    }
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
     }
 
     let mut tx = db.begin().await?;

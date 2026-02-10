@@ -452,6 +452,18 @@ async fn delete_variable(
     let path = path.to_path();
 
     check_scopes(&authed, || format!("variables:write:{}", path))?;
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
 
     // Check if variable is a secret before deleting (for Vault cleanup)
     let is_secret = sqlx::query_scalar!(
@@ -527,6 +539,19 @@ async fn delete_variables_bulk(
 ) -> JsonResult<Vec<String>> {
     for path in &request.paths {
         check_scopes(&authed, || format!("variables:write:{}", path))?;
+    }
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
     }
 
     // Query which paths are secrets before deletion (for Vault cleanup)

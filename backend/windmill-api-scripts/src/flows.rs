@@ -1446,6 +1446,18 @@ async fn archive_flow_by_path(
 ) -> Result<String> {
     let path = path.to_path();
     check_scopes(&authed, || format!("flows:write:{}", path))?;
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
@@ -1551,6 +1563,18 @@ async fn delete_flow_by_path(
 ) -> Result<String> {
     let path = path.to_path();
     check_scopes(&authed, || format!("flows:write:{}", path))?;
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
