@@ -23116,6 +23116,8 @@ components:
           type: string
           description: Unique name for the protection rule
           example: "Production Protection"
+        workspace_id:
+          type: string
         rules:
           $ref: "#/components/schemas/ProtectionRules"
         bypass_groups:

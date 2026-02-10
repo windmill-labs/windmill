@@ -8,6 +8,3 @@ CREATE TABLE workspace_protection_rule (
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
     PRIMARY KEY (workspace_id, name)
 );
-
--- Index for listing all rules in a workspace
-CREATE INDEX idx_protection_rule_workspace ON workspace_protection_rule(workspace_id);
