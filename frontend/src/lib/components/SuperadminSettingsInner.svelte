@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { UserService, type GlobalUserInfo, SettingService } from '$lib/gen'
-	import TableCustom from '$lib/components/TableCustom.svelte'
+	import DataTable from '$lib/components/table/DataTable.svelte'
+	import Head from '$lib/components/table/Head.svelte'
+	import Cell from '$lib/components/table/Cell.svelte'
 	import InviteGlobalUser from '$lib/components/InviteGlobalUser.svelte'
 	import { Button } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
@@ -15,7 +17,8 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { ExternalLink, UserPlus } from 'lucide-svelte'
+	import { ExternalLink, Pencil, UserMinus, UserPlus } from 'lucide-svelte'
+	import DropdownV2 from './DropdownV2.svelte'
 	import Popover from './meltComponents/Popover.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import ChangeInstanceUsername from './ChangeInstanceUsername.svelte'
@@ -51,6 +54,7 @@
 	let users: GlobalUserInfo[] = $state([])
 	let filteredUsers: GlobalUserInfo[] = $state([])
 	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
+	let editWrappers: Record<string, HTMLDivElement> = $state({})
 	let activeOnly = $state(false)
 
 	async function listUsers(activeOnly: boolean): Promise<void> {
@@ -175,7 +179,7 @@
 		<!-- Main Content -->
 		<div class="flex-1 min-w-0 h-full">
 			<div class="h-full overflow-auto bg-surface-tertiary">
-				<div class="h-fit px-8 py-6" style="scrollbar-gutter: stable both-edges;">
+				<div class="h-fit px-8 py-4">
 					{#if tab === 'users'}
 						<div class="h-full">
 							{#if !automateUsernameCreation && !isCloudHosted()}
@@ -253,121 +257,140 @@
 									{/snippet}
 								</Popover>
 							</div>
-							<div class="mt-2 overflow-auto">
-								<TableCustom>
-									<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
-									<tr slot="header-row" class="sticky top-0 bg-surface border-b">
-										<th>email</th>
-										<th>auth</th>
-										<th>name</th>
-										{#if automateUsernameCreation}
-											<th>username</th>
-										{/if}
-										{#if activeOnly}
-											<th>kind</th>
-										{/if}
-										<th></th>
-										<th></th>
-									</tr>
-									{#snippet body()}
-										<tbody class="overflow-y-auto w-full h-full max-h-full">
-											{#if filteredUsers && users}
-												{#each filteredUsers.slice(0, nbDisplayed) as { email, super_admin, devops, login_type, name, username, operator_only } (email)}
-													<tr class="border">
-														<td>{email}</td>
-														<td>{login_type}</td>
-														<td><span class="break-words">{truncate(name ?? '', 30)}</span></td>
-
-														{#if automateUsernameCreation}
-															<td>
-																{#if username}
-																	{username}
-																{:else}
-																	{#key filteredUsers.map((u) => u.username).join()}
-																		<ChangeInstanceUsername
-																			username=""
-																			{email}
-																			isConflict
-																			on:renamed={() => {
-																				listUsers(activeOnly)
-																			}}
-																		/>
-																	{/key}
-																{/if}
-															</td>
-														{/if}
-														{#if activeOnly}
-															<td>
-																{#if operator_only}
-																	Operator only
-																{:else}
-																	Developer
-																{/if}
-															</td>
-														{/if}
-														<td>
-															<ToggleButtonGroup
-																selected={super_admin ? 'super_admin' : devops ? 'devops' : 'user'}
-																on:selected={async (e) => {
-																	if (email == $userStore?.email) {
-																		sendUserToast('You cannot demote yourself', true)
-																		listUsers(activeOnly)
-																		return
-																	}
-
-																	let role = e.detail
-
-																	if (role === 'super_admin') {
-																		await UserService.globalUserUpdate({
-																			email,
-																			requestBody: {
-																				is_super_admin: true,
-																				is_devops: false
-																			}
-																		})
-																	}
-																	if (role === 'devops') {
-																		await UserService.globalUserUpdate({
-																			email,
-																			requestBody: {
-																				is_super_admin: false,
-																				is_devops: true
-																			}
-																		})
-																	}
-																	if (role === 'user') {
-																		await UserService.globalUserUpdate({
-																			email,
-																			requestBody: {
-																				is_super_admin: false,
-																				is_devops: false
-																			}
-																		})
-																	}
-																	sendUserToast('User updated')
+							<div class="mt-2">
+								<DataTable
+									shouldLoadMore={(filteredUsers?.length ?? 0) > 50}
+									loadMore={50}
+									on:loadMore={() => {
+										nbDisplayed += 50
+									}}
+								>
+									<Head>
+										<tr>
+											<Cell head first>Email</Cell>
+											{#if automateUsernameCreation}
+												<Cell head>Username</Cell>
+											{/if}
+											<Cell head>Name</Cell>
+											<Cell head>Auth</Cell>
+											{#if activeOnly}
+												<Cell head>Kind</Cell>
+											{/if}
+											<Cell head>Role</Cell>
+											<Cell head last>
+												<span class="sr-only">Actions</span>
+											</Cell>
+										</tr>
+									</Head>
+									<tbody class="divide-y bg-surface">
+										{#if filteredUsers && users}
+											{#each filteredUsers.slice(0, nbDisplayed) as { email, super_admin, devops, login_type, name, username, operator_only } (email)}
+												<tr>
+													<Cell first class="max-w-[200px]"
+														><a href="mailto:{email}" title={email} class="truncate block"
+															>{email}</a
+														></Cell
+													>
+													{#if automateUsernameCreation}
+														<Cell class="max-w-[150px]">
+															{#if username}
+																<span title={username} class="truncate block">{username}</span>
+															{:else}
+																{#key filteredUsers.map((u) => u.username).join()}
+																	<ChangeInstanceUsername
+																		username=""
+																		{email}
+																		isConflict
+																		on:renamed={() => {
+																			listUsers(activeOnly)
+																		}}
+																	/>
+																{/key}
+															{/if}
+														</Cell>
+													{/if}
+													<Cell class="max-w-[150px]"
+														><span title={name ?? ''} class="truncate block"
+															>{truncate(name ?? '', 30)}</span
+														></Cell
+													>
+													<Cell class="max-w-[100px]"
+														><span title={login_type} class="truncate block">{login_type}</span
+														></Cell
+													>
+													{#if activeOnly}
+														<Cell>
+															{#if operator_only}
+																Operator only
+															{:else}
+																Developer
+															{/if}
+														</Cell>
+													{/if}
+													<Cell>
+														<ToggleButtonGroup
+															selected={super_admin ? 'super_admin' : devops ? 'devops' : 'user'}
+															on:selected={async (e) => {
+																if (email == $userStore?.email) {
+																	sendUserToast('You cannot demote yourself', true)
 																	listUsers(activeOnly)
-																}}
-															>
-																{#snippet children({ item })}
-																	<ToggleButton value={'user'} small label="User" {item} />
-																	<ToggleButton
-																		value={'devops'}
-																		small
-																		label="Devops"
-																		tooltip="Devops is a role that grants visibilty similar to that of a super admin, but without giving all rights. For example devops users can see service logs and crtical alerts. You can think of it as a 'readonly' super admin"
-																		{item}
-																	/>
-																	<ToggleButton
-																		value={'super_admin'}
-																		small
-																		label="Superadmin"
-																		{item}
-																	/>
-																{/snippet}
-															</ToggleButtonGroup>
-														</td>
-														<td>
-															<div class="flex flex-row gap-x-1 justify-end">
+																	return
+																}
+
+																let role = e.detail
+
+																if (role === 'super_admin') {
+																	await UserService.globalUserUpdate({
+																		email,
+																		requestBody: {
+																			is_super_admin: true,
+																			is_devops: false
+																		}
+																	})
+																}
+																if (role === 'devops') {
+																	await UserService.globalUserUpdate({
+																		email,
+																		requestBody: {
+																			is_super_admin: false,
+																			is_devops: true
+																		}
+																	})
+																}
+																if (role === 'user') {
+																	await UserService.globalUserUpdate({
+																		email,
+																		requestBody: {
+																			is_super_admin: false,
+																			is_devops: false
+																		}
+																	})
+																}
+																sendUserToast('User updated')
+																listUsers(activeOnly)
+															}}
+														>
+															{#snippet children({ item })}
+																<ToggleButton value={'user'} small label="User" {item} />
+																<ToggleButton
+																	value={'devops'}
+																	small
+																	label="Devops"
+																	tooltip="Devops is a role that grants visibilty similar to that of a super admin, but without giving all rights. For example devops users can see service logs and crtical alerts. You can think of it as a 'readonly' super admin"
+																	{item}
+																/>
+																<ToggleButton
+																	value={'super_admin'}
+																	small
+																	label="Superadmin"
+																	{item}
+																/>
+															{/snippet}
+														</ToggleButtonGroup>
+													</Cell>
+													<Cell last>
+														<div class="flex items-center justify-end">
+															<div bind:this={editWrappers[email]} class="w-0 h-0 overflow-hidden">
 																<InstanceNameEditor
 																	{login_type}
 																	value={name}
@@ -384,38 +407,43 @@
 																	}}
 																	{automateUsernameCreation}
 																/>
-																<Button
-																	color="light"
-																	variant="contained"
-																	size="xs"
-																	spacingSize="xs2"
-																	btnClasses="text-red-500"
-																	on:click={() => {
-																		deleteConfirmedCallback = async () => {
-																			await UserService.globalUserDelete({ email })
-																			sendUserToast(`User ${email} removed`)
-																			listUsers(activeOnly)
-																		}
-																	}}
-																>
-																	Remove
-																</Button>
 															</div>
-														</td>
-													</tr>
-												{/each}
-											{/if}
-										</tbody>
-									{/snippet}
-								</TableCustom>
+															<DropdownV2
+																items={[
+																	{
+																		displayName: 'Edit',
+																		icon: Pencil,
+																		action: () => {
+																			const btn = editWrappers[email]?.querySelector(
+																				'[aria-label="Popup button"]'
+																			)
+																			if (btn instanceof HTMLElement) btn.click()
+																		}
+																	},
+																	{
+																		displayName: 'Remove',
+																		icon: UserMinus,
+																		type: 'delete',
+																		action: () => {
+																			deleteConfirmedCallback = async () => {
+																				await UserService.globalUserDelete({
+																					email
+																				})
+																				sendUserToast(`User ${email} removed`)
+																				listUsers(activeOnly)
+																			}
+																		}
+																	}
+																]}
+															/>
+														</div>
+													</Cell>
+												</tr>
+											{/each}
+										{/if}
+									</tbody>
+								</DataTable>
 							</div>
-							{#if filteredUsers && filteredUsers?.length > 50 && nbDisplayed < filteredUsers.length}
-								<span class="text-xs"
-									>{nbDisplayed} users out of {filteredUsers.length}
-									<button class="ml-4" onclick={() => (nbDisplayed += 50)}>load 50 more</button
-									></span
-								>
-							{/if}
 						</div>
 					{:else}
 						<InstanceSettings
