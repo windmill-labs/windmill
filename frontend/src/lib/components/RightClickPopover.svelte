@@ -16,7 +16,7 @@
 		e.preventDefault()
 		_isOpen = true
 		mousePos = { x: e.clientX, y: e.clientY }
-		console.log('Opening popover at', mousePos)
+		mousePos = { x: e.clientX, y: e.clientY }
 	}
 	export function close() {
 		_isOpen = false
