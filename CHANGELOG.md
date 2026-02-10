@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.630.1](https://github.com/windmill-labs/windmill/compare/v1.630.0...v1.630.1) (2026-02-10)
+
+
+### Bug Fixes
+
+* enforce self-approval check on flow resume owner endpoint ([#7886](https://github.com/windmill-labs/windmill/issues/7886)) ([7147dde](https://github.com/windmill-labs/windmill/commit/7147dde5118d7b3a179e4b310c74b148838b5afe))
+
 ## [1.630.0](https://github.com/windmill-labs/windmill/compare/v1.629.1...v1.630.0) (2026-02-10)
 
 
