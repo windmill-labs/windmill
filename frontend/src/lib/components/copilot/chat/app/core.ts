@@ -7,6 +7,7 @@ import {
 	createSearchHubScriptsTool,
 	createToolDef,
 	createSearchWorkspaceTool,
+	createGetRunnableDetailsTool,
 	type Tool
 } from '../shared'
 import { aiChatManager } from '../AIChatManager.svelte'
@@ -649,6 +650,7 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 	},
 	// Search tools
 	createSearchWorkspaceTool(),
+	createGetRunnableDetailsTool(),
 	// Hub scripts search (reuse from shared)
 	createSearchHubScriptsTool(false),
 	// Data table tools
@@ -803,7 +805,8 @@ For inline scripts, the code must have a \`main\` function as its entrypoint.
 - \`lint()\`: Lint all files. Returns errors/warnings grouped by frontend/backend. Use this to check for issues after making changes.
 
 ### Discovery
-- \`search_workspace(query, type?)\`: Search workspace scripts and flows
+- \`search_workspace(query, type)\`: Search workspace scripts and flows
+- \`get_runnable_details(path, type)\`: Get details (summary, description, schema, content) of a specific script or flow
 - \`search_hub_scripts(query)\`: Search hub scripts
 
 ### Data Tables
