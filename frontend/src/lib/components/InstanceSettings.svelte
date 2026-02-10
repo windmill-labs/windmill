@@ -564,7 +564,7 @@
 			</AuthSettings>
 		{/if}
 
-		<div class="flex-col flex gap-2 pb-6">
+		<div class="flex-col flex gap-6 pb-6">
 			{#each settings[category] as setting}
 				<!-- slack connect is handled with the alert channels settings, smtp_connect is handled in InstanceSetting -->
 				{#if setting.fieldType != 'slack_connect'}
@@ -588,6 +588,7 @@
 				onSave={() => saveCategorySettings(category)}
 				onDiscard={() => discardCategory(category)}
 				saveLabel={`Save ${category.toLowerCase()} settings`}
+				class="bg-surface"
 			/>
 		{/if}
 	{/snippet}

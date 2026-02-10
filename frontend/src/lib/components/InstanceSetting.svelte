@@ -250,7 +250,7 @@
 		</div>
 	{:else}
 		{#snippet settingContent()}
-			<div class="p-4 rounded-md bg-surface border">
+			<div class="p-4 rounded-md bg-surface-tertiary shadow-sm">
 				<div class="flex flex-col gap-2">
 					<div class="flex items-center justify-between">
 						<div class="text-emphasis font-semibold text-xs flex flex-col gap-1 w-full">

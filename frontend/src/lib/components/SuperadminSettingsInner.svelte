@@ -169,7 +169,7 @@
 	{/if}
 	<div class="{showHeaderInfo ? 'pt-4' : ''} flex grow min-h-0">
 		<!-- Sidebar Navigation -->
-		<div class="w-52 shrink-0 h-full overflow-auto p-4">
+		<div class="w-52 shrink-0 h-full overflow-auto p-4 bg-surface">
 			<SidebarNavigation
 				groups={instanceSettingsNavigationGroups}
 				selectedId={tab}
@@ -179,7 +179,7 @@
 
 		<!-- Main Content -->
 		<div class="flex-1 min-w-0 h-full">
-			<div class="h-full overflow-auto bg-surface-tertiary">
+			<div class="h-full overflow-auto bg-surface">
 				<div class="h-fit px-8 py-4">
 					{#if tab === 'users'}
 						<div class="h-full">
