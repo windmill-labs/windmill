@@ -902,7 +902,8 @@ export function formatScriptLintResult(lintResult: ScriptLintResult): string {
 
 export class WorkspaceRunnablesSearch {
 	private uf: uFuzzy
-	private workspace: string | undefined = undefined
+	private scriptsWorkspace: string | undefined = undefined
+	private flowsWorkspace: string | undefined = undefined
 	private scripts: Script[] | undefined = undefined
 	private flows: Flow[] | undefined = undefined
 
@@ -911,16 +912,16 @@ export class WorkspaceRunnablesSearch {
 	}
 
 	private async initScripts(workspace: string) {
-		if (this.scripts === undefined || this.workspace !== workspace) {
+		if (this.scripts === undefined || this.scriptsWorkspace !== workspace) {
 			this.scripts = await ScriptService.listScripts({ workspace })
-			this.workspace = workspace
+			this.scriptsWorkspace = workspace
 		}
 	}
 
 	private async initFlows(workspace: string) {
-		if (this.flows === undefined || this.workspace !== workspace) {
+		if (this.flows === undefined || this.flowsWorkspace !== workspace) {
 			this.flows = await FlowService.listFlows({ workspace })
-			this.workspace = workspace
+			this.flowsWorkspace = workspace
 		}
 	}
 
@@ -979,7 +980,9 @@ export class WorkspaceRunnablesSearch {
 }
 
 const searchWorkspaceSchema = z.object({
-	query: z.string().describe('Comma separated list of keywords to search for (e.g. "stripe, send email, ETL")'),
+	query: z
+		.string()
+		.describe('Comma separated list of keywords to search for (e.g. "stripe, send email, ETL")'),
 	type: z
 		.enum(['all', 'scripts', 'flows'])
 		.describe(
@@ -1016,7 +1019,7 @@ export const createSearchWorkspaceTool = () => ({
 
 		const results: { type: 'script' | 'flow'; path: string; summary: string }[] = []
 		const keywords = parsedArgs.query.split(',').map((keyword) => keyword.trim())
-		const seenPaths = new Set<string>();
+		const seenPaths = new Set<string>()
 		for (const keyword of keywords) {
 			const keywordResults = await workspaceRunnablesSearch.search(keyword, workspace, type)
 			for (const result of keywordResults) {
