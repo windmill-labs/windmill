@@ -23,6 +23,7 @@
 	import Tooltip from './Tooltip.svelte'
 	import { tick } from 'svelte'
 	import { Popover } from './meltComponents'
+	import SettingsPageHeader from './settings/SettingsPageHeader.svelte'
 
 	interface Props {
 		snowflakeAccountIdentifier?: string
@@ -227,23 +228,17 @@
 <div class="mb-6">
 	{#if oauths}
 		{#if tab === 'sso'}
+			<SettingsPageHeader
+				title="Single Sign-On"
+				description="Configure SSO providers to let users authenticate using their existing identity provider credentials. To test SSO, save the settings and try to login in an incognito window."
+				link="https://www.windmill.dev/docs/misc/setup_oauth#sso"
+			/>
 			{#if !$enterpriseLicense || $enterpriseLicense.endsWith('_pro')}
 				<Alert type="info" title="Limited to 10 SSO users">
 					Without EE, the number of SSO users is limited to 10. SCIM/SAML is available on EE
 				</Alert>
 				<div class="mb-2"></div>
 			{/if}
-
-			<div class="mb-2">
-				<div class="text-primary text-xs"
-					>When at least one of the below options is set, users will be able to login to Windmill
-					via their third-party account.
-					<br /> To test SSO, the recommended workflow is to to save the settings and try to login
-					in an incognito window.
-					<a target="_blank" href="https://www.windmill.dev/docs/misc/setup_oauth#sso">Learn more</a
-					>
-				</div>
-			</div>
 			<div class="flex gap-2 py-4">
 				<Toggle
 					options={{
@@ -358,20 +353,11 @@
 				</Popover>
 			</div>
 		{:else if tab === 'oauth'}
-			<div class="mb-2">
-				<div class="text-primary text-xs"
-					>Connect third-party services like Slack, Teams or Google to let users authenticate
-					directly from Windmill and automatically obtain access tokens. Once configured, users can
-					create resources of the corresponding type (e.g. a 'github' resource) and authenticate via
-					OAuth without manually handling credentials.
-					<a
-						target="_blank"
-						href="https://www.windmill.dev/docs/misc/setup_oauth#oauth"
-						class="inline-flex items-center whitespace-nowrap"
-						>Learn more&nbsp;<ExternalLink size={12} /></a
-					></div
-				>
-			</div>
+			<SettingsPageHeader
+				title="OAuth"
+				description="Connect third-party services like Slack, Teams or Google to let users authenticate directly from Windmill and automatically obtain access tokens."
+				link="https://www.windmill.dev/docs/misc/setup_oauth#oauth"
+			/>
 			<div class="h-1"></div>
 			<OAuthSetting login={false} name="slack" bind:value={oauths['slack']} />
 			<div class="h-6"></div>
@@ -548,6 +534,11 @@
 				</div>
 			{/if}
 		{:else if tab == 'scim'}
+			<SettingsPageHeader
+				title="SCIM/SAML"
+				description="Set up SAML and SCIM to authenticate users using your identity provider."
+				link="https://www.windmill.dev/docs/misc/saml_and_scim"
+			/>
 			{@render scim?.()}
 		{/if}
 	{/if}

@@ -35,6 +35,7 @@
 		categoryToTabMap
 	} from './instanceSettings'
 	import TextInput from './text_input/TextInput.svelte'
+	import SettingsPageHeader from './settings/SettingsPageHeader.svelte'
 
 	let filter = $state('')
 
@@ -222,9 +223,17 @@
 								</div>
 							{/if}
 
-							<div class="flex flex-row justify-between">
-								<h3 class="text-sm font-semibold text-emphasis">All instance users</h3>
-								<Toggle
+							<SettingsPageHeader
+								title="Instance users"
+								description="Manage all users across your Windmill instance."
+								link="https://www.windmill.dev/docs/advanced/instance_settings#global-users"
+							/>
+							<div class="flex flex-row gap-2 items-center">
+								<TextInput
+									inputProps={{ placeholder: 'Search users' }}
+									bind:value={filter}
+									class="w-60"
+								/><Toggle
 									bind:checked={activeOnly}
 									options={{
 										left: 'Show active users only',
@@ -232,14 +241,8 @@
 											'An active user is a user who has performed at least one action in the last 30 days'
 									}}
 								/>
-							</div>
-							<div class="pb-1"></div>
-							<div class="flex flex-row gap-2 items-center">
-								<TextInput
-									inputProps={{ placeholder: 'Search users' }}
-									bind:value={filter}
-									class="w-60"
-								/>
+
+								<div class="flex-1"></div>
 								<Popover placement="bottom-end" disableFocusTrap>
 									{#snippet trigger()}
 										<Button

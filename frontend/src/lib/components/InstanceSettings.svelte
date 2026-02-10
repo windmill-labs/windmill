@@ -15,8 +15,8 @@
 	import AuthSettings from './AuthSettings.svelte'
 	import InstanceSetting from './InstanceSetting.svelte'
 	import { writable, type Writable } from 'svelte/store'
-	import { ExternalLink } from 'lucide-svelte'
 	import SettingsFooter from './workspaceSettings/SettingsFooter.svelte'
+	import SettingsPageHeader from './settings/SettingsPageHeader.svelte'
 
 	interface Props {
 		tab?: string
@@ -461,53 +461,44 @@
 	{/if}
 
 	{#snippet categoryContent(category: string)}
-		{#if category == 'SMTP'}
-			<div class="text-secondary pb-4 text-xs">
-				Setting SMTP unlocks sending emails upon adding new users to the workspace or the instance
-				or sending critical alerts via email.
-				<a target="_blank" href="https://www.windmill.dev/docs/advanced/instance_settings#smtp"
-					>Learn more <ExternalLink size={12} class="inline-block" /></a
-				>
-			</div>
-		{:else if category == 'Indexer/Search'}
-			<div class="text-secondary pb-4 text-xs"
-				>The indexer service unlocks full text search across jobs and service logs. It requires
-				spinning up its own separate container
-				<a target="_blank" href="https://www.windmill.dev/docs/core_concepts/search_bar#setup"
-					>Learn how to <ExternalLink size={12} class="inline-block" /></a
-				></div
-			>
-		{:else if category == 'Alerts'}
-			<div class="text-secondary pb-4 text-xs">
-				Critical alerts automatically notify administrators about system events like job crashes,
-				license issues, worker failures, and queue delays through email, Slack, or Teams.
-				<a target="_blank" href="https://www.windmill.dev/docs/core_concepts/critical_alerts"
-					>Learn more <ExternalLink size={12} class="inline-block" /></a
-				>
-			</div>
+		{#if category == 'Core'}
+			<SettingsPageHeader
+				title="General"
+				description="Configure the core settings of your Windmill instance."
+				link="https://www.windmill.dev/docs/advanced/instance_settings"
+			/>
+		{:else if category == 'SMTP'}
+			<SettingsPageHeader
+				title="SMTP"
+				description="Setting SMTP unlocks sending emails upon adding new users to the workspace or the instance or sending critical alerts via email."
+				link="https://www.windmill.dev/docs/advanced/instance_settings#smtp"
+			/>
 		{:else if category == 'Registries'}
-			<div class="text-secondary pb-4 text-xs">
-				Add private registries for Pip, Bun and npm. <a
-					target="_blank"
-					href="https://www.windmill.dev/docs/advanced/imports">Learn more</a
-				>
-			</div>
-		{:else if category == 'Slack'}
-			<div class="text-secondary pb-4 text-xs">
-				Connecting your instance to a Slack workspace enables critical alerts to be sent to a Slack
-				channel.
-				<a target="_blank" href="https://www.windmill.dev/docs/misc/saml_and_scim">Learn more</a>
-			</div>
-		{:else if category == 'SCIM/SAML'}
-			<div class="text-secondary pb-4 text-xs">
-				Setting up SAML and SCIM allows you to authenticate users using your identity provider.
-				<a target="_blank" href="https://www.windmill.dev/docs/advanced/instance_settings#slack"
-					>Learn more</a
-				>
-			</div>
-		{:else if category == 'Debug'}
-			<div class="text-secondary pb-4 text-xs"> Enable debug mode to get more detailed logs. </div>
+			<SettingsPageHeader
+				title="Registries"
+				description="Add private registries for Pip, Bun and npm."
+				link="https://www.windmill.dev/docs/advanced/imports"
+			/>
+		{:else if category == 'Alerts'}
+			<SettingsPageHeader
+				title="Alerts"
+				description="Critical alerts automatically notify administrators about system events like job crashes, license issues, worker failures, and queue delays through email, Slack, or Teams."
+				link="https://www.windmill.dev/docs/core_concepts/critical_alerts"
+			/>
+		{:else if category == 'OTEL/Prom'}
+			<SettingsPageHeader
+				title="OTEL/Prometheus"
+				description="Configure OpenTelemetry and Prometheus metrics export for monitoring your Windmill instance."
+				link="https://www.windmill.dev/docs/core_concepts/otel"
+			/>
+		{:else if category == 'Indexer'}
+			<SettingsPageHeader
+				title="Indexer"
+				description="The indexer service unlocks full text search across jobs and service logs. It requires spinning up its own separate container."
+				link="https://www.windmill.dev/docs/core_concepts/search_bar#setup"
+			/>
 		{:else if category == 'Telemetry'}
+			<SettingsPageHeader title="Telemetry" />
 			<div class="text-primary pb-4 text-xs">
 				Anonymous usage data is collected to help improve Windmill.
 				<br />The following information is collected:
@@ -541,6 +532,12 @@
 					Send usage
 				</Button>
 			{/if}
+		{:else if category == 'Secret Storage'}
+			<SettingsPageHeader
+				title="Secret Storage"
+				description="Configure where secrets (secret variables) are stored."
+				link="https://www.windmill.dev/docs/core_concepts/workspace_secret_encryption"
+			/>
 		{:else if category == 'Auth/OAuth/SAML'}
 			<AuthSettings
 				bind:oauths
