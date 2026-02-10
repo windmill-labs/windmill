@@ -128,7 +128,7 @@
 	{#if showHeaderInfo}
 		<div>
 			<div class="flex justify-between">
-				<div class="text-xs pt-1 text-primary flex flex-col">
+				<div class="text-xs pt-1 text-secondary flex flex-col">
 					<div>Windmill <Version /></div>
 				</div>
 				<div><Uptodate /></div></div
