@@ -78,16 +78,33 @@ pub async fn eval_timeout(
         }
     }
 
-    windmill_jseval::eval_timeout_quickjs(
-        expr,
-        transform_context,
-        flow_input,
-        flow_env,
-        authed_client,
-        by_id,
-        ctx,
-    )
-    .await
+    let mut attempts = 0;
+    loop {
+        let result = windmill_jseval::eval_timeout_quickjs(
+            expr.clone(),
+            transform_context.clone(),
+            flow_input.clone(),
+            flow_env,
+            authed_client,
+            by_id,
+            ctx.clone(),
+        )
+        .await;
+
+        match result {
+            Ok(v) => return Ok(v),
+            Err(e) if attempts < 2 && e.to_string().contains("took too long") => {
+                attempts += 1;
+                tracing::warn!(
+                    "js eval timed out (attempt {}/3), retrying in 5s: {}",
+                    attempts,
+                    expr
+                );
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            }
+            Err(e) => return Err(e),
+        }
+    }
 }
 
 #[cfg(feature = "deno_core")]
