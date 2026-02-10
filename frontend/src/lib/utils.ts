@@ -1581,23 +1581,23 @@ export function formatDateShort(dateString: string | undefined): string {
 /**
  * Formats a date range intelligently by omitting redundant information.
  * Examples:
- * - Before 01/03 7:32 PM (no "after" when only before date is in the past)
+ * - Before 01/03 7:32 PM (no "end" when only start date is in the past)
  * - Before 01/03/2026 11:01 PM (different year)
  * - 01:12 AM to 02:50 AM (same day)
  * - 01/03 to 01/05 (same year, different days)
  * - 12/31/2025 to 01/05/2026 (different years)
  *
- * @param before - The start/before date (can be string or Date or undefined)
- * @param after - The end/after date (can be string or Date or undefined)
+ * @param start - The start date (can be string or Date or undefined)
+ * @param end - The end date (can be string or Date or undefined)
  * @returns Formatted string representing the date range
  */
 export function formatDateRange(
-	before: string | Date | undefined,
-	after: string | Date | undefined
+	start: string | Date | undefined,
+	end: string | Date | undefined
 ): string {
 	const now = new Date()
-	const beforeDate = before ? new Date(before) : undefined
-	const afterDate = after ? new Date(after) : undefined
+	const startDate = start ? new Date(start) : undefined
+	const endDate = end ? new Date(end) : undefined
 
 	// Helper to format time only
 	const formatTime = (date: Date) => {
@@ -1638,48 +1638,48 @@ export function formatDateRange(
 		return date.getFullYear() === reference.getFullYear()
 	}
 
-	// Only before date provided
-	if (beforeDate && !afterDate) {
-		const timeStr = formatTime(beforeDate)
+	// Only start date provided
+	if (startDate && !endDate) {
+		const timeStr = formatTime(startDate)
 
 		// If it's today, only show time
-		if (isSameDay(beforeDate, now)) {
+		if (isSameDay(startDate, now)) {
 			return `Before ${timeStr}`
 		}
 
-		const needsYear = !isSameYear(beforeDate)
-		const dateStr = needsYear ? formatDateWithYear(beforeDate) : formatDateNoYear(beforeDate)
+		const needsYear = !isSameYear(startDate)
+		const dateStr = needsYear ? formatDateWithYear(startDate) : formatDateNoYear(startDate)
 		return `Before ${dateStr} ${timeStr}`
 	}
 
-	// Only after date provided
-	if (afterDate && !beforeDate) {
-		const timeStr = formatTime(afterDate)
+	// Only end date provided
+	if (endDate && !startDate) {
+		const timeStr = formatTime(endDate)
 
 		// If it's today, only show time
-		if (isSameDay(afterDate, now)) {
+		if (isSameDay(endDate, now)) {
 			return `After ${timeStr}`
 		}
 
-		const needsYear = !isSameYear(afterDate)
-		const dateStr = needsYear ? formatDateWithYear(afterDate) : formatDateNoYear(afterDate)
+		const needsYear = !isSameYear(endDate)
+		const dateStr = needsYear ? formatDateWithYear(endDate) : formatDateNoYear(endDate)
 		return `After ${dateStr} ${timeStr}`
 	}
 
 	// Both dates provided
-	if (beforeDate && afterDate) {
+	if (startDate && endDate) {
 		// Same day - only show times
-		if (isSameDay(beforeDate, afterDate)) {
-			return `${formatTime(beforeDate)} to ${formatTime(afterDate)}`
+		if (isSameDay(startDate, endDate)) {
+			return `${formatTime(startDate)} to ${formatTime(endDate)}`
 		}
 
 		// Different days, same year
-		if (isSameYear(beforeDate, afterDate)) {
-			return `${formatDateNoYear(beforeDate)} to ${formatDateNoYear(afterDate)}`
+		if (isSameYear(startDate, endDate)) {
+			return `${formatDateNoYear(startDate)} to ${formatDateNoYear(endDate)}`
 		}
 
 		// Different years
-		return `${formatDateWithYear(beforeDate)} to ${formatDateWithYear(afterDate)}`
+		return `${formatDateWithYear(startDate)} to ${formatDateWithYear(endDate)}`
 	}
 
 	// No dates provided
