@@ -9,7 +9,6 @@ import {
 	WorkspaceRunnablesSearch,
 	type Tool
 } from '../shared'
-import { ScriptService } from '$lib/gen'
 import { aiChatManager } from '../AIChatManager.svelte'
 import type {
 	ContextElement,
