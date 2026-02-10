@@ -68,7 +68,7 @@ lazy_static::lazy_static! {
                     ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
                     (20260207000002, include_str!(
                         "../../migrations/20260207000002_concurrent_indexes_v2_job_completed.up.sql"
-                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY").replace("DROP INDEX CONCURRENTLY IF EXISTS labeled_jobs_on_jobs;", "")),
                     (20260207000003, include_str!(
                         "../../migrations/20260207000003_concurrent_indexes_v2_job_queue.up.sql"
                     ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
