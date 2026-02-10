@@ -58,6 +58,7 @@ export interface Setting {
 	}
 	hiddenIfNull?: boolean
 	hiddenIfEmpty?: boolean
+	hiddenInEe?: boolean
 	requiresReloadOnChange?: boolean
 	isValid?: (value: any) => boolean
 	error?: string
@@ -394,7 +395,8 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'PowerShell Repository PAT',
-			description: 'Add private PowerShell repository Personal Access Token',
+			description:
+				'Add private PowerShell repository Personal Access Token (optional, for authenticated repositories)',
 			key: 'powershell_repo_pat',
 			fieldType: 'password',
 			storage: 'setting',
@@ -496,7 +498,8 @@ export const settings: Record<string, Setting[]> = {
 			label: 'Disable telemetry',
 			key: 'disable_stats',
 			fieldType: 'boolean',
-			storage: 'setting'
+			storage: 'setting',
+			hiddenInEe: true
 		}
 	],
 	'Secret Storage': [

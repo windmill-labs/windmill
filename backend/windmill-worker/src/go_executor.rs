@@ -1,6 +1,6 @@
 use crate::{common::MaybeLock, get_proxy_envs_for_lang};
-use windmill_common::scripts::ScriptLang;
 use std::{collections::HashMap, fs::DirBuilder, process::Stdio};
+use windmill_common::scripts::ScriptLang;
 
 use itertools::Itertools;
 use serde_json::value::RawValue;

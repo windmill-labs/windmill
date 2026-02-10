@@ -6,7 +6,6 @@
 		AssetService,
 		FlowService,
 		OpenAPI,
-		RawAppService,
 		ScriptService,
 		SettingService,
 		UserService,
@@ -69,6 +68,12 @@
 	import { watchOnce } from 'runed'
 	interface Props {
 		children?: import('svelte').Snippet
+	}
+
+	const remoteUrlParam = $page.url.searchParams.get('remote_url')
+	if (remoteUrlParam) {
+		document.cookie = `remote_url=${remoteUrlParam}; path=/; secure; samesite=strict`
+		$page.url.searchParams.delete('remote_url')
 	}
 
 	let { children }: Props = $props()
@@ -186,10 +191,6 @@
 			workspace: $workspaceStore ?? '',
 			starredOnly: true
 		})
-		const raw_apps = await RawAppService.listRawApps({
-			workspace: $workspaceStore ?? '',
-			starredOnly: true
-		})
 		const assets = await AssetService.listFavoriteAssets({ workspace: $workspaceStore ?? '' })
 		favoriteManager.current = [
 			...scripts.map((s) => ({
@@ -209,12 +210,6 @@
 				path: f.path,
 				href: getFavoriteHref(f.path, 'app'),
 				kind: 'app' as const
-			})),
-			...raw_apps.map((f) => ({
-				label: f.summary || getFavoriteLabel(f.path, 'raw_app'),
-				path: f.path,
-				href: getFavoriteHref(f.path, 'raw_app'),
-				kind: 'raw_app' as const
 			})),
 			...assets.map((a) => ({
 				label: getFavoriteLabel(a.path, 'asset'),

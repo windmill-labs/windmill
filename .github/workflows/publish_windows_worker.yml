@@ -13,7 +13,7 @@ env:
 
 jobs:
   cargo_build_windows:
-    runs-on: windows-latest
+    runs-on: blacksmith-16vcpu-windows-2025
     steps:
       - uses: actions/checkout@v4
 
@@ -32,11 +32,10 @@ jobs:
           token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
           fetch-depth: 0
 
-      - name: Setup Rust
-        uses: actions-rs/toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
+          cache-workspaces: backend
           toolchain: 1.90.0
-          override: true
 
       - name: Substitute EE code
         shell: bash
@@ -44,13 +43,13 @@ jobs:
           ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
 
       - name: Cargo build dynamic libraries windows
-        timeout-minutes: 90
+        timeout-minutes: 180
         run: |
           cd backend/windmill-duckdb-ffi-internal
           cargo build --release -p windmill_duckdb_ffi_internal
 
       - name: Cargo build windows
-        timeout-minutes: 90
+        timeout-minutes: 180
         run: |
           vcpkg.exe install openssl-windows:x64-windows
           vcpkg.exe install openssl:x64-windows-static
@@ -59,7 +58,7 @@ jobs:
           $env:OPENSSL_DIR="${Env:VCPKG_INSTALLATION_ROOT}\installed\x64-windows-static"
           mkdir frontend/build && cd backend
           New-Item -Path . -Name "windmill-api/openapi-deref.yaml" -ItemType "File" -Force
-          cargo build --release --features=enterprise,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,license,http_trigger,zip,oauth2,kafka,sqs_trigger,nats,postgres_trigger,mqtt_trigger,gcp_trigger,websocket,smtp,native_trigger,static_frontend,all_languages_windows,mcp,bedrock,private
+          cargo build --release --features=ee_windows
       - name: Rename binary with corresponding architecture
         run: |
           Rename-Item -Path ".\backend\target\release\windmill.exe" -NewName "windmill-ee.exe"

@@ -1,5 +1,106 @@
 # Changelog
 
+## [1.629.1](https://github.com/windmill-labs/windmill/compare/v1.629.0...v1.629.1) (2026-02-10)
+
+
+### Bug Fixes
+
+* remove unecessary drop index on labeled_jobs_on_jobs ([0803164](https://github.com/windmill-labs/windmill/commit/08031640a02ebd5971793942e8534d69f4f71d28))
+
+## [1.629.0](https://github.com/windmill-labs/windmill/compare/v1.628.3...v1.629.0) (2026-02-09)
+
+
+### Features
+
+* customer portal extra workspace stats ([#7841](https://github.com/windmill-labs/windmill/issues/7841)) ([153dd32](https://github.com/windmill-labs/windmill/commit/153dd32187a3e32e3f26ab88b62195a0f9a359b9))
+
+
+### Bug Fixes
+
+* adapt mysql and ruby test assertions ([477832d](https://github.com/windmill-labs/windmill/commit/477832dbeeafb88fd16c174d5d1df8ed042e6f31))
+* add missing :name param to groups/is_owner route ([fa53a87](https://github.com/windmill-labs/windmill/commit/fa53a87107158c9e8a7e5b522242b0076a78ce46))
+* **backend:** prevent sqs hanging ([#7857](https://github.com/windmill-labs/windmill/issues/7857)) ([a3fc27b](https://github.com/windmill-labs/windmill/commit/a3fc27b23224aef2949c19f7c123d28e6cfaf968))
+* box push() future to prevent stack overflow in nested async chains ([67c8aef](https://github.com/windmill-labs/windmill/commit/67c8aef9faea5afe8ce330b477f16b4aed1779a5))
+* **frontend:** reorganize workspace settings ([#7788](https://github.com/windmill-labs/windmill/issues/7788)) ([dd42184](https://github.com/windmill-labs/windmill/commit/dd421845ba148bba70bcbafbc6a39f3012eb037c))
+* improve scheduling reliability in extreme pool contention conditions ([#7825](https://github.com/windmill-labs/windmill/issues/7825)) ([bbb397b](https://github.com/windmill-labs/windmill/commit/bbb397b6ad954052f0bd33cc4ff8897eed66e4db))
+* improve tracing behavior with NO_PROXY ([4cce13f](https://github.com/windmill-labs/windmill/commit/4cce13f5228a05da1bbce43bed7e856ce0bcf979))
+* incorrect raw app public workspaceStore derived ([edb0d4a](https://github.com/windmill-labs/windmill/commit/edb0d4a05da567b3b0be5d94c9b2856d68ecb0ff))
+* increase test thread stack size to 8MB in CI ([5548098](https://github.com/windmill-labs/windmill/commit/5548098e083af76a0b7d6f645a5458592d9c8ddc))
+* install mold+clang in Docker for cargo linker config ([99bc383](https://github.com/windmill-labs/windmill/commit/99bc383f9e94a415ff1dcef1c45ccc4c8dab1a9e))
+* make V8 runtime init idempotent and auto-initialize before isolate creation ([aa9f3da](https://github.com/windmill-labs/windmill/commit/aa9f3da429da92a059aaabb28481d33b8dacd37b))
+* parse Python datetime.datetime and datetime.date type annotations ([#7856](https://github.com/windmill-labs/windmill/issues/7856)) ([ff70a4e](https://github.com/windmill-labs/windmill/commit/ff70a4e9d105cac58c0fb0aba8fbec9875533aa4))
+* prevent V8 SIGSEGV by serializing isolate creation and fixing use-after-free ([05106d7](https://github.com/windmill-labs/windmill/commit/05106d7deeda92b7ae0e1708554f6dcb088c4a08))
+* reduce DB pool contention by eliminating dual-connection patterns ([#7861](https://github.com/windmill-labs/windmill/issues/7861)) ([4343b73](https://github.com/windmill-labs/windmill/commit/4343b73485843c3b482c21e60052f171ada9b843))
+* remove mold linker config that breaks Docker builds ([fea0954](https://github.com/windmill-labs/windmill/commit/fea0954f20f9f7c5a43b25b23df530faeac94999))
+* restart after empty branchone + improve UI ([#7838](https://github.com/windmill-labs/windmill/issues/7838)) ([b1d6ac9](https://github.com/windmill-labs/windmill/commit/b1d6ac91bd3af073feac0b31d97f7b4414d8786e))
+* use unprotected V8 platform to prevent SIGSEGV on x86_64 Linux ([90d0103](https://github.com/windmill-labs/windmill/commit/90d010347c65086b17f9802dd9a7d2da90dc68eb))
+* wmill workspace list to list local profiles ([#7843](https://github.com/windmill-labs/windmill/issues/7843)) ([f924a82](https://github.com/windmill-labs/windmill/commit/f924a8268461c49a0fec26e3216ec9546601b8de))
+
+## [1.628.3](https://github.com/windmill-labs/windmill/compare/v1.628.2...v1.628.3) (2026-02-06)
+
+
+### Bug Fixes
+
+* **bun:** `//native` not using workspace dependencies  ([#7833](https://github.com/windmill-labs/windmill/issues/7833)) ([df0ae90](https://github.com/windmill-labs/windmill/commit/df0ae90a2c97de6f895142da1e189a9a7279f3fb))
+* mark job cleanup integration tests as ignored in CI ([4a1e61f](https://github.com/windmill-labs/windmill/commit/4a1e61f2f9a82b9279af8d0aded5683322f5f262))
+
+## [1.628.2](https://github.com/windmill-labs/windmill/compare/v1.628.1...v1.628.2) (2026-02-06)
+
+
+### Bug Fixes
+
+* execute CONCURRENTLY statements individually in migrations ([7a7b118](https://github.com/windmill-labs/windmill/commit/7a7b118bf36e8086b2df5a940e99e1c031f57c81))
+
+## [1.628.1](https://github.com/windmill-labs/windmill/compare/v1.628.0...v1.628.1) (2026-02-06)
+
+
+### Bug Fixes
+
+* prevent deadlock in consolidate live index migration ([f39b28a](https://github.com/windmill-labs/windmill/commit/f39b28ac416cfdc2420a58b549ee07479f316493))
+* use concurrent index ops to prevent deadlock on upgrade ([9967f83](https://github.com/windmill-labs/windmill/commit/9967f835ab0cba04bdad4f72b7df786bd1b02fa0))
+
+## [1.628.0](https://github.com/windmill-labs/windmill/compare/v1.627.0...v1.628.0) (2026-02-06)
+
+
+### Features
+
+* kafka trigger kerberos/gssapi support ([#7815](https://github.com/windmill-labs/windmill/issues/7815)) ([795e2be](https://github.com/windmill-labs/windmill/commit/795e2bebe65db9c6f721e7cd24af1446aeb896ab))
+
+
+### Bug Fixes
+
+* make notify_event trigger functions SECURITY DEFINER ([#7826](https://github.com/windmill-labs/windmill/issues/7826)) ([33fb08c](https://github.com/windmill-labs/windmill/commit/33fb08cf3d08c4a6b86f32b3ae8bf2df8c1adcaa))
+* prevent schedule pool connection exhaustion ([#7821](https://github.com/windmill-labs/windmill/issues/7821)) ([e655a06](https://github.com/windmill-labs/windmill/commit/e655a065637b288080118661650bc14641dd0c6f))
+
+## [1.627.0](https://github.com/windmill-labs/windmill/compare/v1.626.0...v1.627.0) (2026-02-05)
+
+
+### Features
+
+* mssql integrated auth (gssapi) ([#7760](https://github.com/windmill-labs/windmill/issues/7760)) ([afa6e7a](https://github.com/windmill-labs/windmill/commit/afa6e7ab5bb26972acbfe19af41dd3e6ac5df363))
+* restriction rulesets for workspaces ([#7791](https://github.com/windmill-labs/windmill/issues/7791)) ([a1cd02d](https://github.com/windmill-labs/windmill/commit/a1cd02d7f80c97eb07eda04113f3aae815fada69))
+
+
+### Bug Fixes
+
+* allow unauthed private pwsh repo ([#7817](https://github.com/windmill-labs/windmill/issues/7817)) ([476e6fd](https://github.com/windmill-labs/windmill/commit/476e6fd4bd2cdb062fa15a8c4048371ef4b31845))
+* fix asset grant ([e28c5b1](https://github.com/windmill-labs/windmill/commit/e28c5b18af25710b0ed3a3ffbceb18f3da76cd75))
+
+## [1.626.0](https://github.com/windmill-labs/windmill/compare/v1.625.0...v1.626.0) (2026-02-05)
+
+
+### Features
+
+* **local-dev:** create Claude skills when doing `wmill init` ([#7699](https://github.com/windmill-labs/windmill/issues/7699)) ([a7ce548](https://github.com/windmill-labs/windmill/commit/a7ce5484b8ec386af59f501c36e5ffc147e1d34a))
+
+
+### Bug Fixes
+
+* fix DB Manager not working with db resources with 4+ path segments ([#7809](https://github.com/windmill-labs/windmill/issues/7809)) ([3476ef4](https://github.com/windmill-labs/windmill/commit/3476ef4b9c795fb8511a83f2297154a4f55aa829))
+* fix indexer select performances busiying the db ([c3815c8](https://github.com/windmill-labs/windmill/commit/c3815c8c99d5b7d6b2dfc0e3b59d1ba51022ee39))
+* **frontend:** dedicated worker broken runnable select ([#7808](https://github.com/windmill-labs/windmill/issues/7808)) ([6f6ff9d](https://github.com/windmill-labs/windmill/commit/6f6ff9d4217e99901562b01eb258c7ccdcb0e3f4))
+* python client oidc pass session token ([#7799](https://github.com/windmill-labs/windmill/issues/7799)) ([b468603](https://github.com/windmill-labs/windmill/commit/b468603f6bc52961057fbd88539eb379a19efd9d))
+
 ## [1.625.0](https://github.com/windmill-labs/windmill/compare/v1.624.0...v1.625.0) (2026-02-04)
 
 

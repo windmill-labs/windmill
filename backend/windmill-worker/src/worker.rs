@@ -12,7 +12,6 @@
 use anyhow::anyhow;
 use futures::TryFutureExt;
 use tokio::sync::Mutex;
-use tokio::time::sleep;
 use tokio::time::timeout;
 use windmill_common::client::AuthedClient;
 use windmill_common::jobs::WorkerInternalServerInlineUtils;
@@ -131,14 +130,13 @@ use crate::{
     go_executor::handle_go_job,
     graphql_executor::do_graphql,
     handle_child::SLOW_LOGS,
-    handle_job_error,
     job_logger::NO_LOGS_AT_ALL,
     js_eval::{eval_fetch_timeout, transpile_ts},
     pg_executor::do_postgresql,
     pwsh_executor::handle_powershell_job,
-    result_processor::{process_result, start_background_processor},
+    result_processor::{handle_job_error, process_result, start_background_processor},
     schema::schema_validator_from_main_arg_sig,
-    worker_flow::handle_flow,
+    worker_flow::{handle_flow, SchedulePushZombieError},
     worker_lockfiles::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
     },
@@ -246,7 +244,7 @@ pub const DEFAULT_SLEEP_QUEUE: u64 = 50;
 // only 1 native job so that we don't have to worry about concurrency issues on non dedicated native jobs workers
 pub const DEFAULT_NATIVE_JOBS: usize = 1;
 
-const VACUUM_PERIOD: u32 = 50000;
+const VACUUM_PERIOD: u32 = 10000;
 
 // #[cfg(any(target_os = "linux"))]
 // const DROP_CACHE_PERIOD: u32 = 1000;
@@ -1619,6 +1617,11 @@ pub async fn run_worker(
     #[cfg(feature = "benchmark")]
     let mut infos = BenchmarkInfo::new();
 
+    #[cfg(feature = "benchmark")]
+    if let Some(db) = conn.as_sql() {
+        infos.init_pool_stats(db.size());
+    }
+
     let vacuum_shift = rand::rng().random_range(0..VACUUM_PERIOD);
 
     IS_READY.store(true, Ordering::Relaxed);
@@ -2068,6 +2071,9 @@ pub async fn run_worker(
                             #[cfg(feature = "benchmark")]
                             {
                                 add_time!(bench, "sent to dedicated worker");
+                                if let Some(db) = conn.as_sql() {
+                                    infos.sample_pool(db.size(), db.num_idle() as u32);
+                                }
                                 infos.add_iter(bench, true);
                             }
 
@@ -2138,6 +2144,9 @@ pub async fn run_worker(
                                 #[cfg(feature = "benchmark")]
                                 {
                                     add_time!(bench, "sent to flow runner");
+                                    if let Some(db) = conn.as_sql() {
+                                        infos.sample_pool(db.size(), db.num_idle() as u32);
+                                    }
                                     infos.add_iter(bench, true);
                                 }
 
@@ -2438,6 +2447,9 @@ pub async fn run_worker(
                 {
                     if started {
                         add_time!(bench, "job processed");
+                        if let Some(db) = conn.as_sql() {
+                            infos.sample_pool(db.size(), db.num_idle() as u32);
+                        }
                         infos.add_iter(bench, true);
                     }
                 }
@@ -2466,6 +2478,9 @@ pub async fn run_worker(
                 #[cfg(feature = "benchmark")]
                 {
                     add_time!(bench, "sleep because empty job queue");
+                    if let Some(db) = conn.as_sql() {
+                        infos.sample_pool(db.size(), db.num_idle() as u32);
+                    }
                     infos.add_iter(bench, false);
                 }
                 #[cfg(feature = "prometheus")]
@@ -2964,7 +2979,7 @@ pub async fn handle_queued_job(
                 // Not a preview: fetch from the cache or the database.
                 _ => cache::job::fetch_flow(db, &job.kind, job.runnable_id).await?,
             };
-            Box::pin(handle_flow(
+            match Box::pin(handle_flow(
                 job,
                 &flow_data,
                 db,
@@ -2978,8 +2993,19 @@ pub async fn handle_queued_job(
                 &killpill_rx,
             ))
             .warn_after_seconds(10)
-            .await?;
-            Ok(true)
+            .await
+            {
+                Err(err) if err.downcast_ref::<SchedulePushZombieError>().is_some() => {
+                    tracing::error!(
+                        "Schedule push zombie: {err}. Leaving flow job in queue for zombie detection to restart."
+                    );
+                    Ok(true)
+                }
+                other => {
+                    other?;
+                    Ok(true)
+                }
+            }
         } else {
             return Err(Error::internal_err(
                 "Could not handle flow job with agent worker".to_string(),
@@ -3015,7 +3041,7 @@ pub async fn handle_queued_job(
         #[cfg(not(feature = "enterprise"))]
         if let Connection::Sql(db) = conn {
             if (job.concurrent_limit.is_some() ||
-                windmill_common::runnable_settings::RunnableSettings::prefetch_cached_from_handle(job.runnable_settings_handle, db).await?.1.concurrent_limit.is_some())
+                windmill_common::runnable_settings::prefetch_cached_from_handle(job.runnable_settings_handle, db).await?.1.concurrent_limit.is_some())
                 && !job.kind.is_dependency() {
                 logs.push_str("---\n");
                 logs.push_str("WARNING: This job has concurrency limits enabled. Concurrency limits are an EE feature and the setting is ignored.\n");
@@ -3037,7 +3063,7 @@ pub async fn handle_queued_job(
             .flatten()
         {
             tracing::debug!("Debug: {} going to sleep for {}", job.id, dbg_djob_sleep);
-            sleep(std::time::Duration::from_secs(dbg_djob_sleep as u64)).await;
+            tokio::time::sleep(std::time::Duration::from_secs(dbg_djob_sleep as u64)).await;
         }
 
         tracing::debug!(

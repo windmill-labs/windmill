@@ -51,6 +51,9 @@ use std::sync::atomic::Ordering;
 use crate::worker::CLOUD_HOSTED;
 
 lazy_static::lazy_static! {
+    pub static ref COOKIE_DOMAIN: Option<String> = std::env::var("COOKIE_DOMAIN").ok();
+    pub static ref IS_SECURE: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
+
     pub static ref FORCE_IPV4: bool = std::env::var("FORCE_IPV4")
         .map(|v| v.to_lowercase() == "true" || v == "1")
         .unwrap_or(false);
@@ -161,6 +164,16 @@ pub struct ModeAndAddons {
 pub struct Pagination {
     pub page: Option<usize>,
     pub per_page: Option<usize>,
+}
+
+#[derive(Deserialize)]
+pub struct WithStarredInfoQuery {
+    pub with_starred_info: Option<bool>,
+}
+
+#[derive(Deserialize)]
+pub struct BulkDeleteRequest {
+    pub paths: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -962,6 +975,14 @@ pub async fn get_custom_pg_instance_password(db: &DB) -> Result<String> {
             "Custom instance db password not found, did you run migrations ?"
         ))
     )
+}
+
+/// Convert a JSON string to a `Box<RawValue>` without validation.
+///
+/// # Safety
+/// The caller must ensure the string is valid JSON.
+pub fn unsafe_raw(json: String) -> Box<serde_json::value::RawValue> {
+    unsafe { std::mem::transmute::<Box<str>, Box<serde_json::value::RawValue>>(json.into()) }
 }
 
 // Avoid JSON parsing for merging raw JSON values into an object

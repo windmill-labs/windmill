@@ -1,0 +1,1 @@
+-- no-op: indexes are safe to leave in place

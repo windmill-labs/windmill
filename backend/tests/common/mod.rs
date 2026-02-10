@@ -87,6 +87,12 @@ impl ApiServer {
         Self::start_inner(db, true).await
     }
 
+    /// Start the API server with server_mode=true so trigger listeners are active.
+    /// Alias for `start_agent_mode` with a clearer name for trigger e2e tests.
+    pub async fn start_with_listeners(db: Pool<Postgres>) -> anyhow::Result<Self> {
+        Self::start_inner(db, true).await
+    }
+
     async fn start_inner(db: Pool<Postgres>, agent_mode: bool) -> anyhow::Result<Self> {
         let (tx, rx) = tokio::sync::broadcast::channel::<()>(1);
 
@@ -143,11 +149,17 @@ pub struct RunJob {
     pub payload: JobPayload,
     pub args: serde_json::Map<String, serde_json::Value>,
     pub scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
+    pub email: String,
 }
 
 impl From<JobPayload> for RunJob {
     fn from(payload: JobPayload) -> Self {
-        Self { payload, args: Default::default(), scheduled_for_o: None }
+        Self {
+            payload,
+            args: Default::default(),
+            scheduled_for_o: None,
+            email: "test@windmill.dev".to_string(),
+        }
     }
 }
 
@@ -165,8 +177,13 @@ impl RunJob {
         self
     }
 
+    pub fn email(mut self, email: impl Into<String>) -> Self {
+        self.email = email.into();
+        self
+    }
+
     pub async fn push(self, db: &Pool<Postgres>) -> Uuid {
-        let RunJob { payload, args, scheduled_for_o } = self;
+        let RunJob { payload, args, scheduled_for_o, email } = self;
         let mut hm_args = std::collections::HashMap::new();
         for (k, v) in args {
             hm_args.insert(k, windmill_common::worker::to_raw_value(&v));
@@ -180,7 +197,7 @@ impl RunJob {
             payload,
             windmill_queue::PushArgs::from(&hm_args),
             /* user */ "test-user",
-            /* email  */ "test@windmill.dev",
+            /* email  */ &email,
             /* permissioned_as */ "u/test-user".to_string(),
             /* token_prefix */ None,
             scheduled_for_o,
@@ -313,6 +330,9 @@ pub fn spawn_test_worker(
     conn: &Connection,
     port: u16,
 ) -> (KillpillSender, tokio::task::JoinHandle<()>) {
+    #[cfg(feature = "deno_core")]
+    windmill_runtime_nativets::setup_deno_runtime().expect("V8 init failed");
+
     std::fs::DirBuilder::new()
         .recursive(true)
         .create(windmill_worker::GO_BIN_CACHE_DIR)
@@ -684,8 +704,10 @@ pub async fn run_deployed_relative_imports(
                 language,
                 priority: None,
                 apply_preprocessor: false,
-                concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(),
-                debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+                concurrency_settings:
+                    windmill_common::runnable_settings::ConcurrencySettings::default(),
+                debouncing_settings:
+                    windmill_common::runnable_settings::DebouncingSettings::default(),
             })
             .push(&db2)
             .await;
@@ -734,8 +756,10 @@ pub async fn run_preview_relative_imports(
                 cache_ttl: None,
                 cache_ignore_s3_path: None,
                 dedicated_worker: None,
-                concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default().into(),
-                debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+                concurrency_settings:
+                    windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+                debouncing_settings:
+                    windmill_common::runnable_settings::DebouncingSettings::default(),
             }))
             .push(&db2)
             .await;

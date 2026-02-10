@@ -18,14 +18,16 @@
 
 use axum::body::Bytes;
 use serde::Deserialize;
+use windmill_common::ai_bedrock::build_tool_config;
 use windmill_common::ai_bedrock::{
     bedrock_stream_event_is_block_stop, bedrock_stream_event_to_text,
     bedrock_stream_event_to_tool_delta, bedrock_stream_event_to_tool_start, format_bedrock_error,
-    BedrockClient
+    BedrockClient,
+};
+use windmill_common::ai_types::{
+    OpenAIFunction, OpenAIMessage, OpenAIToolCall, ToolDef, ToolDefFunction,
 };
 use windmill_common::error::{Error, Result};
-use windmill_common::ai_types::{OpenAIFunction, OpenAIMessage, OpenAIToolCall, ToolDef, ToolDefFunction};
-use windmill_common::ai_bedrock::build_tool_config;
 
 // ============================================================================
 // Shared Request Types for SDK-Based Handlers
@@ -69,10 +71,7 @@ struct OpenAIToolFunction {
 /// Authentication configuration for Bedrock clients
 enum BedrockAuthConfig {
     BearerToken(String),
-    IamCredentials {
-        access_key_id: String,
-        secret_access_key: String,
-    },
+    IamCredentials { access_key_id: String, secret_access_key: String },
     Environment,
 }
 
@@ -105,13 +104,8 @@ async fn create_bedrock_client(
     region: &str,
 ) -> Result<BedrockClient> {
     match determine_auth_config(api_key, aws_access_key_id, aws_secret_access_key) {
-        BedrockAuthConfig::BearerToken(key) => {
-            BedrockClient::from_bearer_token(key, region).await
-        }
-        BedrockAuthConfig::IamCredentials {
-            access_key_id,
-            secret_access_key,
-        } => {
+        BedrockAuthConfig::BearerToken(key) => BedrockClient::from_bearer_token(key, region).await,
+        BedrockAuthConfig::IamCredentials { access_key_id, secret_access_key } => {
             BedrockClient::from_credentials(access_key_id, secret_access_key, None, region).await
         }
         BedrockAuthConfig::Environment => BedrockClient::from_env(region).await,
@@ -185,10 +179,7 @@ async fn create_bedrock_control_client(
                 .build();
             Ok(aws_sdk_bedrock::Client::from_conf(config))
         }
-        BedrockAuthConfig::IamCredentials {
-            access_key_id,
-            secret_access_key,
-        } => {
+        BedrockAuthConfig::IamCredentials { access_key_id, secret_access_key } => {
             let credentials = aws_credential_types::Credentials::new(
                 access_key_id,
                 secret_access_key,

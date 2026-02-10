@@ -1016,6 +1016,21 @@ async fn prepare_wrapper(
                                      kwargs[\"{name}\"] = datetime.fromisoformat(kwargs[\"{name}\"])\n",
                 )
             }
+            windmill_parser::Typ::Date => {
+                let name = &x.name;
+                format!(
+                    "if \"{name}\" in kwargs and kwargs[\"{name}\"] is not None:\n    \
+                                     try:\n        \
+                                         kwargs[\"{name}\"] = date.fromisoformat(kwargs[\"{name}\"])\n    \
+                                     except ValueError:\n        \
+                                         for _fmt in (\"%d-%m-%Y\", \"%m/%d/%Y\", \"%d/%m/%Y\", \"%Y/%m/%d\"):\n            \
+                                             try:\n                \
+                                                 kwargs[\"{name}\"] = datetime.strptime(kwargs[\"{name}\"], _fmt).date()\n                \
+                                                 break\n            \
+                                             except ValueError:\n                \
+                                                 continue\n",
+                )
+            }
             _ => "".to_string(),
         })
         .collect::<Vec<String>>()
@@ -1035,14 +1050,19 @@ async fn prepare_wrapper(
     } else {
         ""
     };
-    let import_datetime = if init_sig
+    let has_datetime = init_sig
         .args
         .iter()
-        .any(|x| x.typ == windmill_parser::Typ::Datetime)
-    {
-        "from datetime import datetime"
-    } else {
-        ""
+        .any(|x| x.typ == windmill_parser::Typ::Datetime);
+    let has_date = init_sig
+        .args
+        .iter()
+        .any(|x| x.typ == windmill_parser::Typ::Date);
+    let import_datetime = match (has_datetime, has_date) {
+        (true, true) => "from datetime import datetime, date",
+        (true, false) => "from datetime import datetime",
+        (false, true) => "from datetime import datetime, date",
+        (false, false) => "",
     };
     let spread = if sig.star_kwargs {
         "args = kwargs".to_string()

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.625.0
+  version: 1.629.1
   title: Windmill API
 
   contact:
@@ -1305,6 +1305,20 @@ paths:
       responses:
         "200":
           description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /settings/get_stats:
+    get:
+      summary: get encrypted telemetry stats (EE only)
+      operationId: getStats
+      tags:
+        - setting
+      responses:
+        "200":
+          description: base64-encoded encrypted telemetry blob
           content:
             text/plain:
               schema:
@@ -7769,23 +7783,6 @@ paths:
                 items:
                   $ref: "#/components/schemas/ListableRawApp"
 
-  /w/{workspace}/raw_apps/exists/{path}:
-    get:
-      summary: does an app exisst at path
-      operationId: existsRawApp
-      tags:
-        - raw_app
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-      responses:
-        "200":
-          description: app exists
-          content:
-            application/json:
-              schema:
-                type: boolean
-
   /w/{workspace}/apps/get_data/v/{secretWithExtension}:
     get:
       summary: get raw app data by
@@ -8214,88 +8211,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AppWithLastVersion"
-
-  /w/{workspace}/raw_apps/create:
-    post:
-      summary: create raw app
-      operationId: createRawApp
-      tags:
-        - raw_app
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        description: new raw app
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                path:
-                  type: string
-                value:
-                  type: string
-                summary:
-                  type: string
-              required:
-                - path
-                - value
-                - summary
-      responses:
-        "201":
-          description: raw app created
-          content:
-            text/plain:
-              schema:
-                type: string
-
-  /w/{workspace}/raw_apps/update/{path}:
-    post:
-      summary: update app
-      operationId: updateRawApp
-      tags:
-        - raw_app
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/ScriptPath"
-      requestBody:
-        description: updateraw  app
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                path:
-                  type: string
-                summary:
-                  type: string
-                value:
-                  type: string
-      responses:
-        "200":
-          description: app updated
-          content:
-            text/plain:
-              schema:
-                type: string
-
-  /w/{workspace}/raw_apps/delete/{path}:
-    delete:
-      summary: delete raw app
-      operationId: deleteRawApp
-      tags:
-        - raw_app
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-      responses:
-        "200":
-          description: app deleted
-          content:
-            text/plain:
-              schema:
-                type: string
 
   /w/{workspace}/apps/delete/{path}:
     delete:
@@ -17264,6 +17179,12 @@ components:
       $ref: "../../openflow.openapi.yaml#/components/schemas/StaticTransform"
     JavascriptTransform:
       $ref: "../../openflow.openapi.yaml#/components/schemas/JavascriptTransform"
+    AiTransform:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/AiTransform"
+    ProviderConfig:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/ProviderConfig"
+    MemoryConfig:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/MemoryConfig"
     FlowModuleValue:
       $ref: "../../openflow.openapi.yaml#/components/schemas/FlowModuleValue"
     RawScript:
@@ -19145,6 +19066,7 @@ components:
           java,
           ruby,
           duckdb,
+          bunnative,
           # for related places search: ADD_NEW_LANG
         ]
 
@@ -19347,70 +19269,93 @@ components:
       properties:
         path:
           type: string
+          description: The unique path identifier for this schedule
         edited_by:
           type: string
+          description: Username of the last person who edited this schedule
         edited_at:
           type: string
           format: date-time
+          description: Timestamp of the last edit
         schedule:
           type: string
+          description: Cron expression with 6 fields (seconds, minutes, hours, day of month, month, day of week). Example '0 0 12 * * *' for daily at noon
         timezone:
           type: string
+          description: IANA timezone for the schedule (e.g., 'UTC', 'Europe/Paris', 'America/New_York')
         enabled:
           type: boolean
+          description: Whether the schedule is currently active and will trigger jobs
         script_path:
           type: string
+          description: Path to the script or flow to execute when triggered
         is_flow:
           type: boolean
+          description: True if script_path points to a flow, false if it points to a script
         args:
           $ref: "#/components/schemas/ScriptArgs"
         extra_perms:
           type: object
           additionalProperties:
             type: boolean
+          description: Additional permissions for this schedule
         email:
           type: string
+          description: Email of the user who owns this schedule, used for permissioned_as
         error:
           type: string
+          description: Last error message if the schedule failed to trigger
         on_failure:
-          # a reference to a script path, flow path, or webhook (script/<path>, flow/<path>)
           type: string
+          description: Path to a script or flow to run when the scheduled job fails
         on_failure_times:
           type: number
+          description: Number of consecutive failures before the on_failure handler is triggered (default 1)
         on_failure_exact:
           type: boolean
+          description: If true, trigger on_failure handler only on exactly N failures, not on every failure after N
         on_failure_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
         on_recovery:
           type: string
+          description: Path to a script or flow to run when the schedule recovers after failures
         on_recovery_times:
           type: number
+          description: Number of consecutive successes before the on_recovery handler is triggered (default 1)
         on_recovery_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
         on_success:
           type: string
+          description: Path to a script or flow to run after each successful execution
         on_success_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
         ws_error_handler_muted:
           type: boolean
+          description: If true, the workspace-level error handler will not be triggered for this schedule's failures
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
         summary:
           type: string
+          description: Short summary describing the purpose of this schedule
         description:
           type: string
+          description: Detailed description of what this schedule does
         no_flow_overlap:
           type: boolean
+          description: If true, skip this schedule's execution if the previous run is still in progress (prevents concurrent runs)
         tag:
           type: string
+          description: Worker tag to route jobs to specific worker groups
         paused_until:
           type: string
           format: date-time
+          description: ISO 8601 datetime until which the schedule is paused. Schedule resumes automatically after this time
         cron_version:
           type: string
+          description: Cron parser version. Use 'v2' for extended syntax with additional features
         dynamic_skip:
           type: string
-          description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean.
+          description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean to skip (true) or run (false)
       required:
         - path
         - edited_by
@@ -19457,81 +19402,75 @@ components:
       properties:
         path:
           type: string
-          description: The path where the schedule will be created
+          description: The unique path identifier for this schedule
         schedule:
           type: string
-          description: The cron schedule to trigger the script or flow. Should include seconds.
+          description: Cron expression with 6 fields (seconds, minutes, hours, day of month, month, day of week). Example '0 0 12 * * *' for daily at noon
         timezone:
           type: string
-          description: The timezone to use for the cron schedule
+          description: IANA timezone for the schedule (e.g., 'UTC', 'Europe/Paris', 'America/New_York')
         script_path:
           type: string
-          description: The path to the script or flow to trigger
+          description: Path to the script or flow to execute when triggered
         is_flow:
           type: boolean
-          description: Whether the schedule is for a flow
+          description: True if script_path points to a flow, false if it points to a script
         args:
           $ref: "#/components/schemas/ScriptArgs"
-          description: The arguments to pass to the script or flow
         enabled:
           type: boolean
-          description: Whether the schedule is enabled
+          description: Whether the schedule is currently active and will trigger jobs
         on_failure:
-          # a reference to a script path, flow path, or webhook (script/<path>, flow/<path>)
           type: string
-          description: The path to the script or flow to trigger on failure
+          description: Path to a script or flow to run when the scheduled job fails
         on_failure_times:
           type: number
-          description: The number of times to retry on failure
+          description: Number of consecutive failures before the on_failure handler is triggered (default 1)
         on_failure_exact:
           type: boolean
-          description: Whether the schedule should only run on the exact time
+          description: If true, trigger on_failure handler only on exactly N failures, not on every failure after N
         on_failure_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
-          description: The arguments to pass to the script or flow on failure
         on_recovery:
           type: string
-          description: The path to the script or flow to trigger on recovery
+          description: Path to a script or flow to run when the schedule recovers after failures
         on_recovery_times:
           type: number
-          description: The number of times to retry on recovery
+          description: Number of consecutive successes before the on_recovery handler is triggered (default 1)
         on_recovery_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
-          description: The arguments to pass to the script or flow on recovery
         on_success:
           type: string
-          description: The path to the script or flow to trigger on success
+          description: Path to a script or flow to run after each successful execution
         on_success_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
-          description: The arguments to pass to the script or flow on success
         ws_error_handler_muted:
           type: boolean
-          description: Whether the WebSocket error handler is muted
+          description: If true, the workspace-level error handler will not be triggered for this schedule's failures
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-          description: The retry configuration for the schedule
         no_flow_overlap:
           type: boolean
-          description: Whether the schedule should not run if a flow is already running
+          description: If true, skip this schedule's execution if the previous run is still in progress (prevents concurrent runs)
         summary:
           type: string
-          description: The summary of the schedule
+          description: Short summary describing the purpose of this schedule
         description:
           type: string
-          description: The description of the schedule
+          description: Detailed description of what this schedule does
         tag:
           type: string
-          description: The tag of the schedule
+          description: Worker tag to route jobs to specific worker groups
         paused_until:
           type: string
-          description: The date and time the schedule will be paused until
           format: date-time
+          description: ISO 8601 datetime until which the schedule is paused. Schedule resumes automatically after this time
         cron_version:
           type: string
-          description: The version of the cron schedule to use (last is v2)
+          description: Cron parser version. Use 'v2' for extended syntax with additional features
         dynamic_skip:
           type: string
-          description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean.
+          description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean to skip (true) or run (false)
       required:
         - path
         - schedule
@@ -19545,69 +19484,63 @@ components:
       properties:
         schedule:
           type: string
-          description: The cron schedule to trigger the script or flow. Should include seconds.
+          description: Cron expression with 6 fields (seconds, minutes, hours, day of month, month, day of week). Example '0 0 12 * * *' for daily at noon
         timezone:
           type: string
-          description: The timezone to use for the cron schedule
+          description: IANA timezone for the schedule (e.g., 'UTC', 'Europe/Paris', 'America/New_York')
         args:
           $ref: "#/components/schemas/ScriptArgs"
-          description: The arguments to pass to the script or flow
         on_failure:
-          # a reference to a script path, flow path, or webhook (script/<path>, flow/<path>)
           type: string
-          description: The path to the script or flow to trigger on failure
+          description: Path to a script or flow to run when the scheduled job fails
         on_failure_times:
           type: number
-          description: The number of times to retry on failure
+          description: Number of consecutive failures before the on_failure handler is triggered (default 1)
         on_failure_exact:
           type: boolean
-          description: Whether the schedule should only run on the exact time
+          description: If true, trigger on_failure handler only on exactly N failures, not on every failure after N
         on_failure_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
-          description: The arguments to pass to the script or flow on failure
         on_recovery:
           type: string
-          description: The path to the script or flow to trigger on recovery
+          description: Path to a script or flow to run when the schedule recovers after failures
         on_recovery_times:
           type: number
-          description: The number of times to retry on recovery
+          description: Number of consecutive successes before the on_recovery handler is triggered (default 1)
         on_recovery_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
-          description: The arguments to pass to the script or flow on recovery
         on_success:
           type: string
-          description: The path to the script or flow to trigger on success
+          description: Path to a script or flow to run after each successful execution
         on_success_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
-          description: The arguments to pass to the script or flow on success
         ws_error_handler_muted:
           type: boolean
-          description: Whether the WebSocket error handler is muted
+          description: If true, the workspace-level error handler will not be triggered for this schedule's failures
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-          description: The retry configuration for the schedule
         no_flow_overlap:
           type: boolean
-          description: Whether the schedule should not run if a flow is already running
+          description: If true, skip this schedule's execution if the previous run is still in progress (prevents concurrent runs)
         summary:
           type: string
-          description: The summary of the schedule
+          description: Short summary describing the purpose of this schedule
         description:
           type: string
-          description: The description of the schedule
+          description: Detailed description of what this schedule does
         tag:
           type: string
-          description: The tag of the schedule
+          description: Worker tag to route jobs to specific worker groups
         paused_until:
           type: string
-          description: The date and time the schedule will be paused until
           format: date-time
+          description: ISO 8601 datetime until which the schedule is paused. Schedule resumes automatically after this time
         cron_version:
           type: string
-          description: The version of the cron schedule to use (last is v2)
+          description: Cron parser version. Use 'v2' for extended syntax with additional features
         dynamic_skip:
           type: string
-          description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean.
+          description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean to skip (true) or run (false)
       required:
         - schedule
         - timezone
@@ -19643,25 +19576,34 @@ components:
       properties:
         path:
           type: string
+          description: The unique path identifier for this trigger
         script_path:
           type: string
+          description: Path to the script or flow to execute when triggered
         email:
           type: string
+          description: Email of the user who owns this trigger, used for permissioned_as
         extra_perms:
           type: object
+          description: Additional permissions for this trigger
           additionalProperties:
             type: boolean
         workspace_id:
           type: string
+          description: The workspace this trigger belongs to
         edited_by:
           type: string
+          description: Username of the last person who edited this trigger
         edited_at:
           type: string
           format: date-time
+          description: Timestamp of the last edit
         is_flow:
           type: boolean
+          description: True if script_path points to a flow, false if it points to a script
         mode:
           $ref: "#/components/schemas/TriggerMode"
+          description: Trigger mode (enabled/disabled)
       required:
         - path
         - script_path
@@ -19806,43 +19748,61 @@ components:
       properties:
         route_path:
           type: string
+          description: The URL route path that will trigger this endpoint (e.g., 'api/myendpoint'). Must NOT start with a /.
         static_asset_config:
           type: object
+          description: Configuration for serving static assets (s3 bucket, storage path, filename)
           properties:
             s3:
               type: string
+              description: S3 bucket path for static assets
             storage:
               type: string
+              description: Storage path for static assets
             filename:
               type: string
+              description: Filename for the static asset
           required:
             - s3
         http_method:
           $ref: "#/components/schemas/HttpMethod"
+          description: HTTP method (get, post, put, delete, patch) that triggers this endpoint
         authentication_resource_path:
           type: string
+          description: Path to the resource containing authentication configuration (for api_key, basic_http, custom_script, signature methods)
         summary:
           type: string
+          description: Short summary describing the purpose of this trigger
         description:
           type: string
+          description: Detailed description of what this trigger does
         request_type:
           $ref: "#/components/schemas/HttpRequestType"
+          description: "How the request is handled - 'sync' waits for result, 'async' returns job ID immediately, 'sync_sse' streams results via Server-Sent Events"
         authentication_method:
           $ref: "#/components/schemas/AuthenticationMethod"
+          description: "How requests are authenticated - 'none' (public), 'windmill' (Windmill token), 'api_key', 'basic_http', 'custom_script', 'signature'"
         is_static_website:
           type: boolean
+          description: If true, serves static files from S3/storage instead of running a script
         workspaced_route:
           type: boolean
+          description: If true, the route includes the workspace ID in the path
         wrap_body:
           type: boolean
+          description: If true, wraps the request body in a 'body' parameter
         raw_string:
           type: boolean
+          description: If true, passes the request body as a raw string instead of parsing as JSON
         error_handler_path:
           type: string
+          description: Path to a script or flow to run when the triggered job fails
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: Arguments to pass to the error handler
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: Retry configuration for failed executions
 
       required:
         - route_path
@@ -19859,54 +19819,75 @@ components:
       properties:
         path:
           type: string
+          description: The unique path identifier for this trigger
         script_path:
           type: string
+          description: Path to the script or flow to execute when triggered
         route_path:
           type: string
+          description: The URL route path that will trigger this endpoint (e.g., 'api/myendpoint'). Must NOT start with a /.
         workspaced_route:
           type: boolean
+          description: If true, the route includes the workspace ID in the path
         summary:
           type: string
+          description: Short summary describing the purpose of this trigger
         description:
           type: string
+          description: Detailed description of what this trigger does
         static_asset_config:
           type: object
+          description: Configuration for serving static assets (s3 bucket, storage path, filename)
           properties:
             s3:
               type: string
+              description: S3 bucket path for static assets
             storage:
               type: string
+              description: Storage path for static assets
             filename:
               type: string
+              description: Filename for the static asset
           required:
             - s3
         is_flow:
           type: boolean
+          description: True if script_path points to a flow, false if it points to a script
         http_method:
           $ref: "#/components/schemas/HttpMethod"
+          description: HTTP method (get, post, put, delete, patch) that triggers this endpoint
         authentication_resource_path:
           type: string
+          description: Path to the resource containing authentication configuration (for api_key, basic_http, custom_script, signature methods)
         is_async:
           type: boolean
           description: Deprecated, use request_type instead
         request_type:
           $ref: "#/components/schemas/HttpRequestType"
+          description: "How the request is handled - 'sync' waits for result, 'async' returns job ID immediately, 'sync_sse' streams results via Server-Sent Events"
         authentication_method:
           $ref: "#/components/schemas/AuthenticationMethod"
+          description: "How requests are authenticated - 'none' (public), 'windmill' (Windmill token), 'api_key', 'basic_http', 'custom_script', 'signature'"
         is_static_website:
           type: boolean
+          description: If true, serves static files from S3/storage instead of running a script
         wrap_body:
           type: boolean
+          description: If true, wraps the request body in a 'body' parameter
         mode:
           $ref: "#/components/schemas/TriggerMode"
         raw_string:
           type: boolean
+          description: If true, passes the request body as a raw string instead of parsing as JSON
         error_handler_path:
           type: string
+          description: Path to a script or flow to run when the triggered job fails
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: Arguments to pass to the error handler
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: Retry configuration for failed executions
 
       required:
         - path
@@ -19922,52 +19903,73 @@ components:
       properties:
         path:
           type: string
+          description: The unique path identifier for this trigger
         script_path:
           type: string
+          description: Path to the script or flow to execute when triggered
         route_path:
           type: string
+          description: The URL route path that will trigger this endpoint (e.g., 'api/myendpoint'). Must NOT start with a /.
         summary:
           type: string
+          description: Short summary describing the purpose of this trigger
         description:
           type: string
+          description: Detailed description of what this trigger does
         workspaced_route:
           type: boolean
+          description: If true, the route includes the workspace ID in the path
         static_asset_config:
           type: object
+          description: Configuration for serving static assets (s3 bucket, storage path, filename)
           properties:
             s3:
               type: string
+              description: S3 bucket path for static assets
             storage:
               type: string
+              description: Storage path for static assets
             filename:
               type: string
+              description: Filename for the static asset
           required:
             - s3
         authentication_resource_path:
           type: string
+          description: Path to the resource containing authentication configuration (for api_key, basic_http, custom_script, signature methods)
         is_flow:
           type: boolean
+          description: True if script_path points to a flow, false if it points to a script
         http_method:
           $ref: "#/components/schemas/HttpMethod"
+          description: HTTP method (get, post, put, delete, patch) that triggers this endpoint
         is_async:
           type: boolean
           description: Deprecated, use request_type instead
         request_type:
           $ref: "#/components/schemas/HttpRequestType"
+          description: "How the request is handled - 'sync' waits for result, 'async' returns job ID immediately, 'sync_sse' streams results via Server-Sent Events"
         authentication_method:
           $ref: "#/components/schemas/AuthenticationMethod"
+          description: "How requests are authenticated - 'none' (public), 'windmill' (Windmill token), 'api_key', 'basic_http', 'custom_script', 'signature'"
         is_static_website:
           type: boolean
+          description: If true, serves static files from S3/storage instead of running a script
         wrap_body:
           type: boolean
+          description: If true, wraps the request body in a 'body' parameter
         raw_string:
           type: boolean
+          description: If true, passes the request body as a raw string instead of parsing as JSON
         error_handler_path:
           type: string
+          description: Path to a script or flow to run when the triggered job fails
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: Arguments to pass to the error handler
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: Retry configuration for failed executions
       required:
         - path
         - script_path
@@ -20019,15 +20021,20 @@ components:
       properties:
         url:
           type: string
+          description: The WebSocket URL to connect to (can be a static URL or computed by a runnable)
         server_id:
           type: string
+          description: ID of the server currently handling this trigger (internal)
         last_server_ping:
           type: string
           format: date-time
+          description: Timestamp of last server heartbeat (internal)
         error:
           type: string
+          description: Last error message if the trigger failed
         filters:
           type: array
+          description: Array of key-value filters to match incoming messages (only matching messages trigger the script)
           items:
             type: object
             properties:
@@ -20039,19 +20046,26 @@ components:
               - value
         initial_messages:
           type: array
+          description: Messages to send immediately after connecting (can be raw strings or computed by runnables)
           items:
             $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
         url_runnable_args:
+          description: Arguments to pass to the script/flow that computes the WebSocket URL
           $ref: "#/components/schemas/ScriptArgs"
         can_return_message:
           type: boolean
+          description: If true, the script can return a message to send back through the WebSocket
         can_return_error_result:
           type: boolean
+          description: If true, error results are sent back through the WebSocket
         error_handler_path:
           type: string
+          description: Path to a script or flow to run when the triggered job fails
         error_handler_args:
+          description: Arguments to pass to the error handler
           $ref: "#/components/schemas/ScriptArgs"
         retry:
+          description: Retry configuration for failed executions
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
       required:
@@ -20065,16 +20079,21 @@ components:
       properties:
         path:
           type: string
+          description: The unique path identifier for this trigger
         script_path:
           type: string
+          description: Path to the script or flow to execute when a message is received
         is_flow:
           type: boolean
+          description: True if script_path points to a flow, false if it points to a script
         url:
           type: string
+          description: The WebSocket URL to connect to (can be a static URL or computed by a runnable)
         mode:
           $ref: "#/components/schemas/TriggerMode"
         filters:
           type: array
+          description: Array of key-value filters to match incoming messages (only matching messages trigger the script)
           items:
             type: object
             properties:
@@ -20086,19 +20105,26 @@ components:
               - value
         initial_messages:
           type: array
+          description: Messages to send immediately after connecting (can be raw strings or computed by runnables)
           items:
             $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
         url_runnable_args:
+          description: Arguments to pass to the script/flow that computes the WebSocket URL
           $ref: "#/components/schemas/ScriptArgs"
         can_return_message:
           type: boolean
+          description: If true, the script can return a message to send back through the WebSocket
         can_return_error_result:
           type: boolean
+          description: If true, error results are sent back through the WebSocket
         error_handler_path:
           type: string
+          description: Path to a script or flow to run when the triggered job fails
         error_handler_args:
+          description: Arguments to pass to the error handler
           $ref: "#/components/schemas/ScriptArgs"
         retry:
+          description: Retry configuration for failed executions
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
       required:
@@ -20115,14 +20141,19 @@ components:
       properties:
         url:
           type: string
+          description: The WebSocket URL to connect to (can be a static URL or computed by a runnable)
         path:
           type: string
+          description: The unique path identifier for this trigger
         script_path:
           type: string
+          description: Path to the script or flow to execute when a message is received
         is_flow:
           type: boolean
+          description: True if script_path points to a flow, false if it points to a script
         filters:
           type: array
+          description: Array of key-value filters to match incoming messages (only matching messages trigger the script)
           items:
             type: object
             properties:
@@ -20134,19 +20165,26 @@ components:
               - value
         initial_messages:
           type: array
+          description: Messages to send immediately after connecting (can be raw strings or computed by runnables)
           items:
             $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
         url_runnable_args:
+          description: Arguments to pass to the script/flow that computes the WebSocket URL
           $ref: "#/components/schemas/ScriptArgs"
         can_return_message:
           type: boolean
+          description: If true, the script can return a message to send back through the WebSocket
         can_return_error_result:
           type: boolean
+          description: If true, error results are sent back through the WebSocket
         error_handler_path:
           type: string
+          description: Path to a script or flow to run when the triggered job fails
         error_handler_args:
+          description: Arguments to pass to the error handler
           $ref: "#/components/schemas/ScriptArgs"
         retry:
+          description: Retry configuration for failed executions
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
       required:
@@ -20225,31 +20263,43 @@ components:
       properties:
         mqtt_resource_path:
           type: string
+          description: Path to the MQTT resource containing broker connection configuration
         subscribe_topics:
           type: array
           items:
             $ref: "#/components/schemas/MqttSubscribeTopic"
+          description: Array of MQTT topics to subscribe to, each with topic name and QoS level
         v3_config:
           $ref: "#/components/schemas/MqttV3Config"
+          description: MQTT v3 specific configuration (clean_session)
         v5_config:
           $ref: "#/components/schemas/MqttV5Config"
+          description: MQTT v5 specific configuration (clean_start, topic_alias_maximum, session_expiry_interval)
         client_id:
           type: string
+          description: MQTT client ID for this connection
         client_version:
           $ref: "#/components/schemas/MqttClientVersion"
+          description: MQTT protocol version ('v3' or 'v5')
         server_id:
           type: string
+          description: ID of the server currently handling this trigger (internal)
         last_server_ping:
           type: string
           format: date-time
+          description: Timestamp of last server heartbeat (internal)
         error:
           type: string
+          description: Last error message if the trigger failed
         error_handler_path:
           type: string
+          description: Path to a script or flow to run when the triggered job fails
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: Arguments to pass to the error handler
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: Retry configuration for failed executions
       required:
         - subscribe_topics
         - mqtt_resource_path
@@ -20259,32 +20309,44 @@ components:
       properties:
         mqtt_resource_path:
           type: string
+          description: Path to the MQTT resource containing broker connection configuration
         subscribe_topics:
           type: array
           items:
             $ref: "#/components/schemas/MqttSubscribeTopic"
+          description: Array of MQTT topics to subscribe to, each with topic name and QoS level
         client_id:
           type: string
+          description: MQTT client ID for this connection
         v3_config:
           $ref: "#/components/schemas/MqttV3Config"
+          description: MQTT v3 specific configuration (clean_session)
         v5_config:
           $ref: "#/components/schemas/MqttV5Config"
+          description: MQTT v5 specific configuration (clean_start, topic_alias_maximum, session_expiry_interval)
         client_version:
           $ref: "#/components/schemas/MqttClientVersion"
+          description: MQTT protocol version ('v3' or 'v5')
         path:
           type: string
+          description: The unique path identifier for this trigger
         script_path:
           type: string
+          description: Path to the script or flow to execute when a message is received
         is_flow:
           type: boolean
+          description: True if script_path points to a flow, false if it points to a script
         mode:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
+          description: Path to a script or flow to run when the triggered job fails
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: Arguments to pass to the error handler
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: Retry configuration for failed executions
       required:
         - path
         - script_path
@@ -20297,32 +20359,44 @@ components:
       properties:
         mqtt_resource_path:
           type: string
+          description: Path to the MQTT resource containing broker connection configuration
         subscribe_topics:
           type: array
           items:
             $ref: "#/components/schemas/MqttSubscribeTopic"
+          description: Array of MQTT topics to subscribe to, each with topic name and QoS level
         client_id:
           type: string
+          description: MQTT client ID for this connection
         v3_config:
           $ref: "#/components/schemas/MqttV3Config"
+          description: MQTT v3 specific configuration (clean_session)
         v5_config:
           $ref: "#/components/schemas/MqttV5Config"
+          description: MQTT v5 specific configuration (clean_start, topic_alias_maximum, session_expiry_interval)
         client_version:
           $ref: "#/components/schemas/MqttClientVersion"
+          description: MQTT protocol version ('v3' or 'v5')
         path:
           type: string
+          description: The unique path identifier for this trigger
         script_path:
           type: string
+          description: Path to the script or flow to execute when a message is received
         is_flow:
           type: boolean
+          description: True if script_path points to a flow, false if it points to a script
         mode:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
+          description: Path to a script or flow to run when the triggered job fails
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: Arguments to pass to the error handler
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: Retry configuration for failed executions
       required:
         - path
         - script_path
@@ -20336,14 +20410,18 @@ components:
       enum:
         - push
         - pull
+      description: "Delivery mode for messages. 'push' for HTTP push delivery where messages are sent to a webhook endpoint, 'pull' for polling where the trigger actively fetches messages."
 
     PushConfig:
       type: object
+      description: "Configuration for push delivery mode."
       properties:
         audience:
           type: string
+          description: "The audience claim for OIDC tokens used in push authentication."
         authenticate:
           type: boolean
+          description: "If true, push messages will include OIDC authentication tokens."
       required:
         - authenticate
         - base_endpoint
@@ -20352,15 +20430,20 @@ components:
       allOf:
         - $ref: "#/components/schemas/TriggerExtraProperty"
       type: object
+      description: "A Google Cloud Pub/Sub trigger that executes a script or flow when messages are received."
       properties:
         gcp_resource_path:
           type: string
+          description: "Path to the GCP resource containing service account credentials for authentication."
         topic_id:
           type: string
+          description: "Google Cloud Pub/Sub topic ID to subscribe to."
         subscription_id:
           type: string
+          description: "Google Cloud Pub/Sub subscription ID."
         server_id:
           type: string
+          description: "ID of the server currently handling this trigger (internal use)."
         delivery_type:
           $ref: "#/components/schemas/DeliveryType"
         delivery_config:
@@ -20370,14 +20453,19 @@ components:
         last_server_ping:
           type: string
           format: date-time
+          description: "Timestamp of last server heartbeat (internal use)."
         error:
           type: string
+          description: "Last error message if the trigger failed."
         error_handler_path:
           type: string
+          description: "Path to a script or flow to run when the triggered job fails."
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: "Arguments to pass to the error handler."
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: "Retry configuration for failed executions."
       required:
         - gcp_resource_path
         - topic_id
@@ -20394,31 +20482,40 @@ components:
 
     GcpTriggerData:
       type: object
+      description: "Data for creating or updating a Google Cloud Pub/Sub trigger."
       properties:
         gcp_resource_path:
           type: string
+          description: "Path to the GCP resource containing service account credentials for authentication."
         subscription_mode:
           $ref: "#/components/schemas/SubscriptionMode"
         topic_id:
           type: string
+          description: "Google Cloud Pub/Sub topic ID to subscribe to."
         subscription_id:
           type: string
+          description: "Google Cloud Pub/Sub subscription ID."
         base_endpoint:
           type: string
+          description: "Base URL for push delivery endpoint."
         delivery_type:
           $ref: "#/components/schemas/DeliveryType"
         delivery_config:
           $ref: "#/components/schemas/PushConfig"
         path:
           type: string
+          description: "The unique path identifier for this trigger."
         script_path:
           type: string
+          description: "Path to the script or flow to execute when a message is received."
         is_flow:
           type: boolean
+          description: "True if script_path points to a flow, false if it points to a script."
         mode:
           $ref: "#/components/schemas/TriggerMode"
         auto_acknowledge_msg:
           type: boolean
+          description: "If true, automatically acknowledge messages after processing."
         ack_deadline:
           type: integer
           format: int32
@@ -20427,10 +20524,13 @@ components:
           description: "Time in seconds within which the message must be acknowledged. If not provided, defaults to the subscription's acknowledgment deadline (600 seconds)."
         error_handler_path:
           type: string
+          description: "Path to a script or flow to run when the triggered job fails."
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: "Arguments to pass to the error handler."
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: "Retry configuration for failed executions."
       required:
         - path
         - script_path
@@ -20468,27 +20568,37 @@ components:
       properties:
         queue_url:
           type: string
+          description: The full URL of the AWS SQS queue to poll for messages
         aws_auth_resource_type:
           $ref: "#/components/schemas/AwsAuthResourceType"
+          description: Authentication type - 'credentials' for access key/secret, 'oidc' for OpenID Connect
         aws_resource_path:
           type: string
+          description: Path to the AWS resource containing credentials or OIDC configuration
         message_attributes:
           type: array
           items:
             type: string
+          description: Array of SQS message attribute names to include with each message
         server_id:
           type: string
+          description: ID of the server currently handling this trigger (internal)
         last_server_ping:
           type: string
           format: date-time
+          description: Timestamp of last server heartbeat (internal)
         error:
           type: string
+          description: Last error message if the trigger failed
         error_handler_path:
           type: string
+          description: Path to a script or flow to run when the triggered job fails
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: Arguments to pass to the error handler
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: Retry configuration for failed executions
 
       required:
         - queue_url
@@ -20549,28 +20659,38 @@ components:
       properties:
         queue_url:
           type: string
+          description: The full URL of the AWS SQS queue to poll for messages
         aws_auth_resource_type:
           $ref: "#/components/schemas/AwsAuthResourceType"
+          description: Authentication type - 'credentials' for access key/secret, 'oidc' for OpenID Connect
         aws_resource_path:
           type: string
+          description: Path to the AWS resource containing credentials or OIDC configuration
         message_attributes:
           type: array
           items:
             type: string
+          description: Array of SQS message attribute names to include with each message
         path:
           type: string
+          description: The unique path identifier for this trigger
         script_path:
           type: string
+          description: Path to the script or flow to execute when a message is received
         is_flow:
           type: boolean
+          description: True if script_path points to a flow, false if it points to a script
         mode:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
+          description: Path to a script or flow to run when the triggered job fails
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: Arguments to pass to the error handler
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: Retry configuration for failed executions
       required:
         - queue_url
         - aws_resource_path
@@ -20584,28 +20704,38 @@ components:
       properties:
         queue_url:
           type: string
+          description: The full URL of the AWS SQS queue to poll for messages
         aws_auth_resource_type:
           $ref: "#/components/schemas/AwsAuthResourceType"
+          description: Authentication type - 'credentials' for access key/secret, 'oidc' for OpenID Connect
         aws_resource_path:
           type: string
+          description: Path to the AWS resource containing credentials or OIDC configuration
         message_attributes:
           type: array
           items:
             type: string
+          description: Array of SQS message attribute names to include with each message
         path:
           type: string
+          description: The unique path identifier for this trigger
         script_path:
           type: string
+          description: Path to the script or flow to execute when a message is received
         is_flow:
           type: boolean
+          description: True if script_path points to a flow, false if it points to a script
         mode:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
+          description: Path to a script or flow to run when the triggered job fails
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: Arguments to pass to the error handler
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: Retry configuration for failed executions
       required:
         - queue_url
         - aws_resource_path
@@ -20698,23 +20828,32 @@ components:
       properties:
         postgres_resource_path:
           type: string
+          description: Path to the PostgreSQL resource containing connection configuration
         publication_name:
           type: string
+          description: Name of the PostgreSQL publication to subscribe to for change data capture
         server_id:
           type: string
+          description: ID of the server currently handling this trigger (internal)
         replication_slot_name:
           type: string
+          description: Name of the PostgreSQL logical replication slot to use
         error:
           type: string
+          description: Last error message if the trigger failed
         last_server_ping:
           type: string
           format: date-time
+          description: Timestamp of last server heartbeat (internal)
         error_handler_path:
           type: string
+          description: Path to a script or flow to run when the triggered job fails
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: Arguments to pass to the error handler
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: Retry configuration for failed executions
       required:
         - postgres_resource_path
         - replication_slot_name
@@ -20725,26 +20864,36 @@ components:
       properties:
         replication_slot_name:
           type: string
+          description: Name of the PostgreSQL logical replication slot to use
         publication_name:
           type: string
+          description: Name of the PostgreSQL publication to subscribe to for change data capture
         path:
           type: string
+          description: The unique path identifier for this trigger
         script_path:
           type: string
+          description: Path to the script or flow to execute when database changes are detected
         is_flow:
           type: boolean
+          description: True if script_path points to a flow, false if it points to a script
         mode:
           $ref: "#/components/schemas/TriggerMode"
         postgres_resource_path:
           type: string
+          description: Path to the PostgreSQL resource containing connection configuration
         publication:
           $ref: "#/components/schemas/PublicationData"
+          description: Configuration for creating/managing the publication (tables, operations)
         error_handler_path:
           type: string
+          description: Path to a script or flow to run when the triggered job fails
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: Arguments to pass to the error handler
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: Retry configuration for failed executions
       required:
         - path
         - script_path
@@ -20757,26 +20906,36 @@ components:
       properties:
         replication_slot_name:
           type: string
+          description: Name of the PostgreSQL logical replication slot to use
         publication_name:
           type: string
+          description: Name of the PostgreSQL publication to subscribe to for change data capture
         path:
           type: string
+          description: The unique path identifier for this trigger
         script_path:
           type: string
+          description: Path to the script or flow to execute when database changes are detected
         is_flow:
           type: boolean
+          description: True if script_path points to a flow, false if it points to a script
         mode:
           $ref: "#/components/schemas/TriggerMode"
         postgres_resource_path:
           type: string
+          description: Path to the PostgreSQL resource containing connection configuration
         publication:
           $ref: "#/components/schemas/PublicationData"
+          description: Configuration for creating/managing the publication (tables, operations)
         error_handler_path:
           type: string
+          description: Path to a script or flow to run when the triggered job fails
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: Arguments to pass to the error handler
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: Retry configuration for failed executions
       required:
         - path
         - script_path
@@ -20793,12 +20952,15 @@ components:
       properties:
         kafka_resource_path:
           type: string
+          description: Path to the Kafka resource containing connection configuration
         group_id:
           type: string
+          description: Kafka consumer group ID for this trigger 
         topics:
           type: array
           items:
             type: string
+          description: Array of Kafka topic names to subscribe to
         filters:
           type: array
           items:
@@ -20812,17 +20974,23 @@ components:
               - value
         server_id:
           type: string
+          description: ID of the server currently handling this trigger (internal)
         last_server_ping:
           type: string
           format: date-time
+          description: Timestamp of last server heartbeat (internal)
         error:
           type: string
+          description: Last error message if the trigger failed
         error_handler_path:
           type: string
+          description: Path to a script or flow to run when the triggered job fails
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: Arguments to pass to the error handler
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: Retry configuration for failed executions
 
       required:
         - kafka_resource_path
@@ -20835,18 +21003,24 @@ components:
       properties:
         path:
           type: string
+          description: The unique path identifier for this trigger
         script_path:
           type: string
+          description: Path to the script or flow to execute when a message is received
         is_flow:
           type: boolean
+          description: True if script_path points to a flow, false if it points to a script
         kafka_resource_path:
           type: string
+          description: Path to the Kafka resource containing connection configuration
         group_id:
           type: string
+          description: Kafka consumer group ID for this trigger
         topics:
           type: array
           items:
             type: string
+          description: Array of Kafka topic names to subscribe to
         filters:
           type: array
           items:
@@ -20862,10 +21036,13 @@ components:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
+          description: Path to a script or flow to run when the triggered job fails
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: Arguments to pass to the error handler
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: Retry configuration for failed executions
 
       required:
         - path
@@ -20881,12 +21058,15 @@ components:
       properties:
         kafka_resource_path:
           type: string
+          description: Path to the Kafka resource containing connection configuration
         group_id:
           type: string
+          description: Kafka consumer group ID for this trigger
         topics:
           type: array
           items:
             type: string
+          description: Array of Kafka topic names to subscribe to
         filters:
           type: array
           items:
@@ -20900,16 +21080,22 @@ components:
               - value
         path:
           type: string
+          description: The unique path identifier for this trigger
         script_path:
           type: string
+          description: Path to the script or flow to execute when a message is received
         is_flow:
           type: boolean
+          description: True if script_path points to a flow, false if it points to a script
         error_handler_path:
           type: string
+          description: Path to a script or flow to run when the triggered job fails
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: Arguments to pass to the error handler
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: Retry configuration for failed executions
 
       required:
         - path
@@ -20927,29 +21113,40 @@ components:
       properties:
         nats_resource_path:
           type: string
+          description: Path to the NATS resource containing connection configuration
         use_jetstream:
           type: boolean
+          description: If true, uses NATS JetStream for durable message delivery
         stream_name:
           type: string
+          description: JetStream stream name (required when use_jetstream is true)
         consumer_name:
           type: string
+          description: JetStream consumer name (required when use_jetstream is true)
         subjects:
           type: array
           items:
             type: string
+          description: Array of NATS subjects to subscribe to
         server_id:
           type: string
+          description: ID of the server currently handling this trigger (internal)
         last_server_ping:
           type: string
           format: date-time
+          description: Timestamp of last server heartbeat (internal)
         error:
           type: string
+          description: Last error message if the trigger failed
         error_handler_path:
           type: string
+          description: Path to a script or flow to run when the triggered job fails
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: Arguments to pass to the error handler
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: Retry configuration for failed executions
 
       required:
         - nats_resource_path
@@ -20961,30 +21158,41 @@ components:
       properties:
         path:
           type: string
+          description: The unique path identifier for this trigger
         script_path:
           type: string
+          description: Path to the script or flow to execute when a message is received
         is_flow:
           type: boolean
+          description: True if script_path points to a flow, false if it points to a script
         nats_resource_path:
           type: string
+          description: Path to the NATS resource containing connection configuration
         use_jetstream:
           type: boolean
+          description: If true, uses NATS JetStream for durable message delivery
         stream_name:
           type: string
+          description: JetStream stream name (required when use_jetstream is true)
         consumer_name:
           type: string
+          description: JetStream consumer name (required when use_jetstream is true)
         subjects:
           type: array
           items:
             type: string
+          description: Array of NATS subjects to subscribe to
         mode:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
+          description: Path to a script or flow to run when the triggered job fails
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: Arguments to pass to the error handler
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: Retry configuration for failed executions
 
       required:
         - path
@@ -20999,28 +21207,39 @@ components:
       properties:
         nats_resource_path:
           type: string
+          description: Path to the NATS resource containing connection configuration
         use_jetstream:
           type: boolean
+          description: If true, uses NATS JetStream for durable message delivery
         stream_name:
           type: string
+          description: JetStream stream name (required when use_jetstream is true)
         consumer_name:
           type: string
+          description: JetStream consumer name (required when use_jetstream is true)
         subjects:
           type: array
           items:
             type: string
+          description: Array of NATS subjects to subscribe to
         path:
           type: string
+          description: The unique path identifier for this trigger
         script_path:
           type: string
+          description: Path to the script or flow to execute when a message is received
         is_flow:
           type: boolean
+          description: True if script_path points to a flow, false if it points to a script
         error_handler_path:
           type: string
+          description: Path to a script or flow to run when the triggered job fails
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
+          description: Arguments to pass to the error handler
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: Retry configuration for failed executions
       required:
         - path
         - script_path
@@ -22685,10 +22904,8 @@ components:
         - job
     AssetUsageAccessType:
       type: string
-      enum:
-        - r
-        - w
-        - rw
+      enum: [r, w, rw]
+      nullable: true
     AssetKind:
       type: string
       enum:
