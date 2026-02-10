@@ -16,6 +16,7 @@
 		disabled: boolean
 		onSendRequest: () => void
 		onAddContext: (contextElement: ContextElement) => void
+		onAddWorkspaceItem?: (contextElement: ContextElement) => void
 		className?: string
 		onKeyDown?: (e: KeyboardEvent) => void
 	}
@@ -29,6 +30,7 @@
 		disabled,
 		onSendRequest,
 		onAddContext,
+		onAddWorkspaceItem,
 		className = '',
 		onKeyDown = undefined
 	}: Props = $props()
@@ -342,6 +344,12 @@
 				onSelect={(element) => {
 					handleContextSelection(element)
 				}}
+				onSelectWorkspaceItem={onAddWorkspaceItem
+					? (element) => {
+							onAddWorkspaceItem(element)
+							showContextTooltip = false
+						}
+					: undefined}
 				showAllAvailable={true}
 				stringSearch={contextTooltipWord.slice(1)}
 				onViewChange={(newNumber) => {

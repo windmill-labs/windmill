@@ -1,4 +1,15 @@
-import { Code, Database, TriangleAlert, Diff, FileCode, Code2, TextSelect, Table2 } from 'lucide-svelte'
+import {
+	Code,
+	Database,
+	TriangleAlert,
+	Diff,
+	FileCode,
+	Code2,
+	TextSelect,
+	Table2,
+	FileCode2,
+	GitBranch
+} from 'lucide-svelte'
 import type { ScriptLang } from '$lib/gen/types.gen'
 import { type DBSchema } from '$lib/stores'
 import { type Change } from 'diff'
@@ -13,7 +24,9 @@ export const ContextIconMap = {
 	app_frontend_file: FileCode,
 	app_backend_runnable: Code2,
 	app_code_selection: TextSelect,
-	app_datatable: Table2
+	app_datatable: Table2,
+	workspace_script: FileCode2,
+	workspace_flow: GitBranch
 	// flow_module type is handled with FlowModuleIcon
 }
 
@@ -128,6 +141,40 @@ export interface AppDatatableElement {
 	columns: Record<string, string>
 }
 
+/** Workspace script context element — reference to a script in the workspace */
+export interface WorkspaceScriptElement {
+	type: 'workspace_script'
+	/** The script path */
+	path: string
+	/** Title for display */
+	title: string
+	/** The script summary */
+	summary: string
+	/** The script language */
+	language: ScriptLang
+	/** The script code content */
+	content: string
+	/** The script input schema */
+	schema?: Record<string, any>
+}
+
+/** Workspace flow context element — reference to a flow in the workspace */
+export interface WorkspaceFlowElement {
+	type: 'workspace_flow'
+	/** The flow path */
+	path: string
+	/** Title for display */
+	title: string
+	/** The flow summary */
+	summary: string
+	/** The flow description */
+	description: string
+	/** Summary of modules (id, summary, type) */
+	modules: { id: string; summary: string; type: string }[]
+	/** The flow input schema */
+	schema?: Record<string, any>
+}
+
 export type ContextElement = (
 	| CodeElement
 	| ErrorElement
@@ -140,6 +187,8 @@ export type ContextElement = (
 	| AppBackendRunnableElement
 	| AppCodeSelectionElement
 	| AppDatatableElement
+	| WorkspaceScriptElement
+	| WorkspaceFlowElement
 ) & {
 	deletable?: boolean
 }

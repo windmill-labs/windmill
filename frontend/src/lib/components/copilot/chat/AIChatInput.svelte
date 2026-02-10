@@ -137,6 +137,16 @@
 		}
 	}
 
+	function addWorkspaceItemToSelection(contextElement: ContextElement) {
+		if (
+			!selectedContext.find(
+				(c) => c.type === contextElement.type && c.title === contextElement.title
+			)
+		) {
+			selectedContext = [...selectedContext, contextElement]
+		}
+	}
+
 	function sendRequest() {
 		if (aiChatManager.loading) {
 			return
@@ -368,6 +378,10 @@
 								addContextToSelection(element)
 								close()
 							}}
+							onSelectWorkspaceItem={(element) => {
+								addWorkspaceItemToSelection(element)
+								close()
+							}}
 						/>
 					</svelte:fragment>
 				</Popover>
@@ -392,6 +406,7 @@
 			{isFirstMessage}
 			placeholder={modePlaceholder}
 			onAddContext={(contextElement) => addContextToSelection(contextElement)}
+			onAddWorkspaceItem={(contextElement) => addWorkspaceItemToSelection(contextElement)}
 			onSendRequest={() => {
 				if (disabled) {
 					return
