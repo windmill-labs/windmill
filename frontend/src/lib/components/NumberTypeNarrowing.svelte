@@ -20,65 +20,63 @@
 	}: Props = $props()
 </script>
 
-<div class="flex flex-col gap-4 p-4 border rounded-md">
-	<div class="grid grid-cols-2 gap-4">
-		<Label label="Min" class="w-full col-span-1">
-			{#snippet header()}
-				<Tooltip light small>
-					Set a minimum value for the number. If both min and max are set, the input will render as
-					a range slider.
-				</Tooltip>
-			{/snippet}
-			<TextInput
-				inputProps={{ type: 'number' }}
-				bind:value={() => min?.toString(), (v) => (min = v ? parseInt(v) : undefined)}
-			/>
-		</Label>
+<div class="grid grid-cols-2 gap-4 p-4 border rounded-md">
+	<Label label="Min" class="w-full">
+		{#snippet header()}
+			<Tooltip light small>
+				Set a minimum value for the number. If both min and max are set, the input will render as
+				a range slider.
+			</Tooltip>
+		{/snippet}
+		<TextInput
+			inputProps={{ type: 'number' }}
+			bind:value={() => min?.toString(), (v) => (min = v ? parseInt(v) : undefined)}
+		/>
+	</Label>
 
-		<Label label="Max" class="w-full col-span-1 ">
-			{#snippet header()}
+	<Label label="Max" class="w-full">
+		{#snippet header()}
+			<Tooltip light small>
+				Set a maximum value for the number. If both min and max are set, the input will render as
+				a range slider.
+			</Tooltip>
+		{/snippet}
+		<TextInput
+			inputProps={{ type: 'number' }}
+			bind:value={() => max?.toString(), (v) => (max = v ? parseInt(v) : undefined)}
+		/>
+	</Label>
+
+	<Label label="Currency" class="w-full">
+		{#snippet header()}
+			<div class="-my-1">
 				<Tooltip light small>
-					Set a maximum value for the number. If both min and max are set, the input will render as
-					a range slider.
+					Select a currency to display the number in. If a currency is selected, you can also
+					select a locale to format the number according to that locale.
 				</Tooltip>
-			{/snippet}
-			<TextInput
-				inputProps={{ type: 'number' }}
-				bind:value={() => max?.toString(), (v) => (max = v ? parseInt(v) : undefined)}
-			/>
-		</Label>
-	</div>
-	<div class="flex gap-2 items-center">
-		<Label label="Currency">
-			{#snippet header()}
-				<div class="-my-1">
-					<Tooltip light small>
-						Select a currency to display the number in. If a currency is selected, you can also
-						select a locale to format the number according to that locale.
-					</Tooltip>
-				</div>
-			{/snippet}
-			<Select
-				bind:value={
-					() => currency,
-					(v) => {
-						currency = v
-						if (!v) currencyLocale = undefined
-					}
+			</div>
+		{/snippet}
+		<Select
+			bind:value={
+				() => currency,
+				(v) => {
+					currency = v
+					if (!v) currencyLocale = undefined
 				}
-				items={selectOptions.currencyOptions.map((c) => ({ label: c, value: c }))}
-				placeholder="No currency"
-				clearable
-			/>
-		</Label>
-		<Label label="Currency locale" class="w-full">
-			<Select
-				bind:value={currencyLocale}
-				items={selectOptions.localeOptions.map((c) => ({ label: c, value: c }))}
-				placeholder="No locale"
-				disabled={!currency}
-				clearable
-			/>
-		</Label>
-	</div>
+			}
+			items={selectOptions.currencyOptions.map((c) => ({ label: c, value: c }))}
+			placeholder="No currency"
+			clearable
+		/>
+	</Label>
+
+	<Label label="Currency locale" class="w-full">
+		<Select
+			bind:value={currencyLocale}
+			items={selectOptions.localeOptions.map((c) => ({ label: c, value: c }))}
+			placeholder="No locale"
+			disabled={!currency}
+			clearable
+		/>
+	</Label>
 </div>
