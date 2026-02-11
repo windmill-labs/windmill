@@ -95,6 +95,8 @@
 					initialValues[s.key] = ''
 				} else if (s.fieldType === 'secret_backend') {
 					initialValues[s.key] = { type: 'Database' }
+				} else if (s.fieldType === 'select' || s.fieldType === 'select_python') {
+					initialValues[s.key] = s.defaultValue ? s.defaultValue() : 'default'
 				}
 			}
 		}
