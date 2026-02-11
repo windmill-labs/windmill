@@ -166,6 +166,12 @@ struct AIStandardResource {
         deserialize_with = "empty_string_as_none"
     )]
     aws_secret_access_key: Option<String>,
+    #[serde(
+        alias = "awsSessionToken",
+        default,
+        deserialize_with = "empty_string_as_none"
+    )]
+    aws_session_token: Option<String>,
     /// Platform for Anthropic API (standard or google_vertex_ai)
     #[serde(default)]
     platform: AnthropicPlatform,
@@ -199,6 +205,8 @@ struct AIRequestConfig {
     pub aws_access_key_id: Option<String>,
     #[allow(dead_code)]
     pub aws_secret_access_key: Option<String>,
+    #[allow(dead_code)]
+    pub aws_session_token: Option<String>,
     pub platform: AnthropicPlatform,
     pub enable_1m_context: bool,
 }
@@ -219,6 +227,7 @@ impl AIRequestConfig {
             region,
             aws_access_key_id,
             aws_secret_access_key,
+            aws_session_token,
             platform,
             enable_1m_context,
         ) = match resource {
@@ -253,6 +262,11 @@ impl AIRequestConfig {
                     } else {
                         None
                     };
+                let aws_session_token = if let Some(session_token) = resource.aws_session_token {
+                    Some(get_variable_or_self(session_token, db, w_id).await?)
+                } else {
+                    None
+                };
 
                 (
                     api_key,
@@ -263,6 +277,7 @@ impl AIRequestConfig {
                     region,
                     aws_access_key_id,
                     aws_secret_access_key,
+                    aws_session_token,
                     platform,
                     enable_1m_context,
                 )
@@ -285,6 +300,7 @@ impl AIRequestConfig {
                     None,
                     None,
                     None,
+                    None,
                     AnthropicPlatform::Standard,
                     false,
                 )
@@ -300,6 +316,7 @@ impl AIRequestConfig {
             region,
             aws_access_key_id,
             aws_secret_access_key,
+            aws_session_token,
             platform,
             enable_1m_context,
         })
@@ -843,6 +860,7 @@ async fn proxy(
                         request_config.api_key.as_deref(),
                         request_config.aws_access_key_id.as_deref(),
                         request_config.aws_secret_access_key.as_deref(),
+                        request_config.aws_session_token.as_deref(),
                         region,
                     )
                     .await;
@@ -851,6 +869,7 @@ async fn proxy(
                         request_config.api_key.as_deref(),
                         request_config.aws_access_key_id.as_deref(),
                         request_config.aws_secret_access_key.as_deref(),
+                        request_config.aws_session_token.as_deref(),
                         region,
                     )
                     .await;
@@ -866,6 +885,7 @@ async fn proxy(
                         request_config.api_key.as_deref(),
                         request_config.aws_access_key_id.as_deref(),
                         request_config.aws_secret_access_key.as_deref(),
+                        request_config.aws_session_token.as_deref(),
                         region,
                     )
                     .await;
@@ -876,6 +896,7 @@ async fn proxy(
                         request_config.api_key.as_deref(),
                         request_config.aws_access_key_id.as_deref(),
                         request_config.aws_secret_access_key.as_deref(),
+                        request_config.aws_session_token.as_deref(),
                         region,
                     )
                     .await;

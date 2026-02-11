@@ -187,6 +187,13 @@ pub struct ProviderResource {
         deserialize_with = "empty_string_as_none"
     )]
     pub aws_secret_access_key: Option<String>,
+    #[allow(dead_code)]
+    #[serde(
+        alias = "awsSessionToken",
+        default,
+        deserialize_with = "empty_string_as_none"
+    )]
+    pub aws_session_token: Option<String>,
     /// Platform for Anthropic API (standard or google_vertex_ai)
     #[serde(default)]
     pub platform: AnthropicPlatform,
@@ -230,6 +237,11 @@ impl ProviderWithResource {
     #[cfg(feature = "bedrock")]
     pub fn get_aws_secret_access_key(&self) -> Option<&str> {
         self.resource.aws_secret_access_key.as_deref()
+    }
+
+    #[cfg(feature = "bedrock")]
+    pub fn get_aws_session_token(&self) -> Option<&str> {
+        self.resource.aws_session_token.as_deref()
     }
 
     pub fn get_platform(&self) -> &AnthropicPlatform {
