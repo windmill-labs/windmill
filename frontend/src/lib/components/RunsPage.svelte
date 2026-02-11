@@ -43,6 +43,7 @@
 		runsTimeframes,
 		useUrlSyncedTimeframe
 	} from './runs/TimeframeSelect.svelte'
+	import FilterSearchbar from './FilterSearchbar.svelte'
 
 	interface Props {
 		/** Initial path from route params (e.g., /runs/u/user/script) */
@@ -586,6 +587,7 @@
 					bind:value={_timeframe.timeframe}
 				/>
 			</div>
+			<FilterSearchbar />
 		</div>
 
 		<!-- Graph -->
