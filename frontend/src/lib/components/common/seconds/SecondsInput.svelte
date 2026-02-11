@@ -1,36 +1,60 @@
 <script lang="ts">
-	type TimeUnit = number | undefined
+	import { untrack } from 'svelte'
+	import { twMerge } from 'tailwind-merge'
+	import {
+		inputBaseClass,
+		inputBorderClass,
+		inputSizeClasses
+	} from '../../text_input/TextInput.svelte'
+	import type { ButtonType } from '../button/model'
+	import CloseButton from '../CloseButton.svelte'
 
 	const ONE_DAY_IN_SECONDS = 86400 as const
 	const ONE_HOUR_IN_SECONDS = 3600 as const
 	const ONE_MINUTE_IN_SECONDS = 60 as const
 
-	export let seconds = 0
-	export let hideDisplay = false
-	export let disabled = false
-	export let max: number | undefined = undefined
+	const segmentClass =
+		'no-default-style !bg-transparent border-none !w-7 text-right p-0 text-xs font-medium focus:ring-0 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none'
 
-	let day: TimeUnit = undefined
-	let hour: TimeUnit = undefined
-	let min: TimeUnit = undefined
-	let sec: TimeUnit = undefined
+	interface Props {
+		seconds?: number
+		disabled?: boolean
+		max?: number | undefined
+		size?: ButtonType.UnifiedSize
+		clearable?: boolean
+		defaultValue?: number | undefined
+		onfocus?: (e: FocusEvent) => void
+	}
 
-	$: convertSecondsToTime(seconds)
+	let {
+		seconds = $bindable(),
+		disabled = false,
+		max = undefined,
+		size = 'md',
+		clearable = false,
+		defaultValue = undefined,
+		onfocus
+	}: Props = $props()
 
-	function convertSecondsToTime(seconds) {
-		day = Math.floor(seconds / ONE_DAY_IN_SECONDS)
-		seconds -= day * ONE_DAY_IN_SECONDS
-		day = day || undefined
+	let day: number = $state(0)
+	let hour: number = $state(0)
+	let min: number = $state(0)
+	let sec: number = $state(0)
 
-		hour = Math.floor(seconds / ONE_HOUR_IN_SECONDS)
-		seconds -= hour * ONE_HOUR_IN_SECONDS
-		hour = hour || undefined
+	let containerFocused = $state(false)
+	let hasValue = $derived(seconds != null)
 
-		min = Math.floor(seconds / ONE_MINUTE_IN_SECONDS)
-		seconds -= min * ONE_MINUTE_IN_SECONDS
-		min = min || undefined
+	function convertSecondsToTime(s: number) {
+		day = Math.floor(s / ONE_DAY_IN_SECONDS)
+		s -= day * ONE_DAY_IN_SECONDS
 
-		sec = seconds || undefined
+		hour = Math.floor(s / ONE_HOUR_IN_SECONDS)
+		s -= hour * ONE_HOUR_IN_SECONDS
+
+		min = Math.floor(s / ONE_MINUTE_IN_SECONDS)
+		s -= min * ONE_MINUTE_IN_SECONDS
+
+		sec = s
 	}
 
 	function convertUnitsToSeconds() {
@@ -44,70 +68,172 @@
 			seconds = max
 		}
 	}
+
+	function clamp(value: number, maxVal: number) {
+		return Math.max(0, Math.min(maxVal, value))
+	}
+
+	function handleKeydown(
+		e: KeyboardEvent,
+		getter: () => number,
+		setter: (v: number) => void,
+		maxVal: number
+	) {
+		if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+			e.preventDefault()
+			setter(clamp((getter() || 0) + (e.key === 'ArrowUp' ? 1 : -1), maxVal))
+			convertUnitsToSeconds()
+		}
+	}
+
+	function handleInput(e: Event, setter: (v: number) => void, maxVal: number) {
+		const input = e.currentTarget as HTMLInputElement
+		const clamped = clamp(parseInt(input.value) || 0, maxVal)
+		setter(clamped)
+		input.value = String(clamped)
+		convertUnitsToSeconds()
+	}
+
+	function handleFocus(e: FocusEvent) {
+		containerFocused = true
+		if (seconds == null) {
+			seconds = 0
+		}
+		onfocus?.(e)
+	}
+
+	function handleBlur() {
+		containerFocused = false
+	}
+
+	$effect(() => {
+		const s = seconds
+		untrack(() => convertSecondsToTime(s ?? 0))
+	})
 </script>
 
-<div class="flex flex-wrap gap-x-4">
-	{#if !hideDisplay}
-		<input
-			value={seconds == null || seconds == undefined
-				? 'Not set'
-				: disabled
-					? ''
-					: seconds + ' second' + (seconds === 1 ? '' : 's')}
-			{disabled}
-			readonly
-			type="text"
-			class="max-w-[248px] bg-gray-50 mb-2 mt-6"
-		/>
-	{/if}
-	<div class="flex flex-wrap items-center gap-2 text-xs font-medium">
-		<div class="flex items-center gap-2">
-			<label>
-				Sec
+<div class="flex flex-col gap-1">
+	<div class="flex items-center gap-1">
+		<div
+			class={twMerge(
+				inputBaseClass,
+				inputSizeClasses[size],
+				inputBorderClass({ forceFocus: containerFocused }),
+				'flex items-center gap-0.5 !w-fit'
+			)}
+		>
+			<div class="flex items-baseline">
 				<input
 					type="number"
-					class="!w-14"
+					class={segmentClass}
+					value={hasValue ? day || 0 : ''}
+					placeholder="_ _"
+					min="0"
 					{disabled}
-					bind:value={sec}
-					on:change={convertUnitsToSeconds}
-					on:focus
+					oninput={(e) => handleInput(e, (v) => (day = v), Infinity)}
+					onkeydown={(e) =>
+						handleKeydown(
+							e,
+							() => day,
+							(v) => (day = v),
+							Infinity
+						)}
+					onfocus={handleFocus}
+					onblur={handleBlur}
 				/>
-			</label>
-			<label>
-				Min
+				<span class="text-secondary text-2xs inline-grid [&>*]:col-start-1 [&>*]:row-start-1"
+					><span class="invisible">days</span><span>{day && day > 1 ? 'days' : 'day'}</span></span
+				>
+			</div>
+			<div class="flex items-baseline">
 				<input
 					type="number"
-					class="!w-14"
+					class={segmentClass}
+					value={hasValue ? hour || 0 : ''}
+					placeholder="_ _"
+					min="0"
+					max="23"
 					{disabled}
-					bind:value={min}
-					on:change={convertUnitsToSeconds}
-					on:focus
+					oninput={(e) => handleInput(e, (v) => (hour = v), 23)}
+					onkeydown={(e) =>
+						handleKeydown(
+							e,
+							() => hour,
+							(v) => (hour = v),
+							23
+						)}
+					onfocus={handleFocus}
+					onblur={handleBlur}
 				/>
-			</label>
+				<span class="text-secondary text-2xs inline-grid [&>*]:col-start-1 [&>*]:row-start-1"
+					><span class="invisible">hrs</span><span>{hour && hour > 1 ? 'hrs' : 'hr'}</span></span
+				>
+			</div>
+			<div class="flex items-baseline">
+				<input
+					type="number"
+					class={segmentClass}
+					value={hasValue ? min || 0 : ''}
+					placeholder="_ _"
+					min="0"
+					max="59"
+					{disabled}
+					oninput={(e) => handleInput(e, (v) => (min = v), 59)}
+					onkeydown={(e) =>
+						handleKeydown(
+							e,
+							() => min,
+							(v) => (min = v),
+							59
+						)}
+					onfocus={handleFocus}
+					onblur={handleBlur}
+				/>
+				<span class="text-secondary text-2xs inline-grid [&>*]:col-start-1 [&>*]:row-start-1"
+					><span class="invisible">mins</span><span>{min && min > 1 ? 'mins' : 'min'}</span></span
+				>
+			</div>
+			<div class="flex items-baseline">
+				<input
+					type="number"
+					class={segmentClass}
+					value={hasValue ? sec || 0 : ''}
+					placeholder="_ _"
+					min="0"
+					max="59"
+					{disabled}
+					oninput={(e) => handleInput(e, (v) => (sec = v), 59)}
+					onkeydown={(e) =>
+						handleKeydown(
+							e,
+							() => sec,
+							(v) => (sec = v),
+							59
+						)}
+					onfocus={handleFocus}
+					onblur={handleBlur}
+				/>
+				<span class="text-secondary text-2xs inline-grid [&>*]:col-start-1 [&>*]:row-start-1"
+					><span class="invisible">secs</span><span>{sec && sec > 1 ? 'secs' : 'sec'}</span></span
+				>
+			</div>
 		</div>
-		<div class="flex items-center gap-2">
-			<label>
-				Hour
-				<input
-					type="number"
-					class="!w-14"
-					{disabled}
-					bind:value={hour}
-					on:change={convertUnitsToSeconds}
-					on:focus
-				/>
-			</label>
-			<label>
-				Day
-				<input
-					type="number"
-					class="!w-14"
-					{disabled}
-					bind:value={day}
-					on:change={convertUnitsToSeconds}
-					on:focus
-				/>
-			</label>
-		</div>
+		{#if clearable && !disabled && seconds != null && seconds !== defaultValue}
+			<CloseButton
+				class="bg-transparent text-secondary hover:text-primary"
+				noBg
+				small
+				on:close={() => {
+					seconds = defaultValue
+				}}
+			/>
+		{/if}
 	</div>
+	{#if seconds != null}
+		<span class="text-2xs text-hint">
+			= {seconds.toLocaleString()} second{seconds === 1 ? '' : 's'}
+		</span>
+	{:else}
+		<span class="text-2xs text-hint"> no time set </span>
+	{/if}
 </div>

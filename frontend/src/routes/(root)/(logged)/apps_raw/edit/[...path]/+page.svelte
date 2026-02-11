@@ -128,8 +128,9 @@
 			}
 			sendUserToast('App restored from browser storage', false, actions)
 			app_w_draft.value = stateLoadedFromLocalStorage
-			files = app_w_draft.value.files as any
-			runnables = app_w_draft.value.runnables as any
+			const rawValue = app_w_draft.value as any
+			files = rawValue.files as any
+			runnables = rawValue.runnables as any
 			redraw += 1
 		} else if (app_w_draft.draft) {
 			extractRawApp(app_w_draft.draft)

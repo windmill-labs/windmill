@@ -50,6 +50,8 @@
           xmlsec.dev
           libxslt.dev
           libclang.dev
+          curl.dev
+          zlib.dev
           libffi # For deno_ffi
           libtool
           nodejs
@@ -323,6 +325,9 @@
 
           # LD_LIBRARY_PATH set in shellHook with a wrapper to avoid leaking into git/ssh
           # LD_LIBRARY_PATH = "${pkgs.gcc.lib}/lib";
+          LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
+            pkgs.zlib
+          ];
 
           # Set C flags for Rust's bindgen program. Unlike ordinary C
           # compilation, bindgen does not invoke $CC directly. Instead it
