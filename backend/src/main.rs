@@ -46,8 +46,8 @@ use windmill_common::{
         KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING,
         MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
         NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING,
-        OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
-        POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, UV_INDEX_STRATEGY_SETTING,
+        POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         RUBY_REPOS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING,
         TIMEOUT_WAIT_RESULT_SETTING,
@@ -103,7 +103,7 @@ use crate::monitor::{
     reload_jwt_secret_setting, reload_license_key, reload_npm_config_registry_setting,
     reload_otel_tracing_proxy_setting, reload_pip_index_url_setting,
     reload_retention_period_setting, reload_scim_token_setting, reload_smtp_config,
-    reload_worker_config, MonitorIteration,
+    reload_uv_index_strategy_setting, reload_worker_config, MonitorIteration,
 };
 
 #[cfg(feature = "parquet")]
@@ -117,6 +117,7 @@ const BIND_ADDR_ENV: &str = "SERVER_BIND_ADDR";
 
 #[cfg(target_os = "linux")]
 mod cgroups;
+mod db_connect;
 #[cfg(feature = "private")]
 pub mod ee;
 mod ee_oss;
@@ -127,27 +128,8 @@ mod monitor;
 mod windows_service_ee;
 
 pub fn setup_deno_runtime() -> anyhow::Result<()> {
-    // https://github.com/denoland/deno/blob/main/cli/main.rs#L477
     #[cfg(feature = "deno_core")]
-    let unrecognized_v8_flags = deno_core::v8_set_flags(vec![
-        "--stack-size=1024".to_string(),
-        // TODO(bartlomieju): I think this can be removed as it's handled by `deno_core`
-        // and its settings.
-        // deno_ast removes TypeScript `assert` keywords, so this flag only affects JavaScript
-        // TODO(petamoriken): Need to check TypeScript `assert` keywords in deno_ast
-        "--no-harmony-import-assertions".to_string(),
-    ])
-    .into_iter()
-    .skip(1)
-    .collect::<Vec<_>>();
-
-    #[cfg(feature = "deno_core")]
-    if !unrecognized_v8_flags.is_empty() {
-        println!("Unrecognized V8 flags: {:?}", unrecognized_v8_flags);
-    }
-
-    #[cfg(feature = "deno_core")]
-    deno_core::JsRuntime::init_platform(None, false);
+    windmill_runtime_nativets::setup_deno_runtime()?;
     Ok(())
 }
 
@@ -684,7 +666,7 @@ async fn windmill_main() -> anyhow::Result<()> {
     } else {
         println!("Connecting to database...");
 
-        let db = windmill_common::initial_connection().await?;
+        let db = crate::db_connect::initial_connection().await?;
 
         let num_version = sqlx::query_scalar!("SELECT version()").fetch_one(&db).await;
 
@@ -753,8 +735,12 @@ async fn windmill_main() -> anyhow::Result<()> {
                 .unwrap_or(false);
 
             if !skip_migration {
-                // migration code to avoid break
-                migration_handle = windmill_api::migrate_db(&db, killpill_rx.resubscribe()).await?;
+                if mode == Mode::Worker {
+                    windmill_api::wait_for_db_migrations(&db, killpill_rx.resubscribe()).await?;
+                } else {
+                    migration_handle =
+                        windmill_api::migrate_db(&db, killpill_rx.resubscribe()).await?;
+                }
             } else {
                 tracing::info!("SKIP_MIGRATION set, skipping db migration...")
             }
@@ -789,8 +775,12 @@ async fn windmill_main() -> anyhow::Result<()> {
     let conn = if mode == Mode::Agent {
         conn
     } else {
-        // This time we use a pool of connections
-        let db = windmill_common::connect_db(
+        // Drop the initial connection pool before creating the main one.
+        // With low PostgreSQL max_connections, both pools existing simultaneously
+        // can exhaust all available connection slots, causing connect_db to hang.
+        drop(conn);
+
+        let db = crate::db_connect::connect_db(
             server_mode,
             indexer_mode,
             worker_mode,
@@ -1574,6 +1564,7 @@ async fn process_notify_event(
                 SCIM_TOKEN_SETTING => reload_scim_token_setting(conn).await,
                 EXTRA_PIP_INDEX_URL_SETTING => reload_extra_pip_index_url_setting(conn).await,
                 PIP_INDEX_URL_SETTING => reload_pip_index_url_setting(conn).await,
+                UV_INDEX_STRATEGY_SETTING => reload_uv_index_strategy_setting(conn).await,
                 INSTANCE_PYTHON_VERSION_SETTING => {
                     reload_instance_python_version_setting(conn).await
                 }
@@ -1660,6 +1651,19 @@ async fn process_notify_event(
                     if let Err(e) = reload_critical_alert_mute_ui_setting(conn).await {
                         tracing::error!(error = %e, "Could not reload critical alert UI setting");
                     }
+                }
+                "workspace_telemetry_enabled" => {
+                    // Read the new value from the database and log it
+                    let enabled = sqlx::query_scalar!(
+                        "SELECT value FROM global_settings WHERE name = 'workspace_telemetry_enabled'"
+                    )
+                    .fetch_optional(db)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                    tracing::info!("Workspace telemetry setting changed: enabled={}", enabled);
                 }
                 _ => {
                     tracing::info!("Unrecognized Global Setting Change Payload: {:?}", payload);

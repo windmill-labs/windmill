@@ -1,0 +1,42 @@
+[package]
+name = "windmill-api-workspaces"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_api_workspaces"
+path = "src/lib.rs"
+
+[features]
+default = []
+enterprise = ["windmill-common/enterprise"]
+private = ["windmill-common/private"]
+cloud = ["windmill-common/cloud"]
+no_auth = ["windmill-api-auth/no_auth"]
+
+[dependencies]
+windmill-common = { workspace = true, default-features = false }
+windmill-api-auth.workspace = true
+windmill-api-users.workspace = true
+windmill-audit.workspace = true
+windmill-git-sync.workspace = true
+windmill-queue.workspace = true
+windmill-api-jobs.workspace = true
+windmill-dep-map.workspace = true
+
+axum.workspace = true
+chrono.workspace = true
+hex.workspace = true
+http.workspace = true
+hyper.workspace = true
+lazy_static.workspace = true
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+strum.workspace = true

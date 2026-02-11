@@ -11,7 +11,7 @@ use windmill_mcp::common::transform::apply_key_transformation;
 use windmill_mcp::common::types::{
     FlowInfo, HubScriptInfo, ResourceInfo, ResourceType, SchemaType, ScriptInfo,
 };
-use windmill_mcp::server::{BackendResult, EndpointTool, ErrorData, McpAuth, McpBackend};
+use windmill_mcp::server::{BackendResult, EndpointTool, ErrorData, McpBackend};
 
 use crate::db::ApiAuthed;
 use crate::jobs::{
@@ -39,36 +39,7 @@ use axum::{
 };
 use windmill_common::error::JsonResult;
 
-/// Implement McpAuth for ApiAuthed
-impl McpAuth for ApiAuthed {
-    fn username(&self) -> &str {
-        &self.username
-    }
-
-    fn email(&self) -> &str {
-        &self.email
-    }
-
-    fn is_admin(&self) -> bool {
-        self.is_admin
-    }
-
-    fn is_operator(&self) -> bool {
-        self.is_operator
-    }
-
-    fn groups(&self) -> &[String] {
-        &self.groups
-    }
-
-    fn folders(&self) -> &[(String, bool, bool)] {
-        &self.folders
-    }
-
-    fn scopes(&self) -> Option<&[String]> {
-        self.scopes.as_deref()
-    }
-}
+// McpAuth impl for ApiAuthed is in windmill-api-auth (same crate as the type)
 
 /// Windmill's MCP backend implementation
 #[derive(Clone)]
@@ -352,16 +323,25 @@ impl McpBackend for WindmillBackend {
             workspace_id,
             args_map,
             &endpoint_tool.path_params_schema,
+            &endpoint_tool.path_field_renames,
         )?;
-        let query_string = build_query_string(args_map, &endpoint_tool.query_params_schema);
+        let query_string = build_query_string(
+            args_map,
+            &endpoint_tool.query_params_schema,
+            &endpoint_tool.query_field_renames,
+        );
         let full_url = format!(
             "{}/api{}{}",
             self.base_internal_url, path_template, query_string
         );
 
         // Prepare request body
-        let body_json =
-            build_request_body(&endpoint_tool.method, args_map, &endpoint_tool.body_schema);
+        let body_json = build_request_body(
+            &endpoint_tool.method,
+            args_map,
+            &endpoint_tool.body_schema,
+            &endpoint_tool.body_field_renames,
+        );
 
         // Create and execute request
         let response = create_http_request(

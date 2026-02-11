@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.628.3
+  version: 1.631.2
   title: Windmill API
 
   contact:
@@ -1305,6 +1305,20 @@ paths:
       responses:
         "200":
           description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /settings/get_stats:
+    get:
+      summary: get encrypted telemetry stats (EE only)
+      operationId: getStats
+      tags:
+        - setting
+      responses:
+        "200":
+          description: base64-encoded encrypted telemetry blob
           content:
             text/plain:
               schema:
@@ -4155,6 +4169,126 @@ paths:
                 type: string
                 example: "Updated mute critical alert UI settings for workspace: workspace_id"
 
+  /w/{workspace}/workspaces/protection_rules:
+    get:
+      summary: list all protection rules for a workspace
+      operationId: listProtectionRules
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: list of protection rules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProtectionRuleset"
+    post:
+      summary: create a new protection rule
+      operationId: createProtectionRule
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: New protection rule configuration
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - rules
+                - bypass_groups
+                - bypass_users
+              properties:
+                name:
+                  type: string
+                  description: Unique name for the protection rule
+                  example: "Production Protection"
+                rules:
+                  $ref: "#/components/schemas/ProtectionRules"
+                bypass_groups:
+                  $ref: "#/components/schemas/RuleBypasserGroups"
+                bypass_users:
+                  $ref: "#/components/schemas/RuleBypasserUsers"
+      responses:
+        "200":
+          description: protection rule created successfully
+          content:
+            text/plain:
+              schema:
+                type: string
+        "400":
+          description: rule with this name already exists
+
+  /w/{workspace}/workspaces/protection_rules/{rule_name}:
+    post:
+      summary: update an existing protection rule
+      operationId: updateProtectionRule
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: rule_name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Name of the protection rule to update
+      requestBody:
+        description: Updated protection rule configuration
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - rules
+                - bypass_groups
+                - bypass_users
+              properties:
+                rules:
+                  $ref: "#/components/schemas/ProtectionRules"
+                bypass_groups:
+                  $ref: "#/components/schemas/RuleBypasserGroups"
+                bypass_users:
+                  $ref: "#/components/schemas/RuleBypasserUsers"
+      responses:
+        "200":
+          description: protection rule updated successfully
+          content:
+            text/plain:
+              schema:
+                type: string
+        "404":
+          description: protection rule not found
+    delete:
+      summary: delete a protection rule
+      operationId: deleteProtectionRule
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: rule_name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Name of the protection rule to delete
+      responses:
+        "200":
+          description: protection rule deleted successfully
+          content:
+            text/plain:
+              schema:
+                type: string
+        "404":
+          description: protection rule not found
   /w/{workspace}/workspaces/public_app_rate_limit:
     post:
       summary: Set public app rate limit for this workspace
@@ -5918,6 +6052,17 @@ paths:
     post:
       summary: create script
       operationId: createScript
+      x-mcp-tool: true
+      x-mcp-instructions: "To create a script, specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed."
+      x-mcp-tool-include-fields:
+        - path
+        - content
+        - language
+        - summary
+        - description
+        - kind
+        - tag
+        - deployment_message
       tags:
         - script
       parameters:
@@ -6194,6 +6339,7 @@ paths:
     post:
       summary: delete script by hash (erase content but keep hash, require admin)
       operationId: deleteScriptByHash
+      x-mcp-tool: true
       tags:
         - script
       parameters:
@@ -6211,6 +6357,7 @@ paths:
     post:
       summary: delete script at a given path (require admin)
       operationId: deleteScriptByPath
+      x-mcp-tool: true
       tags:
         - script
       parameters:
@@ -6601,6 +6748,9 @@ paths:
     post:
       summary: run script by path
       operationId: runScriptByPath
+      x-mcp-tool: true
+      x-mcp-instructions: "You should first use getScriptByPath to retrieve the script's schema and understand what arguments are expected."
+      x-mcp-tool-include-query-params: []
       tags:
         - job
       parameters:
@@ -7543,6 +7693,18 @@ paths:
     post:
       summary: create flow
       operationId: createFlow
+      x-mcp-tool: true
+      x-mcp-tool-include-fields:
+        - path
+        - summary
+        - description
+        - value
+        - schema
+        - tag
+        - deployment_message
+      x-mcp-tool-opaque-fields:
+        - value
+        - schema
       tags:
         - flow
       parameters:
@@ -7573,6 +7735,18 @@ paths:
     post:
       summary: update flow
       operationId: updateFlow
+      x-mcp-tool: true
+      x-mcp-tool-include-fields:
+        - path
+        - summary
+        - description
+        - value
+        - schema
+        - tag
+        - deployment_message
+      x-mcp-tool-opaque-fields:
+        - value
+        - schema
       tags:
         - flow
       parameters:
@@ -7630,6 +7804,7 @@ paths:
     delete:
       summary: delete flow by path
       operationId: deleteFlowByPath
+      x-mcp-tool: true
       tags:
         - flow
       parameters:
@@ -7769,23 +7944,6 @@ paths:
                 items:
                   $ref: "#/components/schemas/ListableRawApp"
 
-  /w/{workspace}/raw_apps/exists/{path}:
-    get:
-      summary: does an app exisst at path
-      operationId: existsRawApp
-      tags:
-        - raw_app
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-      responses:
-        "200":
-          description: app exists
-          content:
-            application/json:
-              schema:
-                type: boolean
-
   /w/{workspace}/apps/get_data/v/{secretWithExtension}:
     get:
       summary: get raw app data by
@@ -7889,6 +8047,16 @@ paths:
     post:
       summary: create app
       operationId: createApp
+      x-mcp-tool: true
+      x-mcp-tool-include-fields:
+        - path
+        - value
+        - summary
+        - policy
+        - deployment_message
+      x-mcp-tool-opaque-fields:
+        - value
+        - policy
       tags:
         - app
       parameters:
@@ -8215,88 +8383,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/AppWithLastVersion"
 
-  /w/{workspace}/raw_apps/create:
-    post:
-      summary: create raw app
-      operationId: createRawApp
-      tags:
-        - raw_app
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        description: new raw app
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                path:
-                  type: string
-                value:
-                  type: string
-                summary:
-                  type: string
-              required:
-                - path
-                - value
-                - summary
-      responses:
-        "201":
-          description: raw app created
-          content:
-            text/plain:
-              schema:
-                type: string
-
-  /w/{workspace}/raw_apps/update/{path}:
-    post:
-      summary: update app
-      operationId: updateRawApp
-      tags:
-        - raw_app
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/ScriptPath"
-      requestBody:
-        description: updateraw  app
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                path:
-                  type: string
-                summary:
-                  type: string
-                value:
-                  type: string
-      responses:
-        "200":
-          description: app updated
-          content:
-            text/plain:
-              schema:
-                type: string
-
-  /w/{workspace}/raw_apps/delete/{path}:
-    delete:
-      summary: delete raw app
-      operationId: deleteRawApp
-      tags:
-        - raw_app
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-      responses:
-        "200":
-          description: app deleted
-          content:
-            text/plain:
-              schema:
-                type: string
-
   /w/{workspace}/apps/delete/{path}:
     delete:
       summary: delete app
@@ -8318,6 +8404,16 @@ paths:
     post:
       summary: update app
       operationId: updateApp
+      x-mcp-tool: true
+      x-mcp-tool-include-fields:
+        - path
+        - value
+        - summary
+        - policy
+        - deployment_message
+      x-mcp-tool-opaque-fields:
+        - value
+        - policy
       tags:
         - app
       parameters:
@@ -8599,6 +8695,9 @@ paths:
     post:
       summary: run flow by path
       operationId: runFlowByPath
+      x-mcp-tool: true
+      x-mcp-instructions: "You should first use getFlowByPath to retrieve the flow's schema and understand what arguments are expected."
+      x-mcp-tool-include-query-params: []
       tags:
         - job
       parameters:
@@ -17995,7 +18094,7 @@ components:
     ScriptArgs:
       type: object
       description: The arguments to pass to the script or flow
-      additionalProperties: {}
+      additionalProperties: true
 
     Input:
       type: object
@@ -22005,8 +22104,7 @@ components:
         created_at:
           type: string
           format: date-time
-        value:
-          type: object
+        value: {}
         policy:
           $ref: "#/components/schemas/Policy"
         execution_mode:
@@ -22555,8 +22653,7 @@ components:
       properties:
         name:
           type: string
-        value:
-          type: object
+        value: {}
       required:
         - name
         - value
@@ -23010,7 +23107,47 @@ components:
         kind:
           $ref: "#/components/schemas/AssetKind"
       required: [path, kind]
-
+    ProtectionRuleset:
+      type: object
+      description: A workspace protection rule defining restrictions and bypass permissions
+      required:
+        - name
+        - rules
+        - bypass_groups
+        - bypass_users
+      properties:
+        name:
+          type: string
+          description: Unique name for the protection rule
+          example: "Production Protection"
+        workspace_id:
+          type: string
+        rules:
+          $ref: "#/components/schemas/ProtectionRules"
+        bypass_groups:
+          $ref: "#/components/schemas/RuleBypasserGroups"
+        bypass_users:
+          $ref: "#/components/schemas/RuleBypasserUsers"
+    ProtectionRules:
+      type: array
+      description: Configuration of protection restrictions
+      items:
+        $ref: "#/components/schemas/ProtectionRuleKind"
+    ProtectionRuleKind:
+      type: string
+      enum:
+        - DisableDirectDeployment
+        - DisableWorkspaceForking
+    RuleBypasserGroups:
+      type: array
+      description: Groups that can bypass this ruleset
+      items:
+        type: string
+    RuleBypasserUsers:
+      type: array
+      description: Users that can bypass this ruleset
+      items:
+        type: string
     NativeServiceName:
       type: string
       enum:

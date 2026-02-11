@@ -1,11 +1,9 @@
-mod common;
-
 mod suspend_resume {
     #[cfg(feature = "deno_core")]
     use serde_json::json;
 
     #[cfg(feature = "deno_core")]
-    use crate::common::*;
+    use windmill_test_utils::*;
 
     #[cfg(feature = "deno_core")]
     use futures::{Stream, StreamExt};
@@ -234,6 +232,331 @@ mod suspend_resume {
             json!( {"error": {"name": "SuspendedDisapproved", "message": "Disapproved by ruben"}}),
             result
         );
+        Ok(())
+    }
+
+    /// Test that self-approval is blocked when self_approval_disabled is true.
+    ///
+    /// This test verifies that when a flow has an approval step with self_approval_disabled=true,
+    /// the user who triggered the flow cannot approve it themselves via the owner endpoint
+    /// (POST /jobs/flow/resume/:id).
+    ///
+    /// Bug context: The owner endpoint was missing the approval condition check, allowing
+    /// users to bypass self-approval restrictions by using the UI resume button instead
+    /// of the HMAC-signed approval link.
+    #[cfg(feature = "enterprise")]
+    #[cfg(feature = "deno_core")]
+    #[sqlx::test(fixtures("base"))]
+    async fn test_self_approval_disabled_blocks_owner_resume(db: Pool<Postgres>) -> anyhow::Result<()> {
+        initialize_tracing().await;
+
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        // Flow with self_approval_disabled=true on the approval step
+        let flow_with_self_approval_disabled: FlowValue = serde_json::from_value(json!({
+            "modules": [{
+                "id": "a",
+                "value": {
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main() { return 'step1'; }"
+                },
+                "suspend": {
+                    "required_events": 1,
+                    "user_auth_required": true,
+                    "self_approval_disabled": true
+                }
+            }, {
+                "id": "b",
+                "value": {
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main() { return 'step2 - after approval'; }"
+                }
+            }]
+        }))
+        .unwrap();
+
+        // Push flow as NON-ADMIN user (test-user-2) - admins bypass self-approval check
+        // Use a path owned by test-user-2 so require_owner_of_path succeeds
+        let flow = RunJob::from(JobPayload::RawFlow {
+            value: flow_with_self_approval_disabled,
+            path: Some("u/test-user-2/test_approval".to_string()),
+            restarted_from: None,
+        })
+        .push_as(&db, "test-user-2", "test2@windmill.dev")
+        .await;
+
+        let queue = listen_for_queue(&db).await;
+        let db_ = db.clone();
+
+        in_test_worker(
+            &db,
+            async move {
+                let db = db_;
+
+                // Wait for flow to suspend at approval step
+                wait_until_flow_suspends(flow, queue, &db).await;
+
+                // Create a token for the same non-admin user who triggered the flow
+                // This simulates clicking "Resume" in the UI as the flow owner
+                // Args: db, w_id, owner, label, expires_in, email, job_id, perms, audit_span
+                let token = windmill_common::auth::create_token_for_owner(
+                    &db,
+                    "test-workspace",
+                    "u/test-user-2",
+                    "test-token",
+                    100,
+                    "test2@windmill.dev",
+                    &Uuid::nil(),
+                    None,
+                    None,
+                )
+                .await
+                .unwrap();
+
+                // Try to resume via the owner endpoint (POST /jobs/flow/resume/:id)
+                // This should FAIL because self_approval_disabled=true and the user
+                // is the same as the one who triggered the flow
+                let response = reqwest::Client::new()
+                    .post(format!(
+                        "http://localhost:{port}/api/w/test-workspace/jobs/flow/resume/{flow}"
+                    ))
+                    .header("Authorization", format!("Bearer {token}"))
+                    .header("Content-Type", "application/json")
+                    .body("{}")
+                    .send()
+                    .await
+                    .unwrap();
+
+                let status = response.status();
+
+                // The request should be rejected with 403 Forbidden
+                // (currently this test FAILS because the bug allows self-approval)
+                assert!(
+                    status == reqwest::StatusCode::FORBIDDEN,
+                    "Self-approval should be blocked when self_approval_disabled=true. \
+                     Expected 403 Forbidden, got {}. Response: {}",
+                    status,
+                    response.text().await.unwrap_or_default()
+                );
+            },
+            port,
+        )
+        .await;
+
+        server.close().await.unwrap();
+        Ok(())
+    }
+
+    /// Test that self-approval WORKS when self_approval_disabled is false (default behavior).
+    ///
+    /// This is the complementary test to test_self_approval_disabled_blocks_owner_resume.
+    /// When self_approval_disabled is NOT set, the flow owner should be able to approve
+    /// their own flow via the owner endpoint.
+    #[cfg(feature = "enterprise")]
+    #[cfg(feature = "deno_core")]
+    #[sqlx::test(fixtures("base"))]
+    async fn test_self_approval_allowed_when_not_disabled(db: Pool<Postgres>) -> anyhow::Result<()> {
+        initialize_tracing().await;
+
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        // Flow with user_auth_required but WITHOUT self_approval_disabled
+        let flow_without_self_approval_disabled: FlowValue = serde_json::from_value(json!({
+            "modules": [{
+                "id": "a",
+                "value": {
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main() { return 'step1'; }"
+                },
+                "suspend": {
+                    "required_events": 1,
+                    "user_auth_required": true
+                    // self_approval_disabled is NOT set (defaults to false)
+                }
+            }, {
+                "id": "b",
+                "value": {
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main() { return 'step2 - after approval'; }"
+                }
+            }]
+        }))
+        .unwrap();
+
+        // Push flow as non-admin user
+        let flow = RunJob::from(JobPayload::RawFlow {
+            value: flow_without_self_approval_disabled,
+            path: Some("u/test-user-2/test_approval_allowed".to_string()),
+            restarted_from: None,
+        })
+        .push_as(&db, "test-user-2", "test2@windmill.dev")
+        .await;
+
+        let queue = listen_for_queue(&db).await;
+        let db_ = db.clone();
+
+        in_test_worker(
+            &db,
+            async move {
+                let db = db_;
+
+                // Wait for flow to suspend at approval step
+                wait_until_flow_suspends(flow, queue, &db).await;
+
+                // Create a token for the same user who triggered the flow
+                let token = windmill_common::auth::create_token_for_owner(
+                    &db,
+                    "test-workspace",
+                    "u/test-user-2",
+                    "test-token",
+                    100,
+                    "test2@windmill.dev",
+                    &Uuid::nil(),
+                    None,
+                    None,
+                )
+                .await
+                .unwrap();
+
+                // Try to resume via the owner endpoint - this SHOULD succeed
+                let response = reqwest::Client::new()
+                    .post(format!(
+                        "http://localhost:{port}/api/w/test-workspace/jobs/flow/resume/{flow}"
+                    ))
+                    .header("Authorization", format!("Bearer {token}"))
+                    .header("Content-Type", "application/json")
+                    .body("{}")
+                    .send()
+                    .await
+                    .unwrap();
+
+                let status = response.status();
+
+                // Self-approval should be allowed when self_approval_disabled is not set
+                assert!(
+                    status.is_success(),
+                    "Self-approval should be allowed when self_approval_disabled is not set. \
+                     Expected 2xx, got {}. Response: {}",
+                    status,
+                    response.text().await.unwrap_or_default()
+                );
+            },
+            port,
+        )
+        .await;
+
+        server.close().await.unwrap();
+        Ok(())
+    }
+
+    /// Test that a DIFFERENT user can approve a flow even when self_approval_disabled is true.
+    ///
+    /// This verifies that the self_approval_disabled setting only blocks the flow trigger,
+    /// not other users. A different user should always be able to approve.
+    #[cfg(feature = "enterprise")]
+    #[cfg(feature = "deno_core")]
+    #[sqlx::test(fixtures("base"))]
+    async fn test_different_user_can_approve_when_self_approval_disabled(db: Pool<Postgres>) -> anyhow::Result<()> {
+        initialize_tracing().await;
+
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        // Flow with self_approval_disabled=true
+        let flow_with_self_approval_disabled: FlowValue = serde_json::from_value(json!({
+            "modules": [{
+                "id": "a",
+                "value": {
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main() { return 'step1'; }"
+                },
+                "suspend": {
+                    "required_events": 1,
+                    "user_auth_required": true,
+                    "self_approval_disabled": true
+                }
+            }, {
+                "id": "b",
+                "value": {
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main() { return 'step2 - after approval'; }"
+                }
+            }]
+        }))
+        .unwrap();
+
+        // Push flow as test-user-2
+        let flow = RunJob::from(JobPayload::RawFlow {
+            value: flow_with_self_approval_disabled,
+            path: Some("u/test-user-2/test_approval_by_other".to_string()),
+            restarted_from: None,
+        })
+        .push_as(&db, "test-user-2", "test2@windmill.dev")
+        .await;
+
+        let queue = listen_for_queue(&db).await;
+        let db_ = db.clone();
+
+        in_test_worker(
+            &db,
+            async move {
+                let db = db_;
+
+                // Wait for flow to suspend at approval step
+                wait_until_flow_suspends(flow, queue, &db).await;
+
+                // Create a token for a DIFFERENT user (test-user, who is admin)
+                // This simulates a different person approving the flow
+                let token = windmill_common::auth::create_token_for_owner(
+                    &db,
+                    "test-workspace",
+                    "u/test-user",
+                    "test-token",
+                    100,
+                    "test@windmill.dev",
+                    &Uuid::nil(),
+                    None,
+                    None,
+                )
+                .await
+                .unwrap();
+
+                // Try to resume via the owner endpoint as a different user - this SHOULD succeed
+                let response = reqwest::Client::new()
+                    .post(format!(
+                        "http://localhost:{port}/api/w/test-workspace/jobs/flow/resume/{flow}"
+                    ))
+                    .header("Authorization", format!("Bearer {token}"))
+                    .header("Content-Type", "application/json")
+                    .body("{}")
+                    .send()
+                    .await
+                    .unwrap();
+
+                let status = response.status();
+
+                // A different user should be able to approve even with self_approval_disabled
+                assert!(
+                    status.is_success(),
+                    "Different user should be able to approve even with self_approval_disabled=true. \
+                     Expected 2xx, got {}. Response: {}",
+                    status,
+                    response.text().await.unwrap_or_default()
+                );
+            },
+            port,
+        )
+        .await;
+
+        server.close().await.unwrap();
         Ok(())
     }
 

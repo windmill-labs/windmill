@@ -16,6 +16,17 @@ const ANTHROPIC_VERSION_STANDARD: &str = "2023-06-01";
 /// Anthropic API version for Google Vertex AI
 const ANTHROPIC_VERSION_VERTEX: &str = "vertex-2023-10-16";
 
+#[derive(Serialize, Debug, Clone)]
+pub struct CacheControl {
+    pub r#type: String,
+}
+
+impl CacheControl {
+    pub fn ephemeral() -> Self {
+        Self { r#type: "ephemeral".to_string() }
+    }
+}
+
 /// Custom tool for Anthropic native API (flat structure with type: "custom")
 #[derive(Serialize, Debug)]
 pub struct AnthropicCustomTool {
@@ -24,6 +35,8 @@ pub struct AnthropicCustomTool {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub input_schema: Box<RawValue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_control: Option<CacheControl>,
 }
 
 impl From<&ToolDef> for AnthropicCustomTool {
@@ -33,6 +46,7 @@ impl From<&ToolDef> for AnthropicCustomTool {
             name: tool.function.name.clone(),
             description: tool.function.description.clone(),
             input_schema: tool.function.parameters.clone(),
+            cache_control: None,
         }
     }
 }
@@ -70,13 +84,22 @@ impl AnthropicToolChoice {
 #[serde(tag = "type")]
 pub enum AnthropicRequestContent {
     #[serde(rename = "text")]
-    Text { text: String },
+    Text {
+        text: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<CacheControl>,
+    },
     #[serde(rename = "image")]
     Image { source: AnthropicImageSource },
     #[serde(rename = "tool_use")]
     ToolUse { id: String, name: String, input: Box<RawValue> },
     #[serde(rename = "tool_result")]
-    ToolResult { tool_use_id: String, content: String },
+    ToolResult {
+        tool_use_id: String,
+        content: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<CacheControl>,
+    },
 }
 
 /// Image source for Anthropic API
@@ -92,6 +115,8 @@ pub struct AnthropicImageSource {
 pub struct AnthropicSystemContent {
     pub r#type: String,
     pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_control: Option<CacheControl>,
 }
 
 /// Message format for Anthropic API requests
@@ -163,7 +188,7 @@ fn convert_messages_to_anthropic(messages: &[OpenAIMessage]) -> Vec<AnthropicMes
                 if let Some(ref c) = msg.content {
                     let text = extract_text_content(c);
                     if !text.is_empty() {
-                        content.push(AnthropicRequestContent::Text { text });
+                        content.push(AnthropicRequestContent::Text { text, cache_control: None });
                     }
                 }
 
@@ -202,6 +227,7 @@ fn convert_messages_to_anthropic(messages: &[OpenAIMessage]) -> Vec<AnthropicMes
                         content: vec![AnthropicRequestContent::ToolResult {
                             tool_use_id: tool_call_id.clone(),
                             content: content_text,
+                            cache_control: None,
                         }],
                     });
                 }
@@ -226,7 +252,7 @@ fn convert_content_to_anthropic(content: &Option<OpenAIContent>) -> Vec<Anthropi
             if text.is_empty() {
                 Vec::new()
             } else {
-                vec![AnthropicRequestContent::Text { text: text.clone() }]
+                vec![AnthropicRequestContent::Text { text: text.clone(), cache_control: None }]
             }
         }
         OpenAIContent::Parts(parts) => {
@@ -235,7 +261,10 @@ fn convert_content_to_anthropic(content: &Option<OpenAIContent>) -> Vec<Anthropi
                 match part {
                     ContentPart::Text { text } => {
                         if !text.is_empty() {
-                            result.push(AnthropicRequestContent::Text { text: text.clone() });
+                            result.push(AnthropicRequestContent::Text {
+                                text: text.clone(),
+                                cache_control: None,
+                            });
                         }
                     }
                     ContentPart::ImageUrl { image_url } => {
@@ -325,11 +354,16 @@ pub struct AnthropicQueryBuilder {
     #[allow(dead_code)]
     provider_kind: AIProvider,
     platform: AnthropicPlatform,
+    enable_1m_context: bool,
 }
 
 impl AnthropicQueryBuilder {
-    pub fn new(provider_kind: AIProvider, platform: AnthropicPlatform) -> Self {
-        Self { provider_kind, platform }
+    pub fn new(
+        provider_kind: AIProvider,
+        platform: AnthropicPlatform,
+        enable_1m_context: bool,
+    ) -> Self {
+        Self { provider_kind, platform, enable_1m_context }
     }
 
     fn is_vertex(&self) -> bool {
@@ -347,7 +381,7 @@ impl AnthropicQueryBuilder {
             prepare_messages_for_api(args.messages, client, workspace_id).await?;
 
         // Convert to Anthropic native message format
-        let anthropic_messages = convert_messages_to_anthropic(&prepared_messages);
+        let mut anthropic_messages = convert_messages_to_anthropic(&prepared_messages);
 
         // Build tools array using typed structs
         let mut tools: Vec<AnthropicTool> = Vec::new();
@@ -372,6 +406,11 @@ impl AnthropicQueryBuilder {
             Some(s) if !s.is_empty() => Some(vec![AnthropicSystemContent {
                 r#type: "text".to_string(),
                 text: s.to_string(),
+                cache_control: if self.is_vertex() {
+                    None
+                } else {
+                    Some(CacheControl::ephemeral())
+                },
             }]),
             _ => None,
         };
@@ -393,8 +432,34 @@ impl AnthropicQueryBuilder {
             None
         };
 
-        let tools_option = if tools.is_empty() { None } else { Some(tools) };
+        let mut tools_option = if tools.is_empty() { None } else { Some(tools) };
         let max_tokens = Some(args.max_tokens.unwrap_or(64000));
+
+        // Apply cache_control on the last custom tool
+        if !self.is_vertex() {
+            if let Some(ref mut tools_vec) = tools_option {
+                if let Some(AnthropicTool::Custom(ref mut custom)) = tools_vec.last_mut() {
+                    custom.cache_control = Some(CacheControl::ephemeral());
+                }
+            }
+        }
+
+        // Apply cache_control on the last content block of the last message
+        if !self.is_vertex() {
+            if let Some(last_msg) = anthropic_messages.last_mut() {
+                if let Some(last_block) = last_msg.content.last_mut() {
+                    match last_block {
+                        AnthropicRequestContent::Text { cache_control, .. } => {
+                            *cache_control = Some(CacheControl::ephemeral());
+                        }
+                        AnthropicRequestContent::ToolResult { cache_control, .. } => {
+                            *cache_control = Some(CacheControl::ephemeral());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
 
         // Build request based on platform
         if self.is_vertex() {
@@ -500,7 +565,11 @@ impl QueryBuilder for AnthropicQueryBuilder {
             // For Vertex AI, the model is specified in the URL path
             // Expected base_url format: https://{region}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/anthropic/models
             // We append the model and :streamRawPredict
-            format!("{}/{}:streamRawPredict", base_url.trim_end_matches('/'), model)
+            format!(
+                "{}/{}:streamRawPredict",
+                base_url.trim_end_matches('/'),
+                model
+            )
         } else {
             format!("{}/messages", base_url)
         }
@@ -518,10 +587,14 @@ impl QueryBuilder for AnthropicQueryBuilder {
             vec![("Authorization", format!("Bearer {}", api_key))]
         } else {
             // Standard Anthropic API uses x-api-key and anthropic-version header
-            vec![
+            let mut headers = vec![
                 ("x-api-key", api_key.to_string()),
                 ("anthropic-version", ANTHROPIC_VERSION_STANDARD.to_string()),
-            ]
+            ];
+            if self.enable_1m_context {
+                headers.push(("anthropic-beta", "context-1m-2025-08-07".to_string()));
+            }
+            headers
         }
     }
 }

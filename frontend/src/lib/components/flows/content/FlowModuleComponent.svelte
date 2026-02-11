@@ -1195,6 +1195,7 @@
 																<SecondsInput
 																	disabled={!$enterpriseLicense}
 																	bind:seconds={flowModule.value.concurrency_time_window_s}
+																	clearable
 																/>
 															</Label>
 															<Label label="Custom concurrency key (optional)">

@@ -1,0 +1,38 @@
+[package]
+name = "windmill-trigger-sqs"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_trigger_sqs"
+path = "src/lib.rs"
+
+[features]
+default = []
+enterprise = ["windmill-common/enterprise", "windmill-store/enterprise", "windmill-trigger/enterprise"]
+private = ["windmill-common/private", "windmill-common/aws_auth", "windmill-common/openidconnect", "windmill-store/private"]
+
+[dependencies]
+windmill-common = { workspace = true, default-features = false }
+windmill-api-auth.workspace = true
+windmill-store = { workspace = true, features = ["sqs_trigger"] }
+windmill-trigger.workspace = true
+windmill-git-sync.workspace = true
+aws-sdk-sqs.workspace = true
+aws-sdk-sts.workspace = true
+aws-config.workspace = true
+aws-credential-types.workspace = true
+axum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+async-trait.workspace = true
+itertools.workspace = true
+anyhow.workspace = true
+chrono.workspace = true
+backon.workspace = true
+thiserror.workspace = true
+aws-smithy-types.workspace = true

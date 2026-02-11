@@ -19,7 +19,7 @@ defaults:
 
 jobs:
   cargo_test:
-    runs-on: ubicloud-standard-8
+    runs-on: ubicloud-standard-16
     services:
       postgres:
         image: postgres
@@ -28,9 +28,20 @@ jobs:
         env:
           POSTGRES_DB: windmill
           POSTGRES_PASSWORD: changeme
+          POSTGRES_INITDB_ARGS: "-c max_connections=500"
         options: >-
           --health-cmd pg_isready --health-interval 10s --health-timeout 5s
-          --health-retries 5
+          --health-retries 5 --shm-size=256mb
+      mysql:
+        image: mysql:8.0
+        ports:
+          - 3306:3306
+        env:
+          MYSQL_ROOT_PASSWORD: changeme
+          MYSQL_DATABASE: windmill_test
+        options: >-
+          --health-cmd "mysqladmin ping -h localhost" --health-interval 10s
+          --health-timeout 5s --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -47,14 +58,26 @@ jobs:
           bun-version: 1.3.8
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
       - uses: astral-sh/setup-uv@v6.2.1
         with:
           version: "0.9.24"
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          tools: composer
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: false
+      - name: Install PowerShell, mold and clang
+        run: |
+          sudo apt-get update && sudo apt-get install -y powershell mold clang libcurl4-openssl-dev
+        working-directory: /
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          cache-workspaces: backend
-          toolchain: 1.90.0
+          cache: false
+          toolchain: 1.93.0
       - name: Read EE repo commit hash
         run: |
           echo "ee_repo_ref=$(cat ./ee-repo-ref.txt)" >> "$GITHUB_ENV"
@@ -183,19 +206,20 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-duckdb-ffi-
       - name: cargo test
-        timeout-minutes: 16
+        timeout-minutes: 30
         env:
           SQLX_OFFLINE: true
           DATABASE_URL: postgres://postgres:changeme@localhost:5432/windmill
           DISABLE_EMBEDDING: true
-          RUST_LOG: info
+          RUST_LOG: "off"
           RUST_LOG_STYLE: never
           CARGO_NET_GIT_FETCH_WITH_CLI: true
+          CARGO_BUILD_JOBS: 12
           WMDEBUG_FORCE_V0_WORKSPACE_DEPENDENCIES: 1
           WMDEBUG_FORCE_RUNNABLE_SETTINGS_V0: 1
           WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT: 1
           TEST_NPM_REGISTRY: "http://localhost:4873/:_authToken=${{ env.NPM_TOKEN }}"
         run: |
-          deno --version && bun -v && node --version && go version && python3 --version
+          deno --version && bun -v && node --version && go version && python3 --version && php --version && ruby --version && pwsh --version && dotnet --version
           cd windmill-duckdb-ffi-internal && ./build_dev.sh && cd ..
-          DENO_PATH=$(which deno) BUN_PATH=$(which bun) NODE_BIN_PATH=$(which node) GO_PATH=$(which go) UV_PATH=$(which uv) cargo test --features enterprise,deno_core,duckdb,license,python,rust,scoped_cache,parquet,private,private_registry_test --all -- --nocapture
+          DENO_PATH=$(which deno) BUN_PATH=$(which bun) NODE_BIN_PATH=$(which node) GO_PATH=$(which go) UV_PATH=$(which uv) PHP_PATH=$(which php) COMPOSER_PATH=$(which composer) RUBY_PATH=$(which ruby) RUBY_BUNDLE_PATH=$(which bundle) RUBY_GEM_PATH=$(which gem) POWERSHELL_PATH=$(which pwsh) DOTNET_PATH=$(which dotnet) cargo test --features enterprise,deno_core,duckdb,license,python,rust,scoped_cache,parquet,private,private_registry_test,csharp,php,ruby,mysql,quickjs,mcp --all -- --nocapture --test-threads=10

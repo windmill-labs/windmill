@@ -85,6 +85,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import FlowRestartButton from '$lib/components/FlowRestartButton.svelte'
 	import JobOtelTraces from '$lib/components/JobOtelTraces.svelte'
+	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	let job: (Job & { result?: any; result_stream?: string }) | undefined = $state()
 	let jobUpdateLastFetch: Date | undefined = $state()
 
@@ -354,6 +355,8 @@
 		}
 	}
 
+	let showEditButton = $derived(!isRuleActive('DisableDirectDeployment'))
+
 	$effect(() => {
 		job?.id && lastJobId !== job.id && untrack(() => getConcurrencyKey(job))
 	})
@@ -598,7 +601,7 @@
 				>
 			{/if}
 			{#if job?.type === 'CompletedJob' && job?.job_kind === 'flow' && selectedJobStep !== undefined && selectedJobStepIsTopLevel && job.id}
-				<FlowRestartButton
+					<FlowRestartButton
 					jobId={job.id}
 					{selectedJobStep}
 					{selectedJobStepType}
@@ -607,6 +610,7 @@
 						goto('/run/' + newJobId + '?workspace=' + $workspaceStore)
 					}}
 					flowPath={job.script_path}
+					flowVersionId={job.script_hash ? parseInt(job.script_hash, 16) : undefined}
 					disabled={!$enterpriseLicense}
 					enterpriseOnly={!$enterpriseLicense}
 				/>
@@ -640,6 +644,7 @@
 							}}
 							unifiedSize="md"
 							variant="default"
+							disabled={!showEditButton}
 							size="sm"
 							startIcon={{ icon: Pen }}>Edit</Button
 						>

@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE\n                gcp_trigger\n            SET\n                gcp_resource_path = $1,\n                subscription_id = $2,\n                topic_id = $3,\n                delivery_type = $4,\n                delivery_config = $5,\n                is_flow = $6,\n                edited_by = $7,\n                email = $8,\n                script_path = $9,\n                path = $10,\n                mode = $11,\n                edited_at = now(),\n                error = NULL,\n                server_id = NULL,\n                error_handler_path = $14,\n                error_handler_args = $15,\n                retry = $16,\n                auto_acknowledge_msg = $17,\n                ack_deadline = $18\n            WHERE\n                workspace_id = $12 AND\n                path = $13\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        {
+          "Custom": {
+            "name": "delivery_mode",
+            "kind": {
+              "Enum": [
+                "push",
+                "pull"
+              ]
+            }
+          }
+        },
+        "Jsonb",
+        "Bool",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        {
+          "Custom": {
+            "name": "trigger_mode",
+            "kind": {
+              "Enum": [
+                "enabled",
+                "disabled",
+                "suspended"
+              ]
+            }
+          }
+        },
+        "Text",
+        "Text",
+        "Varchar",
+        "Jsonb",
+        "Jsonb",
+        "Bool",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8642e4fc3efb011a8b7f98d2080a165ec4046c3a7172b5635b818c0fa133411f"
+}

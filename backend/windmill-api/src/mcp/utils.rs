@@ -242,19 +242,34 @@ pub async fn get_hub_script_schema(path: &str, db: &DB) -> Result<Option<Schema>
 // HTTP request utilities for endpoint tools
 // ============================================================================
 
+/// Look up the original field name from a field_renames map.
+/// field_renames maps renamed_key -> original_key (e.g. {"path__path": "path"}).
+fn get_original_name(renamed_key: &str, field_renames: &Option<Value>) -> String {
+    field_renames
+        .as_ref()
+        .and_then(|v| v.as_object())
+        .and_then(|m| m.get(renamed_key))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| renamed_key.to_string())
+}
+
 /// Substitute path parameters in the URL template
 pub fn substitute_path_params(
     path: &str,
     workspace_id: &str,
     args_map: &serde_json::Map<String, Value>,
     path_schema: &Option<Value>,
+    path_field_renames: &Option<Value>,
 ) -> BackendResult<String> {
     let mut path_template = path.replace("{workspace}", workspace_id);
 
     if let Some(schema) = path_schema {
         if let Some(props) = schema.get("properties").and_then(|p| p.as_object()) {
             for (param_name, _) in props {
-                let placeholder = format!("{{{}}}", param_name);
+                // param_name may be renamed (e.g. "path__path"), get original for URL placeholder
+                let original_name = get_original_name(param_name, path_field_renames);
+                let placeholder = format!("{{{}}}", original_name);
                 match args_map.get(param_name) {
                     Some(param_value) => {
                         if let Some(str_val) = param_value.as_str() {
@@ -280,6 +295,7 @@ pub fn substitute_path_params(
 pub fn build_query_string(
     args_map: &serde_json::Map<String, Value>,
     query_schema: &Option<Value>,
+    query_field_renames: &Option<Value>,
 ) -> String {
     let Some(schema) = query_schema else {
         return String::new();
@@ -295,11 +311,13 @@ pub fn build_query_string(
                 .get(param_name)
                 .filter(|v| !v.is_null())
                 .map(|value| {
+                    // Use the original name for the query parameter key
+                    let original_name = get_original_name(param_name, query_field_renames);
                     let value_str = value.to_string();
                     let str_val = value_str.trim_matches('"');
                     format!(
                         "{}={}",
-                        urlencoding::encode(param_name),
+                        urlencoding::encode(&original_name),
                         urlencoding::encode(str_val)
                     )
                 })
@@ -318,6 +336,7 @@ pub fn build_request_body(
     method: &str,
     args_map: &serde_json::Map<String, Value>,
     body_schema: &Option<Value>,
+    body_field_renames: &Option<Value>,
 ) -> Option<Value> {
     if method == "GET" {
         return None;
@@ -329,9 +348,11 @@ pub fn build_request_body(
     let body_map: serde_json::Map<String, Value> = props
         .keys()
         .filter_map(|param_name| {
-            args_map
-                .get(param_name)
-                .map(|value| (param_name.clone(), value.clone()))
+            args_map.get(param_name).map(|value| {
+                // Use the original name as the key in the request body
+                let original_name = get_original_name(param_name, body_field_renames);
+                (original_name, value.clone())
+            })
         })
         .collect();
 

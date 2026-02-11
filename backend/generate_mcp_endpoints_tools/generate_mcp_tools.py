@@ -29,7 +29,39 @@ def load_openapi_spec(file_path: str) -> Dict[str, Any]:
         print(f"Error loading OpenAPI spec: {e}", file=sys.stderr)
         sys.exit(1)
 
-def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Optional[Dict[str, Any]], spec: Dict[str, Any], required_fields: Optional[List[str]] = None, base_path: str = "") -> tuple:
+def flatten_allof_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
+    """Flatten an allOf schema into a single object schema by merging all properties."""
+    if 'allOf' not in schema:
+        return schema
+
+    merged = {"type": "object", "properties": {}, "required": []}
+
+    def collect_from(s: Dict[str, Any]):
+        if 'allOf' in s:
+            for item in s['allOf']:
+                if isinstance(item, dict):
+                    collect_from(item)
+        if 'properties' in s:
+            merged['properties'].update(s['properties'])
+        if 'required' in s and isinstance(s['required'], list):
+            merged['required'].extend(s['required'])
+        if 'description' in s and 'description' not in merged:
+            merged['description'] = s['description']
+
+    collect_from(schema)
+
+    # Preserve additional top-level keys from the original schema
+    preserved_keys = {'additionalProperties', 'title', 'nullable', 'default', 'example'}
+    for key in preserved_keys:
+        if key in schema and key not in merged:
+            merged[key] = schema[key]
+
+    if not merged['required']:
+        del merged['required']
+
+    return merged
+
+def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Optional[Dict[str, Any]], spec: Dict[str, Any], required_fields: Optional[List[str]] = None, base_path: str = "", include_fields: Optional[List[str]] = None, opaque_fields: Optional[List[str]] = None, include_query_params: Optional[List[str]] = None) -> tuple:
     """Extract separate schemas for path parameters, query parameters, and request body."""
     path_params_schema = {
         "type": "object",
@@ -72,7 +104,7 @@ def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Opt
                 path_params_schema['properties'][param_name] = param_schema
                 if param_required:
                     path_params_schema['required'].append(param_name)
-        elif param_in == 'query':
+        elif param_in == 'query' and (include_query_params is None or param_name in include_query_params):
             query_params_schema['properties'][param_name] = param_schema
             if param_required:
                 query_params_schema['required'].append(param_name)
@@ -80,7 +112,28 @@ def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Opt
     # Process request body if present
     if request_body:
         body_schema = extract_request_body_schema(request_body, spec, base_path)
-        
+
+        # Flatten allOf schemas into a single object schema for filtering
+        if body_schema and (include_fields is not None or opaque_fields):
+            body_schema = flatten_allof_schema(body_schema)
+
+        # Apply include_fields filter: only keep listed top-level properties
+        if body_schema and include_fields is not None and 'properties' in body_schema:
+            body_schema['properties'] = {
+                k: v for k, v in body_schema['properties'].items()
+                if k in include_fields
+            }
+            if 'required' in body_schema:
+                body_schema['required'] = [
+                    r for r in body_schema['required'] if r in include_fields
+                ]
+
+        # Apply opaque_fields: simplify listed properties to {"type": "object"}
+        if body_schema and opaque_fields and 'properties' in body_schema:
+            for field in opaque_fields:
+                if field in body_schema['properties']:
+                    body_schema['properties'][field] = {"type": "object"}
+
         # If we have required fields specified and a body schema, update the required array
         if body_schema and required_fields:
             if 'required' not in body_schema:
@@ -95,11 +148,60 @@ def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Opt
                     # Log warning when a required field is missing from schema properties
                     print(f"Warning: Required field '{field}' not found in body schema properties", file=sys.stderr)
     
+    # Sanitize empty schemas for JSON Schema draft 2020-12 compliance
+    path_params_schema = sanitize_empty_schemas(path_params_schema)
+    query_params_schema = sanitize_empty_schemas(query_params_schema)
+    body_schema = sanitize_empty_schemas(body_schema)
+
+    # Convert enums to descriptions for client compatibility
+    path_params_schema = convert_enums_to_descriptions(path_params_schema)
+    query_params_schema = convert_enums_to_descriptions(query_params_schema)
+    body_schema = convert_enums_to_descriptions(body_schema)
+
+    # Detect overlapping property names across schemas and rename with suffixes
+    path_keys = set(path_params_schema['properties'].keys()) if path_params_schema and path_params_schema.get('properties') else set()
+    query_keys = set(query_params_schema['properties'].keys()) if query_params_schema and query_params_schema.get('properties') else set()
+    body_keys = set(body_schema['properties'].keys()) if body_schema and body_schema.get('properties') else set()
+
+    conflicts = (path_keys & query_keys) | (path_keys & body_keys) | (query_keys & body_keys)
+
+    path_field_renames = {}
+    query_field_renames = {}
+    body_field_renames = {}
+
+    for field in conflicts:
+        schemas_and_renames = [
+            (path_params_schema, path_keys, '__path', path_field_renames),
+            (query_params_schema, query_keys, '__query', query_field_renames),
+            (body_schema, body_keys, '__body', body_field_renames),
+        ]
+        for schema, keys, suffix, renames_map in schemas_and_renames:
+            if field in keys and schema and 'properties' in schema:
+                new_name = field + suffix
+                # Rename in properties
+                schema['properties'][new_name] = schema['properties'].pop(field)
+                # Update description to clarify the renamed field
+                if 'description' not in schema['properties'][new_name]:
+                    schema['properties'][new_name] = dict(schema['properties'][new_name])
+                prop = schema['properties'][new_name]
+                if isinstance(prop, dict):
+                    existing_desc = prop.get('description', '')
+                    location = suffix.lstrip('_')
+                    if not existing_desc:
+                        prop['description'] = f"({location} parameter)"
+                    else:
+                        prop['description'] = f"{existing_desc} ({location} parameter)"
+                # Rename in required array
+                if 'required' in schema and field in schema['required']:
+                    schema['required'] = [new_name if r == field else r for r in schema['required']]
+                # Store the reverse mapping: renamed -> original
+                renames_map[new_name] = field
+
     # Return None for empty schemas
-    path_params_schema = path_params_schema if path_params_schema['properties'] else None
-    query_params_schema = query_params_schema if query_params_schema['properties'] else None
-    
-    return (path_params_schema, query_params_schema, body_schema)
+    path_params_schema = path_params_schema if path_params_schema and path_params_schema.get('properties') else None
+    query_params_schema = query_params_schema if query_params_schema and query_params_schema.get('properties') else None
+
+    return (path_params_schema, query_params_schema, body_schema, path_field_renames, query_field_renames, body_field_renames)
 
 # Cache for loaded external files
 _external_file_cache: Dict[str, Dict[str, Any]] = {}
@@ -160,18 +262,25 @@ def resolve_ref(ref_path: str, spec: Dict[str, Any], base_path: str = "") -> tup
 
     return (current if isinstance(current, dict) else None), spec
 
-def resolve_schema_refs(schema: Dict[str, Any], spec: Dict[str, Any], base_path: str = "") -> Dict[str, Any]:
+def resolve_schema_refs(schema: Dict[str, Any], spec: Dict[str, Any], base_path: str = "", _visited_refs: Optional[set] = None) -> Dict[str, Any]:
     """Recursively resolve all $ref references in a schema."""
+    if _visited_refs is None:
+        _visited_refs = set()
+
     if not isinstance(schema, dict):
         return schema
 
     # If this is a $ref, resolve it
     if '$ref' in schema:
         ref_path = schema['$ref']
+        if ref_path in _visited_refs:
+            # Circular reference detected - return empty object to break the cycle
+            return {"type": "object"}
+        _visited_refs = _visited_refs | {ref_path}
         resolved, resolved_spec = resolve_ref(ref_path, spec, base_path)
         if resolved:
             # Recursively resolve any refs in the resolved schema using the appropriate spec
-            return resolve_schema_refs(resolved, resolved_spec, base_path)
+            return resolve_schema_refs(resolved, resolved_spec, base_path, _visited_refs)
         else:
             print(f"Warning: Could not resolve $ref: {ref_path}")
             return schema
@@ -180,16 +289,66 @@ def resolve_schema_refs(schema: Dict[str, Any], spec: Dict[str, Any], base_path:
     resolved_schema = {}
     for key, value in schema.items():
         if isinstance(value, dict):
-            resolved_schema[key] = resolve_schema_refs(value, spec, base_path)
+            resolved_schema[key] = resolve_schema_refs(value, spec, base_path, _visited_refs)
         elif isinstance(value, list):
             resolved_schema[key] = [
-                resolve_schema_refs(item, spec, base_path) if isinstance(item, dict) else item
+                resolve_schema_refs(item, spec, base_path, _visited_refs) if isinstance(item, dict) else item
                 for item in value
             ]
         else:
             resolved_schema[key] = value
 
     return resolved_schema
+
+def convert_enums_to_descriptions(schema: Any) -> Any:
+    """Recursively convert enum arrays into description text to avoid client compatibility issues."""
+    if isinstance(schema, list):
+        return [convert_enums_to_descriptions(item) for item in schema]
+    if not isinstance(schema, dict):
+        return schema
+
+    result = {}
+    enum_value = None
+    # First pass: copy all non-enum keys so 'description' is available before enum processing
+    for key, value in schema.items():
+        if key == 'enum':
+            enum_value = value
+        else:
+            result[key] = convert_enums_to_descriptions(value)
+
+    # Second pass: process enum using the already-copied description
+    if enum_value is not None:
+        values_str = ', '.join(str(v) for v in enum_value)
+        existing = result.get('description', '')
+        enum_desc = f"Possible values: {values_str}"
+        result['description'] = f"{existing}. {enum_desc}" if existing else enum_desc
+
+    return result
+
+def sanitize_empty_schemas(schema: Any) -> Any:
+    """Replace empty {} schemas with valid JSON Schema draft 2020-12 equivalents.
+
+    In OpenAPI, {} means 'any value' but strict JSON Schema validators (e.g. Claude's API)
+    reject empty objects. This converts them to proper schemas.
+    """
+    if isinstance(schema, list):
+        return [sanitize_empty_schemas(item) for item in schema]
+    if not isinstance(schema, dict):
+        return schema
+
+    result = {}
+    for key, value in schema.items():
+        if key == 'additionalProperties' and isinstance(value, dict) and len(value) == 0:
+            result[key] = True
+        elif key == 'properties' and isinstance(value, dict):
+            # properties is a map of name -> schema; sanitize each property schema
+            result[key] = {
+                k: {"type": "object"} if isinstance(v, dict) and len(v) == 0 else sanitize_empty_schemas(v)
+                for k, v in value.items()
+            }
+        else:
+            result[key] = sanitize_empty_schemas(value)
+    return result
 
 def extract_request_body_schema(request_body: Dict[str, Any], spec: Dict[str, Any], base_path: str = "") -> Optional[Dict[str, Any]]:
     """Extract request body schema from OpenAPI requestBody definition and resolve refs."""
@@ -243,6 +402,9 @@ def find_mcp_tools(spec: Dict[str, Any]) -> List[Dict[str, Any]]:
                     'parameters': operation.get('parameters', []),
                     'requestBody': operation.get('requestBody'),
                     'required_fields': operation.get('x-mcp-required-fields', []),
+                    'include_fields': operation.get('x-mcp-tool-include-fields'),
+                    'opaque_fields': operation.get('x-mcp-tool-opaque-fields'),
+                    'include_query_params': operation.get('x-mcp-tool-include-query-params'),
                 }
                 tools.append(tool)
     
@@ -278,14 +440,18 @@ export const mcpEndpointTools: EndpointTool[] = [];
         method = tool['method'].upper()
 
         # Generate separate schemas
-        path_params_schema, query_params_schema, body_schema = extract_separate_schemas(
-            tool['parameters'], tool['requestBody'], spec, tool['required_fields'], base_path
+        path_params_schema, query_params_schema, body_schema, path_field_renames, query_field_renames, body_field_renames = extract_separate_schemas(
+            tool['parameters'], tool['requestBody'], spec, tool['required_fields'], base_path,
+            tool.get('include_fields'), tool.get('opaque_fields'), tool.get('include_query_params')
         )
 
         # Convert schemas to TypeScript - use 'as const' for better type inference
         path_params_ts = json.dumps(path_params_schema, indent=8) if path_params_schema else "undefined"
         query_params_ts = json.dumps(query_params_schema, indent=8) if query_params_schema else "undefined"
         body_schema_ts = json.dumps(body_schema, indent=8) if body_schema else "undefined"
+        path_field_renames_ts = json.dumps(path_field_renames, indent=8) if path_field_renames else "undefined"
+        query_field_renames_ts = json.dumps(query_field_renames, indent=8) if query_field_renames else "undefined"
+        body_field_renames_ts = json.dumps(body_field_renames, indent=8) if body_field_renames else "undefined"
 
         # Generate tool definition
         tool_def = f"""    {{
@@ -296,7 +462,10 @@ export const mcpEndpointTools: EndpointTool[] = [];
         method: "{method}",
         pathParamsSchema: {path_params_ts},
         queryParamsSchema: {query_params_ts},
-        bodySchema: {body_schema_ts}
+        bodySchema: {body_schema_ts},
+        pathFieldRenames: {path_field_renames_ts},
+        queryFieldRenames: {query_field_renames_ts},
+        bodyFieldRenames: {body_field_renames_ts}
     }}"""
         tool_definitions.append(tool_def)
 
@@ -315,6 +484,9 @@ export interface EndpointTool {{
     pathParamsSchema?: object;
     queryParamsSchema?: object;
     bodySchema?: object;
+    pathFieldRenames?: Record<string, string>;
+    queryFieldRenames?: Record<string, string>;
+    bodyFieldRenames?: Record<string, string>;
 }}
 
 export const mcpEndpointTools: EndpointTool[] = [
@@ -344,13 +516,17 @@ pub fn all_tools() -> Vec<EndpointTool> {{
         method = tool['method'].upper()
 
         # Generate separate schemas
-        path_params_schema, query_params_schema, body_schema = extract_separate_schemas(
-            tool['parameters'], tool['requestBody'], spec, tool['required_fields'], base_path
+        path_params_schema, query_params_schema, body_schema, path_field_renames, query_field_renames, body_field_renames = extract_separate_schemas(
+            tool['parameters'], tool['requestBody'], spec, tool['required_fields'], base_path,
+            tool.get('include_fields'), tool.get('opaque_fields'), tool.get('include_query_params')
         )
 
         path_params_rust = schema_to_rust_value(path_params_schema)
         query_params_rust = schema_to_rust_value(query_params_schema)
         body_schema_rust = schema_to_rust_value(body_schema)
+        path_field_renames_rust = schema_to_rust_value(path_field_renames if path_field_renames else None)
+        query_field_renames_rust = schema_to_rust_value(query_field_renames if query_field_renames else None)
+        body_field_renames_rust = schema_to_rust_value(body_field_renames if body_field_renames else None)
 
         # Generate tool definition
         tool_def = f"""    EndpointTool {{
@@ -362,6 +538,9 @@ pub fn all_tools() -> Vec<EndpointTool> {{
         path_params_schema: {path_params_rust},
         query_params_schema: {query_params_rust},
         body_schema: {body_schema_rust},
+        path_field_renames: {path_field_renames_rust},
+        query_field_renames: {query_field_renames_rust},
+        body_field_renames: {body_field_renames_rust},
     }}"""
         tool_definitions.append(tool_def)
 

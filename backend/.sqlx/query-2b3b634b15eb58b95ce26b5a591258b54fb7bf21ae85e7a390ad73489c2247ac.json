@@ -1,0 +1,80 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT worker, worker_instance, worker_group, vcpus, memory, ping_at, started_at, custom_tags, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m FROM worker_ping WHERE ping_at > now() - interval '30 days' ORDER BY started_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "worker",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "worker_instance",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "worker_group",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "vcpus",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "memory",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "ping_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "started_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "custom_tags",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 8,
+        "name": "occupancy_rate_15s",
+        "type_info": "Float4"
+      },
+      {
+        "ordinal": 9,
+        "name": "occupancy_rate_5m",
+        "type_info": "Float4"
+      },
+      {
+        "ordinal": 10,
+        "name": "occupancy_rate_30m",
+        "type_info": "Float4"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "2b3b634b15eb58b95ce26b5a591258b54fb7bf21ae85e7a390ad73489c2247ac"
+}

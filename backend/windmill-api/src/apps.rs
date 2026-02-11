@@ -11,7 +11,6 @@ use crate::{
     auth::OptTokened,
     db::{ApiAuthed, DB},
     jobs::RunJobQuery,
-    resources::get_resource_value_interpolated_internal,
     users::{require_owner_of_path, OptAuthed},
     utils::{check_scopes, WithStarredInfoQuery},
     webhook_util::{WebhookMessage, WebhookShared},
@@ -49,7 +48,7 @@ use sha2::{Digest, Sha256};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{types::Uuid, FromRow};
 use std::str;
-use windmill_audit::audit_oss::audit_log;
+use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::{
     apps::{AppScriptId, ListAppQuery, APP_WORKSPACED_ROUTE},
@@ -65,8 +64,10 @@ use windmill_common::{
     },
     variables::{build_crypt, build_crypt_with_key_suffix, encrypt},
     worker::{to_raw_value, CLOUD_HOSTED},
+    workspaces::{check_user_against_rule, ProtectionRuleKind, RuleCheckResult},
     HUB_BASE_URL,
 };
+use windmill_store::resources::get_resource_value_interpolated_internal;
 
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::{push, PushArgs, PushArgsOwned, PushIsolationLevel};
@@ -1049,6 +1050,20 @@ async fn create_app_raw<'a>(
             "Operators cannot create apps for security reasons".to_string(),
         ));
     }
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
     let (path, _id) = process_app_multipart!(
         authed,
         user_db,
@@ -1108,6 +1123,19 @@ async fn create_app(
     }
     let path = app.path.clone();
     check_scopes(&authed, || format!("apps:write:{}", &path))?;
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
 
     let (new_tx, _path, _id) = create_app_internal(authed, db, user_db, &w_id, false, app).await?;
 
@@ -1347,6 +1375,19 @@ async fn delete_app(
         ));
     }
 
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
     // Check if it's a raw app before deletion
     let is_raw_app = sqlx::query_scalar!(
         "SELECT app_version.raw_app FROM app
@@ -1411,7 +1452,7 @@ async fn delete_app(
         deployed_object,
         Some(format!("App '{}' deleted", path)),
         true,
-    None,
+        None,
     )
     .await?;
 
@@ -1452,6 +1493,20 @@ async fn update_app(
     // create_app_internal(authed, user_db, db, &w_id, &mut app).await?;
     let path = path.to_path();
     check_scopes(&authed, || format!("apps:write:{}", path))?;
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
     let opath = path.to_string();
     let (new_tx, npath, _v_id) =
         update_app_internal(authed, db, user_db, &w_id, path, false, ns).await?;
@@ -1482,6 +1537,20 @@ async fn update_app_raw<'a>(
             "Operators cannot update apps for security reasons".to_string(),
         ));
     }
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
     let path = path.to_path();
     check_scopes(&authed, || format!("apps:write:{}", path))?;
     let opath = path.to_string();
