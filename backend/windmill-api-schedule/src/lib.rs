@@ -6,12 +6,8 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::{
-    db::{ApiAuthed, DB},
-    settings::{delete_global_setting, set_global_setting_internal},
-    users::maybe_refresh_folders,
-    utils::{check_scopes, require_super_admin},
-};
+use windmill_api_auth::{check_scopes, maybe_refresh_folders, require_super_admin, ApiAuthed};
+use windmill_common::DB;
 use axum::{
     extract::{Extension, Path, Query},
     routing::{delete, get, post},
@@ -922,9 +918,9 @@ async fn set_default_error_handler(
     };
 
     if let Some(value_content) = value {
-        set_global_setting_internal(&db, key, value_content).await?;
+        windmill_api_settings::set_global_setting_internal(&db, key, value_content).await?;
     } else {
-        delete_global_setting(&db, key.as_str()).await?;
+        windmill_api_settings::delete_global_setting(&db, key.as_str()).await?;
     }
 
     if payload.override_existing {

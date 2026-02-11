@@ -18,7 +18,8 @@ use windmill_common::{
     utils::StripPath,
 };
 
-use crate::{db::ApiAuthed, HTTP_CLIENT};
+use windmill_api_auth::ApiAuthed;
+use windmill_common::utils::HTTP_CLIENT_PERMISSIVE as HTTP_CLIENT;
 
 #[derive(Deserialize)]
 struct ProxyQuery {

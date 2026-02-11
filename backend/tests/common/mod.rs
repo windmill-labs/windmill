@@ -838,7 +838,7 @@ pub async fn testing_http_connection(port: u16) -> Connection {
         "{}{}",
         windmill_common::agent_workers::AGENT_JWT_PREFIX,
         windmill_common::jwt::encode_with_internal_secret(
-            windmill_api::agent_workers_ee::AgentAuth {
+            windmill_api_agent_workers::AgentAuth {
                 worker_group: "testing-agent".to_owned(),
                 suffix: Some(suffix.clone()),
                 tags: vec!["flow".into(), "python3".into(), "dependency".into()],
