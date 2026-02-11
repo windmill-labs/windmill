@@ -426,6 +426,7 @@ pub async fn clone_script<'c>(
         codebase: s.codebase,
         has_preprocessor: s.has_preprocessor,
         on_behalf_of_email: s.on_behalf_of_email,
+        preserve_on_behalf_of: None,
         assets: s.assets,
     };
 

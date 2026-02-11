@@ -503,7 +503,17 @@ async fn create_flow(
         nf.tag,
         nf.dedicated_worker,
         nf.visible_to_runner_only.unwrap_or(false),
-        nf.on_behalf_of_email.and(Some(&authed.email)),
+        if nf.on_behalf_of_email.is_some() {
+            if nf.preserve_on_behalf_of.unwrap_or(false)
+                && authed.groups.contains(&windmill_common::WM_DEPLOYERS_GROUP.to_string())
+            {
+                nf.on_behalf_of_email.as_deref()
+            } else {
+                Some(authed.email.as_str())
+            }
+        } else {
+            None
+        },
         nf.ws_error_handler_muted.unwrap_or(false),
         sqlx::types::Json(&nf.value) as _,
         schema_str,
@@ -513,7 +523,7 @@ async fn create_flow(
     .await?;
 
     let version = sqlx::query_scalar!(
-        "INSERT INTO flow_version (workspace_id, path, value, schema, created_by) 
+        "INSERT INTO flow_version (workspace_id, path, value, schema, created_by)
         VALUES ($1, $2, $3, $4::text::json, $5)
         RETURNING id",
         w_id,
@@ -940,7 +950,17 @@ async fn update_flow(
         nf.tag,
         nf.dedicated_worker,
         nf.visible_to_runner_only.unwrap_or(false),
-        nf.on_behalf_of_email.and(Some(&authed.email)),
+        if nf.on_behalf_of_email.is_some() {
+            if nf.preserve_on_behalf_of.unwrap_or(false)
+                && authed.groups.contains(&windmill_common::WM_DEPLOYERS_GROUP.to_string())
+            {
+                nf.on_behalf_of_email.as_deref()
+            } else {
+                Some(authed.email.as_str())
+            }
+        } else {
+            None
+        },
         nf.ws_error_handler_muted.unwrap_or(false),
         sqlx::types::Json(&nf.value) as _,
         schema_str,

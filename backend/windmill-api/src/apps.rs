@@ -278,6 +278,7 @@ pub struct CreateApp {
     pub draft_only: Option<bool>,
     pub deployment_message: Option<String>,
     pub custom_path: Option<String>,
+    pub preserve_on_behalf_of: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -288,6 +289,7 @@ pub struct EditApp {
     pub policy: Option<Policy>,
     pub deployment_message: Option<String>,
     pub custom_path: Option<String>,
+    pub preserve_on_behalf_of: Option<bool>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -1175,8 +1177,14 @@ async fn create_app_internal<'a>(
         }
     }
     let mut tx = user_db.clone().begin(&authed).await?;
-    app.policy.on_behalf_of = Some(username_to_permissioned_as(&authed.username));
-    app.policy.on_behalf_of_email = Some(authed.email.clone());
+    let should_preserve = app.preserve_on_behalf_of.unwrap_or(false)
+        && authed.groups.contains(&windmill_common::WM_DEPLOYERS_GROUP.to_string())
+        && app.policy.on_behalf_of.is_some();
+
+    if !should_preserve {
+        app.policy.on_behalf_of = Some(username_to_permissioned_as(&authed.username));
+        app.policy.on_behalf_of_email = Some(authed.email.clone());
+    }
     let path = app.path.clone();
     if &app.path == "" {
         return Err(Error::BadRequest("App path cannot be empty".to_string()));
@@ -1663,8 +1671,14 @@ async fn update_app_internal<'a>(
         }
 
         if let Some(mut npolicy) = ns.policy {
-            npolicy.on_behalf_of = Some(username_to_permissioned_as(&authed.username));
-            npolicy.on_behalf_of_email = Some(authed.email.clone());
+            let should_preserve = ns.preserve_on_behalf_of.unwrap_or(false)
+                && authed.groups.contains(&windmill_common::WM_DEPLOYERS_GROUP.to_string())
+                && npolicy.on_behalf_of.is_some();
+
+            if !should_preserve {
+                npolicy.on_behalf_of = Some(username_to_permissioned_as(&authed.username));
+                npolicy.on_behalf_of_email = Some(authed.email.clone());
+            }
             sqlb.set(
                 "policy",
                 quote(serde_json::to_string(&json!(npolicy)).map_err(|e| {

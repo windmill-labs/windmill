@@ -122,6 +122,11 @@
 
 	let initialPathStore = writable(initialPath)
 
+	// For preserve_on_behalf_of feature
+	const WM_DEPLOYERS_GROUP = 'wm_deployers'
+	let preserveOnBehalfOf = writable(false)
+	let savedOnBehalfOfEmail = writable<string | undefined>(savedFlow?.on_behalf_of_email)
+
 	// used for new flows for captures
 	let fakeInitialPath =
 		'u/' +
@@ -472,6 +477,7 @@
 						dedicated_worker: flow.dedicated_worker,
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
+						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
 						deployment_message: deploymentMsg || undefined
 					}
 				})
@@ -524,6 +530,7 @@
 						ws_error_handler_muted: flow.ws_error_handler_muted,
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
+						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
 						deployment_message: deploymentMsg || undefined
 					}
 				})
@@ -632,7 +639,9 @@
 		executionCount: writable(0),
 		flowInputEditorState: flowInputEditorStateStore,
 		modulesTestStates,
-		outputPickerOpenFns
+		outputPickerOpenFns,
+		preserveOnBehalfOf,
+		savedOnBehalfOfEmail
 	})
 
 	// Set up NoteEditor context for note editing capabilities

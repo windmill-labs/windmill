@@ -8082,6 +8082,9 @@ paths:
                   type: string
                 custom_path:
                   type: string
+                preserve_on_behalf_of:
+                  type: boolean
+                  description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it."
               required:
                 - path
                 - value
@@ -8438,6 +8441,9 @@ paths:
                   type: string
                 custom_path:
                   type: string
+                preserve_on_behalf_of:
+                  type: boolean
+                  description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it."
       responses:
         "200":
           description: app updated
@@ -18042,6 +18048,9 @@ components:
           type: boolean
         on_behalf_of_email:
           type: string
+        preserve_on_behalf_of:
+          type: boolean
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email value instead of overwriting it."
         assets:
           type: array
           items:
@@ -21915,6 +21924,9 @@ components:
               type: boolean
             on_behalf_of_email:
               type: string
+            preserve_on_behalf_of:
+              type: boolean
+              description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email value instead of overwriting it."
           required:
             - path
 

@@ -922,7 +922,13 @@ async fn create_script_internal<'c>(
         codebase,
         has_preprocessor.filter(|x: &bool| *x), // should be Some(true) or None
         if ns.on_behalf_of_email.is_some() {
-            Some(&authed.email)
+            if ns.preserve_on_behalf_of.unwrap_or(false)
+                && authed.groups.contains(&windmill_common::WM_DEPLOYERS_GROUP.to_string())
+            {
+                ns.on_behalf_of_email.as_deref()
+            } else {
+                Some(authed.email.as_str())
+            }
         } else {
             None
         },
