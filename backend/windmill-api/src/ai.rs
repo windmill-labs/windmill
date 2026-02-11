@@ -169,6 +169,9 @@ struct AIStandardResource {
     /// Platform for Anthropic API (standard or google_vertex_ai)
     #[serde(default)]
     platform: AnthropicPlatform,
+    /// Enable 1M context window for Anthropic
+    #[serde(alias = "enable_1M_context", default)]
+    enable_1m_context: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -197,6 +200,7 @@ struct AIRequestConfig {
     #[allow(dead_code)]
     pub aws_secret_access_key: Option<String>,
     pub platform: AnthropicPlatform,
+    pub enable_1m_context: bool,
 }
 
 impl AIRequestConfig {
@@ -216,10 +220,12 @@ impl AIRequestConfig {
             aws_access_key_id,
             aws_secret_access_key,
             platform,
+            enable_1m_context,
         ) = match resource {
             AIResource::Standard(resource) => {
                 let region = resource.region.clone();
                 let platform = resource.platform.clone();
+                let enable_1m_context = resource.enable_1m_context;
                 // Skip get_base_url for Bedrock - it uses SDK directly, not HTTP
                 let base_url = if matches!(provider, AIProvider::AWSBedrock) {
                     String::new()
@@ -258,6 +264,7 @@ impl AIRequestConfig {
                     aws_access_key_id,
                     aws_secret_access_key,
                     platform,
+                    enable_1m_context,
                 )
             }
             AIResource::OAuth(resource) => {
@@ -279,6 +286,7 @@ impl AIRequestConfig {
                     None,
                     None,
                     AnthropicPlatform::Standard,
+                    false,
                 )
             }
         };
@@ -293,6 +301,7 @@ impl AIRequestConfig {
             aws_access_key_id,
             aws_secret_access_key,
             platform,
+            enable_1m_context,
         })
     }
 
@@ -392,6 +401,10 @@ impl AIRequestConfig {
                 }
                 request = request.header(header_name, header_value);
             }
+        }
+
+        if is_anthropic_sdk && self.enable_1m_context {
+            request = request.header("anthropic-beta", "context-1m-2025-08-07");
         }
 
         // Add authentication headers

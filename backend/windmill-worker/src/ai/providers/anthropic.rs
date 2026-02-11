@@ -354,11 +354,16 @@ pub struct AnthropicQueryBuilder {
     #[allow(dead_code)]
     provider_kind: AIProvider,
     platform: AnthropicPlatform,
+    enable_1m_context: bool,
 }
 
 impl AnthropicQueryBuilder {
-    pub fn new(provider_kind: AIProvider, platform: AnthropicPlatform) -> Self {
-        Self { provider_kind, platform }
+    pub fn new(
+        provider_kind: AIProvider,
+        platform: AnthropicPlatform,
+        enable_1m_context: bool,
+    ) -> Self {
+        Self { provider_kind, platform, enable_1m_context }
     }
 
     fn is_vertex(&self) -> bool {
@@ -582,10 +587,14 @@ impl QueryBuilder for AnthropicQueryBuilder {
             vec![("Authorization", format!("Bearer {}", api_key))]
         } else {
             // Standard Anthropic API uses x-api-key and anthropic-version header
-            vec![
+            let mut headers = vec![
                 ("x-api-key", api_key.to_string()),
                 ("anthropic-version", ANTHROPIC_VERSION_STANDARD.to_string()),
-            ]
+            ];
+            if self.enable_1m_context {
+                headers.push(("anthropic-beta", "context-1m-2025-08-07".to_string()));
+            }
+            headers
         }
     }
 }
