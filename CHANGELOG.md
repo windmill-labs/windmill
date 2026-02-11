@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.631.2](https://github.com/windmill-labs/windmill/compare/v1.631.1...v1.631.2) (2026-02-11)
+
+
+### Bug Fixes
+
+* **frontend:** revert CloseButton refactor that broke tag removal in MultiSelect ([#7909](https://github.com/windmill-labs/windmill/issues/7909)) ([b11d6ed](https://github.com/windmill-labs/windmill/commit/b11d6ed7940faddfe74a22b25bcb132527cbcec8))
+* nix flake libz.so for deno_core ([#7905](https://github.com/windmill-labs/windmill/issues/7905)) ([900c76c](https://github.com/windmill-labs/windmill/commit/900c76ccad09f58fc6adcfa8151db780249617f6))
+* strip unsupported schema fields for Google AI ([#7894](https://github.com/windmill-labs/windmill/issues/7894)) ([5effb87](https://github.com/windmill-labs/windmill/commit/5effb87a36793e20d17e678619091ef458fe8f0a)), closes [#7759](https://github.com/windmill-labs/windmill/issues/7759)
+
 ## [1.631.1](https://github.com/windmill-labs/windmill/compare/v1.631.0...v1.631.1) (2026-02-11)
 
 
