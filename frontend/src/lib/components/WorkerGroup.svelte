@@ -372,7 +372,7 @@
 								label: 'Reset to all tags minus native ones',
 								onClick: () => {
 									if (nconfig != undefined) {
-										nconfig.worker_tags = defaultTags.concat(nativeTags)
+										nconfig.worker_tags = defaultTags
 									}
 								},
 								disabled: !canEditConfig,
