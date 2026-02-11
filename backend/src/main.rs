@@ -735,8 +735,12 @@ async fn windmill_main() -> anyhow::Result<()> {
                 .unwrap_or(false);
 
             if !skip_migration {
-                // migration code to avoid break
-                migration_handle = windmill_api::migrate_db(&db, killpill_rx.resubscribe()).await?;
+                if mode == Mode::Worker {
+                    windmill_api::wait_for_db_migrations(&db, killpill_rx.resubscribe()).await?;
+                } else {
+                    migration_handle =
+                        windmill_api::migrate_db(&db, killpill_rx.resubscribe()).await?;
+                }
             } else {
                 tracing::info!("SKIP_MIGRATION set, skipping db migration...")
             }
