@@ -224,7 +224,7 @@
 							{/if}
 
 							<SettingsPageHeader
-								title="Instance users"
+								title="Instance users ({users.length})"
 								description="Manage all users across your Windmill instance."
 								link="https://www.windmill.dev/docs/advanced/instance_settings#global-users"
 							/>
@@ -260,7 +260,10 @@
 									{/snippet}
 								</Popover>
 							</div>
-							<div class="mt-2">
+							<p class="text-hint text-2xs mt-2">
+								{filteredUsers.length} user{filteredUsers.length !== 1 ? 's' : ''} found
+							</p>
+							<div class="mt-1">
 								<DataTable
 									shouldLoadMore={(filteredUsers?.length ?? 0) > 50}
 									loadMore={50}
