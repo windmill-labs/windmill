@@ -75,9 +75,11 @@
 		})
 	}
 
-	if (setting.key == 'license_key') {
-		reloadKeyrenewalAttemptInfo()
-	}
+	$effect(() => {
+		if (setting.key == 'license_key') {
+			untrack(() => reloadKeyrenewalAttemptInfo())
+		}
+	})
 
 	export async function renewLicenseKey() {
 		renewing = true

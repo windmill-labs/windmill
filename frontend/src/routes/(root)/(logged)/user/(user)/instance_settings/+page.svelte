@@ -142,7 +142,7 @@
 							variant="default"
 							unifiedSize="md"
 							startIcon={{ icon: ArrowLeft }}
-							on:click={() => saveAndProceed(() => (wizardStep -= 1))}
+							onClick={() => saveAndProceed(() => (wizardStep -= 1))}
 						>
 							Back
 						</Button>
@@ -161,12 +161,12 @@
 						<Button
 							variant="accent"
 							unifiedSize="md"
-							on:click={() => saveAndProceed(() => (wizardStep += 1))}
+							onClick={() => saveAndProceed(() => (wizardStep += 1))}
 						>
 							{currentStepDirty ? 'Save & Next' : 'Next'}
 						</Button>
 					{:else}
-						<Button variant="accent" unifiedSize="md" on:click={() => saveAndProceed(finishSetup)}>
+						<Button variant="accent" unifiedSize="md" onClick={() => saveAndProceed(finishSetup)}>
 							{currentStepDirty ? 'Save & Continue' : 'Continue'}
 						</Button>
 					{/if}
@@ -176,11 +176,11 @@
 					variant="default"
 					unifiedSize="md"
 					startIcon={{ icon: ArrowLeft }}
-					on:click={switchToWizardMode}
+					onClick={switchToWizardMode}
 				>
 					Quick setup
 				</Button>
-				<Button variant="accent" unifiedSize="md" on:click={finishSetup}>Continue</Button>
+				<Button variant="accent" unifiedSize="md" onClick={finishSetup}>Continue</Button>
 			{/if}
 		</div>
 
@@ -188,7 +188,7 @@
 			<p class="text-secondary text-xs">
 				You can change these settings later in the instance settings.
 			</p>
-			<Button variant="subtle" unifiedSize="sm" on:click={finishSetup}>Skip setup</Button>
+			<Button variant="subtle" unifiedSize="sm" onClick={finishSetup}>Skip setup</Button>
 		</div>
 	</div>
 </CenteredModal>
