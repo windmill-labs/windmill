@@ -1443,8 +1443,8 @@
 										{#if script.dedicated_worker}
 											<div class="py-2">
 												<Alert type="info" title="Require dedicated workers">
-													One worker in a worker group needs to be configured with dedicated worker
-													set to: <pre>{$workspaceStore}:{script.path}</pre>
+													A worker group needs to be configured to listen to this script. Select
+													it in the dedicated workers section of the worker group configuration.
 												</Alert>
 											</div>
 										{/if}

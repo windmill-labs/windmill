@@ -2135,9 +2135,7 @@ pub async fn resume_suspended_flow_as_owner(
 
     // Check approval conditions (self-approval, required groups, etc.)
     if let Some(ref flow_status_value) = flow.flow_status {
-        if let Ok(flow_status) =
-            serde_json::from_value::<FlowStatus>(flow_status_value.clone())
-        {
+        if let Ok(flow_status) = serde_json::from_value::<FlowStatus>(flow_status_value.clone()) {
             let trigger_email = flow.email.as_deref().unwrap_or("");
             conditionally_require_authed_user(Some(authed.clone()), flow_status, trigger_email)?;
         }
@@ -5224,7 +5222,7 @@ async fn add_batch_jobs(
 
     let tag = if let Some(dedicated_worker) = dedicated_worker {
         if dedicated_worker && path.is_some() {
-            format!("{}:{}", w_id, path.clone().unwrap())
+            windmill_common::worker::dedicated_worker_tag(&w_id, &path.clone().unwrap())
         } else {
             format!("{}", language.as_str())
         }
