@@ -171,7 +171,7 @@ SELECT importer_node_id, imported_path, imported_lockfile_hash
             tracing::info!("adding missing entries to dependency_map: importer_node_id - {}, importer_kind - {}, new_imported_paths - {:?}",
                 &node_id,
                 &self.importer_kind,
-                &referenced_paths,
+                &lock_hashes,
             );
         }
 
@@ -180,7 +180,8 @@ SELECT importer_node_id, imported_path, imported_lockfile_hash
             sqlx::query!(
                 "INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id, imported_lockfile_hash)
                 VALUES ($1, $2, $3::text::IMPORTER_KIND, $4, $5, $6)
-                ON CONFLICT DO NOTHING",
+                ON CONFLICT (workspace_id, importer_node_id, importer_kind, importer_path, imported_path)
+                DO UPDATE SET imported_lockfile_hash = EXCLUDED.imported_lockfile_hash",
                 &self.w_id,
                 &self.importer_path,
                 &self.importer_kind,
@@ -227,12 +228,14 @@ SELECT importer_node_id, imported_path, imported_lockfile_hash
             AND importer_kind = $3::text::IMPORTER_KIND
             AND importer_node_id = $4
             AND imported_path = $5
+            AND imported_lockfile_hash IS NOT DISTINCT FROM $6 -- we don't want to delete other entries with other lockfile hash.
             ",
                 &self.w_id,
                 &self.importer_path,
                 &self.importer_kind,
                 &importer_node_id,
                 &imported_path,
+                imported_lockfile_hash
             )
             .execute(&mut *tx)
             .await
