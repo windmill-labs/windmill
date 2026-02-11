@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT lock FROM script WHERE path = $1 AND workspace_id = $2 AND lock IS NOT NULL\n             ORDER BY created_at DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "lock",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "1f3a72def7a45523f0098ef1788593a2ad4885bb2df14c607bcb7d156ed62014"
+}
