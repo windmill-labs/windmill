@@ -330,6 +330,32 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
+			label: 'UV index strategy',
+			description:
+				'Strategy for resolving packages from multiple indexes. See <a href="https://docs.astral.sh/uv/pip/compatibility/#packages-that-exist-on-multiple-indexes">uv docs</a>',
+			key: 'uv_index_strategy',
+			fieldType: 'select',
+			placeholder: 'unsafe-best-match',
+			defaultValue: () => "unsafe-best-match",
+			select_items: [
+				{
+					label: 'first-index',
+					tooltip: 'Only use the first index that contains the package'
+				},
+				{
+					label: 'unsafe-first-match',
+					tooltip: 'Search for packages across all indexes, preferring the first match'
+				},
+				{
+					label: 'unsafe-best-match (default)',
+					value: 'unsafe-best-match',
+					tooltip: 'Search for packages across all indexes, preferring the best match'
+				}
+			],
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
 			label: 'Npm config registry',
 			description: 'Add private npm registry',
 			key: 'npm_config_registry',
