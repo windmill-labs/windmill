@@ -191,7 +191,7 @@ pub struct ProviderResource {
     #[serde(default)]
     pub platform: AnthropicPlatform,
     /// Enable 1M context window for Anthropic
-    #[serde(alias = "enable1mContext", default)]
+    #[serde(alias = "enable_1M_context", default)]
     pub enable_1m_context: bool,
 }
 

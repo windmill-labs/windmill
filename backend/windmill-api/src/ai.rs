@@ -170,7 +170,7 @@ struct AIStandardResource {
     #[serde(default)]
     platform: AnthropicPlatform,
     /// Enable 1M context window for Anthropic
-    #[serde(alias = "enable1mContext", default)]
+    #[serde(alias = "enable_1M_context", default)]
     enable_1m_context: bool,
 }
 
