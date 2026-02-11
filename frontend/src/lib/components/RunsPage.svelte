@@ -592,33 +592,62 @@
 				<FilterSearchbar
 					class="min-w-80 max-w-[30rem]"
 					schema={{
-						min_ts: { type: 'date', label: 'From', icon: Calendar },
-						max_ts: { type: 'date', label: 'To', icon: Calendar },
+						min_ts: {
+							type: 'date',
+							label: 'From',
+							icon: Calendar,
+							description: 'Only include jobs that completed after this date'
+						},
+						max_ts: {
+							type: 'date',
+							label: 'To',
+							icon: Calendar,
+							description: 'Only include jobs that completed before this date'
+						},
 						path: {
 							type: 'oneof',
 							options: paths.map((s) => ({ label: s, value: s })),
 							allowCustomValue: true,
-							label: 'Path'
+							label: 'Path',
+							description: 'Filter by script or flow path'
 						},
 						user: {
 							type: 'oneof',
 							options: usernames.map((s) => ({ label: s, value: s })),
 							allowCustomValue: true,
 							label: 'User',
-							icon: UserIcon
+							icon: UserIcon,
+							description: 'Filter by user who created the job'
 						},
 						folder: {
 							type: 'oneof',
 							options: folders.map((s) => ({ label: s, value: s })),
 							allowCustomValue: true,
 							label: 'Folder',
-							icon: FolderIcon
+							icon: FolderIcon,
+							description: 'Filter by folder containing the script or flow'
 						},
-						label: { type: 'string', label: 'Label' },
-						tag: { type: 'string', label: 'Tag' },
-						worker: { type: 'string', label: 'Worker' },
-						schedule_path: { type: 'string', label: 'Schedule path' },
-						concurrency_key: { type: 'string', label: 'Concurrency key' },
+						label: {
+							type: 'string',
+							label: 'Label',
+							description: 'Filter by custom label attached to jobs'
+						},
+						tag: { type: 'string', label: 'Tag', description: 'Filter by worker tag' },
+						worker: {
+							type: 'string',
+							label: 'Worker',
+							description: 'Filter by specific worker instance'
+						},
+						schedule_path: {
+							type: 'string',
+							label: 'Schedule path',
+							description: 'Filter by schedule that triggered the job'
+						},
+						concurrency_key: {
+							type: 'string',
+							label: 'Concurrency key',
+							description: 'Filter by concurrency limit key'
+						},
 						job_kinds: {
 							type: 'oneof',
 							options: [
@@ -647,7 +676,8 @@
 										'Sync jobs that are triggered on every script deployment to sync the workspace with the Git repository configured in the the workspace settings'
 								}
 							],
-							label: 'Job kinds'
+							label: 'Job kinds',
+							description: 'Filter by job category'
 						},
 						status: {
 							type: 'oneof',
@@ -657,24 +687,32 @@
 								{ label: 'Success', value: 'success' },
 								{ label: 'Failure', value: 'failure' }
 							],
-							label: 'Status'
+							label: 'Status',
+							description: 'Filter by job execution status'
 						},
-						show_skipped: { type: 'boolean', label: 'Show skipped' },
+						show_skipped: {
+							type: 'boolean',
+							label: 'Show skipped',
+							description: 'Include skipped flow steps'
+						},
 						job_trigger_kind: {
 							type: 'oneof',
 							label: 'Trigger kind',
 							options: jobTriggerKinds.map((value) => ({
 								label: triggerDisplayNamesMap[value],
 								value
-							}))
+							})),
+							description: 'Filter by how the job was triggered'
 						},
 						arg: {
 							type: 'string',
-							label: 'Args'
+							label: 'Args',
+							description: 'Filter by job arguments (JSON format)'
 						},
 						result: {
 							type: 'string',
-							label: 'Result'
+							label: 'Result',
+							description: 'Filter by job result (JSON format)'
 						}
 					}}
 					value={filtersTEMP}
