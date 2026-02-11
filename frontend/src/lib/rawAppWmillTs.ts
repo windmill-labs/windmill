@@ -1,10 +1,12 @@
 let reqs: Record<string, any> = {}
 
-function doRequest(type: string, o: object) {
+function doRequest(type: string, o: object, extra?: object) {
 	return new Promise((resolve, reject) => {
 		const reqId = Math.random().toString(36)
-		reqs[reqId] = { resolve, reject }
-		parent.postMessage({ ...o, type, reqId }, '*')
+		reqs[reqId] = { resolve, reject, ...extra }
+		const req = { ...o, type, reqId }
+		parent.postMessage(req, '*')
+		window.opener?.postMessage(req, '*')
 	})
 }
 
@@ -49,11 +51,7 @@ export function streamJob(
 	jobId: string,
 	onUpdate?: (data: { new_result_stream?: string; stream_offset?: number }) => void
 ): Promise<any> {
-	return new Promise((resolve, reject) => {
-		const reqId = Math.random().toString(36)
-		reqs[reqId] = { resolve, reject, onUpdate }
-		parent.postMessage({ jobId, type: 'streamJob', reqId }, '*')
-	})
+	return doRequest('streamJob', { jobId }, { onUpdate })
 }
 
 window.addEventListener('message', (e) => {
@@ -77,7 +75,12 @@ window.addEventListener('message', (e) => {
 			}
 			delete reqs[e.data.reqId]
 		}
-	} else if (e.data.type == 'backendRes' || e.data.type == 'backendAsyncRes') {
+	} else if (
+		e.data.type == 'backendRes' ||
+		e.data.type == 'backendAsyncRes' ||
+		e.data.type == 'waitJobRes' ||
+		e.data.type == 'getJobRes'
+	) {
 		console.log('Message from parent backend', e.data)
 		let job = reqs[e.data.reqId]
 		if (job) {
@@ -87,9 +90,9 @@ window.addEventListener('message', (e) => {
 			} else {
 				job.resolve(result)
 			}
+			delete reqs[e.data.reqId]
 		} else {
 			console.error('No job found for', e.data.reqId)
 		}
-		delete reqs[e.data.reqId]
 	}
 })
