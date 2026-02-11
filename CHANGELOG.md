@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.631.1](https://github.com/windmill-labs/windmill/compare/v1.631.0...v1.631.1) (2026-02-11)
+
+
+### Bug Fixes
+
+* add kafka-gssapi support to ee builds ([2815cfa](https://github.com/windmill-labs/windmill/commit/2815cfae1a5eefb2c553e893dc926e62ad1df528))
+
 ## [1.631.0](https://github.com/windmill-labs/windmill/compare/v1.630.2...v1.631.0) (2026-02-11)
 
 
