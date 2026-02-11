@@ -589,10 +589,10 @@
 					bind:value={_timeframe.timeframe}
 				/>
 				<FilterSearchbar
-					class="min-w-80"
+					class="min-w-80 max-w-[30rem]"
 					schema={{
-						from: { type: 'date', label: 'From', icon: Calendar },
-						to: { type: 'date', label: 'To', icon: Calendar },
+						min_ts: { type: 'date', label: 'From', icon: Calendar },
+						max_ts: { type: 'date', label: 'To', icon: Calendar },
 						path: { type: 'oneof', options: paths, allowCustomValue: true, label: 'Path' },
 						user: {
 							type: 'oneof',

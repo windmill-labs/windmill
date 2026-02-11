@@ -11,6 +11,7 @@
 		disablePortal = false,
 		open,
 		class: className = '',
+		innerClass = '',
 		getInputRect,
 		children
 	}: {
@@ -18,6 +19,7 @@
 		disablePortal?: boolean
 		open: boolean
 		class?: string
+		innerClass?: string
 		getInputRect?: () => DOMRect
 		children?: Snippet
 	} = $props()
@@ -123,7 +125,10 @@
 				)}
 				style="height: {uiState.visible ? dropdownPos.height : 0}px;"
 			>
-				<div bind:this={listEl} class="flex flex-col max-h-64 rounded-md bg-surface-input">
+				<div
+					bind:this={listEl}
+					class="flex flex-col max-h-64 rounded-md bg-surface-input {innerClass}"
+				>
 					{@render children?.()}
 				</div>
 			</div>
