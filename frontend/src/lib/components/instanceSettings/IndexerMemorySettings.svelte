@@ -37,8 +37,10 @@
 				oninput: (e) => {
 					if (e.target instanceof HTMLInputElement) {
 						if (e.target.valueAsNumber) {
-							$values['indexer_settings'].writer_memory_budget =
-								e.target.valueAsNumber * (1024 * 1024)
+							$values['indexer_settings'] = {
+								...$values['indexer_settings'],
+								writer_memory_budget: e.target.valueAsNumber * (1024 * 1024)
+							}
 						}
 					}
 				}
