@@ -52,13 +52,6 @@ impl BedrockQueryBuilder {
         aws_session_token: Option<&str>,
     ) -> Result<ParsedResponse, Error> {
         let bedrock_client = if !api_key.is_empty() {
-            let key_prefix: String = api_key.chars().take(8).collect();
-            tracing::info!(
-                "[debug] Bedrock bearer token selected (worker runtime): region={}, token_len={}, token_prefix={}***",
-                region,
-                api_key.len(),
-                key_prefix
-            );
             BedrockClient::from_bearer_token(api_key.to_string(), region).await?
         } else if let (Some(access_key_id), Some(secret_access_key)) =
             (aws_access_key_id, aws_secret_access_key)

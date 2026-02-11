@@ -118,16 +118,7 @@ async fn create_bedrock_client(
         aws_secret_access_key,
         aws_session_token,
     ) {
-        BedrockAuthConfig::BearerToken(key) => {
-            let key_prefix: String = key.chars().take(8).collect();
-            tracing::info!(
-                "[debug] Bedrock bearer token selected (api runtime): region={}, token_len={}, token_prefix={}***",
-                region,
-                key.len(),
-                key_prefix
-            );
-            BedrockClient::from_bearer_token(key, region).await
-        }
+        BedrockAuthConfig::BearerToken(key) => BedrockClient::from_bearer_token(key, region).await,
         BedrockAuthConfig::IamCredentials { access_key_id, secret_access_key, session_token } => {
             BedrockClient::from_credentials(access_key_id, secret_access_key, session_token, region)
                 .await
@@ -202,13 +193,6 @@ async fn create_bedrock_control_client(
         aws_session_token,
     ) {
         BedrockAuthConfig::BearerToken(key) => {
-            let key_prefix: String = key.chars().take(8).collect();
-            tracing::info!(
-                "[debug] Bedrock bearer token selected (api control): region={}, token_len={}, token_prefix={}***",
-                region,
-                key.len(),
-                key_prefix
-            );
             let config = aws_sdk_bedrock::config::Builder::new()
                 .region(region_provider)
                 .behavior_version(BehaviorVersion::latest())
