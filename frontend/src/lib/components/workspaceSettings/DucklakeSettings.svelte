@@ -378,7 +378,7 @@
 					</div>
 				</Cell>
 				<Cell class="w-12">
-					<CloseButton small onClick={() => removeDucklake(ducklakeIndex)} />
+					<CloseButton small on:close={() => removeDucklake(ducklakeIndex)} />
 				</Cell>
 			</Row>
 		{/each}

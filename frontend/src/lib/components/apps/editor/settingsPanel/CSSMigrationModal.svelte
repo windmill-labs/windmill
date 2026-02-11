@@ -157,7 +157,7 @@
 					>
 						<div class="leading-6 font-semibold text-sm w-full flex justify-between">
 							<div>Migrate to CSS editor</div><CloseButton
-								onClick={() => (migrationModalOpen = false)}
+								on:close={() => (migrationModalOpen = false)}
 							/>
 						</div>
 

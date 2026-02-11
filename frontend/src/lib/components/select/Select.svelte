@@ -147,7 +147,7 @@
 				class="bg-transparent text-secondary hover:text-primary"
 				noBg
 				small
-				onClick={clearValue}
+				on:close={clearValue}
 			/>
 		</div>
 	{:else if RightIcon}
