@@ -126,6 +126,7 @@
 	// so we use a pendingFocusKey variable to store the key of the filter that should be focused,
 	// and then focus on it in an effect.
 	let pendingFocusKey: string | undefined = $state()
+	let focusPosition: 'inside' | 'after' = $state('inside')
 	$effect(() => {
 		if (pendingFocusKey && inputElement) {
 			const filterElements = Array.from(inputElement.querySelectorAll('.usercontent'))
@@ -139,29 +140,45 @@
 						const range = document.createRange()
 						const selection = window.getSelection()
 
-						// Find the last text node (which should be the value)
-						// The structure is: Icon, div(key:), nbsp, value
-						let lastTextNode: Node | null = null
-						for (let i = el.childNodes.length - 1; i >= 0; i--) {
-							const node = el.childNodes[i]
-							if (node.nodeType === Node.TEXT_NODE) {
-								// Skip if it's just the nbsp between colon and value
-								const content = node.textContent || ''
-								if (content === '\u00A0') continue
-
-								lastTextNode = node
-								break
+						if (focusPosition === 'after') {
+							// Position cursor after the filter element (outside the .usercontent div)
+							// Find the next sibling text node (the nbsp after the filter)
+							const nextSibling = el.nextSibling
+							if (nextSibling && nextSibling.nodeType === Node.TEXT_NODE) {
+								// Position at the end of the nbsp text node
+								range.setStart(nextSibling, nextSibling.textContent?.length || 0)
+								range.setEnd(nextSibling, nextSibling.textContent?.length || 0)
+							} else {
+								// Fallback: position after the element
+								range.setStartAfter(el)
+								range.collapse(true)
 							}
-						}
-
-						if (lastTextNode) {
-							// Position cursor at start of the value text node
-							range.setStart(lastTextNode, 0)
-							range.setEnd(lastTextNode, 0)
 						} else {
-							// If no text node exists (empty value), position after all content
-							range.selectNodeContents(el)
-							range.collapse(false)
+							// Position cursor inside the filter element at the value
+							// Find the last text node (which should be the value)
+							// The structure is: Icon, div(key:), nbsp, value
+							let lastTextNode: Node | null = null
+							for (let i = el.childNodes.length - 1; i >= 0; i--) {
+								const node = el.childNodes[i]
+								if (node.nodeType === Node.TEXT_NODE) {
+									// Skip if it's just the nbsp between colon and value
+									const content = node.textContent || ''
+									if (content === '\u00A0') continue
+
+									lastTextNode = node
+									break
+								}
+							}
+
+							if (lastTextNode) {
+								// Position cursor at start of the value text node
+								range.setStart(lastTextNode, 0)
+								range.setEnd(lastTextNode, 0)
+							} else {
+								// If no text node exists (empty value), position after all content
+								range.selectNodeContents(el)
+								range.collapse(false)
+							}
 						}
 
 						selection?.removeAllRanges()
@@ -169,6 +186,7 @@
 						inputElement.focus()
 
 						pendingFocusKey = undefined
+						focusPosition = 'inside' // Reset to default
 						updateEditingKeyOnCursorMoved()
 						break
 					}
@@ -252,7 +270,7 @@
 
 {#snippet suggestion(filter: FilterSchema)}
 	{#if filter.description}
-		<div class="text-xs px-2 mb-2">{filter.description}</div>
+		<div class="text-xs text-hint px-2 my-2">{filter.description}</div>
 	{/if}
 	{#if filter.type === 'oneof'}
 		{#each filter.options as option}
@@ -260,6 +278,7 @@
 				onClick: () => {
 					value[editingKey!] = option.value
 					pendingFocusKey = editingKey as string
+					focusPosition = 'after'
 				},
 				label: option.label || option.value
 			})}
