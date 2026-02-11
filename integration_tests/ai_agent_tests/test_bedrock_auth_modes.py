@@ -40,8 +40,13 @@ class TestBedrockAuthModes:
     @pytest.mark.usefixtures("setup_providers")
     def test_bedrock_iam_resource_without_session_token(self, client: AIAgentTestClient):
         """Test Bedrock with IAM access key + secret key auth."""
-        if not (os.environ.get("AWS_ACCESS_KEY_ID") and os.environ.get("AWS_SECRET_ACCESS_KEY")):
-            pytest.skip("AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY required")
+        if not (
+            os.environ.get("BEDROCK_IAM_ACCESS_KEY_ID")
+            and os.environ.get("BEDROCK_IAM_SECRET_ACCESS_KEY")
+        ):
+            pytest.skip(
+                "BEDROCK_IAM_ACCESS_KEY_ID and BEDROCK_IAM_SECRET_ACCESS_KEY required"
+            )
 
         flow_value = create_ai_agent_flow(
             provider_input_transform=BEDROCK_IAM["input_transform"],
@@ -58,11 +63,16 @@ class TestBedrockAuthModes:
     @pytest.mark.usefixtures("setup_providers")
     def test_bedrock_environment_resource(self, client: AIAgentTestClient):
         """Test Bedrock with environment credential fallback."""
-        if not (
-            os.environ.get("AWS_ACCESS_KEY_ID")
-            and os.environ.get("AWS_SECRET_ACCESS_KEY")
-        ):
+        aws_access_key_id = os.environ.get("AWS_ACCESS_KEY_ID")
+        aws_secret_access_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
+        aws_session_token = os.environ.get("AWS_SESSION_TOKEN")
+
+        if not (aws_access_key_id and aws_secret_access_key):
             pytest.skip("AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY required for env fallback")
+        if aws_access_key_id.startswith("ASIA") and not aws_session_token:
+            pytest.skip(
+                "AWS_SESSION_TOKEN required for env fallback when AWS_ACCESS_KEY_ID is temporary (ASIA...)"
+            )
 
         flow_value = create_ai_agent_flow(
             provider_input_transform=BEDROCK_ENV["input_transform"],
@@ -80,12 +90,12 @@ class TestBedrockAuthModes:
     def test_bedrock_iam_resource_with_session_token(self, client: AIAgentTestClient):
         """Test Bedrock with IAM access key + secret key + session token auth."""
         if not (
-            os.environ.get("AWS_ACCESS_KEY_ID")
-            and os.environ.get("AWS_SECRET_ACCESS_KEY")
-            and os.environ.get("AWS_SESSION_TOKEN")
+            os.environ.get("BEDROCK_SESSION_ACCESS_KEY_ID")
+            and os.environ.get("BEDROCK_SESSION_SECRET_ACCESS_KEY")
+            and os.environ.get("BEDROCK_SESSION_TOKEN")
         ):
             pytest.skip(
-                "AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_SESSION_TOKEN required"
+                "BEDROCK_SESSION_ACCESS_KEY_ID, BEDROCK_SESSION_SECRET_ACCESS_KEY, and BEDROCK_SESSION_TOKEN required"
             )
 
         flow_value = create_ai_agent_flow(

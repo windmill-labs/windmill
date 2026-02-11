@@ -438,8 +438,11 @@ def setup_providers(client):
     - GOOGLE_AI_API_KEY
     - OPENROUTER_API_KEY
     - BEDROCK_API_KEY (optional)
-    - AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY (optional, for IAM Bedrock tests)
-    - AWS_SESSION_TOKEN (optional, for IAM session Bedrock tests)
+    - BEDROCK_IAM_ACCESS_KEY_ID and BEDROCK_IAM_SECRET_ACCESS_KEY (optional, for IAM Bedrock tests)
+    - BEDROCK_SESSION_ACCESS_KEY_ID, BEDROCK_SESSION_SECRET_ACCESS_KEY, BEDROCK_SESSION_TOKEN
+      (optional, for IAM session Bedrock tests)
+    - AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY (optional, for environment fallback tests)
+    - AWS_SESSION_TOKEN (optional, if environment fallback uses temporary credentials)
     - BEDROCK_REGION (optional, defaults to us-east-1)
     """
     # OpenAI
@@ -489,26 +492,43 @@ def setup_providers(client):
         })
 
     # Bedrock IAM credentials without session token
-    if os.environ.get("AWS_ACCESS_KEY_ID") and os.environ.get("AWS_SECRET_ACCESS_KEY"):
-        client.create_variable("u/admin/aws_access_key_id", os.environ["AWS_ACCESS_KEY_ID"])
-        client.create_variable("u/admin/aws_secret_access_key", os.environ["AWS_SECRET_ACCESS_KEY"])
+    if os.environ.get("BEDROCK_IAM_ACCESS_KEY_ID") and os.environ.get("BEDROCK_IAM_SECRET_ACCESS_KEY"):
+        client.create_variable(
+            "u/admin/bedrock_iam_access_key_id",
+            os.environ["BEDROCK_IAM_ACCESS_KEY_ID"],
+        )
+        client.create_variable(
+            "u/admin/bedrock_iam_secret_access_key",
+            os.environ["BEDROCK_IAM_SECRET_ACCESS_KEY"],
+        )
         client.create_resource("u/admin/bedrock_iam", "aws_bedrock", {
-            "awsAccessKeyId": "$var:u/admin/aws_access_key_id",
-            "awsSecretAccessKey": "$var:u/admin/aws_secret_access_key",
+            "awsAccessKeyId": "$var:u/admin/bedrock_iam_access_key_id",
+            "awsSecretAccessKey": "$var:u/admin/bedrock_iam_secret_access_key",
             "region": bedrock_region
         })
 
     # Bedrock IAM credentials with session token
     if (
-        os.environ.get("AWS_ACCESS_KEY_ID")
-        and os.environ.get("AWS_SECRET_ACCESS_KEY")
-        and os.environ.get("AWS_SESSION_TOKEN")
+        os.environ.get("BEDROCK_SESSION_ACCESS_KEY_ID")
+        and os.environ.get("BEDROCK_SESSION_SECRET_ACCESS_KEY")
+        and os.environ.get("BEDROCK_SESSION_TOKEN")
     ):
-        client.create_variable("u/admin/aws_session_token", os.environ["AWS_SESSION_TOKEN"])
+        client.create_variable(
+            "u/admin/bedrock_session_access_key_id",
+            os.environ["BEDROCK_SESSION_ACCESS_KEY_ID"],
+        )
+        client.create_variable(
+            "u/admin/bedrock_session_secret_access_key",
+            os.environ["BEDROCK_SESSION_SECRET_ACCESS_KEY"],
+        )
+        client.create_variable(
+            "u/admin/bedrock_session_token",
+            os.environ["BEDROCK_SESSION_TOKEN"],
+        )
         client.create_resource("u/admin/bedrock_iam_session", "aws_bedrock", {
-            "awsAccessKeyId": "$var:u/admin/aws_access_key_id",
-            "awsSecretAccessKey": "$var:u/admin/aws_secret_access_key",
-            "awsSessionToken": "$var:u/admin/aws_session_token",
+            "awsAccessKeyId": "$var:u/admin/bedrock_session_access_key_id",
+            "awsSecretAccessKey": "$var:u/admin/bedrock_session_secret_access_key",
+            "awsSessionToken": "$var:u/admin/bedrock_session_token",
             "region": bedrock_region
         })
 
