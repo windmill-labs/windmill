@@ -1,8 +1,6 @@
 #![cfg(all(feature = "private", feature = "agent_worker_server"))]
 
-mod common;
-
-use common::*;
+use windmill_test_utils::*;
 use serde_json::json;
 use sqlx::{Pool, Postgres};
 use windmill_common::{

@@ -1,0 +1,30 @@
+[package]
+name = "windmill-api-integration-tests"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_api_integration_tests"
+path = "src/lib.rs"
+
+[features]
+default = []
+private = ["windmill-test-utils/private"]
+enterprise = ["windmill-test-utils/enterprise"]
+
+[dependencies]
+windmill-test-utils.workspace = true
+windmill-api-client.workspace = true
+windmill-common = { workspace = true, default-features = false }
+sqlx.workspace = true
+serde_json.workspace = true
+serde.workspace = true
+reqwest.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+uuid.workspace = true
+rand.workspace = true
+rumqttc.workspace = true
+rdkafka.workspace = true
+async-nats.workspace = true

@@ -67,7 +67,9 @@ members = [
     "./parsers/windmill-parser-py",
     "./parsers/windmill-parser-py-imports",
     "./parsers/windmill-sql-datatype-parser-wasm",
-    "./parsers/windmill-parser-yaml", "windmill-macros", "parsers/windmill-parser-nu"
+    "./parsers/windmill-parser-yaml", "windmill-macros", "parsers/windmill-parser-nu",
+    "./windmill-test-utils",
+    "./windmill-api-integration-tests",
 ]
 exclude = ["./windmill-duckdb-ffi-internal"]
 
@@ -240,6 +242,7 @@ serde_json.workspace = true
 reqwest.workspace = true
 windmill-queue = { workspace = true, features = ["failpoints"] }
 windmill-dep-map.workspace = true
+windmill-test-utils.workspace = true
 axum.workspace = true
 serde.workspace = true
 windmill-api-client.workspace = true
@@ -317,6 +320,7 @@ windmill-parser-php = { path = "./parsers/windmill-parser-php" }
 windmill-jseval = { path = "./windmill-jseval" }
 windmill-runtime-nativets = { path = "./windmill-runtime-nativets" }
 windmill-api-client = { path = "./windmill-api-client" }
+windmill-test-utils = { path = "./windmill-test-utils" }
 
 reqwest-retry = "^0"
 reqwest-middleware = { version = "^0", features = ["json"] }

@@ -15778,6 +15778,7 @@ dependencies = [
  "windmill-indexer",
  "windmill-queue",
  "windmill-runtime-nativets",
+ "windmill-test-utils",
  "windmill-worker",
  "windows-service",
  "windows-sys 0.52.0",
@@ -16136,6 +16137,26 @@ dependencies = [
  "sqlx",
  "windmill-api-auth",
  "windmill-common",
+]
+
+[[package]]
+name = "windmill-api-integration-tests"
+version = "1.631.1"
+dependencies = [
+ "anyhow",
+ "async-nats",
+ "rand 0.9.0",
+ "rdkafka",
+ "reqwest 0.13.1",
+ "rumqttc",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "uuid",
+ "windmill-api-client",
+ "windmill-common",
+ "windmill-test-utils",
 ]
 
 [[package]]
@@ -16967,6 +16988,29 @@ dependencies = [
  "windmill-git-sync",
  "windmill-mcp",
  "windmill-oauth",
+]
+
+[[package]]
+name = "windmill-test-utils"
+version = "1.631.1"
+dependencies = [
+ "anyhow",
+ "axum 0.7.9",
+ "chrono",
+ "futures",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+ "windmill-api",
+ "windmill-api-agent-workers",
+ "windmill-api-client",
+ "windmill-common",
+ "windmill-queue",
+ "windmill-runtime-nativets",
+ "windmill-worker",
 ]
 
 [[package]]
