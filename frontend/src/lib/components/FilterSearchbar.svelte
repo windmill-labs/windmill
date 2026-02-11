@@ -6,11 +6,12 @@
 		  }
 		| {
 				type: 'oneof'
-				options: string[]
+				options: { value: string; label?: string; description?: string }[]
 				allowCustomValue?: boolean
 		  }
 	) & {
 		label?: string
+		description?: string
 		icon?: IconType
 	}
 	export type FilterInstanceRec<T extends FilterSchemaRec> = {
@@ -39,6 +40,7 @@
 	import { SearchIcon, XIcon } from 'lucide-svelte'
 	import { wait, type IconType } from '$lib/utils'
 	import GenericDropdown from './select/GenericDropdown.svelte'
+	import DateTimeInput from './DateTimeInput.svelte'
 
 	type Props<SchemaT extends FilterSchemaRec> = {
 		schema: SchemaT
@@ -118,6 +120,62 @@
 	function clearValue() {
 		for (const key in value) delete value[key]
 	}
+
+	// When a new filter is added, we want to focus on it.
+	// This is a bit tricky because the element is created after the click event that adds the filter,
+	// so we use a pendingFocusKey variable to store the key of the filter that should be focused,
+	// and then focus on it in an effect.
+	let pendingFocusKey: string | undefined = $state()
+	$effect(() => {
+		if (pendingFocusKey && inputElement) {
+			const filterElements = Array.from(inputElement.querySelectorAll('.usercontent'))
+			for (const el of filterElements) {
+				const text = el.textContent?.trim() || ''
+				const colonIndex = text.indexOf(':')
+				if (colonIndex > 0) {
+					const elementKey = text.slice(0, colonIndex).trim()
+					if (elementKey === pendingFocusKey) {
+						// Focus on the element and position cursor
+						const range = document.createRange()
+						const selection = window.getSelection()
+
+						// Find the last text node (which should be the value)
+						// The structure is: Icon, div(key:), nbsp, value
+						let lastTextNode: Node | null = null
+						for (let i = el.childNodes.length - 1; i >= 0; i--) {
+							const node = el.childNodes[i]
+							if (node.nodeType === Node.TEXT_NODE) {
+								// Skip if it's just the nbsp between colon and value
+								const content = node.textContent || ''
+								if (content === '\u00A0') continue
+
+								lastTextNode = node
+								break
+							}
+						}
+
+						if (lastTextNode) {
+							// Position cursor at start of the value text node
+							range.setStart(lastTextNode, 0)
+							range.setEnd(lastTextNode, 0)
+						} else {
+							// If no text node exists (empty value), position after all content
+							range.selectNodeContents(el)
+							range.collapse(false)
+						}
+
+						selection?.removeAllRanges()
+						selection?.addRange(range)
+						inputElement.focus()
+
+						pendingFocusKey = undefined
+						updateEditingKeyOnCursorMoved()
+						break
+					}
+				}
+			}
+		}
+	})
 </script>
 
 <svelte:window on:click={() => (open = false)} />
@@ -149,7 +207,7 @@
 				class="usercontent flex items-center bg-surface-sunken rounded px-1 text-sm flex-nowrap text-nowrap"
 				contenteditable="true"
 			>
-				<Icon size={12} class="inline" /><div contenteditable="false">{key}:</div>
+				<Icon size={12} class="inline mr-1" /><div contenteditable="false">{key}:</div>
 				&nbsp;{val}
 			</div>
 			&nbsp;
@@ -177,16 +235,14 @@
 		{#if !editingKey}
 			<div class="text-xs px-2 my-2 font-bold">Filters</div>
 			{#each Object.entries(schema).filter(([k, _]) => !(k in value)) as [key, filterSchema]}
-				{@const Icon = filterSchema.icon || SearchIcon}
-				<div
-					class="py-2 px-2 rounded-md hover:bg-surface-hover cursor-pointer text-sm"
-					onclick={() => {
+				{@render menuItem({
+					Icon: filterSchema.icon || SearchIcon,
+					onClick: () => {
 						value[key] = ''
-					}}
-				>
-					<Icon size={16} class="mr-2 inline" />
-					{filterSchema.label}
-				</div>
+						pendingFocusKey = key
+					},
+					label: filterSchema.label || key
+				})}
 			{/each}
 		{:else}
 			{@render suggestion(schema[editingKey])}
@@ -195,9 +251,39 @@
 </GenericDropdown>
 
 {#snippet suggestion(filter: FilterSchema)}
+	{#if filter.description}
+		<div class="text-xs px-2 mb-2">{filter.description}</div>
+	{/if}
 	{#if filter.type === 'oneof'}
 		{#each filter.options as option}
-			<div>{option}</div>
+			{@render menuItem({
+				onClick: () => {
+					value[editingKey!] = option.value
+					pendingFocusKey = editingKey as string
+				},
+				label: option.label || option.value
+			})}
 		{/each}
+	{:else if filter.type === 'date'}
+		<DateTimeInput bind:value={value[editingKey!]} />
 	{/if}
+{/snippet}
+
+{#snippet menuItem({
+	Icon,
+	onClick,
+	label
+}: {
+	Icon?: IconType
+	onClick: () => void
+	label: string
+})}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
+	<div class="py-2 px-2 rounded-md hover:bg-surface-hover cursor-pointer text-sm" onclick={onClick}>
+		{#if Icon}
+			<Icon size={16} class="mr-2 inline" />
+		{/if}
+		{label}
+	</div>
 {/snippet}
