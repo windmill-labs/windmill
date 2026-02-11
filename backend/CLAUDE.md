@@ -49,6 +49,10 @@ Windmill uses a workspace-based architecture with multiple crates:
 - Use feature flags: `#[cfg(feature = "enterprise")]`
 - Isolate enterprise code in separate modules
 
+## Git Workflow
+
+- **Never push directly to main** — always create a branch and open a pull request
+
 ## Testing
 
 - Write unit tests for core functionality
