@@ -1323,9 +1323,7 @@
 											/>
 											{#if script.cache_ttl}
 												<div class="text-2xs text-secondary">How long to keep the cache valid</div>
-												<div class="-mt-5">
-													<SecondsInput bind:seconds={script.cache_ttl} />
-												</div>
+												<SecondsInput bind:seconds={script.cache_ttl} />
 												<Toggle
 													size="2xs"
 													bind:checked={
