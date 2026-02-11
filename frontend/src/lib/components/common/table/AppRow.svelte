@@ -42,6 +42,7 @@
 		deleteConfirmedCallback: (() => void) | undefined
 		depth?: number
 		menuOpen?: boolean
+		showEditButton?: boolean
 	}
 
 	let {
@@ -52,7 +53,8 @@
 		deploymentDrawer,
 		deleteConfirmedCallback = $bindable(),
 		depth = 0,
-		menuOpen = $bindable(false)
+		menuOpen = $bindable(false),
+		showEditButton = $bindable(true)
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -95,7 +97,7 @@
 	{/snippet}
 	{#snippet actions()}
 		<span class="hidden md:inline-flex gap-x-1">
-			{#if !$userStore?.operator}
+			{#if !$userStore?.operator && showEditButton}
 				{#if app.canWrite}
 					<div>
 						<Button
@@ -132,6 +134,7 @@
 			items={async () => {
 				let { draft_only, canWrite, summary, execution_mode, path, has_draft } = app
 
+				const canEdit = canWrite && showEditButton
 				if (draft_only) {
 					return [
 						{
@@ -151,7 +154,7 @@
 								}
 							},
 							type: 'delete',
-							disabled: !canWrite,
+							disabled: !canEdit,
 							hide: $userStore?.operator
 						},
 						{
@@ -168,6 +171,7 @@
 						displayName: 'Duplicate/Fork',
 						icon: GitFork,
 						href: `${base}/apps${app.raw_app ? '_raw' : ''}/add?template=${path}`,
+						disabled: !showEditButton,
 						hide: $userStore?.operator
 					},
 					{
@@ -176,7 +180,7 @@
 						action: () => {
 							moveDrawer.openDrawer(path, summary, 'app')
 						},
-						disabled: !canWrite,
+						disabled: !canEdit,
 						hide: $userStore?.operator
 					},
 					...(isDeployable('app', path, await getDeployUiSettings())
@@ -274,7 +278,7 @@
 							}
 						},
 						type: 'delete',
-						disabled: !canWrite,
+						disabled: !canEdit,
 						hide: $userStore?.operator
 					}
 				]

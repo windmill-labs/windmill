@@ -136,6 +136,7 @@
 		selectedRowIndex: 0,
 		selectedRow: {},
 		selectedRows: [] as any[],
+		openedModalRow: {},
 		result: [] as any[],
 		loading: false,
 		page: 0,
@@ -280,6 +281,11 @@
 			selectRow: (p) => {
 				toggleRow(p)
 				p.node.setSelected(true)
+			},
+			setModalRow: (row) => {
+				const data = { ...(row?.data ?? {}) }
+				delete data['__index']
+				if (!deepEqual(outputs?.openedModalRow?.peak(), data)) outputs?.openedModalRow.set(data)
 			},
 			onSet: (id, value, rowIndex) => {
 				if (!inputs[id]) {

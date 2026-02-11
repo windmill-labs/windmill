@@ -205,7 +205,7 @@
 							bind:value={items[index].value}
 						/>
 						<div class="absolute right-8">
-							<CloseButton noBg small on:close={() => deleteSubgrid(index)} />
+							<CloseButton noBg small onClick={() => deleteSubgrid(index)} />
 						</div>
 
 						<div class="flex flex-col justify-center gap-2">

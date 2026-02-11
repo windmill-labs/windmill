@@ -10,12 +10,7 @@ use std::collections::HashMap;
 
 use crate::db::ApiAuthed;
 
-use crate::{
-    apps::AppWithLastVersion,
-    db::DB,
-    folders::Folder,
-    resources::{Resource, ResourceType},
-};
+use crate::{apps::AppWithLastVersion, db::DB, folders::Folder};
 
 #[cfg(any(
     feature = "http_trigger",
@@ -64,6 +59,7 @@ use serde_json::Value;
 use tempfile::TempDir;
 use tokio::fs::File;
 use tokio_util::io::ReaderStream;
+use windmill_store::resources::{Resource, ResourceType};
 
 #[derive(Serialize)]
 struct ScriptMetadata {

@@ -50,7 +50,7 @@
 		(setting.fieldType == 'select' || setting.fieldType == 'select_python') &&
 		$values[setting.key] == undefined
 	) {
-		$values[setting.key] = 'default'
+		$values[setting.key] = setting.defaultValue ? setting.defaultValue() : 'default'
 	}
 
 	let latestKeyRenewalAttempt: {
@@ -919,6 +919,7 @@
 								? 60 * 60 * 24 * 30
 								: undefined}
 							bind:seconds={$values[setting.key]}
+							clearable
 						/>
 					</div>
 				{:else if setting.fieldType == 'select'}

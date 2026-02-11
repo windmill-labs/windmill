@@ -6,6 +6,8 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use windmill_common::DEFAULT_HUB_BASE_URL;
 #[cfg(feature = "embedding")]
 use windmill_common::HUB_BASE_URL;
+#[cfg(feature = "embedding")]
+use windmill_common::utils::HTTP_CLIENT_PERMISSIVE as HTTP_CLIENT;
 
 use axum::Router;
 
@@ -54,13 +56,6 @@ lazy_static::lazy_static! {
     pub static ref EMBEDDINGS_DB: Arc<RwLock<Option<EmbeddingsDb>>> = Arc::new(RwLock::new(None));
     pub static ref MODEL_INSTANCE: Arc<RwLock<Option<Arc<ModelInstance>>>> = Arc::new(RwLock::new(None));
     pub static ref HUB_EMBEDDINGS_PULLING_INTERVAL_SECS: u64 = std::env::var("HUB_EMBEDDINGS_PULLING_INTERVAL_SECS").ok().map(|x| x.parse::<u64>().ok()).flatten().unwrap_or(3600 * 24);
-    // Match windmill-api's HTTP_CLIENT config: 30s timeout, ACCEPT_INVALID_CERTS support
-    static ref HTTP_CLIENT: reqwest::Client = windmill_common::utils::configure_client(reqwest::ClientBuilder::new()
-        .user_agent("windmill/beta")
-        .connect_timeout(std::time::Duration::from_secs(10))
-        .timeout(std::time::Duration::from_secs(30))
-        .danger_accept_invalid_certs(std::env::var("ACCEPT_INVALID_CERTS").is_ok()))
-        .build().unwrap();
 }
 
 #[cfg(feature = "embedding")]

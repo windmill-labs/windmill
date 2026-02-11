@@ -91,7 +91,7 @@
 		dropdownBtnClasses?: string
 		dropdownItems?: MenuItem[] | (() => MenuItem[]) | undefined
 		hideDropdown?: boolean
-		onClick?: (e?: Event) => void
+		onClick?: (e: Event) => void
 		children?: import('svelte').Snippet
 		tooltip?: import('svelte').Snippet
 		[key: string]: any

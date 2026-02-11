@@ -1,5 +1,5 @@
 ARG DEBIAN_IMAGE=debian:bookworm-slim
-ARG RUST_IMAGE=rust:1.90-slim-bookworm
+ARG RUST_IMAGE=rust:1.93-slim-bookworm
 
 FROM debian:bookworm-slim AS nsjail
 

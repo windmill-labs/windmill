@@ -188,7 +188,7 @@ use crate::mssql_executor::do_mssql;
 use crate::bigquery_executor::do_bigquery;
 
 #[cfg(feature = "benchmark")]
-use windmill_common::bench::{benchmark_init, BenchmarkInfo, BenchmarkIter};
+use windmill_common::bench::{benchmark_init, benchmark_verify, BenchmarkInfo, BenchmarkIter};
 
 use windmill_common::add_time;
 
@@ -584,6 +584,7 @@ lazy_static::lazy_static! {
 
     pub static ref PIP_EXTRA_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref PIP_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+    pub static ref UV_INDEX_STRATEGY: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref INSTANCE_PYTHON_VERSION: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref JOB_DEFAULT_TIMEOUT: Arc<RwLock<Option<i32>>> = Arc::new(RwLock::new(None));
 
@@ -1109,51 +1110,60 @@ fn start_interactive_worker_shell(
             if let Ok(_) = killpill_rx.try_recv() {
                 tracing::info!("Received killpill, exiting worker shell");
                 break;
-            } else {
-                let pulled_job = match &conn {
-                    Connection::Sql(db) => {
-                        let common_worker_prefix = retrieve_common_worker_prefix(&worker_name);
-                        let query = ("".to_string(), make_pull_query(&[common_worker_prefix]));
-                        #[cfg(feature = "benchmark")]
-                        let mut bench = windmill_common::bench::BenchmarkIter::new();
+            }
 
-                        let job = pull(
-                            &db,
-                            false,
-                            &worker_name,
-                            Some(&query),
+            let pulled_job = tokio::select! {
+                _ = killpill_rx.recv() => {
+                    tracing::info!("Received killpill during pull, exiting worker shell");
+                    break;
+                }
+                result = async {
+                    match &conn {
+                        Connection::Sql(db) => {
+                            let common_worker_prefix = retrieve_common_worker_prefix(&worker_name);
+                            let query = ("".to_string(), make_pull_query(&[common_worker_prefix]));
                             #[cfg(feature = "benchmark")]
-                            &mut bench,
-                        )
-                        .await;
+                            let mut bench = windmill_common::bench::BenchmarkIter::new();
 
-                        use PulledJobResultToJobErr::*;
-                        match job {
-                            Ok(j) => match j.to_pulled_job() {
-                                Ok(j) => Ok(j
-                                    .clone()
-                                    .map(|job| NextJob::Sql { flow_runners: None, job })),
-                                Err(MissingConcurrencyKey(jc))
-                                | Err(ErrorWhilePreprocessing(jc)) => {
-                                    if let Err(err) = job_completed_tx.send_job(jc, true).await {
-                                        tracing::error!(
-                                            "An error occurred while sending job completed: {:#?}",
-                                            err
-                                        )
+                            let job = pull(
+                                &db,
+                                false,
+                                &worker_name,
+                                Some(&query),
+                                #[cfg(feature = "benchmark")]
+                                &mut bench,
+                            )
+                            .await;
+
+                            use PulledJobResultToJobErr::*;
+                            match job {
+                                Ok(j) => match j.to_pulled_job() {
+                                    Ok(j) => Ok(j
+                                        .clone()
+                                        .map(|job| NextJob::Sql { flow_runners: None, job })),
+                                    Err(MissingConcurrencyKey(jc))
+                                    | Err(ErrorWhilePreprocessing(jc)) => {
+                                        if let Err(err) = job_completed_tx.send_job(jc, true).await {
+                                            tracing::error!(
+                                                "An error occurred while sending job completed: {:#?}",
+                                                err
+                                            )
+                                        }
+                                        Ok(None)
                                     }
-                                    Ok(None)
-                                }
-                            },
-                            Err(err) => Err(err),
+                                },
+                                Err(err) => Err(err),
+                            }
+                        }
+                        Connection::Http(client) => {
+                            crate::agent_workers::pull_job(&client, None, Some(true))
+                                .await
+                                .map_err(|e| error::Error::InternalErr(e.to_string()))
+                                .map(|x| x.map(|y| NextJob::Http(y)))
                         }
                     }
-                    Connection::Http(client) => {
-                        crate::agent_workers::pull_job(&client, None, Some(true))
-                            .await
-                            .map_err(|e| error::Error::InternalErr(e.to_string()))
-                            .map(|x| x.map(|y| NextJob::Http(y)))
-                    }
-                };
+                } => result,
+            };
 
                 match pulled_job {
                     Ok(Some(job)) => {
@@ -1233,7 +1243,6 @@ fn start_interactive_worker_shell(
                         tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE * 20)).await;
                     }
                 };
-            }
         }
     })
 }
@@ -1571,6 +1580,7 @@ pub async fn run_worker(
     // This is used to wake up the background processor when main loop is done and just waiting for new same workers jobs, and that bg processor is also not processing any jobs, bg processing can exit if no more same worker jobs
     let wake_up_notify = Arc::new(tokio::sync::Notify::new());
     let stats_map = JobStatsMap::default();
+
     let send_result = match (conn, job_completed_rx) {
         (Connection::Sql(db), Some(job_completed_receiver)) => Some(start_background_processor(
             job_completed_receiver,
@@ -1615,7 +1625,10 @@ pub async fn run_worker(
     let mut started = false;
 
     #[cfg(feature = "benchmark")]
-    let mut infos = BenchmarkInfo::new();
+    let mut infos = BenchmarkInfo::new(windmill_common::bench::shared_bench_iters());
+
+    #[cfg(feature = "benchmark")]
+    let mut bench_empty_queue_count: u64 = 0;
 
     #[cfg(feature = "benchmark")]
     if let Some(db) = conn.as_sql() {
@@ -1807,15 +1820,60 @@ pub async fn run_worker(
         // }
 
         #[cfg(feature = "benchmark")]
-        if benchmark_jobs > 0 && infos.iters == benchmark_jobs as u64 {
-            tracing::info!("benchmark finished, exiting");
-            job_completed_tx
-                .kill()
-                .await
-                .expect("send kill to job completed tx");
-            break;
-        } else {
-            tracing::info!("benchmark not finished, still pulling jobs {}", infos.iters);
+        {
+            let total_iters = infos.shared_iters.load(std::sync::atomic::Ordering::Relaxed);
+            if benchmark_jobs > 0 && total_iters >= benchmark_jobs as u64 {
+                tracing::info!("benchmark finished, exiting (total iters: {}, worker iters: {})", total_iters, infos.iters);
+                job_completed_tx
+                    .kill()
+                    .await
+                    .expect("send kill to job completed tx");
+                killpill_tx.send();
+                break;
+            } else if benchmark_jobs > 0 && bench_empty_queue_count > 2000 {
+                tracing::warn!(
+                    "benchmark stalled: no jobs in queue for 2000 polls, exiting (total iters: {}, worker iters: {}/{})",
+                    total_iters,
+                    infos.iters,
+                    benchmark_jobs
+                );
+                job_completed_tx
+                    .kill()
+                    .await
+                    .expect("send kill to job completed tx");
+                killpill_tx.send();
+                break;
+            } else if bench_empty_queue_count % 100 == 0 {
+                if let Some(db) = conn.as_sql() {
+                    let remaining = sqlx::query_as::<_, (uuid::Uuid, String, bool, Option<String>, Option<uuid::Uuid>)>(
+                        "SELECT q.id, q.tag, q.running, j.kind::text, j.parent_job
+                         FROM v2_job_queue q JOIN v2_job j ON q.id = j.id
+                         WHERE q.workspace_id = 'admins' LIMIT 10"
+                    )
+                    .fetch_all(db)
+                    .await;
+                    match remaining {
+                        Ok(rows) => {
+                            let total_remaining = sqlx::query_scalar::<_, i64>(
+                                "SELECT COUNT(*) FROM v2_job_queue WHERE workspace_id = 'admins'"
+                            ).fetch_one(db).await.unwrap_or(0);
+                            for (id, tag, running, kind, parent) in &rows {
+                                tracing::info!(
+                                    "  pending job: id={id}, tag={tag}, running={running}, kind={}, parent={:?}",
+                                    kind.as_deref().unwrap_or("?"), parent
+                                );
+                            }
+                            tracing::info!(
+                                "benchmark not finished (total: {}, worker: {}, queue: {})",
+                                total_iters, infos.iters, total_remaining
+                            );
+                        }
+                        Err(e) => {
+                            tracing::info!("benchmark not finished (total: {}, worker: {}), queue query err: {e}", total_iters, infos.iters);
+                        }
+                    }
+                }
+            }
         }
 
         let next_job = {
@@ -2029,6 +2087,15 @@ pub async fn run_worker(
 
         match next_job {
             Ok(Some(job)) => {
+                #[cfg(feature = "benchmark")]
+                {
+                    bench_empty_queue_count = 0;
+                }
+                #[cfg(feature = "benchmark")]
+                let is_top_level_job = job.parent_job.is_none() && !job.kind.is_flow();
+                #[cfg(feature = "benchmark")]
+                let bench_job_id = job.id;
+
                 #[cfg(feature = "prometheus")]
                 if let Some(wb) = worker_busy.as_ref() {
                     wb.set(1);
@@ -2074,7 +2141,7 @@ pub async fn run_worker(
                                 if let Some(db) = conn.as_sql() {
                                     infos.sample_pool(db.size(), db.num_idle() as u32);
                                 }
-                                infos.add_iter(bench, true);
+                                infos.add_iter(bench, bench_job_id, is_top_level_job);
                             }
 
                             continue;
@@ -2147,7 +2214,7 @@ pub async fn run_worker(
                                     if let Some(db) = conn.as_sql() {
                                         infos.sample_pool(db.size(), db.num_idle() as u32);
                                     }
-                                    infos.add_iter(bench, true);
+                                    infos.add_iter(bench, bench_job_id, is_top_level_job);
                                 }
 
                                 continue;
@@ -2450,7 +2517,7 @@ pub async fn run_worker(
                         if let Some(db) = conn.as_sql() {
                             infos.sample_pool(db.size(), db.num_idle() as u32);
                         }
-                        infos.add_iter(bench, true);
+                        infos.add_iter(bench, bench_job_id, is_top_level_job);
                     }
                 }
             }
@@ -2477,11 +2544,12 @@ pub async fn run_worker(
 
                 #[cfg(feature = "benchmark")]
                 {
+                    bench_empty_queue_count += 1;
                     add_time!(bench, "sleep because empty job queue");
                     if let Some(db) = conn.as_sql() {
                         infos.sample_pool(db.size(), db.num_idle() as u32);
                     }
-                    infos.add_iter(bench, false);
+                    infos.add_iter(bench, uuid::Uuid::nil(), false);
                 }
                 #[cfg(feature = "prometheus")]
                 _timer.map(|timer| {
@@ -2510,13 +2578,6 @@ pub async fn run_worker(
         }
     }
 
-    #[cfg(feature = "benchmark")]
-    {
-        infos
-            .write_to_file("profiling_main.json")
-            .expect("write to file profiling");
-    }
-
     drop(dedicated_workers);
 
     let has_dedicated_workers = !dedicated_handles.is_empty();
@@ -2535,6 +2596,17 @@ pub async fn run_worker(
     if let Some(send_result) = send_result {
         if let Err(e) = send_result.await {
             tracing::error!("error in awaiting send_result process: {e:?}")
+        }
+    }
+
+    #[cfg(feature = "benchmark")]
+    {
+        infos
+            .write_to_file("profiling_main.json")
+            .expect("write to file profiling");
+
+        if let Some(db) = conn.as_sql() {
+            benchmark_verify(benchmark_jobs, db).await;
         }
     }
     tracing::info!(worker = %worker_name, hostname = %hostname, "waiting for interactive_shell to finish");
