@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.630.2](https://github.com/windmill-labs/windmill/compare/v1.630.1...v1.630.2) (2026-02-11)
+
+
+### Bug Fixes
+
+* bump rust version from 1.90.0 to 1.93.0 ([1a109a7](https://github.com/windmill-labs/windmill/commit/1a109a7797d1a50a0d85f3fff236d707b2cfb81d))
+
 ## [1.630.1](https://github.com/windmill-labs/windmill/compare/v1.630.0...v1.630.1) (2026-02-10)
 
 
