@@ -17,8 +17,7 @@
 	import Button from './common/button/Button.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import Alert from './common/alert/Alert.svelte'
-	import Toggle from './Toggle.svelte'
-	import { Loader2 } from 'lucide-svelte'
+	import { DiffIcon, Loader2 } from 'lucide-svelte'
 	import Badge from './common/badge/Badge.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
 	import {
@@ -34,6 +33,7 @@
 	import { getAllGridItems } from './apps/editor/appUtils'
 	import { isRunnableByPath } from './apps/inputType'
 	import type { Runnable } from './raw_apps/utils'
+	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -632,6 +632,7 @@
 			title: 'Staging/prod <> Dev'
 		})
 	}
+
 	$effect(() => {
 		WorkspaceService.getDeployTo({ workspace: $workspaceStore! }).then((x) => {
 			workspaceToDeployTo = x.deploy_to
@@ -640,9 +641,62 @@
 			}
 		})
 	})
+
 	$effect(() => {
 		workspaceToDeployTo && initialPath && untrack(() => reload(initialPath))
 	})
+
+	// Transform dependencies to DeployableItem format for the shared layout
+	interface DeployableItem {
+		key: string
+		path: string
+		kind: Kind
+		include: boolean
+	}
+
+	let deployableItems = $derived<DeployableItem[]>(
+		(dependencies ?? []).map((dep) => ({
+			key: computeStatusPath(dep.kind, dep.path),
+			path: dep.path,
+			kind: dep.kind,
+			include: dep.include
+		}))
+	)
+
+	let selectedItems = $derived<string[]>(
+		(dependencies ?? [])
+			.filter((dep) => dep.include)
+			.map((dep) => computeStatusPath(dep.kind, dep.path))
+	)
+
+	let allSelected = $derived(
+		dependencies != null &&
+			dependencies.length > 0 &&
+			dependencies.every((dep) => dep.include)
+	)
+
+	function toggleItem(item: { key: string }) {
+		if (dependencies) {
+			const idx = dependencies.findIndex(
+				(dep) => computeStatusPath(dep.kind, dep.path) === item.key
+			)
+			if (idx !== -1) {
+				dependencies[idx].include = !dependencies[idx].include
+			}
+		}
+	}
+
+	function selectAll() {
+		if (dependencies) {
+			dependencies = dependencies.map((dep) => ({ ...dep, include: true }))
+		}
+	}
+
+	function deselectAll() {
+		if (dependencies) {
+			dependencies = dependencies.map((dep) => ({ ...dep, include: false }))
+		}
+	}
 </script>
 
 <div class="mt-6"></div>
@@ -675,79 +729,78 @@
 		<h3 class="mb-6 mt-16">All related deployable items</h3>
 
 		<DiffDrawer bind:this={diffDrawer} {isFlow} />
-		<div class="grid grid-cols-9 justify-center max-w-3xl gap-2">
-			{#each dependencies ?? [] as { kind, path, include }, i}
-				{@const statusPath = computeStatusPath(kind, path)}
-				<div class="col-span-1 truncate text-secondary text-sm pt-0.5">{kind}</div><div
-					class="col-span-5 truncate font-semibold">{path}</div
-				><div class="col-span-1 pt-1.5">
-					<Toggle
-						size="xs"
-						checked={include}
-						on:change={(e) => {
-							if (dependencies?.[i]) {
-								dependencies[i].include = e.detail
-							}
-						}}
-					/>
-				</div>
-				<div class="col-span-1">
-					{#if allAlreadyExists[statusPath] == false}
-						{#if include}
-							<Badge
-								>New <Tooltip
-									>This {kind} doesn't exist yet on the target and will be created by the deployment</Tooltip
-								></Badge
-							>
-						{:else}
-							<Badge color="red">
-								Missing
-								<Tooltip
-									>{#if kind == 'resource_type'}
-										Resource types are not re-deployed by default. We strongly recommend to add
-										shared resource types in 'admin' workspace, which will have them be shared to
-										every workspace.
-									{:else}
-										This {kind} doesn't exist and is not included in the deployment. Variables and Resources
-										are considered to be workspace specific and are never included by default.
-									{/if}</Tooltip
-								>
-							</Badge>
-						{/if}
-					{:else if allAlreadyExists[statusPath] == true}
-						<button
-							class="text-blue-600 font-normal mt-1"
-							onclick={() => {
-								showDiff(kind, path)
-								isFlow = kind === 'flow'
-							}}>diff</button
-						>
-					{/if}</div
-				>
-				<div class="col-span-1 pr-1">
-					{#if deploymentStatus[statusPath]}
-						{#if deploymentStatus[statusPath].status == 'loading'}
-							<Loader2 class="animate-spin" />
-						{:else if deploymentStatus[statusPath].status == 'deployed'}
-							<Badge color="green">Deployed</Badge>
-						{:else if deploymentStatus[statusPath].status == 'failed'}
-							<div class="inline-flex gap-1">
-								<Badge color="red">Failed</Badge>
-								<Tooltip>{deploymentStatus[statusPath].error}</Tooltip></div
-							>
-						{/if}
-					{:else}
-						<Button color="light" size="xs" disabled={!canDeployToWorkspace} on:click={() => deploy(kind, path)}>Deploy</Button>
-					{/if}
-				</div>
-			{/each}
-		</div>
 
-		{#if !hideButton}
-			<div class="mt-16 flex flex-row-reverse max-w-3xl"
-				><Button on:click={deployAll} disabled={!canDeployToWorkspace}>Deploy all toggled</Button></div
-			>
-		{/if}
+		<WorkspaceDeployLayout
+			items={deployableItems}
+			{selectedItems}
+			{deploymentStatus}
+			selectablePredicate={() => true}
+			{allSelected}
+			onToggleItem={toggleItem}
+			onSelectAll={selectAll}
+			onDeselectAll={deselectAll}
+			emptyMessage="No deployable items found"
+		>
+			{#snippet itemActions(item)}
+				{@const statusPath = item.key}
+				{@const exists = allAlreadyExists[statusPath]}
+				{@const status = deploymentStatus[statusPath]}
+
+				{#if exists === false}
+					{#if item.include}
+						<Badge
+							>New <Tooltip
+								>This {item.kind} doesn't exist yet on the target and will be created by the deployment</Tooltip
+							></Badge
+						>
+					{:else}
+						<Badge color="red">
+							Missing
+							<Tooltip
+								>{#if item.kind == 'resource_type'}
+									Resource types are not re-deployed by default. We strongly recommend to add
+									shared resource types in 'admin' workspace, which will have them be shared to
+									every workspace.
+								{:else}
+									This {item.kind} doesn't exist and is not included in the deployment. Variables and Resources
+									are considered to be workspace specific and are never included by default.
+								{/if}</Tooltip
+							>
+						</Badge>
+					{/if}
+				{:else if exists === true && !status}
+					<Button
+						size="xs"
+						variant="subtle"
+						onclick={() => {
+							showDiff(item.kind, item.path)
+							isFlow = item.kind === 'flow'
+						}}
+					>
+						<DiffIcon class="w-3 h-3" />
+						Show diff
+					</Button>
+				{/if}
+
+				{#if !status}
+					<Button
+						color="light"
+						size="xs"
+						disabled={!canDeployToWorkspace}
+						onclick={() => deploy(item.kind, item.path)}>Deploy</Button
+					>
+				{/if}
+			{/snippet}
+
+			{#snippet footer()}
+				{#if !hideButton}
+					<div class="flex flex-row-reverse">
+						<Button on:click={deployAll} disabled={!canDeployToWorkspace}>Deploy all toggled</Button
+						>
+					</div>
+				{/if}
+			{/snippet}
+		</WorkspaceDeployLayout>
 	{:else if canSeeTarget == 'cant-see-all-deps'}
 		<div class="my-2"></div>
 		<Alert type="error" title="User doesn't have visibility over all dependencies"
