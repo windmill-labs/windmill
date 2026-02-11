@@ -1,6 +1,9 @@
 const MAX_TAG_LEN = 50
 const HASH_SUFFIX_LEN = 16
 
+// IMPORTANT: This implementation must stay in sync with the Rust backend
+// `dedicated_worker_tag()` in backend/windmill-common/src/worker.rs.
+// The frontend version is used for display; the backend version is authoritative.
 export async function dedicatedWorkerTag(workspaceId: string, path: string): Promise<string> {
 	const fullTag = `${workspaceId}:${path}`
 	if (fullTag.length <= MAX_TAG_LEN) return fullTag
