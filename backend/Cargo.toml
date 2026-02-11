@@ -9,6 +9,7 @@ resolver = "2"
 members = [
     "./windmill-api",
     "./windmill-api-scripts",
+    "./windmill-api-flows",
     "./windmill-api-users",
     "./windmill-api-workspaces",
     "./windmill-api-groups",
@@ -163,7 +164,7 @@ oss_core = [
 ce_core = ["oss_core", "private"]
 ee_core = [
     "enterprise", "stripe", "prometheus", "cloud",
-    "kafka", "kafka-gssapi", "sqs_trigger", "nats", "gcp_trigger",
+    "kafka", "sqs_trigger", "nats", "gcp_trigger",
     "jemalloc", "otel"
 ]
 ee_server = ["enterprise_saml", "tantivy", "agent_worker_server", "local_reports"]
@@ -172,8 +173,8 @@ oss = ["oss_core", "all_languages", "no_auth"]
 ce_rpi = ["ce_core", "all_languages"]
 ce = ["ce_rpi", "jemalloc", "dind", "agent_worker_server"]
 # Edition meta-features: EE variants
-ee = ["ce", "ee_core", "ee_server"]
-ee_rhel = ["ce_core", "ee_core", "all_languages"]
+ee = ["ce", "ee_core", "ee_server", "kafka-gssapi"]
+ee_rhel = ["ce_core", "ee_core", "kafka-gssapi", "all_languages"]
 ee_windows = ["ce_core", "ee_core", "all_languages_windows"]
 all_sqlx_features = ["all_languages", "enterprise", "enterprise_saml", "embedding", "parquet", "prometheus", "flow_testing",
  "openidconnect", "cloud", "jemalloc", "tantivy", "sqlx", "kafka", "kafka-gssapi", "nats", "otel", "dind", "websocket", "http_trigger",
@@ -267,6 +268,7 @@ windmill-oauth = {path = "./windmill-oauth"}
 windmill-macros = {path = "./windmill-macros"}
 windmill-api-auth = { path = "./windmill-api-auth" }
 windmill-api-scripts = { path = "./windmill-api-scripts" }
+windmill-api-flows = { path = "./windmill-api-flows" }
 windmill-api-users = { path = "./windmill-api-users" }
 windmill-api-workspaces = { path = "./windmill-api-workspaces" }
 windmill-api-groups = { path = "./windmill-api-groups" }
