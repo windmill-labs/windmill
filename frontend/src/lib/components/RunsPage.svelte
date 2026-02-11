@@ -579,15 +579,15 @@
 				/>
 			</div>
 
-			<div>
+			<div class="flex gap-2 ml-auto">
 				<TimeframeSelect
 					onClick={() => jobsLoader?.loadJobs(true)}
 					loading={jobsLoader?.loading}
 					items={runsTimeframes}
 					bind:value={_timeframe.timeframe}
 				/>
+				<FilterSearchbar class="min-w-80" />
 			</div>
-			<FilterSearchbar />
 		</div>
 
 		<!-- Graph -->

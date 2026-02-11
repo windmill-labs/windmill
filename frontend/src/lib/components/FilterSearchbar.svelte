@@ -22,31 +22,31 @@
 					: T extends { type: 'oneof'; options: infer O }
 						? { type: 'oneof'; value: O extends string[] ? O[number] : never }
 						: never
-	export function buildFilterInstance<T extends FilterSchemaRec>(def: T): FilterInstanceRec<T> {
-		let r = {} as FilterInstanceRec<T>
-		for (const key in def) {
-			const filterSchema = def[key]
-			if (filterSchema.type === 'string') {
-				r[key] = { type: 'string', value: '' } as any
-			} else if (filterSchema.type === 'number') {
-				r[key] = { type: 'number', value: 0 } as any
-			} else if (filterSchema.type === 'boolean') {
-				r[key] = { type: 'boolean', value: false } as any
-			} else if (filterSchema.type === 'date') {
-				r[key] = { type: 'date', value: new Date() } as any
-			} else if (filterSchema.type === 'oneof') {
-				r[key] = { type: 'oneof', value: filterSchema.options[0] } as any
-			}
-		}
-		return r
-	}
 </script>
 
 <script lang="ts">
+	import { twMerge } from 'tailwind-merge'
+	import { inputBaseClass, inputBorderClass, inputSizeClasses } from './text_input/TextInput.svelte'
+	import { SearchIcon } from 'lucide-svelte'
+
 	type Props = {
 		schema: FilterSchemaRec
-		value: FilterInstanceRec<FilterSchemaRec>
+		value: Partial<FilterInstanceRec<FilterSchemaRec>>
+		class?: string
 	}
 
-	let { schema, value }: Props = $props()
+	let { schema, value, class: className }: Props = $props()
 </script>
+
+<div
+	contenteditable="true"
+	class={twMerge(
+		'bg-surface-input flex gap-2 items-center outline-none',
+		inputBaseClass,
+		inputBorderClass(),
+		inputSizeClasses.md,
+		className
+	)}
+>
+	<SearchIcon size="16" class="ml-auto" />
+</div>
