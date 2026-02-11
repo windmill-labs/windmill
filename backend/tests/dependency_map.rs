@@ -2,8 +2,7 @@ use sqlx::{Pool, Postgres};
 use tokio_stream::StreamExt;
 
 use windmill_api_client::types::NewScript;
-mod common;
-use common::{in_test_worker, init_client, listen_for_completed_jobs, ApiServer};
+use windmill_test_utils::{in_test_worker, init_client, listen_for_completed_jobs, ApiServer};
 
 mod dependency_map {
     use super::*;

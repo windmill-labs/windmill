@@ -1,11 +1,9 @@
-mod common;
-
 mod suspend_resume {
     #[cfg(feature = "deno_core")]
     use serde_json::json;
 
     #[cfg(feature = "deno_core")]
-    use crate::common::*;
+    use windmill_test_utils::*;
 
     #[cfg(feature = "deno_core")]
     use futures::{Stream, StreamExt};

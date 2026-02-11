@@ -25,8 +25,7 @@ use windmill_common::{
     jobs::{JobPayload, RawCode},
     scripts::ScriptLang,
 };
-mod common;
-use common::*;
+use windmill_test_utils::*;
 
 #[cfg(feature = "enterprise")]
 use futures::StreamExt;
