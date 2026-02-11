@@ -12,6 +12,8 @@ path = "src/lib.rs"
 default = []
 private = ["windmill-test-utils/private", "dep:aws-config", "dep:aws-credential-types", "dep:aws-sdk-sqs"]
 enterprise = ["windmill-test-utils/enterprise", "dep:base64"]
+deno_core = ["windmill-test-utils/deno_core"]
+mcp = []
 
 [dependencies]
 windmill-test-utils.workspace = true
