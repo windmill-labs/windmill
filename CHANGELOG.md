@@ -1,5 +1,44 @@
 # Changelog
 
+## [1.630.2](https://github.com/windmill-labs/windmill/compare/v1.630.1...v1.630.2) (2026-02-11)
+
+
+### Bug Fixes
+
+* bump rust version from 1.90.0 to 1.93.0 ([1a109a7](https://github.com/windmill-labs/windmill/commit/1a109a7797d1a50a0d85f3fff236d707b2cfb81d))
+
+## [1.630.1](https://github.com/windmill-labs/windmill/compare/v1.630.0...v1.630.1) (2026-02-10)
+
+
+### Bug Fixes
+
+* enforce self-approval check on flow resume owner endpoint ([#7886](https://github.com/windmill-labs/windmill/issues/7886)) ([7147dde](https://github.com/windmill-labs/windmill/commit/7147dde5118d7b3a179e4b310c74b148838b5afe))
+
+## [1.630.0](https://github.com/windmill-labs/windmill/compare/v1.629.1...v1.630.0) (2026-02-10)
+
+
+### Features
+
+* add workspace search and runnable details tools to AI chat modes ([#7874](https://github.com/windmill-labs/windmill/issues/7874)) ([a7e269f](https://github.com/windmill-labs/windmill/commit/a7e269f9f3c82db0d7e6a70e174ac19d3df730d2))
+* **aiagent:** add prompt caching for Anthropic models ([#7878](https://github.com/windmill-labs/windmill/issues/7878)) ([6272cd1](https://github.com/windmill-labs/windmill/commit/6272cd17a4f1300e22e7f0ae27b1a57571deb203))
+* download encrypted usage ([#7804](https://github.com/windmill-labs/windmill/issues/7804)) ([8363ff1](https://github.com/windmill-labs/windmill/commit/8363ff1eeef06f284e6d165fbf2dfb190ead573d))
+* **mcp:** add endpoint tools for scripts, flows, apps, and jobs ([#7859](https://github.com/windmill-labs/windmill/issues/7859)) ([03eb16a](https://github.com/windmill-labs/windmill/commit/03eb16a7c6c3cd9411840814940d09e22ce23305))
+* restriction rulesets for workspaces ([#7879](https://github.com/windmill-labs/windmill/issues/7879)) ([2851b6b](https://github.com/windmill-labs/windmill/commit/2851b6b7caac4a55f5202ace82aba68fd157c52a))
+
+
+### Bug Fixes
+
+* **backend:** correct early return with stream + prevent delta miss ([#7872](https://github.com/windmill-labs/windmill/issues/7872)) ([1150eec](https://github.com/windmill-labs/windmill/commit/1150eec7571d5828d10b295cb61cca8edfbdffe0))
+* gate Permissions import behind #[cfg(unix)] for Windows build ([cf596f3](https://github.com/windmill-labs/windmill/commit/cf596f370ae7cc232ca63f4752d7727a74cd449b))
+* retry js eval up to 3 times on timeout from slow DB ([#7890](https://github.com/windmill-labs/windmill/issues/7890)) ([4c87e7a](https://github.com/windmill-labs/windmill/commit/4c87e7ac2e09ec83cfb998a1cebcb9b9c5ef8027))
+
+## [1.629.1](https://github.com/windmill-labs/windmill/compare/v1.629.0...v1.629.1) (2026-02-10)
+
+
+### Bug Fixes
+
+* remove unecessary drop index on labeled_jobs_on_jobs ([0803164](https://github.com/windmill-labs/windmill/commit/08031640a02ebd5971793942e8534d69f4f71d28))
+
 ## [1.629.0](https://github.com/windmill-labs/windmill/compare/v1.628.3...v1.629.0) (2026-02-09)
 
 

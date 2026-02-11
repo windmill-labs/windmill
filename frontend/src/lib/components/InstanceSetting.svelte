@@ -177,7 +177,7 @@
 {/snippet}
 
 <!-- {JSON.stringify($values, null, 2)} -->
-{#if (!setting.cloudonly || isCloudHosted()) && showSetting(setting.key, $values) && !(setting.hiddenIfNull && $values[setting.key] == null) && !(setting.hiddenIfEmpty && !$values[setting.key])}
+{#if (!setting.cloudonly || isCloudHosted()) && showSetting(setting.key, $values) && !(setting.hiddenIfNull && $values[setting.key] == null) && !(setting.hiddenIfEmpty && !$values[setting.key]) && !(setting.hiddenInEe && $enterpriseLicense)}
 	{#if setting.fieldType == 'select'}
 		<div>
 			{@render LabelSnippet()}
@@ -934,6 +934,7 @@
 									? 60 * 60 * 24 * 30
 									: undefined}
 								bind:seconds={$values[setting.key]}
+								clearable
 							/>
 						</div>
 					{:else if setting.fieldType == 'select'}

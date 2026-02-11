@@ -18,7 +18,12 @@
 		actions?: Snippet
 	}
 
-	let { value = $bindable(), disabled = false, actions }: Props = $props()
+	let { value: _uncheckedValue = $bindable(), disabled = false, actions }: Props = $props()
+
+	let value = $derived.by(() => {
+		if (!_uncheckedValue || typeof _uncheckedValue !== 'object') return undefined
+		return _uncheckedValue
+	})
 
 	let loading = $state(false)
 	let availableModels = $state<string[]>([])
@@ -26,8 +31,8 @@
 
 	let modelsCache = new Map<AIProvider, string[]>()
 
-	if (!value) {
-		value = {
+	if (!_uncheckedValue) {
+		_uncheckedValue = {
 			kind: 'openai',
 			resource: '',
 			model: ''
@@ -172,7 +177,7 @@
 			{/each}
 			<ToggleButtonMore
 				class="ml-auto"
-				btnText={providerOptions.findIndex((p) => p.value === value.kind) >= 3 ? '' : 'More'}
+				btnText={providerOptions.findIndex((p) => p.value === value?.kind) >= 3 ? '' : 'More'}
 				togglableItems={providerOptions.slice(3)}
 				{item}
 				bind:selected={() => value?.kind, (v) => v && onProviderChange(v)}
@@ -205,12 +210,12 @@
 			<p class="text-xs font-normal text-primary">model</p>
 			<Select
 				{items}
-				bind:value={value.model}
+				bind:value={() => value?.model, (v) => value && (value.model = v ?? '')}
 				placeholder="Select model"
 				disabled={disabled || !value?.kind || !resourceValueToPath(value?.resource)}
 				onCreateItem={(r) => {
 					availableModels.push(r)
-					value.model = r
+					if (value) value.model = r
 				}}
 				createText="Press enter to use custom model"
 				{loading}

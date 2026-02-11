@@ -252,6 +252,28 @@
 		}
 	}
 
+	let downloadingStats = $state(false)
+	async function downloadStats() {
+		try {
+			downloadingStats = true
+			const encryptedData = await SettingService.getStats()
+			const blob = new Blob([encryptedData], { type: 'application/octet-stream' })
+			const url = URL.createObjectURL(blob)
+			const a = document.createElement('a')
+			a.href = url
+			a.download = `windmill-telemetry-${new Date().toISOString().split('T')[0]}.enc`
+			document.body.appendChild(a)
+			a.click()
+			document.body.removeChild(a)
+			URL.revokeObjectURL(url)
+			sendUserToast('Telemetry data downloaded')
+		} catch (err) {
+			throw err
+		} finally {
+			downloadingStats = false
+		}
+	}
+
 	function isValidTeamsChannel(value: any): value is TeamsChannel {
 		return (
 			typeof value === 'object' &&
@@ -519,38 +541,49 @@
 				<div class="text-primary pb-4 text-xs">
 					On Enterprise Edition, you must send data to check that usage is in line with the terms of
 					the subscription. You can either enable telemetry or regularly send usage data by clicking
-					the button below.
+					the button below. For air-gapped instances, you can download the telemetry data and send
+					it manually.
 				</div>
-				<Button
-					on:click={sendStats}
-					variant="default"
-					btnClasses="w-auto"
-					wrapperClasses="mb-4"
-					loading={sendingStats}
-					size="xs"
-				>
-					Send usage
-				</Button>
+				<div class="flex gap-2 mb-4">
+					<Button
+						on:click={sendStats}
+						variant="default"
+						btnClasses="w-auto"
+						loading={sendingStats}
+						size="xs"
+					>
+						Send usage
+					</Button>
+					<Button
+						on:click={downloadStats}
+						variant="default"
+						btnClasses="w-auto"
+						loading={downloadingStats}
+						size="xs"
+					>
+						Download usage
+					</Button>
+				</div>
 			{/if}
 		{:else if category == 'Jobs'}
-		<SettingsPageHeader
-			title="Jobs"
-			description="Configure default timeouts and retention policies for job execution."
-			link="https://www.windmill.dev/docs/advanced/instance_settings#jobs"
-		/>
-	{:else if category == 'Object Storage'}
-		<SettingsPageHeader
-			title="Object Storage"
-			description="Configure S3-compatible storage for large logs and distributed dependency caching."
-			link="https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill"
-		/>
-	{:else if category == 'Private Hub'}
-		<SettingsPageHeader
-			title="Private Hub"
-			description="Connect to a Private Hub instance for sharing custom scripts and integrations."
-			link="https://www.windmill.dev/docs/core_concepts/private_hub"
-		/>
-	{:else if category == 'Secret Storage'}
+			<SettingsPageHeader
+				title="Jobs"
+				description="Configure default timeouts and retention policies for job execution."
+				link="https://www.windmill.dev/docs/advanced/instance_settings#jobs"
+			/>
+		{:else if category == 'Object Storage'}
+			<SettingsPageHeader
+				title="Object Storage"
+				description="Configure S3-compatible storage for large logs and distributed dependency caching."
+				link="https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill"
+			/>
+		{:else if category == 'Private Hub'}
+			<SettingsPageHeader
+				title="Private Hub"
+				description="Connect to a Private Hub instance for sharing custom scripts and integrations."
+				link="https://www.windmill.dev/docs/core_concepts/private_hub"
+			/>
+		{:else if category == 'Secret Storage'}
 			<SettingsPageHeader
 				title="Secret Storage"
 				description="Configure where secrets (secret variables) are stored."

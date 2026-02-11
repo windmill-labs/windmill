@@ -114,7 +114,10 @@ use windmill_common::{
     get_latest_flow_version_info_for_path, get_script_info_for_hash, utils::empty_as_none,
     ScriptHashInfo, BASE_URL,
 };
-use windmill_queue::{job_is_complete, push, PushArgs, PushArgsOwned, PushIsolationLevel};
+use windmill_queue::{
+    get_result_and_success_by_id_from_flow, job_is_complete, push, PushArgs, PushArgsOwned,
+    PushIsolationLevel,
+};
 
 pub fn workspaced_service() -> Router {
     let cors = CorsLayer::new()
@@ -2130,6 +2133,16 @@ pub async fn resume_suspended_flow_as_owner(
     require_owner_of_path(&authed, flow_path)?;
     check_scopes(&authed, || format!("jobs:run:flows:{}", flow_path))?;
 
+    // Check approval conditions (self-approval, required groups, etc.)
+    if let Some(ref flow_status_value) = flow.flow_status {
+        if let Ok(flow_status) =
+            serde_json::from_value::<FlowStatus>(flow_status_value.clone())
+        {
+            let trigger_email = flow.email.as_deref().unwrap_or("");
+            conditionally_require_authed_user(Some(authed.clone()), flow_status, trigger_email)?;
+        }
+    }
+
     let value = value.unwrap_or(serde_json::Value::Null);
 
     insert_resume_job(
@@ -2408,6 +2421,7 @@ struct FlowInfo {
     flow_status: Option<serde_json::Value>,
     suspend: i32,
     script_path: Option<String>,
+    email: Option<String>,
 }
 
 /// Get flow info from either a step job (by looking up its parent) or a flow job directly.
@@ -2426,6 +2440,7 @@ async fn get_flow_info_for_resume(job_id: Uuid, db: &DB) -> error::Result<(FlowI
             s.flow_status,
             q.suspend AS "suspend!",
             j.runnable_path AS script_path,
+            j.permissioned_as_email AS email,
             (ji.kind IN ('flow', 'flowpreview')) AS "is_flow_level!"
         FROM job_info ji
         JOIN v2_job_queue q ON q.id = CASE
@@ -2447,6 +2462,7 @@ async fn get_flow_info_for_resume(job_id: Uuid, db: &DB) -> error::Result<(FlowI
         flow_status: result.flow_status,
         suspend: result.suspend,
         script_path: result.script_path,
+        email: Some(result.email),
     };
 
     Ok((flow_info, result.is_flow_level))
@@ -2459,7 +2475,7 @@ async fn get_suspended_flow_info<'c>(
     let flow = sqlx::query_as!(
             FlowInfo,
             r#"
-            SELECT j.id AS "id!", COALESCE(s.flow_status, s.workflow_as_code_status) as flow_status, q.suspend AS "suspend!", j.runnable_path as script_path
+            SELECT j.id AS "id!", COALESCE(s.flow_status, s.workflow_as_code_status) as flow_status, q.suspend AS "suspend!", j.runnable_path as script_path, j.permissioned_as_email as email
             FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_status s USING (id)
             WHERE j.id = $1
             "#,
@@ -3471,8 +3487,11 @@ pub async fn run_workflow_as_code(
     let JobExtended { inner: job, raw_code, raw_lock, .. } = job;
 
     let (_debouncing_settings, concurrency_settings) =
-        windmill_common::runnable_settings::prefetch_cached_from_handle(job.runnable_settings_handle, &db)
-            .await?;
+        windmill_common::runnable_settings::prefetch_cached_from_handle(
+            job.runnable_settings_handle,
+            &db,
+        )
+        .await?;
 
     let (job_payload, tag, _delete_after_use, timeout, on_behalf_of) = match job.job_kind {
         JobKind::Preview => (
@@ -4232,7 +4251,7 @@ pub async fn stream_job(
     };
 
     let poll_delay_ms = run_query.poll_delay_ms;
-    let uuid = match runnable_id {
+    let (uuid, early_return) = match runnable_id {
         RunnableId::ScriptId(ScriptId::ScriptPath(script_path))
         | RunnableId::HubScript(script_path) => {
             let (uuid, _, _) = push_script_job_by_path_into_queue(
@@ -4247,10 +4266,10 @@ pub async fn stream_job(
                 None,
             )
             .await?;
-            uuid
+            (uuid, None)
         }
         RunnableId::ScriptId(ScriptId::ScriptHash(script_hash)) => {
-            run_job_by_hash_inner(
+            let (uuid, _) = run_job_by_hash_inner(
                 authed.clone(),
                 db.clone(),
                 user_db,
@@ -4260,11 +4279,11 @@ pub async fn stream_job(
                 args,
                 None,
             )
-            .await?
-            .0
+            .await?;
+            (uuid, None)
         }
         RunnableId::FlowId(FlowId::FlowPath(flow_path)) => {
-            push_flow_job_by_path_into_queue(
+            let (uuid, early_return, _) = push_flow_job_by_path_into_queue(
                 authed.clone(),
                 db.clone(),
                 None,
@@ -4275,11 +4294,11 @@ pub async fn stream_job(
                 args,
                 None,
             )
-            .await?
-            .0
+            .await?;
+            (uuid, early_return)
         }
         RunnableId::FlowId(FlowId::FlowVersion(version)) => {
-            run_flow_by_version_inner(
+            let (uuid, early_return) = run_flow_by_version_inner(
                 authed.clone(),
                 db.clone(),
                 user_db,
@@ -4289,8 +4308,8 @@ pub async fn stream_job(
                 args,
                 None,
             )
-            .await?
-            .0
+            .await?;
+            (uuid, early_return)
         }
     };
 
@@ -4321,6 +4340,7 @@ pub async fn stream_job(
         None,
         tx,
         poll_delay_ms,
+        early_return,
     );
 
     let body = axum::body::Body::from_stream(stream.map(Result::<_, std::convert::Infallible>::Ok));
@@ -4643,12 +4663,19 @@ fn register_potential_assets_on_inline_execution(
                 let columns = asset.columns.as_ref().map(|cols| {
                     cols.iter()
                         .map(|(col_name, col_access_type)| {
-                            (col_name.clone(), windmill_common::assets::asset_access_type_from_parser(*col_access_type))
+                            (
+                                col_name.clone(),
+                                windmill_common::assets::asset_access_type_from_parser(
+                                    *col_access_type,
+                                ),
+                            )
                         })
                         .collect()
                 });
                 register_runtime_asset(InsertRuntimeAssetParams {
-                    access_type: asset.access_type.map(windmill_common::assets::asset_access_type_from_parser),
+                    access_type: asset
+                        .access_type
+                        .map(windmill_common::assets::asset_access_type_from_parser),
                     asset_kind: windmill_common::assets::asset_kind_from_parser(asset.kind),
                     asset_path: asset.path,
                     columns,
@@ -5825,6 +5852,7 @@ async fn get_job_update(
             no_logs,
             is_flow,
             None,
+            None,
         )
         .await?,
     ))
@@ -5865,6 +5893,7 @@ async fn get_job_update_sse(
         is_flow,
         tx,
         poll_delay_ms,
+        None,
     );
 
     let stream = tokio_stream::wrappers::ReceiverStream::new(rx).map(|x| {
@@ -5902,6 +5931,7 @@ pub fn start_job_update_sse_stream(
     is_flow: Option<bool>,
     tx: tokio::sync::mpsc::Sender<JobUpdateSSEStream>,
     poll_delay_ms: Option<u64>,
+    early_return: Option<String>,
 ) -> () {
     tokio::spawn(async move {
         let mut log_offset = initial_log_offset;
@@ -5929,6 +5959,7 @@ pub fn start_job_update_sse_stream(
             no_logs,
             is_flow,
             flow_stream_job_id,
+            early_return.as_deref(),
         )
         .await
         {
@@ -6046,6 +6077,7 @@ pub fn start_job_update_sse_stream(
                 no_logs,
                 is_flow,
                 flow_stream_job_id,
+                early_return.as_deref(),
             )
             .await
             {
@@ -6176,6 +6208,7 @@ async fn get_job_update_data(
     no_logs: Option<bool>,
     is_flow: Option<bool>,
     flow_stream_job_id: Option<Uuid>,
+    early_return: Option<&str>,
 ) -> error::Result<JobUpdate> {
     let tags = if log_view {
         log_job_view(
@@ -6338,6 +6371,16 @@ async fn get_job_update_data(
             };
 
         let flow_stream_job_id = flow_stream_job_id.or(new_flow_stream_job_id);
+
+        let result = if let Some(early_return) = early_return {
+            match get_result_and_success_by_id_from_flow(db, w_id, job_id, early_return, None).await
+            {
+                Ok((early_result, _)) => Some(early_result),
+                Err(_) => result,
+            }
+        } else {
+            result
+        };
 
         let flow_stream_delta =
             get_flow_stream_delta(db, flow_stream_job_id, stream_offset).await?;
