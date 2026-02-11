@@ -6,7 +6,6 @@ function doRequest(type: string, o: object, extra?: object) {
 		reqs[reqId] = { resolve, reject, ...extra }
 		const req = { ...o, type, reqId }
 		parent.postMessage(req, '*')
-		window.opener?.postMessage(req, '*')
 	})
 }
 
@@ -55,7 +54,7 @@ export function streamJob(
 }
 
 window.addEventListener('message', (e) => {
-	if (e.data.type == 'streamJobUpdate') {
+	if (e.data.type === 'streamJobUpdate') {
 		// Handle streaming update
 		let job = reqs[e.data.reqId]
 		if (job && job.onUpdate) {
@@ -64,7 +63,7 @@ window.addEventListener('message', (e) => {
 				stream_offset: e.data.stream_offset
 			})
 		}
-	} else if (e.data.type == 'streamJobRes') {
+	} else if (e.data.type === 'streamJobRes') {
 		// Handle stream completion
 		let job = reqs[e.data.reqId]
 		if (job) {
@@ -76,10 +75,10 @@ window.addEventListener('message', (e) => {
 			delete reqs[e.data.reqId]
 		}
 	} else if (
-		e.data.type == 'backendRes' ||
-		e.data.type == 'backendAsyncRes' ||
-		e.data.type == 'waitJobRes' ||
-		e.data.type == 'getJobRes'
+		e.data.type === 'backendRes' ||
+		e.data.type === 'backendAsyncRes' ||
+		e.data.type === 'waitJobRes' ||
+		e.data.type === 'getJobRes'
 	) {
 		console.log('Message from parent backend', e.data)
 		let job = reqs[e.data.reqId]
