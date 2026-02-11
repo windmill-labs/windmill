@@ -51,7 +51,7 @@
 		{/snippet}
 		<TextInput
 			inputProps={{ type: 'number' }}
-			bind:value={() => min?.toString(), (v) => (min = v ? parseInt(v) : undefined)}
+			bind:value={() => min?.toString(), (v) => (min = v !== '' && v != null ? parseInt(v) : undefined)}
 		/>
 	</Label>
 
@@ -64,7 +64,7 @@
 		{/snippet}
 		<TextInput
 			inputProps={{ type: 'number' }}
-			bind:value={() => max?.toString(), (v) => (max = v ? parseInt(v) : undefined)}
+			bind:value={() => max?.toString(), (v) => (max = v !== '' && v != null ? parseInt(v) : undefined)}
 		/>
 	</Label>
 

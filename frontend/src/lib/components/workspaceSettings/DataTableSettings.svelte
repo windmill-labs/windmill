@@ -280,7 +280,7 @@
 					{/if}
 				</Cell>
 				<Cell class="w-12">
-					<CloseButton small on:close={() => removeDataTable(dataTableIndex)} />
+					<CloseButton small onClick={() => removeDataTable(dataTableIndex)} />
 				</Cell>
 			</Row>
 		{/each}
