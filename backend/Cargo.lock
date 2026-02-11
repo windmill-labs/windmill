@@ -15890,6 +15890,7 @@ dependencies = [
  "windmill-api-debug",
  "windmill-api-embeddings",
  "windmill-api-flow-conversations",
+ "windmill-api-flows",
  "windmill-api-groups",
  "windmill-api-inputs",
  "windmill-api-jobs",
@@ -16081,6 +16082,26 @@ dependencies = [
  "uuid",
  "windmill-api-auth",
  "windmill-common",
+]
+
+[[package]]
+name = "windmill-api-flows"
+version = "1.631.1"
+dependencies = [
+ "axum 0.7.9",
+ "chrono",
+ "hyper 1.8.1",
+ "serde",
+ "serde_json",
+ "sql-builder",
+ "sqlx",
+ "tracing",
+ "windmill-api-auth",
+ "windmill-audit",
+ "windmill-common",
+ "windmill-dep-map",
+ "windmill-git-sync",
+ "windmill-queue",
 ]
 
 [[package]]
