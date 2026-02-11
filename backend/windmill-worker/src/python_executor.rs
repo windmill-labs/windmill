@@ -1354,7 +1354,7 @@ async fn spawn_uv_install(
     py_path: Option<String>,
     worker_dir: &str,
 ) -> Result<Box<dyn TokioChildWrapper>, Error> {
-    let uv_index_strategy_guard = UV_INDEX_STRATEGY.read().await;
+    let uv_index_strategy_guard = UV_INDEX_STRATEGY.read().await.clone();
     let uv_index_strategy = uv_index_strategy_guard.as_deref().unwrap_or("unsafe-best-match");
 
     if !*DISABLE_NSJAIL {
