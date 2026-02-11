@@ -767,7 +767,7 @@
 				</Cell>
 			</tr>
 		</Head>
-		<tbody class="divide-y bg-surface">
+		<tbody>
 			{#if filteredUsers}
 				{#each sortedUsers().slice(0, nbDisplayed) as user, index (user.email)}
 					{@const { email, username, is_admin, operator, disabled, added_via } = user}
@@ -779,7 +779,7 @@
 							</td>
 						</tr>
 					{/if}
-					<tr class="!hover:bg-surface-hover">
+					<tr class={index % 2 === 0 ? 'bg-surface-tertiary' : 'bg-surface'}>
 						<Cell first><a href="mailto:{email}">{truncate(email, 20)}</a></Cell>
 						<Cell>{truncate(username, 30)}</Cell>
 						{#if hasNonManualUsers}

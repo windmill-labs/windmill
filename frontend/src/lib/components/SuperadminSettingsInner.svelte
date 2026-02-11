@@ -285,10 +285,10 @@
 											</Cell>
 										</tr>
 									</Head>
-									<tbody class="divide-y bg-surface">
+									<tbody>
 										{#if filteredUsers && users}
-											{#each filteredUsers.slice(0, nbDisplayed) as { email, super_admin, devops, login_type, name, username, operator_only } (email)}
-												<tr>
+											{#each filteredUsers.slice(0, nbDisplayed) as { email, super_admin, devops, login_type, name, username, operator_only }, i (email)}
+												<tr class={i % 2 === 0 ? 'bg-surface-tertiary' : 'bg-surface'}>
 													<Cell first class="max-w-[200px]"
 														><a href="mailto:{email}" title={email} class="truncate block"
 															>{email}</a
