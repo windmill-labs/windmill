@@ -36,7 +36,6 @@ use windmill_common::{
     error::{self, to_anyhow},
     flows::{add_virtual_items_if_necessary, FlowValue},
     scripts::ScriptLang,
-    utils::calculate_hash,
     DB,
 };
 pub use windmill_dep_map::{
@@ -159,8 +158,10 @@ pub async fn handle_dependency_job(
         script_path,
         occupancy_metrics,
         &raw_workspace_dependencies_o,
-        script_data.lock.as_deref(),
+        dbg!(script_data.lock.as_deref()),
         triggered_by_relative_import,
+        script_path,
+        None,
     )
     .await;
 
@@ -182,7 +183,7 @@ pub async fn handle_dependency_job(
             // We do not create new row for this update
             // That means we can keep current hash and just update lock
             // Also store lockfile hash for dependency change detection
-            let lockfile_hash = calculate_hash(&content);
+            let lockfile_hash = windmill_common::scripts::hash_script(&content);
             sqlx::query!(
                 "WITH update_lock AS (
                     UPDATE script SET lock = $1 WHERE hash = $2 AND workspace_id = $3
@@ -1121,8 +1122,10 @@ async fn lock_modules<'c>(
             ),
             occupancy_metrics,
             raw_workspace_dependencies_o,
-            e.lock.as_deref(),
-            triggered_by_relative_import,
+            dbg!(lock.as_deref()),
+            dbg!(triggered_by_relative_import),
+            job_path,
+            Some(&e.id),
         )
         .await;
         //
@@ -1638,6 +1641,8 @@ async fn lock_modules_app(
                                 &None,
                                 existing_lock,
                                 triggered_by_relative_import,
+                                &job.runnable_path(),
+                                container_id.as_deref(),
                             )
                             .await;
                             match new_lock {
@@ -2212,6 +2217,7 @@ async fn ansible_dep(
     serde_json::to_string(&ansible_lockfile).map_err(|e| e.into())
 }
 
+/// Captures dependencies for a script and generates a lockfile.
 async fn capture_dependency_job(
     job_id: &Uuid,
     job_language: &ScriptLang,
@@ -2230,11 +2236,18 @@ async fn capture_dependency_job(
     raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
     existing_lock: Option<&str>,
     triggered_by_relative_import: bool,
+    // The base path of the runnable (script/flow/app) without suffixes.
+    //   Used for dependency_map lookups. For flows/apps, this is the flow/app path,
+    //   not the `script_path` which may have `/flow` or `/app` appended.
+    base_path: &str,
+    step_id: Option<&str>,
 ) -> error::Result<String> {
     // Check if any imported script's lockfile has changed
     // If triggered by relative import AND we have existing lock AND no imports changed -> skip relock
     if triggered_by_relative_import {
         if let Some(lock) = existing_lock {
+            // Check if any import has a mismatched or missing lockfile hash
+            // If none found (NOT EXISTS), we can skip relock
             if !sqlx::query_scalar!(
                 "SELECT EXISTS (
                     SELECT 1 FROM dependency_map dm
@@ -2243,18 +2256,27 @@ async fn capture_dependency_job(
                         AND slh.path = dm.imported_path
                     WHERE dm.workspace_id = $1
                     AND dm.importer_path = $2
+                    AND dm.importer_node_id = $3
+                    AND dm.imported_path NOT LIKE 'dependencies/%'
                     AND (dm.imported_lockfile_hash IS NULL
                          OR slh.lockfile_hash IS NULL
                          OR dm.imported_lockfile_hash != slh.lockfile_hash)
                 )",
                 w_id,
-                script_path
+                base_path,
+                step_id.unwrap_or("")
             )
             .fetch_one(db)
             .await?
             .unwrap_or(true)
             {
-                let log_msg = "\nSkipping relock - all imported lockfiles unchanged".to_string();
+                let log_msg = match step_id {
+                    Some(id) => format!(
+                        "\nSkipping relock for step '{}' - imported lockfiles unchanged",
+                        id
+                    ),
+                    None => "\nSkipping relock - imported lockfiles unchanged".to_string(),
+                };
                 tracing::info!(workspace_id = %w_id, job_id = %job_id, "{log_msg}");
                 append_logs(job_id, w_id, log_msg, &db.into()).await;
                 return Ok(lock.to_string());
@@ -2540,28 +2562,11 @@ async fn capture_dependency_job(
 
     let mut lines = vec![];
     add_lock_header(&mut lines, workspace_dependencies, *job_language, w_id, db).await?;
-    let final_lock = if lines.is_empty() {
+    Ok(if lines.is_empty() {
         lock
     } else {
         format!("{}\n{lock}", lines.join("\n"))
-    };
-
-    // Save to cache for relative import triggered jobs
-    if let Some(key) = src_cache_key {
-        cache::resolution_cache::store_resolved_lock(
-            db,
-            &key,
-            &final_lock,
-            std::time::Duration::from_secs(3 * 24 * 60 * 60), // 3 days
-        )
-        .await?;
-
-        let log_msg = format!("\nCached source resolution: {key}");
-        tracing::info!(workspace_id = %w_id, job_id = %job_id, "{log_msg}");
-        append_logs(job_id, w_id, log_msg, &db.into()).await;
-    }
-
-    Ok(final_lock)
+    })
 }
 
 async fn add_lock_header(

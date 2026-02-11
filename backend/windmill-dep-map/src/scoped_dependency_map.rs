@@ -16,7 +16,7 @@ lazy_static::lazy_static! {
 }
 
 type PathString = String;
-type LockHashString = String;
+type LockHash = i64;
 
 #[derive(Serialize)]
 pub struct DependencyMap {
@@ -37,7 +37,7 @@ pub struct DependencyDependent {
 #[derive(Debug)]
 pub struct ScopedDependencyMap {
     /// (importer_node_id, imported_path, imported_lockfile_hash)
-    to_delete: HashSet<(String, PathString, Option<LockHashString>)>,
+    to_delete: HashSet<(String, PathString, Option<LockHash>)>,
     w_id: String,
     importer_path: String,
     importer_kind: String,
@@ -64,7 +64,7 @@ impl ScopedDependencyMap {
                 parent_path.clone().unwrap_or_default(),
             );
 
-            let dmap = sqlx::query_as::<_, (String, String, Option<String>)>(
+            let dmap = sqlx::query_as::<_, (String, String, Option<i64>)>(
                 "
 UPDATE dependency_map
     SET importer_path = $1
@@ -98,7 +98,7 @@ RETURNING importer_node_id, imported_path, imported_lockfile_hash
         importer_kind: &str,
         executor: impl sqlx::Executor<'a, Database = sqlx::Postgres>,
     ) -> Result<Self> {
-        let dmap = sqlx::query_as::<_, (String, String, Option<String>)>(
+        let dmap = sqlx::query_as::<_, (String, String, Option<i64>)>(
             "
 SELECT importer_node_id, imported_path, imported_lockfile_hash
     FROM dependency_map
@@ -150,7 +150,7 @@ SELECT importer_node_id, imported_path, imported_lockfile_hash
         };
 
         // Fetch lock hashes for all referenced paths
-        let lock_hashes: std::collections::HashMap<String, Option<String>> = sqlx::query_as(
+        let lock_hashes: std::collections::HashMap<String, Option<i64>> = sqlx::query_as(
             "SELECT path, lockfile_hash FROM script_lock_hash WHERE workspace_id = $1 AND path = ANY($2)",
         )
         .bind(&self.w_id)
@@ -162,7 +162,9 @@ SELECT importer_node_id, imported_path, imported_lockfile_hash
 
         referenced_paths.retain(|path| {
             let hash = lock_hashes.get(path).cloned().flatten();
-            !self.to_delete.remove(&(node_id.to_owned(), path.clone(), hash))
+            !self
+                .to_delete
+                .remove(&(node_id.to_owned(), path.clone(), hash))
         });
 
         if !referenced_paths.is_empty() {
@@ -174,7 +176,7 @@ SELECT importer_node_id, imported_path, imported_lockfile_hash
         }
 
         for import in referenced_paths {
-            let lock_hash = lock_hashes.get(&import).cloned().flatten();
+            let lock_hash = lock_hashes.get(&import).copied().flatten();
             sqlx::query!(
                 "INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id, imported_lockfile_hash)
                 VALUES ($1, $2, $3::text::IMPORTER_KIND, $4, $5, $6)
@@ -184,7 +186,7 @@ SELECT importer_node_id, imported_path, imported_lockfile_hash
                 &self.importer_kind,
                 &import,
                 node_id,
-                lock_hash.as_deref()
+                lock_hash
             )
             .execute(&mut **tx)
             .await?;
@@ -208,7 +210,8 @@ SELECT importer_node_id, imported_path, imported_lockfile_hash
 
         tracing::info!("dissolving dependency_map: {:?}", &self);
 
-        for (importer_node_id, imported_path, imported_lockfile_hash) in self.to_delete.into_iter() {
+        for (importer_node_id, imported_path, imported_lockfile_hash) in self.to_delete.into_iter()
+        {
             tracing::info!("cleaning orphan entry from dependency_map: importer_kind - {}, imported_path - {}, importer_node_id - {}, imported_lockfile_hash - {:?}",
                 &self.importer_kind,
                 &imported_path,
