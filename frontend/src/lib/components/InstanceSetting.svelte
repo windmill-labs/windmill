@@ -40,13 +40,6 @@
 	let { setting, version, values, loading = true, openSmtpSettings, oauths }: Props = $props()
 	const dispatch = createEventDispatcher()
 
-	if (
-		(setting.fieldType == 'select' || setting.fieldType == 'select_python') &&
-		$values[setting.key] == undefined
-	) {
-		$values[setting.key] = setting.defaultValue ? setting.defaultValue() : 'default'
-	}
-
 	let latestKeyRenewalAttempt: {
 		result: string
 		attempted_at: string
@@ -150,6 +143,17 @@
 	$effect(() => {
 		if (setting.fieldType == 'select_python') {
 			untrack(() => fetch_available_python_versions())
+		}
+	})
+
+	$effect(() => {
+		if (
+			(setting.fieldType == 'select' || setting.fieldType == 'select_python') &&
+			$values[setting.key] == undefined
+		) {
+			untrack(() => {
+				$values[setting.key] = setting.defaultValue ? setting.defaultValue() : 'default'
+			})
 		}
 	})
 </script>
