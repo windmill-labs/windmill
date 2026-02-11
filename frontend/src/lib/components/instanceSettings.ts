@@ -120,7 +120,11 @@ export const settings: Record<string, Setting[]> = {
 			key: 'email_domain',
 			fieldType: 'text',
 			storage: 'setting',
-			placeholder: 'mail.windmill.com'
+			placeholder: 'mail.windmill.com',
+			error:
+				'Email domain must be a valid domain (e.g. mail.windmill.com) without protocol or trailing slash',
+			isValid: (value: string | undefined) =>
+				!value || /^(?!-)([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$/.test(value)
 		},
 		{
 			label: 'Request size limit in MB',
