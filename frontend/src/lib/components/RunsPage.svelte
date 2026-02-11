@@ -36,7 +36,7 @@
 	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
 	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
 	import { StaleWhileLoading } from '$lib/svelte5Utils.svelte'
-	import { TriangleAlertIcon } from 'lucide-svelte'
+	import { Calendar, FolderIcon, TriangleAlertIcon, UserIcon } from 'lucide-svelte'
 	import DropdownV2 from './DropdownV2.svelte'
 	import TimeframeSelect, {
 		buildManualTimeframe,
@@ -586,7 +586,33 @@
 					items={runsTimeframes}
 					bind:value={_timeframe.timeframe}
 				/>
-				<FilterSearchbar class="min-w-80" />
+				<FilterSearchbar
+					class="min-w-80"
+					schema={{
+						from: { type: 'date', label: 'From', icon: Calendar },
+						to: { type: 'date', label: 'To', icon: Calendar },
+						path: { type: 'oneof', options: paths, allowCustomValue: true, label: 'Path' },
+						user: {
+							type: 'oneof',
+							options: usernames,
+							allowCustomValue: true,
+							label: 'User',
+							icon: UserIcon
+						},
+						folder: {
+							type: 'oneof',
+							options: folders,
+							allowCustomValue: true,
+							label: 'Folder',
+							icon: FolderIcon
+						},
+						label: { type: 'string', label: 'Label' },
+						tag: { type: 'string', label: 'Tag' },
+						worker: { type: 'string', label: 'Worker' },
+						schedule_path: { type: 'string', label: 'Schedule path' },
+						concurrency_key: { type: 'string', label: 'Concurrency key' }
+					}}
+				/>
 			</div>
 		</div>
 
