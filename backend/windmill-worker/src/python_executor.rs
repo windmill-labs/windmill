@@ -222,6 +222,9 @@ pub async fn uv_pip_compile(
         requirements.to_string()
     };
 
+    let uv_index_strategy = UV_INDEX_STRATEGY.read().await;
+    let uv_index_strategy = uv_index_strategy.as_deref().unwrap_or("unsafe-best-match");
+
     let py_version_str = py_version.clone().to_string();
     // Include python version to requirements.in
     // We need it because same hash based on requirements.in can get calculated even for different python versions
@@ -231,7 +234,7 @@ pub async fn uv_pip_compile(
     #[cfg(feature = "enterprise")]
     let requirements = replace_pip_secret(conn, w_id, &requirements, worker_name, job_id).await?;
 
-    let req_hash = format!("py-{}", calculate_hash(&requirements));
+    let req_hash = format!("py-{}-{uv_index_strategy}", calculate_hash(&requirements));
 
     if !no_cache {
         if let Some(db) = conn.as_sql() {
@@ -317,8 +320,6 @@ pub async fn uv_pip_compile(
         #[cfg(unix)]
         let uv_cmd = UV_PATH.as_str();
 
-        let uv_index_strategy = UV_INDEX_STRATEGY.read().await;
-        let uv_index_strategy = uv_index_strategy.as_deref().unwrap_or("unsafe-best-match");
 
         let mut child_cmd = Command::new(uv_cmd);
         child_cmd

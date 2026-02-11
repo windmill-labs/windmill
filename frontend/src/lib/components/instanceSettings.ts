@@ -336,11 +336,10 @@ export const settings: Record<string, Setting[]> = {
 			key: 'uv_index_strategy',
 			fieldType: 'select',
 			placeholder: 'unsafe-best-match',
-			defaultValue: () => 'unsafe-best-match',
+			defaultValue: () => "unsafe-best-match",
 			select_items: [
 				{
 					label: 'first-index',
-					value: 'first-index',
 					tooltip: 'Only use the first index that contains the package'
 				},
 				{
@@ -349,6 +348,7 @@ export const settings: Record<string, Setting[]> = {
 				},
 				{
 					label: 'unsafe-best-match (default)',
+					value: 'unsafe-best-match',
 					tooltip: 'Search for packages across all indexes, preferring the best match'
 				}
 			],
