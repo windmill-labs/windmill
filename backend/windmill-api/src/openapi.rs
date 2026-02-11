@@ -20,10 +20,10 @@ use windmill_common::{
     utils::{deserialize_url, empty_as_none, is_empty, RunnableKind},
     DB,
 };
+use windmill_store::resources::try_get_resource_from_db_as;
 
 use crate::{
     db::ApiAuthed,
-    resources::try_get_resource_from_db_as,
     triggers::http::{
         http_trigger_auth::ApiKeyAuthentication, AuthenticationMethod, HttpMethod, RequestType,
     },

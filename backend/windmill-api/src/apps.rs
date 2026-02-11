@@ -11,7 +11,6 @@ use crate::{
     auth::OptTokened,
     db::{ApiAuthed, DB},
     jobs::RunJobQuery,
-    resources::get_resource_value_interpolated_internal,
     users::{require_owner_of_path, OptAuthed},
     utils::{check_scopes, WithStarredInfoQuery},
     webhook_util::{WebhookMessage, WebhookShared},
@@ -68,6 +67,7 @@ use windmill_common::{
     workspaces::{check_user_against_rule, ProtectionRuleKind, RuleCheckResult},
     HUB_BASE_URL,
 };
+use windmill_store::resources::get_resource_value_interpolated_internal;
 
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::{push, PushArgs, PushArgsOwned, PushIsolationLevel};
@@ -1494,7 +1494,6 @@ async fn update_app(
     let path = path.to_path();
     check_scopes(&authed, || format!("apps:write:{}", path))?;
 
-
     if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
         &w_id,
         &ProtectionRuleKind::DisableDirectDeployment,
@@ -1538,7 +1537,6 @@ async fn update_app_raw<'a>(
             "Operators cannot update apps for security reasons".to_string(),
         ));
     }
-
 
     if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
         &w_id,

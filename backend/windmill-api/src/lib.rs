@@ -15,6 +15,7 @@ use crate::oauth2_oss::SlackVerifier;
 use crate::smtp_server_oss::SmtpServer;
 #[cfg(feature = "enterprise")]
 use windmill_api_auth::ee_oss::ExternalJwks;
+use windmill_store::resources::public_service;
 
 #[cfg(feature = "mcp")]
 use crate::mcp::{extract_and_store_workspace_id, setup_mcp_server};
@@ -191,6 +192,9 @@ mod workspaces;
 #[cfg(feature = "private")]
 pub mod workspaces_ee;
 mod workspaces_export;
+
+#[cfg(feature = "mcp")]
+mod mcp_tools;
 
 #[cfg(feature = "mcp")]
 mod mcp;
@@ -689,7 +693,7 @@ pub async fn run_server(
                 })
                 .nest(
                     "/w/:workspace_id/resources_u",
-                    resources::public_service().layer(cors.clone()),
+                    public_service().layer(cors.clone()),
                 )
                 .nest(
                     "/w/:workspace_id/capture_u",
