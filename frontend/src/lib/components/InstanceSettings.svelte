@@ -197,7 +197,7 @@
 			)
 			initialValues = JSON.parse(JSON.stringify($values))
 
-			if (!deepEqual(initialOauths, oauths)) {
+			if (!deepEqual(stripUndefined(initialOauths), stripUndefined(oauths))) {
 				await SettingService.setGlobal({
 					key: 'oauths',
 					requestBody: {
@@ -306,6 +306,10 @@
 	// Trigger to force re-derivation when initialValues changes (after save/load)
 	let dirtyCheckTrigger = $state(0)
 
+	function stripUndefined(obj: Record<string, any>): Record<string, any> {
+		return Object.fromEntries(Object.entries(obj).filter(([_, v]) => v !== undefined))
+	}
+
 	function getSettingsForCategory(category: string) {
 		if (category === 'Auth/OAuth/SAML') {
 			return scimSamlSetting
@@ -322,7 +326,7 @@
 				const scimDirty = scimSamlSetting.some(
 					(s) => !deepEqual(initialValues[s.key], currentValues?.[s.key])
 				)
-				const oauthsDirty = !deepEqual(initialOauths, oauths)
+				const oauthsDirty = !deepEqual(stripUndefined(initialOauths), stripUndefined(oauths))
 				const requirePreexistingDirty =
 					initialRequirePreexistingUserForOauth !== requirePreexistingUserForOauth
 				result[category] = scimDirty || oauthsDirty || requirePreexistingDirty
@@ -438,7 +442,7 @@
 
 		// Handle Auth/OAuth/SAML-specific saves
 		if (category === 'Auth/OAuth/SAML') {
-			if (!deepEqual(initialOauths, oauths)) {
+			if (!deepEqual(stripUndefined(initialOauths), stripUndefined(oauths))) {
 				await SettingService.setGlobal({
 					key: 'oauths',
 					requestBody: { value: oauths }
