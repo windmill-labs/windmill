@@ -5,8 +5,21 @@ on:
     types: [created]
 
 jobs:
+  check-membership:
+    if: >-
+      github.event.issue.pull_request && (
+        startsWith(github.event.comment.body, '/updatesqlx') ||
+        startsWith(github.event.comment.body, '/demo') ||
+        startsWith(github.event.comment.body, '/eeref') ||
+        startsWith(github.event.comment.body, '/docs')
+      )
+    uses: ./.github/workflows/check-org-membership.yml
+    secrets:
+      access_token: ${{ secrets.ORG_ACCESS_TOKEN }}
+
   update-sqlx:
-    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/updatesqlx')
+    needs: check-membership
+    if: needs.check-membership.outputs.is_member == 'true' && startsWith(github.event.comment.body, '/updatesqlx')
     runs-on: ubicloud-standard-8
     permissions:
       contents: write
@@ -121,7 +134,8 @@ jobs:
             })
 
   demo:
-    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/demo')
+    needs: check-membership
+    if: needs.check-membership.outputs.is_member == 'true' && startsWith(github.event.comment.body, '/demo')
     runs-on: ubicloud-standard-2
     permissions:
       contents: read
@@ -200,7 +214,8 @@ jobs:
           fi
 
   update-ee-ref:
-    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/eeref')
+    needs: check-membership
+    if: needs.check-membership.outputs.is_member == 'true' && startsWith(github.event.comment.body, '/eeref')
     runs-on: ubicloud-standard-2
     permissions:
       contents: write
@@ -285,7 +300,8 @@ jobs:
             })
 
   update-docs:
-    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/docs')
+    needs: check-membership
+    if: needs.check-membership.outputs.is_member == 'true' && startsWith(github.event.comment.body, '/docs')
     runs-on: ubicloud-standard-2
     permissions:
       contents: read
