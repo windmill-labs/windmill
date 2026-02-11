@@ -15,10 +15,7 @@
 		AppService,
 		FlowService,
 		FolderService,
-		ResourceService,
-		ScheduleService,
 		ScriptService,
-		VariableService,
 		WorkspaceService,
 		type WorkspaceComparison,
 		type WorkspaceItemDiff
@@ -26,10 +23,10 @@
 	import Button from './common/button/Button.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
 	import ParentWorkspaceProtectionAlert from './ParentWorkspaceProtectionAlert.svelte'
-	import { getAllModules } from './flows/flowExplorer'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 
 	import type { Kind } from '$lib/utils_deployable'
+	import { deployItem, getItemValue } from '$lib/utils_workspace_deploy'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -147,72 +144,6 @@
 		}
 	}
 
-	async function getValue(kind: Kind, path: string, workspace: string) {
-		try {
-			if (kind == 'flow') {
-				const flow = await FlowService.getFlowByPath({
-					workspace: workspace,
-					path: path
-				})
-				getAllModules(flow.value.modules).forEach((x) => {
-					if (x.value.type == 'script' && x.value.hash != undefined) {
-						x.value.hash = undefined
-					}
-				})
-				return { summary: flow.summary, description: flow.description, value: flow.value }
-			} else if (kind == 'script') {
-				const script = await ScriptService.getScriptByPath({
-					workspace: workspace,
-					path: path
-				})
-				return {
-					content: script.content,
-					lock: script.lock,
-					schema: script.schema,
-					summary: script.summary,
-					language: script.language
-				}
-			} else if (kind == 'app') {
-				const app = await AppService.getAppByPath({
-					workspace: workspace,
-					path: path
-				})
-				return app
-			} else if (kind == 'variable') {
-				const variable = await VariableService.getVariable({
-					workspace: workspace,
-					path: path,
-					decryptSecret: true
-				})
-				return variable.value
-			} else if (kind == 'resource') {
-				const resource = await ResourceService.getResource({
-					workspace: workspace,
-					path: path
-				})
-				return resource.value
-			} else if (kind == 'resource_type') {
-				const resource = await ResourceService.getResourceType({
-					workspace: workspace,
-					path: path
-				})
-				return resource.schema
-			} else if (kind == 'folder') {
-				const folder = await FolderService.getFolder({
-					workspace: workspace,
-					name: path
-				})
-				return {
-					name: folder.name
-				}
-			} else {
-				throw new Error(`Unknown kind ${kind}`)
-			}
-		} catch {
-			return {}
-		}
-	}
-
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)
 	let isFlow = $state(true)
 
@@ -223,8 +154,8 @@
 			isFlow = kind == 'flow'
 			diffDrawer?.openDrawer()
 			let values = await Promise.all([
-				getValue(kind, path, workspaceTo),
-				getValue(kind, path, workspaceFrom)
+				getItemValue(kind, path, workspaceTo),
+				getItemValue(kind, path, workspaceFrom)
 			])
 			diffDrawer?.setDiff({
 				mode: 'simple',
@@ -254,54 +185,6 @@
 			.filter((k) => !(deploymentStatus[k]?.status == 'deployed'))
 	}
 
-	async function checkAlreadyExists(kind: Kind, path: string, workspace: string): Promise<boolean> {
-		let exists: boolean
-		if (kind == 'flow') {
-			exists = await FlowService.existsFlowByPath({
-				workspace: workspace,
-				path: path
-			})
-		} else if (kind == 'script') {
-			exists = await ScriptService.existsScriptByPath({
-				workspace: workspace,
-				path: path
-			})
-		} else if (kind == 'app') {
-			exists = await AppService.existsApp({
-				workspace: workspace,
-				path: path
-			})
-		} else if (kind == 'variable') {
-			exists = await VariableService.existsVariable({
-				workspace: workspace,
-				path: path
-			})
-		} else if (kind == 'resource') {
-			exists = await ResourceService.existsResource({
-				workspace: workspace,
-				path: path
-			})
-		} else if (kind == 'schedule') {
-			exists = await ScheduleService.existsSchedule({
-				workspace: workspace,
-				path: path
-			})
-		} else if (kind == 'resource_type') {
-			exists = await ResourceService.existsResourceType({
-				workspace: workspace,
-				path: path
-			})
-		} else if (kind == 'folder') {
-			exists = await FolderService.existsFolder({
-				workspace: workspace,
-				name: path
-			})
-		} else {
-			throw new Error(`Unknown kind ${kind}`)
-		}
-		return exists
-	}
-
 	const deploymentStatus: Record<
 		string,
 		{ status: 'loading' | 'deployed' | 'failed'; error?: string }
@@ -316,216 +199,18 @@
 		const statusPath = `${kind}:${path}`
 		deploymentStatus[statusPath] = { status: 'loading' }
 
-		try {
-			let alreadyExists = await checkAlreadyExists(kind, path, workspaceToDeployTo)
-			if (kind == 'flow') {
-				const flow = await FlowService.getFlowByPath({
-					workspace: workspaceFrom,
-					path: path
-				})
-				getAllModules(flow.value.modules).forEach((x) => {
-					if (x.value.type == 'script' && x.value.hash != undefined) {
-						x.value.hash = undefined
-					}
-				})
-				if (alreadyExists) {
-					await FlowService.updateFlow({
-						workspace: workspaceToDeployTo,
-						path: path,
-						requestBody: {
-							...flow
-						}
-					})
-				} else {
-					await FlowService.createFlow({
-						workspace: workspaceToDeployTo,
-						requestBody: {
-							...flow
-						}
-					})
-				}
-			} else if (kind == 'script') {
-				const script = await ScriptService.getScriptByPath({
-					workspace: workspaceFrom,
-					path: path
-				})
-				await ScriptService.createScript({
-					workspace: workspaceToDeployTo,
-					requestBody: {
-						...script,
-						lock: script.lock,
-						parent_hash: alreadyExists
-							? (
-									await ScriptService.getScriptByPath({
-										workspace: workspaceToDeployTo,
-										path: path
-									})
-								).hash
-							: undefined
-					}
-				})
-			} else if (kind == 'app') {
-				const app = await AppService.getAppByPath({
-					workspace: workspaceFrom,
-					path: path
-				})
-				if (alreadyExists) {
-					if (app.raw_app) {
-						const secret = await AppService.getPublicSecretOfLatestVersionOfApp({
-							workspace: workspaceFrom,
-							path: app.path
-						})
-						const js = await AppService.getRawAppData({
-							secretWithExtension: `${secret}.js`,
-							workspace: workspaceFrom
-						})
-						const css = await AppService.getRawAppData({
-							secretWithExtension: `${secret}.css`,
-							workspace: workspaceFrom
-						})
-						await AppService.updateAppRaw({
-							workspace: workspaceToDeployTo,
-							path: path,
-							formData: {
-								app,
-								css,
-								js
-							}
-						})
-					} else {
-						await AppService.updateApp({
-							workspace: workspaceToDeployTo,
-							path: path,
-							requestBody: {
-								...app
-							}
-						})
-					}
-				} else {
-					if (app.raw_app) {
-						const secret = await AppService.getPublicSecretOfLatestVersionOfApp({
-							workspace: workspaceFrom,
-							path: app.path
-						})
-						const js = await AppService.getRawAppData({
-							secretWithExtension: `${secret}.js`,
-							workspace: workspaceFrom
-						})
-						const css = await AppService.getRawAppData({
-							secretWithExtension: `${secret}.css`,
-							workspace: workspaceFrom
-						})
-						await AppService.createAppRaw({
-							workspace: workspaceToDeployTo,
-							formData: {
-								app,
-								css,
-								js
-							}
-						})
-					} else {
-						await AppService.createApp({
-							workspace: workspaceToDeployTo,
-							requestBody: {
-								...app
-							}
-						})
-					}
-				}
-			} else if (kind == 'variable') {
-				const variable = await VariableService.getVariable({
-					workspace: workspaceFrom,
-					path: path,
-					decryptSecret: true
-				})
-				if (alreadyExists) {
-					await VariableService.updateVariable({
-						workspace: workspaceToDeployTo,
-						path: path,
-						requestBody: {
-							path: path,
-							value: variable.value ?? '',
-							is_secret: variable.is_secret,
-							description: variable.description ?? ''
-						},
-						alreadyEncrypted: false
-					})
-				} else {
-					await VariableService.createVariable({
-						workspace: workspaceToDeployTo,
-						requestBody: {
-							path: path,
-							value: variable.value ?? '',
-							is_secret: variable.is_secret,
-							description: variable.description ?? ''
-						}
-					})
-				}
-			} else if (kind == 'resource') {
-				const resource = await ResourceService.getResource({
-					workspace: workspaceFrom,
-					path: path
-				})
-				if (alreadyExists) {
-					await ResourceService.updateResource({
-						workspace: workspaceToDeployTo,
-						path: path,
-						requestBody: {
-							path: path,
-							value: resource.value ?? '',
-							description: resource.description ?? ''
-						}
-					})
-				} else {
-					await ResourceService.createResource({
-						workspace: workspaceToDeployTo,
-						requestBody: {
-							path: path,
-							value: resource.value ?? '',
-							resource_type: resource.resource_type,
-							description: resource.description ?? ''
-						}
-					})
-				}
-			} else if (kind == 'resource_type') {
-				const resource = await ResourceService.getResourceType({
-					workspace: workspaceFrom,
-					path: path
-				})
-				if (alreadyExists) {
-					await ResourceService.updateResourceType({
-						workspace: workspaceToDeployTo,
-						path: path,
-						requestBody: {
-							schema: resource.schema,
-							description: resource.description ?? ''
-						}
-					})
-				} else {
-					await ResourceService.createResourceType({
-						workspace: workspaceToDeployTo,
-						requestBody: {
-							description: resource.description ?? '',
-							schema: resource.schema,
-							name: resource.name
-						}
-					})
-				}
-			} else if (kind == 'folder') {
-				await FolderService.createFolder({
-					workspace: workspaceToDeployTo,
-					requestBody: {
-						name: path
-					}
-				})
-			} else {
-				throw new Error(`Unknown kind ${kind}`)
-			}
+		const result = await deployItem({
+			kind,
+			path,
+			workspaceFrom,
+			workspaceTo: workspaceToDeployTo
+		})
 
+		if (result.success) {
 			deploymentStatus[statusPath] = { status: 'deployed' }
-		} catch (e) {
-			deploymentStatus[statusPath] = { status: 'failed', error: e.body || e.message }
-			sendUserToast(`Failed to deploy ${statusPath}: ${e.body || e.message}`)
+		} else {
+			deploymentStatus[statusPath] = { status: 'failed', error: result.error }
+			sendUserToast(`Failed to deploy ${statusPath}: ${result.error}`)
 		}
 	}
 
