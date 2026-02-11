@@ -9,7 +9,7 @@ use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres};
 use uuid::Uuid;
 
-use crate::db::ApiAuthed;
+use windmill_api_auth::ApiAuthed;
 pub use windmill_common::flow_conversations::FlowConversation;
 use windmill_common::{
     db::{UserDB, DB},

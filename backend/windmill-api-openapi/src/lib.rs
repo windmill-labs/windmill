@@ -22,11 +22,9 @@ use windmill_common::{
 };
 use windmill_store::resources::try_get_resource_from_db_as;
 
-use crate::{
-    db::ApiAuthed,
-    triggers::http::{
-        http_trigger_auth::ApiKeyAuthentication, AuthenticationMethod, HttpMethod, RequestType,
-    },
+use windmill_api_auth::ApiAuthed;
+use windmill_trigger_http::{
+    http_trigger_auth::ApiKeyAuthentication, AuthenticationMethod, HttpMethod, RequestType,
 };
 
 lazy_static::lazy_static! {

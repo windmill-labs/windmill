@@ -8,12 +8,18 @@
 
 use std::{collections::HashMap, time::Duration};
 
-use crate::{
-    db::{ApiAuthed, DB},
-    ee_oss::validate_license_key,
-    utils::{generate_instance_username_for_all_users, require_super_admin},
-    HTTP_CLIENT,
-};
+#[cfg(feature = "private")]
+mod ee;
+mod ee_oss;
+
+use windmill_api_auth::{require_super_admin, ApiAuthed};
+#[cfg(feature = "enterprise")]
+use windmill_api_auth::require_devops_role;
+use windmill_common::utils::HTTP_CLIENT_PERMISSIVE as HTTP_CLIENT;
+use windmill_common::DB;
+
+use ee_oss::validate_license_key;
+use windmill_common::usernames::generate_instance_username_for_all_users;
 
 use axum::{
     extract::{Extension, Path},
@@ -24,9 +30,6 @@ use axum::{
 #[cfg(feature = "enterprise")]
 use axum::extract::Query;
 use serde_json::json;
-
-#[cfg(feature = "enterprise")]
-use crate::utils::require_devops_role;
 
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "enterprise")]
@@ -575,11 +578,11 @@ pub async fn test_critical_channels() -> Result<String> {
 pub async fn get_critical_alerts(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
-    Query(params): Query<crate::utils::AlertQueryParams>,
+    Query(params): Query<windmill_alerting::AlertQueryParams>,
 ) -> JsonResult<serde_json::Value> {
     require_devops_role(&db, &authed.email).await?;
 
-    crate::utils::get_critical_alerts(db, params, None).await
+    windmill_alerting::get_critical_alerts(db, params, None).await
 }
 
 #[cfg(not(feature = "enterprise"))]
@@ -594,7 +597,7 @@ pub async fn acknowledge_critical_alert(
     Path(id): Path<i32>,
 ) -> error::Result<String> {
     require_devops_role(&db, &authed.email).await?;
-    crate::utils::acknowledge_critical_alert(db, None, id).await
+    windmill_alerting::acknowledge_critical_alert(db, None, id).await
 }
 
 #[cfg(not(feature = "enterprise"))]
@@ -609,7 +612,7 @@ pub async fn acknowledge_all_critical_alerts(
 ) -> error::Result<String> {
     require_super_admin(&db, &authed.email).await?;
 
-    crate::utils::acknowledge_all_critical_alerts(db, None).await
+    windmill_alerting::acknowledge_all_critical_alerts(db, None).await
 }
 
 #[cfg(not(feature = "enterprise"))]

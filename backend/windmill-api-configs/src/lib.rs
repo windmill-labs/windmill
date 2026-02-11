@@ -23,7 +23,7 @@ use windmill_common::{
     DB,
 };
 
-use crate::{db::ApiAuthed, utils::require_devops_role};
+use windmill_api_auth::{ApiAuthed, require_devops_role};
 
 pub fn global_service() -> Router {
     Router::new()

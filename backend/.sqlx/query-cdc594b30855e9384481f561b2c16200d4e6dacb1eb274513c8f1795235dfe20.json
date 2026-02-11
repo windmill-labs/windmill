@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO script (workspace_id, hash, path, content, language, kind, created_by, schema, summary, description, lock)\n        VALUES ('test-workspace', 5555555555, 'f/test/error_handler', 'export function main() { return \"handled\"; }', 'deno', 'script', 'test-user', '{}', '', '', '')\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "cdc594b30855e9384481f561b2c16200d4e6dacb1eb274513c8f1795235dfe20"
+}
