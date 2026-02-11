@@ -7,6 +7,7 @@
 	import TestConnection from './TestConnection.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 	import SimpleEditor from './SimpleEditor.svelte'
+	import Label from './Label.svelte'
 
 	type S3Config = {
 		type: 'S3'
@@ -89,7 +90,7 @@
 	/>
 </div>
 {#if bucket_config}
-	<div class="p-2">
+	<div class="">
 		<div class="flex gap-2 py-1">
 			<Button
 				spacingSize="sm"
@@ -156,7 +157,7 @@
 			<Tab value="AwsOidc" label="AWS OIDC" />
 			<Tab value="Gcs" label="Google Cloud Storage" />
 		</Tabs>
-		<div class="flex flex-col gap-2 mt-2 p-2 border rounded-md">
+		<div class="flex flex-col gap-6 mt-2 p-4 border rounded-md">
 			{#if bucket_config.type === 'S3'}
 				<label class="block pb-2">
 					<span class="text-xs font-semibold text-emphasis">Bucket</span>
@@ -258,12 +259,10 @@
 					/>
 				</label>
 			{:else if bucket_config.type === 'Gcs'}
-				<label class="block pb-2">
-					<span class="text-xs font-semibold text-emphasis">Bucket</span>
+				<Label label="Bucket">
 					<input type="text" placeholder="bucket-name" bind:value={bucket_config.bucket} />
-				</label>
-				<label class="block pb-2">
-					<span class="text-xs font-semibold text-emphasis">Service Account Key</span>
+				</Label>
+				<Label label="Service Account Key">
 					<span class="text-primary text-2xs">JSON content of the service account key file</span>
 					<SimpleEditor
 						lang="json"
@@ -287,7 +286,7 @@
 						}
 						class="h-80"
 					/>
-				</label>
+				</Label>
 			{:else}
 				<div>Unknown bucket type {bucket_config['type']}</div>
 			{/if}
