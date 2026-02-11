@@ -39,7 +39,10 @@
 	<h3 class="text-sm font-semibold text-emphasis">Add new user to instance</h3>
 	<label class="block">
 		<span class="text-xs font-semibold text-emphasis">Email</span>
-		<TextInput inputProps={{ type: 'email', placeholder: 'email' }} bind:value={$globalEmailInvite} />
+		<TextInput
+			inputProps={{ type: 'email', placeholder: 'email' }}
+			bind:value={$globalEmailInvite}
+		/>
 	</label>
 	<label class="block">
 		<span class="text-xs font-semibold text-emphasis">Password</span>

@@ -174,7 +174,7 @@
 					/>
 				</div>
 
-				<div class="flex-1 min-w-0 overflow-auto pl-4">
+				<div class="flex-1 min-w-0 overflow-auto px-4">
 					<InstanceSettings
 						bind:this={instanceSettings}
 						hideTabs
