@@ -121,6 +121,14 @@ pub struct BedrockClient {
 
 impl BedrockClient {
     pub async fn from_bearer_token(bearer_token: String, region: &str) -> Result<Self, Error> {
+        let key_prefix: String = bearer_token.chars().take(8).collect();
+        tracing::info!(
+            "[debug] Bedrock bearer token selected (runtime): region={}, token_len={}, token_prefix={}***",
+            region,
+            bearer_token.len(),
+            key_prefix
+        );
+
         let config = aws_sdk_bedrockruntime::config::Builder::new()
             .region(aws_config::Region::new(region.to_string()))
             .behavior_version(BehaviorVersion::latest())
