@@ -149,7 +149,7 @@ ENV PATH /usr/local/bin:/root/.local/bin:/tmp/.local/bin:$PATH
 
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends netbase tzdata ca-certificates wget curl jq unzip build-essential unixodbc xmlsec1 software-properties-common tini libsasl2-modules-gssapi-mit \
+    && apt-get install -y --no-install-recommends netbase tzdata ca-certificates wget curl jq unzip build-essential unixodbc xmlsec1 software-properties-common tini libsasl2-modules-gssapi-mit krb5-user \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
