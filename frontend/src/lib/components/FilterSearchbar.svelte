@@ -17,15 +17,19 @@
 		[K in keyof T]: FilterInstance<T[K]>
 	}
 	export type FilterInstance<T extends FilterSchema> = T extends { type: 'string' }
-		? { type: 'string'; value: string }
+		? string
 		: T extends { type: 'number' }
-			? { type: 'number'; value: number }
+			? number
 			: T extends { type: 'boolean' }
-				? { type: 'boolean'; value: boolean }
+				? boolean
 				: T extends { type: 'date' }
-					? { type: 'date'; value: Date }
-					: T extends { type: 'oneof'; options: infer O }
-						? { type: 'oneof'; value: O extends string[] ? O[number] : never }
+					? Date
+					: T extends { type: 'oneof'; options: infer O; allowCustomValue?: infer A }
+						? A extends true
+							? string
+							: O extends readonly string[]
+								? O[number]
+								: never
 						: never
 </script>
 
@@ -44,8 +48,12 @@
 
 	let { schema, value, class: className }: Props = $props()
 
-	function handleKeydown(e: KeyboardEvent) {
-		console.log(e.currentTarget)
+	function handleKeydown(
+		e: KeyboardEvent & {
+			currentTarget: EventTarget & HTMLDivElement
+		}
+	) {
+		console.log(inputElement?.textContent)
 	}
 
 	let open = $state(false)
@@ -71,9 +79,18 @@
 	}}
 	bind:this={inputElement}
 >
-	<div contenteditable="true">abc</div>
-	<div contenteditable="true">def</div>
-	test
+	​<!-- zero-width space -->
+	{#each Object.entries(value) as [key, val]}
+		{@const filterSchema = schema[key]}
+		{@const Icon = filterSchema.icon}
+		<div
+			class="flex items-center gap-1 bg-surface-hover rounded px-1 text-sm"
+			contenteditable="true"
+		>
+			<div><Icon size={12} class="inline mr-0.5" /> {key}: &nbsp;</div>
+			{val}
+		</div>
+	{/each}
 	<SearchIcon size="16" class="ml-auto" />
 </div>
 
@@ -84,7 +101,12 @@
 		<div class="text-xs px-2 my-2 font-bold">Filters</div>
 		{#each Object.entries(schema) as [key, filterSchema]}
 			{@const Icon = filterSchema.icon || SearchIcon}
-			<div class="py-2 px-2 rounded-md hover:bg-surface-hover cursor-pointer text-sm">
+			<div
+				class="py-2 px-2 rounded-md hover:bg-surface-hover cursor-pointer text-sm"
+				onclick={() => {
+					value[key] = ''
+				}}
+			>
 				<Icon size={16} class="mr-2 inline" />
 				{filterSchema.label}
 			</div>

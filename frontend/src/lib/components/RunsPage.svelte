@@ -477,6 +477,8 @@
 	)
 
 	let manualSelectionMode: undefined | 'cancel' | 'rerun' = $state()
+
+	let filtersTEMP = $state({})
 </script>
 
 <ConfirmationModal
@@ -612,6 +614,7 @@
 						schedule_path: { type: 'string', label: 'Schedule path' },
 						concurrency_key: { type: 'string', label: 'Concurrency key' }
 					}}
+					value={filtersTEMP}
 				/>
 			</div>
 		</div>
