@@ -1,9 +1,13 @@
+#[cfg(feature = "deno_core")]
 use serde_json::json;
+#[cfg(feature = "deno_core")]
 use sqlx::{Pool, Postgres};
 
+#[cfg(feature = "deno_core")]
 use windmill_test_utils::*;
 
 /// Helper to create a client authenticated as a specific user
+#[cfg(feature = "deno_core")]
 async fn create_client_for_user(_port: u16, token: &str) -> reqwest::Client {
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(
@@ -17,12 +21,14 @@ async fn create_client_for_user(_port: u16, token: &str) -> reqwest::Client {
 }
 
 /// Test helper to check if a GET request succeeds
+#[cfg(feature = "deno_core")]
 async fn can_read(client: &reqwest::Client, url: &str) -> bool {
     let resp = client.get(url).send().await.unwrap();
     resp.status().is_success()
 }
 
 /// Test helper to check if a POST request succeeds (for write operations)
+#[cfg(feature = "deno_core")]
 async fn can_write(client: &reqwest::Client, url: &str, body: serde_json::Value) -> bool {
     let resp = client.post(url).json(&body).send().await.unwrap();
     let status = resp.status();
