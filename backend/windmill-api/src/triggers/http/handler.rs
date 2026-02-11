@@ -6,7 +6,6 @@ use crate::{
     auth::{AuthCache, OptTokened},
     db::{ApiAuthed, DB},
     jobs::start_job_update_sse_stream,
-    resources::try_get_resource_from_db_as,
     triggers::trigger_helpers::{
         get_runnable_format, trigger_runnable, trigger_runnable_and_wait_for_result,
         trigger_runnable_inner, RunnableId,
@@ -30,6 +29,7 @@ use windmill_common::{
     triggers::{TriggerKind, TriggerMetadata},
     utils::{not_found_if_none, StripPath},
 };
+use windmill_store::resources::try_get_resource_from_db_as;
 use windmill_trigger::TriggerMode;
 
 #[cfg(feature = "parquet")]
