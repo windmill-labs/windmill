@@ -382,7 +382,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 			}
 
 			const { minTs, maxTs } = timeframe?.computeMinMax() ?? { minTs: null, maxTs: null }
-			if (jobs && maxTs == undefined) {
+			if (jobs) {
 				if (success == 'running') {
 					loadJobsIntern(false)
 				} else {
