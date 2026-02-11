@@ -190,7 +190,7 @@ pub async fn handle_dependency_job(
                 "WITH update_lock AS (
                     UPDATE script SET lock = $1 WHERE hash = $2 AND workspace_id = $3
                 )
-                INSERT INTO script_lock_hash (workspace_id, path, lockfile_hash)
+                INSERT INTO lock_hash (workspace_id, path, lockfile_hash)
                 VALUES ($3, $4, $5)
                 ON CONFLICT (workspace_id, path) DO UPDATE SET lockfile_hash = $5",
                 &content,
@@ -2236,15 +2236,39 @@ async fn try_skip_relock(
     let all_imports_unchanged = sqlx::query_scalar!(
         "SELECT
             COUNT(*) > 0
-            AND BOOL_AND(dm.imported_lockfile_hash = slh.lockfile_hash)
+            AND BOOL_AND(
+                CASE
+                    -- For dependencies/: use IS NOT DISTINCT FROM (NULL = NULL is true for legacy)
+                    -- And the reason for this, is that for every script we also add dependency on default workspace dependencies by default
+                    -- that default/unnamed workspace dependencies may not exist, but we still do this.
+                    -- it is needed for windmill to know what to redeploy when default workspace dependencies are being added
+
+                    -- naturally for non-existant entries we have no hash of it
+                    -- so if we compared hash with '=' (instead of IS NOT DISTINCT FROM), it would give false on NULL = NULL,
+                    -- which would mean that this entire query returns false, which means relock skip cannot happen
+
+                    -- The solution is to say if both: referenced and current hash are NULLs we treat it as true, so it becomes no longer a blocker from skip.
+                    --
+                    -- It is backed up by the fact that server is responsible for deploying new workspace dependencies
+                    -- so if one was to deploy a new wdeps, server would assign it new hash, and this expression would be invalid and would not approve skip
+                    WHEN dm.imported_path LIKE 'dependencies/%'
+                    THEN dm.imported_lockfile_hash IS NOT DISTINCT FROM lh.lockfile_hash
+
+                    -- For scripts: use = with COALESCE (NULL = NULL becomes false)
+                    -- unlike w deps, we can't do IS NOT DISTINCT FROM here
+                    -- the reason is that scripts deployments are issued by other workers instead of the server
+                    -- which would mean that there is no guarantee that new d job will also write it's lock's hash to the `lock_hash`
+                    -- which could lead to false positives
+                    ELSE COALESCE(dm.imported_lockfile_hash = lh.lockfile_hash, false)
+                END
+            )
         FROM dependency_map dm
-        LEFT JOIN script_lock_hash slh
-            ON slh.workspace_id = dm.workspace_id
-            AND slh.path = dm.imported_path
+        LEFT JOIN lock_hash lh
+            ON lh.workspace_id = dm.workspace_id
+            AND lh.path = dm.imported_path
         WHERE dm.workspace_id = $1
             AND dm.importer_path = $2
-            AND dm.importer_node_id = $3
-            AND dm.imported_path NOT LIKE 'dependencies/%'",
+            AND dm.importer_node_id = $3",
         w_id,
         base_path,
         step_id.unwrap_or("")
@@ -2302,7 +2326,9 @@ async fn capture_dependency_job(
     step_id: Option<&str>,
     runnable_type: &str, // "script", "flow", or "app"
 ) -> error::Result<String> {
-    // Check if we can skip relocking (triggered by relative import and all imports unchanged)
+    // Check if we can skip relocking:
+    // - Must be triggered by relative import
+    // - Debug flag must not be set
     if triggered_by_relative_import && !*WMDEBUG_NO_RELOCK_SKIP_OPTIMIZATION {
         match try_skip_relock(db, w_id, base_path, step_id, runnable_type, existing_lock).await {
             Ok(Some(lock)) => {

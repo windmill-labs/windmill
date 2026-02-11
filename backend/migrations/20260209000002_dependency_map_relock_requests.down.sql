@@ -1,1 +1,1 @@
-DROP TABLE IF EXISTS script_lock_hash;
+DROP TABLE IF EXISTS lock_hash;

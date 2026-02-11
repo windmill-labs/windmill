@@ -151,7 +151,7 @@ SELECT importer_node_id, imported_path, imported_lockfile_hash
 
         // Fetch lock hashes for all referenced paths
         let lock_hashes: std::collections::HashMap<String, Option<i64>> = sqlx::query_as(
-            "SELECT path, lockfile_hash FROM script_lock_hash WHERE workspace_id = $1 AND path = ANY($2)",
+            "SELECT path, lockfile_hash FROM lock_hash WHERE workspace_id = $1 AND path = ANY($2)",
         )
         .bind(&self.w_id)
         .bind(&referenced_paths)
