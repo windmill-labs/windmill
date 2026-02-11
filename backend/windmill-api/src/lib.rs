@@ -962,3 +962,12 @@ pub async fn migrate_db(
         .await
         .map_err(|e| anyhow::anyhow!("Error migrating db: {e:#}"))
 }
+
+pub async fn wait_for_db_migrations(
+    db: &DB,
+    killpill_rx: tokio::sync::broadcast::Receiver<()>,
+) -> anyhow::Result<()> {
+    db::wait_for_migrations(db, killpill_rx)
+        .await
+        .map_err(|e| anyhow::anyhow!("Error waiting for db migrations: {e:#}"))
+}
