@@ -3,12 +3,10 @@
     nixpkgs.url = "nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     rust-overlay.url = "github:oxalica/rust-overlay";
-    # Use separate channel for claude code. It always needs to be latest
-    nixpkgs-claude.url = "nixpkgs/nixos-unstable";
     nixpkgs-oapi-gen.url =
       "nixpkgs/2d068ae5c6516b2d04562de50a58c682540de9bf"; # openapi-generator-cli pin to 7.10.0
   };
-  outputs = { self, nixpkgs, nixpkgs-claude, flake-utils, rust-overlay
+  outputs = { self, nixpkgs, flake-utils, rust-overlay
     , nixpkgs-oapi-gen }:
     flake-utils.lib.eachDefaultSystem (system:
       let
@@ -17,10 +15,6 @@
           config.allowUnfree = true;
           overlays = [ (import rust-overlay) ];
         };
-        claude-code = (import nixpkgs-claude {
-          inherit system;
-          config.allowUnfree = true;
-        }).claude-code;
 
         openapi-generator-cli =
           (import nixpkgs-oapi-gen { inherit system; }).openapi-generator-cli;
@@ -141,8 +135,6 @@
 
         devShells.default = pkgs.mkShell {
           buildInputs = buildInputs ++ [
-            # To update run: `nix flake update nixpkgs-claude`
-            claude-code
             # To update run: `nix flake update nixpkgs-oapi-gen`
             openapi-generator-cli
           ] ++ (with pkgs; [
