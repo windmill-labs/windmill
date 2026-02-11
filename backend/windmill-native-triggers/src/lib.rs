@@ -144,6 +144,14 @@ impl ServiceName {
         }
     }
 
+    /// Returns extra OAuth authorization parameters required by this service.
+    pub fn extra_auth_params(&self) -> &[(&'static str, &'static str)] {
+        match self {
+            ServiceName::Google => &[("access_type", "offline"), ("prompt", "consent")],
+            ServiceName::Nextcloud => &[],
+        }
+    }
+
     /// Returns the integration service name for workspace_integrations lookup.
     pub fn integration_service(&self) -> ServiceName {
         *self
@@ -273,6 +281,18 @@ pub trait External: Send + Sync + 'static {
         db: &DB,
         tx: &mut PgConnection,
     ) -> Result<Vec<Self::TriggerData>>;
+
+    /// Hook called before the generic sync logic runs.
+    /// Override to perform service-specific pre-sync work (e.g. renewing expiring channels).
+    async fn pre_sync_hook(
+        &self,
+        _db: &DB,
+        _workspace_id: &str,
+        _triggers: &[NativeTrigger],
+        _synced: &mut Vec<crate::sync::TriggerSyncInfo>,
+        _errors: &mut Vec<crate::sync::SyncError>,
+    ) {
+    }
 
     async fn prepare_webhook(
         &self,
@@ -1109,7 +1129,7 @@ pub async fn prepare_native_trigger_args(
                 .await?;
             Ok(Some(args))
         }
-        _ => Ok(None),
+        ServiceName::Nextcloud => Ok(None),
     }
 }
 

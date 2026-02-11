@@ -542,10 +542,8 @@ fn build_authorization_url(
         ("scope", service_name.oauth_scopes()),
     ];
 
-    // Google requires access_type=offline to return a refresh token
-    if matches!(service_name, ServiceName::Google) {
-        params.push(("access_type", "offline"));
-        params.push(("prompt", "consent"));
+    for &(key, value) in service_name.extra_auth_params() {
+        params.push((key, value));
     }
 
     let query_string = params

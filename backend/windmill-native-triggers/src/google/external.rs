@@ -11,8 +11,10 @@ use windmill_common::{
 use windmill_queue::PushArgsOwned;
 
 use crate::{
-    generate_webhook_service_url, get_token_by_prefix, External, NativeTrigger, NativeTriggerData,
-    ServiceName,
+    generate_webhook_service_url, get_token_by_prefix,
+    sync::{SyncAction, SyncError, TriggerSyncInfo},
+    update_native_trigger_error, update_native_trigger_service_config, External, NativeTrigger,
+    NativeTriggerData, ServiceName,
 };
 
 use super::{
@@ -320,6 +322,17 @@ impl External for Google {
         Ok(PushArgsOwned { extra: None, args })
     }
 
+    async fn pre_sync_hook(
+        &self,
+        db: &DB,
+        workspace_id: &str,
+        triggers: &[NativeTrigger],
+        synced: &mut Vec<TriggerSyncInfo>,
+        errors: &mut Vec<SyncError>,
+    ) {
+        renew_expiring_channels(self, db, workspace_id, triggers, synced, errors).await;
+    }
+
     fn external_id_and_metadata_from_response(
         &self,
         resp: &Self::CreateResponse,
@@ -552,5 +565,127 @@ impl Google {
         }
 
         Ok(new_config)
+    }
+}
+
+/// Renewal window: renew Drive channels with <1 hour remaining, Calendar with <1 day remaining.
+fn should_renew_channel(service_config: &serde_json::Value) -> bool {
+    let expiration_ms = service_config
+        .get("expiration")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(0);
+
+    if expiration_ms == 0 {
+        return false;
+    }
+
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let remaining_ms = expiration_ms - now_ms;
+
+    let trigger_type = service_config
+        .get("triggerType")
+        .and_then(|t| t.as_str())
+        .unwrap_or("drive");
+
+    let renewal_window_ms: i64 = match trigger_type {
+        "calendar" => 24 * 60 * 60 * 1000, // 1 day for Calendar (7 day expiry)
+        _ => 60 * 60 * 1000,               // 1 hour for Drive (24h expiry)
+    };
+
+    remaining_ms < renewal_window_ms
+}
+
+async fn renew_expiring_channels(
+    handler: &Google,
+    db: &DB,
+    workspace_id: &str,
+    triggers: &[NativeTrigger],
+    synced: &mut Vec<TriggerSyncInfo>,
+    errors: &mut Vec<SyncError>,
+) {
+    for trigger in triggers {
+        let Some(config) = &trigger.service_config else {
+            continue;
+        };
+
+        if !should_renew_channel(config) {
+            continue;
+        }
+
+        tracing::info!(
+            "Renewing expiring Google channel {} for script_path '{}' in workspace '{}'",
+            trigger.external_id,
+            trigger.script_path,
+            workspace_id
+        );
+
+        match handler.renew_channel(workspace_id, trigger, db).await {
+            Ok(new_config) => {
+                match update_native_trigger_service_config(
+                    db,
+                    workspace_id,
+                    ServiceName::Google,
+                    &trigger.external_id,
+                    &new_config,
+                )
+                .await
+                {
+                    Ok(()) => {
+                        tracing::info!(
+                            "Renewed Google channel {} for '{}'",
+                            trigger.external_id,
+                            trigger.script_path
+                        );
+                        synced.push(TriggerSyncInfo {
+                            external_id: trigger.external_id.clone(),
+                            script_path: trigger.script_path.clone(),
+                            action: SyncAction::ConfigUpdated,
+                        });
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to update DB after renewing Google channel {}: {}",
+                            trigger.external_id,
+                            e
+                        );
+                        errors.push(SyncError {
+                            resource_path: format!("workspace:{}", workspace_id),
+                            error_message: format!(
+                                "Failed to update DB after channel renewal for {}: {}",
+                                trigger.external_id, e
+                            ),
+                            error_type: "channel_renewal_error".to_string(),
+                        });
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Failed to renew Google channel {} for '{}': {}",
+                    trigger.external_id,
+                    trigger.script_path,
+                    e
+                );
+
+                let _ = update_native_trigger_error(
+                    db,
+                    workspace_id,
+                    ServiceName::Google,
+                    &trigger.external_id,
+                    Some(&format!("Channel renewal failed: {}", e)),
+                )
+                .await;
+
+                errors.push(SyncError {
+                    resource_path: format!("workspace:{}", workspace_id),
+                    error_message: format!(
+                        "Channel renewal failed for {}: {}",
+                        trigger.external_id, e
+                    ),
+                    error_type: "channel_renewal_error".to_string(),
+                });
+            }
+        }
     }
 }
