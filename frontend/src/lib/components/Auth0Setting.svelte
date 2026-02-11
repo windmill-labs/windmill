@@ -58,7 +58,7 @@
 		/></label
 	>
 	{#if enabled}
-		<div class="p-4 rounded-md border flex flex-col gap-6">
+		<div class="p-4 rounded-md bg-surface-tertiary shadow-sm flex flex-col gap-6">
 			<label>
 				<div class="flex gap-2 items-start">
 					<div>
@@ -88,6 +88,7 @@
 				<TextInput
 					inputProps={{ type: 'text', placeholder: 'Custom Name' }}
 					bind:value={value['display_name']}
+					class="max-w-lg"
 				/>
 			</label>
 			<label class="flex flex-col gap-1">
@@ -98,6 +99,7 @@
 				<TextInput
 					inputProps={{ type: 'text', placeholder: 'Client Id' }}
 					bind:value={value['id']}
+					class="max-w-lg"
 				/>
 			</label>
 			<label class="flex flex-col gap-1">
@@ -107,6 +109,7 @@
 				<TextInput
 					inputProps={{ type: 'text', placeholder: 'Client Secret' }}
 					bind:value={value['secret']}
+					class="max-w-lg"
 				/>
 			</label>
 			<CollapseLink text="Instructions">

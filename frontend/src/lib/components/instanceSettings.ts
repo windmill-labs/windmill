@@ -506,9 +506,9 @@ export const settings: Record<string, Setting[]> = {
 	],
 	'Secret Storage': [
 		{
-			label: 'Secret Storage Backend',
+			label: 'Backend type',
 			description:
-				'Configure where secrets (secret variables) are stored. By default, secrets are encrypted and stored in the database. Enterprise Edition supports HashiCorp Vault as an external secret store.',
+				'By default, secrets are encrypted and stored in the database. Enterprise Edition supports HashiCorp Vault as an external secret store.',
 			key: 'secret_backend',
 			fieldType: 'secret_backend',
 			storage: 'setting',

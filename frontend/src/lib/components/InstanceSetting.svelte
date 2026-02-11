@@ -8,31 +8,26 @@
 	import Tooltip from './Tooltip.svelte'
 	import ObjectStoreConfigSettings from './ObjectStoreConfigSettings.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
-	import {
-		ConfigService,
-		IndexSearchService,
-		SettingService,
-		type ListAvailablePythonVersionsResponse
-	} from '$lib/gen'
-	import { Alert, Button, SecondsInput, Section, Skeleton } from './common'
+	import { ConfigService, SettingService, type ListAvailablePythonVersionsResponse } from '$lib/gen'
+	import { Button, SecondsInput, Skeleton } from './common'
 	import Password from './Password.svelte'
 	import { classNames } from '$lib/utils'
 	import Popover from './Popover.svelte'
-	import PopoverMelt from './meltComponents/Popover.svelte'
+	import DropdownV2 from './DropdownV2.svelte'
 	import Toggle from './Toggle.svelte'
 	import type { Writable } from 'svelte/store'
 	import { createEventDispatcher } from 'svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
-	import LoadingIcon from './apps/svelte-select/lib/LoadingIcon.svelte'
 	import EEOnly from './EEOnly.svelte'
 	import CriticalAlertChannels from './instanceSettings/CriticalAlertChannels.svelte'
 	import SmtpSettings from './instanceSettings/SmtpSettings.svelte'
 	import SecretBackendConfig from './instanceSettings/SecretBackendConfig.svelte'
+	import IndexerMemorySettings from './instanceSettings/IndexerMemorySettings.svelte'
+	import IndexerJobIndexSettings from './instanceSettings/IndexerJobIndexSettings.svelte'
+	import IndexerLogIndexSettings from './instanceSettings/IndexerLogIndexSettings.svelte'
 	import TextInput from './text_input/TextInput.svelte'
-	import Label from './Label.svelte'
 
 	interface Props {
 		setting: Setting
@@ -139,8 +134,6 @@
 	let pythonAvailableVersions: ListAvailablePythonVersionsResponse = $state([])
 
 	let isPyFetching = $state(false)
-	let clearJobsIndexModalOpen = $state(false)
-	let clearServiceLogsIndexModalOpen = $state(false)
 	async function fetch_available_python_versions() {
 		if (isPyFetching) return
 		isPyFetching = true
@@ -195,7 +188,7 @@
 			</ToggleButtonGroup>
 		</div>
 	{:else if setting.fieldType == 'select_python'}
-		<div>
+		<div class="p-4 rounded-md bg-surface-tertiary shadow-sm">
 			<!-- svelte-ignore a11y_label_has_associated_control -->
 			{@render LabelSnippet()}
 
@@ -209,45 +202,74 @@
 							item={toggleButtonn}
 						/>
 					{/each}
-					<PopoverMelt closeButton={!isPyFetching} contentClasses="max-w-md">
-						{#snippet trigger()}
+					<DropdownV2
+						items={() => pythonAvailableVersions.map((v) => ({
+							displayName: v,
+							action: () => { $values[setting.key] = v }
+						}))}
+					>
+						{#snippet buttonReplacement()}
 							{#if setting.select_items?.some((e) => e.label == $values[setting.key] || e.value == $values[setting.key])}
-								<Button
-									variant="default"
-									btnClasses="px-1.5 py-1.5 text-2xs bg-surface-secondary border-0"
-									nonCaptureEvent={true}>Select Custom</Button
+								<Button variant="subtle" btnClasses="font-normal" nonCaptureEvent={true}
+									>Select Custom</Button
 								>
 							{:else}
 								<Button
 									variant="default"
-									btnClasses="px-1.5 py-1.5 text-2xs border-0 shadow-md"
+									btnClasses="font-normal bg-surface-input"
 									nonCaptureEvent={true}>Custom | {$values[setting.key]}</Button
 								>
 							{/if}
 						{/snippet}
-						{#snippet content()}
-							{#if isPyFetching}
-								<div class="p-4">
-									<LoadingIcon />
-								</div>
-							{:else}
-								<ToggleButtonGroup
-									bind:selected={$values[setting.key]}
-									class="mr-10 h-full"
-									tabListClass="flex-wrap p-2"
-								>
-									{#snippet children({ item: toggleButtonn })}
-										{#each pythonAvailableVersions as item}
-											<ToggleButton value={item} label={item} tooltip={item} item={toggleButtonn} />
-										{/each}
-									{/snippet}
-								</ToggleButtonGroup>
-							{/if}
-						{/snippet}
-					</PopoverMelt>
+					</DropdownV2>
 				{/snippet}
 			</ToggleButtonGroup>
 		</div>
+	{:else if setting.fieldType == 'indexer_rates'}
+		{#if $values[setting.key]}
+			<div class="p-4 rounded-md bg-surface-tertiary shadow-sm">
+				<div class="flex flex-col gap-2">
+					<div class="flex gap-1 items-baseline">
+						<span class="text-emphasis font-semibold text-xs">Memory</span>
+						{#if !$enterpriseLicense}<EEOnly />{/if}
+					</div>
+					<span class="text-secondary font-normal text-xs">
+						Configure the memory budget for the indexer and manage index clearing.
+					</span>
+				</div>
+				<div class="p-4 rounded-md border mt-2">
+					<IndexerMemorySettings {values} disabled={!$enterpriseLicense} />
+				</div>
+			</div>
+			<div class="p-4 rounded-md bg-surface-tertiary shadow-sm">
+				<div class="flex flex-col gap-1">
+					<div class="flex gap-1 items-baseline">
+						<span class="text-emphasis font-semibold text-xs">Completed Job Index</span>
+						{#if !$enterpriseLicense}<EEOnly />{/if}
+					</div>
+					<span class="text-secondary font-normal text-xs">
+						Configure indexing parameters for completed jobs.
+					</span>
+				</div>
+				<div class="p-4 rounded-md border mt-2">
+					<IndexerJobIndexSettings {values} disabled={!$enterpriseLicense} />
+				</div>
+			</div>
+			<div class="p-4 rounded-md bg-surface-tertiary shadow-sm">
+				<div class="flex flex-col gap-1">
+					<div class="flex gap-1 items-baseline">
+						<span class="text-emphasis font-semibold text-xs">Service Logs Index</span>
+						{#if !$enterpriseLicense}<EEOnly />{/if}
+					</div>
+					<span class="text-secondary font-normal text-xs">
+						Configure indexing parameters for service logs.
+					</span>
+				</div>
+				<div class="p-4 rounded-md border mt-2">
+					<IndexerLogIndexSettings {values} disabled={!$enterpriseLicense} />
+				</div>
+			</div>
+		{/if}
 	{:else}
 		{#snippet settingContent()}
 			<div class="p-4 rounded-md bg-surface-tertiary shadow-sm">
@@ -295,15 +317,15 @@
 					{#if loading}
 						<Skeleton layout={[[2.5]]} />
 					{:else if setting.fieldType == 'text'}
-						<input
-							id={setting.key}
-							disabled={setting.ee_only != undefined && !$enterpriseLicense}
-							type="text"
-							placeholder={setting.placeholder}
-							class={hasError
-								? 'border !border-red-700 !border-opacity-30 !focus:border-red-700 !focus:border-opacity-30'
-								: ''}
+						<TextInput
+							inputProps={{
+								type: 'text',
+								id: setting.key,
+								disabled: setting.ee_only != undefined && !$enterpriseLicense,
+								placeholder: setting.placeholder
+							}}
 							bind:value={$values[setting.key]}
+							class="max-w-lg"
 						/>
 						{#if setting.advancedToggle}
 							<div class="mt-1">
@@ -370,7 +392,7 @@
 								bind:password={$values[setting.key]}
 							/>
 							<Button
-								variant="accent"
+								variant="default"
 								unifiedSize="md"
 								disabled={!$values[setting.key]}
 								on:click={async () => {
@@ -479,7 +501,7 @@
 							{/if}
 							{#if licenseKeyChanged && !$enterpriseLicense}
 								{#if version.startsWith('CE')}
-									<div class="text-red-400"
+									<div class="text-red-600 dark:text-red-400"
 										>License key is set but image used is the Community Edition {version}. Switch
 										image to EE.</div
 									>
@@ -534,233 +556,8 @@
 						</div>
 					{:else if setting.fieldType == 'critical_error_channels'}
 						<CriticalAlertChannels {values} {openSmtpSettings} {oauths} />
-					{:else if setting.fieldType == 'indexer_rates'}
-						<Alert
-							type="info"
-							title="Full text search across jobs and service logs is an EE feature"
-						></Alert>
-						<div class="flex flex-col gap-16 mt-4">
-							{#if $values[setting.key]}
-								<Section label="Memory" class="space-y-6">
-									<div class="flex flex-col gap-1">
-										<label
-											for="writer_memory_budget"
-											class="block text-xs font-semibold text-emphasis"
-										>
-											Index writer memory budget (MB)
-											<Tooltip>
-												The allocated memory arena for the indexer. A bigger value means less
-												writing to disk and potentially higher indexing throughput
-											</Tooltip>
-										</label>
-										<TextInput
-											inputProps={{
-												type: 'number',
-												placeholder: '300',
-												id: 'writer_memory_budget',
-												disabled: !$enterpriseLicense,
-												oninput: (e) => {
-													if (e.target instanceof HTMLInputElement) {
-														if (e.target.valueAsNumber) {
-															$values[setting.key].writer_memory_budget =
-																e.target.valueAsNumber * (1024 * 1024)
-														}
-													}
-												}
-											}}
-											value={$values[setting.key].writer_memory_budget / (1024 * 1024)}
-										/>
-									</div>
-									<Label label="Clear index">
-										<span class="text-xs text-secondary"
-											>This buttons will clear the whole index, and the service will start
-											reindexing from scratch. Full text search might be down during this time.</span
-										>
-										<div class="flex flex-row gap-2">
-											<Button
-												variant="default"
-												unifiedSize="sm"
-												on:click={() => {
-													clearJobsIndexModalOpen = true
-												}}
-											>
-												Clear jobs index
-											</Button>
-											<Button
-												variant="default"
-												unifiedSize="sm"
-												on:click={() => {
-													clearServiceLogsIndexModalOpen = true
-												}}
-											>
-												Clear service logs index
-											</Button>
-										</div>
-									</Label>
-									<ConfirmationModal
-										title="Clear jobs index"
-										confirmationText="Clear"
-										open={clearJobsIndexModalOpen}
-										type="danger"
-										on:canceled={() => {
-											clearJobsIndexModalOpen = false
-										}}
-										on:confirmed={async () => {
-											const r = await IndexSearchService.clearIndex({
-												idxName: 'JobIndex'
-											})
-											sendUserToast(r)
-											clearJobsIndexModalOpen = false
-										}}
-									>
-										Are you sure you want to clear the jobs index? The service will start reindexing
-										from scratch. Full text search might be down during this time.
-									</ConfirmationModal>
-									<ConfirmationModal
-										title="Clear service logs index"
-										confirmationText="Clear"
-										open={clearServiceLogsIndexModalOpen}
-										type="danger"
-										on:canceled={() => {
-											clearServiceLogsIndexModalOpen = false
-										}}
-										on:confirmed={async () => {
-											const r = await IndexSearchService.clearIndex({
-												idxName: 'ServiceLogIndex'
-											})
-											sendUserToast(r)
-											clearServiceLogsIndexModalOpen = false
-										}}
-									>
-										Are you sure you want to clear the service logs index? The service will start
-										reindexing from scratch. Full text search might be down during this time.
-									</ConfirmationModal>
-								</Section>
-								<hr class="border-t -my-6" />
-								<Section label="Completed Job Index" class="space-y-6">
-									<div class="flex flex-col gap-1">
-										<label
-											for="commit_job_max_batch_size"
-											class="block text-xs font-semibold text-emphasis"
-										>
-											Commit max batch size <Tooltip>
-												The max amount of documents (here jobs) per commit. To optimize indexing
-												throughput, it is best to keep this as high as possible. However, especially
-												when reindexing the whole instance, it can be useful to have a limit on how
-												many jobs can be written without being committed. A commit will make the
-												jobs available for search, constitute a "checkpoint" state in the indexing
-												and will be logged.
-											</Tooltip>
-										</label>
-										<TextInput
-											inputProps={{
-												type: 'number',
-												placeholder: '100000',
-												id: 'commit_job_max_batch_size',
-												disabled: !$enterpriseLicense
-											}}
-											bind:value={$values[setting.key].commit_job_max_batch_size}
-										/>
-									</div>
-									<div class="flex flex-col gap-1">
-										<label
-											for="refresh_index_period"
-											class="block text-xs font-semibold text-emphasis"
-										>
-											Refresh index period (s) <Tooltip>
-												The index will query new jobs periodically and write them on the index. This
-												setting sets that period.
-											</Tooltip></label
-										>
-										<TextInput
-											inputProps={{
-												type: 'number',
-												placeholder: '300',
-												id: 'refresh_index_period',
-												disabled: !$enterpriseLicense
-											}}
-											bind:value={$values[setting.key].refresh_index_period}
-										/>
-									</div>
-									<div class="flex flex-col gap-1">
-										<label
-											for="max_indexed_job_log_size"
-											class="block text-xs font-semibold text-emphasis"
-										>
-											Max indexed job log size (KB) <Tooltip>
-												Job logs are included when indexing, but to avoid the index size growing
-												artificially, the logs will be truncated after a size has been reached.
-											</Tooltip>
-										</label>
-										<TextInput
-											inputProps={{
-												type: 'number',
-												placeholder: '1024',
-												id: 'max_indexed_job_log_size',
-												disabled: !$enterpriseLicense,
-												oninput: (e) => {
-													if (e.target instanceof HTMLInputElement) {
-														if (e.target.valueAsNumber) {
-															$values[setting.key].max_indexed_job_log_size =
-																e.target.valueAsNumber * 1024
-														}
-													}
-												}
-											}}
-											value={$values[setting.key].max_indexed_job_log_size / 1024}
-										/>
-									</div>
-								</Section>
-								<hr class="border-t -my-6" />
-								<Section label="Service logs index" class="space-y-6">
-									<div class="flex flex-col gap-1">
-										<label
-											for="commit_log_max_batch_size"
-											class="block text-xs font-semibold text-emphasis"
-											>Commit max batch size <Tooltip>
-												The max amount of documents per commit. In this case 1 document is one log
-												file representing all logs during 1 minute for a specific host. To optimize
-												indexing throughput, it is best to keep this as high as possible. However,
-												especially when reindexing the whole instance, it can be useful to have a
-												limit on how many logs can be written without being committed. A commit will
-												make the logs available for search, appear as a log line, and be a
-												"checkpoint" of the indexing progress.
-											</Tooltip>
-										</label>
-										<input
-											disabled={!$enterpriseLicense}
-											type="number"
-											id="commit_log_max_batch_size"
-											placeholder="10000"
-											bind:value={$values[setting.key].commit_log_max_batch_size}
-										/>
-									</div>
-
-									<div class="flex flex-col gap-1">
-										<label
-											for="refresh_log_index_period"
-											class="block text-xs font-semibold text-emphasis"
-										>
-											Refresh index period (s) <Tooltip>
-												The index will query new service logs peridically and write them on the
-												index. This setting sets that period.
-											</Tooltip>
-										</label>
-										<TextInput
-											inputProps={{
-												type: 'number',
-												placeholder: '300',
-												id: 'refresh_log_index_period',
-												disabled: !$enterpriseLicense
-											}}
-											bind:value={$values[setting.key].refresh_log_index_period}
-										/>
-									</div>
-								</Section>
-							{/if}
-						</div>
 					{:else if setting.fieldType == 'otel'}
-						<div class="flex flex-col gap-4 border rounded p-4">
+						<div class="flex flex-col gap-4 p-4 rounded-md border">
 							{#if $values[setting.key]}
 								<div class="flex gap-8">
 									<Toggle
@@ -914,6 +711,7 @@
 								id: setting.key
 							}}
 							bind:value={$values[setting.key]}
+							class="max-w-lg"
 						/>
 					{:else if setting.fieldType == 'password'}
 						<Password

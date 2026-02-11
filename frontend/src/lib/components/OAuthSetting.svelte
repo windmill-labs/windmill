@@ -99,7 +99,7 @@
 		{/if}
 	</label>
 	{#if enabled}
-		<div class="p-4 rounded border mb-4 flex flex-col gap-6">
+		<div class="p-4 rounded bg-surface-tertiary shadow-sm mb-4 flex flex-col gap-6">
 			{#if name != 'slack' && name != 'teams'}
 				<label class="flex flex-col gap-1">
 					<span class="text-emphasis font-semibold text-xs">Custom Name</span>

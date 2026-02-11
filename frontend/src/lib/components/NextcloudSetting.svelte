@@ -59,7 +59,7 @@
 		/></label
 	>
 	{#if enabled}
-		<div class="p-4 rounded-md border flex flex-col gap-6">
+		<div class="p-4 rounded bg-surface-tertiary shadow-sm flex flex-col gap-6">
 			<label class="flex flex-col gap-1">
 				<span class="text-emphasis font-semibold text-xs">Nextcloud Instance Domain</span>
 				<TextInput

@@ -56,7 +56,7 @@
 		/></label
 	>
 	{#if enabled}
-		<div class="border rounded p-4 flex flex-col gap-6">
+		<div class="p-4 rounded bg-surface-tertiary shadow-sm flex flex-col gap-6">
 			<label class="flex flex-col gap-1">
 				<span class="text-emphasis font-semibold text-xs">Kanidm Url</span>
 				<span class="text-secondary font-normal text-xs">{'KANIDM_URL/ui/oauth2'}</span>

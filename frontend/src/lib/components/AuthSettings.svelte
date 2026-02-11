@@ -283,7 +283,7 @@
 										}}
 									/>
 								</div>
-								<div class="p-4 border rounded">
+								<div class="p-4 rounded bg-surface-tertiary shadow-sm">
 									<label class="block pb-2">
 										<span class="text-primary font-semibold text-xs">Custom Name</span>
 										<input

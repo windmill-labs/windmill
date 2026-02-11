@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { scimSamlSetting, settings, settingsKeys, type SettingStorage } from './instanceSettings'
-	import { Button, Tab, TabContent, Tabs } from '$lib/components/common'
+	import { Alert, Button, Tab, TabContent, Tabs } from '$lib/components/common'
 	import { SettingService, SettingsService } from '$lib/gen'
 	import type { TeamsChannel } from '$lib/gen/types.gen'
 
@@ -519,6 +519,13 @@
 				description="The indexer service unlocks full text search across jobs and service logs. It requires spinning up its own separate container."
 				link="https://www.windmill.dev/docs/core_concepts/search_bar#setup"
 			/>
+			{#if !$enterpriseLicense}
+				<Alert
+					type="info"
+					title="Full text search across jobs and service logs is an EE feature"
+					class="mb-2"
+				/>
+			{/if}
 		{:else if category == 'Telemetry'}
 			<SettingsPageHeader title="Telemetry" />
 			<div class="text-primary pb-4 text-xs">
