@@ -1,9 +1,8 @@
-mod common;
 mod workspace_dependencies {
 
-    use crate::common::in_test_worker;
-    use crate::common::init_client;
-    use crate::common::listen_for_completed_jobs;
+    use windmill_test_utils::in_test_worker;
+    use windmill_test_utils::init_client;
+    use windmill_test_utils::listen_for_completed_jobs;
     use sqlx::{Pool, Postgres};
     use tokio_stream::StreamExt;
     use windmill_common::scripts::ScriptLang;

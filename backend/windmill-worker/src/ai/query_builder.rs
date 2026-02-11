@@ -119,6 +119,7 @@ pub fn create_query_builder(provider: &ProviderWithResource) -> Box<dyn QueryBui
         AIProvider::Anthropic => Box::new(AnthropicQueryBuilder::new(
             provider.kind.clone(),
             provider.get_platform().clone(),
+            provider.get_enable_1m_context(),
         )),
         AIProvider::OpenRouter => Box::new(OpenRouterQueryBuilder::new()),
         // All other providers use the completion endpoint

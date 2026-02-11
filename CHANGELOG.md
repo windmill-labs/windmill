@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.631.2](https://github.com/windmill-labs/windmill/compare/v1.631.1...v1.631.2) (2026-02-11)
+
+
+### Bug Fixes
+
+* **frontend:** revert CloseButton refactor that broke tag removal in MultiSelect ([#7909](https://github.com/windmill-labs/windmill/issues/7909)) ([b11d6ed](https://github.com/windmill-labs/windmill/commit/b11d6ed7940faddfe74a22b25bcb132527cbcec8))
+* nix flake libz.so for deno_core ([#7905](https://github.com/windmill-labs/windmill/issues/7905)) ([900c76c](https://github.com/windmill-labs/windmill/commit/900c76ccad09f58fc6adcfa8151db780249617f6))
+* strip unsupported schema fields for Google AI ([#7894](https://github.com/windmill-labs/windmill/issues/7894)) ([5effb87](https://github.com/windmill-labs/windmill/commit/5effb87a36793e20d17e678619091ef458fe8f0a)), closes [#7759](https://github.com/windmill-labs/windmill/issues/7759)
+
+## [1.631.1](https://github.com/windmill-labs/windmill/compare/v1.631.0...v1.631.1) (2026-02-11)
+
+
+### Bug Fixes
+
+* add kafka-gssapi support to ee builds ([2815cfa](https://github.com/windmill-labs/windmill/commit/2815cfae1a5eefb2c553e893dc926e62ad1df528))
+
+## [1.631.0](https://github.com/windmill-labs/windmill/compare/v1.630.2...v1.631.0) (2026-02-11)
+
+
+### Features
+
+* **ai:** support 1M context window for Anthropic resources ([#7891](https://github.com/windmill-labs/windmill/issues/7891)) ([f22eb96](https://github.com/windmill-labs/windmill/commit/f22eb964e47defe9922ecdb6ab471dd4ca267952))
+* **uv:** index resolve strategy ([#7885](https://github.com/windmill-labs/windmill/issues/7885)) ([097d928](https://github.com/windmill-labs/windmill/commit/097d9288c58076882f1991e2fb33e4441fe332d3))
+
+
+### Bug Fixes
+
+* **frontend:** improve time picker ([#7893](https://github.com/windmill-labs/windmill/issues/7893)) ([31bfccc](https://github.com/windmill-labs/windmill/commit/31bfccc74588af10fc11fbbb0bc4833d65ff6421))
+* otel gracefully handle no native ts ([92c6018](https://github.com/windmill-labs/windmill/commit/92c601860f1e1211aa34838cd08900ba7334a20c))
+* waitJob getJob and streamJob in raw apps ([#7901](https://github.com/windmill-labs/windmill/issues/7901)) ([754b48c](https://github.com/windmill-labs/windmill/commit/754b48cb898dffe196339cea1c1598c9e1765cdc))
+* worker do not apply migrations anymore but wait for servers to do so ([7eb239f](https://github.com/windmill-labs/windmill/commit/7eb239f1e2eb1b71234a8d4265c7c5813e5861ae))
+
 ## [1.630.2](https://github.com/windmill-labs/windmill/compare/v1.630.1...v1.630.2) (2026-02-11)
 
 
