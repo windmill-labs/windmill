@@ -211,9 +211,7 @@
 						{#if flowStore.val.value.cache_ttl}
 							<div class="flex gap-x-4 flex-col gap-1 mt-2" transition:slide={{ duration: 120 }}>
 								<div class="text-2xs text-secondary">How long to keep the cache valid</div>
-								<div class="-mt-5">
-									<SecondsInput bind:seconds={flowStore.val.value.cache_ttl} />
-								</div>
+								<SecondsInput bind:seconds={flowStore.val.value.cache_ttl} />
 								<Toggle
 									size="2xs"
 									bind:checked={

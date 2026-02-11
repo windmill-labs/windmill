@@ -919,6 +919,7 @@
 								? 60 * 60 * 24 * 30
 								: undefined}
 							bind:seconds={$values[setting.key]}
+							clearable
 						/>
 					</div>
 				{:else if setting.fieldType == 'select'}
