@@ -24,7 +24,7 @@ use windmill_common::{
     DB,
 };
 
-use crate::{db::ApiAuthed, utils::require_super_admin};
+use windmill_api_auth::{ApiAuthed, require_super_admin};
 
 pub fn global_service() -> Router {
     Router::new()

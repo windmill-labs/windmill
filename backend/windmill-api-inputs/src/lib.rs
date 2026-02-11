@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::db::ApiAuthed;
+use windmill_api_auth::ApiAuthed;
 use axum::{
     extract::{Path, Query},
     routing::{get, post},

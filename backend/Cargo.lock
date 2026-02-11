@@ -15768,7 +15768,9 @@ dependencies = [
  "url",
  "uuid",
  "windmill-api",
+ "windmill-api-agent-workers",
  "windmill-api-client",
+ "windmill-api-settings",
  "windmill-autoscaling",
  "windmill-common",
  "windmill-dep-map",
@@ -15779,6 +15781,19 @@ dependencies = [
  "windmill-worker",
  "windows-service",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "windmill-alerting"
+version = "1.630.2"
+dependencies = [
+ "axum 0.7.9",
+ "chrono",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tracing",
+ "windmill-common",
 ]
 
 [[package]]
@@ -15867,13 +15882,25 @@ dependencies = [
  "url",
  "urlencoding",
  "uuid",
+ "windmill-alerting",
+ "windmill-api-agent-workers",
+ "windmill-api-assets",
  "windmill-api-auth",
+ "windmill-api-configs",
+ "windmill-api-debug",
  "windmill-api-embeddings",
+ "windmill-api-flow-conversations",
  "windmill-api-groups",
+ "windmill-api-inputs",
  "windmill-api-jobs",
+ "windmill-api-npm-proxy",
+ "windmill-api-openapi",
+ "windmill-api-schedule",
  "windmill-api-scripts",
+ "windmill-api-settings",
  "windmill-api-sse",
  "windmill-api-users",
+ "windmill-api-workers",
  "windmill-api-workspaces",
  "windmill-audit",
  "windmill-autoscaling",
@@ -15903,6 +15930,42 @@ dependencies = [
  "windmill-trigger-sqs",
  "windmill-trigger-websocket",
  "windmill-worker",
+]
+
+[[package]]
+name = "windmill-api-agent-workers"
+version = "1.630.2"
+dependencies = [
+ "axum 0.7.9",
+ "chrono",
+ "http 1.4.0",
+ "hyper 1.8.1",
+ "lazy_static",
+ "quick_cache",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+ "windmill-api-auth",
+ "windmill-common",
+ "windmill-parser-py-imports",
+ "windmill-queue",
+ "windmill-worker",
+]
+
+[[package]]
+name = "windmill-api-assets"
+version = "1.630.2"
+dependencies = [
+ "axum 0.7.9",
+ "chrono",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "windmill-api-auth",
+ "windmill-common",
 ]
 
 [[package]]
@@ -15942,6 +16005,46 @@ dependencies = [
 ]
 
 [[package]]
+name = "windmill-api-configs"
+version = "1.630.2"
+dependencies = [
+ "axum 0.7.9",
+ "chrono",
+ "itertools 0.14.0",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "windmill-api-auth",
+ "windmill-audit",
+ "windmill-autoscaling",
+ "windmill-common",
+ "windmill-worker",
+]
+
+[[package]]
+name = "windmill-api-debug"
+version = "1.630.2"
+dependencies = [
+ "axum 0.7.9",
+ "base64 0.22.1",
+ "chrono",
+ "ed25519-dalek",
+ "hex",
+ "lazy_static",
+ "rand 0.9.0",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+ "windmill-api-auth",
+ "windmill-audit",
+ "windmill-common",
+]
+
+[[package]]
 name = "windmill-api-embeddings"
 version = "1.630.2"
 dependencies = [
@@ -15965,6 +16068,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "windmill-api-flow-conversations"
+version = "1.630.2"
+dependencies = [
+ "axum 0.7.9",
+ "chrono",
+ "serde",
+ "sql-builder",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+ "windmill-api-auth",
+ "windmill-common",
+]
+
+[[package]]
 name = "windmill-api-groups"
 version = "1.630.2"
 dependencies = [
@@ -15982,6 +16101,20 @@ dependencies = [
  "windmill-audit",
  "windmill-common",
  "windmill-git-sync",
+]
+
+[[package]]
+name = "windmill-api-inputs"
+version = "1.630.2"
+dependencies = [
+ "axum 0.7.9",
+ "chrono",
+ "serde",
+ "serde_json",
+ "sql-builder",
+ "sqlx",
+ "windmill-api-auth",
+ "windmill-common",
 ]
 
 [[package]]
@@ -16006,6 +16139,63 @@ dependencies = [
  "windmill-api-auth",
  "windmill-api-sse",
  "windmill-common",
+ "windmill-queue",
+]
+
+[[package]]
+name = "windmill-api-npm-proxy"
+version = "1.630.2"
+dependencies = [
+ "axum 0.7.9",
+ "flate2",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tar",
+ "tower-http",
+ "tracing",
+ "windmill-api-auth",
+ "windmill-common",
+]
+
+[[package]]
+name = "windmill-api-openapi"
+version = "1.630.2"
+dependencies = [
+ "anyhow",
+ "axum 0.7.9",
+ "http 1.4.0",
+ "indexmap 2.11.1",
+ "itertools 0.14.0",
+ "lazy_static",
+ "serde",
+ "serde_json",
+ "serde_yml",
+ "sqlx",
+ "url",
+ "windmill-api-auth",
+ "windmill-common",
+ "windmill-store",
+ "windmill-trigger-http",
+]
+
+[[package]]
+name = "windmill-api-schedule"
+version = "1.630.2"
+dependencies = [
+ "axum 0.7.9",
+ "chrono",
+ "chrono-tz",
+ "serde",
+ "serde_json",
+ "sql-builder",
+ "sqlx",
+ "tracing",
+ "windmill-api-auth",
+ "windmill-api-settings",
+ "windmill-audit",
+ "windmill-common",
+ "windmill-git-sync",
  "windmill-queue",
 ]
 
@@ -16036,6 +16226,32 @@ dependencies = [
  "windmill-parser-py",
  "windmill-parser-ts",
  "windmill-queue",
+]
+
+[[package]]
+name = "windmill-api-settings"
+version = "1.630.2"
+dependencies = [
+ "anyhow",
+ "axum 0.7.9",
+ "base64 0.22.1",
+ "bytes",
+ "chrono",
+ "futures",
+ "lazy_static",
+ "object_store",
+ "regex",
+ "rsa",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+ "windmill-alerting",
+ "windmill-api-auth",
+ "windmill-common",
 ]
 
 [[package]]
@@ -16071,6 +16287,20 @@ dependencies = [
  "windmill-audit",
  "windmill-common",
  "windmill-git-sync",
+]
+
+[[package]]
+name = "windmill-api-workers"
+version = "1.630.2"
+dependencies = [
+ "axum 0.7.9",
+ "chrono",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "uuid",
+ "windmill-api-auth",
+ "windmill-common",
 ]
 
 [[package]]

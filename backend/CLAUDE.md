@@ -37,11 +37,15 @@ Windmill uses a workspace-based architecture with multiple crates:
 - Update database schema with migration if necessary
 - Use `sqlx` for database operations with prepared statements
 - Use transactions for multi-step operations
+- To apply pending migrations: `sqlx migrate run` (never manually run .sql files)
+- **Never use `SQLX_OFFLINE=true`** — a live database is always available for compilation
+- After all code changes are done, run `./update-sqlx` to regenerate the offline query cache
 
 ## Enterprise Features
 
 - Enterprise files use the `*_ee.rs` suffix
-- Enterprise source is in `windmill-ee-private` folder (sibling directory), symlinked into each crate's `src/`
+- Enterprise source is in `windmill-ee-private` folder (sibling directory at `../../windmill-ee-private`), symlinked into each crate's `src/`
+- You can and should modify `windmill-ee-private` directly when needed (e.g., when creating new crates that need EE code, mirror the package structure there)
 - Use feature flags: `#[cfg(feature = "enterprise")]`
 - Isolate enterprise code in separate modules
 

@@ -12,7 +12,7 @@ use windmill_common::{
     error::JsonResult,
 };
 
-use crate::db::ApiAuthed;
+use windmill_api_auth::ApiAuthed;
 
 pub fn workspaced_service() -> Router {
     Router::new()

@@ -1,0 +1,38 @@
+[package]
+name = "windmill-api-settings"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_api_settings"
+path = "src/lib.rs"
+
+[features]
+default = []
+enterprise = []
+private = ["windmill-common/private"]
+parquet = ["dep:object_store", "windmill-common/parquet"]
+license = ["dep:rsa"]
+
+[dependencies]
+windmill-alerting.workspace = true
+windmill-api-auth.workspace = true
+windmill-common = { workspace = true, default-features = false }
+axum.workspace = true
+anyhow.workspace = true
+bytes.workspace = true
+chrono.workspace = true
+futures.workspace = true
+lazy_static.workspace = true
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+base64.workspace = true
+sha2.workspace = true
+rsa = { workspace = true, optional = true }
+object_store = { workspace = true, optional = true }

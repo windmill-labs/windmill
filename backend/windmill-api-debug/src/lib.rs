@@ -41,7 +41,7 @@ use windmill_common::{
     users::username_to_permissioned_as,
 };
 
-use crate::db::ApiAuthed;
+use windmill_api_auth::ApiAuthed;
 
 /// TTL for debug tokens in seconds (60 seconds)
 pub const DEBUG_TOKEN_TTL_SECS: i64 = 60;

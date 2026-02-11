@@ -1,6 +1,8 @@
 #[cfg(feature = "private")]
+mod ee;
+#[cfg(feature = "private")]
 #[allow(unused)]
-pub use crate::agent_workers_ee::*;
+pub use ee::*;
 
 /*
  * Author: Ruben Fiszel
@@ -11,7 +13,7 @@ pub use crate::agent_workers_ee::*;
  */
 
 #[cfg(not(feature = "private"))]
-use crate::db::DB;
+use windmill_common::DB;
 
 #[cfg(not(feature = "private"))]
 use axum::Router;
