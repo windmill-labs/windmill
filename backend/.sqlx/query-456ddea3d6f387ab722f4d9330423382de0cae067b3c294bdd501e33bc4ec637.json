@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n            COUNT(*) > 0\n            AND BOOL_AND(dm.imported_lockfile_hash = slh.lockfile_hash)\n        FROM dependency_map dm\n        LEFT JOIN script_lock_hash slh\n            ON slh.workspace_id = dm.workspace_id\n            AND slh.path = dm.imported_path\n        WHERE dm.workspace_id = $1\n            AND dm.importer_path = $2\n            AND dm.importer_node_id = $3\n            AND dm.imported_path NOT LIKE 'dependencies/%'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "456ddea3d6f387ab722f4d9330423382de0cae067b3c294bdd501e33bc4ec637"
+}
