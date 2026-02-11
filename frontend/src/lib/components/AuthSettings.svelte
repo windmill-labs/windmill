@@ -284,7 +284,7 @@
 									/>
 								</div>
 								<div class="p-4 rounded bg-surface-tertiary shadow-sm">
-									<label class="block pb-2">
+									<label class="block pb-6">
 										<span class="text-primary font-semibold text-xs">Custom Name</span>
 										<input
 											type="text"
@@ -292,11 +292,11 @@
 											bind:value={oauths[k]['display_name']}
 										/>
 									</label>
-									<label class="block pb-2">
+									<label class="block pb-6">
 										<span class="text-primary font-semibold text-xs">Client Id</span>
 										<input type="text" placeholder="Client Id" bind:value={oauths[k]['id']} />
 									</label>
-									<label class="block pb-2">
+									<label class="block pb-6">
 										<span class="text-primary font-semibold text-xs">Client Secret</span>
 										<input
 											type="text"
