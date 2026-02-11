@@ -1,14 +1,16 @@
 <script lang="ts">
 	import Tooltip from '../Tooltip.svelte'
-	import TextInput from '../text_input/TextInput.svelte'
+	import IntegerInput from '../IntegerInput.svelte'
+	import InputError from '../InputError.svelte'
 	import type { Writable } from 'svelte/store'
 
 	interface Props {
 		values: Writable<Record<string, any>>
 		disabled?: boolean
+		errors?: Record<string, string>
 	}
 
-	let { values, disabled = false }: Props = $props()
+	let { values, disabled = false, errors = {} }: Props = $props()
 </script>
 
 <div class="space-y-6">
@@ -23,15 +25,25 @@
 				of the indexing progress.
 			</Tooltip>
 		</label>
-		<TextInput
-			inputProps={{
-				type: 'number',
-				placeholder: '10000',
-				id: 'commit_log_max_batch_size',
-				disabled
+		<IntegerInput
+			placeholder="10000"
+			id="commit_log_max_batch_size"
+			{disabled}
+			error={errors.commit_log_max_batch_size ?? ''}
+			value={$values['indexer_settings'].commit_log_max_batch_size}
+			oninput={(v) => {
+				if (v == null) {
+					const { commit_log_max_batch_size: _, ...rest } = $values['indexer_settings']
+					$values['indexer_settings'] = rest
+				} else {
+					$values['indexer_settings'] = {
+						...$values['indexer_settings'],
+						commit_log_max_batch_size: v
+					}
+				}
 			}}
-			bind:value={$values['indexer_settings'].commit_log_max_batch_size}
 		/>
+		<InputError error={errors.commit_log_max_batch_size ?? ''} />
 	</div>
 
 	<div class="flex flex-col gap-1">
@@ -41,14 +53,24 @@
 				sets that period.
 			</Tooltip>
 		</label>
-		<TextInput
-			inputProps={{
-				type: 'number',
-				placeholder: '300',
-				id: 'refresh_log_index_period',
-				disabled
+		<IntegerInput
+			placeholder="300"
+			id="refresh_log_index_period"
+			{disabled}
+			error={errors.refresh_log_index_period ?? ''}
+			value={$values['indexer_settings'].refresh_log_index_period}
+			oninput={(v) => {
+				if (v == null) {
+					const { refresh_log_index_period: _, ...rest } = $values['indexer_settings']
+					$values['indexer_settings'] = rest
+				} else {
+					$values['indexer_settings'] = {
+						...$values['indexer_settings'],
+						refresh_log_index_period: v
+					}
+				}
 			}}
-			bind:value={$values['indexer_settings'].refresh_log_index_period}
 		/>
+		<InputError error={errors.refresh_log_index_period ?? ''} />
 	</div>
 </div>

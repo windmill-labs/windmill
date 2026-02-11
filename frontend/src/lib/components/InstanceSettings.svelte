@@ -341,9 +341,14 @@
 		const result: Record<string, boolean> = {}
 		for (const category of settingsKeys) {
 			const categorySettings = getSettingsForCategory(category)
-			result[category] = categorySettings.some(
-				(s) => s.isValid && !s.isValid(currentValues?.[s.key])
-			)
+			result[category] = categorySettings.some((s) => {
+				if (s.isValid && !s.isValid(currentValues?.[s.key])) return true
+				if (s.validate) {
+					const errors = s.validate(currentValues?.[s.key])
+					return Object.keys(errors).length > 0
+				}
+				return false
+			})
 		}
 		return result
 	})

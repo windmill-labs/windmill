@@ -1,14 +1,16 @@
 <script lang="ts">
 	import Tooltip from '../Tooltip.svelte'
-	import TextInput from '../text_input/TextInput.svelte'
+	import IntegerInput from '../IntegerInput.svelte'
+	import InputError from '../InputError.svelte'
 	import type { Writable } from 'svelte/store'
 
 	interface Props {
 		values: Writable<Record<string, any>>
 		disabled?: boolean
+		errors?: Record<string, string>
 	}
 
-	let { values, disabled = false }: Props = $props()
+	let { values, disabled = false, errors = {} }: Props = $props()
 </script>
 
 <div class="space-y-6">
@@ -22,15 +24,25 @@
 				in the indexing and will be logged.
 			</Tooltip>
 		</label>
-		<TextInput
-			inputProps={{
-				type: 'number',
-				placeholder: '100000',
-				id: 'commit_job_max_batch_size',
-				disabled
+		<IntegerInput
+			placeholder="100000"
+			id="commit_job_max_batch_size"
+			{disabled}
+			error={errors.commit_job_max_batch_size ?? ''}
+			value={$values['indexer_settings'].commit_job_max_batch_size}
+			oninput={(v) => {
+				if (v == null) {
+					const { commit_job_max_batch_size: _, ...rest } = $values['indexer_settings']
+					$values['indexer_settings'] = rest
+				} else {
+					$values['indexer_settings'] = {
+						...$values['indexer_settings'],
+						commit_job_max_batch_size: v
+					}
+				}
 			}}
-			bind:value={$values['indexer_settings'].commit_job_max_batch_size}
 		/>
+		<InputError error={errors.commit_job_max_batch_size ?? ''} />
 	</div>
 	<div class="flex flex-col gap-1">
 		<label for="refresh_index_period" class="block text-xs font-semibold text-emphasis">
@@ -39,15 +51,25 @@
 				that period.
 			</Tooltip></label
 		>
-		<TextInput
-			inputProps={{
-				type: 'number',
-				placeholder: '300',
-				id: 'refresh_index_period',
-				disabled
+		<IntegerInput
+			placeholder="300"
+			id="refresh_index_period"
+			{disabled}
+			error={errors.refresh_index_period ?? ''}
+			value={$values['indexer_settings'].refresh_index_period}
+			oninput={(v) => {
+				if (v == null) {
+					const { refresh_index_period: _, ...rest } = $values['indexer_settings']
+					$values['indexer_settings'] = rest
+				} else {
+					$values['indexer_settings'] = {
+						...$values['indexer_settings'],
+						refresh_index_period: v
+					}
+				}
 			}}
-			bind:value={$values['indexer_settings'].refresh_index_period}
 		/>
+		<InputError error={errors.refresh_index_period ?? ''} />
 	</div>
 	<div class="flex flex-col gap-1">
 		<label for="max_indexed_job_log_size" class="block text-xs font-semibold text-emphasis">
@@ -56,22 +78,26 @@
 				logs will be truncated after a size has been reached.
 			</Tooltip>
 		</label>
-		<TextInput
-			inputProps={{
-				type: 'number',
-				placeholder: '1024',
-				id: 'max_indexed_job_log_size',
-				disabled,
-				oninput: (e) => {
-					if (e.target instanceof HTMLInputElement) {
-						if (e.target.valueAsNumber) {
-							$values['indexer_settings'].max_indexed_job_log_size =
-								e.target.valueAsNumber * 1024
-						}
+		<IntegerInput
+			placeholder="1024"
+			id="max_indexed_job_log_size"
+			{disabled}
+			error={errors.max_indexed_job_log_size ?? ''}
+			value={$values['indexer_settings'].max_indexed_job_log_size != null
+				? $values['indexer_settings'].max_indexed_job_log_size / 1024
+				: undefined}
+			oninput={(v) => {
+				if (v == null) {
+					const { max_indexed_job_log_size: _, ...rest } = $values['indexer_settings']
+					$values['indexer_settings'] = rest
+				} else {
+					$values['indexer_settings'] = {
+						...$values['indexer_settings'],
+						max_indexed_job_log_size: v * 1024
 					}
 				}
 			}}
-			value={$values['indexer_settings'].max_indexed_job_log_size / 1024}
 		/>
+		<InputError error={errors.max_indexed_job_log_size ?? ''} />
 	</div>
 </div>

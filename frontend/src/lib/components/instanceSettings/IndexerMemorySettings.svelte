@@ -4,16 +4,18 @@
 	import { IndexSearchService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import Tooltip from '../Tooltip.svelte'
-	import TextInput from '../text_input/TextInput.svelte'
+	import IntegerInput from '../IntegerInput.svelte'
+	import InputError from '../InputError.svelte'
 	import Label from '../Label.svelte'
 	import type { Writable } from 'svelte/store'
 
 	interface Props {
 		values: Writable<Record<string, any>>
 		disabled?: boolean
+		errors?: Record<string, string>
 	}
 
-	let { values, disabled = false }: Props = $props()
+	let { values, disabled = false, errors = {} }: Props = $props()
 
 	let clearJobsIndexModalOpen = $state(false)
 	let clearServiceLogsIndexModalOpen = $state(false)
@@ -28,25 +30,27 @@
 				potentially higher indexing throughput
 			</Tooltip>
 		</label>
-		<TextInput
-			inputProps={{
-				type: 'number',
-				placeholder: '300',
-				id: 'writer_memory_budget',
-				disabled,
-				oninput: (e) => {
-					if (e.target instanceof HTMLInputElement) {
-						if (e.target.valueAsNumber) {
-							$values['indexer_settings'] = {
-								...$values['indexer_settings'],
-								writer_memory_budget: e.target.valueAsNumber * (1024 * 1024)
-							}
-						}
+		<IntegerInput
+			placeholder="300"
+			id="writer_memory_budget"
+			{disabled}
+			error={errors.writer_memory_budget ?? ''}
+			value={$values['indexer_settings'].writer_memory_budget != null
+				? $values['indexer_settings'].writer_memory_budget / (1024 * 1024)
+				: undefined}
+			oninput={(v) => {
+				if (v == null) {
+					const { writer_memory_budget: _, ...rest } = $values['indexer_settings']
+					$values['indexer_settings'] = rest
+				} else {
+					$values['indexer_settings'] = {
+						...$values['indexer_settings'],
+						writer_memory_budget: v * (1024 * 1024)
 					}
 				}
 			}}
-			value={$values['indexer_settings'].writer_memory_budget / (1024 * 1024)}
 		/>
+		<InputError error={errors.writer_memory_budget ?? ''} />
 	</div>
 	<Label label="Clear index">
 		<span class="text-xs text-secondary"

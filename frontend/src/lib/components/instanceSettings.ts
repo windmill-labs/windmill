@@ -1,4 +1,5 @@
 import type { ButtonType } from './common/button/model'
+import { z } from 'zod'
 
 // Languages that support HTTP request tracing via OTEL proxy
 export const OTEL_TRACING_PROXY_LANGUAGES = [
@@ -62,6 +63,7 @@ export interface Setting {
 	hideInQuickSetup?: boolean
 	requiresReloadOnChange?: boolean
 	isValid?: (value: any) => boolean
+	validate?: (value: any) => Record<string, string>
 	error?: string
 	defaultValue?: () => any
 	codeAreaLang?: string
@@ -73,6 +75,31 @@ export interface Setting {
 }
 
 export type SettingStorage = 'setting'
+
+const positiveNumber = z.number().positive('Must be a positive number')
+
+const indexerSettingsSchema = z
+	.object({
+		writer_memory_budget: positiveNumber.optional(),
+		commit_job_max_batch_size: positiveNumber.optional(),
+		refresh_index_period: positiveNumber.optional(),
+		max_indexed_job_log_size: positiveNumber.optional(),
+		commit_log_max_batch_size: positiveNumber.optional(),
+		refresh_log_index_period: positiveNumber.optional()
+	})
+	.passthrough()
+
+function validateIndexerSettings(v: any): Record<string, string> {
+	if (!v) return {}
+	const result = indexerSettingsSchema.safeParse(v)
+	if (result.success) return {}
+	const errors: Record<string, string> = {}
+	for (const issue of result.error.issues) {
+		const field = issue.path[0]?.toString()
+		if (field) errors[field] = issue.message
+	}
+	return errors
+}
 
 export const scimSamlSetting: Setting[] = [
 	{
@@ -528,7 +555,8 @@ export const settings: Record<string, Setting[]> = {
 			label: '',
 			key: 'indexer_settings',
 			fieldType: 'indexer_rates',
-			storage: 'setting'
+			storage: 'setting',
+			validate: validateIndexerSettings
 		}
 	],
 

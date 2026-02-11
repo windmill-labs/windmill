@@ -217,13 +217,14 @@
 		</SettingCard>
 	{:else if setting.fieldType == 'indexer_rates'}
 		{#if $values[setting.key]}
+			{@const fieldErrors = setting.validate?.($values[setting.key]) ?? {}}
 			<SettingCard
 				label="Memory"
 				description="Configure the memory budget for the indexer and manage index clearing."
 				ee_only=""
 			>
 				<div class="p-4 rounded-md border mt-2">
-					<IndexerMemorySettings {values} disabled={!$enterpriseLicense} />
+					<IndexerMemorySettings {values} disabled={!$enterpriseLicense} errors={fieldErrors} />
 				</div>
 			</SettingCard>
 			<SettingCard
@@ -232,7 +233,7 @@
 				ee_only=""
 			>
 				<div class="p-4 rounded-md border mt-2">
-					<IndexerJobIndexSettings {values} disabled={!$enterpriseLicense} />
+					<IndexerJobIndexSettings {values} disabled={!$enterpriseLicense} errors={fieldErrors} />
 				</div>
 			</SettingCard>
 			<SettingCard
@@ -241,7 +242,7 @@
 				ee_only=""
 			>
 				<div class="p-4 rounded-md border mt-2">
-					<IndexerLogIndexSettings {values} disabled={!$enterpriseLicense} />
+					<IndexerLogIndexSettings {values} disabled={!$enterpriseLicense} errors={fieldErrors} />
 				</div>
 			</SettingCard>
 		{/if}
