@@ -227,7 +227,7 @@
 						{#if tableRow[0] !== null}
 							<CloseButton
 								small
-								on:close={() => {
+								onClick={() => {
 									if (s3ResourceSettings.secondaryStorage) {
 										s3ResourceSettings.secondaryStorage.splice(idx - 1, 1)
 										s3ResourceSettings.secondaryStorage = [...s3ResourceSettings.secondaryStorage]

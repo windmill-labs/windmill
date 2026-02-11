@@ -61,7 +61,7 @@
 					}
 				}}
 			>
-				<CloseButton on:close Icon={CloseIcon} id="{id}-close-btn" />
+				<CloseButton onClick={() => dispatch('close')} Icon={CloseIcon} id="{id}-close-btn" />
 			</div>
 			<span class="font-semibold text-emphasis truncate text-lg max-w-sm"
 				>{title ?? ''}

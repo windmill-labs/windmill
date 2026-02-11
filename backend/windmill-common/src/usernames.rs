@@ -10,6 +10,7 @@ use regex::Regex;
 use sqlx::{Postgres, Transaction};
 
 use crate::error::{self, Error};
+use crate::DB;
 
 lazy_static::lazy_static! {
     pub static ref INVALID_USERNAME_CHARS: Regex = Regex::new(r"[^A-Za-z0-9_]").unwrap();
@@ -55,6 +56,42 @@ pub async fn generate_instance_wide_unique_username<'c>(
     }
 
     Ok(username)
+}
+
+pub async fn generate_instance_username_for_all_users(db: &DB) -> error::Result<()> {
+    let mut tx = db.begin().await?;
+    let users = sqlx::query!(r#"SELECT p.email as "email!", u.username as "username?" FROM password p LEFT JOIN usr u ON p.email = u.email WHERE p.username IS NULL AND (SELECT COUNT(DISTINCT username) FROM usr WHERE email = p.email) <= 1"#)
+        .fetch_all(&mut *tx)
+        .await?;
+
+    for user in users {
+        let username = if let Some(username) = user.username {
+            let username_conflict = sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM usr WHERE username = $1 and email != $2 UNION SELECT 1 FROM password WHERE username = $1 UNION SELECT 1 FROM pending_user WHERE username = $1)",
+                &username,
+                &user.email
+            ).fetch_one(&mut *tx).await?.unwrap_or(false);
+
+            if !username_conflict {
+                username
+            } else {
+                generate_instance_wide_unique_username(&mut tx, &user.email).await?
+            }
+        } else {
+            generate_instance_wide_unique_username(&mut tx, &user.email).await?
+        };
+
+        sqlx::query!(
+            "UPDATE password SET username = $1 WHERE email = $2",
+            &username,
+            &user.email
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
+    Ok(())
 }
 
 pub async fn get_instance_username_or_create_pending<'c>(

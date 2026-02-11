@@ -227,6 +227,52 @@ impl RunJob {
         uuid
     }
 
+    /// Push the job as a specific user (for testing permissions)
+    pub async fn push_as(self, db: &Pool<Postgres>, username: &str, email: &str) -> Uuid {
+        let RunJob { payload, args, scheduled_for_o, .. } = self;
+        let mut hm_args = std::collections::HashMap::new();
+        for (k, v) in args {
+            hm_args.insert(k, windmill_common::worker::to_raw_value(&v));
+        }
+
+        let tx = PushIsolationLevel::IsolatedRoot(db.clone());
+        let (uuid, tx) = windmill_queue::push(
+            db,
+            tx,
+            "test-workspace",
+            payload,
+            windmill_queue::PushArgs::from(&hm_args),
+            username,
+            email,
+            format!("u/{}", username),
+            /* token_prefix */ None,
+            scheduled_for_o,
+            /* schedule_path */ None,
+            /* parent_job */ None,
+            /* root job  */ None,
+            /* flow_innermost_root_job */ None,
+            /* job_id */ None,
+            /* is_flow_step */ false,
+            /* same_worker */ false,
+            None,
+            true,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("push has to succeed");
+        tx.commit().await.unwrap();
+
+        uuid
+    }
+
     /// push the job, spawn a worker, wait until the job is in completed_job
     pub async fn run_until_complete(
         self,
@@ -792,7 +838,7 @@ pub async fn testing_http_connection(port: u16) -> Connection {
         "{}{}",
         windmill_common::agent_workers::AGENT_JWT_PREFIX,
         windmill_common::jwt::encode_with_internal_secret(
-            windmill_api::agent_workers_ee::AgentAuth {
+            windmill_api_agent_workers::AgentAuth {
                 worker_group: "testing-agent".to_owned(),
                 suffix: Some(suffix.clone()),
                 tags: vec!["flow".into(), "python3".into(), "dependency".into()],

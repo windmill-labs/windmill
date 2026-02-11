@@ -23,7 +23,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache: false
-          toolchain: 1.90.0
+          toolchain: 1.93.0
       - name: cargo check
         working-directory: ./backend
         timeout-minutes: 16
@@ -44,7 +44,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache: false
-          toolchain: 1.90.0
+          toolchain: 1.93.0
       - name: cargo check
         working-directory: ./backend
         timeout-minutes: 16
@@ -81,7 +81,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache: false
-          toolchain: 1.90.0
+          toolchain: 1.93.0
       - name: cargo check
         working-directory: ./backend
         timeout-minutes: 16
@@ -118,7 +118,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache-workspaces: backend
-          toolchain: 1.90.0
+          toolchain: 1.93.0
       - name: cargo check
         timeout-minutes: 16
         working-directory: ./backend

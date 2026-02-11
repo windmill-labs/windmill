@@ -185,5 +185,6 @@ pub fn create_tool_from_item<T: ToolableItem, B: McpBackend>(
             open_world_hint: Some(true),  // Can interact with external services
         }),
         meta: None,
+        execution: None,
     }
 }
