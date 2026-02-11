@@ -15770,6 +15770,7 @@ dependencies = [
  "windmill-api",
  "windmill-api-agent-workers",
  "windmill-api-client",
+ "windmill-api-settings",
  "windmill-autoscaling",
  "windmill-common",
  "windmill-dep-map",

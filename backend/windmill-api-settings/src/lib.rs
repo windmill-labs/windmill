@@ -10,7 +10,7 @@ use std::{collections::HashMap, time::Duration};
 
 #[cfg(feature = "private")]
 mod ee;
-mod ee_oss;
+pub mod ee_oss;
 
 use windmill_api_auth::{require_super_admin, ApiAuthed};
 #[cfg(feature = "enterprise")]

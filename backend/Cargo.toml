@@ -126,7 +126,7 @@ native_trigger = ["windmill-api/native_trigger"]
 sqs_trigger = ["windmill-api/sqs_trigger", "windmill-common/aws_auth", "windmill-api/openidconnect"]
 gcp_trigger = ["windmill-api/gcp_trigger"]
 smtp = ["windmill-api/smtp", "windmill-common/smtp", "windmill-queue/smtp"]
-license = ["windmill-api/license"]
+license = ["windmill-api/license", "windmill-api-settings/license"]
 oauth2 = ["windmill-api/oauth2"]
 zip = ["windmill-api/zip"]
 static_frontend = ["windmill-api/static_frontend"]
@@ -195,6 +195,7 @@ windmill-common = { workspace = true, default-features = false }
 windmill-git-sync.workspace = true
 windmill-api = { workspace = true, default-features = false }
 windmill-api-agent-workers = { workspace = true, optional = true }
+windmill-api-settings.workspace = true
 windmill-worker.workspace = true
 windmill-indexer = { workspace = true, optional = true }
 windmill-autoscaling = { workspace = true, optional = true }
