@@ -23,7 +23,6 @@
 	const initialMode = $page.url.searchParams.get('mode') === 'full' ? 'full' : 'wizard'
 	let mode: 'wizard' | 'full' = $state(initialMode)
 	let wizardStep = $state(0)
-	let saved = $state(false)
 
 	let instanceSettings: InstanceSettings | undefined = $state()
 	let currentStepDirty = $derived(instanceSettings?.isDirty(wizardSteps[wizardStep].id) ?? false)
@@ -48,16 +47,11 @@
 		}
 	}
 
-	function handleSaved() {
-		saved = true
-	}
-
 	/** Auto-save the current wizard step if dirty, then run the callback */
 	async function saveAndProceed(callback: () => void) {
 		const category = wizardSteps[wizardStep].id
 		if (instanceSettings?.isDirty(category)) {
 			await instanceSettings.saveCategorySettings(category)
-			saved = true
 		}
 		callback()
 	}
@@ -75,9 +69,9 @@
 	}
 </script>
 
-{#if mode === 'wizard'}
-	<CenteredModal large title="Instance settings" centerVertically={false} containOverflow>
-		<div class="flex flex-col flex-1 min-h-0 overflow-hidden">
+<CenteredModal large title="Instance settings" centerVertically={false} containOverflow>
+	<div class="flex flex-col flex-1 min-h-0 overflow-hidden">
+		{#if mode === 'wizard'}
 			<!-- Step indicator (pinned top) -->
 			<div class="pb-2 border-b shrink-0 flex justify-start">
 				<Breadcrumb
@@ -108,13 +102,40 @@
 						hideTabs
 						quickSetup
 						tab={wizardSteps[wizardStep].id}
-						on:saved={handleSaved}
 					/>
 				{/key}
 			</div>
+		{:else}
+			<!-- Sidebar + Content -->
+			<div class="flex flex-1 min-h-0">
+				<div class="w-44 shrink-0 overflow-auto pb-4 pr-4">
+					<SidebarNavigation
+						groups={setupNavigationGroups}
+						selectedId={fullTab}
+						onNavigate={handleNavigate}
+					/>
+				</div>
 
-			<!-- Navigation (pinned bottom) -->
-			<div class="flex items-center justify-between pt-4 border-t shrink-0">
+				<div class="flex-1 min-w-0 overflow-auto px-4">
+					<InstanceSettings
+						bind:this={instanceSettings}
+						hideTabs
+						tab={instanceSettingsCategory}
+						{authSubTab}
+						onNavigateToTab={(category) => {
+							const targetTab = categoryToTabMap[category]
+							if (targetTab) {
+								handleNavigate(targetTab)
+							}
+						}}
+					/>
+				</div>
+			</div>
+		{/if}
+
+		<!-- Navigation (pinned bottom) -->
+		<div class="flex items-center justify-between pt-4 border-t shrink-0">
+			{#if mode === 'wizard'}
 				<div class="flex items-center gap-2">
 					{#if wizardStep > 0}
 						<Button
@@ -150,49 +171,7 @@
 						</Button>
 					{/if}
 				</div>
-			</div>
-
-			<div class="flex items-center justify-start gap-2 mt-2 shrink-0">
-				<p class="text-secondary text-xs">
-					You can change these settings later in the instance settings.
-				</p>
-				<Button variant="subtle" unifiedSize="sm" on:click={finishSetup}>Skip setup</Button>
-			</div>
-		</div>
-	</CenteredModal>
-{:else}
-	<!-- Full settings mode -->
-	<CenteredModal large title="Instance settings" centerVertically={false} containOverflow>
-		<div class="flex flex-col flex-1 min-h-0 overflow-hidden">
-			<!-- Sidebar + Content -->
-			<div class="flex flex-1 min-h-0">
-				<div class="w-44 shrink-0 overflow-auto pb-4 pr-4">
-					<SidebarNavigation
-						groups={setupNavigationGroups}
-						selectedId={fullTab}
-						onNavigate={handleNavigate}
-					/>
-				</div>
-
-				<div class="flex-1 min-w-0 overflow-auto px-4">
-					<InstanceSettings
-						bind:this={instanceSettings}
-						hideTabs
-						tab={instanceSettingsCategory}
-						{authSubTab}
-						on:saved={handleSaved}
-						onNavigateToTab={(category) => {
-							const targetTab = categoryToTabMap[category]
-							if (targetTab) {
-								handleNavigate(targetTab)
-							}
-						}}
-					/>
-				</div>
-			</div>
-
-			<!-- Navigation (pinned bottom) -->
-			<div class="flex items-center justify-between pt-4 border-t shrink-0">
+			{:else}
 				<Button
 					variant="default"
 					unifiedSize="md"
@@ -202,17 +181,17 @@
 					Quick setup
 				</Button>
 				<Button variant="accent" unifiedSize="md" on:click={finishSetup}>Continue</Button>
-			</div>
-
-			<div class="flex items-center justify-start gap-2 mt-2 shrink-0">
-				<p class="text-secondary text-xs">
-					You can change these settings later in the instance settings.
-				</p>
-				<Button variant="subtle" unifiedSize="sm" on:click={finishSetup}>Skip setup</Button>
-			</div>
+			{/if}
 		</div>
-	</CenteredModal>
-{/if}
+
+		<div class="flex items-center justify-start gap-2 mt-2 shrink-0">
+			<p class="text-secondary text-xs">
+				You can change these settings later in the instance settings.
+			</p>
+			<Button variant="subtle" unifiedSize="sm" on:click={finishSetup}>Skip setup</Button>
+		</div>
+	</div>
+</CenteredModal>
 
 {#if showUnsavedChangesModal}
 	<ConfirmationModal
