@@ -15,7 +15,7 @@
 	import DropdownV2 from './DropdownV2.svelte'
 	import Toggle from './Toggle.svelte'
 	import type { Writable } from 'svelte/store'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
@@ -144,9 +144,12 @@
 			isPyFetching = false
 		}
 	}
-	if (setting.fieldType == 'select_python') {
-		fetch_available_python_versions()
-	}
+
+	$effect(() => {
+		if (setting.fieldType == 'select_python') {
+			untrack(() => fetch_available_python_versions())
+		}
+	})
 </script>
 
 <!-- {JSON.stringify($values, null, 2)} -->
@@ -178,6 +181,7 @@
 							item={toggleButtonn}
 						/>
 					{/each}
+
 					<DropdownV2
 						items={() =>
 							pythonAvailableVersions.map((v) => ({
