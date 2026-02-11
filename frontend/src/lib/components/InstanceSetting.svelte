@@ -5,7 +5,6 @@
 	import type { Setting } from './instanceSettings'
 	import { OTEL_TRACING_PROXY_LANGUAGES } from './instanceSettings'
 	import { LanguageIcon } from './common/languageIcons'
-	import Tooltip from './Tooltip.svelte'
 	import ObjectStoreConfigSettings from './ObjectStoreConfigSettings.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { ConfigService, SettingService, type ListAvailablePythonVersionsResponse } from '$lib/gen'
@@ -20,7 +19,6 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
-	import EEOnly from './EEOnly.svelte'
 	import CriticalAlertChannels from './instanceSettings/CriticalAlertChannels.svelte'
 	import SmtpSettings from './instanceSettings/SmtpSettings.svelte'
 	import SecretBackendConfig from './instanceSettings/SecretBackendConfig.svelte'
@@ -28,6 +26,7 @@
 	import IndexerJobIndexSettings from './instanceSettings/IndexerJobIndexSettings.svelte'
 	import IndexerLogIndexSettings from './instanceSettings/IndexerLogIndexSettings.svelte'
 	import TextInput from './text_input/TextInput.svelte'
+	import SettingCard from './instanceSettings/SettingCard.svelte'
 
 	interface Props {
 		setting: Setting
@@ -150,30 +149,10 @@
 	}
 </script>
 
-{#snippet LabelSnippet()}
-	<!-- svelte-ignore a11y_label_has_associated_control -->
-	<label class="flex flex-col gap-1 mb-1">
-		<div class="flex gap-1">
-			<span class="text-emphasis font-semibold text-xs">{setting.label}</span>
-			{#if setting.ee_only != undefined && !$enterpriseLicense}
-				<EEOnly>
-					{#if setting.ee_only != ''}{setting.ee_only}{/if}
-				</EEOnly>
-			{/if}
-		</div>
-		{#if setting.description}
-			<span class="text-secondary text-xs font-normal">
-				{@html setting.description}
-			</span>
-		{/if}
-	</label>
-{/snippet}
-
 <!-- {JSON.stringify($values, null, 2)} -->
 {#if (!setting.cloudonly || isCloudHosted()) && showSetting(setting.key, $values) && !(setting.hiddenIfNull && $values[setting.key] == null) && !(setting.hiddenIfEmpty && !$values[setting.key]) && !(setting.hiddenInEe && $enterpriseLicense)}
 	{#if setting.fieldType == 'select'}
-		<div>
-			{@render LabelSnippet()}
+		<SettingCard label={setting.label} description={setting.description} ee_only={setting.ee_only}>
 			<ToggleButtonGroup bind:selected={$values[setting.key]}>
 				{#snippet children({ item: toggleButton })}
 					{#each setting.select_items ?? [] as item}
@@ -186,12 +165,9 @@
 					{/each}
 				{/snippet}
 			</ToggleButtonGroup>
-		</div>
+		</SettingCard>
 	{:else if setting.fieldType == 'select_python'}
-		<div class="p-4 rounded-md bg-surface-tertiary shadow-sm">
-			<!-- svelte-ignore a11y_label_has_associated_control -->
-			{@render LabelSnippet()}
-
+		<SettingCard label={setting.label} description={setting.description} ee_only={setting.ee_only}>
 			<ToggleButtonGroup bind:selected={$values[setting.key]}>
 				{#snippet children({ item: toggleButtonn })}
 					{#each setting.select_items ?? [] as item}
@@ -224,94 +200,35 @@
 					</DropdownV2>
 				{/snippet}
 			</ToggleButtonGroup>
-		</div>
+		</SettingCard>
 	{:else if setting.fieldType == 'indexer_rates'}
 		{#if $values[setting.key]}
-			<div class="p-4 rounded-md bg-surface-tertiary shadow-sm">
-				<div class="flex flex-col gap-2">
-					<div class="flex gap-1 items-baseline">
-						<span class="text-emphasis font-semibold text-xs">Memory</span>
-						{#if !$enterpriseLicense}<EEOnly />{/if}
-					</div>
-					<span class="text-secondary font-normal text-xs">
-						Configure the memory budget for the indexer and manage index clearing.
-					</span>
-				</div>
+			<SettingCard label="Memory" description="Configure the memory budget for the indexer and manage index clearing." ee_only="">
 				<div class="p-4 rounded-md border mt-2">
 					<IndexerMemorySettings {values} disabled={!$enterpriseLicense} />
 				</div>
-			</div>
-			<div class="p-4 rounded-md bg-surface-tertiary shadow-sm">
-				<div class="flex flex-col gap-1">
-					<div class="flex gap-1 items-baseline">
-						<span class="text-emphasis font-semibold text-xs">Completed Job Index</span>
-						{#if !$enterpriseLicense}<EEOnly />{/if}
-					</div>
-					<span class="text-secondary font-normal text-xs">
-						Configure indexing parameters for completed jobs.
-					</span>
-				</div>
+			</SettingCard>
+			<SettingCard label="Completed Job Index" description="Configure indexing parameters for completed jobs." ee_only="">
 				<div class="p-4 rounded-md border mt-2">
 					<IndexerJobIndexSettings {values} disabled={!$enterpriseLicense} />
 				</div>
-			</div>
-			<div class="p-4 rounded-md bg-surface-tertiary shadow-sm">
-				<div class="flex flex-col gap-1">
-					<div class="flex gap-1 items-baseline">
-						<span class="text-emphasis font-semibold text-xs">Service Logs Index</span>
-						{#if !$enterpriseLicense}<EEOnly />{/if}
-					</div>
-					<span class="text-secondary font-normal text-xs">
-						Configure indexing parameters for service logs.
-					</span>
-				</div>
+			</SettingCard>
+			<SettingCard label="Service Logs Index" description="Configure indexing parameters for service logs." ee_only="">
 				<div class="p-4 rounded-md border mt-2">
 					<IndexerLogIndexSettings {values} disabled={!$enterpriseLicense} />
 				</div>
-			</div>
+			</SettingCard>
 		{/if}
 	{:else}
-		{#snippet settingContent()}
-			<div class="p-4 rounded-md bg-surface-tertiary shadow-sm">
-				<div class="flex flex-col gap-2">
-					<div class="flex items-center justify-between">
-						<div class="text-emphasis font-semibold text-xs flex flex-col gap-1 w-full">
-							<div class="flex items-center justify-between gap-2 w-full">
-								{#if setting.fieldType != 'smtp_connect'}
-									<div class="flex gap-1 items-baseline">
-										<span class="text-emphasis font-semibold text-xs pb-1">{setting.label}</span>
-										{#if setting.ee_only != undefined && !$enterpriseLicense}
-											{#if setting.ee_only != ''}
-												<EEOnly>{setting.ee_only}</EEOnly>
-											{:else}
-												<EEOnly />
-											{/if}
-										{/if}
-									</div>
-								{/if}
-								{#if setting.actionButton}
-									<Button
-										disabled={setting.ee_only != undefined && !$enterpriseLicense}
-										variant={setting.actionButton.variant ?? 'default'}
-										unifiedSize="sm"
-										onclick={async () => await setting.actionButton?.onclick($values)}
-									>
-										{setting.actionButton.label}
-									</Button>
-								{/if}
-							</div>
-							{#if setting.description}
-								<span class="text-secondary font-normal text-xs">
-									{@html setting.description}
-								</span>
-							{/if}
-						</div>
-					</div>
-				</div>
-				{#if setting.tooltip}
-					<Tooltip>{setting.tooltip}</Tooltip>
-				{/if}
-				{#if $values}
+		<SettingCard
+			label={setting.fieldType != 'smtp_connect' ? setting.label : undefined}
+			description={setting.description}
+			ee_only={setting.ee_only}
+			tooltip={setting.tooltip}
+			actionButton={setting.actionButton}
+			values={$values}
+		>
+			{#if $values}
 					{@const hasError = setting.isValid && !setting.isValid($values[setting.key])}
 					<div class="h-1"></div>
 					{#if loading}
@@ -735,8 +652,6 @@
 								clearable
 							/>
 						</div>
-					{:else if setting.fieldType == 'select'}
-						TODO
 					{:else if setting.fieldType == 'smtp_connect'}
 						<SmtpSettings {values} disabled={loading} />
 					{:else if setting.fieldType == 'secret_backend'}
@@ -750,11 +665,6 @@
 				{:else}
 					<input disabled placeholder="Loading..." />
 				{/if}
-			</div>
-		{/snippet}
-
-		<div class="block">
-			{@render settingContent()}
-		</div>
+		</SettingCard>
 	{/if}
 {/if}

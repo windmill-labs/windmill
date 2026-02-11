@@ -7,6 +7,7 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import TextInput from './text_input/TextInput.svelte'
+	import SettingCard from './instanceSettings/SettingCard.svelte'
 
 	interface Props {
 		value: any
@@ -58,7 +59,7 @@
 		/></label
 	>
 	{#if enabled}
-		<div class="p-4 rounded-md bg-surface-tertiary shadow-sm flex flex-col gap-6">
+		<SettingCard class="flex flex-col gap-6">
 			<label>
 				<div class="flex gap-2 items-start">
 					<div>
@@ -161,6 +162,6 @@
 					</div>
 				</div>
 			</CollapseLink>
-		</div>
+		</SettingCard>
 	{/if}
 </div>
