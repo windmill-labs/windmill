@@ -222,7 +222,7 @@ pub async fn uv_pip_compile(
         requirements.to_string()
     };
 
-    let uv_index_strategy = UV_INDEX_STRATEGY.read().await;
+    let uv_index_strategy = UV_INDEX_STRATEGY.read().await.clone();
     let uv_index_strategy = uv_index_strategy.as_deref().unwrap_or("unsafe-best-match");
 
     let py_version_str = py_version.clone().to_string();
