@@ -190,7 +190,7 @@
 			{/each}
 		</tr>
 	</Head>
-	<tbody class="divide-y bg-surface">
+	<tbody class="divide-y bg-surface-tertiary">
 		{#if tempSettings.dataTables.length == 0}
 			<Row>
 				<Cell colspan={tableHeadNames.length} class="text-center py-6">

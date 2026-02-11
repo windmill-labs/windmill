@@ -33,44 +33,39 @@
 	}: Props = $props()
 </script>
 
-<div class={twMerge('p-4 rounded-md bg-surface-tertiary shadow-sm', clazz)}>
+<div class={twMerge('p-4 rounded-md bg-surface-tertiary shadow-sm flex flex-col gap-1', clazz)}>
 	{#if label}
-		<div class="flex flex-col gap-2">
-			<div class="flex items-center justify-between">
-				<div class="text-emphasis font-semibold text-xs flex flex-col gap-1 w-full">
-					<div class="flex items-center justify-between gap-2 w-full">
-						<div class="flex gap-1 items-baseline">
-							<span class="text-emphasis font-semibold text-xs pb-1">{label}</span>
-							{#if ee_only != undefined && !$enterpriseLicense}
-								{#if ee_only != ''}
-									<EEOnly>{ee_only}</EEOnly>
-								{:else}
-									<EEOnly />
-								{/if}
-							{/if}
-						</div>
-						{#if actionButton}
-							<Button
-								disabled={ee_only != undefined && !$enterpriseLicense}
-								variant={actionButton.variant ?? 'default'}
-								unifiedSize="sm"
-								onclick={async () => await actionButton?.onclick(values ?? {})}
-							>
-								{actionButton.label}
-							</Button>
-						{/if}
-					</div>
-					{#if description}
-						<span class="text-secondary font-normal text-xs">
-							{@html description}
-						</span>
+		<div class="flex items-center justify-between gap-2 w-full">
+			<div class="flex gap-1 items-baseline">
+				<span class="text-emphasis font-semibold text-xs">{label}</span>
+				{#if ee_only != undefined && !$enterpriseLicense}
+					{#if ee_only != ''}
+						<EEOnly>{ee_only}</EEOnly>
+					{:else}
+						<EEOnly />
 					{/if}
-				</div>
+				{/if}
+				{#if tooltip}
+					<Tooltip>{tooltip}</Tooltip>
+				{/if}
 			</div>
+			{#if actionButton}
+				<Button
+					disabled={ee_only != undefined && !$enterpriseLicense}
+					variant={actionButton.variant ?? 'default'}
+					unifiedSize="sm"
+					onclick={async () => await actionButton?.onclick(values ?? {})}
+				>
+					{actionButton.label}
+				</Button>
+			{/if}
 		</div>
+		{#if description}
+			<span class="text-secondary font-normal text-xs">
+				{@html description}
+			</span>
+		{/if}
 	{/if}
-	{#if tooltip}
-		<Tooltip>{tooltip}</Tooltip>
-	{/if}
+
 	{@render children()}
 </div>

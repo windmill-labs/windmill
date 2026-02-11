@@ -69,8 +69,8 @@
 	} from '$lib/components/workspaceSettings/DataTableSettings.svelte'
 	import WorkspaceDependenciesSettings from '$lib/components/workspaceSettings/WorkspaceDependenciesSettings.svelte'
 	import SettingsFooter from '$lib/components/workspaceSettings/SettingsFooter.svelte'
-	import Label from '$lib/components/Label.svelte'
 	import WorkspaceRulesets from '$lib/components/workspaceSettings/WorkspaceRulesets.svelte'
+	import SettingCard from '$lib/components/instanceSettings/SettingCard.svelte'
 
 	let slackInitialPath: string = $state('')
 	let slackScriptPath: string = $state('')
@@ -1231,9 +1231,9 @@
 			</div>
 
 			<!-- Main Content -->
-			<div class="flex-1 min-w-0 h-full rounded-md">
-				<div class="h-full overflow-auto rounded-md bg-surface-tertiary">
-					<div class="h-fit px-8 py-6" style="scrollbar-gutter: stable both-edges;">
+			<div class="flex-1 min-w-0 h-full">
+				<div class="h-full overflow-auto">
+					<div class="h-fit px-6" style="scrollbar-gutter: stable both-edges;">
 						{#if !loadedSettings}
 							<Skeleton layout={[1, [40]]} />
 						{:else if tab == 'users'}
@@ -1552,35 +1552,29 @@
 								link="https://www.windmill.dev/docs/core_concepts/webhooks#workspace-webhook"
 							/>
 
-							<div class="flex flex-col gap-1 pb-8">
-								<div class="text-xs font-semibold text-emphasis"> URL to send requests to</div>
-								<div class="text-secondary text-xs">
-									This URL will be POSTed to with a JSON body depending on the type of event. The
-									type is indicated by the type field. The other fields are dependent on the type.
-								</div>
-
-								<div class="flex flex-col gap-2">
-									<TextInput
-										bind:value={webhook}
-										inputProps={{
-											placeholder: 'https://your-endpoint.com/webhook'
-										}}
-										error={webhookValidationError}
-									/>
-									{#if webhookValidationError}
-										<div class="text-xs text-red-600 dark:text-red-400"
-											>{webhookValidationError}</div
-										>
-									{/if}
-								</div>
-							</div>
-
+							<SettingCard
+								label="URL to send requests to"
+								description="This URL will be POSTed to with a JSON body depending on the type of event. The type is indicated by the type field. The other fields are dependent on the type."
+							>
+								<TextInput
+									bind:value={webhook}
+									inputProps={{
+										placeholder: 'https://your-endpoint.com/webhook'
+									}}
+									error={webhookValidationError}
+									class="max-w-lg"
+								/>
+								{#if webhookValidationError}
+									<div class="text-xs text-red-600 dark:text-red-400">{webhookValidationError}</div>
+								{/if}
+							</SettingCard>
 							<SettingsFooter
 								hasUnsavedChanges={hasWebhookChanges}
 								onSave={editWebhook}
 								onDiscard={discardWebhookSettingsChanges}
 								saveLabel="Save webhook"
 								disabled={!!webhookValidationError}
+								class="mt-8"
 							/>
 						{:else if tab == 'error_handler'}
 							<SettingsPageHeader
@@ -1635,7 +1629,7 @@
 										{/snippet}
 									</ErrorOrRecoveryHandler>
 
-									<div class="flex flex-col gap-6 items-start">
+									<SettingCard class="gap-2">
 										<Toggle
 											disabled={!$enterpriseLicense ||
 												((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
@@ -1652,7 +1646,7 @@
 											bind:checked={errorHandlerMutedOnUserPath}
 											options={{ right: 'Do not run error handler for u/ scripts and flows' }}
 										/>
-									</div>
+									</SettingCard>
 								</div>
 
 								<SettingsFooter
@@ -1851,24 +1845,22 @@ export async function main(
 									before turning this feature on.
 								</Alert>
 							{/if}
-							<Label label="App" class="mt-6">
+							<SettingCard label="App" class="mt-6">
 								<ScriptPicker bind:scriptPath={workspaceDefaultAppPath} itemKind="app" clearable />
-							</Label>
+							</SettingCard>
 
-							<Label label="Rate limiting" class="mt-6">
-								<div class="text-xs text-secondary">
-									Limit the number of public (anonymous) app executions per minute per server. Set
-									to 0 or leave empty to disable. This is a per-server limit, not a global limit.
-								</div>
-								<div class="flex flex-row items-center gap-4">
-									<TextInput
-										inputProps={{ type: 'number', placeholder: '0 (disabled)' }}
-										bind:value={publicAppRateLimitPerMinute}
-										class="w-48"
-									/>
-									<span class="text-hint text-2xs">executions per minute per server</span>
-								</div>
-							</Label>
+							<SettingCard
+								label="Rate limiting"
+								description="Limit the number of public (anonymous) app executions per minute per server. Set to 0 or leave empty to disable. This is a per-server limit, not a global limit."
+								class="mt-6"
+							>
+								<TextInput
+									inputProps={{ type: 'number', placeholder: '0 (disabled)' }}
+									bind:value={publicAppRateLimitPerMinute}
+									class="w-48"
+								/>
+								<span class="text-hint text-2xs">executions per minute per server</span>
+							</SettingCard>
 
 							<SettingsFooter
 								class="mt-8"
@@ -1894,14 +1886,7 @@ export async function main(
 								description="When updating the encryption key of a workspace, all secrets will be re-encrypted with the new key and the previous key will be replaced by the new one. If you're manually updating the key to match another workspace key from another Windmill instance, make sure not to use the 'SECRET_SALT' environment variable or, if you're using it, make sure it the salt matches across both instances."
 								link="https://www.windmill.dev/docs/core_concepts/workspace_secret_encryption"
 							/>
-							<div class="mt-5 mb-6"></div>
-							<label
-								for="workspace-encryption-key"
-								class="text-xs font-semibold text-emphasis mt-1"
-							>
-								Workspace encryption key
-							</label>
-							<div class="flex flex-col gap-1">
+							<SettingCard label="Workspace encryption key" class="mt-6">
 								<div class="flex gap-2">
 									<TextInput
 										inputProps={{
@@ -1924,7 +1909,7 @@ export async function main(
 										{encryptionKeyValidationError}
 									</div>
 								{/if}
-							</div>
+							</SettingCard>
 
 							<SettingsFooter
 								class="mt-8"

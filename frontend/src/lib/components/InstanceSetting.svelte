@@ -179,10 +179,13 @@
 						/>
 					{/each}
 					<DropdownV2
-						items={() => pythonAvailableVersions.map((v) => ({
-							displayName: v,
-							action: () => { $values[setting.key] = v }
-						}))}
+						items={() =>
+							pythonAvailableVersions.map((v) => ({
+								displayName: v,
+								action: () => {
+									$values[setting.key] = v
+								}
+							}))}
 					>
 						{#snippet buttonReplacement()}
 							{#if setting.select_items?.some((e) => e.label == $values[setting.key] || e.value == $values[setting.key])}
@@ -203,17 +206,29 @@
 		</SettingCard>
 	{:else if setting.fieldType == 'indexer_rates'}
 		{#if $values[setting.key]}
-			<SettingCard label="Memory" description="Configure the memory budget for the indexer and manage index clearing." ee_only="">
+			<SettingCard
+				label="Memory"
+				description="Configure the memory budget for the indexer and manage index clearing."
+				ee_only=""
+			>
 				<div class="p-4 rounded-md border mt-2">
 					<IndexerMemorySettings {values} disabled={!$enterpriseLicense} />
 				</div>
 			</SettingCard>
-			<SettingCard label="Completed Job Index" description="Configure indexing parameters for completed jobs." ee_only="">
+			<SettingCard
+				label="Completed Job Index"
+				description="Configure indexing parameters for completed jobs."
+				ee_only=""
+			>
 				<div class="p-4 rounded-md border mt-2">
 					<IndexerJobIndexSettings {values} disabled={!$enterpriseLicense} />
 				</div>
 			</SettingCard>
-			<SettingCard label="Service Logs Index" description="Configure indexing parameters for service logs." ee_only="">
+			<SettingCard
+				label="Service Logs Index"
+				description="Configure indexing parameters for service logs."
+				ee_only=""
+			>
 				<div class="p-4 rounded-md border mt-2">
 					<IndexerLogIndexSettings {values} disabled={!$enterpriseLicense} />
 				</div>
@@ -229,312 +244,304 @@
 			values={$values}
 		>
 			{#if $values}
-					{@const hasError = setting.isValid && !setting.isValid($values[setting.key])}
-					<div class="h-1"></div>
-					{#if loading}
-						<Skeleton layout={[[2.5]]} />
-					{:else if setting.fieldType == 'text'}
-						<TextInput
-							inputProps={{
-								type: 'text',
-								id: setting.key,
-								disabled: setting.ee_only != undefined && !$enterpriseLicense,
-								placeholder: setting.placeholder
-							}}
-							bind:value={$values[setting.key]}
-							class="max-w-lg"
-						/>
-						{#if setting.advancedToggle}
-							<div class="mt-1">
-								<Toggle
-									size="xs"
-									options={{ right: setting.advancedToggle.label }}
-									checked={setting.advancedToggle.checked($values)}
-									on:change={() => {
-										if (setting.advancedToggle) {
-											$values = setting.advancedToggle.onChange($values)
-										}
-									}}
-								/>
-							</div>
-						{/if}
-					{:else if setting.fieldType == 'textarea'}
-						<textarea
-							id={setting.key}
-							disabled={!$enterpriseLicense}
-							rows="2"
-							placeholder={setting.placeholder}
-							bind:value={$values[setting.key]}
-						></textarea>
-						{#if setting.key == 'saml_metadata'}
-							<div class="flex mt-2">
-								<Button
-									disabled={!$enterpriseLicense}
-									on:click={async (e) => {
-										try {
-											const res = await SettingService.testMetadata({
-												requestBody: $values[setting.key]
-											})
-											sendUserToast(`Metadata valid: ${res}`)
-										} catch (error) {
-											sendUserToast(`Invalid metadata`, true, error.message)
-										}
-									}}>Test content/url</Button
-								>
-							</div>
-						{/if}
-					{:else if setting.fieldType == 'codearea'}
-						<SimpleEditor
-							autoHeight
-							class="editor"
-							lang={setting.codeAreaLang ?? 'txt'}
-							bind:code={$values[setting.key]}
-							fixedOverflowWidgets={false}
-						/>
-					{:else if setting.fieldType == 'license_key'}
-						{@const { valid, expiration } = parseLicenseKey($values[setting.key] ?? '')}
-						<div class="flex gap-2">
-							<Password
-								id={setting.key}
-								small
-								placeholder={setting.placeholder}
-								onKeyDown={() => {
-									licenseKeyChanged = true
-								}}
-								onBlur={() => {
-									if ($values[setting.key] && typeof $values[setting.key] === 'string') {
-										$values[setting.key] = $values[setting.key].trim()
+				{@const hasError = setting.isValid && !setting.isValid($values[setting.key])}
+				<div class="h-1"></div>
+				{#if loading}
+					<Skeleton layout={[[2.5]]} />
+				{:else if setting.fieldType == 'text'}
+					<TextInput
+						inputProps={{
+							type: 'text',
+							id: setting.key,
+							disabled: setting.ee_only != undefined && !$enterpriseLicense,
+							placeholder: setting.placeholder
+						}}
+						bind:value={$values[setting.key]}
+						class="max-w-lg"
+					/>
+					{#if setting.advancedToggle}
+						<div class="mt-1">
+							<Toggle
+								size="xs"
+								options={{ right: setting.advancedToggle.label }}
+								checked={setting.advancedToggle.checked($values)}
+								on:change={() => {
+									if (setting.advancedToggle) {
+										$values = setting.advancedToggle.onChange($values)
 									}
 								}}
-								bind:password={$values[setting.key]}
 							/>
-							<Button
-								variant="default"
-								unifiedSize="md"
-								disabled={!$values[setting.key]}
-								on:click={async () => {
-									await SettingService.testLicenseKey({
-										requestBody: { license_key: $values[setting.key] }
-									})
-									sendUserToast('Valid key')
-								}}
-							>
-								Test key
-							</Button>
 						</div>
-						<div class="mt-1 flex flex-col gap-1 items-start">
-							{#if $values[setting.key]?.length > 0}
-								{#if valid}
-									<div class="flex flex-row gap-1 items-center">
-										<Info size={12} class="text-primary" />
-										<span class="text-primary text-xs"
-											>License key expires on {expiration ?? ''}</span
+					{/if}
+				{:else if setting.fieldType == 'textarea'}
+					<textarea
+						id={setting.key}
+						disabled={!$enterpriseLicense}
+						rows="2"
+						placeholder={setting.placeholder}
+						bind:value={$values[setting.key]}
+					></textarea>
+					{#if setting.key == 'saml_metadata'}
+						<div class="flex mt-2">
+							<Button
+								disabled={!$enterpriseLicense}
+								on:click={async (e) => {
+									try {
+										const res = await SettingService.testMetadata({
+											requestBody: $values[setting.key]
+										})
+										sendUserToast(`Metadata valid: ${res}`)
+									} catch (error) {
+										sendUserToast(`Invalid metadata`, true, error.message)
+									}
+								}}>Test content/url</Button
+							>
+						</div>
+					{/if}
+				{:else if setting.fieldType == 'codearea'}
+					<SimpleEditor
+						autoHeight
+						class="editor"
+						lang={setting.codeAreaLang ?? 'txt'}
+						bind:code={$values[setting.key]}
+						fixedOverflowWidgets={false}
+					/>
+				{:else if setting.fieldType == 'license_key'}
+					{@const { valid, expiration } = parseLicenseKey($values[setting.key] ?? '')}
+					<div class="flex gap-2">
+						<Password
+							id={setting.key}
+							small
+							placeholder={setting.placeholder}
+							onKeyDown={() => {
+								licenseKeyChanged = true
+							}}
+							onBlur={() => {
+								if ($values[setting.key] && typeof $values[setting.key] === 'string') {
+									$values[setting.key] = $values[setting.key].trim()
+								}
+							}}
+							bind:password={$values[setting.key]}
+						/>
+						<Button
+							variant="default"
+							unifiedSize="md"
+							disabled={!$values[setting.key]}
+							on:click={async () => {
+								await SettingService.testLicenseKey({
+									requestBody: { license_key: $values[setting.key] }
+								})
+								sendUserToast('Valid key')
+							}}
+						>
+							Test key
+						</Button>
+					</div>
+					<div class="mt-1 flex flex-col gap-1 items-start">
+						{#if $values[setting.key]?.length > 0}
+							{#if valid}
+								<div class="flex flex-row gap-1 items-center">
+									<Info size={12} class="text-primary" />
+									<span class="text-primary text-xs">License key expires on {expiration ?? ''}</span
+									>
+								</div>
+							{:else if expiration}
+								<div class="flex flex-row gap-1 items-center">
+									<AlertCircle size={12} class="text-red-600" />
+									<span class="text-red-600 dark:text-red-400 text-xs">
+										{#if $values[setting.key]?.endsWith('__dev')}
+											Dev license key expired on {expiration}.<br />If even after successful
+											renewal, your dev license key is still expired, it means that your production
+											key has expired due to unpaid invoices or excessive use of your production
+											instance.
+										{:else}
+											License key expired on {expiration}.
+										{/if}
+									</span>
+								</div>
+							{:else}
+								<div class="flex flex-row gap-1 items-center">
+									<AlertCircle size={12} class="text-red-600" />
+									<span class="text-red-600 dark:text-red-400 text-xs"
+										>Invalid license key format</span
+									>
+								</div>
+							{/if}
+						{/if}
+						{#if latestKeyRenewalAttempt}
+							{@const attemptedAt = new Date(latestKeyRenewalAttempt.attempted_at).toLocaleString()}
+							{@const isTrial = latestKeyRenewalAttempt.result.startsWith('error: trial:')}
+							<div class="relative">
+								<Popover notClickable>
+									<div class="flex flex-row items-center gap-1">
+										{#if latestKeyRenewalAttempt.result === 'success'}
+											<BadgeCheck class="text-green-600" size={12} />
+										{:else}
+											<BadgeX class={isTrial ? 'text-yellow-600' : 'text-red-600'} size={12} />
+										{/if}
+										<span
+											class={classNames(
+												'text-xs',
+												latestKeyRenewalAttempt.result === 'success'
+													? 'text-green-600'
+													: isTrial
+														? 'text-yellow-600'
+														: 'text-red-600'
+											)}
 										>
-									</div>
-								{:else if expiration}
-									<div class="flex flex-row gap-1 items-center">
-										<AlertCircle size={12} class="text-red-600" />
-										<span class="text-red-600 dark:text-red-400 text-xs">
-											{#if $values[setting.key]?.endsWith('__dev')}
-												Dev license key expired on {expiration}.<br />If even after successful
-												renewal, your dev license key is still expired, it means that your
-												production key has expired due to unpaid invoices or excessive use of your
-												production instance.
+											{#if latestKeyRenewalAttempt.result === 'success' && $values[setting.key]?.endsWith('__dev')}
+												Latest dev key renewal succeeded on {attemptedAt}. The dev key expiry was
+												updated to align with your current production key's expiration date.
 											{:else}
-												License key expired on {expiration}.
+												{latestKeyRenewalAttempt.result === 'success'
+													? 'Latest key renewal succeeded'
+													: isTrial
+														? 'Latest key renewal ignored because in trial'
+														: 'Latest key renewal failed'}
+												on {attemptedAt}
 											{/if}
 										</span>
 									</div>
-								{:else}
-									<div class="flex flex-row gap-1 items-center">
-										<AlertCircle size={12} class="text-red-600" />
-										<span class="text-red-600 dark:text-red-400 text-xs"
-											>Invalid license key format</span
-										>
-									</div>
-								{/if}
-							{/if}
-							{#if latestKeyRenewalAttempt}
-								{@const attemptedAt = new Date(
-									latestKeyRenewalAttempt.attempted_at
-								).toLocaleString()}
-								{@const isTrial = latestKeyRenewalAttempt.result.startsWith('error: trial:')}
-								<div class="relative">
-									<Popover notClickable>
-										<div class="flex flex-row items-center gap-1">
-											{#if latestKeyRenewalAttempt.result === 'success'}
-												<BadgeCheck class="text-green-600" size={12} />
+									{#snippet text()}
+										<div>
+											{#if latestKeyRenewalAttempt?.result === 'success'}
+												<span class="text-green-300">
+													Latest key renewal succeeded on {attemptedAt}
+												</span>
+											{:else if isTrial}
+												<span class="text-yellow-300">
+													License key cannot be renewed during trial ({attemptedAt})
+												</span>
 											{:else}
-												<BadgeX class={isTrial ? 'text-yellow-600' : 'text-red-600'} size={12} />
+												<span class="text-red-600 dark:text-red-400">
+													Latest key renewal failed on {attemptedAt}: {latestKeyRenewalAttempt?.result.replace(
+														'error: ',
+														''
+													)}
+												</span>
 											{/if}
-											<span
-												class={classNames(
-													'text-xs',
-													latestKeyRenewalAttempt.result === 'success'
-														? 'text-green-600'
-														: isTrial
-															? 'text-yellow-600'
-															: 'text-red-600'
-												)}
-											>
-												{#if latestKeyRenewalAttempt.result === 'success' && $values[setting.key]?.endsWith('__dev')}
-													Latest dev key renewal succeeded on {attemptedAt}. The dev key expiry was
-													updated to align with your current production key's expiration date.
-												{:else}
-													{latestKeyRenewalAttempt.result === 'success'
-														? 'Latest key renewal succeeded'
-														: isTrial
-															? 'Latest key renewal ignored because in trial'
-															: 'Latest key renewal failed'}
-													on {attemptedAt}
-												{/if}
-											</span>
+											<br />
+											As long as invoices are paid and usage corresponds to the subscription, the key
+											is renewed daily with a validity of 35 days (grace period).
 										</div>
-										{#snippet text()}
-											<div>
-												{#if latestKeyRenewalAttempt?.result === 'success'}
-													<span class="text-green-300">
-														Latest key renewal succeeded on {attemptedAt}
-													</span>
-												{:else if isTrial}
-													<span class="text-yellow-300">
-														License key cannot be renewed during trial ({attemptedAt})
-													</span>
-												{:else}
-													<span class="text-red-600 dark:text-red-400">
-														Latest key renewal failed on {attemptedAt}: {latestKeyRenewalAttempt?.result.replace(
-															'error: ',
-															''
-														)}
-													</span>
-												{/if}
-												<br />
-												As long as invoices are paid and usage corresponds to the subscription, the key
-												is renewed daily with a validity of 35 days (grace period).
-											</div>
-										{/snippet}
-									</Popover>
-								</div>
-							{/if}
-							{#if licenseKeyChanged && !$enterpriseLicense}
-								{#if version.startsWith('CE')}
-									<div class="text-red-600 dark:text-red-400"
-										>License key is set but image used is the Community Edition {version}. Switch
-										image to EE.</div
-									>
-								{/if}
-							{/if}
-
-							{#if valid || expiration}
-								<div class="flex flex-row gap-2 mt-1">
-									<Button on:click={renewLicenseKey} loading={renewing} size="xs" variant="accent"
-										>Renew key
-									</Button>
-									<Button
-										variant="accent"
-										size="xs"
-										loading={opening}
-										on:click={openCustomerPortal}
-									>
-										Open customer portal
-									</Button>
-								</div>
-							{/if}
-						</div>
-					{:else if setting.fieldType == 'email'}
-						<TextInput
-							inputProps={{
-								type: 'email',
-								placeholder: setting.placeholder,
-								id: setting.key
-							}}
-							bind:value={$values[setting.key]}
-						/>
-					{:else if setting.key == 'critical_alert_mute_ui'}
-						<div class="flex flex-col gap-y-2">
-							<Toggle
-								disabled={!$enterpriseLicense}
-								bind:checked={$values[setting.key]}
-								id={setting.key}
-							/>
-							<div class="flex flex-row">
-								<Button
-									variant="default"
-									disabled={!$enterpriseLicense}
-									size="xs"
-									on:click={() => {
-										isCriticalAlertsUIOpen.set(true)
-										dispatch('closeDrawer')
-									}}
+									{/snippet}
+								</Popover>
+							</div>
+						{/if}
+						{#if licenseKeyChanged && !$enterpriseLicense}
+							{#if version.startsWith('CE')}
+								<div class="text-red-600 dark:text-red-400"
+									>License key is set but image used is the Community Edition {version}. Switch
+									image to EE.</div
 								>
-									Show critical alerts
+							{/if}
+						{/if}
+
+						{#if valid || expiration}
+							<div class="flex flex-row gap-2 mt-1">
+								<Button on:click={renewLicenseKey} loading={renewing} size="xs" variant="accent"
+									>Renew key
+								</Button>
+								<Button variant="accent" size="xs" loading={opening} on:click={openCustomerPortal}>
+									Open customer portal
 								</Button>
 							</div>
+						{/if}
+					</div>
+				{:else if setting.fieldType == 'email'}
+					<TextInput
+						inputProps={{
+							type: 'email',
+							placeholder: setting.placeholder,
+							id: setting.key
+						}}
+						bind:value={$values[setting.key]}
+					/>
+				{:else if setting.key == 'critical_alert_mute_ui'}
+					<div class="flex flex-col gap-y-2">
+						<Toggle
+							disabled={!$enterpriseLicense}
+							bind:checked={$values[setting.key]}
+							id={setting.key}
+						/>
+						<div class="flex flex-row">
+							<Button
+								variant="default"
+								disabled={!$enterpriseLicense}
+								size="xs"
+								on:click={() => {
+									isCriticalAlertsUIOpen.set(true)
+									dispatch('closeDrawer')
+								}}
+							>
+								Show critical alerts
+							</Button>
 						</div>
-					{:else if setting.fieldType == 'critical_error_channels'}
-						<CriticalAlertChannels {values} {openSmtpSettings} {oauths} />
-					{:else if setting.fieldType == 'otel'}
-						<div class="flex flex-col gap-4 p-4 rounded-md border">
-							{#if $values[setting.key]}
-								<div class="flex gap-8">
-									<Toggle
-										disabled={!$enterpriseLicense}
-										id="tracing_enabled"
-										bind:checked={$values[setting.key].tracing_enabled}
-										options={{ right: 'Tracing' }}
-									/>
-									<Toggle
-										disabled={!$enterpriseLicense}
-										id="logs_enabled"
-										bind:checked={$values[setting.key].logs_enabled}
-										options={{ right: 'Logs' }}
-									/>
-									<Toggle
-										disabled
-										id="metrics_enabled"
-										bind:checked={$values[setting.key].logs_enabled}
-										options={{ right: 'Metrics (coming soon)' }}
-									/>
-								</div>
+					</div>
+				{:else if setting.fieldType == 'critical_error_channels'}
+					<CriticalAlertChannels {values} {openSmtpSettings} {oauths} />
+				{:else if setting.fieldType == 'otel'}
+					<div class="flex flex-col gap-4 p-4 rounded-md border">
+						{#if $values[setting.key]}
+							<div class="flex gap-8">
+								<Toggle
+									disabled={!$enterpriseLicense}
+									id="tracing_enabled"
+									bind:checked={$values[setting.key].tracing_enabled}
+									options={{ right: 'Tracing' }}
+								/>
+								<Toggle
+									disabled={!$enterpriseLicense}
+									id="logs_enabled"
+									bind:checked={$values[setting.key].logs_enabled}
+									options={{ right: 'Logs' }}
+								/>
+								<Toggle
+									disabled
+									id="metrics_enabled"
+									bind:checked={$values[setting.key].logs_enabled}
+									options={{ right: 'Metrics (coming soon)' }}
+								/>
+							</div>
 
-								<div class="flex flex-col gap-1">
-									<label
-										for="OTEL_EXPORTER_OTLP_ENDPOINT"
-										class="block text-xs font-semibold text-emphasis">Endpoint</label
-									>
-									<TextInput
-										inputProps={{
-											type: 'text',
-											placeholder: 'http://otel-collector.example.com:4317',
-											id: 'OTEL_EXPORTER_OTLP_ENDPOINT',
-											disabled: !$enterpriseLicense
-										}}
-										bind:value={$values[setting.key].otel_exporter_otlp_endpoint}
-									/>
-								</div>
-								<div class="flex flex-col gap-1">
-									<label
-										for="OTEL_EXPORTER_OTLP_HEADERS"
-										class="block text-xs font-semibold text-emphasis">Headers</label
-									>
-									<TextInput
-										inputProps={{
-											type: 'text',
-											placeholder: 'Authorization=Bearer my-secret-token,Env=production',
-											id: 'OTEL_EXPORTER_OTLP_HEADERS',
-											disabled: !$enterpriseLicense
-										}}
-										bind:value={$values[setting.key].otel_exporter_otlp_headers}
-									/>
-								</div>
-								<div class="flex flex-col gap-1">
-									<label
-										for="OTEL_EXPORTER_OTLP_PROTOCOL"
-										class="block text-xs font-semibold text-emphasis">Protocol</label
-									>
-									<span class="text-primary font-normal text-xs">gRPC</span>
-								</div>
-								<!-- <div>
+							<div class="flex flex-col gap-1">
+								<label
+									for="OTEL_EXPORTER_OTLP_ENDPOINT"
+									class="block text-xs font-semibold text-emphasis">Endpoint</label
+								>
+								<TextInput
+									inputProps={{
+										type: 'text',
+										placeholder: 'http://otel-collector.example.com:4317',
+										id: 'OTEL_EXPORTER_OTLP_ENDPOINT',
+										disabled: !$enterpriseLicense
+									}}
+									bind:value={$values[setting.key].otel_exporter_otlp_endpoint}
+								/>
+							</div>
+							<div class="flex flex-col gap-1">
+								<label
+									for="OTEL_EXPORTER_OTLP_HEADERS"
+									class="block text-xs font-semibold text-emphasis">Headers</label
+								>
+								<TextInput
+									inputProps={{
+										type: 'text',
+										placeholder: 'Authorization=Bearer my-secret-token,Env=production',
+										id: 'OTEL_EXPORTER_OTLP_HEADERS',
+										disabled: !$enterpriseLicense
+									}}
+									bind:value={$values[setting.key].otel_exporter_otlp_headers}
+								/>
+							</div>
+							<div class="flex flex-col gap-1">
+								<label
+									for="OTEL_EXPORTER_OTLP_PROTOCOL"
+									class="block text-xs font-semibold text-emphasis">Protocol</label
+								>
+								<span class="text-primary font-normal text-xs">gRPC</span>
+							</div>
+							<!-- <div>
 							<label for="OTEL_EXPORTER_OTLP_PROTOCOL" class="block text-sm font-semibold"
 								>Protocol<span class="text-2xs text-primary ml-4"
 									>grpc, http/protobuf, http/json</span
@@ -558,113 +565,109 @@
 								bind:value={$values[setting.key].otel_exporter_otlp_compression}
 							/>
 						</div> -->
-							{/if}
-						</div>
-					{:else if setting.fieldType == 'otel_tracing_proxy'}
-						{@const tracingProxyVal = $values[setting.key] ?? {
-							enabled: false,
-							enabled_languages: [...OTEL_TRACING_PROXY_LANGUAGES]
-						}}
-						<div class="flex flex-col gap-4">
-							<Toggle
-								id="otel_tracing_proxy_enabled"
-								checked={tracingProxyVal.enabled ?? false}
-								on:change={(e) => {
-									$values[setting.key] = { ...tracingProxyVal, enabled: e.detail }
-								}}
-								options={{ right: 'Enabled' }}
-							/>
-							{#if tracingProxyVal.enabled}
-								<div class="flex flex-wrap gap-2">
-									{#each OTEL_TRACING_PROXY_LANGUAGES as lang (lang)}
-										{@const isEnabled = (tracingProxyVal.enabled_languages ?? []).includes(lang)}
-										<button
-											class="flex flex-col items-center gap-1 p-2 rounded border transition-all {isEnabled
-												? 'border-blue-500 bg-blue-500/10'
-												: 'border-gray-300 opacity-40 hover:opacity-70'}"
-											onclick={() => {
-												const current = tracingProxyVal.enabled_languages ?? []
-												const newLangs = isEnabled
-													? current.filter((l) => l !== lang)
-													: [...current, lang]
-												$values[setting.key] = { ...tracingProxyVal, enabled_languages: newLangs }
-											}}
-										>
-											<LanguageIcon {lang} size={24} />
-										</button>
-									{/each}
-								</div>
-							{/if}
-						</div>
-					{:else if setting.fieldType == 'object_store_config'}
-						<ObjectStoreConfigSettings bind:bucket_config={$values[setting.key]} />
-					{:else if setting.fieldType == 'critical_alerts_on_db_oversize'}
-						{#if $values[setting.key]}
-							<div class="flex flex-row flex-wrap gap-2 p-0 items-center">
-								<div class="p-1">
-									<Toggle
-										disabled={!$enterpriseLicense}
-										bind:checked={$values[setting.key].enabled}
-										id={setting.key}
-									/>
-								</div>
-								{#if $values[setting.key].enabled}
-									<label class="block shrink min-w-0">
-										<input
-											type="number"
-											placeholder={setting.placeholder}
-											bind:value={$values[setting.key].value}
-										/>
-									</label>
-									<span class="text-primary font-semibold text-sm">GB</span>
-								{/if}
+						{/if}
+					</div>
+				{:else if setting.fieldType == 'otel_tracing_proxy'}
+					{@const tracingProxyVal = $values[setting.key] ?? {
+						enabled: false,
+						enabled_languages: [...OTEL_TRACING_PROXY_LANGUAGES]
+					}}
+					<div class="flex flex-col gap-4">
+						<Toggle
+							id="otel_tracing_proxy_enabled"
+							checked={tracingProxyVal.enabled ?? false}
+							on:change={(e) => {
+								$values[setting.key] = { ...tracingProxyVal, enabled: e.detail }
+							}}
+							options={{ right: 'Enabled' }}
+						/>
+						{#if tracingProxyVal.enabled}
+							<div class="flex flex-wrap gap-2">
+								{#each OTEL_TRACING_PROXY_LANGUAGES as lang (lang)}
+									{@const isEnabled = (tracingProxyVal.enabled_languages ?? []).includes(lang)}
+									<button
+										class="flex flex-col items-center gap-1 p-2 rounded border transition-all {isEnabled
+											? 'border-blue-500 bg-blue-500/10'
+											: 'border-gray-300 opacity-40 hover:opacity-70'}"
+										onclick={() => {
+											const current = tracingProxyVal.enabled_languages ?? []
+											const newLangs = isEnabled
+												? current.filter((l) => l !== lang)
+												: [...current, lang]
+											$values[setting.key] = { ...tracingProxyVal, enabled_languages: newLangs }
+										}}
+									>
+										<LanguageIcon {lang} size={24} />
+									</button>
+								{/each}
 							</div>
 						{/if}
-					{:else if setting.fieldType == 'number'}
-						<TextInput
-							inputProps={{
-								type: 'number',
-								placeholder: setting.placeholder,
-								id: setting.key
-							}}
-							bind:value={$values[setting.key]}
-							class="max-w-lg"
-						/>
-					{:else if setting.fieldType == 'password'}
-						<Password
-							small
-							placeholder={setting.placeholder}
-							bind:password={$values[setting.key]}
-						/>
-					{:else if setting.fieldType == 'boolean'}
-						<Toggle
-							disabled={setting.ee_only != undefined && !$enterpriseLicense}
-							bind:checked={$values[setting.key]}
-							id={setting.key}
-						/>
-					{:else if setting.fieldType == 'seconds'}
-						<div>
-							<SecondsInput
-								max={setting.ee_only != undefined && !$enterpriseLicense
-									? 60 * 60 * 24 * 30
-									: undefined}
-								bind:seconds={$values[setting.key]}
-								clearable
-							/>
+					</div>
+				{:else if setting.fieldType == 'object_store_config'}
+					<ObjectStoreConfigSettings bind:bucket_config={$values[setting.key]} />
+				{:else if setting.fieldType == 'critical_alerts_on_db_oversize'}
+					{#if $values[setting.key]}
+						<div class="flex flex-row flex-wrap gap-2 p-0 items-center">
+							<div class="p-1">
+								<Toggle
+									disabled={!$enterpriseLicense}
+									bind:checked={$values[setting.key].enabled}
+									id={setting.key}
+								/>
+							</div>
+							{#if $values[setting.key].enabled}
+								<label class="block shrink min-w-0">
+									<input
+										type="number"
+										placeholder={setting.placeholder}
+										bind:value={$values[setting.key].value}
+									/>
+								</label>
+								<span class="text-primary font-semibold text-sm">GB</span>
+							{/if}
 						</div>
-					{:else if setting.fieldType == 'smtp_connect'}
-						<SmtpSettings {values} disabled={loading} />
-					{:else if setting.fieldType == 'secret_backend'}
-						<SecretBackendConfig {values} disabled={loading} />
 					{/if}
-					{#if hasError}
-						<span class="text-red-600 dark:text-red-400 text-xs">
-							{setting.error ?? ''}
-						</span>
-					{/if}
-				{:else}
-					<input disabled placeholder="Loading..." />
+				{:else if setting.fieldType == 'number'}
+					<TextInput
+						inputProps={{
+							type: 'number',
+							placeholder: setting.placeholder,
+							id: setting.key
+						}}
+						bind:value={$values[setting.key]}
+						class="max-w-lg"
+					/>
+				{:else if setting.fieldType == 'password'}
+					<Password small placeholder={setting.placeholder} bind:password={$values[setting.key]} />
+				{:else if setting.fieldType == 'boolean'}
+					<Toggle
+						disabled={setting.ee_only != undefined && !$enterpriseLicense}
+						bind:checked={$values[setting.key]}
+						id={setting.key}
+					/>
+				{:else if setting.fieldType == 'seconds'}
+					<div>
+						<SecondsInput
+							max={setting.ee_only != undefined && !$enterpriseLicense
+								? 60 * 60 * 24 * 30
+								: undefined}
+							bind:seconds={$values[setting.key]}
+							clearable
+						/>
+					</div>
+				{:else if setting.fieldType == 'smtp_connect'}
+					<SmtpSettings {values} disabled={loading} />
+				{:else if setting.fieldType == 'secret_backend'}
+					<SecretBackendConfig {values} disabled={loading} />
 				{/if}
+				{#if hasError}
+					<span class="text-red-600 dark:text-red-400 text-xs">
+						{setting.error ?? ''}
+					</span>
+				{/if}
+			{:else}
+				<input disabled placeholder="Loading..." />
+			{/if}
 		</SettingCard>
 	{/if}
 {/if}
