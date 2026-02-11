@@ -15,7 +15,7 @@ use sqlx::{
 
 use tokio::task::JoinHandle;
 pub use windmill_common::db::DB;
-use windmill_common::{error::Error, utils::generate_lock_id};
+use windmill_common::{error::Error, utils::{generate_lock_id, GIT_VERSION}};
 
 #[allow(unused_imports)]
 pub use windmill_api_auth::{ApiAuthed, OptJobAuthed};
@@ -68,7 +68,7 @@ lazy_static::lazy_static! {
                     ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
                     (20260207000002, include_str!(
                         "../../migrations/20260207000002_concurrent_indexes_v2_job_completed.up.sql"
-                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY").replace("DROP INDEX CONCURRENTLY IF EXISTS labeled_jobs_on_jobs;", "")),
                     (20260207000003, include_str!(
                         "../../migrations/20260207000003_concurrent_indexes_v2_job_queue.up.sql"
                     ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
@@ -288,4 +288,67 @@ pub async fn migrate(
 
     crate::live_migrations::custom_migrations(&mut custom_migrator, db).await?;
     Ok(None)
+}
+
+pub async fn wait_for_migrations(
+    db: &DB,
+    mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
+) -> Result<(), Error> {
+    let migrator = sqlx::migrate!("../migrations");
+    let latest_version = migrator
+        .migrations
+        .iter()
+        .map(|m| m.version)
+        .max()
+        .expect("No migrations found") as i64;
+
+    tracing::info!(
+        "This worker is on Windmill version {GIT_VERSION} (migration version {latest_version}). Only servers run migrations. Waiting for a server with version >= {GIT_VERSION} to apply the migration..."
+    );
+
+    let mut attempts = 0;
+
+    loop {
+        let is_applied: Result<Option<bool>, sqlx::Error> = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM _sqlx_migrations WHERE version = $1)",
+        )
+        .bind(latest_version)
+        .fetch_one(db)
+        .await;
+
+        match is_applied {
+            Ok(Some(true)) => {
+                tracing::info!(
+                    "All migrations applied (version {latest_version}), continuing worker startup"
+                );
+                return Ok(());
+            }
+            Ok(_) => {
+                tracing::info!(
+                    "Database not up to date yet. This worker (Windmill {GIT_VERSION}, migration version {latest_version}) is waiting for a server with version >= {GIT_VERSION} to run the migration. Rechecking in 3s..."
+                );
+            }
+            Err(e) => {
+                tracing::info!(
+                    "Could not check migration status (migrations table may not exist yet): {e:#}. Rechecking in 3s..."
+                );
+            }
+        }
+
+        tokio::select! {
+            _ = killpill_rx.recv() => {
+                tracing::info!("Killpill received, stopping migration wait");
+                return Ok(());
+            }
+            _ = tokio::time::sleep(std::time::Duration::from_secs(3)) => {}
+        }
+
+        attempts += 1;
+        if attempts >= 10 {
+            tracing::error!(
+                "Timed out after 10 attempts waiting for migration version {latest_version}. Exiting."
+            );
+            std::process::exit(1);
+        }
+    }
 }

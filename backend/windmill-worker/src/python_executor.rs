@@ -132,10 +132,11 @@ use crate::{
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
-    worker_utils::ping_job_status,
-    PyV, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PIP_EXTRA_INDEX_URL,
     is_sandboxing_enabled,
-    PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TRACING_PROXY_CA_CERT_PATH, TZ_ENV, UV_CACHE_DIR,
+    worker_utils::ping_job_status,
+    PyV, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL,
+    PROXY_ENVS, PY_INSTALL_DIR, TRACING_PROXY_CA_CERT_PATH, TZ_ENV, UV_CACHE_DIR,
+    UV_INDEX_STRATEGY,
 };
 use windmill_common::client::AuthedClient;
 
@@ -222,6 +223,9 @@ pub async fn uv_pip_compile(
         requirements.to_string()
     };
 
+    let uv_index_strategy = UV_INDEX_STRATEGY.read().await.clone();
+    let uv_index_strategy = uv_index_strategy.as_deref().unwrap_or("unsafe-best-match");
+
     let py_version_str = py_version.clone().to_string();
     // Include python version to requirements.in
     // We need it because same hash based on requirements.in can get calculated even for different python versions
@@ -231,7 +235,7 @@ pub async fn uv_pip_compile(
     #[cfg(feature = "enterprise")]
     let requirements = replace_pip_secret(conn, w_id, &requirements, worker_name, job_id).await?;
 
-    let req_hash = format!("py-{}", calculate_hash(&requirements));
+    let req_hash = format!("py-{}-{uv_index_strategy}", calculate_hash(&requirements));
 
     if !no_cache {
         if let Some(db) = conn.as_sql() {
@@ -272,11 +276,6 @@ pub async fn uv_pip_compile(
             "--strip-extras",
             "-o",
             "requirements.txt",
-            // Prefer main index over extra
-            // https://docs.astral.sh/uv/pip/compatibility/#packages-that-exist-on-multiple-indexes
-            // TODO: Use env variable that can be toggled from UI
-            "--index-strategy",
-            "unsafe-best-match",
             // Target to /tmp/windmill/cache/uv
             "--cache-dir",
             UV_CACHE_DIR,
@@ -329,6 +328,7 @@ pub async fn uv_pip_compile(
             .env("HOME", HOME_ENV.to_string())
             .env("PATH", PATH_ENV.to_string())
             .env("UV_PYTHON_INSTALL_DIR", PY_INSTALL_DIR.to_string())
+            .env("UV_INDEX_STRATEGY", uv_index_strategy)
             .envs(PROXY_ENVS.clone())
             .args(&args)
             .stdout(Stdio::piped())
@@ -1017,6 +1017,21 @@ async fn prepare_wrapper(
                                      kwargs[\"{name}\"] = datetime.fromisoformat(kwargs[\"{name}\"])\n",
                 )
             }
+            windmill_parser::Typ::Date => {
+                let name = &x.name;
+                format!(
+                    "if \"{name}\" in kwargs and kwargs[\"{name}\"] is not None:\n    \
+                                     try:\n        \
+                                         kwargs[\"{name}\"] = date.fromisoformat(kwargs[\"{name}\"])\n    \
+                                     except ValueError:\n        \
+                                         for _fmt in (\"%d-%m-%Y\", \"%m/%d/%Y\", \"%d/%m/%Y\", \"%Y/%m/%d\"):\n            \
+                                             try:\n                \
+                                                 kwargs[\"{name}\"] = datetime.strptime(kwargs[\"{name}\"], _fmt).date()\n                \
+                                                 break\n            \
+                                             except ValueError:\n                \
+                                                 continue\n",
+                )
+            }
             _ => "".to_string(),
         })
         .collect::<Vec<String>>()
@@ -1036,14 +1051,19 @@ async fn prepare_wrapper(
     } else {
         ""
     };
-    let import_datetime = if init_sig
+    let has_datetime = init_sig
         .args
         .iter()
-        .any(|x| x.typ == windmill_parser::Typ::Datetime)
-    {
-        "from datetime import datetime"
-    } else {
-        ""
+        .any(|x| x.typ == windmill_parser::Typ::Datetime);
+    let has_date = init_sig
+        .args
+        .iter()
+        .any(|x| x.typ == windmill_parser::Typ::Date);
+    let import_datetime = match (has_datetime, has_date) {
+        (true, true) => "from datetime import datetime, date",
+        (true, false) => "from datetime import datetime",
+        (false, true) => "from datetime import datetime, date",
+        (false, false) => "",
     };
     let spread = if sig.star_kwargs {
         "args = kwargs".to_string()
@@ -1334,6 +1354,11 @@ async fn spawn_uv_install(
     py_path: Option<String>,
     worker_dir: &str,
 ) -> Result<Box<dyn TokioChildWrapper>, Error> {
+    let uv_index_strategy_guard = UV_INDEX_STRATEGY.read().await.clone();
+    let uv_index_strategy = uv_index_strategy_guard
+        .as_deref()
+        .unwrap_or("unsafe-best-match");
+
     if is_sandboxing_enabled() {
         tracing::info!(
             workspace_id = %w_id,
@@ -1356,6 +1381,7 @@ async fn spawn_uv_install(
         if *NATIVE_CERT {
             vars.push(("UV_NATIVE_TLS", "true"));
         }
+
         let _owner;
         if let Some(py_path) = py_path.as_ref() {
             _owner = format!(
@@ -1366,6 +1392,7 @@ async fn spawn_uv_install(
         }
         vars.push(("REQ", &req));
         vars.push(("TARGET", venv_p));
+        vars.push(("UV_INDEX_STRATEGY", uv_index_strategy));
 
         std::fs::create_dir_all(venv_p)?;
         let nsjail_proto = format!("{req}.config.proto");
@@ -1411,11 +1438,6 @@ async fn spawn_uv_install(
             "--no-config",
             "--link-mode=copy",
             "--system",
-            // Prefer main index over extra
-            // https://docs.astral.sh/uv/pip/compatibility/#packages-that-exist-on-multiple-indexes
-            // TODO: Use env variable that can be toggled from UI
-            "--index-strategy",
-            "unsafe-best-match",
             "--target",
             venv_p,
             "--no-cache",
@@ -1445,6 +1467,7 @@ async fn spawn_uv_install(
 
         let mut envs = vec![("PATH", PATH_ENV.as_str())];
         envs.push(("HOME", HOME_ENV.as_str()));
+        envs.push(("UV_INDEX_STRATEGY", uv_index_strategy));
 
         if let Some(url) = pip_index_url.as_ref() {
             command_args.extend(["--index-url", url]);

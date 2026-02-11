@@ -190,6 +190,9 @@ pub struct ProviderResource {
     /// Platform for Anthropic API (standard or google_vertex_ai)
     #[serde(default)]
     pub platform: AnthropicPlatform,
+    /// Enable 1M context window for Anthropic
+    #[serde(alias = "enable_1M_context", default)]
+    pub enable_1m_context: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -231,6 +234,10 @@ impl ProviderWithResource {
 
     pub fn get_platform(&self) -> &AnthropicPlatform {
         &self.resource.platform
+    }
+
+    pub fn get_enable_1m_context(&self) -> bool {
+        self.resource.enable_1m_context
     }
 }
 
@@ -460,6 +467,11 @@ impl OpenAPISchema {
             Typ::Bool => Self::from_str("boolean"),
             Typ::Bytes => Self::from_str("string"),
             Typ::Datetime => Self::datetime(),
+            Typ::Date => Self {
+                r#type: Some(SchemaType::Single("string".to_string())),
+                format: Some("date".to_string()),
+                ..Default::default()
+            },
             Typ::Resource(_) => Self::from_str("string"),
             Typ::Email => Self::from_str("string"),
             Typ::Sql => Self::from_str("string"),
@@ -772,10 +784,14 @@ impl OpenAPISchema {
     }
 
     /// Sanitizes this schema for Google AI's API by removing unsupported fields.
-    /// Google's Gemini API does not accept JSON Schema metadata fields like $schema.
+    /// See https://github.com/windmill-labs/windmill/issues/7759
     pub fn sanitize_for_google(&mut self) {
-        // Remove $schema field - not supported by Google AI
         self.schema_url = None;
+        self.default = None;
+        self.exclusive_minimum = None;
+        self.exclusive_maximum = None;
+        self.r#const = None;
+        self.multiple_of = None;
 
         // Recursively sanitize nested schemas
         if let Some(ref mut items) = self.items {
@@ -1481,6 +1497,8 @@ mod tests {
             schema_url: Some("http://json-schema.org/draft-07/schema#".to_string()),
             title: Some("Test Schema".to_string()),
             description: Some("A test schema".to_string()),
+            minimum: Some(1.0),
+            maximum: Some(100.0),
             properties: Some(
                 vec![("name".to_string(), Box::new(string_schema()))]
                     .into_iter()
@@ -1499,6 +1517,132 @@ mod tests {
         assert_eq!(schema.description, Some("A test schema".to_string()));
         assert!(schema.properties.is_some());
         assert!(schema.required.is_some());
+        assert!(matches!(&schema.r#type, Some(SchemaType::Single(t)) if t == "object"));
+        assert_eq!(schema.minimum, Some(1.0));
+        assert_eq!(schema.maximum, Some(100.0));
+    }
+
+    #[test]
+    fn test_sanitize_for_google_removes_default() {
+        let mut schema = OpenAPISchema {
+            r#type: Some(SchemaType::Single("string".to_string())),
+            default: Some(serde_json::Value::String("hello".to_string())),
+            ..Default::default()
+        };
+
+        schema.sanitize_for_google();
+
+        assert!(schema.default.is_none(), "default should be removed");
+        assert!(matches!(&schema.r#type, Some(SchemaType::Single(t)) if t == "string"));
+    }
+
+    #[test]
+    fn test_sanitize_for_google_removes_exclusive_minimum() {
+        let mut schema = OpenAPISchema {
+            r#type: Some(SchemaType::Single("number".to_string())),
+            exclusive_minimum: Some(0.0),
+            ..Default::default()
+        };
+
+        schema.sanitize_for_google();
+
+        assert!(
+            schema.exclusive_minimum.is_none(),
+            "exclusiveMinimum should be removed"
+        );
+    }
+
+    #[test]
+    fn test_sanitize_for_google_removes_exclusive_maximum() {
+        let mut schema = OpenAPISchema {
+            r#type: Some(SchemaType::Single("number".to_string())),
+            exclusive_maximum: Some(100.0),
+            ..Default::default()
+        };
+
+        schema.sanitize_for_google();
+
+        assert!(
+            schema.exclusive_maximum.is_none(),
+            "exclusiveMaximum should be removed"
+        );
+    }
+
+    #[test]
+    fn test_sanitize_for_google_removes_const() {
+        let mut schema = OpenAPISchema {
+            r#type: Some(SchemaType::Single("string".to_string())),
+            r#const: Some(serde_json::Value::String("fixed".to_string())),
+            ..Default::default()
+        };
+
+        schema.sanitize_for_google();
+
+        assert!(schema.r#const.is_none(), "const should be removed");
+    }
+
+    #[test]
+    fn test_sanitize_for_google_removes_multiple_of() {
+        let mut schema = OpenAPISchema {
+            r#type: Some(SchemaType::Single("integer".to_string())),
+            multiple_of: Some(5.0),
+            ..Default::default()
+        };
+
+        schema.sanitize_for_google();
+
+        assert!(
+            schema.multiple_of.is_none(),
+            "multipleOf should be removed"
+        );
+    }
+
+    #[test]
+    fn test_sanitize_for_google_removes_unsupported_fields_recursively() {
+        let nested = OpenAPISchema {
+            r#type: Some(SchemaType::Single("number".to_string())),
+            default: Some(serde_json::json!(42)),
+            exclusive_minimum: Some(0.0),
+            exclusive_maximum: Some(100.0),
+            multiple_of: Some(2.0),
+            r#const: Some(serde_json::json!(10)),
+            ..Default::default()
+        };
+
+        let mut schema = OpenAPISchema {
+            r#type: Some(SchemaType::Single("object".to_string())),
+            schema_url: Some("http://json-schema.org/draft-07/schema#".to_string()),
+            default: Some(serde_json::json!({})),
+            properties: Some(
+                vec![("value".to_string(), Box::new(nested))]
+                    .into_iter()
+                    .collect(),
+            ),
+            ..Default::default()
+        };
+
+        schema.sanitize_for_google();
+
+        assert!(schema.schema_url.is_none());
+        assert!(schema.default.is_none());
+
+        let value_prop = schema.properties.as_ref().unwrap().get("value").unwrap();
+        assert!(value_prop.default.is_none(), "nested default should be removed");
+        assert!(
+            value_prop.exclusive_minimum.is_none(),
+            "nested exclusiveMinimum should be removed"
+        );
+        assert!(
+            value_prop.exclusive_maximum.is_none(),
+            "nested exclusiveMaximum should be removed"
+        );
+        assert!(
+            value_prop.multiple_of.is_none(),
+            "nested multipleOf should be removed"
+        );
+        assert!(value_prop.r#const.is_none(), "nested const should be removed");
+
+        assert!(schema.properties.is_some());
         assert!(matches!(&schema.r#type, Some(SchemaType::Single(t)) if t == "object"));
     }
 }

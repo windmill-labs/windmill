@@ -447,8 +447,9 @@ pub async fn fetch_api_authed_from_permissioned_as(
         }
         _ => {
             tracing::debug!("API authed cache miss for user {}", email);
+
             let authed =
-                fetch_authed_from_permissioned_as(permissioned_as, email.clone(), w_id, db).await?;
+                fetch_authed_from_permissioned_as(&permissioned_as, &email, w_id, db).await?;
 
             let api_authed = ApiAuthed {
                 username: authed.username,

@@ -71,6 +71,12 @@ lazy_static::lazy_static! {
 
         builder.build().unwrap()
     };
+    pub static ref HTTP_CLIENT_PERMISSIVE: Client = configure_client(reqwest::ClientBuilder::new()
+        .user_agent("windmill/beta")
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(30))
+        .danger_accept_invalid_certs(std::env::var("ACCEPT_INVALID_CERTS").is_ok()))
+        .build().unwrap();
     pub static ref GIT_SEM_VERSION: Version = Version::parse(
         if GIT_VERSION.starts_with('v') {
             &GIT_VERSION[1..]
@@ -145,6 +151,13 @@ lazy_static::lazy_static! {
             tracing::info!("Mode not specified, defaulting to standalone");
             Mode::Standalone
         });
+        #[cfg(feature = "benchmark")]
+        let mode = {
+            if mode != Mode::Worker {
+                println!("Benchmark mode: forcing MODE=worker");
+            }
+            Mode::Worker
+        };
         ModeAndAddons {
             indexer: search_addon,
             mode,

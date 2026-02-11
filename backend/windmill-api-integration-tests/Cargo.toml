@@ -1,0 +1,36 @@
+[package]
+name = "windmill-api-integration-tests"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_api_integration_tests"
+path = "src/lib.rs"
+
+[features]
+default = []
+private = ["windmill-test-utils/private", "dep:aws-config", "dep:aws-credential-types", "dep:aws-sdk-sqs"]
+enterprise = ["windmill-test-utils/enterprise", "dep:base64"]
+deno_core = ["windmill-test-utils/deno_core"]
+mcp = []
+
+[dependencies]
+windmill-test-utils.workspace = true
+windmill-api-client.workspace = true
+windmill-common = { workspace = true, default-features = false }
+sqlx.workspace = true
+serde_json.workspace = true
+serde.workspace = true
+reqwest.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+uuid.workspace = true
+rand.workspace = true
+rumqttc.workspace = true
+rdkafka.workspace = true
+async-nats.workspace = true
+aws-config = { workspace = true, optional = true }
+aws-credential-types = { workspace = true, optional = true }
+aws-sdk-sqs = { workspace = true, optional = true }
+base64 = { workspace = true, optional = true }

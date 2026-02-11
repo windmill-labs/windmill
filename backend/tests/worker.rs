@@ -25,8 +25,7 @@ use windmill_common::{
     jobs::{JobPayload, RawCode},
     scripts::ScriptLang,
 };
-mod common;
-use common::*;
+use windmill_test_utils::*;
 
 #[cfg(feature = "enterprise")]
 use futures::StreamExt;
@@ -3343,7 +3342,6 @@ async fn test_duckdb_ffi(db: Pool<Postgres>) -> anyhow::Result<()> {
 /// Test that flow substeps with tags that are not available for the workspace fail.
 /// This validates that `check_tag_available_for_workspace_internal` is properly called
 /// when pushing jobs from worker_flow.
-#[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 async fn test_flow_substep_tag_availability_check(db: Pool<Postgres>) -> anyhow::Result<()> {
     use windmill_common::worker::{
@@ -3385,6 +3383,7 @@ async fn test_flow_substep_tag_availability_check(db: Pool<Postgres>) -> anyhow:
 
     let result =
         RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
+            .email("test2@windmill.dev")
             .run_until_complete(&db, false, server.addr.port())
             .await;
 

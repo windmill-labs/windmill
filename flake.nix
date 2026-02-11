@@ -3,12 +3,10 @@
     nixpkgs.url = "nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     rust-overlay.url = "github:oxalica/rust-overlay";
-    # Use separate channel for claude code. It always needs to be latest
-    nixpkgs-claude.url = "nixpkgs/nixos-unstable";
     nixpkgs-oapi-gen.url =
       "nixpkgs/2d068ae5c6516b2d04562de50a58c682540de9bf"; # openapi-generator-cli pin to 7.10.0
   };
-  outputs = { self, nixpkgs, nixpkgs-claude, flake-utils, rust-overlay
+  outputs = { self, nixpkgs, flake-utils, rust-overlay
     , nixpkgs-oapi-gen }:
     flake-utils.lib.eachDefaultSystem (system:
       let
@@ -17,10 +15,6 @@
           config.allowUnfree = true;
           overlays = [ (import rust-overlay) ];
         };
-        claude-code = (import nixpkgs-claude {
-          inherit system;
-          config.allowUnfree = true;
-        }).claude-code;
 
         openapi-generator-cli =
           (import nixpkgs-oapi-gen { inherit system; }).openapi-generator-cli;
@@ -50,13 +44,18 @@
           xmlsec.dev
           libxslt.dev
           libclang.dev
+          curl.dev
+          zlib.dev
           libffi # For deno_ffi
           libtool
           nodejs
           postgresql
           pkg-config
-          clang
+          llvmPackages_18.clang
+          mold
           cmake
+          cyrus_sasl
+          krb5
         ];
         coursier = pkgs.fetchFromGitHub {
           owner = "coursier";
@@ -66,7 +65,7 @@
         };
 
         PKG_CONFIG_PATH = pkgs.lib.makeSearchPath "lib/pkgconfig"
-          (with pkgs; [ openssl.dev libxml2.dev xmlsec.dev libxslt.dev ]);
+          (with pkgs; [ openssl.dev libxml2.dev xmlsec.dev libxslt.dev cyrus_sasl.dev krb5.dev ]);
         RUSTY_V8_ARCHIVE = let
           # NOTE: needs to be same as in Cargo.toml
           version = "130.0.7";
@@ -136,8 +135,6 @@
 
         devShells.default = pkgs.mkShell {
           buildInputs = buildInputs ++ [
-            # To update run: `nix flake update nixpkgs-claude`
-            claude-code
             # To update run: `nix flake update nixpkgs-oapi-gen`
             openapi-generator-cli
           ] ++ (with pkgs; [
@@ -303,6 +300,14 @@
           # RUST_LOG = "debug";
           # RUST_LOG = "kube=debug";
 
+          # Override cargo linker to use clang 18 (stdenv brings clang 21 which causes SIGSEGV with mold)
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER = "${pkgs.llvmPackages_18.clang}/bin/clang";
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER = "${pkgs.llvmPackages_18.clang}/bin/clang";
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS = "-C link-arg=-fuse-ld=mold -C link-arg=-Wl,-rpath,${pkgs.lib.makeLibraryPath [ pkgs.openssl pkgs.libffi pkgs.cyrus_sasl pkgs.krb5 pkgs.libxml2 pkgs.xmlsec pkgs.libxslt stdenv.cc.cc.lib ]}";
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS = "-C link-arg=-fuse-ld=mold -C link-arg=-Wl,-rpath,${pkgs.lib.makeLibraryPath [ pkgs.openssl pkgs.libffi pkgs.cyrus_sasl pkgs.krb5 pkgs.libxml2 pkgs.xmlsec pkgs.libxslt stdenv.cc.cc.lib ]}";
+          # rpath for build scripts and proc macros (host compilation)
+          CARGO_HOST_RUSTFLAGS = "-C link-arg=-Wl,-rpath,${pkgs.lib.makeLibraryPath [ pkgs.openssl pkgs.libffi pkgs.cyrus_sasl pkgs.krb5 pkgs.libxml2 pkgs.xmlsec pkgs.libxslt stdenv.cc.cc.lib ]}";
+
           # See this issue: https://github.com/NixOS/nixpkgs/issues/370494
           # Allows to build jemalloc on nixos
           CFLAGS = "-Wno-error=int-conversion";
@@ -310,7 +315,11 @@
           # Need to tell bindgen where to find libclang
           LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
 
+          # LD_LIBRARY_PATH set in shellHook with a wrapper to avoid leaking into git/ssh
           # LD_LIBRARY_PATH = "${pkgs.gcc.lib}/lib";
+          LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
+            pkgs.zlib
+          ];
 
           # Set C flags for Rust's bindgen program. Unlike ordinary C
           # compilation, bindgen does not invoke $CC directly. Instead it
