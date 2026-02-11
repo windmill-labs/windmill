@@ -59,6 +59,7 @@ export interface Setting {
 	hiddenIfNull?: boolean
 	hiddenIfEmpty?: boolean
 	hiddenInEe?: boolean
+	hideInQuickSetup?: boolean
 	requiresReloadOnChange?: boolean
 	isValid?: (value: any) => boolean
 	error?: string
@@ -146,7 +147,8 @@ export const settings: Record<string, Setting[]> = {
 			key: 'dev_instance',
 			fieldType: 'boolean',
 			storage: 'setting',
-			ee_only: ''
+			ee_only: '',
+			hideInQuickSetup: true
 		},
 		{
 			label: 'App workspace prefix',
@@ -155,7 +157,8 @@ export const settings: Record<string, Setting[]> = {
 			key: 'app_workspaced_route',
 			fieldType: 'boolean',
 			storage: 'setting',
-			ee_only: ''
+			ee_only: '',
+			hideInQuickSetup: true
 		}
 	],
 	Jobs: [
@@ -665,6 +668,14 @@ export const tabToAuthSubTab: Record<string, 'sso' | 'oauth' | 'scim'> = {
 	oauth: 'oauth',
 	scim_saml: 'scim'
 }
+
+// Navigation groups for the initial setup flow (no Users tab)
+export const setupNavigationGroups = instanceSettingsNavigationGroups
+	.map((group) => ({
+		...group,
+		items: group.items.filter((item) => item.id !== 'users')
+	}))
+	.filter((group) => group.items.length > 0)
 
 export const categoryToTabMap: Record<string, string> = {
 	Core: 'general',

@@ -24,6 +24,7 @@
 		closeDrawer?: (() => void) | undefined
 		authSubTab?: 'sso' | 'oauth' | 'scim'
 		onNavigateToTab?: (category: string) => void
+		quickSetup?: boolean
 	}
 
 	let {
@@ -31,7 +32,8 @@
 		hideTabs = false,
 		closeDrawer = () => {},
 		authSubTab = $bindable('sso'),
-		onNavigateToTab
+		onNavigateToTab,
+		quickSetup = false
 	}: Props = $props()
 
 	let values: Writable<Record<string, any>> = writable({})
@@ -625,7 +627,7 @@
 		<div class="flex-col flex gap-6 pb-6">
 			{#each settings[category] as setting}
 				<!-- slack connect is handled with the alert channels settings, smtp_connect is handled in InstanceSetting -->
-				{#if setting.fieldType != 'slack_connect'}
+				{#if setting.fieldType != 'slack_connect' && !(quickSetup && setting.hideInQuickSetup)}
 					<InstanceSetting
 						{openSmtpSettings}
 						on:closeDrawer={() => closeDrawer?.()}
@@ -639,7 +641,7 @@
 			{/each}
 		</div>
 
-		{#if !loading}
+		{#if !loading && !quickSetup}
 			<SettingsFooter
 				hasUnsavedChanges={dirtyCategories[category] ?? false}
 				disabled={invalidCategories[category] ?? false}
