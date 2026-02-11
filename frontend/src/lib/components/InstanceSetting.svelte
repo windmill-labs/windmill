@@ -37,7 +37,8 @@
 		oauths?: Record<string, any>
 	}
 
-	let { setting, version, values, loading = true, openSmtpSettings, oauths }: Props = $props()
+	let { setting, version, values, loading = true, openSmtpSettings, oauths
+	}: Props = $props()
 	const dispatch = createEventDispatcher()
 
 	let latestKeyRenewalAttempt: {

@@ -212,7 +212,11 @@ export const settings: Record<string, Setting[]> = {
 			key: 'object_store_cache_config',
 			fieldType: 'object_store_config',
 			storage: 'setting',
-			ee_only: ''
+			ee_only: '',
+			isValid: (v) => {
+				if (!v || v.type !== 'Gcs') return true
+				return v.serviceAccountKey !== undefined
+			}
 		},
 		{
 			label: 'Delete logs from s3 periodically',
@@ -346,7 +350,7 @@ export const settings: Record<string, Setting[]> = {
 			key: 'uv_index_strategy',
 			fieldType: 'select',
 			placeholder: 'unsafe-best-match',
-			defaultValue: () => "unsafe-best-match",
+			defaultValue: () => 'unsafe-best-match',
 			select_items: [
 				{
 					label: 'first-index',
