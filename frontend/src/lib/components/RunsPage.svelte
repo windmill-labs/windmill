@@ -44,6 +44,7 @@
 		useUrlSyncedTimeframe
 	} from './runs/TimeframeSelect.svelte'
 	import FilterSearchbar from './FilterSearchbar.svelte'
+	import { jobTriggerKinds, triggerDisplayNamesMap } from './triggers/utils'
 
 	interface Props {
 		/** Initial path from route params (e.g., /runs/u/user/script) */
@@ -593,17 +594,22 @@
 					schema={{
 						min_ts: { type: 'date', label: 'From', icon: Calendar },
 						max_ts: { type: 'date', label: 'To', icon: Calendar },
-						path: { type: 'oneof', options: paths, allowCustomValue: true, label: 'Path' },
+						path: {
+							type: 'oneof',
+							options: paths.map((s) => ({ label: s, value: s })),
+							allowCustomValue: true,
+							label: 'Path'
+						},
 						user: {
 							type: 'oneof',
-							options: usernames,
+							options: usernames.map((s) => ({ label: s, value: s })),
 							allowCustomValue: true,
 							label: 'User',
 							icon: UserIcon
 						},
 						folder: {
 							type: 'oneof',
-							options: folders,
+							options: folders.map((s) => ({ label: s, value: s })),
 							allowCustomValue: true,
 							label: 'Folder',
 							icon: FolderIcon
@@ -612,7 +618,64 @@
 						tag: { type: 'string', label: 'Tag' },
 						worker: { type: 'string', label: 'Worker' },
 						schedule_path: { type: 'string', label: 'Schedule path' },
-						concurrency_key: { type: 'string', label: 'Concurrency key' }
+						concurrency_key: { type: 'string', label: 'Concurrency key' },
+						job_kinds: {
+							type: 'oneof',
+							options: [
+								{ label: 'All', value: 'all' },
+								{
+									label: 'Runs (default)',
+									value: 'runs',
+									description:
+										'Runs are jobs that have no parent jobs (flows are jobs that are parent of the jobs they start), they have been triggered through the UI, a schedule or webhook'
+								},
+								{
+									label: 'Dependencies',
+									value: 'dependencies',
+									description:
+										'Deploying a script, flow or an app launch a dependency job that create and then attach the lockfile to the deployed item. This mechanism ensure that logic is always executed with the exact same direct and indirect dependencies.'
+								},
+								{
+									label: 'Previews',
+									value: 'previews',
+									description: 'Previews are jobs that have been started in the editor as "Tests"'
+								},
+								{
+									label: 'Sync',
+									value: 'deploymentcallbacks',
+									description:
+										'Sync jobs that are triggered on every script deployment to sync the workspace with the Git repository configured in the the workspace settings'
+								}
+							],
+							label: 'Job kinds'
+						},
+						status: {
+							type: 'oneof',
+							options: [
+								{ label: 'All (default)', value: 'all' },
+								{ label: 'Running', value: 'running' },
+								{ label: 'Success', value: 'success' },
+								{ label: 'Failure', value: 'failure' }
+							],
+							label: 'Status'
+						},
+						show_skipped: { type: 'boolean', label: 'Show skipped' },
+						job_trigger_kind: {
+							type: 'oneof',
+							label: 'Trigger kind',
+							options: jobTriggerKinds.map((value) => ({
+								label: triggerDisplayNamesMap[value],
+								value
+							}))
+						},
+						arg: {
+							type: 'string',
+							label: 'Args'
+						},
+						result: {
+							type: 'string',
+							label: 'Result'
+						}
 					}}
 					value={filtersTEMP}
 				/>
