@@ -10,8 +10,8 @@ path = "src/lib.rs"
 
 [features]
 default = []
-private = ["windmill-test-utils/private"]
-enterprise = ["windmill-test-utils/enterprise"]
+private = ["windmill-test-utils/private", "dep:aws-config", "dep:aws-credential-types", "dep:aws-sdk-sqs"]
+enterprise = ["windmill-test-utils/enterprise", "dep:base64"]
 
 [dependencies]
 windmill-test-utils.workspace = true
@@ -28,3 +28,7 @@ rand.workspace = true
 rumqttc.workspace = true
 rdkafka.workspace = true
 async-nats.workspace = true
+aws-config = { workspace = true, optional = true }
+aws-credential-types = { workspace = true, optional = true }
+aws-sdk-sqs = { workspace = true, optional = true }
+base64 = { workspace = true, optional = true }

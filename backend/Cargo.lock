@@ -16145,6 +16145,10 @@ version = "1.631.2"
 dependencies = [
  "anyhow",
  "async-nats",
+ "aws-config",
+ "aws-credential-types",
+ "aws-sdk-sqs",
+ "base64 0.22.1",
  "rand 0.9.0",
  "rdkafka",
  "reqwest 0.13.1",
