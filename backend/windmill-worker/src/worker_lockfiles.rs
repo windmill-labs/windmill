@@ -2238,7 +2238,7 @@ async fn try_skip_relock(
             COUNT(*) > 0
             AND BOOL_AND(dm.imported_lockfile_hash = slh.lockfile_hash)
         FROM dependency_map dm
-        INNER JOIN script_lock_hash slh
+        LEFT JOIN script_lock_hash slh
             ON slh.workspace_id = dm.workspace_id
             AND slh.path = dm.imported_path
         WHERE dm.workspace_id = $1
