@@ -6,9 +6,18 @@ value:
       value:
         type: aiagent
         input_transforms:
-          task:
+          provider:
+            type: static
+            value:
+              kind: openai
+              resource: "$res:u/admin/openai"
+              model: gpt-4o-mini
+          user_message:
             type: static
             value: "Search for information"
+          output_type:
+            type: static
+            value: text
         tools:
           - id: mcp_search
             summary: Search tool from MCP

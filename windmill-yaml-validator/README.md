@@ -1,14 +1,19 @@
 # Windmill YAML Validator
 
-A TypeScript-based YAML validator for Windmill flow files. This package validates flow.yaml files against the OpenFlow JSON schema to ensure they conform to the Windmill flow specification.
+A TypeScript-based YAML validator for Windmill flow, schedule, and trigger files.
 
 ## Overview
 
-The windmill-yaml-validator provides runtime validation for Windmill flow YAML files. It is currently used in the **Windmill VSCode extension** to show syntax errors and validation issues on `flow.yaml` files in real-time as developers edit them.
+The windmill-yaml-validator provides runtime validation for Windmill YAML files. It is used by editor integrations to show validation errors while editing:
+
+- `flow.yaml` / `flow.yml`
+- `*.schedule.yaml` / `*.schedule.yml`
+- `*.{http|websocket|kafka|nats|postgres|mqtt|sqs|gcp}_trigger.yaml` (or `.yml`)
 
 ## Features
 
-- **Schema-based validation**: Validates against the official OpenFlow JSON schema
+- **Unified validation API**: One validator class for flow/schedule/trigger files
+- **Schema-based validation**: Uses OpenFlow and backend OpenAPI-derived schemas
 - **Detailed error reporting**: Returns comprehensive error information with specific paths to invalid fields
 
 ## Installation
@@ -22,28 +27,69 @@ npm install windmill-yaml-validator
 ### Basic Validation
 
 ```typescript
-import { FlowValidator } from "windmill-yaml-validator";
+import { WindmillYamlValidator } from "windmill-yaml-validator";
 
-const validator = new FlowValidator();
+const validator = new WindmillYamlValidator();
 
-const yamlContent = `
+const flowYaml = `
 summary: Test Flow
 value:
   modules: []
 `;
 
-const result = validator.validateFlow(yamlContent);
+const flowResult = validator.validate(flowYaml, { type: "flow" });
 
-if (result.errors.length === 0) {
-  console.log("Flow is valid!");
-} else {
-  console.log("Validation errors:", result.errors);
+const scheduleYaml = `
+schedule: "0 0 12 * * *"
+timezone: "UTC"
+enabled: true
+script_path: "f/jobs/daily_sync"
+is_flow: false
+`;
+
+const scheduleResult = validator.validate(scheduleYaml, { type: "schedule" });
+
+const triggerYaml = `
+script_path: "f/triggers/http_handler"
+is_flow: false
+route_path: "api/webhook"
+request_type: "sync"
+authentication_method: "none"
+http_method: "post"
+is_static_website: false
+workspaced_route: false
+wrap_body: false
+raw_string: false
+`;
+
+const triggerResult = validator.validate(triggerYaml, {
+  type: "trigger",
+  triggerKind: "http",
+});
+
+console.log(flowResult.errors, scheduleResult.errors, triggerResult.errors);
+```
+
+### Target Inference by Filename
+
+```typescript
+import {
+  WindmillYamlValidator,
+  getValidationTargetFromFilename,
+} from "windmill-yaml-validator";
+
+const validator = new WindmillYamlValidator();
+const target = getValidationTargetFromFilename(
+  "f/webhooks/order_created.http_trigger.yaml"
+);
+
+if (target) {
+  const result = validator.validate(fileContents, target);
+  console.log(result.errors);
 }
 ```
 
 ### Error Handling
-
-The validator returns detailed error information for invalid flows:
 
 ```typescript
 const invalidYaml = `
@@ -56,7 +102,7 @@ value:
         language: invalid_language  # Invalid enum value
 `;
 
-const result = validator.validateFlow(invalidYaml);
+const result = validator.validate(invalidYaml, { type: "flow" });
 
 result.errors.forEach((error) => {
   console.log(`Error at ${error.instancePath}: ${error.message}`);
@@ -68,27 +114,31 @@ result.errors.forEach((error) => {
 
 ## API
 
-### `FlowValidator`
+### `WindmillYamlValidator`
 
-Main validator class that validates Windmill flow YAML files.
+Main validator class for Windmill YAML validation.
 
 #### Constructor
 
 ```typescript
-new FlowValidator();
+new WindmillYamlValidator();
 ```
 
-Creates a new validator instance. The constructor initializes the AJV validator with the OpenFlow schema.
+Initializes AJV validators for flow, schedule, and trigger schemas.
 
 #### Methods
 
-##### `validateFlow(doc: string)`
+##### `validate(doc: string, target: ValidationTarget)`
 
-Validates a flow document against the OpenFlow schema.
+Validates a YAML document against the selected target schema.
 
 **Parameters:**
 
-- `doc` (string): The YAML flow document as a string
+- `doc` (string): YAML document string
+- `target` (`ValidationTarget`):
+  - `{ type: "flow" }`
+  - `{ type: "schedule" }`
+  - `{ type: "trigger", triggerKind: "http" | "websocket" | "kafka" | "nats" | "postgres" | "mqtt" | "sqs" | "gcp" }`
 
 **Returns:**
 
@@ -103,6 +153,10 @@ Validates a flow document against the OpenFlow schema.
 
 - Error if `doc` is not a string
 
+### `getValidationTargetFromFilename(path: string)`
+
+Infers validation target from file naming conventions. Returns `null` for unsupported files.
+
 ## Development
 
 ### Building
@@ -113,7 +167,10 @@ npm run build
 
 The build process:
 
-1. Runs `gen_openflow_schema.sh` to generate the OpenFlow JSON schema from `openflow.openapi.yaml`
+1. Runs `gen_openflow_schema.sh` to generate:
+   - `src/gen/openflow.json`
+   - `src/gen/schedule.json`
+   - `src/gen/triggers/*.json`
 2. Removes discriminator mappings (not supported by AJV)
 3. Compiles TypeScript to JavaScript
 
@@ -139,10 +196,10 @@ The validator uses a JSON schema generated from the OpenAPI specification:
 
 This script:
 
-- Bundles `openflow.openapi.yaml` into a single JSON schema
+- Converts `openflow.openapi.yaml` and `backend/windmill-api/openapi.yaml` into JSON
 - Removes discriminator mappings for AJV compatibility
 - Removes the `ToolValue` discriminator entirely (see below)
-- Outputs to `src/gen/openflow.json`
+- Generates standalone schedule/trigger schemas for CLI file shape
 
 #### Why Remove Discriminators?
 
@@ -157,3 +214,7 @@ The OpenFlow schema uses OpenAPI discriminators for efficient type resolution in
 - Is slightly slower but still performant for our use case
 - Provides the same validation correctness
 - Works correctly with complex schema compositions like `allOf`
+
+## Breaking Change
+
+`FlowValidator` and `validateFlow()` were replaced by `WindmillYamlValidator` and `validate(doc, target)`.
