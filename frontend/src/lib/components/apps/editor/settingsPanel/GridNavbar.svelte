@@ -164,7 +164,7 @@
 								<CloseButton
 									noBg
 									small
-									on:close={() => {
+									onClick={() => {
 										items = items.filter((_, i) => i !== index)
 									}}
 								/>

@@ -195,7 +195,7 @@
 							<div class="flex flex-row items-center gap-1">
 								<CloseButton
 									small
-									on:close={() => deleteComponent(component.id, item.originalIndex)}
+									onClick={() => deleteComponent(component.id, item.originalIndex)}
 								/>
 							</div>
 						</div>

@@ -142,7 +142,7 @@
 					onblur={handleBlur}
 				/>
 				<span class="text-secondary text-2xs inline-grid [&>*]:col-start-1 [&>*]:row-start-1"
-					><span class="invisible">days</span><span>{day && day > 1 ? 'days' : 'day'}</span></span
+					><span class="invisible">days</span><span>{day !== 1 ? 'days' : 'day'}</span></span
 				>
 			</div>
 			<div class="flex items-baseline">
@@ -166,7 +166,7 @@
 					onblur={handleBlur}
 				/>
 				<span class="text-secondary text-2xs inline-grid [&>*]:col-start-1 [&>*]:row-start-1"
-					><span class="invisible">hrs</span><span>{hour && hour > 1 ? 'hrs' : 'hr'}</span></span
+					><span class="invisible">hrs</span><span>{hour !== 1 ? 'hrs' : 'hr'}</span></span
 				>
 			</div>
 			<div class="flex items-baseline">
@@ -190,7 +190,7 @@
 					onblur={handleBlur}
 				/>
 				<span class="text-secondary text-2xs inline-grid [&>*]:col-start-1 [&>*]:row-start-1"
-					><span class="invisible">mins</span><span>{min && min > 1 ? 'mins' : 'min'}</span></span
+					><span class="invisible">mins</span><span>{min !== 1 ? 'mins' : 'min'}</span></span
 				>
 			</div>
 			<div class="flex items-baseline">
@@ -214,7 +214,7 @@
 					onblur={handleBlur}
 				/>
 				<span class="text-secondary text-2xs inline-grid [&>*]:col-start-1 [&>*]:row-start-1"
-					><span class="invisible">secs</span><span>{sec && sec > 1 ? 'secs' : 'sec'}</span></span
+					><span class="invisible">secs</span><span>{sec !== 1 ? 'secs' : 'sec'}</span></span
 				>
 			</div>
 		</div>
@@ -223,7 +223,7 @@
 				class="bg-transparent text-secondary hover:text-primary"
 				noBg
 				small
-				on:close={() => {
+				onClick={() => {
 					seconds = defaultValue
 				}}
 			/>
