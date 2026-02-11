@@ -7,6 +7,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { Button } from '../common'
 	import Tooltip from '../Tooltip.svelte'
+	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
 	import { ExternalLink, Pen, X } from 'lucide-svelte'
 	import Section from '../Section.svelte'
 	import Range from '../Range.svelte'
@@ -154,13 +155,12 @@
 
 <div class="flex flex-col gap-4 mt-8">
 	<div class="flex flex-col gap-1">
-		<div class=" text-primary text-lg font-semibold">
-			{#if premiumInfo?.premium && plan}
-				Plan: {capitalize(plan)} plan{plan === 'team' ? ' (usage-based)' : ''}
-			{:else}
-				Plan: Free plan
-			{/if}
-		</div>
+		<SettingsPageHeader
+			title={premiumInfo?.premium && plan
+				? `Plan: ${capitalize(plan)} plan${plan === 'team' ? ' (usage-based)' : ''}`
+				: 'Plan: Free plan'}
+			class="mb-0"
+		/>
 		{#if premiumInfo?.status === 'past_due'}
 			<p class="text-red-500 text-base">
 				{#if premiumInfo.max_tolerated_executions === undefined || premiumInfo.usage > premiumInfo.max_tolerated_executions}
