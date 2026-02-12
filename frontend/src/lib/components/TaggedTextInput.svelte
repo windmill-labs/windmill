@@ -4,15 +4,13 @@
 		value = $bindable(''),
 		placeholder = '',
 		onCurrentTagChange,
-		class: className = '',
-		onEnter
+		class: className = ''
 	}: {
 		tags: { regex: RegExp; id: string }[]
 		value?: string
 		placeholder?: string
 		onCurrentTagChange?: (tag: { id: string } | null) => void
 		class?: string
-		onEnter?: () => void
 	} = $props()
 
 	let contentEditableDiv: HTMLDivElement
@@ -206,13 +204,6 @@
 		const text = e.clipboardData?.getData('text/plain') || ''
 		document.execCommand('insertText', false, text)
 	}
-
-	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === 'Enter') {
-			onEnter?.()
-			e.preventDefault()
-		}
-	}
 </script>
 
 <div
@@ -222,7 +213,6 @@
 	onpaste={handlePaste}
 	onclick={handleClick}
 	onkeyup={handleKeyup}
-	onkeydown={handleKeydown}
 	class="outline-none text-nowrap flex-nowrap {className}"
 	class:text-hint={value === ''}
 	data-placeholder={placeholder}

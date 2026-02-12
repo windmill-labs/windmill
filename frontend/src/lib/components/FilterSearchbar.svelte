@@ -90,6 +90,7 @@
 	let currentTag: keyof SchemaT | undefined = $state()
 	let open = $state(false)
 	let inputElement: HTMLDivElement | undefined = $state()
+	let highlightedIndex = $state(0)
 
 	let tags = $derived(
 		Object.entries(schema).map(([key, filterSchema]) => ({
@@ -97,6 +98,57 @@
 			id: key
 		}))
 	)
+
+	let menuItems = $derived.by(() => {
+		if (!currentTag) {
+			return Object.entries(schema)
+				.filter(([k, _]) => !(k in value))
+				.map(([key, filterSchema]) => ({
+					type: 'filter' as const,
+					key,
+					filterSchema,
+					onClick: () => {
+						asText.val.replaceAll('\u00A0', ' ')
+						if (!asText.val.endsWith(' ')) asText.val += ' '
+						asText.val += `${key}:`
+					}
+				}))
+		} else {
+			const filter = schema[currentTag]
+			if (filter.type === 'oneof') {
+				return filter.options
+					.filter((o) => !value[currentTag!] || o.value.includes(String(value[currentTag!] ?? '')))
+					.map((option) => ({
+						type: 'option' as const,
+						option,
+						onClick: () => setValueForCurrentTag(option.value)
+					}))
+			} else if (filter.type === 'boolean') {
+				return [
+					{
+						type: 'boolean' as const,
+						value: true,
+						label: 'True',
+						onClick: () => setValueForCurrentTag(true)
+					},
+					{
+						type: 'boolean' as const,
+						value: false,
+						label: 'False',
+						onClick: () => setValueForCurrentTag(false)
+					}
+				]
+			}
+		}
+		return []
+	})
+
+	// Reset highlighted index when menu items change
+	$effect(() => {
+		menuItems
+		open
+		highlightedIndex = 0
+	})
 
 	const kvRegex = /\b(\w+):([^\s]*)/g
 
@@ -140,9 +192,29 @@
 		value[currentTag!] = val
 		onTagComplete()
 	}
+
+	function handleKeyDown(e: KeyboardEvent) {
+		if (!open) return
+		if (e.key === 'Escape') {
+			open = false
+			return
+		}
+
+		if (menuItems.length && e.key === 'ArrowDown') {
+			highlightedIndex = (highlightedIndex + 1) % menuItems.length
+		} else if (menuItems.length && e.key === 'ArrowUp') {
+			highlightedIndex = (highlightedIndex - 1 + menuItems.length) % menuItems.length
+		} else if (e.key === 'Enter') {
+			if (menuItems[highlightedIndex]) menuItems[highlightedIndex].onClick()
+			else setValueForCurrentTag(value[currentTag!])
+		} else {
+			return
+		}
+		e.preventDefault()
+	}
 </script>
 
-<svelte:window on:click={() => (open = false)} />
+<svelte:window on:click={() => (open = false)} onkeydown={handleKeyDown} />
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -166,7 +238,6 @@
 			className
 		)}
 		placeholder="Filter runs..."
-		onEnter={onTagComplete}
 	/>
 </div>
 
@@ -181,17 +252,16 @@
 	<div class="py-1 p-2 overflow-y-auto" onclick={(e) => e.stopPropagation()}>
 		{#if !currentTag}
 			<div class="text-xs px-2 my-2 font-bold">Filters</div>
-			{#each Object.entries(schema).filter(([k, _]) => !(k in value)) as [key, filterSchema]}
-				{@render menuItem({
-					Icon: filterSchema.icon || SearchIcon,
-					onClick: () => {
-						asText.val.replaceAll('\u00A0', ' ')
-						if (!asText.val.endsWith(' ')) asText.val += ' '
-						asText.val += `${key}:`
-					},
-					label: filterSchema.label || key,
-					description: filterSchema.description
-				})}
+			{#each menuItems as item, index}
+				{#if item.type === 'filter'}
+					{@render menuItem({
+						Icon: item.filterSchema.icon || SearchIcon,
+						onClick: item.onClick,
+						label: item.filterSchema.label || item.key,
+						description: item.filterSchema.description,
+						highlighted: index === highlightedIndex
+					})}
+				{/if}
 			{/each}
 		{:else}
 			{@render suggestion(schema[currentTag])}
@@ -205,16 +275,26 @@
 	{/if}
 	{#if filter.type === 'oneof'}
 		<div class="max-h-60 overflow-y-auto">
-			{#each filter.options.filter((o) => !value[currentTag!] || o.value.includes(value[currentTag!] ?? '')) as option}
-				{@render menuItem({
-					onClick: () => setValueForCurrentTag(option.value),
-					label: option.label || option.value
-				})}
+			{#each menuItems as item, index}
+				{#if item.type === 'option'}
+					{@render menuItem({
+						onClick: item.onClick,
+						label: item.option.label || item.option.value,
+						highlighted: index === highlightedIndex
+					})}
+				{/if}
 			{/each}
 		</div>
 	{:else if filter.type === 'boolean'}
-		{@render menuItem({ onClick: () => setValueForCurrentTag(true), label: 'True' })}
-		{@render menuItem({ onClick: () => setValueForCurrentTag(false), label: 'False' })}
+		{#each menuItems as item, index}
+			{#if item.type === 'boolean'}
+				{@render menuItem({
+					onClick: item.onClick,
+					label: item.label,
+					highlighted: index === highlightedIndex
+				})}
+			{/if}
+		{/each}
 	{:else if filter.type === 'date'}
 		<DateTimeInput
 			bind:value={() => value[currentTag!], (d) => d && setValueForCurrentTag(new Date(d))}
@@ -226,17 +306,22 @@
 	Icon,
 	onClick,
 	label,
-	description
+	description,
+	highlighted = false
 }: {
 	Icon?: IconType
 	onClick: () => void
 	label: string
 	description?: string
+	highlighted?: boolean
 })}
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<div
-		class="py-1.5 px-2 rounded-md hover:bg-surface-hover cursor-pointer text-sm flex items-center"
+		class={twMerge(
+			'py-1.5 px-2 rounded-md hover:bg-surface-hover cursor-pointer text-sm flex items-center',
+			highlighted && 'bg-surface-hover'
+		)}
 		onclick={onClick}
 	>
 		{#if Icon}
