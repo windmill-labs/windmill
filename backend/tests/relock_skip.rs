@@ -1,9 +1,7 @@
 use sqlx::{Pool, Postgres};
 use tokio_stream::StreamExt;
-
 use windmill_api_client::types::NewScript;
-mod common;
-use common::{init_client, listen_for_completed_jobs, in_test_worker, ApiServer};
+use windmill_test_utils::*;
 
 mod relock_skip {
     use super::*;
@@ -50,7 +48,7 @@ mod relock_skip {
     }
 
     async fn init(db: Pool<Postgres>) -> (windmill_api_client::Client, u16, ApiServer) {
-        common::init_client(db).await
+        init_client(db).await
     }
 
     /// Counts occurrences of a pattern in job logs for all jobs created after a given time
