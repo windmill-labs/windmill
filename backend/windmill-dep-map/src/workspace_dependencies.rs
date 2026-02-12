@@ -89,11 +89,19 @@ impl NewWorkspaceDependencies {
         .fetch_optional(&mut *tx)
         .await?;
 
+        let content_hash = windmill_common::scripts::hash_script(&self.content);
         let new_id = sqlx::query_scalar!(
             "
-            INSERT INTO workspace_dependencies(name, workspace_id, content, language, description)
-            VALUES ($1, $2, $3, $4, $5)
-            RETURNING id
+            WITH ins AS (
+                INSERT INTO workspace_dependencies(name, workspace_id, content, language, description)
+                VALUES ($1, $2, $3, $4, $5)
+                RETURNING id
+            ), lock_ins AS (
+                INSERT INTO lock_hash (workspace_id, path, lockfile_hash)
+                VALUES ($2, $6, $7)
+                ON CONFLICT (workspace_id, path) DO UPDATE SET lockfile_hash = $7
+            )
+            SELECT id FROM ins
             ",
             self.name.clone(),
             self.workspace_id,
@@ -101,7 +109,9 @@ impl NewWorkspaceDependencies {
             self.language as ScriptLang,
             self.description
                 .or(prev_description.clone())
-                .unwrap_or("Default Workspace Dependencies".to_owned())
+                .unwrap_or("Default Workspace Dependencies".to_owned()),
+            path,
+            content_hash
         )
         .fetch_one(&mut *tx)
         .await?;
@@ -136,7 +146,7 @@ pub async fn trigger_dependents_to_recompute_dependencies_in_the_background(
                 language = ?language,
                 "waiting for cache timeout after creating first unnamed workspace dependencies"
             );
-            tokio::time::sleep(EXISTS_CACHE_TIMEOUT).await;
+            tokio::time::sleep(*EXISTS_CACHE_TIMEOUT).await;
         }
 
         if let Err(e) = trigger_dependents_to_recompute_dependencies(

@@ -395,8 +395,6 @@ pub async fn clone_script<'c>(
         content: s.content,
         schema: s.schema,
         is_template: s.is_template,
-        // TODO: Make it either None everywhere (particularly when raw reqs are calculated)
-        // Or handle this case and conditionally make Some (only with raw reqs)
         lock: None,
         language: s.language,
         kind: Some(s.kind),
