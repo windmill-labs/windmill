@@ -92,6 +92,7 @@ mod folders;
 mod granular_acls;
 mod group_history;
 mod groups;
+mod health;
 #[cfg(feature = "private")]
 pub mod indexer_ee;
 mod indexer_oss;
@@ -376,6 +377,10 @@ pub async fn run_server(
         start_all_listeners(db.clone(), &killpill_rx);
     }
 
+    if server_mode {
+        health::start_health_check_loop(db.clone(), killpill_rx.resubscribe());
+    }
+
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .context("binding main windmill server")?;
@@ -546,6 +551,7 @@ pub async fn run_server(
                 .nest("/ai", ai::global_service())
                 .nest("/inkeep", inkeep_oss::global_service())
                 .nest("/mcp/w/:workspace_id/list_tools", mcp_list_tools_service)
+                .nest("/health/detailed", health::detailed_service())
                 .route_layer(from_extractor::<ApiAuthed>())
                 .route_layer(from_extractor::<users::Tokened>())
                 // Workspace-scoped OAuth endpoints that don't require authentication
@@ -741,6 +747,7 @@ pub async fn run_server(
                     }
                 })
                 .route("/version", get(git_v))
+                .nest("/health/status", health::status_service())
                 .route("/min_keep_alive_version", get(min_keep_alive_version))
                 .route("/uptodate", get(is_up_to_date))
                 .route("/ee_license", get(ee_license))

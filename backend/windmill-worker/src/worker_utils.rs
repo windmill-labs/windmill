@@ -45,6 +45,7 @@ pub(crate) async fn update_worker_ping_full(
         occupancy_rate_30m,
     } = occupancy_metrics.update_occupancy_metrics();
 
+    let ping_start = std::time::Instant::now();
     if let Err(e) = (|| {
         update_worker_ping_full_inner(
             conn,
@@ -81,11 +82,13 @@ pub(crate) async fn update_worker_ping_full(
                     "failed to update worker ping, exiting: {}", e);
         killpill_tx.send();
     }
+    let db_latency_ms = ping_start.elapsed().as_millis();
     tracing::info!(
         worker = %worker_name, hostname = %hostname,
-        "ping update, memory: container={}MB, windmill={}MB",
+        "ping update, memory: container={}MB, windmill={}MB, db_latency={}ms",
         memory_usage.unwrap_or_default() / (1024 * 1024),
-        wm_memory_usage.unwrap_or_default() / (1024 * 1024)
+        wm_memory_usage.unwrap_or_default() / (1024 * 1024),
+        db_latency_ms
     );
 }
 
