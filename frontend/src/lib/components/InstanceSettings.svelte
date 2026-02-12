@@ -227,13 +227,15 @@
 			return scimSamlSetting
 		}
 		const base = settings[category] ?? []
-		// In quick setup, reorder Core: base settings (without license_key), then job_isolation, license_key, retention_period_secs
+		// In quick setup, reorder Core: base settings (without license_key), then extras from Jobs
 		if (quickSetup && category === 'Core') {
 			const licenseKey = base.find((s) => s.key === 'license_key')
 			const baseWithout = base.filter((s) => s.key !== 'license_key')
-			const jobIsolation = settings['Jobs']?.find((s) => s.key === 'job_isolation')
-			const retentionPeriod = settings['Jobs']?.find((s) => s.key === 'retention_period_secs')
-			return [...baseWithout, ...(jobIsolation ? [jobIsolation] : []), ...(licenseKey ? [licenseKey] : []), ...(retentionPeriod ? [retentionPeriod] : [])]
+			const jobSettings = settings['Jobs'] ?? []
+			const jobIsolation = jobSettings.find((s) => s.key === 'job_isolation')
+			const retentionPeriod = jobSettings.find((s) => s.key === 'retention_period_secs')
+			const objectStorage = jobSettings.find((s) => s.key === 'object_store_cache_config')
+			return [...baseWithout, ...(jobIsolation ? [jobIsolation] : []), ...(licenseKey ? [licenseKey] : []), ...(retentionPeriod ? [retentionPeriod] : []), ...(objectStorage ? [objectStorage] : [])]
 		}
 		return base
 	}
