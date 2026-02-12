@@ -328,6 +328,7 @@ pub static FULL_IMPORTS_MAP: PyMap = phf_map! {
     "azure.keyvault.secrets" => "azure-keyvault-secrets",
     "azure.storage.blob" => "azure-storage-blob",
     "azure.storage.filedatalake" => "azure-storage-file-datalake",
+    "azure.identity" => "azure-identity",
     // Add new entry here ^
 };
 
