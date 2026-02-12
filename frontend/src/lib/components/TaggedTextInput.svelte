@@ -16,6 +16,10 @@
 	let contentEditableDiv: HTMLDivElement
 	let isUpdating = false
 
+	$effect(() => {
+		if (!value.trim() && value !== '') value = ''
+	})
+
 	// Update the displayed HTML when value changes externally
 	$effect(() => {
 		if (contentEditableDiv && !isUpdating) {
