@@ -1,8 +1,8 @@
 <script lang="ts">
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
-	import { Boxes, Code2, DollarSign, Folder, LayoutDashboard } from 'lucide-svelte'
+	import { Boxes, Calendar, Code2, DollarSign, Folder, LayoutDashboard } from 'lucide-svelte'
 
-	export let kind: 'script' | 'flow' | 'app' | 'raw_app' | 'resource' | 'variable' | 'resource_type' | 'folder'
+	export let kind: 'script' | 'flow' | 'app' | 'raw_app' | 'resource' | 'variable' | 'resource_type' | 'folder' | 'schedule'
 </script>
 
 <div class="flex justify-center items-center" title={kind}>
@@ -20,6 +20,8 @@
 		<div style="width: 16px; height: 16px;" class="bg-gray-100 rounded-full" ></div>
 	{:else if kind === 'folder'}
 		<Folder size={16} class="text-gray-400" />
+	{:else if kind === 'schedule'}
+		<Calendar size={16} class="text-gray-400" />
 	{:else}
 		<div class="w-[16px]"></div>
 	{/if}

@@ -1006,7 +1006,6 @@
 />
 
 {#if !$userStore?.operator}
-											{console.log('showPreserveToggle', showPreserveToggle)}
 	<Drawer
 		placement="right"
 		bind:open={metadataOpen}
@@ -1613,7 +1612,6 @@
 													right: 'Run on behalf of last editor'
 												}}
 											/>
-											{console.log('showPreserveToggle', showPreserveToggle)}
 											{#if showPreserveToggle}
 												<Toggle
 													size="sm"

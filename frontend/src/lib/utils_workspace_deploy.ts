@@ -23,6 +23,7 @@ export interface DeployItemParams {
 	workspaceFrom: string
 	workspaceTo: string
 	additionalInformation?: AdditionalInformation
+	preserveOnBehalfOf?: boolean
 }
 
 export interface DeployResult {
@@ -35,7 +36,8 @@ export interface DeployResult {
  * Handles all item kinds: flow, script, app, variable, resource, resource_type, folder, trigger.
  */
 export async function deployItem(params: DeployItemParams): Promise<DeployResult> {
-	const { kind, path, workspaceFrom, workspaceTo, additionalInformation } = params
+	const { kind, path, workspaceFrom, workspaceTo, additionalInformation, preserveOnBehalfOf } =
+		params
 
 	try {
 		const alreadyExists = await checkItemExists(kind, path, workspaceTo, additionalInformation)
@@ -55,14 +57,16 @@ export async function deployItem(params: DeployItemParams): Promise<DeployResult
 					workspace: workspaceTo,
 					path: path,
 					requestBody: {
-						...flow
+						...flow,
+						preserve_on_behalf_of: preserveOnBehalfOf
 					}
 				})
 			} else {
 				await FlowService.createFlow({
 					workspace: workspaceTo,
 					requestBody: {
-						...flow
+						...flow,
+						preserve_on_behalf_of: preserveOnBehalfOf
 					}
 				})
 			}
@@ -83,7 +87,8 @@ export async function deployItem(params: DeployItemParams): Promise<DeployResult
 									path: path
 								})
 							).hash
-						: undefined
+						: undefined,
+					preserve_on_behalf_of: preserveOnBehalfOf
 				}
 			})
 		} else if (kind === 'app') {
@@ -431,4 +436,29 @@ export async function getItemValue(
 	} catch {
 		return {}
 	}
+}
+
+/**
+ * Get the on_behalf_of_email for a flow or script.
+ */
+export async function getOnBehalfOfEmail(
+	kind: Kind,
+	path: string,
+	workspace: string
+): Promise<string | undefined> {
+	try {
+		if (kind === 'flow') {
+			const flow = await FlowService.getFlowByPath({ workspace, path })
+			return flow.on_behalf_of_email
+		} else if (kind === 'script') {
+			const script = await ScriptService.getScriptByPath({ workspace, path })
+			return script.on_behalf_of_email
+		} else if (kind === 'app') {
+			const app = await AppService.getAppByPath({ workspace, path })
+			return app.policy.on_behalf_of_email
+		}
+	} catch {
+		// Item may not exist in the workspace
+	}
+	return undefined
 }

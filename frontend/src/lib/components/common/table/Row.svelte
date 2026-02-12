@@ -16,7 +16,7 @@
 		errorHandlerMuted?: boolean
 		aiId?: string | undefined
 		aiDescription?: string | undefined
-		kind?: 'script' | 'flow' | 'app' | 'raw_app' | 'resource' | 'variable' | 'resource_type'
+		kind?: 'script' | 'flow' | 'app' | 'raw_app' | 'resource' | 'variable' | 'resource_type' | 'folder' | 'schedule' | 'trigger'
 		summary?: string | undefined
 		path: string
 		href?: string
@@ -105,7 +105,7 @@
 		</div>
 	{/if}
 
-	{#if canFavorite && kind !== 'resource' && kind !== 'variable' && kind !== 'resource_type'}
+	{#if canFavorite && (kind == 'app' || kind == 'raw_app' || kind == 'script' || kind == 'flow')}
 		<div class="center-center h-full text-xs font-semibold text-secondary w-9">
 			<Star {kind} {path} {workspaceId} {summary} />
 		</div>

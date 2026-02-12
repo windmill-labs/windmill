@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { base } from '$lib/base'
-	import { enterpriseLicense, superadmin, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, superadmin, userStore, workspaceStore } from '$lib/stores'
 	import {
 		AppService,
 		FlowService,
@@ -13,7 +13,7 @@
 	import Button from './common/button/Button.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import Alert from './common/alert/Alert.svelte'
-	import { DiffIcon, Loader2 } from 'lucide-svelte'
+	import { AlertTriangle, DiffIcon, Loader2 } from 'lucide-svelte'
 	import Badge from './common/badge/Badge.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
 	import {
@@ -21,12 +21,19 @@
 		type AdditionalInformation,
 		type Kind
 	} from '$lib/utils_deployable'
-	import { checkItemExists, deployItem, getItemValue } from '$lib/utils_workspace_deploy'
+	import {
+		checkItemExists,
+		deployItem,
+		getItemValue,
+		getOnBehalfOfEmail
+	} from '$lib/utils_workspace_deploy'
+	import Toggle from './Toggle.svelte'
 	import type { App } from './apps/types'
 	import { getAllGridItems } from './apps/editor/appUtils'
 	import { isRunnableByPath } from './apps/inputType'
 	import type { Runnable } from './raw_apps/utils'
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
+	import Popover from './Popover.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -58,6 +65,14 @@
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)
 	let notSet: boolean | undefined = $state(undefined)
 	let isFlow: boolean | undefined = $state(undefined)
+
+	// On-behalf-of tracking for flows and scripts
+	const WM_DEPLOYERS_GROUP = 'wm_deployers'
+	let canPreserve = $derived(
+		$userStore?.is_admin || $userStore?.groups?.includes(WM_DEPLOYERS_GROUP) || false
+	)
+	let onBehalfOfInfo = $state<Record<string, string | undefined>>({})
+	let preserveOnBehalfOf = $state<Record<string, boolean>>({})
 
 	async function reload(path: string) {
 		try {
@@ -98,6 +113,12 @@
 				x.kind != 'resource_type' &&
 				(x.kind != 'folder' || !allAlreadyExists[computeStatusPath(x.kind, x.path)])
 		}))
+
+		// Fetch on_behalf_of_email for flows and scripts
+		for (const dep of sortedSet.filter((d) => ['flow', 'script', 'app'].includes(d.kind))) {
+			const key = computeStatusPath(dep.kind, dep.path)
+			onBehalfOfInfo[key] = await getOnBehalfOfEmail(dep.kind, dep.path, $workspaceStore!)
+		}
 	}
 
 	async function getDependencies(
@@ -219,7 +240,7 @@
 	> = $state({})
 
 	async function deploy(kind: Kind, path: string) {
-		const statusPath = `${kind}:${path}`
+		const statusPath = computeStatusPath(kind, path)
 		deploymentStatus[statusPath] = { status: 'loading' }
 
 		const result = await deployItem({
@@ -227,7 +248,8 @@
 			path,
 			workspaceFrom: $workspaceStore!,
 			workspaceTo: workspaceToDeployTo!,
-			additionalInformation
+			additionalInformation,
+			preserveOnBehalfOf: preserveOnBehalfOf[statusPath]
 		})
 
 		if (result.success) {
@@ -377,6 +399,29 @@
 				{@const statusPath = item.key}
 				{@const exists = allAlreadyExists[statusPath]}
 				{@const status = deploymentStatus[statusPath]}
+
+				<!-- On-behalf-of warning -->
+				{#if (item.kind === 'flow' || item.kind === 'script' || item.kind == 'app') && onBehalfOfInfo[statusPath]}
+					<div class="flex items-center gap-1 pr-2">
+						{#if !preserveOnBehalfOf[statusPath]}
+							<Popover>
+								<AlertTriangle class="w-4 h-4 text-yellow-500" />
+								{#snippet text()}
+									Deploying this will update the `on_behalf_of` field from <strong
+										>{onBehalfOfInfo[statusPath]}</strong
+									> to your account. Make sure this is acceptable before deploying.
+								{/snippet}
+							</Popover>
+						{/if}
+						{#if canPreserve && onBehalfOfInfo[statusPath] !== $userStore?.email}
+							<Toggle
+								size="2xs"
+								bind:checked={preserveOnBehalfOf[statusPath]}
+								options={{ right: `Keep on_behalf_of (${onBehalfOfInfo[statusPath]})` }}
+							/>
+						{/if}
+					</div>
+				{/if}
 
 				{#if exists === false}
 					{#if item.include}

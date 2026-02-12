@@ -23,15 +23,18 @@
 	import Button from './common/button/Button.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
 	import ParentWorkspaceProtectionAlert from './ParentWorkspaceProtectionAlert.svelte'
-	import { userWorkspaces, workspaceStore } from '$lib/stores'
+	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 
 	import type { Kind } from '$lib/utils_deployable'
-	import { deployItem, getItemValue } from '$lib/utils_workspace_deploy'
+	import { deployItem, getItemValue, getOnBehalfOfEmail } from '$lib/utils_workspace_deploy'
+	import Toggle from './Toggle.svelte'
+	import Tooltip from './Tooltip.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { deepEqual } from 'fast-equals'
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
+	import Popover from './Popover.svelte'
 
 	interface Props {
 		currentWorkspaceId: string
@@ -85,6 +88,14 @@
 	// Summary cache: stores summaries from both workspaces
 	type SummaryCache = Record<string, { current?: string; parent?: string; loading?: boolean }>
 	let summaryCache = $state<SummaryCache>({})
+
+	// On-behalf-of tracking for flows and scripts
+	const WM_DEPLOYERS_GROUP = 'wm_deployers'
+	let canPreserve = $derived(
+		$userStore?.is_admin || $userStore?.groups?.includes(WM_DEPLOYERS_GROUP) || false
+	)
+	let onBehalfOfInfo = $state<Record<string, string | undefined>>({})
+	let preserveOnBehalfOf = $state<Record<string, boolean>>({})
 
 	function getItemKey(diff: WorkspaceItemDiff): string {
 		return `${diff.kind}:${diff.path}`
@@ -144,6 +155,18 @@
 		}
 	}
 
+	async function fetchOnBehalfOfInfo(diffs: WorkspaceItemDiff[]) {
+		const flowsAndScripts = diffs.filter((d) => ['flow', 'script', 'app'].includes(d.kind))
+		for (const diff of flowsAndScripts) {
+			for (const sourceWorkspace of [currentWorkspaceId, parentWorkspaceId]) {
+				const workspacedKey = getWorkspacedKey(sourceWorkspace, getItemKey(diff))
+				if (onBehalfOfInfo[workspacedKey] !== undefined) continue
+
+				onBehalfOfInfo[workspacedKey] = await getOnBehalfOfEmail(diff.kind as Kind, diff.path, sourceWorkspace)
+			}
+		}
+	}
+
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)
 	let isFlow = $state(true)
 
@@ -190,20 +213,26 @@
 		{ status: 'loading' | 'deployed' | 'failed'; error?: string }
 	> = $state({})
 
+	function getWorkspacedKey(workspace: string, key: string): string {
+		return `${workspace}/${key}`
+	}
+
 	async function deploy(
 		kind: Kind,
 		path: string,
 		workspaceToDeployTo: string,
-		workspaceFrom: string
+		workspaceFrom: string,
+		statusPath: string
 	) {
-		const statusPath = `${kind}:${path}`
 		deploymentStatus[statusPath] = { status: 'loading' }
+		const workspacedKey = getWorkspacedKey(workspaceFrom, statusPath)
 
 		const result = await deployItem({
 			kind,
 			path,
 			workspaceFrom,
-			workspaceTo: workspaceToDeployTo
+			workspaceTo: workspaceToDeployTo,
+			preserveOnBehalfOf: preserveOnBehalfOf[workspacedKey]
 		})
 
 		if (result.success) {
@@ -262,9 +291,9 @@
 			}
 
 			if (mergeIntoParent) {
-				await deploy(diff.kind, diff.path, parent, current)
+				await deploy(diff.kind as Kind, diff.path, parent, current, itemKey)
 			} else {
-				await deploy(diff.kind, diff.path, current, parent)
+				await deploy(diff.kind as Kind, diff.path, current, parent, itemKey)
 			}
 		}
 		deploying = false
@@ -294,10 +323,11 @@
 		selectDefault()
 	}
 
-	// Fetch summaries when comparison data loads
+	// Fetch summaries and on_behalf_of_email when comparison data loads
 	$effect(() => {
 		if (comparison?.diffs) {
 			fetchSummaries(comparison.diffs)
+			fetchOnBehalfOfInfo(comparison.diffs)
 		}
 	})
 
@@ -526,11 +556,36 @@
 		{#snippet itemActions(item)}
 			{@const diff = item.diff}
 			{@const key = item.key}
+			{@const workspacedKey = getWorkspacedKey(`${!mergeIntoParent ? currentWorkspaceId : parentWorkspaceId}`, item.key)}
 			{@const isConflict = diff.ahead > 0 && diff.behind > 0}
 			{@const existsInBothWorkspaces = !(
 				(diff.exists_in_fork && !diff.exists_in_source) ||
 				(!diff.exists_in_fork && diff.exists_in_source)
 			)}
+			<!-- On-behalf-of warning -->
+			{#if (diff.kind === 'flow' || diff.kind === 'script' || diff.kind === 'app') && onBehalfOfInfo[workspacedKey] != $userStore?.email}
+				<div class="flex items-center gap-1">
+					<div class="flex items-center gap-1 pr-2">
+						{#if !preserveOnBehalfOf[workspacedKey]}
+							<Popover>
+								<AlertTriangle class="w-4 h-4 text-yellow-500" />
+								{#snippet text()}
+									Deploying this will update the `on_behalf_of` field from <strong
+										>{onBehalfOfInfo[workspacedKey]}</strong
+									> to your account. Make sure this is acceptable before proceeding.
+								{/snippet}
+							</Popover>
+						{/if}
+						{#if canPreserve && onBehalfOfInfo[workspacedKey] !== $userStore?.email}
+							<Toggle
+								size="2xs"
+								bind:checked={preserveOnBehalfOf[workspacedKey]}
+								options={{ right: `Keep on_behalf_of (${onBehalfOfInfo[workspacedKey]})` }}
+							/>
+						{/if}
+					</div>
+				</div>
+			{/if}
 			<!-- Status badges -->
 			{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead == 0 && diff.behind > 0}
 				<Badge
