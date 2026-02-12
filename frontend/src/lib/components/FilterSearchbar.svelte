@@ -111,6 +111,23 @@
 			}
 		}
 
+		// Update values based on the input
+		for (const { key, rawValue } of allEntries) {
+			const filterSchema = schema[key]
+			if (!filterSchema) continue
+			if (filterSchema.type === 'number') {
+				value[key] = Number(rawValue) as any
+			} else if (filterSchema.type === 'boolean') {
+				value[key] = (rawValue.toLowerCase() === 'true') as any
+			} else if (filterSchema.type === 'date') {
+				const date = new Date(rawValue)
+				if (!isNaN(date.getTime())) {
+					value[key] = date as any
+				}
+			} else {
+				value[key] = rawValue as any
+			}
+		}
 		await updateEditingKeyOnCursorMoved()
 	}
 
@@ -273,7 +290,7 @@
 		<div class="text-xs text-hint px-2 my-2">{filter.description}</div>
 	{/if}
 	{#if filter.type === 'oneof'}
-		{#each filter.options as option}
+		{#each filter.options.filter((o) => !value[editingKey!] || o.value.includes(value[editingKey!] ?? '')) as option}
 			{@render menuItem({
 				onClick: () => {
 					value[editingKey!] = option.value
