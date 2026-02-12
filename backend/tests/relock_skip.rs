@@ -71,18 +71,6 @@ mod relock_skip {
             .sum()
     }
 
-    /// Waits for N jobs to complete and returns the timestamp before waiting
-    async fn wait_for_jobs(
-        completed: &mut (impl futures::Stream<Item = uuid::Uuid> + Unpin),
-        count: usize,
-    ) -> chrono::DateTime<chrono::Utc> {
-        let before = chrono::Utc::now();
-        for _ in 0..count {
-            completed.next().await;
-        }
-        before
-    }
-
     /// Waits for at least N jobs to complete, then drains any additional jobs
     /// that complete within a short timeout. Returns the timestamp before waiting.
     async fn wait_for_jobs_ge(
@@ -136,7 +124,6 @@ def main():
         let relocking_count = count_pattern_in_job_logs(&db, "Relocking", before).await;
         assert_eq!(skipping_count, 0, "First deployment should not skip");
         assert!(relocking_count > 0, "First deployment should have relocking jobs");
-        let first_relock_count = relocking_count;
 
         // Step 2: Redeploy leaf_2 - first time for leaf_2, should relock
         let before = chrono::Utc::now();
