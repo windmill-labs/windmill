@@ -438,6 +438,12 @@ def setup_providers(client):
     - GOOGLE_AI_API_KEY
     - OPENROUTER_API_KEY
     - BEDROCK_API_KEY (optional)
+    - BEDROCK_IAM_ACCESS_KEY_ID and BEDROCK_IAM_SECRET_ACCESS_KEY (optional, for IAM Bedrock tests)
+    - BEDROCK_SESSION_ACCESS_KEY_ID, BEDROCK_SESSION_SECRET_ACCESS_KEY, BEDROCK_SESSION_TOKEN
+      (optional, for IAM session Bedrock tests)
+    - AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY (optional, for environment fallback tests)
+    - AWS_SESSION_TOKEN (optional, if environment fallback uses temporary credentials)
+    - BEDROCK_REGION (optional, defaults to us-east-1)
     """
     # OpenAI
     if os.environ.get("OPENAI_API_KEY"):
@@ -475,13 +481,62 @@ def setup_providers(client):
             "api_key": "$var:u/admin/openrouter_api_key"
         })
 
+    bedrock_region = os.environ.get("BEDROCK_REGION", "us-east-1")
+
     # Bedrock (using apiKey approach)
     if os.environ.get("BEDROCK_API_KEY"):
         client.create_variable("u/admin/bedrock_api_key", os.environ["BEDROCK_API_KEY"])
         client.create_resource("u/admin/bedrock", "aws_bedrock", {
             "apiKey": "$var:u/admin/bedrock_api_key",
-            "region": "us-east-1"
+            "region": bedrock_region
         })
+
+    # Bedrock IAM credentials without session token
+    if os.environ.get("BEDROCK_IAM_ACCESS_KEY_ID") and os.environ.get("BEDROCK_IAM_SECRET_ACCESS_KEY"):
+        client.create_variable(
+            "u/admin/bedrock_iam_access_key_id",
+            os.environ["BEDROCK_IAM_ACCESS_KEY_ID"],
+        )
+        client.create_variable(
+            "u/admin/bedrock_iam_secret_access_key",
+            os.environ["BEDROCK_IAM_SECRET_ACCESS_KEY"],
+        )
+        client.create_resource("u/admin/bedrock_iam", "aws_bedrock", {
+            "awsAccessKeyId": "$var:u/admin/bedrock_iam_access_key_id",
+            "awsSecretAccessKey": "$var:u/admin/bedrock_iam_secret_access_key",
+            "region": bedrock_region
+        })
+
+    # Bedrock IAM credentials with session token
+    if (
+        os.environ.get("BEDROCK_SESSION_ACCESS_KEY_ID")
+        and os.environ.get("BEDROCK_SESSION_SECRET_ACCESS_KEY")
+        and os.environ.get("BEDROCK_SESSION_TOKEN")
+    ):
+        client.create_variable(
+            "u/admin/bedrock_session_access_key_id",
+            os.environ["BEDROCK_SESSION_ACCESS_KEY_ID"],
+        )
+        client.create_variable(
+            "u/admin/bedrock_session_secret_access_key",
+            os.environ["BEDROCK_SESSION_SECRET_ACCESS_KEY"],
+        )
+        client.create_variable(
+            "u/admin/bedrock_session_token",
+            os.environ["BEDROCK_SESSION_TOKEN"],
+        )
+        client.create_resource("u/admin/bedrock_iam_session", "aws_bedrock", {
+            "awsAccessKeyId": "$var:u/admin/bedrock_session_access_key_id",
+            "awsSecretAccessKey": "$var:u/admin/bedrock_session_secret_access_key",
+            "awsSessionToken": "$var:u/admin/bedrock_session_token",
+            "region": bedrock_region
+        })
+
+    # Bedrock using environment credentials fallback
+    # This resource intentionally omits explicit credentials.
+    client.create_resource("u/admin/bedrock_env", "aws_bedrock", {
+        "region": bedrock_region
+    })
 
     # DeepWiki MCP resource (always created for MCP tool tests)
     client.create_resource("u/admin/deepwiki", "mcp", {

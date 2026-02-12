@@ -1,6 +1,6 @@
 # This script is used to summarize the database schema.
 # You can use pg_dump to dump the schema to a file.
-# pg_dump --file "schema.sql" --host "localhost" --port "5432" --username "postgres" --no-password --format=c --large-objects --schema-only --no-owner --no-privileges --no-tablespaces --no-unlogged-table-data --no-comments --no-publications --no-subscriptions --no-security-labels --no-toast-compression --no-table-access-method --verbose --schema "public" "windmill"
+# pg_dump --file "schema.sql" --format=p --large-objects --schema-only --no-owner --no-privileges --no-tablespaces --no-unlogged-table-data --no-comments --no-publications --no-subscriptions --no-security-labels --no-toast-compression --no-table-access-method --verbose --schema "public" "postgresql://postgres:changeme@localhost:5432/windmill"
 # Then you can run python summarize_schema.py schema.sql to get the summarized schema.
 
 import re
@@ -17,6 +17,7 @@ def summarize_schema(file_path):
     # Use state variables to parse multi-line definitions
     current_table = None
     current_enum = None
+    pending_alter_table = None  # For multi-line ALTER TABLE ... ADD CONSTRAINT
 
     with open(file_path, 'r', encoding='utf-8') as f:
         for line in f:
@@ -54,6 +55,9 @@ def summarize_schema(file_path):
                 match_column = re.match(r'^"?(\w+)"?\s+([\w\d\.\[\]\(\)]+)', line)
                 if match_column:
                     col_name = match_column.group(1)
+                    # Skip CONSTRAINT definitions (e.g., CHECK, UNIQUE) mistakenly matched as columns
+                    if col_name.upper() == 'CONSTRAINT':
+                        continue
                     col_type = match_column.group(2)
                     tables[current_table]['columns'].append(f"{col_name} ({col_type})")
                 
@@ -65,16 +69,22 @@ def summarize_schema(file_path):
                     tables[current_table]['pks'].update(pk_cols)
                 continue
             
-            # --- Parse Foreign Keys (defined outside CREATE TABLE) ---
-            match_fk = re.match(r"ALTER TABLE ONLY public\.(\w+)\s+ADD CONSTRAINT \w+ FOREIGN KEY \(([\w,\s\"]+)\) REFERENCES public\.(\w+)\(([\w,\s\"]+)\);", line)
-            if match_fk:
-                from_table, from_cols, to_table, to_cols = match_fk.groups()
-                # Clean up column names
-                from_cols_clean = ', '.join([c.strip().strip('"') for c in from_cols.split(',')])
-                to_cols_clean = ', '.join([c.strip().strip('"') for c in to_cols.split(',')])
-                
-                fk_string = f"({from_cols_clean}) -> {to_table}({to_cols_clean})"
-                tables[from_table]['fks'].append(fk_string)
+            # --- Parse Foreign Keys (defined outside CREATE TABLE, may span 2 lines) ---
+            match_alter = re.match(r"ALTER TABLE ONLY public\.(\w+)$", line)
+            if match_alter:
+                pending_alter_table = match_alter.group(1)
+                continue
+
+            if pending_alter_table:
+                match_fk = re.match(r"ADD CONSTRAINT \w+ FOREIGN KEY \(([\w,\s\"]+)\) REFERENCES public\.(\w+)\(([\w,\s\"]+)\)", line)
+                if match_fk:
+                    from_cols, to_table, to_cols = match_fk.groups()
+                    from_cols_clean = ', '.join([c.strip().strip('"') for c in from_cols.split(',')])
+                    to_cols_clean = ', '.join([c.strip().strip('"') for c in to_cols.split(',')])
+                    fk_string = f"({from_cols_clean}) -> {to_table}({to_cols_clean})"
+                    tables[pending_alter_table]['fks'].append(fk_string)
+                pending_alter_table = None
+                continue
             
             # --- Parse Index definitions ---
             match_index = re.match(r"CREATE (UNIQUE )?INDEX (\w+) ON public\.(\w+) USING (\w+) \((.+)\);", line)
@@ -94,44 +104,73 @@ def summarize_schema(file_path):
 
     return enums, tables
 
+TYPE_ABBREVIATIONS = {
+    'character': 'char',
+    'integer': 'int',
+    'bigint': 'bigint',
+    'smallint': 'smallint',
+    'boolean': 'bool',
+    'timestamp': 'ts',
+    'bytea': 'bytes',
+    'real': 'float',
+    'json': 'json',
+    'jsonb': 'jsonb',
+    'text': 'text',
+    'uuid': 'uuid',
+    'bit(64)': 'bit64',
+}
+
+def shorten_type(col_str):
+    """Shorten a 'name (type)' string to 'name(short_type)'."""
+    match = re.match(r'^(\w+) \((.+)\)$', col_str)
+    if not match:
+        return col_str
+    name, typ = match.group(1), match.group(2)
+    # Strip public. prefix from enum types
+    typ = re.sub(r'^public\.', '', typ)
+    # Apply abbreviations (prefix-based to handle parametrized types like character(64) and array types like integer[])
+    for prefix, abbr in TYPE_ABBREVIATIONS.items():
+        if typ.startswith(prefix):
+            typ = abbr + typ[len(prefix):]
+            break
+    return f"{name}({typ})"
+
 def format_output(enums, tables):
     """
-    Formats the parsed schema data into a clean, readable string.
+    Formats the parsed schema data into a compact, LLM-friendly string.
     """
     output = []
-    
-    output.append("### Simplified Database Schema ###")
-    output.append("\n--- Custom Data Types (ENUMs) ---\n")
+
+    output.append("# Database Schema")
+    output.append("")
+    output.append("## ENUMs")
     if not enums:
-        output.append("No custom ENUM types found.")
+        output.append("(none)")
     else:
         for name, values in sorted(enums.items()):
-            output.append(f"{name}:")
-            for v in values:
-                output.append(f"  - {v}")
-            output.append("")
+            output.append(f"{name}: {', '.join(values)}")
 
-    output.append("\n--- Tables and Relationships ---\n")
+    output.append("")
+    output.append("## Tables")
     if not tables:
-        output.append("No tables found.")
+        output.append("(none)")
     else:
         for name, data in sorted(tables.items()):
-            output.append(f"TABLE: {name}")
+            # Columns: inline, comma-separated, with PK marker and shortened types
+            cols = []
             for col in data['columns']:
+                col_short = shorten_type(col)
                 col_name = col.split(' ')[0]
-                marker = " (PK)" if col_name in data['pks'] else ""
-                output.append(f"  - {col}{marker}")
-            
+                if col_name in data['pks']:
+                    col_short += " PK"
+                cols.append(col_short)
+            output.append(f"{name}: {', '.join(cols)}")
+
+            # Foreign keys on one indented line
             if data['fks']:
-                output.append("  Relationships:")
-                for fk in data['fks']:
-                    output.append(f"    - {fk}")
-            
-            if data['indexes']:
-                output.append("  Indexes:")
-                for idx in data['indexes']:
-                    output.append(f"    - {idx}")
-            output.append("-" * 20)
+                output.append(f"  FK: {' | '.join(data['fks'])}")
+
+            # Indexes omitted for brevity — query the database for exact index info
 
     return "\n".join(output)
 

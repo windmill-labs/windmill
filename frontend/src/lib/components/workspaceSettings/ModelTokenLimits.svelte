@@ -4,6 +4,7 @@
 	import { getModelMaxTokens } from '../copilot/lib'
 	import { ChevronDown, ChevronUp } from 'lucide-svelte'
 	import { slide } from 'svelte/transition'
+	import SettingCard from '../instanceSettings/SettingCard.svelte'
 
 	const MAX_TOKENS_LIMIT = 2000000
 
@@ -98,15 +99,10 @@
 </script>
 
 {#if Object.keys(aiProviders).length > 0}
-	<div class="flex flex-col gap-2">
-		<div class="flex flex-col gap-1">
-			<p class="font-semibold text-xs text-emphasis">Model Output Limits</p>
-			<p class="text-xs text-secondary">
-				Configure maximum token limits for each model. These limits apply to all AI chat
-				interactions in the workspace.
-			</p>
-		</div>
-
+	<SettingCard
+		label="Model output limits"
+		description="Configure maximum token limits for each model. These limits apply to all AI chat interactions in the workspace."
+	>
 		<div class="flex flex-col gap-3">
 			{#each Object.entries(modelsByProvider).filter(([provider, models]) => models.length > 0) as [provider, models]}
 				{@const isExpanded = !collapsedProviders[provider]}
@@ -184,5 +180,5 @@
 				</div>
 			{/each}
 		</div>
-	</div>
+	</SettingCard>
 {/if}

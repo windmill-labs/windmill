@@ -231,7 +231,7 @@
 	})
 </script>
 
-<div class="flex flex-col gap-6">
+<div class="flex flex-col">
 	<SettingsPageHeader
 		title="Native Triggers (Beta)"
 		description="Connect your workspace to external services for native triggers and enhanced functionality. These connections are shared across all workspace members and are required for native triggers to work."
@@ -258,6 +258,8 @@
 		</ul>
 	</Alert>
 
+	<div class="mt-6"></div>
+
 	{#if processingCallback}
 		<Alert type="info" title="Processing OAuth connection">
 			<p class="text-sm">Completing your OAuth connection, please wait...</p>
@@ -277,7 +279,7 @@
 				{@const isServiceConnected = integration && isConnected(integration)}
 				{@const isShowingConfig = showingConfig === serviceName}
 
-				<div class="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-surface">
+				<div class="border border-gray-200 dark:border-gray-700 rounded-md p-4 bg-surface-tertiary">
 					<div class="flex items-center justify-between">
 						<div class="flex items-center gap-3">
 							<div class="w-8 h-8 flex items-center justify-center">
