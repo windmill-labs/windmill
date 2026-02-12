@@ -76,7 +76,7 @@
 	import GenericDropdown from './select/GenericDropdown.svelte'
 	import DateTimeInput from './DateTimeInput.svelte'
 	import TaggedTextInput from './TaggedTextInput.svelte'
-	import { transformedSyncedValue } from '$lib/svelte5Utils.svelte'
+	import { useTransformedSyncedValue } from '$lib/svelte5Utils.svelte'
 
 	type Props<SchemaT extends FilterSchemaRec> = {
 		schema: SchemaT
@@ -172,7 +172,7 @@
 		)
 	}
 
-	let asText = transformedSyncedValue(
+	let asText = useTransformedSyncedValue(
 		[
 			() => (Object.entries(value), value),
 			(v) => {

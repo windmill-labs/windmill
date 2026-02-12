@@ -464,7 +464,7 @@ export function useKeyPressed<Key extends string>(
 	return obj
 }
 
-export function transformedSyncedValue<T, U>(
+export function useTransformedSyncedValue<T, U>(
 	source: [() => T, (val: T) => void],
 	transform: (val: T) => U,
 	inverseTransform: (val: U) => T
