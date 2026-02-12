@@ -3,11 +3,13 @@
 		tags,
 		value = $bindable(''),
 		placeholder = '',
+		onCurrentTagChange,
 		class: className = ''
 	}: {
-		tags: { regex: RegExp }[]
+		tags: { regex: RegExp; id: string }[]
 		value?: string
 		placeholder?: string
+		onCurrentTagChange?: (tag: { id: string } | null) => void
 		class?: string
 	} = $props()
 
@@ -21,6 +23,8 @@
 			if (currentText !== value) {
 				updateDisplay(value)
 				restoreCursor(value.length)
+				const cursorPos = getCursorPosition()
+				updateCurrentTag(cursorPos)
 			}
 		}
 	})
@@ -107,7 +111,38 @@
 		value = newText
 		updateDisplay(newText)
 		restoreCursor(cursorPos)
+		updateCurrentTag(cursorPos)
 		isUpdating = false
+	}
+
+	function updateCurrentTag(cursorPos: number) {
+		if (!onCurrentTagChange) return
+		let currentTag: { id: string } | null = null
+
+		for (const tag of tags) {
+			const regex = new RegExp(tag.regex, 'g')
+			let match
+			while ((match = regex.exec(value)) !== null) {
+				const start = match.index
+				const end = match.index + match[0].length
+				if (cursorPos >= start && cursorPos <= end) {
+					currentTag = { id: tag.id }
+					onCurrentTagChange(currentTag)
+					return
+				}
+			}
+		}
+		onCurrentTagChange(null)
+	}
+
+	function handleClick() {
+		const cursorPos = getCursorPosition()
+		updateCurrentTag(cursorPos)
+	}
+
+	function handleKeyup() {
+		const cursorPos = getCursorPosition()
+		updateCurrentTag(cursorPos)
 	}
 
 	function getCursorPosition(): number {
@@ -176,6 +211,8 @@
 	contenteditable="true"
 	oninput={handleInput}
 	onpaste={handlePaste}
+	onclick={handleClick}
+	onkeyup={handleKeyup}
 	class="outline-none {className}"
 	class:text-hint={value === ''}
 	data-placeholder={placeholder}
