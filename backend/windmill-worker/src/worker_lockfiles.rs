@@ -2230,6 +2230,15 @@ async fn try_skip_relock(
     runnable_type: &str,
     existing_lock: Option<&str>,
 ) -> error::Result<Option<String>> {
+    tracing::debug!(
+        workspace_id = %w_id,
+        base_path = %base_path,
+        step_id = ?step_id,
+        runnable_type = %runnable_type,
+        has_existing_lock = existing_lock.is_some(),
+        "try_skip_relock: checking if we can skip"
+    );
+
     // Check that ALL imports have matching hashes and at least one import exists
     // Returns true only if: count > 0 AND all hashes match
     // Returns false if: no imports OR any hash mismatch
@@ -2277,6 +2286,13 @@ async fn try_skip_relock(
     .await?
     .unwrap_or(false);
 
+    tracing::debug!(
+        workspace_id = %w_id,
+        base_path = %base_path,
+        all_imports_unchanged = all_imports_unchanged,
+        "try_skip_relock: query result"
+    );
+
     if !all_imports_unchanged {
         return Ok(None);
     }
@@ -2285,7 +2301,7 @@ async fn try_skip_relock(
     let lock = match runnable_type {
         "script" => sqlx::query_scalar!(
             "SELECT lock FROM script WHERE path = $1 AND workspace_id = $2 AND lock IS NOT NULL
-             ORDER BY created_at DESC LIMIT 1",
+             AND deleted = false ORDER BY created_at DESC LIMIT 1",
             base_path,
             w_id
         )
@@ -2296,6 +2312,13 @@ async fn try_skip_relock(
         "flow" | "app" => existing_lock.map(|s| s.to_string()),
         _ => None,
     };
+
+    tracing::debug!(
+        workspace_id = %w_id,
+        base_path = %base_path,
+        lock_found = lock.is_some(),
+        "try_skip_relock: lock fetch result"
+    );
 
     Ok(lock)
 }
