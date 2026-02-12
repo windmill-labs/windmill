@@ -54,6 +54,9 @@ RUN apt-get install -y ruby ruby-bundler
 # iptables
 RUN apt-get install -y iptables
 
+# Kerberos runtime
+RUN apt-get install -y libsasl2-modules-gssapi-mit krb5-user
+
 # Fix UV cache permissions for non-root user support (uid 1000, etc.)
 # The uv tool install ansible command populates the UV cache with root-owned files
 RUN chmod -R a+rw /tmp/windmill/cache/uv && \
