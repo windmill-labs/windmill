@@ -194,6 +194,28 @@ export const settings: Record<string, Setting[]> = {
 	],
 	Jobs: [
 		{
+			label: 'Job Isolation',
+			key: 'job_isolation',
+			fieldType: 'select',
+			description:
+				'Isolation mode for job execution. None: no isolation. Unshare: PID namespace isolation via unshare. Nsjail: full nsjail sandboxing. <a href="https://www.windmill.dev/docs/advanced/security_isolation">Learn more</a>',
+			storage: 'setting',
+			select_items: [
+				{
+					label: 'None',
+					value: 'none'
+				},
+				{
+					label: 'Unshare',
+					value: 'unshare'
+				},
+				{
+					label: 'Nsjail',
+					value: 'nsjail_sandboxing'
+				}
+			]
+		},
+		{
 			label: 'Default timeout',
 			key: 'job_default_timeout',
 			description:
@@ -596,6 +618,7 @@ export const settingsKeys = Object.keys(settings)
 // --- Sidebar navigation for instance settings ---
 export const instanceSettingsNavigationGroups = [
 	{
+		title: 'Core',
 		items: [
 			{
 				id: 'users',
@@ -608,6 +631,12 @@ export const instanceSettingsNavigationGroups = [
 				label: 'General',
 				aiId: 'instance-settings-general',
 				aiDescription: 'Instance general settings'
+			},
+			{
+				id: 'jobs',
+				label: 'Jobs',
+				aiId: 'instance-settings-jobs',
+				aiDescription: 'Instance jobs settings'
 			}
 		]
 	},
@@ -688,12 +717,6 @@ export const instanceSettingsNavigationGroups = [
 	{
 		title: 'Advanced',
 		items: [
-			{
-				id: 'jobs',
-				label: 'Jobs',
-				aiId: 'instance-settings-jobs',
-				aiDescription: 'Instance jobs settings'
-			},
 			{
 				id: 'private_hub',
 				label: 'Private Hub',
