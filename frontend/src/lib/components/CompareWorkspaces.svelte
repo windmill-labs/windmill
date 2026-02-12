@@ -34,6 +34,8 @@
 	import { sendUserToast } from '$lib/toast'
 	import { deepEqual } from 'fast-equals'
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 
 	interface Props {
 		currentWorkspaceId: string
@@ -182,12 +184,25 @@
 		return onBehalfOfInfo[getWorkspacedKey(targetWorkspace, itemKey)]
 	}
 
-	// Check if an item has on_behalf_of that differs from deploying user
+	// Check if an item needs on_behalf_of selection (more than 1 unique option)
 	function itemNeedsOnBehalfOfSelection(itemKey: string, kind: string): boolean {
 		if (kind !== 'flow' && kind !== 'script' && kind !== 'app') return false
 		const sourceEmail = getSourceEmail(itemKey)
-		// Only show selector if there's an on_behalf_of email set that differs from current user
-		return sourceEmail !== undefined && sourceEmail !== $userStore?.email
+		const targetEmail = getTargetEmail(itemKey)
+		const myEmail = $userStore?.email
+
+		// Don't show if no on_behalf_of is set in source
+		if (!sourceEmail) return false
+
+		// Count unique options: source, target (even if undefined counts as different), me
+		const options = new Set([sourceEmail, myEmail])
+		// Target is a unique option if it differs from source (including undefined != defined)
+		if (targetEmail !== sourceEmail) {
+			options.add(targetEmail ?? '__not_set__')
+		}
+
+		// Show if more than 1 unique option
+		return options.size > 1
 	}
 
 	// Check if all required on_behalf_of selections are made
@@ -612,23 +627,12 @@
 							<UserCog
 								class="w-4 h-4 {selected ? 'text-green-500' : 'text-yellow-500'}"
 							/>
-							{#snippet text()}
-								{#if selected}
-									Run on behalf of: {selected === 'source'
-										? sourceEmail
-										: selected === 'target'
-											? targetEmail
-											: $userStore?.email}
-								{:else}
-									Click to select "run on behalf of" email
-								{/if}
-							{/snippet}
 						</Tooltip>
 					</svelte:fragment>
 					<div slot="content" class="p-3 flex flex-col gap-2 min-w-48">
-						<div class="text-xs font-medium text-secondary mb-1">Run on behalf of:</div>
+						<div class="text-xs font-medium text-secondary mb-1">Set on behalf of:</div>
 						<button
-							class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm hover:bg-surface-hover {!canPreserve
+							class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover {!canPreserve
 								? 'opacity-50 cursor-not-allowed'
 								: ''}"
 							disabled={!canPreserve}
@@ -638,21 +642,23 @@
 							<span class="truncate max-w-40">{sourceEmail}</span>
 							<span class="text-xs text-tertiary">(source)</span>
 						</button>
-						{#if targetEmail && targetEmail !== sourceEmail}
+						{#if targetEmail !== sourceEmail}
 							<button
-								class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm hover:bg-surface-hover {!canPreserve
+								class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover {!canPreserve
 									? 'opacity-50 cursor-not-allowed'
 									: ''}"
 								disabled={!canPreserve}
 								onclick={() => (onBehalfOfChoice[key] = 'target')}
 							>
 								<Check class="w-3 h-3 {selected === 'target' ? 'opacity-100' : 'opacity-0'}" />
-								<span class="truncate max-w-40">{targetEmail}</span>
+								<span class="truncate max-w-40 {!targetEmail ? 'italic text-tertiary' : ''}"
+									>{targetEmail ?? 'unknown'}</span
+								>
 								<span class="text-xs text-tertiary">(target)</span>
 							</button>
 						{/if}
 						<button
-							class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm hover:bg-surface-hover"
+							class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover"
 							onclick={() => (onBehalfOfChoice[key] = 'me')}
 						>
 							<Check class="w-3 h-3 {selected === 'me' ? 'opacity-100' : 'opacity-0'}" />
