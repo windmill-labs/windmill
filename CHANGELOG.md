@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.633.0](https://github.com/windmill-labs/windmill/compare/v1.632.0...v1.633.0) (2026-02-12)
+
+
+### Features
+
+* /health endpoints ([#7727](https://github.com/windmill-labs/windmill/issues/7727)) ([7df4aa4](https://github.com/windmill-labs/windmill/commit/7df4aa4fec021fc728950fc10db4d0401a205087))
+
+
+### Bug Fixes
+
+* save deployment msg in CE ([#7923](https://github.com/windmill-labs/windmill/issues/7923)) ([e9be616](https://github.com/windmill-labs/windmill/commit/e9be616d3c079a0c6fd98733c66560f2cc1ee40d))
+
 ## [1.632.0](https://github.com/windmill-labs/windmill/compare/v1.631.2...v1.632.0) (2026-02-12)
 
 
