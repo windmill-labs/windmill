@@ -2,10 +2,12 @@
 	let {
 		tags,
 		value = $bindable(''),
+		placeholder = '',
 		class: className = ''
 	}: {
 		tags: { regex: RegExp }[]
 		value?: string
+		placeholder?: string
 		class?: string
 	} = $props()
 
@@ -175,6 +177,14 @@
 	oninput={handleInput}
 	onpaste={handlePaste}
 	class="outline-none {className}"
+	class:text-hint={value === ''}
+	data-placeholder={placeholder}
 	role="textbox"
 	tabindex="0"
 ></div>
+
+<style>
+	[contenteditable][data-placeholder]:empty::before {
+		content: attr(data-placeholder);
+	}
+</style>

@@ -115,6 +115,7 @@
 			inputSizeClasses.md,
 			className
 		)}
+		placeholder="Filter runs..."
 	/>
 </div>
 
