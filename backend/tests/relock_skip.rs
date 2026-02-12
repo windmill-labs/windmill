@@ -302,7 +302,7 @@ def main():
         let skipping_count = count_pattern_in_job_logs(&db, "Skipping relock", before).await;
         assert_eq!(skipping_count, 0, "Changed content should not skip");
 
-        // Step 4: Deploy named workspace deps with no change - should SKIP (relative imports already set up)
+        // Step 4: Deploy named workspace deps first time - should relock (no hash exists yet)
         let before = chrono::Utc::now();
         NewWorkspaceDependencies {
             workspace_id: "test-workspace".into(),
@@ -318,9 +318,29 @@ def main():
         in_test_worker(&db, wait_for_jobs_ge(&mut completed, 3), port).await;
 
         let skipping_count = count_pattern_in_job_logs(&db, "Skipping relock", before).await;
-        assert!(skipping_count > 0, "Named workspace deps with no change should skip");
+        let relocking_count = count_pattern_in_job_logs(&db, "Relocking", before).await;
+        assert_eq!(skipping_count, 0, "Named workspace deps first deployment should not skip");
+        assert!(relocking_count > 0, "Named workspace deps first deployment should relock");
 
-        // Step 5: Deploy named workspace deps with small change - should NOT skip
+        // Step 5: Deploy named workspace deps again with no change - should SKIP
+        let before = chrono::Utc::now();
+        NewWorkspaceDependencies {
+            workspace_id: "test-workspace".into(),
+            language: ScriptLang::Python3,
+            content: "".into(),
+            name: Some("test".to_owned()),
+            description: None,
+        }
+        .create(("".to_owned(), "".to_owned(), "".to_owned()), db.clone())
+        .await
+        .unwrap();
+
+        in_test_worker(&db, wait_for_jobs_ge(&mut completed, 3), port).await;
+
+        let skipping_count = count_pattern_in_job_logs(&db, "Skipping relock", before).await;
+        assert!(skipping_count > 0, "Named workspace deps second deployment should skip");
+
+        // Step 6: Deploy named workspace deps with small change - should NOT skip
         let before = chrono::Utc::now();
         NewWorkspaceDependencies {
             workspace_id: "test-workspace".into(),
