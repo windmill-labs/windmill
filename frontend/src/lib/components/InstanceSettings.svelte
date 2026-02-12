@@ -101,14 +101,11 @@
 			}
 		}
 		let nvalues = JSON.parse(JSON.stringify(initialValues))
-		if (nvalues['base_url'] == undefined) {
+		if (!nvalues['base_url']) {
 			nvalues['base_url'] = window.location.origin
 		}
 		if (nvalues['retention_period_secs'] == undefined) {
 			nvalues['retention_period_secs'] = 60 * 60 * 24 * 30
-		}
-		if (nvalues['base_url'] == undefined) {
-			nvalues['base_url'] = 'http://localhost'
 		}
 		if (nvalues['smtp_settings'] == undefined) {
 			nvalues['smtp_settings'] = {}
@@ -229,7 +226,16 @@
 		if (category === 'Auth/OAuth/SAML') {
 			return scimSamlSetting
 		}
-		return settings[category] ?? []
+		const base = settings[category] ?? []
+		// In quick setup, reorder Core: base settings (without license_key), then job_isolation, license_key, retention_period_secs
+		if (quickSetup && category === 'Core') {
+			const licenseKey = base.find((s) => s.key === 'license_key')
+			const baseWithout = base.filter((s) => s.key !== 'license_key')
+			const jobIsolation = settings['Jobs']?.find((s) => s.key === 'job_isolation')
+			const retentionPeriod = settings['Jobs']?.find((s) => s.key === 'retention_period_secs')
+			return [...baseWithout, ...(jobIsolation ? [jobIsolation] : []), ...(licenseKey ? [licenseKey] : []), ...(retentionPeriod ? [retentionPeriod] : [])]
+		}
+		return base
 	}
 
 	let dirtyCategories: Record<string, boolean> = $derived.by(() => {
@@ -246,7 +252,7 @@
 					initialRequirePreexistingUserForOauth !== requirePreexistingUserForOauth
 				result[category] = scimDirty || oauthsDirty || requirePreexistingDirty
 			} else {
-				const categorySettings = settings[category] ?? []
+				const categorySettings = getSettingsForCategory(category)
 				result[category] = categorySettings.some(
 					(s) => !deepEqual(initialValues[s.key], currentValues?.[s.key])
 				)
@@ -287,7 +293,7 @@
 				initialOauths?.snowflake_oauth?.connect_config?.extra_params?.account_identifier
 			snowflakeAccountIdentifier = account_identifier ?? ''
 		} else {
-			const categorySettings = settings[category] ?? []
+			const categorySettings = getSettingsForCategory(category)
 			for (const s of categorySettings) {
 				$values[s.key] = JSON.parse(JSON.stringify(initialValues[s.key]))
 			}
@@ -413,7 +419,7 @@
 	{#snippet categoryContent(category: string)}
 		{#if category == 'Core'}
 			<SettingsPageHeader
-				title="General"
+				title="Core"
 				description="Configure the core settings of your Windmill instance."
 				link="https://www.windmill.dev/docs/advanced/instance_settings"
 			/>
@@ -565,6 +571,19 @@
 					/>
 				{/if}
 			{/each}
+			{#if quickSetup && category === 'Core'}
+				{#each settings['Jobs'].filter((s) => s.key === 'job_isolation' || s.key === 'retention_period_secs') as setting}
+					<InstanceSetting
+						{openSmtpSettings}
+						on:closeDrawer={() => closeDrawer?.()}
+						{loading}
+						{setting}
+						{values}
+						{version}
+						{oauths}
+					/>
+				{/each}
+			{/if}
 		</div>
 
 		{#if !loading && !quickSetup}

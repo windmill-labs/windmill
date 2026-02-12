@@ -89,6 +89,10 @@ pub fn global_service() -> Router {
         .route(
             "/critical_alerts/acknowledge_all",
             post(acknowledge_all_critical_alerts),
+        )
+        .route(
+            "/sync_cached_resource_types",
+            post(sync_cached_resource_types),
         );
 
     // Vault integration routes (EE only - requires both private and enterprise features)
@@ -931,4 +935,76 @@ pub async fn get_jwks() -> JsonResult<JwksResponse> {
         // For now, return empty - the EE implementation would override this
         Ok(Json(JwksResponse { keys: vec![] }))
     }
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+struct CachedResourceType {
+    #[allow(dead_code)]
+    id: i64,
+    name: String,
+    schema: Option<serde_json::Value>,
+    #[allow(dead_code)]
+    app: String,
+    description: Option<String>,
+}
+
+async fn sync_cached_resource_types(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> error::Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+
+    use windmill_common::worker::HUB_RT_CACHE_DIR;
+    let cache_path = format!("{}/resource_types.json", HUB_RT_CACHE_DIR);
+
+    let content = tokio::fs::read_to_string(&cache_path)
+        .await
+        .map_err(|e| {
+            error::Error::NotFound(format!(
+                "No cached resource types found at {}: {}",
+                cache_path, e
+            ))
+        })?;
+
+    let cached_types: Vec<CachedResourceType> =
+        serde_json::from_str(&content).map_err(|e| {
+            error::Error::InternalErr(format!("Failed to parse cached resource types: {}", e))
+        })?;
+
+    let mut synced_count = 0;
+
+    for rt in &cached_types {
+        let exists: Option<bool> = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM resource_type WHERE workspace_id = 'admins' AND name = $1 AND schema IS NOT DISTINCT FROM $2 AND description IS NOT DISTINCT FROM $3)",
+            &rt.name,
+            rt.schema.as_ref(),
+            rt.description.as_deref(),
+        )
+        .fetch_one(&db)
+        .await?;
+
+        if exists.unwrap_or(false) {
+            continue;
+        }
+
+        sqlx::query!(
+            "INSERT INTO resource_type (workspace_id, name, schema, description, edited_at)
+             VALUES ('admins', $1, $2, $3, now())
+             ON CONFLICT (workspace_id, name) DO UPDATE
+             SET schema = EXCLUDED.schema, description = EXCLUDED.description, edited_at = now()",
+            &rt.name,
+            rt.schema.as_ref(),
+            rt.description.as_deref(),
+        )
+        .execute(&db)
+        .await?;
+
+        synced_count += 1;
+    }
+
+    Ok(format!(
+        "Synced {} resource types ({} unchanged)",
+        synced_count,
+        cached_types.len() - synced_count
+    ))
 }
