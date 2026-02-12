@@ -8,6 +8,7 @@
 
 	let {
 		listAutoWidth = true,
+		strictWidth = false,
 		disablePortal = false,
 		open,
 		class: className = '',
@@ -15,7 +16,8 @@
 		getInputRect,
 		children
 	}: {
-		listAutoWidth?: Boolean
+		listAutoWidth?: boolean
+		strictWidth?: boolean
 		disablePortal?: boolean
 		open: boolean
 		class?: string
@@ -114,7 +116,7 @@
 				className
 			)}
 			style="{`top: ${dropdownPos.y}px; left: ${dropdownPos.x}px;`} {listAutoWidth
-				? `min-width: ${dropdownPos.width}px; height: ${dropdownPos.height}px;`
+				? `${strictWidth ? 'width' : 'min-width'}: ${dropdownPos.width}px; height: ${dropdownPos.height}px;`
 				: ''}"
 		>
 			<div

@@ -590,7 +590,7 @@
 					bind:value={_timeframe.timeframe}
 				/>
 				<FilterSearchbar
-					class="min-w-80 max-w-[30rem]"
+					class="w-[24rem]"
 					schema={{
 						min_ts: {
 							type: 'date',

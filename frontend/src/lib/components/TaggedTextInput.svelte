@@ -4,13 +4,15 @@
 		value = $bindable(''),
 		placeholder = '',
 		onCurrentTagChange,
-		class: className = ''
+		class: className = '',
+		onEnter
 	}: {
 		tags: { regex: RegExp; id: string }[]
 		value?: string
 		placeholder?: string
 		onCurrentTagChange?: (tag: { id: string } | null) => void
 		class?: string
+		onEnter?: () => void
 	} = $props()
 
 	let contentEditableDiv: HTMLDivElement
@@ -84,7 +86,7 @@
 
 			// Add highlighted match
 			const matchedText = text.slice(match.start, match.end)
-			html += `<span class="bg-blue-100 dark:bg-blue-900 px-1 rounded">${escapeHtml(matchedText)}</span>`
+			html += `<span class="bg-surface-sunken border py-0.5 px-1.5 rounded">${escapeHtml(matchedText)}</span>`
 
 			lastIndex = match.end
 		}
@@ -204,6 +206,13 @@
 		const text = e.clipboardData?.getData('text/plain') || ''
 		document.execCommand('insertText', false, text)
 	}
+
+	function handleKeydown(e: KeyboardEvent) {
+		if (e.key === 'Enter') {
+			onEnter?.()
+			e.preventDefault()
+		}
+	}
 </script>
 
 <div
@@ -213,7 +222,8 @@
 	onpaste={handlePaste}
 	onclick={handleClick}
 	onkeyup={handleKeyup}
-	class="outline-none {className}"
+	onkeydown={handleKeydown}
+	class="outline-none text-nowrap flex-nowrap {className}"
 	class:text-hint={value === ''}
 	data-placeholder={placeholder}
 	role="textbox"
