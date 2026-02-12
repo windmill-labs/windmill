@@ -26,8 +26,8 @@ use crate::{
     },
     handle_child,
     universal_pkg_installer::{par_install_language_dependencies_all_at_once, RequiredDependency},
-    COURSIER_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER, JAVA_CACHE_DIR, JAVA_REPOSITORY_DIR,
-    MAVEN_REPOS, NO_DEFAULT_MAVEN, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    COURSIER_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER, JAVA_CACHE_DIR, JAVA_HOME_DIR,
+    JAVA_REPOSITORY_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
 };
 use windmill_common::client::AuthedClient;
 
@@ -184,6 +184,7 @@ pub async fn resolve<'a>(
         cmd.env_clear()
             .current_dir(job_dir.to_owned())
             .env("PATH", PATH_ENV.as_str())
+            .env("HOME", JAVA_HOME_DIR)
             .envs(PROXY_ENVS.clone());
 
         // Configure proxies
@@ -330,6 +331,7 @@ async fn install<'a>(
             cmd.env_clear()
                 .current_dir(&job_dir)
                 .env("PATH", PATH_ENV.as_str())
+                .env("HOME", JAVA_HOME_DIR)
                 .envs(PROXY_ENVS.clone());
             // Configure proxies
             {
@@ -494,6 +496,7 @@ async fn compile<'a>(
             cmd.env_clear()
                 .current_dir(job_dir.to_owned())
                 .env("PATH", PATH_ENV.as_str())
+                .env("HOME", JAVA_HOME_DIR)
                 .env("BASE_INTERNAL_URL", base_internal_url)
                 .envs(envs)
                 .envs(reserved_variables)
@@ -605,6 +608,7 @@ async fn run<'a>(
         cmd.env_clear()
             .current_dir(job_dir)
             .env("PATH", PATH_ENV.as_str())
+            .env("HOME", JAVA_HOME_DIR)
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(envs)
             .envs(reserved_variables)
@@ -662,6 +666,7 @@ async fn run<'a>(
         cmd.env_clear()
             .current_dir(job_dir.to_owned())
             .env("PATH", PATH_ENV.as_str())
+            .env("HOME", JAVA_HOME_DIR)
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(envs)
             .envs(reserved_variables);

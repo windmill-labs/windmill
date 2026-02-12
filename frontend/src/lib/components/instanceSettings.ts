@@ -451,6 +451,15 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
+			label: 'Cargo registries',
+			description: 'Write a .cargo/config.toml to set custom Cargo registries and credentials',
+			key: 'cargo_registries',
+			fieldType: 'codearea',
+			codeAreaLang: 'toml',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
 			label: 'PowerShell Repository URL',
 			description: 'Add private PowerShell repository URL',
 			key: 'powershell_repo_url',
