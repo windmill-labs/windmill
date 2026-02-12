@@ -715,7 +715,7 @@
 							description: 'Filter by job result (JSON format)'
 						}
 					}}
-					value={filtersTEMP}
+					bind:value={filtersTEMP}
 				/>
 			</div>
 		</div>

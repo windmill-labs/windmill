@@ -37,10 +37,12 @@
 <script lang="ts">
 	import { twMerge } from 'tailwind-merge'
 	import { inputBaseClass, inputBorderClass, inputSizeClasses } from './text_input/TextInput.svelte'
-	import { SearchIcon, XIcon } from 'lucide-svelte'
-	import { wait, type IconType } from '$lib/utils'
+	import { SearchIcon } from 'lucide-svelte'
+	import { type IconType } from '$lib/utils'
 	import GenericDropdown from './select/GenericDropdown.svelte'
 	import DateTimeInput from './DateTimeInput.svelte'
+	import TaggedTextInput from './TaggedTextInput.svelte'
+	import { transformedSync } from '$lib/svelte5Utils.svelte'
 
 	type Props<SchemaT extends FilterSchemaRec> = {
 		schema: SchemaT
@@ -52,211 +54,68 @@
 	let { schema, value, class: className }: Props<SchemaT> = $props()
 
 	let editingKey: keyof SchemaT | undefined = $state()
-	async function updateEditingKeyOnCursorMoved() {
-		await wait(0)
-		if (!inputElement) return
-
-		const selection = window.getSelection()
-		if (!selection || selection.rangeCount === 0) {
-			editingKey = undefined
-			return
-		}
-
-		const range = selection.getRangeAt(0)
-		const currentNode = range.startContainer
-
-		// Find the parent .usercontent element if we're inside one
-		let targetElement: HTMLElement | null =
-			currentNode instanceof HTMLElement ? currentNode : currentNode.parentElement
-
-		while (targetElement && targetElement !== inputElement) {
-			if (targetElement.classList?.contains('usercontent')) {
-				// Extract the key from the content
-				const text = targetElement.textContent?.trim() || ''
-				const colonIndex = text.indexOf(':')
-				if (colonIndex > 0) {
-					const key = text.slice(0, colonIndex).trim()
-					editingKey = key as keyof SchemaT
-					return
-				}
-			}
-			targetElement = targetElement.parentElement
-		}
-
-		// Cursor is not inside any filter key element
-		editingKey = undefined
-	}
-
-	async function onInputChanged() {
-		await wait(0)
-		if (!inputElement) return
-		const allEntries: { key: string; rawValue: string }[] = []
-		for (let i = 0; i < inputElement.childNodes.length; i++) {
-			const child = inputElement.childNodes[i] as HTMLDivElement
-			if (child?.classList?.contains?.('searchicon')) continue
-			if (!child || !child?.classList?.contains?.('usercontent')) {
-				continue
-			}
-			const str = child.textContent.trim()
-			const idx = str.indexOf(':')
-			const key = str.slice(0, idx).trim()
-			const rawValue = str.slice(idx + 1).trim()
-			allEntries.push({ key, rawValue })
-		}
-
-		// Delete all keys that are not present in the input anymore
-		for (const key in value) {
-			if (!allEntries.find((e) => e.key === key)) {
-				delete value[key]
-			}
-		}
-
-		// Update values based on the input
-		for (const { key, rawValue } of allEntries) {
-			const filterSchema = schema[key]
-			if (!filterSchema) continue
-			if (filterSchema.type === 'number') {
-				value[key] = Number(rawValue) as any
-			} else if (filterSchema.type === 'boolean') {
-				value[key] = (rawValue.toLowerCase() === 'true') as any
-			} else if (filterSchema.type === 'date') {
-				const date = new Date(rawValue)
-				if (!isNaN(date.getTime())) {
-					value[key] = date as any
-				}
-			} else {
-				value[key] = rawValue as any
-			}
-		}
-		await updateEditingKeyOnCursorMoved()
-	}
-
 	let open = $state(false)
 	let inputElement: HTMLDivElement | undefined = $state()
 
-	function clearValue() {
-		for (const key in value) delete value[key]
-	}
+	let tags = $derived(
+		Object.entries(schema).map(([key, filterSchema]) => ({
+			regex: new RegExp(`\\b${key}:[^\\s]*`, 'g')
+		}))
+	)
 
-	// When a new filter is added, we want to focus on it.
-	// This is a bit tricky because the element is created after the click event that adds the filter,
-	// so we use a pendingFocusKey variable to store the key of the filter that should be focused,
-	// and then focus on it in an effect.
-	let pendingFocusKey: string | undefined = $state()
-	let focusPosition: 'inside' | 'after' = $state('inside')
-	$effect(() => {
-		if (pendingFocusKey && inputElement) {
-			const filterElements = Array.from(inputElement.querySelectorAll('.usercontent'))
-			for (const el of filterElements) {
-				const text = el.textContent?.trim() || ''
-				const colonIndex = text.indexOf(':')
-				if (colonIndex > 0) {
-					const elementKey = text.slice(0, colonIndex).trim()
-					if (elementKey === pendingFocusKey) {
-						// Focus on the element and position cursor
-						const range = document.createRange()
-						const selection = window.getSelection()
+	const kvRegex = /\b(\w+):([^\s]*)/g
 
-						if (focusPosition === 'after') {
-							// Position cursor after the filter element (outside the .usercontent div)
-							// Find the next sibling text node (the nbsp after the filter)
-							const nextSibling = el.nextSibling
-							if (nextSibling && nextSibling.nodeType === Node.TEXT_NODE) {
-								// Position at the end of the nbsp text node
-								range.setStart(nextSibling, nextSibling.textContent?.length || 0)
-								range.setEnd(nextSibling, nextSibling.textContent?.length || 0)
-							} else {
-								// Fallback: position after the element
-								range.setStartAfter(el)
-								range.collapse(true)
-							}
-						} else {
-							// Position cursor inside the filter element at the value
-							// Find the last text node (which should be the value)
-							// The structure is: Icon, div(key:), nbsp, value
-							let lastTextNode: Node | null = null
-							for (let i = el.childNodes.length - 1; i >= 0; i--) {
-								const node = el.childNodes[i]
-								if (node.nodeType === Node.TEXT_NODE) {
-									// Skip if it's just the nbsp between colon and value
-									const content = node.textContent || ''
-									if (content === '\u00A0') continue
-
-									lastTextNode = node
-									break
-								}
-							}
-
-							if (lastTextNode) {
-								// Position cursor at start of the value text node
-								range.setStart(lastTextNode, 0)
-								range.setEnd(lastTextNode, 0)
-							} else {
-								// If no text node exists (empty value), position after all content
-								range.selectNodeContents(el)
-								range.collapse(false)
-							}
-						}
-
-						selection?.removeAllRanges()
-						selection?.addRange(range)
-						inputElement.focus()
-
-						pendingFocusKey = undefined
-						focusPosition = 'inside' // Reset to default
-						updateEditingKeyOnCursorMoved()
-						break
-					}
-				}
+	function parseFromText(text: string): Partial<FilterInstanceRec<SchemaT>> {
+		const parsed: Record<string, string> = {}
+		let match
+		while ((match = kvRegex.exec(text)) !== null) {
+			const [_, key, val] = match
+			if (key in schema) {
+				parsed[key] = val
 			}
 		}
-	})
+		return parsed
+	}
+
+	let asText = transformedSync(
+		[
+			() => (Object.keys(value), value),
+			(v) => {
+				for (const key in value) delete value[key]
+				for (const key in v) value[key] = v[key]
+			}
+		],
+		(value) =>
+			Object.entries(value)
+				.map(([key, val]) => `${key}:${val}`)
+				.join(' '),
+		parseFromText
+	)
 </script>
 
 <svelte:window on:click={() => (open = false)} />
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="relative">
-	<div
-		contenteditable="true"
-		onkeydown={(e) => onInputChanged()}
-		onclick={(e) => {
-			open = true
-			e.stopPropagation()
-			updateEditingKeyOnCursorMoved()
-		}}
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<div
+	class="relative"
+	onclick={(e) => {
+		open = true
+		e.stopPropagation()
+	}}
+	bind:this={inputElement}
+>
+	<TaggedTextInput
+		bind:value={asText.val}
+		{tags}
 		class={twMerge(
-			'bg-surface-input flex justify-start gap-0.5 items-center outline-none overflow-x-auto scrollbar-hidden !pr-8',
+			'bg-surface-input flex justify-start gap-0.5 items-center outline-none overflow-x-auto scrollbar-hidden text-nowrap',
 			inputBaseClass,
 			inputBorderClass(),
 			inputSizeClasses.md,
 			className
 		)}
-		bind:this={inputElement}
-	>
-		&nbsp;
-		{#each Object.entries(value) as [key, val]}
-			{@const filterSchema = schema[key]}
-			{@const Icon = filterSchema.icon}
-			<div
-				class="usercontent flex items-center bg-surface-sunken rounded px-1 text-sm flex-nowrap text-nowrap"
-				contenteditable="true"
-			>
-				<Icon size={12} class="inline mr-1" /><div contenteditable="false">{key}:</div>
-				&nbsp;{val}
-			</div>
-			&nbsp;
-		{/each}
-	</div>
-	<div
-		class="px-2 top-0.5 bottom-0.5 rounded-r-md center-center bg-surface-input right-0.5 absolute"
-	>
-		{#if Object.keys(value).length === 0}
-			<SearchIcon size="16" class="searchicon" />
-		{:else}
-			<XIcon size="16" class="searchicon cursor-pointer" onclick={() => clearValue()} />
-		{/if}
-	</div>
+	/>
 </div>
 
 <GenericDropdown
@@ -273,8 +132,7 @@
 				{@render menuItem({
 					Icon: filterSchema.icon || SearchIcon,
 					onClick: () => {
-						value[key] = ''
-						pendingFocusKey = key
+						asText.val += ` ${key}:`
 					},
 					label: filterSchema.label || key
 				})}
@@ -294,8 +152,6 @@
 			{@render menuItem({
 				onClick: () => {
 					value[editingKey!] = option.value
-					pendingFocusKey = editingKey as string
-					focusPosition = 'after'
 				},
 				label: option.label || option.value
 			})}

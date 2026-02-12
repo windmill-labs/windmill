@@ -463,3 +463,31 @@ export function useKeyPressed<Key extends string>(
 	})
 	return obj
 }
+
+export function transformedSync<T, U>(
+	source: [() => T, (val: T) => void],
+	transform: (val: T) => U,
+	inverseTransform: (val: U) => T
+) {
+	let st = $state(transform(source[0]()))
+
+	let skipUpdate = false
+	watch(source[0], (val) => {
+		if (skipUpdate) {
+			skipUpdate = false
+			return
+		}
+		st = transform(val)
+	})
+
+	return {
+		get val() {
+			return st
+		},
+		set val(newVal) {
+			skipUpdate = true
+			st = newVal
+			source[1](inverseTransform(newVal))
+		}
+	}
+}
