@@ -30,6 +30,7 @@
 	import FileUpload from '$lib/components/common/fileUpload/FileUpload.svelte'
 	import DucklakePicker from '$lib/components/DucklakePicker.svelte'
 	import type SimpleEditor from '$lib/components/SimpleEditor.svelte'
+	import DatatablePicker from '$lib/components/DatatablePicker.svelte'
 
 	interface Props {
 		componentInput: StaticInput<any> | undefined
@@ -156,6 +157,15 @@
 				bind:value={
 					() => componentInput?.value?.split('ducklake://')?.[1],
 					(v) => componentInput && (componentInput.value = v ? `ducklake://${v}` : undefined)
+				}
+				showSchemaExplorer
+			/>
+		{:else if fieldType === 'datatable'}
+			<DatatablePicker
+				class="w-full"
+				bind:value={
+					() => componentInput?.value?.split('datatable://')?.[1],
+					(v) => componentInput && (componentInput.value = v ? `datatable://${v}` : undefined)
 				}
 				showSchemaExplorer
 			/>

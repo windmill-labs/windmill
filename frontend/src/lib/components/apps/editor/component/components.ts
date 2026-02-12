@@ -4158,7 +4158,8 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 						snowflake: 'Snowflake',
 						bigquery: 'BigQuery',
 						snowflake_oauth: 'Snowflake OAuth',
-						ducklake: 'Ducklake'
+						ducklake: 'Ducklake',
+						datatable: 'Data table'
 					},
 					configuration: {
 						postgresql: {
@@ -4243,6 +4244,21 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 								type: 'static',
 								fieldType: 'ducklake',
 								subFieldType: 'ducklake',
+								value: ''
+							} as StaticAppInput,
+							table: {
+								fieldType: 'select',
+								subFieldType: 'db-table',
+								type: 'static',
+								selectOptions: [],
+								value: undefined
+							}
+						},
+						datatable: {
+							datatable: {
+								type: 'static',
+								fieldType: 'datatable',
+								subFieldType: 'datatable',
 								value: ''
 							} as StaticAppInput,
 							table: {
