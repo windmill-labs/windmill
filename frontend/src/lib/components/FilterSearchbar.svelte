@@ -109,9 +109,7 @@
 					key,
 					filterSchema,
 					onClick: () => {
-						asText.val.replaceAll('\u00A0', ' ')
-						if (!asText.val.endsWith(' ')) asText.val += ' '
-						asText.val += `${key}:\\ `
+						asText.val = asText.val.trim() + ` ${key}:\\\u00A0`
 					}
 				}))
 		} else {
