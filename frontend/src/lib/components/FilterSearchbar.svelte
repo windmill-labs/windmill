@@ -85,7 +85,7 @@
 	}
 
 	type SchemaT = FilterSchemaRec // TODO: Generic
-	let { schema, value, class: className }: Props<SchemaT> = $props()
+	let { schema, value = $bindable(), class: className }: Props<SchemaT> = $props()
 
 	let currentTag: keyof SchemaT | undefined = $state()
 	let open = $state(false)
