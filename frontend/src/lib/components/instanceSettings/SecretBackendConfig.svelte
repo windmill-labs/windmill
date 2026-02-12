@@ -70,7 +70,12 @@
 	}
 
 	function setAuthMethod(method: string | undefined) {
-		if (!method || !$values['secret_backend'] || $values['secret_backend'].type !== 'HashiCorpVault') return
+		if (
+			!method ||
+			!$values['secret_backend'] ||
+			$values['secret_backend'].type !== 'HashiCorpVault'
+		)
+			return
 
 		if (method === 'token') {
 			// Clear JWT role when switching to token auth
@@ -194,12 +199,8 @@
 
 <div class="space-y-6">
 	<!-- Backend Type Selector -->
-	<div class="flex flex-col gap-2">
-		<label class="block text-xs font-semibold text-emphasis">Backend Type</label>
-		<ToggleButtonGroup
-			selected={selectedType}
-			onSelected={(v) => setBackendType(v)}
-		>
+	<div class="flex flex-col gap-2 mt-1">
+		<ToggleButtonGroup selected={selectedType} onSelected={(v) => setBackendType(v)}>
 			{#snippet children({ item: toggleButton })}
 				<ToggleButton
 					value="Database"
@@ -289,10 +290,7 @@
 				<!-- Authentication Method Toggle -->
 				<div class="flex flex-col gap-2">
 					<label class="block text-xs font-semibold text-emphasis">Authentication Method</label>
-					<ToggleButtonGroup
-						selected={authMethod}
-						onSelected={(v) => setAuthMethod(v)}
-					>
+					<ToggleButtonGroup selected={authMethod} onSelected={(v) => setAuthMethod(v)}>
 						{#snippet children({ item: toggleButton })}
 							<ToggleButton
 								value="jwt"
@@ -347,8 +345,11 @@
 							>
 							<div class="mt-2 p-2 bg-surface rounded text-2xs text-secondary space-y-2">
 								<p>Configure Vault to accept JWTs from Windmill:</p>
-								<div class="bg-gray-100 dark:bg-gray-800 p-2 rounded font-mono text-2xs overflow-x-auto">
-									<pre># Enable JWT auth method
+								<div
+									class="bg-gray-100 dark:bg-gray-800 p-2 rounded font-mono text-2xs overflow-x-auto"
+								>
+									<pre
+										># Enable JWT auth method
 vault auth enable jwt
 
 # Configure JWT auth with Windmill's JWKS endpoint
@@ -372,7 +373,8 @@ vault write auth/jwt/role/windmill-secrets \
   bound_audiences="{baseUrl}" \
   user_claim="email" \
   policies="windmill-secrets" \
-  ttl="1h"</pre>
+  ttl="1h"</pre
+									>
 								</div>
 								<p class="text-yellow-600 dark:text-yellow-400">
 									Replace <code>windmill-secrets</code> with your role name if different.

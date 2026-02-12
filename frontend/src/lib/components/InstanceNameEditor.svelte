@@ -47,7 +47,9 @@
 	closeButton
 >
 	<svelte:fragment slot="trigger">
-		<Button nonCaptureEvent={true} size="xs" color="light" endIcon={{ icon: Pencil }}>Edit</Button>
+		<Button unifiedSize="sm" nonCaptureEvent={true} variant="subtle" startIcon={{ icon: Pencil }}
+			>Edit</Button
+		>
 	</svelte:fragment>
 	<svelte:fragment slot="content">
 		<div class="flex flex-col gap-8 max-w-sm p-4">

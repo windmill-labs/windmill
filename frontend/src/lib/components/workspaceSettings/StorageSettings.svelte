@@ -143,7 +143,7 @@
 				{/each}
 			</tr>
 		</Head>
-		<tbody class="divide-y bg-surface">
+		<tbody class="divide-y bg-surface-tertiary">
 			{#each tableRows as tableRow, idx}
 				<Row>
 					<Cell first class="w-48 relative">

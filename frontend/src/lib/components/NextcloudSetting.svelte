@@ -3,6 +3,7 @@
 	import IconedResourceType from './IconedResourceType.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import Toggle from './Toggle.svelte'
+	import SettingCard from './instanceSettings/SettingCard.svelte'
 
 	interface Props {
 		value: any
@@ -59,7 +60,7 @@
 		/></label
 	>
 	{#if enabled}
-		<div class="p-4 rounded-md border flex flex-col gap-6">
+		<SettingCard class="flex flex-col gap-6">
 			<label class="flex flex-col gap-1">
 				<span class="text-emphasis font-semibold text-xs">Nextcloud Instance Domain</span>
 				<TextInput
@@ -105,6 +106,6 @@
 					5. Copy the Client ID and Client Secret to the fields above<br />
 				</div>
 			</CollapseLink>
-		</div>
+		</SettingCard>
 	{/if}
 </div>
