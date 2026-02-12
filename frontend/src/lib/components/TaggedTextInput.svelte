@@ -100,7 +100,14 @@
 	function escapeHtml(text: string): string {
 		const div = document.createElement('div')
 		div.textContent = text
-		return div.innerHTML
+		let html = div.innerHTML
+		html = html.replace(/\\./g, (match) => {
+			return (
+				'<span style="display: inline; width: 0; height: 0; overflow: hidden; position: absolute;">\\</span>' +
+				match[1]
+			)
+		})
+		return html
 	}
 
 	function handleInput() {

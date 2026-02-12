@@ -2163,3 +2163,129 @@ export function assignObjInPlace(
 	}
 	for (const key in source) target[key] = source[key]
 }
+
+export function formatDatePretty(date: Date): string {
+	if (!date || isNaN(date.getTime())) return ''
+
+	const now = new Date()
+	const year = date.getFullYear()
+	const month = date.getMonth() + 1
+	const day = date.getDate()
+	const hours = date.getHours()
+	const minutes = date.getMinutes()
+
+	const isCurrentYear = year === now.getFullYear()
+	const isToday = isCurrentYear && month === now.getMonth() + 1 && day === now.getDate()
+	const isOnlyYear = month === 1 && day === 1 && hours === 0 && minutes === 0
+	const hasTime = hours !== 0 || minutes !== 0
+
+	// If only year is defined (rest is 01/01 00:00)
+	if (isOnlyYear) {
+		return String(year)
+	}
+
+	// Format month/day
+	const monthDay = `${String(month).padStart(2, '0')}/${String(day).padStart(2, '0')}`
+
+	// Format time if present (12-hour format with AM/PM)
+	let timeStr = ''
+	if (hasTime) {
+		const isPM = hours >= 12
+		const displayHours = hours % 12 || 12
+		const displayMinutes = String(minutes).padStart(2, '0')
+		timeStr = ` ${displayHours}:${displayMinutes} ${isPM ? 'PM' : 'AM'}`
+	}
+
+	// If today and same year, only show time (if present)
+	if (isToday) {
+		return timeStr ? timeStr.trim() : monthDay
+	}
+
+	// If same year, show month/day and time (if present)
+	if (isCurrentYear) {
+		return `${monthDay}${timeStr}`
+	}
+
+	// Otherwise, show full date with year and time (if present)
+	return `${monthDay}/${year}${timeStr}`
+}
+
+export function parsePrettyDate(text: string): Date | null {
+	if (!text) return null
+
+	const now = new Date()
+	const currentYear = now.getFullYear()
+
+	// Try parsing as year-only (e.g., "2025")
+	if (/^\d{4}$/.test(text)) {
+		const year = parseInt(text)
+		return new Date(year, 0, 1, 0, 0, 0)
+	}
+
+	// Try parsing time-only (e.g., "11:02 AM") - assumes today
+	const timeOnlyMatch = text.match(/^(\d{1,2}):(\d{2})\s+(AM|PM)$/i)
+	if (timeOnlyMatch) {
+		const [, hourStr, minuteStr, meridiem] = timeOnlyMatch
+		let hours = parseInt(hourStr)
+		const minutes = parseInt(minuteStr)
+
+		if (meridiem.toUpperCase() === 'PM' && hours !== 12) hours += 12
+		if (meridiem.toUpperCase() === 'AM' && hours === 12) hours = 0
+
+		return new Date(currentYear, now.getMonth(), now.getDate(), hours, minutes, 0)
+	}
+
+	// Try parsing MM/DD (e.g., "01/04") - assumes current year, no time
+	const monthDayMatch = text.match(/^(\d{2})\/(\d{2})$/)
+	if (monthDayMatch) {
+		const [, monthStr, dayStr] = monthDayMatch
+		const month = parseInt(monthStr) - 1
+		const day = parseInt(dayStr)
+		return new Date(currentYear, month, day, 0, 0, 0)
+	}
+
+	// Try parsing MM/DD TIME (e.g., "01/04 11:02 AM") - assumes current year with time
+	const monthDayTimeMatch = text.match(/^(\d{2})\/(\d{2})\s+(\d{1,2}):(\d{2})\s+(AM|PM)$/i)
+	if (monthDayTimeMatch) {
+		const [, monthStr, dayStr, hourStr, minuteStr, meridiem] = monthDayTimeMatch
+		const month = parseInt(monthStr) - 1
+		const day = parseInt(dayStr)
+		let hours = parseInt(hourStr)
+		const minutes = parseInt(minuteStr)
+
+		if (meridiem.toUpperCase() === 'PM' && hours !== 12) hours += 12
+		if (meridiem.toUpperCase() === 'AM' && hours === 12) hours = 0
+
+		return new Date(currentYear, month, day, hours, minutes, 0)
+	}
+
+	// Try parsing MM/DD/YYYY (e.g., "01/04/2025") - no time
+	const fullDateMatch = text.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+	if (fullDateMatch) {
+		const [, monthStr, dayStr, yearStr] = fullDateMatch
+		const month = parseInt(monthStr) - 1
+		const day = parseInt(dayStr)
+		const year = parseInt(yearStr)
+		return new Date(year, month, day, 0, 0, 0)
+	}
+
+	// Try parsing MM/DD/YYYY TIME (e.g., "01/04/2025 3:00 PM")
+	const fullDateTimeMatch = text.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}):(\d{2})\s+(AM|PM)$/i)
+	if (fullDateTimeMatch) {
+		const [, monthStr, dayStr, yearStr, hourStr, minuteStr, meridiem] = fullDateTimeMatch
+		const month = parseInt(monthStr) - 1
+		const day = parseInt(dayStr)
+		const year = parseInt(yearStr)
+		let hours = parseInt(hourStr)
+		const minutes = parseInt(minuteStr)
+
+		if (meridiem.toUpperCase() === 'PM' && hours !== 12) hours += 12
+		if (meridiem.toUpperCase() === 'AM' && hours === 12) hours = 0
+
+		return new Date(year, month, day, hours, minutes, 0)
+	}
+
+	// Fallback to standard Date parsing (e.g., ISO strings)
+	const date = new Date(text)
+	return isNaN(date.getTime()) ? null : date
+}

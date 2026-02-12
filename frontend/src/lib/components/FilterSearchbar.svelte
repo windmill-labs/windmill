@@ -41,10 +41,11 @@
 					: typeof filter === 'number'
 						? new Date(filter)
 						: (filter as Date)
-			return date?.toISOString()
+			return formatDatePretty(date)
 		}
 		return String(filter)
 	}
+
 	function textToFilter(text: string, schema: FilterSchema): FilterInstance<FilterSchema> | null {
 		if (schema.type === 'string') return text
 		if (schema.type === 'number') {
@@ -57,8 +58,8 @@
 			return null
 		}
 		if (schema.type === 'date') {
-			const date = new Date(text)
-			return isNaN(date.getTime()) ? null : (date as any)
+			const date = parsePrettyDate(text)
+			return date ? (date as any) : null
 		}
 		if (schema.type === 'oneof') {
 			if (schema.allowCustomValue) return text
@@ -72,7 +73,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { inputBaseClass, inputBorderClass, inputSizeClasses } from './text_input/TextInput.svelte'
 	import { SearchIcon } from 'lucide-svelte'
-	import { assignObjInPlace, type IconType } from '$lib/utils'
+	import { assignObjInPlace, formatDatePretty, parsePrettyDate, type IconType } from '$lib/utils'
 	import GenericDropdown from './select/GenericDropdown.svelte'
 	import DateTimeInput from './DateTimeInput.svelte'
 	import TaggedTextInput from './TaggedTextInput.svelte'
@@ -94,7 +95,7 @@
 
 	let tags = $derived(
 		Object.entries(schema).map(([key, filterSchema]) => ({
-			regex: new RegExp(`\\b${key}:[^\\s]*`, 'g'),
+			regex: new RegExp(`\\b${key}:(?:\\\\.|[^\\s])*`, 'g'),
 			id: key
 		}))
 	)
@@ -110,7 +111,7 @@
 					onClick: () => {
 						asText.val.replaceAll('\u00A0', ' ')
 						if (!asText.val.endsWith(' ')) asText.val += ' '
-						asText.val += `${key}:`
+						asText.val += `${key}:\\ `
 					}
 				}))
 		} else {
@@ -150,14 +151,17 @@
 		highlightedIndex = 0
 	})
 
-	const kvRegex = /\b(\w+):([^\s]*)/g
+	const kvRegex = /\b(\w+):((?:[^\s\\]|\\.)*)/g
 
 	function parseFromText(text: string): Partial<FilterInstanceRec<SchemaT>> {
 		const parsed: Record<string, string> = {}
 		let match
 		while ((match = kvRegex.exec(text)) !== null) {
-			const [_, key, val] = match
+			let [_, key, val] = match
 			if (key in schema) {
+				val ??= ''
+				val = val.replace(/\\(.)/g, '$1') // Unescape escaped characters
+				val = val.trim()
 				parsed[key] = textToFilter(val, schema[key]) as any
 			}
 		}
@@ -167,7 +171,9 @@
 	function parseToText(v: Partial<FilterInstanceRec<SchemaT>>): string {
 		return (
 			Object.entries(v)
-				.map(([key, val]) => `${key}:${filterToText(val as any, schema[key])}`)
+				.map(([key, val]) =>
+					`${key}: ${filterToText(val as any, schema[key])}`.replace(/ /g, '\\ ')
+				)
 				.join(' ') + '\u00A0'
 		)
 	}
