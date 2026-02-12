@@ -23,12 +23,12 @@
 
 	let menuOpen: boolean = false
 	export let showCode: (path: string, summary: string) => void
+	export let showEditButton: boolean = true
 </script>
 
 {#if item.type == 'script'}
 	<ScriptRow
 		bind:deleteConfirmedCallback
-		starred={item.starred ?? false}
 		marked={item.marked}
 		on:change={() => dispatch('scriptChanged')}
 		script={item}
@@ -42,11 +42,11 @@
 		{depth}
 		bind:menuOpen
 		{showCode}
+		{showEditButton}
 	/>
 {:else if item.type == 'flow'}
 	<FlowRow
 		bind:deleteConfirmedCallback
-		starred={item.starred ?? false}
 		marked={item.marked}
 		on:change={() => dispatch('flowChanged')}
 		flow={item}
@@ -59,11 +59,11 @@
 		{deploymentDrawer}
 		{depth}
 		bind:menuOpen
+		{showEditButton}
 	/>
 {:else if item.type == 'app'}
 	<AppRow
 		bind:deleteConfirmedCallback
-		starred={item.starred ?? false}
 		marked={item.marked}
 		on:change={() => dispatch('appChanged')}
 		app={item}
@@ -72,15 +72,12 @@
 		{deploymentDrawer}
 		{depth}
 		bind:menuOpen
+		{showEditButton}
 	/>
 {:else if item.type == 'raw_app'}
 	<RawAppRow
-		bind:deleteConfirmedCallback
-		starred={item.starred ?? false}
 		marked={item.marked}
-		on:change={() => dispatch('rawAppChanged')}
 		app={item}
-		{moveDrawer}
 		{shareModal}
 		{deploymentDrawer}
 		{depth}

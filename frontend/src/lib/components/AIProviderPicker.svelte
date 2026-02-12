@@ -2,7 +2,7 @@
 	import { type Snippet } from 'svelte'
 	import Select from './select/Select.svelte'
 	import { fetchAvailableModels, AI_PROVIDERS } from './copilot/lib'
-	import type { AIProvider } from '$lib/gen'
+	import type { AIProvider, ProviderConfig } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { get } from 'svelte/store'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -10,48 +10,36 @@
 	import ResourcePicker from './ResourcePicker.svelte'
 	import ToggleButtonMore from './common/toggleButton-v2/ToggleButtonMore.svelte'
 	import Toggle from './Toggle.svelte'
-
-	interface ProviderValue {
-		kind?: AIProvider
-		resource?: string
-		model?: string
-	}
+	import { saveConfig, removeConfig, isSameAsStoredConfig } from './aiProviderStorage'
 
 	interface Props {
-		value: ProviderValue | undefined
+		value: ProviderConfig | undefined
 		disabled?: boolean
 		actions?: Snippet
 	}
 
-	let { value = $bindable(), disabled = false, actions }: Props = $props()
+	let { value: _uncheckedValue = $bindable(), disabled = false, actions }: Props = $props()
+
+	let value = $derived.by(() => {
+		if (!_uncheckedValue || typeof _uncheckedValue !== 'object') return undefined
+		return _uncheckedValue
+	})
 
 	let loading = $state(false)
 	let availableModels = $state<string[]>([])
 	let filterText = $state('')
-	let useAsDefault = $state(false)
 
 	let modelsCache = new Map<AIProvider, string[]>()
 
-	const STORAGE_KEY = 'windmill_ai_provider_config'
-
-	// Initialize value if undefined
-	if (!value) {
-		const storedConfig = loadStoredConfig()
-		if (storedConfig) {
-			value = storedConfig
-			useAsDefault = true
-		} else {
-			const providers = Object.keys(AI_PROVIDERS)
-			value = {
-				kind: providers.length > 0 ? (providers[0] as AIProvider) : undefined,
-				resource: undefined,
-				model: undefined
-			}
-			useAsDefault = false
+	if (!_uncheckedValue) {
+		_uncheckedValue = {
+			kind: 'openai',
+			resource: '',
+			model: ''
 		}
-	} else {
-		useAsDefault = isSameAsStoredConfig(value)
 	}
+
+	let useAsDefault = $derived(isSameAsStoredConfig(value))
 
 	// Reactive items for the Select component
 	let items = $derived.by(() => {
@@ -73,61 +61,6 @@
 		value: key as AIProvider,
 		label: details.label
 	}))
-
-	// Check if the current config is the same as the stored config
-	function isSameAsStoredConfig(config: ProviderValue): boolean {
-		const storedConfig = loadStoredConfig()
-		return (
-			storedConfig !== undefined &&
-			storedConfig?.kind === config.kind &&
-			storedConfig?.resource === config.resource &&
-			storedConfig?.model === config.model
-		)
-	}
-
-	// Load stored configuration from localStorage
-	function loadStoredConfig(): ProviderValue | undefined {
-		if (typeof localStorage === 'undefined') {
-			return undefined
-		}
-		try {
-			const stored = localStorage.getItem(STORAGE_KEY)
-			if (stored) {
-				const parsed = JSON.parse(stored)
-				// Validate that the stored provider is still available
-				if (parsed.kind && AI_PROVIDERS[parsed.kind]) {
-					return parsed
-				}
-			}
-		} catch (e) {
-			console.error('Failed to load AI provider config from localStorage:', e)
-		}
-		return undefined
-	}
-
-	// Save configuration to localStorage
-	function saveConfig(config: ProviderValue) {
-		if (typeof localStorage === 'undefined') {
-			return
-		}
-		try {
-			localStorage.setItem(STORAGE_KEY, JSON.stringify(config))
-		} catch (e) {
-			console.error('Failed to save AI provider config to localStorage:', e)
-		}
-	}
-
-	// Remove configuration from localStorage
-	function removeConfig() {
-		if (typeof localStorage === 'undefined') {
-			return
-		}
-		try {
-			localStorage.removeItem(STORAGE_KEY)
-		} catch (e) {
-			console.error('Failed to remove AI provider config from localStorage:', e)
-		}
-	}
 
 	async function loadModels(signal?: AbortSignal) {
 		const provider = value?.kind
@@ -171,8 +104,8 @@
 	function onProviderChange(selectedProvider: AIProvider) {
 		if (value) {
 			value.kind = selectedProvider
-			value.resource = undefined
-			value.model = undefined
+			value.resource = ''
+			value.model = ''
 		}
 	}
 
@@ -244,7 +177,7 @@
 			{/each}
 			<ToggleButtonMore
 				class="ml-auto"
-				btnText={providerOptions.findIndex((p) => p.value === value.kind) >= 3 ? '' : 'More'}
+				btnText={providerOptions.findIndex((p) => p.value === value?.kind) >= 3 ? '' : 'More'}
 				togglableItems={providerOptions.slice(3)}
 				{item}
 				bind:selected={() => value?.kind, (v) => v && onProviderChange(v)}
@@ -261,7 +194,7 @@
 					() => resourceValueToPath(value?.resource),
 					(v) => {
 						if (value) {
-							value.resource = pathToResourceValue(v)
+							value.resource = pathToResourceValue(v) ?? ''
 						}
 					}
 				}
@@ -277,12 +210,12 @@
 			<p class="text-xs font-normal text-primary">model</p>
 			<Select
 				{items}
-				bind:value={value.model}
+				bind:value={() => value?.model, (v) => value && (value.model = v ?? '')}
 				placeholder="Select model"
 				disabled={disabled || !value?.kind || !resourceValueToPath(value?.resource)}
 				onCreateItem={(r) => {
 					availableModels.push(r)
-					value.model = r
+					if (value) value.model = r
 				}}
 				createText="Press enter to use custom model"
 				{loading}

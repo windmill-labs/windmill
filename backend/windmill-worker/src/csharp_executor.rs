@@ -30,7 +30,8 @@ use crate::{
         build_command_with_isolation, check_executor_binary_exists, create_args_and_out_file,
         get_reserved_variables, read_result, start_child_process, DEV_CONF_NSJAIL,
     },
-    handle_child::handle_child, get_proxy_envs_for_lang,
+    get_proxy_envs_for_lang,
+    handle_child::handle_child,
     CSHARP_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER, DOTNET_PATH, HOME_ENV, NSJAIL_PATH,
     NUGET_CONFIG, PATH_ENV, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
@@ -92,7 +93,12 @@ pub async fn generate_nuget_lockfile(
     let mut gen_lockfile_cmd = Command::new(DOTNET_PATH.as_str());
     gen_lockfile_cmd
         .current_dir(job_dir)
+        .env("DOTNET_CLI_HOME", CSHARP_CACHE_DIR)
+        .env("NUGET_PACKAGES", format!("{CSHARP_CACHE_DIR}/nuget"))
+        .env("DOTNET_CLI_TELEMETRY_OPTOUT", "true")
+        .env("DOTNET_NOLOGO", "true")
         .env("MSBUILDDISABLENODEREUSE", "1")
+        .env("DOTNET_ROOT", DOTNET_ROOT.as_str())
         .args(vec!["restore", "--use-lock-file"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -339,6 +345,8 @@ async fn build_cs_proj(
         .env("PATH", PATH_ENV.as_str())
         .env("BASE_INTERNAL_URL", base_internal_url)
         .env("HOME", HOME_ENV.as_str())
+        .env("DOTNET_CLI_HOME", CSHARP_CACHE_DIR)
+        .env("NUGET_PACKAGES", format!("{CSHARP_CACHE_DIR}/nuget"))
         .env("DOTNET_CLI_TELEMETRY_OPTOUT", "true")
         .env("DOTNET_NOLOGO", "true")
         .env("MSBUILDDISABLENODEREUSE", "1")
@@ -578,6 +586,8 @@ pub async fn handle_csharp_job(
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
+            .env("DOTNET_CLI_HOME", CSHARP_CACHE_DIR)
+            .env("NUGET_PACKAGES", format!("{CSHARP_CACHE_DIR}/nuget"))
             .env("DOTNET_CLI_TELEMETRY_OPTOUT", "true")
             .env("DOTNET_NOLOGO", "true")
             .env("DOTNET_ROOT", DOTNET_ROOT.as_str())
@@ -608,6 +618,8 @@ pub async fn handle_csharp_job(
             .envs(get_proxy_envs_for_lang(&ScriptLang::CSharp).await?)
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
+            .env("DOTNET_CLI_HOME", CSHARP_CACHE_DIR)
+            .env("NUGET_PACKAGES", format!("{CSHARP_CACHE_DIR}/nuget"))
             .env("DOTNET_CLI_TELEMETRY_OPTOUT", "true")
             .env("DOTNET_NOLOGO", "true")
             .env("DOTNET_ROOT", DOTNET_ROOT.as_str())

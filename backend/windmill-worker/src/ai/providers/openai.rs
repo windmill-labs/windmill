@@ -472,6 +472,11 @@ impl QueryBuilder for OpenAIQueryBuilder {
         let mut parser = OpenAIResponsesSSEParser::new(stream_event_processor);
         parser.parse_events(response).await?;
 
+        // Convert OpenAI Responses usage to TokenUsage
+        let usage = parser
+            .usage
+            .map(|u| TokenUsage::new(u.input_tokens, u.output_tokens, u.total_tokens));
+
         Ok(ParsedResponse::Text {
             content: if parser.accumulated_content.is_empty() {
                 None
@@ -482,6 +487,7 @@ impl QueryBuilder for OpenAIQueryBuilder {
             events_str: Some(parser.events_str),
             annotations: parser.annotations,
             used_websearch: parser.used_websearch,
+            usage,
         })
     }
 

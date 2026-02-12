@@ -4,19 +4,21 @@ use crate::db::{ApiAuthed, DB};
 
 #[cfg(feature = "bedrock")]
 use axum::routing::get;
-use axum::{
-    body::Bytes, extract::Path, response::IntoResponse, routing::post, Extension, Router,
-};
 #[cfg(feature = "bedrock")]
 use axum::Json;
+use axum::{body::Bytes, extract::Path, response::IntoResponse, routing::post, Extension, Router};
+use futures::StreamExt;
 use http::{HeaderMap, Method};
 use quick_cache::sync::Cache;
 use reqwest::{Client, RequestBuilder};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue};
 use std::collections::HashMap;
+use std::time::Duration;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
-use windmill_common::ai_providers::{AIProvider, ProviderConfig, ProviderModel};
+use windmill_common::ai_providers::{
+    empty_string_as_none, AIProvider, ProviderConfig, ProviderModel,
+};
 use windmill_common::error::{to_anyhow, Error, Result};
 use windmill_common::utils::configure_client;
 use windmill_common::variables::get_variable_or_self;
@@ -27,6 +29,7 @@ const AI_TIMEOUT_MAX_SECS: u64 = 86400; // 24 hours
 const AI_TIMEOUT_DEFAULT_SECS: u64 = 3600; // 1 hour
 const HTTP_POOL_MAX_IDLE_PER_HOST: usize = 10;
 const HTTP_POOL_IDLE_TIMEOUT_SECS: u64 = 90;
+const KEEPALIVE_INTERVAL_SECS: u64 = 15;
 
 lazy_static::lazy_static! {
     /// AI request timeout in seconds.
@@ -143,19 +146,38 @@ enum AnthropicPlatform {
 
 #[derive(Deserialize, Debug)]
 struct AIStandardResource {
-    #[serde(alias = "baseUrl")]
+    #[serde(alias = "baseUrl", default, deserialize_with = "empty_string_as_none")]
     base_url: Option<String>,
-    #[serde(alias = "apiKey")]
+    #[serde(alias = "apiKey", default, deserialize_with = "empty_string_as_none")]
     api_key: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
     organization_id: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
     region: Option<String>,
-    #[serde(alias = "awsAccessKeyId")]
+    #[serde(
+        alias = "awsAccessKeyId",
+        default,
+        deserialize_with = "empty_string_as_none"
+    )]
     aws_access_key_id: Option<String>,
-    #[serde(alias = "awsSecretAccessKey")]
+    #[serde(
+        alias = "awsSecretAccessKey",
+        default,
+        deserialize_with = "empty_string_as_none"
+    )]
     aws_secret_access_key: Option<String>,
+    #[serde(
+        alias = "awsSessionToken",
+        default,
+        deserialize_with = "empty_string_as_none"
+    )]
+    aws_session_token: Option<String>,
     /// Platform for Anthropic API (standard or google_vertex_ai)
     #[serde(default)]
     platform: AnthropicPlatform,
+    /// Enable 1M context window for Anthropic
+    #[serde(alias = "enable_1M_context", default)]
+    enable_1m_context: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -183,7 +205,10 @@ struct AIRequestConfig {
     pub aws_access_key_id: Option<String>,
     #[allow(dead_code)]
     pub aws_secret_access_key: Option<String>,
+    #[allow(dead_code)]
+    pub aws_session_token: Option<String>,
     pub platform: AnthropicPlatform,
+    pub enable_1m_context: bool,
 }
 
 impl AIRequestConfig {
@@ -202,14 +227,20 @@ impl AIRequestConfig {
             region,
             aws_access_key_id,
             aws_secret_access_key,
+            aws_session_token,
             platform,
+            enable_1m_context,
         ) = match resource {
             AIResource::Standard(resource) => {
                 let region = resource.region.clone();
                 let platform = resource.platform.clone();
-                let base_url = provider
-                    .get_base_url(resource.base_url, resource.region, db)
-                    .await?;
+                let enable_1m_context = resource.enable_1m_context;
+                // Skip get_base_url for Bedrock - it uses SDK directly, not HTTP
+                let base_url = if matches!(provider, AIProvider::AWSBedrock) {
+                    String::new()
+                } else {
+                    provider.get_base_url(resource.base_url, db).await?
+                };
                 let api_key = if let Some(api_key) = resource.api_key {
                     Some(get_variable_or_self(api_key, db, w_id).await?)
                 } else {
@@ -231,6 +262,11 @@ impl AIRequestConfig {
                     } else {
                         None
                     };
+                let aws_session_token = if let Some(session_token) = resource.aws_session_token {
+                    Some(get_variable_or_self(session_token, db, w_id).await?)
+                } else {
+                    None
+                };
 
                 (
                     api_key,
@@ -241,7 +277,9 @@ impl AIRequestConfig {
                     region,
                     aws_access_key_id,
                     aws_secret_access_key,
+                    aws_session_token,
                     platform,
+                    enable_1m_context,
                 )
             }
             AIResource::OAuth(resource) => {
@@ -251,7 +289,7 @@ impl AIRequestConfig {
                     None
                 };
                 let token = Self::get_token_using_oauth(resource, db, w_id).await?;
-                let base_url = provider.get_base_url(None, None, db).await?;
+                let base_url = provider.get_base_url(None, db).await?;
 
                 (
                     None,
@@ -262,7 +300,9 @@ impl AIRequestConfig {
                     None,
                     None,
                     None,
+                    None,
                     AnthropicPlatform::Standard,
+                    false,
                 )
             }
         };
@@ -276,7 +316,9 @@ impl AIRequestConfig {
             region,
             aws_access_key_id,
             aws_secret_access_key,
+            aws_session_token,
             platform,
+            enable_1m_context,
         })
     }
 
@@ -331,7 +373,8 @@ impl AIRequestConfig {
 
         let is_azure = provider.is_azure_openai(base_url);
         let is_anthropic = matches!(provider, AIProvider::Anthropic);
-        let is_anthropic_vertex = is_anthropic && self.platform == AnthropicPlatform::GoogleVertexAi;
+        let is_anthropic_vertex =
+            is_anthropic && self.platform == AnthropicPlatform::GoogleVertexAi;
         let is_anthropic_sdk = headers.get("X-Anthropic-SDK").is_some();
         let is_google_ai = matches!(provider, AIProvider::GoogleAI);
 
@@ -375,6 +418,10 @@ impl AIRequestConfig {
                 }
                 request = request.header(header_name, header_value);
             }
+        }
+
+        if is_anthropic_sdk && self.enable_1m_context {
+            request = request.header("anthropic-beta", "context-1m-2025-08-07");
         }
 
         // Add authentication headers
@@ -470,7 +517,9 @@ fn transform_anthropic_for_vertex(body: &Bytes) -> Result<(String, Bytes)> {
     let model = json_body
         .remove("model")
         .and_then(|v| v.as_str().map(|s| s.to_string()))
-        .ok_or_else(|| Error::BadRequest("Missing 'model' field in Anthropic request".to_string()))?;
+        .ok_or_else(|| {
+            Error::BadRequest("Missing 'model' field in Anthropic request".to_string())
+        })?;
 
     // Add anthropic_version to body (required for Vertex AI)
     json_body.insert(
@@ -554,6 +603,40 @@ async fn check_bedrock_credentials(
     Ok(Json(response))
 }
 
+fn is_sse_response(headers: &HeaderMap) -> bool {
+    headers
+        .get(http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|ct| ct.contains("text/event-stream"))
+        .unwrap_or(false)
+}
+
+fn inject_keepalives<S>(
+    upstream: S,
+    interval: Duration,
+) -> impl futures::Stream<Item = std::result::Result<Bytes, reqwest::Error>>
+where
+    S: futures::Stream<Item = std::result::Result<Bytes, reqwest::Error>> + Unpin,
+{
+    async_stream::stream! {
+        tokio::pin!(upstream);
+        loop {
+            tokio::select! {
+                biased;
+                chunk = upstream.next() => {
+                    match chunk {
+                        Some(item) => yield item,
+                        None => break,
+                    }
+                }
+                _ = tokio::time::sleep(interval) => {
+                    yield Ok(Bytes::from(": keepalive\n\n"));
+                }
+            }
+        }
+    }
+}
+
 async fn global_proxy(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -578,7 +661,7 @@ async fn global_proxy(
         return Err(Error::BadRequest("API key is required".to_string()));
     };
 
-    let base_url = provider.get_base_url(None, None, &db).await?;
+    let base_url = provider.get_base_url(None, &db).await?;
 
     let url = format!("{}/{}", base_url, ai_path);
 
@@ -618,7 +701,15 @@ async fn global_proxy(
     let status_code = response.status();
     let headers = response.headers().clone();
     let stream = response.bytes_stream();
-    Ok((status_code, headers, axum::body::Body::from_stream(stream)))
+    let body = if is_sse_response(&headers) {
+        axum::body::Body::from_stream(inject_keepalives(
+            stream,
+            Duration::from_secs(KEEPALIVE_INTERVAL_SECS),
+        ))
+    } else {
+        axum::body::Body::from_stream(stream)
+    };
+    Ok((status_code, headers, body))
 }
 
 async fn proxy(
@@ -725,27 +816,28 @@ async fn proxy(
     #[cfg(feature = "bedrock")]
     {
         // Extract model and streaming flag for Bedrock transformation (only for POST requests)
-        let (model, is_streaming) =
-            if matches!(provider, AIProvider::AWSBedrock) && method == Method::POST {
-                #[derive(Deserialize, Debug)]
-                struct BedrockRequest {
-                    model: String,
-                    #[serde(default)]
-                    stream: bool,
-                }
-                let parsed: BedrockRequest = serde_json::from_slice(&body)
-                    .map_err(|e| Error::internal_err(format!("Failed to parse request body: {}", e)))?;
-                (Some(parsed.model), parsed.stream)
-            } else {
-                (None, false)
-            };
+        let (model, is_streaming) = if matches!(provider, AIProvider::AWSBedrock)
+            && method == Method::POST
+        {
+            #[derive(Deserialize, Debug)]
+            struct BedrockRequest {
+                model: String,
+                #[serde(default)]
+                stream: bool,
+            }
+            let parsed: BedrockRequest = serde_json::from_slice(&body)
+                .map_err(|e| Error::internal_err(format!("Failed to parse request body: {}", e)))?;
+            (Some(parsed.model), parsed.stream)
+        } else {
+            (None, false)
+        };
 
         // For Bedrock requests, use the SDK-based approach
         if matches!(provider, AIProvider::AWSBedrock) {
             let region = request_config
                 .region
                 .as_deref()
-                .ok_or_else(|| Error::internal_err("AWS region must be set for Bedrock"))?;
+                .unwrap_or(windmill_common::ai_providers::USE_ENV_REGION);
 
             // Audit log before making the SDK request
             let mut tx = db.begin().await?;
@@ -768,6 +860,7 @@ async fn proxy(
                         request_config.api_key.as_deref(),
                         request_config.aws_access_key_id.as_deref(),
                         request_config.aws_secret_access_key.as_deref(),
+                        request_config.aws_session_token.as_deref(),
                         region,
                     )
                     .await;
@@ -776,6 +869,7 @@ async fn proxy(
                         request_config.api_key.as_deref(),
                         request_config.aws_access_key_id.as_deref(),
                         request_config.aws_secret_access_key.as_deref(),
+                        request_config.aws_session_token.as_deref(),
                         region,
                     )
                     .await;
@@ -791,6 +885,7 @@ async fn proxy(
                         request_config.api_key.as_deref(),
                         request_config.aws_access_key_id.as_deref(),
                         request_config.aws_secret_access_key.as_deref(),
+                        request_config.aws_session_token.as_deref(),
                         region,
                     )
                     .await;
@@ -801,6 +896,7 @@ async fn proxy(
                         request_config.api_key.as_deref(),
                         request_config.aws_access_key_id.as_deref(),
                         request_config.aws_secret_access_key.as_deref(),
+                        request_config.aws_session_token.as_deref(),
                         region,
                     )
                     .await;
@@ -843,5 +939,13 @@ async fn proxy(
     let status_code = response.status();
     let headers = response.headers().clone();
     let stream = response.bytes_stream();
-    Ok((status_code, headers, axum::body::Body::from_stream(stream)))
+    let body = if is_sse_response(&headers) {
+        axum::body::Body::from_stream(inject_keepalives(
+            stream,
+            Duration::from_secs(KEEPALIVE_INTERVAL_SECS),
+        ))
+    } else {
+        axum::body::Body::from_stream(stream)
+    };
+    Ok((status_code, headers, body))
 }

@@ -1,5 +1,3 @@
-mod common;
-
 mod job_payload {
     use serde_json::json;
     use sqlx::{Pool, Postgres};
@@ -8,7 +6,7 @@ mod job_payload {
     use windmill_common::scripts::{ScriptHash, ScriptLang};
     use windmill_common::flow_status::RestartedFrom;
 
-    use crate::common::*;
+    use windmill_test_utils::*;
     use windmill_common::min_version::{
         MIN_VERSION, MIN_VERSION_IS_AT_LEAST_1_427, MIN_VERSION_IS_AT_LEAST_1_432,
         MIN_VERSION_IS_AT_LEAST_1_440,

@@ -40,6 +40,7 @@
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 
 	import { sendUserToast } from '$lib/toast'
+	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 
 	import SavedInputsV2 from '$lib/components/SavedInputsV2.svelte'
@@ -168,7 +169,6 @@
 			}
 		}
 	}
-	let starred: boolean | undefined = $state(undefined)
 
 	async function loadTriggers(path: string): Promise<void> {
 		await triggersState.fetchTriggers(
@@ -208,7 +208,6 @@
 					no_main_func: false,
 					has_preprocessor: false
 				}
-				starred = false
 				can_write = false
 				return
 			} catch (e) {
@@ -225,7 +224,6 @@
 				withStarredInfo: true,
 				authed: true
 			})
-			starred = script.starred
 		} catch {
 			try {
 				script = await ScriptService.getScriptByPath({
@@ -233,7 +231,6 @@
 					path: hash,
 					withStarredInfo: true
 				})
-				starred = script.starred
 				hash = script.hash
 			} catch (e) {
 				sendUserToast('Could not load script: ' + e.body, true)
@@ -329,6 +326,7 @@
 	let moveDrawer: MoveDrawer | undefined = $state()
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
 	let persistentScriptDrawer: PersistentScriptDrawer | undefined = $state()
+	let showEditButtons = $state(false)
 
 	function getMainButtons(
 		script: Script | undefined,
@@ -345,6 +343,7 @@
 					href: `${base}/scripts/add?template=${script.path}`,
 					unifiedSize: 'md',
 					variant: 'subtle',
+					disabled: !showEditButtons,
 					startIcon: GitFork
 				}
 			})
@@ -392,7 +391,7 @@
 						$importStore = JSON.parse(JSON.stringify(app))
 						await goto('/apps/add?nodraft=true')
 					},
-
+					disabled: !showEditButtons,
 					unifiedSize: 'md',
 					variant: 'subtle',
 					startIcon: LayoutDashboard
@@ -423,7 +422,7 @@
 						unifiedSize: 'md',
 						startIcon: Pen,
 						variant: 'accent',
-						disabled: !can_write
+						disabled: !can_write || !showEditButtons
 					}
 				})
 			}
@@ -452,13 +451,15 @@
 
 		const menuItems: any = []
 
-		menuItems.push({
-			label: 'Move/Rename',
-			Icon: FolderOpen,
-			onclick: () => {
-				moveDrawer?.openDrawer(script?.path ?? '', script?.summary, 'script')
-			}
-		})
+		if (showEditButtons) {
+			menuItems.push({
+				label: 'Move/Rename',
+				Icon: FolderOpen,
+				onclick: () => {
+					moveDrawer?.openDrawer(script?.path ?? '', script?.summary, 'script')
+				}
+			})
+		}
 
 		menuItems.push({
 			label: 'Audit logs',
@@ -510,34 +511,36 @@
 			})
 		}
 
-		if (script.archived) {
+		if (showEditButtons) {
+			if (script.archived) {
+				menuItems.push({
+					label: 'Unarchive',
+					Icon: ArchiveRestore,
+					onclick: async () => {
+						unarchiveScript(script.hash)
+					},
+					color: 'red'
+				})
+			} else {
+				menuItems.push({
+					label: 'Archive',
+					Icon: Archive,
+					onclick: async () => {
+						archiveScript(script.hash)
+					},
+					color: 'red'
+				})
+			}
+
 			menuItems.push({
-				label: 'Unarchive',
-				Icon: ArchiveRestore,
+				label: 'Delete',
+				Icon: Trash,
 				onclick: async () => {
-					unarchiveScript(script.hash)
-				},
-				color: 'red'
-			})
-		} else {
-			menuItems.push({
-				label: 'Archive',
-				Icon: Archive,
-				onclick: async () => {
-					archiveScript(script.hash)
+					deleteScript(script.hash)
 				},
 				color: 'red'
 			})
 		}
-
-		menuItems.push({
-			label: 'Delete',
-			Icon: Trash,
-			onclick: async () => {
-				deleteScript(script.hash)
-			},
-			color: 'red'
-		})
 
 		return menuItems
 	}
@@ -651,15 +654,7 @@
 					/>
 				{/snippet}
 				{#if $workspaceStore && script}
-					<Star
-						kind="script"
-						path={script.path}
-						{starred}
-						workspace_id={$workspaceStore}
-						on:starred={() => {
-							starred = !starred
-						}}
-					/>
+					<Star kind="script" path={script.path} summary={script.summary} />
 				{/if}
 				{#if script?.codebase}
 					<Badge
@@ -692,8 +687,11 @@
 			</DetailPageHeader>
 		{/snippet}
 		{#snippet form()}
+			<div class="px-3">
+				<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showEditButtons = v)} />
+			</div>
 			{#if script}
-				<div class="p-8 w-full max-w-3xl mx-auto min-h-[300px] flex flex-col justify-center">
+				<div class="p-8 w-full max-w-3xl mx-auto md:min-h-[300px] flex flex-col md:justify-center">
 					<div class="flex flex-col gap-0.5 mb-1">
 						{#if script.lock_error_logs || topHash || script.archived || script.deleted}
 							<div class="flex flex-col gap-2 my-2">
@@ -815,7 +813,8 @@
 					<div class="pt-4 flex flex-row gap-1 w-full justify-end items-center">
 						{#if !isHubScript}
 							<span class="text-2xs text-secondary">
-								Edited <TimeAgo date={script.created_at || ''} /> by {script.created_by || 'unknown'}
+								Edited <TimeAgo date={script.created_at || ''} /> by {script.created_by ||
+									'unknown'}
 							</span>
 						{/if}
 						<div class="flex flex-row gap-x-2 flex-wrap items-center">

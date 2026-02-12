@@ -22,6 +22,7 @@
 	import { deepEqual } from 'fast-equals'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
+	import TriggerFilters from '../TriggerFilters.svelte'
 
 	interface Props {
 		useDrawer?: boolean
@@ -85,6 +86,7 @@
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
+	let filters: { key: string; value: any }[] = $state([])
 
 	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
 	let originalConfig = $state<Record<string, any> | undefined>(undefined)
@@ -173,6 +175,7 @@
 			error_handler_path = nDefaultValues?.error_handler_path ?? undefined
 			error_handler_args = nDefaultValues?.error_handler_args ?? {}
 			retry = nDefaultValues?.retry ?? undefined
+			filters = nDefaultValues?.filters ?? []
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 			mode = nDefaultValues?.mode ?? 'enabled'
 			originalConfig = undefined
@@ -199,6 +202,7 @@
 		error_handler_path = cfg?.error_handler_path
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
+		filters = cfg?.filters ?? []
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 	}
 
@@ -223,6 +227,7 @@
 			kafka_resource_path: kafkaResourcePath,
 			group_id: kafkaCfg.group_id,
 			topics: kafkaCfg.topics,
+			filters,
 			mode,
 			extra_perms: extra_perms,
 			error_handler_path,
@@ -438,6 +443,8 @@
 				{can_write}
 				showTestingBadge={isEditor}
 			/>
+
+			<TriggerFilters bind:filters disabled={!can_write} />
 
 			<Section label="Advanced" collapsable>
 				<div class="flex flex-col gap-4">

@@ -55,6 +55,7 @@
 	import { Plus, SettingsIcon } from 'lucide-svelte'
 
 	import Button from '../common/button/Button.svelte'
+	import SettingsFooter from './SettingsFooter.svelte'
 
 	import Description from '../Description.svelte'
 	import { random_adj } from '../random_positive_adjetive'
@@ -67,10 +68,9 @@
 	import { SettingService, WorkspaceService } from '$lib/gen'
 	import type { GetSettingsResponse } from '$lib/gen'
 
-	import { workspaceStore } from '$lib/stores'
+	import { globalDbManagerDrawer, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import ExploreAssetButton from '../ExploreAssetButton.svelte'
-	import DbManagerDrawer from '../DBManagerDrawer.svelte'
 	import Tooltip from '../Tooltip.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
@@ -91,11 +91,13 @@
 		ducklakeSettings: DucklakeSettingsType
 		ducklakeSavedSettings: DucklakeSettingsType
 		onSave?: () => void
+		onDiscard?: () => void
 	}
 	let {
 		ducklakeSettings = $bindable(),
 		ducklakeSavedSettings = $bindable(),
-		onSave: onSaveProp = undefined
+		onSave: onSaveProp = undefined,
+		onDiscard = undefined
 	}: Props = $props()
 
 	function onNewDucklake() {
@@ -128,6 +130,11 @@
 		)
 	)
 
+	let hasUnsavedChanges = $derived(
+		ducklakeSavedSettings.ducklakes.length !== ducklakeSettings.ducklakes.length ||
+			!Object.values(ducklakeIsDirty).every((v) => v === false)
+	)
+
 	const customInstanceDbs = resource([], SettingService.listCustomInstanceDbs)
 
 	async function onSave() {
@@ -158,6 +165,7 @@
 		} catch (e) {
 			sendUserToast(e, true)
 			console.error('Error saving ducklake settings', e)
+			throw e
 		}
 	}
 
@@ -179,7 +187,7 @@
 			'Where the data is actually stored, in parquet format. You need to configure a workspace storage first'
 	}
 
-	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
+	let dbManagerDrawer = $derived(globalDbManagerDrawer.val)
 	let confirmationModal = createAsyncConfirmationModal()
 </script>
 
@@ -217,7 +225,7 @@
 			{/each}
 		</tr>
 	</Head>
-	<tbody class="divide-y bg-surface">
+	<tbody class="divide-y bg-surface-tertiary">
 		{#if ducklakeSettings.ducklakes.length == 0}
 			<Row>
 				<Cell colspan={tableHeadNames.length} class="text-center py-6">
@@ -385,15 +393,13 @@
 		</Row>
 	</tbody>
 </DataTable>
-<Button
-	wrapperClasses="mt-4 mb-16 max-w-fit"
-	variant="accent"
-	on:click={onSave}
-	disabled={ducklakeSavedSettings.ducklakes.length === ducklakeSettings.ducklakes.length &&
-		Object.values(ducklakeIsDirty).every((v) => v === false)}
->
-	Save ducklake settings
-</Button>
-<DbManagerDrawer bind:this={dbManagerDrawer} />
+<SettingsFooter
+	class="mt-6 mb-16"
+	inline
+	{hasUnsavedChanges}
+	{onSave}
+	onDiscard={() => onDiscard?.()}
+	saveLabel="Save ducklake settings"
+/>
 
 <ConfirmationModal {...confirmationModal.props} />

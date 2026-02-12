@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::sync::Arc;
 
+use crate::common::schema::make_schema_compatible;
+
 /// Represents an auto-generated endpoint tool from OpenAPI specification
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct EndpointTool {
@@ -19,6 +21,9 @@ pub struct EndpointTool {
     pub path_params_schema: Option<serde_json::Value>,
     pub query_params_schema: Option<serde_json::Value>,
     pub body_schema: Option<serde_json::Value>,
+    pub path_field_renames: Option<serde_json::Value>,
+    pub query_field_renames: Option<serde_json::Value>,
+    pub body_field_renames: Option<serde_json::Value>,
 }
 
 /// Convert a single endpoint tool to MCP tool
@@ -37,11 +42,12 @@ pub fn endpoint_tool_to_mcp_tool(tool: &EndpointTool) -> Tool {
         merge_schema_into(&mut combined_properties, &mut combined_required, schema);
     }
 
-    let combined_schema = serde_json::json!({
+    let mut combined_schema = serde_json::json!({
         "type": "object",
         "properties": combined_properties,
         "required": combined_required
     });
+    make_schema_compatible(&mut combined_schema);
 
     let description = format!("{}. {}", tool.description, tool.instructions);
 
@@ -57,6 +63,7 @@ pub fn endpoint_tool_to_mcp_tool(tool: &EndpointTool) -> Tool {
         icons: None,
         annotations: Some(annotations),
         meta: None,
+        execution: None,
     }
 }
 
@@ -97,7 +104,9 @@ fn merge_schema_into(
 
     if let Some(required) = schema.get("required").and_then(|r| r.as_array()) {
         for req in required.iter().filter_map(|r| r.as_str()) {
-            combined_required.push(req.to_string());
+            if !combined_required.contains(&req.to_string()) {
+                combined_required.push(req.to_string());
+            }
         }
     }
 }

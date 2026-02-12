@@ -13,21 +13,11 @@
 		type RunsSelectionMode,
 		getJobKindIcon
 	} from '$lib/utils'
-	import { Badge, Button } from '../common'
+	import { Button } from '../common'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
+	import JobStatusIcon from '$lib/components/runs/JobStatusIcon.svelte'
 
-	import {
-		Calendar,
-		Check,
-		Clock,
-		ExternalLink,
-		FastForward,
-		Hourglass,
-		ListFilterPlus,
-		Play,
-		ShieldQuestion,
-		X
-	} from 'lucide-svelte'
+	import { Calendar, Clock, ExternalLink, ListFilterPlus } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import TimeAgo from '../TimeAgo.svelte'
 	import { forLater } from '$lib/forLater'
@@ -108,45 +98,7 @@
 
 	<!-- Status -->
 	<div class="flex items-center justify-start pl-2">
-		{#if isExternal}
-			<Badge color="gray" baseClass="!px-1.5">
-				<ShieldQuestion size={14} />
-			</Badge>
-		{:else if 'success' in job && job.success}
-			{#if job.is_skipped}
-				<Badge color="green" rounded>
-					<FastForward size={14} />
-				</Badge>
-			{:else}
-				<Badge color="green" baseClass="!px-1.5">
-					<Check size={14} />
-				</Badge>
-			{/if}
-		{:else if 'success' in job}
-			<Badge color="red" baseClass="!px-1.5">
-				<X size={14} />
-			</Badge>
-		{:else if 'running' in job && job.running && job.suspend}
-			<Badge color="violet" baseClass="!px-1.5" title="Suspended">
-				<Hourglass size={14} />
-			</Badge>
-		{:else if 'running' in job && job.running}
-			<Badge color="yellow" baseClass="!px-1.5">
-				<Play size={14} />
-			</Badge>
-		{:else if job && 'running' in job && job.scheduled_for && forLater(job.scheduled_for)}
-			<Badge color="blue" baseClass="!px-1.5">
-				<Calendar size={14} />
-			</Badge>
-		{:else if job.canceled}
-			<Badge color="red" baseClass="!px-1.5">
-				<Hourglass size={14} />
-			</Badge>
-		{:else}
-			<Badge baseClass="!px-1.5">
-				<Hourglass size={14} />
-			</Badge>
-		{/if}
+		<JobStatusIcon {job} {isExternal} />
 	</div>
 
 	<!-- Job time -->

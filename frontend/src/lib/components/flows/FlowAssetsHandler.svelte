@@ -7,7 +7,6 @@
 		let s = $state({
 			val: {
 				selectedAsset: undefined,
-				dbManagerDrawer: undefined,
 				s3FilePicker: undefined,
 				resourceEditorDrawer: undefined,
 				resourceMetadataCache: {},
@@ -45,7 +44,6 @@
 	import { deepEqual } from 'fast-equals'
 	import { workspaceStore } from '$lib/stores'
 	import S3FilePicker from '../S3FilePicker.svelte'
-	import DbManagerDrawer from '../DBManagerDrawer.svelte'
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 	import { watch } from 'runed'
 
@@ -77,7 +75,7 @@
 			) ?? []
 		for (const asset of assets) {
 			if (asset.kind == 'resource') {
-				let truncatedPath = asset.path.split('/').slice(0, 3).join('/')
+				let truncatedPath = asset.path.split('?table=')[0]
 				if (truncatedPath in resMetadataCache) continue
 				resMetadataCache[truncatedPath] = undefined // avoid fetching multiple times because of async
 				ResourceService.getResource({ path: truncatedPath, workspace: $workspaceStore! })
@@ -176,6 +174,5 @@
 
 {#if flowGraphAssetsCtx}
 	<S3FilePicker bind:this={flowGraphAssetsCtx.val.s3FilePicker} readOnlyMode />
-	<DbManagerDrawer bind:this={flowGraphAssetsCtx.val.dbManagerDrawer} />
 	<ResourceEditorDrawer bind:this={flowGraphAssetsCtx.val.resourceEditorDrawer} />
 {/if}

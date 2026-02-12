@@ -10,19 +10,20 @@ use crate::ai::{
     image_handler::prepare_messages_for_api,
     query_builder::{ParsedResponse, StreamEventProcessor},
     types::StreamingEvent,
+    types::TokenUsage,
     types::{OpenAIMessage, ToolDef},
 };
 use std::collections::HashMap;
 use windmill_common::{client::AuthedClient, error::Error};
 
 // Re-export from shared module for use by other parts of the worker
-pub use windmill_common::ai_bedrock::{check_env_credentials, BedrockClient};
 use windmill_common::ai_bedrock::{
     bedrock_stream_event_is_block_stop, bedrock_stream_event_to_text,
     bedrock_stream_event_to_tool_delta, bedrock_stream_event_to_tool_start, build_tool_config,
     create_inference_config, format_bedrock_error, openai_messages_to_bedrock,
     streaming_tool_calls_to_openai, StreamingToolCall,
 };
+pub use windmill_common::ai_bedrock::{check_env_credentials, BedrockClient};
 
 // ============================================================================
 // Query Builder (Worker-specific orchestration)
@@ -48,17 +49,17 @@ impl BedrockQueryBuilder {
         structured_output_tool_name: Option<&str>,
         aws_access_key_id: Option<&str>,
         aws_secret_access_key: Option<&str>,
+        aws_session_token: Option<&str>,
     ) -> Result<ParsedResponse, Error> {
         let bedrock_client = if !api_key.is_empty() {
             BedrockClient::from_bearer_token(api_key.to_string(), region).await?
-        } else if let (Some(access_key_id), Some(secret_access_key)) = (
-            aws_access_key_id.filter(|s| !s.is_empty()),
-            aws_secret_access_key.filter(|s| !s.is_empty()),
-        ) {
+        } else if let (Some(access_key_id), Some(secret_access_key)) =
+            (aws_access_key_id, aws_secret_access_key)
+        {
             BedrockClient::from_credentials(
                 access_key_id.to_string(),
                 secret_access_key.to_string(),
-                None,
+                aws_session_token.map(str::to_string),
                 region,
             )
             .await?
@@ -143,6 +144,7 @@ impl BedrockQueryBuilder {
         let mut events_str = String::new();
         let mut accumulated_tool_calls: HashMap<String, StreamingToolCall> = HashMap::new();
         let mut current_tool_use_id: Option<String> = None;
+        let mut usage: Option<TokenUsage> = None;
 
         // Process stream events using shared parsing functions
         loop {
@@ -160,9 +162,7 @@ impl BedrockQueryBuilder {
                         if let Some(processor) = stream_event_processor.as_ref() {
                             processor
                                 .send(
-                                    StreamingEvent::TokenDelta {
-                                        content: text_delta,
-                                    },
+                                    StreamingEvent::TokenDelta { content: text_delta },
                                     &mut events_str,
                                 )
                                 .await?;
@@ -181,6 +181,29 @@ impl BedrockQueryBuilder {
                     // Handle content block stop using shared parser
                     if bedrock_stream_event_is_block_stop(&event) {
                         current_tool_use_id = None;
+                    }
+
+                    // Extract usage from Metadata event
+                    if let aws_sdk_bedrockruntime::types::ConverseStreamOutput::Metadata(metadata) =
+                        &event
+                    {
+                        if let Some(token_usage) = metadata.usage() {
+                            usage = Some(
+                                TokenUsage::new(
+                                    Some(token_usage.input_tokens()),
+                                    Some(token_usage.output_tokens()),
+                                    Some(token_usage.total_tokens()),
+                                )
+                                .with_cache(
+                                    token_usage
+                                        .cache_read_input_tokens()
+                                        .map(|v| i32::try_from(v).unwrap_or(i32::MAX)),
+                                    token_usage
+                                        .cache_write_input_tokens()
+                                        .map(|v| i32::try_from(v).unwrap_or(i32::MAX)),
+                                ),
+                            );
+                        }
                     }
                 }
                 Ok(None) => break,
@@ -225,6 +248,7 @@ impl BedrockQueryBuilder {
             },
             annotations: Vec::new(),
             used_websearch: false,
+            usage,
         })
     }
 }

@@ -14,6 +14,7 @@ import {
 import { getLocalSetting, type StateStore } from './utils'
 import { createState } from './svelte5Utils.svelte'
 import { DEFAULT_HUB_BASE_URL } from './hub'
+import type DBManagerDrawer from './components/DBManagerDrawer.svelte'
 
 export interface UserExt {
 	email: string
@@ -77,7 +78,6 @@ export const workspaceStore = writable<string | undefined>(
 export const defaultScripts = writable<WorkspaceDefaultScripts | undefined>(undefined)
 export const dbClockDrift = writable<number | undefined>(undefined)
 export const isPremiumStore = writable<boolean>(false)
-export const starStore = writable(1)
 export const usersWorkspaceStore = writable<UserWorkspaceList | undefined>(undefined)
 export const superadmin = writable<string | false | undefined>(undefined)
 export const devopsRole = writable<string | false | undefined>(undefined)
@@ -127,6 +127,10 @@ export const codeCompletionSessionEnabled = writable<boolean>(
 
 export const usedTriggerKinds = writable<string[]>([])
 
+export let globalDbManagerDrawer: StateStore<DBManagerDrawer | undefined> = createState({
+	val: undefined
+})
+
 type SQLBaseSchema = {
 	[schemaKey: string]: {
 		[tableKey: string]: {
@@ -167,7 +171,7 @@ export type DBSchemas = Partial<Record<string, DBSchema>>
 
 export const dbSchemas = writable<DBSchemas>({})
 
-export const instanceSettingsSelectedTab = writable('Core')
+export const instanceSettingsSelectedTab = writable('users')
 
 export const isCriticalAlertsUIOpen = writable(false)
 

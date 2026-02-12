@@ -1,0 +1,36 @@
+[package]
+name = "windmill-api-users"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_api_users"
+path = "src/lib.rs"
+
+[features]
+default = []
+enterprise = ["windmill-common/enterprise"]
+private = ["windmill-common/private"]
+parquet = []
+no_auth = ["windmill-api-auth/no_auth"]
+
+[dependencies]
+windmill-common = { workspace = true, default-features = false }
+windmill-api-auth.workspace = true
+windmill-audit.workspace = true
+windmill-git-sync.workspace = true
+
+argon2.workspace = true
+axum.workspace = true
+chrono.workspace = true
+http.workspace = true
+hyper.workspace = true
+lazy_static.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+time.workspace = true
+tokio.workspace = true
+tower-cookies.workspace = true
+tracing.workspace = true

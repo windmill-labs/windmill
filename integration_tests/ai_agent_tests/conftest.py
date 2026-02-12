@@ -161,6 +161,48 @@ class AIAgentTestClient:
             if "already exists" not in error.lower():
                 raise Exception(f"Failed to create resource: {error}")
 
+    def script_exists(self, path: str) -> bool:
+        """Check if a script exists at the given path."""
+        response = self._client.get(
+            f"/api/w/{self.workspace}/scripts/exists/p/{path}",
+        )
+        return response.status_code == 200 and response.content.decode() == "true"
+
+    def create_script(
+        self,
+        path: str,
+        content: str,
+        language: str = "bun",
+        summary: str = "",
+        description: str = "",
+        schema: dict[str, Any] | None = None,
+    ):
+        """Create a script in the workspace."""
+        # Check if script already exists
+        if self.script_exists(path):
+            return
+
+        payload = {
+            "path": path,
+            "summary": summary,
+            "description": description,
+            "content": content,
+            "schema": schema or {"type": "object", "properties": {}, "required": []},
+            "is_template": False,
+            "language": language,
+            "kind": "script",
+        }
+
+        response = self._client.post(
+            f"/api/w/{self.workspace}/scripts/create",
+            json=payload,
+        )
+        if response.status_code // 100 != 2:
+            error = response.content.decode()
+            # Ignore if script already exists
+            if "already exists" not in error.lower():
+                raise Exception(f"Failed to create script: {error}")
+
     def upload_s3_file(self, s3_key: str, file_content: bytes, content_type: str = "image/png") -> dict:
         """Upload a file to S3 storage via Windmill API."""
         response = self._client.post(
@@ -343,6 +385,36 @@ def create_websearch_tool() -> dict[str, Any]:
     }
 
 
+def create_script_tool(
+    tool_id: str,
+    script_path: str,
+    params: list[str],
+) -> dict[str, Any]:
+    """
+    Create a tool that references an existing script in the workspace.
+
+    Args:
+        tool_id: Unique ID for the tool
+        script_path: Path to the script in the workspace (e.g., "u/admin/sum_script")
+        params: List of parameter names (each gets type: ai so the agent provides values)
+
+    Returns:
+        A tool definition dictionary
+    """
+    input_transforms = {param: {"type": "ai"} for param in params}
+
+    return {
+        "id": tool_id,
+        "summary": tool_id,
+        "value": {
+            "tool_type": "flowmodule",
+            "type": "script",
+            "path": script_path,
+            "input_transforms": input_transforms,
+        },
+    }
+
+
 @pytest.fixture(scope="session")
 def client():
     """Create and return an AI agent test client."""
@@ -366,6 +438,12 @@ def setup_providers(client):
     - GOOGLE_AI_API_KEY
     - OPENROUTER_API_KEY
     - BEDROCK_API_KEY (optional)
+    - BEDROCK_IAM_ACCESS_KEY_ID and BEDROCK_IAM_SECRET_ACCESS_KEY (optional, for IAM Bedrock tests)
+    - BEDROCK_SESSION_ACCESS_KEY_ID, BEDROCK_SESSION_SECRET_ACCESS_KEY, BEDROCK_SESSION_TOKEN
+      (optional, for IAM session Bedrock tests)
+    - AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY (optional, for environment fallback tests)
+    - AWS_SESSION_TOKEN (optional, if environment fallback uses temporary credentials)
+    - BEDROCK_REGION (optional, defaults to us-east-1)
     """
     # OpenAI
     if os.environ.get("OPENAI_API_KEY"):
@@ -403,19 +481,95 @@ def setup_providers(client):
             "api_key": "$var:u/admin/openrouter_api_key"
         })
 
+    bedrock_region = os.environ.get("BEDROCK_REGION", "us-east-1")
+
     # Bedrock (using apiKey approach)
     if os.environ.get("BEDROCK_API_KEY"):
         client.create_variable("u/admin/bedrock_api_key", os.environ["BEDROCK_API_KEY"])
         client.create_resource("u/admin/bedrock", "aws_bedrock", {
             "apiKey": "$var:u/admin/bedrock_api_key",
-            "region": "us-east-1"
+            "region": bedrock_region
         })
+
+    # Bedrock IAM credentials without session token
+    if os.environ.get("BEDROCK_IAM_ACCESS_KEY_ID") and os.environ.get("BEDROCK_IAM_SECRET_ACCESS_KEY"):
+        client.create_variable(
+            "u/admin/bedrock_iam_access_key_id",
+            os.environ["BEDROCK_IAM_ACCESS_KEY_ID"],
+        )
+        client.create_variable(
+            "u/admin/bedrock_iam_secret_access_key",
+            os.environ["BEDROCK_IAM_SECRET_ACCESS_KEY"],
+        )
+        client.create_resource("u/admin/bedrock_iam", "aws_bedrock", {
+            "awsAccessKeyId": "$var:u/admin/bedrock_iam_access_key_id",
+            "awsSecretAccessKey": "$var:u/admin/bedrock_iam_secret_access_key",
+            "region": bedrock_region
+        })
+
+    # Bedrock IAM credentials with session token
+    if (
+        os.environ.get("BEDROCK_SESSION_ACCESS_KEY_ID")
+        and os.environ.get("BEDROCK_SESSION_SECRET_ACCESS_KEY")
+        and os.environ.get("BEDROCK_SESSION_TOKEN")
+    ):
+        client.create_variable(
+            "u/admin/bedrock_session_access_key_id",
+            os.environ["BEDROCK_SESSION_ACCESS_KEY_ID"],
+        )
+        client.create_variable(
+            "u/admin/bedrock_session_secret_access_key",
+            os.environ["BEDROCK_SESSION_SECRET_ACCESS_KEY"],
+        )
+        client.create_variable(
+            "u/admin/bedrock_session_token",
+            os.environ["BEDROCK_SESSION_TOKEN"],
+        )
+        client.create_resource("u/admin/bedrock_iam_session", "aws_bedrock", {
+            "awsAccessKeyId": "$var:u/admin/bedrock_session_access_key_id",
+            "awsSecretAccessKey": "$var:u/admin/bedrock_session_secret_access_key",
+            "awsSessionToken": "$var:u/admin/bedrock_session_token",
+            "region": bedrock_region
+        })
+
+    # Bedrock using environment credentials fallback
+    # This resource intentionally omits explicit credentials.
+    client.create_resource("u/admin/bedrock_env", "aws_bedrock", {
+        "region": bedrock_region
+    })
 
     # DeepWiki MCP resource (always created for MCP tool tests)
     client.create_resource("u/admin/deepwiki", "mcp", {
         "url": "https://mcp.deepwiki.com/mcp",
         "name": "deepwiki"
     })
+
+    # Create sum script for workspace script tool tests
+    client.create_script(
+        path="u/admin/sum_script",
+        content="""export function main(a: number, b: number): number {
+    return a + b;
+}
+""",
+        language="bun",
+        summary="Sum two numbers",
+        description="A simple script that adds two numbers together",
+        schema={
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "properties": {
+                "a": {
+                    "type": "number",
+                    "description": "First number to add",
+                },
+                "b": {
+                    "type": "number",
+                    "description": "Second number to add",
+                },
+            },
+            "required": ["a", "b"],
+        },
+    )
 
     yield
 

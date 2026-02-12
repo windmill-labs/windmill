@@ -1,5 +1,5 @@
-use windmill_common::ai_types::OpenAIToolCall;
 use crate::ai::query_builder::StreamEventProcessor;
+use crate::ai::types::McpToolSource;
 use crate::ai::types::*;
 use crate::ai::utils::{
     add_message_to_conversation, execute_mcp_tool, get_step_name_from_flow,
@@ -20,9 +20,9 @@ use mappable_rc::Marc;
 use serde_json::value::RawValue;
 use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
+use windmill_common::ai_types::OpenAIToolCall;
 use windmill_common::flows::InputTransform;
 use windmill_common::jobs::JobPayload;
-use crate::ai::types::McpToolSource;
 
 #[cfg(feature = "mcp")]
 use windmill_mcp::McpClient;

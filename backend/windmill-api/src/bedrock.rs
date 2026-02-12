@@ -18,14 +18,16 @@
 
 use axum::body::Bytes;
 use serde::Deserialize;
+use windmill_common::ai_bedrock::build_tool_config;
 use windmill_common::ai_bedrock::{
     bedrock_stream_event_is_block_stop, bedrock_stream_event_to_text,
     bedrock_stream_event_to_tool_delta, bedrock_stream_event_to_tool_start, format_bedrock_error,
-    BedrockClient
+    BedrockClient,
+};
+use windmill_common::ai_types::{
+    OpenAIFunction, OpenAIMessage, OpenAIToolCall, ToolDef, ToolDefFunction,
 };
 use windmill_common::error::{Error, Result};
-use windmill_common::ai_types::{OpenAIFunction, OpenAIMessage, OpenAIToolCall, ToolDef, ToolDefFunction};
-use windmill_common::ai_bedrock::build_tool_config;
 
 // ============================================================================
 // Shared Request Types for SDK-Based Handlers
@@ -72,6 +74,7 @@ enum BedrockAuthConfig {
     IamCredentials {
         access_key_id: String,
         secret_access_key: String,
+        session_token: Option<String>,
     },
     Environment,
 }
@@ -81,6 +84,7 @@ fn determine_auth_config(
     api_key: Option<&str>,
     aws_access_key_id: Option<&str>,
     aws_secret_access_key: Option<&str>,
+    aws_session_token: Option<&str>,
 ) -> BedrockAuthConfig {
     if let Some(key) = api_key.filter(|k| !k.is_empty()) {
         BedrockAuthConfig::BearerToken(key.to_string())
@@ -91,6 +95,9 @@ fn determine_auth_config(
         BedrockAuthConfig::IamCredentials {
             access_key_id: access_key_id.to_string(),
             secret_access_key: secret_access_key.to_string(),
+            session_token: aws_session_token
+                .filter(|token| !token.is_empty())
+                .map(str::to_string),
         }
     } else {
         BedrockAuthConfig::Environment
@@ -102,17 +109,19 @@ async fn create_bedrock_client(
     api_key: Option<&str>,
     aws_access_key_id: Option<&str>,
     aws_secret_access_key: Option<&str>,
+    aws_session_token: Option<&str>,
     region: &str,
 ) -> Result<BedrockClient> {
-    match determine_auth_config(api_key, aws_access_key_id, aws_secret_access_key) {
-        BedrockAuthConfig::BearerToken(key) => {
-            BedrockClient::from_bearer_token(key, region).await
-        }
-        BedrockAuthConfig::IamCredentials {
-            access_key_id,
-            secret_access_key,
-        } => {
-            BedrockClient::from_credentials(access_key_id, secret_access_key, None, region).await
+    match determine_auth_config(
+        api_key,
+        aws_access_key_id,
+        aws_secret_access_key,
+        aws_session_token,
+    ) {
+        BedrockAuthConfig::BearerToken(key) => BedrockClient::from_bearer_token(key, region).await,
+        BedrockAuthConfig::IamCredentials { access_key_id, secret_access_key, session_token } => {
+            BedrockClient::from_credentials(access_key_id, secret_access_key, session_token, region)
+                .await
         }
         BedrockAuthConfig::Environment => BedrockClient::from_env(region).await,
     }
@@ -169,6 +178,7 @@ async fn create_bedrock_control_client(
     api_key: Option<&str>,
     aws_access_key_id: Option<&str>,
     aws_secret_access_key: Option<&str>,
+    aws_session_token: Option<&str>,
     region: &str,
 ) -> Result<aws_sdk_bedrock::Client> {
     use aws_config::BehaviorVersion;
@@ -176,7 +186,12 @@ async fn create_bedrock_control_client(
 
     let region_provider = aws_sdk_bedrock::config::Region::new(region.to_string());
 
-    match determine_auth_config(api_key, aws_access_key_id, aws_secret_access_key) {
+    match determine_auth_config(
+        api_key,
+        aws_access_key_id,
+        aws_secret_access_key,
+        aws_session_token,
+    ) {
         BedrockAuthConfig::BearerToken(key) => {
             let config = aws_sdk_bedrock::config::Builder::new()
                 .region(region_provider)
@@ -185,14 +200,11 @@ async fn create_bedrock_control_client(
                 .build();
             Ok(aws_sdk_bedrock::Client::from_conf(config))
         }
-        BedrockAuthConfig::IamCredentials {
-            access_key_id,
-            secret_access_key,
-        } => {
+        BedrockAuthConfig::IamCredentials { access_key_id, secret_access_key, session_token } => {
             let credentials = aws_credential_types::Credentials::new(
                 access_key_id,
                 secret_access_key,
-                None,
+                session_token,
                 None,
                 "windmill",
             );
@@ -218,11 +230,17 @@ pub async fn list_foundation_models(
     api_key: Option<&str>,
     aws_access_key_id: Option<&str>,
     aws_secret_access_key: Option<&str>,
+    aws_session_token: Option<&str>,
     region: &str,
 ) -> Result<(http::StatusCode, http::HeaderMap, axum::body::Body)> {
-    let client =
-        create_bedrock_control_client(api_key, aws_access_key_id, aws_secret_access_key, region)
-            .await?;
+    let client = create_bedrock_control_client(
+        api_key,
+        aws_access_key_id,
+        aws_secret_access_key,
+        aws_session_token,
+        region,
+    )
+    .await?;
 
     let response = client
         .list_foundation_models()
@@ -267,11 +285,17 @@ pub async fn list_inference_profiles(
     api_key: Option<&str>,
     aws_access_key_id: Option<&str>,
     aws_secret_access_key: Option<&str>,
+    aws_session_token: Option<&str>,
     region: &str,
 ) -> Result<(http::StatusCode, http::HeaderMap, axum::body::Body)> {
-    let client =
-        create_bedrock_control_client(api_key, aws_access_key_id, aws_secret_access_key, region)
-            .await?;
+    let client = create_bedrock_control_client(
+        api_key,
+        aws_access_key_id,
+        aws_secret_access_key,
+        aws_session_token,
+        region,
+    )
+    .await?;
 
     let response =
         client.list_inference_profiles().send().await.map_err(|e| {
@@ -324,14 +348,21 @@ pub async fn handle_bedrock_sdk_streaming(
     api_key: Option<&str>,
     aws_access_key_id: Option<&str>,
     aws_secret_access_key: Option<&str>,
+    aws_session_token: Option<&str>,
     region: &str,
 ) -> Result<(http::StatusCode, http::HeaderMap, axum::body::Body)> {
     let openai_req: OpenAIRequest = serde_json::from_slice(body)
         .map_err(|e| Error::internal_err(format!("Failed to parse OpenAI request: {}", e)))?;
 
     // Create Bedrock client using shared helper
-    let bedrock_client =
-        create_bedrock_client(api_key, aws_access_key_id, aws_secret_access_key, region).await?;
+    let bedrock_client = create_bedrock_client(
+        api_key,
+        aws_access_key_id,
+        aws_secret_access_key,
+        aws_session_token,
+        region,
+    )
+    .await?;
 
     // Convert messages using shared conversion
     let (bedrock_messages, system_prompts) =
@@ -577,14 +608,21 @@ pub async fn handle_bedrock_sdk_non_streaming(
     api_key: Option<&str>,
     aws_access_key_id: Option<&str>,
     aws_secret_access_key: Option<&str>,
+    aws_session_token: Option<&str>,
     region: &str,
 ) -> Result<(http::StatusCode, http::HeaderMap, axum::body::Body)> {
     let openai_req: OpenAIRequest = serde_json::from_slice(body)
         .map_err(|e| Error::internal_err(format!("Failed to parse OpenAI request: {}", e)))?;
 
     // Create Bedrock client using shared helper
-    let bedrock_client =
-        create_bedrock_client(api_key, aws_access_key_id, aws_secret_access_key, region).await?;
+    let bedrock_client = create_bedrock_client(
+        api_key,
+        aws_access_key_id,
+        aws_secret_access_key,
+        aws_session_token,
+        region,
+    )
+    .await?;
 
     // Convert messages using shared conversion
     let (bedrock_messages, system_prompts) =
@@ -761,5 +799,62 @@ fn document_to_json(doc: &aws_smithy_types::Document) -> serde_json::Value {
         aws_smithy_types::Document::String(s) => serde_json::Value::String(s.clone()),
         aws_smithy_types::Document::Bool(b) => serde_json::Value::Bool(*b),
         aws_smithy_types::Document::Null => serde_json::Value::Null,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn determine_auth_config_prioritizes_bearer_token() {
+        let config = determine_auth_config(
+            Some("bearer-token"),
+            Some("AKIA123"),
+            Some("secret"),
+            Some("session-token"),
+        );
+
+        match config {
+            BedrockAuthConfig::BearerToken(token) => assert_eq!(token, "bearer-token"),
+            _ => panic!("expected bearer token auth config"),
+        }
+    }
+
+    #[test]
+    fn determine_auth_config_uses_iam_with_optional_session_token() {
+        let config =
+            determine_auth_config(None, Some("AKIA123"), Some("secret"), Some("session-token"));
+
+        match config {
+            BedrockAuthConfig::IamCredentials {
+                access_key_id,
+                secret_access_key,
+                session_token,
+            } => {
+                assert_eq!(access_key_id, "AKIA123");
+                assert_eq!(secret_access_key, "secret");
+                assert_eq!(session_token.as_deref(), Some("session-token"));
+            }
+            _ => panic!("expected IAM auth config"),
+        }
+    }
+
+    #[test]
+    fn determine_auth_config_treats_empty_session_token_as_none() {
+        let config = determine_auth_config(None, Some("AKIA123"), Some("secret"), Some(""));
+
+        match config {
+            BedrockAuthConfig::IamCredentials { session_token, .. } => {
+                assert!(session_token.is_none());
+            }
+            _ => panic!("expected IAM auth config"),
+        }
+    }
+
+    #[test]
+    fn determine_auth_config_falls_back_to_environment() {
+        let config = determine_auth_config(None, Some("AKIA123"), None, Some("session-token"));
+        assert!(matches!(config, BedrockAuthConfig::Environment));
     }
 }

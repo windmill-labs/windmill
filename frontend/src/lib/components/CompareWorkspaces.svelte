@@ -16,7 +16,6 @@
 		AppService,
 		FlowService,
 		FolderService,
-		RawAppService,
 		ResourceService,
 		ScheduleService,
 		ScriptService,
@@ -27,6 +26,7 @@
 	} from '$lib/gen'
 	import Button from './common/button/Button.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
+	import ParentWorkspaceProtectionAlert from './ParentWorkspaceProtectionAlert.svelte'
 	import { getAllModules } from './flows/flowExplorer'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 
@@ -52,6 +52,7 @@
 	let mergeIntoParent = $state(true)
 	let deploying = $state(false)
 	let hasAutoSelected = $state(false)
+	let canDeployToParent = $state(true)
 
 	let selectableDiffs = $derived(
 		comparison?.diffs.filter((diff) => {
@@ -109,6 +110,9 @@
 			} else if (kind === 'app') {
 				const app = await AppService.getAppByPath({ workspace, path })
 				return app.summary
+			} else if (kind === 'folder') {
+				const folder = await FolderService.getFolder({ workspace, name: path.slice(2) })
+				return folder.summary
 			}
 		} catch (error) {
 			console.error(`Failed to fetch summary for ${kind}:${path}`, error)
@@ -118,7 +122,9 @@
 
 	async function fetchSummaries(diffs: WorkspaceItemDiff[]) {
 		// Only fetch summaries for scripts, flows, and apps
-		const itemsToFetch = diffs.filter((diff) => ['script', 'flow', 'app'].includes(diff.kind))
+		const itemsToFetch = diffs.filter((diff) =>
+			['script', 'flow', 'app', 'folder'].includes(diff.kind)
+		)
 
 		for (const diff of itemsToFetch) {
 			const key = getItemKey(diff)
@@ -193,21 +199,6 @@
 					path: path
 				})
 				return resource.schema
-			} else if (kind == 'raw_app') {
-				throw new Error('Raw app deploy not implemented yet')
-				// const app = await RawAppService.getRawAppData({
-				// 	workspace: workspace,
-				// 	path: path
-				// })
-				// if (alreadyExists) {
-				// }
-				// await RawAppService.updateRawApp({
-				// 	workspace: workspace,
-				// 	path: path,
-				// 	requestBody: {
-				// 		path: path
-				// 	}
-				// })
 			} else if (kind == 'folder') {
 				const folder = await FolderService.getFolder({
 					workspace: workspace,
@@ -288,11 +279,6 @@
 				workspace: workspace,
 				path: path
 			})
-		} else if (kind == 'raw_app') {
-			exists = await RawAppService.existsRawApp({
-				workspace: workspace,
-				path: path
-			})
 		} else if (kind == 'variable') {
 			exists = await VariableService.existsVariable({
 				workspace: workspace,
@@ -318,33 +304,33 @@
 				workspace: workspace,
 				name: path
 			})
-		// } else if (kind === 'trigger') {
-		// 	const triggersKind: TriggerKind[] = [
-		// 		'kafka',
-		// 		'mqtt',
-		// 		'nats',
-		// 		'postgres',
-		// 		'routes',
-		// 		'schedules',
-		// 		'sqs',
-		// 		'websockets',
-		// 		'gcp'
-		// 	]
-		// 	if (
-		// 		additionalInformation?.triggers &&
-		// 		triggersKind.includes(additionalInformation.triggers.kind)
-		// 	) {
-		// 		exists = await existsTrigger(
-		// 			{ workspace: workspace, path },
-		// 			additionalInformation.triggers.kind
-		// 		)
-		// 	} else {
-		// 		throw new Error(
-		// 			`Unexpected triggers kind, expected one of: '${triggersKind.join(', ')}' got: ${
-		// 				additionalInformation?.triggers?.kind
-		// 			}`
-		// 		)
-		// 	}
+			// } else if (kind === 'trigger') {
+			// 	const triggersKind: TriggerKind[] = [
+			// 		'kafka',
+			// 		'mqtt',
+			// 		'nats',
+			// 		'postgres',
+			// 		'routes',
+			// 		'schedules',
+			// 		'sqs',
+			// 		'websockets',
+			// 		'gcp'
+			// 	]
+			// 	if (
+			// 		additionalInformation?.triggers &&
+			// 		triggersKind.includes(additionalInformation.triggers.kind)
+			// 	) {
+			// 		exists = await existsTrigger(
+			// 			{ workspace: workspace, path },
+			// 			additionalInformation.triggers.kind
+			// 		)
+			// 	} else {
+			// 		throw new Error(
+			// 			`Unexpected triggers kind, expected one of: '${triggersKind.join(', ')}' got: ${
+			// 				additionalInformation?.triggers?.kind
+			// 			}`
+			// 		)
+			// 	}
 		} else {
 			throw new Error(`Unknown kind ${kind}`)
 		}
@@ -568,21 +554,6 @@
 						}
 					})
 				}
-			} else if (kind == 'raw_app') {
-				throw new Error('Raw app deploy not implemented yet')
-				// const app = await RawAppService.getRawAppData({
-				// 	workspace: workspaceFrom,
-				// 	path: path
-				// })
-				// if (alreadyExists) {
-				// }
-				// await RawAppService.updateRawApp({
-				// 	workspace: workspaceFrom,
-				// 	path: path,
-				// 	requestBody: {
-				// 		path: path
-				// 	}
-				// })
 			} else if (kind == 'folder') {
 				await FolderService.createFolder({
 					workspace: workspaceToDeployTo,
@@ -814,6 +785,14 @@
 			</div>
 		</div>
 
+		{#if mergeIntoParent}
+			<ParentWorkspaceProtectionAlert
+				{parentWorkspaceId}
+				onUpdateCanDeploy={(canDeploy) => {
+					canDeployToParent = canDeploy
+				}}
+			/>
+		{/if}
 		{#if conflictingDiffs.length > 0}
 			<Alert title="Conflicting changes detected" type="warning" class="mt-2">
 				<!-- <AlertTriangle class="w-4 h-4" /> -->
@@ -824,7 +803,7 @@
 				</span>
 			</Alert>
 		{/if}
-		{#if hasBehindChanges && hasAheadChanges}
+		{#if hasBehindChanges && hasAheadChanges && !(mergeIntoParent && !canDeployToParent)}
 			<Alert
 				title="This fork is behind {parentWorkspaceId} and needs to be up to date before deploying"
 				type="warning"
@@ -855,7 +834,8 @@
 					This fork is ahead of its parent
 				{/if}
 				and some of the changes are not visible by you. Only a user with access to the whole context
-				may deploy or update this fork. You can share the link to this page to someone with proper permissions to get it deployed.
+				may deploy or update this fork. You can share the link to this page to someone with proper permissions
+				to get it deployed.
 			</Alert>
 		{/if}
 
@@ -901,12 +881,15 @@
 							disabled={!isSelectable}
 							selected={isSelected && !(deploymentStatus[key]?.status == 'deployed')}
 							onSelect={() => toggleItem(diff)}
-							path={diff.kind != 'resource' && diff.kind != 'variable' ? diff.path : ''}
+							path={diff.kind != 'resource' &&
+							diff.kind != 'variable' &&
+							diff.kind != 'resource_type'
+								? diff.path
+								: ''}
 							marked={undefined}
 							kind={diff.kind}
 							canFavorite={false}
 							workspaceId=""
-							starred={false}
 						>
 							{#snippet customSummary()}
 								{#if oldSummary != newSummary && isSelectable && existsInBothWorkspaces}
@@ -1013,20 +996,23 @@
 
 				<div class="flex flex-col items-end gap-2">
 					{#if comparison.all_behind_items_visible && comparison.all_ahead_items_visible}
-						<Button
-							color="blue"
-							disabled={selectedItems.length === 0 ||
-								deploying ||
-								(hasBehindChanges && !allowBehindChangesOverride)}
-							loading={deploying}
-							on:click={deployChanges}
-						>
-							{mergeIntoParent ? 'Deploy' : 'Update'}
-							{selectedItems.length} Item{selectedItems.length !== 1 ? 's' : ''}
-							{#if selectedConflicts != 0}
-								({selectedConflicts} conflicts)
-							{/if}
-						</Button>
+						{#if !(mergeIntoParent && !canDeployToParent)}
+							<Button
+								color="blue"
+								disabled={selectedItems.length === 0 ||
+									deploying ||
+									(hasBehindChanges && !allowBehindChangesOverride) ||
+									(mergeIntoParent && !canDeployToParent)}
+								loading={deploying}
+								on:click={deployChanges}
+							>
+								{mergeIntoParent ? 'Deploy' : 'Update'}
+								{selectedItems.length} Item{selectedItems.length !== 1 ? 's' : ''}
+								{#if selectedConflicts != 0}
+									({selectedConflicts} conflicts)
+								{/if}
+							</Button>
+						{/if}
 					{/if}
 
 					{#if deploymentErrorMessage != ''}
@@ -1049,6 +1035,4 @@
 			<div class="text-gray-500">No comparison data available</div>
 		</div>
 	{/if}
-
-	<!-- <DeployWorkspaceItems kind="script" initialPath="u/admin/economical_script" workspaceToDeployTo={parentWorkspaceId} /> -->
 </div>

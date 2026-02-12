@@ -14,13 +14,11 @@ use sqlx::{
 };
 
 use tokio::task::JoinHandle;
-use windmill_audit::audit_oss::AuditAuthorable;
 pub use windmill_common::db::DB;
-use windmill_common::{
-    db::{Authable, Authed, AuthedRef},
-    error::Error,
-    utils::generate_lock_id,
-};
+use windmill_common::{error::Error, utils::{generate_lock_id, GIT_VERSION}};
+
+#[allow(unused_imports)]
+pub use windmill_api_auth::{ApiAuthed, OptJobAuthed};
 
 async fn current_database(conn: &mut PgConnection) -> Result<String, MigrateError> {
     // language=SQL
@@ -30,7 +28,11 @@ async fn current_database(conn: &mut PgConnection) -> Result<String, MigrateErro
 }
 
 lazy_static::lazy_static! {
-    pub static ref OVERRIDDEN_MIGRATIONS: std::collections::HashMap<i64, String> = vec![(20221207103910, include_str!(
+    pub static ref OVERRIDDEN_MIGRATIONS: std::collections::HashMap<i64, String> = vec![(20220123221903, include_str!(
+                        "../../migrations/20220123221903_first.up.sql"
+                    ).replace("create SCHEMA IF NOT exists extensions;", "")
+                     .replace("create extension if not exists \"uuid-ossp\"      with schema extensions;", "")),
+                    (20221207103910, include_str!(
                         "../../custom_migrations/create_workspace_without_md5.sql"
                     ).to_string()),
                     (20240216100535, include_str!(
@@ -60,6 +62,19 @@ lazy_static::lazy_static! {
                     (20260126235947, include_str!(
                         "../../custom_migrations/lowercase_emails_safe.sql"
                     ).to_string()),
+                    (20260206000000, "".to_string()),
+                    (20260207000001, include_str!(
+                        "../../migrations/20260207000001_concurrent_indexes_v2_job.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
+                    (20260207000002, include_str!(
+                        "../../migrations/20260207000002_concurrent_indexes_v2_job_completed.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY").replace("DROP INDEX CONCURRENTLY IF EXISTS labeled_jobs_on_jobs;", "")),
+                    (20260207000003, include_str!(
+                        "../../migrations/20260207000003_concurrent_indexes_v2_job_queue.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
+                    (20260207000004, include_str!(
+                        "../../migrations/20260207000004_concurrent_indexes_other.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
                     ].into_iter().collect();
 }
 
@@ -173,11 +188,31 @@ impl Migrate for CustomMigrator {
 
             if let Some(migration_sql) = OVERRIDDEN_MIGRATIONS.get(&migration.version) {
                 tracing::info!("Using custom migration for version {}", migration.version);
-                // tracing::info!("Migration SQL: {}", migration_sql);
 
-                self.inner
-                    .execute(&**migration_sql)
-                    .await?;
+                if migration_sql.contains("CONCURRENTLY") {
+                    // CONCURRENTLY operations cannot run inside a transaction block
+                    // or a multi-statement query (PostgreSQL requires top-level execution).
+                    // Split into individual statements and execute each separately.
+                    for stmt in migration_sql.split(';') {
+                        let stmt = stmt.trim();
+                        if !stmt.is_empty()
+                            && stmt.lines().any(|l| {
+                                let t = l.trim();
+                                !t.is_empty() && !t.starts_with("--")
+                            })
+                        {
+                            let summary: String = stmt.lines()
+                                .filter(|l| !l.trim().is_empty() && !l.trim().starts_with("--"))
+                                .collect::<Vec<_>>()
+                                .join(" ");
+                            tracing::info!("Executing: {summary}");
+                            self.inner.execute(stmt).await?;
+                            tracing::info!("Done: {summary}");
+                        }
+                    }
+                } else if !migration_sql.is_empty() {
+                    self.inner.execute(&**migration_sql).await?;
+                }
                 let _ = sqlx::query(
                     r#"
                 INSERT INTO _sqlx_migrations ( version, description, success, checksum, execution_time )
@@ -220,7 +255,8 @@ pub async fn migrate(
     if let Err(err) = sqlx::query!(
         "DELETE FROM _sqlx_migrations WHERE
         version=20250131115248 OR version=20250902085503 OR version=20250201145630 OR
-        version=20250201145631 OR version=20250201145632 OR version=20251006143821"
+        version=20250201145631 OR version=20250201145632 OR version=20251006143821 OR
+        version=20260207000001 OR version=20260207000002 OR version=20260207000003 OR version=20260207000004"
     )
     .execute(db)
     .await
@@ -254,113 +290,65 @@ pub async fn migrate(
     Ok(None)
 }
 
-#[derive(Clone, Debug, Default, Hash, Eq, PartialEq)]
-pub struct ApiAuthed {
-    pub email: String,
-    pub username: String,
-    pub is_admin: bool,
-    pub is_operator: bool,
-    pub groups: Vec<String>,
-    // (folder name, can write, is owner)
-    pub folders: Vec<(String, bool, bool)>,
-    pub scopes: Option<Vec<String>>,
-    pub username_override: Option<String>,
-    pub token_prefix: Option<String>,
-}
+pub async fn wait_for_migrations(
+    db: &DB,
+    mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
+) -> Result<(), Error> {
+    let migrator = sqlx::migrate!("../migrations");
+    let latest_version = migrator
+        .migrations
+        .iter()
+        .map(|m| m.version)
+        .max()
+        .expect("No migrations found") as i64;
 
-impl ApiAuthed {
-    pub fn to_authed_ref<'e>(&'e self) -> AuthedRef<'e> {
-        AuthedRef {
-            email: &self.email,
-            username: &self.username,
-            is_admin: &self.is_admin,
-            is_operator: &self.is_operator,
-            groups: &self.groups,
-            folders: &self.folders,
-            scopes: &self.scopes,
-            token_prefix: &self.token_prefix,
+    tracing::info!(
+        "This worker is on Windmill version {GIT_VERSION} (migration version {latest_version}). Only servers run migrations. Waiting for a server with version >= {GIT_VERSION} to apply the migration..."
+    );
+
+    let mut attempts = 0;
+
+    loop {
+        let is_applied: Result<Option<bool>, sqlx::Error> = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM _sqlx_migrations WHERE version = $1)",
+        )
+        .bind(latest_version)
+        .fetch_one(db)
+        .await;
+
+        match is_applied {
+            Ok(Some(true)) => {
+                tracing::info!(
+                    "All migrations applied (version {latest_version}), continuing worker startup"
+                );
+                return Ok(());
+            }
+            Ok(_) => {
+                tracing::info!(
+                    "Database not up to date yet. This worker (Windmill {GIT_VERSION}, migration version {latest_version}) is waiting for a server with version >= {GIT_VERSION} to run the migration. Rechecking in 3s..."
+                );
+            }
+            Err(e) => {
+                tracing::info!(
+                    "Could not check migration status (migrations table may not exist yet): {e:#}. Rechecking in 3s..."
+                );
+            }
         }
-    }
-}
 
-impl From<ApiAuthed> for Authed {
-    fn from(value: ApiAuthed) -> Self {
-        Self {
-            email: value.email,
-            username: value.username,
-            is_admin: value.is_admin,
-            is_operator: value.is_operator,
-            groups: value.groups,
-            folders: value.folders,
-            scopes: value.scopes,
-            token_prefix: value.token_prefix,
+        tokio::select! {
+            _ = killpill_rx.recv() => {
+                tracing::info!("Killpill received, stopping migration wait");
+                return Ok(());
+            }
+            _ = tokio::time::sleep(std::time::Duration::from_secs(3)) => {}
         }
-    }
-}
 
-impl From<Authed> for ApiAuthed {
-    fn from(value: Authed) -> Self {
-        Self {
-            email: value.email,
-            username: value.username,
-            is_admin: value.is_admin,
-            is_operator: value.is_operator,
-            groups: value.groups,
-            folders: value.folders,
-            scopes: value.scopes,
-            username_override: None, // Authed doesn't have this field, so default to None
-            token_prefix: value.token_prefix,
+        attempts += 1;
+        if attempts >= 10 {
+            tracing::error!(
+                "Timed out after 10 attempts waiting for migration version {latest_version}. Exiting."
+            );
+            std::process::exit(1);
         }
-    }
-}
-
-impl ApiAuthed {
-    pub fn display_username(&self) -> &str {
-        self.username_override.as_ref().unwrap_or(&self.username)
-    }
-}
-
-impl AuditAuthorable for ApiAuthed {
-    fn username(&self) -> &str {
-        self.username.as_str()
-    }
-    fn email(&self) -> &str {
-        self.email.as_str()
-    }
-    fn username_override(&self) -> Option<&str> {
-        self.username_override.as_deref()
-    }
-    fn token_prefix(&self) -> Option<&str> {
-        self.token_prefix.as_deref()
-    }
-}
-
-impl Authable for ApiAuthed {
-    fn is_admin(&self) -> bool {
-        self.is_admin
-    }
-
-    fn is_operator(&self) -> bool {
-        self.is_operator
-    }
-
-    fn groups(&self) -> &[String] {
-        &self.groups
-    }
-
-    fn folders(&self) -> &[(String, bool, bool)] {
-        &self.folders
-    }
-
-    fn scopes(&self) -> Option<&[std::string::String]> {
-        self.scopes.as_ref().map(|x| x.as_slice())
-    }
-
-    fn email(&self) -> &str {
-        &self.email
-    }
-
-    fn username(&self) -> &str {
-        &self.username
     }
 }

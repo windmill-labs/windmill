@@ -184,10 +184,8 @@
 			disabled={resolvedConfig.disabled}
 			onCreateItem={resolvedConfig.create
 				? (item) => {
-						customItems.push(item)
-						selectedItems.push(item)
-						customItems = customItems
-						selectedItems = selectedItems
+						customItems = [...customItems, item]
+						selectedItems = [...selectedItems, item]
 					}
 				: undefined}
 			onOpen={() => ($selectedComponent = [id])}

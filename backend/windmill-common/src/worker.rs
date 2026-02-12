@@ -219,6 +219,7 @@ lazy_static::lazy_static! {
         worker_tags: Default::default(),
         priority_tags_sorted: Default::default(),
         dedicated_worker: Default::default(),
+        dedicated_workers: Default::default(),
         cache_clear: Default::default(),
         init_bash: Default::default(),
         periodic_script_bash: Default::default(),
@@ -273,13 +274,10 @@ lazy_static::lazy_static! {
 pub const ROOT_CACHE_NOMOUNT_DIR: &str = concatcp!(TMP_DIR, "/cache_nomount/");
 
 pub static MIN_VERSION_IS_LATEST: AtomicBool = AtomicBool::new(false);
-
-const DEFAULT_BASE_INTERNAL_URL: &str = "http://localhost:8000";
-
 #[derive(Clone)]
 pub struct HttpClient {
     pub client: ClientWithMiddleware,
-    pub base_internal_url: Option<String>,
+    pub base_internal_url: String,
 }
 
 impl Deref for HttpClient {
@@ -297,10 +295,7 @@ impl HttpClient {
         headers: Option<HeaderMap>,
         body: &T,
     ) -> anyhow::Result<R> {
-        let base_url = self
-            .base_internal_url
-            .clone()
-            .unwrap_or(DEFAULT_BASE_INTERNAL_URL.to_owned());
+        let base_url = self.base_internal_url.clone();
 
         let response_builder = self.client.post(format!("{}{}", base_url, url)).json(body);
 
@@ -326,11 +321,7 @@ impl HttpClient {
     }
 
     pub async fn get<R: DeserializeOwned>(&self, url: &str) -> anyhow::Result<R> {
-        let base_url = self
-            .base_internal_url
-            .clone()
-            .unwrap_or(DEFAULT_BASE_INTERNAL_URL.to_owned());
-
+        let base_url = self.base_internal_url.clone();
         let response = self
             .client
             .get(format!("{}{}", base_url, url))
@@ -1054,16 +1045,17 @@ pub async fn extract_tar(tar: bytes::Bytes, folder: &str) -> error::Result<()> {
 }
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 fn write_binary_file(main_path: &str, byts: &mut bytes::Bytes) -> error::Result<()> {
-    use std::fs::{File, Permissions};
+    use std::fs::File;
     use std::io::Write;
-
-    #[cfg(unix)]
-    use std::os::unix::fs::PermissionsExt;
 
     let mut file = File::create(main_path)?;
     file.write_all(byts)?;
     #[cfg(unix)]
-    file.set_permissions(Permissions::from_mode(0o755))?;
+    {
+        use std::fs::Permissions;
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(Permissions::from_mode(0o755))?;
+    }
     file.flush()?;
     Ok(())
 }
@@ -1243,6 +1235,7 @@ pub struct Ping {
     pub ip: Option<String>,
     pub tags: Option<Vec<String>>,
     pub dw: Option<String>,
+    pub dws: Option<Vec<String>>,
     pub version: Option<String>,
     pub vcpus: Option<i64>,
     pub memory: Option<i64>,
@@ -1298,6 +1291,7 @@ pub async fn update_ping_http(
                 &insert_ping.ip.unwrap(),
                 insert_ping.tags.unwrap_or_default().as_slice(),
                 insert_ping.dw,
+                insert_ping.dws.as_deref(),
                 &insert_ping.version.unwrap(),
                 insert_ping.vcpus,
                 insert_ping.memory,
@@ -1428,6 +1422,7 @@ pub async fn insert_ping_query(
     ip: &str,
     tags: &[String],
     dw: Option<String>,
+    dws: Option<&[String]>,
     version: &str,
     vcpus: Option<i64>,
     memory: Option<i64>,
@@ -1435,14 +1430,15 @@ pub async fn insert_ping_query(
     db: &DB,
 ) -> anyhow::Result<()> {
     sqlx::query!(
-        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, wm_version, vcpus, memory, job_isolation) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (worker)
-        DO UPDATE set ip = EXCLUDED.ip, custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group",
+        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) ON CONFLICT (worker)
+        DO UPDATE set ip = EXCLUDED.ip, custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_workers = EXCLUDED.dedicated_workers",
         worker_instance,
         worker_name,
         ip,
         tags,
         worker_group,
         dw,
+        dws,
         version,
         vcpus,
         memory,
@@ -1564,6 +1560,24 @@ pub async fn update_worker_ping_main_loop_query(
 // occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus),
 // memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11 WHERE worker = $6",
 
+const MAX_TAG_LEN: usize = 50;
+const HASH_SUFFIX_LEN: usize = 16;
+
+pub fn dedicated_worker_tag(workspace_id: &str, path: &str) -> String {
+    let full_tag = format!("{}:{}", workspace_id, path);
+    if full_tag.len() <= MAX_TAG_LEN {
+        return full_tag;
+    }
+    let hash = <sha2::Sha256 as sha2::Digest>::digest(full_tag.as_bytes());
+    let hex_hash = hex::encode(hash);
+    let prefix_len = MAX_TAG_LEN - 1 - HASH_SUFFIX_LEN;
+    format!(
+        "{}#{}",
+        &full_tag[..prefix_len],
+        &hex_hash[..HASH_SUFFIX_LEN]
+    )
+}
+
 pub async fn load_worker_config(
     db: &DB,
     killpill_tx: KillpillSender,
@@ -1614,6 +1628,30 @@ pub async fn load_worker_config(
             }
         })
         .transpose()?;
+
+    // Parse dedicated_workers (multiple dedicated workers)
+    let dedicated_workers = config
+        .dedicated_workers
+        .map(|workers| {
+            workers
+                .into_iter()
+                .map(|x| {
+                    let splitted = x.split(':').to_owned().collect_vec();
+                    if splitted.len() != 2 {
+                        return Err(anyhow::anyhow!(
+                            "Invalid dedicated_workers format. Got {x}, expects <workspace_id>:<path>"
+                        ));
+                    }
+                    let workspace = splitted[0];
+                    let script_path = splitted[1];
+                    Ok(WorkspacedPath {
+                        workspace_id: workspace.to_string(),
+                        path: script_path.to_string(),
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .transpose()?;
     if *WORKER_GROUP == "default" && dedicated_worker.is_none() {
         let mut all_tags = config
             .worker_tags
@@ -1647,10 +1685,21 @@ pub async fn load_worker_config(
     let worker_tags = config
         .worker_tags
         .or_else(|| {
-            if let Some(ref dedicated_worker) = dedicated_worker.as_ref() {
-                let mut dedi_tags = vec![format!(
-                    "{}:{}",
-                    dedicated_worker.workspace_id, dedicated_worker.path
+            // Check for multiple dedicated workers first
+            if let Some(ref dws) = dedicated_workers.as_ref() {
+                let mut dedi_tags: Vec<String> = dws
+                    .iter()
+                    .map(|dw| dedicated_worker_tag(&dw.workspace_id, &dw.path))
+                    .collect();
+                if std::env::var("ADD_FLOW_TAG").is_ok() {
+                    dedi_tags.push("flow".to_string());
+                }
+                Some(dedi_tags)
+            } else if let Some(ref dedicated_worker) = dedicated_worker.as_ref() {
+                // Fallback to single dedicated worker for backward compatibility
+                let mut dedi_tags = vec![dedicated_worker_tag(
+                    &dedicated_worker.workspace_id,
+                    &dedicated_worker.path,
                 )];
                 if std::env::var("ADD_FLOW_TAG").is_ok() {
                     dedi_tags.push("flow".to_string());
@@ -1743,6 +1792,7 @@ pub async fn load_worker_config(
         worker_tags,
         priority_tags_sorted,
         dedicated_worker,
+        dedicated_workers,
         init_bash: config
             .init_bash
             .or_else(|| load_init_bash_from_env())
@@ -1836,6 +1886,7 @@ pub struct WorkerConfigOpt {
     pub worker_tags: Option<Vec<String>>,
     pub priority_tags: Option<HashMap<String, u8>>,
     pub dedicated_worker: Option<String>,
+    pub dedicated_workers: Option<Vec<String>>,
     pub init_bash: Option<String>,
     pub periodic_script_bash: Option<String>,
     pub periodic_script_interval_seconds: Option<u64>,
@@ -1852,6 +1903,7 @@ impl Default for WorkerConfigOpt {
             worker_tags: Default::default(),
             priority_tags: Default::default(),
             dedicated_worker: Default::default(),
+            dedicated_workers: Default::default(),
             init_bash: Default::default(),
             periodic_script_bash: Default::default(),
             periodic_script_interval_seconds: Default::default(),
@@ -1869,6 +1921,7 @@ pub struct WorkerConfig {
     pub worker_tags: Vec<String>,
     pub priority_tags_sorted: Vec<PriorityTags>,
     pub dedicated_worker: Option<WorkspacedPath>,
+    pub dedicated_workers: Option<Vec<WorkspacedPath>>,
     pub init_bash: Option<String>,
     pub periodic_script_bash: Option<String>,
     pub periodic_script_interval_seconds: Option<u64>,
@@ -1880,8 +1933,8 @@ pub struct WorkerConfig {
 
 impl std::fmt::Debug for WorkerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, init_bash: {:?}, periodic_script_bash: {:?}, periodic_script_interval_seconds: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?} }}",
-        self.worker_tags, self.priority_tags_sorted, self.dedicated_worker, self.init_bash, self.periodic_script_bash, self.periodic_script_interval_seconds, self.cache_clear, self.additional_python_paths, self.pip_local_dependencies, self.env_vars.iter().map(|(k, v)| format!("{}: {}{} ({} chars)", k, &v[..3.min(v.len())], "***", v.len())).collect::<Vec<String>>().join(", "))
+        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, dedicated_workers: {:?}, init_bash: {:?}, periodic_script_bash: {:?}, periodic_script_interval_seconds: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?} }}",
+        self.worker_tags, self.priority_tags_sorted, self.dedicated_worker, self.dedicated_workers, self.init_bash, self.periodic_script_bash, self.periodic_script_interval_seconds, self.cache_clear, self.additional_python_paths, self.pip_local_dependencies, self.env_vars.iter().map(|(k, v)| format!("{}: {}{} ({} chars)", k, &v[..3.min(v.len())], "***", v.len())).collect::<Vec<String>>().join(", "))
     }
 }
 
@@ -2142,5 +2195,59 @@ mod tests {
         let mut result = tags.to_string_vec(None);
         result.sort();
         assert_eq!(result, vec!["foo", "legacy(^ws1^ws2)", "urgent(ws1+ws2)"]);
+    }
+
+    #[test]
+    fn test_dedicated_worker_tag_short() {
+        let tag = dedicated_worker_tag("demo", "u/alice/script");
+        assert_eq!(tag, "demo:u/alice/script");
+        assert!(tag.len() <= MAX_TAG_LEN);
+    }
+
+    #[test]
+    fn test_dedicated_worker_tag_exactly_50() {
+        // 50 chars exactly should not be hashed
+        let workspace = "ws";
+        let path = "a".repeat(50 - workspace.len() - 1); // -1 for ':'
+        let tag = dedicated_worker_tag(workspace, &path);
+        assert_eq!(tag.len(), 50);
+        assert!(!tag.contains('#'));
+    }
+
+    #[test]
+    fn test_dedicated_worker_tag_long_is_hashed() {
+        let tag = dedicated_worker_tag(
+            "my_workspace",
+            "u/engineering/team/automation/critical_workflow_script_v2",
+        );
+        assert_eq!(tag.len(), MAX_TAG_LEN);
+        assert_eq!(tag, "my_workspace:u/engineering/team/a#5bc26db79926d4f0");
+    }
+
+    #[test]
+    fn test_dedicated_worker_tag_deterministic() {
+        let a = dedicated_worker_tag(
+            "ws",
+            "some/very/long/path/that/exceeds/the/fifty/char/limit/easily",
+        );
+        assert_eq!(a, "ws:some/very/long/path/that/excee#bbb038d4268a0b41");
+        let b = dedicated_worker_tag(
+            "ws",
+            "some/very/long/path/that/exceeds/the/fifty/char/limit/easily",
+        );
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn test_dedicated_worker_tag_different_paths_differ() {
+        let a = dedicated_worker_tag(
+            "ws",
+            "some/very/long/path/that/exceeds/the/fifty/char/limit/easily_a",
+        );
+        let b = dedicated_worker_tag(
+            "ws",
+            "some/very/long/path/that/exceeds/the/fifty/char/limit/easily_b",
+        );
+        assert_ne!(a, b);
     }
 }

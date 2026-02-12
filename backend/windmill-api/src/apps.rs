@@ -11,7 +11,6 @@ use crate::{
     auth::OptTokened,
     db::{ApiAuthed, DB},
     jobs::RunJobQuery,
-    resources::get_resource_value_interpolated_internal,
     users::{require_owner_of_path, OptAuthed},
     utils::{check_scopes, WithStarredInfoQuery},
     webhook_util::{WebhookMessage, WebhookShared},
@@ -49,7 +48,7 @@ use sha2::{Digest, Sha256};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{types::Uuid, FromRow};
 use std::str;
-use windmill_audit::audit_oss::audit_log;
+use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::{
     apps::{AppScriptId, ListAppQuery, APP_WORKSPACED_ROUTE},
@@ -65,8 +64,10 @@ use windmill_common::{
     },
     variables::{build_crypt, build_crypt_with_key_suffix, encrypt},
     worker::{to_raw_value, CLOUD_HOSTED},
+    workspaces::{check_user_against_rule, ProtectionRuleKind, RuleCheckResult},
     HUB_BASE_URL,
 };
+use windmill_store::resources::get_resource_value_interpolated_internal;
 
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::{push, PushArgs, PushArgsOwned, PushIsolationLevel};
@@ -126,6 +127,7 @@ pub fn global_service() -> Router {
     Router::new()
         .route("/hub/list", get(list_hub_apps))
         .route("/hub/get/:id", get(get_hub_app_by_id))
+        .route("/hub/get_raw/:id", get(get_hub_raw_app_by_id))
 }
 
 #[derive(FromRow, Deserialize, Serialize)]
@@ -902,7 +904,8 @@ pub async fn compute_bundle_secret(db: &DB, w_id: &str, versions: &[i64]) -> Res
         .last()
         .ok_or_else(|| Error::internal_err("App has no versions".to_string()))?;
     let mc = build_crypt(db, w_id).await?;
-    let hx = hex::encode(mc.encrypt_str_to_bytes(format!("{}{}", BUNDLE_SECRET_PREFIX, version_id)));
+    let hx =
+        hex::encode(mc.encrypt_str_to_bytes(format!("{}{}", BUNDLE_SECRET_PREFIX, version_id)));
     Ok(hx)
 }
 
@@ -1047,6 +1050,20 @@ async fn create_app_raw<'a>(
             "Operators cannot create apps for security reasons".to_string(),
         ));
     }
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
     let (path, _id) = process_app_multipart!(
         authed,
         user_db,
@@ -1106,6 +1123,19 @@ async fn create_app(
     }
     let path = app.path.clone();
     check_scopes(&authed, || format!("apps:write:{}", &path))?;
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
 
     let (new_tx, _path, _id) = create_app_internal(authed, db, user_db, &w_id, false, app).await?;
 
@@ -1311,6 +1341,24 @@ pub async fn get_hub_app_by_id(
     Ok(Json(value))
 }
 
+pub async fn get_hub_raw_app_by_id(
+    Path(id): Path<i32>,
+    Extension(db): Extension<DB>,
+) -> JsonResult<Box<serde_json::value::RawValue>> {
+    let value = http_get_from_hub(
+        &HTTP_CLIENT,
+        &format!("{}/raw_apps/{}/json", *HUB_BASE_URL.read().await, id),
+        false,
+        None,
+        Some(&db),
+    )
+    .await?
+    .json()
+    .await
+    .map_err(to_anyhow)?;
+    Ok(Json(value))
+}
+
 async fn delete_app(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1325,6 +1373,19 @@ async fn delete_app(
         return Err(Error::BadRequest(
             "Cannot delete the global setup app".to_string(),
         ));
+    }
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
     }
 
     // Check if it's a raw app before deletion
@@ -1391,6 +1452,7 @@ async fn delete_app(
         deployed_object,
         Some(format!("App '{}' deleted", path)),
         true,
+        None,
     )
     .await?;
 
@@ -1431,6 +1493,20 @@ async fn update_app(
     // create_app_internal(authed, user_db, db, &w_id, &mut app).await?;
     let path = path.to_path();
     check_scopes(&authed, || format!("apps:write:{}", path))?;
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
     let opath = path.to_string();
     let (new_tx, npath, _v_id) =
         update_app_internal(authed, db, user_db, &w_id, path, false, ns).await?;
@@ -1461,6 +1537,20 @@ async fn update_app_raw<'a>(
             "Operators cannot update apps for security reasons".to_string(),
         ));
     }
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
     let path = path.to_path();
     check_scopes(&authed, || format!("apps:write:{}", path))?;
     let opath = path.to_string();
@@ -1908,6 +1998,15 @@ async fn execute_component(
         }
     };
 
+    // Check rate limit for anonymous (public) executions
+    if matches!(policy.execution_mode, ExecutionMode::Anonymous) && opt_authed.is_none() {
+        if let Some(limit) = crate::workspaces::get_public_app_rate_limit(&db, &w_id).await? {
+            if limit > 0 {
+                crate::public_app_rate_limit::check_and_increment(&w_id, limit)?;
+            }
+        }
+    }
+
     // Execution is publisher and an user is authenticated: check if the user is authorized to
     // execute the app.
     if let (ExecutionMode::Publisher, Some(authed)) = (policy.execution_mode, opt_authed.as_ref()) {
@@ -2287,6 +2386,7 @@ async fn upload_s3_file_from_app(
                         &w_id,
                         None,
                         &[(&file_key, S3Permission::WRITE)],
+                        None,
                     )
                     .await?;
                     (s3_resource_opt, file_key, email, permissioned_as, username)
@@ -2319,6 +2419,7 @@ async fn upload_s3_file_from_app(
                 &w_id,
                 None,
                 &[(&file_key, S3Permission::WRITE)],
+                None,
             )
             .await?;
 
@@ -2355,10 +2456,11 @@ async fn upload_s3_file_from_app(
                 let db_with_opt_authed = DbWithOptAuthed::from_authed(&authed, db.clone(), None);
                 let (_, s3_resource) = get_workspace_s3_resource_and_check_paths(
                     &db_with_opt_authed,
-                Some(&authed),
+                    Some(&authed),
                     &w_id,
                     None,
                     &[(&file_key, S3Permission::WRITE)],
+                    None,
                 )
                 .await?;
 
@@ -2466,10 +2568,11 @@ async fn delete_s3_file_from_app(
         let db_with_opt_authed = DbWithOptAuthed::from_authed(&on_behalf_authed, db.clone(), None);
         let (_, s3_resource) = get_workspace_s3_resource_and_check_paths(
             &db_with_opt_authed,
-                Some(&on_behalf_authed),
+            Some(&on_behalf_authed),
             &w_id,
             None,
             &[(&path.to_string(), S3Permission::DELETE)],
+            None,
         )
         .await?;
 
@@ -2639,6 +2742,8 @@ async fn download_s3_file_from_app(
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<AppS3FileQueryWithForceViewerAllowedS3Keys>,
 ) -> Result<Response> {
+    use crate::db::OptJobAuthed;
+
     let path = path.to_path();
 
     let force_viewer_allowed_s3_keys = if let Some(force_viewer_allowed_s3_keys) =
@@ -2664,7 +2769,7 @@ async fn download_s3_file_from_app(
     .await?;
 
     download_s3_file_internal(
-        on_behalf_authed,
+        OptJobAuthed { authed: on_behalf_authed, job_id: None },
         &db,
         None,
         &w_id,

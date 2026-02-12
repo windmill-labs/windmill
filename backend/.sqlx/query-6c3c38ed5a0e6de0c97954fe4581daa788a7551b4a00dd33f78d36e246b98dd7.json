@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE\n            websocket_trigger\n        SET\n            url = $1,\n            script_path = $2,\n            path = $3,\n            is_flow = $4,\n            filters = $5,\n            initial_messages = $6,\n            url_runnable_args = $7,\n            edited_by = $8,\n            email = $9,\n            can_return_message = $10,\n            can_return_error_result = $11,\n            edited_at = now(),\n            server_id = NULL,\n            error = NULL,\n            error_handler_path = $14,\n            error_handler_args = $15,\n            retry = $16\n        WHERE\n            workspace_id = $12 AND path = $13\n    ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Bool",
+        "JsonbArray",
+        "JsonbArray",
+        "Jsonb",
+        "Varchar",
+        "Varchar",
+        "Bool",
+        "Bool",
+        "Text",
+        "Text",
+        "Varchar",
+        "Jsonb",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6c3c38ed5a0e6de0c97954fe4581daa788a7551b4a00dd33f78d36e246b98dd7"
+}
