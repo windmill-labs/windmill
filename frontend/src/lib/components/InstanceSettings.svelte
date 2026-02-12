@@ -135,99 +135,6 @@
 		}
 	}
 
-	export async function saveSettings() {
-		if (
-			oauths?.snowflake_oauth &&
-			oauths?.snowflake_oauth?.connect_config?.extra_params?.account_identifier !==
-				snowflakeAccountIdentifier
-		) {
-			setupSnowflakeUrls()
-		}
-
-		// Remove empty or invalid entries for critical error channels
-		$values.critical_error_channels = $values.critical_error_channels.filter((entry) => {
-			if (!entry || typeof entry !== 'object') return false
-			if ('teams_channel' in entry) {
-				return isValidTeamsChannel(entry.teams_channel)
-			}
-			if ('slack_channel' in entry) {
-				return typeof entry.slack_channel === 'string' && entry.slack_channel.trim() !== ''
-			}
-			if ('email' in entry) {
-				return typeof entry.email === 'string' && entry.email.trim() !== ''
-			}
-			// Unknown shape
-			return false
-		})
-
-		let shouldReloadPage = false
-		if ($values) {
-			// Trim license key before saving
-			if ($values['license_key'] && typeof $values['license_key'] === 'string') {
-				$values['license_key'] = $values['license_key'].trim()
-			}
-
-			const allSettings = [...Object.values(settings), scimSamlSetting].flatMap((x) =>
-				Object.entries(x)
-			)
-			let licenseKeySet = false
-			await Promise.all(
-				allSettings
-					.filter((x) => {
-						return (
-							x[1].storage == 'setting' &&
-							!deepEqual(initialValues?.[x[1].key], $values?.[x[1].key]) &&
-							($values?.[x[1].key] != '' ||
-								initialValues?.[x[1].key] != undefined ||
-								initialValues?.[x[1].key] != null)
-						)
-					})
-					.map(async ([_, x]) => {
-						if (x.key == 'license_key') {
-							licenseKeySet = true
-						}
-						if (x.requiresReloadOnChange) {
-							shouldReloadPage = true
-						}
-						return await SettingService.setGlobal({
-							key: x.key,
-							requestBody: { value: $values?.[x.key] }
-						})
-					})
-			)
-			initialValues = JSON.parse(JSON.stringify($values))
-
-			if (!deepEqual(stripUndefined(initialOauths), stripUndefined(oauths))) {
-				await SettingService.setGlobal({
-					key: 'oauths',
-					requestBody: {
-						value: oauths
-					}
-				})
-				initialOauths = JSON.parse(JSON.stringify(oauths))
-			}
-			if (initialRequirePreexistingUserForOauth !== requirePreexistingUserForOauth) {
-				await SettingService.setGlobal({
-					key: 'require_preexisting_user_for_oauth',
-					requestBody: { value: requirePreexistingUserForOauth }
-				})
-			}
-			if (licenseKeySet) {
-				setLicense()
-			}
-		} else {
-			console.error('Values not loaded')
-		}
-		if (shouldReloadPage) {
-			sendUserToast('Settings updated, reloading page...')
-			await sleep(1000)
-			window.location.reload()
-		} else {
-			sendUserToast('Settings updated')
-			dispatch('saved')
-		}
-	}
-
 	function setupSnowflakeUrls() {
 		// strip all whitespaces from account identifier
 		snowflakeAccountIdentifier = snowflakeAccountIdentifier.replace(/\s/g, '')
@@ -306,8 +213,16 @@
 	// Trigger to force re-derivation when initialValues changes (after save/load)
 	let dirtyCheckTrigger = $state(0)
 
-	function stripUndefined(obj: Record<string, any>): Record<string, any> {
-		return Object.fromEntries(Object.entries(obj).filter(([_, v]) => v !== undefined))
+	function stripEmpty(obj: Record<string, any>): Record<string, any> {
+		return Object.fromEntries(
+			Object.entries(obj)
+				.filter(([_, v]) => v !== undefined && v !== '')
+				.map(([k, v]) =>
+					v != null && typeof v === 'object' && !Array.isArray(v)
+						? [k, stripEmpty(v)]
+						: [k, v]
+				)
+		)
 	}
 
 	function getSettingsForCategory(category: string) {
@@ -326,7 +241,7 @@
 				const scimDirty = scimSamlSetting.some(
 					(s) => !deepEqual(initialValues[s.key], currentValues?.[s.key])
 				)
-				const oauthsDirty = !deepEqual(stripUndefined(initialOauths), stripUndefined(oauths))
+				const oauthsDirty = !deepEqual(stripEmpty(initialOauths), stripEmpty(oauths))
 				const requirePreexistingDirty =
 					initialRequirePreexistingUserForOauth !== requirePreexistingUserForOauth
 				result[category] = scimDirty || oauthsDirty || requirePreexistingDirty
@@ -442,7 +357,7 @@
 
 		// Handle Auth/OAuth/SAML-specific saves
 		if (category === 'Auth/OAuth/SAML') {
-			if (!deepEqual(stripUndefined(initialOauths), stripUndefined(oauths))) {
+			if (!deepEqual(stripEmpty(initialOauths), stripEmpty(oauths))) {
 				await SettingService.setGlobal({
 					key: 'oauths',
 					requestBody: { value: oauths }
