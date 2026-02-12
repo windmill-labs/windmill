@@ -146,7 +146,7 @@ pub async fn trigger_dependents_to_recompute_dependencies_in_the_background(
                 language = ?language,
                 "waiting for cache timeout after creating first unnamed workspace dependencies"
             );
-            tokio::time::sleep(EXISTS_CACHE_TIMEOUT).await;
+            tokio::time::sleep(*EXISTS_CACHE_TIMEOUT).await;
         }
 
         if let Err(e) = trigger_dependents_to_recompute_dependencies(

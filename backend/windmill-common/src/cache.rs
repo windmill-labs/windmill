@@ -909,9 +909,15 @@ pub mod workspace_dependencies {
         /// Cache key: (workspace_id, language)
         /// Cache value: (exists: bool, cached_at timestamp)
         static ref DEFAULT_WD_EXISTS_CACHE: quick_cache::sync::Cache<(String, String), (bool, Instant)> = quick_cache::sync::Cache::new(500);
+
+        /// Cache timeout for existence checks (default 10 seconds, configurable via EXISTS_CACHE_TIMEOUT_MS env var)
+        pub static ref EXISTS_CACHE_TIMEOUT: Duration = Duration::from_millis(
+            std::env::var("EXISTS_CACHE_TIMEOUT_MS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(10_000)
+        );
     }
-    /// Cache timeout for existence checks (10 seconds)
-    pub const EXISTS_CACHE_TIMEOUT: Duration = Duration::from_secs(10);
 
     pub fn fetch_workspace_dependencies<'c>(
         id: i64,
@@ -932,7 +938,7 @@ pub mod workspace_dependencies {
         let exists_key = (workspace_id.to_string(), dependencies_filename);
 
         if let Some((exists, cached_at)) = DEFAULT_WD_EXISTS_CACHE.get(&exists_key) {
-            if cached_at.elapsed() < EXISTS_CACHE_TIMEOUT {
+            if cached_at.elapsed() < *EXISTS_CACHE_TIMEOUT {
                 tracing::debug!(
                     workspace_id = %workspace_id,
                     exists,
