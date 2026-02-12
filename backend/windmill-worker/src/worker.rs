@@ -333,6 +333,11 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(false);
 
+    pub static ref FAVOR_UNSHARE_PID: bool = std::env::var("FAVOR_UNSHARE_PID")
+        .ok()
+        .and_then(|x| x.parse::<bool>().ok())
+        .unwrap_or(false);
+
     pub static ref UNSHARE_TINI_PATH: String = {
         std::env::var("UNSHARE_TINI_PATH").unwrap_or_else(|_| "tini".to_string())
     };
@@ -631,7 +636,7 @@ type Envs = Vec<(String, String)>;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum JobIsolationLevel {
-    /// Not set via global setting; fall back to env vars (DISABLE_NSJAIL, ENABLE_UNSHARE_PID)
+    /// Not set via global setting; fall back to env vars (DISABLE_NSJAIL, FAVOR_UNSHARE_PID)
     Undefined = 0,
     /// No isolation
     None = 1,
@@ -666,19 +671,27 @@ pub fn get_job_isolation() -> JobIsolationLevel {
 }
 
 /// Returns true if nsjail sandboxing should be used for job execution.
+/// DISABLE_NSJAIL=false forces nsjail regardless of the global setting.
 pub fn is_sandboxing_enabled() -> bool {
+    if !*DISABLE_NSJAIL {
+        return true;
+    }
     match get_job_isolation() {
         JobIsolationLevel::NsjailSandboxing => true,
-        JobIsolationLevel::Undefined => !*DISABLE_NSJAIL,
         _ => false,
     }
 }
 
 /// Returns true if unshare PID isolation should be used (when not using nsjail).
+/// ENABLE_UNSHARE_PID forces unshare regardless of the global setting.
+/// FAVOR_UNSHARE_PID uses unshare only when the global setting is not set.
 pub fn is_unshare_enabled() -> bool {
+    if *ENABLE_UNSHARE_PID {
+        return true;
+    }
     match get_job_isolation() {
         JobIsolationLevel::Unshare => true,
-        JobIsolationLevel::Undefined => *ENABLE_UNSHARE_PID,
+        JobIsolationLevel::Undefined => *FAVOR_UNSHARE_PID,
         _ => false,
     }
 }
@@ -1330,7 +1343,7 @@ pub async fn run_worker(
 
     // Force UNSHARE_PATH initialization now to fail-fast if unshare doesn't work
     // This ensures we panic at startup rather than lazily when first accessed during job execution
-    if is_unshare_enabled() || *ENABLE_UNSHARE_PID {
+    if is_unshare_enabled() || *ENABLE_UNSHARE_PID || *FAVOR_UNSHARE_PID {
         let _ = &*UNSHARE_PATH;
     }
 
@@ -3156,9 +3169,17 @@ pub async fn handle_queued_job(
         let mut canceled_by: Option<CanceledBy> = None;
         // println!("handle queue {:?}",  SystemTime::now());
 
+        let isolation_label = if is_sandboxing_enabled() {
+            "nsjail"
+        } else if is_unshare_enabled() {
+            "unshare"
+        } else {
+            "none"
+        };
+
         logs.push_str(&format!(
-            "job={} {}={} worker={} hostname={}\n",
-            &job.id, *LOG_TAG_NAME, &job.tag, &worker_name, &hostname
+            "job={} {}={} worker={} hostname={} isolation={}\n",
+            &job.id, *LOG_TAG_NAME, &job.tag, &worker_name, &hostname, isolation_label
         ));
 
         if *NO_LOGS_AT_ALL {

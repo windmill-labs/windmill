@@ -163,54 +163,6 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting'
 		},
 		{
-			label: 'Default timeout',
-			key: 'job_default_timeout',
-			description:
-				'Default timeout for individual jobs. <a href="https://www.windmill.dev/docs/core_concepts/jobs#retention-policy">Learn more</a>',
-			fieldType: 'seconds',
-			storage: 'setting',
-			cloudonly: false
-		},
-		{
-			label: 'Keep job directories for debug',
-			key: 'keep_job_dir',
-			fieldType: 'boolean',
-			description: 'Keep Job directories after execution at /tmp/windmill/WORKER/JOB_ID',
-			storage: 'setting'
-		},
-		{
-			label: 'Job Isolation',
-			key: 'job_isolation',
-			fieldType: 'select',
-			description:
-				'Isolation mode for job execution. None: no isolation. Unshare: PID namespace isolation via unshare. Nsjail: full nsjail sandboxing. <a href="https://www.windmill.dev/docs/advanced/security_isolation">Learn more</a>',
-			storage: 'setting',
-			select_items: [
-				{
-					label: 'None',
-					value: 'none'
-				},
-				{
-					label: 'Unshare',
-					value: 'unshare'
-				},
-				{
-					label: 'Nsjail',
-					value: 'nsjail_sandboxing'
-				}
-			]
-		},
-		{
-			label: 'Max timeout for sync endpoints',
-			description:
-				'Maximum amount of time (measured in seconds) that a <a href="https://www.windmill.dev/docs/core_concepts/webhooks">sync endpoint</a> is allowed to run before it is forcibly stopped or timed out.',
-			key: 'timeout_wait_result',
-			cloudonly: true,
-			fieldType: 'seconds',
-			placeholder: '60',
-			storage: 'setting'
-		},
-		{
 			label: 'License key',
 			description:
 				'License key required to use the EE (switch image for windmill-ee). <a href="https://www.windmill.dev/docs/advanced/instance_settings#license-key">Learn more</a>',
@@ -241,6 +193,28 @@ export const settings: Record<string, Setting[]> = {
 		}
 	],
 	Jobs: [
+		{
+			label: 'Job Isolation',
+			key: 'job_isolation',
+			fieldType: 'select',
+			description:
+				'Isolation mode for job execution. None: no isolation. Unshare: PID namespace isolation via unshare. Nsjail: full nsjail sandboxing. <a href="https://www.windmill.dev/docs/advanced/security_isolation">Learn more</a>',
+			storage: 'setting',
+			select_items: [
+				{
+					label: 'None',
+					value: 'none'
+				},
+				{
+					label: 'Unshare',
+					value: 'unshare'
+				},
+				{
+					label: 'Nsjail',
+					value: 'nsjail_sandboxing'
+				}
+			]
+		},
 		{
 			label: 'Default timeout',
 			key: 'job_default_timeout',
@@ -644,6 +618,7 @@ export const settingsKeys = Object.keys(settings)
 // --- Sidebar navigation for instance settings ---
 export const instanceSettingsNavigationGroups = [
 	{
+		title: 'Core',
 		items: [
 			{
 				id: 'users',
@@ -656,6 +631,12 @@ export const instanceSettingsNavigationGroups = [
 				label: 'General',
 				aiId: 'instance-settings-general',
 				aiDescription: 'Instance general settings'
+			},
+			{
+				id: 'jobs',
+				label: 'Jobs',
+				aiId: 'instance-settings-jobs',
+				aiDescription: 'Instance jobs settings'
 			}
 		]
 	},
@@ -736,12 +717,6 @@ export const instanceSettingsNavigationGroups = [
 	{
 		title: 'Advanced',
 		items: [
-			{
-				id: 'jobs',
-				label: 'Jobs',
-				aiId: 'instance-settings-jobs',
-				aiDescription: 'Instance jobs settings'
-			},
 			{
 				id: 'private_hub',
 				label: 'Private Hub',
