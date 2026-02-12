@@ -231,7 +231,7 @@
 		{tags}
 		onCurrentTagChange={(tag) => (currentTag = tag ? (tag.id as keyof SchemaT) : undefined)}
 		class={twMerge(
-			'bg-surface-input flex justify-start gap-0.5 items-center outline-none overflow-x-auto scrollbar-hidden text-nowrap',
+			'bg-surface-input outline-none overflow-x-auto scrollbar-hidden text-nowrap',
 			inputBaseClass,
 			inputBorderClass(),
 			inputSizeClasses.md,

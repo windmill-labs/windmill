@@ -224,7 +224,7 @@
 	onpaste={handlePaste}
 	onclick={handleClick}
 	onkeyup={handleKeyup}
-	class="outline-none text-nowrap flex-nowrap {className}"
+	class="outline-none text-nowrap pt-[0.45rem] {className}"
 	class:text-hint={value === ''}
 	data-placeholder={placeholder}
 	role="textbox"
