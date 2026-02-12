@@ -6,7 +6,7 @@
 		  }
 		| {
 				type: 'oneof'
-				options: { value: string; label?: string; description?: string }[]
+				options: readonly { value: string; label?: string; description?: string }[]
 				allowCustomValue?: boolean
 		  }
 	) & {
