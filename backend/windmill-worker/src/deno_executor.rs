@@ -13,7 +13,7 @@ use crate::{
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
-    DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, HOME_ENV, NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
+    is_sandboxing_enabled, DENO_CACHE_DIR, DENO_PATH, HOME_ENV, NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
 
@@ -364,7 +364,7 @@ try {{
 
     let mut common_deno_proc_envs =
         get_common_deno_proc_envs(&client.token, base_internal_url).await;
-    if !*DISABLE_NSJAIL {
+    if is_sandboxing_enabled() {
         common_deno_proc_envs.insert("HOME".to_string(), job_dir.to_string());
     }
 
@@ -405,7 +405,7 @@ try {{
             for flag in deno_flags {
                 args.push(flag);
             }
-        } else if !*DISABLE_NSJAIL {
+        } else if is_sandboxing_enabled() {
             args.push("--allow-net");
             args.push("--allow-sys");
             args.push(allow_read.as_str());

@@ -660,7 +660,7 @@ lazy_static! {
 pub fn build_command_with_isolation(program: &str, args: &[&str]) -> Command {
     use tokio::process::Command;
 
-    if *crate::ENABLE_UNSHARE_PID {
+    if crate::is_unshare_enabled() {
         if let Some(unshare_path) = crate::UNSHARE_PATH.as_ref() {
             let mut cmd = Command::new(unshare_path);
 
@@ -687,7 +687,7 @@ pub fn build_command_with_isolation(program: &str, args: &[&str]) -> Command {
             cmd
         } else {
             panic!(
-                "BUG: ENABLE_UNSHARE_PID is true but UNSHARE_PATH is None. \
+                "BUG: unshare isolation is enabled but UNSHARE_PATH is None. \
                 This should have been caught at worker startup."
             );
         }

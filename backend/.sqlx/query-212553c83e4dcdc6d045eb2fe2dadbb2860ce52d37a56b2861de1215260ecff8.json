@@ -34,8 +34,7 @@
                 "sqs",
                 "gcp",
                 "mqtt",
-                "nextcloud",
-                "google"
+                "nextcloud"
               ]
             }
           }
@@ -68,8 +67,7 @@
                 "sqs",
                 "gcp",
                 "mqtt",
-                "nextcloud",
-                "google"
+                "nextcloud"
               ]
             }
           }
