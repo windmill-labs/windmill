@@ -55,6 +55,9 @@ def summarize_schema(file_path):
                 match_column = re.match(r'^"?(\w+)"?\s+([\w\d\.\[\]\(\)]+)', line)
                 if match_column:
                     col_name = match_column.group(1)
+                    # Skip CONSTRAINT definitions (e.g., CHECK, UNIQUE) mistakenly matched as columns
+                    if col_name.upper() == 'CONSTRAINT':
+                        continue
                     col_type = match_column.group(2)
                     tables[current_table]['columns'].append(f"{col_name} ({col_type})")
                 
@@ -125,8 +128,11 @@ def shorten_type(col_str):
     name, typ = match.group(1), match.group(2)
     # Strip public. prefix from enum types
     typ = re.sub(r'^public\.', '', typ)
-    # Apply abbreviations
-    typ = TYPE_ABBREVIATIONS.get(typ, typ)
+    # Apply abbreviations (prefix-based to handle parametrized types like character(64) and array types like integer[])
+    for prefix, abbr in TYPE_ABBREVIATIONS.items():
+        if typ.startswith(prefix):
+            typ = abbr + typ[len(prefix):]
+            break
     return f"{name}({typ})"
 
 def format_output(enums, tables):
