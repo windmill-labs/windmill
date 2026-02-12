@@ -141,19 +141,6 @@ export const settings: Record<string, Setting[]> = {
 					!value?.endsWith(' '))
 		},
 		{
-			label: 'Email domain',
-			description:
-				'Domain to display in webhooks for <a href="https://www.windmill.dev/docs/advanced/email_triggers">email triggers</a> (should match the MX record)',
-			key: 'email_domain',
-			fieldType: 'text',
-			storage: 'setting',
-			placeholder: 'mail.windmill.com',
-			error:
-				'Email domain must be a valid domain (e.g. mail.windmill.com) without protocol or trailing slash',
-			isValid: (value: string | undefined) =>
-				!value || /^(?!-)([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$/.test(value)
-		},
-		{
 			label: 'Request size limit in MB',
 			description: 'Maximum size of HTTP requests in MB.',
 			cloudonly: true,
@@ -168,7 +155,7 @@ export const settings: Record<string, Setting[]> = {
 				'License key required to use the EE (switch image for windmill-ee). <a href="https://www.windmill.dev/docs/advanced/instance_settings#license-key">Learn more</a>',
 			key: 'license_key',
 			fieldType: 'license_key',
-			placeholder: 'only needed to prepare upgrade to EE',
+			placeholder: 'only for EE',
 			storage: 'setting'
 		},
 		{

@@ -379,7 +379,6 @@ fn log_health_status(status: &HealthStatusResponse) {
                 status = "healthy",
                 database_healthy = status.database_healthy,
                 workers_alive = status.workers_alive,
-                checked_at = %status.checked_at,
                 "health check completed"
             );
         }
@@ -388,7 +387,6 @@ fn log_health_status(status: &HealthStatusResponse) {
                 status = "degraded",
                 database_healthy = status.database_healthy,
                 workers_alive = status.workers_alive,
-                checked_at = %status.checked_at,
                 "health check: degraded status (no workers alive)"
             );
         }
@@ -397,7 +395,6 @@ fn log_health_status(status: &HealthStatusResponse) {
                 status = "unhealthy",
                 database_healthy = status.database_healthy,
                 workers_alive = status.workers_alive,
-                checked_at = %status.checked_at,
                 "health check: unhealthy status"
             );
         }
