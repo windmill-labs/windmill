@@ -83,7 +83,6 @@
 	</DrawerContent>
 </Drawer>
 
-
 {#if !$enterpriseLicense}
 	<Alert type="warning" title="Workspace Protection Rules is an EE feature">
 		Workspace Protection Rules is a Windmill Enterprise Edition feature. It enables granular
@@ -108,7 +107,7 @@
 </div>
 
 <div class="relative mb-20">
-	<DataTable>
+	<DataTable containerClass="bg-surface-tertiary">
 		<Head>
 			<tr>
 				<Cell head first>Name</Cell>
@@ -149,7 +148,9 @@
 							</div>
 						</Cell>
 						<Cell>
-							<span class="text-xs text-secondary">{getScopeSummary(rule.bypass_groups, rule.bypass_users)}</span>
+							<span class="text-xs text-secondary"
+								>{getScopeSummary(rule.bypass_groups, rule.bypass_users)}</span
+							>
 						</Cell>
 						<Cell>
 							<span class="text-xs text-secondary">

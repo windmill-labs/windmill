@@ -215,6 +215,7 @@ pub const CSHARP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "csharp");
 pub const JAVA_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "java");
 pub const COURSIER_CACHE_DIR: &str = concatcp!(JAVA_CACHE_DIR, "/coursier-cache");
 pub const JAVA_REPOSITORY_DIR: &str = concatcp!(JAVA_CACHE_DIR, "/repository");
+pub const JAVA_HOME_DIR: &str = concatcp!(JAVA_CACHE_DIR, "/home");
 
 // Ruby
 pub const RUBY_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "ruby");
@@ -578,6 +579,7 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(false));
     pub static ref RUBY_REPOS: Arc<RwLock<Option<Vec<url::Url>>>> = Arc::new(RwLock::new(None));
+    pub static ref CARGO_REGISTRIES: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 
     pub static ref PIP_EXTRA_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref PIP_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
@@ -1217,84 +1219,84 @@ fn start_interactive_worker_shell(
                 } => result,
             };
 
-                match pulled_job {
-                    Ok(Some(job)) => {
-                        tracing::debug!(target: VERBOSE_TARGET, worker = %worker_name, hostname = %hostname, "started handling of job {}", job.id);
-                        let job_dir = create_job_dir(&worker_dir, job.id).await;
+            match pulled_job {
+                Ok(Some(job)) => {
+                    tracing::debug!(target: VERBOSE_TARGET, worker = %worker_name, hostname = %hostname, "started handling of job {}", job.id);
+                    let job_dir = create_job_dir(&worker_dir, job.id).await;
+                    #[cfg(feature = "benchmark")]
+                    let mut bench = windmill_common::bench::BenchmarkIter::new();
+
+                    let JobAndPerms {
+                        job,
+                        raw_code,
+                        raw_lock,
+                        raw_flow,
+                        parent_runnable_path,
+                        token,
+                        precomputed_agent_info: precomputed_bundle,
+                        flow_runners,
+                    } = extract_job_and_perms(job, &conn).await;
+
+                    let authed_client = AuthedClient::new(
+                        base_internal_url.to_owned(),
+                        job.workspace_id.clone(),
+                        token,
+                        None,
+                    );
+
+                    let arc_job = Arc::new(job);
+
+                    let _ = handle_queued_job(
+                        arc_job.clone(),
+                        raw_code,
+                        raw_lock,
+                        raw_flow,
+                        parent_runnable_path,
+                        &conn,
+                        &authed_client,
+                        &hostname,
+                        &worker_name,
+                        &worker_dir,
+                        &job_dir,
+                        None,
+                        &base_internal_url,
+                        job_completed_tx.clone(),
+                        &mut occupancy_metrics,
+                        &mut killpill_rx,
+                        precomputed_bundle,
+                        flow_runners,
                         #[cfg(feature = "benchmark")]
-                        let mut bench = windmill_common::bench::BenchmarkIter::new();
+                        &mut bench,
+                    )
+                    .await;
 
-                        let JobAndPerms {
-                            job,
-                            raw_code,
-                            raw_lock,
-                            raw_flow,
-                            parent_runnable_path,
-                            token,
-                            precomputed_agent_info: precomputed_bundle,
-                            flow_runners,
-                        } = extract_job_and_perms(job, &conn).await;
-
-                        let authed_client = AuthedClient::new(
-                            base_internal_url.to_owned(),
-                            job.workspace_id.clone(),
-                            token,
-                            None,
-                        );
-
-                        let arc_job = Arc::new(job);
-
-                        let _ = handle_queued_job(
-                            arc_job.clone(),
-                            raw_code,
-                            raw_lock,
-                            raw_flow,
-                            parent_runnable_path,
-                            &conn,
-                            &authed_client,
-                            &hostname,
-                            &worker_name,
-                            &worker_dir,
-                            &job_dir,
-                            None,
-                            &base_internal_url,
-                            job_completed_tx.clone(),
-                            &mut occupancy_metrics,
-                            &mut killpill_rx,
-                            precomputed_bundle,
-                            flow_runners,
-                            #[cfg(feature = "benchmark")]
-                            &mut bench,
-                        )
-                        .await;
-
-                        last_executed_job = Some(Instant::now());
-                    }
-                    Ok(None) => {
-                        let now = Instant::now();
-                        let nap_time = match last_executed_job {
-                            Some(last)
-                                if now.duration_since(last).as_secs()
-                                    > TIMEOUT_TO_RESET_WORKER_SHELL_NAP_TIME_DURATION =>
-                            {
-                                Duration::from_secs(WORKER_SHELL_NAP_TIME_DURATION)
-                            }
-                            _ => Duration::from_millis(*SLEEP_QUEUE * 10),
-                        };
-                        tokio::select! {
-                            _ = tokio::time::sleep(nap_time) => {
-                            }
-                            _ = killpill_rx.recv() => {
-                                break;
-                            }
+                    last_executed_job = Some(Instant::now());
+                }
+                Ok(None) => {
+                    let now = Instant::now();
+                    let nap_time = match last_executed_job {
+                        Some(last)
+                            if now.duration_since(last).as_secs()
+                                > TIMEOUT_TO_RESET_WORKER_SHELL_NAP_TIME_DURATION =>
+                        {
+                            Duration::from_secs(WORKER_SHELL_NAP_TIME_DURATION)
+                        }
+                        _ => Duration::from_millis(*SLEEP_QUEUE * 10),
+                    };
+                    tokio::select! {
+                        _ = tokio::time::sleep(nap_time) => {
+                        }
+                        _ = killpill_rx.recv() => {
+                            break;
                         }
                     }
+                }
 
-                    Err(err) => {
-                        tracing::error!(worker = %worker_name, hostname = %hostname, "Failed to pull jobs: {}", err);
-                        tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE * 20)).await;
-                    }
-                };
+                Err(err) => {
+                    tracing::error!(worker = %worker_name, hostname = %hostname, "Failed to pull jobs: {}", err);
+                    tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE * 20)).await;
+                }
+            };
         }
     })
 }
@@ -1872,9 +1874,15 @@ pub async fn run_worker(
 
         #[cfg(feature = "benchmark")]
         {
-            let total_iters = infos.shared_iters.load(std::sync::atomic::Ordering::Relaxed);
+            let total_iters = infos
+                .shared_iters
+                .load(std::sync::atomic::Ordering::Relaxed);
             if benchmark_jobs > 0 && total_iters >= benchmark_jobs as u64 {
-                tracing::info!("benchmark finished, exiting (total iters: {}, worker iters: {})", total_iters, infos.iters);
+                tracing::info!(
+                    "benchmark finished, exiting (total iters: {}, worker iters: {})",
+                    total_iters,
+                    infos.iters
+                );
                 job_completed_tx
                     .kill()
                     .await
@@ -1896,18 +1904,24 @@ pub async fn run_worker(
                 break;
             } else if bench_empty_queue_count % 100 == 0 {
                 if let Some(db) = conn.as_sql() {
-                    let remaining = sqlx::query_as::<_, (uuid::Uuid, String, bool, Option<String>, Option<uuid::Uuid>)>(
+                    let remaining = sqlx::query_as::<
+                        _,
+                        (uuid::Uuid, String, bool, Option<String>, Option<uuid::Uuid>),
+                    >(
                         "SELECT q.id, q.tag, q.running, j.kind::text, j.parent_job
                          FROM v2_job_queue q JOIN v2_job j ON q.id = j.id
-                         WHERE q.workspace_id = 'admins' LIMIT 10"
+                         WHERE q.workspace_id = 'admins' LIMIT 10",
                     )
                     .fetch_all(db)
                     .await;
                     match remaining {
                         Ok(rows) => {
                             let total_remaining = sqlx::query_scalar::<_, i64>(
-                                "SELECT COUNT(*) FROM v2_job_queue WHERE workspace_id = 'admins'"
-                            ).fetch_one(db).await.unwrap_or(0);
+                                "SELECT COUNT(*) FROM v2_job_queue WHERE workspace_id = 'admins'",
+                            )
+                            .fetch_one(db)
+                            .await
+                            .unwrap_or(0);
                             for (id, tag, running, kind, parent) in &rows {
                                 tracing::info!(
                                     "  pending job: id={id}, tag={tag}, running={running}, kind={}, parent={:?}",
@@ -1916,7 +1930,9 @@ pub async fn run_worker(
                             }
                             tracing::info!(
                                 "benchmark not finished (total: {}, worker: {}, queue: {})",
-                                total_iters, infos.iters, total_remaining
+                                total_iters,
+                                infos.iters,
+                                total_remaining
                             );
                         }
                         Err(e) => {
@@ -3163,9 +3179,17 @@ pub async fn handle_queued_job(
 
         #[cfg(not(feature = "enterprise"))]
         if let Connection::Sql(db) = conn {
-            if (job.concurrent_limit.is_some() ||
-                windmill_common::runnable_settings::prefetch_cached_from_handle(job.runnable_settings_handle, db).await?.1.concurrent_limit.is_some())
-                && !job.kind.is_dependency() {
+            if (job.concurrent_limit.is_some()
+                || windmill_common::runnable_settings::prefetch_cached_from_handle(
+                    job.runnable_settings_handle,
+                    db,
+                )
+                .await?
+                .1
+                .concurrent_limit
+                .is_some())
+                && !job.kind.is_dependency()
+            {
                 logs.push_str("---\n");
                 logs.push_str("WARNING: This job has concurrency limits enabled. Concurrency limits are an EE feature and the setting is ignored.\n");
                 logs.push_str("---\n");

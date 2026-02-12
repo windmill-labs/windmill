@@ -767,7 +767,7 @@
 				</Cell>
 			</tr>
 		</Head>
-		<tbody class="divide-y bg-surface">
+		<tbody>
 			{#if filteredUsers}
 				{#each sortedUsers().slice(0, nbDisplayed) as user, index (user.email)}
 					{@const { email, username, is_admin, operator, disabled, added_via } = user}
@@ -775,11 +775,11 @@
 					{#if hasNonManualUsers && index > 0 && sortedUsers()[index - 1]?.added_via?.source !== 'instance_group' && added_via?.source === 'instance_group'}
 						<tr class="bg-surface-secondary">
 							<td colspan={hasNonManualUsers ? 8 : 7} class="px-4 py-2">
-								<div class="text-xs text-primary font-bold"> Instance group users </div>
+								<div class="text-xs text-emphasis font-semibold"> Instance group users </div>
 							</td>
 						</tr>
 					{/if}
-					<tr class="!hover:bg-surface-hover">
+					<tr class={index % 2 === 0 ? 'bg-surface-tertiary' : 'bg-surface'}>
 						<Cell first><a href="mailto:{email}">{truncate(email, 20)}</a></Cell>
 						<Cell>{truncate(username, 30)}</Cell>
 						{#if hasNonManualUsers}

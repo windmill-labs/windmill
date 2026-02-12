@@ -539,7 +539,7 @@
 
 {#if shouldShowEmptyState}
 	<!-- Empty State for Primary Variants -->
-	<div class="rounded-lg border bg-surface p-4 mb-4">
+	<div class="rounded-md shadow-sm bg-surface-tertiary p-4 mb-4">
 		<div class="flex items-center justify-between mb-4">
 			<div class="flex flex-col">
 				<h3 class="text-xs font-semibold text-emphasis">{displayTitle}</h3>
@@ -580,7 +580,7 @@
 {:else if repo}
 	{#if variant === 'primary-sync' || variant === 'primary-promotion'}
 		<!-- Primary Repository Layout -->
-		<div class="rounded-lg border bg-surface p-4 mb-4">
+		<div class="rounded-md shadow-sm bg-surface-tertiary p-4 mb-4">
 			<div class="flex flex-col mb-4 gap-2">
 				<div class="flex items-center justify-between">
 					<h3 class="text-sm font-semibold">{displayTitle}</h3>
@@ -597,7 +597,7 @@
 		</div>
 	{:else}
 		<!-- Standard Repository Card Layout -->
-		<div class="rounded-lg shadow-sm border p-0 w-full mb-4">
+		<div class="rounded-md shadow-sm bg-surface-tertiary p-0 w-full mb-4">
 			<div class="flex items-center justify-between min-h-10 px-4 py-1 border-b">
 				<div class="flex items-center gap-2">
 					<span class="text-lg font-semibold">{displayTitle}</span>

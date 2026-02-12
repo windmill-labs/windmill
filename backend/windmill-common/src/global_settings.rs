@@ -16,6 +16,7 @@ pub const POWERSHELL_REPO_PAT_SETTING: &str = "powershell_repo_pat";
 pub const MAVEN_REPOS_SETTING: &str = "maven_repos";
 pub const NO_DEFAULT_MAVEN_SETTING: &str = "no_default_maven";
 pub const RUBY_REPOS_SETTING: &str = "ruby_repos";
+pub const CARGO_REGISTRIES_SETTING: &str = "cargo_registries";
 
 pub const EXTRA_PIP_INDEX_URL_SETTING: &str = "pip_extra_index_url";
 pub const PIP_INDEX_URL_SETTING: &str = "pip_index_url";
@@ -83,6 +84,7 @@ pub const ENV_SETTINGS: &[&str] = &[
     "GOPRIVATE",
     "GOPROXY",
     "NETRC",
+    "CARGO_REGISTRIES",
     "INSTANCE_PYTHON_VERSION",
     "PIP_INDEX_URL",
     "PIP_EXTRA_INDEX_URL",

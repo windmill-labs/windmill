@@ -1,5 +1,38 @@
 # Changelog
 
+## [1.633.1](https://github.com/windmill-labs/windmill/compare/v1.633.0...v1.633.1) (2026-02-12)
+
+
+### Bug Fixes
+
+* add private registries support for RUST + java home nit ([e2c28e4](https://github.com/windmill-labs/windmill/commit/e2c28e42dbda0f7bf119efc8d587da0d30636a44))
+
+## [1.633.0](https://github.com/windmill-labs/windmill/compare/v1.632.0...v1.633.0) (2026-02-12)
+
+
+### Features
+
+* /health endpoints ([#7727](https://github.com/windmill-labs/windmill/issues/7727)) ([7df4aa4](https://github.com/windmill-labs/windmill/commit/7df4aa4fec021fc728950fc10db4d0401a205087))
+
+
+### Bug Fixes
+
+* save deployment msg in CE ([#7923](https://github.com/windmill-labs/windmill/issues/7923)) ([e9be616](https://github.com/windmill-labs/windmill/commit/e9be616d3c079a0c6fd98733c66560f2cc1ee40d))
+
+## [1.632.0](https://github.com/windmill-labs/windmill/compare/v1.631.2...v1.632.0) (2026-02-12)
+
+
+### Features
+
+* **ai:** add AWS bedrock session token support ([#7908](https://github.com/windmill-labs/windmill/issues/7908)) ([d95e4db](https://github.com/windmill-labs/windmill/commit/d95e4db8f31e70a645a5f41e287557933b257db8))
+
+
+### Bug Fixes
+
+* add kafka kerberos runtime packages ([#7918](https://github.com/windmill-labs/windmill/issues/7918)) ([22f22c2](https://github.com/windmill-labs/windmill/commit/22f22c26612b904c2b82b415ec9337213ef593c3))
+* **frontend:** redesign instance settings ([#7916](https://github.com/windmill-labs/windmill/issues/7916)) ([dd419ad](https://github.com/windmill-labs/windmill/commit/dd419ade94a992073dfd1a979bfeb8a5fadfb051))
+* hash long dedicated worker tags ([#7914](https://github.com/windmill-labs/windmill/issues/7914)) ([aaa1b92](https://github.com/windmill-labs/windmill/commit/aaa1b92300bdc0794de5356ef6750bab5d8d81a0))
+
 ## [1.631.2](https://github.com/windmill-labs/windmill/compare/v1.631.1...v1.631.2) (2026-02-11)
 
 

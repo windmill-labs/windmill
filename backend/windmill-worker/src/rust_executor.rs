@@ -25,8 +25,8 @@ use crate::{
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
-    is_sandboxing_enabled, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUST_CACHE_DIR,
-    TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
+    is_sandboxing_enabled, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    RUST_CACHE_DIR, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
 use windmill_common::scripts::ScriptLang;
@@ -135,6 +135,15 @@ pub fn __WINDMILL_RUN__(_args: __WINDMILL_ARGS__) -> Result<String, Box<dyn std:
     Ok(())
 }
 
+async fn write_cargo_config(job_dir: &str) -> anyhow::Result<()> {
+    if let Some(cargo_registries) = CARGO_REGISTRIES.read().await.clone() {
+        let cargo_dir = format!("{job_dir}/.cargo");
+        create_dir_all(&cargo_dir).await?;
+        write_file(&cargo_dir, "config.toml", &cargo_registries)?;
+    }
+    Ok(())
+}
+
 pub async fn generate_cargo_lockfile(
     job_id: &Uuid,
     code: &str,
@@ -149,6 +158,7 @@ pub async fn generate_cargo_lockfile(
     check_executor_binary_exists("cargo", CARGO_PATH.as_str(), "rust")?;
 
     gen_cargo_crate(code, job_dir)?;
+    write_cargo_config(job_dir).await?;
 
     let mut gen_lockfile_cmd = Command::new(CARGO_PATH.as_str());
     gen_lockfile_cmd
@@ -503,6 +513,7 @@ pub async fn handle_rust_job(
         append_logs(&job.id, &job.workspace_id, logs1, conn).await;
 
         gen_cargo_crate(inner_content, job_dir)?;
+        write_cargo_config(job_dir).await?;
 
         if let Some(reqs) = requirements_o {
             if !reqs.is_empty() {

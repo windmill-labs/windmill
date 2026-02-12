@@ -11,6 +11,7 @@ path = "./src/lib.rs"
 [features]
 private = []
 enterprise = ["windmill-queue/enterprise", "windmill-common/enterprise"]
+all_sqlx_features = ["enterprise"]
 default = []
 
 [dependencies]

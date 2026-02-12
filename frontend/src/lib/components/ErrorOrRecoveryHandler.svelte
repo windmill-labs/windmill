@@ -366,7 +366,7 @@
 		{/snippet}
 	</ToggleButtonGroup>
 
-	<div class="flex flex-col gap-6 p-4 rounded-md border">
+	<div class="flex flex-col gap-6 p-4 rounded-md shadow-sm bg-surface-tertiary">
 		{#if handlerSelected === 'custom'}
 			<div class="flex flex-col gap-1">
 				<div class="flex flex-row">

@@ -87,11 +87,11 @@ use windmill_common::{client::AuthedClient, global_settings::APP_WORKSPACED_ROUT
 use windmill_queue::{cancel_job, get_queued_job_v2, SameWorkerPayload};
 use windmill_worker::{
     result_processor::handle_job_error, JobCompletedSender, JobIsolationLevel,
-    OtelTracingProxySettings, SameWorkerSender, BUNFIG_INSTALL_SCOPES, INSTANCE_PYTHON_VERSION,
-    JOB_DEFAULT_TIMEOUT, JOB_ISOLATION, KEEP_JOB_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN,
-    NPM_CONFIG_REGISTRY, NSJAIL_AVAILABLE, NUGET_CONFIG, OTEL_TRACING_PROXY_SETTINGS,
-    PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL,
-    UV_INDEX_STRATEGY,
+    OtelTracingProxySettings, SameWorkerSender, BUNFIG_INSTALL_SCOPES, CARGO_REGISTRIES,
+    INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, JOB_ISOLATION, KEEP_JOB_DIR, MAVEN_REPOS,
+    NO_DEFAULT_MAVEN, NPM_CONFIG_REGISTRY, NSJAIL_AVAILABLE, NUGET_CONFIG,
+    OTEL_TRACING_PROXY_SETTINGS, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, POWERSHELL_REPO_PAT,
+    POWERSHELL_REPO_URL, UV_INDEX_STRATEGY,
 };
 
 #[cfg(feature = "parquet")]
@@ -331,6 +331,7 @@ pub async fn initial_load(
         reload_maven_repos_setting(&conn).await;
         reload_no_default_maven_setting(&conn).await;
         reload_ruby_repos_setting(&conn).await;
+        reload_cargo_registries_setting(&conn).await;
     }
 }
 
@@ -1357,6 +1358,16 @@ pub async fn reload_ruby_repos_setting(conn: &Connection) {
         windmill_common::global_settings::RUBY_REPOS_SETTING,
         "RUBY_REPOS",
         windmill_worker::RUBY_REPOS.clone(),
+    )
+    .await;
+}
+
+pub async fn reload_cargo_registries_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(
+        conn,
+        windmill_common::global_settings::CARGO_REGISTRIES_SETTING,
+        "CARGO_REGISTRIES",
+        CARGO_REGISTRIES.clone(),
     )
     .await;
 }
