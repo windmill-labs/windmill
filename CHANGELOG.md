@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.633.1](https://github.com/windmill-labs/windmill/compare/v1.633.0...v1.633.1) (2026-02-12)
+
+
+### Bug Fixes
+
+* add private registries support for RUST + java home nit ([e2c28e4](https://github.com/windmill-labs/windmill/commit/e2c28e42dbda0f7bf119efc8d587da0d30636a44))
+
 ## [1.633.0](https://github.com/windmill-labs/windmill/compare/v1.632.0...v1.633.0) (2026-02-12)
 
 
