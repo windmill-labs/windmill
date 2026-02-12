@@ -84,7 +84,6 @@
 	let folders: string[] = $state([])
 	let argError = $state('')
 	let resultError = $state('')
-	let filterTimeout: ReturnType<typeof setInterval> | undefined = undefined
 	let autoRefresh: boolean = $state(getAutoRefresh())
 	let runDrawer: Drawer | undefined = $state(undefined)
 	let lookback: number = $state(1)
