@@ -11,11 +11,7 @@
 		value?: string
 		placeholder?: string
 		onCurrentTagChange?: (tag: { id: string } | null) => void
-		onTextSegmentAtCursorChange?: (segment: {
-			text: string
-			start: number
-			end: number
-		}) => void
+		onTextSegmentAtCursorChange?: (segment: { text: string; start: number; end: number }) => void
 		class?: string
 	} = $props()
 
@@ -271,7 +267,9 @@
 
 	function handlePaste(e: ClipboardEvent) {
 		e.preventDefault()
-		const text = e.clipboardData?.getData('text/plain') || ''
+		let text = e.clipboardData?.getData('text/plain') || ''
+		// Escape slashes and spaces
+		text = text.replace(/\\/g, '\\\\').replace(/ /g, '\\ ')
 		document.execCommand('insertText', false, text)
 	}
 </script>
