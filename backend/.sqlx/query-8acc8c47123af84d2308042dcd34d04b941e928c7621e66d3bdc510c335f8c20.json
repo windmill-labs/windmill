@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            INSERT INTO workspace_dependencies(name, workspace_id, content, language, description)\n            VALUES ($1, $2, $3, $4, $5)\n            RETURNING id\n            ",
+  "query": "\n            WITH ins AS (\n                INSERT INTO workspace_dependencies(name, workspace_id, content, language, description)\n                VALUES ($1, $2, $3, $4, $5)\n                RETURNING id\n            ), lock_ins AS (\n                INSERT INTO lock_hash (workspace_id, path, lockfile_hash)\n                VALUES ($2, $6, $7)\n                ON CONFLICT (workspace_id, path) DO UPDATE SET lockfile_hash = $7\n            )\n            SELECT id FROM ins\n            ",
   "describe": {
     "columns": [
       {
@@ -46,12 +46,14 @@
             }
           }
         },
-        "Text"
+        "Text",
+        "Varchar",
+        "Int8"
       ]
     },
     "nullable": [
       false
     ]
   },
-  "hash": "6c10c38a5d5e560d8d76159ce0ae118cf7191b06d72285e71256dd6d70c19451"
+  "hash": "8acc8c47123af84d2308042dcd34d04b941e928c7621e66d3bdc510c335f8c20"
 }
