@@ -308,11 +308,6 @@
 					</div>
 				</div>
 			</div>
-			<div class="mt-6 p-2 border-t">
-				<div class="text-xs text-primary mb-2">
-					{isInitialSetup ? 'Configure initial sync settings' : 'Review migration settings'}
-				</div>
-			</div>
 		{:else}
 			<!-- Read-only view -->
 			<div class="px-4 py-2">
