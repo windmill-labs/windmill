@@ -43,6 +43,7 @@
 	import Dropdown from './DropdownV2.svelte'
 	import TagList from './TagList.svelte'
 	import DedicatedWorkersSelector from './DedicatedWorkersSelector.svelte'
+	import { computeHashedTag } from './dedicated_worker'
 
 	function computeVCpuAndMemory(workers: [string, WorkerPing[]][]) {
 		let vcpus = 0
@@ -252,6 +253,21 @@
 	let openDelete = $state(false)
 	let openClean = $state(false)
 
+	// Compute hashed tags for display (actual tags used by the worker)
+	let hashedDedicatedTags: Map<string, string> = $state(new Map())
+	$effect(() => {
+		const dws = config?.dedicated_workers ?? (config?.dedicated_worker ? [config.dedicated_worker] : [])
+		if (dws.length > 0) {
+			Promise.all(dws.map(async (dw) => [dw, await computeHashedTag(dw)] as const)).then(
+				(entries) => {
+					hashedDedicatedTags = new Map(entries)
+				}
+			)
+		} else {
+			hashedDedicatedTags = new Map()
+		}
+	})
+
 	let drawer: Drawer | undefined = $state()
 	let vcpus_memory = $derived(computeVCpuAndMemory(workers))
 	let selected = $derived(
@@ -372,7 +388,7 @@
 								label: 'Reset to all tags minus native ones',
 								onClick: () => {
 									if (nconfig != undefined) {
-										nconfig.worker_tags = defaultTags.concat(nativeTags)
+										nconfig.worker_tags = defaultTags
 									}
 								},
 								disabled: !canEditConfig,
@@ -1166,21 +1182,27 @@
 			<TagList tags={config.worker_tags} maxVisible={25} class="flex-wrap" />
 		</div>
 	{:else if config?.dedicated_workers && config.dedicated_workers.length > 0}
-		<div class="flex flex-row items-start gap-2 w-full">
-			<div class="text-secondary text-xs mt-1">Dedicated to:</div>
-			<div class="flex flex-wrap gap-1">
+		<div class="flex flex-row items-start gap-2 w-full min-w-0">
+			<div class="text-secondary text-xs mt-1 flex-shrink-0">Dedicated to:</div>
+			<div class="flex flex-wrap gap-1 min-w-0">
 				{#each config.dedicated_workers as dw}
-					<div class="text-xs bg-surface-secondary px-2 py-1 rounded text-primary font-mono">
-						{dw}
+					<div
+						class="text-xs bg-surface-secondary px-2 py-1 rounded text-primary font-mono truncate max-w-xs"
+						title={hashedDedicatedTags.get(dw) ?? dw}
+					>
+						{hashedDedicatedTags.get(dw) ?? dw}
 					</div>
 				{/each}
 			</div>
 		</div>
 	{:else if config?.dedicated_worker}
-		<div class="flex flex-row items-start gap-2 w-full">
-			<div class="text-secondary text-xs mt-1">Dedicated to:</div>
-			<div class="text-xs bg-surface-secondary px-2 py-1 rounded text-primary font-mono">
-				{config.dedicated_worker}
+		<div class="flex flex-row items-start gap-2 w-full min-w-0">
+			<div class="text-secondary text-xs mt-1 flex-shrink-0">Dedicated to:</div>
+			<div
+				class="text-xs bg-surface-secondary px-2 py-1 rounded text-primary font-mono truncate max-w-xs"
+				title={hashedDedicatedTags.get(config.dedicated_worker) ?? config.dedicated_worker}
+			>
+				{hashedDedicatedTags.get(config.dedicated_worker) ?? config.dedicated_worker}
 			</div>
 		</div>
 	{/if}

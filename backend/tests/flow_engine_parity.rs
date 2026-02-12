@@ -25,8 +25,7 @@ use windmill_common::{
     scripts::ScriptLang,
 };
 
-mod common;
-use common::*;
+use windmill_test_utils::*;
 
 /// Helper to create a FlowModule with default fields
 fn flow_module(id: &str, value: FlowModuleValue) -> FlowModule {

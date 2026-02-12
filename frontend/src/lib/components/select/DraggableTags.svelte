@@ -56,7 +56,7 @@
 			<CloseButton
 				class="text-hint bg-transparent border-none"
 				small
-				onClick={(e) => { e.stopPropagation(); onRemove(item) }}
+				on:close={(e) => (onRemove(item), e.stopPropagation())}
 			/>
 		{/if}
 	</li>

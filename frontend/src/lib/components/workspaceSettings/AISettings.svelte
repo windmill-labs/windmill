@@ -21,6 +21,7 @@
 	import { Settings } from 'lucide-svelte'
 	import { slide } from 'svelte/transition'
 	import SettingsFooter from './SettingsFooter.svelte'
+	import SettingCard from '../instanceSettings/SettingCard.svelte'
 
 	let {
 		aiProviders = $bindable(),
@@ -182,7 +183,7 @@
 />
 
 <div class="flex flex-col gap-6 mt-4 pb-8">
-	<Label label="AI Providers">
+	<SettingCard label="AI Providers">
 		<div class="flex flex-col gap-4 p-4 rounded-md border bg-surface-tertiary">
 			{#each Object.entries(AI_PROVIDERS) as [provider, details]}
 				<div class="flex flex-col">
@@ -291,9 +292,9 @@
 				</div>
 			{/each}
 		</div>
-	</Label>
+	</SettingCard>
 
-	<Label label="Default chat model">
+	<SettingCard label="Default chat model">
 		{#key Object.keys(aiProviders).length}
 			<Select
 				items={safeSelectItems(selectedAiModels)}
@@ -301,13 +302,14 @@
 				disabled={false}
 				placeholder="Select a default model"
 				size="sm"
+				class="max-w-lg"
 			/>
 		{/key}
-	</Label>
+	</SettingCard>
 
 	<!-- Code completion group for animation purposes -->
 	<div>
-		<Label label="Code completion">
+		<SettingCard label="Code completion">
 			<Toggle
 				on:change={(e) => {
 					if (e.detail) {
@@ -323,11 +325,11 @@
 					rightTooltip: 'We currently only support Mistral Codestral models for code completion.'
 				}}
 			/>
-		</Label>
+		</SettingCard>
 
 		{#if codeCompletionModel != undefined}
 			<div transition:slide|local={{ duration: 150 }} class="mt-6">
-				<Label label="Code completion model">
+				<SettingCard label="Code completion model">
 					<Select
 						items={safeSelectItems(autocompleteModels)}
 						bind:value={codeCompletionModel}
@@ -335,19 +337,18 @@
 						placeholder="Select a code completion model"
 						size="sm"
 					/>
-				</Label>
+				</SettingCard>
 			</div>
 		{/if}
 	</div>
 
 	<ModelTokenLimits {aiProviders} bind:maxTokensPerModel />
 
-	<Label label="Custom system prompts">
-		<p class="text-xs text-secondary">
-			Customize AI behavior with workspace-level system prompts. These apply to all workspace
-			members.
-		</p>
-
+	<SettingCard
+		label="Custom system prompts"
+		description="Customize AI behavior with workspace-level system prompts. These apply to all workspace
+			members."
+	>
 		<div class="flex items-center gap-2 pt-1">
 			<Button
 				onclick={() => (modalOpen = true)}
@@ -365,7 +366,7 @@
 				<Badge color="yellow">Unsaved changes</Badge>
 			{/if}
 		</div>
-	</Label>
+	</SettingCard>
 </div>
 
 <AIPromptsModal

@@ -143,7 +143,7 @@
 				{/each}
 			</tr>
 		</Head>
-		<tbody class="divide-y bg-surface">
+		<tbody class="divide-y bg-surface-tertiary">
 			{#each tableRows as tableRow, idx}
 				<Row>
 					<Cell first class="w-48 relative">
@@ -227,7 +227,7 @@
 						{#if tableRow[0] !== null}
 							<CloseButton
 								small
-								onClick={() => {
+								on:close={() => {
 									if (s3ResourceSettings.secondaryStorage) {
 										s3ResourceSettings.secondaryStorage.splice(idx - 1, 1)
 										s3ResourceSettings.secondaryStorage = [...s3ResourceSettings.secondaryStorage]

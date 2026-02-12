@@ -225,7 +225,7 @@
 			{/each}
 		</tr>
 	</Head>
-	<tbody class="divide-y bg-surface">
+	<tbody class="divide-y bg-surface-tertiary">
 		{#if ducklakeSettings.ducklakes.length == 0}
 			<Row>
 				<Cell colspan={tableHeadNames.length} class="text-center py-6">
@@ -378,7 +378,7 @@
 					</div>
 				</Cell>
 				<Cell class="w-12">
-					<CloseButton small onClick={() => removeDucklake(ducklakeIndex)} />
+					<CloseButton small on:close={() => removeDucklake(ducklakeIndex)} />
 				</Cell>
 			</Row>
 		{/each}
