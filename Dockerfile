@@ -132,6 +132,7 @@ ARG WITH_POWERSHELL=true
 ARG WITH_KUBECTL=true
 ARG WITH_HELM=true
 ARG WITH_GIT=true
+ARG features=""
 
 # To change latest stable version:
 # 1. Change placeholder in instanceSettings.ts
@@ -149,7 +150,8 @@ ENV PATH /usr/local/bin:/root/.local/bin:/tmp/.local/bin:$PATH
 
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends netbase tzdata ca-certificates wget curl jq unzip build-essential unixodbc xmlsec1 software-properties-common tini libsasl2-modules-gssapi-mit krb5-user \
+    && apt-get install -y --no-install-recommends netbase tzdata ca-certificates wget curl jq unzip build-essential unixodbc xmlsec1 software-properties-common tini \
+    && if echo "$features" | grep -q "ee"; then apt-get install -y --no-install-recommends libsasl2-modules-gssapi-mit krb5-user; fi \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
