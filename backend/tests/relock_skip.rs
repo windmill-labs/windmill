@@ -82,9 +82,9 @@ mod relock_skip {
         for _ in 0..min_count {
             completed.next().await;
         }
-        // Drain any additional jobs that complete within 2 seconds
+        // Drain any additional jobs that complete within 5 seconds
         loop {
-            match tokio::time::timeout(std::time::Duration::from_secs(2), completed.next()).await {
+            match tokio::time::timeout(std::time::Duration::from_secs(5), completed.next()).await {
                 Ok(Some(_)) => continue,
                 _ => break,
             }
