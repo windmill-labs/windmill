@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { createEventDispatcher } from 'svelte'
 	import Button from './button/Button.svelte'
 	import { X } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -9,15 +10,17 @@
 		Icon?: any | undefined
 		class?: string
 		id?: string | undefined
-		onClick?: (e: Event) => void
+		onClick?: () => void | undefined | any
 	}
 
 	let { noBg = false, small = false, Icon, class: className, id, onClick }: Props = $props()
+
+	const dispatch = createEventDispatcher()
 </script>
 
 <Button
-	{onClick}
-	onPointerdown={(e) => e.stopPropagation()}
+	on:click={() => (dispatch('close'), onClick?.())}
+	on:pointerdown={(e) => e.stopPropagation()}
 	{id}
 	startIcon={{ icon: Icon ?? X }}
 	iconOnly

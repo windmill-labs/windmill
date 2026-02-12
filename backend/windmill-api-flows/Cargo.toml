@@ -1,0 +1,31 @@
+[package]
+name = "windmill-api-flows"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_api_flows"
+path = "src/lib.rs"
+
+[features]
+default = []
+enterprise = ["windmill-common/enterprise"]
+private = ["windmill-common/private"]
+
+[dependencies]
+windmill-common = { workspace = true, default-features = false }
+windmill-api-auth.workspace = true
+windmill-queue.workspace = true
+windmill-audit.workspace = true
+windmill-git-sync.workspace = true
+windmill-dep-map.workspace = true
+
+axum.workspace = true
+hyper.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sql-builder.workspace = true
+sqlx.workspace = true
+tracing.workspace = true
+chrono.workspace = true
