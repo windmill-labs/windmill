@@ -128,9 +128,11 @@
 	let buttonContainerHeight: number | undefined = $state(undefined)
 
 	let dbPath = $derived(
-		resolvedConfig.type.selected !== 'ducklake'
-			? resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.resource
-			: resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.ducklake
+		resolvedConfig.type.selected === 'ducklake'
+			? resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.ducklake
+			: resolvedConfig.type.selected === 'datatable'
+				? resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.datatable
+				: resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.resource
 	)
 	let dbInput: DbInput = $derived(
 		resolvedConfig.type.selected === 'ducklake'
@@ -140,12 +142,19 @@
 				}
 			: {
 					type: 'database',
-					resourcePath: dbPath.split('$res:')[1],
-					resourceType: resolvedConfig.type.selected as DbType
+					resourcePath: dbPath.split('$res:')[1] ?? dbPath,
+					resourceType:
+						resolvedConfig.type.selected === 'datatable'
+							? 'postgresql'
+							: (resolvedConfig.type.selected as DbType)
 				}
 	)
 	let dbtype = $derived(
-		resolvedConfig.type.selected === 'ducklake' ? ('duckdb' as const) : resolvedConfig.type.selected
+		resolvedConfig.type.selected === 'ducklake'
+			? ('duckdb' as const)
+			: resolvedConfig.type.selected === 'datatable'
+				? 'postgresql'
+				: resolvedConfig.type.selected
 	)
 
 	function onUpdate(
@@ -233,9 +242,11 @@
 					ducklake: dbPath.split('ducklake://')[1]
 				})
 			} else {
-				const resourcePath = dbPath.split('$res:')[1]
+				const resourcePath = dbPath.split('$res:')[1] ?? dbPath
 				dbSchemas[resourcePath] = await getDbSchemas(
-					resolvedConfig?.type?.selected,
+					resolvedConfig?.type?.selected === 'datatable'
+						? 'postgresql'
+						: resolvedConfig?.type?.selected,
 					resourcePath,
 					$workspaceStore,
 					() => {},
@@ -375,7 +386,7 @@
 					}
 				: {
 						type: 'database',
-						resourcePath: dbPath.split('$res:')[1],
+						resourcePath: dbPath.split('$res:')[1] ?? dbPath,
 						resourceType: dbtype
 					},
 			$workspaceStore,
@@ -507,7 +518,6 @@
 	async function insert(args: object) {
 		try {
 			const selected = resolvedConfig.type.selected
-
 			await insertRowRunnable?.insertRow(
 				dbInput,
 				$workspaceStore,
