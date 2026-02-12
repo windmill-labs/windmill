@@ -4,12 +4,18 @@
 		value = $bindable(''),
 		placeholder = '',
 		onCurrentTagChange,
+		onTextSegmentAtCursorChange,
 		class: className = ''
 	}: {
 		tags: { regex: RegExp; id: string }[]
 		value?: string
 		placeholder?: string
 		onCurrentTagChange?: (tag: { id: string } | null) => void
+		onTextSegmentAtCursorChange?: (segment: {
+			text: string
+			start: number
+			end: number
+		}) => void
 		class?: string
 	} = $props()
 
@@ -126,6 +132,52 @@
 		isUpdating = false
 	}
 
+	function getTextSegmentAtCursor(cursorPos: number): {
+		text: string
+		start: number
+		end: number
+	} | null {
+		// Find all tag positions
+		const tagPositions: Array<{ start: number; end: number }> = []
+		for (const tag of tags) {
+			const regex = new RegExp(tag.regex, 'g')
+			let match
+			while ((match = regex.exec(value)) !== null) {
+				tagPositions.push({
+					start: match.index,
+					end: match.index + match[0].length
+				})
+			}
+		}
+
+		// Sort by start position
+		tagPositions.sort((a, b) => a.start - b.start)
+
+		// Find the text segment containing the cursor
+		let segmentStart = 0
+		let segmentEnd = value.length
+
+		for (const tag of tagPositions) {
+			if (cursorPos <= tag.start) {
+				// Cursor is before this tag
+				segmentEnd = tag.start
+				break
+			} else if (cursorPos > tag.end) {
+				// Cursor is after this tag
+				segmentStart = tag.end
+			} else {
+				// Cursor is inside a tag
+				return null
+			}
+		}
+
+		return {
+			text: value.slice(segmentStart, segmentEnd).trim(),
+			start: segmentStart,
+			end: segmentEnd
+		}
+	}
+
 	function updateCurrentTag(cursorPos: number) {
 		if (!onCurrentTagChange) return
 		let currentTag: { id: string } | null = null
@@ -139,11 +191,18 @@
 				if (cursorPos >= start && cursorPos <= end) {
 					currentTag = { id: tag.id }
 					onCurrentTagChange(currentTag)
+					onTextSegmentAtCursorChange?.({ text: '', start: 0, end: 0 })
 					return
 				}
 			}
 		}
 		onCurrentTagChange(null)
+
+		// Get text segment at cursor when not in a tag
+		const textSegment = getTextSegmentAtCursor(cursorPos)
+		if (textSegment) {
+			onTextSegmentAtCursorChange?.(textSegment)
+		}
 	}
 
 	function handleClick() {

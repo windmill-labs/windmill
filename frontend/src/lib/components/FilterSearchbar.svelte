@@ -89,6 +89,7 @@
 	let { schema, value = $bindable(), class: className }: Props<SchemaT> = $props()
 
 	let currentTag: keyof SchemaT | undefined = $state()
+	let currentTextSegment = $state({ text: '', start: 0, end: 0 })
 	let open = $state(false)
 	let inputElement: HTMLDivElement | undefined = $state()
 	let highlightedIndex = $state(0)
@@ -102,14 +103,24 @@
 
 	let menuItems = $derived.by(() => {
 		if (!currentTag) {
+			const searchText = currentTextSegment.text.trim().toLowerCase()
 			return Object.entries(schema)
 				.filter(([k, _]) => !(k in value))
+				.filter(([k, filterSchema]) => {
+					if (!searchText) return true
+					const label = (filterSchema.label || k).toLowerCase()
+					const key = k.toLowerCase()
+					return label.includes(searchText) || key.includes(searchText)
+				})
 				.map(([key, filterSchema]) => ({
 					type: 'filter' as const,
 					key,
 					filterSchema,
 					onClick: () => {
-						asText.val = asText.val.trim() + ` ${key}:\\\u00A0`
+						// Replace the text segment with the new filter tag
+						const before = asText.val.slice(0, currentTextSegment.start)
+						const after = asText.val.slice(currentTextSegment.end)
+						asText.val = `${before}${before && !before.endsWith(' ') ? ' ' : ''}${key}:\\\u00A0${after}`.trim() + '\u00A0'
 					}
 				}))
 		} else {
@@ -228,6 +239,7 @@
 		bind:value={asText.val}
 		{tags}
 		onCurrentTagChange={(tag) => (currentTag = tag ? (tag.id as keyof SchemaT) : undefined)}
+		onTextSegmentAtCursorChange={(segment) => (currentTextSegment = segment)}
 		class={twMerge(
 			'bg-surface-input outline-none overflow-x-auto scrollbar-hidden text-nowrap',
 			inputBaseClass,
