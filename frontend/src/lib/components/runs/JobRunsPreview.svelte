@@ -83,7 +83,7 @@
 						// Only show error state if we couldn't load the job data
 						// If the job failed but we have the job object, let it display normally
 						if (!currentJob) {
-							loadError = error?.body || error?.message || 'Failed to load job details'
+							loadError = (error as any)?.body || error?.message || 'Failed to load job details'
 						}
 						isLoadingJobDetails = false
 					},
