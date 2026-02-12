@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*) FROM websocket_trigger WHERE workspace_id = $1 AND mode = 'disabled'::trigger_mode",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "0b238fcc4737fa31312bdd2baa7f42617f0727eea4228364f01c3b9c7056da3e"
+}

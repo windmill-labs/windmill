@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT queue_url, aws_resource_path,\n               aws_auth_resource_type AS \"aws_auth_resource_type: String\",\n               mode AS \"mode: String\"\n        FROM sqs_trigger\n        WHERE workspace_id = $1 AND path = $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "queue_url",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "aws_resource_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "aws_auth_resource_type: String",
+        "type_info": {
+          "Custom": {
+            "name": "aws_auth_resource_type",
+            "kind": {
+              "Enum": [
+                "oidc",
+                "credentials"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "mode: String",
+        "type_info": {
+          "Custom": {
+            "name": "trigger_mode",
+            "kind": {
+              "Enum": [
+                "enabled",
+                "disabled",
+                "suspended"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "4f8bc8acc174e33a45eab9f046cd3e809a5026de15540a3347c464a03c079257"
+}
