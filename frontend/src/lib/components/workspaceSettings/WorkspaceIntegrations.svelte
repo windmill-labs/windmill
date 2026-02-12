@@ -18,7 +18,7 @@
 			client_id: string
 			client_secret: string
 			base_url: string
-			redirect_uri: string
+			resource_path?: string
 		} | null
 	}
 
@@ -165,7 +165,7 @@
 	}
 
 	function isConnected(integration: WorkspaceIntegration): boolean {
-		return isConfigured(integration) && !!(integration.oauth_data as any)?.access_token
+		return isConfigured(integration) && !!integration.oauth_data?.resource_path
 	}
 
 	function getIntegrationByService(serviceName: string): WorkspaceIntegration | null {

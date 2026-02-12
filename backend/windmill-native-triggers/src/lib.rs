@@ -144,6 +144,14 @@ impl ServiceName {
         }
     }
 
+    /// Returns the resource type used for storing OAuth tokens.
+    pub fn resource_type(&self) -> &'static str {
+        match self {
+            ServiceName::Nextcloud => "nextcloud",
+            ServiceName::Google => "gworkspace",
+        }
+    }
+
     /// Returns extra OAuth authorization parameters required by this service.
     pub fn extra_auth_params(&self) -> &[(&'static str, &'static str)] {
         match self {
@@ -383,13 +391,16 @@ pub trait External: Send + Sync + 'static {
                 task::spawn({
                     let db_clone = db.clone();
                     let workspace_id_clone = workspace_id.to_string();
-                    let refreshed_json = oauth_config_to_json(&refreshed_oauth_config);
+                    let service_name = Self::SERVICE_NAME;
+                    let new_access_token = refreshed_oauth_config.access_token.clone();
+                    let new_refresh_token = refreshed_oauth_config.refresh_token.clone();
                     async move {
-                        update_workspace_integration_tokens_helper(
-                            db_clone,
-                            workspace_id_clone,
-                            Self::SERVICE_NAME,
-                            refreshed_json,
+                        update_oauth_token_resource(
+                            &db_clone,
+                            &workspace_id_clone,
+                            service_name,
+                            &new_access_token,
+                            new_refresh_token.as_deref(),
                         )
                         .await;
                     }
@@ -466,75 +477,56 @@ pub async fn decrypt_oauth_data<
     service_name: ServiceName,
 ) -> Result<T> {
     let integration = get_workspace_integration(tx, workspace_id, service_name).await?;
+    let oauth_data = integration.oauth_data;
+
+    let resource_path = oauth_data["resource_path"].as_str().ok_or_else(|| {
+        Error::InternalErr(format!(
+            "No resource_path in {} integration config. Please reconnect the integration.",
+            service_name
+        ))
+    })?;
 
     let mc = build_crypt(db, workspace_id).await?;
-    let mut oauth_data: serde_json::Value = integration.oauth_data;
 
-    if let Some(encrypted_access_token) = oauth_data.get("access_token").and_then(|v| v.as_str()) {
-        let decrypted_access_token = decrypt(&mc, encrypted_access_token.to_string())
-            .map_err(|e| Error::InternalErr(format!("Failed to decrypt access token: {}", e)))?;
-        oauth_data["access_token"] = serde_json::Value::String(decrypted_access_token);
-    }
+    let var_row = sqlx::query!(
+        "SELECT value, account FROM variable WHERE workspace_id = $1 AND path = $2",
+        workspace_id,
+        resource_path,
+    )
+    .fetch_optional(db)
+    .await?
+    .ok_or_else(|| {
+        Error::InternalErr(format!(
+            "Variable at {} not found for {} integration",
+            resource_path, service_name
+        ))
+    })?;
 
-    if let Some(encrypted_refresh_token) = oauth_data.get("refresh_token").and_then(|v| v.as_str())
-    {
-        let decrypted_refresh_token = decrypt(&mc, encrypted_refresh_token.to_string())
-            .map_err(|e| Error::InternalErr(format!("Failed to decrypt refresh token: {}", e)))?;
-        oauth_data["refresh_token"] = serde_json::Value::String(decrypted_refresh_token);
-    }
+    let access_token = decrypt(&mc, var_row.value)
+        .map_err(|e| Error::InternalErr(format!("Failed to decrypt access token: {}", e)))?;
 
-    serde_json::from_value(oauth_data)
-        .map_err(|e| Error::InternalErr(format!("Failed to deserialize OAuth data: {}", e)))
-}
+    let refresh_token = if let Some(account_id) = var_row.account {
+        sqlx::query_scalar!(
+            "SELECT refresh_token FROM account WHERE workspace_id = $1 AND id = $2",
+            workspace_id,
+            account_id,
+        )
+        .fetch_optional(db)
+        .await?
+    } else {
+        None
+    };
 
-#[allow(unused)]
-pub fn oauth_data_to_config(oauth_data: &serde_json::Value) -> Result<OAuthConfig> {
-    let base_url = oauth_data
-        .get("base_url")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| Error::InternalErr("No base_url in OAuth data".to_string()))?
-        .to_string();
-
-    let access_token = oauth_data
-        .get("access_token")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| Error::InternalErr("No access_token in OAuth data".to_string()))?
-        .to_string();
-
-    let refresh_token = oauth_data
-        .get("refresh_token")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-
-    let client_id = oauth_data
-        .get("client_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| Error::InternalErr("No client_id in OAuth data".to_string()))?
-        .to_string();
-
-    let client_secret = oauth_data
-        .get("client_secret")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| Error::InternalErr("No client_secret in OAuth data".to_string()))?
-        .to_string();
-
-    Ok(OAuthConfig { base_url, access_token, refresh_token, client_id, client_secret })
-}
-
-#[inline]
-pub fn oauth_config_to_json(config: &OAuthConfig) -> serde_json::Value {
-    let mut json = json!({
-        "base_url": config.base_url,
-        "access_token": config.access_token,
-        "client_id": config.client_id,
-        "client_secret": config.client_secret,
+    let assembled = json!({
+        "base_url": oauth_data["base_url"].as_str().unwrap_or(""),
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "client_id": oauth_data["client_id"].as_str().unwrap_or(""),
+        "client_secret": oauth_data["client_secret"].as_str().unwrap_or(""),
     });
 
-    if let Some(refresh_token) = &config.refresh_token {
-        json["refresh_token"] = serde_json::Value::String(refresh_token.clone());
-    }
-
-    json
+    serde_json::from_value(assembled)
+        .map_err(|e| Error::InternalErr(format!("Failed to deserialize OAuth data: {}", e)))
 }
 
 /// Token refresh response
@@ -598,56 +590,60 @@ pub async fn refresh_oauth_tokens(
     ))
 }
 
-async fn update_workspace_integration_tokens_helper(
-    db: DB,
-    workspace_id: String,
+async fn update_oauth_token_resource(
+    db: &DB,
+    workspace_id: &str,
     service_name: ServiceName,
-    oauth_data: serde_json::Value,
+    new_access_token: &str,
+    new_refresh_token: Option<&str>,
 ) {
     let result = async {
-        let mut tx = db.begin().await?;
-        let mc = build_crypt(&db, &workspace_id).await?;
-        let mut encrypted_oauth_data = oauth_data;
+        let integration = get_workspace_integration(db, workspace_id, service_name).await?;
+        let resource_path = integration.oauth_data["resource_path"]
+            .as_str()
+            .ok_or_else(|| {
+                Error::InternalErr(format!(
+                    "No resource_path in {} integration config",
+                    service_name
+                ))
+            })?
+            .to_string();
 
-        if let Some(access_token) = encrypted_oauth_data
-            .get("access_token")
-            .and_then(|v| v.as_str())
-        {
-            let encrypted_access_token = encrypt(&mc, access_token);
-            encrypted_oauth_data["access_token"] =
-                serde_json::Value::String(encrypted_access_token);
-        }
-
-        if let Some(refresh_token) = encrypted_oauth_data
-            .get("refresh_token")
-            .and_then(|v| v.as_str())
-        {
-            let encrypted_refresh_token = encrypt(&mc, refresh_token);
-            encrypted_oauth_data["refresh_token"] =
-                serde_json::Value::String(encrypted_refresh_token);
-        }
+        let mc = build_crypt(db, workspace_id).await?;
+        let encrypted_token = encrypt(&mc, new_access_token);
 
         sqlx::query!(
-            r#"
-            UPDATE workspace_integrations
-            SET oauth_data = $1, updated_at = now()
-            WHERE workspace_id = $2 AND service_name = $3
-            "#,
-            encrypted_oauth_data,
+            "UPDATE variable SET value = $1 WHERE workspace_id = $2 AND path = $3",
+            encrypted_token,
             workspace_id,
-            service_name as ServiceName,
+            resource_path,
         )
-        .execute(&mut *tx)
+        .execute(db)
         .await?;
 
-        tx.commit().await?;
+        if let Some(refresh_token) = new_refresh_token {
+            sqlx::query!(
+                "UPDATE account SET refresh_token = $1, refresh_error = NULL
+                 WHERE workspace_id = $2 AND client = $3 AND is_workspace_integration = true",
+                refresh_token,
+                workspace_id,
+                service_name.as_str(),
+            )
+            .execute(db)
+            .await?;
+        }
+
         Ok::<(), Error>(())
     }
     .await;
 
     if let Err(e) = result {
-        tracing::error!("Critical error: Failed to update workspace integration tokens for {} in workspace {}: {}",
-            service_name, workspace_id, e);
+        tracing::error!(
+            "Failed to update OAuth tokens for {} in workspace {}: {}",
+            service_name,
+            workspace_id,
+            e
+        );
     }
 }
 
