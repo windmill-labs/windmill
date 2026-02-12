@@ -54,13 +54,14 @@ use windmill_common::{
         DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
         HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
-        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
-        LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING,
-        NUGET_CONFIG_SETTING, OTEL_SETTING, OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING,
-        UV_INDEX_STRATEGY_SETTING,
-        POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING, JWT_SECRET_SETTING,
+        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING,
+        NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OTEL_SETTING,
+        OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
+        POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
+        UV_INDEX_STRATEGY_SETTING,
     },
     indexer::load_indexer_config,
     jwt::JWT_SECRET,
@@ -85,9 +86,10 @@ use windmill_common::{
 use windmill_common::{client::AuthedClient, global_settings::APP_WORKSPACED_ROUTE_SETTING};
 use windmill_queue::{cancel_job, get_queued_job_v2, SameWorkerPayload};
 use windmill_worker::{
-    result_processor::handle_job_error, JobCompletedSender, OtelTracingProxySettings,
-    SameWorkerSender, BUNFIG_INSTALL_SCOPES, INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT,
-    KEEP_JOB_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN, NPM_CONFIG_REGISTRY, NUGET_CONFIG,
+    result_processor::handle_job_error, JobCompletedSender, JobIsolationLevel,
+    OtelTracingProxySettings, SameWorkerSender, BUNFIG_INSTALL_SCOPES, CARGO_REGISTRIES,
+    INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, JOB_ISOLATION, KEEP_JOB_DIR, MAVEN_REPOS,
+    NO_DEFAULT_MAVEN, NPM_CONFIG_REGISTRY, NSJAIL_AVAILABLE, NUGET_CONFIG,
     OTEL_TRACING_PROXY_SETTINGS, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, POWERSHELL_REPO_PAT,
     POWERSHELL_REPO_URL, UV_INDEX_STRATEGY,
 };
@@ -316,6 +318,7 @@ pub async fn initial_load(
 
     if worker_mode {
         reload_job_default_timeout_setting(&conn).await;
+        reload_job_isolation_setting(&conn).await;
         reload_extra_pip_index_url_setting(&conn).await;
         reload_pip_index_url_setting(&conn).await;
         reload_uv_index_strategy_setting(&conn).await;
@@ -328,6 +331,7 @@ pub async fn initial_load(
         reload_maven_repos_setting(&conn).await;
         reload_no_default_maven_setting(&conn).await;
         reload_ruby_repos_setting(&conn).await;
+        reload_cargo_registries_setting(&conn).await;
     }
 }
 
@@ -1358,6 +1362,16 @@ pub async fn reload_ruby_repos_setting(conn: &Connection) {
     .await;
 }
 
+pub async fn reload_cargo_registries_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(
+        conn,
+        windmill_common::global_settings::CARGO_REGISTRIES_SETTING,
+        "CARGO_REGISTRIES",
+        CARGO_REGISTRIES.clone(),
+    )
+    .await;
+}
+
 pub async fn reload_hub_api_secret_setting(conn: &Connection) {
     reload_option_setting_with_tracing(
         conn,
@@ -1405,6 +1419,32 @@ pub async fn reload_job_default_timeout_setting(conn: &Connection) {
         JOB_DEFAULT_TIMEOUT.clone(),
     )
     .await;
+}
+
+pub async fn reload_job_isolation_setting(conn: &Connection) {
+    let value =
+        match load_value_from_global_settings_with_conn(conn, JOB_ISOLATION_SETTING, true).await {
+            Ok(Some(v)) => JobIsolationLevel::from_str(v.as_str().unwrap_or("")),
+            Ok(None) => JobIsolationLevel::Undefined,
+            Err(e) => {
+                tracing::error!("Error reloading job_isolation setting: {:?}", e);
+                return;
+            }
+        };
+    let old_value = JobIsolationLevel::from_u8(JOB_ISOLATION.swap(value as u8, Ordering::Relaxed));
+    if old_value != value {
+        tracing::info!(
+            "job_isolation setting changed from {:?} to {:?}",
+            old_value,
+            value
+        );
+    }
+    if value == JobIsolationLevel::NsjailSandboxing && NSJAIL_AVAILABLE.is_none() {
+        tracing::error!(
+            "job_isolation is set to nsjail_sandboxing but nsjail is not available on this worker. \
+            All jobs will fail until nsjail is installed or the setting is changed."
+        );
+    }
 }
 
 pub async fn reload_request_size(conn: &Connection) {

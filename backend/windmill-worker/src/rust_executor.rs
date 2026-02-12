@@ -25,8 +25,8 @@ use crate::{
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
-    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUST_CACHE_DIR,
-    TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
+    is_sandboxing_enabled, CARGO_REGISTRIES, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
+    PROXY_ENVS, RUST_CACHE_DIR, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
 use windmill_common::scripts::ScriptLang;
@@ -135,6 +135,15 @@ pub fn __WINDMILL_RUN__(_args: __WINDMILL_ARGS__) -> Result<String, Box<dyn std:
     Ok(())
 }
 
+async fn write_cargo_config(job_dir: &str) -> anyhow::Result<()> {
+    if let Some(cargo_registries) = CARGO_REGISTRIES.read().await.clone() {
+        let cargo_dir = format!("{job_dir}/.cargo");
+        create_dir_all(&cargo_dir).await?;
+        write_file(&cargo_dir, "config.toml", &cargo_registries)?;
+    }
+    Ok(())
+}
+
 pub async fn generate_cargo_lockfile(
     job_id: &Uuid,
     code: &str,
@@ -149,6 +158,7 @@ pub async fn generate_cargo_lockfile(
     check_executor_binary_exists("cargo", CARGO_PATH.as_str(), "rust")?;
 
     gen_cargo_crate(code, job_dir)?;
+    write_cargo_config(job_dir).await?;
 
     let mut gen_lockfile_cmd = Command::new(CARGO_PATH.as_str());
     gen_lockfile_cmd
@@ -205,7 +215,7 @@ async fn get_build_dir(
             if !is_preview || *NO_SHARED_BUILD_DIR {
                 None
             } else {
-                if *DISABLE_NSJAIL {
+                if !is_sandboxing_enabled() {
                     // If nsjail is disabled then entire worker has shared build directory
                     // It drastically improves cache hit-rate.
                     Some((format!("{RUST_CACHE_DIR}/build/{worker_name}"), true))
@@ -322,7 +332,7 @@ pub async fn build_rust_crate(
 
     let build_dir = get_build_dir(job, job_dir, conn, worker_name, is_preview).await?;
 
-    let child = if !*DISABLE_NSJAIL {
+    let child = if is_sandboxing_enabled() {
         let _ = write_file(
             job_dir,
             "download.config.proto",
@@ -503,6 +513,7 @@ pub async fn handle_rust_job(
         append_logs(&job.id, &job.workspace_id, logs1, conn).await;
 
         gen_cargo_crate(inner_content, job_dir)?;
+        write_cargo_config(job_dir).await?;
 
         if let Some(reqs) = requirements_o {
             if !reqs.is_empty() {
@@ -530,7 +541,7 @@ pub async fn handle_rust_job(
     let logs2 = format!("{cache_logs}\n\n--- RUST CODE EXECUTION ---\n");
     append_logs(&job.id, &job.workspace_id, logs2, conn).await;
 
-    let child = if !*DISABLE_NSJAIL {
+    let child = if is_sandboxing_enabled() {
         let _ = write_file(
             job_dir,
             "run.config.proto",
@@ -588,7 +599,7 @@ pub async fn handle_rust_job(
         mem_peak,
         canceled_by,
         child,
-        !*DISABLE_NSJAIL,
+        is_sandboxing_enabled(),
         worker_name,
         &job.workspace_id,
         "rust run",

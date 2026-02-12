@@ -1,1088 +1,194 @@
-### Simplified Database Schema ###
+# Database Schema
 
---- Custom Data Types (ENUMs) ---
+## ENUMs
+action_kind: create, update, delete, execute
+asset_access_type: r, w, rw
+asset_kind: s3object, resource, variable, ducklake, datatable
+asset_usage_kind: script, flow, job
+authentication_method: none, windmill, api_key, basic_http, custom_script, signature
+autoscaling_event_type: full_scaleout, scalein, scaleout
+aws_auth_resource_type: oidc, credentials
+delivery_mode: push, pull
+draft_type: script, flow, app
+favorite_kind: app, script, flow, raw_app, asset
+gcp_subscription_mode: create_update, existing
+http_method: get, post, put, delete, patch
+importer_kind: script, flow, app
+job_kind: script, preview, flow, dependencies, flowpreview, script_hub, identity, flowdependencies, http, graphql, postgresql, noop, appdependencies, deploymentcallback, singlestepflow, flowscript, flownode, appscript, aiagent, unassigned_script, unassigned_flow, unassigned_singlestepflow
+job_status: success, failure, canceled, skipped
+job_trigger_kind: webhook, http, websocket, kafka, email, nats, schedule, app, ui, postgres, sqs, gcp, mqtt, nextcloud
+log_mode: standalone, server, worker, agent, indexer, mcp
+login_type: password, github
+message_type: user, assistant, tool
+metric_kind: scalar_int, scalar_float, timeseries_int, timeseries_float
+mqtt_client_version: v3, v5
+native_trigger_service: nextcloud
+request_type: sync, async, sync_sse
+runnable_type: ScriptHash, ScriptPath, FlowPath
+script_kind: script, trigger, failure, command, approval, preprocessor
+script_lang: python3, deno, go, bash, postgresql, nativets, bun, mysql, bigquery, snowflake, graphql, powershell, mssql, php, bunnative, rust, ansible, csharp, oracledb, nu, java, duckdb, ruby
+trigger_kind: webhook, http, websocket, kafka, email, nats, postgres, sqs, mqtt, gcp, default_email, nextcloud
+trigger_mode: enabled, disabled, suspended
+workspace_key_kind: cloud
 
-action_kind:
-  - create
-  - update
-  - delete
-  - execute
-
-authentication_method:
-  - none
-  - windmill
-  - api_key
-  - basic_http
-  - custom_script
-  - signature
-
-autoscaling_event_type:
-  - full_scaleout
-  - scalein
-  - scaleout
-
-aws_auth_resource_type:
-  - oidc
-  - credentials
-
-delivery_mode:
-  - push
-  - pull
-
-draft_type:
-  - script
-  - flow
-  - app
-
-favorite_kind:
-  - app
-  - script
-  - flow
-  - raw_app
-
-gcp_subscription_mode:
-  - create_update
-  - existing
-
-http_method:
-  - get
-  - post
-  - put
-  - delete
-  - patch
-
-importer_kind:
-  - script
-  - flow
-  - app
-
-job_kind:
-  - script
-  - preview
-  - flow
-  - dependencies
-  - flowpreview
-  - script_hub
-  - identity
-  - flowdependencies
-  - http
-  - graphql
-  - postgresql
-  - noop
-  - appdependencies
-  - deploymentcallback
-  - singlescriptflow
-  - flowscript
-  - flownode
-  - appscript
-
-job_status:
-  - success
-  - failure
-  - canceled
-  - skipped
-
-job_trigger_kind:
-  - webhook
-  - http
-  - websocket
-  - kafka
-  - email
-  - nats
-  - schedule
-  - app
-  - ui
-  - postgres
-  - sqs
-  - gcp
-
-log_mode:
-  - standalone
-  - server
-  - worker
-  - agent
-  - indexer
-  - mcp
-
-login_type:
-  - password
-  - github
-
-metric_kind:
-  - scalar_int
-  - scalar_float
-  - timeseries_int
-  - timeseries_float
-
-mqtt_client_version:
-  - v3
-  - v5
-
-runnable_type:
-  - ScriptHash
-  - ScriptPath
-  - FlowPath
-
-script_kind:
-  - script
-  - trigger
-  - failure
-  - command
-  - approval
-  - preprocessor
-
-script_lang:
-  - python3
-  - deno
-  - go
-  - bash
-  - postgresql
-  - nativets
-  - bun
-  - mysql
-  - bigquery
-  - snowflake
-  - graphql
-  - powershell
-  - mssql
-  - php
-  - bunnative
-  - rust
-  - ansible
-  - csharp
-  - oracledb
-  - nu
-  - java
-  - duckdb
-
-trigger_kind:
-  - webhook
-  - http
-  - websocket
-  - kafka
-  - email
-  - nats
-  - postgres
-  - sqs
-  - mqtt
-  - gcp
-
-workspace_key_kind:
-  - cloud
-
-
---- Tables and Relationships ---
-
-TABLE: _sqlx_migrations
-  - version (bigint)
-  - description (text)
-  - installed_on (timestamp)
-  - success (boolean)
-  - checksum (bytea)
-  - execution_time (bigint)
---------------------
-TABLE: account
-  - workspace_id (character)
-  - id (integer)
-  - expires_at (timestamp)
-  - refresh_token (character)
-  - client (character)
-  - refresh_error (text)
---------------------
-TABLE: alerts
-  - id (integer)
-  - alert_type (character)
-  - message (text)
-  - created_at (timestamp)
-  - acknowledged (boolean)
-  - workspace_id (text)
-  - acknowledged_workspace (boolean)
-  - resource (text)
-  Indexes:
-    - INDEX alerts_by_workspace (btree) ON (workspace_id)
---------------------
-TABLE: app
-  - id (bigint)
-  - workspace_id (character)
-  - path (character)
-  - summary (character)
-  - policy (jsonb)
-  - versions (bigint[])
-  - extra_perms (jsonb)
-  - draft_only (boolean)
-  - custom_path (text)
-  - CONSTRAINT (app_custom_path_check)
---------------------
-TABLE: app_script
-  - id (bigint)
-  - app (bigint)
-  - hash (character(64))
-  - lock (text)
-  - code (text)
-  - code_sha256 (character(64))
---------------------
-TABLE: app_version
-  - id (bigint)
-  - app_id (bigint)
-  - value (json)
-  - created_by (character)
-  - created_at (timestamp)
-  - raw_app (boolean)
---------------------
-TABLE: app_version_lite
-  - id (bigint)
-  - value (jsonb)
---------------------
-TABLE: audit
-  - workspace_id (character)
-  - id (integer)
-  - timestamp (timestamp)
-  - username (character)
-  - operation (character)
-  - action_kind (public.action_kind)
-  - resource (character)
-  - parameters (jsonb)
-  Indexes:
-    - INDEX ix_audit_timestamps (btree) ON (timestamp DESC)
---------------------
-TABLE: autoscaling_event
-  - id (integer)
-  - worker_group (text)
-  - event_type (public.autoscaling_event_type)
-  - desired_workers (integer)
-  - applied_at (timestamp)
-  - reason (text)
-  Indexes:
-    - INDEX autoscaling_event_worker_group_idx (btree) ON (worker_group, applied_at)
---------------------
-TABLE: capture
-  - workspace_id (character)
-  - path (character)
-  - created_at (timestamp)
-  - created_by (character)
-  - main_args (jsonb)
-  - is_flow (boolean)
-  - trigger_kind (public.trigger_kind)
-  - preprocessor_args (jsonb)
-  - id (bigint)
-  - CONSTRAINT (capture_payload_too_big)
---------------------
-TABLE: capture_config
-  - workspace_id (character)
-  - path (character)
-  - is_flow (boolean)
-  - trigger_kind (public.trigger_kind)
-  - trigger_config (jsonb)
-  - owner (character)
-  - email (character)
-  - server_id (character)
-  - last_client_ping (timestamp)
-  - last_server_ping (timestamp)
-  - error (text)
---------------------
-TABLE: cloud_workspace_settings
-  - workspace_id (character)
-  - threshold_alert_amount (integer)
-  - last_alert_sent (timestamp)
-  - last_warning_sent (timestamp)
---------------------
-TABLE: concurrency_counter
-  - concurrency_id (character)
-  - job_uuids (jsonb)
---------------------
-TABLE: concurrency_key
-  - key (character)
-  - ended_at (timestamp)
-  - job_id (uuid)
-  Indexes:
-    - INDEX concurrency_key_ended_at_idx (btree) ON (key, ended_at DESC)
---------------------
-TABLE: concurrency_locks
-  - id (character)
-  - last_locked_at (timestamp)
-  - owner (character)
---------------------
-TABLE: config
-  - name (character)
-  - config (jsonb)
---------------------
-TABLE: custom_concurrency_key_ended
-  - key (character)
-  - ended_at (timestamp)
---------------------
-TABLE: dependency_map
-  - workspace_id (character)
-  - importer_path (character)
-  - importer_kind (public.importer_kind)
-  - imported_path (character)
-  - importer_node_id (character)
-  Indexes:
-    - INDEX dependency_map_imported_path_idx (btree) ON (workspace_id, imported_path)
---------------------
-TABLE: deployment_metadata
-  - workspace_id (character)
-  - path (character)
-  - script_hash (bigint)
-  - app_version (bigint)
-  - callback_job_ids (uuid[])
-  - deployment_msg (text)
-  - flow_version (bigint)
-  Indexes:
-    - UNIQUE INDEX deployment_metadata_app (btree) ON (workspace_id, path, app_version) WHERE (app_version IS NOT NULL)
-    - UNIQUE INDEX deployment_metadata_flow (btree) ON (workspace_id, path, flow_version) WHERE (flow_version IS NOT NULL)
-    - UNIQUE INDEX deployment_metadata_script (btree) ON (workspace_id, script_hash) WHERE (script_hash IS NOT NULL)
---------------------
-TABLE: draft
-  - workspace_id (character)
-  - path (character)
-  - typ (public.draft_type)
-  - value (json)
-  - created_at (timestamp)
---------------------
-TABLE: email_to_igroup
-  - email (character)
-  - igroup (character)
---------------------
-TABLE: favorite
-  - usr (character)
-  - workspace_id (character)
-  - path (character)
-  - favorite_kind (public.favorite_kind)
---------------------
-TABLE: flow
-  - workspace_id (character)
-  - path (character)
-  - summary (text)
-  - description (text)
-  - value (jsonb)
-  - edited_by (character)
-  - edited_at (timestamp)
-  - archived (boolean)
-  - schema (json)
-  - extra_perms (jsonb)
-  - dependency_job (uuid)
-  - draft_only (boolean)
-  - tag (character)
-  - ws_error_handler_muted (boolean)
-  - dedicated_worker (boolean)
-  - timeout (integer)
-  - visible_to_runner_only (boolean)
-  - concurrency_key (character)
-  - versions (bigint[])
-  - on_behalf_of_email (text)
-  - lock_error_logs (text)
-  - CONSTRAINT (proper_id)
-  Indexes:
-    - INDEX flow_extra_perms (gin) ON (extra_perms)
---------------------
-TABLE: flow_node
-  - id (bigint)
-  - workspace_id (character)
-  - hash (bigint)
-  - path (character)
-  - lock (text)
-  - code (text)
-  - flow (jsonb)
-  - hash_v2 (character(64))
-  Indexes:
-    - INDEX flow_node_hash (btree) ON (hash)
---------------------
-TABLE: flow_version
-  - id (bigint)
-  - workspace_id (character)
-  - path (character)
-  - value (jsonb)
-  - schema (json)
-  - created_by (character)
-  - created_at (timestamp)
-  Indexes:
-    - INDEX index_flow_version_path_created_at (btree) ON (path, created_at)
---------------------
-TABLE: flow_version_lite
-  - id (bigint)
-  - value (jsonb)
---------------------
-TABLE: folder
-  - name (character)
-  - workspace_id (character)
-  - display_name (character)
-  - owners (character)
-  - extra_perms (jsonb)
-  - summary (text)
-  - edited_at (timestamp)
-  - created_by (character)
-  Indexes:
-    - INDEX folder_extra_perms (gin) ON (extra_perms)
-    - INDEX folder_owners (gin) ON (owners)
---------------------
-TABLE: gcp_trigger
-  - gcp_resource_path (character)
-  - topic_id (character)
-  - subscription_id (character)
-  - delivery_type (public.delivery_mode)
-  - delivery_config (jsonb)
-  - path (character)
-  - script_path (character)
-  - is_flow (boolean)
-  - workspace_id (character)
-  - edited_by (character)
-  - email (character)
-  - edited_at (timestamp)
-  - extra_perms (jsonb)
-  - server_id (character)
-  - last_server_ping (timestamp)
-  - error (text)
-  - enabled (boolean)
-  - subscription_mode (public.gcp_subscription_mode)
-  - CONSTRAINT (gcp_trigger_check)
-  - CONSTRAINT (gcp_trigger_subscription_id_check)
-  - CONSTRAINT (gcp_trigger_topic_id_check)
-  Indexes:
-    - UNIQUE INDEX unique_subscription_per_gcp_resource (btree) ON (subscription_id, gcp_resource_path, workspace_id)
---------------------
-TABLE: global_settings
-  - name (character)
-  - value (jsonb)
-  - updated_at (timestamp)
---------------------
-TABLE: group_
-  - workspace_id (character)
-  - name (character)
-  - summary (text)
-  - extra_perms (jsonb)
-  - CONSTRAINT (proper_name)
-  Indexes:
-    - INDEX group_extra_perms (gin) ON (extra_perms)
---------------------
-TABLE: healthchecks
-  - id (bigint)
-  - check_type (character)
-  - healthy (boolean)
-  - created_at (timestamp)
-  Indexes:
-    - INDEX healthchecks_check_type_created_at (btree) ON (check_type, created_at)
---------------------
-TABLE: http_trigger
-  - path (character)
-  - route_path (character)
-  - route_path_key (character)
-  - script_path (character)
-  - is_flow (boolean)
-  - workspace_id (character)
-  - edited_by (character)
-  - email (character)
-  - edited_at (timestamp)
-  - extra_perms (jsonb)
-  - is_async (boolean)
-  - authentication_method (public.authentication_method)
-  - http_method (public.http_method)
-  - static_asset_config (jsonb)
-  - is_static_website (boolean)
-  - workspaced_route (boolean)
-  - wrap_body (boolean)
-  - raw_string (boolean)
-  - authentication_resource_path (character)
---------------------
-TABLE: input
-  - id (uuid)
-  - workspace_id (character)
-  - runnable_id (character)
-  - runnable_type (public.runnable_type)
-  - name (text)
-  - args (jsonb)
-  - created_at (timestamp)
-  - created_by (character)
-  - is_public (boolean)
---------------------
-TABLE: instance_group
-  - name (character)
-  - summary (character)
-  - id (character)
-  - scim_display_name (character)
-  - external_id (character)
---------------------
-TABLE: job_logs
-  - job_id (uuid)
-  - workspace_id (character)
-  - created_at (timestamp)
-  - logs (text)
-  - log_offset (integer)
-  - log_file_index (text[])
---------------------
-TABLE: job_perms
-  - job_id (uuid)
-  - email (character)
-  - username (character)
-  - is_admin (boolean)
-  - is_operator (boolean)
-  - created_at (timestamp)
-  - workspace_id (character)
-  - groups (text[])
-  - folders (jsonb[])
---------------------
-TABLE: job_stats
-  - workspace_id (character)
-  - job_id (uuid)
-  - metric_id (character)
-  - metric_name (character)
-  - metric_kind (public.metric_kind)
-  - scalar_int (integer)
-  - scalar_float (real)
-  - timestamps (timestamp)
-  - timeseries_int (integer[])
-  - timeseries_float (real[])
-  Indexes:
-    - INDEX job_stats_id (btree) ON (job_id)
---------------------
-TABLE: kafka_trigger
-  - path (character)
-  - kafka_resource_path (character)
-  - topics (character)
-  - group_id (character)
-  - script_path (character)
-  - is_flow (boolean)
-  - workspace_id (character)
-  - edited_by (character)
-  - email (character)
-  - edited_at (timestamp)
-  - extra_perms (jsonb)
-  - server_id (character)
-  - last_server_ping (timestamp)
-  - error (text)
-  - enabled (boolean)
---------------------
-TABLE: log_file
-  - hostname (character)
-  - log_ts (timestamp)
-  - ok_lines (bigint)
-  - err_lines (bigint)
-  - mode (public.log_mode)
-  - worker_group (character)
-  - file_path (character)
-  - json_fmt (boolean)
-  Indexes:
-    - INDEX log_file_log_ts_idx (btree) ON (log_ts)
---------------------
-TABLE: magic_link
-  - email (character)
-  - token (character)
-  - expiration (timestamp)
-  Indexes:
-    - INDEX index_magic_link_exp (btree) ON (expiration)
---------------------
-TABLE: metrics
-  - id (character)
-  - value (jsonb)
-  - created_at (timestamp)
-  Indexes:
-    - INDEX idx_metrics_id_created_at (btree) ON (id, created_at DESC) WHERE ((id)::text ~~ 'queue_%'::text)
-    - INDEX metrics_key_idx (btree) ON (id)
-    - INDEX metrics_sort_idx (btree) ON (created_at DESC)
---------------------
-TABLE: mqtt_trigger
-  - mqtt_resource_path (character)
-  - subscribe_topics (jsonb[])
-  - client_version (public.mqtt_client_version)
-  - v5_config (jsonb)
-  - v3_config (jsonb)
-  - client_id (character)
-  - path (character)
-  - script_path (character)
-  - is_flow (boolean)
-  - workspace_id (character)
-  - edited_by (character)
-  - email (character)
-  - edited_at (timestamp)
-  - extra_perms (jsonb)
-  - server_id (character)
-  - last_server_ping (timestamp)
-  - error (text)
-  - enabled (boolean)
---------------------
-TABLE: nats_trigger
-  - path (character)
-  - nats_resource_path (character)
-  - subjects (character)
-  - stream_name (character)
-  - consumer_name (character)
-  - use_jetstream (boolean)
-  - script_path (character)
-  - is_flow (boolean)
-  - workspace_id (character)
-  - edited_by (character)
-  - email (character)
-  - edited_at (timestamp)
-  - extra_perms (jsonb)
-  - server_id (character)
-  - last_server_ping (timestamp)
-  - error (text)
-  - enabled (boolean)
---------------------
-TABLE: outstanding_wait_time
-  - job_id (uuid)
-  - self_wait_time_ms (bigint)
-  - aggregate_wait_time_ms (bigint)
---------------------
-TABLE: parallel_monitor_lock
-  - parent_flow_id (uuid)
-  - job_id (uuid)
-  - last_ping (timestamp)
---------------------
-TABLE: password
-  - email (character)
-  - password_hash (character)
-  - login_type (character)
-  - super_admin (boolean)
-  - verified (boolean)
-  - name (character)
-  - company (character)
-  - first_time_user (boolean)
-  - username (character)
-  - devops (boolean)
---------------------
-TABLE: pending_user
-  - email (character)
-  - created_at (timestamp)
-  - username (character)
---------------------
-TABLE: pip_resolution_cache
-  - hash (character)
-  - expiration (timestamp)
-  - lockfile (text)
---------------------
-TABLE: postgres_trigger
-  - path (character)
-  - script_path (character)
-  - is_flow (boolean)
-  - workspace_id (character)
-  - edited_by (character)
-  - email (character)
-  - edited_at (timestamp)
-  - extra_perms (jsonb)
-  - postgres_resource_path (character)
-  - error (text)
-  - server_id (character)
-  - last_server_ping (timestamp)
-  - replication_slot_name (character)
-  - publication_name (character)
-  - enabled (boolean)
---------------------
-TABLE: raw_app
-  - path (character)
-  - version (integer)
-  - workspace_id (character)
-  - summary (character)
-  - edited_at (timestamp)
-  - data (text)
-  - extra_perms (jsonb)
---------------------
-TABLE: resource
-  - workspace_id (character)
-  - path (character)
-  - value (jsonb)
-  - description (text)
-  - resource_type (character)
-  - extra_perms (jsonb)
-  - edited_at (timestamp)
-  - created_by (character)
-  - CONSTRAINT (proper_id)
-  Indexes:
-    - INDEX resource_extra_perms (gin) ON (extra_perms)
---------------------
-TABLE: resource_type
-  - workspace_id (character)
-  - name (character)
-  - schema (jsonb)
-  - description (text)
-  - edited_at (timestamp)
-  - created_by (character)
-  - format_extension (character)
-  - CONSTRAINT (proper_name)
---------------------
-TABLE: resume_job
-  - id (uuid)
-  - job (uuid)
-  - flow (uuid)
-  - created_at (timestamp)
-  - value (jsonb)
-  - approver (character)
-  - resume_id (integer)
-  - approved (boolean)
---------------------
-TABLE: schedule
-  - workspace_id (character)
-  - path (character)
-  - edited_by (character)
-  - edited_at (timestamp)
-  - schedule (character)
-  - enabled (boolean)
-  - script_path (character)
-  - args (jsonb)
-  - extra_perms (jsonb)
-  - is_flow (boolean)
-  - email (character)
-  - error (text)
-  - timezone (character)
-  - on_failure (character)
-  - on_recovery (character)
-  - on_failure_times (integer)
-  - on_failure_exact (boolean)
-  - on_failure_extra_args (jsonb)
-  - on_recovery_times (integer)
-  - on_recovery_extra_args (jsonb)
-  - ws_error_handler_muted (boolean)
-  - retry (jsonb)
-  - summary (character)
-  - no_flow_overlap (boolean)
-  - tag (character)
-  - paused_until (timestamp)
-  - on_success (character)
-  - on_success_extra_args (jsonb)
-  - cron_version (text)
-  - description (text)
-  - CONSTRAINT (proper_id)
-  Indexes:
-    - INDEX schedule_extra_perms (gin) ON (extra_perms)
---------------------
-TABLE: script
-  - workspace_id (character)
-  - hash (bigint)
-  - path (character)
-  - parent_hashes (bigint[])
-  - summary (text)
-  - description (text)
-  - content (text)
-  - created_by (character)
-  - created_at (timestamp)
-  - archived (boolean)
-  - schema (json)
-  - deleted (boolean)
-  - is_template (boolean)
-  - extra_perms (jsonb)
-  - lock (text)
-  - lock_error_logs (text)
-  - language (public.script_lang)
-  - kind (public.script_kind)
-  - tag (character)
-  - draft_only (boolean)
-  - envs (character)
-  - concurrent_limit (integer)
-  - concurrency_time_window_s (integer)
-  - cache_ttl (integer)
-  - dedicated_worker (boolean)
-  - ws_error_handler_muted (boolean)
-  - priority (smallint)
-  - timeout (integer)
-  - delete_after_use (boolean)
-  - restart_unless_cancelled (boolean)
-  - concurrency_key (character)
-  - visible_to_runner_only (boolean)
-  - no_main_func (boolean)
-  - codebase (character)
-  - has_preprocessor (boolean)
-  - on_behalf_of_email (text)
-  - schema_validation (boolean)
-  - CONSTRAINT (proper_id)
-  Indexes:
-    - INDEX index_script_on_path_created_at (btree) ON (workspace_id, path, created_at DESC)
-    - INDEX script_extra_perms (gin) ON (extra_perms)
---------------------
-TABLE: sqs_trigger
-  - path (character)
-  - queue_url (character)
-  - aws_resource_path (character)
-  - message_attributes (text[])
-  - script_path (character)
-  - is_flow (boolean)
-  - workspace_id (character)
-  - edited_by (character)
-  - email (character)
-  - edited_at (timestamp)
-  - extra_perms (jsonb)
-  - error (text)
-  - server_id (character)
-  - last_server_ping (timestamp)
-  - enabled (boolean)
-  - aws_auth_resource_type (public.aws_auth_resource_type)
---------------------
-TABLE: token
-  - token (character)
-  - label (character)
-  - expiration (timestamp)
-  - workspace_id (character)
-  - owner (character)
-  - email (character)
-  - super_admin (boolean)
-  - created_at (timestamp)
-  - last_used_at (timestamp)
-  - scopes (text[])
-  - job (uuid)
-  Indexes:
-    - INDEX index_token_exp (btree) ON (expiration)
---------------------
-TABLE: tutorial_progress
-  - email (character)
-  - progress (bit(64))
---------------------
-TABLE: usage
-  - id (character)
-  - is_workspace (boolean)
-  - month_ (integer)
-  - usage (integer)
---------------------
-TABLE: usr
-  - workspace_id (character)
-  - username (character)
-  - email (character)
-  - is_admin (boolean)
-  - created_at (timestamp)
-  - operator (boolean)
-  - disabled (boolean)
-  - role (character)
-  - CONSTRAINT (proper_email)
-  - CONSTRAINT (proper_username)
-  Indexes:
-    - INDEX index_usr_email (btree) ON (email)
---------------------
-TABLE: usr_to_group
-  - workspace_id (character)
-  - group_ (character)
-  - usr (character)
---------------------
-TABLE: v2_job
-  - id (uuid)
-  - raw_code (text)
-  - raw_lock (text)
-  - raw_flow (jsonb)
-  - tag (character)
-  - workspace_id (character)
-  - created_at (timestamp)
-  - created_by (character)
-  - permissioned_as (character)
-  - permissioned_as_email (character)
-  - kind (public.job_kind)
-  - runnable_id (bigint)
-  - runnable_path (character)
-  - parent_job (uuid)
-  - root_job (uuid)
-  - script_lang (public.script_lang)
-  - script_entrypoint_override (character)
-  - flow_step (integer)
-  - flow_step_id (character)
-  - flow_innermost_root_job (uuid)
-  - trigger (character)
-  - trigger_kind (public.job_trigger_kind)
-  - same_worker (boolean)
-  - visible_to_owner (boolean)
-  - concurrent_limit (integer)
-  - concurrency_time_window_s (integer)
-  - cache_ttl (integer)
-  - timeout (integer)
-  - priority (smallint)
-  - preprocessed (boolean)
-  - args (jsonb)
-  - labels (text[])
-  - pre_run_error (text)
-  Indexes:
-    - INDEX ix_job_created_at (btree) ON (created_at DESC)
-    - INDEX ix_job_root_job_index_by_path_2 (btree) ON (workspace_id, runnable_path, created_at DESC) WHERE (parent_job IS NULL)
-    - INDEX ix_job_workspace_id_created_at_new_3 (btree) ON (workspace_id, created_at DESC)
-    - INDEX ix_job_workspace_id_created_at_new_5 (btree) ON (workspace_id, created_at DESC) WHERE ((kind = ANY (ARRAY['preview'::public.job_kind, 'flowpreview'::public.job_kind])) AND (parent_job IS NULL))
-    - INDEX ix_job_workspace_id_created_at_new_8 (btree) ON (workspace_id, created_at DESC) WHERE ((kind = 'deploymentcallback'::public.job_kind) AND (parent_job IS NULL))
-    - INDEX ix_job_workspace_id_created_at_new_9 (btree) ON (workspace_id, created_at DESC) WHERE ((kind = ANY (ARRAY['dependencies'::public.job_kind, 'flowdependencies'::public.job_kind, 'appdependencies'::public.job_kind])) AND (parent_job IS NULL))
-    - INDEX ix_v2_job_labels (gin) ON (labels) WHERE (labels IS NOT NULL)
-    - INDEX ix_v2_job_workspace_id_created_at (btree) ON (workspace_id, created_at DESC) WHERE ((kind = ANY (ARRAY['script'::public.job_kind, 'flow'::public.job_kind, 'singlescriptflow'::public.job_kind])) AND (parent_job IS NULL))
---------------------
-TABLE: v2_job_completed
-  - id (uuid)
-  - workspace_id (character)
-  - duration_ms (bigint)
-  - result (jsonb)
-  - deleted (boolean)
-  - canceled_by (character)
-  - canceled_reason (text)
-  - flow_status (jsonb)
-  - started_at (timestamp)
-  - memory_peak (integer)
-  - status (public.job_status)
-  - completed_at (timestamp)
-  - worker (character)
-  - workflow_as_code_status (jsonb)
-  - result_columns (text[])
-  - retries (uuid[])
-  - extras (jsonb)
-  Indexes:
-    - INDEX ix_completed_job_workspace_id_started_at_new_2 (btree) ON (workspace_id, started_at DESC)
-    - INDEX ix_job_completed_completed_at (btree) ON (completed_at DESC)
-    - INDEX labeled_jobs_on_jobs (gin) ON (((result -> 'wm_labels'::text))) WHERE (result ? 'wm_labels'::text)
---------------------
-TABLE: v2_job_queue
-  - id (uuid)
-  - workspace_id (character)
-  - created_at (timestamp)
-  - started_at (timestamp)
-  - scheduled_for (timestamp)
-  - running (boolean)
-  - canceled_by (character)
-  - canceled_reason (text)
-  - suspend (integer)
-  - suspend_until (timestamp)
-  - tag (character)
-  - priority (smallint)
-  - worker (character)
-  - extras (jsonb)
-  Indexes:
-    - INDEX queue_sort_v2 (btree) ON (priority DESC NULLS LAST, scheduled_for, tag) WHERE (running = false)
-    - INDEX queue_suspended (btree) ON (priority DESC NULLS LAST, created_at, suspend_until, suspend, tag) WHERE (suspend_until IS NOT NULL)
-    - INDEX root_queue_index_by_path (btree) ON (workspace_id, created_at)
-    - INDEX v2_job_queue_suspend (btree) ON (workspace_id, suspend) WHERE (suspend > 0)
---------------------
-TABLE: v2_job_runtime
-  - id (uuid)
-  - ping (timestamp)
-  - memory_peak (integer)
---------------------
-TABLE: v2_job_status
-  - id (uuid)
-  - flow_status (jsonb)
-  - flow_leaf_jobs (jsonb)
-  - workflow_as_code_status (jsonb)
---------------------
-TABLE: variable
-  - workspace_id (character)
-  - path (character)
-  - value (character)
-  - is_secret (boolean)
-  - description (character)
-  - extra_perms (jsonb)
-  - account (integer)
-  - is_oauth (boolean)
-  - expires_at (timestamp)
-  - CONSTRAINT (proper_id)
-  Indexes:
-    - INDEX variable_extra_perms (gin) ON (extra_perms)
---------------------
-TABLE: websocket_trigger
-  - path (character)
-  - url (character)
-  - script_path (character)
-  - is_flow (boolean)
-  - workspace_id (character)
-  - edited_by (character)
-  - email (character)
-  - edited_at (timestamp)
-  - extra_perms (jsonb)
-  - server_id (character)
-  - last_server_ping (timestamp)
-  - error (text)
-  - enabled (boolean)
-  - filters (jsonb[])
-  - initial_messages (jsonb[])
-  - url_runnable_args (jsonb)
-  - can_return_message (boolean)
---------------------
-TABLE: windmill_migrations
-  - name (text)
-  - created_at (timestamp)
---------------------
-TABLE: worker_ping
-  - worker (character)
-  - worker_instance (character)
-  - ping_at (timestamp)
-  - started_at (timestamp)
-  - ip (character)
-  - jobs_executed (integer)
-  - custom_tags (text[])
-  - worker_group (character)
-  - dedicated_worker (character)
-  - dedicated_workers (text[])
-  - wm_version (character)
-  - current_job_id (uuid)
-  - current_job_workspace_id (character)
-  - vcpus (bigint)
-  - memory (bigint)
-  - occupancy_rate (real)
-  - memory_usage (bigint)
-  - wm_memory_usage (bigint)
-  - occupancy_rate_15s (real)
-  - occupancy_rate_5m (real)
-  - occupancy_rate_30m (real)
-  Indexes:
-    - INDEX worker_ping_on_ping_at (btree) ON (ping_at)
---------------------
-TABLE: workspace
-  - id (character)
-  - name (character)
-  - owner (character)
-  - deleted (boolean)
-  - premium (boolean)
-  - CONSTRAINT (proper_id)
---------------------
-TABLE: workspace_env
-  - workspace_id (character)
-  - name (character)
-  - value (character)
---------------------
-TABLE: workspace_invite
-  - workspace_id (character)
-  - email (character)
-  - is_admin (boolean)
-  - operator (boolean)
-  - CONSTRAINT (proper_email)
---------------------
-TABLE: workspace_key
-  - workspace_id (character)
-  - kind (public.workspace_key_kind)
-  - key (character)
---------------------
-TABLE: workspace_runnable_dependencies
-  - flow_path (character)
-  - runnable_path (character)
-  - script_hash (bigint)
-  - runnable_is_flow (boolean)
-  - workspace_id (character)
-  - app_path (character)
-  - CONSTRAINT (workspace_runnable_dependencies_path_exclusive)
-  Indexes:
-    - UNIQUE INDEX app_workspace_with_hash_unique_idx (btree) ON (app_path, runnable_path, script_hash, runnable_is_flow, workspace_id) WHERE (script_hash IS NOT NULL)
-    - UNIQUE INDEX app_workspace_without_hash_unique_idx (btree) ON (app_path, runnable_path, runnable_is_flow, workspace_id) WHERE (script_hash IS NULL)
-    - INDEX flow_workspace_runnable_path_is_flow_idx (btree) ON (runnable_path, runnable_is_flow, workspace_id)
-    - UNIQUE INDEX flow_workspace_with_hash_unique_idx (btree) ON (flow_path, runnable_path, script_hash, runnable_is_flow, workspace_id) WHERE (script_hash IS NOT NULL)
-    - UNIQUE INDEX flow_workspace_without_hash_unique_idx (btree) ON (flow_path, runnable_path, runnable_is_flow, workspace_id) WHERE (script_hash IS NULL)
---------------------
-TABLE: workspace_settings
-  - workspace_id (character)
-  - slack_team_id (character)
-  - slack_name (character)
-  - slack_command_script (character)
-  - slack_email (character)
-  - auto_invite_domain (character)
-  - auto_invite_operator (boolean)
-  - customer_id (character)
-  - plan (character)
-  - webhook (text)
-  - deploy_to (character)
-  - error_handler (character)
-  - ai_config (jsonb)
-  - error_handler_extra_args (json)
-  - error_handler_muted_on_cancel (boolean)
-  - success_handler (text)
-  - success_handler_extra_args (json)
-  - large_file_storage (jsonb)
-  - git_sync (jsonb)
-  - default_app (character)
-  - auto_add (boolean)
-  - default_scripts (jsonb)
-  - deploy_ui (jsonb)
-  - mute_critical_alerts (boolean)
-  - color (character)
-  - operator_settings (jsonb)
-  - teams_command_script (text)
-  - teams_team_id (text)
-  - teams_team_name (text)
-  - git_app_installations (jsonb)
---------------------
-TABLE: zombie_job_counter
-  - job_id (uuid)
-  - counter (integer)
---------------------
+## Tables
+_sqlx_migrations: version(bigint), description(text), installed_on(ts), success(bool), checksum(bytes), execution_time(bigint)
+account: workspace_id(char), id(int), expires_at(ts), refresh_token(char), client(char), refresh_error(text), grant_type(char), cc_client_id(char), cc_client_secret(char), cc_token_url(char), mcp_server_url(text)
+  FK: (workspace_id) -> workspace(id)
+agent_token_blacklist: token(char), expires_at(ts), blacklisted_at(ts), blacklisted_by(char)
+ai_agent_memory: workspace_id(char), conversation_id(uuid), step_id(char), messages(jsonb), created_at(ts), updated_at(ts)
+alerts: id(int), alert_type(char), message(text), created_at(ts), acknowledged(bool), workspace_id(text), acknowledged_workspace(bool), resource(text)
+app: id(bigint), workspace_id(char), path(char), summary(char), policy(jsonb), versions(bigint[]), extra_perms(jsonb), draft_only(bool), custom_path(text)
+  FK: (workspace_id) -> workspace(id)
+app_bundles: app_version_id(bigint), w_id(char), file_type(char), data(bytes)
+app_script: id(bigint), app(bigint), hash(char(64)), lock(text), code(text), code_sha256(char(64))
+  FK: (app) -> app(id)
+app_version: id(bigint), app_id(bigint), value(json), created_by(char), created_at(ts), raw_app(bool)
+  FK: (app_id) -> app(id)
+app_version_lite: id(bigint), value(jsonb)
+  FK: (id) -> app_version(id)
+asset: workspace_id(char), path(char), kind(asset_kind), usage_access_type(asset_access_type), usage_path(char), usage_kind(asset_usage_kind), created_at(ts), id(bigint), columns(jsonb)
+  FK: (workspace_id) -> workspace(id)
+audit: workspace_id(char), id(bigint), timestamp(ts), username(char), operation(char), action_kind(action_kind), resource(char), parameters(jsonb), email(char), span(char)
+autoscaling_event: id(int), worker_group(text), event_type(autoscaling_event_type), desired_workers(int), applied_at(ts), reason(text)
+capture: workspace_id(char), path(char), created_at(ts), created_by(char), main_args(jsonb), is_flow(bool), trigger_kind(trigger_kind), preprocessor_args(jsonb), id(bigint)
+  FK: (workspace_id) -> workspace(id)
+capture_config: workspace_id(char), path(char), is_flow(bool), trigger_kind(trigger_kind), trigger_config(jsonb), owner(char), email(char), server_id(char), last_client_ping(ts), last_server_ping(ts), error(text)
+  FK: (workspace_id) -> workspace(id)
+cloud_workspace_settings: workspace_id(char), threshold_alert_amount(int), last_alert_sent(ts), last_warning_sent(ts), is_past_due(bool), max_tolerated_executions(int)
+  FK: (workspace_id) -> workspace(id)
+concurrency_counter: concurrency_id(char), job_uuids(jsonb)
+concurrency_key: key(char), ended_at(ts), job_id(uuid)
+concurrency_locks: id(char), last_locked_at(ts), owner(char)
+concurrency_settings: hash(bigint), concurrency_key(char), concurrent_limit(int), concurrency_time_window_s(int)
+config: name(char), config(jsonb)
+custom_concurrency_key_ended: key(char), ended_at(ts)
+debounce_key: key(char), job_id(uuid), previous_job_id(uuid), first_started_at(ts), debounced_times(int)
+debounce_stale_data: job_id(uuid), to_relock(text[])
+debouncing_settings: hash(bigint), debounce_key(char), debounce_delay_s(int), max_total_debouncing_time(int), max_total_debounces_amount(int), debounce_args_to_accumulate(text[])
+dependency_map: workspace_id(char), importer_path(char), importer_kind(importer_kind), imported_path(char), importer_node_id(char)
+deployment_metadata: workspace_id(char), path(char), script_hash(bigint), app_version(bigint), callback_job_ids(uuid[]), deployment_msg(text), flow_version(bigint), job_id(uuid)
+  FK: (workspace_id) -> workspace(id)
+draft: workspace_id(char), path(char), typ(draft_type), value(json), created_at(ts)
+  FK: (workspace_id) -> workspace(id)
+email_to_igroup: email(char), igroup(char)
+email_trigger: path(char), local_part(char), workspaced_local_part(bool), script_path(char), is_flow(bool), workspace_id(char), edited_by(char), email(char), edited_at(ts), extra_perms(jsonb), error_handler_path(char), error_handler_args(jsonb), retry(jsonb), mode(trigger_mode)
+favorite: usr(char), workspace_id(char), path(char), favorite_kind(favorite_kind)
+flow: workspace_id(char), path(char), summary(text), description(text), value(jsonb), edited_by(char), edited_at(ts), archived(bool), schema(json), extra_perms(jsonb), dependency_job(uuid), draft_only(bool), tag(char), ws_error_handler_muted(bool), dedicated_worker(bool), timeout(int), visible_to_runner_only(bool), concurrency_key(char), versions(bigint[]), on_behalf_of_email(text), lock_error_logs(text)
+  FK: (workspace_id) -> workspace(id)
+flow_conversation: id(uuid), workspace_id(char), flow_path(char), title(char), created_at(ts), updated_at(ts), created_by(char)
+  FK: (workspace_id) -> workspace(id)
+flow_conversation_message: id(uuid), conversation_id(uuid), message_type(message_type), content(text), job_id(uuid), created_at(ts), step_name(char), success(bool)
+  FK: (conversation_id) -> flow_conversation(id) | (job_id) -> v2_job(id)
+flow_iterator_data: job_id(uuid), itered(jsonb)
+flow_node: id(bigint), workspace_id(char), hash(bigint), path(char), lock(text), code(text), flow(jsonb), hash_v2(char(64))
+  FK: (path, workspace_id) -> flow(path, workspace_id) | (workspace_id) -> workspace(id)
+flow_version: id(bigint), workspace_id(char), path(char), value(jsonb), schema(json), created_by(char), created_at(ts)
+  FK: (workspace_id, path) -> flow(workspace_id, path)
+flow_version_lite: id(bigint), value(jsonb)
+  FK: (id) -> flow_version(id)
+folder: name(char), workspace_id(char), display_name(char), owners(char), extra_perms(jsonb), summary(text), edited_at(ts), created_by(char)
+  FK: (workspace_id) -> workspace(id)
+folder_permission_history: id(bigint), workspace_id(char), folder_name(char), changed_by(char), changed_at(ts), change_type(char), affected(char)
+  FK: (workspace_id, folder_name) -> folder(workspace_id, name)
+gcp_trigger: gcp_resource_path(char), topic_id(char), subscription_id(char), delivery_type(delivery_mode), delivery_config(jsonb), path(char), script_path(char), is_flow(bool), workspace_id(char), edited_by(char), email(char), edited_at(ts), extra_perms(jsonb), server_id(char), last_server_ping(ts), error(text), subscription_mode(gcp_subscription_mode), error_handler_path(char), error_handler_args(jsonb), retry(jsonb), auto_acknowledge_msg(bool), ack_deadline(int), mode(trigger_mode)
+global_settings: name(char), value(jsonb), updated_at(ts)
+group_: workspace_id(char), name(char), summary(text), extra_perms(jsonb)
+  FK: (workspace_id) -> workspace(id)
+group_permission_history: id(bigint), workspace_id(char), group_name(char), changed_by(char), changed_at(ts), change_type(char), member_affected(char)
+  FK: (workspace_id, group_name) -> group_(workspace_id, name)
+healthchecks: id(bigint), check_type(char), healthy(bool), created_at(ts)
+http_trigger: path(char), route_path(char), route_path_key(char), script_path(char), is_flow(bool), workspace_id(char), edited_by(char), email(char), edited_at(ts), extra_perms(jsonb), authentication_method(authentication_method), http_method(http_method), static_asset_config(jsonb), is_static_website(bool), workspaced_route(bool), wrap_body(bool), raw_string(bool), authentication_resource_path(char), summary(char), description(text), error_handler_path(char), error_handler_args(jsonb), retry(jsonb), request_type(request_type), mode(trigger_mode)
+input: id(uuid), workspace_id(char), runnable_id(char), runnable_type(runnable_type), name(text), args(jsonb), created_at(ts), created_by(char), is_public(bool)
+  FK: (workspace_id) -> workspace(id)
+instance_group: name(char), summary(char), id(char), scim_display_name(char), external_id(char)
+job_logs: job_id(uuid), workspace_id(char), created_at(ts), logs(text), log_offset(int), log_file_index(text[])
+job_perms: job_id(uuid), email(char), username(char), is_admin(bool), is_operator(bool), created_at(ts), workspace_id(char), groups(text[]), folders(jsonb[]), end_user_email(char)
+job_result_stream: job_id(uuid), workspace_id(text), stream(text)
+job_result_stream_v2: job_id(uuid), workspace_id(text), stream(text), idx(int)
+job_settings: job_id(uuid), runnable_settings(bigint)
+job_stats: workspace_id(char), job_id(uuid), metric_id(char), metric_name(char), metric_kind(metric_kind), scalar_int(int), scalar_float(float), timestamps(ts), timeseries_int(int[]), timeseries_float(float[])
+  FK: (workspace_id) -> workspace(id)
+kafka_trigger: path(char), kafka_resource_path(char), topics(char), group_id(char), script_path(char), is_flow(bool), workspace_id(char), edited_by(char), email(char), edited_at(ts), extra_perms(jsonb), server_id(char), last_server_ping(ts), error(text), error_handler_path(char), error_handler_args(jsonb), retry(jsonb), mode(trigger_mode), filters(jsonb[])
+log_file: hostname(char), log_ts(ts), ok_lines(bigint), err_lines(bigint), mode(log_mode), worker_group(char), file_path(char), json_fmt(bool)
+magic_link: email(char), token(char), expiration(ts)
+mcp_oauth_client: mcp_server_url(text), client_id(text), client_secret(text), client_secret_expires_at(ts), token_endpoint(text), created_at(ts)
+mcp_oauth_refresh_token: id(bigint), refresh_token(char), access_token(char), client_id(char), user_email(char), workspace_id(char), scopes(text[]), token_family(uuid), created_at(ts), expires_at(ts), used_at(ts), revoked(bool)
+  FK: (client_id) -> mcp_oauth_server_client(client_id)
+mcp_oauth_server_client: client_id(char), client_name(char), redirect_uris(text[]), created_at(ts)
+mcp_oauth_server_code: code(char), client_id(char), user_email(char), workspace_id(char), scopes(text[]), redirect_uri(text), code_challenge(char), code_challenge_method(char), created_at(ts), expires_at(ts)
+  FK: (client_id) -> mcp_oauth_server_client(client_id)
+metrics: id(char), value(jsonb), created_at(ts)
+mqtt_trigger: mqtt_resource_path(char), subscribe_topics(jsonb[]), client_version(mqtt_client_version), v5_config(jsonb), v3_config(jsonb), client_id(char), path(char), script_path(char), is_flow(bool), workspace_id(char), edited_by(char), email(char), edited_at(ts), extra_perms(jsonb), server_id(char), last_server_ping(ts), error(text), error_handler_path(char), error_handler_args(jsonb), retry(jsonb), mode(trigger_mode)
+native_trigger: external_id(char), workspace_id(char), service_name(native_trigger_service), script_path(char), is_flow(bool), webhook_token_prefix(char), service_config(jsonb), error(text), created_at(ts), updated_at(ts)
+  FK: (workspace_id) -> workspace(id)
+nats_trigger: path(char), nats_resource_path(char), subjects(char), stream_name(char), consumer_name(char), use_jetstream(bool), script_path(char), is_flow(bool), workspace_id(char), edited_by(char), email(char), edited_at(ts), extra_perms(jsonb), server_id(char), last_server_ping(ts), error(text), error_handler_path(char), error_handler_args(jsonb), retry(jsonb), mode(trigger_mode)
+  FK: (workspace_id) -> workspace(id)
+notify_event: id(bigint), channel(text), payload(text), created_at(ts)
+otel_traces: trace_id(bytes), span_id(bytes), trace_state(text), parent_span_id(bytes), flags(int), name(text), kind(int), start_time_unix_nano(bigint), end_time_unix_nano(bigint), attributes(jsonb), dropped_attributes_count(int), events(jsonb), dropped_events_count(int), links(jsonb), dropped_links_count(int), status(jsonb)
+outstanding_wait_time: job_id(uuid), self_wait_time_ms(bigint), aggregate_wait_time_ms(bigint)
+parallel_monitor_lock: parent_flow_id(uuid), job_id(uuid), last_ping(ts)
+password: email(char), password_hash(char), login_type(char), super_admin(bool), verified(bool), name(char), company(char), first_time_user(bool), username(char), devops(bool)
+pending_user: email(char), created_at(ts), username(char)
+pip_resolution_cache: hash(char), expiration(ts), lockfile(text)
+postgres_trigger: path(char), script_path(char), is_flow(bool), workspace_id(char), edited_by(char), email(char), edited_at(ts), extra_perms(jsonb), postgres_resource_path(char), error(text), server_id(char), last_server_ping(ts), replication_slot_name(char), publication_name(char), error_handler_path(char), error_handler_args(jsonb), retry(jsonb), mode(trigger_mode)
+  FK: (workspace_id) -> workspace(id)
+raw_app: path(char), version(int), workspace_id(char), summary(char), edited_at(ts), data(text), extra_perms(jsonb)
+  FK: (workspace_id) -> workspace(id)
+resource: workspace_id(char), path(char), value(jsonb), description(text), resource_type(char), extra_perms(jsonb), edited_at(ts), created_by(char)
+  FK: (workspace_id) -> workspace(id)
+resource_type: workspace_id(char), name(char), schema(jsonb), description(text), edited_at(ts), created_by(char), format_extension(char)
+  FK: (workspace_id) -> workspace(id)
+resume_job: id(uuid), job(uuid), flow(uuid), created_at(ts), value(jsonb), approver(char), resume_id(int), approved(bool)
+  FK: (flow) -> v2_job_queue(id)
+runnable_settings: hash(bigint), debouncing_settings(bigint), concurrency_settings(bigint)
+schedule: workspace_id(char), path(char), edited_by(char), edited_at(ts), schedule(char), enabled(bool), script_path(char), args(jsonb), extra_perms(jsonb), is_flow(bool), email(char), error(text), timezone(char), on_failure(char), on_recovery(char), on_failure_times(int), on_failure_exact(bool), on_failure_extra_args(jsonb), on_recovery_times(int), on_recovery_extra_args(jsonb), ws_error_handler_muted(bool), retry(jsonb), summary(char), no_flow_overlap(bool), tag(char), paused_until(ts), on_success(char), on_success_extra_args(jsonb), cron_version(text), description(text), dynamic_skip(char)
+  FK: (workspace_id) -> workspace(id)
+script: workspace_id(char), hash(bigint), path(char), parent_hashes(bigint[]), summary(text), description(text), content(text), created_by(char), created_at(ts), archived(bool), schema(json), deleted(bool), is_template(bool), extra_perms(jsonb), lock(text), lock_error_logs(text), language(script_lang), kind(script_kind), tag(char), draft_only(bool), envs(char), concurrent_limit(int), concurrency_time_window_s(int), cache_ttl(int), dedicated_worker(bool), ws_error_handler_muted(bool), priority(smallint), timeout(int), delete_after_use(bool), restart_unless_cancelled(bool), concurrency_key(char), visible_to_runner_only(bool), no_main_func(bool), codebase(char), has_preprocessor(bool), on_behalf_of_email(text), schema_validation(bool), assets(jsonb), debounce_key(char), debounce_delay_s(int), cache_ignore_s3_path(bool), runnable_settings_handle(bigint)
+  FK: (workspace_id) -> workspace(id)
+skip_workspace_diff_tally: workspace_id(char), added_at(ts)
+sqs_trigger: path(char), queue_url(char), aws_resource_path(char), message_attributes(text[]), script_path(char), is_flow(bool), workspace_id(char), edited_by(char), email(char), edited_at(ts), extra_perms(jsonb), error(text), server_id(char), last_server_ping(ts), aws_auth_resource_type(aws_auth_resource_type), error_handler_path(char), error_handler_args(jsonb), retry(jsonb), mode(trigger_mode)
+  FK: (workspace_id) -> workspace(id)
+token: token(char), label(char), expiration(ts), workspace_id(char), owner(char), email(char), super_admin(bool), created_at(ts), last_used_at(ts), scopes(text[]), job(uuid)
+  FK: (workspace_id) -> workspace(id)
+tutorial_progress: email(char), progress(bit64), skipped_all(bool)
+unique_ext_jwt_token: jwt_hash(bigint), last_used_at(ts)
+usage: id(char), is_workspace(bool), month_(int), usage(int)
+usr: workspace_id(char), username(char), email(char), is_admin(bool), created_at(ts), operator(bool), disabled(bool), role(char), added_via(jsonb)
+  FK: (workspace_id) -> workspace(id)
+usr_to_group: workspace_id(char), group_(char), usr(char)
+  FK: (workspace_id, group_) -> group_(workspace_id, name) | (workspace_id) -> workspace(id)
+v2_job: id(uuid), raw_code(text), raw_lock(text), raw_flow(jsonb), tag(char), workspace_id(char), created_at(ts), created_by(char), permissioned_as(char), permissioned_as_email(char), kind(job_kind), runnable_id(bigint), runnable_path(char), parent_job(uuid), root_job(uuid), script_lang(script_lang), script_entrypoint_override(char), flow_step(int), flow_step_id(char), flow_innermost_root_job(uuid), trigger(char), trigger_kind(job_trigger_kind), same_worker(bool), visible_to_owner(bool), concurrent_limit(int), concurrency_time_window_s(int), cache_ttl(int), timeout(int), priority(smallint), preprocessed(bool), args(jsonb), labels(text[]), pre_run_error(text)
+v2_job_completed: id(uuid), workspace_id(char), duration_ms(bigint), result(jsonb), deleted(bool), canceled_by(char), canceled_reason(text), flow_status(jsonb), started_at(ts), memory_peak(int), status(job_status), completed_at(ts), worker(char), workflow_as_code_status(jsonb), result_columns(text[]), retries(uuid[]), extras(jsonb)
+v2_job_debounce_batch: id(uuid), debounce_batch(bigint)
+v2_job_queue: id(uuid), workspace_id(char), created_at(ts), started_at(ts), scheduled_for(ts), running(bool), canceled_by(char), canceled_reason(text), suspend(int), suspend_until(ts), tag(char), priority(smallint), worker(char), extras(jsonb), cache_ignore_s3_path(bool), runnable_settings_handle(bigint)
+v2_job_runtime: id(uuid), ping(ts), memory_peak(int)
+  FK: (id) -> v2_job_queue(id)
+v2_job_status: id(uuid), flow_status(jsonb), flow_leaf_jobs(jsonb), workflow_as_code_status(jsonb)
+  FK: (id) -> v2_job_queue(id)
+variable: workspace_id(char), path(char), value(char), is_secret(bool), description(char), extra_perms(jsonb), account(int), is_oauth(bool), expires_at(ts)
+  FK: (workspace_id) -> workspace(id)
+websocket_trigger: path(char), url(char), script_path(char), is_flow(bool), workspace_id(char), edited_by(char), email(char), edited_at(ts), extra_perms(jsonb), server_id(char), last_server_ping(ts), error(text), filters(jsonb[]), initial_messages(jsonb[]), url_runnable_args(jsonb), can_return_message(bool), error_handler_path(char), error_handler_args(jsonb), retry(jsonb), can_return_error_result(bool), mode(trigger_mode)
+windmill_migrations: name(text), created_at(ts)
+worker_group_job_stats: hour(bigint), worker_group(text), script_lang(char), workspace_id(char), job_count(int), total_duration_ms(bigint)
+  FK: (workspace_id) -> workspace(id)
+worker_ping: worker(char), worker_instance(char), ping_at(ts), started_at(ts), ip(char), jobs_executed(int), custom_tags(text[]), worker_group(char), dedicated_worker(char), wm_version(char), current_job_id(uuid), current_job_workspace_id(char), vcpus(bigint), memory(bigint), occupancy_rate(float), memory_usage(bigint), wm_memory_usage(bigint), occupancy_rate_15s(float), occupancy_rate_5m(float), occupancy_rate_30m(float), job_isolation(text), dedicated_workers(text[])
+workspace: id(char), name(char), owner(char), deleted(bool), premium(bool), parent_workspace_id(char)
+  FK: (parent_workspace_id) -> workspace(id)
+workspace_dependencies: id(bigint), name(char), content(text), language(script_lang), description(text), archived(bool), workspace_id(char), created_at(ts)
+workspace_diff: source_workspace_id(char), fork_workspace_id(char), path(char), kind(char), ahead(int), behind(int), has_changes(bool), exists_in_source(bool), exists_in_fork(bool)
+workspace_env: workspace_id(char), name(char), value(char)
+workspace_integrations: workspace_id(char), service_name(native_trigger_service), oauth_data(jsonb), created_at(ts), updated_at(ts), created_by(char)
+  FK: (workspace_id) -> workspace(id)
+workspace_invite: workspace_id(char), email(char), is_admin(bool), operator(bool)
+  FK: (workspace_id) -> workspace(id)
+workspace_key: workspace_id(char), kind(workspace_key_kind), key(char)
+  FK: (workspace_id) -> workspace(id)
+workspace_protection_rule: workspace_id(char), name(char), rules(int), bypass_groups(text[]), bypass_users(text[]), created_at(ts)
+  FK: (workspace_id) -> workspace(id)
+workspace_runnable_dependencies: flow_path(char), runnable_path(char), script_hash(bigint), runnable_is_flow(bool), workspace_id(char), app_path(char)
+  FK: (app_path, workspace_id) -> app(path, workspace_id) | (flow_path, workspace_id) -> flow(path, workspace_id)
+workspace_settings: workspace_id(char), slack_team_id(char), slack_name(char), slack_command_script(char), slack_email(char), customer_id(char), plan(char), webhook(text), deploy_to(char), ai_config(jsonb), large_file_storage(jsonb), git_sync(jsonb), default_app(char), default_scripts(jsonb), deploy_ui(jsonb), mute_critical_alerts(bool), color(char), operator_settings(jsonb), teams_command_script(text), teams_team_id(text), teams_team_name(text), git_app_installations(jsonb), ducklake(jsonb), slack_oauth_client_id(char), slack_oauth_client_secret(char), datatable(jsonb), teams_team_guid(text), auto_invite(jsonb), error_handler(jsonb), success_handler(jsonb), public_app_execution_limit_per_minute(int)
+  FK: (workspace_id) -> workspace(id)
+zombie_job_counter: job_id(uuid), counter(int)
+  FK: (job_id) -> v2_job(id)

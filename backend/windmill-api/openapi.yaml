@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.631.2
+  version: 1.633.1
   title: Windmill API
 
   contact:
@@ -40,6 +40,64 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /health/status:
+    get:
+      summary: health status
+      description: |
+        Health status endpoint. Returns cached health status (database connectivity, worker count).
+        Cache TTL is fixed at 5 seconds. Use force=true query parameter to bypass cache.
+        Note: This endpoint is intentionally different from Kubernetes probes to avoid confusion.
+        For k8s liveness/readiness probes, use /version endpoint.
+      operationId: getHealthStatus
+      tags:
+        - health
+      security: []
+      parameters:
+        - name: force
+          in: query
+          description: Force a fresh check, bypassing the cache
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: server is healthy or degraded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatusResponse"
+        "503":
+          description: server is unhealthy (database unreachable)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatusResponse"
+
+  /health/detailed:
+    get:
+      summary: detailed health status
+      description: |
+        Returns detailed health information including database pool stats, worker details, and queue status.
+        Requires authentication. Use for monitoring dashboards and debugging.
+        This endpoint always returns fresh data (no caching).
+      operationId: getHealthDetailed
+      tags:
+        - health
+      responses:
+        "200":
+          description: server is healthy or degraded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetailedHealthResponse"
+        "503":
+          description: server is unhealthy (database unreachable)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetailedHealthResponse"
 
   /uptodate:
     get:
@@ -17397,6 +17455,167 @@ components:
       $ref: "../../openflow.openapi.yaml#/components/schemas/FlowNote"
     # -- INLINE END --
     # Do not change line above
+
+    HealthStatusResponse:
+      type: object
+      description: Health status response (cached with 5s TTL)
+      required:
+        - status
+        - checked_at
+        - database_healthy
+        - workers_alive
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+          description: Overall health status
+        checked_at:
+          type: string
+          format: date-time
+          description: Timestamp when the health check was actually performed (not cache return time)
+        database_healthy:
+          type: boolean
+          description: Whether the database is reachable
+        workers_alive:
+          type: integer
+          format: int64
+          description: Number of workers that pinged within last 5 minutes
+
+    DetailedHealthResponse:
+      type: object
+      description: Detailed health status response (always fresh, no caching)
+      required:
+        - status
+        - checked_at
+        - version
+        - checks
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+          description: Overall health status
+        checked_at:
+          type: string
+          format: date-time
+          description: Timestamp when the health check was performed
+        version:
+          type: string
+          description: Server version (e.g., "EE 1.615.3")
+        checks:
+          $ref: "#/components/schemas/HealthChecks"
+
+    HealthChecks:
+      type: object
+      description: Detailed health checks
+      required:
+        - database
+        - readiness
+      properties:
+        database:
+          $ref: "#/components/schemas/DatabaseHealth"
+        workers:
+          $ref: "#/components/schemas/WorkersHealth"
+          description: Worker status (null if database is unreachable)
+          nullable: true
+        queue:
+          $ref: "#/components/schemas/QueueHealth"
+          description: Queue status (null if database is unreachable)
+          nullable: true
+        readiness:
+          $ref: "#/components/schemas/ReadinessHealth"
+
+    DatabaseHealth:
+      type: object
+      description: Database health status
+      required:
+        - healthy
+        - latency_ms
+        - pool
+      properties:
+        healthy:
+          type: boolean
+          description: Whether the database is reachable
+        latency_ms:
+          type: integer
+          format: int64
+          description: Database query latency in milliseconds
+        pool:
+          $ref: "#/components/schemas/PoolStats"
+
+    PoolStats:
+      type: object
+      description: Database connection pool statistics
+      required:
+        - size
+        - idle
+        - max_connections
+      properties:
+        size:
+          type: integer
+          description: Current number of connections in the pool
+        idle:
+          type: integer
+          description: Number of idle connections
+        max_connections:
+          type: integer
+          description: Maximum number of connections allowed
+
+    WorkersHealth:
+      type: object
+      description: Workers health status
+      required:
+        - healthy
+        - active_count
+        - worker_groups
+        - min_version
+        - versions
+      properties:
+        healthy:
+          type: boolean
+          description: Whether any workers are active
+        active_count:
+          type: integer
+          format: int64
+          description: Number of active workers (pinged in last 5 minutes)
+        worker_groups:
+          type: array
+          items:
+            type: string
+          description: List of active worker groups
+        min_version:
+          type: string
+          description: Minimum required worker version
+        versions:
+          type: array
+          items:
+            type: string
+          description: List of active worker versions
+
+    QueueHealth:
+      type: object
+      description: Job queue status
+      required:
+        - pending_jobs
+        - running_jobs
+      properties:
+        pending_jobs:
+          type: integer
+          format: int64
+          description: Number of pending jobs in the queue
+        running_jobs:
+          type: integer
+          format: int64
+          description: Number of currently running jobs
+
+    ReadinessHealth:
+      type: object
+      description: Server readiness status
+      required:
+        - healthy
+      properties:
+        healthy:
+          type: boolean
+          description: Whether the server is ready to accept requests
 
     AutoInviteConfig:
       type: object

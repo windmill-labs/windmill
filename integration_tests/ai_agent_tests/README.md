@@ -23,6 +23,15 @@ Integration tests for Windmill AI agents using the `preview_flow` endpoint.
    GOOGLE_AI_API_KEY=...
    OPENROUTER_API_KEY=sk-or-...
    BEDROCK_API_KEY=...
+   BEDROCK_IAM_ACCESS_KEY_ID=...
+   BEDROCK_IAM_SECRET_ACCESS_KEY=...
+   BEDROCK_SESSION_ACCESS_KEY_ID=...
+   BEDROCK_SESSION_SECRET_ACCESS_KEY=...
+   BEDROCK_SESSION_TOKEN=...  # optional, only for session-token Bedrock test
+   AWS_ACCESS_KEY_ID=...      # optional, for env-fallback Bedrock test
+   AWS_SECRET_ACCESS_KEY=...  # optional, for env-fallback Bedrock test
+   AWS_SESSION_TOKEN=...      # optional, required for env-fallback if AWS_ACCESS_KEY_ID is ASIA...
+   BEDROCK_REGION=us-east-1  # optional
    ```
 
 4. Run a single test to verify:
@@ -48,7 +57,10 @@ The `setup_providers` fixture automatically creates Windmill variables and resou
 | Anthropic | `u/admin/anthropic_api_key` | `u/admin/anthropic` | anthropic |
 | Google AI | `u/admin/google_ai_api_key` | `u/admin/googleai` | googleai |
 | OpenRouter | `u/admin/openrouter_api_key` | `u/admin/openrouter` | openrouter |
-| Bedrock | `u/admin/bedrock_api_key` | `u/admin/bedrock` | aws_bedrock |
+| Bedrock (api key) | `u/admin/bedrock_api_key` | `u/admin/bedrock` | aws_bedrock |
+| Bedrock (IAM) | `u/admin/bedrock_iam_access_key_id`, `u/admin/bedrock_iam_secret_access_key` | `u/admin/bedrock_iam` | aws_bedrock |
+| Bedrock (IAM + session) | `u/admin/bedrock_session_access_key_id`, `u/admin/bedrock_session_secret_access_key`, `u/admin/bedrock_session_token` | `u/admin/bedrock_iam_session` | aws_bedrock |
+| Bedrock (environment fallback) | none (uses worker/api AWS env) | `u/admin/bedrock_env` | aws_bedrock |
 
 ### Tools
 

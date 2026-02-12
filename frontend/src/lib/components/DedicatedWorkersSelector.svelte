@@ -8,6 +8,7 @@
 	import { SvelteMap } from 'svelte/reactivity'
 	import { untrack } from 'svelte'
 	import BarsStaggered from './icons/BarsStaggered.svelte'
+	import { parseTag } from './dedicated_worker'
 
 	// A "Runnable" is a script or flow with dedicated_worker=true
 	interface Runnable {
@@ -61,21 +62,6 @@
 
 	// Languages that support dedicated workers
 	const DEDICATED_WORKER_LANGUAGES = ['python3', 'bun', 'deno']
-
-	// Parse a tag to extract workspace, type (script/flow), and path
-	function parseTag(tag: string): { workspace: string; type: 'script' | 'flow'; path: string } | null {
-		const colonIndex = tag.indexOf(':')
-		if (colonIndex === -1) return null
-
-		const workspace = tag.substring(0, colonIndex)
-		const rest = tag.substring(colonIndex + 1)
-
-		if (rest.startsWith('flow/')) {
-			return { workspace, type: 'flow', path: rest.substring(5) }
-		} else {
-			return { workspace, type: 'script', path: rest }
-		}
-	}
 
 	// Resolve workspace script languages and filter to supported languages
 	async function resolveAndFilterRunners(
@@ -438,25 +424,27 @@
 							{:else}
 								<div class="w-7"></div>
 							{/if}
-							<div class="flex-1 flex items-center gap-2 px-2 py-1.5 min-w-0">
-								{#if info}
-									{#if info.type === 'flow'}
-										<BarsStaggered size={14} class="flex-shrink-0 text-secondary" />
+							<div class="flex-1 flex flex-col gap-0.5 px-2 py-1.5 min-w-0">
+								<div class="flex items-center gap-2 min-w-0">
+									{#if info}
+										{#if info.type === 'flow'}
+											<BarsStaggered size={14} class="flex-shrink-0 text-secondary" />
+										{:else}
+											<CodeXml size={14} class="flex-shrink-0 text-secondary" />
+										{/if}
+										<span class="text-xs truncate flex-1 min-w-0">{info.path}</span>
+										<span class="text-xs text-tertiary flex-shrink-0">({info.workspace})</span>
+										{#if info.type === 'flow' && info.runners}
+											<Badge color="indigo" small>
+												{info.runners.length} runner{info.runners.length !== 1 ? 's' : ''}
+											</Badge>
+										{:else if info.type === 'script'}
+											<Badge color="blue" small>1 runner</Badge>
+										{/if}
 									{:else}
-										<CodeXml size={14} class="flex-shrink-0 text-secondary" />
+										<span class="text-xs text-tertiary truncate">{tag}</span>
 									{/if}
-									<span class="text-xs truncate flex-1">{info.path}</span>
-									<span class="text-xs text-tertiary flex-shrink-0">({info.workspace})</span>
-									{#if info.type === 'flow' && info.runners}
-										<Badge color="indigo" small>
-											{info.runners.length} runner{info.runners.length !== 1 ? 's' : ''}
-										</Badge>
-									{:else if info.type === 'script'}
-										<Badge color="blue" small>1 runner</Badge>
-									{/if}
-								{:else}
-									<span class="text-xs text-tertiary truncate">{tag}</span>
-								{/if}
+								</div>
 							</div>
 							{#if !disabled}
 								<button
@@ -474,10 +462,14 @@
 						{#if info?.type === 'flow' && info.expanded && info.runners}
 							<div class="bg-surface-secondary border-t">
 								{#each info.runners as runner (runner.stepId)}
-									<div class="flex items-center gap-2 px-9 py-1 text-xs border-t first:border-t-0">
-										<span class="font-mono text-tertiary">{runner.stepId}</span>
+									<div
+										class="flex items-center gap-2 px-9 py-1 text-xs border-t first:border-t-0 min-w-0"
+									>
+										<span class="font-mono text-tertiary flex-shrink-0">{runner.stepId}</span>
 										{#if runner.stepSummary}
-											<span class="text-secondary truncate flex-1">{runner.stepSummary}</span>
+											<span class="text-secondary truncate flex-1 min-w-0"
+												>{runner.stepSummary}</span
+											>
 										{/if}
 										<Badge color="gray" small>
 											{runner.isInline ? runner.language : runner.scriptPath}
@@ -577,7 +569,7 @@
 												<div class="w-7"></div>
 											{/if}
 											<button
-												class="flex-1 flex items-center gap-2 px-2 py-1.5 hover:bg-surface-hover transition-colors text-left"
+												class="flex-1 flex items-center gap-2 px-2 py-1.5 hover:bg-surface-hover transition-colors text-left min-w-0"
 												onclick={(e) => {
 													e.stopPropagation()
 													if (!disabled) toggleRunnable(runnable)
@@ -593,9 +585,11 @@
 														<Check class="h-3 w-3 text-white" />
 													{/if}
 												</div>
-												<span class="flex-1 text-xs truncate">{runnable.displayName}</span>
+												<span class="flex-1 text-xs truncate min-w-0"
+													>{runnable.displayName}</span
+												>
 												{#if runnable.type === 'flow' && runnable.runners}
-													<span class="text-xs text-tertiary">
+													<span class="text-xs text-tertiary flex-shrink-0">
 														{runnable.runners.length}
 													</span>
 												{/if}
@@ -614,11 +608,13 @@
 												{:else}
 													{#each runnable.runners as runner (runner.stepId)}
 														<div
-															class="flex items-center gap-2 px-9 py-1 text-xs border-t first:border-t-0"
+															class="flex items-center gap-2 px-9 py-1 text-xs border-t first:border-t-0 min-w-0"
 														>
-															<span class="font-mono text-tertiary">{runner.stepId}</span>
+															<span class="font-mono text-tertiary flex-shrink-0"
+																>{runner.stepId}</span
+															>
 															{#if runner.stepSummary}
-																<span class="text-secondary truncate flex-1">
+																<span class="text-secondary truncate flex-1 min-w-0">
 																	{runner.stepSummary}
 																</span>
 															{/if}

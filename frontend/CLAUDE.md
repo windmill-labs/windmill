@@ -2,7 +2,7 @@
 
 ## Core Principles
 
-- Follow @svelte5-best-practices.mdc for detailed guidelines
+- Follow the `svelte-frontend` skill for best practices: .claude/skills/svelte-frontend/SKILL.md
 - Use Runes ($state, $derived, $effect) for reactivity
 - Keep components small and focused
 - Always use keys in {#each} blocks
@@ -92,6 +92,14 @@ The `resource()` utility:
 - Use the component TextInput for all text inputs
 - Form components (TextInputs, ToggleButtons, Select ...) should all use the same size when put together, using the unified size system.
 - Read carefully components props JSDoc before using them
+
+## Code Validation (MUST DO)
+
+After making frontend changes, you MUST run the following and fix all errors and warnings before considering the work done:
+
+```bash
+npm run check
+```
 
 ## Backend API
 

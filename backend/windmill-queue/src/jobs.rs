@@ -5274,16 +5274,17 @@ async fn push_inner<'c, 'd>(
         .unwrap_or_else(|| (None, None));
 
     let tag = if dedicated_worker.is_some_and(|x| x) {
-        format!(
-            "{}:{}{}",
-            workspace_id,
-            if job_kind == JobKind::Flow || job_kind == JobKind::FlowDependencies {
-                "flow/"
-            } else {
-                ""
-            },
+        let flow_prefix = if job_kind == JobKind::Flow || job_kind == JobKind::FlowDependencies {
+            "flow/"
+        } else {
+            ""
+        };
+        let full_path = format!(
+            "{}{}",
+            flow_prefix,
             runnable_path.clone().expect("dedicated script has a path")
-        )
+        );
+        windmill_common::worker::dedicated_worker_tag(workspace_id, &full_path)
     } else {
         if tag == Some("".to_string()) {
             tag = None;

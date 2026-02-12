@@ -101,7 +101,7 @@
 
 	function goToCoreTab() {
 		goto('/#superadmin-settings')
-		instanceSettingsSelectedTab.set('Core')
+		instanceSettingsSelectedTab.set('general')
 	}
 
 	function onFiltersChange() {
