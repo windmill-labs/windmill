@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.634.0](https://github.com/windmill-labs/windmill/compare/v1.633.1...v1.634.0) (2026-02-12)
+
+
+### Features
+
+* add force_sandboxing global setting and #sandbox bash annotation ([#7816](https://github.com/windmill-labs/windmill/issues/7816)) ([2646629](https://github.com/windmill-labs/windmill/commit/2646629194f260d0be3a809be421bbab1307f927))
+* support for datatables in App Db studio ([#7930](https://github.com/windmill-labs/windmill/issues/7930)) ([6cee34a](https://github.com/windmill-labs/windmill/commit/6cee34a81da389faebb1474957a3989c4aadb00f))
+
 ## [1.633.1](https://github.com/windmill-labs/windmill/compare/v1.633.0...v1.633.1) (2026-02-12)
 
 
