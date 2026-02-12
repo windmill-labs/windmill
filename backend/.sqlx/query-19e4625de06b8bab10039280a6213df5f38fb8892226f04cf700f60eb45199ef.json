@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO resource\n        (workspace_id, path, value, resource_type, created_by, edited_at)\n        VALUES ($1, $2, $3, $4, $5, now()) ON CONFLICT (workspace_id, path)\n        DO UPDATE SET value = EXCLUDED.value, edited_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Jsonb",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "19e4625de06b8bab10039280a6213df5f38fb8892226f04cf700f60eb45199ef"
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_runtime SET ping = NULL\n                     WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "38b3945c04ae58aace881ed4d6aa4da72e61eeb8e081d2e3d1ab99a4fe450350"
+}

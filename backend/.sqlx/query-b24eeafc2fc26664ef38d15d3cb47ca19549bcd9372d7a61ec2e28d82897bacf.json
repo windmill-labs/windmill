@@ -1,0 +1,49 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, changed_by, changed_at, change_type, affected\n         FROM folder_permission_history\n         WHERE workspace_id = $1 AND folder_name = $2\n         ORDER BY id DESC\n         LIMIT $3 OFFSET $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "changed_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "changed_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "change_type",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "affected",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "b24eeafc2fc26664ef38d15d3cb47ca19549bcd9372d7a61ec2e28d82897bacf"
+}

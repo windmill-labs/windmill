@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO v2_job_status (id, flow_status)\n                SELECT unnest($1::uuid[]), $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6adafb42a54ed389bfbf8cf0065aece2d59e4f8b1d433273220d929671a6c94d"
+}
