@@ -16,6 +16,7 @@ import { tweened, type Tweened } from 'svelte/motion'
 import { subtractDaysFromDateString } from '$lib/utils'
 import { CancelablePromiseUtils } from '$lib/cancelable-promise-utils'
 import type { RunsFilters } from './RunsFilter.svelte'
+import type { Timeframe } from './TimeframeSelect.svelte'
 
 export function computeJobKinds(jobKindsCat: string | null): string {
 	if (jobKindsCat == 'all') {
@@ -47,6 +48,7 @@ export function computeJobKinds(jobKindsCat: string | null): string {
 export interface UseJobLoaderArgs {
 	currentWorkspace: string
 	filters?: Partial<RunsFilters>
+	timeframe?: Timeframe
 	jobKinds?: string
 	autoRefresh?: boolean
 	argError?: string
@@ -54,9 +56,7 @@ export interface UseJobLoaderArgs {
 	refreshRate?: number
 	syncQueuedRunsCount?: boolean
 	skip?: boolean
-	computeMinAndMax?: (() => { minTs: string; maxTs: string | null } | undefined) | undefined
 	lookback?: number
-	onSetMinMaxTs?: (minTs: string | null, maxTs: string | null) => void
 	onSetPerPage?: (perPage: number) => void
 }
 
@@ -71,10 +71,9 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let resultError = $derived(_args.resultError ?? '')
 	let refreshRate = $derived(_args.refreshRate ?? 5000)
 	let syncQueuedRunsCount = $derived(_args.syncQueuedRunsCount ?? true)
-	let computeMinAndMax = $derived(_args.computeMinAndMax)
 	let lookback = $derived(_args.lookback ?? 0)
-	let onSetMinMaxTs = $derived(_args.onSetMinMaxTs)
 	let onSetPerPage = $derived(_args.onSetPerPage)
+	let timeframe = $derived(_args?.timeframe)
 
 	let label = $derived(filters?.label ?? null)
 	let worker = $derived(filters?.worker ?? null)
@@ -94,8 +93,6 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let folder = $derived(filters?.folder)
 	let path = $derived(filters?.path)
 	let argFilter = $derived(filters?.arg)
-	let minTs = $derived(filters?.min_ts ?? null)
-	let maxTs = $derived(filters?.max_ts ?? null)
 	let perPage = $derived(filters?.per_page ?? 100)
 
 	let queue_count: Tweened<number> | undefined = $state()
@@ -162,6 +159,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 			// const minCreated = lastJob?.created_at
 			const minCreated = new Date(new Date(ts).getTime() - 1).toISOString()
 
+			const minTs = timeframe?.computeMinMax().minTs ?? null
 			let olderJobs = await fetchJobs(minCreated, minTs, undefined)
 			jobs = updateWithNewJobs(olderJobs ?? [], jobs ?? [])
 			computeCompletedJobs()
@@ -299,6 +297,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		intervalId = setInterval(syncer, refreshRate)
 	}
 	function loadJobsIntern(shouldGetCount?: boolean): CancelablePromise<void> {
+		const { minTs, maxTs } = timeframe?.computeMinMax() ?? { minTs: null, maxTs: null }
 		if (shouldGetCount) {
 			getCount()
 		}
@@ -374,9 +373,6 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let lastQueueTs: string | undefined = undefined
 
 	async function syncer() {
-		if (success == 'waiting') {
-			onSetMinMaxTs?.(null, null)
-		}
 		if (loadingFetch) {
 			return
 		}
@@ -385,15 +381,8 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 				getCount()
 			}
 
-			const ts = computeMinAndMax?.()
-			if (ts) {
-				onSetMinMaxTs?.(ts.minTs, ts.maxTs)
-				if (maxTs != undefined) {
-					loadJobsIntern(false)
-				}
-			}
-
-			if (jobs && maxTs == undefined) {
+			const { minTs, maxTs } = timeframe?.computeMinMax() ?? { minTs: null, maxTs: null }
+			if (jobs) {
 				if (success == 'running') {
 					loadJobsIntern(false)
 				} else {
@@ -534,6 +523,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		Object.keys(filters ?? {}).map((k) => filters?.[k as keyof RunsFilters])
 		currentWorkspace
 		lookback
+		timeframe
 		let p = untrack(() => onParamChanges())
 		return () => p.cancel()
 	})

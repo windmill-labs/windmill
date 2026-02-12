@@ -15,7 +15,9 @@ export function sendUserToast(
 	actions: ToastAction[] = [],
 	errorMessage: string | undefined = undefined,
 	duration: number = 5000
-): void {
+): {
+	destroy: () => void
+} {
 	const type = typeof _type === 'boolean' ? (_type ? 'error' : 'success') : _type
 	const error = type === 'error'
 	if (globalThis.windmillToast) {
@@ -27,9 +29,9 @@ export function sendUserToast(
 			errorMessage,
 			duration
 		})
-		return
+		return { destroy: () => {} }
 	}
-	toast.push({
+	const id = toast.push({
 		component: {
 			// https://github.com/zerodevx/svelte-toast/issues/115
 			// Svelte 5 changed its component type and svelte-toast is not up to date yet
@@ -56,4 +58,8 @@ export function sendUserToast(
 			'--toastBoxShadow': 'none'
 		}
 	})
+
+	return {
+		destroy: () => toast.pop(id)
+	}
 }

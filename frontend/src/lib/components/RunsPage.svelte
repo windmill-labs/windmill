@@ -11,12 +11,11 @@
 
 	import { sendUserToast } from '$lib/toast'
 	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
-	import { Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
+	import { Button, Drawer, DrawerContent, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import RunChart from '$lib/components/RunChart.svelte'
 
 	import JobRunsPreview from '$lib/components/runs/JobRunsPreview.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import CalendarPicker from '$lib/components/common/calendarPicker/CalendarPicker.svelte'
 
 	import RunsTable from '$lib/components/runs/RunsTable.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -25,27 +24,26 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import RunsQueue from '$lib/components/runs/RunsQueue.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import ManuelDatePicker from '$lib/components/runs/ManuelDatePicker.svelte'
 	import { computeJobKinds, useJobsLoader } from '$lib/components/runs/useJobsLoader.svelte'
-	import { Calendar, Clock, TriangleAlert } from 'lucide-svelte'
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
-	import { isJobSelectable, type RunsSelectionMode } from '$lib/utils'
+	import { pluralize } from '$lib/utils'
 	import BatchReRunOptionsPane, {
 		type BatchReRunOptions
 	} from '$lib/components/runs/BatchReRunOptionsPane.svelte'
 	import { untrack } from 'svelte'
 	import { page } from '$app/state'
-	import RunOption from '$lib/components/runs/RunOption.svelte'
-	import TooltipV2 from '$lib/components/meltComponents/Tooltip.svelte'
-	import DropdownSelect from '$lib/components/DropdownSelect.svelte'
-	import RunsBatchActionsDropdown from '$lib/components/runs/RunsBatchActionsDropdown.svelte'
-	import { createBubbler } from 'svelte/legacy'
-	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
 	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
 	import { StaleWhileLoading } from '$lib/svelte5Utils.svelte'
+	import { CalendarIcon, ClockIcon, TriangleAlertIcon } from 'lucide-svelte'
+	import DropdownV2 from './DropdownV2.svelte'
+	import TimeframeSelect, {
+		buildManualTimeframe,
+		runsTimeframes,
+		useUrlSyncedTimeframe
+	} from './runs/TimeframeSelect.svelte'
+	import RunOption from './runs/RunOption.svelte'
 
 	interface Props {
 		/** Initial path from route params (e.g., /runs/u/user/script) */
@@ -54,6 +52,7 @@
 
 	let { initialPath }: Props = $props()
 
+	let batchRerunOptionsIsOpen = $state(false)
 	let filters = useSearchParams(runsFiltersSchema)
 
 	// Initialize path filter from route param if provided and not already set via query params
@@ -72,10 +71,7 @@
 	}
 
 	let selectedIds: string[] = $state([])
-	let loadingSelectedIds = $state(false)
 	let selectedWorkspace: string | undefined = $state(undefined)
-
-	let batchReRunOptions: BatchReRunOptions = $state({ flow: {}, script: {} })
 
 	let jobKinds: string | undefined = $derived(computeJobKinds(filters.job_kinds))
 	let paths: string[] = $state([])
@@ -84,7 +80,6 @@
 	let argError = $state('')
 	let resultError = $state('')
 	let filterTimeout: ReturnType<typeof setInterval> | undefined = undefined
-	let selectedManualDate = $state(0)
 	let autoRefresh: boolean = $state(getAutoRefresh())
 	let runDrawer: Drawer | undefined = $state(undefined)
 	let lookback: number = $state(1)
@@ -126,28 +121,29 @@
 		}
 	}
 
-	let manualDatePicker: ManuelDatePicker | undefined = $state(undefined)
+	let _timeframe = useUrlSyncedTimeframe(runsTimeframes)
+	let timeframe = $derived(_timeframe.timeframe)
+
+	let manualTimeframe = $derived(timeframe.type === 'manual' ? timeframe : undefined)
+
 	let graph: 'RunChart' | 'ConcurrencyChart' = $state(
 		typeOfChart(page.url.searchParams.get('graph'))
 	)
-	let graphIsRunsChart: boolean = $state(untrack(() => graph) === 'RunChart')
 	let innerWidth = $state(window.innerWidth)
 	let jobsLoader = useJobsLoader(() => ({
 		filters,
-		computeMinAndMax: manualDatePicker?.computeMinMax,
+		timeframe,
 		jobKinds,
 		autoRefresh,
 		argError,
 		resultError,
-		lookback: graphIsRunsChart ? 0 : lookback,
+		lookback: graph === 'RunChart' ? 0 : lookback,
 		onSetPerPage: (p) => (filters.per_page = p),
-		onSetMinMaxTs: (minTs, maxTs) => ((filters.min_ts = minTs), (filters.max_ts = maxTs)),
 		currentWorkspace: $workspaceStore ?? ''
 	}))
 	let lastFetchWentToEnd = $derived(jobsLoader.lastFetchWentToEnd)
 	let queue_count = $derived(jobsLoader.queue_count)
 	let suspended_count = $derived(jobsLoader.suspended_count)
-	let loading = $derived(jobsLoader.loading)
 	let externalJobs = $derived(jobsLoader.externalJobs)
 	let extendedJobs = $derived(jobsLoader.extendedJobs)
 	// Avoid flicker, but still show empty if loading takes too long
@@ -168,13 +164,9 @@
 	}
 
 	function reset() {
-		filters.min_ts = null
-		filters.max_ts = null
-		selectedManualDate = 0
+		_timeframe.timeframe = { ...runsTimeframes[0] }
 		selectedIds = []
 		filters.schedule_path = null
-		batchReRunOptions = { flow: {}, script: {} }
-		selectionMode = false
 		selectedWorkspace = undefined
 		jobsLoader?.loadJobs(true)
 	}
@@ -229,34 +221,14 @@
 		}
 	}
 
-	let selectionMode: RunsSelectionMode | false = $state(false)
-
-	async function onSetSelectionMode(mode: RunsSelectionMode | false) {
-		selectionMode = mode
-		if (!mode) {
-			selectedIds = []
-			batchReRunOptions = { flow: {}, script: {} }
-			return
-		}
-		const selectableIds = jobs?.filter(isJobSelectable(mode)).map((j) => j.id) ?? []
-		selectedIds = []
-
-		if (!selectableIds?.length) {
-			sendUserToast(
-				'There are no visible jobs that can be ' +
-					{ cancel: 'cancelled', 're-run': 're-ran' }[mode],
-				true
-			)
-		}
-	}
-
 	function getSelectedFilters() {
 		const argFilter = filters.arg && JSON.parse(filters.arg)
 		const resultFilter = filters.result && JSON.parse(filters.result)
+		const { minTs, maxTs } = timeframe.computeMinMax()
 		return {
 			workspace: $workspaceStore ?? '',
-			startedBefore: filters.max_ts ?? undefined,
-			startedAfter: filters.min_ts ?? undefined,
+			startedBefore: maxTs ?? undefined,
+			startedAfter: minTs ?? undefined,
 			schedulePath: filters.schedule_path ?? undefined,
 			scriptPathExact: filters.path === null || filters.path === '' ? undefined : filters.path,
 			createdBy: filters.user || undefined,
@@ -320,10 +292,9 @@
 		selectedIds = []
 		jobsLoader?.loadJobs(true, true)
 		sendUserToast(`Canceled ${uuids.length} jobs`)
-		selectionMode = false
 	}
 
-	async function onCancelFilteredJobs() {
+	async function onCancelAllJobsMatchingFilters() {
 		forceCancelInPopup = false
 		askingForConfirmation = {
 			title: 'Confirm cancelling all jobs corresponding to the selected filters',
@@ -345,18 +316,18 @@
 		}
 	}
 
-	async function onCancelSelectedJobs() {
+	async function onCancelSelectedJobs(jobIdsToCancel: string[]) {
 		forceCancelInPopup = true
 		askingForConfirmation = {
-			confirmBtnText: `Cancel ${selectedIds.length} jobs`,
-			title: 'Confirm cancelling the selected jobs',
+			confirmBtnText: `Cancel ${jobIdsToCancel.length} jobs`,
+			title: `Confirm cancelling ${jobIdsToCancel.length} jobs`,
 			onConfirm: (forceCancel) => {
-				cancelJobs(selectedIds, forceCancel)
+				cancelJobs(jobIdsToCancel, forceCancel)
 			}
 		}
 	}
 
-	async function reRunJobs(jobIdsToReRun: string[]) {
+	async function reRunJobs(jobIdsToReRun: string[], batchReRunOptions: BatchReRunOptions) {
 		if (!$workspaceStore) return
 
 		if (askingForConfirmation) {
@@ -365,8 +336,8 @@
 
 		const body: Parameters<typeof JobService.batchReRunJobs>[0]['requestBody'] = {
 			job_ids: jobIdsToReRun,
-			script_options_by_path: batchReRunOptions.script,
-			flow_options_by_path: batchReRunOptions.flow
+			script_options_by_path: batchReRunOptions.script ?? {},
+			flow_options_by_path: batchReRunOptions.flow ?? {}
 		}
 
 		// workaround because EventSource does not support POST requests
@@ -424,40 +395,38 @@
 		})
 
 		selectedIds = []
-		batchReRunOptions = { flow: {}, script: {} }
 		jobsLoader?.loadJobs(true, true)
-		selectionMode = false
 	}
 
-	async function onReRunFilteredJobs() {
+	async function onRerunAllJobsMatchingFilters() {
 		const selectedFilters = getSelectedFilters()
 		selectedIds = []
-		loadingSelectedIds = true
+
+		const loadingToast = sendUserToast('Loading job ids', 'info')
 
 		if (filters.job_kinds !== 'runs') {
 			sendUserToast('Batch re-run is only supported for scripts and flows', true)
+			loadingToast.destroy()
+			return
 		}
 		selectedIds = await JobService.listFilteredJobsUuids({
 			...selectedFilters,
 			jobKinds: 'script,flow'
 		})
-		selectionMode = 're-run'
+		loadingToast.destroy()
+		batchRerunOptionsIsOpen = true
 	}
 
-	async function onReRunSelectedJobs() {
+	async function onReRunSelectedJobs(batchReRunOptions: BatchReRunOptions) {
 		const jobIdsToReRun = selectedIds
 		askingForConfirmation = {
 			title: `Confirm re-running the selected jobs`,
 			confirmBtnText: `Re-run ${jobIdsToReRun.length} jobs`,
 			type: 'reload',
 			onConfirm: async () => {
-				await reRunJobs(jobIdsToReRun)
+				await reRunJobs(jobIdsToReRun, batchReRunOptions)
 			}
 		}
-	}
-
-	function setLookback(lookbackInDays: number) {
-		lookback = lookbackInDays
 	}
 
 	async function loadExtra() {
@@ -482,9 +451,6 @@
 	}
 
 	$effect(() => {
-		loadingSelectedIds && selectedIds.length && setTimeout(() => (loadingSelectedIds = false), 250)
-	})
-	$effect(() => {
 		if ($workspaceStore) {
 			untrack(() => {
 				loadUsernames()
@@ -502,30 +468,6 @@
 		)
 	})
 
-	const bubble = createBubbler()
-
-	function selectAll() {
-		if (!selectionMode) return
-		if (allSelected) {
-			allSelected = false
-			selectedIds = []
-		} else {
-			allSelected = true
-			selectedIds = jobs?.filter(isJobSelectable(selectionMode)).map((j) => j.id) ?? []
-		}
-	}
-
-	let allSelected = $derived.by(() => {
-		return selectionMode && selectedIds.length === selectableJobCount
-	})
-
-	const selectableJobCount = $derived.by(() => {
-		if (!selectionMode) return 0
-		return jobs?.filter(isJobSelectable(selectionMode)).length ?? 0
-	})
-
-	let tableTopBarWidth = $state(0)
-
 	const smallScreenWidth = 1920
 	const verySmallScreenWidth = 1300
 
@@ -534,6 +476,8 @@
 	const warnJobLimitMsg = $derived(
 		`The exact number of concurrent jobs at the beginning of the time range may be incorrect as only the last ${filters.per_page} jobs are taken into account: a job that was started earlier than this limit will not be taken into account`
 	)
+
+	let manualSelectionMode: undefined | 'cancel' | 'rerun' = $state()
 </script>
 
 <ConfirmationModal
@@ -603,7 +547,7 @@
 {:else}
 	<div class="w-full h-screen flex flex-col" bind:clientWidth={innerWidth}>
 		<!-- Header and filters -->
-		<div class="flex flex-row items-start w-full border-b px-4 gap-8">
+		<div class="flex flex-row items-start w-full px-4 gap-8">
 			<div class="flex flex-row items-center h-full gap-6">
 				<div class="flex flex-row items-center gap-1">
 					<h1
@@ -638,61 +582,19 @@
 				/>
 			</div>
 
-			<div class="py-2 flex items-start gap-x-4 gap-y-2 flex-row grow min-w-0 justify-end">
+			<div class="py-2 flex items-start gap-2 flex-row grow min-w-0 justify-end">
 				<!-- Dates -->
-				<div class="flex flex-row gap-2">
-					<RunOption label="From" for="min-datetimes">
-						{#if filters.min_ts || filters.max_ts}
-							<input
-								type="text"
-								class="!text-sm text-primary !bg-surface-secondary h-9 !border-none"
-								value={filters.min_ts
-									? new Date(filters.min_ts).toLocaleString()
-									: 'zoom x axis to set min'}
-								disabled
-								name="min-datetimes"
-							/>
-						{/if}
-						<CalendarPicker
-							clearable={true}
-							bind:date={filters.min_ts}
-							on:clear={() => (filters.min_ts = null)}
-							label="From"
-							class={filters.min_ts || filters.max_ts
-								? ''
-								: 'relative top-0 bottom-0 left-0 right-0 h-[34px]'}
-						/>
-					</RunOption>
-
-					<RunOption label="To" for="max-datetimes">
-						{#if filters.max_ts || filters.min_ts}
-							<input
-								type="text"
-								class="!text-sm text-primary !bg-surface-secondary h-9 !border-none"
-								value={filters.max_ts
-									? new Date(filters.max_ts).toLocaleString()
-									: 'zoom x axis to set max'}
-								name="max-datetimes"
-								disabled
-							/>
-						{/if}
-						<CalendarPicker
-							clearable={true}
-							on:clear={() => (filters.max_ts = null)}
-							bind:date={filters.max_ts}
-							label="To"
-							class={filters.min_ts || filters.max_ts
-								? ''
-								: 'relative top-0 bottom-0 left-0 right-0 h-[34px]'}
-						/>
-					</RunOption>
-
-					{#if filters.min_ts || filters.max_ts}
-						<RunOption label="Reset" for="reset" noLabel>
-							<Button variant="default" size="xs" onClick={reset} btnClasses="h-9">Reset</Button>
-						</RunOption>
-					{/if}
-				</div>
+				<RunOption label="Reset" for="reset" noLabel>
+					<Button variant="default" unifiedSize="md" onClick={reset}>Reset</Button>
+				</RunOption>
+				<RunOption label="Timeframe" for="timeframe" noLabel>
+					<TimeframeSelect
+						onClick={() => jobsLoader?.loadJobs(true)}
+						loading={jobsLoader?.loading}
+						items={runsTimeframes}
+						bind:value={_timeframe.timeframe}
+					/>
+				</RunOption>
 
 				<!-- Filters 1 -->
 				<div class="flex flex-row gap-2">
@@ -716,100 +618,58 @@
 						bind:argFilter={filters.arg}
 						bind:resultFilter={filters.result}
 						on:change={reloadJobsWithoutFilterError}
-						on:successChange={(e) => {
-							if (e.detail == 'running' && filters.max_ts != undefined) {
-								filters.max_ts = null
-							}
-						}}
 						{usernames}
 						{folders}
 						{paths}
 						mobile={innerWidth < verySmallScreenWidth}
-						small={innerWidth < smallScreenWidth}
-						calendarSmall={!filters.min_ts && !filters.max_ts}
 					/>
 				</div>
 			</div>
 		</div>
 
 		<!-- Graph -->
-		<div class="p-2 px-4 pt-8 w-full border-b">
-			<div class="relative z-10">
-				<div class="absolute left-0 -top-7 flex flex-row gap-2 items-center min-w-24">
-					<ToggleButtonGroup
-						selected={graph}
-						on:selected={({ detail }) => {
-							graph = detail
-							graphIsRunsChart = graph === 'RunChart'
-						}}
-					>
-						{#snippet children({ item })}
-							<ToggleButton value="RunChart" label="Duration" {item} />
-							<ToggleButton
-								{item}
-								value="ConcurrencyChart"
-								label="Concurrency"
-								icon={warnJobLimit ? TriangleAlert : undefined}
-								tooltip={warnJobLimit ? warnJobLimitMsg : undefined}
-							/>
+		<div class="p-2 px-4 bg-surface-tertiary mx-4 mt-2 border rounded-md">
+			<div class="relative z-10 mb-2 flex gap-2">
+				<Tabs bind:selected={graph}>
+					<Tab value="RunChart" label="Duration" />
+					<Tab value="ConcurrencyChart" label="Concurrency">
+						{#snippet extra()}
+							{#if warnJobLimit}
+								<Tooltip Icon={TriangleAlertIcon}>{warnJobLimitMsg}</Tooltip>
+							{/if}
 						{/snippet}
-					</ToggleButtonGroup>
+					</Tab>
+				</Tabs>
 
-					{#if !graphIsRunsChart}
-						<DropdownSelect
-							items={[
-								{
-									displayName: 'None',
-									action: () => setLookback(0),
-									id: '0'
-								},
-								{
-									displayName: '1 day',
-									action: () => setLookback(1),
-									id: '1'
-								},
-								{
-									displayName: '3 days',
-									action: () => setLookback(3),
-									id: '3'
-								},
-								{
-									displayName: '7 days',
-									action: () => setLookback(7),
-									id: '7'
-								}
-							]}
-							selected={lookback.toString()}
-							selectedDisplayName={`${lookback} days lookback`}
-						>
-							{#snippet extraLabel()}
-								<TooltipV2>
-									{#snippet text()}
-										How far behind the min datetime to start considering jobs for the concurrency
-										graph. Change this value to include jobs started before the set time window for
-										the computation of the graph
-									{/snippet}
-								</TooltipV2>
-							{/snippet}
-						</DropdownSelect>
-					{/if}
-				</div>
+				{#if graph !== 'RunChart'}
+					<Select
+						class="ml-2"
+						bind:value={lookback}
+						items={[
+							{ label: 'None', value: 0 },
+							{ label: '1 day', value: 1 },
+							{ label: '3 days', value: 3 },
+							{ label: '7 days', value: 7 }
+						]}
+						transformInputSelectedText={(_, v) => `${pluralize(v, 'day')} lookback`}
+						tooltip={'How far behind the min datetime to start considering jobs for the concurrency graph. Change this value to include jobs started before the set time window for the computation of the graph'}
+					/>
+				{/if}
 			</div>
 			{#if graph === 'RunChart'}
+				{@const manualTimeframe = timeframe.type === 'manual' ? timeframe : undefined}
 				<RunChart
-					{lastFetchWentToEnd}
 					bind:selectedIds
-					canSelect={!selectionMode}
-					minTimeSet={filters.min_ts}
-					maxTimeSet={filters.max_ts}
-					totalRowsFetched={jobs?.length ?? 0}
-					maxIsNow={filters.max_ts == undefined}
-					onLoadExtra={loadExtra}
+					canSelect
+					minTimeSet={manualTimeframe?.minTs}
+					maxTimeSet={manualTimeframe?.maxTs}
+					maxIsNow={manualTimeframe?.maxTs == undefined}
 					jobs={completedJobs}
 					onZoom={async (zoom) => {
-						filters.min_ts = zoom.min.toISOString()
-						filters.max_ts = zoom.max.toISOString()
-						manualDatePicker?.resetChoice()
+						_timeframe.timeframe = buildManualTimeframe(
+							zoom.min.toISOString(),
+							zoom.max.toISOString()
+						)
 						jobsLoader?.loadJobs(true)
 					}}
 					onPointClicked={(ids) => {
@@ -818,78 +678,112 @@
 				/>
 			{:else if graph === 'ConcurrencyChart'}
 				<ConcurrentJobsChart
-					minTimeSet={filters.min_ts}
-					maxTimeSet={filters.max_ts}
-					maxIsNow={filters.max_ts == undefined}
+					minTimeSet={manualTimeframe?.minTs}
+					maxTimeSet={manualTimeframe?.maxTs}
+					maxIsNow={manualTimeframe?.maxTs == undefined}
 					{extendedJobs}
 					onZoom={async (zoom) => {
-						filters.min_ts = zoom.min.toISOString()
-						filters.max_ts = zoom.max.toISOString()
+						_timeframe.timeframe = buildManualTimeframe(
+							zoom.min.toISOString(),
+							zoom.max.toISOString()
+						)
 						jobsLoader?.loadJobs(true)
 					}}
 				/>
 			{/if}
 		</div>
 
-		<div class="grow min-h-0">
+		<div class="grow min-h-0 bottom-splitpane-wrapper">
 			<Splitpanes>
 				<Pane minSize={40}>
-					<div class="flex flex-col h-full">
-						<!-- Runs table top bar -->
-						<div
-							class="flex flex-row gap-4 items-center px-2 py-1 grow-0 justify-between"
-							bind:clientWidth={tableTopBarWidth}
-						>
-							<div class="flex flex-row gap-4 items-center">
-								{#if selectionMode && selectableJobCount}
-									<div class="flex flex-row items-center font-semibold text-sm">
-										<div class="px-2">
-											<input
-												onfocus={bubble('focus')}
-												type="checkbox"
-												checked={allSelected}
-												id="select-all"
-												class={twMerge(
-													'cursor-pointer',
-													allSelected ? 'bg-blue-50 dark:bg-blue-900/50' : '',
-													'flex flex-row items-center p-2 pr-4 top-0 font-semibold text-sm'
-												)}
-												onclick={selectAll}
-											/>
-										</div>
-										<label
-											class="cursor-pointer whitespace-nowrap text-xs text-emphasis font-semibold"
-											for="select-all">Select all</label
-										>
+					<div class="h-full flex">
+						<div class="flex flex-col flex-1 m-4 mr-2">
+							<!-- Runs table. Add overflow-hidden because scroll is handled inside the runs table based on this wrapper height -->
+							<div class="grow min-h-0 overflow-y-hidden overflow-x-auto">
+								{#if jobs}
+									<RunsTable
+										{jobs}
+										externalJobs={externalJobs ?? []}
+										omittedObscuredJobs={extendedJobs?.omitted_obscured_jobs ?? false}
+										showExternalJobs={graph !== 'RunChart'}
+										activeLabel={filters.label}
+										{lastFetchWentToEnd}
+										bind:selectedIds
+										bind:selectedWorkspace
+										on:loadExtra={loadExtra}
+										on:filterByPath={filterByPath}
+										on:filterByUser={filterByUser}
+										on:filterByFolder={filterByFolder}
+										on:filterByLabel={filterByLabel}
+										on:filterByConcurrencyKey={filterByConcurrencyKey}
+										on:filterByTag={filterByTag}
+										on:filterBySchedule={filterBySchedule}
+										on:filterByWorker={filterByWorker}
+										bind:this={runsTable}
+										perPage={filters.per_page}
+										bind:batchRerunOptionsIsOpen
+										onCancelJobs={onCancelSelectedJobs}
+										{manualSelectionMode}
+									></RunsTable>
+								{:else}
+									<div class="gap-1 flex flex-col">
+										{#each new Array(8) as _}
+											<Skeleton layout={[[3]]} />
+										{/each}
 									</div>
 								{/if}
-
-								<RunsBatchActionsDropdown
-									isLoading={loadingSelectedIds}
-									{selectionMode}
-									selectionCount={selectedIds.length}
-									{onSetSelectionMode}
-									{onCancelFilteredJobs}
-									{onCancelSelectedJobs}
-									{onReRunFilteredJobs}
-									{onReRunSelectedJobs}
-									small={tableTopBarWidth < 800}
-								/>
 							</div>
-
-							<div class="flex flex-row gap-4 items-center">
+							<div
+								class="bg-surface-tertiary border rounded-b-md flex text-xs px-2 py-1 items-center gap-4"
+							>
+								{#if !manualSelectionMode}
+									<DropdownV2
+										btnText="Batch actions"
+										size="xs"
+										items={[
+											{
+												displayName: 'Cancel jobs',
+												action: () => ((manualSelectionMode = 'cancel'), (selectedIds = []))
+											},
+											{
+												displayName: 'Re-run jobs',
+												action: () => {
+													manualSelectionMode = 'rerun'
+													selectedIds = []
+													batchRerunOptionsIsOpen = true
+												}
+											},
+											{
+												displayName: 'Cancel all jobs matching filters',
+												action: () => onCancelAllJobsMatchingFilters()
+											},
+											{
+												displayName: 'Re-run all jobs matching filters',
+												action: () => onRerunAllJobsMatchingFilters()
+											}
+										]}
+									/>
+								{:else}
+									<Button
+										size="xs"
+										destructive
+										onClick={() => {
+											manualSelectionMode = undefined
+											batchRerunOptionsIsOpen = false
+										}}
+									>
+										Exit selection mode
+									</Button>
+								{/if}
+								<div class="flex-1"></div>
 								{#if !filters.job_trigger_kind}
 									<div class="flex flex-row gap-1 items-center">
 										<Toggle
 											id="cron-schedules"
 											bind:checked={filters.show_schedules}
-											options={tableTopBarWidth < 800 || selectionMode
-												? {}
-												: { right: 'Schedules' }}
+											options={{ right: 'Schedules' }}
 										/>
-										<span title="Schedules">
-											<Calendar size="14" />
-										</span>
+										<span title="Schedules"><CalendarIcon size="14" /></span>
 									</div>
 								{/if}
 
@@ -898,117 +792,101 @@
 										size="sm"
 										bind:checked={filters.show_future_jobs}
 										id="planned-later"
-										options={tableTopBarWidth < 800 || selectionMode
-											? {}
-											: { right: 'Planned later' }}
+										options={{ right: 'Planned later' }}
 									/>
-									<span title="Planned later">
-										<Clock size={14} />
-									</span>
+									<span title="Planned later"><ClockIcon size={14} /></span>
 								</div>
-								<div class="flex flex-row gap-2 items-center">
-									<ManuelDatePicker
-										on:loadJobs={() => {
-											jobsLoader?.loadJobs(true)
-										}}
-										bind:minTs={filters.min_ts}
-										bind:maxTs={filters.max_ts}
-										bind:selectedManualDate
-										{loading}
-										bind:this={manualDatePicker}
-										numberOfLastJobsToFetch={filters.per_page}
-									/>
-									<Toggle
-										size="sm"
-										bind:checked={autoRefresh}
-										on:change={() => {
-											localStorage.setItem('auto_refresh_in_runs', autoRefresh ? 'true' : 'false')
-										}}
-										options={{ right: 'Auto-refresh' }}
-										textClass="whitespace-nowrap"
-									/>
-								</div>
-							</div>
-						</div>
-
-						<!-- Runs table. Add overflow-hidden because scroll is handled inside the runs table based on this wrapper height -->
-						<div class="grow min-h-0 overflow-y-hidden overflow-x-auto">
-							{#if jobs}
-								<RunsTable
-									{jobs}
-									externalJobs={externalJobs ?? []}
-									omittedObscuredJobs={extendedJobs?.omitted_obscured_jobs ?? false}
-									showExternalJobs={!graphIsRunsChart}
-									activeLabel={filters.label}
-									{selectionMode}
-									{lastFetchWentToEnd}
-									bind:selectedIds
-									bind:selectedWorkspace
-									on:loadExtra={loadExtra}
-									on:filterByPath={filterByPath}
-									on:filterByUser={filterByUser}
-									on:filterByFolder={filterByFolder}
-									on:filterByLabel={filterByLabel}
-									on:filterByConcurrencyKey={filterByConcurrencyKey}
-									on:filterByTag={filterByTag}
-									on:filterBySchedule={filterBySchedule}
-									on:filterByWorker={filterByWorker}
-									bind:this={runsTable}
-									perPage={filters.per_page}
-								></RunsTable>
-							{:else}
-								<div class="gap-1 flex flex-col">
-									{#each new Array(8) as _}
-										<Skeleton layout={[[3]]} />
-									{/each}
-								</div>
-							{/if}
-						</div>
-						<div
-							class="bg-surface-secondary border-t flex text-xs px-2 py-1 items-center justify-end gap-2"
-						>
-							Per page:
-							<Select
-								class="w-20"
-								bind:value={
-									() => filters.per_page,
-									(newPerPage) => {
-										filters.per_page = newPerPage
-										if (newPerPage > (jobs?.length ?? 1000)) loadExtra()
+								<Toggle
+									size="xs"
+									bind:checked={autoRefresh}
+									on:change={() => {
+										localStorage.setItem('auto_refresh_in_runs', autoRefresh ? 'true' : 'false')
+									}}
+									options={{ right: 'Auto-refresh' }}
+									textClass="whitespace-nowrap"
+								/>
+								<Select
+									class="w-24"
+									bind:value={
+										() => filters.per_page,
+										(newPerPage) => {
+											filters.per_page = newPerPage
+											if (newPerPage > (jobs?.length ?? 1000)) loadExtra()
+										}
 									}
-								}
-								onCreateItem={(v) => (filters.per_page = parseInt(v))}
-								items={[
-									{ value: 25, label: '25' },
-									{ value: 100, label: '100' },
-									{ value: 1000, label: '1000' },
-									{ value: 10000, label: '10000' }
-								]}
-							/>
+									onCreateItem={(v) => (filters.per_page = parseInt(v))}
+									items={[
+										{ value: 25, label: '25' },
+										{ value: 100, label: '100' },
+										{ value: 1000, label: '1000' },
+										{ value: 10000, label: '10000' }
+									]}
+									transformInputSelectedText={(_, v) => `${v} / page`}
+								/>
+							</div>
 						</div>
 					</div>
 				</Pane>
-				<AnimatedPane size={40} minSize={15} class="flex flex-col" opened={selectedIds.length > 0}>
-					{#if selectionMode === 're-run'}
-						<BatchReRunOptionsPane {selectedIds} bind:options={batchReRunOptions} />
-					{:else if selectedIds.length === 1}
-						{#if selectedIds[0] === '-'}
-							<div class="p-4">There is no information available for this job</div>
-						{:else}
-							<JobRunsPreview
-								id={selectedIds[0]}
-								workspace={selectedWorkspace}
-								on:filterByConcurrencyKey={filterByConcurrencyKey}
-								on:filterByWorker={filterByWorker}
+				<AnimatedPane
+					size={40}
+					minSize={15}
+					class="flex flex-col"
+					opened={selectedIds.length > 0 || !!manualSelectionMode}
+				>
+					<div class="mt-14 overflow-y-auto pr-4 ml-2 relative flex-1">
+						{#if manualSelectionMode === 'cancel'}
+							<div
+								class="rounded-md bg-surface-tertiary border absolute inset-0 mb-4 flex flex-col items-center justify-center"
+							>
+								<Button
+									destructive
+									variant="accent"
+									disabled={!selectedIds.length}
+									onClick={() => onCancelSelectedJobs(selectedIds)}
+								>
+									Cancel {selectedIds.length} jobs
+								</Button>
+							</div>
+						{:else if batchRerunOptionsIsOpen}
+							<BatchReRunOptionsPane
+								{selectedIds}
+								onCancel={() => (
+									(batchRerunOptionsIsOpen = false),
+									(manualSelectionMode = undefined)
+								)}
+								onConfirm={async (options) => {
+									await onReRunSelectedJobs(options)
+								}}
 							/>
+						{:else if selectedIds.length === 1}
+							{#if selectedIds[0] === '-'}
+								<div class="p-4">There is no information available for this job</div>
+							{:else}
+								<JobRunsPreview
+									id={selectedIds[0]}
+									workspace={selectedWorkspace}
+									on:filterByConcurrencyKey={filterByConcurrencyKey}
+									on:filterByWorker={filterByWorker}
+								/>
+							{/if}
+						{:else if selectedIds.length > 1}
+							<div
+								class="rounded-md bg-surface-tertiary border absolute inset-0 mb-4 flex items-center justify-center"
+							>
+								<div class="text-xs m-4"> {selectedIds.length} jobs selected</div>
+							</div>
 						{/if}
-					{:else if selectedIds.length > 1}
-						<div class="text-xs m-4"
-							>There are {selectedIds.length} jobs selected. Choose 1 to see detailed information</div
-						>
-					{/if}
+					</div>
 				</AnimatedPane>
 			</Splitpanes>
 		</div>
 	</div>
 {/if}
+
+<style>
+	:global(.bottom-splitpane-wrapper .splitpanes__splitter) {
+		background-color: transparent !important;
+		border: none !important;
+		/* opacity: 0 !important; */
+	}
+</style>

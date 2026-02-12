@@ -415,3 +415,51 @@ export function useInfiniteQuery<TData, TPageParam = number>(
 		reset
 	}
 }
+
+export function useKeyPressed<Key extends string>(
+	keys: Key[],
+	params?: {
+		onKeyUp?: (key: Key, e: KeyboardEvent) => void
+		onKeyDown?: (key: Key, e: KeyboardEvent) => void
+	}
+): Record<Key, boolean> {
+	if (typeof window === 'undefined')
+		return Object.fromEntries(keys.map((key) => [key, false])) as Record<Key, boolean>
+	let obj = $state(Object.fromEntries(keys.map((key) => [key, false])) as Record<Key, boolean>)
+	$effect(() => {
+		const handleKeyDown = (event: KeyboardEvent) => {
+			for (const key of keys) {
+				if (event.key.toLowerCase() === key.toLowerCase()) {
+					obj[key] = true
+					params?.onKeyDown?.(key, event)
+				}
+			}
+		}
+
+		const handleKeyUp = (event: KeyboardEvent) => {
+			for (const key of keys) {
+				if (event.key.toLowerCase() === key.toLowerCase()) {
+					obj[key] = false
+					params?.onKeyUp?.(key, event)
+				}
+			}
+		}
+
+		// Reset all keys when window loses focus or visibility changes to prevent stuck keys
+		const resetAllKeys = () => {
+			for (const key of keys) obj[key] = false
+		}
+
+		window.addEventListener('keydown', handleKeyDown)
+		window.addEventListener('keyup', handleKeyUp)
+		window.addEventListener('blur', resetAllKeys)
+		document.addEventListener('visibilitychange', resetAllKeys)
+		return () => {
+			window.removeEventListener('keydown', handleKeyDown)
+			window.removeEventListener('keyup', handleKeyUp)
+			window.removeEventListener('blur', resetAllKeys)
+			document.removeEventListener('visibilitychange', resetAllKeys)
+		}
+	})
+	return obj
+}
