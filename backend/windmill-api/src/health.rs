@@ -329,6 +329,42 @@ fn get_version() -> String {
     format!("CE {GIT_VERSION}")
 }
 
+// ============ Background Loop ============
+
+/// Spawn a background task that performs a health check every 10 seconds.
+/// Updates the cache and prometheus metrics continuously.
+pub fn start_health_check_loop(
+    db: DB,
+    mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
+) {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(10));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tokio::select! {
+                biased;
+                _ = killpill_rx.recv() => {
+                    tracing::info!("health check loop shutting down");
+                    break;
+                }
+                _ = interval.tick() => {
+                    let result = perform_health_check(&db).await;
+
+                    log_health_status(&result.response);
+                    #[cfg(feature = "prometheus")]
+                    update_health_metrics(&result.metrics_data);
+
+                    let cached = CachedHealthStatus {
+                        status: result.response,
+                        cached_at: std::time::Instant::now(),
+                    };
+                    *STATUS_CACHE.write().await = Some(cached);
+                }
+            }
+        }
+    });
+}
+
 // ============ Handlers ============
 
 /// Log health status based on severity
@@ -344,7 +380,7 @@ fn log_health_status(status: &HealthStatusResponse) {
                 database_healthy = status.database_healthy,
                 workers_alive = status.workers_alive,
                 checked_at = %status.checked_at,
-                "Health check completed"
+                "health check completed"
             );
         }
         HealthStatus::Degraded => {
@@ -353,7 +389,7 @@ fn log_health_status(status: &HealthStatusResponse) {
                 database_healthy = status.database_healthy,
                 workers_alive = status.workers_alive,
                 checked_at = %status.checked_at,
-                "Health check: degraded status (no workers alive)"
+                "health check: degraded status (no workers alive)"
             );
         }
         HealthStatus::Unhealthy => {
@@ -362,7 +398,7 @@ fn log_health_status(status: &HealthStatusResponse) {
                 database_healthy = status.database_healthy,
                 workers_alive = status.workers_alive,
                 checked_at = %status.checked_at,
-                "Health check: unhealthy status"
+                "health check: unhealthy status"
             );
         }
     }

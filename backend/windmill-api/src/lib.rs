@@ -377,6 +377,10 @@ pub async fn run_server(
         start_all_listeners(db.clone(), &killpill_rx);
     }
 
+    if server_mode {
+        health::start_health_check_loop(db.clone(), killpill_rx.resubscribe());
+    }
+
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .context("binding main windmill server")?;
