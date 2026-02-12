@@ -27,7 +27,7 @@
 			variant="subtle"
 			selected={selectedIndex - 1 === index}
 			onClick={() => onselect?.(index)}
-			disabled={index >= selectedIndex - 1}
+			disabled={index > selectedIndex - 1}
 		>
 			{numbered ? `${index + 1}. ` : ''}{item}
 		</Button>

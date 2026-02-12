@@ -55,6 +55,7 @@
 	let users: GlobalUserInfo[] = $state([])
 	let filteredUsers: GlobalUserInfo[] = $state([])
 	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
+	let deleteUserEmail: string = $state('')
 	let editWrappers: Record<string, HTMLDivElement> = $state({})
 	let activeOnly = $state(false)
 
@@ -243,7 +244,7 @@
 								/>
 
 								<div class="flex-1"></div>
-								<Popover placement="bottom-end" disableFocusTrap>
+								<Popover placement="bottom-end" disableFocusTrap closeButton>
 									{#snippet trigger()}
 										<Button
 											variant="accent"
@@ -256,7 +257,7 @@
 										</Button>
 									{/snippet}
 									{#snippet content()}
-										<InviteGlobalUser {close} on:new={() => listUsers(activeOnly)} />
+										<InviteGlobalUser on:new={() => listUsers(activeOnly)} />
 									{/snippet}
 								</Popover>
 							</div>
@@ -431,6 +432,7 @@
 																		icon: UserMinus,
 																		type: 'delete',
 																		action: () => {
+																			deleteUserEmail = email
 																			deleteConfirmedCallback = async () => {
 																				await UserService.globalUserDelete({
 																					email
@@ -513,6 +515,6 @@
 	}}
 >
 	<div class="flex flex-col w-full space-y-4">
-		<span>Are you sure you want to remove ?</span>
+		<span>Are you sure you want to remove <b>{deleteUserEmail}</b>?</span>
 	</div>
 </ConfirmationModal>

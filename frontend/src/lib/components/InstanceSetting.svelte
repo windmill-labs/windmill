@@ -37,8 +37,7 @@
 		oauths?: Record<string, any>
 	}
 
-	let { setting, version, values, loading = true, openSmtpSettings, oauths
-	}: Props = $props()
+	let { setting, version, values, loading = true, openSmtpSettings, oauths }: Props = $props()
 	const dispatch = createEventDispatcher()
 
 	let latestKeyRenewalAttempt: {
@@ -179,13 +178,13 @@
 	{:else if setting.fieldType == 'select_python'}
 		<SettingCard label={setting.label} description={setting.description} ee_only={setting.ee_only}>
 			<ToggleButtonGroup bind:selected={$values[setting.key]}>
-				{#snippet children({ item: toggleButtonn })}
+				{#snippet children({ item: toggleButton })}
 					{#each setting.select_items ?? [] as item}
 						<ToggleButton
 							value={item.value ?? item.label}
 							label={item.label}
 							tooltip={item.tooltip}
-							item={toggleButtonn}
+							item={toggleButton}
 						/>
 					{/each}
 
