@@ -1178,7 +1178,7 @@ async fn create_app_internal<'a>(
     }
     let mut tx = user_db.clone().begin(&authed).await?;
     let should_preserve = app.preserve_on_behalf_of.unwrap_or(false)
-        && authed.groups.contains(&windmill_common::WM_DEPLOYERS_GROUP.to_string())
+        && windmill_common::can_preserve_on_behalf_of(&authed)
         && app.policy.on_behalf_of.is_some();
 
     if !should_preserve {
@@ -1672,7 +1672,7 @@ async fn update_app_internal<'a>(
 
         if let Some(mut npolicy) = ns.policy {
             let should_preserve = ns.preserve_on_behalf_of.unwrap_or(false)
-                && authed.groups.contains(&windmill_common::WM_DEPLOYERS_GROUP.to_string())
+                && windmill_common::can_preserve_on_behalf_of(&authed)
                 && npolicy.on_behalf_of.is_some();
 
             if !should_preserve {

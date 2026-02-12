@@ -503,17 +503,11 @@ async fn create_flow(
         nf.tag,
         nf.dedicated_worker,
         nf.visible_to_runner_only.unwrap_or(false),
-        if nf.on_behalf_of_email.is_some() {
-            if nf.preserve_on_behalf_of.unwrap_or(false)
-                && authed.groups.contains(&windmill_common::WM_DEPLOYERS_GROUP.to_string())
-            {
-                nf.on_behalf_of_email.as_deref()
-            } else {
-                Some(authed.email.as_str())
-            }
-        } else {
-            None
-        },
+        windmill_common::resolve_on_behalf_of_email(
+            nf.on_behalf_of_email.as_deref(),
+            nf.preserve_on_behalf_of.unwrap_or(false),
+            &authed,
+        ),
         nf.ws_error_handler_muted.unwrap_or(false),
         sqlx::types::Json(&nf.value) as _,
         schema_str,
@@ -950,17 +944,11 @@ async fn update_flow(
         nf.tag,
         nf.dedicated_worker,
         nf.visible_to_runner_only.unwrap_or(false),
-        if nf.on_behalf_of_email.is_some() {
-            if nf.preserve_on_behalf_of.unwrap_or(false)
-                && authed.groups.contains(&windmill_common::WM_DEPLOYERS_GROUP.to_string())
-            {
-                nf.on_behalf_of_email.as_deref()
-            } else {
-                Some(authed.email.as_str())
-            }
-        } else {
-            None
-        },
+        windmill_common::resolve_on_behalf_of_email(
+            nf.on_behalf_of_email.as_deref(),
+            nf.preserve_on_behalf_of.unwrap_or(false),
+            &authed,
+        ),
         nf.ws_error_handler_muted.unwrap_or(false),
         sqlx::types::Json(&nf.value) as _,
         schema_str,

@@ -7,8 +7,10 @@
 		ArrowUp,
 		ArrowUpRight,
 		Building,
+		Check,
 		DiffIcon,
-		GitFork
+		GitFork,
+		UserCog
 	} from 'lucide-svelte'
 	import { Alert, Badge } from './common'
 	import {
@@ -27,14 +29,11 @@
 
 	import type { Kind } from '$lib/utils_deployable'
 	import { deployItem, getItemValue, getOnBehalfOfEmail } from '$lib/utils_workspace_deploy'
-	import Toggle from './Toggle.svelte'
 	import Tooltip from './Tooltip.svelte'
-	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import MeltPopover from './meltComponents/Popover.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { deepEqual } from 'fast-equals'
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
-	import Popover from './Popover.svelte'
 
 	interface Props {
 		currentWorkspaceId: string
@@ -94,8 +93,11 @@
 	let canPreserve = $derived(
 		$userStore?.is_admin || $userStore?.groups?.includes(WM_DEPLOYERS_GROUP) || false
 	)
+	// Source workspace on_behalf_of emails (keyed by workspace/kind:path)
 	let onBehalfOfInfo = $state<Record<string, string | undefined>>({})
-	let preserveOnBehalfOf = $state<Record<string, boolean>>({})
+	// Tri-state selector: 'source' | 'target' | 'me' | undefined (undefined = not yet selected)
+	type OnBehalfOfChoice = 'source' | 'target' | 'me' | undefined
+	let onBehalfOfChoice = $state<Record<string, OnBehalfOfChoice>>({})
 
 	function getItemKey(diff: WorkspaceItemDiff): string {
 		return `${diff.kind}:${diff.path}`
@@ -158,13 +160,52 @@
 	async function fetchOnBehalfOfInfo(diffs: WorkspaceItemDiff[]) {
 		const flowsAndScripts = diffs.filter((d) => ['flow', 'script', 'app'].includes(d.kind))
 		for (const diff of flowsAndScripts) {
-			for (const sourceWorkspace of [currentWorkspaceId, parentWorkspaceId]) {
-				const workspacedKey = getWorkspacedKey(sourceWorkspace, getItemKey(diff))
+			// Fetch from both source (where we're deploying FROM) and target (where we're deploying TO)
+			for (const workspace of [currentWorkspaceId, parentWorkspaceId]) {
+				const workspacedKey = getWorkspacedKey(workspace, getItemKey(diff))
 				if (onBehalfOfInfo[workspacedKey] !== undefined) continue
 
-				onBehalfOfInfo[workspacedKey] = await getOnBehalfOfEmail(diff.kind as Kind, diff.path, sourceWorkspace)
+				onBehalfOfInfo[workspacedKey] = await getOnBehalfOfEmail(diff.kind as Kind, diff.path, workspace)
 			}
 		}
+	}
+
+	// Get source workspace email for an item
+	function getSourceEmail(itemKey: string): string | undefined {
+		const sourceWorkspace = mergeIntoParent ? currentWorkspaceId : parentWorkspaceId
+		return onBehalfOfInfo[getWorkspacedKey(sourceWorkspace, itemKey)]
+	}
+
+	// Get target workspace email for an item (existing item in destination)
+	function getTargetEmail(itemKey: string): string | undefined {
+		const targetWorkspace = mergeIntoParent ? parentWorkspaceId : currentWorkspaceId
+		return onBehalfOfInfo[getWorkspacedKey(targetWorkspace, itemKey)]
+	}
+
+	// Check if an item has on_behalf_of that differs from deploying user
+	function itemNeedsOnBehalfOfSelection(itemKey: string, kind: string): boolean {
+		if (kind !== 'flow' && kind !== 'script' && kind !== 'app') return false
+		const sourceEmail = getSourceEmail(itemKey)
+		// Only show selector if there's an on_behalf_of email set that differs from current user
+		return sourceEmail !== undefined && sourceEmail !== $userStore?.email
+	}
+
+	// Check if all required on_behalf_of selections are made
+	let hasUnselectedOnBehalfOf = $derived(
+		selectedItems.some((itemKey) => {
+			const diff = selectableDiffs.find((d) => getItemKey(d) === itemKey)
+			if (!diff) return false
+			return itemNeedsOnBehalfOfSelection(itemKey, diff.kind) && onBehalfOfChoice[itemKey] === undefined
+		})
+	)
+
+	// Get the email to use for deployment based on user's choice
+	function getOnBehalfOfEmailForDeploy(itemKey: string): string | undefined {
+		const choice = onBehalfOfChoice[itemKey]
+		if (choice === 'source') return getSourceEmail(itemKey)
+		if (choice === 'target') return getTargetEmail(itemKey)
+		// 'me' or undefined = don't pass, backend will use deploying user's email
+		return undefined
 	}
 
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)
@@ -225,14 +266,13 @@
 		statusPath: string
 	) {
 		deploymentStatus[statusPath] = { status: 'loading' }
-		const workspacedKey = getWorkspacedKey(workspaceFrom, statusPath)
 
 		const result = await deployItem({
 			kind,
 			path,
 			workspaceFrom,
 			workspaceTo: workspaceToDeployTo,
-			preserveOnBehalfOf: preserveOnBehalfOf[workspacedKey]
+			onBehalfOfEmail: getOnBehalfOfEmailForDeploy(statusPath)
 		})
 
 		if (result.success) {
@@ -556,35 +596,71 @@
 		{#snippet itemActions(item)}
 			{@const diff = item.diff}
 			{@const key = item.key}
-			{@const workspacedKey = getWorkspacedKey(`${!mergeIntoParent ? currentWorkspaceId : parentWorkspaceId}`, item.key)}
+			{@const sourceEmail = getSourceEmail(key)}
+			{@const targetEmail = getTargetEmail(key)}
 			{@const isConflict = diff.ahead > 0 && diff.behind > 0}
 			{@const existsInBothWorkspaces = !(
 				(diff.exists_in_fork && !diff.exists_in_source) ||
 				(!diff.exists_in_fork && diff.exists_in_source)
 			)}
-			<!-- On-behalf-of warning -->
-			{#if (diff.kind === 'flow' || diff.kind === 'script' || diff.kind === 'app') && onBehalfOfInfo[workspacedKey] != $userStore?.email}
-				<div class="flex items-center gap-1">
-					<div class="flex items-center gap-1 pr-2">
-						{#if !preserveOnBehalfOf[workspacedKey]}
-							<Popover>
-								<AlertTriangle class="w-4 h-4 text-yellow-500" />
-								{#snippet text()}
-									Deploying this will update the `on_behalf_of` field from <strong
-										>{onBehalfOfInfo[workspacedKey]}</strong
-									> to your account. Make sure this is acceptable before proceeding.
-								{/snippet}
-							</Popover>
-						{/if}
-						{#if canPreserve && onBehalfOfInfo[workspacedKey] !== $userStore?.email}
-							<Toggle
-								size="2xs"
-								bind:checked={preserveOnBehalfOf[workspacedKey]}
-								options={{ right: `Keep on_behalf_of (${onBehalfOfInfo[workspacedKey]})` }}
+			<!-- On-behalf-of selector -->
+			{#if itemNeedsOnBehalfOfSelection(key, diff.kind)}
+				{@const selected = onBehalfOfChoice[key]}
+				<MeltPopover placement="bottom">
+					<svelte:fragment slot="trigger">
+						<Tooltip>
+							<UserCog
+								class="w-4 h-4 {selected ? 'text-green-500' : 'text-yellow-500'}"
 							/>
+							{#snippet text()}
+								{#if selected}
+									Run on behalf of: {selected === 'source'
+										? sourceEmail
+										: selected === 'target'
+											? targetEmail
+											: $userStore?.email}
+								{:else}
+									Click to select "run on behalf of" email
+								{/if}
+							{/snippet}
+						</Tooltip>
+					</svelte:fragment>
+					<div slot="content" class="p-3 flex flex-col gap-2 min-w-48">
+						<div class="text-xs font-medium text-secondary mb-1">Run on behalf of:</div>
+						<button
+							class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm hover:bg-surface-hover {!canPreserve
+								? 'opacity-50 cursor-not-allowed'
+								: ''}"
+							disabled={!canPreserve}
+							onclick={() => (onBehalfOfChoice[key] = 'source')}
+						>
+							<Check class="w-3 h-3 {selected === 'source' ? 'opacity-100' : 'opacity-0'}" />
+							<span class="truncate max-w-40">{sourceEmail}</span>
+							<span class="text-xs text-tertiary">(source)</span>
+						</button>
+						{#if targetEmail && targetEmail !== sourceEmail}
+							<button
+								class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm hover:bg-surface-hover {!canPreserve
+									? 'opacity-50 cursor-not-allowed'
+									: ''}"
+								disabled={!canPreserve}
+								onclick={() => (onBehalfOfChoice[key] = 'target')}
+							>
+								<Check class="w-3 h-3 {selected === 'target' ? 'opacity-100' : 'opacity-0'}" />
+								<span class="truncate max-w-40">{targetEmail}</span>
+								<span class="text-xs text-tertiary">(target)</span>
+							</button>
 						{/if}
+						<button
+							class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm hover:bg-surface-hover"
+							onclick={() => (onBehalfOfChoice[key] = 'me')}
+						>
+							<Check class="w-3 h-3 {selected === 'me' ? 'opacity-100' : 'opacity-0'}" />
+							<span class="truncate max-w-40">{$userStore?.email}</span>
+							<span class="text-xs text-tertiary">(me)</span>
+						</button>
 					</div>
-				</div>
+				</MeltPopover>
 			{/if}
 			<!-- Status badges -->
 			{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead == 0 && diff.behind > 0}
@@ -663,7 +739,8 @@
 								disabled={selectedItems.length === 0 ||
 									deploying ||
 									(hasBehindChanges && !allowBehindChangesOverride) ||
-									(mergeIntoParent && !canDeployToParent)}
+									(mergeIntoParent && !canDeployToParent) ||
+									hasUnselectedOnBehalfOf}
 								loading={deploying}
 								on:click={deployChanges}
 							>
@@ -673,6 +750,11 @@
 									({selectedConflicts} conflicts)
 								{/if}
 							</Button>
+							{#if hasUnselectedOnBehalfOf}
+								<span class="text-xs text-yellow-600"
+									>Select "run on behalf of" for all items before deploying</span
+								>
+							{/if}
 						{/if}
 					{/if}
 

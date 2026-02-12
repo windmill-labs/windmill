@@ -23,7 +23,8 @@ export interface DeployItemParams {
 	workspaceFrom: string
 	workspaceTo: string
 	additionalInformation?: AdditionalInformation
-	preserveOnBehalfOf?: boolean
+	/** The email to use for on_behalf_of. If set, preserve_on_behalf_of will be true. If undefined, deploying user's email is used. */
+	onBehalfOfEmail?: string
 }
 
 export interface DeployResult {
@@ -36,8 +37,9 @@ export interface DeployResult {
  * Handles all item kinds: flow, script, app, variable, resource, resource_type, folder, trigger.
  */
 export async function deployItem(params: DeployItemParams): Promise<DeployResult> {
-	const { kind, path, workspaceFrom, workspaceTo, additionalInformation, preserveOnBehalfOf } =
-		params
+	const { kind, path, workspaceFrom, workspaceTo, additionalInformation, onBehalfOfEmail } = params
+	// When onBehalfOfEmail is set, we preserve the on_behalf_of setting with the specified email
+	const preserveOnBehalfOf = onBehalfOfEmail !== undefined
 
 	try {
 		const alreadyExists = await checkItemExists(kind, path, workspaceTo, additionalInformation)
@@ -58,7 +60,8 @@ export async function deployItem(params: DeployItemParams): Promise<DeployResult
 					path: path,
 					requestBody: {
 						...flow,
-						preserve_on_behalf_of: preserveOnBehalfOf
+						preserve_on_behalf_of: preserveOnBehalfOf,
+						on_behalf_of_email: onBehalfOfEmail
 					}
 				})
 			} else {
@@ -66,7 +69,8 @@ export async function deployItem(params: DeployItemParams): Promise<DeployResult
 					workspace: workspaceTo,
 					requestBody: {
 						...flow,
-						preserve_on_behalf_of: preserveOnBehalfOf
+						preserve_on_behalf_of: preserveOnBehalfOf,
+						on_behalf_of_email: onBehalfOfEmail
 					}
 				})
 			}
@@ -88,7 +92,8 @@ export async function deployItem(params: DeployItemParams): Promise<DeployResult
 								})
 							).hash
 						: undefined,
-					preserve_on_behalf_of: preserveOnBehalfOf
+					preserve_on_behalf_of: preserveOnBehalfOf,
+					on_behalf_of_email: onBehalfOfEmail
 				}
 			})
 		} else if (kind === 'app') {

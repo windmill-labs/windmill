@@ -921,17 +921,11 @@ async fn create_script_internal<'c>(
         no_main_func.filter(|x: &bool| *x), // should be Some(true) or None
         codebase,
         has_preprocessor.filter(|x: &bool| *x), // should be Some(true) or None
-        if ns.on_behalf_of_email.is_some() {
-            if ns.preserve_on_behalf_of.unwrap_or(false)
-                && authed.groups.contains(&windmill_common::WM_DEPLOYERS_GROUP.to_string())
-            {
-                ns.on_behalf_of_email.as_deref()
-            } else {
-                Some(authed.email.as_str())
-            }
-        } else {
-            None
-        },
+        windmill_common::resolve_on_behalf_of_email(
+            ns.on_behalf_of_email.as_deref(),
+            ns.preserve_on_behalf_of.unwrap_or(false),
+            &authed,
+        ),
         validate_schema,
         ns.assets.as_ref().and_then(|a| serde_json::to_value(a).ok()),
         guarded_debounce_key,

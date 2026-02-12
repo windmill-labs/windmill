@@ -13,7 +13,7 @@
 	import Button from './common/button/Button.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import Alert from './common/alert/Alert.svelte'
-	import { AlertTriangle, DiffIcon, Loader2 } from 'lucide-svelte'
+	import { DiffIcon, Loader2, UserCog, Check } from 'lucide-svelte'
 	import Badge from './common/badge/Badge.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
 	import {
@@ -27,13 +27,12 @@
 		getItemValue,
 		getOnBehalfOfEmail
 	} from '$lib/utils_workspace_deploy'
-	import Toggle from './Toggle.svelte'
 	import type { App } from './apps/types'
 	import { getAllGridItems } from './apps/editor/appUtils'
 	import { isRunnableByPath } from './apps/inputType'
 	import type { Runnable } from './raw_apps/utils'
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
-	import Popover from './Popover.svelte'
+	import MeltPopover from './meltComponents/Popover.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -71,8 +70,39 @@
 	let canPreserve = $derived(
 		$userStore?.is_admin || $userStore?.groups?.includes(WM_DEPLOYERS_GROUP) || false
 	)
-	let onBehalfOfInfo = $state<Record<string, string | undefined>>({})
-	let preserveOnBehalfOf = $state<Record<string, boolean>>({})
+	// Source workspace on_behalf_of emails (keyed by kind:path)
+	let sourceOnBehalfOfInfo = $state<Record<string, string | undefined>>({})
+	// Target workspace on_behalf_of emails (keyed by kind:path)
+	let targetOnBehalfOfInfo = $state<Record<string, string | undefined>>({})
+	// Tri-state selector: 'source' | 'target' | 'me' | undefined (undefined = not yet selected)
+	type OnBehalfOfChoice = 'source' | 'target' | 'me' | undefined
+	let onBehalfOfChoice = $state<Record<string, OnBehalfOfChoice>>({})
+
+	// Check if an item has on_behalf_of that differs from deploying user
+	function itemNeedsOnBehalfOfSelection(statusPath: string, kind: string): boolean {
+		if (kind !== 'flow' && kind !== 'script' && kind !== 'app') return false
+		const sourceEmail = sourceOnBehalfOfInfo[statusPath]
+		// Only show selector if there's an on_behalf_of email set that differs from current user
+		return sourceEmail !== undefined && sourceEmail !== $userStore?.email
+	}
+
+	// Check if all required on_behalf_of selections are made
+	let hasUnselectedOnBehalfOf = $derived(
+		selectedItems.some((statusPath) => {
+			const dep = dependencies?.find((d) => computeStatusPath(d.kind, d.path) === statusPath)
+			if (!dep) return false
+			return itemNeedsOnBehalfOfSelection(statusPath, dep.kind) && onBehalfOfChoice[statusPath] === undefined
+		})
+	)
+
+	// Get the email to use for deployment based on user's choice
+	function getOnBehalfOfEmailForDeploy(statusPath: string): string | undefined {
+		const choice = onBehalfOfChoice[statusPath]
+		if (choice === 'source') return sourceOnBehalfOfInfo[statusPath]
+		if (choice === 'target') return targetOnBehalfOfInfo[statusPath]
+		// 'me' or undefined = don't pass, backend will use deploying user's email
+		return undefined
+	}
 
 	async function reload(path: string) {
 		try {
@@ -114,10 +144,11 @@
 				(x.kind != 'folder' || !allAlreadyExists[computeStatusPath(x.kind, x.path)])
 		}))
 
-		// Fetch on_behalf_of_email for flows and scripts
+		// Fetch on_behalf_of_email for flows and scripts from both workspaces
 		for (const dep of sortedSet.filter((d) => ['flow', 'script', 'app'].includes(d.kind))) {
 			const key = computeStatusPath(dep.kind, dep.path)
-			onBehalfOfInfo[key] = await getOnBehalfOfEmail(dep.kind, dep.path, $workspaceStore!)
+			sourceOnBehalfOfInfo[key] = await getOnBehalfOfEmail(dep.kind, dep.path, $workspaceStore!)
+			targetOnBehalfOfInfo[key] = await getOnBehalfOfEmail(dep.kind, dep.path, workspaceToDeployTo!)
 		}
 	}
 
@@ -249,7 +280,7 @@
 			workspaceFrom: $workspaceStore!,
 			workspaceTo: workspaceToDeployTo!,
 			additionalInformation,
-			preserveOnBehalfOf: preserveOnBehalfOf[statusPath]
+			onBehalfOfEmail: getOnBehalfOfEmailForDeploy(statusPath)
 		})
 
 		if (result.success) {
@@ -399,28 +430,54 @@
 				{@const statusPath = item.key}
 				{@const exists = allAlreadyExists[statusPath]}
 				{@const status = deploymentStatus[statusPath]}
+				{@const sourceEmail = sourceOnBehalfOfInfo[statusPath]}
+				{@const targetEmail = targetOnBehalfOfInfo[statusPath]}
 
-				<!-- On-behalf-of warning -->
-				{#if (item.kind === 'flow' || item.kind === 'script' || item.kind == 'app') && onBehalfOfInfo[statusPath]}
-					<div class="flex items-center gap-1 pr-2">
-						{#if !preserveOnBehalfOf[statusPath]}
-							<Popover>
-								<AlertTriangle class="w-4 h-4 text-yellow-500" />
-								{#snippet text()}
-									Deploying this will update the `on_behalf_of` field from <strong
-										>{onBehalfOfInfo[statusPath]}</strong
-									> to your account. Make sure this is acceptable before deploying.
-								{/snippet}
-							</Popover>
-						{/if}
-						{#if canPreserve && onBehalfOfInfo[statusPath] !== $userStore?.email}
-							<Toggle
-								size="2xs"
-								bind:checked={preserveOnBehalfOf[statusPath]}
-								options={{ right: `Keep on_behalf_of (${onBehalfOfInfo[statusPath]})` }}
+				<!-- On-behalf-of selector -->
+				{#if itemNeedsOnBehalfOfSelection(statusPath, item.kind)}
+					{@const selected = onBehalfOfChoice[statusPath]}
+					<MeltPopover placement="bottom">
+						<svelte:fragment slot="trigger">
+							<UserCog
+								class="w-4 h-4 {selected ? 'text-green-500' : 'text-yellow-500'}"
 							/>
-						{/if}
-					</div>
+						</svelte:fragment>
+						<div slot="content" class="p-3 flex flex-col gap-2 min-w-48">
+							<div class="text-xs font-medium text-secondary mb-1">Run on behalf of:</div>
+							<button
+								class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm hover:bg-surface-hover {!canPreserve
+									? 'opacity-50 cursor-not-allowed'
+									: ''}"
+								disabled={!canPreserve}
+								onclick={() => (onBehalfOfChoice[statusPath] = 'source')}
+							>
+								<Check class="w-3 h-3 {selected === 'source' ? 'opacity-100' : 'opacity-0'}" />
+								<span class="truncate max-w-40">{sourceEmail}</span>
+								<span class="text-xs text-tertiary">(source)</span>
+							</button>
+							{#if targetEmail && targetEmail !== sourceEmail}
+								<button
+									class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm hover:bg-surface-hover {!canPreserve
+										? 'opacity-50 cursor-not-allowed'
+										: ''}"
+									disabled={!canPreserve}
+									onclick={() => (onBehalfOfChoice[statusPath] = 'target')}
+								>
+									<Check class="w-3 h-3 {selected === 'target' ? 'opacity-100' : 'opacity-0'}" />
+									<span class="truncate max-w-40">{targetEmail}</span>
+									<span class="text-xs text-tertiary">(target)</span>
+								</button>
+							{/if}
+							<button
+								class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm hover:bg-surface-hover"
+								onclick={() => (onBehalfOfChoice[statusPath] = 'me')}
+							>
+								<Check class="w-3 h-3 {selected === 'me' ? 'opacity-100' : 'opacity-0'}" />
+								<span class="truncate max-w-40">{$userStore?.email}</span>
+								<span class="text-xs text-tertiary">(me)</span>
+							</button>
+						</div>
+					</MeltPopover>
 				{/if}
 
 				{#if exists === false}
@@ -463,7 +520,9 @@
 					<Button
 						color="light"
 						size="xs"
-						disabled={!canDeployToWorkspace}
+						disabled={!canDeployToWorkspace ||
+							(itemNeedsOnBehalfOfSelection(statusPath, item.kind) &&
+								onBehalfOfChoice[statusPath] === undefined)}
 						onclick={() => deploy(item.kind, item.path)}>Deploy</Button
 					>
 				{/if}
@@ -471,9 +530,17 @@
 
 			{#snippet footer()}
 				{#if !hideButton}
-					<div class="flex flex-row-reverse">
-						<Button on:click={deployAll} disabled={!canDeployToWorkspace}>Deploy all toggled</Button
+					<div class="flex flex-col items-end gap-2">
+						<Button
+							on:click={deployAll}
+							disabled={!canDeployToWorkspace || hasUnselectedOnBehalfOf}
+							>Deploy all toggled</Button
 						>
+						{#if hasUnselectedOnBehalfOf}
+							<span class="text-xs text-yellow-600"
+								>Select "run on behalf of" for all items before deploying</span
+							>
+						{/if}
 					</div>
 				{/if}
 			{/snippet}

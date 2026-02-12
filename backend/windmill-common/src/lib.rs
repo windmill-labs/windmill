@@ -115,6 +115,31 @@ pub const PRIVATE_HUB_MIN_VERSION: i32 = 10_000_000;
 pub const SERVICE_LOG_RETENTION_SECS: i64 = 60 * 60 * 24 * 14; // 2 weeks retention period for logs
 pub const WM_DEPLOYERS_GROUP: &str = "wm_deployers";
 
+/// Checks if the user is allowed to preserve on_behalf_of values (admin or deployer).
+pub fn can_preserve_on_behalf_of(authed: &impl db::Authable) -> bool {
+    authed.is_admin() || authed.groups().iter().any(|g| g == &WM_DEPLOYERS_GROUP)
+}
+
+/// Determines the on_behalf_of_email value to use when creating/updating a flow or script.
+/// - If `on_behalf_of_email` is None, returns None
+/// - If `preserve` is true and the user is admin or in the deployers group, returns the original value
+/// - Otherwise, returns the authenticated user's email
+pub fn resolve_on_behalf_of_email<'a>(
+    on_behalf_of_email: Option<&'a str>,
+    preserve: bool,
+    authed: &'a impl db::Authable,
+) -> Option<&'a str> {
+    if on_behalf_of_email.is_some() {
+        if preserve && can_preserve_on_behalf_of(authed) {
+            on_behalf_of_email
+        } else {
+            Some(authed.email())
+        }
+    } else {
+        None
+    }
+}
+
 #[macro_export]
 macro_rules! add_time {
     ($bench:expr, $name:expr) => {
