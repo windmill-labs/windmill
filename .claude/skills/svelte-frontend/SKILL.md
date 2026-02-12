@@ -1,8 +1,8 @@
 ---
-description: 
-globs: frontend/src/**/*.svelte
-alwaysApply: false
+name: svelte-frontend
+description: Svelte coding guidelines for the Windmill frontend. MUST use when writing or modifying code in the frontend directory.
 ---
+
 # Svelte 5 Best Practices
 
 This guide outlines best practices for developing with Svelte 5, incorporating the new Runes API and other modern Svelte features. These rules MUST NOT be applied on svelte 4 files unless explicitly asked to do so.
