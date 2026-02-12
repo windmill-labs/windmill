@@ -63,15 +63,14 @@ services:
     # Uncomment to enable PID namespace isolation (recommended for security)
     # Requires privileged mode for --mount-proc flag
     # See: https://www.windmill.dev/docs/advanced/security_isolation
-    # privileged: true
+    privileged: true
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - MODE=worker
       - WORKER_GROUP=default
       # If running with non-root/non-windmill UID (e.g., user: "1001:1001"),
       # add: - HOME=/tmp
-      # Uncomment to enable PID namespace isolation (requires privileged: true above)
-      # - ENABLE_UNSHARE_PID=true
+      - FAVOR_UNSHARE_PID=true
     depends_on:
       db:
         condition: service_healthy
@@ -100,15 +99,12 @@ services:
     # Uncomment to enable PID namespace isolation (recommended for security)
     # Requires privileged mode for --mount-proc flag
     # See: https://www.windmill.dev/docs/advanced/security_isolation
-    # privileged: true
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - MODE=worker
       - WORKER_GROUP=native
       - NUM_WORKERS=8
       - SLEEP_QUEUE=200
-      # Uncomment to enable PID namespace isolation (requires privileged: true above)
-      # - ENABLE_UNSHARE_PID=true
     depends_on:
       db:
         condition: service_healthy
@@ -130,13 +126,12 @@ services:
   #   # Uncomment to enable PID namespace isolation (recommended for security)
   #   # Requires privileged mode for --mount-proc flag
   #   # See: https://www.windmill.dev/docs/advanced/security_isolation
-  #   # privileged: true
+  #   privileged: true
   #   environment:
   #     - DATABASE_URL=${DATABASE_URL}
   #     - MODE=worker
   #     - WORKER_GROUP=reports
-  #     # Uncomment to enable PID namespace isolation (requires privileged: true above)
-  #     # - ENABLE_UNSHARE_PID=true
+  #     - FAVOR_UNSHARE_PID=true
   #   depends_on:
   #     db:
   #       condition: service_healthy
@@ -178,16 +173,16 @@ services:
     pull_policy: always
     restart: unless-stopped
     expose:
-      - 3001  # LSP
-      - 3002  # Multiplayer
-      - 3003  # Debugger
+      - 3001 # LSP
+      - 3002 # Multiplayer
+      - 3003 # Debugger
     environment:
       - ENABLE_LSP=true
-      - ENABLE_MULTIPLAYER=false  # Set to true to enable multiplayer (Enterprise Edition)
-      - ENABLE_DEBUGGER=true      # Set to true to enable debugger
-      - DEBUGGER_PORT=3003        # Debugger service port
-      - ENABLE_NSJAIL=false       # Set to true for nsjail sandboxing (requires privileged: true)
-      - REQUIRE_SIGNED_DEBUG_REQUESTS=false  # Set to true to require JWT tokens for debug sessions
+      - ENABLE_MULTIPLAYER=false # Set to true to enable multiplayer (Enterprise Edition)
+      - ENABLE_DEBUGGER=true # Set to true to enable debugger
+      - DEBUGGER_PORT=3003 # Debugger service port
+      - ENABLE_NSJAIL=false # Set to true for nsjail sandboxing (requires privileged: true)
+      - REQUIRE_SIGNED_DEBUG_REQUESTS=false # Set to true to require JWT tokens for debug sessions
       - WINDMILL_BASE_URL=http://windmill_server:8000
     volumes:
       - lsp_cache:/pyls/.cache
