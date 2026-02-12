@@ -2149,3 +2149,17 @@ export function formatMemory(
 
 	return display
 }
+
+export function assignObjInPlace(
+	target: Record<string, any>,
+	source: Record<string, any>,
+	options: { onDelete?: 'Delete' | 'SetNull' } = { onDelete: 'Delete' }
+) {
+	for (const key in target) {
+		if (!(key in source)) {
+			if (options?.onDelete === 'Delete') delete target[key]
+			else if (options?.onDelete === 'SetNull') target[key] = null
+		}
+	}
+	for (const key in source) target[key] = source[key]
+}

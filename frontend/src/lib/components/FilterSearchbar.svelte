@@ -72,7 +72,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { inputBaseClass, inputBorderClass, inputSizeClasses } from './text_input/TextInput.svelte'
 	import { SearchIcon } from 'lucide-svelte'
-	import { type IconType } from '$lib/utils'
+	import { assignObjInPlace, type IconType } from '$lib/utils'
 	import GenericDropdown from './select/GenericDropdown.svelte'
 	import DateTimeInput from './DateTimeInput.svelte'
 	import TaggedTextInput from './TaggedTextInput.svelte'
@@ -173,13 +173,7 @@
 	}
 
 	let asText = useTransformedSyncedValue(
-		[
-			() => (Object.entries(value), value),
-			(v) => {
-				for (const key in value) delete value[key]
-				for (const key in v) value[key] = v[key]
-			}
-		],
+		[() => (Object.entries(value), value), (v) => assignObjInPlace(value, v)],
 		parseToText,
 		parseFromText
 	)
