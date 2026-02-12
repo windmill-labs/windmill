@@ -11,6 +11,8 @@
 	import { validateDeployPathFilters } from '$lib/validators/workspaceSettings'
 	import Alert from './common/alert/Alert.svelte'
 	import SettingsFooter from './workspaceSettings/SettingsFooter.svelte'
+	import SettingCard from './instanceSettings/SettingCard.svelte'
+	import Select from './select/Select.svelte'
 
 	let deployableWorkspaces = $derived(
 		$usersWorkspaceStore?.workspaces.map((w) => w.id).filter((w) => w != $workspaceStore)
@@ -151,122 +153,126 @@
 	}
 </script>
 
-<h3 class="mt-6 text-xs font-semibold text-emphasis">Workspace to link to</h3>
-<div class="flex min-w-0 mt-1">
-	<select bind:value={workspaceToDeployTo}>
-		{#if deployableWorkspaces?.length == 0}
-			<option disabled>No workspace deployable to</option>
-		{/if}
-		<option value="">Disable deployment</option>
-		{#each deployableWorkspaces ?? [] as name}
-			<option value={name}>{name}</option>
-		{/each}
-	</select>
-</div>
-<h3 class="mt-6 mb-1 text-xs font-semibold text-emphasis">Deployable items</h3>
-<div class="text-xs text-secondary mb-1">
-	You can filter which items can be deployed to the production workspace. By default everything is
-	deployable.
-</div>
-<div class="flex flex-wrap gap-6 p-4 rounded-md border">
-	<div class="max-w-md w-full">
-		{#if Array.isArray(deployUiSettings?.include_path)}
+<SettingCard label="Workspace to link to" class="mt-6">
+	<Select
+		items={[
+			{ label: 'Disable deployment', value: '' },
+			...(deployableWorkspaces ?? []).map((w) => ({ label: w, value: w }))
+		]}
+		bind:value={workspaceToDeployTo}
+		placeholder={deployableWorkspaces?.length === 0
+			? 'No workspace deployable to'
+			: 'Select workspace'}
+	/>
+</SettingCard>
+<SettingCard
+	label="Deployable items"
+	description="You can filter which items can be deployed to the production workspace. By default everything is deployable."
+	class="mt-6"
+>
+	<div class="flex flex-wrap gap-6 mt-2">
+		<div class="max-w-md w-full">
+			{#if Array.isArray(deployUiSettings?.include_path)}
+				<h4 class="flex gap-2 mb-2 text-xs font-semibold text-emphasis"
+					>Filter on path<Tooltip>
+						Only scripts, flows and apps with their path matching one of those filters will be
+						allowed to be deployed in the deploy UI. The filters allow '*'' and '**' characters,
+						with '*'' matching any character allowed in paths until the next slash (/) and '**'
+						matching anything including slashes.
+					</Tooltip></h4
+				>
+				{#each deployUiSettings.include_path ?? [] as _, idx}
+					<div class="flex flex-col mt-1">
+						<div class="flex items-center">
+							<input
+								type="text"
+								bind:value={deployUiSettings.include_path[idx]}
+								id="arg-input-array-{idx}"
+								class="flex-1 {pathValidationErrors[idx] ? 'border-red-500' : ''}"
+								placeholder="e.g., f/*, u/admin/**"
+							/>
+							<button
+								transition:fade|local={{ duration: 100 }}
+								class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
+								aria-label="Clear"
+								onclick={() => {
+									deployUiSettings.include_path.splice(idx, 1)
+									deployUiSettings.include_path = [...deployUiSettings.include_path]
+									// Clear validation error for this index
+									delete pathValidationErrors[idx]
+									pathValidationErrors = { ...pathValidationErrors }
+								}}
+							>
+								<X size={14} />
+							</button>
+						</div>
+						{#if pathValidationErrors[idx]}
+							<div class="text-xs text-red-600 dark:text-red-400 mt-1"
+								>{pathValidationErrors[idx]}</div
+							>
+						{/if}
+					</div>
+				{/each}
+			{/if}
+			<div class="flex mt-2">
+				<Button
+					variant="default"
+					size="xs"
+					btnClasses="mt-1"
+					on:click={() => {
+						deployUiSettings.include_path = [...deployUiSettings.include_path, '']
+					}}
+					id="deploy-ui-add-path-filter"
+					startIcon={{ icon: Plus }}
+				>
+					Add filter
+				</Button>
+			</div>
+		</div>
+
+		<div class="max-w-md w-full">
 			<h4 class="flex gap-2 mb-2 text-xs font-semibold text-emphasis"
-				>Filter on path<Tooltip>
-					Only scripts, flows and apps with their path matching one of those filters will be allowed
-					to be deployed in the deploy UI. The filters allow '*'' and '**' characters, with '*''
-					matching any character allowed in paths until the next slash (/) and '**' matching
-					anything including slashes.
+				>Filter on type<Tooltip>
+					You can filter which types of item can be deployed to the production workspace. By default
+					everything is deployable.
 				</Tooltip></h4
 			>
-			{#each deployUiSettings.include_path ?? [] as _, idx}
-				<div class="flex flex-col mt-1">
-					<div class="flex items-center">
-						<input
-							type="text"
-							bind:value={deployUiSettings.include_path[idx]}
-							id="arg-input-array-{idx}"
-							class="flex-1 {pathValidationErrors[idx] ? 'border-red-500' : ''}"
-							placeholder="e.g., f/*, u/admin/**"
-						/>
-						<button
-							transition:fade|local={{ duration: 100 }}
-							class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
-							aria-label="Clear"
-							onclick={() => {
-								deployUiSettings.include_path.splice(idx, 1)
-								deployUiSettings.include_path = [...deployUiSettings.include_path]
-								// Clear validation error for this index
-								delete pathValidationErrors[idx]
-								pathValidationErrors = { ...pathValidationErrors }
-							}}
-						>
-							<X size={14} />
-						</button>
-					</div>
-					{#if pathValidationErrors[idx]}
-						<div class="text-xs text-red-600 dark:text-red-400 mt-1"
-							>{pathValidationErrors[idx]}</div
-						>
-					{/if}
-				</div>
-			{/each}
-		{/if}
-		<div class="flex mt-2">
-			<Button
-				variant="default"
-				size="xs"
-				btnClasses="mt-1"
-				on:click={() => {
-					deployUiSettings.include_path = [...deployUiSettings.include_path, '']
-				}}
-				id="deploy-ui-add-path-filter"
-				startIcon={{ icon: Plus }}
-			>
-				Add filter
-			</Button>
-		</div>
-	</div>
-
-	<div class="max-w-md w-full">
-		<h4 class="flex gap-2 mb-2 text-xs font-semibold text-emphasis"
-			>Filter on type<Tooltip>
-				You can filter which types of item can be deployed to the production workspace. By default
-				everything is deployable.
-			</Tooltip></h4
-		>
-		<div class="flex flex-col gap-2 mt-1">
-			<Toggle bind:checked={deployUiSettings.include_type.scripts} options={{ right: 'Scripts' }} />
-			<Toggle bind:checked={deployUiSettings.include_type.flows} options={{ right: 'Flows' }} />
-			<Toggle bind:checked={deployUiSettings.include_type.apps} options={{ right: 'Apps' }} />
-			<Toggle
-				bind:checked={deployUiSettings.include_type.resources}
-				options={{ right: 'Resources' }}
-			/>
-			<div class="flex gap-3">
+			<div class="flex flex-col gap-2 mt-1">
 				<Toggle
-					bind:checked={deployUiSettings.include_type.variables}
-					on:change={(ev) => {
-						if (!ev.detail) {
-							deployUiSettings.include_type.secrets = false
-						}
-					}}
-					options={{ right: 'Variables ' }}
+					bind:checked={deployUiSettings.include_type.scripts}
+					options={{ right: 'Scripts' }}
 				/>
-				<span>-</span>
+				<Toggle bind:checked={deployUiSettings.include_type.flows} options={{ right: 'Flows' }} />
+				<Toggle bind:checked={deployUiSettings.include_type.apps} options={{ right: 'Apps' }} />
 				<Toggle
-					disabled={!deployUiSettings.include_type.variables}
-					bind:checked={deployUiSettings.include_type.secrets}
-					options={{ left: 'Include secrets' }}
+					bind:checked={deployUiSettings.include_type.resources}
+					options={{ right: 'Resources' }}
+				/>
+				<div class="flex gap-3">
+					<Toggle
+						bind:checked={deployUiSettings.include_type.variables}
+						on:change={(ev) => {
+							if (!ev.detail) {
+								deployUiSettings.include_type.secrets = false
+							}
+						}}
+						options={{ right: 'Variables ' }}
+					/>
+					<span>-</span>
+					<Toggle
+						disabled={!deployUiSettings.include_type.variables}
+						bind:checked={deployUiSettings.include_type.secrets}
+						options={{ left: 'Include secrets' }}
+					/>
+				</div>
+				<Toggle
+					bind:checked={deployUiSettings.include_type.triggers}
+					options={{ right: 'Trigger' }}
 				/>
 			</div>
-			<Toggle
-				bind:checked={deployUiSettings.include_type.triggers}
-				options={{ right: 'Trigger' }}
-			/>
 		</div>
 	</div>
-</div>
+</SettingCard>
 {#if hasValidationErrors}
 	<Alert type="error" title="Validation Errors" class="mt-4">
 		Please fix the validation errors in the path filters before saving.
@@ -279,6 +285,6 @@
 		{onDiscard}
 		saveLabel="Save deployment UI"
 		disabled={workspaceToDeployTo == undefined || hasValidationErrors}
-		class="border-none"
+		class="mt-8"
 	/>
 {/if}
