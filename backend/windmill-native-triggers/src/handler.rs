@@ -64,7 +64,7 @@ pub struct ListQuery {
 pub struct FullTriggerResponse<T: Serialize> {
     #[serde(flatten)]
     pub windmill_data: NativeTrigger,
-    pub external_data: T,
+    pub external_data: Option<T>,
 }
 
 #[derive(Debug, Serialize)]
@@ -340,8 +340,8 @@ async fn get_native_trigger_handler<T: External>(
         .get(&workspace_id, &oauth_data, &external_id, &db, &mut tx)
         .await;
 
-    let native_trigger_config = match native_trigger {
-        Ok(native_cfg) => {
+    let external_data = match native_trigger {
+        Ok(Some(native_cfg)) => {
             // Clear error if it was set
             if windmill_trigger.error.is_some() {
                 update_native_trigger_error(
@@ -353,8 +353,9 @@ async fn get_native_trigger_handler<T: External>(
                 )
                 .await?;
             }
-            native_cfg
+            Some(native_cfg)
         }
+        Ok(None) => None,
         Err(Error::NotFound(_)) => {
             let error_msg = "Trigger no longer exists on external service".to_string();
             tracing::warn!(
@@ -381,10 +382,7 @@ async fn get_native_trigger_handler<T: External>(
         Err(e) => return Err(e),
     };
 
-    let full_resp = Json(FullTriggerResponse {
-        windmill_data: windmill_trigger,
-        external_data: native_trigger_config,
-    });
+    let full_resp = Json(FullTriggerResponse { windmill_data: windmill_trigger, external_data });
 
     Ok(full_resp)
 }
@@ -455,34 +453,6 @@ async fn delete_native_trigger_handler<T: External>(
     Ok(format!("Native trigger deleted"))
 }
 
-async fn exists_native_trigger_handler<T: External>(
-    Extension(service_name): Extension<ServiceName>,
-    _authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path((workspace_id, external_id)): Path<(String, String)>,
-) -> JsonResult<bool> {
-    let exists = sqlx::query_scalar!(
-        r#"
-        SELECT EXISTS(
-            SELECT 1
-            FROM native_trigger
-            WHERE
-                workspace_id = $1 AND
-                service_name = $2 AND
-                external_id = $3
-        )
-        "#,
-        workspace_id,
-        service_name as ServiceName,
-        external_id
-    )
-    .fetch_one(&db)
-    .await?
-    .unwrap_or(false);
-
-    Ok(Json(exists))
-}
-
 async fn list_native_triggers_handler<T: External>(
     Extension(service_name): Extension<ServiceName>,
     authed: ApiAuthed,
@@ -522,10 +492,6 @@ pub fn service_routes<T: External + 'static>(handler: T) -> Router {
         .route(
             "/delete/:external_id",
             delete(delete_native_trigger_handler::<T>),
-        )
-        .route(
-            "/exists/:external_id",
-            get(exists_native_trigger_handler::<T>),
         );
 
     standard_routes

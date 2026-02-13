@@ -173,7 +173,15 @@ impl External for NextCloud {
             .await?;
 
         // Fetch back the updated state and convert to JSON config
-        let trigger_data = self.get(w_id, oauth_data, external_id, db, tx).await?;
+        let trigger_data = self
+            .get(w_id, oauth_data, external_id, db, tx)
+            .await?
+            .ok_or_else(|| {
+                Error::InternalErr(format!(
+                    "Failed to fetch back trigger {} after update",
+                    external_id
+                ))
+            })?;
         serde_json::to_value(&trigger_data).map_err(|e| {
             Error::internal_err(format!("Failed to convert trigger data to JSON: {}", e))
         })
@@ -186,7 +194,7 @@ impl External for NextCloud {
         external_id: &str,
         db: &DB,
         _tx: &mut PgConnection,
-    ) -> Result<Self::TriggerData> {
+    ) -> Result<Option<Self::TriggerData>> {
         let url = format!(
             "{}/ocs/v2.php/apps/webhook_listeners/api/v1/webhooks/{}",
             oauth_data.base_url, external_id
@@ -199,7 +207,7 @@ impl External for NextCloud {
             .http_client_request::<_, ()>(&url, Method::GET, w_id, db, Some(headers), None)
             .await?;
 
-        Ok(ocs_response.ocs.data)
+        Ok(Some(ocs_response.ocs.data))
     }
 
     async fn delete(
@@ -227,36 +235,6 @@ impl External for NextCloud {
             })?;
 
         Ok(())
-    }
-
-    async fn exists(
-        &self,
-        w_id: &str,
-        oauth_data: &Self::OAuthData,
-        external_id: &str,
-        db: &DB,
-        _tx: &mut PgConnection,
-    ) -> Result<bool> {
-        let url = format!(
-            "{}/ocs/v2.php/apps/webhook_listeners/api/v1/webhooks/{}",
-            oauth_data.base_url, external_id
-        );
-
-        let mut headers = HashMap::new();
-        headers.insert("OCS-APIRequest".to_string(), "true".to_string());
-
-        let _ = self
-            .http_client_request::<serde_json::Value, ()>(
-                &url,
-                Method::GET,
-                w_id,
-                db,
-                Some(headers),
-                None,
-            )
-            .await?;
-
-        Ok(true)
     }
 
     async fn maintain_triggers(

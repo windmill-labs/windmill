@@ -260,14 +260,19 @@ pub trait External: Send + Sync + 'static {
         tx: &mut PgConnection,
     ) -> Result<serde_json::Value>;
 
+    /// Fetch the trigger's state from the external service.
+    /// Returns `Ok(None)` (default) when the service has no "get" API (e.g. Google).
+    /// Services that can fetch state (e.g. Nextcloud) override to return `Ok(Some(data))`.
     async fn get(
         &self,
-        w_id: &str,
-        oauth_data: &Self::OAuthData,
-        external_id: &str,
-        db: &DB,
-        tx: &mut PgConnection,
-    ) -> Result<Self::TriggerData>;
+        _w_id: &str,
+        _oauth_data: &Self::OAuthData,
+        _external_id: &str,
+        _db: &DB,
+        _tx: &mut PgConnection,
+    ) -> Result<Option<Self::TriggerData>> {
+        Ok(None)
+    }
 
     async fn delete(
         &self,
@@ -277,16 +282,6 @@ pub trait External: Send + Sync + 'static {
         db: &DB,
         tx: &mut PgConnection,
     ) -> Result<()>;
-
-    #[allow(unused)]
-    async fn exists(
-        &self,
-        w_id: &str,
-        oauth_data: &Self::OAuthData,
-        external_id: &str,
-        db: &DB,
-        tx: &mut PgConnection,
-    ) -> Result<bool>;
 
     /// Periodic background maintenance for triggers in a workspace.
     /// Each service implements its own logic:

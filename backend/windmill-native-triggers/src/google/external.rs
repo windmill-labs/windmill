@@ -19,13 +19,15 @@ use crate::{
 
 use super::{
     endpoints, routes, CreateWatchResponse, Google, GoogleOAuthData, GoogleServiceConfig,
-    GoogleTriggerData, GoogleTriggerType, StopChannelRequest, WatchRequest,
+    GoogleTriggerType, StopChannelRequest, WatchRequest,
 };
 
 #[async_trait]
 impl External for Google {
     type ServiceConfig = GoogleServiceConfig;
-    type TriggerData = GoogleTriggerData;
+    // Google has no "get channel" API, so TriggerData is never constructed.
+    // The trait default for get() returns Ok(None).
+    type TriggerData = ();
     type OAuthData = GoogleOAuthData;
     type CreateResponse = CreateWatchResponse;
 
@@ -96,13 +98,9 @@ impl External for Google {
         db: &DB,
         tx: &mut PgConnection,
     ) -> Result<serde_json::Value> {
-        // Google doesn't support updating watch channels — delete old, create new
-        let current = self.get(w_id, oauth_data, external_id, db, tx).await;
-
-        // Try to stop the old channel (ignore errors if it doesn't exist)
-        if current.is_ok() {
-            let _ = self.delete(w_id, oauth_data, external_id, db, tx).await;
-        }
+        // Google doesn't support updating watch channels — delete old, create new.
+        // delete() already ignores missing channels, so no need to check first.
+        let _ = self.delete(w_id, oauth_data, external_id, db, tx).await;
 
         let resp = self
             .create(w_id, oauth_data, webhook_token, data, db, tx)
@@ -115,67 +113,6 @@ impl External for Google {
                     "Failed to build service_config from create response".to_string(),
                 )
             })
-    }
-
-    async fn get(
-        &self,
-        _w_id: &str,
-        _oauth_data: &Self::OAuthData,
-        external_id: &str,
-        _db: &DB,
-        tx: &mut PgConnection,
-    ) -> Result<Self::TriggerData> {
-        // Google doesn't have a "get channel" API
-        // We reconstruct the data from our stored service_config
-        let trigger = sqlx::query_as!(
-            crate::NativeTrigger,
-            r#"
-            SELECT
-                external_id,
-                workspace_id,
-                service_name AS "service_name!: ServiceName",
-                script_path,
-                is_flow,
-                webhook_token_prefix,
-                service_config,
-                error,
-                created_at,
-                updated_at
-            FROM native_trigger
-            WHERE external_id = $1 AND service_name = $2
-            "#,
-            external_id,
-            ServiceName::Google as ServiceName
-        )
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or_else(|| Error::NotFound(format!("Trigger not found: {}", external_id)))?;
-
-        let service_config: GoogleServiceConfig = trigger
-            .service_config
-            .map(|v| serde_json::from_value(v))
-            .transpose()?
-            .ok_or_else(|| Error::InternalErr("Missing service config".to_string()))?;
-
-        Ok(GoogleTriggerData {
-            trigger_type: service_config.trigger_type,
-            channel_id: external_id.to_string(),
-            google_resource_id: service_config
-                .google_resource_id
-                .clone()
-                .unwrap_or_default(),
-            expiration: service_config
-                .expiration
-                .as_deref()
-                .and_then(|s| s.parse::<i64>().ok())
-                .unwrap_or(0),
-            // Drive fields
-            resource_id: service_config.resource_id,
-            resource_name: service_config.resource_name,
-            // Calendar fields
-            calendar_id: service_config.calendar_id,
-            calendar_name: service_config.calendar_name,
-        })
     }
 
     async fn delete(
@@ -223,32 +160,6 @@ impl External for Google {
         }
 
         Ok(())
-    }
-
-    async fn exists(
-        &self,
-        w_id: &str,
-        _oauth_data: &Self::OAuthData,
-        external_id: &str,
-        _db: &DB,
-        tx: &mut PgConnection,
-    ) -> Result<bool> {
-        let exists = sqlx::query_scalar!(
-            r#"
-            SELECT EXISTS(
-                SELECT 1 FROM native_trigger
-                WHERE external_id = $1 AND service_name = $2 AND workspace_id = $3
-            )
-            "#,
-            external_id,
-            ServiceName::Google as ServiceName,
-            w_id
-        )
-        .fetch_one(&mut *tx)
-        .await?
-        .unwrap_or(false);
-
-        Ok(exists)
     }
 
     async fn maintain_triggers(
