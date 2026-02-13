@@ -9,7 +9,7 @@
 		  }
 		| {
 				type: 'oneof'
-				options: readonly { value: string; label?: string; description?: string }[]
+				options: { value: string; label?: string; description?: string }[]
 				allowCustomValue?: boolean
 		  }
 	) & {
@@ -31,8 +31,8 @@
 					: T extends { type: 'oneof'; options: infer O; allowCustomValue?: infer A }
 						? A extends true
 							? string
-							: O extends readonly string[]
-								? O[number]
+							: O extends { value: string }[]
+								? O[number]['value']
 								: never
 						: never
 
