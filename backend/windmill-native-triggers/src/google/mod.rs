@@ -23,6 +23,30 @@ use serde::{Deserialize, Serialize};
 pub mod external;
 pub mod routes;
 
+pub use external::should_renew_channel;
+
+/// Extracts `(google_resource_id, stop_url)` from a native trigger's service_config JSON.
+/// Used by the `delete` method and tested independently.
+pub fn parse_stop_channel_params(config: &serde_json::Value) -> (String, String) {
+    let google_resource_id = config
+        .get("googleResourceId")
+        .and_then(|r| r.as_str())
+        .map(String::from)
+        .unwrap_or_default();
+
+    let trigger_type = config
+        .get("triggerType")
+        .and_then(|t| t.as_str())
+        .unwrap_or("drive");
+
+    let stop_url = match trigger_type {
+        "calendar" => format!("{}/channels/stop", endpoints::CALENDAR_API_BASE),
+        _ => format!("{}/channels/stop", endpoints::DRIVE_API_BASE),
+    };
+
+    (google_resource_id, stop_url)
+}
+
 /// Handler struct for Google triggers (stateless, used for routing)
 #[derive(Copy, Clone)]
 pub struct Google;

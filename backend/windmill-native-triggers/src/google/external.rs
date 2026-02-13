@@ -206,27 +206,11 @@ impl External for Google {
         }
         let config = config.unwrap();
 
-        // Extract google_resource_id and trigger_type
-        let google_resource_id = config
-            .get("googleResourceId")
-            .and_then(|r| r.as_str())
-            .map(String::from)
-            .unwrap_or_default();
-
-        let trigger_type = config
-            .get("triggerType")
-            .and_then(|t| t.as_str())
-            .unwrap_or("drive");
+        let (google_resource_id, url) = super::parse_stop_channel_params(&config);
 
         if !google_resource_id.is_empty() {
             let stop_request =
                 StopChannelRequest { id: external_id.to_string(), resource_id: google_resource_id };
-
-            // Use appropriate API endpoint based on trigger type
-            let url = match trigger_type {
-                "calendar" => format!("{}/channels/stop", endpoints::CALENDAR_API_BASE),
-                _ => format!("{}/channels/stop", endpoints::DRIVE_API_BASE),
-            };
 
             // Stop the channel (ignore errors - channel may have already expired)
             let result: std::result::Result<serde_json::Value, _> = self
@@ -533,7 +517,7 @@ impl Google {
 }
 
 /// Renewal window: renew Drive channels with <1 hour remaining, Calendar with <1 day remaining.
-fn should_renew_channel(service_config: &serde_json::Value) -> bool {
+pub fn should_renew_channel(service_config: &serde_json::Value) -> bool {
     let expiration_ms = service_config
         .get("expiration")
         .and_then(|v| v.as_str())
