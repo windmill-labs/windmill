@@ -234,25 +234,52 @@
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {
-		// If user pressed right arrow and is at the end, add a space if needed
-		if (e.key === 'ArrowRight') {
-			const cursorPos = getCursorPosition()
-			const text = getTextContent()
-			if (
-				cursorPos === text.length &&
-				text.length > 0 &&
-				((text[text.length - 1] !== ' ' && text[text.length - 1] !== '\u00A0') ||
-					text[text.length - 2] === '\\')
-			) {
-				e.preventDefault()
-				isUpdating = true
-				const newText = text + '\u00A0'
-				value = newText
-				updateDisplay(newText)
-				restoreCursor(newText.length)
-				updateCurrentTag(newText.length)
-				lastText = newText
-				isUpdating = false
+		const cursorPos = getCursorPosition()
+		const text = getTextContent()
+
+		// Handle arrow key navigation to skip escape sequences
+		if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+			if (e.key === 'ArrowLeft' && cursorPos > 0) {
+				// Moving left: check if we're right after an escaped character (e.g., "abc\ |def")
+				// We want to skip over the backslash and the escaped character
+				if (cursorPos >= 2 && text[cursorPos - 2] === '\\') {
+					e.preventDefault()
+					isUpdating = true
+					restoreCursor(cursorPos - 2)
+					updateCurrentTag(cursorPos - 2)
+					isUpdating = false
+					return
+				}
+			} else if (e.key === 'ArrowRight') {
+				// Moving right: check if we're at a backslash (e.g., "abc|\ def")
+				// We want to skip over the backslash and the escaped character
+				if (cursorPos < text.length && text[cursorPos] === '\\' && cursorPos + 1 < text.length) {
+					e.preventDefault()
+					isUpdating = true
+					restoreCursor(cursorPos + 2)
+					updateCurrentTag(cursorPos + 2)
+					isUpdating = false
+					return
+				}
+
+				// If user pressed right arrow and is at the end, add a space if needed
+				if (
+					cursorPos === text.length &&
+					text.length > 0 &&
+					((text[text.length - 1] !== ' ' && text[text.length - 1] !== '\u00A0') ||
+						text[text.length - 2] === '\\')
+				) {
+					e.preventDefault()
+					isUpdating = true
+					const newText = text + '\u00A0'
+					value = newText
+					updateDisplay(newText)
+					restoreCursor(newText.length)
+					updateCurrentTag(newText.length)
+					lastText = newText
+					isUpdating = false
+					return
+				}
 			}
 		}
 	}
