@@ -88,6 +88,7 @@
 		pip_local_dependencies?: string[]
 		min_alive_workers_alert_threshold?: number
 		autoscaling?: AutoscalingConfig
+		native_mode?: boolean
 	} = $state({})
 
 	function loadNConfig() {
@@ -192,6 +193,7 @@
 					autoscaling?: AutoscalingConfig
 					periodic_script_bash?: string
 					periodic_script_interval_seconds?: number
+					native_mode?: boolean
 			  }
 		activeWorkers: number
 		customTags: string[] | undefined
@@ -274,6 +276,15 @@
 		nconfig?.dedicated_worker != undefined || nconfig?.dedicated_workers != undefined
 			? 'dedicated'
 			: 'normal'
+	)
+	let isNativeMode = $derived(
+		config?.native_mode === true ||
+			name === 'native' ||
+			(workers.length > 0 &&
+				workers.some(([_, pings]) => pings.some((p) => p.native_mode === true)))
+	)
+	let nonNativeTags = $derived(
+		(nconfig?.worker_tags ?? []).filter((t) => !nativeTags.includes(t))
 	)
 	$effect(() => {
 		;($superadmin || $devopsRole) && listWorkspaces()
@@ -522,6 +533,37 @@
 								bind:value={nconfig.min_alive_workers_alert_threshold}
 							/>
 						</div>
+					{/if}
+				</Label>
+			{/if}
+
+			{#if nconfig !== undefined}
+				<div class="mt-8"></div>
+				<Label label="Native mode">
+					{#snippet header()}
+						<Tooltip>
+							{#snippet text()}
+								When enabled, the worker will only accept native jobs (nativets, postgresql, mysql, etc.) and automatically runs with NUM_WORKERS=8 for optimal throughput. Non-native jobs will be rejected.
+							{/snippet}
+						</Tooltip>
+					{/snippet}
+					<Toggle
+						size="sm"
+						options={{
+							right: 'Enable native mode'
+						}}
+						checked={nconfig?.native_mode === true}
+						on:change={(ev) => {
+							if (nconfig !== undefined) {
+								nconfig.native_mode = ev.detail ? true : undefined
+							}
+						}}
+						disabled={!canEditConfig}
+					/>
+					{#if (nconfig.native_mode || name === 'native') && nonNativeTags.length > 0}
+						<Alert size="xs" type="warning" title="Non-native tags detected">
+							This worker group has native mode enabled but includes non-native tags: {nonNativeTags.join(', ')}. Non-native jobs will be rejected.
+						</Alert>
 					{/if}
 				</Label>
 			{/if}
@@ -1019,6 +1061,9 @@
 						>{#snippet text()}Number of active workers of this group in the last 15 seconds{/snippet}</Tooltip
 					></span
 				>
+				{#if isNativeMode}
+					<Badge color="blue" small>Native</Badge>
+				{/if}
 			</div>
 
 			{#if vcpus_memory?.vcpus}

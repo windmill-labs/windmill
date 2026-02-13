@@ -21998,6 +21998,8 @@ components:
           type: number
         job_isolation:
           type: string
+        native_mode:
+          type: boolean
       required:
         - worker
         - worker_instance
