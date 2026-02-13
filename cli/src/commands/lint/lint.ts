@@ -195,7 +195,7 @@ export async function runLint(
   };
 }
 
-function printReport(report: LintReport, jsonOutput: boolean) {
+export function printReport(report: LintReport, jsonOutput: boolean) {
   if (jsonOutput) {
     console.log(JSON.stringify(report, null, 2));
     return;
