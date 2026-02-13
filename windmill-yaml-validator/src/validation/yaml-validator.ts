@@ -10,6 +10,7 @@ import natsTriggerSchema from "../gen/triggers/nats.json";
 import postgresTriggerSchema from "../gen/triggers/postgres.json";
 import sqsTriggerSchema from "../gen/triggers/sqs.json";
 import websocketTriggerSchema from "../gen/triggers/websocket.json";
+import emailTriggerSchema from "../gen/triggers/email.json";
 
 export const SUPPORTED_TRIGGER_KINDS = [
   "http",
@@ -20,6 +21,7 @@ export const SUPPORTED_TRIGGER_KINDS = [
   "mqtt",
   "sqs",
   "gcp",
+  "email",
 ] as const;
 
 export type TriggerKind = (typeof SUPPORTED_TRIGGER_KINDS)[number];
@@ -38,6 +40,7 @@ const TRIGGER_SCHEMAS: Record<TriggerKind, AnySchema> = {
   mqtt: mqttTriggerSchema as AnySchema,
   sqs: sqsTriggerSchema as AnySchema,
   gcp: gcpTriggerSchema as AnySchema,
+  email: emailTriggerSchema as AnySchema,
 };
 
 /**
@@ -57,7 +60,7 @@ export function getValidationTargetFromFilename(
   }
 
   const triggerMatch = path.match(
-    /\.(http|websocket|kafka|nats|postgres|mqtt|sqs|gcp)_trigger\.ya?ml$/
+    /\.(http|websocket|kafka|nats|postgres|mqtt|sqs|gcp|email)_trigger\.ya?ml$/
   );
   if (triggerMatch) {
     return {

@@ -60,11 +60,19 @@ raw_string: false
 `,
     );
 
+    await Deno.writeTextFile(
+      `${tempDir}/f/triggers/inbox.email_trigger.yaml`,
+      `script_path: "f/triggers/email_handler"
+is_flow: false
+local_part: "inbox"
+`,
+    );
+
     const report = await runLint({} as any, tempDir);
 
     assertEquals(report.exitCode, 0);
-    assertEquals(report.validatedFiles, 3);
-    assertEquals(report.validFiles, 3);
+    assertEquals(report.validatedFiles, 4);
+    assertEquals(report.validFiles, 4);
     assertEquals(report.invalidFiles, 0);
     assertEquals(report.warnings.length, 0);
   });
@@ -96,14 +104,9 @@ is_flow: false
   });
 });
 
-Deno.test("lint: warns and skips unsupported trigger schemas", async () => {
+Deno.test("lint: warns and skips unsupported native trigger schemas", async () => {
   await withTempDir(async (tempDir) => {
     await Deno.mkdir(`${tempDir}/f/triggers`, { recursive: true });
-    await Deno.writeTextFile(
-      `${tempDir}/f/triggers/mail.email_trigger.yaml`,
-      `path: "f/triggers/mail"
-`,
-    );
     await Deno.writeTextFile(
       `${tempDir}/f/triggers/webhook.script.123.nextcloud_native_trigger.yaml`,
       `path: "f/triggers/native"
@@ -114,8 +117,8 @@ Deno.test("lint: warns and skips unsupported trigger schemas", async () => {
 
     assertEquals(report.exitCode, 0);
     assertEquals(report.validatedFiles, 0);
-    assertEquals(report.skippedUnsupportedFiles, 2);
-    assertEquals(report.warnings.length, 2);
+    assertEquals(report.skippedUnsupportedFiles, 1);
+    assertEquals(report.warnings.length, 1);
     assertStringIncludes(
       report.warnings[0].message,
       "Unsupported trigger schema",
@@ -299,11 +302,11 @@ is_flow: false
 `,
     );
 
-    // An unsupported trigger that produces a warning
+    // An unsupported native trigger that produces a warning
     await Deno.mkdir(`${tempDir}/f/triggers`, { recursive: true });
     await Deno.writeTextFile(
-      `${tempDir}/f/triggers/inbox.email_trigger.yaml`,
-      `path: "f/triggers/inbox"
+      `${tempDir}/f/triggers/webhook.script.123.nextcloud_native_trigger.yaml`,
+      `path: "f/triggers/native"
 `,
     );
 

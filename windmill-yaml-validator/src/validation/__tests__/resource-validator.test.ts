@@ -204,6 +204,11 @@ describe("WindmillYamlValidator resource validation", () => {
         delivery_type: "pull",
         subscription_mode: "existing",
       },
+      email: {
+        script_path: "f/triggers/email_handler",
+        is_flow: false,
+        local_part: "inbox",
+      },
     };
 
     const missingRequiredField: Record<TriggerKind, string> = {
@@ -215,6 +220,7 @@ describe("WindmillYamlValidator resource validation", () => {
       mqtt: "mqtt_resource_path",
       sqs: "queue_url",
       gcp: "topic_id",
+      email: "local_part",
     };
 
     for (const [kind, validDocument] of Object.entries(validTriggers) as [
@@ -257,9 +263,9 @@ describe("WindmillYamlValidator resource validation", () => {
     expect(() =>
       validator.validate("{}", {
         type: "trigger",
-        triggerKind: "email" as any,
+        triggerKind: "foobar" as any,
       })
-    ).toThrow("Unsupported trigger kind: email");
+    ).toThrow("Unsupported trigger kind: foobar");
   });
 
   // ── Triggers — realistic full documents with all optional fields ───────
@@ -626,10 +632,13 @@ describe("getValidationTargetFromFilename", () => {
     });
   });
 
-  it("returns null for unsupported trigger kinds and non-windmill files", () => {
+  it("returns email trigger target for email_trigger files", () => {
     expect(
       getValidationTargetFromFilename("u/user/mail.email_trigger.yaml")
-    ).toBeNull();
+    ).toEqual({ type: "trigger", triggerKind: "email" });
+  });
+
+  it("returns null for unsupported trigger kinds and non-windmill files", () => {
     expect(getValidationTargetFromFilename("README.md")).toBeNull();
     expect(getValidationTargetFromFilename("f/folder/script.py")).toBeNull();
     expect(

@@ -41,7 +41,6 @@ export interface LintReport {
 }
 
 const YAML_FILE_REGEX = /\.ya?ml$/i;
-const EMAIL_TRIGGER_REGEX = /\.email_trigger\.ya?ml$/i;
 const NATIVE_TRIGGER_REGEX = /\.[^.]+_native_trigger\.ya?ml$/i;
 
 function normalizePath(p: string): string {
@@ -49,8 +48,7 @@ function normalizePath(p: string): string {
 }
 
 function isUnsupportedTriggerPath(filePath: string): boolean {
-  return EMAIL_TRIGGER_REGEX.test(filePath) ||
-    NATIVE_TRIGGER_REGEX.test(filePath);
+  return NATIVE_TRIGGER_REGEX.test(filePath);
 }
 
 function formatTarget(target: ValidationTarget): string {
@@ -153,7 +151,7 @@ export async function runLint(
       warnings.push({
         path: normalizedPath,
         message:
-          "Unsupported trigger schema for linting (email/native triggers are skipped)",
+          "Unsupported trigger schema for linting (native triggers are skipped)",
       });
       skippedUnsupportedFiles += 1;
       continue;

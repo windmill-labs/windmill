@@ -36,6 +36,7 @@ const TARGET_SCHEMAS = {
     mqtt: "MqttTrigger",
     sqs: "SqsTrigger",
     gcp: "GcpTrigger",
+    email: "EmailTrigger",
   },
 };
 
