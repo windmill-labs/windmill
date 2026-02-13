@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.634.1](https://github.com/windmill-labs/windmill/compare/v1.634.0...v1.634.1) (2026-02-13)
+
+
+### Bug Fixes
+
+* conditionally skip relock on dep job ([#7860](https://github.com/windmill-labs/windmill/issues/7860)) ([d6c72df](https://github.com/windmill-labs/windmill/commit/d6c72df99a0a500bdd925fcdcba8abd8bbe537f5))
+* improve on-boarding experience ([4e38a4f](https://github.com/windmill-labs/windmill/commit/4e38a4f1083d880b0814e336d5e27cb40187fc28))
+
 ## [1.634.0](https://github.com/windmill-labs/windmill/compare/v1.633.1...v1.634.0) (2026-02-12)
 
 
