@@ -88,8 +88,9 @@ use windmill_queue::{cancel_job, get_queued_job_v2, SameWorkerPayload};
 use windmill_worker::{
     result_processor::handle_job_error, JobCompletedSender, JobIsolationLevel,
     OtelTracingProxySettings, SameWorkerSender, BUNFIG_INSTALL_SCOPES, CARGO_REGISTRIES,
-    INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, JOB_ISOLATION, KEEP_JOB_DIR, MAVEN_REPOS,
-    NO_DEFAULT_MAVEN, NPM_CONFIG_REGISTRY, NSJAIL_AVAILABLE, NUGET_CONFIG,
+    INSTANCE_PYTHON_VERSION, JAVA_HOME_DIR, JOB_DEFAULT_TIMEOUT, JOB_ISOLATION, KEEP_JOB_DIR,
+    MAVEN_REPOS, MAVEN_SETTINGS_XML, NO_DEFAULT_MAVEN, NPM_CONFIG_REGISTRY, NSJAIL_AVAILABLE,
+    NUGET_CONFIG,
     OTEL_TRACING_PROXY_SETTINGS, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, POWERSHELL_REPO_PAT,
     POWERSHELL_REPO_URL, UV_INDEX_STRATEGY,
 };
@@ -329,6 +330,7 @@ pub async fn initial_load(
         reload_powershell_repo_url_setting(&conn).await;
         reload_powershell_repo_pat_setting(&conn).await;
         reload_maven_repos_setting(&conn).await;
+        reload_maven_settings_xml_setting(&conn).await;
         reload_no_default_maven_setting(&conn).await;
         reload_ruby_repos_setting(&conn).await;
         reload_cargo_registries_setting(&conn).await;
@@ -1334,6 +1336,35 @@ pub async fn reload_maven_repos_setting(conn: &Connection) {
         MAVEN_REPOS.clone(),
     )
     .await;
+}
+
+pub async fn reload_maven_settings_xml_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(
+        conn,
+        windmill_common::global_settings::MAVEN_SETTINGS_XML_SETTING,
+        "MAVEN_SETTINGS_XML",
+        MAVEN_SETTINGS_XML.clone(),
+    )
+    .await;
+
+    let settings_xml = MAVEN_SETTINGS_XML.read().await.clone();
+    match settings_xml {
+        Some(ref content) if !content.trim().is_empty() => {
+            let m2_dir = format!("{JAVA_HOME_DIR}/.m2");
+            if let Err(e) = tokio::fs::create_dir_all(&m2_dir).await {
+                tracing::error!("Failed to create .m2 directory: {e:#}");
+                return;
+            }
+            let settings_path = format!("{m2_dir}/settings.xml");
+            if let Err(e) = tokio::fs::write(&settings_path, content).await {
+                tracing::error!("Failed to write Maven settings.xml: {e:#}");
+            }
+        }
+        _ => {
+            let settings_path = format!("{JAVA_HOME_DIR}/.m2/settings.xml");
+            let _ = tokio::fs::remove_file(&settings_path).await;
+        }
+    }
 }
 
 pub async fn reload_no_default_maven_setting(conn: &Connection) {
