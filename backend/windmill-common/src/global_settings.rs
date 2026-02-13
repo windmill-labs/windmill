@@ -14,6 +14,7 @@ pub const NUGET_CONFIG_SETTING: &str = "nuget_config";
 pub const POWERSHELL_REPO_URL_SETTING: &str = "powershell_repo_url";
 pub const POWERSHELL_REPO_PAT_SETTING: &str = "powershell_repo_pat";
 pub const MAVEN_REPOS_SETTING: &str = "maven_repos";
+pub const MAVEN_SETTINGS_XML_SETTING: &str = "maven_settings_xml";
 pub const NO_DEFAULT_MAVEN_SETTING: &str = "no_default_maven";
 pub const RUBY_REPOS_SETTING: &str = "ruby_repos";
 pub const CARGO_REGISTRIES_SETTING: &str = "cargo_registries";
