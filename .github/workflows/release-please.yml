@@ -12,4 +12,5 @@ jobs:
         with:
           release-type: simple
           package-name: windmill
+          release-as: 1.635.0
           token: ${{ secrets.PAT_TOKEN }}
