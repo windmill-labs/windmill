@@ -117,12 +117,26 @@
 	}
 
 	let lastText = ''
-	let currentTagState: { id: string } | null = null
 
 	function handleInput() {
 		isUpdating = true
 		const cursorPos = getCursorPosition()
 		let newText = getTextContent()
+
+		// Remove any "\." sequences that were added by browser smart punctuation
+		// These would only be created by macOS/browser when user double-presses space
+		if (newText.includes('\\.')) {
+			const cleanedText = newText.replace(/\\\./g, '')
+			const removedCount = (newText.length - cleanedText.length) / 2 // Each "\." is 2 chars
+			newText = cleanedText
+			value = newText
+			updateDisplay(newText)
+			restoreCursor(cursorPos - removedCount * 2)
+			updateCurrentTag(cursorPos - removedCount * 2)
+			lastText = newText
+			isUpdating = false
+			return
+		}
 
 		// Check if user just typed an escaped character
 		if (
@@ -131,6 +145,24 @@
 				newText[cursorPos - 1] === '\u00A0' ||
 				newText[cursorPos - 1] === '\\')
 		) {
+			// Check if there's already an escaped space right before the cursor (e.g., "tag\ |")
+			// If user types another space, just remove the backslash instead of adding "\ \"
+			if (
+				(newText[cursorPos - 1] === ' ' || newText[cursorPos - 1] === '\u00A0') &&
+				newText[cursorPos - 3] === '\\' &&
+				(newText[cursorPos - 2] === ' ' || newText[cursorPos - 2] === '\u00A0')
+			) {
+				// Remove the backslash before the existing space
+				newText = newText.slice(0, cursorPos - 3) + newText.slice(cursorPos - 2)
+				value = newText
+				updateDisplay(newText)
+				restoreCursor(cursorPos - 1)
+				updateCurrentTag(cursorPos - 1)
+				lastText = newText
+				isUpdating = false
+				return
+			}
+
 			// Escape the space/backslash by adding backslash before it
 			newText = newText.slice(0, cursorPos - 1) + '\\' + newText.slice(cursorPos - 1)
 			value = newText
@@ -207,14 +239,14 @@
 				const end = match.index + match[0].length
 				if (cursorPos >= start && cursorPos <= end) {
 					currentTag = { id: tag.id }
-					currentTagState = currentTag
+
 					onCurrentTagChange?.(currentTag)
 					onTextSegmentAtCursorChange?.({ text: '', start: 0, end: 0 })
 					return
 				}
 			}
 		}
-		currentTagState = null
+
 		onCurrentTagChange?.(null)
 
 		// Get text segment at cursor when not in a tag
