@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.0.0](https://github.com/windmill-labs/windmill/compare/v1.634.6...v2.0.0) (2026-02-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* **cli:** FlowValidator and validateFlow() are replaced by WindmillYamlValidator.validate(doc, target).
+
+### Features
+
+* add maven settings.xml support for java private registries ([#7940](https://github.com/windmill-labs/windmill/issues/7940)) ([581dde8](https://github.com/windmill-labs/windmill/commit/581dde8d0bc4428a5e95fcb5341239231ab36ef6))
+* **cli:** add `lint` command ([#7917](https://github.com/windmill-labs/windmill/issues/7917)) ([37d1277](https://github.com/windmill-labs/windmill/commit/37d1277b91d1b8a03e327b0585f547037482498d))
+
+
+### Bug Fixes
+
+* allow renaming of backend runnables in the UI ([6215760](https://github.com/windmill-labs/windmill/commit/6215760b1294d55245909a1c1de6c4cc8cef320a))
+* override release-please to 1.635.0 to prevent unintended 2.0 bump ([9e7b178](https://github.com/windmill-labs/windmill/commit/9e7b1783b887ec35640f0f8806f39385fa18f143))
+
 ## [1.634.6](https://github.com/windmill-labs/windmill/compare/v1.634.5...v1.634.6) (2026-02-13)
 
 
