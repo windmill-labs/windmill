@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.634.5](https://github.com/windmill-labs/windmill/compare/v1.634.4...v1.634.5) (2026-02-13)
+
+
+### Bug Fixes
+
+* rust + java works with just /tmp mounted ([e144432](https://github.com/windmill-labs/windmill/commit/e144432a168178a531aa146def0aff478f3d1586))
+
 ## [1.634.4](https://github.com/windmill-labs/windmill/compare/v1.634.3...v1.634.4) (2026-02-13)
 
 
