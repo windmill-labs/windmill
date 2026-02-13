@@ -112,7 +112,7 @@ source <(wmill completions zsh)
 
 ### Testing with a local `windmill-yaml-validator`
 
-The CLI imports `windmill-yaml-validator` from npm (`npm:windmill-yaml-validator@2.0.0`).
+The CLI imports `windmill-yaml-validator` from npm (`npm:windmill-yaml-validator@1.1.0`).
 To test local changes to the validator before publishing, use the Deno compatibility
 script and import map override:
 
@@ -126,7 +126,7 @@ cd ../windmill-yaml-validator
 2. Add the following entries to `cli/deno.json` imports:
 
 ```json
-"npm:windmill-yaml-validator@2.0.0": "../windmill-yaml-validator/src/index.ts",
+"npm:windmill-yaml-validator@1.1.0": "../windmill-yaml-validator/src/index.ts",
 "ajv": "npm:ajv@^8.17.1",
 "@stoplight/yaml": "npm:@stoplight/yaml@^4.3.0"
 ```
