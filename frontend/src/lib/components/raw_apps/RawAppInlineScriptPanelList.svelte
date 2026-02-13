@@ -5,9 +5,10 @@
 	import Popover from '../Popover.svelte'
 
 	import type { Runnable } from '../apps/inputType'
-	import { getNextId } from '$lib/components/flows/idUtils'
+	import { getNextId, forbiddenIds } from '$lib/components/flows/idUtils'
 	import { rawAppLintStore } from './lintStore'
 	import RunnableRow from './RunnableRow.svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	interface Props {
 		selectedRunnable: string | undefined
@@ -16,6 +17,46 @@
 	}
 
 	let { selectedRunnable = $bindable(), runnables, onSelect }: Props = $props()
+
+	let editingId: string | undefined = $state(undefined)
+
+	const validIdPattern = /^[a-zA-Z_][a-zA-Z0-9_]*$/
+
+	function renameRunnable(oldId: string, newId: string) {
+		if (newId === oldId) {
+			editingId = undefined
+			return
+		}
+		if (!newId) {
+			sendUserToast('ID cannot be empty', true)
+			editingId = undefined
+			return
+		}
+		if (!validIdPattern.test(newId)) {
+			sendUserToast('ID must be a valid identifier (letters, digits, underscores)', true)
+			editingId = undefined
+			return
+		}
+		if (newId in runnables) {
+			sendUserToast(`ID "${newId}" is already in use`, true)
+			editingId = undefined
+			return
+		}
+		if (forbiddenIds.includes(newId)) {
+			sendUserToast(`"${newId}" is a reserved keyword`, true)
+			editingId = undefined
+			return
+		}
+
+		runnables[newId] = runnables[oldId]
+		delete runnables[oldId]
+
+		if (selectedRunnable === oldId) {
+			selectedRunnable = newId
+			onSelect?.(newId)
+		}
+		editingId = undefined
+	}
 
 	// Subscribe to lint store for reactive updates
 	let lintSnapshot = $state(rawAppLintStore.getSnapshot())
@@ -75,6 +116,7 @@
 								{id}
 								{runnable}
 								isSelected={selectedRunnable === id}
+								isEditing={editingId === id}
 								onSelect={() => {
 									selectedRunnable = id
 									onSelect?.(id)
@@ -85,6 +127,9 @@
 										selectedRunnable = undefined
 									}
 								}}
+								onRename={(newId) => renameRunnable(id, newId)}
+								onRequestEdit={() => (editingId = id)}
+								onCancelEdit={() => (editingId = undefined)}
 							/>
 						{/if}
 					{/each}
