@@ -15,7 +15,7 @@
 	import Breadcrumb from '$lib/components/common/breadcrumb/Breadcrumb.svelte'
 	import { ChevronRight, ArrowLeft } from 'lucide-svelte'
 	import { superadmin } from '$lib/stores'
-	import { UserService, ScheduleService, JobService } from '$lib/gen'
+	import { UserService, JobService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -189,18 +189,27 @@
 
 			if (enableHubSync) {
 				try {
-					await ScheduleService.createSchedule({
-						workspace: 'admins',
-						requestBody: {
-							path: 'g/all/hub_sync',
-							schedule: '0 0 0 * * *',
-							script_path: 'u/admin/hub_sync',
-							is_flow: false,
-							args: {},
-							enabled: true,
-							timezone: 'Etc/UTC'
+					// Use direct fetch with token as query param to avoid the old session cookie
+					// overriding the Authorization header
+					const resp = await fetch(
+						`/api/w/admins/schedules/create?token=${encodeURIComponent(token)}`,
+						{
+							method: 'POST',
+							headers: { 'Content-Type': 'application/json' },
+							body: JSON.stringify({
+								path: 'g/all/hub_sync',
+								schedule: '0 0 0 * * *',
+								script_path: 'u/admin/hub_sync',
+								is_flow: false,
+								args: {},
+								enabled: true,
+								timezone: 'Etc/UTC'
+							})
 						}
-					})
+					)
+					if (!resp.ok) {
+						console.warn('Schedule creation failed:', await resp.text())
+					}
 				} catch (e: any) {
 					console.warn('Schedule creation failed:', e?.body ?? e)
 				}
