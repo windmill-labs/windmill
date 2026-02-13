@@ -124,12 +124,14 @@
 		const cursorPos = getCursorPosition()
 		let newText = getTextContent()
 
-		// Check if user just typed a regular space
+		// Check if user just typed an escaped character
 		if (
-			(newText.length > lastText.length && newText[cursorPos - 1] === ' ') ||
-			newText[cursorPos - 1] === '\u00A0'
+			newText.length > lastText.length &&
+			(newText[cursorPos - 1] === ' ' ||
+				newText[cursorPos - 1] === '\u00A0' ||
+				newText[cursorPos - 1] === '\\')
 		) {
-			// Escape the space by adding backslash before it
+			// Escape the space/backslash by adding backslash before it
 			newText = newText.slice(0, cursorPos - 1) + '\\' + newText.slice(cursorPos - 1)
 			console.log('Escaping space at position', cursorPos - 1, newText)
 			value = newText
