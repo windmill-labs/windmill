@@ -120,7 +120,9 @@
 						// Replace the text segment with the new filter tag
 						const before = asText.val.slice(0, currentTextSegment.start)
 						const after = asText.val.slice(currentTextSegment.end)
-						asText.val = `${before}${before && !before.endsWith(' ') ? ' ' : ''}${key}:\\\u00A0${after}`.trim() + '\u00A0'
+						asText.val =
+							`${before}${before && !before.endsWith(' ') ? ' ' : ''}${key}:\\\u00A0${after}`.trim() +
+							'\u00A0'
 					}
 				}))
 		} else {
@@ -198,6 +200,7 @@
 	}
 
 	function setValueForCurrentTag(val: any) {
+		if (!currentTag) return
 		value[currentTag!] = val
 		onTagComplete()
 	}
