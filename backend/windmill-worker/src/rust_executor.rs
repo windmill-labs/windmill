@@ -232,9 +232,11 @@ pub fn __WINDMILL_RUN__(_args: __WINDMILL_ARGS__) -> Result<String, Box<dyn std:
 
 async fn write_cargo_config(job_dir: &str) -> anyhow::Result<()> {
     if let Some(cargo_registries) = CARGO_REGISTRIES.read().await.clone() {
-        let cargo_dir = format!("{job_dir}/.cargo");
-        create_dir_all(&cargo_dir).await?;
-        write_file(&cargo_dir, "config.toml", &cargo_registries)?;
+        if !cargo_registries.trim().is_empty() {
+            let cargo_dir = format!("{job_dir}/.cargo");
+            create_dir_all(&cargo_dir).await?;
+            write_file(&cargo_dir, "config.toml", &cargo_registries)?;
+        }
     }
     Ok(())
 }

@@ -83,7 +83,9 @@ pub async fn generate_nuget_lockfile(
     check_executor_binary_exists("dotnet", DOTNET_PATH.as_str(), "C#")?;
 
     if let Some(nuget_config) = NUGET_CONFIG.read().await.clone() {
-        write_file(job_dir, "nuget.config", &nuget_config)?;
+        if !nuget_config.trim().is_empty() {
+            write_file(job_dir, "nuget.config", &nuget_config)?;
+        }
     }
 
     let (reqs, lines_to_remove) = parse_csharp_reqs(code);
@@ -335,7 +337,9 @@ async fn build_cs_proj(
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
     if let Some(nuget_config) = NUGET_CONFIG.read().await.clone() {
-        write_file(job_dir, "nuget.config", &nuget_config)?;
+        if !nuget_config.trim().is_empty() {
+            write_file(job_dir, "nuget.config", &nuget_config)?;
+        }
     }
 
     let mut build_cs_cmd = Command::new(DOTNET_PATH.as_str());

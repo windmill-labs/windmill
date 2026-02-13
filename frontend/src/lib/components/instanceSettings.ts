@@ -443,6 +443,16 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
+			label: 'Maven settings.xml',
+			description:
+				'Write a Maven settings.xml file for custom repositories, mirrors, and credentials',
+			key: 'maven_settings_xml',
+			fieldType: 'codearea',
+			codeAreaLang: 'xml',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
 			label: 'Disable default Maven repository',
 			description: 'Do not use default Maven repository',
 			key: 'no_default_maven',

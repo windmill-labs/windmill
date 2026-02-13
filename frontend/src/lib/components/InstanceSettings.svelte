@@ -353,9 +353,13 @@
 				.map(async (x) => {
 					if (x.key === 'license_key') licenseKeySet = true
 					if (x.requiresReloadOnChange) shouldReloadPage = true
+					let value = $values?.[x.key]
+					if (x.fieldType === 'codearea' && typeof value === 'string' && value.trim() === '') {
+						value = undefined
+					}
 					return await SettingService.setGlobal({
 						key: x.key,
-						requestBody: { value: $values?.[x.key] }
+						requestBody: { value }
 					})
 				})
 		)
