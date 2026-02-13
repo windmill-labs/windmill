@@ -465,6 +465,7 @@ export class Triggers {
 	}
 
 	async fetchNativeTriggers(
+		triggersCountStore: Writable<TriggersCount | undefined>,
 		serviceName: NativeServiceName,
 		workspaceId: string | undefined,
 		path: string,
@@ -487,7 +488,14 @@ export class Triggers {
 				extra_perms: {},
 				service_config: t.service_config
 			}))
-			this.updateTriggers(triggerData, serviceName, user)
+			const count = this.updateTriggers(triggerData, serviceName, user)
+			const countProperty = `${serviceName}_count`
+			triggersCountStore.update((triggersCount) => {
+				return {
+					...(triggersCount ?? {}),
+					[countProperty]: count
+				}
+			})
 		} catch (error) {
 			console.debug(`Failed to fetch ${serviceName} triggers:`, error)
 		}
@@ -510,7 +518,8 @@ export class Triggers {
 			this.fetchWebsocketTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 			this.fetchPostgresTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 			this.fetchMqttTriggers(triggersCountStore, workspaceId, path, isFlow, user),
-			this.fetchNativeTriggers('nextcloud', workspaceId, path, isFlow, user),
+			this.fetchNativeTriggers(triggersCountStore, 'nextcloud', workspaceId, path, isFlow, user),
+			this.fetchNativeTriggers(triggersCountStore, 'google', workspaceId, path, isFlow, user),
 			...(get(enterpriseLicense)
 				? [
 						this.fetchKafkaTriggers(triggersCountStore, workspaceId, path, isFlow, user),

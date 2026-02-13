@@ -59,7 +59,7 @@ use std::{
     collections::{HashMap, HashSet},
     fmt::Display,
     sync::{
-        atomic::{AtomicBool, AtomicU8, AtomicU16, Ordering},
+        atomic::{AtomicBool, AtomicU16, AtomicU8, Ordering},
         Arc,
     },
     time::Duration,
@@ -80,7 +80,7 @@ use windmill_common::{
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     tracing_init::{QUIET_MODE, VERBOSE_TARGET},
     utils::StripPath,
-    worker::{CLOUD_HOSTED, NO_LOGS, WORKER_CONFIG, WORKER_GROUP},
+    worker::{CLOUD_HOSTED, NATIVE_TAGS, NO_LOGS, WORKER_CONFIG, WORKER_GROUP},
     DB, IS_READY,
 };
 
@@ -2987,6 +2987,17 @@ pub async fn handle_queued_job(
             return Err(Error::ExecutionErr("Suspended job was not handled by the user within 30 days, job will not be executed.".to_string()));
         }
         _ => {}
+    }
+
+    {
+        let native_mode = WORKER_CONFIG.read().await.native_mode;
+        if native_mode && !NATIVE_TAGS.contains(&job.tag) {
+            return Err(Error::ExecutionErr(format!(
+                "Worker is in native mode and cannot execute non-native job with tag '{}'. Native tags: {}",
+                job.tag,
+                NATIVE_TAGS.join(", ")
+            )));
+        }
     }
 
     #[cfg(any(not(feature = "enterprise"), feature = "sqlx"))]

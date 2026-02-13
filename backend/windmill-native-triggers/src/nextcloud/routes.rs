@@ -11,7 +11,7 @@ use windmill_common::{
 use crate::{
     get_workspace_integration,
     nextcloud::{NextCloudEventType, OcsResponse},
-    External, OAuthConfig, ServiceName,
+    External, ServiceName,
 };
 use windmill_api_auth::ApiAuthed;
 
@@ -26,12 +26,15 @@ async fn list_available_events<T: External>(
     let integration =
         get_workspace_integration(&mut *tx, &workspace_id, ServiceName::Nextcloud).await?;
 
-    let auth = serde_json::from_value::<OAuthConfig>(integration.oauth_data)
-        .map_err(|e| Error::InternalErr(format!("Failed to parse NextCloud OAuth data: {}", e)))?;
+    let base_url = integration
+        .oauth_data
+        .get("base_url")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
 
     let url = format!(
         "{}/ocs/v2.php/apps/integration_windmill/api/v1/list/events",
-        &auth.base_url,
+        base_url,
     );
 
     let mut headers = HashMap::new();

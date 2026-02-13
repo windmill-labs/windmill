@@ -1,8 +1,7 @@
 use crate::{
-    delete_native_trigger, delete_token_by_prefix, get_native_trigger, get_token_by_prefix,
-    get_workspace_integration, list_native_triggers, store_native_trigger,
-    update_native_trigger_error, External, NativeTrigger, NativeTriggerConfig, NativeTriggerData,
-    ServiceName,
+    decrypt_oauth_data, delete_native_trigger, delete_token_by_prefix, get_native_trigger,
+    get_token_by_prefix, list_native_triggers, store_native_trigger, update_native_trigger_error,
+    External, NativeTrigger, NativeTriggerConfig, NativeTriggerData, ServiceName,
 };
 use axum::{
     extract::{Path, Query},
@@ -132,15 +131,9 @@ async fn create_native_trigger<T: External>(
     )
     .await?;
 
-    let integration = get_workspace_integration(&mut *tx, &workspace_id, service_name).await?;
-
-    let oauth_data: T::OAuthData = serde_json::from_value(integration.oauth_data).map_err(|e| {
-        Error::InternalErr(format!(
-            "Failed to parse {} OAuth data: {}",
-            T::DISPLAY_NAME,
-            e
-        ))
-    })?;
+    let integration_service = service_name.integration_service();
+    let oauth_data: T::OAuthData =
+        decrypt_oauth_data(&mut *tx, &db, &workspace_id, integration_service).await?;
 
     let resp = handler
         .create(
@@ -155,24 +148,25 @@ async fn create_native_trigger<T: External>(
 
     let (external_id, _) = handler.external_id_and_metadata_from_response(&resp);
 
-    // update the created external trigger with a new uri containing the external_id
-    handler
-        .update(
-            &workspace_id,
-            &oauth_data,
-            &external_id,
-            &webhook_token,
-            &data,
-            &db,
-            &mut tx,
-        )
-        .await?;
-
-    // Fetch the updated trigger data from the external service and extract service_config
-    let trigger_data = handler
-        .get(&workspace_id, &oauth_data, &external_id, &db, &mut tx)
-        .await?;
-    let service_config = handler.extract_service_config_from_trigger_data(&trigger_data)?;
+    // Some services (e.g. Google) can build service_config directly from the create response,
+    // while others (e.g. Nextcloud) need an update+get cycle to correct the webhook URL
+    // with the external_id assigned by the remote service.
+    let service_config =
+        if let Some(config) = handler.service_config_from_create_response(&data, &resp) {
+            config
+        } else {
+            handler
+                .update(
+                    &workspace_id,
+                    &oauth_data,
+                    &external_id,
+                    &webhook_token,
+                    &data,
+                    &db,
+                    &mut tx,
+                )
+                .await?
+        };
 
     let config = NativeTriggerConfig {
         script_path: data.script_path.clone(),
@@ -255,17 +249,11 @@ async fn update_native_trigger_handler<T: External>(
         }
     };
 
-    let integration = get_workspace_integration(&mut *tx, &workspace_id, service_name).await?;
+    let integration_service = service_name.integration_service();
+    let oauth_data: T::OAuthData =
+        decrypt_oauth_data(&mut *tx, &db, &workspace_id, integration_service).await?;
 
-    let oauth_data: T::OAuthData = serde_json::from_value(integration.oauth_data).map_err(|e| {
-        Error::InternalErr(format!(
-            "Failed to parse {} OAuth data: {}",
-            T::DISPLAY_NAME,
-            e
-        ))
-    })?;
-
-    handler
+    let service_config = handler
         .update(
             &workspace_id,
             &oauth_data,
@@ -276,12 +264,6 @@ async fn update_native_trigger_handler<T: External>(
             &mut tx,
         )
         .await?;
-
-    // Fetch the updated trigger data from the external service and extract service_config
-    let trigger_data = handler
-        .get(&workspace_id, &oauth_data, &external_id, &db, &mut tx)
-        .await?;
-    let service_config = handler.extract_service_config_from_trigger_data(&trigger_data)?;
 
     let config = NativeTriggerConfig {
         script_path: data.script_path.clone(),
@@ -341,15 +323,9 @@ async fn get_native_trigger_handler<T: External>(
     )
     .await?;
 
-    let integration = get_workspace_integration(&mut *tx, &workspace_id, service_name).await?;
-
-    let oauth_data: T::OAuthData = serde_json::from_value(integration.oauth_data).map_err(|e| {
-        Error::InternalErr(format!(
-            "Failed to parse {} OAuth data: {}",
-            T::DISPLAY_NAME,
-            e
-        ))
-    })?;
+    let integration_service = service_name.integration_service();
+    let oauth_data: T::OAuthData =
+        decrypt_oauth_data(&mut *tx, &db, &workspace_id, integration_service).await?;
 
     let native_trigger = handler
         .get(&workspace_id, &oauth_data, &external_id, &db, &mut tx)
@@ -430,15 +406,9 @@ async fn delete_native_trigger_handler<T: External>(
     )
     .await?;
 
-    let integration = get_workspace_integration(&mut *tx, &workspace_id, service_name).await?;
-
-    let oauth_data: T::OAuthData = serde_json::from_value(integration.oauth_data).map_err(|e| {
-        Error::InternalErr(format!(
-            "Failed to parse {} OAuth data: {}",
-            T::DISPLAY_NAME,
-            e
-        ))
-    })?;
+    let integration_service = service_name.integration_service();
+    let oauth_data: T::OAuthData =
+        decrypt_oauth_data(&mut *tx, &db, &workspace_id, integration_service).await?;
 
     handler
         .delete(&workspace_id, &oauth_data, &external_id, &db, &mut tx)
@@ -562,15 +532,12 @@ pub fn generate_native_trigger_routers() -> Router {
 
     #[cfg(feature = "native_trigger")]
     {
+        use crate::google::Google;
         use crate::nextcloud::NextCloud;
 
-        // Register all service routes here
-        // When adding a new service:
-        // 1. Import the handler: use crate::newservice::NewServiceHandler;
-        // 2. Add the route: .nest("/newservice", service_routes(NewServiceHandler))
-        return router.nest("/nextcloud", service_routes(NextCloud));
-        // Add new services here:
-        // .nest("/newservice", service_routes(NewServiceHandler))
+        return router
+            .nest("/nextcloud", service_routes(NextCloud))
+            .nest("/google", service_routes(Google));
     }
 
     #[cfg(not(feature = "native_trigger"))]

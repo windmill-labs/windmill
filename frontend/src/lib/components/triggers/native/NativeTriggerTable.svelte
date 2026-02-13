@@ -13,6 +13,8 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { goto } from '$lib/navigation'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import GoogleDriveIcon from '$lib/components/icons/GoogleDriveIcon.svelte'
+	import GoogleCalendarIcon from '$lib/components/icons/GoogleCalendarIcon.svelte'
 
 	type TriggerW = ExtendedNativeTrigger & { marked?: any }
 
@@ -99,6 +101,20 @@
 									{trigger.script_path}
 								{/if}
 							</div>
+							{#if service === 'google'}
+								{@const triggerType = trigger.service_config?.triggerType}
+								{@const resourceName = trigger.service_config?.resourceName}
+								{@const calendarName = trigger.service_config?.calendarName}
+								<div class="text-secondary text-xs truncate text-left font-normal flex items-center gap-1 mb-0.5">
+									{#if triggerType === 'calendar'}
+										<GoogleCalendarIcon height="12px" width="12px" />
+										Calendar: {calendarName || trigger.service_config?.calendarId || ''}
+									{:else}
+										<GoogleDriveIcon height="12px" width="12px" />
+										Drive: {resourceName ? resourceName : trigger.service_config?.resourceId ? trigger.service_config.resourceId : 'All changes'}
+									{/if}
+								</div>
+							{/if}
 							<div class="text-secondary text-xs truncate text-left font-normal">
 								external ID: {trigger.external_id}
 							</div>

@@ -102,6 +102,7 @@ impl External for NextCloud {
     const SUPPORT_WEBHOOK: bool = true;
     const TOKEN_ENDPOINT: &'static str = "/apps/oauth2/api/v1/token";
     const REFRESH_ENDPOINT: &'static str = "/apps/oauth2/api/v1/token";
+    const AUTH_ENDPOINT: &'static str = "/oauth/authorize";
 
     async fn create(
         &self,
@@ -148,7 +149,7 @@ impl External for NextCloud {
         data: &NativeTriggerData<Self::ServiceConfig>,
         db: &DB,
         tx: &mut PgConnection,
-    ) -> Result<()> {
+    ) -> Result<serde_json::Value> {
         // During update, we have the external_id so include it in the webhook URL
         let full_nextcloud_payload =
             FullNextcloudPayload::new(w_id, Some(external_id), webhook_token, data).await;
@@ -173,7 +174,11 @@ impl External for NextCloud {
             )
             .await?;
 
-        Ok(())
+        // Fetch back the updated state and convert to JSON config
+        let trigger_data = self.get(w_id, oauth_data, external_id, db, tx).await?;
+        serde_json::to_value(&trigger_data).map_err(|e| {
+            Error::internal_err(format!("Failed to convert trigger data to JSON: {}", e))
+        })
     }
 
     async fn get(
@@ -257,13 +262,94 @@ impl External for NextCloud {
         Ok(true)
     }
 
+    async fn maintain_triggers(
+        &self,
+        db: &DB,
+        workspace_id: &str,
+        triggers: &[crate::NativeTrigger],
+        oauth_data: &Self::OAuthData,
+        synced: &mut Vec<crate::sync::TriggerSyncInfo>,
+        errors: &mut Vec<crate::sync::SyncError>,
+    ) {
+        let mut tx = match db.begin().await {
+            Ok(tx) => tx,
+            Err(e) => {
+                errors.push(crate::sync::SyncError {
+                    resource_path: format!("workspace:{}", workspace_id),
+                    error_message: format!("Failed to begin transaction: {}", e),
+                    error_type: "database_error".to_string(),
+                });
+                return;
+            }
+        };
+
+        let external_triggers = match self.list_all(workspace_id, oauth_data, db, &mut tx).await {
+            Ok(triggers) => triggers,
+            Err(e) => {
+                tracing::error!(
+                    "Failed to fetch external triggers for {}: {}",
+                    workspace_id,
+                    e
+                );
+                errors.push(crate::sync::SyncError {
+                    resource_path: format!("workspace:{}", workspace_id),
+                    error_message: format!("Failed to fetch external triggers: {}", e),
+                    error_type: "external_service_error".to_string(),
+                });
+                return;
+            }
+        };
+
+        if let Err(e) = tx.commit().await {
+            errors.push(crate::sync::SyncError {
+                resource_path: format!("workspace:{}", workspace_id),
+                error_message: format!("Failed to commit transaction: {}", e),
+                error_type: "database_error".to_string(),
+            });
+            return;
+        }
+
+        // Convert to (external_id, config_json) pairs for reconciliation
+        let external_pairs: Vec<(String, serde_json::Value)> = external_triggers
+            .iter()
+            .filter_map(|data| {
+                let config = serde_json::to_value(data).ok()?;
+                Some((data.id.to_string(), config))
+            })
+            .collect();
+
+        crate::sync::reconcile_with_external_state(
+            db,
+            workspace_id,
+            ServiceName::Nextcloud,
+            triggers,
+            &external_pairs,
+            synced,
+            errors,
+        )
+        .await;
+    }
+
+    fn external_id_and_metadata_from_response(
+        &self,
+        resp: &Self::CreateResponse,
+    ) -> (String, Option<serde_json::Value>) {
+        (resp.id.to_string(), None)
+    }
+
+    fn additional_routes(&self) -> axum::Router {
+        routes::nextcloud_routes(self.clone())
+    }
+}
+
+impl NextCloud {
     async fn list_all(
         &self,
         w_id: &str,
-        oauth_data: &Self::OAuthData,
+        oauth_data: &NextCloudOAuthData,
         db: &DB,
         tx: &mut PgConnection,
-    ) -> Result<Vec<Self::TriggerData>> {
+    ) -> Result<Vec<NextCloudTriggerData>> {
         let url = format!(
             "{}/ocs/v2.php/apps/webhook_listeners/api/v1/webhooks",
             oauth_data.base_url
@@ -285,20 +371,5 @@ impl External for NextCloud {
             .await?;
 
         Ok(ocs_response.ocs.data)
-    }
-
-    fn external_id_and_metadata_from_response(
-        &self,
-        resp: &Self::CreateResponse,
-    ) -> (String, Option<serde_json::Value>) {
-        (resp.id.to_string(), None)
-    }
-
-    fn get_external_id_from_trigger_data(&self, data: &Self::TriggerData) -> String {
-        data.id.to_string()
-    }
-
-    fn additional_routes(&self) -> axum::Router {
-        routes::nextcloud_routes(self.clone())
     }
 }

@@ -163,10 +163,18 @@
 		}
 	}
 
-	checkServiceAvailability().then(() => {
-		if (serviceAvailable) {
-			loadTriggers()
-		}
+	$effect(() => {
+		// Re-run when serviceName or workspace changes (e.g. navigating between /native_triggers/nextcloud and /google)
+		void serviceName
+		void $workspaceStore
+		triggers = []
+		serviceAvailable = undefined
+		loading = true
+		checkServiceAvailability().then(() => {
+			if (serviceAvailable) {
+				loadTriggers()
+			}
+		})
 	})
 </script>
 

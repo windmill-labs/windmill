@@ -28,6 +28,7 @@ import type { Triggers } from './triggers.svelte'
 import { emptyString } from '$lib/utils'
 import { saveEmailTriggerFromCfg } from './email/utils'
 import NextcloudIcon from '$lib/components/icons/NextcloudIcon.svelte'
+import GoogleIcon from '$lib/components/icons/GoogleIcon.svelte'
 import { saveNativeTriggerFromCfg } from './native/utils'
 
 export const CLOUD_DISABLED_TRIGGER_TYPES = [
@@ -57,6 +58,7 @@ export type TriggerType =
 	| 'poll'
 	| 'cli'
 	| 'nextcloud'
+	| 'google'
 
 export const jobTriggerKinds: JobTriggerKind[] = [
 	'webhook',
@@ -70,7 +72,8 @@ export const jobTriggerKinds: JobTriggerKind[] = [
 	'sqs',
 	'postgres',
 	'schedule',
-	'gcp'
+	'gcp',
+	'google'
 ]
 
 export type Trigger = {
@@ -103,7 +106,8 @@ export const triggerIconMap = {
 	primary_schedule: Calendar,
 	poll: SchedulePollIcon,
 	cli: Terminal,
-	nextcloud: NextcloudIcon
+	nextcloud: NextcloudIcon,
+	google: GoogleIcon
 }
 
 export const triggerDisplayNamesMap = {
@@ -121,7 +125,8 @@ export const triggerDisplayNamesMap = {
 	webhook: 'Webhook',
 	default_email: 'Default Email',
 	cli: 'CLI',
-	nextcloud: 'Nextcloud'
+	nextcloud: 'Nextcloud',
+	google: 'Google'
 } as const satisfies Record<TriggerType, string>
 
 /**
@@ -176,7 +181,8 @@ export function updateTriggersCount(
 		email: 'email_count',
 		poll: undefined,
 		cli: undefined,
-		nextcloud: undefined
+		nextcloud: 'nextcloud_count',
+		google: 'google_count'
 	}
 
 	const countProperty = countPropertyMap[type]
@@ -367,6 +373,15 @@ export async function deployTriggers(
 				!trigger.isDraft,
 				workspaceId,
 				usedTriggerKinds
+			),
+		google: (trigger: Trigger) =>
+			saveNativeTriggerFromCfg(
+				'google',
+				trigger.path ?? '',
+				trigger.draftConfig ?? {},
+				!trigger.isDraft,
+				workspaceId,
+				usedTriggerKinds
 			)
 	}
 
@@ -467,6 +482,14 @@ export function getLightConfig(
 		return { local_part: trigger.local_part }
 	} else if (triggerType === 'nextcloud') {
 		return { event: trigger.service_config?.event ?? trigger.event }
+	} else if (triggerType === 'google') {
+		return {
+			trigger_type: trigger.service_config?.triggerType ?? trigger.trigger_type,
+			resource_id: trigger.service_config?.resourceId ?? trigger.resource_id,
+			resource_name: trigger.service_config?.resourceName ?? trigger.resource_name,
+			calendar_id: trigger.service_config?.calendarId ?? trigger.calendar_id,
+			calendar_name: trigger.service_config?.calendarName ?? trigger.calendar_name
+		}
 	} else {
 		return undefined
 	}
@@ -503,6 +526,15 @@ export function getTriggerLabel(trigger: Trigger): string {
 		return `${config?.local_part}`
 	} else if (type === 'nextcloud' && path) {
 		return `${path}`
+	} else if (type === 'google' && path) {
+		const triggerType = config?.trigger_type ?? config?.triggerType
+		if (triggerType === 'calendar') {
+			const name = config?.calendar_name ?? config?.calendarName ?? config?.calendar_id ?? ''
+			return `Calendar: ${name || path}`
+		} else {
+			const name = config?.resource_name ?? config?.resourceName ?? ''
+			return name ? `Drive: ${name}` : config?.resource_id ? `Drive: ${path}` : `Drive: All changes`
+		}
 	} else if (isDraft && draftConfig?.path) {
 		return `${draftConfig?.path}`
 	} else if (isDraft) {
@@ -528,7 +560,8 @@ export function sortTriggers(triggers: Trigger[]): Trigger[] {
 		'sqs',
 		'gcp',
 		'email',
-		'nextcloud'
+		'nextcloud',
+		'google'
 	]
 
 	return triggers.sort((a, b) => {

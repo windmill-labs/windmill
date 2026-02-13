@@ -1,0 +1,97 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                external_id,\n                workspace_id,\n                service_name AS \"service_name!: ServiceName\",\n                script_path,\n                is_flow,\n                webhook_token_prefix,\n                service_config,\n                error,\n                created_at,\n                updated_at\n            FROM native_trigger\n            WHERE external_id = $1 AND service_name = $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "external_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "service_name!: ServiceName",
+        "type_info": {
+          "Custom": {
+            "name": "native_trigger_service",
+            "kind": {
+              "Enum": [
+                "nextcloud",
+                "google"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "script_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "is_flow",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "webhook_token_prefix",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "service_config",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        {
+          "Custom": {
+            "name": "native_trigger_service",
+            "kind": {
+              "Enum": [
+                "nextcloud",
+                "google"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "d55b6f9be03dc4b74d937285bdf4ffa40e152e72a6fe11831ea0495324e471b4"
+}

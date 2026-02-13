@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO global_settings (name, value) VALUES ('oauths', $1)\n         ON CONFLICT (name) DO UPDATE SET value = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4be53f0b801ebc1a33a184556fd138fdec8082f31f56d7023cf8c6311964f3b0"
+}
