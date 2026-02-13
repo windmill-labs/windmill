@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            oauth_data\n        FROM\n            workspace_integrations\n        WHERE\n            workspace_id = $1 AND\n            service_name = $2\n        ",
+  "query": "\n            SELECT service_config\n            FROM native_trigger\n            WHERE external_id = $1 AND service_name = $2 AND workspace_id = $3\n            ",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "oauth_data",
+        "name": "service_config",
         "type_info": "Jsonb"
       }
     ],
@@ -22,12 +22,13 @@
               ]
             }
           }
-        }
+        },
+        "Text"
       ]
     },
     "nullable": [
       true
     ]
   },
-  "hash": "9052b7cd438ff029a37bd489190d98d365acec09f2f102b7de71dcc9d356900e"
+  "hash": "8a4d42e373043bc509985ab320894bf3e6afa7b2019cc4739baac9165f7ead9e"
 }

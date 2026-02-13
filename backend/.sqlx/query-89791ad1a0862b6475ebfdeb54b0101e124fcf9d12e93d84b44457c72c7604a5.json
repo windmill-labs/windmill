@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_integrations SET resource_path = REGEXP_REPLACE(resource_path, 'u/' || $2 || '/(.*)', 'u/' || $1 || '/\\1') WHERE resource_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "89791ad1a0862b6475ebfdeb54b0101e124fcf9d12e93d84b44457c72c7604a5"
+}

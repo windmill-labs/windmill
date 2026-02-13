@@ -1,0 +1,82 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            EXISTS(SELECT 1 FROM websocket_trigger WHERE workspace_id = $1) AS \"websocket_used!\",\n            EXISTS(SELECT 1 FROM http_trigger WHERE workspace_id = $1) AS \"http_routes_used!\",\n            EXISTS(SELECT 1 FROM kafka_trigger WHERE workspace_id = $1) as \"kafka_used!\",\n            EXISTS(SELECT 1 FROM nats_trigger WHERE workspace_id = $1) as \"nats_used!\",\n            EXISTS(SELECT 1 FROM postgres_trigger WHERE workspace_id = $1) AS \"postgres_used!\",\n            EXISTS(SELECT 1 FROM mqtt_trigger WHERE workspace_id = $1) AS \"mqtt_used!\",\n            EXISTS(SELECT 1 FROM sqs_trigger WHERE workspace_id = $1) AS \"sqs_used!\",\n            EXISTS(SELECT 1 FROM gcp_trigger WHERE workspace_id = $1) AS \"gcp_used!\",\n            EXISTS(SELECT 1 FROM email_trigger WHERE workspace_id = $1) AS \"email_used!\",\n            EXISTS(SELECT 1 FROM native_trigger WHERE workspace_id = $1 AND service_name = 'nextcloud'::native_trigger_service) AS \"nextcloud_used!\",\n            EXISTS(SELECT 1 FROM native_trigger WHERE workspace_id = $1 AND service_name = 'google'::native_trigger_service) AS \"google_used!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "websocket_used!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "http_routes_used!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "kafka_used!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "nats_used!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "postgres_used!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "mqtt_used!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "sqs_used!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "gcp_used!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "email_used!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "nextcloud_used!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "google_used!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "a6a25545af16db9f03552ce2ac178cfda3f2ced1b8f1e60bdfc7d84c642903d2"
+}

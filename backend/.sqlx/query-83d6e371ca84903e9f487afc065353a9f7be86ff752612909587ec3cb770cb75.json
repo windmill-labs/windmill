@@ -1,12 +1,17 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            oauth_data\n        FROM\n            workspace_integrations\n        WHERE\n            workspace_id = $1 AND\n            service_name = $2\n        ",
+  "query": "SELECT external_id, webhook_token_prefix FROM native_trigger WHERE workspace_id = $1 AND service_name = $2",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "oauth_data",
-        "type_info": "Jsonb"
+        "name": "external_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "webhook_token_prefix",
+        "type_info": "Varchar"
       }
     ],
     "parameters": {
@@ -26,8 +31,9 @@
       ]
     },
     "nullable": [
-      true
+      false,
+      false
     ]
   },
-  "hash": "9052b7cd438ff029a37bd489190d98d365acec09f2f102b7de71dcc9d356900e"
+  "hash": "83d6e371ca84903e9f487afc065353a9f7be86ff752612909587ec3cb770cb75"
 }
