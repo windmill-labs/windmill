@@ -188,7 +188,7 @@ npm test:watch
 
 ### Testing locally with the CLI
 
-The Windmill CLI (`cli/`) is Deno-based and imports this package via `npm:windmill-yaml-validator@2.0.0`. Since Deno's `npm:` specifier always resolves from the npm registry, local testing requires a compatibility script that makes the TypeScript sources directly importable by Deno.
+The Windmill CLI (`cli/`) is Deno-based and imports this package via `npm:windmill-yaml-validator@1.1.0`. Since Deno's `npm:` specifier always resolves from the npm registry, local testing requires a compatibility script that makes the TypeScript sources directly importable by Deno.
 
 The `deno-compat.sh` script handles two Deno requirements:
 - Adding `.ts` extensions to relative imports
@@ -205,7 +205,7 @@ The `deno-compat.sh` script handles two Deno requirements:
 2. Add the following entries to `cli/deno.json` imports:
 
 ```json
-"npm:windmill-yaml-validator@2.0.0": "../windmill-yaml-validator/src/index.ts",
+"npm:windmill-yaml-validator@1.1.0": "../windmill-yaml-validator/src/index.ts",
 "ajv": "npm:ajv@^8.17.1",
 "@stoplight/yaml": "npm:@stoplight/yaml@^4.3.0"
 ```
