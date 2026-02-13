@@ -227,9 +227,33 @@
 		updateCurrentTag(cursorPos)
 	}
 
-	function handleKeyup() {
+	function handleKeyup(e: KeyboardEvent) {
 		const cursorPos = getCursorPosition()
 		updateCurrentTag(cursorPos)
+	}
+
+	function handleKeyDown(e: KeyboardEvent) {
+		// If user pressed right arrow and is at the end, add a space if needed
+		if (e.key === 'ArrowRight') {
+			const cursorPos = getCursorPosition()
+			const text = getTextContent()
+			if (
+				cursorPos === text.length &&
+				text.length > 0 &&
+				((text[text.length - 1] !== ' ' && text[text.length - 1] !== '\u00A0') ||
+					text[text.length - 2] === '\\')
+			) {
+				e.preventDefault()
+				isUpdating = true
+				const newText = text + '\u00A0'
+				value = newText
+				updateDisplay(newText)
+				restoreCursor(newText.length)
+				updateCurrentTag(newText.length)
+				lastText = newText
+				isUpdating = false
+			}
+		}
 	}
 
 	function getCursorPosition(): number {
@@ -301,6 +325,7 @@
 	oninput={handleInput}
 	onpaste={handlePaste}
 	onclick={handleClick}
+	onkeydown={handleKeyDown}
 	onkeyup={handleKeyup}
 	class="outline-none text-nowrap pt-[0.45rem] {className}"
 	class:text-hint={value === ''}
