@@ -38,15 +38,41 @@ const NSJAIL_CONFIG_RUN_RUST_CONTENT: &str = include_str!("../nsjail/run.rust.co
 const NSJAIL_CONFIG_COMPILE_RUST_CONTENT: &str =
     include_str!("../nsjail/download.rust.config.proto");
 
+fn find_cargo_path() -> String {
+    if let Ok(p) = std::env::var("CARGO_PATH") {
+        return p;
+    }
+    let from_home = format!("{}/bin/cargo", CARGO_HOME.as_str());
+    if std::path::Path::new(&from_home).exists() {
+        return from_home;
+    }
+    for p in ["/usr/local/cargo/bin/cargo", "/usr/bin/cargo"] {
+        if std::path::Path::new(p).exists() {
+            return p.to_string();
+        }
+    }
+    from_home
+}
+
+fn find_preinstalled_dir(env_var: &str, candidates: &[&str]) -> String {
+    if let Ok(p) = std::env::var(env_var) {
+        return p;
+    }
+    for c in candidates {
+        if std::path::Path::new(c).exists() {
+            return c.to_string();
+        }
+    }
+    candidates[0].to_string()
+}
+
 lazy_static::lazy_static! {
     static ref HOME_DIR: String = std::env::var("HOME").expect("Could not find the HOME environment variable");
     static ref CARGO_HOME: String = std::env::var("CARGO_HOME").unwrap_or_else(|_| { CARGO_HOME_DEFAULT.clone() });
     static ref RUSTUP_HOME: String = std::env::var("RUSTUP_HOME").unwrap_or_else(|_| { RUSTUP_HOME_DEFAULT.clone() });
-    static ref CARGO_PATH: String = std::env::var("CARGO_PATH").unwrap_or_else(|_| format!("{}/bin/cargo", CARGO_HOME.as_str()));
-    // static ref CARGO_SWEEP_PATH: String = std::env::var("CARGO_SWEEP_PATH").unwrap_or_else(|_| format!("{}/bin/cargo-sweep", CARGO_HOME.as_str()));
+    static ref CARGO_PATH: String = find_cargo_path();
     static ref SWEEP_MAXSIZE: String = std::env::var("CARGO_SWEEP_MAXSIZE").unwrap_or("25GB".to_owned());
     static ref NO_SHARED_BUILD_DIR: bool = std::env::var("RUST_NO_SHARED_BUILD_DIR").ok().map(|flag| flag == "true").unwrap_or(false);
-
 }
 
 #[cfg(windows)]
@@ -64,10 +90,14 @@ lazy_static::lazy_static! {
 const RUST_OBJECT_STORE_PREFIX: &str = "rustbin/";
 
 lazy_static::lazy_static! {
-    static ref PREINSTALLED_CARGO: String = std::env::var("CARGO_PREINSTALL_DIR")
-        .unwrap_or_else(|_| "/usr/local/cargo".to_string());
-    static ref PREINSTALLED_RUSTUP: String = std::env::var("RUSTUP_PREINSTALL_DIR")
-        .unwrap_or_else(|_| "/usr/local/rustup".to_string());
+    static ref PREINSTALLED_CARGO: String = find_preinstalled_dir(
+        "CARGO_PREINSTALL_DIR",
+        &["/usr/local/cargo", &format!("{}/.cargo", *HOME_DIR)],
+    );
+    static ref PREINSTALLED_RUSTUP: String = find_preinstalled_dir(
+        "RUSTUP_PREINSTALL_DIR",
+        &["/usr/local/rustup", &format!("{}/.rustup", *HOME_DIR)],
+    );
 }
 
 static RUST_DIRS_INIT: Once = Once::new();
