@@ -19935,6 +19935,7 @@ components:
           description: The URL route path that will trigger this endpoint (e.g., 'api/myendpoint'). Must NOT start with a /.
         static_asset_config:
           type: object
+          nullable: true
           description: Configuration for serving static assets (s3 bucket, storage path, filename)
           properties:
             s3:
@@ -19953,6 +19954,7 @@ components:
           description: HTTP method (get, post, put, delete, patch) that triggers this endpoint
         authentication_resource_path:
           type: string
+          nullable: true
           description: Path to the resource containing authentication configuration (for api_key, basic_http, custom_script, signature methods)
         summary:
           type: string
