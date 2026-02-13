@@ -138,7 +138,7 @@ Validates a YAML document against the selected target schema.
 - `target` (`ValidationTarget`):
   - `{ type: "flow" }`
   - `{ type: "schedule" }`
-  - `{ type: "trigger", triggerKind: "http" | "websocket" | "kafka" | "nats" | "postgres" | "mqtt" | "sqs" | "gcp" }`
+  - `{ type: "trigger", triggerKind: "http" | "websocket" | "kafka" | "nats" | "postgres" | "mqtt" | "sqs" | "gcp" | "email" }`
 
 **Returns:**
 

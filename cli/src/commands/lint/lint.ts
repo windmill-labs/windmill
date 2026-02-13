@@ -93,9 +93,8 @@ export function formatValidationError(error: {
   return `${instancePath} validation error`;
 }
 
-function formatYamlDiagnostics(parsed: unknown): string[] {
-  const diagnostics = (parsed as { diagnostics?: Array<{ message?: string }> })
-    ?.diagnostics;
+function formatYamlDiagnostics(parsed: { diagnostics?: Array<{ message?: string }> }): string[] {
+  const diagnostics = parsed?.diagnostics;
   if (!Array.isArray(diagnostics) || diagnostics.length === 0) {
     return [];
   }
@@ -111,10 +110,8 @@ export async function runLint(
     ? path.resolve(initialCwd, directory)
     : undefined;
 
-  const mergedOpts = await mergeConfigWithConfigFile({
-    ...opts,
-    json: false,
-  });
+  const { json: _json, ...syncOpts } = opts;
+  const mergedOpts = await mergeConfigWithConfigFile(syncOpts);
   const targetDirectory = explicitTargetDirectory ?? Deno.cwd();
 
   const stats = await Deno.stat(targetDirectory).catch(() => null);

@@ -589,7 +589,7 @@ describe("getValidationTargetFromFilename", () => {
     });
   });
 
-  it("detects all 8 trigger kinds", () => {
+  it("detects all 9 trigger kinds", () => {
     const kinds = [
       "http",
       "websocket",
@@ -599,6 +599,7 @@ describe("getValidationTargetFromFilename", () => {
       "mqtt",
       "sqs",
       "gcp",
+      "email",
     ] as const;
 
     for (const kind of kinds) {
@@ -630,12 +631,6 @@ describe("getValidationTargetFromFilename", () => {
     ).toEqual({
       type: "flow",
     });
-  });
-
-  it("returns email trigger target for email_trigger files", () => {
-    expect(
-      getValidationTargetFromFilename("u/user/mail.email_trigger.yaml")
-    ).toEqual({ type: "trigger", triggerKind: "email" });
   });
 
   it("returns null for unsupported trigger kinds and non-windmill files", () => {
