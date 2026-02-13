@@ -116,15 +116,35 @@
 		return html
 	}
 
+	let lastText = ''
+	let currentTagState: { id: string } | null = null
+
 	function handleInput() {
 		isUpdating = true
 		const cursorPos = getCursorPosition()
-		const newText = getTextContent()
+		let newText = getTextContent()
+
+		// Check if user just typed a regular space
+		if (newText.length > lastText.length && newText[cursorPos - 1] === ' ') {
+			// Check if we're inside a tag
+			if (currentTagState) {
+				// Escape the space by adding backslash before it
+				newText = newText.slice(0, cursorPos - 1) + '\\' + newText.slice(cursorPos - 1)
+				value = newText
+				updateDisplay(newText)
+				restoreCursor(cursorPos + 1)
+				updateCurrentTag(cursorPos + 1)
+				lastText = newText
+				isUpdating = false
+				return
+			}
+		}
 
 		value = newText
 		updateDisplay(newText)
 		restoreCursor(cursorPos)
 		updateCurrentTag(cursorPos)
+		lastText = newText
 		isUpdating = false
 	}
 
@@ -175,7 +195,6 @@
 	}
 
 	function updateCurrentTag(cursorPos: number) {
-		if (!onCurrentTagChange) return
 		let currentTag: { id: string } | null = null
 
 		for (const tag of tags) {
@@ -186,13 +205,15 @@
 				const end = match.index + match[0].length
 				if (cursorPos >= start && cursorPos <= end) {
 					currentTag = { id: tag.id }
-					onCurrentTagChange(currentTag)
+					currentTagState = currentTag
+					onCurrentTagChange?.(currentTag)
 					onTextSegmentAtCursorChange?.({ text: '', start: 0, end: 0 })
 					return
 				}
 			}
 		}
-		onCurrentTagChange(null)
+		currentTagState = null
+		onCurrentTagChange?.(null)
 
 		// Get text segment at cursor when not in a tag
 		const textSegment = getTextSegmentAtCursor(cursorPos)
