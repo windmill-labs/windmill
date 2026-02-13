@@ -125,19 +125,20 @@
 		let newText = getTextContent()
 
 		// Check if user just typed a regular space
-		if (newText.length > lastText.length && newText[cursorPos - 1] === ' ') {
-			// Check if we're inside a tag
-			if (currentTagState) {
-				// Escape the space by adding backslash before it
-				newText = newText.slice(0, cursorPos - 1) + '\\' + newText.slice(cursorPos - 1)
-				value = newText
-				updateDisplay(newText)
-				restoreCursor(cursorPos + 1)
-				updateCurrentTag(cursorPos + 1)
-				lastText = newText
-				isUpdating = false
-				return
-			}
+		if (
+			(newText.length > lastText.length && newText[cursorPos - 1] === ' ') ||
+			newText[cursorPos - 1] === '\u00A0'
+		) {
+			// Escape the space by adding backslash before it
+			newText = newText.slice(0, cursorPos - 1) + '\\' + newText.slice(cursorPos - 1)
+			console.log('Escaping space at position', cursorPos - 1, newText)
+			value = newText
+			updateDisplay(newText)
+			restoreCursor(cursorPos + 1)
+			updateCurrentTag(cursorPos + 1)
+			lastText = newText
+			isUpdating = false
+			return
 		}
 
 		value = newText
