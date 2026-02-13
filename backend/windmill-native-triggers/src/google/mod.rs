@@ -21,6 +21,7 @@
 use serde::{Deserialize, Serialize};
 
 pub mod external;
+pub mod routes;
 
 /// Handler struct for Google triggers (stateless, used for routing)
 #[derive(Copy, Clone)]
@@ -52,18 +53,12 @@ pub struct GoogleServiceConfig {
     pub trigger_type: GoogleTriggerType,
 
     // Drive-specific fields (only used when trigger_type = drive)
-    /// The file or folder ID to watch (Drive only)
+    /// The file ID to watch, or None for all changes (Drive only)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resource_id: Option<String>,
     /// Human-readable name/path for display purposes (Drive only)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resource_name: Option<String>,
-    /// Whether watching a folder (true) or file (false) (Drive only)
-    #[serde(default)]
-    pub is_folder: bool,
-    /// Whether to watch for changes in subfolders (Drive only, when is_folder=true)
-    #[serde(default)]
-    pub include_subfolders: bool,
 
     // Calendar-specific fields (only used when trigger_type = calendar)
     /// The calendar ID to watch (Calendar only, e.g., "primary")
@@ -72,6 +67,14 @@ pub struct GoogleServiceConfig {
     /// Human-readable calendar name (Calendar only)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub calendar_name: Option<String>,
+
+    // Metadata from Google watch channel (set after creation, used for renewal/deletion)
+    /// The resource ID assigned by Google for the watch channel
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub google_resource_id: Option<String>,
+    /// Channel expiration time (Unix timestamp in milliseconds, as string)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expiration: Option<String>,
 }
 
 impl GoogleServiceConfig {
@@ -101,18 +104,12 @@ pub struct GoogleTriggerData {
     pub expiration: i64,
 
     // Drive-specific fields
-    /// The file/folder ID being watched (Drive only)
+    /// The file ID being watched, or None for all changes (Drive only)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resource_id: Option<String>,
     /// Human-readable name/path (Drive only)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resource_name: Option<String>,
-    /// Whether watching a folder (Drive only)
-    #[serde(default)]
-    pub is_folder: bool,
-    /// Whether watching subfolders (Drive only)
-    #[serde(default)]
-    pub include_subfolders: bool,
 
     // Calendar-specific fields
     /// The calendar ID being watched (Calendar only)

@@ -486,7 +486,9 @@ export function getLightConfig(
 		return {
 			trigger_type: trigger.service_config?.triggerType ?? trigger.trigger_type,
 			resource_id: trigger.service_config?.resourceId ?? trigger.resource_id,
-			calendar_id: trigger.service_config?.calendarId ?? trigger.calendar_id
+			resource_name: trigger.service_config?.resourceName ?? trigger.resource_name,
+			calendar_id: trigger.service_config?.calendarId ?? trigger.calendar_id,
+			calendar_name: trigger.service_config?.calendarName ?? trigger.calendar_name
 		}
 	} else {
 		return undefined
@@ -526,8 +528,13 @@ export function getTriggerLabel(trigger: Trigger): string {
 		return `${path}`
 	} else if (type === 'google' && path) {
 		const triggerType = config?.trigger_type ?? config?.triggerType
-		const prefix = triggerType === 'calendar' ? 'Calendar' : 'Drive'
-		return `${prefix}: ${path}`
+		if (triggerType === 'calendar') {
+			const name = config?.calendar_name ?? config?.calendarName ?? config?.calendar_id ?? ''
+			return `Calendar: ${name || path}`
+		} else {
+			const name = config?.resource_name ?? config?.resourceName ?? ''
+			return name ? `Drive: ${name}` : config?.resource_id ? `Drive: ${path}` : `Drive: All changes`
+		}
 	} else if (isDraft && draftConfig?.path) {
 		return `${draftConfig?.path}`
 	} else if (isDraft) {

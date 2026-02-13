@@ -234,9 +234,6 @@
 	let isValid = $derived.by(() => Object.keys(validationErrors).length === 0)
 	let hasChanged = $derived(!deepEqual(getSaveCfg(), originalConfig ?? {}))
 
-	$effect(() => {
-		console.log('loading', getSaveCfg(), originalConfig)
-	})
 	let saveDisabled = $derived(
 		loading ||
 			!isValid ||

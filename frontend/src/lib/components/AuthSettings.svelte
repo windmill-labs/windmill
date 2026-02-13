@@ -13,9 +13,9 @@
 	import KanidmSetting from '$lib/components/KanidmSetting.svelte'
 	import ZitadelSetting from '$lib/components/ZitadelSetting.svelte'
 	import NextcloudSetting from '$lib/components/NextcloudSetting.svelte'
-	import GoogleSetting from '$lib/components/GoogleSetting.svelte'
 	import CustomOauth from './CustomOauth.svelte'
 	import { capitalize, type Item } from '$lib/utils'
+	import ClipboardPanel from './details/ClipboardPanel.svelte'
 	import Toggle from './Toggle.svelte'
 	import DropdownV2 from './DropdownV2.svelte'
 	import { APP_TO_ICON_COMPONENT } from './icons'
@@ -263,9 +263,8 @@
 				<KanidmSetting bind:value={oauths['kanidm']} />
 				<ZitadelSetting bind:value={oauths['zitadel']} />
 				<NextcloudSetting bind:value={oauths['nextcloud']} {baseUrl} />
-				<GoogleSetting bind:value={oauths['google_native']} {baseUrl} />
 				{#each Object.keys(oauths) as k}
-					{#if !['authelia', 'authentik', 'google', 'microsoft', 'github', 'gitlab', 'jumpcloud', 'okta', 'auth0', 'keycloak', 'slack', 'kanidm', 'zitadel', 'nextcloud', 'pocketid', 'google_native'].includes(k) && oauths[k] && 'login_config' in oauths[k]}
+					{#if !['authelia', 'authentik', 'google', 'microsoft', 'github', 'gitlab', 'jumpcloud', 'okta', 'auth0', 'keycloak', 'slack', 'kanidm', 'zitadel', 'nextcloud', 'pocketid'].includes(k) && oauths[k] && 'login_config' in oauths[k]}
 						{#if oauths[k]}
 							<div class="flex flex-col gap-2 pb-4">
 								<div class="flex flex-row items-center gap-2">
@@ -462,6 +461,42 @@
 											bind:value={snowflakeAccountIdentifier}
 										/>
 									</label>
+								{/if}
+								{#if k === 'gworkspace'}
+									<div>
+										<Toggle
+											options={{
+												right:
+													'Allow workspace admins to setup Google native triggers using these credentials'
+											}}
+											checked={oauths[k]?.share_with_workspaces ?? false}
+											on:change={(e) => {
+												if (oauths && oauths[k]) {
+													oauths[k] = { ...oauths[k], share_with_workspaces: e.detail }
+												}
+											}}
+										/>
+										{#if oauths[k]?.share_with_workspaces}
+											<p class="text-xs text-tertiary mt-1">
+												Workspace admins will be able to connect Google native triggers without
+												configuring their own OAuth client. The credentials are not exposed to them.
+											</p>
+											<p class="text-xs text-tertiary mt-2">
+												Add the following redirect URI to
+												<a
+													href="https://console.cloud.google.com/apis/credentials"
+													target="_blank"
+													class="underline">Google Cloud Console</a
+												>:
+											</p>
+											<div class="mt-1">
+												<ClipboardPanel
+													content="{baseUrl}/workspace_settings?tab=native_triggers&service=google"
+													size="sm"
+												/>
+											</div>
+										{/if}
+									</div>
 								{/if}
 							</div>
 						</div>

@@ -2,6 +2,7 @@
 	import { sendUserToast } from '$lib/utils'
 	import { Button, Alert } from '$lib/components/common'
 	import Label from '$lib/components/Label.svelte'
+	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import { Save, ExternalLink } from 'lucide-svelte'
 
 	interface Props {
@@ -86,16 +87,7 @@
 		clientSecret = ''
 	}
 
-	function copyToClipboard(text: string, label: string) {
-		navigator.clipboard
-			.writeText(text)
-			.then(() => {
-				sendUserToast(`${label} copied to clipboard`)
-			})
-			.catch(() => {
-				sendUserToast(`Failed to copy ${label}`, true)
-			})
-	}
+
 </script>
 
 <div class="space-y-4">
@@ -152,22 +144,7 @@
 				<p class="text-xs font-normal text-secondary"
 					>Use this URL when creating the OAuth app in {serviceDisplayName}</p
 				>
-				<div class="flex gap-2">
-					<input
-						type="url"
-						bind:value={redirectUri}
-						readonly
-						class="windmill-input flex-1 bg-gray-50 dark:bg-gray-900"
-					/>
-					<Button
-						size="xs"
-						color="light"
-						variant="border"
-						onclick={() => copyToClipboard(redirectUri, 'Redirect URI')}
-					>
-						Copy
-					</Button>
-				</div>
+				<ClipboardPanel content={redirectUri} size="sm" />
 			</div>
 
 			<div class="flex flex-col gap-1">

@@ -18,7 +18,7 @@ use crate::{
 };
 
 use super::{
-    endpoints, CreateWatchResponse, Google, GoogleOAuthData, GoogleServiceConfig,
+    endpoints, routes, CreateWatchResponse, Google, GoogleOAuthData, GoogleServiceConfig,
     GoogleTriggerData, GoogleTriggerType, StopChannelRequest, WatchRequest,
 };
 
@@ -34,6 +34,7 @@ impl External for Google {
     const SUPPORT_WEBHOOK: bool = true;
     const TOKEN_ENDPOINT: &'static str = "https://oauth2.googleapis.com/token";
     const REFRESH_ENDPOINT: &'static str = "https://oauth2.googleapis.com/token";
+    const AUTH_ENDPOINT: &'static str = "https://accounts.google.com/o/oauth2/v2/auth";
 
     async fn create(
         &self,
@@ -60,8 +61,18 @@ impl External for Google {
             webhook_token,
         );
 
-        // Build the watch request
-        let watch_request = WatchRequest::new(channel_id.clone(), webhook_url);
+        tracing::info!(
+            "Creating Google {} watch channel '{}' with webhook URL: {}",
+            data.service_config.trigger_type,
+            channel_id,
+            webhook_url
+        );
+
+        // Build the watch request with explicit expiration to avoid short Google defaults
+        let expiration_ms = chrono::Utc::now().timestamp_millis()
+            + (data.service_config.max_expiration_hours() as i64 * 3600 * 1000);
+        let mut watch_request = WatchRequest::new(channel_id.clone(), webhook_url);
+        watch_request.expiration = Some(expiration_ms);
 
         match data.service_config.trigger_type {
             GoogleTriggerType::Drive => {
@@ -84,9 +95,8 @@ impl External for Google {
         data: &NativeTriggerData<Self::ServiceConfig>,
         db: &DB,
         tx: &mut PgConnection,
-    ) -> Result<()> {
-        // Google doesn't support updating watch channels
-        // We need to delete the old one and create a new one
+    ) -> Result<serde_json::Value> {
+        // Google doesn't support updating watch channels — delete old, create new
         let current = self.get(w_id, oauth_data, external_id, db, tx).await;
 
         // Try to stop the old channel (ignore errors if it doesn't exist)
@@ -94,12 +104,17 @@ impl External for Google {
             let _ = self.delete(w_id, oauth_data, external_id, db, tx).await;
         }
 
-        // Create a new channel
-        let _ = self
+        let resp = self
             .create(w_id, oauth_data, webhook_token, data, db, tx)
             .await?;
 
-        Ok(())
+        // Build config from request data + response metadata
+        self.service_config_from_create_response(data, &resp)
+            .ok_or_else(|| {
+                Error::InternalErr(
+                    "Failed to build service_config from create response".to_string(),
+                )
+            })
     }
 
     async fn get(
@@ -145,13 +160,18 @@ impl External for Google {
         Ok(GoogleTriggerData {
             trigger_type: service_config.trigger_type,
             channel_id: external_id.to_string(),
-            google_resource_id: String::new(),
-            expiration: 0,
+            google_resource_id: service_config
+                .google_resource_id
+                .clone()
+                .unwrap_or_default(),
+            expiration: service_config
+                .expiration
+                .as_deref()
+                .and_then(|s| s.parse::<i64>().ok())
+                .unwrap_or(0),
             // Drive fields
             resource_id: service_config.resource_id,
             resource_name: service_config.resource_name,
-            is_folder: service_config.is_folder,
-            include_subfolders: service_config.include_subfolders,
             // Calendar fields
             calendar_id: service_config.calendar_id,
             calendar_name: service_config.calendar_name,
@@ -247,48 +267,16 @@ impl External for Google {
         Ok(exists)
     }
 
-    async fn list_all(
+    async fn maintain_triggers(
         &self,
-        w_id: &str,
+        db: &DB,
+        workspace_id: &str,
+        triggers: &[NativeTrigger],
         _oauth_data: &Self::OAuthData,
-        _db: &DB,
-        tx: &mut PgConnection,
-    ) -> Result<Vec<Self::TriggerData>> {
-        let triggers = sqlx::query!(
-            r#"
-            SELECT external_id, service_config
-            FROM native_trigger
-            WHERE workspace_id = $1 AND service_name = $2
-            "#,
-            w_id,
-            ServiceName::Google as ServiceName
-        )
-        .fetch_all(&mut *tx)
-        .await?;
-
-        let mut result = Vec::new();
-        for trigger in triggers {
-            let config: GoogleServiceConfig = trigger
-                .service_config
-                .map(|v| serde_json::from_value(v))
-                .transpose()?
-                .ok_or_else(|| Error::InternalErr("Missing service config".to_string()))?;
-
-            result.push(GoogleTriggerData {
-                trigger_type: config.trigger_type,
-                channel_id: trigger.external_id,
-                google_resource_id: String::new(),
-                expiration: 0,
-                resource_id: config.resource_id,
-                resource_name: config.resource_name,
-                is_folder: config.is_folder,
-                include_subfolders: config.include_subfolders,
-                calendar_id: config.calendar_id,
-                calendar_name: config.calendar_name,
-            });
-        }
-
-        Ok(result)
+        synced: &mut Vec<TriggerSyncInfo>,
+        errors: &mut Vec<SyncError>,
+    ) {
+        renew_expiring_channels(self, db, workspace_id, triggers, synced, errors).await;
     }
 
     async fn prepare_webhook(
@@ -322,17 +310,6 @@ impl External for Google {
         Ok(PushArgsOwned { extra: None, args })
     }
 
-    async fn pre_sync_hook(
-        &self,
-        db: &DB,
-        workspace_id: &str,
-        triggers: &[NativeTrigger],
-        synced: &mut Vec<TriggerSyncInfo>,
-        errors: &mut Vec<SyncError>,
-    ) {
-        renew_expiring_channels(self, db, workspace_id, triggers, synced, errors).await;
-    }
-
     fn external_id_and_metadata_from_response(
         &self,
         resp: &Self::CreateResponse,
@@ -349,38 +326,14 @@ impl External for Google {
         data: &NativeTriggerData<Self::ServiceConfig>,
         resp: &Self::CreateResponse,
     ) -> Option<serde_json::Value> {
-        let mut config = serde_json::to_value(&data.service_config).ok()?;
-        if let serde_json::Value::Object(ref mut map) = config {
-            map.insert(
-                "googleResourceId".to_string(),
-                serde_json::Value::String(resp.resource_id.clone()),
-            );
-            map.insert(
-                "expiration".to_string(),
-                serde_json::Value::String(resp.expiration.clone()),
-            );
-        }
-        Some(config)
+        let mut config = data.service_config.clone();
+        config.google_resource_id = Some(resp.resource_id.clone());
+        config.expiration = Some(resp.expiration.clone());
+        serde_json::to_value(&config).ok()
     }
 
-    fn get_external_id_from_trigger_data(&self, data: &Self::TriggerData) -> String {
-        data.channel_id.clone()
-    }
-
-    fn extract_service_config_from_trigger_data(
-        &self,
-        data: &Self::TriggerData,
-    ) -> Result<serde_json::Value> {
-        // Include all fields for comparison - trigger_type determines which are relevant
-        Ok(serde_json::json!({
-            "triggerType": data.trigger_type,
-            "resourceId": data.resource_id,
-            "resourceName": data.resource_name,
-            "isFolder": data.is_folder,
-            "includeSubfolders": data.include_subfolders,
-            "calendarId": data.calendar_id,
-            "calendarName": data.calendar_name,
-        }))
+    fn additional_routes(&self) -> axum::Router {
+        routes::google_routes(self.clone())
     }
 }
 
@@ -394,46 +347,54 @@ impl Google {
         db: &DB,
         tx: &mut PgConnection,
     ) -> Result<CreateWatchResponse> {
-        let resource_id = config.resource_id.as_ref().ok_or_else(|| {
-            Error::BadRequest("resource_id is required for Drive triggers".into())
-        })?;
+        match config.resource_id.as_deref().filter(|s| !s.is_empty()) {
+            Some(resource_id) => {
+                // Specific file: use files.watch
+                let url = format!("{}/files/{}/watch", endpoints::DRIVE_API_BASE, resource_id);
 
-        if config.is_folder {
-            // For folders, use the changes.watch endpoint
-            // First get start page token
-            let token_url = format!("{}/changes/startPageToken", endpoints::DRIVE_API_BASE);
-            let token_response: serde_json::Value = self
-                .http_client_request::<_, ()>(&token_url, Method::GET, w_id, tx, db, None, None)
-                .await?;
-
-            let start_page_token = token_response
-                .get("startPageToken")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| Error::InternalErr("Failed to get startPageToken".to_string()))?;
-
-            let watch_body = serde_json::to_value(watch_request)?;
-            let watch_url = format!(
-                "{}/changes/watch?pageToken={}",
-                endpoints::DRIVE_API_BASE,
-                start_page_token
-            );
-
-            self.http_client_request(
-                &watch_url,
-                Method::POST,
-                w_id,
-                tx,
-                db,
-                None,
-                Some(&watch_body),
-            )
-            .await
-        } else {
-            // For specific files, use files.watch
-            let url = format!("{}/files/{}/watch", endpoints::DRIVE_API_BASE, resource_id);
-
-            self.http_client_request(&url, Method::POST, w_id, tx, db, None, Some(watch_request))
+                self.http_client_request(
+                    &url,
+                    Method::POST,
+                    w_id,
+                    tx,
+                    db,
+                    None,
+                    Some(watch_request),
+                )
                 .await
+            }
+            None => {
+                // All changes: use changes.watch
+                let token_url = format!("{}/changes/startPageToken", endpoints::DRIVE_API_BASE);
+                let token_response: serde_json::Value = self
+                    .http_client_request::<_, ()>(&token_url, Method::GET, w_id, tx, db, None, None)
+                    .await?;
+
+                let start_page_token = token_response
+                    .get("startPageToken")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| {
+                        Error::InternalErr("Failed to get startPageToken".to_string())
+                    })?;
+
+                let watch_body = serde_json::to_value(watch_request)?;
+                let watch_url = format!(
+                    "{}/changes/watch?pageToken={}",
+                    endpoints::DRIVE_API_BASE,
+                    start_page_token
+                );
+
+                self.http_client_request(
+                    &watch_url,
+                    Method::POST,
+                    w_id,
+                    tx,
+                    db,
+                    None,
+                    Some(&watch_body),
+                )
+                .await
+            }
         }
     }
 
@@ -492,7 +453,17 @@ impl Google {
             &webhook_token,
         );
 
-        let watch_request = WatchRequest::new(channel_id.clone(), webhook_url);
+        tracing::info!(
+            "Renewing Google {} watch channel '{}' with webhook URL: {}",
+            config.trigger_type,
+            channel_id,
+            webhook_url
+        );
+
+        let expiration_ms = chrono::Utc::now().timestamp_millis()
+            + (config.max_expiration_hours() as i64 * 3600 * 1000);
+        let mut watch_request = WatchRequest::new(channel_id.clone(), webhook_url);
+        watch_request.expiration = Some(expiration_ms);
 
         // Best-effort stop old channel before creating a new one
         let old_google_resource_id = trigger
@@ -552,19 +523,12 @@ impl Google {
         tx.commit().await?;
 
         // Build the updated service_config with new expiration
-        let mut new_config = serde_json::to_value(&config)?;
-        if let serde_json::Value::Object(ref mut map) = new_config {
-            map.insert(
-                "googleResourceId".to_string(),
-                serde_json::Value::String(resp.resource_id),
-            );
-            map.insert(
-                "expiration".to_string(),
-                serde_json::Value::String(resp.expiration),
-            );
-        }
+        let mut new_config = config;
+        new_config.google_resource_id = Some(resp.resource_id);
+        new_config.expiration = Some(resp.expiration);
 
-        Ok(new_config)
+        serde_json::to_value(&new_config)
+            .map_err(|e| Error::internal_err(format!("Failed to serialize config: {}", e)))
     }
 }
 

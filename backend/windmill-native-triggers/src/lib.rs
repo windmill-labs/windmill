@@ -215,6 +215,7 @@ pub struct WorkspaceIntegration {
     pub workspace_id: String,
     pub service_name: ServiceName,
     pub oauth_data: serde_json::Value,
+    pub resource_path: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub created_by: String,
@@ -232,6 +233,7 @@ pub trait External: Send + Sync + 'static {
     const DISPLAY_NAME: &'static str;
     const TOKEN_ENDPOINT: &'static str;
     const REFRESH_ENDPOINT: &'static str;
+    const AUTH_ENDPOINT: &'static str;
 
     async fn create(
         &self,
@@ -243,6 +245,10 @@ pub trait External: Send + Sync + 'static {
         tx: &mut PgConnection,
     ) -> Result<Self::CreateResponse>;
 
+    /// Update a trigger on the external service and return the resolved service_config to store.
+    /// Each service is responsible for resolving the final config:
+    /// - Services that re-create the resource (e.g. Google) build config from request data + response metadata.
+    /// - Services that modify in-place (e.g. Nextcloud) fetch back the updated state and extract config.
     async fn update(
         &self,
         w_id: &str,
@@ -252,7 +258,7 @@ pub trait External: Send + Sync + 'static {
         data: &NativeTriggerData<Self::ServiceConfig>,
         db: &DB,
         tx: &mut PgConnection,
-    ) -> Result<()>;
+    ) -> Result<serde_json::Value>;
 
     async fn get(
         &self,
@@ -282,25 +288,19 @@ pub trait External: Send + Sync + 'static {
         tx: &mut PgConnection,
     ) -> Result<bool>;
 
-    async fn list_all(
+    /// Periodic background maintenance for triggers in a workspace.
+    /// Each service implements its own logic:
+    /// - Nextcloud: lists external triggers and reconciles with DB state
+    /// - Google: renews expiring watch channels
+    async fn maintain_triggers(
         &self,
-        w_id: &str,
-        oauth_data: &Self::OAuthData,
         db: &DB,
-        tx: &mut PgConnection,
-    ) -> Result<Vec<Self::TriggerData>>;
-
-    /// Hook called before the generic sync logic runs.
-    /// Override to perform service-specific pre-sync work (e.g. renewing expiring channels).
-    async fn pre_sync_hook(
-        &self,
-        _db: &DB,
-        _workspace_id: &str,
-        _triggers: &[NativeTrigger],
-        _synced: &mut Vec<crate::sync::TriggerSyncInfo>,
-        _errors: &mut Vec<crate::sync::SyncError>,
-    ) {
-    }
+        workspace_id: &str,
+        triggers: &[NativeTrigger],
+        oauth_data: &Self::OAuthData,
+        synced: &mut Vec<crate::sync::TriggerSyncInfo>,
+        errors: &mut Vec<crate::sync::SyncError>,
+    );
 
     async fn prepare_webhook(
         &self,
@@ -331,21 +331,6 @@ pub trait External: Send + Sync + 'static {
         _resp: &Self::CreateResponse,
     ) -> Option<serde_json::Value> {
         None
-    }
-
-    fn get_external_id_from_trigger_data(&self, data: &Self::TriggerData) -> String;
-
-    /// Extracts the service-specific config from trigger data (from external service).
-    /// Used for comparison during sync to detect config drift.
-    /// Default implementation converts the trigger data to a JSON value
-    /// If you need to exclude some fields, skip serializing attributes on the TriggerData struct or override this method.
-    fn extract_service_config_from_trigger_data(
-        &self,
-        data: &Self::TriggerData,
-    ) -> Result<serde_json::Value> {
-        serde_json::to_value(data).map_err(|e| {
-            Error::internal_err(format!("Failed to convert trigger data to JSON: {}", e))
-        })
     }
 
     fn additional_routes(&self) -> axum::Router {
@@ -385,8 +370,12 @@ pub trait External: Send + Sync + 'static {
                     err.status().unwrap()
                 );
 
-                let refreshed_oauth_config =
-                    refresh_oauth_tokens(&oauth_config, Self::REFRESH_ENDPOINT).await?;
+                let refreshed_oauth_config = refresh_oauth_tokens(
+                    &oauth_config,
+                    Self::REFRESH_ENDPOINT,
+                    Self::AUTH_ENDPOINT,
+                )
+                .await?;
 
                 task::spawn({
                     let db_clone = db.clone();
@@ -437,7 +426,7 @@ pub async fn make_http_request<T: DeserializeOwned + Send, B: Serialize>(
     headers: Option<HashMap<String, String>>,
     body: Option<&B>,
     access_token: &str,
-) -> std::result::Result<T, reqwest::Error> {
+) -> std::result::Result<T, HttpRequestError> {
     let client = Client::new();
     let mut request = client.request(method, url);
 
@@ -461,9 +450,65 @@ pub async fn make_http_request<T: DeserializeOwned + Send, B: Serialize>(
 
     let response = request.send().await?.error_for_status()?;
 
-    let response_json = response.json().await?;
+    // Handle empty responses (e.g. 204 No Content from Google channels/stop)
+    let bytes = response.bytes().await?;
+    if bytes.is_empty() {
+        serde_json::from_str("null").map_err(HttpRequestError::Json)
+    } else {
+        serde_json::from_slice(&bytes).map_err(HttpRequestError::Json)
+    }
+}
 
-    Ok(response_json)
+#[derive(Debug)]
+pub enum HttpRequestError {
+    Reqwest(reqwest::Error),
+    Json(serde_json::Error),
+}
+
+impl std::fmt::Display for HttpRequestError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HttpRequestError::Reqwest(e) => write!(f, "{}", e),
+            HttpRequestError::Json(e) => write!(f, "JSON decode error: {}", e),
+        }
+    }
+}
+
+impl std::error::Error for HttpRequestError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            HttpRequestError::Reqwest(e) => Some(e),
+            HttpRequestError::Json(e) => Some(e),
+        }
+    }
+}
+
+impl From<reqwest::Error> for HttpRequestError {
+    fn from(e: reqwest::Error) -> Self {
+        HttpRequestError::Reqwest(e)
+    }
+}
+
+impl HttpRequestError {
+    pub fn status(&self) -> Option<StatusCode> {
+        match self {
+            HttpRequestError::Reqwest(e) => e.status(),
+            HttpRequestError::Json(_) => None,
+        }
+    }
+}
+
+/// Read OAuth client_id and client_secret from instance-level global settings.
+/// Used when a workspace integration has `instance_shared: true`.
+async fn get_instance_oauth_credentials(
+    db: &DB,
+    service_name: ServiceName,
+) -> Result<(String, String)> {
+    windmill_common::global_settings::get_instance_oauth_credentials(
+        db,
+        service_name.resource_type(),
+    )
+    .await
 }
 
 pub async fn decrypt_oauth_data<
@@ -479,7 +524,7 @@ pub async fn decrypt_oauth_data<
     let integration = get_workspace_integration(tx, workspace_id, service_name).await?;
     let oauth_data = integration.oauth_data;
 
-    let resource_path = oauth_data["resource_path"].as_str().ok_or_else(|| {
+    let resource_path = integration.resource_path.as_deref().ok_or_else(|| {
         Error::InternalErr(format!(
             "No resource_path in {} integration config. Please reconnect the integration.",
             service_name
@@ -517,12 +562,37 @@ pub async fn decrypt_oauth_data<
         None
     };
 
+    let (client_id, client_secret) = if oauth_data
+        .get("instance_shared")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        // Read credentials from instance-level global settings instead of workspace_integrations
+        let (id, secret) = get_instance_oauth_credentials(db, service_name)
+            .await
+            .map_err(|e| {
+                Error::InternalErr(format!(
+                    "Failed to read instance OAuth credentials for {}: {}",
+                    service_name, e
+                ))
+            })?;
+        (id, secret)
+    } else {
+        (
+            oauth_data["client_id"].as_str().unwrap_or("").to_string(),
+            oauth_data["client_secret"]
+                .as_str()
+                .unwrap_or("")
+                .to_string(),
+        )
+    };
+
     let assembled = json!({
         "base_url": oauth_data["base_url"].as_str().unwrap_or(""),
         "access_token": access_token,
         "refresh_token": refresh_token,
-        "client_id": oauth_data["client_id"].as_str().unwrap_or(""),
-        "client_secret": oauth_data["client_secret"].as_str().unwrap_or(""),
+        "client_id": client_id,
+        "client_secret": client_secret,
     });
 
     serde_json::from_value(assembled)
@@ -542,6 +612,7 @@ struct RefreshTokenResponse {
 pub async fn refresh_oauth_tokens(
     oauth_config: &OAuthConfig,
     refresh_endpoint: &str,
+    auth_endpoint: &str,
 ) -> Result<OAuthConfig> {
     let refresh_token_str = oauth_config
         .refresh_token
@@ -550,11 +621,8 @@ pub async fn refresh_oauth_tokens(
 
     // Build OAuth client for token refresh
     // Auth URL is not used for refresh, but required by the client constructor
-    let auth_url = Url::parse(&resolve_endpoint(
-        &oauth_config.base_url,
-        "/oauth/authorize",
-    ))
-    .map_err(|e| Error::InternalErr(format!("Invalid auth URL: {}", e)))?;
+    let auth_url = Url::parse(&resolve_endpoint(&oauth_config.base_url, auth_endpoint))
+        .map_err(|e| Error::InternalErr(format!("Invalid auth URL: {}", e)))?;
     let token_url = Url::parse(&resolve_endpoint(&oauth_config.base_url, refresh_endpoint))
         .map_err(|e| Error::InternalErr(format!("Invalid token URL: {}", e)))?;
 
@@ -584,6 +652,7 @@ pub async fn refresh_oauth_tokens(
 pub async fn refresh_oauth_tokens(
     _oauth_config: &OAuthConfig,
     _refresh_endpoint: &str,
+    _auth_endpoint: &str,
 ) -> Result<OAuthConfig> {
     Err(Error::InternalErr(
         "Native triggers feature is not enabled".to_string(),
@@ -599,15 +668,12 @@ async fn update_oauth_token_resource(
 ) {
     let result = async {
         let integration = get_workspace_integration(db, workspace_id, service_name).await?;
-        let resource_path = integration.oauth_data["resource_path"]
-            .as_str()
-            .ok_or_else(|| {
-                Error::InternalErr(format!(
-                    "No resource_path in {} integration config",
-                    service_name
-                ))
-            })?
-            .to_string();
+        let resource_path = integration.resource_path.ok_or_else(|| {
+            Error::InternalErr(format!(
+                "No resource_path in {} integration config",
+                service_name
+            ))
+        })?;
 
         let mc = build_crypt(db, workspace_id).await?;
         let encrypted_token = encrypt(&mc, new_access_token);
@@ -988,6 +1054,7 @@ pub async fn store_workspace_integration(
     workspace_id: &str,
     service_name: ServiceName,
     oauth_data: serde_json::Value,
+    resource_path: Option<&str>,
 ) -> Result<()> {
     sqlx::query!(
         r#"
@@ -995,20 +1062,23 @@ pub async fn store_workspace_integration(
             workspace_id,
             service_name,
             oauth_data,
+            resource_path,
             created_by,
             created_at,
             updated_at
         ) VALUES (
-            $1, $2, $3, $4, now(), now()
+            $1, $2, $3, $4, $5, now(), now()
         )
         ON CONFLICT (workspace_id, service_name)
         DO UPDATE SET
             oauth_data = $3,
+            resource_path = $4,
             updated_at = now()
         "#,
         workspace_id,
         service_name as ServiceName,
         oauth_data,
+        resource_path,
         authed.username,
     )
     .execute(&mut *tx)
@@ -1029,6 +1099,7 @@ pub async fn get_workspace_integration<'c, E: sqlx::Executor<'c, Database = Post
             workspace_id,
             service_name AS "service_name!: ServiceName",
             oauth_data,
+            resource_path,
             created_at,
             updated_at,
             created_by

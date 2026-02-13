@@ -9,7 +9,7 @@ use crate::ServiceName;
 #[cfg(feature = "native_trigger")]
 use crate::{
     decrypt_oauth_data, list_native_triggers, update_native_trigger_error,
-    update_native_trigger_service_config, External,
+    update_native_trigger_service_config, External, NativeTrigger,
 };
 
 #[derive(Debug, Serialize)]
@@ -214,8 +214,8 @@ pub async fn sync_workspace_triggers<T: External>(
         return Ok((Vec::new(), Vec::new()));
     }
 
-    let mut all_synced_triggers = Vec::new();
-    let mut all_sync_errors = Vec::new();
+    let mut synced = Vec::new();
+    let mut errors = Vec::new();
 
     // Use the integration service for OAuth lookup (e.g., GoogleDrive/GoogleCalendar -> Google)
     let integration_service = T::SERVICE_NAME.integration_service();
@@ -229,56 +229,58 @@ pub async fn sync_workspace_triggers<T: External>(
                     workspace_id,
                     e
                 );
-                all_sync_errors.push(SyncError {
+                errors.push(SyncError {
                     resource_path: format!("workspace:{}", workspace_id),
                     error_message: format!("Failed to get workspace integration OAuth data: {}", e),
                     error_type: "oauth_error".to_string(),
                 });
-                return Ok((Vec::new(), all_sync_errors));
+                return Ok((Vec::new(), errors));
             }
         }
     };
 
     handler
-        .pre_sync_hook(
+        .maintain_triggers(
             db,
             workspace_id,
             &windmill_triggers,
-            &mut all_synced_triggers,
-            &mut all_sync_errors,
+            &oauth_data,
+            &mut synced,
+            &mut errors,
         )
         .await;
 
-    let mut tx = db.begin().await?;
-    let external_triggers = match handler
-        .list_all(workspace_id, &oauth_data, db, &mut tx)
-        .await
-    {
-        Ok(triggers) => triggers,
-        Err(e) => {
-            tracing::error!(
-                "Failed to fetch external triggers for {}: {}",
-                workspace_id,
-                e
-            );
-            all_sync_errors.push(SyncError {
-                resource_path: format!("workspace:{}", workspace_id),
-                error_message: format!("Failed to fetch external triggers: {}", e),
-                error_type: "external_service_error".to_string(),
-            });
-            return Ok((Vec::new(), all_sync_errors));
-        }
-    };
-    tx.commit().await?;
+    tracing::info!(
+        "Sync completed for {} in workspace '{}'. Updated: {}, Errors: {}",
+        T::SERVICE_NAME.as_str(),
+        workspace_id,
+        synced.len(),
+        errors.len()
+    );
 
-    // Build a map of external trigger IDs to their data
-    let mut external_trigger_map: HashMap<String, &T::TriggerData> = HashMap::new();
-    for external_trigger in &external_triggers {
-        let external_id = handler.get_external_id_from_trigger_data(external_trigger);
-        external_trigger_map.insert(external_id, external_trigger);
+    Ok((synced, errors))
+}
+
+/// Reusable reconciliation logic for services with real external state (e.g. Nextcloud).
+/// Compares external triggers with DB triggers: sets errors for missing ones,
+/// clears errors and updates config for existing ones.
+#[cfg(feature = "native_trigger")]
+pub async fn reconcile_with_external_state(
+    db: &DB,
+    workspace_id: &str,
+    service_name: ServiceName,
+    windmill_triggers: &[NativeTrigger],
+    external_triggers: &[(String, serde_json::Value)],
+    synced: &mut Vec<TriggerSyncInfo>,
+    errors: &mut Vec<SyncError>,
+) {
+    // Build a map of external trigger IDs to their config
+    let mut external_trigger_map: HashMap<String, &serde_json::Value> = HashMap::new();
+    for (external_id, config) in external_triggers {
+        external_trigger_map.insert(external_id.clone(), config);
     }
 
-    for trigger in &windmill_triggers {
+    for trigger in windmill_triggers {
         if !external_trigger_map.contains_key(&trigger.external_id) {
             // Trigger no longer exists on external service - set error
             let error_msg = "Trigger no longer exists on external service".to_string();
@@ -293,14 +295,14 @@ pub async fn sync_workspace_triggers<T: External>(
                 match update_native_trigger_error(
                     db,
                     workspace_id,
-                    T::SERVICE_NAME,
+                    service_name,
                     &trigger.external_id,
                     Some(&error_msg),
                 )
                 .await
                 {
                     Ok(()) => {
-                        all_synced_triggers.push(TriggerSyncInfo {
+                        synced.push(TriggerSyncInfo {
                             external_id: trigger.external_id.clone(),
                             script_path: trigger.script_path.clone(),
                             action: SyncAction::ErrorSet(error_msg),
@@ -312,7 +314,7 @@ pub async fn sync_workspace_triggers<T: External>(
                             trigger.external_id,
                             e
                         );
-                        all_sync_errors.push(SyncError {
+                        errors.push(SyncError {
                             resource_path: format!("workspace:{}", workspace_id),
                             error_message: format!(
                                 "Failed to update error for trigger (external_id: '{}'): {}",
@@ -325,7 +327,7 @@ pub async fn sync_workspace_triggers<T: External>(
             }
         } else {
             // Trigger exists on external service
-            let external_trigger_data = external_trigger_map.get(&trigger.external_id).unwrap();
+            let external_service_config = external_trigger_map.get(&trigger.external_id).unwrap();
 
             // Clear error if it was set
             if trigger.error.is_some() {
@@ -338,14 +340,14 @@ pub async fn sync_workspace_triggers<T: External>(
                 match update_native_trigger_error(
                     db,
                     workspace_id,
-                    T::SERVICE_NAME,
+                    service_name,
                     &trigger.external_id,
                     None,
                 )
                 .await
                 {
                     Ok(()) => {
-                        all_synced_triggers.push(TriggerSyncInfo {
+                        synced.push(TriggerSyncInfo {
                             external_id: trigger.external_id.clone(),
                             script_path: trigger.script_path.clone(),
                             action: SyncAction::ErrorCleared,
@@ -357,7 +359,7 @@ pub async fn sync_workspace_triggers<T: External>(
                             trigger.external_id,
                             e
                         );
-                        all_sync_errors.push(SyncError {
+                        errors.push(SyncError {
                             resource_path: format!("workspace:{}", workspace_id),
                             error_message: format!(
                                 "Failed to clear error for trigger (external_id: '{}'): {}",
@@ -370,14 +372,12 @@ pub async fn sync_workspace_triggers<T: External>(
             }
 
             // Compare service_config and update if different
-            let external_service_config =
-                handler.extract_service_config_from_trigger_data(external_trigger_data)?;
             let stored_service_config = trigger
                 .service_config
                 .clone()
                 .unwrap_or(serde_json::Value::Null);
 
-            if external_service_config != stored_service_config {
+            if **external_service_config != stored_service_config {
                 tracing::info!(
                     "Trigger (external_id: '{}', script_path: '{}') config differs from external service, updating local config",
                     trigger.external_id,
@@ -387,14 +387,14 @@ pub async fn sync_workspace_triggers<T: External>(
                 match update_native_trigger_service_config(
                     db,
                     workspace_id,
-                    T::SERVICE_NAME,
+                    service_name,
                     &trigger.external_id,
-                    &external_service_config,
+                    external_service_config,
                 )
                 .await
                 {
                     Ok(()) => {
-                        all_synced_triggers.push(TriggerSyncInfo {
+                        synced.push(TriggerSyncInfo {
                             external_id: trigger.external_id.clone(),
                             script_path: trigger.script_path.clone(),
                             action: SyncAction::ConfigUpdated,
@@ -406,7 +406,7 @@ pub async fn sync_workspace_triggers<T: External>(
                             trigger.external_id,
                             e
                         );
-                        all_sync_errors.push(SyncError {
+                        errors.push(SyncError {
                             resource_path: format!("workspace:{}", workspace_id),
                             error_message: format!(
                                 "Failed to update config for trigger (external_id: '{}'): {}",
@@ -425,14 +425,4 @@ pub async fn sync_workspace_triggers<T: External>(
             }
         }
     }
-
-    tracing::info!(
-        "Sync completed for {} in workspace '{}'. Updated: {}, Errors: {}",
-        T::SERVICE_NAME.as_str(),
-        workspace_id,
-        all_synced_triggers.len(),
-        all_sync_errors.len()
-    );
-
-    Ok((all_synced_triggers, all_sync_errors))
 }

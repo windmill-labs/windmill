@@ -22,6 +22,7 @@ The native trigger system consists of:
 | JobTriggerKind enum | `backend/windmill-common/src/jobs.rs` |
 | Frontend service registry | `frontend/src/lib/components/triggers/native/utils.ts` |
 | Frontend trigger utilities | `frontend/src/lib/components/triggers/utils.ts` |
+| Trigger badges (icons + counts) | `frontend/src/lib/components/graph/renderers/triggers/TriggersBadge.svelte` |
 | Workspace integrations UI | `frontend/src/lib/components/workspaceSettings/WorkspaceIntegrations.svelte` |
 | OAuth config form component | `frontend/src/lib/components/workspaceSettings/OAuthClientConfig.svelte` |
 | OpenAPI spec | `backend/windmill-api/openapi.yaml` |
@@ -949,7 +950,34 @@ export const triggerSaveFunctions: Record<string, Function> = {
 }
 ```
 
-### Step 13: Update OpenAPI Spec and Regenerate Types
+### Step 13: Update TriggersBadge Component
+
+The `TriggersBadge.svelte` component (`frontend/src/lib/components/graph/renderers/triggers/TriggersBadge.svelte`) displays trigger icons with count badges in the script/flow editor. You must update three things:
+
+1. **Import the icon** at the top of the file:
+```typescript
+import NewServiceIcon from '$lib/components/icons/NewServiceIcon.svelte'
+```
+
+2. **Add to `baseConfig`** inside `triggerTypeConfig` (this maps the trigger type to its icon and count key for the badge):
+```typescript
+const baseConfig = {
+    // ... existing entries ...
+    newservice: { icon: NewServiceIcon, countKey: 'newservice_count' }
+}
+```
+
+3. **Add to the `allTypes` array** (this determines which trigger types can be displayed when no triggers are loaded yet):
+```typescript
+let allTypes = $derived([
+    // ... existing entries ...
+    'newservice'
+])
+```
+
+> **Important:** The dynamic `availableNativeServices` loop (lines 76-79) adds services without a `countKey`, so it will NOT display count badges. You must add an explicit entry in `baseConfig` with the `countKey` for the count badge to appear.
+
+### Step 14: Update OpenAPI Spec and Regenerate Types
 
 In `backend/windmill-api/openapi.yaml`, add your service to the `JobTriggerKind` enum:
 

@@ -1,8 +1,7 @@
 use crate::{
-    delete_native_trigger, delete_token_by_prefix, get_native_trigger, get_token_by_prefix,
-    get_workspace_integration, list_native_triggers, store_native_trigger,
-    update_native_trigger_error, External, NativeTrigger, NativeTriggerConfig, NativeTriggerData,
-    ServiceName,
+    decrypt_oauth_data, delete_native_trigger, delete_token_by_prefix, get_native_trigger,
+    get_token_by_prefix, list_native_triggers, store_native_trigger, update_native_trigger_error,
+    External, NativeTrigger, NativeTriggerConfig, NativeTriggerData, ServiceName,
 };
 use axum::{
     extract::{Path, Query},
@@ -132,18 +131,9 @@ async fn create_native_trigger<T: External>(
     )
     .await?;
 
-    // Use the integration service for OAuth lookup
     let integration_service = service_name.integration_service();
-    let integration =
-        get_workspace_integration(&mut *tx, &workspace_id, integration_service).await?;
-
-    let oauth_data: T::OAuthData = serde_json::from_value(integration.oauth_data).map_err(|e| {
-        Error::InternalErr(format!(
-            "Failed to parse {} OAuth data: {}",
-            T::DISPLAY_NAME,
-            e
-        ))
-    })?;
+    let oauth_data: T::OAuthData =
+        decrypt_oauth_data(&mut *tx, &db, &workspace_id, integration_service).await?;
 
     let resp = handler
         .create(
@@ -175,12 +165,7 @@ async fn create_native_trigger<T: External>(
                     &db,
                     &mut tx,
                 )
-                .await?;
-
-            let trigger_data = handler
-                .get(&workspace_id, &oauth_data, &external_id, &db, &mut tx)
-                .await?;
-            handler.extract_service_config_from_trigger_data(&trigger_data)?
+                .await?
         };
 
     let config = NativeTriggerConfig {
@@ -264,20 +249,11 @@ async fn update_native_trigger_handler<T: External>(
         }
     };
 
-    // Use the integration service for OAuth lookup
     let integration_service = service_name.integration_service();
-    let integration =
-        get_workspace_integration(&mut *tx, &workspace_id, integration_service).await?;
+    let oauth_data: T::OAuthData =
+        decrypt_oauth_data(&mut *tx, &db, &workspace_id, integration_service).await?;
 
-    let oauth_data: T::OAuthData = serde_json::from_value(integration.oauth_data).map_err(|e| {
-        Error::InternalErr(format!(
-            "Failed to parse {} OAuth data: {}",
-            T::DISPLAY_NAME,
-            e
-        ))
-    })?;
-
-    handler
+    let service_config = handler
         .update(
             &workspace_id,
             &oauth_data,
@@ -288,12 +264,6 @@ async fn update_native_trigger_handler<T: External>(
             &mut tx,
         )
         .await?;
-
-    // Fetch the updated trigger data from the external service and extract service_config
-    let trigger_data = handler
-        .get(&workspace_id, &oauth_data, &external_id, &db, &mut tx)
-        .await?;
-    let service_config = handler.extract_service_config_from_trigger_data(&trigger_data)?;
 
     let config = NativeTriggerConfig {
         script_path: data.script_path.clone(),
@@ -353,18 +323,9 @@ async fn get_native_trigger_handler<T: External>(
     )
     .await?;
 
-    // Use the integration service for OAuth lookup
     let integration_service = service_name.integration_service();
-    let integration =
-        get_workspace_integration(&mut *tx, &workspace_id, integration_service).await?;
-
-    let oauth_data: T::OAuthData = serde_json::from_value(integration.oauth_data).map_err(|e| {
-        Error::InternalErr(format!(
-            "Failed to parse {} OAuth data: {}",
-            T::DISPLAY_NAME,
-            e
-        ))
-    })?;
+    let oauth_data: T::OAuthData =
+        decrypt_oauth_data(&mut *tx, &db, &workspace_id, integration_service).await?;
 
     let native_trigger = handler
         .get(&workspace_id, &oauth_data, &external_id, &db, &mut tx)
@@ -445,18 +406,9 @@ async fn delete_native_trigger_handler<T: External>(
     )
     .await?;
 
-    // Use the integration service for OAuth lookup
     let integration_service = service_name.integration_service();
-    let integration =
-        get_workspace_integration(&mut *tx, &workspace_id, integration_service).await?;
-
-    let oauth_data: T::OAuthData = serde_json::from_value(integration.oauth_data).map_err(|e| {
-        Error::InternalErr(format!(
-            "Failed to parse {} OAuth data: {}",
-            T::DISPLAY_NAME,
-            e
-        ))
-    })?;
+    let oauth_data: T::OAuthData =
+        decrypt_oauth_data(&mut *tx, &db, &workspace_id, integration_service).await?;
 
     handler
         .delete(&workspace_id, &oauth_data, &external_id, &db, &mut tx)

@@ -23,6 +23,7 @@ use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
+    global_settings::{load_value_from_global_settings, OAUTH_SETTING},
     utils::require_admin,
     variables::{build_crypt, encrypt},
     DB,
@@ -33,7 +34,8 @@ use windmill_api_auth::ApiAuthed;
 
 #[cfg(feature = "native_trigger")]
 use crate::{
-    delete_workspace_integration, resolve_endpoint, store_workspace_integration, ServiceName,
+    decrypt_oauth_data, delete_token_by_prefix, delete_workspace_integration, resolve_endpoint,
+    store_workspace_integration, ServiceName,
 };
 
 #[cfg(feature = "native_trigger")]
@@ -174,11 +176,14 @@ pub struct ConnectIntegrationResponse {
 #[cfg(feature = "native_trigger")]
 #[derive(FromRow, Debug, Clone, Serialize, Deserialize)]
 pub struct WorkspaceOAuthConfig {
+    #[serde(default)]
     pub client_id: String,
+    #[serde(default)]
     pub client_secret: String,
+    #[serde(default)]
     pub base_url: String,
     #[serde(default)]
-    pub resource_path: Option<String>,
+    pub instance_shared: bool,
 }
 
 #[cfg(feature = "native_trigger")]
@@ -208,12 +213,87 @@ async fn generate_connect_url(
 }
 
 #[cfg(feature = "native_trigger")]
+#[derive(Debug, Deserialize)]
+struct BasicOAuthData {
+    base_url: String,
+    access_token: String,
+}
+
+#[cfg(feature = "native_trigger")]
+async fn try_delete_nextcloud_webhook(base_url: &str, access_token: &str, external_id: &str) {
+    let url = format!(
+        "{}/ocs/v2.php/apps/webhook_listeners/api/v1/webhooks/{}",
+        base_url, external_id
+    );
+    let client = reqwest::Client::new();
+    let _ = client
+        .delete(&url)
+        .bearer_auth(access_token)
+        .header("OCS-APIRequest", "true")
+        .send()
+        .await;
+}
+
+/// Delete all native triggers for a workspace+service, including remote webhook cleanup.
+/// This is best-effort: errors during remote cleanup or token deletion are logged but ignored.
+#[cfg(feature = "native_trigger")]
+async fn delete_triggers_for_service(db: &DB, workspace_id: &str, service_name: ServiceName) {
+    let triggers = sqlx::query!(
+        "SELECT external_id, webhook_token_prefix FROM native_trigger WHERE workspace_id = $1 AND service_name = $2",
+        workspace_id,
+        service_name as ServiceName
+    )
+    .fetch_all(db)
+    .await
+    .unwrap_or_default();
+
+    if triggers.is_empty() {
+        return;
+    }
+
+    // For Nextcloud: try to delete webhooks on the remote instance (best-effort)
+    if service_name == ServiceName::Nextcloud {
+        if let Ok(oauth_data) =
+            decrypt_oauth_data::<_, BasicOAuthData>(db, db, workspace_id, service_name).await
+        {
+            for trigger in &triggers {
+                try_delete_nextcloud_webhook(
+                    &oauth_data.base_url,
+                    &oauth_data.access_token,
+                    &trigger.external_id,
+                )
+                .await;
+            }
+        }
+    }
+    // For Google: skip remote cleanup (watch channels expire naturally)
+
+    // Bulk delete all triggers
+    let _ = sqlx::query!(
+        "DELETE FROM native_trigger WHERE workspace_id = $1 AND service_name = $2",
+        workspace_id,
+        service_name as ServiceName
+    )
+    .execute(db)
+    .await;
+
+    // Delete all associated webhook tokens
+    for trigger in &triggers {
+        let _ = delete_token_by_prefix(db, &trigger.webhook_token_prefix).await;
+    }
+}
+
+#[cfg(feature = "native_trigger")]
 async fn delete_integration(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((workspace_id, service_name)): Path<(String, ServiceName)>,
 ) -> JsonResult<String> {
     require_admin(authed.is_admin, &workspace_id)?;
+
+    // Delete triggers first (needs OAuth data that cleanup_oauth_resource will remove)
+    delete_triggers_for_service(&db, &workspace_id, service_name).await;
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -253,6 +333,7 @@ async fn delete_integration(
 struct WorkspaceIntegrations {
     service_name: ServiceName,
     oauth_data: Option<sqlx::types::Json<WorkspaceOAuthConfig>>,
+    resource_path: Option<String>,
 }
 
 #[cfg(feature = "native_trigger")]
@@ -269,7 +350,8 @@ async fn list_integrations(
         r#"
         SELECT
             oauth_data as "oauth_data: sqlx::types::Json<WorkspaceOAuthConfig>",
-            service_name as "service_name!: ServiceName"
+            service_name as "service_name!: ServiceName",
+            resource_path
         FROM
             workspace_integrations
         WHERE
@@ -282,14 +364,23 @@ async fn list_integrations(
 
     let key_value = integrations
         .into_iter()
-        .map(|integration| (integration.service_name, integration.oauth_data))
+        .map(|integration| {
+            (
+                integration.service_name,
+                (integration.oauth_data, integration.resource_path),
+            )
+        })
         .collect::<std::collections::HashMap<_, _>>();
 
     use strum::IntoEnumIterator;
     let integrations = ServiceName::iter()
-        .map(|service_name| WorkspaceIntegrations {
-            service_name,
-            oauth_data: key_value.get(&service_name).cloned().flatten(),
+        .map(|service_name| {
+            let (oauth_data, resource_path) = key_value
+                .get(&service_name)
+                .cloned()
+                .map(|(od, rp)| (od, rp))
+                .unwrap_or((None, None));
+            WorkspaceIntegrations { service_name, oauth_data, resource_path }
         })
         .collect::<Vec<_>>();
 
@@ -331,11 +422,13 @@ struct RedirectUri {
     redirect_uri: String,
 }
 
+#[cfg(feature = "native_trigger")]
 #[derive(Debug, Deserialize)]
 struct OAuthCallbackBody {
     redirect_uri: String,
     code: String,
     state: String,
+    resource_path: Option<String>,
 }
 
 #[cfg(feature = "native_trigger")]
@@ -356,19 +449,43 @@ async fn oauth_callback(
         ));
     }
 
-    let oauth_config =
-        get_workspace_oauth_config::<WorkspaceOAuthConfig>(&db, &workspace_id, service_name)
-            .await?;
+    // Check if this integration uses instance-shared credentials
+    let existing_oauth_data = sqlx::query_scalar!(
+        r#"SELECT oauth_data FROM workspace_integrations
+           WHERE workspace_id = $1 AND service_name = $2"#,
+        workspace_id,
+        service_name as ServiceName
+    )
+    .fetch_optional(&db)
+    .await?
+    .flatten();
+
+    let is_instance_shared = existing_oauth_data
+        .as_ref()
+        .and_then(|v| v.get("instance_shared"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let oauth_config = if is_instance_shared {
+        get_instance_oauth_config(&db, service_name).await?
+    } else {
+        get_workspace_oauth_config::<WorkspaceOAuthConfig>(&db, &workspace_id, service_name).await?
+    };
 
     let token_response =
         exchange_code_for_token(&oauth_config, service_name, &body.code, &body.redirect_uri)
             .await?;
 
-    let resource_path = format!(
-        "u/{}/native_{}",
-        authed.username,
-        service_name.resource_type()
-    );
+    let resource_path = body
+        .resource_path
+        .filter(|p| !p.is_empty())
+        .unwrap_or_else(|| {
+            format!(
+                "u/{}/native_{}",
+                authed.username,
+                service_name.resource_type()
+            )
+        });
 
     let expires_in = token_response.expires_in.unwrap_or(3600);
 
@@ -429,10 +546,25 @@ async fn oauth_callback(
     .await
     .map_err(|e| Error::InternalErr(format!("Failed to create resource: {}", e)))?;
 
-    // 4. Store client config + resource_path in workspace_integrations (no tokens)
-    let mut oauth_data = to_value(&oauth_config).unwrap();
-    oauth_data["resource_path"] = serde_json::Value::String(resource_path.clone());
-    store_workspace_integration(&mut *tx, &authed, &workspace_id, service_name, oauth_data).await?;
+    // 4. Store config + resource_path in workspace_integrations (no tokens).
+    //    For instance-shared integrations, store the flag instead of credentials.
+    let stored_data = if is_instance_shared {
+        json!({
+            "instance_shared": true,
+            "base_url": "",
+        })
+    } else {
+        to_value(&oauth_config).unwrap()
+    };
+    store_workspace_integration(
+        &mut *tx,
+        &authed,
+        &workspace_id,
+        service_name,
+        stored_data,
+        Some(&resource_path),
+    )
+    .await?;
 
     audit_log(
         &mut *tx,
@@ -562,6 +694,7 @@ pub async fn create_workspace_integration(
         &workspace_id,
         service_name,
         to_value(oauth_data).unwrap(),
+        None,
     )
     .await?;
 
@@ -611,11 +744,23 @@ fn build_authorization_url(
 }
 
 #[cfg(feature = "native_trigger")]
-async fn cleanup_oauth_resource(
+pub async fn cleanup_oauth_resource(
     tx: &mut sqlx::PgConnection,
     workspace_id: &str,
     service_name: ServiceName,
 ) {
+    // Look up the stored resource_path from workspace_integrations
+    let stored_resource_path: Option<String> = sqlx::query_scalar!(
+        r#"SELECT resource_path FROM workspace_integrations WHERE workspace_id = $1 AND service_name = $2"#,
+        workspace_id,
+        service_name as ServiceName,
+    )
+    .fetch_optional(&mut *tx)
+    .await
+    .ok()
+    .flatten()
+    .flatten();
+
     // Find and delete any existing account+variable+resource for this integration
     let account_ids: Vec<i32> = sqlx::query_scalar!(
         "DELETE FROM account WHERE workspace_id = $1 AND client = $2 AND is_workspace_integration = true RETURNING id",
@@ -637,15 +782,127 @@ async fn cleanup_oauth_resource(
         .await;
     }
 
-    // Delete resources with the integration resource type
+    // Delete resource by exact stored path, or fall back to legacy pattern
     let resource_type = service_name.resource_type();
-    let _ = sqlx::query!(
-        "DELETE FROM resource WHERE workspace_id = $1 AND resource_type = $2 AND path LIKE 'u/%/native_%'",
-        workspace_id,
-        resource_type,
+    if let Some(ref path) = stored_resource_path {
+        let _ = sqlx::query!(
+            "DELETE FROM resource WHERE workspace_id = $1 AND path = $2",
+            workspace_id,
+            path,
+        )
+        .execute(&mut *tx)
+        .await;
+    } else {
+        // Legacy fallback for integrations created before user-chosen paths
+        let _ = sqlx::query!(
+            "DELETE FROM resource WHERE workspace_id = $1 AND resource_type = $2 AND path LIKE 'u/%/native_%'",
+            workspace_id,
+            resource_type,
+        )
+        .execute(&mut *tx)
+        .await;
+    }
+}
+
+/// Check if the instance admin has enabled sharing of OAuth credentials for a given service.
+/// Currently only supported for Google (gworkspace).
+#[cfg(feature = "native_trigger")]
+async fn is_instance_sharing_enabled(db: &DB, service_name: ServiceName) -> Result<bool> {
+    // Only Google supports instance sharing for now
+    if service_name != ServiceName::Google {
+        return Ok(false);
+    }
+
+    let oauths_value = match load_value_from_global_settings(db, OAUTH_SETTING).await? {
+        Some(v) => v,
+        None => return Ok(false),
+    };
+
+    let key = service_name.resource_type(); // "gworkspace"
+    let entry = match oauths_value.get(key) {
+        Some(v) => v,
+        None => return Ok(false),
+    };
+
+    let id = entry.get("id").and_then(|v| v.as_str()).unwrap_or("");
+    let secret = entry.get("secret").and_then(|v| v.as_str()).unwrap_or("");
+    let share = entry
+        .get("share_with_workspaces")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    Ok(!id.is_empty() && !secret.is_empty() && share)
+}
+
+/// Read instance-level OAuth credentials for a service (when sharing is enabled).
+#[cfg(feature = "native_trigger")]
+async fn get_instance_oauth_config(
+    db: &DB,
+    service_name: ServiceName,
+) -> Result<WorkspaceOAuthConfig> {
+    if !is_instance_sharing_enabled(db, service_name).await? {
+        return Err(Error::BadRequest(
+            "Instance credential sharing is not enabled for this service".to_string(),
+        ));
+    }
+
+    let (client_id, client_secret) =
+        windmill_common::global_settings::get_instance_oauth_credentials(
+            db,
+            service_name.resource_type(),
+        )
+        .await?;
+
+    Ok(WorkspaceOAuthConfig {
+        client_id,
+        client_secret,
+        base_url: String::new(), // Google uses absolute URLs
+        instance_shared: false,
+    })
+}
+
+#[cfg(feature = "native_trigger")]
+async fn check_instance_sharing_available(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((workspace_id, service_name)): Path<(String, ServiceName)>,
+) -> JsonResult<bool> {
+    require_admin(authed.is_admin, &workspace_id)?;
+    let available = is_instance_sharing_enabled(&db, service_name).await?;
+    Ok(Json(available))
+}
+
+#[cfg(feature = "native_trigger")]
+async fn generate_instance_connect_url(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((workspace_id, service_name)): Path<(String, ServiceName)>,
+    Json(RedirectUri { redirect_uri }): Json<RedirectUri>,
+) -> JsonResult<String> {
+    require_admin(authed.is_admin, &workspace_id)?;
+
+    let instance_config = get_instance_oauth_config(&db, service_name).await?;
+
+    // Store a marker in workspace_integrations — NOT the actual credentials.
+    // The callback and token refresh will read credentials from global settings
+    // when they see instance_shared=true.
+    let mut tx = user_db.begin(&authed).await?;
+    crate::store_workspace_integration(
+        &mut tx,
+        &authed,
+        &workspace_id,
+        service_name,
+        json!({ "instance_shared": true, "base_url": "" }),
+        None,
     )
-    .execute(&mut *tx)
-    .await;
+    .await?;
+    tx.commit().await?;
+
+    // Generate signed state and build authorization URL
+    let state = generate_signed_state(&db, &workspace_id, service_name).await?;
+    let auth_url = build_authorization_url(&instance_config, service_name, &state, &redirect_uri);
+    Ok(Json(auth_url))
 }
 
 #[cfg(feature = "native_trigger")]
@@ -657,6 +914,14 @@ pub fn workspaced_service() -> Router {
         .route(
             "/:service_name/generate_connect_url",
             post(generate_connect_url),
+        )
+        .route(
+            "/:service_name/instance_sharing_available",
+            get(check_instance_sharing_available),
+        )
+        .route(
+            "/:service_name/generate_instance_connect_url",
+            post(generate_instance_connect_url),
         )
         .route("/:service_name/delete", delete(delete_integration))
         .route("/:service_name/callback", post(oauth_callback));
