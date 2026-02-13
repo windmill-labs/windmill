@@ -3418,6 +3418,9 @@ async fn create_workspace_fork(
         )));
     }
 
+    #[cfg(not(feature = "enterprise"))]
+    _check_nb_of_workspaces(&db).await?;
+
     if *DISABLE_WORKSPACE_FORK {
         require_super_admin(&db, &authed.email).await?;
     }
