@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.634.2](https://github.com/windmill-labs/windmill/compare/v1.634.1...v1.634.2) (2026-02-13)
+
+
+### Bug Fixes
+
+* fix hub schedule not set at on-boarding ([beeb19d](https://github.com/windmill-labs/windmill/commit/beeb19db04e8e9059c63007d2402981c3e81f1e2))
+
 ## [1.634.1](https://github.com/windmill-labs/windmill/compare/v1.634.0...v1.634.1) (2026-02-13)
 
 
