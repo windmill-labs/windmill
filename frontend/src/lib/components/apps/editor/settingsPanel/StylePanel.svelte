@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Tab, TabContent } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import type { AppViewerContext, ComponentCssProperty } from '../../types'
 	import { ccomponents, components, type AppComponent } from '../component'
 	import CssProperty from '../componentsPanel/CssProperty.svelte'
@@ -16,25 +16,43 @@
 	import CssMigrationModal from './CSSMigrationModal.svelte'
 	import CssPropertyWrapper from './CssPropertyWrapper.svelte'
 	import { onMount } from 'svelte'
-	import { findComponentSettings } from '../appUtils'
+	import { findGridItemById } from '../appUtilsCore'
 
 	const { app, cssEditorOpen, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
-	let component: AppComponent | undefined
-	$: {
-		const newComponent = findComponentSettings($app, $selectedComponent?.[0])?.item?.data
-		if (component != newComponent) {
-			component = newComponent
+	let tab: 'local' | 'global' = $state('local')
+	let overrideGlobalCSS: (() => void) | undefined = $state(undefined)
+	let overrideLocalCSS: (() => void) | undefined = $state(undefined)
+
+	let component: AppComponent | undefined = $derived(
+		findGridItemById($app.grid, $app.subgrids, $selectedComponent?.[0] ?? '')?.data
+	)
+
+	$effect.pre(() => {
+		if (
+			(component && component?.customCss === undefined) ||
+			(Object.keys(component?.customCss ?? {}).length === 0 &&
+				Object.keys(ccomponents[component?.type ?? '']?.customCss ?? {}).length > 0)
+		) {
+			untrack(() => {
+				let oldComponent = findGridItemById($app.grid, $app.subgrids, $selectedComponent?.[0] ?? '')
+				if (oldComponent) {
+					oldComponent.data = {
+						...(oldComponent.data ?? {}),
+						customCss: JSON.parse(
+							JSON.stringify(ccomponents[component?.type ?? '']?.customCss ?? {})
+						)
+					}
+				}
+			})
+			app.set($app)
 		}
-	}
+	})
 
-	let tab: 'local' | 'global' = 'local'
-	let overrideGlobalCSS: (() => void) | undefined = undefined
-	let overrideLocalCSS: (() => void) | undefined = undefined
-	$: type = component?.type
-	let migrationModal: CssMigrationModal | undefined = undefined
+	let type = $derived(component?.type)
+	let migrationModal: CssMigrationModal | undefined = $state(undefined)
 
-	$: customCssByComponentType =
+	let customCssByComponentType = $derived(
 		component?.type && $app.css
 			? Object.entries($app.css[component.type] || {}).map(([id, v]) => ({
 					id,
@@ -42,6 +60,7 @@
 					forceClass: v?.['class'] != undefined
 				}))
 			: undefined
+	)
 
 	function copyLocalToGlobal(name: string, value: ComponentCssProperty | undefined) {
 		if (!value) {
@@ -198,7 +217,10 @@
 										wmClass={getSelector(name)}
 										componentType={component.type}
 										bind:value={component.customCss[name]}
-										on:change={() => app.set($app)}
+										on:change={() => {
+											console.log('change')
+											app.set($app)
+										}}
 										shouldDisplayRight={hasStyleValue(component.customCss[name])}
 										on:right={() => {
 											copyLocalToGlobal(name, component?.customCss?.[name])
@@ -210,6 +232,8 @@
 								</div>
 							{/each}
 						</div>
+					{:else}
+						<div class="text-sm text-secondary mx-2">No local CSS to display</div>
 					{/if}
 				</TabContent>
 				<TabContent value="global">
