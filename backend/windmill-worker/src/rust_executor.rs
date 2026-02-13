@@ -1,5 +1,5 @@
 use serde_json::value::RawValue;
-use std::{collections::HashMap, process::Stdio};
+use std::{collections::HashMap, process::Stdio, sync::Once};
 use uuid::Uuid;
 use windmill_parser_rust::parse_rust_deps_into_manifest;
 
@@ -62,6 +62,48 @@ lazy_static::lazy_static! {
 }
 
 const RUST_OBJECT_STORE_PREFIX: &str = "rustbin/";
+
+lazy_static::lazy_static! {
+    static ref PREINSTALLED_CARGO: String = std::env::var("CARGO_PREINSTALL_DIR")
+        .unwrap_or_else(|_| "/usr/local/cargo".to_string());
+    static ref PREINSTALLED_RUSTUP: String = std::env::var("RUSTUP_PREINSTALL_DIR")
+        .unwrap_or_else(|_| "/usr/local/rustup".to_string());
+}
+
+static RUST_DIRS_INIT: Once = Once::new();
+
+#[cfg(not(windows))]
+fn symlink_preinstalled_entries(preinstalled: &str, target: &str) {
+    use std::fs;
+    use std::os::unix::fs as unix_fs;
+    use std::path::Path;
+
+    if target == preinstalled || !Path::new(preinstalled).exists() {
+        return;
+    }
+    let _ = fs::create_dir_all(target);
+    let Ok(entries) = fs::read_dir(preinstalled) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let link_path = Path::new(target).join(&name);
+        if !link_path.exists() {
+            let _ = unix_fs::symlink(entry.path(), &link_path);
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn ensure_rust_runtime_dirs() {
+    RUST_DIRS_INIT.call_once(|| {
+        symlink_preinstalled_entries(&PREINSTALLED_CARGO, CARGO_HOME.as_str());
+        symlink_preinstalled_entries(&PREINSTALLED_RUSTUP, RUSTUP_HOME.as_str());
+    });
+}
+
+#[cfg(windows)]
+fn ensure_rust_runtime_dirs() {}
 
 fn gen_cargo_crate(code: &str, job_dir: &str) -> anyhow::Result<()> {
     let manifest = parse_rust_deps_into_manifest(code)?;
@@ -155,6 +197,7 @@ pub async fn generate_cargo_lockfile(
     w_id: &str,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
+    ensure_rust_runtime_dirs();
     check_executor_binary_exists("cargo", CARGO_PATH.as_str(), "rust")?;
 
     gen_cargo_crate(code, job_dir)?;
@@ -335,6 +378,7 @@ pub async fn build_rust_crate(
     occupancy_metrics: &mut OccupancyMetrics,
     is_preview: bool,
 ) -> error::Result<String> {
+    ensure_rust_runtime_dirs();
     let bin_path = format!("{}/{hash}", RUST_CACHE_DIR);
 
     let build_dir = get_build_dir(job, job_dir, conn, worker_name, is_preview).await?;
@@ -487,6 +531,7 @@ pub async fn handle_rust_job(
     envs: HashMap<String, String>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>, Error> {
+    ensure_rust_runtime_dirs();
     check_executor_binary_exists("cargo", CARGO_PATH.as_str(), "rust")?;
 
     let hash = compute_rust_hash(inner_content, requirements_o);
