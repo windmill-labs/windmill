@@ -95,9 +95,27 @@ fn symlink_preinstalled_entries(preinstalled: &str, target: &str) {
 }
 
 #[cfg(not(windows))]
+fn symlink_single_entry(preinstalled: &str, target: &str, name: &str) {
+    use std::os::unix::fs as unix_fs;
+    use std::path::Path;
+
+    let src = Path::new(preinstalled).join(name);
+    if !src.exists() {
+        return;
+    }
+    let _ = std::fs::create_dir_all(target);
+    let dst = Path::new(target).join(name);
+    if !dst.exists() {
+        let _ = unix_fs::symlink(&src, &dst);
+    }
+}
+
+#[cfg(not(windows))]
 fn ensure_rust_runtime_dirs() {
     RUST_DIRS_INIT.call_once(|| {
-        symlink_preinstalled_entries(&PREINSTALLED_CARGO, CARGO_HOME.as_str());
+        // Only symlink bin/ from cargo (registry/git must be writable)
+        symlink_single_entry(&PREINSTALLED_CARGO, CARGO_HOME.as_str(), "bin");
+        // Symlink all entries from rustup (toolchains, settings.toml, etc.)
         symlink_preinstalled_entries(&PREINSTALLED_RUSTUP, RUSTUP_HOME.as_str());
     });
 }
@@ -303,10 +321,11 @@ async fn get_build_dir(
     if run_sweep {
         // Also run sweep to make sure target isn't using too much disk
         let mut sweep_cmd = Command::new(CARGO_PATH.as_str());
+        let sweep_path = format!("{}/bin:{}", CARGO_HOME.as_str(), PATH_ENV.as_str());
         sweep_cmd
             .current_dir(job_dir)
             .env_clear()
-            .env("PATH", PATH_ENV.as_str())
+            .env("PATH", &sweep_path)
             .env("CARGO_HOME", CARGO_HOME.as_str())
             .env("HOME", HOME_ENV.as_str())
             .env("CARGO_TARGET_DIR", &(bd.clone() + "/target"))
