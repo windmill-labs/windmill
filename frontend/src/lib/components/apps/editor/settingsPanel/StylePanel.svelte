@@ -88,7 +88,7 @@
 
 			if (hasStyleValue($app.css?.[type]?.[name])) {
 				overrideGlobalCSS = () => {
-					$app.css![type]![name] = JSON.parse(JSON.stringify(value))
+					$app.css![type]![name] = structuredClone(value)
 					app.set($app)
 				}
 			} else {
@@ -96,7 +96,7 @@
 					initGlobalCss()
 				}
 
-				$app.css![type]![name] = JSON.parse(JSON.stringify(value))
+				$app.css![type]![name] = structuredClone(value)
 				app.set($app)
 				sendUserToast('Global CSS copied')
 			}
@@ -109,12 +109,10 @@
 		} else {
 			if (hasStyleValue(value)) {
 				overrideLocalCSS = () => {
-					component!.customCss![id] = JSON.parse(JSON.stringify(value))
-					app.set($app)
+					updateCssProperty(id, structuredClone(value))
 				}
 			} else {
-				component!.customCss![id] = JSON.parse(JSON.stringify(value))
-				app.set($app)
+				updateCssProperty(id, structuredClone(value))
 				sendUserToast('Local CSS copied')
 			}
 		}
@@ -136,7 +134,7 @@
 			components[component.type] &&
 			$app.css[component.type] === undefined
 		) {
-			$app.css[component.type] = JSON.parse(JSON.stringify(components[component.type].customCss))
+			$app.css[component.type] = structuredClone(components[component.type].customCss)
 			app.set($app)
 		}
 	}
@@ -243,9 +241,9 @@
 										{name}
 										wmClass={getSelector(name)}
 										componentType={component.type}
-										bind:value={component.customCss[name]}
-										on:change={() => {
-											updateCssProperty(name, component?.customCss?.[name])
+										value={component.customCss[name]}
+										on:change={(e) => {
+											updateCssProperty(name, e.detail)
 										}}
 										shouldDisplayRight={hasStyleValue(component.customCss[name])}
 										on:right={() => {

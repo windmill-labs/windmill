@@ -24,7 +24,7 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 					type: 'verticalsplitpanescomponent',
 					configuration: {},
 					panes: [50, 50],
-					customCss: ccomponents['verticalsplitpanescomponent'].customCss,
+					customCss: structuredClone(ccomponents['verticalsplitpanescomponent'].customCss),
 					numberOfSubgrids: 2,
 					id: 'a'
 				},
@@ -105,7 +105,7 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 							fieldType: 'schema',
 							value: schema
 						},
-						customCss: ccomponents['schemaformcomponent'].customCss,
+						customCss: structuredClone(ccomponents['schemaformcomponent'].customCss),
 						id: 'c'
 					},
 					id: 'c'
@@ -293,7 +293,7 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 							autoRefresh: true,
 							recomputeOnInputChanged: true
 						},
-						customCss: ccomponents['buttoncomponent'].customCss,
+						customCss: structuredClone(ccomponents['buttoncomponent'].customCss),
 						recomputeIds: [],
 						horizontalAlignment: 'right',
 						verticalAlignment: 'center',
@@ -329,7 +329,7 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 							}
 						},
 						tabs: ['Result', 'Logs'],
-						customCss: ccomponents['tabscomponent'].customCss,
+						customCss: structuredClone(ccomponents['tabscomponent'].customCss),
 						numberOfSubgrids: 2,
 						id: 'b',
 						disabledTabs: [
@@ -377,7 +377,7 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 								path: 'result'
 							}
 						},
-						customCss: ccomponents['displaycomponent'].customCss,
+						customCss: structuredClone(ccomponents['displaycomponent'].customCss),
 						id: 'e'
 					},
 					id: 'e'
@@ -412,7 +412,7 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 								}
 							}
 						},
-						customCss: ccomponents['jobidlogcomponent'].customCss,
+						customCss: structuredClone(ccomponents['jobidlogcomponent'].customCss),
 						id: 'f'
 					},
 					id: 'f'
@@ -591,7 +591,7 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 					type: 'verticalsplitpanescomponent',
 					configuration: {},
 					panes: [50, 50],
-					customCss: ccomponents['verticalsplitpanescomponent'].customCss,
+					customCss: structuredClone(ccomponents['verticalsplitpanescomponent'].customCss),
 					numberOfSubgrids: 2,
 					id: 'a'
 				},
@@ -671,7 +671,7 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 							fieldType: 'schema',
 							value: schema
 						},
-						customCss: ccomponents['schemaformcomponent'].customCss,
+						customCss: structuredClone(ccomponents['schemaformcomponent'].customCss),
 						id: 'c'
 					},
 					id: 'c'
@@ -859,7 +859,7 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 							autoRefresh: false,
 							recomputeOnInputChanged: false
 						},
-						customCss: ccomponents['buttoncomponent'].customCss,
+						customCss: structuredClone(ccomponents['buttoncomponent'].customCss),
 						recomputeIds: [],
 						horizontalAlignment: 'right',
 						verticalAlignment: 'center',
@@ -895,7 +895,7 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 							}
 						},
 						tabs: ['Result', 'Logs'],
-						customCss: ccomponents['tabscomponent'].customCss,
+						customCss: structuredClone(ccomponents['tabscomponent'].customCss),
 						numberOfSubgrids: 2,
 						id: 'b',
 						disabledTabs: [
@@ -944,7 +944,7 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 								}
 							}
 						},
-						customCss: ccomponents['jobidflowstatuscomponent'].customCss,
+						customCss: structuredClone(ccomponents['jobidflowstatuscomponent'].customCss),
 						id: 'e'
 					},
 					id: 'e'
@@ -979,7 +979,7 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 								}
 							}
 						},
-						customCss: ccomponents['jobidlogcomponent'].customCss,
+						customCss: structuredClone(ccomponents['jobidlogcomponent'].customCss),
 						id: 'f'
 					},
 					id: 'f'
