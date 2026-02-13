@@ -31,6 +31,7 @@ use windmill_common::more_serde::maybe_number_opt;
 use windmill_common::oauth2::*;
 use windmill_common::utils::now_from_db;
 use windmill_common::variables::{build_crypt, encrypt};
+use windmill_common::BASE_URL;
 
 pub type DB = sqlx::Pool<sqlx::Postgres>;
 
@@ -45,8 +46,6 @@ pub use reqwest::Client as HttpClient;
 pub use windmill_common::utils::{COOKIE_DOMAIN, IS_SECURE};
 
 lazy_static::lazy_static! {
-    pub static ref BASE_URL: Arc<RwLock<String>> = Arc::new(RwLock::new("".to_string()));
-
     /// HTTP client for OAuth operations (reqwest 0.12, compatible with async-oauth2)
     pub static ref OAUTH_HTTP_CLIENT: reqwest::Client = reqwest::ClientBuilder::new()
         .user_agent("windmill/oauth")
