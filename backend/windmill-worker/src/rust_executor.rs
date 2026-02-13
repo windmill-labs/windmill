@@ -1,5 +1,7 @@
 use serde_json::value::RawValue;
-use std::{collections::HashMap, process::Stdio, sync::Once};
+use std::{collections::HashMap, process::Stdio};
+#[cfg(not(windows))]
+use std::sync::Once;
 use uuid::Uuid;
 use windmill_parser_rust::parse_rust_deps_into_manifest;
 
@@ -54,6 +56,7 @@ fn find_cargo_path() -> String {
     from_home
 }
 
+#[cfg(not(windows))]
 fn find_preinstalled_dir(env_var: &str, candidates: &[&str]) -> String {
     if let Ok(p) = std::env::var(env_var) {
         return p;
@@ -89,6 +92,7 @@ lazy_static::lazy_static! {
 
 const RUST_OBJECT_STORE_PREFIX: &str = "rustbin/";
 
+#[cfg(not(windows))]
 lazy_static::lazy_static! {
     static ref PREINSTALLED_CARGO: String = find_preinstalled_dir(
         "CARGO_PREINSTALL_DIR",
@@ -100,6 +104,7 @@ lazy_static::lazy_static! {
     );
 }
 
+#[cfg(not(windows))]
 static RUST_DIRS_INIT: Once = Once::new();
 
 #[cfg(not(windows))]
