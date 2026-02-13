@@ -19697,6 +19697,7 @@ components:
           description: True if script_path points to a flow, false if it points to a script
         args:
           $ref: "#/components/schemas/ScriptArgs"
+          nullable: true
         extra_perms:
           type: object
           additionalProperties:
@@ -19707,57 +19708,74 @@ components:
           description: Email of the user who owns this schedule, used for permissioned_as
         error:
           type: string
+          nullable: true
           description: Last error message if the schedule failed to trigger
         on_failure:
           type: string
+          nullable: true
           description: Path to a script or flow to run when the scheduled job fails
         on_failure_times:
           type: number
+          nullable: true
           description: Number of consecutive failures before the on_failure handler is triggered (default 1)
         on_failure_exact:
           type: boolean
+          nullable: true
           description: If true, trigger on_failure handler only on exactly N failures, not on every failure after N
         on_failure_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+          nullable: true
         on_recovery:
           type: string
+          nullable: true
           description: Path to a script or flow to run when the schedule recovers after failures
         on_recovery_times:
           type: number
+          nullable: true
           description: Number of consecutive successes before the on_recovery handler is triggered (default 1)
         on_recovery_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+          nullable: true
         on_success:
           type: string
+          nullable: true
           description: Path to a script or flow to run after each successful execution
         on_success_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+          nullable: true
         ws_error_handler_muted:
           type: boolean
           description: If true, the workspace-level error handler will not be triggered for this schedule's failures
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          nullable: true
         summary:
           type: string
+          nullable: true
           description: Short summary describing the purpose of this schedule
         description:
           type: string
+          nullable: true
           description: Detailed description of what this schedule does
         no_flow_overlap:
           type: boolean
           description: If true, skip this schedule's execution if the previous run is still in progress (prevents concurrent runs)
         tag:
           type: string
+          nullable: true
           description: Worker tag to route jobs to specific worker groups
         paused_until:
           type: string
           format: date-time
+          nullable: true
           description: ISO 8601 datetime until which the schedule is paused. Schedule resumes automatically after this time
         cron_version:
           type: string
+          nullable: true
           description: Cron parser version. Use 'v2' for extended syntax with additional features
         dynamic_skip:
           type: string
+          nullable: true
           description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean to skip (true) or run (false)
       required:
         - path
@@ -19819,60 +19837,77 @@ components:
           type: boolean
           description: True if script_path points to a flow, false if it points to a script
         args:
+          nullable: true
           $ref: "#/components/schemas/ScriptArgs"
         enabled:
           type: boolean
           description: Whether the schedule is currently active and will trigger jobs
         on_failure:
           type: string
+          nullable: true
           description: Path to a script or flow to run when the scheduled job fails
         on_failure_times:
           type: number
+          nullable: true
           description: Number of consecutive failures before the on_failure handler is triggered (default 1)
         on_failure_exact:
           type: boolean
+          nullable: true
           description: If true, trigger on_failure handler only on exactly N failures, not on every failure after N
         on_failure_extra_args:
+          nullable: true
           $ref: "#/components/schemas/ScriptArgs"
         on_recovery:
           type: string
+          nullable: true
           description: Path to a script or flow to run when the schedule recovers after failures
         on_recovery_times:
           type: number
+          nullable: true
           description: Number of consecutive successes before the on_recovery handler is triggered (default 1)
         on_recovery_extra_args:
+          nullable: true
           $ref: "#/components/schemas/ScriptArgs"
         on_success:
           type: string
+          nullable: true
           description: Path to a script or flow to run after each successful execution
         on_success_extra_args:
+          nullable: true
           $ref: "#/components/schemas/ScriptArgs"
         ws_error_handler_muted:
           type: boolean
           description: If true, the workspace-level error handler will not be triggered for this schedule's failures
         retry:
+          nullable: true
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
         no_flow_overlap:
           type: boolean
           description: If true, skip this schedule's execution if the previous run is still in progress (prevents concurrent runs)
         summary:
           type: string
+          nullable: true
           description: Short summary describing the purpose of this schedule
         description:
           type: string
+          nullable: true
           description: Detailed description of what this schedule does
         tag:
           type: string
+          nullable: true
           description: Worker tag to route jobs to specific worker groups
         paused_until:
           type: string
+          nullable: true
           format: date-time
           description: ISO 8601 datetime until which the schedule is paused. Schedule resumes automatically after this time
         cron_version:
           type: string
+          nullable: true
           description: Cron parser version. Use 'v2' for extended syntax with additional features
         dynamic_skip:
           type: string
+          nullable: true
           description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean to skip (true) or run (false)
       required:
         - path
@@ -19892,57 +19927,74 @@ components:
           type: string
           description: IANA timezone for the schedule (e.g., 'UTC', 'Europe/Paris', 'America/New_York')
         args:
+          nullable: true
           $ref: "#/components/schemas/ScriptArgs"
         on_failure:
           type: string
+          nullable: true
           description: Path to a script or flow to run when the scheduled job fails
         on_failure_times:
           type: number
+          nullable: true
           description: Number of consecutive failures before the on_failure handler is triggered (default 1)
         on_failure_exact:
           type: boolean
+          nullable: true
           description: If true, trigger on_failure handler only on exactly N failures, not on every failure after N
         on_failure_extra_args:
+          nullable: true
           $ref: "#/components/schemas/ScriptArgs"
         on_recovery:
           type: string
+          nullable: true
           description: Path to a script or flow to run when the schedule recovers after failures
         on_recovery_times:
           type: number
+          nullable: true
           description: Number of consecutive successes before the on_recovery handler is triggered (default 1)
         on_recovery_extra_args:
+          nullable: true
           $ref: "#/components/schemas/ScriptArgs"
         on_success:
           type: string
+          nullable: true
           description: Path to a script or flow to run after each successful execution
         on_success_extra_args:
+          nullable: true
           $ref: "#/components/schemas/ScriptArgs"
         ws_error_handler_muted:
           type: boolean
           description: If true, the workspace-level error handler will not be triggered for this schedule's failures
         retry:
+          nullable: true
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
         no_flow_overlap:
           type: boolean
           description: If true, skip this schedule's execution if the previous run is still in progress (prevents concurrent runs)
         summary:
           type: string
+          nullable: true
           description: Short summary describing the purpose of this schedule
         description:
           type: string
+          nullable: true
           description: Detailed description of what this schedule does
         tag:
           type: string
+          nullable: true
           description: Worker tag to route jobs to specific worker groups
         paused_until:
           type: string
+          nullable: true
           format: date-time
           description: ISO 8601 datetime until which the schedule is paused. Schedule resumes automatically after this time
         cron_version:
           type: string
+          nullable: true
           description: Cron parser version. Use 'v2' for extended syntax with additional features
         dynamic_skip:
           type: string
+          nullable: true
           description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean to skip (true) or run (false)
       required:
         - schedule
@@ -20154,6 +20206,7 @@ components:
           description: The URL route path that will trigger this endpoint (e.g., 'api/myendpoint'). Must NOT start with a /.
         static_asset_config:
           type: object
+          nullable: true
           description: Configuration for serving static assets (s3 bucket, storage path, filename)
           properties:
             s3:
@@ -20172,12 +20225,15 @@ components:
           description: HTTP method (get, post, put, delete, patch) that triggers this endpoint
         authentication_resource_path:
           type: string
+          nullable: true
           description: Path to the resource containing authentication configuration (for api_key, basic_http, custom_script, signature methods)
         summary:
           type: string
+          nullable: true
           description: Short summary describing the purpose of this trigger
         description:
           type: string
+          nullable: true
           description: Detailed description of what this trigger does
         request_type:
           $ref: "#/components/schemas/HttpRequestType"
@@ -20234,12 +20290,15 @@ components:
           description: If true, the route includes the workspace ID in the path
         summary:
           type: string
+          nullable: true
           description: Short summary describing the purpose of this trigger
         description:
           type: string
+          nullable: true
           description: Detailed description of what this trigger does
         static_asset_config:
           type: object
+          nullable: true
           description: Configuration for serving static assets (s3 bucket, storage path, filename)
           properties:
             s3:
@@ -20261,6 +20320,7 @@ components:
           description: HTTP method (get, post, put, delete, patch) that triggers this endpoint
         authentication_resource_path:
           type: string
+          nullable: true
           description: Path to the resource containing authentication configuration (for api_key, basic_http, custom_script, signature methods)
         is_async:
           type: boolean
@@ -20315,15 +20375,18 @@ components:
           description: The URL route path that will trigger this endpoint (e.g., 'api/myendpoint'). Must NOT start with a /.
         summary:
           type: string
+          nullable: true
           description: Short summary describing the purpose of this trigger
         description:
           type: string
+          nullable: true
           description: Detailed description of what this trigger does
         workspaced_route:
           type: boolean
           description: If true, the route includes the workspace ID in the path
         static_asset_config:
           type: object
+          nullable: true
           description: Configuration for serving static assets (s3 bucket, storage path, filename)
           properties:
             s3:
@@ -20339,6 +20402,7 @@ components:
             - s3
         authentication_resource_path:
           type: string
+          nullable: true
           description: Path to the resource containing authentication configuration (for api_key, basic_http, custom_script, signature methods)
         is_flow:
           type: boolean
@@ -20449,12 +20513,14 @@ components:
               - value
         initial_messages:
           type: array
+          nullable: true
           description: Messages to send immediately after connecting (can be raw strings or computed by runnables)
           items:
             $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
         url_runnable_args:
           description: Arguments to pass to the script/flow that computes the WebSocket URL
           $ref: "#/components/schemas/ScriptArgs"
+          nullable: true
         can_return_message:
           type: boolean
           description: If true, the script can return a message to send back through the WebSocket
@@ -20508,11 +20574,13 @@ components:
               - value
         initial_messages:
           type: array
+          nullable: true
           description: Messages to send immediately after connecting (can be raw strings or computed by runnables)
           items:
             $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
         url_runnable_args:
           description: Arguments to pass to the script/flow that computes the WebSocket URL
+          nullable: true
           $ref: "#/components/schemas/ScriptArgs"
         can_return_message:
           type: boolean
@@ -20568,11 +20636,13 @@ components:
               - value
         initial_messages:
           type: array
+          nullable: true
           description: Messages to send immediately after connecting (can be raw strings or computed by runnables)
           items:
             $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
         url_runnable_args:
           description: Arguments to pass to the script/flow that computes the WebSocket URL
+          nullable: true
           $ref: "#/components/schemas/ScriptArgs"
         can_return_message:
           type: boolean
@@ -20674,15 +20744,19 @@ components:
           description: Array of MQTT topics to subscribe to, each with topic name and QoS level
         v3_config:
           $ref: "#/components/schemas/MqttV3Config"
+          nullable: true
           description: MQTT v3 specific configuration (clean_session)
         v5_config:
           $ref: "#/components/schemas/MqttV5Config"
+          nullable: true
           description: MQTT v5 specific configuration (clean_start, topic_alias_maximum, session_expiry_interval)
         client_id:
           type: string
+          nullable: true
           description: MQTT client ID for this connection
         client_version:
           $ref: "#/components/schemas/MqttClientVersion"
+          nullable: true
           description: MQTT protocol version ('v3' or 'v5')
         server_id:
           type: string
@@ -20720,14 +20794,18 @@ components:
           description: Array of MQTT topics to subscribe to, each with topic name and QoS level
         client_id:
           type: string
+          nullable: true
           description: MQTT client ID for this connection
         v3_config:
+          nullable: true
           $ref: "#/components/schemas/MqttV3Config"
           description: MQTT v3 specific configuration (clean_session)
         v5_config:
+          nullable: true
           $ref: "#/components/schemas/MqttV5Config"
           description: MQTT v5 specific configuration (clean_start, topic_alias_maximum, session_expiry_interval)
         client_version:
+          nullable: true
           $ref: "#/components/schemas/MqttClientVersion"
           description: MQTT protocol version ('v3' or 'v5')
         path:
@@ -20770,14 +20848,18 @@ components:
           description: Array of MQTT topics to subscribe to, each with topic name and QoS level
         client_id:
           type: string
+          nullable: true
           description: MQTT client ID for this connection
         v3_config:
+          nullable: true
           $ref: "#/components/schemas/MqttV3Config"
           description: MQTT v3 specific configuration (clean_session)
         v5_config:
+          nullable: true
           $ref: "#/components/schemas/MqttV5Config"
           description: MQTT v5 specific configuration (clean_start, topic_alias_maximum, session_expiry_interval)
         client_version:
+          nullable: true
           $ref: "#/components/schemas/MqttClientVersion"
           description: MQTT protocol version ('v3' or 'v5')
         path:
@@ -20851,6 +20933,7 @@ components:
           $ref: "#/components/schemas/DeliveryType"
         delivery_config:
           $ref: "#/components/schemas/PushConfig"
+          nullable: true
         subscription_mode:
           $ref: "#/components/schemas/SubscriptionMode"
         last_server_ping:
@@ -20904,6 +20987,7 @@ components:
         delivery_type:
           $ref: "#/components/schemas/DeliveryType"
         delivery_config:
+          nullable: true
           $ref: "#/components/schemas/PushConfig"
         path:
           type: string
@@ -20980,6 +21064,7 @@ components:
           description: Path to the AWS resource containing credentials or OIDC configuration
         message_attributes:
           type: array
+          nullable: true
           items:
             type: string
           description: Array of SQS message attribute names to include with each message
@@ -21071,6 +21156,7 @@ components:
           description: Path to the AWS resource containing credentials or OIDC configuration
         message_attributes:
           type: array
+          nullable: true
           items:
             type: string
           description: Array of SQS message attribute names to include with each message
@@ -21116,6 +21202,7 @@ components:
           description: Path to the AWS resource containing credentials or OIDC configuration
         message_attributes:
           type: array
+          nullable: true
           items:
             type: string
           description: Array of SQS message attribute names to include with each message
@@ -21522,9 +21609,11 @@ components:
           description: If true, uses NATS JetStream for durable message delivery
         stream_name:
           type: string
+          nullable: true
           description: JetStream stream name (required when use_jetstream is true)
         consumer_name:
           type: string
+          nullable: true
           description: JetStream consumer name (required when use_jetstream is true)
         subjects:
           type: array
@@ -21576,9 +21665,11 @@ components:
           description: If true, uses NATS JetStream for durable message delivery
         stream_name:
           type: string
+          nullable: true
           description: JetStream stream name (required when use_jetstream is true)
         consumer_name:
           type: string
+          nullable: true
           description: JetStream consumer name (required when use_jetstream is true)
         subjects:
           type: array
@@ -21616,9 +21707,11 @@ components:
           description: If true, uses NATS JetStream for durable message delivery
         stream_name:
           type: string
+          nullable: true
           description: JetStream stream name (required when use_jetstream is true)
         consumer_name:
           type: string
+          nullable: true
           description: JetStream consumer name (required when use_jetstream is true)
         subjects:
           type: array
