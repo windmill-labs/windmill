@@ -12,7 +12,7 @@ use tokio::{
 use uuid::Uuid;
 use windmill_common::{error, worker::Connection};
 
-use crate::{common::start_child_process, DISABLE_NSJAIL};
+use crate::{common::start_child_process, is_sandboxing_enabled};
 
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
@@ -151,7 +151,7 @@ pub async fn par_install_language_dependencies_all_at_once<
             // TODO: Return canceld_by_ref
             &mut None,
             child,
-            !*DISABLE_NSJAIL,
+            is_sandboxing_enabled(),
             &worker_name,
             &w_id,
             &installer_executable_name,
@@ -580,7 +580,7 @@ async fn try_install_one_detached<'a, T: Clone + std::marker::Send + Sync + 'a +
         // TODO: Return canceld_by_ref
         &mut None,
         child,
-        !*DISABLE_NSJAIL,
+        is_sandboxing_enabled(),
         &worker_name,
         &w_id,
         &installer_executable_name,

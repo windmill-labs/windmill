@@ -121,14 +121,6 @@ mod workspace_dependencies {
         );
 
         // Verify built-in fixtures exist
-        // Check that the setup_app exists
-        let app_exists =
-            sqlx::query_scalar!("SELECT EXISTS(SELECT 1 FROM app WHERE path = 'g/all/setup_app')")
-                .fetch_one(db)
-                .await
-                .unwrap();
-        assert!(app_exists.unwrap(), "Expected g/all/setup_app to exist");
-
         // Check that hub_sync script exists and is a Bun script
         let hub_sync_lang = sqlx::query_scalar!(
             r#"SELECT language AS "language: ScriptLang" FROM script WHERE path = 'u/admin/hub_sync'"#

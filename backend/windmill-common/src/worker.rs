@@ -688,6 +688,7 @@ pub struct SqlAnnotations {
 #[annotations("#")]
 pub struct BashAnnotations {
     pub docker: bool,
+    pub sandbox: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

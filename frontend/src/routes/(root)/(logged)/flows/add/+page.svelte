@@ -27,7 +27,24 @@
 	const hubId = $page.url.searchParams.get('hub')
 	const templatePath = $page.url.searchParams.get('template')
 	const templateId = $page.url.searchParams.get('template_id')
-	const initialState = hubId || templatePath || nodraft ? undefined : localStorage.getItem('flow')
+	const isFork = $page.url.searchParams.get('fork')
+
+	let forkState: any = undefined
+	if (isFork) {
+		const forkJson = localStorage.getItem('fork_flow')
+		if (forkJson) {
+			try {
+				forkState = JSON.parse(forkJson)
+			} catch {}
+			localStorage.removeItem('fork_flow')
+		} else if ((window.opener as any)?.__forkPreviewData) {
+			forkState = (window.opener as any).__forkPreviewData
+			delete (window.opener as any).__forkPreviewData
+		}
+	}
+
+	const initialState =
+		hubId || templatePath || nodraft || isFork ? undefined : localStorage.getItem('flow')
 
 	let selectedId: string = $state('settings-metadata')
 	let loading = $state(false)
@@ -40,6 +57,7 @@
 		initialArgs = $initialArgsStore
 		$initialArgsStore = undefined
 	}
+	// initialArgs may also be set from decoded state below (e.g. fork preview)
 	let flowBuilder: FlowBuilder | undefined = $state(undefined)
 
 	const flowStore: StateStore<Flow> = $state({
@@ -71,7 +89,7 @@
 			schema: emptySchema()
 		}
 
-		let state = initialState ? decodeState(initialState) : undefined
+		let state = forkState ?? (initialState ? decodeState(initialState) : undefined)
 		const initialStateQuery = $page.url.hash != '' ? $page.url.hash.slice(1) : undefined
 
 		if (initialStateQuery) {
@@ -102,6 +120,9 @@
 
 			flow = state.flow
 			pathStoreInit = state.path
+			if (state.initialArgs) {
+				initialArgs = state.initialArgs
+			}
 			draftTriggersFromUrl = state.draft_triggers
 			selectedTriggerIndexFromUrl = state.selected_trigger
 			flowBuilder?.setDraftTriggers(draftTriggersFromUrl)

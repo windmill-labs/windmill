@@ -4,7 +4,13 @@
 	import type { Schema, SupportedLanguage } from '$lib/common'
 	import { type CompletedJob, type Job, JobService, type Preview, type ScriptLang } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
-	import { copyToClipboard, emptySchema, getLocalSetting, sendUserToast, storeLocalSetting } from '$lib/utils'
+	import {
+		copyToClipboard,
+		emptySchema,
+		getLocalSetting,
+		sendUserToast,
+		storeLocalSetting
+	} from '$lib/utils'
 	import Editor from './Editor.svelte'
 	import { inferArgs, inferAssets, inferAnsibleExecutionMode } from '$lib/infer'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -249,9 +255,7 @@
 	let breakpointDecorations: string[] = $state([])
 	let currentLineDecoration: string[] = $state([])
 	// Get the DAP server URL based on language
-	const dapServerUrl = $derived(
-		getDebugServerUrl((lang || 'python3') as DebugLanguage)
-	)
+	const dapServerUrl = $derived(getDebugServerUrl((lang || 'python3') as DebugLanguage))
 	const debugFilePath = $derived(`/tmp/script${getDebugFileExtension(lang || '')}`)
 	let dapClient = $state<ReturnType<typeof getDAPClient> | null>(null)
 	const isDebuggableScript = $derived(isDebuggable(lang || ''))
@@ -827,7 +831,10 @@
 	function collabUrl() {
 		let url = new URL(window.location.toString().split('#')[0])
 		url.search = ''
-		return `${url}?collab=1&workspace=${encodeURIComponent($workspaceStore ?? '')}&lang=${encodeURIComponent(lang ?? '')}` + (edit ? '' : `&path=${path}`)
+		return (
+			`${url}?collab=1&workspace=${encodeURIComponent($workspaceStore ?? '')}&lang=${encodeURIComponent(lang ?? '')}` +
+			(edit ? '' : `&path=${path}`)
+		)
 	}
 
 	let showTabs = $derived(hasPreprocessor)
@@ -949,12 +956,17 @@
 <Modal title="Debug Feature (Beta)" bind:open={showDebugBetaWarning}>
 	<div class="flex items-start gap-3">
 		<div class="flex-shrink-0">
-			<div class="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-100 dark:bg-yellow-800/50">
+			<div
+				class="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-100 dark:bg-yellow-800/50"
+			>
 				<AlertTriangle class="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
 			</div>
 		</div>
 		<div class="text-secondary text-sm">
-			<p>The Debug feature is currently in <strong>beta</strong>. You may encounter unexpected behavior or limitations.</p>
+			<p
+				>The Debug feature is currently in <strong>beta</strong>. You may encounter unexpected
+				behavior or limitations.</p
+			>
 			<p class="mt-2">By continuing, you acknowledge that this feature is experimental.</p>
 		</div>
 	</div>
@@ -1098,41 +1110,36 @@
 						/>
 					</div>
 					{#if !(debugMode && isDebuggableScript)}
-						{#if testIsLoading}
-							<Button on:click={jobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
-								<WindmillIcon
-									white={true}
-									class="mr-2 text-white"
-									height="16px"
-									width="20px"
-									spin="fast"
-								/>
-								Cancel
-							</Button>
-						{:else}
-							{@const disableTriggerButton = customUi?.previewPanel?.disableTriggerButton === true}
-							<div
-								class="flex flex-row divide-x divide-gray-800 dark:divide-gray-300 items-stretch"
-							>
+						<div class="flex flex-row divide-x divide-gray-800 dark:divide-gray-300 items-stretch">
+							{#if testIsLoading}
+								<Button on:click={jobLoader?.cancelJob} btnClasses="w-full" unifiedSize="md">
+									<WindmillIcon
+										white={true}
+										class="mr-2 text-white"
+										height="16px"
+										width="20px"
+										spin="fast"
+									/>
+									Cancel
+								</Button>
+							{:else}
+								{@const disableTriggerButton =
+									customUi?.previewPanel?.disableTriggerButton === true}
 								<Button
 									on:click={() => runTest()}
+									unifiedSize="md"
 									btnClasses="w-full {!disableTriggerButton ? 'rounded-r-none' : ''}"
-									size="xs"
 									variant="accent-secondary"
 									startIcon={{ icon: Play, classes: 'animate-none' }}
-									shortCut={{ Icon: CornerDownLeft, hide: testIsLoading }}
+									shortCut={{ Icon: CornerDownLeft }}
 								>
-									{#if testIsLoading}
-										Running
-									{:else}
-										Test
-									{/if}
+									Test
 								</Button>
 								{#if !disableTriggerButton}
 									<CaptureButton on:openTriggers />
 								{/if}
-							</div>
-						{/if}
+							{/if}
+						</div>
 					{/if}
 					<div class="absolute top-2 right-2"
 						><Toggle size="2xs" bind:checked={jsonView} options={{ right: 'JSON' }} /></div

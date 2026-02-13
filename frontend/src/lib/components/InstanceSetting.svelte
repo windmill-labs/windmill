@@ -54,7 +54,6 @@
 		return true
 	}
 
-	let licenseKeyChanged = $state(false)
 	let renewing = $state(false)
 	let opening = $state(false)
 
@@ -124,6 +123,16 @@
 			valid: false
 		}
 	}
+
+	$effect(() => {
+		if (setting.key === 'license_key') {
+			const key = $values['license_key'] ?? ''
+			const { valid } = parseLicenseKey(key)
+			if (valid) {
+				$enterpriseLicense = key.split('.')[0]
+			}
+		}
+	})
 
 	let pythonAvailableVersions: ListAvailablePythonVersionsResponse = $state([])
 
@@ -324,9 +333,6 @@
 							id={setting.key}
 							small
 							placeholder={setting.placeholder}
-							onKeyDown={() => {
-								licenseKeyChanged = true
-							}}
 							onBlur={() => {
 								if ($values[setting.key] && typeof $values[setting.key] === 'string') {
 									$values[setting.key] = $values[setting.key].trim()
@@ -439,13 +445,13 @@
 								</Popover>
 							</div>
 						{/if}
-						{#if licenseKeyChanged && !$enterpriseLicense}
-							{#if version.startsWith('CE')}
-								<div class="text-red-600 dark:text-red-400"
-									>License key is set but image used is the Community Edition {version}. Switch
-									image to EE.</div
-								>
-							{/if}
+						{#if $values[setting.key]?.length > 0 && version.includes('CE')}
+							<div class="flex flex-row gap-1 items-center">
+								<Info size={12} class="text-blue-600" />
+								<span class="text-blue-600 dark:text-blue-400 text-xs">
+									License key is set but the current image is Community Edition ({version}). Switch to the EE image to finalize the upgrade.
+								</span>
+							</div>
 						{/if}
 
 						{#if valid || expiration}

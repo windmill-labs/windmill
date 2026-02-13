@@ -10,7 +10,7 @@
 </script>
 
 <Tooltip>
-	<Badge verySmall color="blue" class="px-2">EE only</Badge>
+	<Badge verySmall color="blue" class="px-2">EE</Badge>
 	{#snippet text()}
 		{#if children}
 			{@render children()}

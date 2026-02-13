@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.631.2"
+version = "1.634.4"
 authors.workspace = true
 edition.workspace = true
 
@@ -74,7 +74,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal"]
 
 [workspace.package]
-version = "1.631.2"
+version = "1.634.4"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -95,8 +95,8 @@ lto = "thin"
 
 [features]
 default = []
-private = ["windmill-api/private", "windmill-api-agent-workers?/private", "windmill-autoscaling/private", "windmill-common/private", "windmill-git-sync/private", "windmill-indexer/private", "windmill-queue/private", "windmill-worker/private"]
-agent_worker_server = ["windmill-api/agent_worker_server", "dep:windmill-api-agent-workers"]
+private = ["windmill-api/private", "windmill-api-agent-workers?/private", "windmill-autoscaling/private", "windmill-common/private", "windmill-git-sync/private", "windmill-indexer/private", "windmill-queue/private", "windmill-worker/private", "windmill-test-utils/private"]
+agent_worker_server = ["windmill-api/agent_worker_server", "dep:windmill-api-agent-workers", "windmill-test-utils/agent_worker_server"]
 enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "windmill-api-agent-workers?/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise"]
 local_reports = ["windmill-common/local_reports"]
 enterprise_saml = ["windmill-api/enterprise_saml", "oauth2"]
@@ -112,7 +112,7 @@ cloud = ["windmill-queue/cloud", "windmill-worker/cloud", "windmill-common/cloud
 jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemalloc-sys", "dep:tikv-jemalloc-ctl"]
 tantivy = ["dep:windmill-indexer", "windmill-api/tantivy", "windmill-indexer/enterprise", "windmill-indexer/parquet", "windmill-common/tantivy", "enterprise", "parquet"]
 sqlx = ["windmill-worker/sqlx"]
-deno_core = ["windmill-worker/deno_core", "dep:windmill-runtime-nativets"]
+deno_core = ["windmill-worker/deno_core", "dep:windmill-runtime-nativets", "windmill-test-utils/deno_core"]
 deno_core_mac = ["deno_core", "windmill-worker/libffi_mac"]
 kafka = ["windmill-api/kafka"]
 kafka-gssapi = ["windmill-api/kafka-gssapi"]
@@ -137,7 +137,7 @@ scoped_cache = ["windmill-common/scoped_cache"]
 no_auth = ["windmill-api/no_auth"]
 private_registry_test = []
 # Languages
-python = ["windmill-worker/python", "windmill-api/python"]
+python = ["windmill-worker/python", "windmill-api/python", "windmill-test-utils/python"]
 rust = ["windmill-worker/rust"]
 mysql = ["windmill-worker/mysql"]
 oracledb = ["windmill-worker/oracledb"]
@@ -181,7 +181,8 @@ ee_windows = ["ce_core", "ee_core", "all_languages_windows"]
 all_sqlx_features = ["all_languages", "enterprise", "enterprise_saml", "embedding", "parquet", "prometheus", "flow_testing",
  "openidconnect", "cloud", "jemalloc", "tantivy", "sqlx", "kafka", "kafka-gssapi", "nats", "otel", "dind", "websocket", "http_trigger",
   "postgres_trigger", "mcp", "mqtt_trigger", "sqs_trigger", "gcp_trigger", "smtp", "stripe",
-   "license", "oauth2", "zip", "static_frontend", "scoped_cache", "agent_worker_server", "bedrock", "native_trigger", "quickjs"]
+   "license", "oauth2", "zip", "static_frontend", "scoped_cache", "agent_worker_server", "bedrock", "native_trigger", "quickjs",
+   "windmill-git-sync/all_sqlx_features"]
 
 [patch.crates-io]
 object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7" }

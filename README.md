@@ -31,7 +31,7 @@ Scripts are turned into sharable UIs automatically, and can be composed together
 </p>
 
 <p align="center">
-  <a href="https://app.windmill.dev">Try it</a> - <a href="https://www.windmill.dev/docs/intro/">Docs</a> - <a href="https://discord.gg/V7PM2YHsPB">Discord</a> - <a href="https://hub.windmill.dev">Hub</a> - <a href="https://www.windmill.dev/docs/misc/contributing">Contributor's guide</a>
+  <a href="https://app.windmill.dev">Try it</a> - <a href="https://www.windmill.dev/">Website</a> - <a href="https://www.windmill.dev/docs/intro/">Docs</a> - <a href="https://discord.gg/V7PM2YHsPB">Discord</a> - <a href="https://hub.windmill.dev">Hub</a> - <a href="https://www.windmill.dev/docs/misc/contributing">Contributor's guide</a>
 </p>
 
 # Windmill - Developer platform for APIs, background jobs, workflows and UIs

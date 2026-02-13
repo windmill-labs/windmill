@@ -1,5 +1,62 @@
 # Changelog
 
+## [1.634.4](https://github.com/windmill-labs/windmill/compare/v1.634.3...v1.634.4) (2026-02-13)
+
+
+### Bug Fixes
+
+* improve style panel reactivity and CSS defaults ([#7935](https://github.com/windmill-labs/windmill/issues/7935)) ([eacbee3](https://github.com/windmill-labs/windmill/commit/eacbee38cb51d11b051612ac66994e6444e81bf2))
+* java + rust only relies on /tmp, + https proxy improvement for java ([791cb3e](https://github.com/windmill-labs/windmill/commit/791cb3e225ebda4b2f6f7181bc8265c378150d4e))
+
+## [1.634.3](https://github.com/windmill-labs/windmill/compare/v1.634.2...v1.634.3) (2026-02-13)
+
+
+### Bug Fixes
+
+* fix incorrect oauth base url refresh error ([b3a1629](https://github.com/windmill-labs/windmill/commit/b3a1629e56217605d059d1dceca43c9999a58592))
+
+## [1.634.2](https://github.com/windmill-labs/windmill/compare/v1.634.1...v1.634.2) (2026-02-13)
+
+
+### Bug Fixes
+
+* fix hub schedule not set at on-boarding ([beeb19d](https://github.com/windmill-labs/windmill/commit/beeb19db04e8e9059c63007d2402981c3e81f1e2))
+
+## [1.634.1](https://github.com/windmill-labs/windmill/compare/v1.634.0...v1.634.1) (2026-02-13)
+
+
+### Bug Fixes
+
+* conditionally skip relock on dep job ([#7860](https://github.com/windmill-labs/windmill/issues/7860)) ([d6c72df](https://github.com/windmill-labs/windmill/commit/d6c72df99a0a500bdd925fcdcba8abd8bbe537f5))
+* improve on-boarding experience ([4e38a4f](https://github.com/windmill-labs/windmill/commit/4e38a4f1083d880b0814e336d5e27cb40187fc28))
+
+## [1.634.0](https://github.com/windmill-labs/windmill/compare/v1.633.1...v1.634.0) (2026-02-12)
+
+
+### Features
+
+* add force_sandboxing global setting and #sandbox bash annotation ([#7816](https://github.com/windmill-labs/windmill/issues/7816)) ([2646629](https://github.com/windmill-labs/windmill/commit/2646629194f260d0be3a809be421bbab1307f927))
+* support for datatables in App Db studio ([#7930](https://github.com/windmill-labs/windmill/issues/7930)) ([6cee34a](https://github.com/windmill-labs/windmill/commit/6cee34a81da389faebb1474957a3989c4aadb00f))
+
+## [1.633.1](https://github.com/windmill-labs/windmill/compare/v1.633.0...v1.633.1) (2026-02-12)
+
+
+### Bug Fixes
+
+* add private registries support for RUST + java home nit ([e2c28e4](https://github.com/windmill-labs/windmill/commit/e2c28e42dbda0f7bf119efc8d587da0d30636a44))
+
+## [1.633.0](https://github.com/windmill-labs/windmill/compare/v1.632.0...v1.633.0) (2026-02-12)
+
+
+### Features
+
+* /health endpoints ([#7727](https://github.com/windmill-labs/windmill/issues/7727)) ([7df4aa4](https://github.com/windmill-labs/windmill/commit/7df4aa4fec021fc728950fc10db4d0401a205087))
+
+
+### Bug Fixes
+
+* save deployment msg in CE ([#7923](https://github.com/windmill-labs/windmill/issues/7923)) ([e9be616](https://github.com/windmill-labs/windmill/commit/e9be616d3c079a0c6fd98733c66560f2cc1ee40d))
+
 ## [1.632.0](https://github.com/windmill-labs/windmill/compare/v1.631.2...v1.632.0) (2026-02-12)
 
 

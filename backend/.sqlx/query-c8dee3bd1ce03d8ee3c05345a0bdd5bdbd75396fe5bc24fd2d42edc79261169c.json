@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        DELETE FROM dependency_map\n        WHERE workspace_id = $1\n            AND importer_path = $2\n            AND importer_kind = $3::text::IMPORTER_KIND\n            AND importer_node_id = $4\n            AND imported_path = $5\n            AND imported_lockfile_hash IS NOT DISTINCT FROM $6 -- we don't want to delete other entries with other lockfile hash.\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c8dee3bd1ce03d8ee3c05345a0bdd5bdbd75396fe5bc24fd2d42edc79261169c"
+}

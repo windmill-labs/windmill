@@ -21,7 +21,7 @@ use crate::{
     get_proxy_envs_for_lang,
     handle_child::handle_child,
     BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_NO_CACHE, BUN_PATH,
-    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH, NPM_CONFIG_REGISTRY,
+    is_sandboxing_enabled, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH, NPM_CONFIG_REGISTRY,
     NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 use windmill_common::{
@@ -1022,7 +1022,7 @@ pub async fn handle_bun_job(
                 }
             }
             MaybeLock::Unresolved { ref workspace_dependencies } => {
-                // if !*DISABLE_NSJAIL || !empty_trusted_deps || has_custom_config_registry {
+                // if is_sandboxing_enabled() || !empty_trusted_deps || has_custom_config_registry {
                 let logs1 = "\n\n--- BUN INSTALL ---\n".to_string();
                 append_logs(&job.id, &job.workspace_id, logs1, conn).await;
                 gen_bun_lockfile(
@@ -1410,7 +1410,7 @@ try {{
     append_logs(&job.id, &job.workspace_id, init_logs, conn).await;
 
     //do not cache local dependencies
-    let child = if !*DISABLE_NSJAIL {
+    let child = if is_sandboxing_enabled() {
         let _ = write_file(
             job_dir,
             "run.config.proto",
@@ -1548,7 +1548,7 @@ try {{
         mem_peak,
         canceled_by,
         child,
-        !*DISABLE_NSJAIL,
+        is_sandboxing_enabled(),
         worker_name,
         &job.workspace_id,
         "bun run",
@@ -1733,7 +1733,7 @@ pub async fn start_worker(
             .await?;
             tracing::info!("dedicated worker requirements installed: {reqs}");
         }
-    } else if !*DISABLE_NSJAIL {
+    } else if is_sandboxing_enabled() {
         logs.push_str("\n\n--- BUN INSTALL ---\n");
         let _ = gen_bun_lockfile(
             &mut mem_peak,

@@ -141,19 +141,6 @@ export const settings: Record<string, Setting[]> = {
 					!value?.endsWith(' '))
 		},
 		{
-			label: 'Email domain',
-			description:
-				'Domain to display in webhooks for <a href="https://www.windmill.dev/docs/advanced/email_triggers">email triggers</a> (should match the MX record)',
-			key: 'email_domain',
-			fieldType: 'text',
-			storage: 'setting',
-			placeholder: 'mail.windmill.com',
-			error:
-				'Email domain must be a valid domain (e.g. mail.windmill.com) without protocol or trailing slash',
-			isValid: (value: string | undefined) =>
-				!value || /^(?!-)([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$/.test(value)
-		},
-		{
 			label: 'Request size limit in MB',
 			description: 'Maximum size of HTTP requests in MB.',
 			cloudonly: true,
@@ -168,7 +155,7 @@ export const settings: Record<string, Setting[]> = {
 				'License key required to use the EE (switch image for windmill-ee). <a href="https://www.windmill.dev/docs/advanced/instance_settings#license-key">Learn more</a>',
 			key: 'license_key',
 			fieldType: 'license_key',
-			placeholder: 'only needed to prepare upgrade to EE',
+			placeholder: 'only for EE',
 			storage: 'setting'
 		},
 		{
@@ -193,6 +180,28 @@ export const settings: Record<string, Setting[]> = {
 		}
 	],
 	Jobs: [
+		{
+			label: 'Job Isolation',
+			key: 'job_isolation',
+			fieldType: 'select',
+			description:
+				'Isolation mode for job execution. None: no isolation. Unshare: PID namespace isolation via unshare. Nsjail: full nsjail sandboxing. <a href="https://www.windmill.dev/docs/advanced/security_isolation">Learn more</a>',
+			storage: 'setting',
+			select_items: [
+				{
+					label: 'None',
+					value: 'none'
+				},
+				{
+					label: 'Unshare',
+					value: 'unshare'
+				},
+				{
+					label: 'Nsjail',
+					value: 'nsjail_sandboxing'
+				}
+			]
+		},
 		{
 			label: 'Default timeout',
 			key: 'job_default_timeout',
@@ -451,6 +460,15 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
+			label: 'Cargo registries',
+			description: 'Write a .cargo/config.toml to set custom Cargo registries and credentials',
+			key: 'cargo_registries',
+			fieldType: 'codearea',
+			codeAreaLang: 'toml',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
 			label: 'PowerShell Repository URL',
 			description: 'Add private PowerShell repository URL',
 			key: 'powershell_repo_url',
@@ -587,6 +605,7 @@ export const settingsKeys = Object.keys(settings)
 // --- Sidebar navigation for instance settings ---
 export const instanceSettingsNavigationGroups = [
 	{
+		title: 'Core',
 		items: [
 			{
 				id: 'users',
@@ -599,6 +618,12 @@ export const instanceSettingsNavigationGroups = [
 				label: 'General',
 				aiId: 'instance-settings-general',
 				aiDescription: 'Instance general settings'
+			},
+			{
+				id: 'jobs',
+				label: 'Jobs',
+				aiId: 'instance-settings-jobs',
+				aiDescription: 'Instance jobs settings'
 			}
 		]
 	},
@@ -679,12 +704,6 @@ export const instanceSettingsNavigationGroups = [
 	{
 		title: 'Advanced',
 		items: [
-			{
-				id: 'jobs',
-				label: 'Jobs',
-				aiId: 'instance-settings-jobs',
-				aiDescription: 'Instance jobs settings'
-			},
 			{
 				id: 'private_hub',
 				label: 'Private Hub',

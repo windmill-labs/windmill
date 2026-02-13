@@ -23,6 +23,7 @@
 	import { switchWorkspace } from '$lib/storeUtils'
 	import { GitFork, Settings, User, Search, ChevronsDownUp, ChevronsUpDown } from 'lucide-svelte'
 	import { isCloudHosted } from '$lib/cloud'
+	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import { emptyString } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
 	import { refreshSuperadmin } from '$lib/refreshUser'
@@ -93,6 +94,7 @@
 
 	$: allWorkspaces = workspaces || []
 	$: noWorkspaces = $superadmin && allWorkspaces.length == 0
+	$: onlyAdminsWorkspace = allWorkspaces.length === 1 && allWorkspaces[0].id === 'admins'
 
 	async function getCreateWorkspaceRequireSuperadmin() {
 		const r = await fetch(base + '/api/workspaces/create_workspace_require_superadmin')
@@ -254,15 +256,16 @@
 		{/if}
 
 		{#if createWorkspace}
-			<div class="flex flex-row-reverse pt-4">
-				<Button
-					unifiedSize="sm"
-					btnClasses={noWorkspaces ? 'animate-bounce hover:animate-none' : ''}
-					href="{base}/user/create_workspace{rd ? `?rd=${encodeURIComponent(rd)}` : ''}"
-					variant={noWorkspaces ? 'accent' : 'default'}
-					wrapperClasses="w-full"
-					>+&nbsp;Create a new workspace
-				</Button>
+			<div class="flex flex-row-reverse pt-4 w-full">
+				<AnimatedButton animate={onlyAdminsWorkspace} baseRadius="6px" animationDuration="2s" marginWidth="2px" wrapperClasses="w-full">
+					<Button
+						unifiedSize="sm"
+						href="{base}/user/create_workspace{rd ? `?rd=${encodeURIComponent(rd)}` : ''}"
+						variant={onlyAdminsWorkspace || noWorkspaces ? 'accent' : 'default'}
+						wrapperClasses="w-full"
+						>+&nbsp;Create a new workspace
+					</Button>
+				</AnimatedButton>
 			</div>
 		{/if}
 

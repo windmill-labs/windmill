@@ -26,8 +26,8 @@ use crate::{
     },
     handle_child,
     universal_pkg_installer::{par_install_language_dependencies_all_at_once, RequiredDependency},
-    COURSIER_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER, JAVA_CACHE_DIR, JAVA_REPOSITORY_DIR,
-    MAVEN_REPOS, NO_DEFAULT_MAVEN, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    is_sandboxing_enabled, COURSIER_CACHE_DIR, DISABLE_NUSER, JAVA_CACHE_DIR, JAVA_HOME_DIR,
+    JAVA_REPOSITORY_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
 };
 use windmill_common::client::AuthedClient;
 
@@ -184,6 +184,8 @@ pub async fn resolve<'a>(
         cmd.env_clear()
             .current_dir(job_dir.to_owned())
             .env("PATH", PATH_ENV.as_str())
+            .env("HOME", JAVA_HOME_DIR)
+            .env("COURSIER_CACHE", COURSIER_CACHE_DIR)
             .envs(PROXY_ENVS.clone());
 
         // Configure proxies
@@ -205,6 +207,7 @@ pub async fn resolve<'a>(
                 cmd.arg(&format!("-Dhttp.nonProxyHosts=\"{}\"", val));
             }
         }
+        cmd.arg(&format!("-Duser.home={}", JAVA_HOME_DIR));
         if metadata(TRUST_STORE_PATH.clone()).await.is_ok() {
             cmd.args(&[
                 &format!("-Djavax.net.ssl.trustStore={}", *TRUST_STORE_PATH),
@@ -330,6 +333,8 @@ async fn install<'a>(
             cmd.env_clear()
                 .current_dir(&job_dir)
                 .env("PATH", PATH_ENV.as_str())
+                .env("HOME", JAVA_HOME_DIR)
+                .env("COURSIER_CACHE", COURSIER_CACHE_DIR)
                 .envs(PROXY_ENVS.clone());
             // Configure proxies
             {
@@ -351,6 +356,7 @@ async fn install<'a>(
                 }
             }
 
+            cmd.arg(&format!("-Duser.home={}", JAVA_HOME_DIR));
             if trust_store_metadata.is_ok() {
                 cmd.args(&[
                     &format!("-Djavax.net.ssl.trustStore={}", *TRUST_STORE_PATH),
@@ -418,7 +424,7 @@ async fn install<'a>(
         &job.id,
         &job.workspace_id,
         worker_name,
-        !*DISABLE_NSJAIL,
+        is_sandboxing_enabled(),
         conn,
     )
     .await?;
@@ -494,6 +500,7 @@ async fn compile<'a>(
             cmd.env_clear()
                 .current_dir(job_dir.to_owned())
                 .env("PATH", PATH_ENV.as_str())
+                .env("HOME", JAVA_HOME_DIR)
                 .env("BASE_INTERNAL_URL", base_internal_url)
                 .envs(envs)
                 .envs(reserved_variables)
@@ -526,7 +533,7 @@ async fn compile<'a>(
             mem_peak,
             canceled_by,
             child,
-            !*DISABLE_NSJAIL,
+            is_sandboxing_enabled(),
             worker_name,
             &job.workspace_id,
             "javac",
@@ -582,7 +589,7 @@ async fn run<'a>(
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path.clone()).await?;
 
-    let child = if !cfg!(windows) && !*DISABLE_NSJAIL {
+    let child = if !cfg!(windows) && is_sandboxing_enabled() {
         append_logs(
             &job.id,
             &job.workspace_id,
@@ -605,6 +612,7 @@ async fn run<'a>(
         cmd.env_clear()
             .current_dir(job_dir)
             .env("PATH", PATH_ENV.as_str())
+            .env("HOME", JAVA_HOME_DIR)
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(envs)
             .envs(reserved_variables)
@@ -662,6 +670,7 @@ async fn run<'a>(
         cmd.env_clear()
             .current_dir(job_dir.to_owned())
             .env("PATH", PATH_ENV.as_str())
+            .env("HOME", JAVA_HOME_DIR)
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(envs)
             .envs(reserved_variables);
@@ -712,7 +721,7 @@ async fn run<'a>(
         mem_peak,
         canceled_by,
         child,
-        !*DISABLE_NSJAIL,
+        is_sandboxing_enabled(),
         worker_name,
         &job.workspace_id,
         "java",
@@ -739,18 +748,15 @@ fn parse_proxy() -> anyhow::Result<JavaProxySettings> {
     for (ident, mut val) in PROXY_ENVS.clone() {
         match ident {
             "HTTPS_PROXY" => {
-                if val.contains("http://") {
-                    bail!("HTTPS_PROXY url cannot contain http scheme.");
-                }
-                if !val.contains("https://") {
+                if !val.contains("://") {
                     val = format!("https://{val}");
                 }
                 let mut url = url::Url::parse(&val)?;
                 let port = url.port();
-                // Make sure port and schema is not included in final url
                 {
                     url.set_port(None).unwrap_or_default();
-                    jps.https_host = Some(url.as_str().replace("https://", ""));
+                    let host = url.as_str().replace("https://", "").replace("http://", "");
+                    jps.https_host = Some(host);
                     if let Some(port) = port {
                         jps.https_port = Some(format!("{}", port));
                     }

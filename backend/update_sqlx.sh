@@ -12,9 +12,9 @@ if [[ "$(uname)" == "Darwin" ]]; then
 
     # Run cargo sqlx prepare with deno_core_mac
     echo "Running cargo sqlx prepare with deno_core_mac..."
-    cargo sqlx prepare --workspace -- --all-targets --features all_sqlx_features,private,deno_core_mac
+    cargo sqlx prepare --workspace -- --workspace --all-targets --features all_sqlx_features,private,deno_core_mac,deno_core,enterprise,mcp
 else
     # Run cargo sqlx prepare
     echo "Running cargo sqlx prepare..."
-    cargo sqlx prepare --workspace -- --all-targets --features all_sqlx_features,ee
+    cargo sqlx prepare --workspace -- --workspace --all-targets --features all_sqlx_features,ee,deno_core,private,enterprise,mcp
 fi

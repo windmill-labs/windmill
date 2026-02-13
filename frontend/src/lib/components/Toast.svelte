@@ -97,9 +97,9 @@
 
 	let showMore = $state(false)
 	const MAX_MSG_LEN = 160
-	let isLongMessage = $derived(message.length > MAX_MSG_LEN)
+	let isLongMessage = $derived((message ?? '').length > MAX_MSG_LEN)
 	let displayMessage = $derived(
-		isLongMessage && !showMore ? message.slice(0, MAX_MSG_LEN) + '... ' : message
+		isLongMessage && !showMore ? (message ?? '').slice(0, MAX_MSG_LEN) + '... ' : (message ?? '')
 	)
 	// let hover = $derived(Object.values(toastStates).some((state) => state.hover))
 </script>

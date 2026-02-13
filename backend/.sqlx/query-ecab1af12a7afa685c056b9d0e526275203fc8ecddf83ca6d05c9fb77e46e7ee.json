@@ -21,7 +21,8 @@
             "name": "native_trigger_service",
             "kind": {
               "Enum": [
-                "nextcloud"
+                "nextcloud",
+                "google"
               ]
             }
           }
@@ -71,7 +72,8 @@
             "name": "native_trigger_service",
             "kind": {
               "Enum": [
-                "nextcloud"
+                "nextcloud",
+                "google"
               ]
             }
           }

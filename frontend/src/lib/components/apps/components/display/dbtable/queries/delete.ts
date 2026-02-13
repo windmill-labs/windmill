@@ -103,7 +103,9 @@ export function getDeleteInput(
 				? {
 						database: {
 							type: 'static',
-							value: `$res:${dbInput.resourcePath}`,
+							value: dbInput.resourcePath.startsWith('datatable://')
+								? dbInput.resourcePath
+								: `$res:${dbInput.resourcePath}`,
 							fieldType: 'object',
 							format: `resource-${dbType}`
 						}

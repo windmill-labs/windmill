@@ -16,6 +16,7 @@ pub const POWERSHELL_REPO_PAT_SETTING: &str = "powershell_repo_pat";
 pub const MAVEN_REPOS_SETTING: &str = "maven_repos";
 pub const NO_DEFAULT_MAVEN_SETTING: &str = "no_default_maven";
 pub const RUBY_REPOS_SETTING: &str = "ruby_repos";
+pub const CARGO_REGISTRIES_SETTING: &str = "cargo_registries";
 
 pub const EXTRA_PIP_INDEX_URL_SETTING: &str = "pip_extra_index_url";
 pub const PIP_INDEX_URL_SETTING: &str = "pip_index_url";
@@ -34,6 +35,7 @@ pub const EXPOSE_METRICS_SETTING: &str = "expose_metrics";
 pub const EXPOSE_DEBUG_METRICS_SETTING: &str = "expose_debug_metrics";
 pub const KEEP_JOB_DIR_SETTING: &str = "keep_job_dir";
 pub const REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING: &str = "require_preexisting_user_for_oauth";
+pub const JOB_ISOLATION_SETTING: &str = "job_isolation";
 pub const OBJECT_STORE_CONFIG_SETTING: &str = "object_store_cache_config";
 pub const HUB_API_SECRET_SETTING: &str = "hub_api_secret";
 
@@ -82,6 +84,7 @@ pub const ENV_SETTINGS: &[&str] = &[
     "GOPRIVATE",
     "GOPROXY",
     "NETRC",
+    "CARGO_REGISTRIES",
     "INSTANCE_PYTHON_VERSION",
     "PIP_INDEX_URL",
     "PIP_EXTRA_INDEX_URL",

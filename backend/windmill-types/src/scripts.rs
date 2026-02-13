@@ -606,7 +606,7 @@ pub struct HubScript {
     pub summary: Option<String>,
 }
 
-pub fn hash_script(ns: &NewScript) -> i64 {
+pub fn hash_script(ns: impl std::hash::Hash) -> i64 {
     let mut dh = std::hash::DefaultHasher::new();
     ns.hash(&mut dh);
     dh.finish() as i64
