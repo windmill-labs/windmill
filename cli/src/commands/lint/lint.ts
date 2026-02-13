@@ -60,17 +60,27 @@ function formatTarget(target: ValidationTarget): string {
   return target.type;
 }
 
-function formatValidationError(error: {
+export function formatValidationError(error: {
   instancePath?: string;
   keyword?: string;
   message?: string;
-  params?: { missingProperty?: string; allowedValues?: unknown[] };
+  params?: {
+    missingProperty?: string;
+    allowedValues?: unknown[];
+    additionalProperty?: string;
+  };
 }): string {
   const instancePath = error.instancePath && error.instancePath.length > 0
     ? error.instancePath
     : "/";
   if (error.keyword === "required" && error.params?.missingProperty) {
     return `${instancePath} missing required property '${error.params.missingProperty}'`;
+  }
+  if (
+    error.keyword === "additionalProperties" &&
+    error.params?.additionalProperty
+  ) {
+    return `${instancePath} has unknown property '${error.params.additionalProperty}'`;
   }
   if (error.keyword === "enum" && error.params?.allowedValues) {
     const allowed = error.params.allowedValues
