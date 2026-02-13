@@ -304,7 +304,7 @@
 			signature_options_type = 'custom_signature'
 		}
 		if (!isCloudHosted()) {
-			static_asset_config = cfg?.static_asset_config
+			static_asset_config = cfg?.static_asset_config ?? undefined
 			s3FileUploadRawMode = !!cfg?.static_asset_config
 			is_static_website = cfg?.is_static_website ?? false
 		}

@@ -23,7 +23,7 @@ export async function loadSchedule(path: string, workspace: string): Promise<Sch
 	})
 
 	return {
-		summary: schedule.summary,
+		summary: schedule.summary ?? undefined,
 		enabled: schedule.enabled,
 		cron: schedule.schedule,
 		timezone: schedule.timezone,
@@ -65,7 +65,7 @@ export async function loadSchedules(
 		} else {
 			remotePrimarySchedule = primary
 				? {
-						summary: primary.summary,
+						summary: primary.summary ?? undefined,
 						args: primary.args ?? {},
 						cron: primary.schedule,
 						timezone: primary.timezone,
