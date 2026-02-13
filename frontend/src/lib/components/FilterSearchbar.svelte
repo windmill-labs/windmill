@@ -1,5 +1,6 @@
 <script lang="ts" module>
 	import { z } from 'zod'
+	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
 
 	export type FilterSchemaRec = Record<string, FilterSchema>
 	export type FilterSchema = (
@@ -53,9 +54,9 @@
 			} else if (filterSchema.type === 'number') {
 				fieldSchema = z.number().nullable().default(null)
 			} else if (filterSchema.type === 'boolean') {
-				fieldSchema = z.boolean().default(false)
+				fieldSchema = z.boolean().nullable().default(null)
 			} else if (filterSchema.type === 'date') {
-				fieldSchema = z.date().nullable().default(null)
+				fieldSchema = z.string().nullable().default(null)
 			} else if (filterSchema.type === 'oneof') {
 				if (filterSchema.allowCustomValue) {
 					// If custom values are allowed, accept any string
@@ -74,6 +75,53 @@
 		}
 
 		return z.object(zodSchemaShape) as any
+	}
+
+	/**
+	 * Creates a URL-synced filter instance that automatically syncs with URL search parameters
+	 */
+	export function useUrlSyncedFilterInstance<T extends FilterSchemaRec>(
+		schemaRec: T
+	): { val: Partial<FilterInstanceRec<T>> } {
+		// Build the Zod schema from the filter schema
+		const zodSchema = filterSchemaRecToZodSchema(schemaRec)
+
+		// Create URL-synced search params
+		const urlFilter = useSearchParams(zodSchema)
+
+		// Create the filter instance object
+		const filterInstance: Partial<FilterInstanceRec<T>> = $state({})
+
+		// Sync URL params to filter instance on initialization and when URL changes
+		for (const key of Object.keys(schemaRec)) {
+			let urlValue = urlFilter[key]
+			if (schemaRec[key].type === 'date' && typeof urlValue === 'string') {
+				urlValue = new Date(urlValue)
+				if (isNaN(urlValue.getTime())) urlValue = null
+			}
+			if (urlValue !== undefined && urlValue !== null) {
+				;(filterInstance as any)[key] = urlValue
+			}
+		}
+
+		// Sync filter instance changes back to URL params
+		for (const key of Object.keys(schemaRec)) {
+			$effect(() => {
+				let filterValue = (filterInstance as any)[key]
+				if (schemaRec[key].type === 'date' && filterValue instanceof Date) {
+					// Convert Date to ISO string for URL
+					filterValue = filterValue.toISOString()
+				}
+				if (untrack(() => urlFilter[key]) == filterValue) return // Avoid unnecessary updates
+				if (filterValue !== undefined && filterValue !== null) {
+					urlFilter[key] = filterValue
+				} else {
+					urlFilter[key] = null
+				}
+			})
+		}
+
+		return { val: filterInstance }
 	}
 
 	function filterToText<F extends FilterSchema>(filter: FilterInstance<F>, schema: F): string {
@@ -121,6 +169,7 @@
 	import DateTimeInput from './DateTimeInput.svelte'
 	import TaggedTextInput from './TaggedTextInput.svelte'
 	import { useTransformedSyncedValue } from '$lib/svelte5Utils.svelte'
+	import { untrack } from 'svelte'
 
 	type Props<SchemaT extends FilterSchemaRec> = {
 		schema: SchemaT

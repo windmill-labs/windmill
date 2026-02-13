@@ -21,8 +21,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import {
 		buildRunsFilterSearchbarSchema,
-		runsFiltersSchema,
-		type RunsFilterSearchbarSchema
+		runsFiltersSchema
 	} from '$lib/components/runs/runsFilter'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
@@ -47,7 +46,7 @@
 		runsTimeframes,
 		useUrlSyncedTimeframe
 	} from './runs/TimeframeSelect.svelte'
-	import FilterSearchbar, { type FilterInstanceRec } from './FilterSearchbar.svelte'
+	import FilterSearchbar, { useUrlSyncedFilterInstance } from './FilterSearchbar.svelte'
 	import { jobTriggerKinds } from './triggers/utils'
 
 	interface Props {
@@ -476,7 +475,7 @@
 	let runsFilterSearchbarSchema = $derived(
 		buildRunsFilterSearchbarSchema({ paths, usernames, folders, jobTriggerKinds })
 	)
-	let filterSearchBarValue: Partial<FilterInstanceRec<RunsFilterSearchbarSchema>> = $state({})
+	let filterSearchBarValue = useUrlSyncedFilterInstance(untrack(() => runsFilterSearchbarSchema))
 </script>
 
 <ConfirmationModal
@@ -589,7 +588,7 @@
 				<FilterSearchbar
 					class="w-[24rem]"
 					schema={runsFilterSearchbarSchema}
-					bind:value={filterSearchBarValue}
+					bind:value={filterSearchBarValue.val}
 				/>
 			</div>
 		</div>
