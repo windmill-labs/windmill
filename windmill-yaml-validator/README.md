@@ -186,6 +186,44 @@ Run tests in watch mode:
 npm test:watch
 ```
 
+### Testing locally with the CLI
+
+The Windmill CLI (`cli/`) is Deno-based and imports this package via `npm:windmill-yaml-validator@2.0.0`. Since Deno's `npm:` specifier always resolves from the npm registry, local testing requires a compatibility script that makes the TypeScript sources directly importable by Deno.
+
+The `deno-compat.sh` script handles two Deno requirements:
+- Adding `.ts` extensions to relative imports
+- Adding `with { type: "json" }` assertions to JSON imports
+
+**Steps:**
+
+1. Apply Deno compatibility:
+
+```bash
+./deno-compat.sh
+```
+
+2. Add the following entries to `cli/deno.json` imports:
+
+```json
+"npm:windmill-yaml-validator@2.0.0": "../windmill-yaml-validator/src/index.ts",
+"ajv": "npm:ajv@^8.17.1",
+"@stoplight/yaml": "npm:@stoplight/yaml@^4.3.0"
+```
+
+3. Run the CLI directly with Deno:
+
+```bash
+cd ../cli
+deno run -A src/main.ts lint
+```
+
+4. When done, restore everything:
+
+```bash
+./deno-compat.sh -r     # restore original imports
+# Remove the 3 import map lines from cli/deno.json
+```
+
 ### Schema Generation
 
 The validator uses a JSON schema generated from the OpenAPI specification:
