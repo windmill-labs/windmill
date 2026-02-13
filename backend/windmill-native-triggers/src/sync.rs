@@ -221,7 +221,7 @@ pub async fn sync_workspace_triggers<T: External>(
     let integration_service = T::SERVICE_NAME.integration_service();
 
     let oauth_data = {
-        match decrypt_oauth_data(db, db, workspace_id, integration_service).await {
+        match decrypt_oauth_data(db, workspace_id, integration_service).await {
             Ok(oauth_data) => oauth_data,
             Err(e) => {
                 tracing::error!(

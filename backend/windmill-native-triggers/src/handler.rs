@@ -133,7 +133,7 @@ async fn create_native_trigger<T: External>(
 
     let integration_service = service_name.integration_service();
     let oauth_data: T::OAuthData =
-        decrypt_oauth_data(&mut *tx, &db, &workspace_id, integration_service).await?;
+        decrypt_oauth_data(&db, &workspace_id, integration_service).await?;
 
     let resp = handler
         .create(
@@ -221,22 +221,32 @@ async fn update_native_trigger_handler<T: External>(
     )
     .await?;
 
-    let mut tx = user_db.begin(&authed).await?;
+    let integration_service = service_name.integration_service();
+    let oauth_data: T::OAuthData =
+        decrypt_oauth_data(&db, &workspace_id, integration_service).await?;
+
+    let mut tx = user_db.clone().begin(&authed).await?;
 
     let existing = get_native_trigger(&mut *tx, &workspace_id, service_name, &external_id)
         .await?
         .ok_or_else(|| Error::NotFound(format!("Native trigger not found: {}", external_id)))?;
 
-    // Look up the full token using the stored prefix (use db, not tx, for token table)
+    let runnable_changed =
+        existing.script_path != data.script_path || existing.is_flow != data.is_flow;
+
     let webhook_token = match get_token_by_prefix(&db, &existing.webhook_token_prefix).await? {
-        Some(token) => token,
-        None => {
-            tracing::warn!(
-                "Webhook token not found for trigger {} (prefix: {}), recreating token",
-                external_id,
-                existing.webhook_token_prefix
-            );
-            new_webhook_token(
+        Some(token) if !runnable_changed => token,
+        existing_token => {
+            if let Some(_) = existing_token {
+                delete_token_by_prefix(&db, &existing.webhook_token_prefix).await?;
+            } else {
+                tracing::warn!(
+                    "Webhook token not found for trigger {} (prefix: {}), recreating token",
+                    external_id,
+                    existing.webhook_token_prefix
+                );
+            }
+            let token = new_webhook_token(
                 &mut *tx,
                 &db,
                 &authed,
@@ -245,13 +255,12 @@ async fn update_native_trigger_handler<T: External>(
                 &workspace_id,
                 service_name,
             )
-            .await?
+            .await?;
+            tx.commit().await?;
+            tx = user_db.begin(&authed).await?;
+            token
         }
     };
-
-    let integration_service = service_name.integration_service();
-    let oauth_data: T::OAuthData =
-        decrypt_oauth_data(&mut *tx, &db, &workspace_id, integration_service).await?;
 
     let service_config = handler
         .update(
@@ -325,7 +334,7 @@ async fn get_native_trigger_handler<T: External>(
 
     let integration_service = service_name.integration_service();
     let oauth_data: T::OAuthData =
-        decrypt_oauth_data(&mut *tx, &db, &workspace_id, integration_service).await?;
+        decrypt_oauth_data(&db, &workspace_id, integration_service).await?;
 
     let native_trigger = handler
         .get(&workspace_id, &oauth_data, &external_id, &db, &mut tx)
@@ -408,7 +417,7 @@ async fn delete_native_trigger_handler<T: External>(
 
     let integration_service = service_name.integration_service();
     let oauth_data: T::OAuthData =
-        decrypt_oauth_data(&mut *tx, &db, &workspace_id, integration_service).await?;
+        decrypt_oauth_data(&db, &workspace_id, integration_service).await?;
 
     handler
         .delete(&workspace_id, &oauth_data, &external_id, &db, &mut tx)

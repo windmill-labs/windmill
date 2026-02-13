@@ -254,7 +254,7 @@ async fn delete_triggers_for_service(db: &DB, workspace_id: &str, service_name: 
     // For Nextcloud: try to delete webhooks on the remote instance (best-effort)
     if service_name == ServiceName::Nextcloud {
         if let Ok(oauth_data) =
-            decrypt_oauth_data::<_, BasicOAuthData>(db, db, workspace_id, service_name).await
+            decrypt_oauth_data::<BasicOAuthData>(db, workspace_id, service_name).await
         {
             for trigger in &triggers {
                 try_delete_nextcloud_webhook(

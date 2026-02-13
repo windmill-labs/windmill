@@ -7,7 +7,7 @@ use axum::{
 };
 use http::Method;
 use serde::{Deserialize, Serialize};
-use windmill_common::{db::UserDB, error::JsonResult, DB};
+use windmill_common::{error::JsonResult, DB};
 
 use crate::{get_workspace_integration, External, ServiceName};
 use windmill_api_auth::ApiAuthed;
@@ -81,14 +81,12 @@ pub struct DriveFilesQuery {
 }
 
 async fn list_calendars(
-    authed: ApiAuthed,
+    _authed: ApiAuthed,
     Extension(handler): Extension<Arc<Google>>,
     Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
     Path(workspace_id): Path<String>,
 ) -> JsonResult<Vec<GoogleCalendarEntry>> {
-    let mut tx = user_db.begin(&authed).await?;
-    get_workspace_integration(&mut *tx, &workspace_id, ServiceName::Google).await?;
+    get_workspace_integration(&db, &workspace_id, ServiceName::Google).await?;
 
     let url = format!(
         "{}/users/me/calendarList",
@@ -96,9 +94,8 @@ async fn list_calendars(
     );
 
     let response: GoogleCalendarListResponse = handler
-        .http_client_request::<_, ()>(&url, Method::GET, &workspace_id, &mut *tx, &db, None, None)
+        .http_client_request::<_, ()>(&url, Method::GET, &workspace_id, &db, None, None)
         .await?;
-    tx.commit().await?;
 
     let calendars = response
         .items
@@ -114,15 +111,13 @@ async fn list_calendars(
 }
 
 async fn list_drive_files(
-    authed: ApiAuthed,
+    _authed: ApiAuthed,
     Extension(handler): Extension<Arc<Google>>,
     Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
     Path(workspace_id): Path<String>,
     Query(query): Query<DriveFilesQuery>,
 ) -> JsonResult<GoogleDriveFilesResponse> {
-    let mut tx = user_db.begin(&authed).await?;
-    get_workspace_integration(&mut *tx, &workspace_id, ServiceName::Google).await?;
+    get_workspace_integration(&db, &workspace_id, ServiceName::Google).await?;
 
     let drive_query = if query.shared_with_me {
         "sharedWithMe = true and trashed = false".to_string()
@@ -145,9 +140,8 @@ async fn list_drive_files(
     }
 
     let response: DriveApiResponse = handler
-        .http_client_request::<_, ()>(&url, Method::GET, &workspace_id, &mut *tx, &db, None, None)
+        .http_client_request::<_, ()>(&url, Method::GET, &workspace_id, &db, None, None)
         .await?;
-    tx.commit().await?;
 
     let files = response
         .files
@@ -185,14 +179,12 @@ struct SharedDriveApiEntry {
 }
 
 async fn list_shared_drives(
-    authed: ApiAuthed,
+    _authed: ApiAuthed,
     Extension(handler): Extension<Arc<Google>>,
     Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
     Path(workspace_id): Path<String>,
 ) -> JsonResult<Vec<SharedDriveEntry>> {
-    let mut tx = user_db.begin(&authed).await?;
-    get_workspace_integration(&mut *tx, &workspace_id, ServiceName::Google).await?;
+    get_workspace_integration(&db, &workspace_id, ServiceName::Google).await?;
 
     let url = format!(
         "{}/drives?pageSize=100&fields=drives(id,name)",
@@ -200,9 +192,8 @@ async fn list_shared_drives(
     );
 
     let response: SharedDrivesApiResponse = handler
-        .http_client_request::<_, ()>(&url, Method::GET, &workspace_id, &mut *tx, &db, None, None)
+        .http_client_request::<_, ()>(&url, Method::GET, &workspace_id, &db, None, None)
         .await?;
-    tx.commit().await?;
 
     let drives = response
         .drives

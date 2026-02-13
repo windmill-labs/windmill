@@ -342,13 +342,12 @@ pub trait External: Send + Sync + 'static {
         url: &str,
         method: Method,
         workspace_id: &str,
-        tx: &mut PgConnection,
         db: &DB,
         headers: Option<HashMap<String, String>>,
         body: Option<&B>,
     ) -> Result<T> {
         let oauth_config: OAuthConfig =
-            decrypt_oauth_data(tx, db, workspace_id, Self::SERVICE_NAME).await?;
+            decrypt_oauth_data(db, workspace_id, Self::SERVICE_NAME).await?;
 
         let result = make_http_request(
             url,
@@ -511,17 +510,12 @@ async fn get_instance_oauth_credentials(
     .await
 }
 
-pub async fn decrypt_oauth_data<
-    'c,
-    E: sqlx::Executor<'c, Database = Postgres>,
-    T: DeserializeOwned,
->(
-    tx: E,
+pub async fn decrypt_oauth_data<T: DeserializeOwned>(
     db: &DB,
     workspace_id: &str,
     service_name: ServiceName,
 ) -> Result<T> {
-    let integration = get_workspace_integration(tx, workspace_id, service_name).await?;
+    let integration = get_workspace_integration(db, workspace_id, service_name).await?;
     let oauth_data = integration.oauth_data;
 
     let resource_path = integration.resource_path.as_deref().ok_or_else(|| {

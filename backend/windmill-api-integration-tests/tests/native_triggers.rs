@@ -153,7 +153,7 @@ async fn test_resource_path_change(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     // Verify decrypt works at path A
     let config: OAuthConfig =
-        decrypt_oauth_data(&db, &db, "test-workspace", ServiceName::Google).await?;
+        decrypt_oauth_data(&db, "test-workspace", ServiceName::Google).await?;
     assert_eq!(config.access_token, "token-a");
 
     // Cleanup old path
@@ -199,7 +199,7 @@ async fn test_resource_path_change(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     // Path B should work
     let config: OAuthConfig =
-        decrypt_oauth_data(&db, &db, "test-workspace", ServiceName::Google).await?;
+        decrypt_oauth_data(&db, "test-workspace", ServiceName::Google).await?;
     assert_eq!(config.access_token, "token-b");
     assert_eq!(config.refresh_token.as_deref(), Some("refresh-b"));
 
@@ -224,7 +224,7 @@ async fn test_decrypt_workspace_level(db: Pool<Postgres>) -> anyhow::Result<()> 
     .await?;
 
     let config: OAuthConfig =
-        decrypt_oauth_data(&db, &db, "test-workspace", ServiceName::Google).await?;
+        decrypt_oauth_data(&db, "test-workspace", ServiceName::Google).await?;
 
     assert_eq!(config.access_token, "ws-access-token");
     assert_eq!(config.refresh_token.as_deref(), Some("ws-refresh-token"));
@@ -269,7 +269,7 @@ async fn test_decrypt_instance_level(db: Pool<Postgres>) -> anyhow::Result<()> {
     .await?;
 
     let config: OAuthConfig =
-        decrypt_oauth_data(&db, &db, "test-workspace", ServiceName::Google).await?;
+        decrypt_oauth_data(&db, "test-workspace", ServiceName::Google).await?;
 
     assert_eq!(config.client_id, "instance-client-id");
     assert_eq!(config.client_secret, "instance-client-secret");
@@ -293,7 +293,7 @@ async fn test_token_update_persists(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     // Verify old tokens
     let config: OAuthConfig =
-        decrypt_oauth_data(&db, &db, "test-workspace", ServiceName::Google).await?;
+        decrypt_oauth_data(&db, "test-workspace", ServiceName::Google).await?;
     assert_eq!(config.access_token, "old-access-token");
 
     // Simulate token refresh: update variable + account
@@ -317,7 +317,7 @@ async fn test_token_update_persists(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     // Verify new tokens
     let config: OAuthConfig =
-        decrypt_oauth_data(&db, &db, "test-workspace", ServiceName::Google).await?;
+        decrypt_oauth_data(&db, "test-workspace", ServiceName::Google).await?;
     assert_eq!(config.access_token, "new-access-token");
     assert_eq!(config.refresh_token.as_deref(), Some("new-refresh-token"));
 
