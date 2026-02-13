@@ -67,13 +67,20 @@ function formatValidationError(error: {
   instancePath?: string;
   keyword?: string;
   message?: string;
-  params?: { missingProperty?: string };
+  params?: { missingProperty?: string; allowedValues?: unknown[] };
 }): string {
   const instancePath = error.instancePath && error.instancePath.length > 0
     ? error.instancePath
     : "/";
   if (error.keyword === "required" && error.params?.missingProperty) {
     return `${instancePath} missing required property '${error.params.missingProperty}'`;
+  }
+  if (error.keyword === "enum" && error.params?.allowedValues) {
+    const allowed = error.params.allowedValues
+      .filter((v) => v !== null)
+      .map((v) => `'${v}'`)
+      .join(", ");
+    return `${instancePath} must be one of: ${allowed}`;
   }
   if (error.message) {
     return `${instancePath} ${error.message}`;
