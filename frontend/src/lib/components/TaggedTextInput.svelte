@@ -250,11 +250,13 @@
 	}
 
 	function handleKeyup(e: KeyboardEvent) {
+		if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter') return
 		const cursorPos = getCursorPosition()
 		updateCurrentTag(cursorPos)
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {
+		if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter') return
 		const cursorPos = getCursorPosition()
 		const text = getTextContent()
 
