@@ -3,7 +3,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { getContext, untrack } from 'svelte'
 	import type { AppViewerContext, ComponentCssProperty } from '../../types'
-	import { ccomponents, components, type AppComponent } from '../component'
+	import { ccomponents, components } from '../component'
 	import CssProperty from '../componentsPanel/CssProperty.svelte'
 	import { quickStyleProperties } from '../componentsPanel/quickStyleProperties'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
@@ -16,7 +16,7 @@
 	import CssMigrationModal from './CSSMigrationModal.svelte'
 	import CssPropertyWrapper from './CssPropertyWrapper.svelte'
 	import { onMount } from 'svelte'
-	import { findGridItemById } from '../appUtilsCore'
+	import { findGridItemWithLocation, type GridItemWithLocation } from '../appUtils'
 
 	const { app, cssEditorOpen, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -24,32 +24,48 @@
 	let overrideGlobalCSS: (() => void) | undefined = $state(undefined)
 	let overrideLocalCSS: (() => void) | undefined = $state(undefined)
 
-	let component: AppComponent | undefined = $derived(
-		findGridItemById($app.grid, $app.subgrids, $selectedComponent?.[0] ?? '')?.data
+	let componentWithLocation: GridItemWithLocation | undefined = $derived(
+		findGridItemWithLocation($app, $selectedComponent?.[0] ?? '')
 	)
+	let component = $derived(componentWithLocation?.item.data)
+	let type = $derived(component?.type)
+
+	function updateComponentData(
+		loc: GridItemWithLocation,
+		updater: (data: typeof loc.item.data) => typeof loc.item.data
+	) {
+		const { location } = loc
+		if (location.type === 'subgrid') {
+			const item = $app.subgrids?.[location.subgridKey]?.[location.subgridItemIndex]
+			if (item) {
+				item.data = updater(item.data)
+			}
+		} else {
+			const item = $app.grid[location.gridItemIndex]
+			if (item) {
+				item.data = updater(item.data)
+			}
+		}
+		app.set($app)
+	}
 
 	$effect.pre(() => {
 		if (
-			(component && component?.customCss === undefined) ||
+			(componentWithLocation && component?.customCss === undefined) ||
 			(Object.keys(component?.customCss ?? {}).length === 0 &&
 				Object.keys(ccomponents[component?.type ?? '']?.customCss ?? {}).length > 0)
 		) {
 			untrack(() => {
-				let oldComponent = findGridItemById($app.grid, $app.subgrids, $selectedComponent?.[0] ?? '')
-				if (oldComponent) {
-					oldComponent.data = {
-						...(oldComponent.data ?? {}),
-						customCss: JSON.parse(
-							JSON.stringify(ccomponents[component?.type ?? '']?.customCss ?? {})
-						)
-					}
+				if (componentWithLocation) {
+					updateComponentData(componentWithLocation, (data) => ({
+						...data,
+						customCss: structuredClone(ccomponents[component?.type ?? '']?.customCss ?? {})
+					}))
 				}
 			})
-			app.set($app)
 		}
 	})
 
-	let type = $derived(component?.type)
 	let migrationModal: CssMigrationModal | undefined = $state(undefined)
 
 	let customCssByComponentType = $derived(
@@ -123,6 +139,17 @@
 			$app.css[component.type] = JSON.parse(JSON.stringify(components[component.type].customCss))
 			app.set($app)
 		}
+	}
+
+	function updateCssProperty(name: string, cssValue: ComponentCssProperty | undefined) {
+		if (!componentWithLocation || !cssValue) return
+		updateComponentData(componentWithLocation, (data) => ({
+			...data,
+			customCss: {
+				...(data?.customCss ?? {}),
+				[name]: cssValue
+			}
+		}))
 	}
 
 	function getSelector(key: string) {
@@ -218,8 +245,7 @@
 										componentType={component.type}
 										bind:value={component.customCss[name]}
 										on:change={() => {
-											console.log('change')
-											app.set($app)
+											updateCssProperty(name, component?.customCss?.[name])
 										}}
 										shouldDisplayRight={hasStyleValue(component.customCss[name])}
 										on:right={() => {

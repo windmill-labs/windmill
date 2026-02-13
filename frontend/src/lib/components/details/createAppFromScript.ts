@@ -1,3 +1,5 @@
+import { ccomponents } from '../apps/editor/component'
+
 export function createAppFromScript(path: string, schema: Record<string, any> | undefined) {
 	return {
 		grid: [
@@ -22,7 +24,7 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 					type: 'verticalsplitpanescomponent',
 					configuration: {},
 					panes: [50, 50],
-					customCss: {},
+					customCss: ccomponents['verticalsplitpanescomponent'].customCss,
 					numberOfSubgrids: 2,
 					id: 'a'
 				},
@@ -103,7 +105,7 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 							fieldType: 'schema',
 							value: schema
 						},
-						customCss: {},
+						customCss: ccomponents['schemaformcomponent'].customCss,
 						id: 'c'
 					},
 					id: 'c'
@@ -291,7 +293,7 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 							autoRefresh: true,
 							recomputeOnInputChanged: true
 						},
-						customCss: {},
+						customCss: ccomponents['buttoncomponent'].customCss,
 						recomputeIds: [],
 						horizontalAlignment: 'right',
 						verticalAlignment: 'center',
@@ -327,7 +329,7 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 							}
 						},
 						tabs: ['Result', 'Logs'],
-						customCss: {},
+						customCss: ccomponents['tabscomponent'].customCss,
 						numberOfSubgrids: 2,
 						id: 'b',
 						disabledTabs: [
@@ -375,7 +377,7 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 								path: 'result'
 							}
 						},
-						customCss: {},
+						customCss: ccomponents['displaycomponent'].customCss,
 						id: 'e'
 					},
 					id: 'e'
@@ -410,7 +412,7 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 								}
 							}
 						},
-						customCss: {},
+						customCss: ccomponents['jobidlogcomponent'].customCss,
 						id: 'f'
 					},
 					id: 'f'
@@ -589,7 +591,7 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 					type: 'verticalsplitpanescomponent',
 					configuration: {},
 					panes: [50, 50],
-					customCss: {},
+					customCss: ccomponents['verticalsplitpanescomponent'].customCss,
 					numberOfSubgrids: 2,
 					id: 'a'
 				},
@@ -669,7 +671,7 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 							fieldType: 'schema',
 							value: schema
 						},
-						customCss: {},
+						customCss: ccomponents['schemaformcomponent'].customCss,
 						id: 'c'
 					},
 					id: 'c'
@@ -857,7 +859,7 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 							autoRefresh: false,
 							recomputeOnInputChanged: false
 						},
-						customCss: {},
+						customCss: ccomponents['buttoncomponent'].customCss,
 						recomputeIds: [],
 						horizontalAlignment: 'right',
 						verticalAlignment: 'center',
@@ -893,7 +895,7 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 							}
 						},
 						tabs: ['Result', 'Logs'],
-						customCss: {},
+						customCss: ccomponents['tabscomponent'].customCss,
 						numberOfSubgrids: 2,
 						id: 'b',
 						disabledTabs: [
@@ -942,7 +944,7 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 								}
 							}
 						},
-						customCss: {},
+						customCss: ccomponents['jobidflowstatuscomponent'].customCss,
 						id: 'e'
 					},
 					id: 'e'
@@ -977,7 +979,7 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 								}
 							}
 						},
-						customCss: {},
+						customCss: ccomponents['jobidlogcomponent'].customCss,
 						id: 'f'
 					},
 					id: 'f'
