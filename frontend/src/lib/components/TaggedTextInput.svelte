@@ -376,6 +376,29 @@
 			range.collapse(true)
 			selection.removeAllRanges()
 			selection.addRange(range)
+
+			// Ensure cursor is visible by scrolling if needed
+			ensureCursorVisible()
+		}
+	}
+
+	function ensureCursorVisible() {
+		if (!contentEditableDiv) return
+
+		const selection = window.getSelection()
+		if (!selection || selection.rangeCount === 0) return
+
+		const range = selection.getRangeAt(0)
+		const rect = range.getBoundingClientRect()
+		const containerRect = contentEditableDiv.getBoundingClientRect()
+
+		// Check if cursor is outside the visible area horizontally
+		if (rect.left < containerRect.left) {
+			// Cursor is to the left of visible area
+			contentEditableDiv.scrollLeft -= containerRect.left - rect.left + 10
+		} else if (rect.right > containerRect.right) {
+			// Cursor is to the right of visible area
+			contentEditableDiv.scrollLeft += rect.right - containerRect.right + 10
 		}
 	}
 
