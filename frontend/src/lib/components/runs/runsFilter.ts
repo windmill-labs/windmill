@@ -46,26 +46,26 @@ export function buildRunsFilterSearchbarSchema({
 }) {
 	return {
 		min_ts: {
-			type: 'date',
+			type: 'date' as const,
 			label: 'From',
 			icon: Calendar,
 			description: 'Only include jobs that completed after this date'
 		},
 		max_ts: {
-			type: 'date',
+			type: 'date' as const,
 			label: 'To',
 			icon: Calendar,
 			description: 'Only include jobs that completed before this date'
 		},
 		path: {
-			type: 'oneof',
+			type: 'oneof' as const,
 			options: paths.map((s) => ({ label: s, value: s })),
 			allowCustomValue: true,
 			label: 'Path',
 			description: 'Filter by script or flow path'
 		},
 		user: {
-			type: 'oneof',
+			type: 'oneof' as const,
 			options: usernames.map((s) => ({ label: s, value: s })),
 			allowCustomValue: true,
 			label: 'User',
@@ -73,7 +73,7 @@ export function buildRunsFilterSearchbarSchema({
 			description: 'Filter by user who created the job'
 		},
 		folder: {
-			type: 'oneof',
+			type: 'oneof' as const,
 			options: folders.map((s) => ({ label: s, value: s })),
 			allowCustomValue: true,
 			label: 'Folder',
@@ -81,50 +81,50 @@ export function buildRunsFilterSearchbarSchema({
 			description: 'Filter by folder containing the script or flow'
 		},
 		label: {
-			type: 'string',
+			type: 'string' as const,
 			label: 'Label',
 			description: 'Filter by custom label attached to jobs'
 		},
-		tag: { type: 'string', label: 'Tag', description: 'Filter by worker tag' },
+		tag: { type: 'string' as const, label: 'Tag', description: 'Filter by worker tag' },
 		worker: {
-			type: 'string',
+			type: 'string' as const,
 			label: 'Worker',
 			description: 'Filter by specific worker instance'
 		},
 		schedule_path: {
-			type: 'string',
+			type: 'string' as const,
 			label: 'Schedule path',
 			description: 'Filter by schedule that triggered the job'
 		},
 		concurrency_key: {
-			type: 'string',
+			type: 'string' as const,
 			label: 'Concurrency key',
 			description: 'Filter by concurrency limit key'
 		},
 		job_kinds: {
-			type: 'oneof',
+			type: 'oneof' as const,
 			options: [
-				{ label: 'All', value: 'all' },
+				{ label: 'All', value: 'all' as const },
 				{
 					label: 'Runs (default)',
-					value: 'runs',
+					value: 'runs' as const,
 					description:
 						'Runs are jobs that have no parent jobs (flows are jobs that are parent of the jobs they start), they have been triggered through the UI, a schedule or webhook'
 				},
 				{
 					label: 'Dependencies',
-					value: 'dependencies',
+					value: 'dependencies' as const,
 					description:
 						'Deploying a script, flow or an app launch a dependency job that create and then attach the lockfile to the deployed item. This mechanism ensure that logic is always executed with the exact same direct and indirect dependencies.'
 				},
 				{
 					label: 'Previews',
-					value: 'previews',
+					value: 'previews' as const,
 					description: 'Previews are jobs that have been started in the editor as "Tests"'
 				},
 				{
 					label: 'Sync',
-					value: 'deploymentcallbacks',
+					value: 'deploymentcallbacks' as const,
 					description:
 						'Sync jobs that are triggered on every script deployment to sync the workspace with the Git repository configured in the the workspace settings'
 				}
@@ -133,23 +133,23 @@ export function buildRunsFilterSearchbarSchema({
 			description: 'Filter by job category'
 		},
 		status: {
-			type: 'oneof',
+			type: 'oneof' as const,
 			options: [
-				{ label: 'All (default)', value: 'all' },
-				{ label: 'Running', value: 'running' },
-				{ label: 'Success', value: 'success' },
-				{ label: 'Failure', value: 'failure' }
+				{ label: 'All (default)', value: 'all' as const },
+				{ label: 'Running', value: 'running' as const },
+				{ label: 'Success', value: 'success' as const },
+				{ label: 'Failure', value: 'failure' as const }
 			],
 			label: 'Status',
 			description: 'Filter by job execution status'
 		},
 		show_skipped: {
-			type: 'boolean',
+			type: 'boolean' as const,
 			label: 'Show skipped',
 			description: 'Include skipped flow steps'
 		},
 		job_trigger_kind: {
-			type: 'oneof',
+			type: 'oneof' as const,
 			label: 'Trigger kind',
 			options: jobTriggerKinds.map((value) => ({
 				label: triggerDisplayNamesMap[value],
@@ -158,16 +158,16 @@ export function buildRunsFilterSearchbarSchema({
 			description: 'Filter by how the job was triggered'
 		},
 		arg: {
-			type: 'string',
+			type: 'string' as const,
 			label: 'Args',
 			description: 'Filter by job arguments (JSON format)'
 		},
 		result: {
-			type: 'string',
+			type: 'string' as const,
 			label: 'Result',
 			description: 'Filter by job result (JSON format)'
 		}
-	} as const
+	}
 }
 
 export type RunsFilterSearchbarSchema = ReturnType<typeof buildRunsFilterSearchbarSchema>
