@@ -47,8 +47,8 @@ use windmill_common::{
         JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING,
         MAVEN_SETTINGS_XML_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
         NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING,
-        OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING,
-        POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
+        POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         RUBY_REPOS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING,
         TIMEOUT_WAIT_RESULT_SETTING, UV_INDEX_STRATEGY_SETTING,
@@ -61,8 +61,8 @@ use windmill_common::{
         MODE_AND_ADDONS,
     },
     worker::{
-        reload_custom_tags_setting, Connection, HUB_CACHE_DIR, HUB_RT_CACHE_DIR, TMP_DIR,
-        TMP_LOGS_DIR, WORKER_GROUP,
+        reload_custom_tags_setting, Connection, HUB_CACHE_DIR, HUB_RT_CACHE_DIR, NATIVE_MODE,
+        TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP,
     },
     KillpillSender, DEFAULT_HUB_BASE_URL, METRICS_ENABLED,
 };
@@ -653,6 +653,9 @@ async fn windmill_main() -> anyhow::Result<()> {
     #[allow(unused_mut)]
     let mut num_workers = if mode == Mode::Server || mode == Mode::Indexer || mode == Mode::MCP {
         0
+    } else if *NATIVE_MODE {
+        println!("NATIVE_MODE enabled: forcing NUM_WORKERS=8");
+        8
     } else {
         std::env::var("NUM_WORKERS")
             .ok()
@@ -660,10 +663,19 @@ async fn windmill_main() -> anyhow::Result<()> {
             .unwrap_or(DEFAULT_NUM_WORKERS as i32)
     };
 
-    // TODO: maybe gate behind debug_assertions?
-    if num_workers > 1 && !std::env::var("WORKER_GROUP").is_ok_and(|x| x == "native") {
+    if num_workers > 1 && !*NATIVE_MODE && *WORKER_GROUP != "native" {
+        if !std::env::var("I_ACK_NUM_WORKERS_IS_UNSAFE").is_ok_and(|x| x == "1" || x == "true") {
+            eprintln!(
+                "ERROR: NUM_WORKERS > 1 is only safe for native workers. \
+                 Set NATIVE_MODE=true for native-only workers, or set \
+                 I_ACK_NUM_WORKERS_IS_UNSAFE=1 to bypass this check at your own risk."
+            );
+            std::process::exit(1);
+        }
         println!(
-            "We STRONGLY recommend using at most 1 worker per container, use at your own risks"
+            "WARNING: Running with NUM_WORKERS={} without native mode. \
+             This is not recommended. Use at your own risk.",
+            num_workers
         );
     }
 

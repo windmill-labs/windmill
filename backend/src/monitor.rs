@@ -239,11 +239,13 @@ pub async fn initial_load(
             Connection::Http(_) => {
                 // TODO: reload worker config from http
                 let mut config = WORKER_CONFIG.write().await;
+                let worker_tags = DECODED_AGENT_TOKEN
+                    .as_ref()
+                    .map(|x| x.tags.clone())
+                    .unwrap_or_default();
+                let native_mode = windmill_common::worker::is_native_mode(&worker_tags);
                 *config = WorkerConfig {
-                    worker_tags: DECODED_AGENT_TOKEN
-                        .as_ref()
-                        .map(|x| x.tags.clone())
-                        .unwrap_or_default(),
+                    worker_tags,
                     env_vars: load_env_vars(
                         load_whitelist_env_vars_from_env(),
                         &std::collections::HashMap::new(),
@@ -257,6 +259,7 @@ pub async fn initial_load(
                     cache_clear: None,
                     additional_python_paths: None,
                     pip_local_dependencies: None,
+                    native_mode,
                 };
             }
         }
