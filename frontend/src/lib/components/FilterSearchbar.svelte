@@ -266,7 +266,7 @@
 		{#if !currentTag}
 			<div class="text-xs px-2 my-2 font-bold">Filters</div>
 			{#each menuItems as item, index}
-				{#if item.type === 'filter'}
+				{#if item.type === 'filter' && item.filterSchema}
 					{@render menuItem({
 						Icon: item.filterSchema.icon || SearchIcon,
 						onClick: item.onClick,
@@ -289,7 +289,7 @@
 	{#if filter.type === 'oneof'}
 		<div class="max-h-60 overflow-y-auto">
 			{#each menuItems as item, index}
-				{#if item.type === 'option'}
+				{#if item.type === 'option' && item.option}
 					{@render menuItem({
 						onClick: item.onClick,
 						label: item.option.label || item.option.value,
@@ -300,7 +300,7 @@
 		</div>
 	{:else if filter.type === 'boolean'}
 		{#each menuItems as item, index}
-			{#if item.type === 'boolean'}
+			{#if item.type === 'boolean' && item.label}
 				{@render menuItem({
 					onClick: item.onClick,
 					label: item.label,
