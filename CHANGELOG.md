@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.634.3](https://github.com/windmill-labs/windmill/compare/v1.634.2...v1.634.3) (2026-02-13)
+
+
+### Bug Fixes
+
+* fix incorrect oauth base url refresh error ([b3a1629](https://github.com/windmill-labs/windmill/commit/b3a1629e56217605d059d1dceca43c9999a58592))
+
 ## [1.634.2](https://github.com/windmill-labs/windmill/compare/v1.634.1...v1.634.2) (2026-02-13)
 
 
