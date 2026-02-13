@@ -133,7 +133,6 @@
 		) {
 			// Escape the space/backslash by adding backslash before it
 			newText = newText.slice(0, cursorPos - 1) + '\\' + newText.slice(cursorPos - 1)
-			console.log('Escaping space at position', cursorPos - 1, newText)
 			value = newText
 			updateDisplay(newText)
 			restoreCursor(cursorPos + 1)
@@ -238,6 +237,43 @@
 	function handleKeyDown(e: KeyboardEvent) {
 		const cursorPos = getCursorPosition()
 		const text = getTextContent()
+
+		// Handle Backspace key to remove escape sequences
+		if (e.key === 'Backspace') {
+			// Check if we're right after an escaped character (e.g., "abc\ |def")
+			// We want to remove both the backslash and the escaped character
+			if (cursorPos >= 2 && text[cursorPos - 2] === '\\') {
+				e.preventDefault()
+				isUpdating = true
+				// Remove both the backslash and the escaped character
+				const newText = text.slice(0, cursorPos - 2) + text.slice(cursorPos)
+				value = newText
+				updateDisplay(newText)
+				restoreCursor(cursorPos - 2)
+				updateCurrentTag(cursorPos - 2)
+				lastText = newText
+				isUpdating = false
+				return
+			}
+		}
+
+		// Handle Delete key to remove escape sequences
+		if (e.key === 'Delete') {
+			// Check if the character at cursor position is a backslash (escape character)
+			if (cursorPos < text.length && text[cursorPos] === '\\' && cursorPos + 1 < text.length) {
+				e.preventDefault()
+				isUpdating = true
+				// Remove both the backslash and the escaped character
+				const newText = text.slice(0, cursorPos) + text.slice(cursorPos + 2)
+				value = newText
+				updateDisplay(newText)
+				restoreCursor(cursorPos)
+				updateCurrentTag(cursorPos)
+				lastText = newText
+				isUpdating = false
+				return
+			}
+		}
 
 		// Handle arrow key navigation to skip escape sequences
 		if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
