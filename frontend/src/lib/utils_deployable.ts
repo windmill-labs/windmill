@@ -153,6 +153,7 @@ export async function getTriggersDeployData(kind: TriggerKind, path: string, wor
 
 		const data: GcpTriggerData = {
 			...gcpTrigger,
+			delivery_config: gcpTrigger.delivery_config ?? undefined,
 			base_endpoint:
 				gcpTrigger.delivery_type === 'push' ? `${window.location.origin}${base}` : undefined
 		}
@@ -540,7 +541,7 @@ export async function getTriggerDependency(kind: TriggerKind, path: string, work
 		result = retrieveKindsValues({
 			script_path,
 			is_flow,
-			resource_path: authentication_resource_path
+			resource_path: authentication_resource_path ?? undefined
 		})
 	} else if (kind === 'schedules') {
 		const { script_path, is_flow } = await ScheduleService.getSchedule({

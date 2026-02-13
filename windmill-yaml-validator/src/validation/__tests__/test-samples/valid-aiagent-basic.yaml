@@ -12,9 +12,18 @@ value:
       value:
         type: aiagent
         input_transforms:
-          prompt:
+          provider:
+            type: static
+            value:
+              kind: openai
+              resource: "$res:u/admin/openai"
+              model: gpt-4o-mini
+          user_message:
             type: static
             value: "Please analyze the data"
+          output_type:
+            type: static
+            value: text
         tools:
           - id: tool_1
             summary: Data fetcher

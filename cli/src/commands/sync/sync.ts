@@ -25,6 +25,7 @@ import {
   extractNativeTriggerInfo,
 } from "../../types.ts";
 import { downloadZip } from "./pull.ts";
+import { runLint, printReport } from "../lint/lint.ts";
 
 import {
   exts,
@@ -2209,6 +2210,16 @@ export async function push(
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
 
+  if (opts.lint) {
+    log.info("Running lint validation before push...");
+    const lintReport = await runLint(opts);
+    printReport(lintReport, !!opts.jsonOutput);
+    if (!lintReport.success) {
+      log.error(colors.red("Push aborted due to lint failures."));
+      Deno.exit(1);
+    }
+  }
+
   const codebases = await listSyncCodebases(opts);
   if (opts.raw) {
     log.info("--raw is now the default, you can remove it as a flag");
@@ -3055,6 +3066,7 @@ const command = new Command()
     "--branch <branch:string>",
     "Override the current git branch (works even outside a git repository)",
   )
+  .option("--lint", "Run lint validation before pushing")
   // deno-lint-ignore no-explicit-any
   .action(push as any);
 

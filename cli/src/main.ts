@@ -30,6 +30,7 @@ import sync from "./commands/sync/sync.ts";
 import gitsyncSettings from "./commands/gitsync-settings/gitsync-settings.ts";
 import instance from "./commands/instance/instance.ts";
 import workerGroups from "./commands/worker-groups/worker-groups.ts";
+import lint from "./commands/lint/lint.ts";
 
 import dev from "./commands/dev/dev.ts";
 import { GlobalOptions } from "./types.ts";
@@ -61,6 +62,7 @@ export {
   schedule,
   trigger,
   sync,
+  lint,
   gitsyncSettings,
   instance,
   dev,
@@ -131,6 +133,7 @@ const command = new Command()
   .command("trigger", trigger)
   .command("dev", dev)
   .command("sync", sync)
+  .command("lint", lint)
   .command("gitsync-settings", gitsyncSettings)
   .command("instance", instance)
   .command("worker-groups", workerGroups)

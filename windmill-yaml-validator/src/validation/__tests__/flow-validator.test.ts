@@ -1,9 +1,9 @@
-import { FlowValidator } from "../flow-validator";
+import { WindmillYamlValidator } from "../yaml-validator";
 import * as fs from "fs";
 import * as path from "path";
 
-describe("FlowValidator", () => {
-  let validator: FlowValidator;
+describe("WindmillYamlValidator", () => {
+  let validator: WindmillYamlValidator;
   const samplesDir = path.join(__dirname, "test-samples");
 
   const readSample = (filename: string): string => {
@@ -11,31 +11,31 @@ describe("FlowValidator", () => {
   };
 
   beforeEach(() => {
-    validator = new FlowValidator();
+    validator = new WindmillYamlValidator();
   });
 
   describe("constructor", () => {
     it("should create a validator instance", () => {
-      expect(validator).toBeInstanceOf(FlowValidator);
+      expect(validator).toBeInstanceOf(WindmillYamlValidator);
     });
 
     it("should initialize without throwing", () => {
-      expect(() => new FlowValidator()).not.toThrow();
+      expect(() => new WindmillYamlValidator()).not.toThrow();
     });
   });
 
-  describe("validateFlow", () => {
+  describe("validate (flow target)", () => {
     it("should throw error for non-string input", () => {
-      expect(() => validator.validateFlow(null as any)).toThrow(
+      expect(() => validator.validate(null as any, { type: "flow" })).toThrow(
         "Document must be a string"
       );
-      expect(() => validator.validateFlow(123 as any)).toThrow(
+      expect(() => validator.validate(123 as any, { type: "flow" })).toThrow(
         "Document must be a string"
       );
-      expect(() => validator.validateFlow({} as any)).toThrow(
+      expect(() => validator.validate({} as any, { type: "flow" })).toThrow(
         "Document must be a string"
       );
-      expect(() => validator.validateFlow([] as any)).toThrow(
+      expect(() => validator.validate([] as any, { type: "flow" })).toThrow(
         "Document must be a string"
       );
     });
@@ -44,7 +44,7 @@ describe("FlowValidator", () => {
       it("should validate a valid minimal flow from sample file", () => {
         const validFlow = readSample("valid-minimal.yaml");
 
-        const result = validator.validateFlow(validFlow);
+        const result = validator.validate(validFlow, { type: "flow" });
 
         expect(result.errors).toHaveLength(0);
         expect(result.parsed).toBeDefined();
@@ -59,7 +59,7 @@ describe("FlowValidator", () => {
       it("should validate a script flow from sample file", () => {
         const validFlow = readSample("valid-script-flow.yaml");
 
-        const result = validator.validateFlow(validFlow);
+        const result = validator.validate(validFlow, { type: "flow" });
 
         expect(result.errors).toHaveLength(0);
         expect(result.parsed.data).toMatchObject({
@@ -94,7 +94,7 @@ describe("FlowValidator", () => {
       it("should return errors for missing summary from sample file", () => {
         const invalidFlow = readSample("invalid-missing-summary.yaml");
 
-        const result = validator.validateFlow(invalidFlow);
+        const result = validator.validate(invalidFlow, { type: "flow" });
 
         expect(result.errors.length).toBeGreaterThan(0);
         expect(
@@ -110,7 +110,7 @@ describe("FlowValidator", () => {
       it("should return errors for invalid types from sample file", () => {
         const invalidFlow = readSample("invalid-wrong-types.yaml");
 
-        const result = validator.validateFlow(invalidFlow);
+        const result = validator.validate(invalidFlow, { type: "flow" });
 
         expect(result.errors.length).toBeGreaterThan(0);
         expect(
@@ -124,7 +124,7 @@ describe("FlowValidator", () => {
       it("should return errors for invalid language from sample file", () => {
         const invalidFlow = readSample("invalid-language.yaml");
 
-        const result = validator.validateFlow(invalidFlow);
+        const result = validator.validate(invalidFlow, { type: "flow" });
 
         expect(result.errors.length).toBeGreaterThan(0);
         expect(
@@ -139,7 +139,7 @@ describe("FlowValidator", () => {
       it("should handle empty file from sample", () => {
         const emptyFlow = readSample("empty.yaml");
 
-        const result = validator.validateFlow(emptyFlow);
+        const result = validator.validate(emptyFlow, { type: "flow" });
 
         expect(result.parsed).toBeDefined();
         expect(result.errors.length).toBeGreaterThan(0);
@@ -148,7 +148,7 @@ describe("FlowValidator", () => {
       it("should handle complex invalid flow with comprehensive error detection", () => {
         const complexInvalidFlow = readSample("invalid-complex-flow.yaml");
 
-        const result = validator.validateFlow(complexInvalidFlow);
+        const result = validator.validate(complexInvalidFlow, { type: "flow" });
 
         expect(result.errors.length).toBeGreaterThan(20); // Should have many errors
 
@@ -202,7 +202,7 @@ describe("FlowValidator", () => {
       it("should handle deeply nested invalid structures with detailed error reporting", () => {
         const nestedInvalidFlow = readSample("invalid-nested-structures.yaml");
 
-        const result = validator.validateFlow(nestedInvalidFlow);
+        const result = validator.validate(nestedInvalidFlow, { type: "flow" });
 
         expect(result.errors.length).toBeGreaterThan(10); // Should have many nested errors
 
@@ -244,7 +244,7 @@ describe("FlowValidator", () => {
       it("should provide specific error locations for complex validation failures", () => {
         const complexInvalidFlow = readSample("invalid-complex-flow.yaml");
 
-        const result = validator.validateFlow(complexInvalidFlow);
+        const result = validator.validate(complexInvalidFlow, { type: "flow" });
 
         // Verify that errors have meaningful instance paths
         const errorsWithPaths = result.errors.filter(
@@ -268,7 +268,7 @@ describe("FlowValidator", () => {
       it("should handle all major flow control structures with validation errors", () => {
         const complexInvalidFlow = readSample("invalid-complex-flow.yaml");
 
-        const result = validator.validateFlow(complexInvalidFlow);
+        const result = validator.validate(complexInvalidFlow, { type: "flow" });
 
         expect(result.errors.length).toBeGreaterThan(20);
 
@@ -317,7 +317,7 @@ describe("FlowValidator", () => {
         it("should validate a basic AI agent flow with FlowModule tools", () => {
           const validFlow = readSample("valid-aiagent-basic.yaml");
 
-          const result = validator.validateFlow(validFlow);
+          const result = validator.validate(validFlow, { type: "flow" });
 
           expect(result.errors).toHaveLength(0);
         });
@@ -325,7 +325,7 @@ describe("FlowValidator", () => {
         it("should validate an AI agent flow with MCP tools", () => {
           const validFlow = readSample("valid-aiagent-mcp.yaml");
 
-          const result = validator.validateFlow(validFlow);
+          const result = validator.validate(validFlow, { type: "flow" });
 
           expect(result.errors).toHaveLength(0);
         });
@@ -333,7 +333,7 @@ describe("FlowValidator", () => {
         it("should validate an AI agent flow with mixed FlowModule and MCP tools", () => {
           const validFlow = readSample("valid-aiagent-mixed.yaml");
 
-          const result = validator.validateFlow(validFlow);
+          const result = validator.validate(validFlow, { type: "flow" });
 
           expect(result.errors).toHaveLength(0);
         });
@@ -341,7 +341,7 @@ describe("FlowValidator", () => {
         it("should validate an AI agent flow with parallel execution enabled", () => {
           const validFlow = readSample("valid-aiagent-parallel.yaml");
 
-          const result = validator.validateFlow(validFlow);
+          const result = validator.validate(validFlow, { type: "flow" });
 
           expect(result.errors).toHaveLength(0);
           // Verify tools array has expected structure
@@ -354,7 +354,7 @@ describe("FlowValidator", () => {
         it("should return errors for AI agent missing required tools field", () => {
           const invalidFlow = readSample("invalid-aiagent-missing-tools.yaml");
 
-          const result = validator.validateFlow(invalidFlow);
+          const result = validator.validate(invalidFlow, { type: "flow" });
 
           expect(result.errors.length).toBeGreaterThan(0);
           expect(
@@ -369,7 +369,7 @@ describe("FlowValidator", () => {
         it("should return errors for AI agent missing type field", () => {
           const invalidFlow = readSample("invalid-aiagent-missing-type.yaml");
 
-          const result = validator.validateFlow(invalidFlow);
+          const result = validator.validate(invalidFlow, { type: "flow" });
 
           expect(result.errors.length).toBeGreaterThan(0);
           // Should fail discriminator validation since type is missing
@@ -387,7 +387,7 @@ describe("FlowValidator", () => {
             "invalid-aiagent-invalid-tool-type.yaml"
           );
 
-          const result = validator.validateFlow(invalidFlow);
+          const result = validator.validate(invalidFlow, { type: "flow" });
 
           expect(result.errors.length).toBeGreaterThan(0);
           // Should fail discriminator validation for invalid tool_type
@@ -404,7 +404,7 @@ describe("FlowValidator", () => {
             "invalid-aiagent-mcp-missing-resource.yaml"
           );
 
-          const result = validator.validateFlow(invalidFlow);
+          const result = validator.validate(invalidFlow, { type: "flow" });
 
           expect(result.errors.length).toBeGreaterThan(0);
           expect(

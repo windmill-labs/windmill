@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { HttpTriggerService, type EditHttpTrigger, type NewHttpTrigger } from '$lib/gen'
+	import { HttpTriggerService, type EditHttpTrigger, type HttpTrigger, type NewHttpTrigger } from '$lib/gen'
 	import { Pen, Save } from 'lucide-svelte'
 	import Button from '../../common/button/Button.svelte'
 	import ToggleButton from '../../common/toggleButton-v2/ToggleButton.svelte'
@@ -42,7 +42,7 @@
 	let isCreating = $state(false)
 	let acceptedFileTypes: string[] = ['.json', '.yaml']
 
-	let callback: ((cfg: NewHttpTrigger | EditHttpTrigger) => void) | undefined = $state(undefined)
+	let callback: ((cfg: HttpTrigger | EditHttpTrigger) => void) | undefined = $state(undefined)
 
 	let lang: 'yaml' | 'json' = $derived.by(() => {
 		if (code.trimStart().startsWith('{')) {
