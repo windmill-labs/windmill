@@ -1,4 +1,6 @@
 <script lang="ts" module>
+	import { z } from 'zod'
+
 	export type FilterSchemaRec = Record<string, FilterSchema>
 	export type FilterSchema = (
 		| {
@@ -32,6 +34,47 @@
 								? O[number]
 								: never
 						: never
+
+	/**
+	 * Converts a FilterSchemaRec to a Zod schema for validation
+	 */
+	export function filterSchemaRecToZodSchema<T extends FilterSchemaRec>(
+		schemaRec: T
+	): z.ZodObject<{
+		[K in keyof T]: z.ZodType<FilterInstance<T[K]>>
+	}> {
+		const zodSchemaShape: Record<string, z.ZodType> = {}
+
+		for (const [key, filterSchema] of Object.entries(schemaRec)) {
+			let fieldSchema: z.ZodType
+
+			if (filterSchema.type === 'string') {
+				fieldSchema = z.string().nullable().default(null)
+			} else if (filterSchema.type === 'number') {
+				fieldSchema = z.number().nullable().default(null)
+			} else if (filterSchema.type === 'boolean') {
+				fieldSchema = z.boolean().default(false)
+			} else if (filterSchema.type === 'date') {
+				fieldSchema = z.date().nullable().default(null)
+			} else if (filterSchema.type === 'oneof') {
+				if (filterSchema.allowCustomValue) {
+					// If custom values are allowed, accept any string
+					fieldSchema = z.string().nullable().default(null)
+				} else {
+					// Extract the enum values from options
+					const values = filterSchema.options.map((o) => o.value) as [string, ...string[]]
+					fieldSchema = z.enum(values).nullable().default(null)
+				}
+			} else {
+				// Fallback for unknown types
+				fieldSchema = z.any().nullable().default(null)
+			}
+
+			zodSchemaShape[key] = fieldSchema
+		}
+
+		return z.object(zodSchemaShape) as any
+	}
 
 	function filterToText<F extends FilterSchema>(filter: FilterInstance<F>, schema: F): string {
 		if (schema.type === 'date') {
