@@ -124,6 +124,16 @@
 		}
 	}
 
+	$effect(() => {
+		if (setting.key === 'license_key') {
+			const key = $values['license_key'] ?? ''
+			const { valid } = parseLicenseKey(key)
+			if (valid) {
+				$enterpriseLicense = key.split('.')[0]
+			}
+		}
+	})
+
 	let pythonAvailableVersions: ListAvailablePythonVersionsResponse = $state([])
 
 	let isPyFetching = $state(false)

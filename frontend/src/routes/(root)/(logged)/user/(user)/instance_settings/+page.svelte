@@ -163,7 +163,10 @@
 		accountError = ''
 		accountSubmitting = true
 		try {
-			const oldEmail = $superadmin
+			let oldEmail = $superadmin
+			if (!oldEmail) {
+				oldEmail = await UserService.getCurrentEmail()
+			}
 			if (!oldEmail) {
 				throw new Error('Could not determine current admin email')
 			}
@@ -211,7 +214,13 @@
 
 			sendUserToast('Account setup complete')
 			goto(
-				'/user/logout?rd=' + encodeURIComponent('/user/login?email=' + encodeURIComponent(newEmail))
+				'/user/logout?rd=' +
+					encodeURIComponent(
+						'/user/login?email=' +
+							encodeURIComponent(newEmail) +
+							'&password=' +
+							encodeURIComponent(newPassword)
+					)
 			)
 		} catch (e: any) {
 			accountError = e?.body?.message || e?.body || e?.message || 'An error occurred'
@@ -438,7 +447,10 @@
 				>
 					Quick setup
 				</Button>
-				<Button variant="accent" unifiedSize="md" onClick={finishSetup}>Continue</Button>
+				<Button variant="accent" unifiedSize="md" onClick={() => {
+					wizardStep = wizardStepLabels.length - 1
+					mode = 'wizard'
+				}}>Continue</Button>
 			{/if}
 		</div>
 

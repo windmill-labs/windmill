@@ -201,6 +201,13 @@
 
 	loadLogins()
 
+	$effect(() => {
+		if (firstTime && !email && !password) {
+			email = 'admin@windmill.dev'
+			password = 'changeme'
+		}
+	})
+
 	async function checkSmtpConfigured() {
 		try {
 			smtpConfigured = await UserService.isSmtpConfigured()
@@ -361,9 +368,9 @@
 	{#if showPassword}
 		<div>
 			{#if firstTime}
-				<div class="text-lg text-center w-full pb-6 text-emphasis"
-					>First time login: admin@windmill.dev / changeme</div
-				>
+				<p class="text-xs text-center w-full pb-4 text-secondary">
+					Welcome! Default credentials admin@windmill.dev / changeme have been prefilled.
+				</p>
 			{/if}
 			<div class="space-y-6">
 				{#if isCloudHosted()}

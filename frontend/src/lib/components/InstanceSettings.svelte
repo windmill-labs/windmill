@@ -234,7 +234,7 @@
 			const jobSettings = settings['Jobs'] ?? []
 			const jobIsolation = jobSettings.find((s) => s.key === 'job_isolation')
 			const retentionPeriod = jobSettings.find((s) => s.key === 'retention_period_secs')
-			const objectStorage = jobSettings.find((s) => s.key === 'object_store_cache_config')
+			const objectStorage = settings['Object Storage']?.find((s) => s.key === 'object_store_cache_config')
 			return [...baseWithout, ...(jobIsolation ? [jobIsolation] : []), ...(licenseKey ? [licenseKey] : []), ...(retentionPeriod ? [retentionPeriod] : []), ...(objectStorage ? [objectStorage] : [])]
 		}
 		return base
@@ -287,7 +287,8 @@
 	export function discardCategory(category: string) {
 		if (category === 'Auth/OAuth/SAML') {
 			for (const s of scimSamlSetting) {
-				$values[s.key] = JSON.parse(JSON.stringify(initialValues[s.key]))
+				const v = initialValues[s.key]
+				$values[s.key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
 			}
 			oauths = JSON.parse(JSON.stringify(initialOauths))
 			requirePreexistingUserForOauth = initialRequirePreexistingUserForOauth
@@ -297,7 +298,8 @@
 		} else {
 			const categorySettings = getSettingsForCategory(category)
 			for (const s of categorySettings) {
-				$values[s.key] = JSON.parse(JSON.stringify(initialValues[s.key]))
+				const v = initialValues[s.key]
+				$values[s.key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
 			}
 		}
 	}
@@ -360,7 +362,8 @@
 
 		// Update only the saved category's initial values
 		for (const s of categorySettings) {
-			initialValues[s.key] = JSON.parse(JSON.stringify($values[s.key]))
+			const v = $values[s.key]
+			initialValues[s.key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
 		}
 
 		// Handle Auth/OAuth/SAML-specific saves
@@ -561,7 +564,7 @@
 		<div class="flex-col flex gap-6 pb-6">
 			{#each settings[category] as setting}
 				<!-- slack connect is handled with the alert channels settings, smtp_connect is handled in InstanceSetting -->
-				{#if setting.fieldType != 'slack_connect' && !(quickSetup && setting.hideInQuickSetup)}
+				{#if setting.fieldType != 'slack_connect' && !(quickSetup && setting.hideInQuickSetup) && !(quickSetup && category === 'Core' && setting.key === 'license_key')}
 					<InstanceSetting
 						{openSmtpSettings}
 						on:closeDrawer={() => closeDrawer?.()}
@@ -574,7 +577,14 @@
 				{/if}
 			{/each}
 			{#if quickSetup && category === 'Core'}
-				{#each settings['Jobs'].filter((s) => s.key === 'job_isolation' || s.key === 'retention_period_secs') as setting}
+				{@const licenseKeySetting = settings['Core'].find((s) => s.key === 'license_key')}
+				{@const extraSettings = [
+					...settings['Jobs'].filter((s) => s.key === 'job_isolation'),
+					...(licenseKeySetting ? [licenseKeySetting] : []),
+					...settings['Jobs'].filter((s) => s.key === 'retention_period_secs'),
+					...(settings['Object Storage']?.filter((s) => s.key === 'object_store_cache_config') ?? [])
+				]}
+				{#each extraSettings as setting}
 					<InstanceSetting
 						{openSmtpSettings}
 						on:closeDrawer={() => closeDrawer?.()}
