@@ -118,6 +118,15 @@
 
 	let lastText = ''
 
+	function applyTextUpdate(newText: string, newCursorPos: number) {
+		value = newText
+		updateDisplay(newText)
+		restoreCursor(newCursorPos)
+		updateCurrentTag(newCursorPos)
+		lastText = newText
+		isUpdating = false
+	}
+
 	function handleInput() {
 		isUpdating = true
 		const cursorPos = getCursorPosition()
@@ -128,13 +137,7 @@
 		if (newText.includes('\\.')) {
 			const cleanedText = newText.replace(/\\\./g, '')
 			const removedCount = (newText.length - cleanedText.length) / 2 // Each "\." is 2 chars
-			newText = cleanedText
-			value = newText
-			updateDisplay(newText)
-			restoreCursor(cursorPos - removedCount * 2)
-			updateCurrentTag(cursorPos - removedCount * 2)
-			lastText = newText
-			isUpdating = false
+			applyTextUpdate(cleanedText, cursorPos - removedCount * 2)
 			return
 		}
 
@@ -154,32 +157,17 @@
 			) {
 				// Remove the backslash before the existing space
 				newText = newText.slice(0, cursorPos - 3) + newText.slice(cursorPos - 2)
-				value = newText
-				updateDisplay(newText)
-				restoreCursor(cursorPos - 1)
-				updateCurrentTag(cursorPos - 1)
-				lastText = newText
-				isUpdating = false
+				applyTextUpdate(newText, cursorPos - 1)
 				return
 			}
 
 			// Escape the space/backslash by adding backslash before it
 			newText = newText.slice(0, cursorPos - 1) + '\\' + newText.slice(cursorPos - 1)
-			value = newText
-			updateDisplay(newText)
-			restoreCursor(cursorPos + 1)
-			updateCurrentTag(cursorPos + 1)
-			lastText = newText
-			isUpdating = false
+			applyTextUpdate(newText, cursorPos + 1)
 			return
 		}
 
-		value = newText
-		updateDisplay(newText)
-		restoreCursor(cursorPos)
-		updateCurrentTag(cursorPos)
-		lastText = newText
-		isUpdating = false
+		applyTextUpdate(newText, cursorPos)
 	}
 
 	function getTextSegmentAtCursor(cursorPos: number): {
@@ -277,14 +265,8 @@
 			if (cursorPos >= 2 && text[cursorPos - 2] === '\\') {
 				e.preventDefault()
 				isUpdating = true
-				// Remove both the backslash and the escaped character
 				const newText = text.slice(0, cursorPos - 2) + text.slice(cursorPos)
-				value = newText
-				updateDisplay(newText)
-				restoreCursor(cursorPos - 2)
-				updateCurrentTag(cursorPos - 2)
-				lastText = newText
-				isUpdating = false
+				applyTextUpdate(newText, cursorPos - 2)
 				return
 			}
 		}
@@ -295,14 +277,8 @@
 			if (cursorPos < text.length && text[cursorPos] === '\\' && cursorPos + 1 < text.length) {
 				e.preventDefault()
 				isUpdating = true
-				// Remove both the backslash and the escaped character
 				const newText = text.slice(0, cursorPos) + text.slice(cursorPos + 2)
-				value = newText
-				updateDisplay(newText)
-				restoreCursor(cursorPos)
-				updateCurrentTag(cursorPos)
-				lastText = newText
-				isUpdating = false
+				applyTextUpdate(newText, cursorPos)
 				return
 			}
 		}
@@ -342,12 +318,7 @@
 					e.preventDefault()
 					isUpdating = true
 					const newText = text + '\u00A0'
-					value = newText
-					updateDisplay(newText)
-					restoreCursor(newText.length)
-					updateCurrentTag(newText.length)
-					lastText = newText
-					isUpdating = false
+					applyTextUpdate(newText, newText.length)
 					return
 				}
 			}
