@@ -13,9 +13,6 @@ import {
 } from "npm:windmill-yaml-validator@1.1.0";
 
 interface LintOptions extends GlobalOptions {
-  includes?: string[];
-  excludes?: string[];
-  extraIncludes?: string[];
   json?: boolean;
   failOnWarn?: boolean;
 }
@@ -266,18 +263,6 @@ const command = new Command()
   .arguments("[directory:string]")
   .option("--json", "Output results in JSON format")
   .option("--fail-on-warn", "Exit with code 1 when warnings are emitted")
-  .option(
-    "-i --includes <patterns:file[]>",
-    "Comma separated patterns to specify which files to lint. Overrides wmill.yaml includes",
-  )
-  .option(
-    "-e --excludes <patterns:file[]>",
-    "Comma separated patterns to specify which files to skip. Overrides wmill.yaml excludes",
-  )
-  .option(
-    "--extra-includes <patterns:file[]>",
-    "Additional patterns that must also match for a file to be linted",
-  )
   .action(lint as any);
 
 export default command;
