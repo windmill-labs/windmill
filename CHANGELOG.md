@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.634.6](https://github.com/windmill-labs/windmill/compare/v1.634.5...v1.634.6) (2026-02-13)
+
+
+### Bug Fixes
+
+* full build fix with new rustup config ([caccdd5](https://github.com/windmill-labs/windmill/commit/caccdd553ad72ff26c2c7c45f0ff3a25bd19a49f))
+
 ## [1.634.5](https://github.com/windmill-labs/windmill/compare/v1.634.4...v1.634.5) (2026-02-13)
 
 
