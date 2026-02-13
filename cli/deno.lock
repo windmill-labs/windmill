@@ -87,6 +87,7 @@
     "npm:svelte-preprocess@6.0.3": "6.0.3_svelte@5.45.2__acorn@8.14.1",
     "npm:svelte@5.45.2": "5.45.2_acorn@8.14.1",
     "npm:windmill-yaml-validator@1.1.0": "1.1.0",
+    "npm:windmill-yaml-validator@1.1.1": "1.1.1",
     "npm:ws@*": "8.18.3",
     "npm:ws@8.18.0": "8.18.0",
     "npm:ws@8.18.3": "8.18.3"
@@ -1375,6 +1376,13 @@
     },
     "windmill-yaml-validator@1.1.0": {
       "integrity": "sha512-TM9rl6NycP4eXYOzi4Y8/EXHU4phzFUJWN28IlHDx4eRDNPEkj+6jAF4xUaBvLeFEJl0CfznEdhtM61vDgomKQ==",
+      "dependencies": [
+        "@stoplight/yaml",
+        "ajv"
+      ]
+    },
+    "windmill-yaml-validator@1.1.1": {
+      "integrity": "sha512-CVgAwEoBdJhF39q2N012QffhlGPRIyIWd8gj7NnfG+/lMWgH2k5CBLtKIt6cPF8Bxz+6DGC3st1ARSsecDtbTg==",
       "dependencies": [
         "@stoplight/yaml",
         "ajv"

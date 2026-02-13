@@ -10,7 +10,7 @@ import {
   getValidationTargetFromFilename,
   type ValidationTarget,
   WindmillYamlValidator,
-} from "npm:windmill-yaml-validator@1.1.0";
+} from "npm:windmill-yaml-validator@1.1.1";
 
 interface LintOptions extends GlobalOptions {
   json?: boolean;
