@@ -185,6 +185,7 @@ pub async fn resolve<'a>(
             .current_dir(job_dir.to_owned())
             .env("PATH", PATH_ENV.as_str())
             .env("HOME", JAVA_HOME_DIR)
+            .env("COURSIER_CACHE", COURSIER_CACHE_DIR)
             .envs(PROXY_ENVS.clone());
 
         // Configure proxies
@@ -206,6 +207,7 @@ pub async fn resolve<'a>(
                 cmd.arg(&format!("-Dhttp.nonProxyHosts=\"{}\"", val));
             }
         }
+        cmd.arg(&format!("-Duser.home={}", JAVA_HOME_DIR));
         if metadata(TRUST_STORE_PATH.clone()).await.is_ok() {
             cmd.args(&[
                 &format!("-Djavax.net.ssl.trustStore={}", *TRUST_STORE_PATH),
@@ -332,6 +334,7 @@ async fn install<'a>(
                 .current_dir(&job_dir)
                 .env("PATH", PATH_ENV.as_str())
                 .env("HOME", JAVA_HOME_DIR)
+                .env("COURSIER_CACHE", COURSIER_CACHE_DIR)
                 .envs(PROXY_ENVS.clone());
             // Configure proxies
             {
@@ -353,6 +356,7 @@ async fn install<'a>(
                 }
             }
 
+            cmd.arg(&format!("-Duser.home={}", JAVA_HOME_DIR));
             if trust_store_metadata.is_ok() {
                 cmd.args(&[
                     &format!("-Djavax.net.ssl.trustStore={}", *TRUST_STORE_PATH),
@@ -744,18 +748,15 @@ fn parse_proxy() -> anyhow::Result<JavaProxySettings> {
     for (ident, mut val) in PROXY_ENVS.clone() {
         match ident {
             "HTTPS_PROXY" => {
-                if val.contains("http://") {
-                    bail!("HTTPS_PROXY url cannot contain http scheme.");
-                }
-                if !val.contains("https://") {
+                if !val.contains("://") {
                     val = format!("https://{val}");
                 }
                 let mut url = url::Url::parse(&val)?;
                 let port = url.port();
-                // Make sure port and schema is not included in final url
                 {
                     url.set_port(None).unwrap_or_default();
-                    jps.https_host = Some(url.as_str().replace("https://", ""));
+                    let host = url.as_str().replace("https://", "").replace("http://", "");
+                    jps.https_host = Some(host);
                     if let Some(port) = port {
                         jps.https_port = Some(format!("{}", port));
                     }

@@ -163,12 +163,19 @@ pub async fn generate_cargo_lockfile(
     let mut gen_lockfile_cmd = Command::new(CARGO_PATH.as_str());
     gen_lockfile_cmd
         .current_dir(job_dir)
+        .env_clear()
+        .env("PATH", PATH_ENV.as_str())
+        .env("HOME", HOME_ENV.as_str())
+        .env("CARGO_HOME", CARGO_HOME.as_str())
+        .env("RUSTUP_HOME", RUSTUP_HOME.as_str())
+        .envs(PROXY_ENVS.clone())
         .args(vec!["generate-lockfile"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     #[cfg(windows)]
     {
         gen_lockfile_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+        gen_lockfile_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
         gen_lockfile_cmd.env(
             "TMP",
             std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
