@@ -241,7 +241,7 @@ RUN mkdir -p /tmp/windmill/cache && \
     cp -r /tmp/build_cache/* /tmp/windmill/cache/ && \
     chmod -R a+rw /tmp/windmill/cache && \
     rm -rf /tmp/build_cache && \
-    mkdir -p -m 777 /tmp/windmill/cache/uv /tmp/windmill/cache/go
+    mkdir -p -m 777 /tmp/windmill/cache/uv /tmp/windmill/cache/go /tmp/windmill/cache/rustup /tmp/windmill/cache/cargo
 
 # Runtime cache locations
 ENV UV_CACHE_DIR=/tmp/windmill/cache/uv
@@ -264,8 +264,8 @@ COPY --from=composer:2.7.6 /usr/bin/composer /usr/bin/composer
 # add the docker client to call docker from a worker if enabled
 COPY --from=docker:dind /usr/local/bin/docker /usr/local/bin/
 
-ENV RUSTUP_HOME="/usr/local/rustup"
-ENV CARGO_HOME="/usr/local/cargo"
+ENV RUSTUP_HOME="/tmp/windmill/cache/rustup"
+ENV CARGO_HOME="/tmp/windmill/cache/cargo"
 ENV LD_LIBRARY_PATH="."
 
 # nsjail runtime deps and binary
