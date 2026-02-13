@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.634.4](https://github.com/windmill-labs/windmill/compare/v1.634.3...v1.634.4) (2026-02-13)
+
+
+### Bug Fixes
+
+* improve style panel reactivity and CSS defaults ([#7935](https://github.com/windmill-labs/windmill/issues/7935)) ([eacbee3](https://github.com/windmill-labs/windmill/commit/eacbee38cb51d11b051612ac66994e6444e81bf2))
+* java + rust only relies on /tmp, + https proxy improvement for java ([791cb3e](https://github.com/windmill-labs/windmill/commit/791cb3e225ebda4b2f6f7181bc8265c378150d4e))
+
 ## [1.634.3](https://github.com/windmill-labs/windmill/compare/v1.634.2...v1.634.3) (2026-02-13)
 
 
