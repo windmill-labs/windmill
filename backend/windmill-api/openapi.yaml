@@ -1483,6 +1483,45 @@ paths:
                 items:
                   $ref: "#/components/schemas/GlobalSetting"
 
+  /settings/instance_config:
+    get:
+      summary: get full instance config (global settings + worker configs)
+      operationId: getInstanceConfig
+      tags:
+        - setting
+      responses:
+        "200":
+          description: full instance configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstanceConfig"
+    put:
+      summary: update instance config (bulk upsert, no deletes)
+      operationId: setInstanceConfig
+      tags:
+        - setting
+      parameters:
+        - name: skip_worker_configs
+          in: query
+          description: if true, ignore worker_configs in the request body
+          schema:
+            type: boolean
+      requestBody:
+        description: full instance configuration to apply
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InstanceConfig"
+      responses:
+        "200":
+          description: instance config updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /min_keep_alive_version:
     get:
       summary: get minimum worker versions required to stay alive
@@ -22965,6 +23004,26 @@ components:
       required:
         - name
         - value
+
+    InstanceConfig:
+      type: object
+      description: Unified instance configuration combining global settings and worker group configs
+      properties:
+        global_settings:
+          type: object
+          description: >
+            Global settings keyed by setting name. Known fields include base_url,
+            license_key, retention_period_secs, smtp_settings, otel, etc.
+            Unknown fields are preserved as-is.
+          additionalProperties: true
+        worker_configs:
+          type: object
+          description: >
+            Worker group configurations keyed by group name (e.g. "default", "gpu").
+            Each value contains worker_tags, init_bash, autoscaling, etc.
+          additionalProperties:
+            type: object
+            additionalProperties: true
 
     Config:
       type: object

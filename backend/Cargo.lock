@@ -15766,6 +15766,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tracing",
+ "tracing-subscriber",
  "url",
  "uuid",
  "windmill-api",
@@ -15777,6 +15778,7 @@ dependencies = [
  "windmill-dep-map",
  "windmill-git-sync",
  "windmill-indexer",
+ "windmill-operator",
  "windmill-queue",
  "windmill-runtime-nativets",
  "windmill-test-utils",
@@ -16476,6 +16478,7 @@ dependencies = [
  "reqwest-middleware",
  "reqwest-retry",
  "rsa",
+ "schemars 0.8.22",
  "semver 1.0.27",
  "serde",
  "serde_json",
@@ -16674,6 +16677,26 @@ dependencies = [
  "sqlx",
  "tokio",
  "tower-cookies",
+ "tracing",
+ "windmill-common",
+]
+
+[[package]]
+name = "windmill-operator"
+version = "1.634.6"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "futures",
+ "k8s-openapi",
+ "kube",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "serde_yml",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
  "tracing",
  "windmill-common",
 ]

@@ -101,6 +101,7 @@
 				classNames
 			)}
 			use:conditionalMelt={trigger}
+			aria-label={label}
 			title={isCollapsed ? undefined : label}
 			{...$trigger}
 		>
