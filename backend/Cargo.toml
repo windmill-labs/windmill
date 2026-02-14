@@ -209,6 +209,7 @@ windmill-autoscaling = { workspace = true, optional = true }
 windmill-operator = { workspace = true, optional = true }
 futures.workspace = true
 tracing.workspace = true
+tracing-subscriber.workspace = true
 sqlx.workspace = true
 sql-builder.workspace = true
 rand.workspace = true
