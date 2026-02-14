@@ -27,6 +27,14 @@ export const NATIVE_TRIGGER_SERVICES: Record<NativeServiceName, NativeTriggerCon
 			script: '/scripts/add?hub=hub%2F28115',
 			flow: '/flows/add?hub=73'
 		}
+	},
+	// Google handles both Drive and Calendar triggers via trigger_type in service_config
+	google: {
+		serviceDisplayName: 'Google',
+		serviceKey: 'google',
+		supportsSync: true,
+		supportsFetchConfig: true,
+		isCloudCompatible: true
 	}
 }
 
@@ -109,6 +117,8 @@ export function getTriggerIconName(service: NativeServiceName): string {
 	switch (service) {
 		case 'nextcloud':
 			return 'NextcloudIcon'
+		case 'google':
+			return 'GoogleIcon'
 		default:
 			return 'NextcloudIcon'
 	}
@@ -118,6 +128,8 @@ export async function getServiceIcon(service: NativeServiceName): Promise<any> {
 	switch (service) {
 		case 'nextcloud':
 			return (await import('$lib/components/icons/NextcloudIcon.svelte')).default
+		case 'google':
+			return (await import('$lib/components/icons/GoogleIcon.svelte')).default
 	}
 }
 

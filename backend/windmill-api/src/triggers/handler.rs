@@ -136,6 +136,7 @@ pub struct TriggersCount {
     sqs_count: i64,
     gcp_count: i64,
     nextcloud_count: i64,
+    google_count: i64,
 }
 
 pub async fn get_triggers_count_internal(
@@ -305,6 +306,16 @@ pub async fn get_triggers_count_internal(
     .await?
     .unwrap_or(0);
 
+    let google_count = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM native_trigger WHERE workspace_id = $1 AND script_path = $2 AND is_flow = $3 AND service_name = 'google'",
+        w_id,
+        path,
+        is_flow,
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(0);
+
     Ok(axum::Json(TriggersCount {
         primary_schedule: primary_schedule
             .map(|s| windmill_trigger::handler::TriggerPrimarySchedule { schedule: s }),
@@ -321,5 +332,6 @@ pub async fn get_triggers_count_internal(
         gcp_count,
         sqs_count,
         nextcloud_count,
+        google_count,
     }))
 }

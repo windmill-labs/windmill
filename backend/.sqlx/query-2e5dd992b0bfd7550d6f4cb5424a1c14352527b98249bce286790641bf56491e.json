@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(*) FROM native_trigger WHERE workspace_id = 'test-workspace' AND service_name = 'google'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "2e5dd992b0bfd7550d6f4cb5424a1c14352527b98249bce286790641bf56491e"
+}

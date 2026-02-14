@@ -243,7 +243,17 @@
 			)
 		} else if (triggerType === 'nextcloud') {
 			await triggersState.fetchNativeTriggers(
+				triggersCount,
 				'nextcloud',
+				$workspaceStore,
+				currentPath,
+				isFlow,
+				$userStore
+			)
+		} else if (triggerType === 'google') {
+			await triggersState.fetchNativeTriggers(
+				triggersCount,
+				'google',
 				$workspaceStore,
 				currentPath,
 				isFlow,

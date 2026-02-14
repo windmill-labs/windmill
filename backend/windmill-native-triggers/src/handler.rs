@@ -1,8 +1,7 @@
 use crate::{
-    delete_native_trigger, delete_token_by_prefix, get_native_trigger, get_token_by_prefix,
-    get_workspace_integration, list_native_triggers, store_native_trigger,
-    update_native_trigger_error, External, NativeTrigger, NativeTriggerConfig, NativeTriggerData,
-    ServiceName,
+    decrypt_oauth_data, delete_native_trigger, delete_token_by_prefix, get_native_trigger,
+    get_token_by_prefix, list_native_triggers, store_native_trigger, update_native_trigger_error,
+    External, NativeTrigger, NativeTriggerConfig, NativeTriggerData, ServiceName,
 };
 use axum::{
     extract::{Path, Query},
@@ -65,7 +64,7 @@ pub struct ListQuery {
 pub struct FullTriggerResponse<T: Serialize> {
     #[serde(flatten)]
     pub windmill_data: NativeTrigger,
-    pub external_data: T,
+    pub external_data: Option<T>,
 }
 
 #[derive(Debug, Serialize)]
@@ -132,15 +131,9 @@ async fn create_native_trigger<T: External>(
     )
     .await?;
 
-    let integration = get_workspace_integration(&mut *tx, &workspace_id, service_name).await?;
-
-    let oauth_data: T::OAuthData = serde_json::from_value(integration.oauth_data).map_err(|e| {
-        Error::InternalErr(format!(
-            "Failed to parse {} OAuth data: {}",
-            T::DISPLAY_NAME,
-            e
-        ))
-    })?;
+    let integration_service = service_name.integration_service();
+    let oauth_data: T::OAuthData =
+        decrypt_oauth_data(&db, &workspace_id, integration_service).await?;
 
     let resp = handler
         .create(
@@ -155,24 +148,25 @@ async fn create_native_trigger<T: External>(
 
     let (external_id, _) = handler.external_id_and_metadata_from_response(&resp);
 
-    // update the created external trigger with a new uri containing the external_id
-    handler
-        .update(
-            &workspace_id,
-            &oauth_data,
-            &external_id,
-            &webhook_token,
-            &data,
-            &db,
-            &mut tx,
-        )
-        .await?;
-
-    // Fetch the updated trigger data from the external service and extract service_config
-    let trigger_data = handler
-        .get(&workspace_id, &oauth_data, &external_id, &db, &mut tx)
-        .await?;
-    let service_config = handler.extract_service_config_from_trigger_data(&trigger_data)?;
+    // Some services (e.g. Google) can build service_config directly from the create response,
+    // while others (e.g. Nextcloud) need an update+get cycle to correct the webhook URL
+    // with the external_id assigned by the remote service.
+    let service_config =
+        if let Some(config) = handler.service_config_from_create_response(&data, &resp) {
+            config
+        } else {
+            handler
+                .update(
+                    &workspace_id,
+                    &oauth_data,
+                    &external_id,
+                    &webhook_token,
+                    &data,
+                    &db,
+                    &mut tx,
+                )
+                .await?
+        };
 
     let config = NativeTriggerConfig {
         script_path: data.script_path.clone(),
@@ -227,22 +221,32 @@ async fn update_native_trigger_handler<T: External>(
     )
     .await?;
 
-    let mut tx = user_db.begin(&authed).await?;
+    let integration_service = service_name.integration_service();
+    let oauth_data: T::OAuthData =
+        decrypt_oauth_data(&db, &workspace_id, integration_service).await?;
+
+    let mut tx = user_db.clone().begin(&authed).await?;
 
     let existing = get_native_trigger(&mut *tx, &workspace_id, service_name, &external_id)
         .await?
         .ok_or_else(|| Error::NotFound(format!("Native trigger not found: {}", external_id)))?;
 
-    // Look up the full token using the stored prefix (use db, not tx, for token table)
+    let runnable_changed =
+        existing.script_path != data.script_path || existing.is_flow != data.is_flow;
+
     let webhook_token = match get_token_by_prefix(&db, &existing.webhook_token_prefix).await? {
-        Some(token) => token,
-        None => {
-            tracing::warn!(
-                "Webhook token not found for trigger {} (prefix: {}), recreating token",
-                external_id,
-                existing.webhook_token_prefix
-            );
-            new_webhook_token(
+        Some(token) if !runnable_changed => token,
+        existing_token => {
+            if let Some(_) = existing_token {
+                delete_token_by_prefix(&db, &existing.webhook_token_prefix).await?;
+            } else {
+                tracing::warn!(
+                    "Webhook token not found for trigger {} (prefix: {}), recreating token",
+                    external_id,
+                    existing.webhook_token_prefix
+                );
+            }
+            let token = new_webhook_token(
                 &mut *tx,
                 &db,
                 &authed,
@@ -251,21 +255,14 @@ async fn update_native_trigger_handler<T: External>(
                 &workspace_id,
                 service_name,
             )
-            .await?
+            .await?;
+            tx.commit().await?;
+            tx = user_db.begin(&authed).await?;
+            token
         }
     };
 
-    let integration = get_workspace_integration(&mut *tx, &workspace_id, service_name).await?;
-
-    let oauth_data: T::OAuthData = serde_json::from_value(integration.oauth_data).map_err(|e| {
-        Error::InternalErr(format!(
-            "Failed to parse {} OAuth data: {}",
-            T::DISPLAY_NAME,
-            e
-        ))
-    })?;
-
-    handler
+    let service_config = handler
         .update(
             &workspace_id,
             &oauth_data,
@@ -276,12 +273,6 @@ async fn update_native_trigger_handler<T: External>(
             &mut tx,
         )
         .await?;
-
-    // Fetch the updated trigger data from the external service and extract service_config
-    let trigger_data = handler
-        .get(&workspace_id, &oauth_data, &external_id, &db, &mut tx)
-        .await?;
-    let service_config = handler.extract_service_config_from_trigger_data(&trigger_data)?;
 
     let config = NativeTriggerConfig {
         script_path: data.script_path.clone(),
@@ -341,22 +332,16 @@ async fn get_native_trigger_handler<T: External>(
     )
     .await?;
 
-    let integration = get_workspace_integration(&mut *tx, &workspace_id, service_name).await?;
-
-    let oauth_data: T::OAuthData = serde_json::from_value(integration.oauth_data).map_err(|e| {
-        Error::InternalErr(format!(
-            "Failed to parse {} OAuth data: {}",
-            T::DISPLAY_NAME,
-            e
-        ))
-    })?;
+    let integration_service = service_name.integration_service();
+    let oauth_data: T::OAuthData =
+        decrypt_oauth_data(&db, &workspace_id, integration_service).await?;
 
     let native_trigger = handler
         .get(&workspace_id, &oauth_data, &external_id, &db, &mut tx)
         .await;
 
-    let native_trigger_config = match native_trigger {
-        Ok(native_cfg) => {
+    let external_data = match native_trigger {
+        Ok(Some(native_cfg)) => {
             // Clear error if it was set
             if windmill_trigger.error.is_some() {
                 update_native_trigger_error(
@@ -368,8 +353,9 @@ async fn get_native_trigger_handler<T: External>(
                 )
                 .await?;
             }
-            native_cfg
+            Some(native_cfg)
         }
+        Ok(None) => None,
         Err(Error::NotFound(_)) => {
             let error_msg = "Trigger no longer exists on external service".to_string();
             tracing::warn!(
@@ -396,10 +382,7 @@ async fn get_native_trigger_handler<T: External>(
         Err(e) => return Err(e),
     };
 
-    let full_resp = Json(FullTriggerResponse {
-        windmill_data: windmill_trigger,
-        external_data: native_trigger_config,
-    });
+    let full_resp = Json(FullTriggerResponse { windmill_data: windmill_trigger, external_data });
 
     Ok(full_resp)
 }
@@ -430,15 +413,9 @@ async fn delete_native_trigger_handler<T: External>(
     )
     .await?;
 
-    let integration = get_workspace_integration(&mut *tx, &workspace_id, service_name).await?;
-
-    let oauth_data: T::OAuthData = serde_json::from_value(integration.oauth_data).map_err(|e| {
-        Error::InternalErr(format!(
-            "Failed to parse {} OAuth data: {}",
-            T::DISPLAY_NAME,
-            e
-        ))
-    })?;
+    let integration_service = service_name.integration_service();
+    let oauth_data: T::OAuthData =
+        decrypt_oauth_data(&db, &workspace_id, integration_service).await?;
 
     handler
         .delete(&workspace_id, &oauth_data, &external_id, &db, &mut tx)
@@ -474,34 +451,6 @@ async fn delete_native_trigger_handler<T: External>(
     tx.commit().await?;
 
     Ok(format!("Native trigger deleted"))
-}
-
-async fn exists_native_trigger_handler<T: External>(
-    Extension(service_name): Extension<ServiceName>,
-    _authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path((workspace_id, external_id)): Path<(String, String)>,
-) -> JsonResult<bool> {
-    let exists = sqlx::query_scalar!(
-        r#"
-        SELECT EXISTS(
-            SELECT 1
-            FROM native_trigger
-            WHERE
-                workspace_id = $1 AND
-                service_name = $2 AND
-                external_id = $3
-        )
-        "#,
-        workspace_id,
-        service_name as ServiceName,
-        external_id
-    )
-    .fetch_one(&db)
-    .await?
-    .unwrap_or(false);
-
-    Ok(Json(exists))
 }
 
 async fn list_native_triggers_handler<T: External>(
@@ -543,10 +492,6 @@ pub fn service_routes<T: External + 'static>(handler: T) -> Router {
         .route(
             "/delete/:external_id",
             delete(delete_native_trigger_handler::<T>),
-        )
-        .route(
-            "/exists/:external_id",
-            get(exists_native_trigger_handler::<T>),
         );
 
     standard_routes
@@ -562,15 +507,12 @@ pub fn generate_native_trigger_routers() -> Router {
 
     #[cfg(feature = "native_trigger")]
     {
+        use crate::google::Google;
         use crate::nextcloud::NextCloud;
 
-        // Register all service routes here
-        // When adding a new service:
-        // 1. Import the handler: use crate::newservice::NewServiceHandler;
-        // 2. Add the route: .nest("/newservice", service_routes(NewServiceHandler))
-        return router.nest("/nextcloud", service_routes(NextCloud));
-        // Add new services here:
-        // .nest("/newservice", service_routes(NewServiceHandler))
+        return router
+            .nest("/nextcloud", service_routes(NextCloud))
+            .nest("/google", service_routes(Google));
     }
 
     #[cfg(not(feature = "native_trigger"))]

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE account SET refresh_token = $1, refresh_error = NULL\n                 WHERE workspace_id = $2 AND client = $3 AND is_workspace_integration = true",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "86f80fd909ef7e956a2e0806aaad728a74fae33c5c1836102fe518cc62faffef"
+}

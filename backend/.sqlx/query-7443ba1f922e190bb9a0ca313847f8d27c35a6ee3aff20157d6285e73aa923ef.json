@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            workspace_id,\n            service_name AS \"service_name!: ServiceName\",\n            oauth_data,\n            created_at,\n            updated_at,\n            created_by\n        FROM\n            workspace_integrations\n        WHERE\n            workspace_id = $1\n            AND service_name = $2\n        ",
+  "query": "\n        SELECT\n            workspace_id,\n            service_name AS \"service_name!: ServiceName\",\n            oauth_data,\n            resource_path,\n            created_at,\n            updated_at,\n            created_by\n        FROM\n            workspace_integrations\n        WHERE\n            workspace_id = $1\n            AND service_name = $2\n        ",
   "describe": {
     "columns": [
       {
@@ -30,16 +30,21 @@
       },
       {
         "ordinal": 3,
+        "name": "resource_path",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "updated_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "created_by",
         "type_info": "Varchar"
       }
@@ -63,11 +68,12 @@
     "nullable": [
       false,
       false,
-      false,
+      true,
+      true,
       false,
       false,
       false
     ]
   },
-  "hash": "3e5bdc2e071fc2f1e3c7971736272f20bb5a0aa921a614bd02898d3f162660c2"
+  "hash": "7443ba1f922e190bb9a0ca313847f8d27c35a6ee3aff20157d6285e73aa923ef"
 }
