@@ -17,8 +17,7 @@ struct RateLimitEntry {
     minute_bucket: i64,
 }
 
-static RATE_LIMIT_COUNTER: LazyLock<DashMap<String, RateLimitEntry>> =
-    LazyLock::new(DashMap::new);
+static RATE_LIMIT_COUNTER: LazyLock<DashMap<String, RateLimitEntry>> = LazyLock::new(DashMap::new);
 
 pub fn check_and_increment(workspace_id: &str, limit: i32) -> Result<()> {
     let current_minute = Utc::now().timestamp() / 60;

@@ -30,6 +30,7 @@
 		onOpenRecomputeIds?: string[] | undefined
 		onCloseRecomputeIds?: string[] | undefined
 		preclickAction?: (() => Promise<void>) | undefined
+		onClose?: () => void
 	}
 
 	let {
@@ -42,7 +43,8 @@
 		render,
 		onOpenRecomputeIds = undefined,
 		onCloseRecomputeIds = undefined,
-		preclickAction
+		preclickAction,
+		onClose = undefined
 	}: Props = $props()
 
 	const {
@@ -184,6 +186,7 @@
 			onClose={() => {
 				outputs?.open.set(false)
 				onCloseRecomputeIds?.forEach((id) => $runnableComponents?.[id]?.cb?.map((cb) => cb?.()))
+				onClose?.()
 			}}
 		>
 			{#snippet children({ handleClickAway, zIndex, open })}

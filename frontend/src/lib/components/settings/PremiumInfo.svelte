@@ -7,10 +7,10 @@
 	import { workspaceStore } from '$lib/stores'
 	import { Button } from '../common'
 	import Tooltip from '../Tooltip.svelte'
+	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
 	import { ExternalLink, Pen, X } from 'lucide-svelte'
 	import Section from '../Section.svelte'
 	import Range from '../Range.svelte'
-	import Label from '../Label.svelte'
 	import Modal from '../common/modal/Modal.svelte'
 	import { slide } from 'svelte/transition'
 
@@ -71,12 +71,14 @@
 		const info = await WorkspaceService.getPremiumInfo({ workspace: $workspaceStore! })
 		const developerNb = users?.filter((x) => !x.operator)?.length ?? 0
 		const operatorNb = users?.filter((x) => x.operator)?.length ?? 0
+		const usage = info.usage ?? 0
+
 		const seatsFromUsers = Math.ceil(developerNb + operatorNb / 2)
-		const seatsFromExtraComps = Math.max(Math.ceil((info.usage ?? 0) / 10000) - seatsFromUsers, 0)
+		const seatsFromExtraComps = Math.max(Math.ceil(usage / 10000) - seatsFromUsers, 0)
 		const usedSeats = seatsFromUsers + seatsFromExtraComps
 		premiumInfo = {
 			...info,
-			usage: info.usage ?? 0,
+			usage,
 			owner: info.owner,
 			developerNb,
 			operatorNb,
@@ -112,9 +114,10 @@
 		}
 	}
 
-	let estimatedDevs = 1
+	let estimatedDevsRaw = 1
 	let estimatedOps = 0
 
+	$: estimatedDevs = Math.max(1, estimatedDevsRaw)
 	$: estimatedSeats = estimatedDevs + Math.ceil(estimatedOps / 2)
 
 	let estimatedExecs = 1
@@ -125,6 +128,8 @@
 		}
 	}
 	$: estimatedSeats && updateExecs()
+
+	const formatNumber = (value: number) => value.toLocaleString('en-US')
 </script>
 
 <Modal bind:open={thresholdAlertOpen} title="Threshold alert">
@@ -150,20 +155,19 @@
 
 <div class="flex flex-col gap-4 mt-8">
 	<div class="flex flex-col gap-1">
-		<div class=" text-primary text-lg font-semibold">
-			{#if premiumInfo?.premium && plan}
-				Plan: {capitalize(plan)} plan{plan === 'team' ? ' (usage-based)' : ''}
-			{:else}
-				Plan: Free plan
-			{/if}
-		</div>
+		<SettingsPageHeader
+			title={premiumInfo?.premium && plan
+				? `Plan: ${capitalize(plan)} plan${plan === 'team' ? ' (usage-based)' : ''}`
+				: 'Plan: Free plan'}
+			class="mb-0"
+		/>
 		{#if premiumInfo?.status === 'past_due'}
 			<p class="text-red-500 text-base">
 				{#if premiumInfo.max_tolerated_executions === undefined || premiumInfo.usage > premiumInfo.max_tolerated_executions}
 					Your last invoice is unpaid, you cannot run any more jobs. Please update your payment
-					method in the customer portal to continue running jobs.
+					method in the Customer Portal to continue running jobs.
 				{:else}
-					Your last invoice is unpaid. Please update your payment method in the customer portal to
+					Your last invoice is unpaid. Please update your payment method in the Customer Portal to
 					prevent the interruption of your job executions.
 				{/if}
 			</p>
@@ -238,78 +242,125 @@
 						<tbody class="divide-y">
 							<tr>
 								<Cell first>
-									Developers
-									<Tooltip>
-										Actual pricing is calculated on the MAXIMUM number of users in a given billing
-										period, see the customer portal for more info.
-									</Tooltip>
+									<div class="flex flex-col gap-0.5">
+										<div class="font-medium">Developers</div>
+										<p class="text-xs text-secondary">
+											Calculated on the MAXIMUM number of users in a given billing
+											period, see the Customer Portal for more info.
+										</p>
+									</div>
 								</Cell>
 								<Cell last numeric>
-									<div class="text-base">
-										{premiumInfo.developerNb}
+									<div class="text-sm text-secondary">
+										{formatNumber(premiumInfo.developerNb)}
 									</div>
 								</Cell>
 							</tr>
 							<tr>
 								<Cell first>
-									Operators
-									<Tooltip>
-										Actual pricing is calculated on the MAXIMUM number of operators in a given
-										billing period, see the customer portal for more info.
-									</Tooltip>
+									<div class="flex flex-col gap-0.5">
+										<div class="font-medium">Operators</div>
+										<p class="text-xs text-secondary">
+											Calculated on the MAXIMUM number of operators in a given
+											billing period, see the Customer Portal for more info.
+										</p>
+									</div>
 								</Cell>
 								<Cell last numeric>
-									<div class="text-base">
-										{premiumInfo.operatorNb}
+									<div class="text-sm text-secondary">
+										{formatNumber(premiumInfo.operatorNb)}
+									</div>
+								</Cell>
+							</tr>
+							<tr class="bg-slate-50 dark:bg-slate-900/40">
+								<Cell first>
+									<div class="flex flex-col gap-0.5">
+										<div class="font-semibold text-sm">Seats from users</div>
+										<p class="text-xs text-secondary">
+											1 developer = 1 seat, 2 operators = 1 seat.
+										</p>
+										<p class="text-[11px] text-secondary font-mono">
+											u = ceil({formatNumber(premiumInfo.developerNb)} + {formatNumber(premiumInfo.operatorNb)}/2)
+											= {formatNumber(premiumInfo.seatsFromUsers)}
+										</p>
+									</div>
+								</Cell>
+								<Cell last numeric>
+									<div class="text-base font-bold text-primary">
+										{formatNumber(premiumInfo.seatsFromUsers)}
 									</div>
 								</Cell>
 							</tr>
 							<tr>
-								<Cell first><div class="font-semibold">Number of seats for users</div></Cell>
+								<Cell first>
+									<div class="flex flex-col gap-0.5">
+										<div class="font-semibold">Executions this month</div>
+										<p class="text-xs text-secondary">
+											One execution equals one job
+											up to 1 second on a worker with 2GB of memory, with each additional
+											second counting as an extra execution.
+										</p>
+									</div>
+								</Cell>
 								<Cell last numeric>
-									<div class="text-base font-bold">
-										u = ceil({premiumInfo.developerNb} + {premiumInfo.operatorNb}/2) = {premiumInfo.seatsFromUsers}
+									<div class="text-sm text-secondary">
+										{formatNumber(premiumInfo.usage)}
 									</div>
 								</Cell>
 							</tr>
 							<tr>
-								<Cell first>Computations executed this month</Cell>
+								<Cell first>
+									<div class="flex flex-col gap-0.5">
+										<div class="font-semibold">Included executions from user seats</div>
+										<p class="text-xs text-secondary">
+											Each seat includes 10,000 executions per month.
+										</p>
+									</div>
+								</Cell>
 								<Cell last numeric>
-									<div class="text-base">
-										{premiumInfo.usage}
+									<div class="text-sm text-secondary">
+										- {formatNumber(premiumInfo.seatsFromUsers * 10000)}
 									</div>
 								</Cell>
 							</tr>
-							<tr>
-								<Cell first>Included computations with users (10k per user seat)</Cell>
+							<tr class="bg-slate-50 dark:bg-slate-900/40">
+								<Cell first>
+									<div class="flex flex-col gap-0.5">
+										<div class="font-semibold text-sm">Extra seats from computations</div>
+										<p class="text-xs text-secondary">
+											Additional seats created by executions beyond the included quota.
+										</p>
+										<p class="text-[11px] text-secondary font-mono">
+											c = ceil(max(0, {formatNumber(premiumInfo.usage)} -
+											{formatNumber(premiumInfo.seatsFromUsers * 10000)}) / 10,000) =
+											{formatNumber(premiumInfo.seatsFromExtraComps)}
+										</p>
+									</div>
+								</Cell>
 								<Cell last numeric>
-									<div class="text-base">
-										- {premiumInfo.seatsFromUsers * 10000}
+									<div class="text-base font-bold text-primary">
+										{formatNumber(premiumInfo.seatsFromExtraComps)}
 									</div>
 								</Cell>
 							</tr>
-							<tr>
-								<Cell first
-									><div class="font-semibold">Number of seats for extra computations</div></Cell
-								>
-								<Cell last numeric>
-									<div class="text-base font-bold">
-										c = ceil({Math.max(0, premiumInfo.usage - premiumInfo.seatsFromUsers * 10000)} /
-										10 000) = {premiumInfo.seatsFromExtraComps}
+							<tr class="bg-slate-100 dark:bg-slate-900/60">
+								<Cell first>
+									<div class="flex flex-col gap-0.5">
+										<div class="font-semibold text-sm flex items-center gap-1">
+											Used seats (billed)
+										</div>
+										<p class="text-xs text-secondary">
+											Highest between seats from 'Developers + Operators' and 'Seats from executions'.
+											This is the number of seats used for billing this month.
+										</p>
+										<p class="text-[11px] text-secondary font-mono">
+											u + c = {formatNumber(premiumInfo.usedSeats)}
+										</p>
 									</div>
 								</Cell>
-							</tr>
-							<tr>
-								<Cell first
-									><div class="font-semibold"
-										>Used seats <Tooltip
-											>Highest between seats from developers + operators and seats from computations
-										</Tooltip></div
-									></Cell
-								>
 								<Cell last numeric>
-									<div class="text-base font-bold">
-										u + c = {premiumInfo.usedSeats}
+									<div class="text-base font-extrabold text-primary">
+										{formatNumber(premiumInfo.usedSeats)}
 									</div>
 								</Cell>
 							</tr>
@@ -328,68 +379,145 @@
 </div>
 
 <Section collapsable label="Cost estimator">
-	<div class="border p-4 rounded-md" transition:slide>
-		<Label label="Number of developers">
-			<Range min={1} max={20} bind:value={estimatedDevs} hideInput />
-		</Label>
-		<Label label="Number of operators">
-			<Range min={0} max={20} bind:value={estimatedOps} hideInput />
-		</Label>
-		<Label label="Number of executions">
-			<Range
-				min={estimatedSeats}
-				max={100}
-				bind:value={estimatedExecs}
-				format={(v) => `${v * 10}k`}
-				hideInput
-			/>
-		</Label>
-		<div class="mt-4 text-base">
-			<div class="flex flex-row justify-between">
-				<div>Seats for users = {estimatedDevs} devs + {estimatedOps} ops / 2</div>
-				<div>{pluralize(estimatedSeats, 'seat')}</div>
-			</div>
-			<div class="flex flex-row justify-between">
-				<div
-					>Extra computations = {estimatedExecs * 10}k execs - {estimatedSeats * 10}k included with
-					users</div
-				>
-				<div
-					>{(estimatedExecs - estimatedSeats) * 10}k extra execs = {pluralize(
-						estimatedExecs - estimatedSeats,
-						'seat'
-					)}</div
-				>
-			</div>
-			<div class="flex flex-row justify-between font-medium items-center">
-				<div>Total</div>
-				<div class="flex flex-col items-end">
-					<div>
-						{pluralize(estimatedSeats + (estimatedExecs - estimatedSeats), 'seat')} = {(estimatedSeats +
-							(estimatedExecs - estimatedSeats)) *
-							10}$ / month
+	<div class="border rounded-md p-4 md:p-5 space-y-5" transition:slide>
+		<div class="flex flex-col gap-1">
+			<div class="text-sm font-semibold text-primary">Estimate your monthly cost</div>
+			<p class="text-xs text-secondary max-w-xl">
+				This is a rough estimate based on your expected team size and workload. Actual billing is based
+				on the maximum number of users and executions in a given month.
+			</p>
+		</div>
+
+		<div class="grid gap-6 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] items-start">
+			<!-- Inputs -->
+			<div class="space-y-4">
+				<div class="space-y-1.5">
+					<div class="flex items-center justify-between gap-2">
+						<div class="text-sm font-medium text-primary">Developers</div>
+						<div class="text-xs text-secondary">
+							<span class="font-semibold">{estimatedDevs}</span> dev{estimatedDevs === 1 ? '' : 's'}
+						</div>
 					</div>
+					<Range min={1} max={20} bind:value={estimatedDevsRaw} hideInput />
+				</div>
+
+				<div class="space-y-1.5">
+					<div class="flex items-center justify-between gap-2">
+						<div class="text-sm font-medium text-primary">Operators</div>
+						<div class="text-xs text-secondary">
+							<span class="font-semibold">{estimatedOps}</span> operator{estimatedOps === 1 ? '' : 's'}
+						</div>
+					</div>
+					<Range min={0} max={20} bind:value={estimatedOps} hideInput />
+					<p class="text-[11px] text-secondary">
+						2 operators = 1 seat
+					</p>
+				</div>
+
+				<div class="space-y-1.5">
+					<div class="flex items-center justify-between gap-2">
+						<div class="flex items-center gap-1.5">
+							<div class="text-sm font-medium text-primary">Monthly executions</div>
+							<Tooltip>
+								One execution equals one job up to 1 second on a virtual CPU with 2 GB of memory, with
+								each additional second counting as an extra execution.
+							</Tooltip>
+						</div>
+						<div class="text-xs text-secondary">
+							<span class="font-semibold">{estimatedExecs * 10}k</span> executions / month
+						</div>
+					</div>
+					<Range
+						min={estimatedSeats}
+						max={100}
+						bind:value={estimatedExecs}
+						format={(v) => `${v * 10}k`}
+						hideInput
+					/>
+					<p class="text-[11px] text-secondary">
+						Each seat includes 10k executions per month.
+					</p>
+				</div>
+			</div>
+
+			<!-- Breakdown -->
+			{#if estimatedSeats}
+				<div
+					class="rounded-md bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 p-4 space-y-3 text-sm"
+				>
+					<div class="flex items-center justify-between">
+						<div class="text-secondary">Seats from users</div>
+						<div class="font-medium">
+							{pluralize(estimatedSeats, 'seat')}
+						</div>
+					</div>
+
+					<div class="flex items-center justify-between text-xs text-secondary">
+						<div>
+							Based on {estimatedDevs} dev{estimatedDevs === 1 ? '' : 's'} and
+							{` ${estimatedOps} operator${estimatedOps === 1 ? '' : 's'}`}
+						</div>
+					</div>
+
+					<hr class="border-slate-200 dark:border-slate-800" />
+
+					<div class="flex items-center justify-between">
+						<div class="text-secondary">Included executions</div>
+						<div class="font-medium">{estimatedSeats * 10}k</div>
+					</div>
+
+					<div class="flex items-center justify-between">
+						<div class="text-secondary">Extra executions</div>
+						<div class="font-medium">
+							{(estimatedExecs - estimatedSeats) * 10}k
+						</div>
+					</div>
+
+					<div class="flex items-center justify-between text-xs text-secondary">
+						<div>Charged as additional seats</div>
+						<div>
+							≈ {pluralize(estimatedExecs - estimatedSeats, 'seat')}
+						</div>
+					</div>
+
+					<hr class="border-slate-200 dark:border-slate-800" />
+
+					<div class="flex items-center justify-between font-semibold text-base">
+						<div>Total estimated seats</div>
+						<div class="text-right">
+							<div>
+								{pluralize(estimatedSeats + (estimatedExecs - estimatedSeats), 'seat')}
+							</div>
+							<div class="text-primary text-sm">
+								{(estimatedSeats + (estimatedExecs - estimatedSeats)) * 10}$ / month
+							</div>
+						</div>
+					</div>
+
 					{#if premiumInfo?.premium && plan === 'team'}
 						<button
-							class="text-xs text-blue-500 underline"
+							class="mt-1 text-[11px] text-blue-500 underline self-start"
 							on:click={() => {
 								newThresholdAlertAmount = (estimatedSeats + (estimatedExecs - estimatedSeats)) * 10
 								thresholdAlertOpen = true
 							}}
 						>
-							Setup threshold email alert
+							Use this amount for a threshold email alert
 						</button>
 					{/if}
+
+					<div class="mt-2 h-4 text-[11px]">
+						{#if (estimatedSeats + (estimatedExecs - estimatedSeats)) * 10 > 700}
+							<a
+								class="text-teal-600 font-semibold underline block text-right"
+								href="https://www.windmill.dev/pricing"
+								target="_blank"
+							>
+								Higher usage? Explore Cloud Enterprise
+							</a>
+						{/if}
+					</div>
 				</div>
-			</div>
-			{#if (estimatedSeats + (estimatedExecs - estimatedSeats)) * 10 > 700}
-				<a
-					class="mt-4 text-teal-600 font-semibold text-center block underline"
-					href="https://www.windmill.dev/pricing"
-					target="_blank"
-				>
-					You should consider subscribing to Cloud Enterprise
-				</a>
 			{/if}
 		</div>
 	</div>
@@ -410,15 +538,25 @@
 				{planTitle}
 			</h2>
 			<ul class="list-disc text-sm p-4">
-				{#each planDesc as item}
-					<li class="mt-2">{@html item}</li>
+				{#each planDesc as item, i}
+					{#if planTitle === 'Team' && i === 1}
+						<li class="mt-2">
+							Every seat includes <b>10 000</b> executions
+							<Tooltip>
+								One execution equals one job up to 1 second on a virtual CPU with 2 GB of memory, with
+								each additional second counting as an extra execution.
+							</Tooltip>
+						</li>
+					{:else}
+						<li class="mt-2">{@html item}</li>
+					{/if}
 				{/each}
 			</ul>
 
 			<div class="grow"></div>
-			{#if planTitle == 'Team'}
-				{#if plan != 'team'}
-					<div class="mt-4 mx-auto">
+			<div class="mt-4 mx-auto flex flex-col items-center text-center min-h-[2.5rem]">
+				{#if planTitle == 'Team'}
+					{#if plan != 'team'}
 						{#if plan != 'enterprise'}
 							<Button
 								size="xs"
@@ -428,17 +566,17 @@
 								Upgrade to Team plan</Button
 							>
 						{:else}
-							<div class="mx-auto font-semibold text-center">
-								Cancel your plan in the customer portal then upgrade to a team plan
+							<div class="text-md font-semibold">
+								Cancel your plan in the Customer Portal then upgrade to a team plan
 							</div>
 						{/if}
-					</div>
-				{:else}
-					<div class="mx-auto text-md font-semibold">Workspace is on the team plan</div>
-				{/if}
-			{:else if planTitle == 'Enterprise'}
-				{#if plan != 'enterprise'}
-					<div class="mt-4 mx-auto">
+					{:else}
+						<div class="text-md font-semibold">
+							Workspace is on the team plan
+						</div>
+					{/if}
+				{:else if planTitle == 'Enterprise'}
+					{#if plan != 'enterprise'}
 						<Button
 							size="xs"
 							color="bg-teal-600 text-white"
@@ -447,19 +585,23 @@
 						>
 							See more
 						</Button>
-					</div>
-				{:else}
-					<div class="mx-auto text-md font-semibold">Workspace is on enterprise plan</div>
+					{:else}
+						<div class="text-md font-semibold">
+							Workspace is on enterprise plan
+						</div>
+					{/if}
+				{:else if planTitle === 'Free'}
+					{#if plan}
+						<div class="text-md font-semibold">
+							Cancel your plan in the Customer Portal to downgrade to the free plan
+						</div>
+					{:else}
+						<div class="font-semibold">
+							Workspace is on the free plan
+						</div>
+					{/if}
 				{/if}
-			{:else if planTitle === 'Free'}
-				{#if plan}
-					<div class="mx-auto font-semibold text-center">
-						Cancel your plan in the customer portal to downgrade to the free plan
-					</div>
-				{:else}
-					<div class="mx-auto font-semibold text-center"> Workspace is on the free plan </div>
-				{/if}
-			{/if}
+			</div>
 		</div>
 	{/each}
 </div>

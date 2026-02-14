@@ -7,6 +7,7 @@
 	import { enterpriseLicense } from '$lib/stores'
 	import Button from './common/button/Button.svelte'
 	import TextInput from './text_input/TextInput.svelte'
+	import SettingCard from './instanceSettings/SettingCard.svelte'
 
 	interface Props {
 		name: string
@@ -99,7 +100,7 @@
 		{/if}
 	</label>
 	{#if enabled}
-		<div class="p-4 rounded border mb-4 flex flex-col gap-6">
+		<SettingCard class="mb-4 flex flex-col gap-6">
 			{#if name != 'slack' && name != 'teams'}
 				<label class="flex flex-col gap-1">
 					<span class="text-emphasis font-semibold text-xs">Custom Name</span>
@@ -274,7 +275,7 @@
 					</div>
 				</CollapseLink>
 			{/if}
-		</div>
+		</SettingCard>
 	{/if}
 </div>
 

@@ -1,27 +1,16 @@
 <script lang="ts">
-	import { Building } from 'lucide-svelte'
-	import { twMerge } from 'tailwind-merge'
-	import { Tooltip } from './meltComponents'
+	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
+	import Badge from './common/badge/Badge.svelte'
 
 	interface Props {
-		class?: string
 		children?: import('svelte').Snippet
 	}
 
-	let { class: className = '', children = undefined }: Props = $props()
+	let { children = undefined }: Props = $props()
 </script>
 
 <Tooltip>
-	<div
-		class={twMerge(
-			'flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap px-1',
-			className
-		)}
-		aria-label="Enterprise Edition only feature"
-		role="tooltip"
-	>
-		EE only <Building size={16} />
-	</div>
+	<Badge verySmall color="blue" class="px-2">EE</Badge>
 	{#snippet text()}
 		{#if children}
 			{@render children()}

@@ -21,6 +21,7 @@ use crate::{
 
 use anyhow::Context;
 use async_once_cell::Lazy;
+use backon::{BackoffBuilder, ConstantBuilder, Retryable};
 use futures::TryFutureExt;
 use mappable_rc::Marc;
 use serde::{Deserialize, Serialize};
@@ -67,14 +68,27 @@ use windmill_common::{
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
     add_completed_job, add_completed_job_error, append_logs, get_mini_pulled_job,
-    handle_maybe_scheduled_job, insert_concurrency_key, interpolate_args, CanceledBy, FlowRunners,
-    MiniCompletedJob, MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload, WrappedError,
+    insert_concurrency_key, interpolate_args,
+    report_error_to_workspace_handler_or_critical_side_channel, try_schedule_next_job, CanceledBy,
+    FlowRunners, MiniCompletedJob, MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload,
+    WrappedError,
 };
 
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::audit::AuditAuthor;
 use windmill_queue::{canceled_job_to_result, push};
+
+#[derive(Debug)]
+pub struct SchedulePushZombieError(pub String);
+
+impl std::fmt::Display for SchedulePushZombieError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::error::Error for SchedulePushZombieError {}
 
 /// Helper function to write itered data to separate table
 /// Returns None if data was written to separate table, Some(itered) if it should be stored in JSONB
@@ -1351,35 +1365,31 @@ pub async fn update_flow_status_after_job_completion_internal(
                 let args_hm = args.unwrap_or_default().0;
                 let args = PushArgs::from(&args_hm);
                 if let Some(ck) = concurrency_key {
-                    let mut tx = db.begin().await?;
                     insert_concurrency_key(
                         &flow_job.workspace_id,
                         &args,
                         &flow_job.runnable_path,
                         JobKind::Flow,
                         Some(ck),
-                        &mut tx,
+                        db,
                         flow,
                     )
                     .await?;
-                    tx.commit().await?;
                 }
                 if let Some(t) = tag {
                     tag = Some(interpolate_args(t, &args, &flow_job.workspace_id));
                 }
             } else if concurrent_limit.is_some() {
-                let mut tx = db.begin().await?;
                 insert_concurrency_key(
                     &flow_job.workspace_id,
                     &PushArgs::from(&HashMap::new()),
                     &flow_job.runnable_path,
                     JobKind::Flow,
                     concurrency_key,
-                    &mut tx,
+                    db,
                     flow,
                 )
                 .await?;
-                tx.commit().await?;
             }
 
             // let tag = tag_and_concurrency_key.and_then(|tc| tc.tag.map(|t| interpolate_args(t.clone(), &args, &workspace_id)));
@@ -1630,7 +1640,6 @@ pub async fn update_flow_status_after_job_completion_internal(
                     true,
                     None,
                     false,
-                    false,
                 )
                 .await?;
                 duration
@@ -1650,7 +1659,6 @@ pub async fn update_flow_status_after_job_completion_internal(
                     canceled_by.clone(),
                     true,
                     None,
-                    false,
                     false,
                 )
                 .await?;
@@ -2177,22 +2185,76 @@ pub async fn handle_flow(
             .await?;
 
         if let Some(schedule) = schedule {
-            if let Err(err) = handle_maybe_scheduled_job(
-                db,
-                &MiniCompletedJob::from(flow_job.clone()),
-                &schedule,
-                flow_job.runnable_path.as_ref().unwrap(),
-                &flow_job.workspace_id,
-            )
-            .warn_after_seconds(5)
-            .await
-            {
-                match err {
-                    Error::QuotaExceeded(_) => return Err(err.into()),
-                    // scheduling next job failed and could not disable schedule => make zombie job to retry
-                    _ => return Ok(()),
+            let mini_job = MiniCompletedJob::from(flow_job.clone());
+            let runnable_path = flow_job.runnable_path.as_ref().unwrap().clone();
+            let schedule_push_result = (|| async {
+                let tx = db.begin().warn_after_seconds(5).await
+                    .map_err(|e| Error::internal_err(format!("begin tx for schedule push: {e:#}")))?;
+                let (tx, schedule_push_err) = try_schedule_next_job(
+                    db,
+                    tx,
+                    &mini_job,
+                    &schedule,
+                    &runnable_path,
+                )
+                .await;
+                if let Some(err) = schedule_push_err {
+                    return Err(err);
                 }
-            };
+                tx.commit().warn_after_seconds(5).await
+                    .map_err(|e| Error::internal_err(format!("commit schedule push: {e:#}")))?;
+                Ok::<(), Error>(())
+            })
+            .retry(
+                ConstantBuilder::default()
+                    .with_delay(std::time::Duration::from_secs(3))
+                    .with_max_times(10)
+                    .build(),
+            )
+            .when(|err: &Error| !matches!(err, Error::QuotaExceeded(_) | Error::NotFound(_)))
+            .notify(|err: &Error, dur: std::time::Duration| {
+                tracing::error!(
+                    "Could not push next scheduled job for flow schedule {}, retrying in {dur:#?}: {err:#?}",
+                    schedule.path
+                );
+            })
+            .sleep(tokio::time::sleep)
+            .await;
+
+            // Non-retryable errors (QuotaExceeded, NotFound) are handled inside
+            // try_schedule_next_job (schedule disabled, returns None), so they never
+            // reach here. This handles only transient errors after retry exhaustion.
+            if let Err(err) = schedule_push_result {
+                tracing::error!(
+                    "Could not push next scheduled job for {} after retries: {err}. Disabling schedule.",
+                    schedule.path
+                );
+                if let Err(disable_err) = sqlx::query!(
+                    "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
+                    err.to_string(),
+                    &flow_job.workspace_id,
+                    &schedule.path
+                )
+                .execute(db)
+                .await
+                {
+                    report_error_to_workspace_handler_or_critical_side_channel(
+                        &mini_job,
+                        db,
+                        format!(
+                            "Could not push next scheduled job for {} and could not disable schedule: {disable_err}",
+                            schedule.path,
+                        ),
+                    )
+                    .await;
+                    return Err(SchedulePushZombieError(
+                        format!(
+                            "Could not push or disable schedule {} after retries",
+                            schedule.path
+                        ),
+                    ).into());
+                }
+            }
         } else {
             tracing::error!(
                 "Schedule {schedule_path} in {} not found. Impossible to schedule again",
@@ -3189,7 +3251,7 @@ async fn push_next_flow_job(
                 "UPDATE v2_job_runtime SET ping = now() WHERE id = $1 AND ping < now()",
                 flow_job.id,
             )
-            .execute(db)
+            .execute(&mut *tx)
             .warn_after_seconds(3)
             .await?;
         }
@@ -5029,6 +5091,10 @@ pub async fn get_previous_job_result(
     match flow_status.modules.get(prev) {
         Some(FlowStatusModule::Success { flow_jobs: Some(flow_jobs), .. }) => {
             Ok(Some(retrieve_flow_jobs_results(db, w_id, flow_jobs).await?))
+        }
+        Some(FlowStatusModule::Success { job, .. }) if *job == Uuid::nil() => {
+            // Empty branch — no real job was executed, return empty object
+            Ok(None)
         }
         Some(FlowStatusModule::Success { job, .. }) => Ok(Some(
             sqlx::query_scalar!(

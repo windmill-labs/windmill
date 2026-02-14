@@ -30,8 +30,9 @@ use crate::{
         build_command_with_isolation, check_executor_binary_exists, create_args_and_out_file,
         get_reserved_variables, read_result, start_child_process, DEV_CONF_NSJAIL,
     },
-    handle_child::handle_child, get_proxy_envs_for_lang,
-    CSHARP_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER, DOTNET_PATH, HOME_ENV, NSJAIL_PATH,
+    get_proxy_envs_for_lang,
+    handle_child::handle_child,
+    CSHARP_CACHE_DIR, is_sandboxing_enabled, DISABLE_NUSER, DOTNET_PATH, HOME_ENV, NSJAIL_PATH,
     NUGET_CONFIG, PATH_ENV, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 #[cfg(feature = "csharp")]
@@ -82,7 +83,9 @@ pub async fn generate_nuget_lockfile(
     check_executor_binary_exists("dotnet", DOTNET_PATH.as_str(), "C#")?;
 
     if let Some(nuget_config) = NUGET_CONFIG.read().await.clone() {
-        write_file(job_dir, "nuget.config", &nuget_config)?;
+        if !nuget_config.trim().is_empty() {
+            write_file(job_dir, "nuget.config", &nuget_config)?;
+        }
     }
 
     let (reqs, lines_to_remove) = parse_csharp_reqs(code);
@@ -92,7 +95,12 @@ pub async fn generate_nuget_lockfile(
     let mut gen_lockfile_cmd = Command::new(DOTNET_PATH.as_str());
     gen_lockfile_cmd
         .current_dir(job_dir)
+        .env("DOTNET_CLI_HOME", CSHARP_CACHE_DIR)
+        .env("NUGET_PACKAGES", format!("{CSHARP_CACHE_DIR}/nuget"))
+        .env("DOTNET_CLI_TELEMETRY_OPTOUT", "true")
+        .env("DOTNET_NOLOGO", "true")
         .env("MSBUILDDISABLENODEREUSE", "1")
+        .env("DOTNET_ROOT", DOTNET_ROOT.as_str())
         .args(vec!["restore", "--use-lock-file"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -329,7 +337,9 @@ async fn build_cs_proj(
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
     if let Some(nuget_config) = NUGET_CONFIG.read().await.clone() {
-        write_file(job_dir, "nuget.config", &nuget_config)?;
+        if !nuget_config.trim().is_empty() {
+            write_file(job_dir, "nuget.config", &nuget_config)?;
+        }
     }
 
     let mut build_cs_cmd = Command::new(DOTNET_PATH.as_str());
@@ -339,6 +349,8 @@ async fn build_cs_proj(
         .env("PATH", PATH_ENV.as_str())
         .env("BASE_INTERNAL_URL", base_internal_url)
         .env("HOME", HOME_ENV.as_str())
+        .env("DOTNET_CLI_HOME", CSHARP_CACHE_DIR)
+        .env("NUGET_PACKAGES", format!("{CSHARP_CACHE_DIR}/nuget"))
         .env("DOTNET_CLI_TELEMETRY_OPTOUT", "true")
         .env("DOTNET_NOLOGO", "true")
         .env("MSBUILDDISABLENODEREUSE", "1")
@@ -555,7 +567,7 @@ pub async fn handle_csharp_job(
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
 
-    let child = if !*DISABLE_NSJAIL {
+    let child = if is_sandboxing_enabled() {
         write_file(
             job_dir,
             "run.config.proto",
@@ -578,6 +590,8 @@ pub async fn handle_csharp_job(
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
+            .env("DOTNET_CLI_HOME", CSHARP_CACHE_DIR)
+            .env("NUGET_PACKAGES", format!("{CSHARP_CACHE_DIR}/nuget"))
             .env("DOTNET_CLI_TELEMETRY_OPTOUT", "true")
             .env("DOTNET_NOLOGO", "true")
             .env("DOTNET_ROOT", DOTNET_ROOT.as_str())
@@ -608,6 +622,8 @@ pub async fn handle_csharp_job(
             .envs(get_proxy_envs_for_lang(&ScriptLang::CSharp).await?)
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
+            .env("DOTNET_CLI_HOME", CSHARP_CACHE_DIR)
+            .env("NUGET_PACKAGES", format!("{CSHARP_CACHE_DIR}/nuget"))
             .env("DOTNET_CLI_TELEMETRY_OPTOUT", "true")
             .env("DOTNET_NOLOGO", "true")
             .env("DOTNET_ROOT", DOTNET_ROOT.as_str())
@@ -649,7 +665,7 @@ pub async fn handle_csharp_job(
         mem_peak,
         canceled_by,
         child,
-        !*DISABLE_NSJAIL,
+        is_sandboxing_enabled(),
         worker_name,
         &job.workspace_id,
         "csharp run",

@@ -56,7 +56,7 @@ For inline scripts, the code must have a \`main\` function as its entrypoint.
 - \`lint()\`: Lint all files. Returns errors/warnings grouped by frontend/backend.
 
 ### Discovery
-- \`list_workspace_runnables(query, type?)\`: Search workspace scripts and flows
+- \`search_workspace(query, type)\`: Search workspace scripts and flows
 - \`search_hub_scripts(query)\`: Search hub scripts
 
 ## Backend Runnable Configuration

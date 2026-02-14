@@ -1,0 +1,49 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO capture (workspace_id, path, is_flow, trigger_kind, main_args, preprocessor_args, created_by)\n        VALUES ($1, $2, $3, $4::trigger_kind, $5::jsonb, $6::jsonb, $7)\n        RETURNING id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Bool",
+        {
+          "Custom": {
+            "name": "trigger_kind",
+            "kind": {
+              "Enum": [
+                "webhook",
+                "http",
+                "websocket",
+                "kafka",
+                "email",
+                "nats",
+                "postgres",
+                "sqs",
+                "mqtt",
+                "gcp",
+                "default_email",
+                "nextcloud",
+                "google"
+              ]
+            }
+          }
+        },
+        "Jsonb",
+        "Jsonb",
+        "Varchar"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "45024b932383199974616bba1fc2f7175cc6f2e02d9c565bb5159cae3e0b6835"
+}

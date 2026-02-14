@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use windmill_common::schema::{SchemaValidationRule, SchemaValidator};
 use windmill_parser::{MainArgSignature, Typ};
 
-
 fn make_rules_for_arg_typ(typ: &Typ) -> Vec<SchemaValidationRule> {
     let mut rules = vec![];
 
@@ -35,7 +34,7 @@ fn make_rules_for_arg_typ(typ: &Typ) -> Vec<SchemaValidationRule> {
             rules.push(SchemaValidationRule::IsString);
             rules.push(SchemaValidationRule::IsBytes);
         }
-        Typ::Datetime => {
+        Typ::Datetime | Typ::Date => {
             rules.push(SchemaValidationRule::IsString);
             rules.push(SchemaValidationRule::IsDatetime);
         }
@@ -66,7 +65,10 @@ fn make_rules_for_arg_typ(typ: &Typ) -> Vec<SchemaValidationRule> {
                 for prop in &variant.properties {
                     obj_rules.push((prop.key.to_string(), make_rules_for_arg_typ(&prop.typ)));
                 }
-                rules_map.insert(variant.label.to_string(), vec![SchemaValidationRule::IsObject(obj_rules)]);
+                rules_map.insert(
+                    variant.label.to_string(),
+                    vec![SchemaValidationRule::IsObject(obj_rules)],
+                );
             }
 
             rules.push(SchemaValidationRule::IsOneOf(rules_map))
@@ -94,4 +96,3 @@ pub fn schema_validator_from_main_arg_sig(sig: &MainArgSignature) -> SchemaValid
 
     SchemaValidator { required, rules }
 }
-

@@ -1,0 +1,41 @@
+[package]
+name = "windmill-api-scripts"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_api_scripts"
+path = "src/lib.rs"
+
+[features]
+default = []
+enterprise = ["windmill-common/enterprise"]
+private = ["windmill-common/private"]
+python = ["dep:windmill-parser-py"]
+
+[dependencies]
+windmill-common = { workspace = true, default-features = false }
+windmill-api-auth.workspace = true
+windmill-queue.workspace = true
+windmill-audit.workspace = true
+windmill-git-sync.workspace = true
+windmill-dep-map.workspace = true
+windmill-parser-ts.workspace = true
+
+axum.workspace = true
+futures.workspace = true
+http.workspace = true
+hyper.workspace = true
+itertools.workspace = true
+quick_cache.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sql-builder.workspace = true
+sqlx.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+lazy_static.workspace = true
+tokio.workspace = true
+windmill-parser-py = { workspace = true, optional = true }

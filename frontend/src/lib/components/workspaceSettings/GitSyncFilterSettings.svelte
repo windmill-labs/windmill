@@ -1,11 +1,13 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { Filter, Terminal, ChevronDown, ChevronUp, Edit3 } from 'lucide-svelte'
+	import { Filter, ChevronDown } from 'lucide-svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import FilterList from './FilterList.svelte'
-	import { Tabs, Tab } from '$lib/components/common'
+	import { Tabs, Tab, Button, Section } from '$lib/components/common'
 	import type { GitSyncObjectType } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { twMerge } from 'tailwind-merge'
+	import { slide } from 'svelte/transition'
 
 	type GitSyncTypeMap = {
 		scripts: boolean
@@ -40,7 +42,6 @@
 
 	// Component state
 	let collapsed = $state(false)
-	let showCliInstructions = $state(false)
 
 	// Determine if component should be editable or read-only
 	const isEditable = $derived(isInitialSetup || requiresMigration)
@@ -113,8 +114,8 @@
 	<!-- Card Header -->
 	<div class="flex items-center justify-between min-h-10 px-4 py-1 border-b">
 		<div class="flex items-center gap-2">
-			<Filter size={18} class="text-primary" />
-			<span class="font-semibold text-sm">Git Sync filter settings</span>
+			<Filter size={14} class="text-primary" />
+			<span class="font-semibold text-xs text-emphasis">Git Sync filter settings</span>
 			{#if isLegacyRepo}
 				<Tooltip>
 					This repository uses legacy configuration format and inherits settings from
@@ -128,50 +129,21 @@
 				</Tooltip>
 			{/if}
 		</div>
-		<div class="flex items-center gap-2">
-			<button
-				class="text-secondary hover:text-primary focus:outline-none"
-				onclick={() => (collapsed = !collapsed)}
-				aria-label="Toggle collapse"
-			>
-				{#if collapsed}
-					<svg
-						xmlns="http://www.w3.org/2000/svg"
-						class="h-5 w-5"
-						fill="none"
-						viewBox="0 0 24 24"
-						stroke="currentColor"
-					>
-						<path
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							stroke-width="2"
-							d="M19 9l-7 7-7-7"
-						/>
-					</svg>
-				{:else}
-					<svg
-						xmlns="http://www.w3.org/2000/svg"
-						class="h-5 w-5"
-						fill="none"
-						viewBox="0 0 24 24"
-						stroke="currentColor"
-					>
-						<path
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							stroke-width="2"
-							d="M5 15l7-7 7 7"
-						/>
-					</svg>
-				{/if}
-			</button>
-		</div>
+		<Button
+			unifiedSize="sm"
+			variant="subtle"
+			startIcon={{
+				icon: ChevronDown,
+				classes: twMerge('transition duration-150', collapsed ? '' : 'rotate-180')
+			}}
+			onClick={() => (collapsed = !collapsed)}
+			iconOnly
+		/>
 	</div>
 	{#if !collapsed}
 		{#if isEditable}
 			<!-- Editable mode -->
-			<div class="px-4 py-2">
+			<div class="px-4 py-2" transition:slide={{ duration: 150 }}>
 				<div class="grid grid-cols-1 md:grid-cols-2 md:gap-32">
 					<div class="flex flex-col gap-2">
 						<Tabs bind:selected={filtersTab}>
@@ -347,7 +319,7 @@
 				<div class="grid grid-cols-1 md:grid-cols-2 md:gap-8">
 					<div class="flex flex-col gap-3">
 						<div>
-							<h4 class="font-semibold text-sm mb-1">Include Paths</h4>
+							<h4 class="font-semibold text-xs text-emphasis mb-1">Include Paths</h4>
 							{#if include_path.length > 0}
 								<div class="flex flex-wrap gap-1 text-xs">
 									{#each include_path as path}
@@ -362,7 +334,7 @@
 						</div>
 
 						<div>
-							<h4 class="font-semibold text-sm mb-1">Exclude Paths</h4>
+							<h4 class="font-semibold text-xs text-emphasis mb-1">Exclude Paths</h4>
 							{#if excludes.length > 0}
 								<div class="flex flex-wrap gap-1 text-xs">
 									{#each excludes as path}
@@ -376,7 +348,7 @@
 					</div>
 
 					<div class="flex flex-col gap-2">
-						<h4 class="font-semibold text-sm">Included Types</h4>
+						<h4 class="font-semibold text-xs text-emphasis">Included Types</h4>
 						<div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
 							{#each Object.entries(typeToggles) as [key, enabled]}
 								<div class="flex items-center gap-1">
@@ -401,21 +373,7 @@
 
 				<!-- CLI Instructions (collapsible) -->
 				<div class="border-t pt-2 mt-4">
-					<button
-						class="flex items-center gap-2 text-sm text-secondary hover:text-primary transition-colors"
-						onclick={() => (showCliInstructions = !showCliInstructions)}
-					>
-						<Terminal size={16} />
-						<span>Update settings with CLI</span>
-						<Edit3 size={14} class="text-primary" />
-						{#if showCliInstructions}
-							<ChevronUp size={16} />
-						{:else}
-							<ChevronDown size={16} />
-						{/if}
-					</button>
-
-					{#if showCliInstructions}
+					<Section label="Update settings with CLI" collapsable={true} collapsed={true}>
 						<div class="mt-3 bg-surface-secondary rounded-lg p-3">
 							<div class="text-xs text-primary mb-2">
 								These filter settings are sourced from the <code
@@ -443,8 +401,8 @@ git commit
 git push
 
 # Push changes to workspace or click the pull settings button above{#if useIndividualBranch}
-wmill gitsync-settings push --workspace {$workspaceStore} --repository {git_repo_resource_path} --promotion main{:else}
-wmill gitsync-settings push --workspace {$workspaceStore} --repository {git_repo_resource_path}{/if}</pre
+									wmill gitsync-settings push --workspace {$workspaceStore} --repository {git_repo_resource_path} --promotion main{:else}
+									wmill gitsync-settings push --workspace {$workspaceStore} --repository {git_repo_resource_path}{/if}</pre
 							>
 							{#if useIndividualBranch}
 								<div class="text-xs text-primary mt-3">
@@ -463,7 +421,7 @@ wmill gitsync-settings push --workspace {$workspaceStore} --repository {git_repo
 								</div>
 							{/if}
 						</div>
-					{/if}
+					</Section>
 				</div>
 			</div>
 		{/if}

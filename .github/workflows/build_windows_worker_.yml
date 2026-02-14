@@ -11,7 +11,7 @@ env:
 
 jobs:
   cargo_build_windows:
-    runs-on: windows-latest
+    runs-on: blacksmith-16vcpu-windows-2025
     steps:
       - uses: actions/checkout@v4
 
@@ -30,33 +30,40 @@ jobs:
           token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
           fetch-depth: 0
 
-      - name: Setup Rust
-        uses: actions-rs/toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          toolchain: 1.90.0
-          override: true
+          cache-workspaces: backend
+          toolchain: 1.93.0
 
       - name: Substitute EE code
         shell: bash
         run: |
           ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
 
+      - name: Cargo check (fail fast on warnings)
+        timeout-minutes: 60
+        env:
+          RUSTFLAGS: "-D warnings"
+        run: |
+          mkdir frontend/build && cd backend
+          New-Item -Path . -Name "windmill-api/openapi-deref.yaml" -ItemType "File" -Force
+          cargo check --features=ee_windows
+
       - name: Cargo build dynamic libraries windows
-        timeout-minutes: 90
+        timeout-minutes: 180
         run: |
           cd backend/windmill-duckdb-ffi-internal
           cargo build --release -p windmill_duckdb_ffi_internal
 
       - name: Cargo build binary windows
-        timeout-minutes: 90
+        timeout-minutes: 180
         run: |
           vcpkg.exe install openssl-windows:x64-windows
           vcpkg.exe install openssl:x64-windows-static
           vcpkg.exe integrate install
           $env:VCPKGRS_DYNAMIC=1
           $env:OPENSSL_DIR="${Env:VCPKG_INSTALLATION_ROOT}\installed\x64-windows-static"
-          mkdir frontend/build && cd backend
-          New-Item -Path . -Name "windmill-api/openapi-deref.yaml" -ItemType "File" -Force
+          cd backend
           cargo build --release --features=ee_windows
       - name: Rename binary with corresponding architecture
         run: |

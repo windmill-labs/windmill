@@ -19,17 +19,16 @@ then
       echo "\$TRUSTED_HOST is set to $TRUSTED_HOST"
 fi
 
-CMD="/usr/local/bin/uv pip install 
-\"$REQ\" 
---target \"$TARGET\" 
---no-cache 
+CMD="/usr/local/bin/uv pip install
+\"$REQ\"
+--target \"$TARGET\"
+--no-cache
 --no-config
---no-color 
---no-deps 
+--no-color
+--no-deps
 --link-mode=copy
-$PY_PATH 
+$PY_PATH
 $INDEX_URL_ARG $EXTRA_INDEX_URL_ARG $TRUSTED_HOST_ARG
---index-strategy unsafe-best-match
 --system
 --reinstall
 "

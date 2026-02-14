@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { UserService, type GlobalUserInfo, SettingService } from '$lib/gen'
-	import TableCustom from '$lib/components/TableCustom.svelte'
+	import DataTable from '$lib/components/table/DataTable.svelte'
+	import Head from '$lib/components/table/Head.svelte'
+	import Cell from '$lib/components/table/Cell.svelte'
 	import InviteGlobalUser from '$lib/components/InviteGlobalUser.svelte'
-	import { Button, Tab, Tabs } from '$lib/components/common'
+	import { Button } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
 	import { base } from '$lib/base'
 	import SearchItems from './SearchItems.svelte'
@@ -10,14 +12,14 @@
 	import { goto as gotoUrl } from '$app/navigation'
 	import Version from './Version.svelte'
 	import Uptodate from './Uptodate.svelte'
-	import TabContent from './common/tabs/TabContent.svelte'
 	import InstanceSettings from './InstanceSettings.svelte'
 	import { truncate } from '$lib/utils'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { ExternalLink } from 'lucide-svelte'
-	import { settingsKeys } from './instanceSettings'
+	import { ExternalLink, Pencil, UserMinus, UserPlus } from 'lucide-svelte'
+	import DropdownV2 from './DropdownV2.svelte'
+	import Popover from './meltComponents/Popover.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import ChangeInstanceUsername from './ChangeInstanceUsername.svelte'
 	import { isCloudHosted } from '$lib/cloud'
@@ -25,10 +27,19 @@
 	import Toggle from './Toggle.svelte'
 	import { instanceSettingsSelectedTab } from '$lib/stores'
 	import { onDestroy } from 'svelte'
+	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
+	import {
+		instanceSettingsNavigationGroups,
+		tabToCategoryMap,
+		tabToAuthSubTab,
+		categoryToTabMap
+	} from './instanceSettings'
+	import TextInput from './text_input/TextInput.svelte'
+	import SettingsPageHeader from './settings/SettingsPageHeader.svelte'
 
 	let filter = $state('')
 
-	let { closeDrawer } = $props()
+	let { closeDrawer, showHeaderInfo = true, yamlMode = $bindable(false) } = $props()
 
 	function removeHash() {
 		const index = $page.url.href.lastIndexOf('#')
@@ -44,6 +55,8 @@
 	let users: GlobalUserInfo[] = $state([])
 	let filteredUsers: GlobalUserInfo[] = $state([])
 	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
+	let deleteUserEmail: string = $state('')
+	let editWrappers: Record<string, HTMLDivElement> = $state({})
 	let activeOnly = $state(false)
 
 	async function listUsers(activeOnly: boolean): Promise<void> {
@@ -54,7 +67,7 @@
 		listUsers(activeOnly)
 	})
 
-	let tab: 'users' | string = $state('users')
+	let tab: string = $state('users')
 
 	$effect(() => {
 		tab = $instanceSettingsSelectedTab
@@ -98,6 +111,31 @@
 			sendUserToast('Error updating user', true)
 		}
 	}
+
+	// The category name for InstanceSettings based on current sidebar tab
+	let instanceSettingsCategory = $derived(tabToCategoryMap[tab] ?? 'Core')
+	let authSubTab: 'sso' | 'oauth' | 'scim' = $derived(tabToAuthSubTab[tab] ?? 'sso')
+
+	function getCategoryForTab(tabId: string): string | undefined {
+		return tabToCategoryMap[tabId]
+	}
+
+	// --- Tab change interception for unsaved changes ---
+	let pendingTab: string | undefined = $state(undefined)
+	let showUnsavedChangesModal = $state(false)
+
+	function handleNavigate(newTab: string) {
+		if (newTab === tab) return
+
+		// Check if current tab (if it's a settings tab) has unsaved changes
+		const currentCategory = getCategoryForTab(tab)
+		if (currentCategory && instanceSettings?.isDirty(currentCategory)) {
+			pendingTab = newTab
+			showUnsavedChangesModal = true
+		} else {
+			tab = newTab
+		}
+	}
 </script>
 
 <SearchItems
@@ -108,135 +146,162 @@
 />
 
 <div class="flex flex-col h-full w-full">
-	<div>
-		<div class="flex justify-between">
-			<div class="text-xs pt-1 text-primary flex flex-col">
-				<div>Windmill <Version /></div>
-			</div>
-			<div><Uptodate /></div></div
-		>
-	</div>
-	{#if $workspaceStore !== 'admins'}
-		<div class="flex flex-row-reverse">
-			<Button
-				variant="default"
-				target="_blank"
-				href="{base}/?workspace=admins"
-				endIcon={{ icon: ExternalLink }}
+	{#if showHeaderInfo}
+		<div>
+			<div class="flex justify-between">
+				<div class="text-xs pt-1 text-secondary flex flex-col">
+					<div>Windmill <Version /></div>
+				</div>
+				<div><Uptodate /></div></div
 			>
-				Admins workspace
-			</Button>
 		</div>
+		{#if $workspaceStore !== 'admins'}
+			<div class="flex flex-row-reverse">
+				<Button
+					variant="default"
+					target="_blank"
+					href="{base}/?workspace=admins"
+					endIcon={{ icon: ExternalLink }}
+				>
+					Admins workspace
+				</Button>
+			</div>
+		{/if}
 	{/if}
-	<div class="pt-4 h-full">
-		<Tabs bind:selected={tab}>
-			<Tab
-				value="users"
-				aiId="instance-settings-users"
-				aiDescription="Instance users settings"
-				label="Users"
+	<div class="{showHeaderInfo ? 'pt-4' : ''} flex grow min-h-0">
+		<!-- Sidebar Navigation -->
+		<div class="w-52 shrink-0 h-full overflow-auto p-4 bg-surface">
+			<SidebarNavigation
+				groups={instanceSettingsNavigationGroups}
+				selectedId={tab}
+				onNavigate={handleNavigate}
 			/>
+		</div>
 
-			{#each settingsKeys as category}
-				<Tab
-					value={category}
-					aiId={`instance-settings-${category}`}
-					aiDescription={`Instance ${category} settings`}
-					label={category}
-				/>
-			{/each}
-			{#snippet content()}
-				<div class="pt-4"></div>
-				<TabContent value="users">
-					<div class="h-full">
-						{#if !automateUsernameCreation && !isCloudHosted()}
-							<div class="mb-4">
-								<h3 class="mb-2"> Automatic username creation </h3>
-								<div class="mb-2">
-									<span class="text-primary text-sm"
-										>Automatically create a username for new users based on their email, shared
-										across workspaces. <a
-											target="_blank"
-											href="https://www.windmill.dev/docs/advanced/instance_settings#automatic-username-creation"
-											>Learn more</a
-										></span
+		<!-- Main Content -->
+		<div class="flex-1 min-w-0 h-full">
+			<div class="h-full overflow-auto bg-surface">
+				<div class="h-fit px-8 py-4">
+					{#if tab === 'users'}
+						<div class="h-full">
+							{#if !automateUsernameCreation && !isCloudHosted()}
+								<div class="mb-4">
+									<h3 class="mb-2"> Automatic username creation </h3>
+									<div class="mb-2">
+										<span class="text-primary text-sm"
+											>Automatically create a username for new users based on their email, shared
+											across workspaces. <a
+												target="_blank"
+												href="https://www.windmill.dev/docs/advanced/instance_settings#automatic-username-creation"
+												>Learn more</a
+											></span
+										>
+									</div>
+									<Button
+										btnClasses="w-auto"
+										size="sm"
+										variant="accent"
+										on:click={() => {
+											automateUsernameModalOpen = true
+										}}
 									>
+										Enable (recommended)
+									</Button>
+									<ConfirmationModal
+										open={automateUsernameModalOpen}
+										on:confirmed={() => {
+											automateUsernameModalOpen = false
+											enableAutomateUsernameCreationSetting()
+										}}
+										on:canceled={() => (automateUsernameModalOpen = false)}
+										title="Automatic username creation"
+										confirmationText="Enable"
+									>
+										Once activated, it will not be possible to disable this feature. In case
+										existing users have different usernames in different workspaces, you will have
+										to manually confirm the username for each user.
+									</ConfirmationModal>
 								</div>
-								<Button
-									btnClasses="w-auto"
-									size="sm"
-									variant="accent"
-									on:click={() => {
-										automateUsernameModalOpen = true
-									}}
-								>
-									Enable (recommended)
-								</Button>
-								<ConfirmationModal
-									open={automateUsernameModalOpen}
-									on:confirmed={() => {
-										automateUsernameModalOpen = false
-										enableAutomateUsernameCreationSetting()
-									}}
-									on:canceled={() => (automateUsernameModalOpen = false)}
-									title="Automatic username creation"
-									confirmationText="Enable"
-								>
-									Once activated, it will not be possible to disable this feature. In case existing
-									users have different usernames in different workspaces, you will have to manually
-									confirm the username for each user.
-								</ConfirmationModal>
-							</div>
-						{/if}
+							{/if}
 
-						<div class="py-2 mb-6">
-							<InviteGlobalUser on:new={() => listUsers(activeOnly)} />
-						</div>
-
-						<div class="flex flex-row justify-between">
-							<h3 class="text-sm font-semibold text-emphasis">All instance users</h3>
-							<Toggle
-								bind:checked={activeOnly}
-								options={{
-									left: 'Show active users only',
-									leftTooltip:
-										'An active user is a user who has performed at least one action in the last 30 days'
-								}}
+							<SettingsPageHeader
+								title="Instance users ({users.length})"
+								description="Manage all users across your Windmill instance."
+								link="https://www.windmill.dev/docs/advanced/instance_settings#global-users"
 							/>
-						</div>
-						<div class="pb-1"></div>
-						<div>
-							<input placeholder="Search users" bind:value={filter} class="input mt-1" />
-						</div>
-						<div class="mt-2 overflow-auto">
-							<TableCustom>
-								<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
-								<tr slot="header-row" class="sticky top-0 bg-surface border-b">
-									<th>email</th>
-									<th>auth</th>
-									<th>name</th>
-									{#if automateUsernameCreation}
-										<th>username</th>
-									{/if}
-									{#if activeOnly}
-										<th>kind</th>
-									{/if}
-									<th></th>
-									<th></th>
-								</tr>
-								{#snippet body()}
-									<tbody class="overflow-y-auto w-full h-full max-h-full">
-										{#if filteredUsers && users}
-											{#each filteredUsers.slice(0, nbDisplayed) as { email, super_admin, devops, login_type, name, username, operator_only } (email)}
-												<tr class="border">
-													<td>{email}</td>
-													<td>{login_type}</td>
-													<td><span class="break-words">{truncate(name ?? '', 30)}</span></td>
+							<div class="flex flex-row gap-2 items-center">
+								<TextInput
+									inputProps={{ placeholder: 'Search users' }}
+									bind:value={filter}
+									class="w-60"
+								/><Toggle
+									bind:checked={activeOnly}
+									options={{
+										left: 'Show active users only',
+										leftTooltip:
+											'An active user is a user who has performed at least one action in the last 30 days'
+									}}
+								/>
 
+								<div class="flex-1"></div>
+								<Popover placement="bottom-end" disableFocusTrap closeButton>
+									{#snippet trigger()}
+										<Button
+											variant="accent"
+											unifiedSize="md"
+											startIcon={{ icon: UserPlus }}
+											nonCaptureEvent
+											wrapperClasses="w-fit shrink-0"
+										>
+											Add new user
+										</Button>
+									{/snippet}
+									{#snippet content()}
+										<InviteGlobalUser on:new={() => listUsers(activeOnly)} />
+									{/snippet}
+								</Popover>
+							</div>
+							<p class="text-hint text-2xs mt-2">
+								{filteredUsers.length} user{filteredUsers.length !== 1 ? 's' : ''} found
+							</p>
+							<div class="mt-1">
+								<DataTable
+									shouldLoadMore={(filteredUsers?.length ?? 0) > 50}
+									loadMore={50}
+									on:loadMore={() => {
+										nbDisplayed += 50
+									}}
+								>
+									<Head>
+										<tr>
+											<Cell head first>Email</Cell>
+											{#if automateUsernameCreation}
+												<Cell head>Username</Cell>
+											{/if}
+											<Cell head>Name</Cell>
+											<Cell head>Auth</Cell>
+											{#if activeOnly}
+												<Cell head>Kind</Cell>
+											{/if}
+											<Cell head>Role</Cell>
+											<Cell head last>
+												<span class="sr-only">Actions</span>
+											</Cell>
+										</tr>
+									</Head>
+									<tbody>
+										{#if filteredUsers && users}
+											{#each filteredUsers.slice(0, nbDisplayed) as { email, super_admin, devops, login_type, name, username, operator_only }, i (email)}
+												<tr class={i % 2 === 0 ? 'bg-surface-tertiary' : 'bg-surface'}>
+													<Cell first class="max-w-[200px]"
+														><a href="mailto:{email}" title={email} class="truncate block"
+															>{email}</a
+														></Cell
+													>
 													{#if automateUsernameCreation}
-														<td>
+														<Cell class="max-w-[150px]">
 															{#if username}
-																{username}
+																<span title={username} class="truncate block">{username}</span>
 															{:else}
 																{#key filteredUsers.map((u) => u.username).join()}
 																	<ChangeInstanceUsername
@@ -249,18 +314,27 @@
 																	/>
 																{/key}
 															{/if}
-														</td>
+														</Cell>
 													{/if}
+													<Cell class="max-w-[150px]"
+														><span title={name ?? ''} class="truncate block"
+															>{truncate(name ?? '', 30)}</span
+														></Cell
+													>
+													<Cell class="max-w-[100px]"
+														><span title={login_type} class="truncate block">{login_type}</span
+														></Cell
+													>
 													{#if activeOnly}
-														<td>
+														<Cell>
 															{#if operator_only}
 																Operator only
 															{:else}
 																Developer
 															{/if}
-														</td>
+														</Cell>
 													{/if}
-													<td>
+													<Cell>
 														<ToggleButtonGroup
 															selected={super_admin ? 'super_admin' : devops ? 'devops' : 'user'}
 															on:selected={async (e) => {
@@ -320,76 +394,112 @@
 																/>
 															{/snippet}
 														</ToggleButtonGroup>
-													</td>
-													<td>
-														<div class="flex flex-row gap-x-1 justify-end">
-															<InstanceNameEditor
-																{login_type}
-																value={name}
-																{username}
-																{email}
-																on:refresh={() => {
-																	listUsers(activeOnly)
-																}}
-																on:save={(e) => {
-																	updateName(e.detail, email)
-																}}
-																on:renamed={() => {
-																	listUsers(activeOnly)
-																}}
-																{automateUsernameCreation}
-															/>
-															<Button
-																color="light"
-																variant="contained"
-																size="xs"
-																spacingSize="xs2"
-																btnClasses="text-red-500"
-																on:click={() => {
-																	deleteConfirmedCallback = async () => {
-																		await UserService.globalUserDelete({ email })
-																		sendUserToast(`User ${email} removed`)
+													</Cell>
+													<Cell last>
+														<div class="flex items-center justify-end">
+															<div bind:this={editWrappers[email]} class="w-0 h-0 overflow-hidden">
+																<InstanceNameEditor
+																	{login_type}
+																	value={name}
+																	{username}
+																	{email}
+																	on:refresh={() => {
 																		listUsers(activeOnly)
+																	}}
+																	on:save={(e) => {
+																		updateName(e.detail, email)
+																	}}
+																	on:renamed={() => {
+																		listUsers(activeOnly)
+																	}}
+																	{automateUsernameCreation}
+																/>
+															</div>
+															<DropdownV2
+																items={[
+																	{
+																		displayName: 'Edit',
+																		icon: Pencil,
+																		action: () => {
+																			const btn = editWrappers[email]?.querySelector(
+																				'[aria-label="Popup button"]'
+																			)
+																			if (btn instanceof HTMLElement) btn.click()
+																		}
+																	},
+																	{
+																		displayName: 'Remove',
+																		icon: UserMinus,
+																		type: 'delete',
+																		action: () => {
+																			deleteUserEmail = email
+																			deleteConfirmedCallback = async () => {
+																				await UserService.globalUserDelete({
+																					email
+																				})
+																				sendUserToast(`User ${email} removed`)
+																				listUsers(activeOnly)
+																			}
+																		}
 																	}
-																}}
-															>
-																Remove
-															</Button>
+																]}
+															/>
 														</div>
-													</td>
+													</Cell>
 												</tr>
 											{/each}
 										{/if}
 									</tbody>
-								{/snippet}
-							</TableCustom>
+								</DataTable>
+							</div>
 						</div>
-						{#if filteredUsers && filteredUsers?.length > 50 && nbDisplayed < filteredUsers.length}
-							<span class="text-xs"
-								>{nbDisplayed} users out of {filteredUsers.length}
-								<button class="ml-4" onclick={() => (nbDisplayed += 50)}>load 50 more</button></span
-							>
-						{/if}
-					</div>
-				</TabContent>
-				<TabContent value="" values={settingsKeys}>
-					<InstanceSettings bind:this={instanceSettings} hideTabs hideSave bind:tab {closeDrawer} />
-				</TabContent>
-			{/snippet}
-		</Tabs>
+					{:else}
+						<InstanceSettings
+							bind:this={instanceSettings}
+							hideTabs
+							bind:yamlMode
+							tab={instanceSettingsCategory}
+							{authSubTab}
+							{closeDrawer}
+							onNavigateToTab={(category) => {
+								const targetTab = categoryToTabMap[category]
+								if (targetTab) {
+									handleNavigate(targetTab)
+								}
+							}}
+						/>
+					{/if}
+				</div>
+			</div>
+		</div>
 	</div>
 </div>
-{#if tab != 'users'}
-	<div class="absolute bottom-2 w-[95%] z-10">
-		<Button
-			variant="accent"
-			on:click={() => {
-				instanceSettings?.saveSettings()
-			}}
-		>
-			Save
-		</Button>
-	</div>{/if}
+{#if showUnsavedChangesModal}
+	<ConfirmationModal
+		open={showUnsavedChangesModal}
+		title="Unsaved changes detected"
+		confirmationText="Discard changes"
+		on:canceled={() => {
+			showUnsavedChangesModal = false
+			pendingTab = undefined
+		}}
+		on:confirmed={() => {
+			if (pendingTab !== undefined) {
+				const currentCategory = getCategoryForTab(tab)
+				if (currentCategory) {
+					instanceSettings?.discardCategory(currentCategory)
+				}
+				tab = pendingTab
+			}
+			showUnsavedChangesModal = false
+			pendingTab = undefined
+		}}
+	>
+		<div class="flex flex-col w-full space-y-4">
+			<span>You have unsaved changes. Are you sure you want to discard them?</span>
+		</div>
+	</ConfirmationModal>
+{/if}
 
 <ConfirmationModal
 	open={Boolean(deleteConfirmedCallback)}
@@ -406,6 +516,6 @@
 	}}
 >
 	<div class="flex flex-col w-full space-y-4">
-		<span>Are you sure you want to remove ?</span>
+		<span>Are you sure you want to remove <b>{deleteUserEmail}</b>?</span>
 	</div>
 </ConfirmationModal>

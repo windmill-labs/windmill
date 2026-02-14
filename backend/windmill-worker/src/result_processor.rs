@@ -68,6 +68,7 @@ async fn process_jc(
     stats_map: &JobStatsMap,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
+    #[cfg(feature = "benchmark")] bench_infos: &mut BenchmarkInfo,
 ) {
     let success: bool = jc.success;
 
@@ -166,6 +167,13 @@ async fn process_jc(
 
     if let Some(root_job) = root_job {
         add_root_flow_job_to_otlp(&root_job, success);
+
+        #[cfg(feature = "benchmark")]
+        if bench_infos.count_top_level(root_job.id) {
+            bench_infos
+                .shared_iters
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
     }
 
     // Accumulate job stats if duration is available
@@ -209,7 +217,7 @@ pub fn start_background_processor(
         let JobCompletedReceiver { bounded_rx, mut killpill_rx, unbounded_rx } = job_completed_rx;
 
         #[cfg(feature = "benchmark")]
-        let mut infos = BenchmarkInfo::new();
+        let mut infos = BenchmarkInfo::new(windmill_common::bench::shared_bench_iters());
 
         // Start periodic stats flush task
         let db_clone = db.clone();
@@ -278,6 +286,10 @@ pub fn start_background_processor(
                         jc.job.kind,
                         JobKind::Dependencies | JobKind::FlowDependencies
                     );
+                    #[cfg(feature = "benchmark")]
+                    let bench_job_id = jc.job.id;
+                    #[cfg(feature = "benchmark")]
+                    let is_top_level_job = jc.job.parent_job.is_none();
 
                     process_jc(
                         jc,
@@ -291,6 +303,8 @@ pub fn start_background_processor(
                         &killpill_rx,
                         #[cfg(feature = "benchmark")]
                         &mut bench,
+                        #[cfg(feature = "benchmark")]
+                        &mut infos,
                     )
                     .warn_after_seconds(10)
                     .await;
@@ -315,7 +329,9 @@ pub fn start_background_processor(
 
                     #[cfg(feature = "benchmark")]
                     {
-                        infos.add_iter(bench, true);
+                        if infos.add_iter(bench, bench_job_id, is_top_level_job) {
+                            infos.shared_iters.fetch_add(1, Ordering::Relaxed);
+                        }
                     }
                     last_processing_duration
                         .store(time.elapsed().as_secs() as u16, Ordering::SeqCst);
@@ -364,6 +380,12 @@ pub fn start_background_processor(
                     .await
                     {
                         tracing::error!("Error updating flow status after job completion for {flow} on {worker_name}: {e:#}");
+                    }
+                    #[cfg(feature = "benchmark")]
+                    {
+                        if infos.add_iter(bench, flow, true) {
+                            infos.shared_iters.fetch_add(1, Ordering::Relaxed);
+                        }
                     }
                     last_processing_duration
                         .store(time.elapsed().as_secs() as u16, Ordering::SeqCst);
@@ -586,7 +608,6 @@ pub async fn process_completed_job(
         duration,
         result_columns,
         preprocessed_args,
-        has_stream,
         from_cache,
         flow_runners,
         done_tx,
@@ -655,7 +676,6 @@ pub async fn process_completed_job(
             canceled_by.clone(),
             false,
             duration,
-            has_stream.unwrap_or(false),
             from_cache.unwrap_or(false),
         )
         .await?;

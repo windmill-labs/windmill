@@ -97,7 +97,7 @@
 					{/if}
 
 					{#snippet content()}
-						<div class="grow min-h-0">
+						<div class="grow min-h-0 overflow-y-auto">
 							<TabContent value="form" class="flex flex-col flex-1 h-full">
 								{@render form?.()}
 							</TabContent>

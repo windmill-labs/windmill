@@ -3,7 +3,7 @@ import type {
 	ChatCompletionTool,
 	ChatCompletionUserMessageParam
 } from 'openai/resources/index.mjs'
-import type { Tool } from '../shared'
+import { createSearchWorkspaceTool, createGetRunnableDetailsTool, type Tool } from '../shared'
 import { ResourceService } from '$lib/gen'
 import { workspaceStore } from '$lib/stores'
 import { get } from 'svelte/store'
@@ -15,9 +15,11 @@ Windmill is an open-source developer platform for building internal tools, API i
 
 You have access to these tools:
 1. View current buttons and inputs on the page (get_triggerable_components)
-2. Execute buttons and inputs (trigger_component) 
+2. Execute buttons and inputs (trigger_component)
 3. Get documentation for user requests (get_documentation)
 4. Change the AI mode to the one specified (change_mode)
+5. Search for scripts and flows in the workspace (search_workspace)
+6. Get detailed information about a specific script or flow (get_runnable_details)
 
 INSTRUCTIONS:
 - When users ask about application features or concepts, first use get_documentation internally to retrieve accurate information about how to fulfill the user's request.
@@ -30,6 +32,10 @@ INSTRUCTIONS:
 - For form inputs where format starts with "resource-" and is not "resource-obj", fetch the available resources using get_available_resources, and then use the resource_path prefixed with "$res:" to fill the input.
 - If you are not sure about an input, set the ones you are sure about, and then ask the user for the value of the input you are not sure about.
 - If the user asks you to make an API call, switch to API mode with the change_mode tool before using the new tools you'll have access to to make the API call.
+
+- When users ask about existing scripts, flows, or building blocks in their workspace, use search_workspace to find them.
+- When users want to understand a specific script or flow (inputs, description, what it does), use get_runnable_details.
+- When users ask you to navigate to a specific script or flow, first search for it, then use the navigation tools to go to it.
 
 GENERAL PRINCIPLES:
 - Be concise but thorough
@@ -357,7 +363,9 @@ export const navigatorTools: Tool<{}>[] = [
 	triggerComponentTool,
 	getDocumentationTool,
 	getCurrentPageNameTool,
-	getAvailableResourcesTool
+	getAvailableResourcesTool,
+	createSearchWorkspaceTool(),
+	createGetRunnableDetailsTool()
 ]
 
 export function prepareNavigatorSystemMessage(

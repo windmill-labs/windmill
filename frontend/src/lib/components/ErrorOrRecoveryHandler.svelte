@@ -33,7 +33,7 @@
 	import { base } from '$lib/base'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import MsTeamsIcon from '$lib/components/icons/MSTeamsIcon.svelte'
-	import { emptySchema, emptyString, sendUserToast, tryEvery } from '$lib/utils'
+	import { classNames, emptySchema, emptyString, sendUserToast, tryEvery } from '$lib/utils'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import {
 		FlowService,
@@ -80,6 +80,7 @@
 		customScriptTemplate: string
 		customHandlerKind?: 'flow' | 'script'
 		customTabTooltip?: import('svelte').Snippet
+		noMargin?: boolean
 	}
 
 	let {
@@ -92,7 +93,8 @@
 		handlerExtraArgs = $bindable(),
 		customScriptTemplate,
 		customHandlerKind = $bindable('script'),
-		customTabTooltip
+		customTabTooltip,
+		noMargin = false
 	}: Props = $props()
 
 	let customHandlerSchema: Schema | undefined = $state()
@@ -297,21 +299,26 @@
 		teams: undefined as string | undefined,
 		email: undefined as string[] | undefined
 	})
+	let handlerPathCache: Partial<Record<ErrorHandler, string | undefined>> = $state({})
 	$effect(() => {
 		if (lastHandlerSelected !== handlerSelected && lastHandlerSelected !== undefined) {
 			if (lastHandlerSelected != 'custom') {
 				const key = lastHandlerSelected === 'email' ? EMAIL_RECIPIENTS_KEY : CHANNEL_KEY
 				handlerCache[lastHandlerSelected] = handlerExtraArgs[key]
 			}
+			handlerPathCache[lastHandlerSelected] = handlerPath
 
 			if (handlerSelected === 'custom') {
-				handlerExtraArgs[CHANNEL_KEY] = ''
-				handlerExtraArgs[EMAIL_RECIPIENTS_KEY] = []
-				handlerPath = undefined
+				delete handlerExtraArgs[CHANNEL_KEY]
+				delete handlerExtraArgs[EMAIL_RECIPIENTS_KEY]
+				handlerPath = handlerPathCache['custom']
 			} else if (handlerSelected === 'email') {
 				handlerExtraArgs[EMAIL_RECIPIENTS_KEY] = handlerCache[handlerSelected] ?? []
+				delete handlerExtraArgs[CHANNEL_KEY]
 			} else {
 				handlerExtraArgs[CHANNEL_KEY] = handlerCache[handlerSelected] ?? ''
+				delete handlerExtraArgs[EMAIL_RECIPIENTS_KEY]
+				handlerPath = handlerPathCache[handlerSelected]
 			}
 		}
 
@@ -343,7 +350,7 @@
 	})
 </script>
 
-<div class="mt-2 space-y-2">
+<div class={classNames('space-y-2', noMargin ? '' : 'mt-2')}>
 	<ToggleButtonGroup bind:selected={handlerSelected} disabled={!isEditable}>
 		{#snippet children({ item })}
 			<ToggleButton label="Slack" value="slack" {item} disabled={!isEditable} />
@@ -359,58 +366,62 @@
 		{/snippet}
 	</ToggleButtonGroup>
 
-	<div class="flex flex-col gap-6 p-4 rounded-md border">
+	<div class="flex flex-col gap-6 p-4 rounded-md shadow-sm bg-surface-tertiary">
 		{#if handlerSelected === 'custom'}
-			<div class="flex flex-row mb-6">
-				<ScriptPicker
-					disabled={!isEditable || !$enterpriseLicense}
-					kinds={['script', 'failure']}
-					allowFlow={true}
-					bind:scriptPath={handlerPath}
-					bind:itemKind={customHandlerKind}
-					allowRefresh={isEditable}
-					clearable
-				/>
+			<div class="flex flex-col gap-1">
+				<div class="flex flex-row">
+					<ScriptPicker
+						disabled={!isEditable || !$enterpriseLicense}
+						kinds={['script', 'failure']}
+						allowFlow={true}
+						bind:scriptPath={handlerPath}
+						bind:itemKind={customHandlerKind}
+						allowRefresh={isEditable}
+						clearable
+					/>
 
-				{#if !handlerPath}
-					<Button
-						btnClasses="ml-4 whitespace-nowrap"
-						variant="default"
-						size="xs"
-						href={customScriptTemplate}
-						disabled={!isEditable}
-						target="_blank"
-					>
-						Create from template
-					</Button>
+					{#if !handlerPath}
+						<Button
+							btnClasses="ml-4 whitespace-nowrap"
+							variant="default"
+							size="xs"
+							href={customScriptTemplate}
+							disabled={!isEditable}
+							target="_blank"
+						>
+							Create from template
+						</Button>
+					{/if}
+				</div>
+				{#if showScriptHelpText}
+					<div class="text-2xs text-secondary">
+						Example of error handler scripts can be found on <a
+							target="_blank"
+							href="{$hubBaseUrlStore}/failures"
+						>
+							Windmill Hub</a
+						>
+					</div>
 				{/if}
 			</div>
-			{#if showScriptHelpText}
-				<div class="text-2xs text-secondary">
-					Example of error handler scripts can be found on <a
-						target="_blank"
-						href="{$hubBaseUrlStore}/failures"
-					>
-						Windmill Hub</a
-					>
-				</div>
-			{/if}
 			{#if handlerPath}
-				<p class="font-semibold text-xs mt-6 mb-1">Extra arguments</p>
-				{#await import('$lib/components/SchemaForm.svelte')}
-					<Loader2 class="animate-spin" />
-				{:then Module}
-					<Module.default
-						disabled={!isEditable}
-						schema={customHandlerSchema}
-						bind:args={handlerExtraArgs}
-						shouldHideNoInputs
-						className="text-xs"
-					/>
-				{/await}
-				{#if customHandlerSchema && customHandlerSchema.properties && Object.keys(customHandlerSchema.properties).length === 0}
-					<div class="text-xs texg-gray-700">This error handler takes no extra arguments</div>
-				{/if}
+				<div>
+					<p class="font-semibold text-xs mb-1">Extra arguments</p>
+					{#await import('$lib/components/SchemaForm.svelte')}
+						<Loader2 class="animate-spin" />
+					{:then Module}
+						<Module.default
+							disabled={!isEditable}
+							schema={customHandlerSchema}
+							bind:args={handlerExtraArgs}
+							shouldHideNoInputs
+							className="text-xs"
+						/>
+					{/await}
+					{#if customHandlerSchema && customHandlerSchema.properties && Object.keys(customHandlerSchema.properties).length === 0}
+						<div class="text-xs text-secondary">This error handler takes no extra arguments</div>
+					{/if}
+				</div>
 			{/if}
 		{:else if handlerSelected === 'slack'}
 			<!-- Slack Connection Status -->

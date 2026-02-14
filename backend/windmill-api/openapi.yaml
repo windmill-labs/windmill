@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.628.2
+  version: 1.634.6
   title: Windmill API
 
   contact:
@@ -40,6 +40,64 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /health/status:
+    get:
+      summary: health status
+      description: |
+        Health status endpoint. Returns cached health status (database connectivity, worker count).
+        Cache TTL is fixed at 5 seconds. Use force=true query parameter to bypass cache.
+        Note: This endpoint is intentionally different from Kubernetes probes to avoid confusion.
+        For k8s liveness/readiness probes, use /version endpoint.
+      operationId: getHealthStatus
+      tags:
+        - health
+      security: []
+      parameters:
+        - name: force
+          in: query
+          description: Force a fresh check, bypassing the cache
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: server is healthy or degraded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatusResponse"
+        "503":
+          description: server is unhealthy (database unreachable)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatusResponse"
+
+  /health/detailed:
+    get:
+      summary: detailed health status
+      description: |
+        Returns detailed health information including database pool stats, worker details, and queue status.
+        Requires authentication. Use for monitoring dashboards and debugging.
+        This endpoint always returns fresh data (no caching).
+      operationId: getHealthDetailed
+      tags:
+        - health
+      responses:
+        "200":
+          description: server is healthy or degraded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetailedHealthResponse"
+        "503":
+          description: server is unhealthy (database unreachable)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetailedHealthResponse"
 
   /uptodate:
     get:
@@ -1305,6 +1363,20 @@ paths:
       responses:
         "200":
           description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /settings/get_stats:
+    get:
+      summary: get encrypted telemetry stats (EE only)
+      operationId: getStats
+      tags:
+        - setting
+      responses:
+        "200":
+          description: base64-encoded encrypted telemetry blob
           content:
             text/plain:
               schema:
@@ -4188,6 +4260,126 @@ paths:
                 type: string
                 example: "Updated mute critical alert UI settings for workspace: workspace_id"
 
+  /w/{workspace}/workspaces/protection_rules:
+    get:
+      summary: list all protection rules for a workspace
+      operationId: listProtectionRules
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: list of protection rules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProtectionRuleset"
+    post:
+      summary: create a new protection rule
+      operationId: createProtectionRule
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: New protection rule configuration
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - rules
+                - bypass_groups
+                - bypass_users
+              properties:
+                name:
+                  type: string
+                  description: Unique name for the protection rule
+                  example: "Production Protection"
+                rules:
+                  $ref: "#/components/schemas/ProtectionRules"
+                bypass_groups:
+                  $ref: "#/components/schemas/RuleBypasserGroups"
+                bypass_users:
+                  $ref: "#/components/schemas/RuleBypasserUsers"
+      responses:
+        "200":
+          description: protection rule created successfully
+          content:
+            text/plain:
+              schema:
+                type: string
+        "400":
+          description: rule with this name already exists
+
+  /w/{workspace}/workspaces/protection_rules/{rule_name}:
+    post:
+      summary: update an existing protection rule
+      operationId: updateProtectionRule
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: rule_name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Name of the protection rule to update
+      requestBody:
+        description: Updated protection rule configuration
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - rules
+                - bypass_groups
+                - bypass_users
+              properties:
+                rules:
+                  $ref: "#/components/schemas/ProtectionRules"
+                bypass_groups:
+                  $ref: "#/components/schemas/RuleBypasserGroups"
+                bypass_users:
+                  $ref: "#/components/schemas/RuleBypasserUsers"
+      responses:
+        "200":
+          description: protection rule updated successfully
+          content:
+            text/plain:
+              schema:
+                type: string
+        "404":
+          description: protection rule not found
+    delete:
+      summary: delete a protection rule
+      operationId: deleteProtectionRule
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: rule_name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Name of the protection rule to delete
+      responses:
+        "200":
+          description: protection rule deleted successfully
+          content:
+            text/plain:
+              schema:
+                type: string
+        "404":
+          description: protection rule not found
   /w/{workspace}/workspaces/public_app_rate_limit:
     post:
       summary: Set public app rate limit for this workspace
@@ -5951,6 +6143,17 @@ paths:
     post:
       summary: create script
       operationId: createScript
+      x-mcp-tool: true
+      x-mcp-instructions: "To create a script, specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed."
+      x-mcp-tool-include-fields:
+        - path
+        - content
+        - language
+        - summary
+        - description
+        - kind
+        - tag
+        - deployment_message
       tags:
         - script
       parameters:
@@ -6227,6 +6430,7 @@ paths:
     post:
       summary: delete script by hash (erase content but keep hash, require admin)
       operationId: deleteScriptByHash
+      x-mcp-tool: true
       tags:
         - script
       parameters:
@@ -6244,6 +6448,7 @@ paths:
     post:
       summary: delete script at a given path (require admin)
       operationId: deleteScriptByPath
+      x-mcp-tool: true
       tags:
         - script
       parameters:
@@ -6634,6 +6839,9 @@ paths:
     post:
       summary: run script by path
       operationId: runScriptByPath
+      x-mcp-tool: true
+      x-mcp-instructions: "You should first use getScriptByPath to retrieve the script's schema and understand what arguments are expected."
+      x-mcp-tool-include-query-params: []
       tags:
         - job
       parameters:
@@ -7576,6 +7784,18 @@ paths:
     post:
       summary: create flow
       operationId: createFlow
+      x-mcp-tool: true
+      x-mcp-tool-include-fields:
+        - path
+        - summary
+        - description
+        - value
+        - schema
+        - tag
+        - deployment_message
+      x-mcp-tool-opaque-fields:
+        - value
+        - schema
       tags:
         - flow
       parameters:
@@ -7606,6 +7826,18 @@ paths:
     post:
       summary: update flow
       operationId: updateFlow
+      x-mcp-tool: true
+      x-mcp-tool-include-fields:
+        - path
+        - summary
+        - description
+        - value
+        - schema
+        - tag
+        - deployment_message
+      x-mcp-tool-opaque-fields:
+        - value
+        - schema
       tags:
         - flow
       parameters:
@@ -7663,6 +7895,7 @@ paths:
     delete:
       summary: delete flow by path
       operationId: deleteFlowByPath
+      x-mcp-tool: true
       tags:
         - flow
       parameters:
@@ -7802,23 +8035,6 @@ paths:
                 items:
                   $ref: "#/components/schemas/ListableRawApp"
 
-  /w/{workspace}/raw_apps/exists/{path}:
-    get:
-      summary: does an app exisst at path
-      operationId: existsRawApp
-      tags:
-        - raw_app
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-      responses:
-        "200":
-          description: app exists
-          content:
-            application/json:
-              schema:
-                type: boolean
-
   /w/{workspace}/apps/get_data/v/{secretWithExtension}:
     get:
       summary: get raw app data by
@@ -7922,6 +8138,16 @@ paths:
     post:
       summary: create app
       operationId: createApp
+      x-mcp-tool: true
+      x-mcp-tool-include-fields:
+        - path
+        - value
+        - summary
+        - policy
+        - deployment_message
+      x-mcp-tool-opaque-fields:
+        - value
+        - policy
       tags:
         - app
       parameters:
@@ -8248,88 +8474,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/AppWithLastVersion"
 
-  /w/{workspace}/raw_apps/create:
-    post:
-      summary: create raw app
-      operationId: createRawApp
-      tags:
-        - raw_app
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        description: new raw app
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                path:
-                  type: string
-                value:
-                  type: string
-                summary:
-                  type: string
-              required:
-                - path
-                - value
-                - summary
-      responses:
-        "201":
-          description: raw app created
-          content:
-            text/plain:
-              schema:
-                type: string
-
-  /w/{workspace}/raw_apps/update/{path}:
-    post:
-      summary: update app
-      operationId: updateRawApp
-      tags:
-        - raw_app
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/ScriptPath"
-      requestBody:
-        description: updateraw  app
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                path:
-                  type: string
-                summary:
-                  type: string
-                value:
-                  type: string
-      responses:
-        "200":
-          description: app updated
-          content:
-            text/plain:
-              schema:
-                type: string
-
-  /w/{workspace}/raw_apps/delete/{path}:
-    delete:
-      summary: delete raw app
-      operationId: deleteRawApp
-      tags:
-        - raw_app
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-      responses:
-        "200":
-          description: app deleted
-          content:
-            text/plain:
-              schema:
-                type: string
-
   /w/{workspace}/apps/delete/{path}:
     delete:
       summary: delete app
@@ -8351,6 +8495,16 @@ paths:
     post:
       summary: update app
       operationId: updateApp
+      x-mcp-tool: true
+      x-mcp-tool-include-fields:
+        - path
+        - value
+        - summary
+        - policy
+        - deployment_message
+      x-mcp-tool-opaque-fields:
+        - value
+        - policy
       tags:
         - app
       parameters:
@@ -8632,6 +8786,9 @@ paths:
     post:
       summary: run flow by path
       operationId: runFlowByPath
+      x-mcp-tool: true
+      x-mcp-instructions: "You should first use getFlowByPath to retrieve the flow's schema and understand what arguments are expected."
+      x-mcp-tool-include-query-params: []
       tags:
         - job
       parameters:
@@ -17332,6 +17489,167 @@ components:
     # -- INLINE END --
     # Do not change line above
 
+    HealthStatusResponse:
+      type: object
+      description: Health status response (cached with 5s TTL)
+      required:
+        - status
+        - checked_at
+        - database_healthy
+        - workers_alive
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+          description: Overall health status
+        checked_at:
+          type: string
+          format: date-time
+          description: Timestamp when the health check was actually performed (not cache return time)
+        database_healthy:
+          type: boolean
+          description: Whether the database is reachable
+        workers_alive:
+          type: integer
+          format: int64
+          description: Number of workers that pinged within last 5 minutes
+
+    DetailedHealthResponse:
+      type: object
+      description: Detailed health status response (always fresh, no caching)
+      required:
+        - status
+        - checked_at
+        - version
+        - checks
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+          description: Overall health status
+        checked_at:
+          type: string
+          format: date-time
+          description: Timestamp when the health check was performed
+        version:
+          type: string
+          description: Server version (e.g., "EE 1.615.3")
+        checks:
+          $ref: "#/components/schemas/HealthChecks"
+
+    HealthChecks:
+      type: object
+      description: Detailed health checks
+      required:
+        - database
+        - readiness
+      properties:
+        database:
+          $ref: "#/components/schemas/DatabaseHealth"
+        workers:
+          $ref: "#/components/schemas/WorkersHealth"
+          description: Worker status (null if database is unreachable)
+          nullable: true
+        queue:
+          $ref: "#/components/schemas/QueueHealth"
+          description: Queue status (null if database is unreachable)
+          nullable: true
+        readiness:
+          $ref: "#/components/schemas/ReadinessHealth"
+
+    DatabaseHealth:
+      type: object
+      description: Database health status
+      required:
+        - healthy
+        - latency_ms
+        - pool
+      properties:
+        healthy:
+          type: boolean
+          description: Whether the database is reachable
+        latency_ms:
+          type: integer
+          format: int64
+          description: Database query latency in milliseconds
+        pool:
+          $ref: "#/components/schemas/PoolStats"
+
+    PoolStats:
+      type: object
+      description: Database connection pool statistics
+      required:
+        - size
+        - idle
+        - max_connections
+      properties:
+        size:
+          type: integer
+          description: Current number of connections in the pool
+        idle:
+          type: integer
+          description: Number of idle connections
+        max_connections:
+          type: integer
+          description: Maximum number of connections allowed
+
+    WorkersHealth:
+      type: object
+      description: Workers health status
+      required:
+        - healthy
+        - active_count
+        - worker_groups
+        - min_version
+        - versions
+      properties:
+        healthy:
+          type: boolean
+          description: Whether any workers are active
+        active_count:
+          type: integer
+          format: int64
+          description: Number of active workers (pinged in last 5 minutes)
+        worker_groups:
+          type: array
+          items:
+            type: string
+          description: List of active worker groups
+        min_version:
+          type: string
+          description: Minimum required worker version
+        versions:
+          type: array
+          items:
+            type: string
+          description: List of active worker versions
+
+    QueueHealth:
+      type: object
+      description: Job queue status
+      required:
+        - pending_jobs
+        - running_jobs
+      properties:
+        pending_jobs:
+          type: integer
+          format: int64
+          description: Number of pending jobs in the queue
+        running_jobs:
+          type: integer
+          format: int64
+          description: Number of currently running jobs
+
+    ReadinessHealth:
+      type: object
+      description: Server readiness status
+      required:
+        - healthy
+      properties:
+        healthy:
+          type: boolean
+          description: Whether the server is ready to accept requests
+
     AutoInviteConfig:
       type: object
       description: Configuration for auto-inviting users to the workspace
@@ -18027,7 +18345,7 @@ components:
     ScriptArgs:
       type: object
       description: The arguments to pass to the script or flow
-      additionalProperties: {}
+      additionalProperties: true
 
     Input:
       type: object
@@ -19412,6 +19730,7 @@ components:
           description: True if script_path points to a flow, false if it points to a script
         args:
           $ref: "#/components/schemas/ScriptArgs"
+          nullable: true
         extra_perms:
           type: object
           additionalProperties:
@@ -19422,57 +19741,74 @@ components:
           description: Email of the user who owns this schedule, used for permissioned_as
         error:
           type: string
+          nullable: true
           description: Last error message if the schedule failed to trigger
         on_failure:
           type: string
+          nullable: true
           description: Path to a script or flow to run when the scheduled job fails
         on_failure_times:
           type: number
+          nullable: true
           description: Number of consecutive failures before the on_failure handler is triggered (default 1)
         on_failure_exact:
           type: boolean
+          nullable: true
           description: If true, trigger on_failure handler only on exactly N failures, not on every failure after N
         on_failure_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+          nullable: true
         on_recovery:
           type: string
+          nullable: true
           description: Path to a script or flow to run when the schedule recovers after failures
         on_recovery_times:
           type: number
+          nullable: true
           description: Number of consecutive successes before the on_recovery handler is triggered (default 1)
         on_recovery_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+          nullable: true
         on_success:
           type: string
+          nullable: true
           description: Path to a script or flow to run after each successful execution
         on_success_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+          nullable: true
         ws_error_handler_muted:
           type: boolean
           description: If true, the workspace-level error handler will not be triggered for this schedule's failures
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          nullable: true
         summary:
           type: string
+          nullable: true
           description: Short summary describing the purpose of this schedule
         description:
           type: string
+          nullable: true
           description: Detailed description of what this schedule does
         no_flow_overlap:
           type: boolean
           description: If true, skip this schedule's execution if the previous run is still in progress (prevents concurrent runs)
         tag:
           type: string
+          nullable: true
           description: Worker tag to route jobs to specific worker groups
         paused_until:
           type: string
           format: date-time
+          nullable: true
           description: ISO 8601 datetime until which the schedule is paused. Schedule resumes automatically after this time
         cron_version:
           type: string
+          nullable: true
           description: Cron parser version. Use 'v2' for extended syntax with additional features
         dynamic_skip:
           type: string
+          nullable: true
           description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean to skip (true) or run (false)
       required:
         - path
@@ -19534,60 +19870,77 @@ components:
           type: boolean
           description: True if script_path points to a flow, false if it points to a script
         args:
+          nullable: true
           $ref: "#/components/schemas/ScriptArgs"
         enabled:
           type: boolean
           description: Whether the schedule is currently active and will trigger jobs
         on_failure:
           type: string
+          nullable: true
           description: Path to a script or flow to run when the scheduled job fails
         on_failure_times:
           type: number
+          nullable: true
           description: Number of consecutive failures before the on_failure handler is triggered (default 1)
         on_failure_exact:
           type: boolean
+          nullable: true
           description: If true, trigger on_failure handler only on exactly N failures, not on every failure after N
         on_failure_extra_args:
+          nullable: true
           $ref: "#/components/schemas/ScriptArgs"
         on_recovery:
           type: string
+          nullable: true
           description: Path to a script or flow to run when the schedule recovers after failures
         on_recovery_times:
           type: number
+          nullable: true
           description: Number of consecutive successes before the on_recovery handler is triggered (default 1)
         on_recovery_extra_args:
+          nullable: true
           $ref: "#/components/schemas/ScriptArgs"
         on_success:
           type: string
+          nullable: true
           description: Path to a script or flow to run after each successful execution
         on_success_extra_args:
+          nullable: true
           $ref: "#/components/schemas/ScriptArgs"
         ws_error_handler_muted:
           type: boolean
           description: If true, the workspace-level error handler will not be triggered for this schedule's failures
         retry:
+          nullable: true
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
         no_flow_overlap:
           type: boolean
           description: If true, skip this schedule's execution if the previous run is still in progress (prevents concurrent runs)
         summary:
           type: string
+          nullable: true
           description: Short summary describing the purpose of this schedule
         description:
           type: string
+          nullable: true
           description: Detailed description of what this schedule does
         tag:
           type: string
+          nullable: true
           description: Worker tag to route jobs to specific worker groups
         paused_until:
           type: string
+          nullable: true
           format: date-time
           description: ISO 8601 datetime until which the schedule is paused. Schedule resumes automatically after this time
         cron_version:
           type: string
+          nullable: true
           description: Cron parser version. Use 'v2' for extended syntax with additional features
         dynamic_skip:
           type: string
+          nullable: true
           description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean to skip (true) or run (false)
       required:
         - path
@@ -19607,57 +19960,74 @@ components:
           type: string
           description: IANA timezone for the schedule (e.g., 'UTC', 'Europe/Paris', 'America/New_York')
         args:
+          nullable: true
           $ref: "#/components/schemas/ScriptArgs"
         on_failure:
           type: string
+          nullable: true
           description: Path to a script or flow to run when the scheduled job fails
         on_failure_times:
           type: number
+          nullable: true
           description: Number of consecutive failures before the on_failure handler is triggered (default 1)
         on_failure_exact:
           type: boolean
+          nullable: true
           description: If true, trigger on_failure handler only on exactly N failures, not on every failure after N
         on_failure_extra_args:
+          nullable: true
           $ref: "#/components/schemas/ScriptArgs"
         on_recovery:
           type: string
+          nullable: true
           description: Path to a script or flow to run when the schedule recovers after failures
         on_recovery_times:
           type: number
+          nullable: true
           description: Number of consecutive successes before the on_recovery handler is triggered (default 1)
         on_recovery_extra_args:
+          nullable: true
           $ref: "#/components/schemas/ScriptArgs"
         on_success:
           type: string
+          nullable: true
           description: Path to a script or flow to run after each successful execution
         on_success_extra_args:
+          nullable: true
           $ref: "#/components/schemas/ScriptArgs"
         ws_error_handler_muted:
           type: boolean
           description: If true, the workspace-level error handler will not be triggered for this schedule's failures
         retry:
+          nullable: true
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
         no_flow_overlap:
           type: boolean
           description: If true, skip this schedule's execution if the previous run is still in progress (prevents concurrent runs)
         summary:
           type: string
+          nullable: true
           description: Short summary describing the purpose of this schedule
         description:
           type: string
+          nullable: true
           description: Detailed description of what this schedule does
         tag:
           type: string
+          nullable: true
           description: Worker tag to route jobs to specific worker groups
         paused_until:
           type: string
+          nullable: true
           format: date-time
           description: ISO 8601 datetime until which the schedule is paused. Schedule resumes automatically after this time
         cron_version:
           type: string
+          nullable: true
           description: Cron parser version. Use 'v2' for extended syntax with additional features
         dynamic_skip:
           type: string
+          nullable: true
           description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean to skip (true) or run (false)
       required:
         - schedule
@@ -19869,6 +20239,7 @@ components:
           description: The URL route path that will trigger this endpoint (e.g., 'api/myendpoint'). Must NOT start with a /.
         static_asset_config:
           type: object
+          nullable: true
           description: Configuration for serving static assets (s3 bucket, storage path, filename)
           properties:
             s3:
@@ -19887,12 +20258,15 @@ components:
           description: HTTP method (get, post, put, delete, patch) that triggers this endpoint
         authentication_resource_path:
           type: string
+          nullable: true
           description: Path to the resource containing authentication configuration (for api_key, basic_http, custom_script, signature methods)
         summary:
           type: string
+          nullable: true
           description: Short summary describing the purpose of this trigger
         description:
           type: string
+          nullable: true
           description: Detailed description of what this trigger does
         request_type:
           $ref: "#/components/schemas/HttpRequestType"
@@ -19949,12 +20323,15 @@ components:
           description: If true, the route includes the workspace ID in the path
         summary:
           type: string
+          nullable: true
           description: Short summary describing the purpose of this trigger
         description:
           type: string
+          nullable: true
           description: Detailed description of what this trigger does
         static_asset_config:
           type: object
+          nullable: true
           description: Configuration for serving static assets (s3 bucket, storage path, filename)
           properties:
             s3:
@@ -19976,6 +20353,7 @@ components:
           description: HTTP method (get, post, put, delete, patch) that triggers this endpoint
         authentication_resource_path:
           type: string
+          nullable: true
           description: Path to the resource containing authentication configuration (for api_key, basic_http, custom_script, signature methods)
         is_async:
           type: boolean
@@ -20030,15 +20408,18 @@ components:
           description: The URL route path that will trigger this endpoint (e.g., 'api/myendpoint'). Must NOT start with a /.
         summary:
           type: string
+          nullable: true
           description: Short summary describing the purpose of this trigger
         description:
           type: string
+          nullable: true
           description: Detailed description of what this trigger does
         workspaced_route:
           type: boolean
           description: If true, the route includes the workspace ID in the path
         static_asset_config:
           type: object
+          nullable: true
           description: Configuration for serving static assets (s3 bucket, storage path, filename)
           properties:
             s3:
@@ -20054,6 +20435,7 @@ components:
             - s3
         authentication_resource_path:
           type: string
+          nullable: true
           description: Path to the resource containing authentication configuration (for api_key, basic_http, custom_script, signature methods)
         is_flow:
           type: boolean
@@ -20164,12 +20546,14 @@ components:
               - value
         initial_messages:
           type: array
+          nullable: true
           description: Messages to send immediately after connecting (can be raw strings or computed by runnables)
           items:
             $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
         url_runnable_args:
           description: Arguments to pass to the script/flow that computes the WebSocket URL
           $ref: "#/components/schemas/ScriptArgs"
+          nullable: true
         can_return_message:
           type: boolean
           description: If true, the script can return a message to send back through the WebSocket
@@ -20223,11 +20607,13 @@ components:
               - value
         initial_messages:
           type: array
+          nullable: true
           description: Messages to send immediately after connecting (can be raw strings or computed by runnables)
           items:
             $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
         url_runnable_args:
           description: Arguments to pass to the script/flow that computes the WebSocket URL
+          nullable: true
           $ref: "#/components/schemas/ScriptArgs"
         can_return_message:
           type: boolean
@@ -20283,11 +20669,13 @@ components:
               - value
         initial_messages:
           type: array
+          nullable: true
           description: Messages to send immediately after connecting (can be raw strings or computed by runnables)
           items:
             $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
         url_runnable_args:
           description: Arguments to pass to the script/flow that computes the WebSocket URL
+          nullable: true
           $ref: "#/components/schemas/ScriptArgs"
         can_return_message:
           type: boolean
@@ -20389,15 +20777,19 @@ components:
           description: Array of MQTT topics to subscribe to, each with topic name and QoS level
         v3_config:
           $ref: "#/components/schemas/MqttV3Config"
+          nullable: true
           description: MQTT v3 specific configuration (clean_session)
         v5_config:
           $ref: "#/components/schemas/MqttV5Config"
+          nullable: true
           description: MQTT v5 specific configuration (clean_start, topic_alias_maximum, session_expiry_interval)
         client_id:
           type: string
+          nullable: true
           description: MQTT client ID for this connection
         client_version:
           $ref: "#/components/schemas/MqttClientVersion"
+          nullable: true
           description: MQTT protocol version ('v3' or 'v5')
         server_id:
           type: string
@@ -20435,14 +20827,18 @@ components:
           description: Array of MQTT topics to subscribe to, each with topic name and QoS level
         client_id:
           type: string
+          nullable: true
           description: MQTT client ID for this connection
         v3_config:
+          nullable: true
           $ref: "#/components/schemas/MqttV3Config"
           description: MQTT v3 specific configuration (clean_session)
         v5_config:
+          nullable: true
           $ref: "#/components/schemas/MqttV5Config"
           description: MQTT v5 specific configuration (clean_start, topic_alias_maximum, session_expiry_interval)
         client_version:
+          nullable: true
           $ref: "#/components/schemas/MqttClientVersion"
           description: MQTT protocol version ('v3' or 'v5')
         path:
@@ -20485,14 +20881,18 @@ components:
           description: Array of MQTT topics to subscribe to, each with topic name and QoS level
         client_id:
           type: string
+          nullable: true
           description: MQTT client ID for this connection
         v3_config:
+          nullable: true
           $ref: "#/components/schemas/MqttV3Config"
           description: MQTT v3 specific configuration (clean_session)
         v5_config:
+          nullable: true
           $ref: "#/components/schemas/MqttV5Config"
           description: MQTT v5 specific configuration (clean_start, topic_alias_maximum, session_expiry_interval)
         client_version:
+          nullable: true
           $ref: "#/components/schemas/MqttClientVersion"
           description: MQTT protocol version ('v3' or 'v5')
         path:
@@ -20566,6 +20966,7 @@ components:
           $ref: "#/components/schemas/DeliveryType"
         delivery_config:
           $ref: "#/components/schemas/PushConfig"
+          nullable: true
         subscription_mode:
           $ref: "#/components/schemas/SubscriptionMode"
         last_server_ping:
@@ -20619,6 +21020,7 @@ components:
         delivery_type:
           $ref: "#/components/schemas/DeliveryType"
         delivery_config:
+          nullable: true
           $ref: "#/components/schemas/PushConfig"
         path:
           type: string
@@ -20695,6 +21097,7 @@ components:
           description: Path to the AWS resource containing credentials or OIDC configuration
         message_attributes:
           type: array
+          nullable: true
           items:
             type: string
           description: Array of SQS message attribute names to include with each message
@@ -20786,6 +21189,7 @@ components:
           description: Path to the AWS resource containing credentials or OIDC configuration
         message_attributes:
           type: array
+          nullable: true
           items:
             type: string
           description: Array of SQS message attribute names to include with each message
@@ -20831,6 +21235,7 @@ components:
           description: Path to the AWS resource containing credentials or OIDC configuration
         message_attributes:
           type: array
+          nullable: true
           items:
             type: string
           description: Array of SQS message attribute names to include with each message
@@ -21237,9 +21642,11 @@ components:
           description: If true, uses NATS JetStream for durable message delivery
         stream_name:
           type: string
+          nullable: true
           description: JetStream stream name (required when use_jetstream is true)
         consumer_name:
           type: string
+          nullable: true
           description: JetStream consumer name (required when use_jetstream is true)
         subjects:
           type: array
@@ -21291,9 +21698,11 @@ components:
           description: If true, uses NATS JetStream for durable message delivery
         stream_name:
           type: string
+          nullable: true
           description: JetStream stream name (required when use_jetstream is true)
         consumer_name:
           type: string
+          nullable: true
           description: JetStream consumer name (required when use_jetstream is true)
         subjects:
           type: array
@@ -21331,9 +21740,11 @@ components:
           description: If true, uses NATS JetStream for durable message delivery
         stream_name:
           type: string
+          nullable: true
           description: JetStream stream name (required when use_jetstream is true)
         consumer_name:
           type: string
+          nullable: true
           description: JetStream consumer name (required when use_jetstream is true)
         subjects:
           type: array
@@ -22034,8 +22445,7 @@ components:
         created_at:
           type: string
           format: date-time
-        value:
-          type: object
+        value: {}
         policy:
           $ref: "#/components/schemas/Policy"
         execution_mode:
@@ -22584,8 +22994,7 @@ components:
       properties:
         name:
           type: string
-        value:
-          type: object
+        value: {}
       required:
         - name
         - value
@@ -23059,7 +23468,47 @@ components:
         kind:
           $ref: "#/components/schemas/AssetKind"
       required: [path, kind]
-
+    ProtectionRuleset:
+      type: object
+      description: A workspace protection rule defining restrictions and bypass permissions
+      required:
+        - name
+        - rules
+        - bypass_groups
+        - bypass_users
+      properties:
+        name:
+          type: string
+          description: Unique name for the protection rule
+          example: "Production Protection"
+        workspace_id:
+          type: string
+        rules:
+          $ref: "#/components/schemas/ProtectionRules"
+        bypass_groups:
+          $ref: "#/components/schemas/RuleBypasserGroups"
+        bypass_users:
+          $ref: "#/components/schemas/RuleBypasserUsers"
+    ProtectionRules:
+      type: array
+      description: Configuration of protection restrictions
+      items:
+        $ref: "#/components/schemas/ProtectionRuleKind"
+    ProtectionRuleKind:
+      type: string
+      enum:
+        - DisableDirectDeployment
+        - DisableWorkspaceForking
+    RuleBypasserGroups:
+      type: array
+      description: Groups that can bypass this ruleset
+      items:
+        type: string
+    RuleBypasserUsers:
+      type: array
+      description: Users that can bypass this ruleset
+      items:
+        type: string
     NativeServiceName:
       type: string
       enum:

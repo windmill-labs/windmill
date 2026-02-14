@@ -16,6 +16,8 @@ RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo install cargo-chef --version ^0.1
 WORKDIR /windmill
 
 ENV SQLX_OFFLINE=true
+ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=cc
+ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS=""
 # ENV CARGO_INCREMENTAL=1
 
 FROM node:20-alpine as frontend
@@ -62,7 +64,7 @@ RUN --mount=type=secret,id=rh_username \
 RUN subscription-manager repos --enable codeready-builder-for-rhel-9-$(arch)-rpms
 
 RUN yum update -y && \
-    yum install -y perl-FindBin perl-IPC-Cmd perl-Time-Piece libxml2-devel xmlsec1-devel xmlsec1-openssl-devel krb5-devel cyrus-sasl-devel cyrus-sasl-gssapi clang llvm-devel cmake libtool-ltdl-devel
+    yum install -y perl-FindBin perl-IPC-Cmd perl-Time-Piece libxml2-devel xmlsec1-devel xmlsec1-openssl-devel krb5-devel cyrus-sasl-devel libcurl-devel clang llvm-devel cmake libtool-ltdl-devel
 
 # RUN --mount=type=cache,target=/usr/local/cargo/registry \
 #     CARGO_NET_GIT_FETCH_WITH_CLI=true RUST_BACKTRACE=1 cargo chef cook --release --features "$features" --recipe-path recipe.json
@@ -83,5 +85,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 RUN mkdir -p /usr/src/app && \
     cp windmill-duckdb-ffi-internal/target/release/libwindmill_duckdb_ffi_internal.so /usr/src/app/
+
+# Runtime Kerberos packages (installed separately from build deps)
+RUN yum install -y krb5-workstation cyrus-sasl-gssapi
 
 RUN subscription-manager unregister

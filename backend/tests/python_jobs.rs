@@ -1,5 +1,4 @@
-mod common;
-use crate::common::*;
+use windmill_test_utils::*;
 use sqlx::postgres::Postgres;
 use sqlx::Pool;
 use windmill_common::scripts::ScriptLang;

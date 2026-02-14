@@ -1,0 +1,130 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO v2_job (\n                id, raw_code, raw_lock, raw_flow, tag, workspace_id, created_at, created_by,\n                permissioned_as, permissioned_as_email, kind, runnable_id, runnable_path,\n                parent_job, root_job, script_lang, script_entrypoint_override, flow_step,\n                flow_step_id, flow_innermost_root_job, trigger, trigger_kind, same_worker,\n                visible_to_owner, concurrent_limit, concurrency_time_window_s, cache_ttl,\n                timeout, priority, preprocessed, args, labels, pre_run_error\n            ) VALUES (\n                $1,  $2,  $3,  $4,  $5,  $6,  $7,  $8,  $9,  $10,  $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,\n                $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33\n            )\n            ON CONFLICT (id) DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Varchar",
+        "Varchar",
+        "Timestamptz",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        {
+          "Custom": {
+            "name": "job_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "preview",
+                "flow",
+                "dependencies",
+                "flowpreview",
+                "script_hub",
+                "identity",
+                "flowdependencies",
+                "http",
+                "graphql",
+                "postgresql",
+                "noop",
+                "appdependencies",
+                "deploymentcallback",
+                "singlestepflow",
+                "flowscript",
+                "flownode",
+                "appscript",
+                "aiagent",
+                "unassigned_script",
+                "unassigned_flow",
+                "unassigned_singlestepflow"
+              ]
+            }
+          }
+        },
+        "Int8",
+        "Varchar",
+        "Uuid",
+        "Uuid",
+        {
+          "Custom": {
+            "name": "script_lang",
+            "kind": {
+              "Enum": [
+                "python3",
+                "deno",
+                "go",
+                "bash",
+                "postgresql",
+                "nativets",
+                "bun",
+                "mysql",
+                "bigquery",
+                "snowflake",
+                "graphql",
+                "powershell",
+                "mssql",
+                "php",
+                "bunnative",
+                "rust",
+                "ansible",
+                "csharp",
+                "oracledb",
+                "nu",
+                "java",
+                "duckdb",
+                "ruby"
+              ]
+            }
+          }
+        },
+        "Varchar",
+        "Int4",
+        "Varchar",
+        "Uuid",
+        "Varchar",
+        {
+          "Custom": {
+            "name": "job_trigger_kind",
+            "kind": {
+              "Enum": [
+                "webhook",
+                "http",
+                "websocket",
+                "kafka",
+                "email",
+                "nats",
+                "schedule",
+                "app",
+                "ui",
+                "postgres",
+                "sqs",
+                "gcp",
+                "mqtt",
+                "nextcloud",
+                "google"
+              ]
+            }
+          }
+        },
+        "Bool",
+        "Bool",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int2",
+        "Bool",
+        "Jsonb",
+        "TextArray",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "be6d2c92a62b7b284651c45af809746147aa9b8d0a81642a7b7cb4738a0cad66"
+}

@@ -79,6 +79,7 @@ impl McpClient {
                 name: "windmill-ai-agent".to_string(),
                 title: Some("Windmill AI Agent".to_string()),
                 version: env!("CARGO_PKG_VERSION").to_string(),
+                description: None,
                 website_url: None,
                 icons: None,
             },

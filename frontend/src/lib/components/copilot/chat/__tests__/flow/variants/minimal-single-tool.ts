@@ -84,7 +84,8 @@ const MINIMAL_SINGLE_TOOL_SYSTEM_PROMPT = `You are a helpful assistant that crea
 
 **Code & Scripts:**
 - **Get language-specific coding instructions** → \`get_instructions_for_code_generation\` (call BEFORE writing code)
-- **Find workspace scripts** → \`search_scripts\`
+- **Find workspace scripts and flows** → \`search_workspace\`
+- **Get details of a specific script or flow** → \`get_runnable_details\`
 - **Find Windmill Hub scripts** → \`search_hub_scripts\`
 
 **Testing:**
@@ -310,7 +311,8 @@ Example: Before writing TypeScript/Bun code, call \`get_instructions_for_code_ge
 ### Creating Flows
 
 1. **Search for existing scripts first** (unless user explicitly asks to write from scratch):
-   - First: \`search_scripts\` to find workspace scripts
+   - First: \`search_workspace\` to find workspace scripts and flows
+   - Use \`get_runnable_details\` to inspect a specific script or flow (inputs, description, code)
    - Then: \`search_hub_scripts\` (only consider highly relevant results)
    - Only create raw scripts if no suitable script is found
 

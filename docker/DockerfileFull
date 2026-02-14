@@ -1,9 +1,9 @@
 FROM ghcr.io/windmill-labs/windmill:dev
 
 # Rust
-COPY --from=rust:1.90.0 /usr/local/cargo /usr/local/cargo
-COPY --from=rust:1.90.0 /usr/local/rustup /usr/local/rustup
-RUN /usr/local/cargo/bin/cargo install cargo-sweep --version ^0.7
+COPY --from=rust:1.93.0 /usr/local/cargo /usr/local/cargo
+COPY --from=rust:1.93.0 /usr/local/rustup /usr/local/rustup
+RUN RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo /usr/local/cargo/bin/cargo install cargo-sweep --version ^0.7
 
 # Ansible
 RUN uv tool install ansible && [ -d "$(uv tool dir)/ansible/bin/" ] && find "$(uv tool dir)/ansible/bin/" -mindepth 1 -maxdepth 1 -type f -executable -regextype posix-extended -regex '^((.+/)?)[^.]+' -print0 | xargs -0 ln -s -t "$UV_TOOL_BIN_DIR/" || true
@@ -18,7 +18,7 @@ RUN wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh \
 COPY --from=ghcr.io/nushell/nushell:0.101.0-bookworm /usr/bin/nu /usr/bin/nu
 
 # Java
-RUN apt-get -y update && apt-get install -y default-jdk 
+RUN apt-get -y update && apt-get install -y default-jdk
 RUN curl -fLo coursier https://github.com/coursier/coursier/releases/download/v2.1.24/coursier \
 	&& mv ./coursier /usr/bin/coursier \
 	&& chmod +x /usr/bin/coursier

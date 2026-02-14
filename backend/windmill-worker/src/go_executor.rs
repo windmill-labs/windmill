@@ -1,6 +1,6 @@
 use crate::{common::MaybeLock, get_proxy_envs_for_lang};
-use windmill_common::scripts::ScriptLang;
 use std::{collections::HashMap, fs::DirBuilder, process::Stdio};
+use windmill_common::scripts::ScriptLang;
 
 use itertools::Itertools;
 use serde_json::value::RawValue;
@@ -24,7 +24,7 @@ use crate::{
         read_result, start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
     },
     handle_child::handle_child,
-    DISABLE_NSJAIL, DISABLE_NUSER, GOPRIVATE, GOPROXY, GO_BIN_CACHE_DIR, GO_CACHE_DIR, HOME_ENV,
+    is_sandboxing_enabled, DISABLE_NUSER, GOPRIVATE, GOPROXY, GO_BIN_CACHE_DIR, GO_CACHE_DIR, HOME_ENV,
     NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
@@ -338,7 +338,7 @@ func Run(req Req) (interface{{}}, error){{
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
 
-    let child = if !*DISABLE_NSJAIL {
+    let child = if is_sandboxing_enabled() {
         let _ = write_file(
             job_dir,
             "run.config.proto",
@@ -414,7 +414,7 @@ func Run(req Req) (interface{{}}, error){{
         mem_peak,
         canceled_by,
         child,
-        !*DISABLE_NSJAIL,
+        is_sandboxing_enabled(),
         worker_name,
         &job.workspace_id,
         "go run",

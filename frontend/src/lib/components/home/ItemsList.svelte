@@ -9,8 +9,7 @@
 		type Script,
 		ScriptService,
 		type Flow,
-		type ListableRawApp,
-		RawAppService
+		type ListableRawApp
 	} from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type uFuzzy from '@leeoniya/ufuzzy'
@@ -46,9 +45,10 @@
 	interface Props {
 		filter?: string
 		subtab?: 'flow' | 'script' | 'app'
+		showEditButtons?: boolean
 	}
 
-	let { filter = $bindable(''), subtab = $bindable('script') }: Props = $props()
+	let { filter = $bindable(''), subtab = $bindable('script'), showEditButtons = true }: Props = $props()
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
 		canWrite: boolean
@@ -134,17 +134,7 @@
 	}
 
 	async function loadRawApps(): Promise<void> {
-		raw_apps = (await RawAppService.listRawApps({ workspace: $workspaceStore! })).map(
-			(app: ListableRawApp) => {
-				return {
-					canWrite:
-						canWrite(app.path!, app.extra_perms!, $userStore) &&
-						app.workspace_id == $workspaceStore &&
-						!$userStore?.operator,
-					...app
-				}
-			}
-		)
+		raw_apps = []
 		loading = false
 	}
 
@@ -563,6 +553,7 @@
 							loadRawApps()
 						}}
 						{showCode}
+						showEditButton={showEditButtons}
 					/>
 				{/each}
 			</div>

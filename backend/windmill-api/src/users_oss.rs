@@ -63,13 +63,6 @@ pub fn hash_password(_argon2: Arc<Argon2<'_>>, _password: String) -> Result<Stri
 }
 
 #[cfg(not(feature = "private"))]
-pub fn send_email_if_possible(_subject: &str, _content: &str, _to: &str) {
-    tracing::warn!(
-        "send_email_if_possible is not implemented in Windmill's Open Source repository"
-    );
-}
-
-#[cfg(not(feature = "private"))]
 #[derive(Deserialize, Debug)]
 #[allow(dead_code)]
 pub struct OnboardingData {

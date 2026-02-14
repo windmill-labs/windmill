@@ -4,7 +4,8 @@
 	import { ChevronDown, Plus, Shield } from 'lucide-svelte'
 	import Alert from '../common/alert/Alert.svelte'
 	import Button from '../common/button/Button.svelte'
-	import Description from '../Description.svelte'
+	import SettingsPageHeader from '../settings/SettingsPageHeader.svelte'
+	import SettingsFooter from './SettingsFooter.svelte'
 	import ResourcePicker from '../ResourcePicker.svelte'
 	import Toggle from '../Toggle.svelte'
 	import Tooltip from '../Tooltip.svelte'
@@ -34,11 +35,13 @@
 	let {
 		s3ResourceSettings = $bindable(),
 		s3ResourceSavedSettings,
-		onSave = undefined
+		onSave = undefined,
+		onDiscard = undefined
 	}: {
 		s3ResourceSettings: S3ResourceSettings
 		s3ResourceSavedSettings: S3ResourceSettings
 		onSave?: () => void
+		onDiscard?: () => void
 	} = $props()
 
 	let advancedPermissionModalState:
@@ -95,26 +98,21 @@
 		const defaultPerms = defaultS3AdvancedPermissions(!!$enterpriseLicense)
 		return !deepEqual(storage.advancedPermissions, defaultPerms)
 	}
+
+	let hasUnsavedChanges = $derived.by(() => {
+		return !deepEqual(s3ResourceSettings, s3ResourceSavedSettings)
+	})
 </script>
 
 <Portal name="workspace-settings">
 	<S3FilePicker bind:this={s3FileViewer} readOnlyMode={false} fromWorkspaceSettings={true} />
 </Portal>
 
-<div class="flex flex-col gap-4 my-8">
-	<div class="flex flex-col gap-1">
-		<div class="text-sm font-semibold text-emphasis"
-			>Workspace Object Storage (S3/Azure Blob/GCS)</div
-		>
-		<Description
-			link="https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill#workspace-object-storage"
-		>
-			Connect your Windmill workspace to your S3 bucket, Azure Blob storage, or Google Cloud Storage
-			to enable users to read and write from object storage without having to have access to the
-			credentials.
-		</Description>
-	</div>
-</div>
+<SettingsPageHeader
+	title="Workspace object storage (S3/Azure Blob/GCS)"
+	description="Connect your Windmill workspace to your S3 bucket, Azure Blob storage, or Google Cloud Storage to enable users to read and write from object storage without having to have access to the credentials."
+	link="https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill#workspace-object-storage"
+/>
 {#if !$enterpriseLicense}
 	<Alert type="info" title="S3 storage is limited to 20 files in Windmill CE">
 		Windmill S3 bucket browser will not work for buckets containing more than 20 files and uploads
@@ -145,7 +143,7 @@
 				{/each}
 			</tr>
 		</Head>
-		<tbody class="divide-y bg-surface">
+		<tbody class="divide-y bg-surface-tertiary">
 			{#each tableRows as tableRow, idx}
 				<Row>
 					<Cell first class="w-48 relative">
@@ -297,16 +295,14 @@
 		</tbody>
 	</DataTable>
 
-	<div class="flex mt-5 mb-5 gap-1">
-		<Button
-			variant="accent"
-			size="xl"
-			on:click={() => {
-				editWindmillLFSSettings()
-				console.log('Saving S3 settings', s3ResourceSettings)
-			}}>Save storage settings</Button
-		>
-	</div>
+	<SettingsFooter
+		class="mt-5 mb-5"
+		inline
+		{hasUnsavedChanges}
+		onSave={editWindmillLFSSettings}
+		onDiscard={() => onDiscard?.()}
+		saveLabel="Save storage settings"
+	/>
 {/if}
 
 <Modal2

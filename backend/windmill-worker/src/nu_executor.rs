@@ -16,11 +16,11 @@ use crate::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
         read_result, start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
     },
-    handle_child, get_proxy_envs_for_lang, DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV,
+    get_proxy_envs_for_lang, handle_child, is_sandboxing_enabled, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV,
     TRACING_PROXY_CA_CERT_PATH,
 };
-use windmill_common::scripts::ScriptLang;
 use windmill_common::client::AuthedClient;
+use windmill_common::scripts::ScriptLang;
 
 const NSJAIL_CONFIG_RUN_NU_CONTENT: &str = include_str!("../nsjail/run.nu.config.proto");
 lazy_static::lazy_static! {
@@ -127,7 +127,7 @@ pub async fn handle_nu_job<'a>(mut args: JobHandlerInput<'a>) -> Result<Box<RawV
 //         //     mem_peak,
 //         //     canceled_by,
 //         //     child,
-//         //     !*DISABLE_NSJAIL,
+//         //     is_sandboxing_enabled(),
 //         //     worker_name,
 //         //     &job.workspace_id,
 //         //     "cargo",
@@ -236,7 +236,7 @@ async fn run<'a>(
 ) -> Result<(), Error> {
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path.clone()).await?;
-    let child = if !cfg!(windows) && !*DISABLE_NSJAIL {
+    let child = if !cfg!(windows) && is_sandboxing_enabled() {
         append_logs(
             &job.id,
             &job.workspace_id,
@@ -335,7 +335,7 @@ async fn run<'a>(
         mem_peak,
         canceled_by,
         child,
-        !*DISABLE_NSJAIL,
+        is_sandboxing_enabled(),
         worker_name,
         &job.workspace_id,
         "nu",

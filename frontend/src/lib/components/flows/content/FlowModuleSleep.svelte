@@ -91,7 +91,7 @@
 						argName="sleep"
 						{schema}
 						{previousModuleId}
-						argExtra={{ seconds: true }}
+						argExtra={{ seconds: true, clearable: false }}
 						bind:editor
 					/>
 				</PropPickerWrapper>

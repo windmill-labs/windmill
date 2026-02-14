@@ -4,9 +4,10 @@ on:
   workflow_call:
     inputs:
       commenter:
-        required: true
+        required: false
         type: string
-        description: 'The username to check for organization membership'
+        default: ''
+        description: 'The username to check. Auto-detected from the event context if not provided.'
       organization:
         required: false
         type: string
@@ -32,11 +33,27 @@ jobs:
     outputs:
       is_member: ${{ steps.check-membership.outputs.is_member }}
     steps:
+      - name: Determine commenter
+        id: determine-commenter
+        run: |
+          COMMENTER="${{ inputs.commenter }}"
+          if [[ -z "$COMMENTER" ]]; then
+            if [[ "${{ github.event_name }}" == "issue_comment" || \
+                  "${{ github.event_name }}" == "pull_request_review_comment" ]]; then
+              COMMENTER="${{ github.event.comment.user.login }}"
+            elif [[ "${{ github.event_name }}" == "pull_request_review" ]]; then
+              COMMENTER="${{ github.event.review.user.login }}"
+            else
+              COMMENTER="${{ github.event.issue.user.login }}"
+            fi
+          fi
+          echo "commenter=$COMMENTER" >> $GITHUB_OUTPUT
+
       - name: Check organization membership
         id: check-membership
         env:
           ORG_ACCESS_TOKEN: ${{ secrets.access_token }}
-          COMMENTER: ${{ inputs.commenter }}
+          COMMENTER: ${{ steps.determine-commenter.outputs.commenter }}
           ORG: ${{ inputs.organization }}
           TRUSTED_BOT: ${{ inputs.trusted_bot }}
         run: |

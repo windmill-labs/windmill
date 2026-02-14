@@ -688,6 +688,7 @@ pub struct SqlAnnotations {
 #[annotations("#")]
 pub struct BashAnnotations {
     pub docker: bool,
+    pub sandbox: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1045,16 +1046,17 @@ pub async fn extract_tar(tar: bytes::Bytes, folder: &str) -> error::Result<()> {
 }
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 fn write_binary_file(main_path: &str, byts: &mut bytes::Bytes) -> error::Result<()> {
-    use std::fs::{File, Permissions};
+    use std::fs::File;
     use std::io::Write;
-
-    #[cfg(unix)]
-    use std::os::unix::fs::PermissionsExt;
 
     let mut file = File::create(main_path)?;
     file.write_all(byts)?;
     #[cfg(unix)]
-    file.set_permissions(Permissions::from_mode(0o755))?;
+    {
+        use std::fs::Permissions;
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(Permissions::from_mode(0o755))?;
+    }
     file.flush()?;
     Ok(())
 }
@@ -1559,6 +1561,24 @@ pub async fn update_worker_ping_main_loop_query(
 // occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus),
 // memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11 WHERE worker = $6",
 
+const MAX_TAG_LEN: usize = 50;
+const HASH_SUFFIX_LEN: usize = 16;
+
+pub fn dedicated_worker_tag(workspace_id: &str, path: &str) -> String {
+    let full_tag = format!("{}:{}", workspace_id, path);
+    if full_tag.len() <= MAX_TAG_LEN {
+        return full_tag;
+    }
+    let hash = <sha2::Sha256 as sha2::Digest>::digest(full_tag.as_bytes());
+    let hex_hash = hex::encode(hash);
+    let prefix_len = MAX_TAG_LEN - 1 - HASH_SUFFIX_LEN;
+    format!(
+        "{}#{}",
+        &full_tag[..prefix_len],
+        &hex_hash[..HASH_SUFFIX_LEN]
+    )
+}
+
 pub async fn load_worker_config(
     db: &DB,
     killpill_tx: KillpillSender,
@@ -1670,7 +1690,7 @@ pub async fn load_worker_config(
             if let Some(ref dws) = dedicated_workers.as_ref() {
                 let mut dedi_tags: Vec<String> = dws
                     .iter()
-                    .map(|dw| format!("{}:{}", dw.workspace_id, dw.path))
+                    .map(|dw| dedicated_worker_tag(&dw.workspace_id, &dw.path))
                     .collect();
                 if std::env::var("ADD_FLOW_TAG").is_ok() {
                     dedi_tags.push("flow".to_string());
@@ -1678,9 +1698,9 @@ pub async fn load_worker_config(
                 Some(dedi_tags)
             } else if let Some(ref dedicated_worker) = dedicated_worker.as_ref() {
                 // Fallback to single dedicated worker for backward compatibility
-                let mut dedi_tags = vec![format!(
-                    "{}:{}",
-                    dedicated_worker.workspace_id, dedicated_worker.path
+                let mut dedi_tags = vec![dedicated_worker_tag(
+                    &dedicated_worker.workspace_id,
+                    &dedicated_worker.path,
                 )];
                 if std::env::var("ADD_FLOW_TAG").is_ok() {
                     dedi_tags.push("flow".to_string());
@@ -2176,5 +2196,59 @@ mod tests {
         let mut result = tags.to_string_vec(None);
         result.sort();
         assert_eq!(result, vec!["foo", "legacy(^ws1^ws2)", "urgent(ws1+ws2)"]);
+    }
+
+    #[test]
+    fn test_dedicated_worker_tag_short() {
+        let tag = dedicated_worker_tag("demo", "u/alice/script");
+        assert_eq!(tag, "demo:u/alice/script");
+        assert!(tag.len() <= MAX_TAG_LEN);
+    }
+
+    #[test]
+    fn test_dedicated_worker_tag_exactly_50() {
+        // 50 chars exactly should not be hashed
+        let workspace = "ws";
+        let path = "a".repeat(50 - workspace.len() - 1); // -1 for ':'
+        let tag = dedicated_worker_tag(workspace, &path);
+        assert_eq!(tag.len(), 50);
+        assert!(!tag.contains('#'));
+    }
+
+    #[test]
+    fn test_dedicated_worker_tag_long_is_hashed() {
+        let tag = dedicated_worker_tag(
+            "my_workspace",
+            "u/engineering/team/automation/critical_workflow_script_v2",
+        );
+        assert_eq!(tag.len(), MAX_TAG_LEN);
+        assert_eq!(tag, "my_workspace:u/engineering/team/a#5bc26db79926d4f0");
+    }
+
+    #[test]
+    fn test_dedicated_worker_tag_deterministic() {
+        let a = dedicated_worker_tag(
+            "ws",
+            "some/very/long/path/that/exceeds/the/fifty/char/limit/easily",
+        );
+        assert_eq!(a, "ws:some/very/long/path/that/excee#bbb038d4268a0b41");
+        let b = dedicated_worker_tag(
+            "ws",
+            "some/very/long/path/that/exceeds/the/fifty/char/limit/easily",
+        );
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn test_dedicated_worker_tag_different_paths_differ() {
+        let a = dedicated_worker_tag(
+            "ws",
+            "some/very/long/path/that/exceeds/the/fifty/char/limit/easily_a",
+        );
+        let b = dedicated_worker_tag(
+            "ws",
+            "some/very/long/path/that/exceeds/the/fifty/char/limit/easily_b",
+        );
+        assert_ne!(a, b);
     }
 }

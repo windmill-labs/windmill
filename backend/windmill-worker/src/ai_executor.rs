@@ -21,7 +21,7 @@ use windmill_mcp::McpClient;
 #[cfg(not(feature = "mcp"))]
 use crate::ai::tools::McpClientStub as McpClient;
 use windmill_common::{
-    ai_providers::{AIProvider},
+    ai_providers::AIProvider,
     cache,
     client::AuthedClient,
     db::DB,
@@ -417,7 +417,7 @@ pub async fn run_agent(
         args.provider.get_base_url(db).await?
     };
     let api_key = args.provider.get_api_key().unwrap_or("");
-    
+
     // Create the query builder for the provider
     let query_builder = create_query_builder(&args.provider);
 
@@ -666,7 +666,10 @@ pub async fn run_agent(
         let parsed = if args.provider.kind == AIProvider::AWSBedrock {
             #[cfg(feature = "bedrock")]
             {
-                let region = args.provider.get_region().unwrap_or(windmill_common::ai_providers::USE_ENV_REGION);
+                let region = args
+                    .provider
+                    .get_region()
+                    .unwrap_or(windmill_common::ai_providers::USE_ENV_REGION);
                 // Use Bedrock SDK via dedicated query builder
                 crate::ai::providers::bedrock::BedrockQueryBuilder::default()
                     .execute_request(
@@ -683,6 +686,7 @@ pub async fn run_agent(
                         structured_output_tool_name.as_deref(),
                         args.provider.get_aws_access_key_id(),
                         args.provider.get_aws_secret_access_key(),
+                        args.provider.get_aws_session_token(),
                     )
                     .await?
             }
@@ -770,10 +774,8 @@ pub async fn run_agent(
                             .build_request_without_usage(&build_args, client, &job.workspace_id)
                             .await?;
 
-                        let retry_resp = build_http_request(retry_body)
-                            .send()
-                            .await
-                            .map_err(|e| {
+                        let retry_resp =
+                            build_http_request(retry_body).send().await.map_err(|e| {
                                 Error::internal_err(format!("Failed to call API on retry: {}", e))
                             })?;
 

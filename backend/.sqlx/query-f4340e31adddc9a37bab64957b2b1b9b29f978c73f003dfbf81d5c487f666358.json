@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE postgres_trigger\n            SET\n                postgres_resource_path = $1,\n                replication_slot_name = $2,\n                publication_name = $3,\n                script_path = $4,\n                path = $5,\n                is_flow = $6,\n                edited_by = $7,\n                email = $8,\n                edited_at = now(),\n                server_id = NULL,\n                error = NULL,\n                error_handler_path = $11,\n                error_handler_args = $12,\n                retry = $13\n            WHERE\n                workspace_id = $9 AND path = $10\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Bool",
+        "Varchar",
+        "Varchar",
+        "Text",
+        "Text",
+        "Varchar",
+        "Jsonb",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f4340e31adddc9a37bab64957b2b1b9b29f978c73f003dfbf81d5c487f666358"
+}

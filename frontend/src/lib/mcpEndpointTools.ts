@@ -10,6 +10,9 @@ export interface EndpointTool {
     pathParamsSchema?: object;
     queryParamsSchema?: object;
     bodySchema?: object;
+    pathFieldRenames?: Record<string, string>;
+    queryFieldRenames?: Record<string, string>;
+    bodyFieldRenames?: Record<string, string>;
 }
 
 export const mcpEndpointTools: EndpointTool[] = [
@@ -32,7 +35,10 @@ export const mcpEndpointTools: EndpointTool[] = [
         "required": [
                 "query"
         ]
-}
+},
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
     },
     {
         name: "createVariable",
@@ -90,7 +96,10 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "is_secret",
                 "description"
         ]
-}
+},
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
     },
     {
         name: "deleteVariable",
@@ -110,7 +119,10 @@ export const mcpEndpointTools: EndpointTool[] = [
         ]
 },
         queryParamsSchema: undefined,
-        bodySchema: undefined
+        bodySchema: undefined,
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
     },
     {
         name: "updateVariable",
@@ -121,12 +133,13 @@ export const mcpEndpointTools: EndpointTool[] = [
         pathParamsSchema: {
         "type": "object",
         "properties": {
-                "path": {
-                        "type": "string"
+                "path__path": {
+                        "type": "string",
+                        "description": "(path parameter)"
                 }
         },
         "required": [
-                "path"
+                "path__path"
         ]
 },
         queryParamsSchema: {
@@ -142,10 +155,6 @@ export const mcpEndpointTools: EndpointTool[] = [
         bodySchema: {
         "type": "object",
         "properties": {
-                "path": {
-                        "type": "string",
-                        "description": "The path to the variable"
-                },
                 "value": {
                         "type": "string",
                         "description": "The new value of the variable"
@@ -157,8 +166,19 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "description": {
                         "type": "string",
                         "description": "The new description of the variable"
+                },
+                "path__body": {
+                        "type": "string",
+                        "description": "The path to the variable (body parameter)"
                 }
         }
+},
+        pathFieldRenames: {
+        "path__path": "path"
+},
+        queryFieldRenames: undefined,
+        bodyFieldRenames: {
+        "path__body": "path"
 }
     },
     {
@@ -192,7 +212,10 @@ export const mcpEndpointTools: EndpointTool[] = [
         },
         "required": []
 },
-        bodySchema: undefined
+        bodySchema: undefined,
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
     },
     {
         name: "listVariable",
@@ -219,7 +242,10 @@ export const mcpEndpointTools: EndpointTool[] = [
         },
         "required": []
 },
-        bodySchema: undefined
+        bodySchema: undefined,
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
     },
     {
         name: "createResource",
@@ -245,7 +271,9 @@ export const mcpEndpointTools: EndpointTool[] = [
                         "type": "string",
                         "description": "The path to the resource"
                 },
-                "value": {},
+                "value": {
+                        "type": "object"
+                },
                 "description": {
                         "type": "string",
                         "description": "The description of the resource"
@@ -260,7 +288,10 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "value",
                 "resource_type"
         ]
-}
+},
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
     },
     {
         name: "deleteResource",
@@ -280,7 +311,10 @@ export const mcpEndpointTools: EndpointTool[] = [
         ]
 },
         queryParamsSchema: undefined,
-        bodySchema: undefined
+        bodySchema: undefined,
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
     },
     {
         name: "updateResource",
@@ -291,32 +325,42 @@ export const mcpEndpointTools: EndpointTool[] = [
         pathParamsSchema: {
         "type": "object",
         "properties": {
-                "path": {
-                        "type": "string"
+                "path__path": {
+                        "type": "string",
+                        "description": "(path parameter)"
                 }
         },
         "required": [
-                "path"
+                "path__path"
         ]
 },
         queryParamsSchema: undefined,
         bodySchema: {
         "type": "object",
         "properties": {
-                "path": {
-                        "type": "string",
-                        "description": "The path to the resource"
-                },
                 "description": {
                         "type": "string",
                         "description": "The new description of the resource"
                 },
-                "value": {},
+                "value": {
+                        "type": "object"
+                },
                 "resource_type": {
                         "type": "string",
                         "description": "The new resource_type to be associated with the resource"
+                },
+                "path__body": {
+                        "type": "string",
+                        "description": "The path to the resource (body parameter)"
                 }
         }
+},
+        pathFieldRenames: {
+        "path__path": "path"
+},
+        queryFieldRenames: undefined,
+        bodyFieldRenames: {
+        "path__body": "path"
 }
     },
     {
@@ -337,7 +381,10 @@ export const mcpEndpointTools: EndpointTool[] = [
         ]
 },
         queryParamsSchema: undefined,
-        bodySchema: undefined
+        bodySchema: undefined,
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
     },
     {
         name: "listResource",
@@ -372,7 +419,10 @@ export const mcpEndpointTools: EndpointTool[] = [
         },
         "required": []
 },
-        bodySchema: undefined
+        bodySchema: undefined,
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
     },
     {
         name: "listResourceType",
@@ -382,7 +432,10 @@ export const mcpEndpointTools: EndpointTool[] = [
         method: "GET",
         pathParamsSchema: undefined,
         queryParamsSchema: undefined,
-        bodySchema: undefined
+        bodySchema: undefined,
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
     },
     {
         name: "listScripts",
@@ -465,11 +518,123 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "without_description": {
                         "type": "boolean",
                         "description": "(default false)\nIf true, the description field will be omitted from the response.\n"
+                },
+                "dedicated_worker": {
+                        "type": "boolean",
+                        "description": "(default regardless)\nIf true, show only scripts with dedicated_worker enabled.\nIf false, show only scripts with dedicated_worker disabled.\n"
                 }
         },
         "required": []
 },
-        bodySchema: undefined
+        bodySchema: undefined,
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
+    },
+    {
+        name: "createScript",
+        description: "create script",
+        instructions: "To create a script, specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed.",
+        path: "/w/{workspace}/scripts/create",
+        method: "POST",
+        pathParamsSchema: undefined,
+        queryParamsSchema: undefined,
+        bodySchema: {
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string"
+                },
+                "summary": {
+                        "type": "string"
+                },
+                "description": {
+                        "type": "string"
+                },
+                "content": {
+                        "type": "string"
+                },
+                "language": {
+                        "type": "string",
+                        "description": "Possible values: python3, deno, go, bash, powershell, postgresql, mysql, bigquery, snowflake, mssql, oracledb, graphql, nativets, bun, php, rust, ansible, csharp, nu, java, ruby, duckdb, bunnative"
+                },
+                "kind": {
+                        "type": "string",
+                        "description": "Possible values: script, failure, trigger, command, approval, preprocessor"
+                },
+                "tag": {
+                        "type": "string"
+                },
+                "deployment_message": {
+                        "type": "string"
+                }
+        },
+        "required": [
+                "path",
+                "summary",
+                "description",
+                "content",
+                "language"
+        ]
+},
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
+    },
+    {
+        name: "deleteScriptByHash",
+        description: "delete script by hash (erase content but keep hash, require admin)",
+        instructions: "",
+        path: "/w/{workspace}/scripts/delete/h/{hash}",
+        method: "POST",
+        pathParamsSchema: {
+        "type": "object",
+        "properties": {
+                "hash": {
+                        "type": "string"
+                }
+        },
+        "required": [
+                "hash"
+        ]
+},
+        queryParamsSchema: undefined,
+        bodySchema: undefined,
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
+    },
+    {
+        name: "deleteScriptByPath",
+        description: "delete script at a given path (require admin)",
+        instructions: "",
+        path: "/w/{workspace}/scripts/delete/p/{path}",
+        method: "POST",
+        pathParamsSchema: {
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string"
+                }
+        },
+        "required": [
+                "path"
+        ]
+},
+        queryParamsSchema: {
+        "type": "object",
+        "properties": {
+                "keep_captures": {
+                        "type": "boolean",
+                        "description": "keep captures"
+                }
+        },
+        "required": []
+},
+        bodySchema: undefined,
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
     },
     {
         name: "getScriptByPath",
@@ -497,7 +662,37 @@ export const mcpEndpointTools: EndpointTool[] = [
         },
         "required": []
 },
-        bodySchema: undefined
+        bodySchema: undefined,
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
+    },
+    {
+        name: "runScriptByPath",
+        description: "run script by path",
+        instructions: "You should first use getScriptByPath to retrieve the script's schema and understand what arguments are expected.",
+        path: "/w/{workspace}/jobs/run/p/{path}",
+        method: "POST",
+        pathParamsSchema: {
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string"
+                }
+        },
+        "required": [
+                "path"
+        ]
+},
+        queryParamsSchema: undefined,
+        bodySchema: {
+        "type": "object",
+        "description": "The arguments to pass to the script or flow",
+        "additionalProperties": true
+},
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
     },
     {
         name: "listFlows",
@@ -552,11 +747,18 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "without_description": {
                         "type": "boolean",
                         "description": "(default false)\nIf true, the description field will be omitted from the response.\n"
+                },
+                "dedicated_worker": {
+                        "type": "boolean",
+                        "description": "(default regardless)\nIf true, show only flows with dedicated_worker enabled.\nIf false, show only flows with dedicated_worker disabled.\n"
                 }
         },
         "required": []
 },
-        bodySchema: undefined
+        bodySchema: undefined,
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
     },
     {
         name: "getFlowByPath",
@@ -584,7 +786,263 @@ export const mcpEndpointTools: EndpointTool[] = [
         },
         "required": []
 },
-        bodySchema: undefined
+        bodySchema: undefined,
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
+    },
+    {
+        name: "createFlow",
+        description: "create flow",
+        instructions: "",
+        path: "/w/{workspace}/flows/create",
+        method: "POST",
+        pathParamsSchema: undefined,
+        queryParamsSchema: undefined,
+        bodySchema: {
+        "type": "object",
+        "properties": {
+                "summary": {
+                        "type": "string",
+                        "description": "Short description of what this flow does"
+                },
+                "description": {
+                        "type": "string",
+                        "description": "Detailed documentation for this flow"
+                },
+                "value": {
+                        "type": "object"
+                },
+                "schema": {
+                        "type": "object"
+                },
+                "path": {
+                        "type": "string"
+                },
+                "tag": {
+                        "type": "string"
+                },
+                "deployment_message": {
+                        "type": "string"
+                }
+        },
+        "required": [
+                "summary",
+                "value",
+                "path"
+        ],
+        "description": "Top-level flow definition containing metadata, configuration, and the flow structure"
+},
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
+    },
+    {
+        name: "updateFlow",
+        description: "update flow",
+        instructions: "",
+        path: "/w/{workspace}/flows/update/{path}",
+        method: "POST",
+        pathParamsSchema: {
+        "type": "object",
+        "properties": {
+                "path__path": {
+                        "type": "string",
+                        "description": "(path parameter)"
+                }
+        },
+        "required": [
+                "path__path"
+        ]
+},
+        queryParamsSchema: undefined,
+        bodySchema: {
+        "type": "object",
+        "properties": {
+                "summary": {
+                        "type": "string",
+                        "description": "Short description of what this flow does"
+                },
+                "description": {
+                        "type": "string",
+                        "description": "Detailed documentation for this flow"
+                },
+                "value": {
+                        "type": "object"
+                },
+                "schema": {
+                        "type": "object"
+                },
+                "tag": {
+                        "type": "string"
+                },
+                "deployment_message": {
+                        "type": "string"
+                },
+                "path__body": {
+                        "type": "string",
+                        "description": "(body parameter)"
+                }
+        },
+        "required": [
+                "summary",
+                "value",
+                "path__body"
+        ],
+        "description": "Top-level flow definition containing metadata, configuration, and the flow structure"
+},
+        pathFieldRenames: {
+        "path__path": "path"
+},
+        queryFieldRenames: undefined,
+        bodyFieldRenames: {
+        "path__body": "path"
+}
+    },
+    {
+        name: "deleteFlowByPath",
+        description: "delete flow by path",
+        instructions: "",
+        path: "/w/{workspace}/flows/delete/{path}",
+        method: "DELETE",
+        pathParamsSchema: {
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string"
+                }
+        },
+        "required": [
+                "path"
+        ]
+},
+        queryParamsSchema: {
+        "type": "object",
+        "properties": {
+                "keep_captures": {
+                        "type": "boolean",
+                        "description": "keep captures"
+                }
+        },
+        "required": []
+},
+        bodySchema: undefined,
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
+    },
+    {
+        name: "createApp",
+        description: "create app",
+        instructions: "",
+        path: "/w/{workspace}/apps/create",
+        method: "POST",
+        pathParamsSchema: undefined,
+        queryParamsSchema: undefined,
+        bodySchema: {
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string"
+                },
+                "value": {
+                        "type": "object"
+                },
+                "summary": {
+                        "type": "string"
+                },
+                "policy": {
+                        "type": "object"
+                },
+                "deployment_message": {
+                        "type": "string"
+                }
+        },
+        "required": [
+                "path",
+                "value",
+                "summary",
+                "policy"
+        ]
+},
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
+    },
+    {
+        name: "updateApp",
+        description: "update app",
+        instructions: "",
+        path: "/w/{workspace}/apps/update/{path}",
+        method: "POST",
+        pathParamsSchema: {
+        "type": "object",
+        "properties": {
+                "path__path": {
+                        "type": "string",
+                        "description": "(path parameter)"
+                }
+        },
+        "required": [
+                "path__path"
+        ]
+},
+        queryParamsSchema: undefined,
+        bodySchema: {
+        "type": "object",
+        "properties": {
+                "summary": {
+                        "type": "string"
+                },
+                "value": {
+                        "type": "object"
+                },
+                "policy": {
+                        "type": "object"
+                },
+                "deployment_message": {
+                        "type": "string"
+                },
+                "path__body": {
+                        "type": "string",
+                        "description": "(body parameter)"
+                }
+        }
+},
+        pathFieldRenames: {
+        "path__path": "path"
+},
+        queryFieldRenames: undefined,
+        bodyFieldRenames: {
+        "path__body": "path"
+}
+    },
+    {
+        name: "runFlowByPath",
+        description: "run flow by path",
+        instructions: "You should first use getFlowByPath to retrieve the flow's schema and understand what arguments are expected.",
+        path: "/w/{workspace}/jobs/run/f/{path}",
+        method: "POST",
+        pathParamsSchema: {
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string"
+                }
+        },
+        "required": [
+                "path"
+        ]
+},
+        queryParamsSchema: undefined,
+        bodySchema: {
+        "type": "object",
+        "description": "The arguments to pass to the script or flow",
+        "additionalProperties": true
+},
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
     },
     {
         name: "runScriptPreviewAndWaitResult",
@@ -612,45 +1070,18 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "language": {
                         "type": "string",
-                        "enum": [
-                                "python3",
-                                "deno",
-                                "go",
-                                "bash",
-                                "powershell",
-                                "postgresql",
-                                "mysql",
-                                "bigquery",
-                                "snowflake",
-                                "mssql",
-                                "oracledb",
-                                "graphql",
-                                "nativets",
-                                "bun",
-                                "php",
-                                "rust",
-                                "ansible",
-                                "csharp",
-                                "nu",
-                                "java",
-                                "ruby",
-                                "duckdb"
-                        ]
+                        "description": "Possible values: python3, deno, go, bash, powershell, postgresql, mysql, bigquery, snowflake, mssql, oracledb, graphql, nativets, bun, php, rust, ansible, csharp, nu, java, ruby, duckdb, bunnative"
                 },
                 "tag": {
                         "type": "string"
                 },
                 "kind": {
                         "type": "string",
-                        "enum": [
-                                "code",
-                                "identity",
-                                "http"
-                        ]
+                        "description": "Possible values: code, identity, http"
                 },
                 "dedicated_worker": {
                         "type": "boolean"
@@ -664,7 +1095,10 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "content",
                 "language"
         ]
-}
+},
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
     },
     {
         name: "listQueue",
@@ -710,22 +1144,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                         "description": "mask to filter by trigger path"
                 },
                 "trigger_kind": {
-                        "description": "trigger kind (schedule, http, websocket...)",
-                        "type": "string",
-                        "enum": [
-                                "webhook",
-                                "default_email",
-                                "email",
-                                "schedule",
-                                "http",
-                                "websocket",
-                                "postgres",
-                                "kafka",
-                                "nats",
-                                "mqtt",
-                                "sqs",
-                                "gcp"
-                        ]
+                        "description": "trigger kind (schedule, http, websocket...). Possible values: webhook, default_email, email, schedule, http, websocket, postgres, kafka, nats, mqtt, sqs, gcp",
+                        "type": "string"
                 },
                 "script_hash": {
                         "type": "string",
@@ -796,7 +1216,10 @@ export const mcpEndpointTools: EndpointTool[] = [
         },
         "required": []
 },
-        bodySchema: undefined
+        bodySchema: undefined,
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
     },
     {
         name: "listJobs",
@@ -918,22 +1341,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                         "description": "number of items to return for a given page (default 30, max 100)"
                 },
                 "trigger_kind": {
-                        "description": "trigger kind (schedule, http, websocket...)",
-                        "type": "string",
-                        "enum": [
-                                "webhook",
-                                "default_email",
-                                "email",
-                                "schedule",
-                                "http",
-                                "websocket",
-                                "postgres",
-                                "kafka",
-                                "nats",
-                                "mqtt",
-                                "sqs",
-                                "gcp"
-                        ]
+                        "description": "trigger kind (schedule, http, websocket...). Possible values: webhook, default_email, email, schedule, http, websocket, postgres, kafka, nats, mqtt, sqs, gcp",
+                        "type": "string"
                 },
                 "is_skipped": {
                         "type": "boolean",
@@ -962,7 +1371,10 @@ export const mcpEndpointTools: EndpointTool[] = [
         },
         "required": []
 },
-        bodySchema: undefined
+        bodySchema: undefined,
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
     },
     {
         name: "createSchedule",
@@ -977,75 +1389,75 @@ export const mcpEndpointTools: EndpointTool[] = [
         "properties": {
                 "path": {
                         "type": "string",
-                        "description": "The path where the schedule will be created"
+                        "description": "The unique path identifier for this schedule"
                 },
                 "schedule": {
                         "type": "string",
-                        "description": "The cron schedule to trigger the script or flow. Should include seconds."
+                        "description": "Cron expression with 6 fields (seconds, minutes, hours, day of month, month, day of week). Example '0 0 12 * * *' for daily at noon"
                 },
                 "timezone": {
                         "type": "string",
-                        "description": "The timezone to use for the cron schedule"
+                        "description": "IANA timezone for the schedule (e.g., 'UTC', 'Europe/Paris', 'America/New_York')"
                 },
                 "script_path": {
                         "type": "string",
-                        "description": "The path to the script or flow to trigger"
+                        "description": "Path to the script or flow to execute when triggered"
                 },
                 "is_flow": {
                         "type": "boolean",
-                        "description": "Whether the schedule is for a flow"
+                        "description": "True if script_path points to a flow, false if it points to a script"
                 },
                 "args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "enabled": {
                         "type": "boolean",
-                        "description": "Whether the schedule is enabled"
+                        "description": "Whether the schedule is currently active and will trigger jobs"
                 },
                 "on_failure": {
                         "type": "string",
-                        "description": "The path to the script or flow to trigger on failure"
+                        "description": "Path to a script or flow to run when the scheduled job fails"
                 },
                 "on_failure_times": {
                         "type": "number",
-                        "description": "The number of times to retry on failure"
+                        "description": "Number of consecutive failures before the on_failure handler is triggered (default 1)"
                 },
                 "on_failure_exact": {
                         "type": "boolean",
-                        "description": "Whether the schedule should only run on the exact time"
+                        "description": "If true, trigger on_failure handler only on exactly N failures, not on every failure after N"
                 },
                 "on_failure_extra_args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "on_recovery": {
                         "type": "string",
-                        "description": "The path to the script or flow to trigger on recovery"
+                        "description": "Path to a script or flow to run when the schedule recovers after failures"
                 },
                 "on_recovery_times": {
                         "type": "number",
-                        "description": "The number of times to retry on recovery"
+                        "description": "Number of consecutive successes before the on_recovery handler is triggered (default 1)"
                 },
                 "on_recovery_extra_args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "on_success": {
                         "type": "string",
-                        "description": "The path to the script or flow to trigger on success"
+                        "description": "Path to a script or flow to run after each successful execution"
                 },
                 "on_success_extra_args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "ws_error_handler_muted": {
                         "type": "boolean",
-                        "description": "Whether the WebSocket error handler is muted"
+                        "description": "If true, the workspace-level error handler will not be triggered for this schedule's failures"
                 },
                 "retry": {
                         "type": "object",
@@ -1107,32 +1519,32 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "no_flow_overlap": {
                         "type": "boolean",
-                        "description": "Whether the schedule should not run if a flow is already running"
+                        "description": "If true, skip this schedule's execution if the previous run is still in progress (prevents concurrent runs)"
                 },
                 "summary": {
                         "type": "string",
-                        "description": "The summary of the schedule"
+                        "description": "Short summary describing the purpose of this schedule"
                 },
                 "description": {
                         "type": "string",
-                        "description": "The description of the schedule"
+                        "description": "Detailed description of what this schedule does"
                 },
                 "tag": {
                         "type": "string",
-                        "description": "The tag of the schedule"
+                        "description": "Worker tag to route jobs to specific worker groups"
                 },
                 "paused_until": {
                         "type": "string",
-                        "description": "The date and time the schedule will be paused until",
-                        "format": "date-time"
+                        "format": "date-time",
+                        "description": "ISO 8601 datetime until which the schedule is paused. Schedule resumes automatically after this time"
                 },
                 "cron_version": {
                         "type": "string",
-                        "description": "The version of the cron schedule to use (last is v2)"
+                        "description": "Cron parser version. Use 'v2' for extended syntax with additional features"
                 },
                 "dynamic_skip": {
                         "type": "string",
-                        "description": "Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean."
+                        "description": "Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean to skip (true) or run (false)"
                 }
         },
         "required": [
@@ -1143,7 +1555,10 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "is_flow",
                 "args"
         ]
-}
+},
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
     },
     {
         name: "updateSchedule",
@@ -1168,59 +1583,59 @@ export const mcpEndpointTools: EndpointTool[] = [
         "properties": {
                 "schedule": {
                         "type": "string",
-                        "description": "The cron schedule to trigger the script or flow. Should include seconds."
+                        "description": "Cron expression with 6 fields (seconds, minutes, hours, day of month, month, day of week). Example '0 0 12 * * *' for daily at noon"
                 },
                 "timezone": {
                         "type": "string",
-                        "description": "The timezone to use for the cron schedule"
+                        "description": "IANA timezone for the schedule (e.g., 'UTC', 'Europe/Paris', 'America/New_York')"
                 },
                 "args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "on_failure": {
                         "type": "string",
-                        "description": "The path to the script or flow to trigger on failure"
+                        "description": "Path to a script or flow to run when the scheduled job fails"
                 },
                 "on_failure_times": {
                         "type": "number",
-                        "description": "The number of times to retry on failure"
+                        "description": "Number of consecutive failures before the on_failure handler is triggered (default 1)"
                 },
                 "on_failure_exact": {
                         "type": "boolean",
-                        "description": "Whether the schedule should only run on the exact time"
+                        "description": "If true, trigger on_failure handler only on exactly N failures, not on every failure after N"
                 },
                 "on_failure_extra_args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "on_recovery": {
                         "type": "string",
-                        "description": "The path to the script or flow to trigger on recovery"
+                        "description": "Path to a script or flow to run when the schedule recovers after failures"
                 },
                 "on_recovery_times": {
                         "type": "number",
-                        "description": "The number of times to retry on recovery"
+                        "description": "Number of consecutive successes before the on_recovery handler is triggered (default 1)"
                 },
                 "on_recovery_extra_args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "on_success": {
                         "type": "string",
-                        "description": "The path to the script or flow to trigger on success"
+                        "description": "Path to a script or flow to run after each successful execution"
                 },
                 "on_success_extra_args": {
                         "type": "object",
                         "description": "The arguments to pass to the script or flow",
-                        "additionalProperties": {}
+                        "additionalProperties": true
                 },
                 "ws_error_handler_muted": {
                         "type": "boolean",
-                        "description": "Whether the WebSocket error handler is muted"
+                        "description": "If true, the workspace-level error handler will not be triggered for this schedule's failures"
                 },
                 "retry": {
                         "type": "object",
@@ -1282,32 +1697,32 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "no_flow_overlap": {
                         "type": "boolean",
-                        "description": "Whether the schedule should not run if a flow is already running"
+                        "description": "If true, skip this schedule's execution if the previous run is still in progress (prevents concurrent runs)"
                 },
                 "summary": {
                         "type": "string",
-                        "description": "The summary of the schedule"
+                        "description": "Short summary describing the purpose of this schedule"
                 },
                 "description": {
                         "type": "string",
-                        "description": "The description of the schedule"
+                        "description": "Detailed description of what this schedule does"
                 },
                 "tag": {
                         "type": "string",
-                        "description": "The tag of the schedule"
+                        "description": "Worker tag to route jobs to specific worker groups"
                 },
                 "paused_until": {
                         "type": "string",
-                        "description": "The date and time the schedule will be paused until",
-                        "format": "date-time"
+                        "format": "date-time",
+                        "description": "ISO 8601 datetime until which the schedule is paused. Schedule resumes automatically after this time"
                 },
                 "cron_version": {
                         "type": "string",
-                        "description": "The version of the cron schedule to use (last is v2)"
+                        "description": "Cron parser version. Use 'v2' for extended syntax with additional features"
                 },
                 "dynamic_skip": {
                         "type": "string",
-                        "description": "Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean."
+                        "description": "Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean to skip (true) or run (false)"
                 }
         },
         "required": [
@@ -1315,7 +1730,10 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "timezone",
                 "args"
         ]
-}
+},
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
     },
     {
         name: "deleteSchedule",
@@ -1335,7 +1753,10 @@ export const mcpEndpointTools: EndpointTool[] = [
         ]
 },
         queryParamsSchema: undefined,
-        bodySchema: undefined
+        bodySchema: undefined,
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
     },
     {
         name: "getSchedule",
@@ -1355,7 +1776,10 @@ export const mcpEndpointTools: EndpointTool[] = [
         ]
 },
         queryParamsSchema: undefined,
-        bodySchema: undefined
+        bodySchema: undefined,
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
     },
     {
         name: "listSchedules",
@@ -1394,7 +1818,10 @@ export const mcpEndpointTools: EndpointTool[] = [
         },
         "required": []
 },
-        bodySchema: undefined
+        bodySchema: undefined,
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
     },
     {
         name: "listWorkers",
@@ -1421,6 +1848,9 @@ export const mcpEndpointTools: EndpointTool[] = [
         },
         "required": []
 },
-        bodySchema: undefined
+        bodySchema: undefined,
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
     }
 ];

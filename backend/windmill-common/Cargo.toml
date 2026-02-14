@@ -6,7 +6,7 @@ edition.workspace = true
 
 [features]
 default = []
-enterprise = []
+enterprise = ["dep:aws-config"]
 instance_config_schema = ["dep:schemars"]
 local_reports = ["dep:rsa", "dep:aes-gcm"]
 private = ["dep:aws-sdk-rds"]
@@ -14,15 +14,16 @@ jemalloc = ["dep:tikv-jemalloc-ctl"]
 tantivy = []
 prometheus = ["dep:prometheus"]
 benchmark = []
-parquet = ["dep:object_store", "dep:aws-sdk-sts", "dep:aws-smithy-types-convert", "dep:datafusion"]
-aws_auth = ["dep:aws-sdk-sts"]
+parquet = ["dep:object_store", "dep:aws-sdk-sts", "dep:aws-smithy-types-convert", "dep:datafusion", "dep:aws-config", "dep:aws-credential-types"]
+aws_auth = ["dep:aws-sdk-sts", "dep:aws-config"]
 otel = ["dep:opentelemetry-semantic-conventions", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk",
     "dep:tracing-opentelemetry", "dep:opentelemetry-appender-tracing", "dep:tonic", "dep:opentelemetry"]
 smtp = ["dep:mail-send"]
 scoped_cache = []
 cloud = []
 openidconnect = ["dep:openidconnect"]
-bedrock = ["dep:aws-sdk-bedrockruntime"]
+bedrock = ["dep:aws-sdk-bedrockruntime", "dep:aws-credential-types", "dep:aws-smithy-types", "dep:aws-config"]
+python = ["dep:windmill-parser-py"]
 
 [lib]
 name = "windmill_common"
@@ -65,10 +66,10 @@ cron.workspace = true
 magic-crypt.workspace = true
 object_store = { workspace = true, optional = true }
 prometheus = { workspace = true, optional = true }
-aws-config.workspace = true
+aws-config = { workspace = true, optional = true }
 aws-sdk-sts = { workspace = true, optional = true }
-aws-credential-types.workspace = true
-aws-smithy-types.workspace = true
+aws-credential-types = { workspace = true, optional = true }
+aws-smithy-types = { workspace = true, optional = true }
 aws-sdk-bedrockruntime = { workspace = true, optional = true }
 base64.workspace = true
 bitflags.workspace = true
@@ -91,7 +92,7 @@ crc.workspace = true
 windmill-macros.workspace = true
 windmill-parser-sql.workspace = true
 windmill-parser-ts.workspace = true
-windmill-parser-py.workspace = true
+windmill-parser-py = { workspace = true, optional = true }
 windmill-parser.workspace = true
 jsonwebtoken.workspace = true
 backon.workspace = true
@@ -99,6 +100,7 @@ openidconnect = { workspace = true, optional = true }
 schemars = { workspace = true, optional = true }
 strum.workspace = true
 strum_macros.workspace = true
+windmill-types.workspace = true
 url.workspace = true
 urlencoding.workspace = true
 async-recursion.workspace = true

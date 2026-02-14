@@ -20,8 +20,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::Error;
 
 use crate::ai_types::{
-    ContentPart, OpenAIContent, OpenAIFunction, OpenAIMessage,
-    OpenAIToolCall, ToolDef,
+    ContentPart, OpenAIContent, OpenAIFunction, OpenAIMessage, OpenAIToolCall, ToolDef,
 };
 
 // ============================================================================
@@ -432,7 +431,10 @@ fn convert_message(msg: &OpenAIMessage) -> Result<Message, Error> {
         "user" => ConversationRole::User,
         "assistant" => ConversationRole::Assistant,
         _ => {
-            return Err(Error::internal_err(format!("Unsupported role: {}", msg.role)));
+            return Err(Error::internal_err(format!(
+                "Unsupported role: {}",
+                msg.role
+            )));
         }
     };
 

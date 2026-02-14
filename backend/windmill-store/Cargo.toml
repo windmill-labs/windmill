@@ -1,0 +1,51 @@
+[package]
+name = "windmill-store"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_store"
+path = "src/lib.rs"
+
+[features]
+default = []
+enterprise = ["windmill-common/enterprise"]
+cloud = ["windmill-common/cloud"]
+private = ["windmill-common/private"]
+no_auth = []
+oauth2 = ["dep:windmill-oauth"]
+mcp = ["dep:windmill-mcp", "windmill-mcp/server", "windmill-mcp/auth"]
+http_trigger = []
+postgres_trigger = []
+mqtt_trigger = []
+sqs_trigger = []
+gcp_trigger = []
+kafka = []
+nats = []
+openidconnect = ["windmill-common/openidconnect"]
+
+[dependencies]
+windmill-common = { workspace = true, default-features = false }
+windmill-api-auth.workspace = true
+windmill-audit.workspace = true
+windmill-git-sync.workspace = true
+windmill-mcp = { workspace = true, optional = true }
+windmill-oauth = { workspace = true, optional = true }
+axum.workspace = true
+hyper.workspace = true
+http.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+quick_cache.workspace = true
+lazy_static.workspace = true
+sql-builder.workspace = true
+async-recursion.workspace = true
+futures.workspace = true
+chrono.workspace = true
+reqwest.workspace = true
+anyhow.workspace = true

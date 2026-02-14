@@ -40,6 +40,7 @@
 	import { tutorialsToDo } from '$lib/stores'
 	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
 	import TutorialBanner from '$lib/components/home/TutorialBanner.svelte'
+	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
 
 	type Tab = 'hub' | 'workspace'
 
@@ -106,6 +107,8 @@
 		}
 	})
 
+	let showCreateButtons = $state(false)
+
 	onMount(() => {
 		// Check if there's a tutorial parameter in the URL
 		const tutorialParam = $page.url.searchParams.get('tutorial')
@@ -114,8 +117,7 @@
 			setTimeout(() => {
 				workspaceTutorials?.runTutorialById('workspace-onboarding')
 			}, 500)
-		} else if (tutorialParam === 'workspace-onboarding-operator') {
-			// Small delay to ensure page is fully loaded
+		} else if (tutorialParam === 'workspace-onboarding-operator') { // Small delay to ensure page is fully loaded
 			setTimeout(() => {
 				workspaceTutorials?.runTutorialById('workspace-onboarding-operator')
 			}, 500)
@@ -281,7 +283,7 @@
 			title="Home"
 			childrenWrapperDivClasses="flex-1 flex flex-row gap-4 flex-wrap justify-end items-center"
 		>
-			{#if !$userStore?.operator}
+			{#if !$userStore?.operator && showCreateButtons}
 				<span class="text-xs font-normal text-primary">Create a</span>
 				<CreateActionsScript aiId="create-script-button" aiDescription="Creates a new script" />
 				{#if HOME_SHOW_CREATE_FLOW}<CreateActionsFlow />{/if}
@@ -290,6 +292,8 @@
 		</PageHeader>
 
 		<TutorialBanner />
+
+		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => showCreateButtons = v}/>
 
 		{#if !$userStore?.operator}
 			<div class="w-full overflow-auto scrollbar-hidden pb-2">
@@ -365,7 +369,7 @@
 	</div>
 
 	{#if tab == 'workspace'}
-		<ItemsList bind:filter bind:subtab />
+		<ItemsList bind:filter bind:subtab showEditButtons={showCreateButtons} />
 	{/if}
 </div>
 

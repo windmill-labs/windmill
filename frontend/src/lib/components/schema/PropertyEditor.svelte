@@ -249,6 +249,7 @@
 								bind:max={extra['max']}
 								bind:currency={extra['currency']}
 								bind:currencyLocale={extra['currencyLocale']}
+								bind:seconds={extra['seconds']}
 							/>
 						{/if}
 					</div>

@@ -32,7 +32,8 @@
                 "mqtt",
                 "gcp",
                 "default_email",
-                "nextcloud"
+                "nextcloud",
+                "google"
               ]
             }
           }
@@ -70,7 +71,8 @@
                 "mqtt",
                 "gcp",
                 "default_email",
-                "nextcloud"
+                "nextcloud",
+                "google"
               ]
             }
           }

@@ -22,7 +22,7 @@ use crate::{
         get_reserved_variables, read_result, start_child_process, MaybeLock, OccupancyMetrics,
     },
     handle_child::handle_child,
-    COMPOSER_CACHE_DIR, COMPOSER_PATH, DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PHP_PATH,
+    COMPOSER_CACHE_DIR, COMPOSER_PATH, is_sandboxing_enabled, DISABLE_NUSER, NSJAIL_PATH, PHP_PATH,
 };
 use windmill_common::client::AuthedClient;
 
@@ -293,7 +293,7 @@ try {{
 
     let (reserved_variables, _) = tokio::try_join!(reserved_variables_args_out_f, write_wrapper_f)?;
 
-    let child = if !*DISABLE_NSJAIL {
+    let child = if is_sandboxing_enabled() {
         let _ = write_file(
             job_dir,
             "run.config.proto",
@@ -347,7 +347,7 @@ try {{
         mem_peak,
         canceled_by,
         child,
-        !*DISABLE_NSJAIL,
+        is_sandboxing_enabled(),
         worker_name,
         &job.workspace_id,
         "php run",

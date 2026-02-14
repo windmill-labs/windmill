@@ -1,0 +1,65 @@
+[package]
+name = "windmill-runtime-nativets"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_runtime_nativets"
+path = "src/lib.rs"
+
+[features]
+default = []
+private = []
+enterprise = ["windmill-common/enterprise"]
+
+[dependencies]
+windmill-common = { workspace = true, default-features = false }
+windmill-queue.workspace = true
+windmill-parser-ts.workspace = true
+deno_fetch.workspace = true
+deno_webidl.workspace = true
+deno_web.workspace = true
+deno_net.workspace = true
+deno_console.workspace = true
+deno_url.workspace = true
+deno_core.workspace = true
+deno_ast.workspace = true
+deno_tls.workspace = true
+deno_permissions.workspace = true
+deno_io.workspace = true
+deno_telemetry.workspace = true
+deno_error.workspace = true
+deno_runtime.workspace = true
+winapi.workspace = true
+
+itertools.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+uuid.workspace = true
+reqwest.workspace = true
+regex.workspace = true
+lazy_static.workspace = true
+const_format.workspace = true
+futures.workspace = true
+sqlx.workspace = true
+rustls.workspace = true
+
+[build-dependencies]
+deno_fetch.workspace = true
+deno_webidl.workspace = true
+deno_web.workspace = true
+deno_net.workspace = true
+deno_console.workspace = true
+deno_url.workspace = true
+deno_core.workspace = true
+deno_ast.workspace = true
+deno_tls.workspace = true
+deno_permissions.workspace = true
+deno_io.workspace = true
+deno_runtime.workspace = true
+deno_telemetry.workspace = true
+winapi.workspace = true

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ExternalLink, ChevronDown, ChevronRight, Plus } from 'lucide-svelte'
 	import { Button, Alert } from '$lib/components/common'
-	import Description from '$lib/components/Description.svelte'
+	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
 	import { setGitSyncContext } from './GitSyncContext.svelte'
 	import GitSyncRepositoryCard from './GitSyncRepositoryCard.svelte'
 	import GitSyncModalManager from './GitSyncModalManager.svelte'
@@ -38,7 +38,9 @@
 
 	// Check if any secondary repositories are unsaved
 	const hasUnsavedSecondary = $derived(secondarySync.some((s) => s.repo.isUnsavedConnection))
-	const hasUnsavedSecondaryPromotion = $derived(secondaryPromotion.some((s) => s.repo.isUnsavedConnection))
+	const hasUnsavedSecondaryPromotion = $derived(
+		secondaryPromotion.some((s) => s.repo.isUnsavedConnection)
+	)
 </script>
 
 {#if !gitSyncContext}
@@ -50,19 +52,28 @@
 		<div class="text-sm text-secondary">Loading git sync settings...</div>
 	</div>
 {:else}
-	<div class="flex flex-col gap-4 my-8">
-		<div class="flex flex-col gap-1">
-			<div class="text-emphasis text-sm font-semibold">Git Sync</div>
-			<Description link="https://www.windmill.dev/docs/advanced/git_sync">
-				Connect the Windmill workspace to a Git repository to automatically commit and push scripts,
-				flows, and apps to the repository on each deploy.
-			</Description>
-		</div>
-		<Alert type="info" title="Only new updates trigger git sync">
-			Only new changes matching the filters will trigger a git sync. You still need to initialize
-			the repo to the desired state first.
-		</Alert>
-	</div>
+	<SettingsPageHeader
+		title="Git Sync"
+		description="Connect the Windmill workspace to a Git repository to automatically commit and push scripts, flows, and apps to the repository on each deploy."
+		link="https://www.windmill.dev/docs/advanced/git_sync"
+	>
+		{#snippet actions()}
+			{#if $enterpriseLicense && gitSyncContext.repositories != undefined}
+				<Button
+					variant="accent"
+					target="_blank"
+					endIcon={{ icon: ExternalLink }}
+					href={`/runs?job_kinds=deploymentcallbacks&workspace=${$workspaceStore}`}
+				>
+					See sync jobs
+				</Button>
+			{/if}
+		{/snippet}
+	</SettingsPageHeader>
+	<Alert type="info" title="Only new updates trigger git sync">
+		Only new changes matching the filters will trigger a git sync. You still need to initialize the
+		repo to the desired state first.
+	</Alert>
 	{#if !$enterpriseLicense}
 		<div class="mb-2"></div>
 
@@ -72,20 +83,8 @@
 		<div class="mb-2"></div>
 	{/if}
 	{#if $enterpriseLicense && gitSyncContext.repositories != undefined}
-		<div class="flex mt-5 mb-5 gap-8">
-			<Button
-				variant="accent"
-				target="_blank"
-				endIcon={{ icon: ExternalLink }}
-				href={`/runs?job_kinds=deploymentcallbacks&workspace=${$workspaceStore}`}
-			>
-				See sync jobs
-			</Button>
-		</div>
-		<div class="pt-2"></div>
-
 		<!-- Primary Sync Repository -->
-		<div class="space-y-4">
+		<div class="space-y-6 pt-6">
 			<GitSyncRepositoryCard
 				variant="primary-sync"
 				mode="sync"

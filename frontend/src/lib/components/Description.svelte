@@ -8,6 +8,8 @@
 <div class={twMerge('text-xs text-primary font-normal', $$props.class)}>
 	<slot />
 	{#if link}
-		<a href={link} target="_blank">Learn more <ExternalLink size={12} class="inline-block" /></a>
+		<a href={link} target="_blank" class="whitespace-nowrap"
+			>Learn more <ExternalLink size={12} class="inline-block" /></a
+		>
 	{/if}
 </div>

@@ -11,40 +11,18 @@ on:
     types: [submitted]
 
 jobs:
-  determine-commenter:
+  check-membership:
     if: |
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/plan')) ||
       (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '/plan')) ||
       (github.event_name == 'pull_request_review' && contains(github.event.review.body, '/plan')) ||
       (github.event_name == 'issues' && contains(github.event.issue.body, '/plan'))
-    runs-on: ubicloud-standard-2
-    outputs:
-      commenter: ${{ steps.determine-commenter.outputs.commenter }}
-    steps:
-      - name: Determine commenter
-        id: determine-commenter
-        run: |
-          # Work out who wrote the comment / review
-          if [[ "${{ github.event_name }}" == "issue_comment" || \
-                "${{ github.event_name }}" == "pull_request_review_comment" ]]; then
-            COMMENTER="${{ github.event.comment.user.login }}"
-          elif [[ "${{ github.event_name }}" == "pull_request_review" ]]; then
-            COMMENTER="${{ github.event.review.user.login }}"
-          else
-            COMMENTER="${{ github.event.issue.user.login }}"
-          fi
-          echo "commenter=$COMMENTER" >> $GITHUB_OUTPUT
-
-  check-membership:
-    needs: determine-commenter
     uses: ./.github/workflows/check-org-membership.yml
-    with:
-      commenter: ${{ needs.determine-commenter.outputs.commenter }}
     secrets:
       access_token: ${{ secrets.ORG_ACCESS_TOKEN }}
 
   claude-plan-action:
-    needs: [determine-commenter, check-membership]
+    needs: check-membership
     if: |
       needs.check-membership.outputs.is_member == 'true'
     runs-on: ubicloud-standard-4

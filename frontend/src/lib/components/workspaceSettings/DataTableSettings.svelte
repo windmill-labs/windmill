@@ -49,8 +49,8 @@
 
 	import CloseButton from '../common/CloseButton.svelte'
 
-	import Description from '../Description.svelte'
 	import ResourcePicker from '../ResourcePicker.svelte'
+	import SettingsPageHeader from '../settings/SettingsPageHeader.svelte'
 	import Select from '../select/Select.svelte'
 	import Cell from '../table/Cell.svelte'
 	import DataTable from '../table/DataTable.svelte'
@@ -71,6 +71,7 @@
 	import ExploreAssetButton from '../ExploreAssetButton.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { clone } from '$lib/utils'
+	import SettingsFooter from './SettingsFooter.svelte'
 
 	type Props = {
 		dataTableSettings: DataTableSettingsType
@@ -135,6 +136,7 @@
 		} catch (e) {
 			sendUserToast(e, true)
 			console.error('Error saving data table settings', e)
+			throw e
 		}
 	}
 
@@ -150,20 +152,28 @@
 		return map
 	})
 
+	function onDiscard() {
+		tempSettings.dataTables = $state.snapshot(dataTableSettings.dataTables)
+	}
+
+	export function discard() {
+		onDiscard()
+	}
+
 	export function unsavedChanges(): { savedValue: any; modifiedValue: any } {
 		return { savedValue: dataTableSettings, modifiedValue: tempSettings }
 	}
+
+	let hasUnsavedChanges = $derived.by(() => {
+		return !deepEqual(dataTableSettings, tempSettings)
+	})
 </script>
 
-<div class="flex flex-col gap-4 my-8">
-	<div class="flex flex-col gap-1">
-		<div class="text-sm font-semibold text-emphasis">Data tables</div>
-		<Description link="https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables">
-			Store relational data out of the box. Interact with a fully managed PostgreSQL database
-			directly from the Windmill SDK.
-		</Description>
-	</div>
-</div>
+<SettingsPageHeader
+	title="Data tables"
+	description="Store relational data out of the box. Interact with a fully managed PostgreSQL database directly from the Windmill SDK."
+	link="https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables"
+/>
 
 <DataTable>
 	<Head>
@@ -180,7 +190,7 @@
 			{/each}
 		</tr>
 	</Head>
-	<tbody class="divide-y bg-surface">
+	<tbody class="divide-y bg-surface-tertiary">
 		{#if tempSettings.dataTables.length == 0}
 			<Row>
 				<Cell colspan={tableHeadNames.length} class="text-center py-6">
@@ -286,6 +296,12 @@
 	</tbody>
 </DataTable>
 
-<Button wrapperClasses="mt-4 mb-16 max-w-fit" on:click={onSave} variant="accent">Save</Button>
+<SettingsFooter
+	class="mt-8"
+	{hasUnsavedChanges}
+	{onSave}
+	{onDiscard}
+	saveLabel="Save data table settings"
+/>
 
 <ConfirmationModal {...confirmationModal.props} />

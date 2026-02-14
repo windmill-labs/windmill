@@ -29,6 +29,10 @@ pub use rmcp::model::Tool as McpTool;
 #[cfg(feature = "server")]
 pub mod server;
 
+// MCP OAuth client registration (when auth feature is enabled)
+#[cfg(feature = "auth")]
+pub mod client_registration;
+
 // Re-export rmcp auth types when auth feature is enabled
 #[cfg(feature = "auth")]
 pub mod oauth {

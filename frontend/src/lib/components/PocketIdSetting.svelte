@@ -3,6 +3,7 @@
 	import IconedResourceType from './IconedResourceType.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import Toggle from './Toggle.svelte'
+	import SettingCard from './instanceSettings/SettingCard.svelte'
 
 	let { value = $bindable() }: { value: any } = $props()
 
@@ -52,7 +53,7 @@
 		<Toggle checked={enabled} on:change={handleToggle} />
 	</label>
 	{#if enabled}
-		<div class="border rounded p-4 flex flex-col gap-6">
+		<SettingCard class="flex flex-col gap-6">
 			<label class="flex flex-col gap-1">
 				<span class="text-emphasis font-semibold text-xs">Pocket ID Url</span>
 				<span class="text-secondary font-normal text-xs">POCKET_ID_URL/authorize</span>
@@ -82,6 +83,6 @@
 					bind:value={value['secret']}
 				/>
 			</label>
-		</div>
+		</SettingCard>
 	{/if}
 </div>

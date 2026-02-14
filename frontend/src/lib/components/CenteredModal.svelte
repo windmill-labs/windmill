@@ -12,6 +12,7 @@
 		large?: boolean
 		centerVertically?: boolean
 		loading?: boolean
+		containOverflow?: boolean
 		children?: import('svelte').Snippet
 	}
 
@@ -22,6 +23,7 @@
 		large = false,
 		centerVertically = true,
 		loading = false,
+		containOverflow = false,
 		children
 	}: Props = $props()
 
@@ -31,12 +33,20 @@
 </script>
 
 <div
-	class="flex justify-center h-screen p-4 relative bg-surface-secondary overflow-auto"
+	class="flex justify-center h-screen p-4 relative bg-surface-secondary {containOverflow
+		? 'overflow-hidden'
+		: 'overflow-auto'}"
 	class:items-center={centerVertically}
 	style="scrollbar-gutter: stable both-edges;"
 	bind:clientHeight={height}
 >
-	<div class={twMerge("flex flex-col gap-2 items-center w-full pb-8  h-fit", height > 1080 ? 'pt-28' : 'pt-12')} >
+	<div
+		class={twMerge(
+			'flex flex-col gap-2 items-center w-full pb-8',
+			containOverflow ? 'min-h-0' : 'h-fit',
+			containOverflow ? '' : height > 1080 ? 'pt-28' : 'pt-12'
+		)}
+	>
 		{#if (!disableLogo && !$enterpriseLicense) || !$whitelabelNameStore}
 			<div class="hidden lg:block">
 				<div>
@@ -62,7 +72,9 @@
 			<div
 				class="rounded-md bg-surface w-full {large
 					? 'max-w-5xl'
-					: 'max-w-[640px]'} p-4 sm:py-8 sm:px-10 z-10"
+					: 'max-w-[640px]'} p-4 sm:py-8 sm:px-10 z-10 {containOverflow
+					? 'flex-1 min-h-0 flex flex-col'
+					: ''}"
 			>
 				{@render children()}
 			</div>

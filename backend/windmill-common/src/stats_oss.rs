@@ -50,3 +50,19 @@ pub async fn get_user_usage<'c, E: sqlx::Executor<'c, Database = Postgres>>(
     let usage = ActiveUserUsage { author_count: None, operator_count: None };
     Ok(usage)
 }
+
+#[cfg(not(feature = "private"))]
+#[derive(serde::Serialize)]
+pub struct Stats {}
+
+#[cfg(not(feature = "private"))]
+pub async fn get_stats_payload(_db: &DB, _reason: &SendStatsReason) -> Result<Stats> {
+    // stats details are closed source
+    Ok(Stats {})
+}
+
+#[cfg(not(feature = "private"))]
+pub fn encrypt_stats(_stats: &Stats) -> Result<String> {
+    // stats details are closed source
+    Ok(String::new())
+}

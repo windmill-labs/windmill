@@ -24,7 +24,6 @@ use windmill_common::jobs::JobPayload;
 use windmill_common::jobs::JobTriggerKind;
 use windmill_common::runnable_settings::ConcurrencySettings;
 use windmill_common::runnable_settings::DebouncingSettings;
-use windmill_common::runnable_settings::RunnableSettings;
 use windmill_common::schedule::schedule_to_user;
 use windmill_common::scripts::ScriptHash;
 use windmill_common::triggers::TriggerMetadata;
@@ -345,9 +344,7 @@ pub async fn push_scheduled_job<'c>(
         .await?;
 
         let (debouncing_settings, concurrency_settings) =
-            RunnableSettings::from_runnable_settings_handle(runnable_settings_handle, db)
-                .await?
-                .prefetch_cached(db)
+            windmill_common::runnable_settings::prefetch_cached_from_handle(runnable_settings_handle, db)
                 .await?;
 
         if schedule.retry.is_some() {
@@ -471,7 +468,7 @@ pub async fn push_scheduled_job<'c>(
     let push_authed = match push_authed {
         Some(a) => Some(a),
         None => {
-            obo_authed = windmill_common::auth::fetch_authed_from_permissioned_as_conn(
+            obo_authed = windmill_common::auth::fetch_authed_from_permissioned_as(
                 &permissioned_as,
                 email,
                 &schedule.workspace_id,
@@ -580,4 +577,33 @@ pub async fn exists_schedule(
     .unwrap_or(false);
 
     Ok(exists)
+}
+
+pub async fn clear_schedule<'c>(
+    tx: &mut Transaction<'c, Postgres>,
+    path: &str,
+    w_id: &str,
+) -> Result<()> {
+    tracing::info!("Clearing schedule {}", path);
+    sqlx::query!(
+        "WITH to_delete AS (
+            SELECT id FROM v2_job_queue
+                JOIN v2_job j USING (id)
+            WHERE trigger_kind = 'schedule'
+                AND trigger = $1
+                AND j.workspace_id = $2
+                AND flow_step_id IS NULL
+                AND running = false
+            FOR UPDATE
+        ), deleted AS (
+            DELETE FROM v2_job_queue
+            WHERE id IN (SELECT id FROM to_delete)
+            RETURNING id
+        ) DELETE FROM v2_job WHERE id IN (SELECT id FROM deleted)",
+        path,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
 }

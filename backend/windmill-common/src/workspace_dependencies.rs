@@ -18,8 +18,6 @@ use phf::phf_set;
 
 pub static BLACKLIST: phf::Set<&'static str> = phf_set! {
     "u/admin/hub_sync",
-    "g/all/setup_app/app",
-    "g/all/setup_app"
 };
 
 lazy_static::lazy_static! {
@@ -178,6 +176,13 @@ impl WorkspaceDependencies {
             ?name,
             "fetching latest workspace dependencies id"
         );
+
+        // Bunnative and Nativets workspace dependencies go under Bun language
+        let language = match language {
+            ScriptLang::Nativets | ScriptLang::Bunnative => ScriptLang::Bun,
+            l => l,
+        };
+
         let result = sqlx::query_scalar!(
             r#"
             SELECT id FROM workspace_dependencies
@@ -209,13 +214,13 @@ impl WorkspaceDependencies {
         workspace_id: &str,
         conn: Connection,
     ) -> error::Result<Option<Self>> {
-        if language.as_dependencies_filename().is_none() {
+        let Some(dependencies_filename) = language.as_dependencies_filename() else {
             return Ok(None);
-        }
+        };
 
         if name.is_none()
             && get_cached_is_unnamed_workspace_dependencies_exists(
-                language,
+                dependencies_filename.clone(),
                 workspace_id.to_owned(),
             )
             .map(|exists| exists == false)
@@ -237,7 +242,7 @@ impl WorkspaceDependencies {
                 else {
                     if name.is_none() {
                         set_cached_is_unnamed_workspace_dependencies_exists(
-                            language,
+                            dependencies_filename.clone(),
                             workspace_id.to_owned(),
                             false,
                         );
@@ -277,7 +282,7 @@ impl WorkspaceDependencies {
 
         if name.is_none() {
             set_cached_is_unnamed_workspace_dependencies_exists(
-                language,
+                dependencies_filename,
                 workspace_id.to_owned(),
                 wd.is_some(),
             );
@@ -379,7 +384,7 @@ impl WorkspaceDependenciesPrefetched {
 
         Box::pin(async {
             let r = if let Some(wdar) =
-                language.extract_workspace_dependencies_annotated_refs(code, runnable_path)
+                crate::scripts::extract_workspace_dependencies_annotated_refs(&language, code, runnable_path)
             {
                 tracing::debug!(workspace_id, ?language, "found explicit annotations");
 

@@ -234,7 +234,7 @@
 							>max</button
 						>
 					</div>
-					<div class="text-xs font-bold !mt-2">Delay</div>
+					<div class="text-xs font-bold !mt-4">Delay</div>
 					<SecondsInput bind:seconds={flowModuleRetry.constant.seconds} />
 				{/if}
 			{:else if delayType === 'exponential'}

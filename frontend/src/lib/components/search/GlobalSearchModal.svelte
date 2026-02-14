@@ -3,7 +3,6 @@
 	import {
 		AppService,
 		FlowService,
-		RawAppService,
 		ScriptService,
 		type Flow,
 		type ListableApp,
@@ -492,7 +491,6 @@
 			withoutDescription: true
 		})
 		const apps = await AppService.listApps({ workspace: $workspaceStore! })
-		const raw_apps = await RawAppService.listRawApps({ workspace: $workspaceStore! })
 
 		let combinedItems: (TableScript | TableFlow | TableApp | TableRawApp)[] | undefined = [
 			...flows.map((x) => ({
@@ -510,12 +508,6 @@
 			...apps.map((x) => ({
 				...x,
 				type: 'app' as 'app',
-				time: new Date(x.edited_at).getTime(),
-				search_id: x.path
-			})),
-			...raw_apps.map((x) => ({
-				...x,
-				type: 'raw_app' as 'raw_app',
 				time: new Date(x.edited_at).getTime(),
 				search_id: x.path
 			}))

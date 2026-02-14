@@ -9,7 +9,8 @@
 		try {
 			const res = await SettingsService.backendUptodate()
 			if (res != 'yes') {
-				uptodate = res
+				const parts = res.split(' -> ')
+				uptodate = parts.length > 1 ? parts[parts.length - 1] : res
 			}
 		} catch (e) {
 			console.warn('Could not fetch latest version', e)
@@ -21,7 +22,7 @@
 
 {#if uptodate}
 	<span class="text-accent text-xs">
-		{uptodate} &nbsp;
+		→ {uptodate} &nbsp;
 		<Tooltip>
 			{#if isCloudHosted()}
 				The cloud version is updated daily.

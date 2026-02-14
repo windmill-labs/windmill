@@ -258,7 +258,11 @@
 			nvalue = structuredClone($state.snapshot(defaultValue))
 			if (defaultValue === undefined || defaultValue === null) {
 				if (inputCat === 'string') {
-					nvalue = nullable ? null : format === 'uuid' && extra?.['x-auto-generate'] ? randomUUID() : ''
+					nvalue = nullable
+						? null
+						: format === 'uuid' && extra?.['x-auto-generate']
+							? randomUUID()
+							: ''
 				} else if (inputCat == 'enum' && required) {
 					let firstV = enum_?.[0]
 					if (typeof firstV === 'string') {
@@ -663,10 +667,17 @@
 
 	<div class="flex space-x-1">
 		{#if inputCat == 'number'}
-			{#if extra['min'] != undefined && extra['max'] != undefined}
+			{#if extra['seconds'] !== undefined}
+				<div class="w-full">
+					<SecondsInput
+						bind:seconds={value}
+						onfocus={bubble('focus')}
+						{defaultValue}
+						clearable={extra['clearable'] !== false}
+					/>
+				</div>
+			{:else if extra['min'] != undefined && extra['max'] != undefined}
 				<Range bind:value min={extra['min']} max={extra['max']} {defaultValue} />
-			{:else if extra['seconds'] !== undefined}
-				<SecondsInput bind:seconds={value} on:focus />
 			{:else if extra?.currency}
 				<CurrencyInput
 					inputClasses={{
@@ -1177,7 +1188,6 @@
 										titleClass="text-2xs"
 									/>
 								{/if}
-	
 							{:else if disabled}
 								<textarea disabled></textarea>
 							{:else}

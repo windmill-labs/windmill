@@ -17,19 +17,32 @@ When implementing new features in Windmill, follow these best practices:
 
 ## Language-Specific Guides
 
-- Backend (Rust): @backend/rust-best-practices.mdc + @backend/summarized_schema.txt
-- Frontend (Svelte 5): @frontend/svelte5-best-practices.mdc
+- Backend (Rust): see `backend/CLAUDE.md` and the `rust-backend` skill: `.claude/skills/rust-backend/SKILL.md`
+- Frontend (Svelte 5): see `frontend/CLAUDE.md` and the `svelte-frontend` skill: `.claude/skills/svelte-frontend/SKILL.md`
+
+## Code Validation (MUST DO)
+
+After making code changes, you MUST run the appropriate checks and fix all errors before considering the work done:
+
+- **Backend**: Run `cargo check` from the `backend/` directory. Only enable the feature flags needed for the code you changed — check `backend/Cargo.toml` `[features]` section to identify which flags gate the crates/modules you modified. For example: `cargo check --features enterprise,parquet` if you only touched enterprise and parquet code.
+- **Frontend**: Run `npm run check` from the `frontend/` directory.
 
 ## Querying the Database
 
-To query the database directly, use psql with the following connection string:
+`backend/summarized_schema.txt` provides a compact overview of all tables, columns, types, ENUMs, and foreign keys. Use it to quickly understand the data model and relationships. Note: this file is a simplified summary — it omits indexes, constraints details, and other metadata.
+
+For exact table definitions (indexes, constraints, column defaults, etc.), query the database directly:
 
 ```bash
 psql postgres://postgres:changeme@localhost:5432/windmill
 ```
 
-This can be helpful for:
+Useful psql commands:
+- `\d <table_name>` — full table definition with indexes and constraints
+- `\di <table_name>*` — list indexes for a table
+- `\d+ <table_name>` — extended table info including storage and descriptions
 
+This is also helpful for:
 - Inspecting database state during development
 - Testing queries before implementing them in Rust
 - Debugging data-related issues

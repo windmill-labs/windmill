@@ -102,9 +102,9 @@
 			transition:slide={animate || collapsable ? { duration: 200 } : { duration: 0 }}
 		>
 			{#if description}
-				<div class="text-xs text-primary mt-1">{@html description}</div>
+				<div class="text-xs text-primary mt-1 mb-2">{@html description}</div>
 			{/if}
-			<div class="flex flex-col gap-6 grow min-h-0 mt-6">
+			<div class="flex flex-col gap-6 grow min-h-0 mt-4">
 				<div class={twMerge('grow min-h-0', clazz)}>
 					{@render children?.()}
 				</div>

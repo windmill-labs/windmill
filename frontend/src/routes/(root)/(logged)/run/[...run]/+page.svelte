@@ -85,6 +85,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import FlowRestartButton from '$lib/components/FlowRestartButton.svelte'
 	import JobOtelTraces from '$lib/components/JobOtelTraces.svelte'
+	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	let job: (Job & { result?: any; result_stream?: string }) | undefined = $state()
 	let jobUpdateLastFetch: Date | undefined = $state()
 
@@ -282,13 +283,18 @@
 
 	function forkPreview() {
 		if (isFlowPreview(job?.job_kind)) {
-			$initialArgsStore = job?.args
 			const state = {
 				flow: { value: job?.raw_flow },
-				path: job?.script_path + '_fork'
+				path: job?.script_path + '_fork',
+				initialArgs: job?.args
 			}
-			const encodedArgs = encodeState(job?.args)
-			window.open(`/flows/add?initial_args=${encodedArgs}#${encodeState(state)}`)
+			try {
+				localStorage.setItem('fork_flow', JSON.stringify(state))
+			} catch {
+				// Flow too large for localStorage, pass via window reference
+				;(window as any).__forkPreviewData = state
+			}
+			window.open('/flows/add?fork=true')
 		} else {
 			$initialArgsStore = job?.args
 			let n: NewScript = {
@@ -353,6 +359,8 @@
 			runImmediatelyLoading = false
 		}
 	}
+
+	let showEditButton = $derived(!isRuleActive('DisableDirectDeployment'))
 
 	$effect(() => {
 		job?.id && lastJobId !== job.id && untrack(() => getConcurrencyKey(job))
@@ -598,7 +606,7 @@
 				>
 			{/if}
 			{#if job?.type === 'CompletedJob' && job?.job_kind === 'flow' && selectedJobStep !== undefined && selectedJobStepIsTopLevel && job.id}
-				<FlowRestartButton
+					<FlowRestartButton
 					jobId={job.id}
 					{selectedJobStep}
 					{selectedJobStepType}
@@ -607,6 +615,7 @@
 						goto('/run/' + newJobId + '?workspace=' + $workspaceStore)
 					}}
 					flowPath={job.script_path}
+					flowVersionId={job.script_hash ? parseInt(job.script_hash, 16) : undefined}
 					disabled={!$enterpriseLicense}
 					enterpriseOnly={!$enterpriseLicense}
 				/>
@@ -640,6 +649,7 @@
 							}}
 							unifiedSize="md"
 							variant="default"
+							disabled={!showEditButton}
 							size="sm"
 							startIcon={{ icon: Pen }}>Edit</Button
 						>
@@ -771,7 +781,7 @@
 				{#if job}
 					<div class="mr-2 sm:mr-0 mt-12 mb-6">
 						<h3 class="text-xs font-semibold text-emphasis mb-1">Result</h3>
-						<div class="border rounded-md bg-surface-tertiary p-4 overflow-auto max-h-[400px]">
+						<div class="border rounded-md bg-surface-tertiary p-4 overflow-auto max-h-screen">
 							{#if job.result_stream || (job.type == 'CompletedJob' && job.result !== undefined)}
 								<DisplayResult
 									workspaceId={job?.workspace_id}

@@ -26,9 +26,10 @@ use crate::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
         read_result, start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
     },
-    handle_child::{self}, get_proxy_envs_for_lang,
+    get_proxy_envs_for_lang,
+    handle_child::{self},
     universal_pkg_installer::{par_install_language_dependencies_seq, RequiredDependency},
-    DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUBY_CACHE_DIR, RUBY_REPOS,
+    is_sandboxing_enabled, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUBY_CACHE_DIR, RUBY_REPOS,
     TRACING_PROXY_CA_CERT_PATH,
 };
 use windmill_common::scripts::ScriptLang;
@@ -50,7 +51,6 @@ const NSJAIL_CONFIG_RUN_RUBY_CONTENT: &str = include_str!("../nsjail/run.ruby.co
 const NSJAIL_CONFIG_DOWNLOAD_RUBY_CONTENT: &str =
     include_str!("../nsjail/download.ruby.config.proto");
 const NSJAIL_CONFIG_LOCK_RUBY_CONTENT: &str = include_str!("../nsjail/lock.ruby.config.proto");
-
 
 #[allow(dead_code)]
 pub(crate) struct JobHandlerInput<'a> {
@@ -330,7 +330,7 @@ Your Gemfile syntax will continue to work as-is."
         )
         .await;
 
-        let mut cmd = if !cfg!(windows) && !*DISABLE_NSJAIL {
+        let mut cmd = if !cfg!(windows) && is_sandboxing_enabled() {
             let nsjail_proto = format!("{}.lock.config.proto", Uuid::new_v4());
             let _ = write_file(
                 &job_dir,
@@ -401,7 +401,7 @@ Your Gemfile syntax will continue to work as-is."
             mem_peak,
             canceled_by,
             child,
-            !*DISABLE_NSJAIL,
+            is_sandboxing_enabled(),
             worker_name,
             w_id,
             "bundle",
@@ -589,7 +589,7 @@ async fn install<'a>(
     }
 
     let job_dir = job_dir.to_owned();
-    let jailed = !cfg!(windows) && !*DISABLE_NSJAIL;
+    let jailed = !cfg!(windows) && is_sandboxing_enabled();
     let RubyAnnotations { verbose } = RubyAnnotations::parse(&inner_content);
     let repos = RUBY_REPOS.read().await.clone().unwrap_or_default();
     let (envs, reserved_variables) = (
@@ -751,7 +751,7 @@ async fn run<'a>(
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path.clone()).await?;
 
-    let child = if !cfg!(windows) && !*DISABLE_NSJAIL {
+    let child = if !cfg!(windows) && is_sandboxing_enabled() {
         append_logs(
             &job.id,
             &job.workspace_id,
@@ -858,7 +858,7 @@ mount {{
         mem_peak,
         canceled_by,
         child,
-        !*DISABLE_NSJAIL,
+        is_sandboxing_enabled(),
         worker_name,
         &job.workspace_id,
         "ruby",

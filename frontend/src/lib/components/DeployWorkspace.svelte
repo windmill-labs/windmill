@@ -6,7 +6,6 @@
 		AppService,
 		FlowService,
 		FolderService,
-		RawAppService,
 		ResourceService,
 		ScheduleService,
 		ScriptService,
@@ -44,6 +43,7 @@
 		additionalInformation?: AdditionalInformation | undefined
 		workspaceToDeployTo?: string | undefined
 		hideButton?: boolean
+		canDeployToWorkspace?: boolean
 	}
 
 	let {
@@ -51,7 +51,8 @@
 		initialPath = '',
 		additionalInformation = undefined,
 		workspaceToDeployTo = $bindable(undefined),
-		hideButton = false
+		hideButton = false,
+		canDeployToWorkspace = $bindable(false)
 	}: Props = $props()
 
 	let canSeeTarget: 'yes' | 'cant-deploy-to-workspace' | 'cant-see-all-deps' | undefined =
@@ -150,10 +151,10 @@
 				})
 			} else if (kind == 'app') {
 				const app = await AppService.getAppByPath({ workspace: $workspaceStore!, path })
-				console.log('app', app)
 				let result: { kind: Kind; path: string }[] = []
 				if (app.raw_app) {
-					for (const runnable of Object.values(app.value.runnables as Record<string, Runnable>)) {
+					const rawAppValue = app.value as { runnables?: Record<string, Runnable> }
+					for (const runnable of Object.values(rawAppValue.runnables ?? {})) {
 						if (isRunnableByPath(runnable)) {
 							if (runnable.runType == 'script') {
 								result.push({ kind: 'script', path: runnable.path })
@@ -229,11 +230,6 @@
 			})
 		} else if (kind == 'app') {
 			exists = await AppService.existsApp({
-				workspace: workspaceToDeployTo!,
-				path: path
-			})
-		} else if (kind == 'raw_app') {
-			exists = await RawAppService.existsRawApp({
 				workspace: workspaceToDeployTo!,
 				path: path
 			})
@@ -498,21 +494,6 @@
 						}
 					})
 				}
-			} else if (kind == 'raw_app') {
-				throw new Error('Raw app deploy not implemented yet')
-				// const app = await RawAppService.getRawAppData({
-				// 	workspace: $workspaceStore!,
-				// 	path: path
-				// })
-				// if (alreadyExists) {
-				// }
-				// await RawAppService.updateRawApp({
-				// 	workspace: $workspaceStore!,
-				// 	path: path,
-				// 	requestBody: {
-				// 		path: path
-				// 	}
-				// })
 			} else if (kind == 'folder') {
 				await FolderService.createFolder({
 					workspace: workspaceToDeployTo!,
@@ -616,21 +597,6 @@
 					path: path
 				})
 				return resource.schema
-			} else if (kind == 'raw_app') {
-				throw new Error('Raw app deploy not implemented yet')
-				// const app = await RawAppService.getRawAppData({
-				// 	workspace: workspace,
-				// 	path: path
-				// })
-				// if (alreadyExists) {
-				// }
-				// await RawAppService.updateRawApp({
-				// 	workspace: workspace,
-				// 	path: path,
-				// 	requestBody: {
-				// 		path: path
-				// 	}
-				// })
 			} else if (kind == 'folder') {
 				const folder = await FolderService.getFolder({
 					workspace: workspace,
@@ -771,7 +737,7 @@
 							>
 						{/if}
 					{:else}
-						<Button color="light" size="xs" on:click={() => deploy(kind, path)}>Deploy</Button>
+						<Button color="light" size="xs" disabled={!canDeployToWorkspace} on:click={() => deploy(kind, path)}>Deploy</Button>
 					{/if}
 				</div>
 			{/each}
@@ -779,7 +745,7 @@
 
 		{#if !hideButton}
 			<div class="mt-16 flex flex-row-reverse max-w-3xl"
-				><Button on:click={deployAll}>Deploy all toggled</Button></div
+				><Button on:click={deployAll} disabled={!canDeployToWorkspace}>Deploy all toggled</Button></div
 			>
 		{/if}
 	{:else if canSeeTarget == 'cant-see-all-deps'}

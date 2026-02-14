@@ -180,6 +180,11 @@
 			inputClass ?? ''
 		)}
 		autocomplete="off"
+		oninput={(e) => {
+			// Explicitly open dropdown if closed and update filterText
+			if (!open) open = true
+			filterText = e.currentTarget.value
+		}}
 		onpointerdown={() => (open = true)}
 		bind:this={inputEl}
 		{id}

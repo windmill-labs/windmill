@@ -51,6 +51,9 @@ use std::sync::atomic::Ordering;
 use crate::worker::CLOUD_HOSTED;
 
 lazy_static::lazy_static! {
+    pub static ref COOKIE_DOMAIN: Option<String> = std::env::var("COOKIE_DOMAIN").ok();
+    pub static ref IS_SECURE: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
+
     pub static ref FORCE_IPV4: bool = std::env::var("FORCE_IPV4")
         .map(|v| v.to_lowercase() == "true" || v == "1")
         .unwrap_or(false);
@@ -68,6 +71,12 @@ lazy_static::lazy_static! {
 
         builder.build().unwrap()
     };
+    pub static ref HTTP_CLIENT_PERMISSIVE: Client = configure_client(reqwest::ClientBuilder::new()
+        .user_agent("windmill/beta")
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(30))
+        .danger_accept_invalid_certs(std::env::var("ACCEPT_INVALID_CERTS").is_ok()))
+        .build().unwrap();
     pub static ref GIT_SEM_VERSION: Version = Version::parse(
         if GIT_VERSION.starts_with('v') {
             &GIT_VERSION[1..]
@@ -142,6 +151,13 @@ lazy_static::lazy_static! {
             tracing::info!("Mode not specified, defaulting to standalone");
             Mode::Standalone
         });
+        #[cfg(feature = "benchmark")]
+        let mode = {
+            if mode != Mode::Worker {
+                println!("Benchmark mode: forcing MODE=worker");
+            }
+            Mode::Worker
+        };
         ModeAndAddons {
             indexer: search_addon,
             mode,
@@ -161,6 +177,16 @@ pub struct ModeAndAddons {
 pub struct Pagination {
     pub page: Option<usize>,
     pub per_page: Option<usize>,
+}
+
+#[derive(Deserialize)]
+pub struct WithStarredInfoQuery {
+    pub with_starred_info: Option<bool>,
+}
+
+#[derive(Deserialize)]
+pub struct BulkDeleteRequest {
+    pub paths: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -962,6 +988,14 @@ pub async fn get_custom_pg_instance_password(db: &DB) -> Result<String> {
             "Custom instance db password not found, did you run migrations ?"
         ))
     )
+}
+
+/// Convert a JSON string to a `Box<RawValue>` without validation.
+///
+/// # Safety
+/// The caller must ensure the string is valid JSON.
+pub fn unsafe_raw(json: String) -> Box<serde_json::value::RawValue> {
+    unsafe { std::mem::transmute::<Box<str>, Box<serde_json::value::RawValue>>(json.into()) }
 }
 
 // Avoid JSON parsing for merging raw JSON values into an object

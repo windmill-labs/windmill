@@ -27,15 +27,14 @@ use scripts::ScriptLang;
 use sqlx::{Acquire, Postgres};
 
 pub mod agent_workers;
-pub mod ai_providers;
-pub mod ai_types;
 #[cfg(feature = "bedrock")]
 pub mod ai_bedrock;
+pub mod ai_providers;
+pub mod ai_types;
 pub mod apps;
-pub mod audit;
 pub mod assets;
+pub mod audit;
 pub mod auth;
-pub mod runtime_assets;
 #[cfg(feature = "benchmark")]
 pub mod bench;
 pub mod cache;
@@ -60,10 +59,11 @@ pub mod instance_config;
 pub mod job_metrics;
 #[cfg(all(feature = "parquet", feature = "private"))]
 pub mod job_s3_helpers_ee;
-pub mod min_version;
-pub mod notify_events;
 #[cfg(feature = "parquet")]
 pub mod job_s3_helpers_oss;
+pub mod min_version;
+pub mod notify_events;
+pub mod runtime_assets;
 pub mod workspace_dependencies;
 
 #[cfg(feature = "private")]
@@ -85,9 +85,9 @@ pub mod result_stream;
 pub mod runnable_settings;
 pub mod s3_helpers;
 pub mod schedule;
-pub mod secret_backend;
 pub mod schema;
 pub mod scripts;
+pub mod secret_backend;
 pub mod server;
 #[cfg(feature = "private")]
 pub mod stats_ee;
@@ -98,9 +98,11 @@ pub mod teams_ee;
 pub mod teams_oss;
 pub mod tracing_init;
 pub mod triggers;
+pub mod usernames;
 pub mod users;
 pub mod utils;
 pub mod variables;
+pub mod webhook;
 pub mod worker;
 pub mod worker_group_job_stats;
 pub mod workspaces;
@@ -361,16 +363,22 @@ pub struct PgDatabase {
 
 // Wrapper enum to hold either Tls or NoTls connection
 pub enum TokioPgConnection {
-    Tls(tokio_postgres::Connection<tokio_postgres::Socket, postgres_native_tls::TlsStream<tokio_postgres::Socket>>),
+    Tls(
+        tokio_postgres::Connection<
+            tokio_postgres::Socket,
+            postgres_native_tls::TlsStream<tokio_postgres::Socket>,
+        >,
+    ),
     NoTls(tokio_postgres::Connection<tokio_postgres::Socket, tokio_postgres::tls::NoTlsStream>),
 }
 
-
-impl Future for TokioPgConnection
-{
+impl Future for TokioPgConnection {
     type Output = Result<(), tokio_postgres::Error>;
 
-    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut core::task::Context<'_>) -> core::task::Poll<Self::Output> {
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<Self::Output> {
         // SAFETY: We're simply projecting the Pin from the outer enum to the inner connection field.
         // The inner connection is never moved out, so this is safe.
         unsafe {
@@ -381,7 +389,6 @@ impl Future for TokioPgConnection
         }
     }
 }
-
 
 impl PgDatabase {
     pub fn to_uri(&self) -> String {
@@ -406,32 +413,46 @@ impl PgDatabase {
         format!(
             "dbname={dbname} {user} host={host} {password} {port} {sslmode}",
             dbname = self.dbname,
-            user = self.user.as_ref().map(|u| format!("user={}", urlencoding::encode(u))).unwrap_or_default(),
+            user = self
+                .user
+                .as_ref()
+                .map(|u| format!("user={}", urlencoding::encode(u)))
+                .unwrap_or_default(),
             host = self.host,
-            password = self.password
-                .as_ref().map(|p| format!("password={}", urlencoding::encode(p)))
+            password = self
+                .password
+                .as_ref()
+                .map(|p| format!("password={}", urlencoding::encode(p)))
                 .unwrap_or_default(),
             port = self.port.map(|p| format!("port={}", p)).unwrap_or_default(),
-            sslmode = self.sslmode
-                .as_ref().map(|s| format!("sslmode={}", s.clone()))
+            sslmode = self
+                .sslmode
+                .as_ref()
+                .map(|s| format!("sslmode={}", s.clone()))
                 .unwrap_or_default(),
         )
     }
 
-    pub async fn connect(&self) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
-        use tokio_postgres::tls::{ NoTls };
-        use postgres_native_tls::MakeTlsConnector;
+    pub async fn connect(
+        &self,
+    ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
         use native_tls::{Certificate, TlsConnector};
-        let ssl_mode_is_require = matches!(self.sslmode.as_deref(), Some("require") | Some("verify-ca") | Some("verify-full")); 
-        
+        use postgres_native_tls::MakeTlsConnector;
+        use tokio_postgres::tls::NoTls;
+        let ssl_mode_is_require = matches!(
+            self.sslmode.as_deref(),
+            Some("require") | Some("verify-ca") | Some("verify-full")
+        );
+
         if ssl_mode_is_require {
             tracing::info!("Creating new connection");
             let mut connector = TlsConnector::builder();
             if let Some(root_certificate_pem) = &self.root_certificate_pem {
                 if !root_certificate_pem.is_empty() {
                     connector.add_root_certificate(
-                        Certificate::from_pem(root_certificate_pem.as_bytes())
-                            .map_err(|e| error::Error::BadConfig(format!("Invalid Certs: {e:#}")))?,
+                        Certificate::from_pem(root_certificate_pem.as_bytes()).map_err(|e| {
+                            error::Error::BadConfig(format!("Invalid Certs: {e:#}"))
+                        })?,
                     );
                 } else {
                     connector.danger_accept_invalid_certs(true);
@@ -442,7 +463,7 @@ impl PgDatabase {
                     .danger_accept_invalid_certs(true)
                     .danger_accept_invalid_hostnames(true);
             }
-    
+
             let (client, connection) = tokio::time::timeout(
                 std::time::Duration::from_secs(20),
                 tokio_postgres::connect(
@@ -453,7 +474,7 @@ impl PgDatabase {
             .await
             .map_err(to_anyhow)?
             .map_err(to_anyhow)?;
-    
+
             Ok((client, TokioPgConnection::Tls(connection)))
         } else {
             tracing::info!("Creating new connection");
@@ -464,17 +485,19 @@ impl PgDatabase {
             .await
             .map_err(to_anyhow)?
             .map_err(to_anyhow)?;
-    
+
             Ok((client, TokioPgConnection::NoTls(connection)))
         }
     }
 
     pub fn parse_uri(url: &str) -> Result<Self, Error> {
-        let parsed_url =
-            url::Url::parse(url).map_err(|_| Error::BadConfig("Invalid PostgreSQL URL".to_string()))?;
+        let parsed_url = url::Url::parse(url)
+            .map_err(|_| Error::BadConfig("Invalid PostgreSQL URL".to_string()))?;
 
         let username = parsed_url.username().to_string();
-        let username = urlencoding::decode(&username).map_err(to_anyhow)?.to_string();
+        let username = urlencoding::decode(&username)
+            .map_err(to_anyhow)?
+            .to_string();
         let password = parsed_url.password().map(|p| p.to_string());
         let password = match password {
             Some(p) => Some(urlencoding::decode(&p).map_err(to_anyhow)?.to_string()),
@@ -542,10 +565,8 @@ impl DatabaseUrl {
                 let guard = rds_url.read().await;
                 Ok(guard.connect_options())
             }
-            DatabaseUrl::Static(url) => {
-                sqlx::postgres::PgConnectOptions::from_str(url)
-                    .map_err(|e| Error::InternalErr(format!("Failed to parse database URL: {}", e)))
-            }
+            DatabaseUrl::Static(url) => sqlx::postgres::PgConnectOptions::from_str(url)
+                .map_err(|e| Error::InternalErr(format!("Failed to parse database URL: {}", e))),
         }
     }
 
@@ -644,157 +665,15 @@ pub async fn get_database_url() -> Result<DatabaseUrl, Error> {
     Ok(database_url.clone())
 }
 
-pub async fn initial_connection() -> Result<sqlx::Pool<sqlx::Postgres>, error::Error> {
-    let connect_options = get_database_url().await?.connect_options().await?;
-    sqlx::postgres::PgPoolOptions::new()
-        .max_connections(2)
-        .connect_with(connect_options)
-        .await
-        .map_err(|err| Error::ConnectingToDatabase(err.to_string()))
-}
-
-pub async fn connect_db(
-    server_mode: bool,
-    indexer_mode: bool,
-    worker_mode: bool,
-    #[cfg(feature = "private")] mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
-) -> anyhow::Result<sqlx::Pool<sqlx::Postgres>> {
-    use anyhow::Context;
-
-    let database_url = get_database_url().await?;
-
-    let max_connections = match std::env::var("DATABASE_CONNECTIONS") {
-        Ok(n) => n.parse::<u32>().context("invalid DATABASE_CONNECTIONS")?,
-        Err(_) => {
-            if server_mode {
-                DEFAULT_MAX_CONNECTIONS_SERVER
-            } else if indexer_mode {
-                DEFAULT_MAX_CONNECTIONS_INDEXER
-            } else {
-                DEFAULT_MAX_CONNECTIONS_WORKER
-                    + std::env::var("NUM_WORKERS")
-                        .ok()
-                        .map(|x| x.parse().ok())
-                        .flatten()
-                        .unwrap_or(1)
-                    - 1
-            }
-        }
-    };
-
-    let pool = connect(database_url.clone(), max_connections, worker_mode).await?;
-    #[cfg(all(feature = "enterprise", feature = "private"))]
-    let pool2 = pool.clone();
-    #[cfg(all(feature = "enterprise", feature = "private"))]
-    if let DatabaseUrl::IamRds(database_url) = database_url {
-        tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    _ = killpill_rx.recv() => {
-                        break;
-                    }
-                    _ = tokio::time::sleep(std::time::Duration::from_secs(10)) => {
-                        let needs_refresh = {
-                            let read_guard = database_url.read().await;
-                            read_guard.needs_refresh()
-                        };
-                        if needs_refresh {
-                            let new_url = tokio::time::timeout(std::time::Duration::from_secs(10), get_database_url()).await;
-                            match new_url {
-                                Ok(Ok(new_url)) => {
-                                    match new_url.connect_options().await {
-                                        Ok(connect_options) => {
-                                            pool2.set_connect_options(connect_options);
-                                            tracing::info!("Refreshed IAM RDS URL successfully");
-                                        }
-                                        Err(e) => {
-                                            tracing::error!("Error getting IAM RDS connect options, retrying in 10s: {}", e);
-                                            continue;
-                                        }
-                                    }
-                                }
-                                Ok(Err(e)) => {
-                                    tracing::error!("Error refreshing IAM RDS URL, trying again in 10s: {}", e);
-                                    continue;
-                                }
-                                Err(e) => {
-                                    tracing::error!("Timeout after 10s refreshing IAM RDS URL, trying again in 10 seconds: {}", e);
-                                    continue;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        });
-    }
-
-    Ok(pool)
-}
-
-pub async fn connect(
-    database_url: DatabaseUrl,
-    max_connections: u32,
-    worker_mode: bool,
-) -> Result<sqlx::Pool<sqlx::Postgres>, error::Error> {
-    use sqlx::Executor;
-    use std::time::Duration;
-    sqlx::postgres::PgPoolOptions::new()
-        .min_connections((max_connections / 5).clamp(3, max_connections))
-        .max_connections(max_connections)
-        .max_lifetime(Duration::from_secs(30 * 60)) // 30 mins
-        .after_connect(move |conn, _| {
-            if worker_mode {
-                Box::pin(async move {
-                    if let Err(e) = conn
-                        .execute(
-                            r#"
-        SET enable_seqscan = OFF;
-        SET statement_timeout = '5min';
-        SET idle_in_transaction_session_timeout = '10min';
-        SET tcp_keepalives_idle = 300;
-        SET tcp_keepalives_interval = 60;
-        SET tcp_keepalives_count = 10;"#,
-                        )
-                        .await
-                    {
-                        tracing::error!("Error setting postgres settings: {}", e);
-                    }
-                    Ok(())
-                })
-            } else {
-                Box::pin(async move {
-                    if let Err(e) = conn
-                        .execute(
-                            r#"
-        SET statement_timeout = '5min';
-        SET idle_in_transaction_session_timeout = '10min';
-        SET tcp_keepalives_idle = 300;
-        SET tcp_keepalives_interval = 60;
-        SET tcp_keepalives_count = 10;"#,
-                        )
-                        .await
-                    {
-                        tracing::error!("Error setting postgres settings: {}", e);
-                    }
-                    Ok(())
-                })
-            }
-        })
-        .connect_with(
-            database_url.connect_options().await?
-                .statement_cache_capacity(400),
-        )
-        .await
-        .map_err(|err| Error::ConnectingToDatabase(err.to_string()))
-}
-
 type Tag = String;
 
 pub use db::DB;
 
 use crate::{
-    auth::{PermsCache, FLOW_PERMS_CACHE, HASH_PERMS_CACHE}, db::{AuthedRef, UserDbWithAuthed}, error::to_anyhow, runnable_settings::RunnableSettings, scripts::{ScriptHash, ScriptRunnableSettingsHandle, ScriptRunnableSettingsInline}
+    auth::{PermsCache, FLOW_PERMS_CACHE, HASH_PERMS_CACHE},
+    db::{AuthedRef, UserDbWithAuthed},
+    error::to_anyhow,
+    scripts::{ScriptHash, ScriptRunnableSettingsHandle, ScriptRunnableSettingsInline},
 };
 
 #[derive(Clone)]
@@ -823,19 +702,17 @@ pub struct ScriptHashInfo<SR> {
 }
 
 impl ScriptHashInfo<ScriptRunnableSettingsHandle> {
-    pub async fn prefetch_cached<'a>(self, db: &DB) -> error::Result<ScriptHashInfo<ScriptRunnableSettingsInline>> {
+    pub async fn prefetch_cached<'a>(
+        self,
+        db: &DB,
+    ) -> error::Result<ScriptHashInfo<ScriptRunnableSettingsInline>> {
+        let rs =
+            runnable_settings::from_handle(self.runnable_settings.runnable_settings_handle, db)
+                .await?;
+        let (debouncing_settings, concurrency_settings) =
+            runnable_settings::prefetch_cached(&rs, db).await?;
 
-    let (debouncing_settings, concurrency_settings) =
-        RunnableSettings::from_runnable_settings_handle(
-            self.runnable_settings.runnable_settings_handle,
-            db,
-        )
-        .await?
-        .prefetch_cached(db)
-        .await?;
-
-    Ok(
-        ScriptHashInfo {
+        Ok(ScriptHashInfo {
             path: self.path,
             hash: self.hash,
             tag: self.tag,
@@ -849,17 +726,17 @@ impl ScriptHashInfo<ScriptRunnableSettingsHandle> {
             has_preprocessor: self.has_preprocessor,
             on_behalf_of_email: self.on_behalf_of_email,
             created_by: self.created_by,
-            runnable_settings: ScriptRunnableSettingsInline{
-            concurrency_settings: concurrency_settings
-                .maybe_fallback(
+            runnable_settings: ScriptRunnableSettingsInline {
+                concurrency_settings: concurrency_settings.maybe_fallback(
                     self.runnable_settings.concurrency_key,
                     self.runnable_settings.concurrent_limit,
                     self.runnable_settings.concurrency_time_window_s,
                 ),
-            debouncing_settings: debouncing_settings
-                .maybe_fallback(self.runnable_settings.debounce_key, self.runnable_settings.debounce_delay_s),
+                debouncing_settings: debouncing_settings.maybe_fallback(
+                    self.runnable_settings.debounce_key,
+                    self.runnable_settings.debounce_delay_s,
+                ),
             },
-                
         })
     }
 }
@@ -1151,25 +1028,25 @@ pub fn get_flow_version_info_from_version<
             _ => {
                 tracing::debug!("Fetching flow version info for {version} ({path})");
                 let mut conn = db.acquire().await?;
-                let flow_info = 
+                let flow_info =
                         sqlx::query_as!(
                             FlowVersionInfo,
                             r#"
                                 SELECT
                                     flow_version.id AS version,
-                                    flow_version.value->>'early_return' as early_return, 
-                                    flow_version.value->>'preprocessor_module' IS NOT NULL as has_preprocessor, 
-                                    (flow_version.value->>'chat_input_enabled')::boolean as chat_input_enabled, 
-                                    flow.tag, 
-                                    flow.dedicated_worker, 
-                                    flow.on_behalf_of_email, 
+                                    flow_version.value->>'early_return' as early_return,
+                                    flow_version.value->>'preprocessor_module' IS NOT NULL as has_preprocessor,
+                                    (flow_version.value->>'chat_input_enabled')::boolean as chat_input_enabled,
+                                    flow.tag,
+                                    flow.dedicated_worker,
+                                    flow.on_behalf_of_email,
                                     flow.edited_by
-                                FROM 
+                                FROM
                                     flow_version
                                 INNER JOIN flow
                                     ON flow.path = flow_version.path AND
                                        flow.workspace_id = flow_version.workspace_id
-                                WHERE 
+                                WHERE
                                     flow_version.workspace_id = $1 AND
                                     flow_version.path = $2 AND
                                     flow_version.id = $3
@@ -1330,4 +1207,3 @@ impl KillpillSender {
     //     self.already_sent.load(Ordering::SeqCst)
     // }
 }
-

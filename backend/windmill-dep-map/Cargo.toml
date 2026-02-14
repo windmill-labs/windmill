@@ -1,0 +1,28 @@
+[package]
+name = "windmill-dep-map"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_dep_map"
+path = "src/lib.rs"
+
+[features]
+default = []
+python = ["dep:windmill-parser-py-imports"]
+
+[dependencies]
+windmill-common = { workspace = true, default-features = false }
+windmill-queue.workspace = true
+windmill-parser-ts.workspace = true
+windmill-parser-py-imports = { workspace = true, optional = true }
+sqlx.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+lazy_static.workspace = true
+chrono.workspace = true
+itertools.workspace = true
+uuid.workspace = true

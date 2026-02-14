@@ -1,7 +1,6 @@
 use sqlx::{Pool, Postgres};
 
-mod common;
-use common::*;
+use windmill_test_utils::*;
 
 /// Test that the workspace success handler cache works correctly with 60s TTL
 #[cfg(feature = "deno_core")]

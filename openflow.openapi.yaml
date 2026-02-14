@@ -1,7 +1,7 @@
 openapi: '3.0.3'
 
 info:
-  version: 1.628.2
+  version: 1.634.6
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -35,6 +35,9 @@ components:
         schema:
           type: object
           description: JSON Schema for flow inputs. Use this to define input parameters, their types, defaults, and validation. For resource inputs, set type to 'object' and format to 'resource-<type>' (e.g., 'resource-stripe')
+        on_behalf_of_email:
+          type: string
+          description: The flow will be run with the permissions of the user with this email.
       required:
         - summary
         - value

@@ -96,6 +96,7 @@ export interface SyncOptions {
     };
   };
   promotion?: string;
+  lint?: boolean;
 }
 
 export interface Codebase {

@@ -3,10 +3,13 @@ import type {
 	ChatCompletionUserMessageParam
 } from 'openai/resources/chat/completions.mjs'
 import { z } from 'zod'
-import { createSearchHubScriptsTool, createToolDef, type Tool } from '../shared'
-import { FlowService, ScriptService, type Flow, type Script } from '$lib/gen'
-import uFuzzy from '@leeoniya/ufuzzy'
-import { emptyString } from '$lib/utils'
+import {
+	createSearchHubScriptsTool,
+	createToolDef,
+	createSearchWorkspaceTool,
+	createGetRunnableDetailsTool,
+	type Tool
+} from '../shared'
 import { aiChatManager } from '../AIChatManager.svelte'
 import type {
 	ContextElement,
@@ -366,102 +369,6 @@ const getGetSelectedContextToolDef = memo(() =>
 	)
 )
 
-// ============= Workspace Runnables Search =============
-
-const getListWorkspaceRunnablesSchema = memo(() =>
-	z.object({
-		query: z.string().describe('The search query to find workspace scripts and flows'),
-		type: z
-			.enum(['all', 'scripts', 'flows'])
-			.describe(
-				'Filter by type: "scripts" for scripts only, "flows" for flows only, "all" for both. Defaults to "all".'
-			)
-	})
-)
-const getListWorkspaceRunnablesToolDef = memo(() =>
-	createToolDef(
-		getListWorkspaceRunnablesSchema(),
-		'list_workspace_runnables',
-		'Search for workspace scripts and flows by query. Returns fully qualified paths that can be used in backend runnables.'
-	)
-)
-
-class WorkspaceRunnablesSearch {
-	private uf: uFuzzy
-	private workspace: string | undefined = undefined
-	private scripts: Script[] | undefined = undefined
-	private flows: Flow[] | undefined = undefined
-
-	constructor() {
-		this.uf = new uFuzzy()
-	}
-
-	private async initScripts(workspace: string) {
-		if (this.scripts === undefined || this.workspace !== workspace) {
-			this.scripts = await ScriptService.listScripts({ workspace })
-			this.workspace = workspace
-		}
-	}
-
-	private async initFlows(workspace: string) {
-		if (this.flows === undefined || this.workspace !== workspace) {
-			this.flows = await FlowService.listFlows({ workspace })
-			this.workspace = workspace
-		}
-	}
-
-	async searchScripts(query: string, workspace: string) {
-		await this.initScripts(workspace)
-		const scripts = this.scripts
-		if (!scripts) return []
-
-		const results = this.uf.search(
-			scripts.map((s) => (emptyString(s.summary) ? s.path : s.summary + ' (' + s.path + ')')),
-			query.trim()
-		)
-		return (
-			results[2]?.map((id) => ({
-				type: 'script' as const,
-				path: scripts[id].path,
-				summary: scripts[id].summary
-			})) ?? []
-		)
-	}
-
-	async searchFlows(query: string, workspace: string) {
-		await this.initFlows(workspace)
-		const flows = this.flows
-		if (!flows) return []
-
-		const results = this.uf.search(
-			flows.map((f) => (emptyString(f.summary) ? f.path : f.summary + ' (' + f.path + ')')),
-			query.trim()
-		)
-		return (
-			results[2]?.map((id) => ({
-				type: 'flow' as const,
-				path: flows[id].path,
-				summary: flows[id].summary
-			})) ?? []
-		)
-	}
-
-	async search(query: string, workspace: string, type: 'all' | 'scripts' | 'flows' = 'all') {
-		const results: { type: 'script' | 'flow'; path: string; summary: string }[] = []
-
-		if (type === 'all' || type === 'scripts') {
-			results.push(...(await this.searchScripts(query, workspace)))
-		}
-		if (type === 'all' || type === 'flows') {
-			results.push(...(await this.searchFlows(query, workspace)))
-		}
-
-		return results
-	}
-}
-
-const workspaceRunnablesSearch = new WorkspaceRunnablesSearch()
-
 // ============= Lint Result Formatting =============
 
 function formatLintMessages(messages: Record<string, string[]>): string {
@@ -742,23 +649,8 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 		}
 	},
 	// Search tools
-	{
-		def: getListWorkspaceRunnablesToolDef(),
-		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
-			const parsedArgs = getListWorkspaceRunnablesSchema().parse(args)
-			const type = parsedArgs.type ?? 'all'
-			toolCallbacks.setToolStatus(toolId, {
-				content: `Searching workspace ${type} for "${parsedArgs.query}"...`
-			})
-
-			const results = await workspaceRunnablesSearch.search(parsedArgs.query, workspace, type)
-
-			toolCallbacks.setToolStatus(toolId, {
-				content: `Found ${results.length} workspace runnables matching "${parsedArgs.query}"`
-			})
-			return JSON.stringify(results, null, 2)
-		}
-	},
+	createSearchWorkspaceTool(),
+	createGetRunnableDetailsTool(),
 	// Hub scripts search (reuse from shared)
 	createSearchHubScriptsTool(false),
 	// Data table tools
@@ -913,7 +805,8 @@ For inline scripts, the code must have a \`main\` function as its entrypoint.
 - \`lint()\`: Lint all files. Returns errors/warnings grouped by frontend/backend. Use this to check for issues after making changes.
 
 ### Discovery
-- \`list_workspace_runnables(query, type?)\`: Search workspace scripts and flows
+- \`search_workspace(query, type)\`: Search workspace scripts and flows
+- \`get_runnable_details(path, type)\`: Get details (summary, description, schema, content) of a specific script or flow
 - \`search_hub_scripts(query)\`: Search hub scripts
 
 ### Data Tables
@@ -1060,7 +953,7 @@ When you are using the windmill-client, do not forget that as id for variables o
 3. Make changes using \`set_frontend_file\` and \`set_backend_runnable\`. These return lint diagnostics.
 4. Use \`lint()\` at the end to check for and fix any remaining errors
 
-When creating a new app, use \`list_workspace_runnables\` or \`search_hub_scripts\` to find existing scripts/flows to reuse.
+When creating a new app, use \`search_workspace\` or \`search_hub_scripts\` to find existing scripts/flows to reuse.
 
 `
 

@@ -54,7 +54,7 @@
 				right: 'Cache the results for each possible inputs'
 			}}
 		/>
-		<div class="mb-4">
+		<div class="mt-6">
 			<span class="text-xs font-bold">How long to keep cache valid</span>
 
 			{#if cache_ttl}

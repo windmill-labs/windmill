@@ -46,9 +46,7 @@
 		/>
 		{#if flowModule.cache_ttl}
 			<Label label="How long to keep cache valid">
-				<div class="-mt-5">
-					<SecondsInput bind:seconds={flowModule.cache_ttl} />
-				</div>
+				<SecondsInput bind:seconds={flowModule.cache_ttl} />
 			</Label>
 			<Toggle
 				size="2xs"

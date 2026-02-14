@@ -2,8 +2,9 @@ use sqlx::{Pool, Postgres};
 use tokio_stream::StreamExt;
 
 use windmill_api_client::types::NewScript;
-mod common;
-use common::{in_test_worker, init_client, listen_for_completed_jobs, ApiServer};
+use windmill_test_utils::{
+    in_test_worker, init_client, listen_for_completed_jobs, rebuild_dmap, ApiServer,
+};
 
 mod dependency_map {
     use super::*;
@@ -170,7 +171,7 @@ mod dependency_map {
         let (client, _port, _s) = init(db.clone()).await;
         assert_dmap(&db, None, CORRECT_DMAP.clone()).await;
         // rebuild map
-        assert!(common::rebuild_dmap(&client).await);
+        assert!(rebuild_dmap(&client).await);
         assert_dmap(&db, None, CORRECT_DMAP.clone()).await;
         Ok(())
     }
@@ -183,7 +184,7 @@ mod dependency_map {
         // Spawn first rebuild
         let handle = {
             let client = client.clone();
-            tokio::spawn(async move { common::rebuild_dmap(&client).await })
+            tokio::spawn(async move { rebuild_dmap(&client).await })
         };
 
         // Immidiately spawn another

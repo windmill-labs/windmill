@@ -1,13 +1,12 @@
-mod common;
 mod workspace_dependencies {
 
-    use crate::common::in_test_worker;
-    use crate::common::init_client;
-    use crate::common::listen_for_completed_jobs;
+    use windmill_test_utils::in_test_worker;
+    use windmill_test_utils::init_client;
+    use windmill_test_utils::listen_for_completed_jobs;
     use sqlx::{Pool, Postgres};
     use tokio_stream::StreamExt;
     use windmill_common::scripts::ScriptLang;
-    use windmill_worker::workspace_dependencies::NewWorkspaceDependencies;
+    use windmill_dep_map::workspace_dependencies::NewWorkspaceDependencies;
     mod deps {
         pub const REQUIREMENTS_IN: &'static str = "tiny==0.1.3";
         //     pub const GO_MOD: &'static str = r##"
@@ -122,14 +121,6 @@ mod workspace_dependencies {
         );
 
         // Verify built-in fixtures exist
-        // Check that the setup_app exists
-        let app_exists =
-            sqlx::query_scalar!("SELECT EXISTS(SELECT 1 FROM app WHERE path = 'g/all/setup_app')")
-                .fetch_one(db)
-                .await
-                .unwrap();
-        assert!(app_exists.unwrap(), "Expected g/all/setup_app to exist");
-
         // Check that hub_sync script exists and is a Bun script
         let hub_sync_lang = sqlx::query_scalar!(
             r#"SELECT language AS "language: ScriptLang" FROM script WHERE path = 'u/admin/hub_sync'"#

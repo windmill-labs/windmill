@@ -12,7 +12,6 @@
 use anyhow::anyhow;
 use futures::TryFutureExt;
 use tokio::sync::Mutex;
-use tokio::time::sleep;
 use tokio::time::timeout;
 use windmill_common::client::AuthedClient;
 use windmill_common::jobs::WorkerInternalServerInlineUtils;
@@ -60,7 +59,7 @@ use std::{
     collections::{HashMap, HashSet},
     fmt::Display,
     sync::{
-        atomic::{AtomicBool, AtomicU16, Ordering},
+        atomic::{AtomicBool, AtomicU8, AtomicU16, Ordering},
         Arc,
     },
     time::Duration,
@@ -131,14 +130,13 @@ use crate::{
     go_executor::handle_go_job,
     graphql_executor::do_graphql,
     handle_child::SLOW_LOGS,
-    handle_job_error,
     job_logger::NO_LOGS_AT_ALL,
     js_eval::{eval_fetch_timeout, transpile_ts},
     pg_executor::do_postgresql,
     pwsh_executor::handle_powershell_job,
-    result_processor::{process_result, start_background_processor},
+    result_processor::{handle_job_error, process_result, start_background_processor},
     schema::schema_validator_from_main_arg_sig,
-    worker_flow::handle_flow,
+    worker_flow::{handle_flow, SchedulePushZombieError},
     worker_lockfiles::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
     },
@@ -190,7 +188,7 @@ use crate::mssql_executor::do_mssql;
 use crate::bigquery_executor::do_bigquery;
 
 #[cfg(feature = "benchmark")]
-use windmill_common::bench::{benchmark_init, BenchmarkInfo, BenchmarkIter};
+use windmill_common::bench::{benchmark_init, benchmark_verify, BenchmarkInfo, BenchmarkIter};
 
 use windmill_common::add_time;
 
@@ -217,6 +215,7 @@ pub const CSHARP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "csharp");
 pub const JAVA_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "java");
 pub const COURSIER_CACHE_DIR: &str = concatcp!(JAVA_CACHE_DIR, "/coursier-cache");
 pub const JAVA_REPOSITORY_DIR: &str = concatcp!(JAVA_CACHE_DIR, "/repository");
+pub const JAVA_HOME_DIR: &str = concatcp!(JAVA_CACHE_DIR, "/home");
 
 // Ruby
 pub const RUBY_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "ruby");
@@ -326,7 +325,15 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(true);
 
+    /// Global setting for job isolation mode. 0=undefined (use env vars), 1=none, 2=unshare, 3=nsjail
+    pub static ref JOB_ISOLATION: AtomicU8 = AtomicU8::new(JobIsolationLevel::Undefined as u8);
+
     pub static ref ENABLE_UNSHARE_PID: bool = std::env::var("ENABLE_UNSHARE_PID")
+        .ok()
+        .and_then(|x| x.parse::<bool>().ok())
+        .unwrap_or(false);
+
+    pub static ref FAVOR_UNSHARE_PID: bool = std::env::var("FAVOR_UNSHARE_PID")
         .ok()
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(false);
@@ -468,47 +475,41 @@ lazy_static::lazy_static! {
     };
 
     pub static ref NSJAIL_AVAILABLE: Option<String> = {
-        if *DISABLE_NSJAIL {
-            None
-        } else {
-            let nsjail_path = NSJAIL_PATH.as_str();
+        let nsjail_path = NSJAIL_PATH.as_str();
 
-            let test_result = std::process::Command::new(nsjail_path)
-                .arg("--help")
-                .output();
+        let test_result = std::process::Command::new(nsjail_path)
+            .arg("--help")
+            .output();
 
-            match test_result {
-                Ok(output) if output.status.success() => {
-                    tracing::info!("NSJAIL sandboxing available at: {}", nsjail_path);
-                    Some(nsjail_path.to_string())
-                },
-                Ok(output) => {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    tracing::warn!(
-                        "nsjail test failed: {}. Jobs will run without nsjail sandboxing. \
-                        nsjail should be included in all standard windmill images. \
-                        Check that the nsjail binary is installed and working correctly.",
-                        stderr.trim()
+        match test_result {
+            Ok(output) if output.status.success() => {
+                tracing::info!("nsjail available at: {}", nsjail_path);
+                Some(nsjail_path.to_string())
+            },
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                tracing::warn!(
+                    "nsjail test failed: {}. \
+                    nsjail should be included in all standard windmill images. \
+                    Check that the nsjail binary is installed and working correctly.",
+                    stderr.trim()
+                );
+                None
+            },
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    tracing::info!(
+                        "nsjail not found at '{}'. Sandboxing will not be available.",
+                        nsjail_path
                     );
-                    None
-                },
-                Err(e) => {
-                    if e.kind() == std::io::ErrorKind::NotFound {
-                        tracing::warn!(
-                            "nsjail not found at '{}'. Jobs will run without nsjail sandboxing. \
-                            nsjail should be included in all standard windmill images. \
-                            Check that the nsjail binary is installed at the expected path.",
-                            nsjail_path
-                        );
-                    } else {
-                        tracing::warn!(
-                            "Failed to test nsjail at '{}': {}. Jobs will run without nsjail sandboxing.",
-                            nsjail_path,
-                            e
-                        );
-                    }
-                    None
+                } else {
+                    tracing::warn!(
+                        "Failed to test nsjail at '{}': {}.",
+                        nsjail_path,
+                        e
+                    );
                 }
+                None
             }
         }
     };
@@ -578,14 +579,17 @@ lazy_static::lazy_static! {
     pub static ref POWERSHELL_REPO_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref POWERSHELL_REPO_PAT: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref MAVEN_REPOS: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+    pub static ref MAVEN_SETTINGS_XML: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref NO_DEFAULT_MAVEN: AtomicBool = AtomicBool::new(std::env::var("NO_DEFAULT_MAVEN")
         .ok()
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(false));
     pub static ref RUBY_REPOS: Arc<RwLock<Option<Vec<url::Url>>>> = Arc::new(RwLock::new(None));
+    pub static ref CARGO_REGISTRIES: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 
     pub static ref PIP_EXTRA_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref PIP_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+    pub static ref UV_INDEX_STRATEGY: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref INSTANCE_PYTHON_VERSION: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref JOB_DEFAULT_TIMEOUT: Arc<RwLock<Option<i32>>> = Arc::new(RwLock::new(None));
 
@@ -629,6 +633,69 @@ lazy_static::lazy_static! {
 }
 
 type Envs = Vec<(String, String)>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum JobIsolationLevel {
+    /// Not set via global setting; fall back to env vars (DISABLE_NSJAIL, FAVOR_UNSHARE_PID)
+    Undefined = 0,
+    /// No isolation
+    None = 1,
+    /// PID namespace isolation via unshare
+    Unshare = 2,
+    /// Full nsjail sandboxing
+    NsjailSandboxing = 3,
+}
+
+impl JobIsolationLevel {
+    pub fn from_u8(v: u8) -> Self {
+        match v {
+            1 => Self::None,
+            2 => Self::Unshare,
+            3 => Self::NsjailSandboxing,
+            _ => Self::Undefined,
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "none" => Self::None,
+            "unshare" => Self::Unshare,
+            "nsjail_sandboxing" => Self::NsjailSandboxing,
+            _ => Self::Undefined,
+        }
+    }
+}
+
+pub fn get_job_isolation() -> JobIsolationLevel {
+    JobIsolationLevel::from_u8(JOB_ISOLATION.load(Ordering::Relaxed))
+}
+
+/// Returns true if nsjail sandboxing should be used for job execution.
+/// DISABLE_NSJAIL=false forces nsjail regardless of the global setting.
+pub fn is_sandboxing_enabled() -> bool {
+    if !*DISABLE_NSJAIL {
+        return true;
+    }
+    match get_job_isolation() {
+        JobIsolationLevel::NsjailSandboxing => true,
+        _ => false,
+    }
+}
+
+/// Returns true if unshare PID isolation should be used (when not using nsjail).
+/// ENABLE_UNSHARE_PID forces unshare regardless of the global setting.
+/// FAVOR_UNSHARE_PID uses unshare only when the global setting is not set.
+pub fn is_unshare_enabled() -> bool {
+    if *ENABLE_UNSHARE_PID {
+        return true;
+    }
+    match get_job_isolation() {
+        JobIsolationLevel::Unshare => true,
+        JobIsolationLevel::Undefined => *FAVOR_UNSHARE_PID,
+        _ => false,
+    }
+}
 
 /// Check if OTEL tracing proxy is enabled for a specific language (EE only)
 pub async fn is_otel_tracing_proxy_enabled_for_lang(lang: &ScriptLang) -> bool {
@@ -1111,131 +1178,139 @@ fn start_interactive_worker_shell(
             if let Ok(_) = killpill_rx.try_recv() {
                 tracing::info!("Received killpill, exiting worker shell");
                 break;
-            } else {
-                let pulled_job = match &conn {
-                    Connection::Sql(db) => {
-                        let common_worker_prefix = retrieve_common_worker_prefix(&worker_name);
-                        let query = ("".to_string(), make_pull_query(&[common_worker_prefix]));
-                        #[cfg(feature = "benchmark")]
-                        let mut bench = windmill_common::bench::BenchmarkIter::new();
-
-                        let job = pull(
-                            &db,
-                            false,
-                            &worker_name,
-                            Some(&query),
-                            #[cfg(feature = "benchmark")]
-                            &mut bench,
-                        )
-                        .await;
-
-                        use PulledJobResultToJobErr::*;
-                        match job {
-                            Ok(j) => match j.to_pulled_job() {
-                                Ok(j) => Ok(j
-                                    .clone()
-                                    .map(|job| NextJob::Sql { flow_runners: None, job })),
-                                Err(MissingConcurrencyKey(jc))
-                                | Err(ErrorWhilePreprocessing(jc)) => {
-                                    if let Err(err) = job_completed_tx.send_job(jc, true).await {
-                                        tracing::error!(
-                                            "An error occurred while sending job completed: {:#?}",
-                                            err
-                                        )
-                                    }
-                                    Ok(None)
-                                }
-                            },
-                            Err(err) => Err(err),
-                        }
-                    }
-                    Connection::Http(client) => {
-                        crate::agent_workers::pull_job(&client, None, Some(true))
-                            .await
-                            .map_err(|e| error::Error::InternalErr(e.to_string()))
-                            .map(|x| x.map(|y| NextJob::Http(y)))
-                    }
-                };
-
-                match pulled_job {
-                    Ok(Some(job)) => {
-                        tracing::debug!(target: VERBOSE_TARGET, worker = %worker_name, hostname = %hostname, "started handling of job {}", job.id);
-                        let job_dir = create_job_dir(&worker_dir, job.id).await;
-                        #[cfg(feature = "benchmark")]
-                        let mut bench = windmill_common::bench::BenchmarkIter::new();
-
-                        let JobAndPerms {
-                            job,
-                            raw_code,
-                            raw_lock,
-                            raw_flow,
-                            parent_runnable_path,
-                            token,
-                            precomputed_agent_info: precomputed_bundle,
-                            flow_runners,
-                        } = extract_job_and_perms(job, &conn).await;
-
-                        let authed_client = AuthedClient::new(
-                            base_internal_url.to_owned(),
-                            job.workspace_id.clone(),
-                            token,
-                            None,
-                        );
-
-                        let arc_job = Arc::new(job);
-
-                        let _ = handle_queued_job(
-                            arc_job.clone(),
-                            raw_code,
-                            raw_lock,
-                            raw_flow,
-                            parent_runnable_path,
-                            &conn,
-                            &authed_client,
-                            &hostname,
-                            &worker_name,
-                            &worker_dir,
-                            &job_dir,
-                            None,
-                            &base_internal_url,
-                            job_completed_tx.clone(),
-                            &mut occupancy_metrics,
-                            &mut killpill_rx,
-                            precomputed_bundle,
-                            flow_runners,
-                            #[cfg(feature = "benchmark")]
-                            &mut bench,
-                        )
-                        .await;
-
-                        last_executed_job = Some(Instant::now());
-                    }
-                    Ok(None) => {
-                        let now = Instant::now();
-                        let nap_time = match last_executed_job {
-                            Some(last)
-                                if now.duration_since(last).as_secs()
-                                    > TIMEOUT_TO_RESET_WORKER_SHELL_NAP_TIME_DURATION =>
-                            {
-                                Duration::from_secs(WORKER_SHELL_NAP_TIME_DURATION)
-                            }
-                            _ => Duration::from_millis(*SLEEP_QUEUE * 10),
-                        };
-                        tokio::select! {
-                            _ = tokio::time::sleep(nap_time) => {
-                            }
-                            _ = killpill_rx.recv() => {
-                                break;
-                            }
-                        }
-                    }
-
-                    Err(err) => {
-                        tracing::error!(worker = %worker_name, hostname = %hostname, "Failed to pull jobs: {}", err);
-                        tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE * 20)).await;
-                    }
-                };
             }
+
+            let pulled_job = tokio::select! {
+                _ = killpill_rx.recv() => {
+                    tracing::info!("Received killpill during pull, exiting worker shell");
+                    break;
+                }
+                result = async {
+                    match &conn {
+                        Connection::Sql(db) => {
+                            let common_worker_prefix = retrieve_common_worker_prefix(&worker_name);
+                            let query = ("".to_string(), make_pull_query(&[common_worker_prefix]));
+                            #[cfg(feature = "benchmark")]
+                            let mut bench = windmill_common::bench::BenchmarkIter::new();
+
+                            let job = pull(
+                                &db,
+                                false,
+                                &worker_name,
+                                Some(&query),
+                                #[cfg(feature = "benchmark")]
+                                &mut bench,
+                            )
+                            .await;
+
+                            use PulledJobResultToJobErr::*;
+                            match job {
+                                Ok(j) => match j.to_pulled_job() {
+                                    Ok(j) => Ok(j
+                                        .clone()
+                                        .map(|job| NextJob::Sql { flow_runners: None, job })),
+                                    Err(MissingConcurrencyKey(jc))
+                                    | Err(ErrorWhilePreprocessing(jc)) => {
+                                        if let Err(err) = job_completed_tx.send_job(jc, true).await {
+                                            tracing::error!(
+                                                "An error occurred while sending job completed: {:#?}",
+                                                err
+                                            )
+                                        }
+                                        Ok(None)
+                                    }
+                                },
+                                Err(err) => Err(err),
+                            }
+                        }
+                        Connection::Http(client) => {
+                            crate::agent_workers::pull_job(&client, None, Some(true))
+                                .await
+                                .map_err(|e| error::Error::InternalErr(e.to_string()))
+                                .map(|x| x.map(|y| NextJob::Http(y)))
+                        }
+                    }
+                } => result,
+            };
+
+            match pulled_job {
+                Ok(Some(job)) => {
+                    tracing::debug!(target: VERBOSE_TARGET, worker = %worker_name, hostname = %hostname, "started handling of job {}", job.id);
+                    let job_dir = create_job_dir(&worker_dir, job.id).await;
+                    #[cfg(feature = "benchmark")]
+                    let mut bench = windmill_common::bench::BenchmarkIter::new();
+
+                    let JobAndPerms {
+                        job,
+                        raw_code,
+                        raw_lock,
+                        raw_flow,
+                        parent_runnable_path,
+                        token,
+                        precomputed_agent_info: precomputed_bundle,
+                        flow_runners,
+                    } = extract_job_and_perms(job, &conn).await;
+
+                    let authed_client = AuthedClient::new(
+                        base_internal_url.to_owned(),
+                        job.workspace_id.clone(),
+                        token,
+                        None,
+                    );
+
+                    let arc_job = Arc::new(job);
+
+                    let _ = handle_queued_job(
+                        arc_job.clone(),
+                        raw_code,
+                        raw_lock,
+                        raw_flow,
+                        parent_runnable_path,
+                        &conn,
+                        &authed_client,
+                        &hostname,
+                        &worker_name,
+                        &worker_dir,
+                        &job_dir,
+                        None,
+                        &base_internal_url,
+                        job_completed_tx.clone(),
+                        &mut occupancy_metrics,
+                        &mut killpill_rx,
+                        precomputed_bundle,
+                        flow_runners,
+                        #[cfg(feature = "benchmark")]
+                        &mut bench,
+                    )
+                    .await;
+
+                    last_executed_job = Some(Instant::now());
+                }
+                Ok(None) => {
+                    let now = Instant::now();
+                    let nap_time = match last_executed_job {
+                        Some(last)
+                            if now.duration_since(last).as_secs()
+                                > TIMEOUT_TO_RESET_WORKER_SHELL_NAP_TIME_DURATION =>
+                        {
+                            Duration::from_secs(WORKER_SHELL_NAP_TIME_DURATION)
+                        }
+                        _ => Duration::from_millis(*SLEEP_QUEUE * 10),
+                    };
+                    tokio::select! {
+                        _ = tokio::time::sleep(nap_time) => {
+                        }
+                        _ = killpill_rx.recv() => {
+                            break;
+                        }
+                    }
+                }
+
+                Err(err) => {
+                    tracing::error!(worker = %worker_name, hostname = %hostname, "Failed to pull jobs: {}", err);
+                    tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE * 20)).await;
+                }
+            };
         }
     })
 }
@@ -1260,7 +1335,7 @@ pub async fn run_worker(
     base_internal_url: &str,
 ) {
     #[cfg(not(feature = "enterprise"))]
-    if !*DISABLE_NSJAIL {
+    if is_sandboxing_enabled() {
         tracing::warn!(
             worker = %worker_name, hostname = %hostname,
             "NSJAIL to sandbox process in untrusted environments is an enterprise feature but allowed to be used for testing purposes"
@@ -1269,8 +1344,7 @@ pub async fn run_worker(
 
     // Force UNSHARE_PATH initialization now to fail-fast if unshare doesn't work
     // This ensures we panic at startup rather than lazily when first accessed during job execution
-    if *ENABLE_UNSHARE_PID {
-        // Access UNSHARE_PATH to trigger lazy_static initialization and test
+    if is_unshare_enabled() || *ENABLE_UNSHARE_PID || *FAVOR_UNSHARE_PID {
         let _ = &*UNSHARE_PATH;
     }
 
@@ -1321,7 +1395,7 @@ pub async fn run_worker(
 
     create_directory_async(&worker_dir).await;
 
-    if !*DISABLE_NSJAIL {
+    if is_sandboxing_enabled() {
         let _ = write_file(
             &worker_dir,
             "download_deps.py.sh",
@@ -1573,6 +1647,7 @@ pub async fn run_worker(
     // This is used to wake up the background processor when main loop is done and just waiting for new same workers jobs, and that bg processor is also not processing any jobs, bg processing can exit if no more same worker jobs
     let wake_up_notify = Arc::new(tokio::sync::Notify::new());
     let stats_map = JobStatsMap::default();
+
     let send_result = match (conn, job_completed_rx) {
         (Connection::Sql(db), Some(job_completed_receiver)) => Some(start_background_processor(
             job_completed_receiver,
@@ -1617,7 +1692,15 @@ pub async fn run_worker(
     let mut started = false;
 
     #[cfg(feature = "benchmark")]
-    let mut infos = BenchmarkInfo::new();
+    let mut infos = BenchmarkInfo::new(windmill_common::bench::shared_bench_iters());
+
+    #[cfg(feature = "benchmark")]
+    let mut bench_empty_queue_count: u64 = 0;
+
+    #[cfg(feature = "benchmark")]
+    if let Some(db) = conn.as_sql() {
+        infos.init_pool_stats(db.size());
+    }
 
     let vacuum_shift = rand::rng().random_range(0..VACUUM_PERIOD);
 
@@ -1804,15 +1887,74 @@ pub async fn run_worker(
         // }
 
         #[cfg(feature = "benchmark")]
-        if benchmark_jobs > 0 && infos.iters == benchmark_jobs as u64 {
-            tracing::info!("benchmark finished, exiting");
-            job_completed_tx
-                .kill()
-                .await
-                .expect("send kill to job completed tx");
-            break;
-        } else {
-            tracing::info!("benchmark not finished, still pulling jobs {}", infos.iters);
+        {
+            let total_iters = infos
+                .shared_iters
+                .load(std::sync::atomic::Ordering::Relaxed);
+            if benchmark_jobs > 0 && total_iters >= benchmark_jobs as u64 {
+                tracing::info!(
+                    "benchmark finished, exiting (total iters: {}, worker iters: {})",
+                    total_iters,
+                    infos.iters
+                );
+                job_completed_tx
+                    .kill()
+                    .await
+                    .expect("send kill to job completed tx");
+                killpill_tx.send();
+                break;
+            } else if benchmark_jobs > 0 && bench_empty_queue_count > 2000 {
+                tracing::warn!(
+                    "benchmark stalled: no jobs in queue for 2000 polls, exiting (total iters: {}, worker iters: {}/{})",
+                    total_iters,
+                    infos.iters,
+                    benchmark_jobs
+                );
+                job_completed_tx
+                    .kill()
+                    .await
+                    .expect("send kill to job completed tx");
+                killpill_tx.send();
+                break;
+            } else if bench_empty_queue_count % 100 == 0 {
+                if let Some(db) = conn.as_sql() {
+                    let remaining = sqlx::query_as::<
+                        _,
+                        (uuid::Uuid, String, bool, Option<String>, Option<uuid::Uuid>),
+                    >(
+                        "SELECT q.id, q.tag, q.running, j.kind::text, j.parent_job
+                         FROM v2_job_queue q JOIN v2_job j ON q.id = j.id
+                         WHERE q.workspace_id = 'admins' LIMIT 10",
+                    )
+                    .fetch_all(db)
+                    .await;
+                    match remaining {
+                        Ok(rows) => {
+                            let total_remaining = sqlx::query_scalar::<_, i64>(
+                                "SELECT COUNT(*) FROM v2_job_queue WHERE workspace_id = 'admins'",
+                            )
+                            .fetch_one(db)
+                            .await
+                            .unwrap_or(0);
+                            for (id, tag, running, kind, parent) in &rows {
+                                tracing::info!(
+                                    "  pending job: id={id}, tag={tag}, running={running}, kind={}, parent={:?}",
+                                    kind.as_deref().unwrap_or("?"), parent
+                                );
+                            }
+                            tracing::info!(
+                                "benchmark not finished (total: {}, worker: {}, queue: {})",
+                                total_iters,
+                                infos.iters,
+                                total_remaining
+                            );
+                        }
+                        Err(e) => {
+                            tracing::info!("benchmark not finished (total: {}, worker: {}), queue query err: {e}", total_iters, infos.iters);
+                        }
+                    }
+                }
+            }
         }
 
         let next_job = {
@@ -2026,6 +2168,15 @@ pub async fn run_worker(
 
         match next_job {
             Ok(Some(job)) => {
+                #[cfg(feature = "benchmark")]
+                {
+                    bench_empty_queue_count = 0;
+                }
+                #[cfg(feature = "benchmark")]
+                let is_top_level_job = job.parent_job.is_none() && !job.kind.is_flow();
+                #[cfg(feature = "benchmark")]
+                let bench_job_id = job.id;
+
                 #[cfg(feature = "prometheus")]
                 if let Some(wb) = worker_busy.as_ref() {
                     wb.set(1);
@@ -2068,7 +2219,10 @@ pub async fn run_worker(
                             #[cfg(feature = "benchmark")]
                             {
                                 add_time!(bench, "sent to dedicated worker");
-                                infos.add_iter(bench, true);
+                                if let Some(db) = conn.as_sql() {
+                                    infos.sample_pool(db.size(), db.num_idle() as u32);
+                                }
+                                infos.add_iter(bench, bench_job_id, is_top_level_job);
                             }
 
                             continue;
@@ -2138,7 +2292,10 @@ pub async fn run_worker(
                                 #[cfg(feature = "benchmark")]
                                 {
                                     add_time!(bench, "sent to flow runner");
-                                    infos.add_iter(bench, true);
+                                    if let Some(db) = conn.as_sql() {
+                                        infos.sample_pool(db.size(), db.num_idle() as u32);
+                                    }
+                                    infos.add_iter(bench, bench_job_id, is_top_level_job);
                                 }
 
                                 continue;
@@ -2438,7 +2595,10 @@ pub async fn run_worker(
                 {
                     if started {
                         add_time!(bench, "job processed");
-                        infos.add_iter(bench, true);
+                        if let Some(db) = conn.as_sql() {
+                            infos.sample_pool(db.size(), db.num_idle() as u32);
+                        }
+                        infos.add_iter(bench, bench_job_id, is_top_level_job);
                     }
                 }
             }
@@ -2465,8 +2625,12 @@ pub async fn run_worker(
 
                 #[cfg(feature = "benchmark")]
                 {
+                    bench_empty_queue_count += 1;
                     add_time!(bench, "sleep because empty job queue");
-                    infos.add_iter(bench, false);
+                    if let Some(db) = conn.as_sql() {
+                        infos.sample_pool(db.size(), db.num_idle() as u32);
+                    }
+                    infos.add_iter(bench, uuid::Uuid::nil(), false);
                 }
                 #[cfg(feature = "prometheus")]
                 _timer.map(|timer| {
@@ -2495,13 +2659,6 @@ pub async fn run_worker(
         }
     }
 
-    #[cfg(feature = "benchmark")]
-    {
-        infos
-            .write_to_file("profiling_main.json")
-            .expect("write to file profiling");
-    }
-
     drop(dedicated_workers);
 
     let has_dedicated_workers = !dedicated_handles.is_empty();
@@ -2520,6 +2677,17 @@ pub async fn run_worker(
     if let Some(send_result) = send_result {
         if let Err(e) = send_result.await {
             tracing::error!("error in awaiting send_result process: {e:?}")
+        }
+    }
+
+    #[cfg(feature = "benchmark")]
+    {
+        infos
+            .write_to_file("profiling_main.json")
+            .expect("write to file profiling");
+
+        if let Some(db) = conn.as_sql() {
+            benchmark_verify(benchmark_jobs, db).await;
         }
     }
     tracing::info!(worker = %worker_name, hostname = %hostname, "waiting for interactive_shell to finish");
@@ -2964,7 +3132,7 @@ pub async fn handle_queued_job(
                 // Not a preview: fetch from the cache or the database.
                 _ => cache::job::fetch_flow(db, &job.kind, job.runnable_id).await?,
             };
-            Box::pin(handle_flow(
+            match Box::pin(handle_flow(
                 job,
                 &flow_data,
                 db,
@@ -2978,8 +3146,19 @@ pub async fn handle_queued_job(
                 &killpill_rx,
             ))
             .warn_after_seconds(10)
-            .await?;
-            Ok(true)
+            .await
+            {
+                Err(err) if err.downcast_ref::<SchedulePushZombieError>().is_some() => {
+                    tracing::error!(
+                        "Schedule push zombie: {err}. Leaving flow job in queue for zombie detection to restart."
+                    );
+                    Ok(true)
+                }
+                other => {
+                    other?;
+                    Ok(true)
+                }
+            }
         } else {
             return Err(Error::internal_err(
                 "Could not handle flow job with agent worker".to_string(),
@@ -2991,9 +3170,17 @@ pub async fn handle_queued_job(
         let mut canceled_by: Option<CanceledBy> = None;
         // println!("handle queue {:?}",  SystemTime::now());
 
+        let isolation_label = if is_sandboxing_enabled() {
+            "nsjail"
+        } else if is_unshare_enabled() {
+            "unshare"
+        } else {
+            "none"
+        };
+
         logs.push_str(&format!(
-            "job={} {}={} worker={} hostname={}\n",
-            &job.id, *LOG_TAG_NAME, &job.tag, &worker_name, &hostname
+            "job={} {}={} worker={} hostname={} isolation={}\n",
+            &job.id, *LOG_TAG_NAME, &job.tag, &worker_name, &hostname, isolation_label
         ));
 
         if *NO_LOGS_AT_ALL {
@@ -3014,9 +3201,17 @@ pub async fn handle_queued_job(
 
         #[cfg(not(feature = "enterprise"))]
         if let Connection::Sql(db) = conn {
-            if (job.concurrent_limit.is_some() ||
-                windmill_common::runnable_settings::RunnableSettings::prefetch_cached_from_handle(job.runnable_settings_handle, db).await?.1.concurrent_limit.is_some())
-                && !job.kind.is_dependency() {
+            if (job.concurrent_limit.is_some()
+                || windmill_common::runnable_settings::prefetch_cached_from_handle(
+                    job.runnable_settings_handle,
+                    db,
+                )
+                .await?
+                .1
+                .concurrent_limit
+                .is_some())
+                && !job.kind.is_dependency()
+            {
                 logs.push_str("---\n");
                 logs.push_str("WARNING: This job has concurrency limits enabled. Concurrency limits are an EE feature and the setting is ignored.\n");
                 logs.push_str("---\n");
@@ -3037,7 +3232,7 @@ pub async fn handle_queued_job(
             .flatten()
         {
             tracing::debug!("Debug: {} going to sleep for {}", job.id, dbg_djob_sleep);
-            sleep(std::time::Duration::from_secs(dbg_djob_sleep as u64)).await;
+            tokio::time::sleep(std::time::Duration::from_secs(dbg_djob_sleep as u64)).await;
         }
 
         tracing::debug!(

@@ -23,7 +23,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use serde::{ser::SerializeMap, Serialize};
 use serde_json::{json, value::RawValue};
-use sqlx::{types::Json, Pool, Postgres, Transaction};
+use sqlx::{types::Json, Acquire, Pool, Postgres, Transaction};
 use sqlx::{Encode, PgExecutor};
 use tokio::sync::mpsc::Sender;
 use tokio::sync::oneshot;
@@ -41,22 +41,22 @@ use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
 use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
+use windmill_common::min_version::{
+    MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
+};
 use windmill_common::runnable_settings::{
     ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings, RunnableSettings,
     RunnableSettingsTrait,
 };
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{calculate_hash, configure_client, now_from_db};
-use windmill_common::min_version::{
-    MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
-};
 use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
 
 use windmill_common::{
-    auth::{fetch_authed_from_permissioned_as, permissioned_as_to_username},
+    auth::permissioned_as_to_username,
     cache::{self, FlowData},
     db::{Authed, UserDB},
-    error::{self, to_anyhow, Error},
+    error::{self, Error},
     flow_status::{
         BranchAllStatus, FlowCleanupModule, FlowStatus, FlowStatusModule, FlowStatusModuleWParent,
         Iterator as FlowIterator, JobResult, RestartedFrom, RetryStatus, MAX_RETRY_ATTEMPTS,
@@ -67,11 +67,11 @@ use windmill_common::{
         StopAfterIf,
     },
     jobs::{get_payload_tag_from_prefixed_path, JobKind, JobPayload, QueuedJob, RawCode},
+    min_version::{MIN_VERSION_IS_AT_LEAST_1_432, MIN_VERSION_IS_AT_LEAST_1_440},
     schedule::Schedule,
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
     utils::{not_found_if_none, report_critical_error, StripPath, WarnAfterExt},
-    min_version::{MIN_VERSION_IS_AT_LEAST_1_432, MIN_VERSION_IS_AT_LEAST_1_440},
     worker::{
         to_raw_value, CLOUD_HOSTED, DISABLE_FLOW_SCRIPT, NO_LOGS, WORKER_PULL_QUERIES,
         WORKER_SUSPENDED_PULL_QUERY,
@@ -112,6 +112,26 @@ lazy_static::lazy_static! {
 
     pub static ref WORKER_EXECUTION_FAILED: Arc<RwLock<HashMap<String, IntCounter>>> = Arc::new(RwLock::new(HashMap::new()));
 
+}
+
+#[cfg(feature = "failpoints")]
+pub mod schedule_failpoints {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum ScheduleFailPoint {
+        SavepointCreate,
+        Push,
+        PushQuotaExceeded,
+        SavepointCommit,
+        ScheduleDisable,
+    }
+
+    tokio::task_local! {
+        pub static ACTIVE: ScheduleFailPoint;
+    }
+
+    pub fn is_active(point: ScheduleFailPoint) -> bool {
+        ACTIVE.try_with(|fp| *fp == point).unwrap_or(false)
+    }
 }
 
 lazy_static::lazy_static! {
@@ -762,7 +782,6 @@ pub async fn add_completed_job_error(
         flow_is_done,
         duration,
         false,
-        false,
     )
     .warn_after_seconds(10)
     .await?;
@@ -798,7 +817,6 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     canceled_by: Option<CanceledBy>,
     flow_is_done: bool,
     duration: Option<i64>,
-    has_stream: bool,
     from_cache: bool,
 ) -> Result<(Uuid, i64), Error> {
     // tracing::error!("Start");
@@ -824,7 +842,6 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             &canceled_by,
             flow_is_done,
             duration,
-            has_stream,
             from_cache,
         )
         .warn_after_seconds(10)
@@ -832,13 +849,14 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     .retry(
         ConstantBuilder::default()
             .with_delay(std::time::Duration::from_secs(3))
-            .with_max_times(5)
+            .with_max_times(10)
             .build(),
     )
     .when(|err| {
         !matches!(err, Error::QuotaExceeded(_))
             && !matches!(err, Error::ResultTooLarge(_))
             && !matches!(err, Error::AlreadyCompleted(_))
+            && !matches!(err, Error::NotFound(_))
     })
     .notify(|err, dur| {
         tracing::error!("Could not insert completed job, retrying in {dur:#?}, err: {err:#?}");
@@ -883,7 +901,6 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     canceled_by: &Option<CanceledBy>,
     flow_is_done: bool,
     duration: Option<i64>,
-    has_stream: bool,
     from_cache: bool,
 ) -> windmill_common::error::Result<(Option<Uuid>, i64, bool)> {
     // let start = std::time::Instant::now();
@@ -1100,22 +1117,12 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                         .unwrap_or(false);
 
                 if schedule_next_tick {
-                    if let Err(err) = Box::pin(handle_maybe_scheduled_job(
-                        db,
-                        completed_job,
-                        &schedule,
-                        &script_path,
-                        &completed_job.workspace_id,
-                    ))
-                    .warn_after_seconds(10)
-                    .await
-                    {
-                        match err {
-                            Error::QuotaExceeded(_) => (),
-                            // scheduling next job failed and could not disable schedule => make zombie job to retry
-                            _ => return Ok((Some(job_id), 0, true)),
-                        }
-                    };
+                    let (returned_tx, schedule_push_err) =
+                        try_schedule_next_job(db, tx, completed_job, &schedule, &script_path).await;
+                    tx = returned_tx;
+                    if let Some(err) = schedule_push_err {
+                        return Err(err);
+                    }
                 }
 
                 #[cfg(all(feature = "enterprise", feature = "private"))]
@@ -1164,13 +1171,28 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     }
 
     if completed_job.concurrent_limit.is_some()
-        || RunnableSettings::prefetch_cached_from_handle(completed_job.runnable_settings_handle, db)
-            .await?
-            .1
-            .concurrent_limit
-            .is_some()
+        || windmill_common::runnable_settings::prefetch_cached_from_handle(
+            completed_job.runnable_settings_handle,
+            db,
+        )
+        .await?
+        .1
+        .concurrent_limit
+        .is_some()
     {
-        let concurrency_key = concurrency_key(db, &completed_job.id).await?;
+        let concurrency_key = sqlx::query_scalar!(
+            "SELECT key FROM concurrency_key WHERE job_id = $1",
+            &completed_job.id
+        )
+        .fetch_optional(&mut *tx)
+        .warn_after_seconds(10)
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Could not get concurrency key for job {}: {e:#}",
+                completed_job.id
+            ))
+        })?;
         if *DISABLE_CONCURRENCY_LIMIT || concurrency_key.is_none() {
             tracing::warn!("Concurrency limit is disabled, skipping");
         } else {
@@ -1207,18 +1229,6 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         tracing::debug!("decremented concurrency counter");
     }
 
-    sqlx::query!("DELETE FROM job_perms WHERE job_id = $1", job_id)
-        .execute(&mut *tx)
-        .warn_after_seconds(10)
-        .await?;
-
-    if !success || has_stream {
-        sqlx::query!("DELETE FROM job_result_stream_v2 WHERE job_id = $1", job_id)
-            .execute(&mut *tx)
-            .warn_after_seconds(10)
-            .await?;
-    }
-
     tx.commit().warn_after_seconds(10).await?;
 
     tracing::info!(
@@ -1232,7 +1242,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         email = ?completed_job.permissioned_as_email,
         created_by = completed_job.created_by,
         is_flow_step = completed_job.is_flow_step(),
-        language = ?completed_job.script_lang,
+        language = completed_job.script_lang.map(|x| x.as_str()).unwrap_or_default(),
         scheduled_for = ?completed_job.scheduled_for,
         workspace_id = ?completed_job.workspace_id,
         success,
@@ -1579,7 +1589,15 @@ async fn fetch_error_handler_from_db(
     db: &Pool<Postgres>,
     w_id: &str,
 ) -> Result<(Option<String>, Option<Json<Box<RawValue>>>, bool, bool), Error> {
-    sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>, Option<bool>, Option<bool>)>(
+    sqlx::query_as::<
+        _,
+        (
+            Option<String>,
+            Option<Json<Box<RawValue>>>,
+            Option<bool>,
+            Option<bool>,
+        ),
+    >(
         r#"
         SELECT
             error_handler->>'path',
@@ -1595,7 +1613,12 @@ async fn fetch_error_handler_from_db(
     .await
     .context("fetching error handler info from workspace_settings")?
     .map(|(path, extra_args, muted_on_cancel, muted_on_user_path)| {
-        (path, extra_args, muted_on_cancel.unwrap_or(false), muted_on_user_path.unwrap_or(false))
+        (
+            path,
+            extra_args,
+            muted_on_cancel.unwrap_or(false),
+            muted_on_user_path.unwrap_or(false),
+        )
     })
     .ok_or_else(|| Error::internal_err(format!("no workspace settings for id {w_id}")))
 }
@@ -1609,19 +1632,14 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
     let w_id = &queued_job.workspace_id;
 
     let now = chrono::Utc::now().timestamp();
-    let (error_handler, error_handler_extra_args, error_handler_muted_on_cancel, error_handler_muted_on_user_path) =
-        if let Some(cached) = WORKSPACE_ERROR_HANDLER_CACHE.get(w_id) {
-            if cached.4 > now {
-                (cached.0.clone(), cached.1.clone(), cached.2, cached.3)
-            } else {
-                let row = fetch_error_handler_from_db(db, w_id).await?;
-                let expiry = now + WORKSPACE_HANDLER_CACHE_TTL_SECONDS;
-                WORKSPACE_ERROR_HANDLER_CACHE.insert(
-                    w_id.clone(),
-                    (row.0.clone(), row.1.clone(), row.2, row.3, expiry),
-                );
-                row
-            }
+    let (
+        error_handler,
+        error_handler_extra_args,
+        error_handler_muted_on_cancel,
+        error_handler_muted_on_user_path,
+    ) = if let Some(cached) = WORKSPACE_ERROR_HANDLER_CACHE.get(w_id) {
+        if cached.4 > now {
+            (cached.0.clone(), cached.1.clone(), cached.2, cached.3)
         } else {
             let row = fetch_error_handler_from_db(db, w_id).await?;
             let expiry = now + WORKSPACE_HANDLER_CACHE_TTL_SECONDS;
@@ -1630,7 +1648,16 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
                 (row.0.clone(), row.1.clone(), row.2, row.3, expiry),
             );
             row
-        };
+        }
+    } else {
+        let row = fetch_error_handler_from_db(db, w_id).await?;
+        let expiry = now + WORKSPACE_HANDLER_CACHE_TTL_SECONDS;
+        WORKSPACE_ERROR_HANDLER_CACHE.insert(
+            w_id.clone(),
+            (row.0.clone(), row.1.clone(), row.2, row.3, expiry),
+        );
+        row
+    };
 
     if is_canceled && error_handler_muted_on_cancel {
         return Ok(());
@@ -1730,19 +1757,15 @@ pub async fn send_success_to_workspace_handler<'a, 'c, T: Serialize + Send + Syn
             } else {
                 let row = fetch_success_handler_from_db(db, w_id).await?;
                 let expiry = now + WORKSPACE_HANDLER_CACHE_TTL_SECONDS;
-                WORKSPACE_SUCCESS_HANDLER_CACHE.insert(
-                    w_id.clone(),
-                    (row.0.clone(), row.1.clone(), expiry),
-                );
+                WORKSPACE_SUCCESS_HANDLER_CACHE
+                    .insert(w_id.clone(), (row.0.clone(), row.1.clone(), expiry));
                 row
             }
         } else {
             let row = fetch_success_handler_from_db(db, w_id).await?;
             let expiry = now + WORKSPACE_HANDLER_CACHE_TTL_SECONDS;
-            WORKSPACE_SUCCESS_HANDLER_CACHE.insert(
-                w_id.clone(),
-                (row.0.clone(), row.1.clone(), expiry),
-            );
+            WORKSPACE_SUCCESS_HANDLER_CACHE
+                .insert(w_id.clone(), (row.0.clone(), row.1.clone(), expiry));
             row
         };
 
@@ -1768,100 +1791,184 @@ pub async fn send_success_to_workspace_handler<'a, 'c, T: Serialize + Send + Syn
     Ok(())
 }
 
-pub async fn handle_maybe_scheduled_job<'c>(
+pub async fn try_schedule_next_job<'c>(
     db: &Pool<Postgres>,
+    mut tx: Transaction<'c, Postgres>,
     job: &MiniCompletedJob,
     schedule: &Schedule,
     script_path: &str,
-    w_id: &str,
-) -> windmill_common::error::Result<()> {
+) -> (Transaction<'c, Postgres>, Option<Error>) {
+    if !schedule.enabled {
+        tracing::info!(
+            "Schedule {} in {} is disabled. Not scheduling again.",
+            schedule.path,
+            &job.workspace_id
+        );
+        return (tx, None);
+    }
+
+    if script_path != schedule.script_path {
+        tracing::warn!(
+            "Schedule {} in {} has a different script path than the job. Not scheduling again",
+            schedule.path,
+            &job.workspace_id
+        );
+        return (tx, None);
+    }
+
     tracing::info!(
-        "Schedule {} scheduling next job for {} in {w_id}",
+        "Schedule {} scheduling next job for {} in {}",
         schedule.path,
-        schedule.script_path
+        schedule.script_path,
+        &job.workspace_id
     );
 
-    if schedule.enabled && script_path == schedule.script_path {
-        let schedule_authed = windmill_common::auth::fetch_authed_from_permissioned_as(
-            windmill_common::users::username_to_permissioned_as(&schedule.edited_by),
-            schedule.email.clone(),
-            w_id,
-            db,
-        )
-        .await
-        .ok();
+    let schedule_authed = windmill_common::auth::fetch_authed_from_permissioned_as(
+        &windmill_common::users::username_to_permissioned_as(&schedule.edited_by),
+        &schedule.email,
+        &job.workspace_id,
+        &mut *tx,
+    )
+    .await
+    .ok();
 
-        let push_next_job_future = (|| {
-            tokio::time::timeout(std::time::Duration::from_secs(5), async {
-                let mut tx = db.begin().await?;
-                tx = push_scheduled_job(db, tx, &schedule, schedule_authed.as_ref(), Some(job.scheduled_for)).await?;
-                tx.commit().await?;
-                Ok::<(), Error>(())
-            })
-            .map_err(|e| Error::internal_err(format!("Pushing next scheduled job timedout: {e:#}")))
-            .unwrap_or_else(|e| Err(e))
-        })
-        .retry(
-            ConstantBuilder::default()
-                .with_delay(std::time::Duration::from_secs(5))
-                .with_max_times(10)
-                .build(),
-        )
-        .when(|err| !matches!(err, Error::QuotaExceeded(_)))
-        .notify(|err, dur| {
-            tracing::error!(
-                "Could not push next scheduled job for schedule {}, retrying in {dur:#?}, err: {err:#?}", schedule.path
-            );
-        })
-        .sleep(tokio::time::sleep);
-        match push_next_job_future.await {
-            Ok(()) => Ok(()),
-            Err(err) => {
-                let update_schedule = sqlx::query!(
-                    "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
-                    err.to_string(),
-                    &schedule.workspace_id,
-                    &schedule.path
+    let mut push_err = None;
+
+    #[cfg(feature = "failpoints")]
+    if schedule_failpoints::is_active(schedule_failpoints::ScheduleFailPoint::SavepointCreate) {
+        push_err = Some(Error::internal_err(
+            "failpoint: savepoint create".to_string(),
+        ));
+    }
+
+    if push_err.is_none() {
+        let savepoint_result = tx.begin().await;
+        match savepoint_result {
+            Ok(savepoint) => {
+                let push_result = match tokio::time::timeout(
+                    std::time::Duration::from_secs(5),
+                    push_scheduled_job(
+                        db,
+                        savepoint,
+                        schedule,
+                        schedule_authed.as_ref(),
+                        Some(job.scheduled_for),
+                    ),
                 )
-                .execute(db)
-                .await;
-                match update_schedule {
-                    Ok(_) => {
-                        match err {
-                            Error::QuotaExceeded(_) => {}
-                            _ => {
-                                report_error_to_workspace_handler_or_critical_side_channel(job, db,
-                                    format!("Could not schedule next job for {} with err {}. Schedule disabled", schedule.path, err.to_string()),
-                                ).await;
+                .await
+                {
+                    Ok(result) => result,
+                    Err(_elapsed) => Err(Error::internal_err(
+                        "push_scheduled_job timed out after 5s".to_string(),
+                    )),
+                };
+                #[cfg(feature = "failpoints")]
+                let push_result =
+                    if schedule_failpoints::is_active(schedule_failpoints::ScheduleFailPoint::Push)
+                    {
+                        if let Ok(sp) = push_result {
+                            sp.rollback().await.ok();
+                        }
+                        Err(Error::internal_err("failpoint: push".to_string()))
+                    } else if schedule_failpoints::is_active(
+                        schedule_failpoints::ScheduleFailPoint::PushQuotaExceeded,
+                    ) {
+                        if let Ok(sp) = push_result {
+                            sp.rollback().await.ok();
+                        }
+                        Err(Error::QuotaExceeded(
+                            "failpoint: push quota exceeded".to_string(),
+                        ))
+                    } else {
+                        push_result
+                    };
+                match push_result {
+                    Ok(savepoint) => {
+                        #[cfg(feature = "failpoints")]
+                        let savepoint_commit_fail = schedule_failpoints::is_active(
+                            schedule_failpoints::ScheduleFailPoint::SavepointCommit,
+                        );
+                        #[cfg(not(feature = "failpoints"))]
+                        let savepoint_commit_fail = false;
+
+                        if savepoint_commit_fail {
+                            savepoint.rollback().await.ok();
+                            push_err = Some(Error::internal_err(
+                                "failpoint: savepoint commit".to_string(),
+                            ));
+                        } else {
+                            match savepoint.commit().await {
+                                Ok(()) => {}
+                                Err(e) => {
+                                    push_err = Some(Error::internal_err(format!(
+                                        "Could not commit savepoint: {e:#}"
+                                    )));
+                                }
                             }
                         }
-                        Ok(())
                     }
-                    Err(disable_err) => match err {
-                        Error::QuotaExceeded(_) => Err(err),
-                        _ => {
-                            report_error_to_workspace_handler_or_critical_side_channel(job, db,
-                                format!("Could not schedule next job for {} and could not disable schedule with err {}.", schedule.path, disable_err),
-                            ).await;
-                            Err(to_anyhow(disable_err).into())
-                        }
-                    },
+                    Err(err) if matches!(err, Error::QuotaExceeded(_)) => {
+                        push_err = Some(err);
+                    }
+                    Err(err) => {
+                        tracing::warn!(
+                            "Could not push next scheduled job for {}: {err}",
+                            schedule.path,
+                        );
+                        push_err = Some(err);
+                    }
                 }
             }
+            Err(e) => {
+                tracing::error!("Could not create savepoint for schedule push: {e:#}",);
+                push_err = Some(Error::internal_err(format!(
+                    "Could not create savepoint: {e:#}"
+                )));
+            }
         }
-    } else {
-        if script_path != schedule.script_path {
-            tracing::warn!(
-                "Schedule {} in {w_id} has a different script path than the job. Not scheduling again", schedule.path
-            );
-        } else {
-            tracing::info!(
-                "Schedule {} in {w_id} is disabled. Not scheduling again.",
+    }
+
+    if let Some(ref err) = push_err {
+        if matches!(err, Error::QuotaExceeded(_) | Error::NotFound(_)) {
+            tracing::error!(
+                "Could not push next scheduled job for {}: {err}. Disabling schedule.",
                 schedule.path
             );
+            let disable_result = sqlx::query!(
+                "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
+                err.to_string(),
+                &schedule.workspace_id,
+                &schedule.path
+            )
+            .execute(&mut *tx)
+            .await;
+            #[cfg(feature = "failpoints")]
+            let disable_result = if schedule_failpoints::is_active(
+                schedule_failpoints::ScheduleFailPoint::ScheduleDisable,
+            ) {
+                Err(sqlx::Error::Protocol(
+                    "failpoint: schedule disable".to_string(),
+                ))
+            } else {
+                disable_result
+            };
+            if let Err(disable_err) = disable_result {
+                report_error_to_workspace_handler_or_critical_side_channel(
+                    job,
+                    db,
+                    format!(
+                        "Could not push next scheduled job for {} and could not disable schedule: {disable_err}",
+                        schedule.path,
+                    ),
+                )
+                .await;
+            } else {
+                push_err = None;
+            }
         }
-        Ok(())
     }
+
+    (tx, push_err)
 }
 
 pub const ERROR_HANDLER_PATH_TEAMS: &str = "/workspace-or-schedule-error-handler-teams";
@@ -2082,7 +2189,10 @@ pub async fn push_success_handler<'a, 'c, T: Serialize + Send + Sync>(
             on_behalf_of.permissioned_as.clone(),
         )
     } else {
-        (SUCCESS_HANDLER_USER_EMAIL, SUCCESS_HANDLER_USER_GROUP.to_string())
+        (
+            SUCCESS_HANDLER_USER_EMAIL,
+            SUCCESS_HANDLER_USER_GROUP.to_string(),
+        )
     };
 
     let tx = PushIsolationLevel::IsolatedRoot(db.clone());
@@ -2765,9 +2875,12 @@ impl PulledJobResult {
         };
 
         let DebouncingSettings { debounce_delay_s, debounce_args_to_accumulate, .. } =
-            RunnableSettings::prefetch_cached_from_handle(j.runnable_settings_handle, db)
-                .await?
-                .0;
+            windmill_common::runnable_settings::prefetch_cached_from_handle(
+                j.runnable_settings_handle,
+                db,
+            )
+            .await?
+            .0;
 
         let (kind, j_id) = (j.kind, j.id);
         let is_djob_to_debounce = kind.is_dependency()
@@ -3056,12 +3169,17 @@ pub async fn pull(
 
                 #[cfg(feature = "private")]
                 let concurrency_settings = if let Some(ref j) = job {
-                    RunnableSettings::from_runnable_settings_handle(j.runnable_settings_handle, db)
-                        .await?
-                        .prefetch_cached(db)
-                        .await?
-                        .1
-                        .maybe_fallback(None, j.concurrent_limit, j.concurrency_time_window_s)
+                    windmill_common::runnable_settings::prefetch_cached_from_handle(
+                        j.runnable_settings_handle,
+                        db,
+                    )
+                    .await?
+                    .1
+                    .maybe_fallback(
+                        None,
+                        j.concurrent_limit,
+                        j.concurrency_time_window_s,
+                    )
                 } else {
                     Default::default()
                 };
@@ -3125,13 +3243,13 @@ pub async fn pull(
             });
         };
 
-        let concurrency_settings =
-            RunnableSettings::from_runnable_settings_handle(job.runnable_settings_handle, db)
-                .await?
-                .prefetch_cached(db)
-                .await?
-                .1
-                .maybe_fallback(None, job.concurrent_limit, job.concurrency_time_window_s);
+        let concurrency_settings = windmill_common::runnable_settings::prefetch_cached_from_handle(
+            job.runnable_settings_handle,
+            db,
+        )
+        .await?
+        .1
+        .maybe_fallback(None, job.concurrent_limit, job.concurrency_time_window_s);
 
         let has_concurent_limit = concurrency_settings.concurrent_limit.is_some();
 
@@ -4165,8 +4283,74 @@ async fn check_usage_limits(
 #[cfg(feature = "cloud")]
 use crate::cloud_usage::increment_usage_async;
 
-// #[instrument(level = "trace", skip_all)]
+// Thin wrapper that boxes the future to reduce async state machine sizes in callers.
+// Without this, the ~13KB future of push_inner is inlined into every caller's state machine,
+// causing stack overflows in deeply nested async call chains (e.g. flow execution).
 pub async fn push<'c, 'd>(
+    _db: &Pool<Postgres>,
+    tx: PushIsolationLevel<'c>,
+    workspace_id: &str,
+    job_payload: JobPayload,
+    args: PushArgs<'d>,
+    user: &str,
+    email: &str,
+    permissioned_as: String,
+    token_prefix: Option<&str>,
+    scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
+    schedule_path: Option<String>,
+    parent_job: Option<Uuid>,
+    root_job: Option<Uuid>,
+    flow_innermost_root_job: Option<Uuid>,
+    job_id: Option<Uuid>,
+    _is_flow_step: bool,
+    same_worker: bool,
+    pre_run_error: Option<&windmill_common::error::Error>,
+    visible_to_owner: bool,
+    tag: Option<String>,
+    custom_timeout: Option<i32>,
+    flow_step_id: Option<String>,
+    _priority_override: Option<i16>,
+    authed: Option<&Authed>,
+    running: bool,
+    end_user_email: Option<String>,
+    trigger: Option<TriggerMetadata>,
+    suspended_mode: Option<bool>,
+) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
+    Box::pin(push_inner(
+        _db,
+        tx,
+        workspace_id,
+        job_payload,
+        args,
+        user,
+        email,
+        permissioned_as,
+        token_prefix,
+        scheduled_for_o,
+        schedule_path,
+        parent_job,
+        root_job,
+        flow_innermost_root_job,
+        job_id,
+        _is_flow_step,
+        same_worker,
+        pre_run_error,
+        visible_to_owner,
+        tag,
+        custom_timeout,
+        flow_step_id,
+        _priority_override,
+        authed,
+        running,
+        end_user_email,
+        trigger,
+        suspended_mode,
+    ))
+    .await
+}
+
+// #[instrument(level = "trace", skip_all)]
+async fn push_inner<'c, 'd>(
     _db: &Pool<Postgres>,
     mut tx: PushIsolationLevel<'c>,
     workspace_id: &str,
@@ -5090,16 +5274,17 @@ pub async fn push<'c, 'd>(
         .unwrap_or_else(|| (None, None));
 
     let tag = if dedicated_worker.is_some_and(|x| x) {
-        format!(
-            "{}:{}{}",
-            workspace_id,
-            if job_kind == JobKind::Flow || job_kind == JobKind::FlowDependencies {
-                "flow/"
-            } else {
-                ""
-            },
+        let flow_prefix = if job_kind == JobKind::Flow || job_kind == JobKind::FlowDependencies {
+            "flow/"
+        } else {
+            ""
+        };
+        let full_path = format!(
+            "{}{}",
+            flow_prefix,
             runnable_path.clone().expect("dedicated script has a path")
-        )
+        );
+        windmill_common::worker::dedicated_worker_tag(workspace_id, &full_path)
     } else {
         if tag == Some("".to_string()) {
             tag = None;
@@ -5198,7 +5383,7 @@ pub async fn push<'c, 'd>(
             &runnable_path,
             job_kind,
             concurrency_settings.concurrency_key.clone(),
-            &mut tx,
+            &mut *tx,
             job_id,
         )
         .await?;
@@ -5230,11 +5415,11 @@ pub async fn push<'c, 'd>(
             if authed.is_some() {
                 tracing::warn!("Authed passed to push is not the same as permissioned_as, refetching direclty permissions for job {job_id}...")
             }
-            fetch_authed_from_permissioned_as(
-                permissioned_as.clone(),
-                email.to_string(),
+            windmill_common::auth::fetch_authed_from_permissioned_as(
+                &permissioned_as,
+                email,
                 workspace_id,
-                _db,
+                &mut *tx,
             )
             .await
             .map_err(|e| {
@@ -5291,11 +5476,13 @@ pub async fn push<'c, 'd>(
         (job_kind, scheduled_for_o)
     };
 
-    let runnable_settings_handle = RunnableSettings {
-        debouncing_settings: debouncing_settings.insert_cached(_db).await?,
-        concurrency_settings: concurrency_settings.insert_cached(_db).await?,
-    }
-    .insert_cached(_db)
+    let runnable_settings_handle = windmill_common::runnable_settings::insert_rs(
+        RunnableSettings {
+            debouncing_settings: debouncing_settings.insert_cached(_db).await?,
+            concurrency_settings: concurrency_settings.insert_cached(_db).await?,
+        },
+        _db,
+    )
     .await?;
 
     let (guarded_concurrent_limit, guarded_concurrency_time_window_s) =
@@ -5519,7 +5706,7 @@ pub async fn insert_concurrency_key<'d, 'c>(
     script_path: &Option<String>,
     job_kind: JobKind,
     custom_concurrency_key: Option<String>,
-    tx: &mut Transaction<'c, Postgres>,
+    db: impl PgExecutor<'c>,
     job_id: Uuid,
 ) -> Result<(), Error> {
     let concurrency_key = custom_concurrency_key
@@ -5547,7 +5734,7 @@ pub async fn insert_concurrency_key<'d, 'c>(
         ));
     sqlx::query!(
         "WITH inserted_concurrency_counter AS (
-                INSERT INTO concurrency_counter (concurrency_id, job_uuids) 
+                INSERT INTO concurrency_counter (concurrency_id, job_uuids)
                 VALUES ($1, '{}'::jsonb)
                 ON CONFLICT DO NOTHING
             )
@@ -5555,7 +5742,7 @@ pub async fn insert_concurrency_key<'d, 'c>(
         concurrency_key,
         job_id,
     )
-    .execute(&mut **tx)
+    .execute(db)
     .warn_after_seconds(3)
     .await
     .map_err(|e| Error::internal_err(format!("Could not insert concurrency_key={concurrency_key} for job_id={job_id} script_path={script_path:?} workspace_id={workspace_id}: {e:#}")))?;

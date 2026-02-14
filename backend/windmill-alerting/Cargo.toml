@@ -1,0 +1,18 @@
+[package]
+name = "windmill-alerting"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_alerting"
+path = "src/lib.rs"
+
+[dependencies]
+windmill-common = { workspace = true, default-features = false }
+axum.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+tracing.workspace = true

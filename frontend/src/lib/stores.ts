@@ -171,7 +171,7 @@ export type DBSchemas = Partial<Record<string, DBSchema>>
 
 export const dbSchemas = writable<DBSchemas>({})
 
-export const instanceSettingsSelectedTab = writable('Core')
+export const instanceSettingsSelectedTab = writable('users')
 
 export const isCriticalAlertsUIOpen = writable(false)
 

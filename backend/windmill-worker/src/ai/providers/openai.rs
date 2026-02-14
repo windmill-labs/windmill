@@ -473,8 +473,9 @@ impl QueryBuilder for OpenAIQueryBuilder {
         parser.parse_events(response).await?;
 
         // Convert OpenAI Responses usage to TokenUsage
-        let usage =
-            parser.usage.map(|u| TokenUsage::new(u.input_tokens, u.output_tokens, u.total_tokens));
+        let usage = parser
+            .usage
+            .map(|u| TokenUsage::new(u.input_tokens, u.output_tokens, u.total_tokens));
 
         Ok(ParsedResponse::Text {
             content: if parser.accumulated_content.is_empty() {
@@ -518,9 +519,7 @@ impl QueryBuilder for OpenAIQueryBuilder {
                 "image_generation_call" => {
                     if output.status.as_deref() == Some("completed") {
                         if let Some(ref base64_image) = output.result {
-                            return Ok(ParsedResponse::Image {
-                                base64_data: base64_image.clone(),
-                            });
+                            return Ok(ParsedResponse::Image { base64_data: base64_image.clone() });
                         }
                     }
                 }

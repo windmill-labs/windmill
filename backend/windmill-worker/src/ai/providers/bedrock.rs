@@ -17,13 +17,13 @@ use std::collections::HashMap;
 use windmill_common::{client::AuthedClient, error::Error};
 
 // Re-export from shared module for use by other parts of the worker
-pub use windmill_common::ai_bedrock::{check_env_credentials, BedrockClient};
 use windmill_common::ai_bedrock::{
     bedrock_stream_event_is_block_stop, bedrock_stream_event_to_text,
     bedrock_stream_event_to_tool_delta, bedrock_stream_event_to_tool_start, build_tool_config,
     create_inference_config, format_bedrock_error, openai_messages_to_bedrock,
     streaming_tool_calls_to_openai, StreamingToolCall,
 };
+pub use windmill_common::ai_bedrock::{check_env_credentials, BedrockClient};
 
 // ============================================================================
 // Query Builder (Worker-specific orchestration)
@@ -49,6 +49,7 @@ impl BedrockQueryBuilder {
         structured_output_tool_name: Option<&str>,
         aws_access_key_id: Option<&str>,
         aws_secret_access_key: Option<&str>,
+        aws_session_token: Option<&str>,
     ) -> Result<ParsedResponse, Error> {
         let bedrock_client = if !api_key.is_empty() {
             BedrockClient::from_bearer_token(api_key.to_string(), region).await?
@@ -58,7 +59,7 @@ impl BedrockQueryBuilder {
             BedrockClient::from_credentials(
                 access_key_id.to_string(),
                 secret_access_key.to_string(),
-                None,
+                aws_session_token.map(str::to_string),
                 region,
             )
             .await?
@@ -161,9 +162,7 @@ impl BedrockQueryBuilder {
                         if let Some(processor) = stream_event_processor.as_ref() {
                             processor
                                 .send(
-                                    StreamingEvent::TokenDelta {
-                                        content: text_delta,
-                                    },
+                                    StreamingEvent::TokenDelta { content: text_delta },
                                     &mut events_str,
                                 )
                                 .await?;
@@ -185,9 +184,8 @@ impl BedrockQueryBuilder {
                     }
 
                     // Extract usage from Metadata event
-                    if let aws_sdk_bedrockruntime::types::ConverseStreamOutput::Metadata(
-                        metadata,
-                    ) = &event
+                    if let aws_sdk_bedrockruntime::types::ConverseStreamOutput::Metadata(metadata) =
+                        &event
                     {
                         if let Some(token_usage) = metadata.usage() {
                             usage = Some(

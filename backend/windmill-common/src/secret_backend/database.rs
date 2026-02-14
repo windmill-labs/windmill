@@ -59,9 +59,8 @@ impl SecretBackend for DatabaseBackend {
         }
 
         let mc = build_crypt(&self.db, workspace_id).await?;
-        decrypt(&mc, value).map_err(|e| {
-            Error::internal_err(format!("Error decrypting variable {}: {}", path, e))
-        })
+        decrypt(&mc, value)
+            .map_err(|e| Error::internal_err(format!("Error decrypting variable {}: {}", path, e)))
     }
 
     async fn set_secret(&self, workspace_id: &str, path: &str, value: &str) -> Result<()> {

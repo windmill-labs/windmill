@@ -1311,7 +1311,7 @@
 		{/if} -->
 		{#if isListJob}
 			{#if render}
-				<div class="w-full h-full border rounded-sm bg-surface p-1 overflow-auto">
+				<div class="w-full border rounded-sm bg-surface p-1 overflow-auto max-h-[90vh]">
 					<DisplayResult
 						workspaceId={job?.workspace_id}
 						{jobId}
@@ -1376,7 +1376,7 @@
 				{:else}
 					<!-- Default single-column result -->
 					<h3 class="text-xs font-semibold text-emphasis mb-1">Result</h3>
-					<div class="flex-1 overflow-auto rounded-md border bg-surface-tertiary p-4 max-h-[400px]">
+					<div class="flex-1 overflow-auto rounded-md border bg-surface-tertiary p-4 max-h-screen">
 						{#if job !== undefined && (job.result_stream || (job.type == 'CompletedJob' && 'result' in job && job.result !== undefined))}
 							<DisplayResult
 								workspaceId={job?.workspace_id}

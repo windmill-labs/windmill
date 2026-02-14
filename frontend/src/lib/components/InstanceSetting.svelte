@@ -5,34 +5,28 @@
 	import type { Setting } from './instanceSettings'
 	import { OTEL_TRACING_PROXY_LANGUAGES } from './instanceSettings'
 	import { LanguageIcon } from './common/languageIcons'
-	import Tooltip from './Tooltip.svelte'
 	import ObjectStoreConfigSettings from './ObjectStoreConfigSettings.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
-	import {
-		ConfigService,
-		IndexSearchService,
-		SettingService,
-		type ListAvailablePythonVersionsResponse
-	} from '$lib/gen'
-	import { Button, SecondsInput, Section, Skeleton } from './common'
+	import { ConfigService, SettingService, type ListAvailablePythonVersionsResponse } from '$lib/gen'
+	import { Button, SecondsInput, Skeleton } from './common'
 	import Password from './Password.svelte'
 	import { classNames } from '$lib/utils'
 	import Popover from './Popover.svelte'
-	import PopoverMelt from './meltComponents/Popover.svelte'
+	import DropdownV2 from './DropdownV2.svelte'
 	import Toggle from './Toggle.svelte'
 	import type { Writable } from 'svelte/store'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
-	import LoadingIcon from './apps/svelte-select/lib/LoadingIcon.svelte'
-	import EEOnly from './EEOnly.svelte'
 	import CriticalAlertChannels from './instanceSettings/CriticalAlertChannels.svelte'
 	import SmtpSettings from './instanceSettings/SmtpSettings.svelte'
 	import SecretBackendConfig from './instanceSettings/SecretBackendConfig.svelte'
+	import IndexerMemorySettings from './instanceSettings/IndexerMemorySettings.svelte'
+	import IndexerJobIndexSettings from './instanceSettings/IndexerJobIndexSettings.svelte'
+	import IndexerLogIndexSettings from './instanceSettings/IndexerLogIndexSettings.svelte'
 	import TextInput from './text_input/TextInput.svelte'
-	import Label from './Label.svelte'
+	import SettingCard from './instanceSettings/SettingCard.svelte'
 
 	interface Props {
 		setting: Setting
@@ -45,13 +39,6 @@
 
 	let { setting, version, values, loading = true, openSmtpSettings, oauths }: Props = $props()
 	const dispatch = createEventDispatcher()
-
-	if (
-		(setting.fieldType == 'select' || setting.fieldType == 'select_python') &&
-		$values[setting.key] == undefined
-	) {
-		$values[setting.key] = 'default'
-	}
 
 	let latestKeyRenewalAttempt: {
 		result: string
@@ -67,7 +54,6 @@
 		return true
 	}
 
-	let licenseKeyChanged = $state(false)
 	let renewing = $state(false)
 	let opening = $state(false)
 
@@ -81,9 +67,11 @@
 		})
 	}
 
-	if (setting.key == 'license_key') {
-		reloadKeyrenewalAttemptInfo()
-	}
+	$effect(() => {
+		if (setting.key == 'license_key') {
+			untrack(() => reloadKeyrenewalAttemptInfo())
+		}
+	})
 
 	export async function renewLicenseKey() {
 		renewing = true
@@ -136,11 +124,19 @@
 		}
 	}
 
+	$effect(() => {
+		if (setting.key === 'license_key') {
+			const key = $values['license_key'] ?? ''
+			const { valid } = parseLicenseKey(key)
+			if (valid) {
+				$enterpriseLicense = key.split('.')[0]
+			}
+		}
+	})
+
 	let pythonAvailableVersions: ListAvailablePythonVersionsResponse = $state([])
 
 	let isPyFetching = $state(false)
-	let clearJobsIndexModalOpen = $state(false)
-	let clearServiceLogsIndexModalOpen = $state(false)
 	async function fetch_available_python_versions() {
 		if (isPyFetching) return
 		isPyFetching = true
@@ -152,35 +148,32 @@
 			isPyFetching = false
 		}
 	}
-	if (setting.fieldType == 'select_python') {
-		fetch_available_python_versions()
-	}
+
+	$effect(() => {
+		if (setting.fieldType == 'select_python') {
+			untrack(() => fetch_available_python_versions())
+		}
+	})
+
+	$effect(() => {
+		if (
+			(setting.fieldType == 'select' || setting.fieldType == 'select_python') &&
+			$values[setting.key] == undefined &&
+			setting.defaultValue
+		) {
+			untrack(() => {
+				if (setting.defaultValue) {
+					$values[setting.key] = setting.defaultValue()
+				}
+			})
+		}
+	})
 </script>
 
-{#snippet LabelSnippet()}
-	<!-- svelte-ignore a11y_label_has_associated_control -->
-	<label class="flex flex-col gap-1 mb-1">
-		<div class="flex gap-1">
-			<span class="text-emphasis font-semibold text-xs">{setting.label}</span>
-			{#if setting.ee_only != undefined && !$enterpriseLicense}
-				<EEOnly>
-					{#if setting.ee_only != ''}{setting.ee_only}{/if}
-				</EEOnly>
-			{/if}
-		</div>
-		{#if setting.description}
-			<span class="text-secondary text-xs font-normal">
-				{@html setting.description}
-			</span>
-		{/if}
-	</label>
-{/snippet}
-
 <!-- {JSON.stringify($values, null, 2)} -->
-{#if (!setting.cloudonly || isCloudHosted()) && showSetting(setting.key, $values) && !(setting.hiddenIfNull && $values[setting.key] == null) && !(setting.hiddenIfEmpty && !$values[setting.key])}
+{#if (!setting.cloudonly || isCloudHosted()) && showSetting(setting.key, $values) && !(setting.hiddenIfNull && $values[setting.key] == null) && !(setting.hiddenIfEmpty && !$values[setting.key]) && !(setting.hiddenInEe && $enterpriseLicense)}
 	{#if setting.fieldType == 'select'}
-		<div>
-			{@render LabelSnippet()}
+		<SettingCard label={setting.label} description={setting.description} ee_only={setting.ee_only}>
 			<ToggleButtonGroup bind:selected={$values[setting.key]}>
 				{#snippet children({ item: toggleButton })}
 					{#each setting.select_items ?? [] as item}
@@ -193,116 +186,101 @@
 					{/each}
 				{/snippet}
 			</ToggleButtonGroup>
-		</div>
+		</SettingCard>
 	{:else if setting.fieldType == 'select_python'}
-		<div>
-			<!-- svelte-ignore a11y_label_has_associated_control -->
-			{@render LabelSnippet()}
-
+		<SettingCard label={setting.label} description={setting.description} ee_only={setting.ee_only}>
 			<ToggleButtonGroup bind:selected={$values[setting.key]}>
-				{#snippet children({ item: toggleButtonn })}
+				{#snippet children({ item: toggleButton })}
 					{#each setting.select_items ?? [] as item}
 						<ToggleButton
 							value={item.value ?? item.label}
 							label={item.label}
 							tooltip={item.tooltip}
-							item={toggleButtonn}
+							item={toggleButton}
 						/>
 					{/each}
-					<PopoverMelt closeButton={!isPyFetching} contentClasses="max-w-md">
-						{#snippet trigger()}
+
+					<DropdownV2
+						items={() =>
+							pythonAvailableVersions.map((v) => ({
+								displayName: v,
+								action: () => {
+									$values[setting.key] = v
+								}
+							}))}
+					>
+						{#snippet buttonReplacement()}
 							{#if setting.select_items?.some((e) => e.label == $values[setting.key] || e.value == $values[setting.key])}
-								<Button
-									variant="default"
-									btnClasses="px-1.5 py-1.5 text-2xs bg-surface-secondary border-0"
-									nonCaptureEvent={true}>Select Custom</Button
+								<Button variant="subtle" btnClasses="font-normal" nonCaptureEvent={true}
+									>Select Custom</Button
 								>
 							{:else}
 								<Button
 									variant="default"
-									btnClasses="px-1.5 py-1.5 text-2xs border-0 shadow-md"
+									btnClasses="font-normal bg-surface-input"
 									nonCaptureEvent={true}>Custom | {$values[setting.key]}</Button
 								>
 							{/if}
 						{/snippet}
-						{#snippet content()}
-							{#if isPyFetching}
-								<div class="p-4">
-									<LoadingIcon />
-								</div>
-							{:else}
-								<ToggleButtonGroup
-									bind:selected={$values[setting.key]}
-									class="mr-10 h-full"
-									tabListClass="flex-wrap p-2"
-								>
-									{#snippet children({ item: toggleButtonn })}
-										{#each pythonAvailableVersions as item}
-											<ToggleButton value={item} label={item} tooltip={item} item={toggleButtonn} />
-										{/each}
-									{/snippet}
-								</ToggleButtonGroup>
-							{/if}
-						{/snippet}
-					</PopoverMelt>
+					</DropdownV2>
 				{/snippet}
 			</ToggleButtonGroup>
-		</div>
-	{:else}
-		{#snippet settingContent()}
-			<div class="flex flex-col gap-2 mb-1">
-				<div class="flex items-center justify-between">
-					<div class="text-emphasis font-semibold text-xs flex flex-col gap-1 w-full">
-						<div class="flex items-center justify-between gap-2 w-full">
-							{#if setting.fieldType != 'smtp_connect'}
-								<div class="flex gap-1">
-									<span class="text-emphasis font-semibold text-xs pb-1">{setting.label}</span>
-									{#if setting.ee_only != undefined && !$enterpriseLicense}
-										{#if setting.ee_only != ''}
-											<EEOnly>{setting.ee_only}</EEOnly>
-										{:else}
-											<EEOnly />
-										{/if}
-									{/if}
-								</div>
-							{/if}
-							{#if setting.actionButton}
-								<Button
-									disabled={setting.ee_only != undefined && !$enterpriseLicense}
-									variant={setting.actionButton.variant ?? 'default'}
-									unifiedSize="sm"
-									onclick={async () => await setting.actionButton?.onclick($values)}
-								>
-									{setting.actionButton.label}
-								</Button>
-							{/if}
-						</div>
-						{#if setting.description}
-							<span class="text-secondary font-normal text-xs">
-								{@html setting.description}
-							</span>
-						{/if}
-					</div>
+		</SettingCard>
+	{:else if setting.fieldType == 'indexer_rates'}
+		{#if $values[setting.key]}
+			{@const fieldErrors = setting.validate?.($values[setting.key]) ?? {}}
+			<SettingCard
+				label="Memory"
+				description="Configure the memory budget for the indexer and manage index clearing."
+				ee_only=""
+			>
+				<div class="p-4 rounded-md border mt-2">
+					<IndexerMemorySettings {values} disabled={!$enterpriseLicense} errors={fieldErrors} />
 				</div>
-			</div>
-			{#if setting.tooltip}
-				<Tooltip>{setting.tooltip}</Tooltip>
-			{/if}
+			</SettingCard>
+			<SettingCard
+				label="Completed Job Index"
+				description="Configure indexing parameters for completed jobs."
+				ee_only=""
+			>
+				<div class="p-4 rounded-md border mt-2">
+					<IndexerJobIndexSettings {values} disabled={!$enterpriseLicense} errors={fieldErrors} />
+				</div>
+			</SettingCard>
+			<SettingCard
+				label="Service Logs Index"
+				description="Configure indexing parameters for service logs."
+				ee_only=""
+			>
+				<div class="p-4 rounded-md border mt-2">
+					<IndexerLogIndexSettings {values} disabled={!$enterpriseLicense} errors={fieldErrors} />
+				</div>
+			</SettingCard>
+		{/if}
+	{:else}
+		<SettingCard
+			label={setting.fieldType != 'smtp_connect' ? setting.label : undefined}
+			description={setting.description}
+			ee_only={setting.ee_only}
+			tooltip={setting.tooltip}
+			actionButton={setting.actionButton}
+			values={$values}
+		>
 			{#if $values}
 				{@const hasError = setting.isValid && !setting.isValid($values[setting.key])}
 				<div class="h-1"></div>
 				{#if loading}
 					<Skeleton layout={[[2.5]]} />
 				{:else if setting.fieldType == 'text'}
-					<input
-						id={setting.key}
-						disabled={setting.ee_only != undefined && !$enterpriseLicense}
-						type="text"
-						placeholder={setting.placeholder}
-						class={hasError
-							? 'border !border-red-700 !border-opacity-30 !focus:border-red-700 !focus:border-opacity-30'
-							: ''}
+					<TextInput
+						inputProps={{
+							type: 'text',
+							id: setting.key,
+							disabled: setting.ee_only != undefined && !$enterpriseLicense,
+							placeholder: setting.placeholder
+						}}
 						bind:value={$values[setting.key]}
+						class="max-w-lg"
 					/>
 					{#if setting.advancedToggle}
 						<div class="mt-1">
@@ -358,9 +336,6 @@
 							id={setting.key}
 							small
 							placeholder={setting.placeholder}
-							onKeyDown={() => {
-								licenseKeyChanged = true
-							}}
 							onBlur={() => {
 								if ($values[setting.key] && typeof $values[setting.key] === 'string') {
 									$values[setting.key] = $values[setting.key].trim()
@@ -369,7 +344,7 @@
 							bind:password={$values[setting.key]}
 						/>
 						<Button
-							variant="accent"
+							variant="default"
 							unifiedSize="md"
 							disabled={!$values[setting.key]}
 							on:click={async () => {
@@ -458,7 +433,7 @@
 													License key cannot be renewed during trial ({attemptedAt})
 												</span>
 											{:else}
-												<span class="text-red-300">
+												<span class="text-red-600 dark:text-red-400">
 													Latest key renewal failed on {attemptedAt}: {latestKeyRenewalAttempt?.result.replace(
 														'error: ',
 														''
@@ -473,13 +448,14 @@
 								</Popover>
 							</div>
 						{/if}
-						{#if licenseKeyChanged && !$enterpriseLicense}
-							{#if version.startsWith('CE')}
-								<div class="text-red-400"
-									>License key is set but image used is the Community Edition {version}. Switch
-									image to EE.</div
-								>
-							{/if}
+						{#if $values[setting.key]?.length > 0 && version.includes('CE')}
+							<div class="flex flex-row gap-1 items-center">
+								<Info size={12} class="text-blue-600" />
+								<span class="text-blue-600 dark:text-blue-400 text-xs">
+									License key is set but the current image is Community Edition ({version}). Switch
+									to the EE image to finalize the upgrade.
+								</span>
+							</div>
 						{/if}
 
 						{#if valid || expiration}
@@ -525,229 +501,8 @@
 					</div>
 				{:else if setting.fieldType == 'critical_error_channels'}
 					<CriticalAlertChannels {values} {openSmtpSettings} {oauths} />
-				{:else if setting.fieldType == 'indexer_rates'}
-					<div class="flex flex-col gap-16 mt-4">
-						{#if $values[setting.key]}
-							<Section label="Memory" class="space-y-6">
-								<div class="flex flex-col gap-1">
-									<label
-										for="writer_memory_budget"
-										class="block text-xs font-semibold text-emphasis"
-									>
-										Index writer memory budget (MB)
-										<Tooltip>
-											The allocated memory arena for the indexer. A bigger value means less writing
-											to disk and potentially higher indexing throughput
-										</Tooltip>
-									</label>
-									<TextInput
-										inputProps={{
-											type: 'number',
-											placeholder: '300',
-											id: 'writer_memory_budget',
-											disabled: !$enterpriseLicense,
-											oninput: (e) => {
-												if (e.target instanceof HTMLInputElement) {
-													if (e.target.valueAsNumber) {
-														$values[setting.key].writer_memory_budget =
-															e.target.valueAsNumber * (1024 * 1024)
-													}
-												}
-											}
-										}}
-										value={$values[setting.key].writer_memory_budget / (1024 * 1024)}
-									/>
-								</div>
-								<Label label="Clear index">
-									<span class="text-xs text-secondary"
-										>This buttons will clear the whole index, and the service will start reindexing
-										from scratch. Full text search might be down during this time.</span
-									>
-									<div class="flex flex-row gap-2">
-										<Button
-											variant="default"
-											unifiedSize="sm"
-											on:click={() => {
-												clearJobsIndexModalOpen = true
-											}}
-										>
-											Clear jobs index
-										</Button>
-										<Button
-											variant="default"
-											unifiedSize="sm"
-											on:click={() => {
-												clearServiceLogsIndexModalOpen = true
-											}}
-										>
-											Clear service logs index
-										</Button>
-									</div>
-								</Label>
-								<ConfirmationModal
-									title="Clear jobs index"
-									confirmationText="Clear"
-									open={clearJobsIndexModalOpen}
-									type="danger"
-									on:canceled={() => {
-										clearJobsIndexModalOpen = false
-									}}
-									on:confirmed={async () => {
-										const r = await IndexSearchService.clearIndex({
-											idxName: 'JobIndex'
-										})
-										sendUserToast(r)
-										clearJobsIndexModalOpen = false
-									}}
-								>
-									Are you sure you want to clear the jobs index? The service will start reindexing
-									from scratch. Full text search might be down during this time.
-								</ConfirmationModal>
-								<ConfirmationModal
-									title="Clear service logs index"
-									confirmationText="Clear"
-									open={clearServiceLogsIndexModalOpen}
-									type="danger"
-									on:canceled={() => {
-										clearServiceLogsIndexModalOpen = false
-									}}
-									on:confirmed={async () => {
-										const r = await IndexSearchService.clearIndex({
-											idxName: 'ServiceLogIndex'
-										})
-										sendUserToast(r)
-										clearServiceLogsIndexModalOpen = false
-									}}
-								>
-									Are you sure you want to clear the service logs index? The service will start
-									reindexing from scratch. Full text search might be down during this time.
-								</ConfirmationModal>
-							</Section>
-							<hr class="border-t -my-6" />
-							<Section label="Completed Job Index" class="space-y-6">
-								<div class="flex flex-col gap-1">
-									<label
-										for="commit_job_max_batch_size"
-										class="block text-xs font-semibold text-emphasis"
-									>
-										Commit max batch size <Tooltip>
-											The max amount of documents (here jobs) per commit. To optimize indexing
-											throughput, it is best to keep this as high as possible. However, especially
-											when reindexing the whole instance, it can be useful to have a limit on how
-											many jobs can be written without being committed. A commit will make the jobs
-											available for search, constitute a "checkpoint" state in the indexing and will
-											be logged.
-										</Tooltip>
-									</label>
-									<TextInput
-										inputProps={{
-											type: 'number',
-											placeholder: '100000',
-											id: 'commit_job_max_batch_size',
-											disabled: !$enterpriseLicense
-										}}
-										bind:value={$values[setting.key].commit_job_max_batch_size}
-									/>
-								</div>
-								<div class="flex flex-col gap-1">
-									<label
-										for="refresh_index_period"
-										class="block text-xs font-semibold text-emphasis"
-									>
-										Refresh index period (s) <Tooltip>
-											The index will query new jobs periodically and write them on the index. This
-											setting sets that period.
-										</Tooltip></label
-									>
-									<TextInput
-										inputProps={{
-											type: 'number',
-											placeholder: '300',
-											id: 'refresh_index_period',
-											disabled: !$enterpriseLicense
-										}}
-										bind:value={$values[setting.key].refresh_index_period}
-									/>
-								</div>
-								<div class="flex flex-col gap-1">
-									<label
-										for="max_indexed_job_log_size"
-										class="block text-xs font-semibold text-emphasis"
-									>
-										Max indexed job log size (KB) <Tooltip>
-											Job logs are included when indexing, but to avoid the index size growing
-											artificially, the logs will be truncated after a size has been reached.
-										</Tooltip>
-									</label>
-									<TextInput
-										inputProps={{
-											type: 'number',
-											placeholder: '1024',
-											id: 'max_indexed_job_log_size',
-											disabled: !$enterpriseLicense,
-											oninput: (e) => {
-												if (e.target instanceof HTMLInputElement) {
-													if (e.target.valueAsNumber) {
-														$values[setting.key].max_indexed_job_log_size =
-															e.target.valueAsNumber * 1024
-													}
-												}
-											}
-										}}
-										value={$values[setting.key].max_indexed_job_log_size / 1024}
-									/>
-								</div>
-							</Section>
-							<hr class="border-t -my-6" />
-							<Section label="Service logs index" class="space-y-6">
-								<div class="flex flex-col gap-1">
-									<label
-										for="commit_log_max_batch_size"
-										class="block text-xs font-semibold text-emphasis"
-										>Commit max batch size <Tooltip>
-											The max amount of documents per commit. In this case 1 document is one log
-											file representing all logs during 1 minute for a specific host. To optimize
-											indexing throughput, it is best to keep this as high as possible. However,
-											especially when reindexing the whole instance, it can be useful to have a
-											limit on how many logs can be written without being committed. A commit will
-											make the logs available for search, appear as a log line, and be a
-											"checkpoint" of the indexing progress.
-										</Tooltip>
-									</label>
-									<input
-										disabled={!$enterpriseLicense}
-										type="number"
-										id="commit_log_max_batch_size"
-										placeholder="10000"
-										bind:value={$values[setting.key].commit_log_max_batch_size}
-									/>
-								</div>
-
-								<div class="flex flex-col gap-1">
-									<label
-										for="refresh_log_index_period"
-										class="block text-xs font-semibold text-emphasis"
-									>
-										Refresh index period (s) <Tooltip>
-											The index will query new service logs peridically and write them on the index.
-											This setting sets that period.
-										</Tooltip>
-									</label>
-									<TextInput
-										inputProps={{
-											type: 'number',
-											placeholder: '300',
-											id: 'refresh_log_index_period',
-											disabled: !$enterpriseLicense
-										}}
-										bind:value={$values[setting.key].refresh_log_index_period}
-									/>
-								</div>
-							</Section>
-						{/if}
-					</div>
 				{:else if setting.fieldType == 'otel'}
-					<div class="flex flex-col gap-4 border rounded p-4">
+					<div class="flex flex-col gap-4 p-4 rounded-md border">
 						{#if $values[setting.key]}
 							<div class="flex gap-8">
 								<Toggle
@@ -834,7 +589,10 @@
 						{/if}
 					</div>
 				{:else if setting.fieldType == 'otel_tracing_proxy'}
-					{@const tracingProxyVal = $values[setting.key] ?? { enabled: false, enabled_languages: [...OTEL_TRACING_PROXY_LANGUAGES] }}
+					{@const tracingProxyVal = $values[setting.key] ?? {
+						enabled: false,
+						enabled_languages: [...OTEL_TRACING_PROXY_LANGUAGES]
+					}}
 					<div class="flex flex-col gap-4">
 						<Toggle
 							id="otel_tracing_proxy_enabled"
@@ -868,7 +626,6 @@
 					</div>
 				{:else if setting.fieldType == 'object_store_config'}
 					<ObjectStoreConfigSettings bind:bucket_config={$values[setting.key]} />
-					<div class="mb-6"></div>
 				{:else if setting.fieldType == 'critical_alerts_on_db_oversize'}
 					{#if $values[setting.key]}
 						<div class="flex flex-row flex-wrap gap-2 p-0 items-center">
@@ -890,7 +647,6 @@
 								<span class="text-primary font-semibold text-sm">GB</span>
 							{/if}
 						</div>
-						<div class="mb-6"></div>
 					{/if}
 				{:else if setting.fieldType == 'number'}
 					<TextInput
@@ -900,6 +656,7 @@
 							id: setting.key
 						}}
 						bind:value={$values[setting.key]}
+						class="max-w-lg"
 					/>
 				{:else if setting.fieldType == 'password'}
 					<Password small placeholder={setting.placeholder} bind:password={$values[setting.key]} />
@@ -916,27 +673,22 @@
 								? 60 * 60 * 24 * 30
 								: undefined}
 							bind:seconds={$values[setting.key]}
+							clearable
 						/>
 					</div>
-				{:else if setting.fieldType == 'select'}
-					TODO
 				{:else if setting.fieldType == 'smtp_connect'}
 					<SmtpSettings {values} disabled={loading} />
 				{:else if setting.fieldType == 'secret_backend'}
 					<SecretBackendConfig {values} disabled={loading} />
 				{/if}
 				{#if hasError}
-					<span class="text-red-500 dark:text-red-400 text-sm">
+					<span class="text-red-600 dark:text-red-400 text-xs">
 						{setting.error ?? ''}
 					</span>
 				{/if}
 			{:else}
 				<input disabled placeholder="Loading..." />
 			{/if}
-		{/snippet}
-
-		<div class="block">
-			{@render settingContent()}
-		</div>
+		</SettingCard>
 	{/if}
 {/if}

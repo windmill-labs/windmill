@@ -1,5 +1,5 @@
 ARG DEBIAN_IMAGE=debian:bookworm-slim
-ARG RUST_IMAGE=rust:1.90-slim-bookworm
+ARG RUST_IMAGE=rust:1.93-slim-bookworm
 
 FROM debian:bookworm-slim AS nsjail
 
@@ -23,7 +23,7 @@ RUN make
 
 FROM ${RUST_IMAGE} AS rust_base
 
-RUN apt-get update && apt-get install -y git libssl-dev pkg-config npm
+RUN apt-get update && apt-get install -y git libssl-dev pkg-config npm mold clang
 
 RUN apt-get -y update \
     && apt-get install -y \
@@ -97,7 +97,7 @@ ARG features=""
 
 COPY --from=planner /windmill/recipe.json recipe.json
 
-RUN apt-get update && apt-get install -y libxml2-dev=2.9.* libxmlsec1-dev=1.2.* libkrb5-dev libsasl2-dev clang=1:14.0-55.* libclang-dev=1:14.0-55.* cmake=3.25.* && \
+RUN apt-get update && apt-get install -y libxml2-dev=2.9.* libxmlsec1-dev=1.2.* libkrb5-dev libsasl2-dev libcurl4-openssl-dev clang=1:14.0-55.* libclang-dev=1:14.0-55.* cmake=3.25.* && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -132,6 +132,7 @@ ARG WITH_POWERSHELL=true
 ARG WITH_KUBECTL=true
 ARG WITH_HELM=true
 ARG WITH_GIT=true
+ARG features=""
 
 # To change latest stable version:
 # 1. Change placeholder in instanceSettings.ts
@@ -149,7 +150,8 @@ ENV PATH /usr/local/bin:/root/.local/bin:/tmp/.local/bin:$PATH
 
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends netbase tzdata ca-certificates wget curl jq unzip build-essential unixodbc xmlsec1 software-properties-common tini libsasl2-modules-gssapi-mit \
+    && apt-get install -y --no-install-recommends netbase tzdata ca-certificates wget curl jq unzip build-essential unixodbc xmlsec1 software-properties-common tini \
+    && if echo "$features" | grep -q "ee"; then apt-get install -y --no-install-recommends libsasl2-modules-gssapi-mit krb5-user; fi \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -239,7 +241,7 @@ RUN mkdir -p /tmp/windmill/cache && \
     cp -r /tmp/build_cache/* /tmp/windmill/cache/ && \
     chmod -R a+rw /tmp/windmill/cache && \
     rm -rf /tmp/build_cache && \
-    mkdir -p -m 777 /tmp/windmill/cache/uv /tmp/windmill/cache/go
+    mkdir -p -m 777 /tmp/windmill/cache/uv /tmp/windmill/cache/go /tmp/windmill/cache/rustup /tmp/windmill/cache/cargo
 
 # Runtime cache locations
 ENV UV_CACHE_DIR=/tmp/windmill/cache/uv
@@ -262,8 +264,8 @@ COPY --from=composer:2.7.6 /usr/bin/composer /usr/bin/composer
 # add the docker client to call docker from a worker if enabled
 COPY --from=docker:dind /usr/local/bin/docker /usr/local/bin/
 
-ENV RUSTUP_HOME="/usr/local/rustup"
-ENV CARGO_HOME="/usr/local/cargo"
+ENV RUSTUP_HOME="/tmp/windmill/cache/rustup"
+ENV CARGO_HOME="/tmp/windmill/cache/cargo"
 ENV LD_LIBRARY_PATH="."
 
 # nsjail runtime deps and binary

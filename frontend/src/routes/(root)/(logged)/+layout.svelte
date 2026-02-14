@@ -6,7 +6,6 @@
 		AssetService,
 		FlowService,
 		OpenAPI,
-		RawAppService,
 		ScriptService,
 		SettingService,
 		UserService,
@@ -59,6 +58,7 @@
 	import OperatorMenu from '$lib/components/sidebar/OperatorMenu.svelte'
 	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
+	import { loadProtectionRules } from '$lib/workspaceProtectionRules.svelte'
 	import { setContext, untrack } from 'svelte'
 	import { base } from '$app/paths'
 	import { Menubar } from '$lib/components/meltComponents'
@@ -192,10 +192,6 @@
 			workspace: $workspaceStore ?? '',
 			starredOnly: true
 		})
-		const raw_apps = await RawAppService.listRawApps({
-			workspace: $workspaceStore ?? '',
-			starredOnly: true
-		})
 		const assets = await AssetService.listFavoriteAssets({ workspace: $workspaceStore ?? '' })
 		favoriteManager.current = [
 			...scripts.map((s) => ({
@@ -215,12 +211,6 @@
 				path: f.path,
 				href: getFavoriteHref(f.path, 'app'),
 				kind: 'app' as const
-			})),
-			...raw_apps.map((f) => ({
-				label: f.summary || getFavoriteLabel(f.path, 'raw_app'),
-				path: f.path,
-				href: getFavoriteHref(f.path, 'raw_app'),
-				kind: 'raw_app' as const
 			})),
 			...assets.map((a) => ({
 				label: getFavoriteLabel(a.path, 'asset'),
@@ -432,6 +422,13 @@
 		}
 	})
 
+	// Load workspace protection rules on workspace change
+	$effect(() => {
+		const workspace = $workspaceStore
+		if (workspace) {
+			untrack(() => loadProtectionRules(workspace))
+		}
+	})
 	watchOnce(
 		() => globalDbManagerDrawer.val,
 		() => {

@@ -6,6 +6,7 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import WorkspaceOperatorSettings from '$lib/components/settings/WorkspaceOperatorSettings.svelte'
 	import InviteUser from '$lib/components/InviteUser.svelte'
+	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
 
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Head from '$lib/components/table/Head.svelte'
@@ -92,14 +93,16 @@
 
 	async function loadSettings(): Promise<void> {
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
-		const autoInvite = settings.auto_invite as {
-			enabled?: boolean
-			domain?: string
-			operator?: boolean
-			mode?: string
-			instance_groups?: string[]
-			instance_groups_roles?: Record<string, string>
-		} | undefined
+		const autoInvite = settings.auto_invite as
+			| {
+					enabled?: boolean
+					domain?: string
+					operator?: boolean
+					mode?: string
+					instance_groups?: string[]
+					instance_groups_roles?: Record<string, string>
+			  }
+			| undefined
 		auto_invite_domain = autoInvite?.enabled ? (autoInvite?.domain ?? '*') : undefined
 		operatorOnly = autoInvite?.operator ?? false
 		autoAdd = autoInvite?.mode === 'add'
@@ -399,30 +402,19 @@
 	bind:filteredItems={filteredUsers}
 	f={(x) => x.email + ' ' + x.name + ' ' + x.company}
 />
-<div class="flex flex-col gap-4 my-8">
-	<div class="flex flex-col gap-1">
-		<div class="text-primary text-xs">
-			Add members to your workspace and manage their roles. You can also auto-add users to join your
-			workspace.
-			<a
-				href="https://www.windmill.dev/docs/core_concepts/roles_and_permissions"
-				target="_blank"
-				class="text-blue-500">Learn more</a
-			>.
-		</div>
-	</div>
-</div>
 
-<Section
-	label="Members {(filteredUsers?.length ?? users?.length) != undefined
+<SettingsPageHeader
+	title="Members {(filteredUsers?.length ?? users?.length) != undefined
 		? `(${filteredUsers?.length ?? users?.length})`
 		: ''}"
-	tooltip="Manage users manually or enable SSO authentication."
-	documentationLink="https://www.windmill.dev/docs/core_concepts/authentification"
->
+	description="Add members to your workspace and manage their roles. You can also auto-add users to join your workspace."
+	link="https://www.windmill.dev/docs/core_concepts/roles_and_permissions"
+/>
+
+<Section>
 	{#snippet action()}
-		<div class="flex flex-row items-center gap-2 relative whitespace-nowrap">
-			<input placeholder="Filter members" bind:value={userFilter} class="input !pl-8" />
+		<div class="flex flex-row items-center gap-2 relative whitespace-nowrap w-full">
+			<input placeholder="Filter members" bind:value={userFilter} class="input !pl-8 !w-56" />
 			<Search class="absolute left-2" size={14} />
 
 			<Popover
@@ -775,7 +767,7 @@
 				</Cell>
 			</tr>
 		</Head>
-		<tbody class="divide-y bg-surface">
+		<tbody>
 			{#if filteredUsers}
 				{#each sortedUsers().slice(0, nbDisplayed) as user, index (user.email)}
 					{@const { email, username, is_admin, operator, disabled, added_via } = user}
@@ -783,11 +775,11 @@
 					{#if hasNonManualUsers && index > 0 && sortedUsers()[index - 1]?.added_via?.source !== 'instance_group' && added_via?.source === 'instance_group'}
 						<tr class="bg-surface-secondary">
 							<td colspan={hasNonManualUsers ? 8 : 7} class="px-4 py-2">
-								<div class="text-xs text-primary font-bold"> Instance group users </div>
+								<div class="text-xs text-emphasis font-semibold"> Instance group users </div>
 							</td>
 						</tr>
 					{/if}
-					<tr class="!hover:bg-surface-hover">
+					<tr class={index % 2 === 0 ? 'bg-surface-tertiary' : 'bg-surface'}>
 						<Cell first><a href="mailto:{email}">{truncate(email, 20)}</a></Cell>
 						<Cell>{truncate(username, 30)}</Cell>
 						{#if hasNonManualUsers}

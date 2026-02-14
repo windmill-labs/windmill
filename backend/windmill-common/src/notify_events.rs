@@ -51,7 +51,10 @@ pub async fn get_latest_event_id(db: &Pool<Postgres>) -> Result<i64, Error> {
 
 /// Delete events older than the specified number of minutes.
 /// Returns the number of deleted rows.
-pub async fn cleanup_old_events(db: &Pool<Postgres>, older_than_minutes: i32) -> Result<u64, Error> {
+pub async fn cleanup_old_events(
+    db: &Pool<Postgres>,
+    older_than_minutes: i32,
+) -> Result<u64, Error> {
     let result = sqlx::query(
         "DELETE FROM notify_event WHERE created_at < now() - make_interval(mins => $1)",
     )

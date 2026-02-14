@@ -31,23 +31,21 @@ use windmill_common::more_serde::maybe_number_opt;
 use windmill_common::oauth2::*;
 use windmill_common::utils::now_from_db;
 use windmill_common::variables::{build_crypt, encrypt};
+use windmill_common::BASE_URL;
 
 pub type DB = sqlx::Pool<sqlx::Postgres>;
 
 // Re-export oauth2 types that consumers need (also used internally)
 pub use oauth2::{
-    AccessToken, AuthType, Client as OClient, RefreshToken, Scope, State, Url,
-    helpers,
+    helpers, AccessToken, AuthType, Client as OClient, RefreshToken, Scope, State, Url,
 };
 
 // Re-export reqwest Client (version 0.12 compatible with async-oauth2)
 pub use reqwest::Client as HttpClient;
 
-lazy_static::lazy_static! {
-    pub static ref BASE_URL: Arc<RwLock<String>> = Arc::new(RwLock::new("".to_string()));
-    pub static ref IS_SECURE: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
-    pub static ref COOKIE_DOMAIN: Option<String> = std::env::var("COOKIE_DOMAIN").ok();
+pub use windmill_common::utils::{COOKIE_DOMAIN, IS_SECURE};
 
+lazy_static::lazy_static! {
     /// HTTP client for OAuth operations (reqwest 0.12, compatible with async-oauth2)
     pub static ref OAUTH_HTTP_CLIENT: reqwest::Client = reqwest::ClientBuilder::new()
         .user_agent("windmill/oauth")
@@ -55,6 +53,12 @@ lazy_static::lazy_static! {
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .expect("Failed to create OAuth HTTP client");
+
+    pub static ref OAUTH_CLIENTS: Arc<RwLock<AllClients>> = Arc::new(RwLock::new(AllClients {
+        logins: HashMap::new(),
+        connects: HashMap::new(),
+        slack: None
+    }));
 }
 
 /// OAuth client with associated scopes and configuration
@@ -221,10 +225,7 @@ pub async fn build_oauth_clients(
         .collect()
     };
 
-    tracing::info!(
-        "OAuth loaded clients: {}",
-        oauths.keys().join(", ")
-    );
+    tracing::info!("OAuth loaded clients: {}", oauths.keys().join(", "));
 
     let logins = login_configs
         .into_iter()
@@ -446,9 +447,7 @@ pub async fn build_client_credentials_oauth_client(
     } else {
         let static_configs =
             serde_json::from_str::<HashMap<String, OAuthConfig>>(connect_configs_json).map_err(
-                |e| {
-                    error::Error::InternalErr(format!("Failed to parse oauth_connect.json: {}", e))
-                },
+                |e| error::Error::InternalErr(format!("Failed to parse oauth_connect.json: {}", e)),
             )?;
 
         static_configs.get(client_name).cloned().ok_or_else(|| {
@@ -532,14 +531,12 @@ pub async fn exchange_token(
     http_client: &reqwest::Client,
 ) -> Result<TokenResponse, Error> {
     let token_json = match grant_type {
-        "authorization_code" => {
-            client
-                .exchange_refresh_token(&RefreshToken::from(refresh_token))
-                .with_client(http_client)
-                .execute::<serde_json::Value>()
-                .await
-                .map_err(to_anyhow)?
-        }
+        "authorization_code" => client
+            .exchange_refresh_token(&RefreshToken::from(refresh_token))
+            .with_client(http_client)
+            .execute::<serde_json::Value>()
+            .await
+            .map_err(to_anyhow)?,
         "client_credentials" => {
             let mut token_request = client.exchange_client_credentials();
 
@@ -557,14 +554,12 @@ pub async fn exchange_token(
                 .await
                 .map_err(to_anyhow)?
         }
-        "" | _ if grant_type.is_empty() => {
-            client
-                .exchange_refresh_token(&RefreshToken::from(refresh_token))
-                .with_client(http_client)
-                .execute::<serde_json::Value>()
-                .await
-                .map_err(to_anyhow)?
-        }
+        "" | _ if grant_type.is_empty() => client
+            .exchange_refresh_token(&RefreshToken::from(refresh_token))
+            .with_client(http_client)
+            .execute::<serde_json::Value>()
+            .await
+            .map_err(to_anyhow)?,
         _ => {
             return Err(Error::BadRequest(format!(
                 "Unsupported grant type: {}",
@@ -829,11 +824,9 @@ pub async fn http_get_user_info<T: DeserializeOwned>(
             res.text().await.unwrap_or_default(),
         )));
     }
-    Ok(res
-        .json::<T>()
-        .await
-        .map_err(to_anyhow)
-        .map_err(|e| error::Error::InternalErr(format!("failed to decode json from user info: {}", e)))?)
+    Ok(res.json::<T>().await.map_err(to_anyhow).map_err(|e| {
+        error::Error::InternalErr(format!("failed to decode json from user info: {}", e))
+    })?)
 }
 
 /// GitHub email info response

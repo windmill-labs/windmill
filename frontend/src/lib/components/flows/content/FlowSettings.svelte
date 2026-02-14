@@ -8,7 +8,7 @@
 	import { Alert, Button, SecondsInput } from '$lib/components/common'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
-	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
@@ -211,9 +211,7 @@
 						{#if flowStore.val.value.cache_ttl}
 							<div class="flex gap-x-4 flex-col gap-1 mt-2" transition:slide={{ duration: 120 }}>
 								<div class="text-2xs text-secondary">How long to keep the cache valid</div>
-								<div class="-mt-5">
-									<SecondsInput bind:seconds={flowStore.val.value.cache_ttl} />
-								</div>
+								<SecondsInput bind:seconds={flowStore.val.value.cache_ttl} />
 								<Toggle
 									size="2xs"
 									bind:checked={
@@ -556,9 +554,8 @@
 					{#if flowStore.val.dedicated_worker}
 						<div class="mt-2">
 							<Alert type="info" title="Require dedicated workers">
-								One worker in a worker group needs to be configured with dedicated worker set to: <pre
-									>{$workspaceStore}:flow/{$pathStore}</pre
-								>
+								A worker group needs to be configured to listen to this flow. Select it in the dedicated
+								workers section of the worker group configuration.
 							</Alert>
 						</div>
 					{/if}

@@ -398,6 +398,8 @@ async function whoami(_opts: GlobalOptions) {
 }
 
 async function listRemote(_opts: GlobalOptions) {
+  const { resolveWorkspace } = await import("../../core/context.ts");
+  const workspace = await resolveWorkspace(_opts);
   await requireLogin(_opts);
   const userWorkspaces = await wmill.listUserWorkspaces();
 
@@ -415,6 +417,7 @@ async function listRemote(_opts: GlobalOptions) {
     )
     .render();
 
+  log.info(`Remote: ${colors.bold(workspace.remote)}`);
   log.info(`Logged in as: ${colors.green.bold(userWorkspaces.email)}`);
 }
 
@@ -541,6 +544,9 @@ const command = new Command()
   .description("Show the currently active user")
   .action(whoami as any)
   .command("list")
+  .description("List local workspace profiles")
+  .action(list as any)
+  .command("list-remote")
   .description("List workspaces on the remote server that you have access to")
   .action(listRemote as any)
   .command("bind")

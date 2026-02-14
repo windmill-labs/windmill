@@ -27,7 +27,7 @@ use crate::{
         read_file_content, start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
-    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, POWERSHELL_CACHE_DIR,
+    is_sandboxing_enabled, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, POWERSHELL_CACHE_DIR,
     POWERSHELL_PATH, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL, PROXY_ENVS, TZ_ENV,
 };
 
@@ -501,7 +501,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         })
         .unwrap_or(true);
 
-    let nsjail = !*DISABLE_NSJAIL && is_regular_job;
+    let nsjail = is_sandboxing_enabled() && is_regular_job;
     let child = if nsjail {
         let _ = write_file(
             job_dir,
@@ -617,7 +617,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         mem_peak,
         canceled_by,
         child,
-        !*DISABLE_NSJAIL,
+        is_sandboxing_enabled(),
         worker_name,
         &job.workspace_id,
         "powershell run",

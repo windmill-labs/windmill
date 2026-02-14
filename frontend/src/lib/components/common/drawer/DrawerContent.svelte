@@ -86,7 +86,7 @@
 	<div
 		class={classNames(
 			noPadding ? '' : 'p-4',
-			'grow h-full max-h-full',
+			'grow min-h-0 max-h-full',
 			forceOverflowVisible ? '!overflow-visible' : ''
 		)}
 		class:overflow-y-auto={overflow_y}

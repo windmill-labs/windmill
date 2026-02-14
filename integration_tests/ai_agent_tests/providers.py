@@ -9,7 +9,10 @@ Resources created:
 - u/admin/anthropic (anthropic type)
 - u/admin/googleai (googleai type)
 - u/admin/openrouter (openrouter type)
-- u/admin/bedrock (aws_bedrock type)
+- u/admin/bedrock (aws_bedrock type, api key auth)
+- u/admin/bedrock_iam (aws_bedrock type, IAM keys auth)
+- u/admin/bedrock_env (aws_bedrock type, environment auth)
+- u/admin/bedrock_iam_session (aws_bedrock type, IAM session auth)
 """
 
 from typing import Any
@@ -75,6 +78,42 @@ BEDROCK = {
         kind="aws_bedrock",
         model="global.anthropic.claude-haiku-4-5-20251001-v1:0",
         resource_path="u/admin/bedrock",
+    ),
+}
+
+BEDROCK_API_KEY = {
+    "name": "bedrock_api_key",
+    "input_transform": make_provider_input_transform(
+        kind="aws_bedrock",
+        model="global.anthropic.claude-haiku-4-5-20251001-v1:0",
+        resource_path="u/admin/bedrock",
+    ),
+}
+
+BEDROCK_IAM = {
+    "name": "bedrock_iam",
+    "input_transform": make_provider_input_transform(
+        kind="aws_bedrock",
+        model="global.anthropic.claude-haiku-4-5-20251001-v1:0",
+        resource_path="u/admin/bedrock_iam",
+    ),
+}
+
+BEDROCK_ENV = {
+    "name": "bedrock_env",
+    "input_transform": make_provider_input_transform(
+        kind="aws_bedrock",
+        model="global.anthropic.claude-haiku-4-5-20251001-v1:0",
+        resource_path="u/admin/bedrock_env",
+    ),
+}
+
+BEDROCK_IAM_SESSION = {
+    "name": "bedrock_iam_session",
+    "input_transform": make_provider_input_transform(
+        kind="aws_bedrock",
+        model="global.anthropic.claude-haiku-4-5-20251001-v1:0",
+        resource_path="u/admin/bedrock_iam_session",
     ),
 }
 
