@@ -342,7 +342,7 @@ pub async fn install_bun_lockfile(
 ) -> Result<()> {
     let mut child_cmd = Command::new(if npm_mode { &*NPM_PATH } else { &*BUN_PATH });
 
-    let mut args = vec!["install", "--save-text-lockfile"];
+    let mut args = vec!["install", "--save-text-lockfile", "--linker", "hoisted"];
 
     let no_cache = !npm_mode && *BUN_NO_CACHE;
 
