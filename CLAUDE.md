@@ -27,6 +27,7 @@ When implementing new features in Windmill, follow these best practices:
 - **Default login**: `admin@windmill.dev` / `changeme`
 - **Instance settings**: navigate to http://localhost:3000/user/instance_settings
 
+
 ## Code Validation (MUST DO)
 
 After making code changes, you MUST run the appropriate checks and fix all errors before considering the work done:
