@@ -1,1 +1,0 @@
-[     455ms] [WARNING] Avoid using `history.pushState(...)` and `history.replaceState(...)` as these will conflict with SvelteKit's router. Use the `pushState` and `replaceState` imports from `$app/navigation` instead. @ http://localhost:3000/node_modules/@sveltejs/kit/src/runtime/client/client.js?v=04afb17d:3207

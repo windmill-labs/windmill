@@ -1,3 +1,0 @@
-[     643ms] [WARNING] Avoid using `history.pushState(...)` and `history.replaceState(...)` as these will conflict with SvelteKit's router. Use the `pushState` and `replaceState` imports from `$app/navigation` instead. @ http://localhost:3000/node_modules/@sveltejs/kit/src/runtime/client/client.js?v=04afb17d:3207
-[    2829ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3000/api/w/test/native_triggers/integrations/nextcloud/exists:0
-[    2830ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3000/api/w/test/native_triggers/integrations/nextcloud/exists:0
