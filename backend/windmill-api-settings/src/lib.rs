@@ -22,13 +22,10 @@ use ee_oss::validate_license_key;
 use windmill_common::usernames::generate_instance_username_for_all_users;
 
 use axum::{
-    extract::{Extension, Path},
+    extract::{Extension, Path, Query},
     routing::{get, post},
     Json, Router,
 };
-
-#[cfg(feature = "enterprise")]
-use axum::extract::Query;
 use serde_json::json;
 
 use serde::{Deserialize, Serialize};
@@ -494,9 +491,16 @@ async fn get_instance_config(
     Ok(Json(config))
 }
 
+#[derive(Deserialize)]
+struct SetInstanceConfigQuery {
+    #[serde(default)]
+    skip_worker_configs: Option<bool>,
+}
+
 async fn set_instance_config(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
+    Query(query): Query<SetInstanceConfigQuery>,
     Json(desired): Json<InstanceConfig>,
 ) -> error::Result<()> {
     require_super_admin(&db, &authed.email).await?;
@@ -505,48 +509,48 @@ async fn set_instance_config(
         .await
         .map_err(|e| error::Error::internal_err(e.to_string()))?;
 
-    // Diff global settings (Merge mode: never delete absent keys from UI)
     let current_map = current.global_settings.to_settings_map();
     let desired_map = desired.global_settings.to_settings_map();
     let settings_diff =
         instance_config::diff_global_settings(&current_map, &desired_map, ApplyMode::Merge);
 
-    // Run pre-write hooks for changed settings
     for (key, value) in &settings_diff.upserts {
         run_setting_pre_write_hook(&db, key, value).await?;
     }
 
-    // Apply global settings diff
     instance_config::apply_settings_diff(&db, &settings_diff)
         .await
         .map_err(|e| error::Error::internal_err(e.to_string()))?;
 
-    // Diff and apply worker configs (Merge mode)
-    let current_wc: std::collections::BTreeMap<String, serde_json::Value> = current
-        .worker_configs
-        .iter()
-        .map(|(k, v)| {
-            (
-                k.clone(),
-                serde_json::to_value(v).expect("WorkerGroupConfig serialization cannot fail"),
-            )
-        })
-        .collect();
-    let desired_wc: std::collections::BTreeMap<String, serde_json::Value> = desired
-        .worker_configs
-        .iter()
-        .map(|(k, v)| {
-            (
-                k.clone(),
-                serde_json::to_value(v).expect("WorkerGroupConfig serialization cannot fail"),
-            )
-        })
-        .collect();
-    let configs_diff =
-        instance_config::diff_worker_configs(&current_wc, &desired_wc, ApplyMode::Merge);
-    instance_config::apply_configs_diff(&db, &configs_diff)
-        .await
-        .map_err(|e| error::Error::internal_err(e.to_string()))?;
+    if !query.skip_worker_configs.unwrap_or(false) {
+        let current_wc: std::collections::BTreeMap<String, serde_json::Value> = current
+            .worker_configs
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.clone(),
+                    serde_json::to_value(v)
+                        .expect("WorkerGroupConfig serialization cannot fail"),
+                )
+            })
+            .collect();
+        let desired_wc: std::collections::BTreeMap<String, serde_json::Value> = desired
+            .worker_configs
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.clone(),
+                    serde_json::to_value(v)
+                        .expect("WorkerGroupConfig serialization cannot fail"),
+                )
+            })
+            .collect();
+        let configs_diff =
+            instance_config::diff_worker_configs(&current_wc, &desired_wc, ApplyMode::Merge);
+        instance_config::apply_configs_diff(&db, &configs_diff)
+            .await
+            .map_err(|e| error::Error::internal_err(e.to_string()))?;
+    }
 
     Ok(())
 }

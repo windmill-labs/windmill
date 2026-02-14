@@ -1501,6 +1501,12 @@ paths:
       operationId: setInstanceConfig
       tags:
         - setting
+      parameters:
+        - name: skip_worker_configs
+          in: query
+          description: if true, ignore worker_configs in the request body
+          schema:
+            type: boolean
       requestBody:
         description: full instance configuration to apply
         required: true

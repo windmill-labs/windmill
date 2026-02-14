@@ -13,6 +13,8 @@ pub enum ResolveError {
     KeyNotFound { secret: String, key: String },
     #[error("value for key '{key}' in Secret '{secret}' is not valid UTF-8")]
     InvalidUtf8 { secret: String, key: String },
+    #[error("environment variable '{var}' not found")]
+    EnvVarNotFound { var: String },
 }
 
 /// Resolve all `StringOrSecretRef` fields in `GlobalSettings` by reading
@@ -65,6 +67,14 @@ async fn resolve_field(
     cache: &mut BTreeMap<String, BTreeMap<String, String>>,
     field: &mut StringOrSecretRef,
 ) -> Result<(), ResolveError> {
+    if let Some(var_name) = field.as_env_ref() {
+        let var_name = var_name.to_string();
+        let value =
+            std::env::var(&var_name).map_err(|_| ResolveError::EnvVarNotFound { var: var_name })?;
+        *field = StringOrSecretRef::Literal(value);
+        return Ok(());
+    }
+
     let secret_ref = match field.as_secret_ref() {
         Some(r) => r.clone(),
         None => return Ok(()),

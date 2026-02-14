@@ -10,10 +10,11 @@ use monitor::{
     load_base_url, load_otel, reload_critical_alerts_on_db_oversize,
     reload_delete_logs_periodically_setting, reload_indexer_config,
     reload_instance_python_version_setting, reload_maven_repos_setting,
-    reload_maven_settings_xml_setting, reload_no_default_maven_setting, reload_nuget_config_setting,
-    reload_powershell_repo_pat_setting, reload_powershell_repo_url_setting,
-    reload_ruby_repos_setting, reload_timeout_wait_result_setting,
-    send_current_log_file_to_object_store, send_logs_to_object_store, WORKERS_NAMES,
+    reload_maven_settings_xml_setting, reload_no_default_maven_setting,
+    reload_nuget_config_setting, reload_powershell_repo_pat_setting,
+    reload_powershell_repo_url_setting, reload_ruby_repos_setting,
+    reload_timeout_wait_result_setting, send_current_log_file_to_object_store,
+    send_logs_to_object_store, WORKERS_NAMES,
 };
 use rand::Rng;
 use sqlx::{Pool, Postgres};
@@ -41,16 +42,16 @@ use windmill_common::{
         CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
         DEFAULT_TAGS_WORKSPACES_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
-        JOB_ISOLATION_SETTING, HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
-        INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING,
-        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING,
+        HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
+        INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING,
+        JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING,
         MAVEN_SETTINGS_XML_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
         NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING,
-        OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, UV_INDEX_STRATEGY_SETTING,
-        POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
+        POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         RUBY_REPOS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING,
-        TIMEOUT_WAIT_RESULT_SETTING,
+        TIMEOUT_WAIT_RESULT_SETTING, UV_INDEX_STRATEGY_SETTING,
     },
     scripts::ScriptLang,
     stats_oss::schedule_stats,
@@ -99,12 +100,11 @@ use crate::monitor::{
     reload_app_workspaced_route_setting, reload_base_url_setting,
     reload_bunfig_install_scopes_setting, reload_critical_alert_mute_ui_setting,
     reload_critical_error_channels_setting, reload_extra_pip_index_url_setting,
-    reload_job_isolation_setting, reload_hub_api_secret_setting, reload_hub_base_url_setting,
-    reload_job_default_timeout_setting, reload_jwt_secret_setting, reload_license_key,
-    reload_npm_config_registry_setting,
-    reload_otel_tracing_proxy_setting, reload_pip_index_url_setting,
-    reload_retention_period_setting, reload_scim_token_setting, reload_smtp_config,
-    reload_uv_index_strategy_setting, reload_worker_config, MonitorIteration,
+    reload_hub_api_secret_setting, reload_hub_base_url_setting, reload_job_default_timeout_setting,
+    reload_job_isolation_setting, reload_jwt_secret_setting, reload_license_key,
+    reload_npm_config_registry_setting, reload_otel_tracing_proxy_setting,
+    reload_pip_index_url_setting, reload_retention_period_setting, reload_scim_token_setting,
+    reload_smtp_config, reload_uv_index_strategy_setting, reload_worker_config, MonitorIteration,
 };
 
 #[cfg(feature = "parquet")]
@@ -484,6 +484,7 @@ fn print_help() {
     println!("  version              Show Windmill version and exit");
     println!("  cache [hubPaths.json]  Pre-cache hub scripts (default: ./hubPaths.json)");
     println!("  cache-rt             Pre-cache hub resource types");
+    println!("  sync-config <file>   Sync instance config from a YAML file to the database");
     println!("  operator             Run the Kubernetes operator (watches WindmillInstance CRDs)");
     println!("  operator crd         Print the WindmillInstance CRD YAML to stdout");
     println!();
@@ -607,6 +608,26 @@ async fn windmill_main() -> anyhow::Result<()> {
         }
         "cache-rt" => {
             cache_hub_resource_types().await?;
+            return Ok(());
+        }
+        "sync-config" => {
+            let path = std::env::args().nth(2).unwrap_or_else(|| {
+                eprintln!("Usage: windmill sync-config <file>");
+                std::process::exit(1);
+            });
+            let contents = tokio::fs::read_to_string(&path)
+                .await
+                .with_context(|| format!("Could not read config file: {path}"))?;
+            let mut config: windmill_common::instance_config::InstanceConfig =
+                serde_yml::from_str(&contents)
+                    .with_context(|| format!("Could not parse YAML from: {path}"))?;
+            windmill_common::instance_config::resolve_env_refs(&mut config.global_settings)
+                .map_err(|var| anyhow::anyhow!("environment variable '{var}' not found"))?;
+
+            println!("Connecting to database...");
+            let db = crate::db_connect::initial_connection().await?;
+            config.sync_to_db(&db).await?;
+            println!("Synced instance config from {path}");
             return Ok(());
         }
         #[cfg(feature = "operator")]

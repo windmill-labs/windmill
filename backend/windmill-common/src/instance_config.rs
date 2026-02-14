@@ -23,11 +23,22 @@ pub struct SecretKeyRefWrapper {
     pub secret_key_ref: SecretKeyRef,
 }
 
-/// A string field that can either be a literal value or a reference to a
-/// Kubernetes Secret key. Uses `#[serde(untagged)]` so that in YAML/JSON:
+/// Reference to an environment variable.
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
+pub struct EnvRefWrapper {
+    #[serde(rename = "envRef")]
+    pub env_ref: String,
+}
+
+/// A string field that can be a literal value, a reference to a Kubernetes
+/// Secret key, or a reference to an environment variable.
+///
+/// Uses `#[serde(untagged)]` so that in YAML/JSON:
 ///
 /// - A plain string deserializes as `Literal("…")`
 /// - An object `{ secretKeyRef: { name, key } }` deserializes as `SecretRef(…)`
+/// - An object `{ envRef: "VAR_NAME" }` deserializes as `EnvRef(…)`
 ///
 /// `Literal` serializes back to a plain JSON string, preserving backwards
 /// compatibility with existing consumers.
@@ -37,23 +48,25 @@ pub struct SecretKeyRefWrapper {
 pub enum StringOrSecretRef {
     Literal(String),
     SecretRef(SecretKeyRefWrapper),
+    EnvRef(EnvRefWrapper),
 }
 
 impl StringOrSecretRef {
-    /// Returns the literal string value, or `None` if this is an unresolved secret ref.
+    /// Returns the literal string value, or `None` if this is an unresolved ref.
     pub fn as_literal(&self) -> Option<&str> {
         match self {
             Self::Literal(s) => Some(s),
-            Self::SecretRef(_) => None,
+            Self::SecretRef(_) | Self::EnvRef(_) => None,
         }
     }
 
-    /// Returns the literal value, panicking if this is an unresolved secret ref.
+    /// Returns the literal value, panicking if this is an unresolved ref.
     /// Use only after resolution.
     pub fn literal_value(&self) -> &str {
         match self {
             Self::Literal(s) => s,
             Self::SecretRef(_) => panic!("literal_value() called on unresolved secret ref"),
+            Self::EnvRef(_) => panic!("literal_value() called on unresolved env ref"),
         }
     }
 
@@ -66,7 +79,20 @@ impl StringOrSecretRef {
     pub fn as_secret_ref(&self) -> Option<&SecretKeyRef> {
         match self {
             Self::SecretRef(w) => Some(&w.secret_key_ref),
-            Self::Literal(_) => None,
+            _ => None,
+        }
+    }
+
+    /// Returns `true` if this is an environment variable reference.
+    pub fn is_env_ref(&self) -> bool {
+        matches!(self, Self::EnvRef(_))
+    }
+
+    /// Returns the env var name if this is an env ref.
+    pub fn as_env_ref(&self) -> Option<&str> {
+        match self {
+            Self::EnvRef(w) => Some(&w.env_ref),
+            _ => None,
         }
     }
 }
@@ -100,6 +126,7 @@ impl PartialEq<StringOrSecretRef> for StringOrSecretRef {
         match (self, other) {
             (Self::Literal(a), Self::Literal(b)) => a == b,
             (Self::SecretRef(a), Self::SecretRef(b)) => a == b,
+            (Self::EnvRef(a), Self::EnvRef(b)) => a == b,
             _ => false,
         }
     }
@@ -114,6 +141,7 @@ impl fmt::Display for StringOrSecretRef {
                 "secretKeyRef({}/{})",
                 w.secret_key_ref.name, w.secret_key_ref.key
             ),
+            Self::EnvRef(w) => write!(f, "envRef({})", w.env_ref),
         }
     }
 }
@@ -796,6 +824,51 @@ pub async fn apply_configs_diff(
 }
 
 // ---------------------------------------------------------------------------
+// Env ref resolution
+// ---------------------------------------------------------------------------
+
+fn resolve_env_field(field: &mut StringOrSecretRef) -> Result<(), String> {
+    if let Some(var_name) = field.as_env_ref() {
+        let var_name = var_name.to_string();
+        let value = std::env::var(&var_name).map_err(|_| var_name)?;
+        *field = StringOrSecretRef::Literal(value);
+    }
+    Ok(())
+}
+
+fn resolve_env_option(field: &mut Option<StringOrSecretRef>) -> Result<(), String> {
+    if let Some(val) = field {
+        resolve_env_field(val)?;
+    }
+    Ok(())
+}
+
+/// Resolve all `EnvRef` fields in `GlobalSettings` by reading the
+/// corresponding environment variables. Each resolved `EnvRef` is replaced
+/// with a `Literal`. Returns `Err(var_name)` if a referenced env var is not set.
+pub fn resolve_env_refs(settings: &mut GlobalSettings) -> Result<(), String> {
+    resolve_env_option(&mut settings.license_key)?;
+    resolve_env_option(&mut settings.hub_api_secret)?;
+    resolve_env_option(&mut settings.scim_token)?;
+
+    if let Some(smtp) = &mut settings.smtp_settings {
+        resolve_env_option(&mut smtp.smtp_password)?;
+    }
+
+    if let Some(oauths) = &mut settings.oauths {
+        for oauth in oauths.values_mut() {
+            resolve_env_field(&mut oauth.secret)?;
+        }
+    }
+
+    if let Some(pg) = &mut settings.custom_instance_pg_databases {
+        resolve_env_option(&mut pg.user_pwd)?;
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Read from DB
 // ---------------------------------------------------------------------------
 
@@ -829,6 +902,55 @@ impl InstanceConfig {
             .collect();
 
         Ok(Self { global_settings, worker_configs })
+    }
+
+    /// Sync this config to the database using `ApplyMode::Replace`.
+    ///
+    /// Reads the current state, computes a diff, then applies upserts and
+    /// deletes for both global settings and worker configs.
+    pub async fn sync_to_db(&self, db: &sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
+        let desired_settings = self.global_settings.to_settings_map();
+
+        // Current global settings
+        let rows: Vec<(String, serde_json::Value)> =
+            sqlx::query_as("SELECT name, value FROM global_settings")
+                .fetch_all(db)
+                .await?;
+        let current_settings: BTreeMap<String, serde_json::Value> = rows.into_iter().collect();
+
+        let settings_diff =
+            diff_global_settings(&current_settings, &desired_settings, ApplyMode::Replace);
+        apply_settings_diff(db, &settings_diff).await?;
+
+        // Worker configs
+        let desired_configs: BTreeMap<String, serde_json::Value> = self
+            .worker_configs
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.clone(),
+                    serde_json::to_value(v).expect("WorkerGroupConfig serialization cannot fail"),
+                )
+            })
+            .collect();
+
+        let config_rows: Vec<(String, serde_json::Value)> =
+            sqlx::query_as("SELECT name, config FROM config WHERE name LIKE 'worker__%'")
+                .fetch_all(db)
+                .await?;
+        let current_configs: BTreeMap<String, serde_json::Value> = config_rows
+            .into_iter()
+            .map(|(name, config)| {
+                let group = name.strip_prefix("worker__").unwrap_or(&name).to_string();
+                (group, config)
+            })
+            .collect();
+
+        let configs_diff =
+            diff_worker_configs(&current_configs, &desired_configs, ApplyMode::Replace);
+        apply_configs_diff(db, &configs_diff).await?;
+
+        Ok(())
     }
 }
 
@@ -1613,6 +1735,179 @@ mod tests {
         assert_eq!(
             gs2.license_key.as_ref().and_then(|v| v.as_literal()),
             Some("my-key")
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // EnvRef tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn env_ref_deserialize() {
+        let json = r#"{"envRef": "MY_LICENSE_KEY"}"#;
+        let v: StringOrSecretRef = serde_json::from_str(json).unwrap();
+        assert!(v.is_env_ref());
+        assert!(!v.is_secret_ref());
+        assert!(v.as_literal().is_none());
+        assert_eq!(v.as_env_ref(), Some("MY_LICENSE_KEY"));
+    }
+
+    #[test]
+    fn env_ref_serialize() {
+        let v = StringOrSecretRef::EnvRef(EnvRefWrapper { env_ref: "MY_VAR".to_string() });
+        let json = serde_json::to_value(&v).unwrap();
+        assert_eq!(json, serde_json::json!({"envRef": "MY_VAR"}));
+    }
+
+    #[test]
+    fn env_ref_display() {
+        let v = StringOrSecretRef::EnvRef(EnvRefWrapper { env_ref: "FOO".to_string() });
+        assert_eq!(format!("{v}"), "envRef(FOO)");
+    }
+
+    #[test]
+    #[should_panic(expected = "literal_value() called on unresolved env ref")]
+    fn env_ref_literal_value_panics() {
+        let v = StringOrSecretRef::EnvRef(EnvRefWrapper { env_ref: "X".to_string() });
+        let _ = v.literal_value();
+    }
+
+    #[test]
+    fn env_ref_equality() {
+        let a = StringOrSecretRef::EnvRef(EnvRefWrapper { env_ref: "X".to_string() });
+        let b = StringOrSecretRef::EnvRef(EnvRefWrapper { env_ref: "X".to_string() });
+        let c = StringOrSecretRef::Literal("X".to_string());
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn global_settings_with_env_ref() {
+        let json = r#"{
+            "license_key": {"envRef": "WM_LICENSE_KEY"},
+            "hub_api_secret": "plain",
+            "base_url": "https://example.com"
+        }"#;
+        let gs: GlobalSettings = serde_json::from_str(json).unwrap();
+        assert!(gs.license_key.as_ref().unwrap().is_env_ref());
+        assert_eq!(
+            gs.license_key.as_ref().unwrap().as_env_ref(),
+            Some("WM_LICENSE_KEY")
+        );
+        assert_eq!(
+            gs.hub_api_secret.as_ref().and_then(|v| v.as_literal()),
+            Some("plain")
+        );
+    }
+
+    #[test]
+    fn resolve_env_refs_replaces_env_ref() {
+        // Set a test env var
+        unsafe { std::env::set_var("__WM_TEST_LICENSE", "resolved-value") };
+
+        let mut gs = GlobalSettings {
+            license_key: Some(StringOrSecretRef::EnvRef(EnvRefWrapper {
+                env_ref: "__WM_TEST_LICENSE".to_string(),
+            })),
+            hub_api_secret: Some(StringOrSecretRef::Literal("plain".to_string())),
+            ..Default::default()
+        };
+
+        resolve_env_refs(&mut gs).unwrap();
+        assert_eq!(
+            gs.license_key.as_ref().and_then(|v| v.as_literal()),
+            Some("resolved-value")
+        );
+        // Literal fields are unchanged
+        assert_eq!(
+            gs.hub_api_secret.as_ref().and_then(|v| v.as_literal()),
+            Some("plain")
+        );
+
+        unsafe { std::env::remove_var("__WM_TEST_LICENSE") };
+    }
+
+    #[test]
+    fn resolve_env_refs_errors_on_missing_var() {
+        let mut gs = GlobalSettings {
+            license_key: Some(StringOrSecretRef::EnvRef(EnvRefWrapper {
+                env_ref: "__WM_TEST_NONEXISTENT_12345".to_string(),
+            })),
+            ..Default::default()
+        };
+
+        let err = resolve_env_refs(&mut gs).unwrap_err();
+        assert_eq!(err, "__WM_TEST_NONEXISTENT_12345");
+    }
+
+    #[test]
+    fn resolve_env_refs_handles_smtp_and_oauth() {
+        unsafe {
+            std::env::set_var("__WM_TEST_SMTP_PWD", "smtp-secret");
+            std::env::set_var("__WM_TEST_OAUTH_SECRET", "oauth-secret");
+        }
+
+        let mut gs = GlobalSettings {
+            smtp_settings: Some(SmtpSettings {
+                smtp_password: Some(StringOrSecretRef::EnvRef(EnvRefWrapper {
+                    env_ref: "__WM_TEST_SMTP_PWD".to_string(),
+                })),
+                ..Default::default()
+            }),
+            oauths: Some({
+                let mut m = BTreeMap::new();
+                m.insert(
+                    "google".to_string(),
+                    OAuthClient {
+                        id: "id".to_string(),
+                        secret: StringOrSecretRef::EnvRef(EnvRefWrapper {
+                            env_ref: "__WM_TEST_OAUTH_SECRET".to_string(),
+                        }),
+                        allowed_domains: None,
+                        connect_config: None,
+                        login_config: None,
+                    },
+                );
+                m
+            }),
+            ..Default::default()
+        };
+
+        resolve_env_refs(&mut gs).unwrap();
+
+        assert_eq!(
+            gs.smtp_settings
+                .as_ref()
+                .unwrap()
+                .smtp_password
+                .as_ref()
+                .and_then(|v| v.as_literal()),
+            Some("smtp-secret")
+        );
+        assert_eq!(
+            gs.oauths.as_ref().unwrap()["google"].secret.as_literal(),
+            Some("oauth-secret")
+        );
+
+        unsafe {
+            std::env::remove_var("__WM_TEST_SMTP_PWD");
+            std::env::remove_var("__WM_TEST_OAUTH_SECRET");
+        }
+    }
+
+    #[test]
+    fn mixed_literal_secret_ref_env_ref() {
+        let json = r#"{
+            "license_key": {"envRef": "MY_LIC"},
+            "hub_api_secret": {"secretKeyRef": {"name": "s", "key": "k"}},
+            "scim_token": "plain-token"
+        }"#;
+        let gs: GlobalSettings = serde_json::from_str(json).unwrap();
+        assert!(gs.license_key.as_ref().unwrap().is_env_ref());
+        assert!(gs.hub_api_secret.as_ref().unwrap().is_secret_ref());
+        assert_eq!(
+            gs.scim_token.as_ref().and_then(|v| v.as_literal()),
+            Some("plain-token")
         );
     }
 }

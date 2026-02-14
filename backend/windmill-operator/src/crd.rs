@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 pub use windmill_common::instance_config::{
     AutoscalingConfig, AutoscalingIntegration, CriticalErrorChannel, CustomInstanceDb,
     CustomInstanceDbLogs, CustomInstancePgDatabases, DbOversizeAlert, Ducklake, DucklakeCatalog,
-    DucklakeCatalogResourceType, DucklakeSettings, DucklakeStorage, GlobalSettings,
+    DucklakeCatalogResourceType, DucklakeSettings, DucklakeStorage, EnvRefWrapper, GlobalSettings,
     IndexerSettings, OAuthClient, OAuthConfig, OtelSettings, OtelTracingProxySettings, ScriptLang,
     SecretKeyRef, SecretKeyRefWrapper, SmtpSettings, StringOrSecretRef, TeamsChannel,
     WorkerGroupConfig,

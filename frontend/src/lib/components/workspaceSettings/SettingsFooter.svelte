@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '../common'
-	import { Save, X, CheckCircle2, AlertCircle, Loader2, FileDiff } from 'lucide-svelte'
+	import { Save, X, CheckCircle2, AlertCircle, Loader2 } from 'lucide-svelte'
 	import { fade, fly } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
 
@@ -8,8 +8,6 @@
 		hasUnsavedChanges = false,
 		onSave,
 		onDiscard,
-		onShowDiff,
-		diffOpen = false,
 		saveLabel = 'Save settings',
 		disabled = false,
 		inline = false,
@@ -18,8 +16,6 @@
 		hasUnsavedChanges?: boolean
 		onSave: () => void | Promise<void>
 		onDiscard: () => void
-		onShowDiff?: () => void
-		diffOpen?: boolean
 		saveLabel?: string
 		disabled?: boolean
 		inline?: boolean
@@ -88,19 +84,6 @@
 						disabled={isSaving}
 					>
 						Discard changes
-					</Button>
-				</div>
-			{/if}
-
-			{#if onShowDiff && hasUnsavedChanges}
-				<div transition:fade={{ duration: 150 }}>
-					<Button
-						variant="default"
-						size="sm"
-						startIcon={{ icon: FileDiff }}
-						onClick={onShowDiff}
-					>
-						{diffOpen ? 'Hide diff' : 'Show diff'}
 					</Button>
 				</div>
 			{/if}

@@ -30,6 +30,8 @@
 		onNavigateToTab?: (category: string) => void
 		quickSetup?: boolean
 		yamlMode?: boolean
+		diffMode?: boolean
+		hasUnsavedChanges?: boolean
 	}
 
 	let {
@@ -39,15 +41,17 @@
 		authSubTab = $bindable('sso'),
 		onNavigateToTab,
 		quickSetup = false,
-		yamlMode = $bindable(false)
+		yamlMode = $bindable(false),
+		diffMode = $bindable(false),
+		hasUnsavedChanges = $bindable(false)
 	}: Props = $props()
 
 	let values: Writable<Record<string, any>> = writable({})
-	let initialOauths: Record<string, any> = {}
-	let initialRequirePreexistingUserForOauth: boolean = false
+	let initialOauths: Record<string, any> = $state({})
+	let initialRequirePreexistingUserForOauth: boolean = $state(false)
 	let requirePreexistingUserForOauth: boolean = $state(false)
 
-	let initialValues: Record<string, any> = {}
+	let initialValues: Record<string, any> = $state({})
 	let snowflakeAccountIdentifier = $state('')
 	let version: string = $state('')
 	let loading = $state(true)
@@ -62,6 +66,22 @@
 	}
 	let oauths: Record<string, any> = $state({})
 
+	/** Ensure object/array-typed settings have a non-null default for the form UI */
+	const formDefaults: Record<string, any> = {
+		smtp_settings: {},
+		otel: {},
+		indexer_settings: {},
+		critical_error_channels: []
+	}
+
+	function applyFormDefaults(vals: Record<string, any>): void {
+		for (const [key, defaultVal] of Object.entries(formDefaults)) {
+			if (vals[key] == undefined) {
+				vals[key] = typeof defaultVal === 'object' ? JSON.parse(JSON.stringify(defaultVal)) : defaultVal
+			}
+		}
+	}
+
 	async function loadSettings() {
 		loading = true
 
@@ -74,34 +94,18 @@
 		initialRequirePreexistingUserForOauth = requirePreexistingUserForOauth
 		oauths = JSON.parse(JSON.stringify(initialOauths))
 
-		// Build initialValues from the bulk response, keyed by setting name
-		initialValues = {}
-		for (const [key, value] of Object.entries(gs)) {
-			initialValues[key] = value
-		}
+		let nvalues: Record<string, any> = { ...gs }
 
-		let nvalues = JSON.parse(JSON.stringify(initialValues))
 		if (!nvalues['base_url']) {
 			nvalues['base_url'] = window.location.origin
 		}
 		if (nvalues['retention_period_secs'] == undefined) {
 			nvalues['retention_period_secs'] = 60 * 60 * 24 * 30
 		}
-		if (nvalues['smtp_settings'] == undefined) {
-			nvalues['smtp_settings'] = {}
-		}
-		if (nvalues['otel'] == undefined) {
-			nvalues['otel'] = {}
-		}
-		if (nvalues['indexer_settings'] == undefined) {
-			nvalues['indexer_settings'] = {}
-		}
-
-		if (nvalues['critical_error_channels'] == undefined) {
-			nvalues['critical_error_channels'] = []
-		}
+		applyFormDefaults(nvalues)
 
 		$values = nvalues
+		initialValues = JSON.parse(JSON.stringify($values))
 		loading = false
 
 		// populate snowflake account identifier from db
@@ -151,16 +155,14 @@
 			}
 
 			// Check which settings require a page reload
-			const allSettings = [...Object.values(settings), scimSamlSetting].flatMap((x) =>
-				Object.entries(x)
-			)
+			const allSettings = [...Object.values(settings), scimSamlSetting].flat()
 			let licenseKeySet = false
-			for (const [_, x] of allSettings) {
-				if (x.storage == 'setting' && !deepEqual(initialValues?.[x.key], $values?.[x.key])) {
-					if (x.key == 'license_key') {
+			for (const s of allSettings) {
+				if (s.storage === 'setting' && !deepEqual(initialValues?.[s.key], $values?.[s.key])) {
+					if (s.key === 'license_key') {
 						licenseKeySet = true
 					}
-					if (x.requiresReloadOnChange) {
+					if (s.requiresReloadOnChange) {
 						shouldReloadPage = true
 					}
 				}
@@ -177,12 +179,9 @@
 				globalSettings['require_preexisting_user_for_oauth'] = requirePreexistingUserForOauth
 			}
 
-			// Single bulk PUT — backend handles the diff
 			await SettingService.setInstanceConfig({
-				requestBody: {
-					global_settings: globalSettings,
-					worker_configs: {}
-				}
+				requestBody: { global_settings: globalSettings },
+				skipWorkerConfigs: true
 			})
 
 			initialValues = JSON.parse(JSON.stringify($values))
@@ -278,10 +277,7 @@
 		}
 	}
 
-	// --- Per-category dirty state tracking ---
-
-	// Trigger to force re-derivation when initialValues changes (after save/load)
-	let dirtyCheckTrigger = $state(0)
+	// --- Dirty state tracking (YAML-based) ---
 
 	function stripEmpty(obj: Record<string, any>): Record<string, any> {
 		return Object.fromEntries(
@@ -319,55 +315,71 @@
 		return base
 	}
 
-	function normalizeValue(value: any): any {
-		if (value === undefined || value === null) {
+	function normalizeValue(value: any, key?: string): any {
+		if (value == null) return undefined
+		if (value === false) return undefined
+		if (typeof value === 'string' && value.trim() === '') return undefined
+		if (Array.isArray(value) && value.length === 0) return undefined
+		if (typeof value === 'object' && Object.keys(value).length === 0) return undefined
+
+		// Key-specific defaults: these values are equivalent to "not set"
+		if (key === 'secret_backend') {
+			if (typeof value === 'object' && value?.type === 'Database' && Object.keys(value).length === 1) {
+				return undefined
+			}
+		}
+		if (key === 'automate_username_creation' && value === true) {
 			return undefined
 		}
-		if (Array.isArray(value) && value.length === 0) {
-			return undefined
-		}
-		if (typeof value === 'object' && Object.keys(value).length === 0) {
-			return undefined
-		}
-		if (typeof value === 'string' && value.trim() === '') {
-			return undefined
-		}
-		if (typeof value == 'boolean' && value === false) {
-			return undefined
+		if (key === 'critical_alerts_on_db_oversize' && typeof value === 'object') {
+			if (!value.enabled && (!value.value || value.value === 0)) {
+				return undefined
+			}
 		}
 
 		return value
 	}
-	function isDirtyValue(key: string, initialValues: any, currentValues: any): boolean {
-		return !deepEqual(normalizeValue(initialValues[key]), normalizeValue(currentValues[key]))
+	function buildCategoryYaml(
+		category: string,
+		vals: Record<string, any>,
+		oauthsObj: Record<string, any>,
+		reqPreexisting: boolean
+	): string {
+		const categorySettings = getSettingsForCategory(category)
+		const obj: Record<string, any> = {}
+		for (const s of categorySettings) {
+			const normalized = normalizeValue(vals[s.key], s.key)
+			if (normalized !== undefined) {
+				obj[s.key] = vals[s.key]
+			}
+		}
+		if (category === 'Auth/OAuth/SAML') {
+			if (Object.keys(stripEmpty(oauthsObj)).length > 0) {
+				obj['oauths'] = oauthsObj
+			}
+			if (reqPreexisting) {
+				obj['require_preexisting_user_for_oauth'] = reqPreexisting
+			}
+		}
+		return YAML.stringify(obj)
 	}
 
 	let dirtyCategories: Record<string, boolean> = $derived.by(() => {
-		void dirtyCheckTrigger
-		const currentValues = $values
 		const result: Record<string, boolean> = {}
 		for (const category of settingsKeys) {
-			if (category === 'Auth/OAuth/SAML') {
-				const scimDirty = scimSamlSetting.some((s) =>
-					isDirtyValue(s.key, initialValues, currentValues)
-				)
-				const oauthsDirty = !deepEqual(stripEmpty(initialOauths), stripEmpty(oauths))
-				const requirePreexistingDirty =
-					initialRequirePreexistingUserForOauth !== requirePreexistingUserForOauth
-				result[category] = scimDirty || oauthsDirty || requirePreexistingDirty
-			} else {
-				const categorySettings = getSettingsForCategory(category)
-				let isDirty = categorySettings.some((s) =>
-					isDirtyValue(s.key, initialValues, currentValues)
-				)
-				let dirtyKey = categorySettings
-					.map((s) => s.key)
-					.find((key) => isDirtyValue(key, initialValues, currentValues))
-				if (dirtyKey) {
-					console.log('isDirty', dirtyKey, initialValues[dirtyKey], currentValues[dirtyKey])
-				}
-				result[category] = isDirty
-			}
+			const initialYaml = buildCategoryYaml(
+				category,
+				initialValues,
+				initialOauths,
+				initialRequirePreexistingUserForOauth
+			)
+			const currentYaml = buildCategoryYaml(
+				category,
+				$values,
+				oauths,
+				requirePreexistingUserForOauth
+			)
+			result[category] = initialYaml !== currentYaml
 		}
 		return result
 	})
@@ -410,6 +422,19 @@
 				const v = initialValues[s.key]
 				$values[s.key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
 			}
+		}
+	}
+
+	export function discardAll() {
+		// Reset all values to initial state (deep copy to avoid reference sharing)
+		$values = JSON.parse(JSON.stringify(initialValues))
+		oauths = JSON.parse(JSON.stringify(initialOauths))
+		requirePreexistingUserForOauth = initialRequirePreexistingUserForOauth
+		const account_identifier =
+			initialOauths?.snowflake_oauth?.connect_config?.extra_params?.account_identifier
+		snowflakeAccountIdentifier = account_identifier ?? ''
+		if (yamlMode) {
+			syncFormToYaml()
 		}
 	}
 
@@ -499,9 +524,6 @@
 
 		if (licenseKeySet) setLicense()
 
-		// Force dirty state re-check
-		dirtyCheckTrigger++
-
 		if (shouldReloadPage) {
 			sendUserToast('Settings updated, reloading page...')
 			await sleep(1000)
@@ -513,6 +535,7 @@
 	}
 
 	let yamlCode = $state('')
+	let yamlCodeInitial = $state('')
 	let yamlEditor: SimpleEditor | undefined = $state(undefined)
 	let yamlError = $state('')
 	let showSensitive = $state(false)
@@ -533,22 +556,47 @@
 		'ducklake_user_pg_pwd'
 	])
 
+	// Nested fields inside object-valued settings that contain secrets.
+	// Each entry maps a top-level key to its sensitive sub-field names.
+	const nestedSensitiveFields: Record<string, string[]> = {
+		smtp_settings: ['smtp_password'],
+		secret_backend: ['token'],
+		object_store_cache_config: ['secret_key', 'serviceAccountKey']
+	}
+
+	/** Returns SENSITIVE_UNCHANGED if the value is non-empty and matches the initial */
+	function maskField(current: any, initial: any): string | undefined {
+		if (current != null && current !== '' && current === initial) return SENSITIVE_UNCHANGED
+		return undefined
+	}
+
 	function maskSensitive(obj: Record<string, any>): Record<string, any> {
 		const masked: Record<string, any> = {}
 		for (const [key, value] of Object.entries(obj)) {
 			if (key === 'oauths' && typeof value === 'object' && value !== null) {
-				// Mask the 'secret' field inside each oauth provider
 				const maskedOauths: Record<string, any> = {}
 				for (const [provider, config] of Object.entries(value as Record<string, any>)) {
 					if (typeof config === 'object' && config !== null && 'secret' in config) {
-						maskedOauths[provider] = { ...config, secret: SENSITIVE_UNCHANGED }
+						const m = maskField(config.secret, initialOauths?.[provider]?.secret)
+						maskedOauths[provider] = m ? { ...config, secret: m } : config
 					} else {
 						maskedOauths[provider] = config
 					}
 				}
 				masked[key] = maskedOauths
+			} else if (key in nestedSensitiveFields && typeof value === 'object' && value !== null) {
+				const cp = { ...value }
+				const init = initialValues?.[key]
+				for (const field of nestedSensitiveFields[key]) {
+					const m = maskField(
+						field === 'serviceAccountKey' ? JSON.stringify(cp[field]) : cp[field],
+						field === 'serviceAccountKey' ? JSON.stringify(init?.[field]) : init?.[field]
+					)
+					if (m) cp[field] = m
+				}
+				masked[key] = cp
 			} else if (sensitiveKeys.has(key) && value != null && value !== '') {
-				masked[key] = SENSITIVE_UNCHANGED
+				masked[key] = value === initialValues?.[key] ? SENSITIVE_UNCHANGED : value
 			} else {
 				masked[key] = value
 			}
@@ -556,37 +604,56 @@
 		return masked
 	}
 
-	function buildYamlObject(): Record<string, any> {
+	/**
+	 * Builds a sorted YAML string of all instance settings.
+	 * - normalize: strip keys whose values match the default (empty/falsy or key-specific defaults)
+	 * - mask: replace sensitive values with placeholder (for display)
+	 */
+	function buildSettingsYaml(
+		vals: Record<string, any>,
+		oauthsObj: Record<string, any>,
+		reqPreexisting: boolean,
+		opts: { normalize?: boolean; mask?: boolean } = {}
+	): string {
 		const obj: Record<string, any> = {}
-		for (const [key, value] of Object.entries($values)) {
-			if (!excludedKeys.has(key)) {
-				obj[key] = value
-			}
+		for (const key of Object.keys(vals).sort()) {
+			if (excludedKeys.has(key)) continue
+			if (opts.normalize && normalizeValue(vals[key], key) === undefined) continue
+			obj[key] = vals[key]
 		}
-		if (oauths && Object.keys(oauths).length > 0) {
-			obj['oauths'] = oauths
+		if (oauthsObj && Object.keys(stripEmpty(oauthsObj)).length > 0) {
+			obj['oauths'] = oauthsObj
 		}
-		if (requirePreexistingUserForOauth) {
-			obj['require_preexisting_user_for_oauth'] = requirePreexistingUserForOauth
+		if (reqPreexisting) {
+			obj['require_preexisting_user_for_oauth'] = reqPreexisting
 		}
-		return showSensitive ? obj : maskSensitive(obj)
+		return YAML.stringify(opts.mask ? maskSensitive(obj) : obj)
 	}
 
 	function syncFormToYaml() {
-		yamlCode = YAML.stringify(buildYamlObject())
+		yamlCode = buildSettingsYaml($values, oauths, requirePreexistingUserForOauth, {
+			normalize: true,
+			mask: !showSensitive
+		})
+		yamlCodeInitial = yamlCode
 		yamlEditor?.setCode(yamlCode)
 		yamlError = ''
 	}
 
 	function syncYamlToForm(): boolean {
 		try {
+			// Flush the editor's current content (bypasses the 200ms debounce in SimpleEditor)
+			const currentCode = yamlEditor?.getCode() ?? yamlCode
+			if (currentCode !== yamlCode) {
+				yamlCode = currentCode
+			}
 			const parsed = YAML.parse(yamlCode)
 			if (typeof parsed !== 'object' || parsed === null) {
 				sendUserToast('YAML must be a mapping (key: value)', true)
 				return false
 			}
 
-			// Restore sensitive values that were not changed
+			// Restore sensitive values that were not changed (placeholder → original value)
 			if ('oauths' in parsed && typeof parsed['oauths'] === 'object') {
 				for (const [provider, config] of Object.entries(parsed['oauths'] as Record<string, any>)) {
 					if (
@@ -594,7 +661,7 @@
 						config !== null &&
 						config.secret === SENSITIVE_UNCHANGED
 					) {
-						config.secret = oauths?.[provider]?.secret
+						config.secret = initialOauths?.[provider]?.secret
 					}
 				}
 				oauths = parsed['oauths'] ?? {}
@@ -605,10 +672,21 @@
 				delete parsed['require_preexisting_user_for_oauth']
 			}
 
-			// Restore unchanged sensitive settings
+			// Restore unchanged sensitive settings (placeholder → original value)
 			for (const key of sensitiveKeys) {
 				if (key in parsed && parsed[key] === SENSITIVE_UNCHANGED) {
-					parsed[key] = $values[key]
+					parsed[key] = initialValues?.[key]
+				}
+			}
+			// Restore nested sensitive fields
+			for (const [parentKey, fields] of Object.entries(nestedSensitiveFields)) {
+				if (parsed[parentKey] && typeof parsed[parentKey] === 'object') {
+					const init = initialValues?.[parentKey]
+					for (const field of fields) {
+						if (parsed[parentKey][field] === SENSITIVE_UNCHANGED) {
+							parsed[parentKey][field] = init?.[field]
+						}
+					}
 				}
 			}
 
@@ -620,6 +698,8 @@
 			}
 
 			$values = parsed
+			applyFormDefaults($values)
+
 			yamlError = ''
 			return true
 		} catch (e) {
@@ -630,6 +710,7 @@
 	}
 
 	let prevYamlMode = false
+	let prevLoading = true
 	$effect(() => {
 		if (yamlMode && !prevYamlMode) {
 			syncFormToYaml()
@@ -638,8 +719,12 @@
 				// Reset toggle back to YAML on parse failure
 				yamlMode = true
 			}
+		} else if (yamlMode && prevLoading && !loading) {
+			// Settings just finished loading while in YAML mode
+			syncFormToYaml()
 		}
 		prevYamlMode = yamlMode
+		prevLoading = loading
 	})
 
 	function handleShowSensitiveToggle(checked: boolean) {
@@ -649,38 +734,58 @@
 		syncFormToYaml()
 	}
 
-	let diffCategory: string | null = $state(null)
-
-	function buildCategoryDiff(category: string): { original: string; modified: string } {
-		const categorySettings = getSettingsForCategory(category)
-		const original: Record<string, any> = {}
-		const modified: Record<string, any> = {}
-
-		for (const s of categorySettings) {
-			if (initialValues[s.key] !== undefined) {
-				original[s.key] = initialValues[s.key]
-			}
-			if ($values[s.key] !== undefined) {
-				modified[s.key] = $values[s.key]
-			}
+	/** Call before entering diff mode to sync YAML edits into form state */
+	export function syncBeforeDiff(): boolean {
+		if (yamlMode) {
+			return syncYamlToForm()
 		}
+		return true
+	}
 
-		if (category === 'Auth/OAuth/SAML') {
-			original['oauths'] = initialOauths
-			modified['oauths'] = oauths
-			original['require_preexisting_user_for_oauth'] = initialRequirePreexistingUserForOauth
-			modified['require_preexisting_user_for_oauth'] = requirePreexistingUserForOauth
-		}
-
+	export function buildFullDiff(): { original: string; modified: string } {
 		return {
-			original: YAML.stringify(original),
-			modified: YAML.stringify(modified)
+			original: buildSettingsYaml(
+				initialValues,
+				initialOauths,
+				initialRequirePreexistingUserForOauth,
+				{ normalize: true }
+			),
+			modified: buildSettingsYaml($values, oauths, requirePreexistingUserForOauth, {
+				normalize: true
+			})
 		}
 	}
+
+	$effect(() => {
+		if (yamlMode) {
+			// In YAML mode, compare editor content against snapshot taken on entry
+			hasUnsavedChanges = yamlCodeInitial !== '' && yamlCode !== yamlCodeInitial
+		} else {
+			// Reuse per-category dirty tracking instead of rebuilding full YAML
+			hasUnsavedChanges = Object.values(dirtyCategories).some(Boolean)
+		}
+	})
 </script>
 
 <div class="pb-12">
-	{#if yamlMode}
+	{#if diffMode}
+		<div class="w-full h-[calc(100vh-8rem)]">
+			{#await import('$lib/components/DiffEditor.svelte')}
+				<Loader2 class="animate-spin m-4" />
+			{:then Module}
+				{@const diff = buildFullDiff()}
+				<Module.default
+					open={true}
+					className="!h-full"
+					defaultLang="yaml"
+					defaultOriginal={diff.original}
+					defaultModified={diff.modified}
+					readOnly
+					inlineDiff={true}
+				/>
+			{/await}
+		</div>
+	{:else if yamlMode}
 		<!-- svelte-ignore a11y_label_has_associated_control -->
 		<div class="flex items-center justify-end gap-4 mb-2">
 			<Toggle
@@ -726,23 +831,7 @@
 	{/if}
 
 	{#snippet categoryContent(category: string)}
-		{#if diffCategory === category}
-			<div class="w-full h-[calc(100vh-12rem)]">
-				{#await import('$lib/components/DiffEditor.svelte')}
-					<Loader2 class="animate-spin m-4" />
-				{:then Module}
-					{@const diff = buildCategoryDiff(category)}
-					<Module.default
-						open={true}
-						className="!h-full"
-						defaultLang="yaml"
-						defaultOriginal={diff.original}
-						defaultModified={diff.modified}
-						readOnly
-					/>
-				{/await}
-			</div>
-		{:else if category == 'Core'}
+		{#if category == 'Core'}
 			<SettingsPageHeader
 				title="Core"
 				description="Configure the core settings of your Windmill instance."
@@ -881,7 +970,6 @@
 			</AuthSettings>
 		{/if}
 
-		{#if diffCategory !== category}
 		<div class="flex-col flex gap-6 pb-6">
 			{#each settings[category] as setting}
 				<!-- slack connect is handled with the alert channels settings, smtp_connect is handled in InstanceSetting -->
@@ -919,18 +1007,13 @@
 				{/each}
 			{/if}
 		</div>
-		{/if}
 
-		{#if !loading && !quickSetup}
+		{#if !loading && !quickSetup && !hideTabs}
 			<SettingsFooter
 				hasUnsavedChanges={dirtyCategories[category] ?? false}
 				disabled={invalidCategories[category] ?? false}
 				onSave={() => saveCategorySettings(category)}
 				onDiscard={() => discardCategory(category)}
-				onShowDiff={() => {
-					diffCategory = diffCategory === category ? null : category
-				}}
-				diffOpen={diffCategory === category}
 				saveLabel={`Save ${category.toLowerCase()} settings`}
 				class="bg-surface"
 			/>

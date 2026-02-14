@@ -1,0 +1,20 @@
+[    1081ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3000/api/users/whoami:0
+[    1081ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3000/api/workspaces/users:0
+[    1081ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3000/api/users/refresh_token?if_expiring_in_less_than_s=1800:0
+[    1083ms] [ERROR] error refreshing superadmin/devops role ApiError: Unauthorized
+    at catchErrorCodes (http://localhost:3000/src/lib/gen/core/request.ts:231:9)
+    at http://localhost:3000/src/lib/gen/core/request.ts:274:5 @ http://localhost:3000/src/lib/refreshUser.ts:16
+[    1088ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3000/api/users/whoami:0
+[    1093ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3000/api/auth/logout:0
+[    1093ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3000/api/auth/logout:0
+[    1094ms] [ERROR] ApiError: Unauthorized
+    at catchErrorCodes (http://localhost:3000/src/lib/gen/core/request.ts:231:9)
+    at http://localhost:3000/src/lib/gen/core/request.ts:274:5 @ http://localhost:3000/src/routes/(root)/+layout.svelte:86
+[    1149ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3000/api/auth/logout:0
+[    1238ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3000/api/oauth/list_logins:0
+[    1238ms] [ERROR] Could not load logins ApiError: Not Found
+    at catchErrorCodes (http://localhost:3000/src/lib/gen/core/request.ts:231:9)
+    at http://localhost:3000/src/lib/gen/core/request.ts:274:5 @ http://localhost:3000/src/lib/components/Login.svelte:226
+[    1242ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3000/api/users/email:0
+[   15849ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3000/api/w/test/native_triggers/integrations/nextcloud/exists:0
+[   15857ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3000/api/w/test/native_triggers/integrations/nextcloud/exists:0

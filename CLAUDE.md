@@ -20,6 +20,13 @@ When implementing new features in Windmill, follow these best practices:
 - Backend (Rust): see `backend/CLAUDE.md` and the `rust-backend` skill: `.claude/skills/rust-backend/SKILL.md`
 - Frontend (Svelte 5): see `frontend/CLAUDE.md` and the `svelte-frontend` skill: `.claude/skills/svelte-frontend/SKILL.md`
 
+## Dev Environment
+
+- **Frontend**: `npm run dev` from `frontend/` (serves at http://localhost:3000)
+- **Backend**: `cargo run` from `backend/` (API at http://localhost:8000)
+- **Default login**: `admin@windmill.dev` / `changeme`
+- **Instance settings**: navigate to http://localhost:3000/user/instance_settings
+
 ## Code Validation (MUST DO)
 
 After making code changes, you MUST run the appropriate checks and fix all errors before considering the work done:

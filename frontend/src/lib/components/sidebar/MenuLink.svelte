@@ -70,6 +70,7 @@
 			)}
 			data-light-mode={lightMode}
 			target={href.includes('http') ? '_blank' : null}
+			aria-label={label}
 			title={isCollapsed ? undefined : label}
 			use:conditionalMelt={item}
 			{...$item}

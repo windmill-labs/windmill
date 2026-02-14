@@ -1,0 +1,42 @@
+# Windmill Instance Configuration
+#
+# This file is applied to the database via: windmill sync-config <file>
+# Sensitive fields use envRef to read values from environment variables.
+# See README.md for full documentation.
+
+global_settings:
+  base_url: "https://windmill.example.com"
+
+  # License key pulled from WM_LICENSE_KEY env var
+  license_key:
+    envRef: "WM_LICENSE_KEY"
+
+  retention_period_secs: 2592000    # 30 days
+  job_default_timeout: 900          # 15 minutes
+  expose_metrics: false
+
+  smtp_settings:
+    smtp_host: "smtp.example.com"
+    smtp_port: 587
+    smtp_from: "windmill@example.com"
+    smtp_tls_implicit: false
+    smtp_password:
+      envRef: "SMTP_PASSWORD"
+
+  custom_tags:
+    - gpu
+    - high-mem
+
+worker_configs:
+  default:
+    worker_tags:
+      - deno
+      - python3
+      - bun
+      - go
+      - bash
+      - powershell
+
+  native:
+    worker_tags:
+      - nativets

@@ -1,0 +1,6 @@
+[   52039ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3000/node_modules/.vite/worker/webWorkerExtensionHostIframe.html?vscode-coi=3&parentOrigin=http%3A%2F%2Flocalhost%3A3000&vscodeWebWorkerExtHostId=fff515d9-21ea-40df-8698-2e842aa32cf1:0
+[   52039ms] [WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ http://localhost:3000/node_modules/.vite/worker/webWorkerExtensionHostIframe.html?vscode-coi=3&parentOrigin=http%3A%2F%2Flocalhost%3A3000&vscodeWebWorkerExtHostId=fff515d9-21ea-40df-8698-2e842aa32cf1:0
+[   52112ms] [WARNING] The next HMR update will cause the page to reload @ http://localhost:3000/node_modules/@sveltejs/kit/src/runtime/client/client.js?v=04afb17d:3207
+[   52113ms] [ERROR] SvelteKitError: Not found: /node_modules/.vite/worker/webWorkerExtensionHostIframe.html
+    at navigate (http://localhost:3000/node_modules/@sveltejs/kit/src/runtime/client/client.js?v=04afb17d:1600:24)
+    at async Module.start (http://localhost:3000/node_modules/@sveltejs/kit/src/runtime/client/client.js?v=04afb17d:363:3) @ http://localhost:3000/@fs/home/rfiszel/windmill-iac/frontend/.svelte-kit/generated/client/app.js:176
