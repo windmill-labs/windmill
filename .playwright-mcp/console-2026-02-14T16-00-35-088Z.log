@@ -1,2 +1,0 @@
-[    1011ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3000/api/w/test/native_triggers/integrations/nextcloud/exists:0
-[    1016ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3000/api/w/test/native_triggers/integrations/nextcloud/exists:0
