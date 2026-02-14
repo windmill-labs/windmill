@@ -39,7 +39,13 @@
 
 	let filter = $state('')
 
-	let { closeDrawer, showHeaderInfo = true } = $props()
+	let {
+		closeDrawer,
+		showHeaderInfo = true,
+		yamlMode = $bindable(false),
+		diffMode = $bindable(false),
+		hasUnsavedChanges = $bindable(false)
+	} = $props()
 
 	function removeHash() {
 		const index = $page.url.href.lastIndexOf('#')
@@ -116,25 +122,21 @@
 	let instanceSettingsCategory = $derived(tabToCategoryMap[tab] ?? 'Core')
 	let authSubTab: 'sso' | 'oauth' | 'scim' = $derived(tabToAuthSubTab[tab] ?? 'sso')
 
-	function getCategoryForTab(tabId: string): string | undefined {
-		return tabToCategoryMap[tabId]
-	}
-
-	// --- Tab change interception for unsaved changes ---
-	let pendingTab: string | undefined = $state(undefined)
-	let showUnsavedChangesModal = $state(false)
-
 	function handleNavigate(newTab: string) {
 		if (newTab === tab) return
+		tab = newTab
+	}
 
-		// Check if current tab (if it's a settings tab) has unsaved changes
-		const currentCategory = getCategoryForTab(tab)
-		if (currentCategory && instanceSettings?.isDirty(currentCategory)) {
-			pendingTab = newTab
-			showUnsavedChangesModal = true
-		} else {
-			tab = newTab
-		}
+	export function saveSettings() {
+		return instanceSettings?.saveSettings()
+	}
+
+	export function discardAll() {
+		instanceSettings?.discardAll()
+	}
+
+	export function syncBeforeDiff(): boolean {
+		return instanceSettings?.syncBeforeDiff() ?? true
 	}
 </script>
 
@@ -169,20 +171,34 @@
 		{/if}
 	{/if}
 	<div class="{showHeaderInfo ? 'pt-4' : ''} flex grow min-h-0">
-		<!-- Sidebar Navigation -->
-		<div class="w-52 shrink-0 h-full overflow-auto p-4 bg-surface">
-			<SidebarNavigation
-				groups={instanceSettingsNavigationGroups}
-				selectedId={tab}
-				onNavigate={handleNavigate}
-			/>
-		</div>
+		{#if !yamlMode && !diffMode}
+			<!-- Sidebar Navigation -->
+			<div class="w-52 shrink-0 h-full overflow-auto p-4 bg-surface flex flex-col">
+				<SidebarNavigation
+					groups={instanceSettingsNavigationGroups}
+					selectedId={tab}
+					onNavigate={handleNavigate}
+				/>
+				{#if $workspaceStore !== 'admins'}
+					<div class="mt-auto pt-4 border-t border-surface-hover">
+						<a
+							href="{base}/?workspace=admins"
+							target="_blank"
+							class="flex items-center gap-2 px-2 py-1.5 text-xs text-secondary hover:text-primary transition-colors"
+						>
+							<ExternalLink size={14} />
+							Admins workspace
+						</a>
+					</div>
+				{/if}
+			</div>
+		{/if}
 
 		<!-- Main Content -->
 		<div class="flex-1 min-w-0 h-full">
 			<div class="h-full overflow-auto bg-surface">
 				<div class="h-fit px-8 py-4">
-					{#if tab === 'users'}
+					{#if tab === 'users' && !yamlMode && !diffMode}
 						<div class="h-full">
 							{#if !automateUsernameCreation && !isCloudHosted()}
 								<div class="mb-4">
@@ -457,6 +473,9 @@
 						<InstanceSettings
 							bind:this={instanceSettings}
 							hideTabs
+							bind:yamlMode
+							bind:diffMode
+							bind:hasUnsavedChanges
 							tab={instanceSettingsCategory}
 							{authSubTab}
 							{closeDrawer}
@@ -473,33 +492,6 @@
 		</div>
 	</div>
 </div>
-{#if showUnsavedChangesModal}
-	<ConfirmationModal
-		open={showUnsavedChangesModal}
-		title="Unsaved changes detected"
-		confirmationText="Discard changes"
-		on:canceled={() => {
-			showUnsavedChangesModal = false
-			pendingTab = undefined
-		}}
-		on:confirmed={() => {
-			if (pendingTab !== undefined) {
-				const currentCategory = getCategoryForTab(tab)
-				if (currentCategory) {
-					instanceSettings?.discardCategory(currentCategory)
-				}
-				tab = pendingTab
-			}
-			showUnsavedChangesModal = false
-			pendingTab = undefined
-		}}
-	>
-		<div class="flex flex-col w-full space-y-4">
-			<span>You have unsaved changes. Are you sure you want to discard them?</span>
-		</div>
-	</ConfirmationModal>
-{/if}
-
 <ConfirmationModal
 	open={Boolean(deleteConfirmedCallback)}
 	title="Remove user"

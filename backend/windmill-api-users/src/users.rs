@@ -945,7 +945,7 @@ async fn join_workspace<'c>(
     .await?
     .map(|v| v.as_bool())
     .flatten()
-    .unwrap_or(false);
+    .unwrap_or(true);
 
     let username = if automate_username_creation {
         if username.is_some() && username.unwrap().len() > 0 {

@@ -2748,7 +2748,7 @@ async fn create_workspace(
     .await?
     .map(|v| v.as_bool())
     .flatten()
-    .unwrap_or(false);
+    .unwrap_or(true);
 
     let username = if automate_username_creation {
         if nw.username.is_some() && nw.username.unwrap().len() > 0 {
@@ -3807,7 +3807,7 @@ async fn add_user(
     .await?
     .map(|v| v.as_bool())
     .flatten()
-    .unwrap_or(false);
+    .unwrap_or(true);
 
     let username = if automate_username_creation {
         if nu.username.is_some() && nu.username.unwrap().len() > 0 {

@@ -106,7 +106,7 @@ export const scimSamlSetting: Setting[] = [
 		label: 'SCIM token',
 		description: 'Token used to authenticate requests from the IdP',
 		key: 'scim_token',
-		fieldType: 'text',
+		fieldType: 'password',
 		placeholder: 'mytoken',
 		storage: 'setting',
 		ee_only: ''

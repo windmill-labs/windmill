@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { scimSamlSetting, settings, settingsKeys, type SettingStorage } from './instanceSettings'
+	import { scimSamlSetting, settings, settingsKeys } from './instanceSettings'
 	import { Alert, Button, Tab, TabContent, Tabs } from '$lib/components/common'
 	import { SettingService, SettingsService } from '$lib/gen'
 	import type { TeamsChannel } from '$lib/gen/types.gen'
@@ -15,6 +15,10 @@
 	import AuthSettings from './AuthSettings.svelte'
 	import InstanceSetting from './InstanceSetting.svelte'
 	import { writable, type Writable } from 'svelte/store'
+	import { Loader2 } from 'lucide-svelte'
+	import YAML from 'yaml'
+	import Toggle from './Toggle.svelte'
+	import type SimpleEditor from './SimpleEditor.svelte'
 	import SettingsFooter from './workspaceSettings/SettingsFooter.svelte'
 	import SettingsPageHeader from './settings/SettingsPageHeader.svelte'
 
@@ -25,6 +29,9 @@
 		authSubTab?: 'sso' | 'oauth' | 'scim'
 		onNavigateToTab?: (category: string) => void
 		quickSetup?: boolean
+		yamlMode?: boolean
+		diffMode?: boolean
+		hasUnsavedChanges?: boolean
 	}
 
 	let {
@@ -33,15 +40,18 @@
 		closeDrawer = () => {},
 		authSubTab = $bindable('sso'),
 		onNavigateToTab,
-		quickSetup = false
+		quickSetup = false,
+		yamlMode = $bindable(false),
+		diffMode = $bindable(false),
+		hasUnsavedChanges = $bindable(false)
 	}: Props = $props()
 
 	let values: Writable<Record<string, any>> = writable({})
-	let initialOauths: Record<string, any> = {}
-	let initialRequirePreexistingUserForOauth: boolean = false
+	let initialOauths: Record<string, any> = $state({})
+	let initialRequirePreexistingUserForOauth: boolean = $state(false)
 	let requirePreexistingUserForOauth: boolean = $state(false)
 
-	let initialValues: Record<string, any> = {}
+	let initialValues: Record<string, any> = $state({})
 	let snowflakeAccountIdentifier = $state('')
 	let version: string = $state('')
 	let loading = $state(true)
@@ -56,72 +66,46 @@
 	}
 	let oauths: Record<string, any> = $state({})
 
+	/** Ensure object/array-typed settings have a non-null default for the form UI */
+	const formDefaults: Record<string, any> = {
+		smtp_settings: {},
+		otel: {},
+		indexer_settings: {},
+		critical_error_channels: []
+	}
+
+	function applyFormDefaults(vals: Record<string, any>): void {
+		for (const [key, defaultVal] of Object.entries(formDefaults)) {
+			if (vals[key] == undefined) {
+				vals[key] = typeof defaultVal === 'object' ? JSON.parse(JSON.stringify(defaultVal)) : defaultVal
+			}
+		}
+	}
+
 	async function loadSettings() {
 		loading = true
 
-		async function getValue(key: string, storage: SettingStorage) {
-			if (storage == 'setting') {
-				return SettingService.getGlobal({ key })
-			}
-		}
-		initialOauths = (await SettingService.getGlobal({ key: 'oauths' })) ?? {}
-		requirePreexistingUserForOauth =
-			((await SettingService.getGlobal({ key: 'require_preexisting_user_for_oauth' })) as any) ??
-			false
+		// Bulk-load all settings in a single API call
+		const config = await SettingService.getInstanceConfig()
+		const gs = (config.global_settings ?? {}) as Record<string, any>
+
+		initialOauths = gs['oauths'] ?? {}
+		requirePreexistingUserForOauth = gs['require_preexisting_user_for_oauth'] ?? false
 		initialRequirePreexistingUserForOauth = requirePreexistingUserForOauth
 		oauths = JSON.parse(JSON.stringify(initialOauths))
-		initialValues = Object.fromEntries(
-			(
-				await Promise.all(
-					[...Object.values(settings), scimSamlSetting].map(
-						async (y) =>
-							await Promise.all(y.map(async (x) => [x.key, await getValue(x.key, x.storage)]))
-					)
-				)
-			).flat()
-		)
-		// Normalize null to the field type's default so inputs don't appear dirty on load
-		const allSettings = [...Object.values(settings), scimSamlSetting].flat()
-		for (const s of allSettings) {
-			if (initialValues[s.key] == null) {
-				if (s.fieldType === 'boolean') {
-					initialValues[s.key] = false
-				} else if (
-					s.fieldType === 'text' ||
-					s.fieldType === 'textarea' ||
-					s.fieldType === 'codearea' ||
-					s.fieldType === 'password'
-				) {
-					initialValues[s.key] = ''
-				} else if (s.fieldType === 'secret_backend') {
-					initialValues[s.key] = { type: 'Database' }
-				} else if (s.fieldType === 'select' || s.fieldType === 'select_python') {
-					initialValues[s.key] = s.defaultValue ? s.defaultValue() : 'default'
-				}
-			}
-		}
-		let nvalues = JSON.parse(JSON.stringify(initialValues))
+
+		let nvalues: Record<string, any> = { ...gs }
+
 		if (!nvalues['base_url']) {
 			nvalues['base_url'] = window.location.origin
 		}
 		if (nvalues['retention_period_secs'] == undefined) {
 			nvalues['retention_period_secs'] = 60 * 60 * 24 * 30
 		}
-		if (nvalues['smtp_settings'] == undefined) {
-			nvalues['smtp_settings'] = {}
-		}
-		if (nvalues['otel'] == undefined) {
-			nvalues['otel'] = {}
-		}
-		if (nvalues['indexer_settings'] == undefined) {
-			nvalues['indexer_settings'] = {}
-		}
-
-		if (nvalues['critical_error_channels'] == undefined) {
-			nvalues['critical_error_channels'] = []
-		}
+		applyFormDefaults(nvalues)
 
 		$values = nvalues
+		initialValues = JSON.parse(JSON.stringify($values))
 		loading = false
 
 		// populate snowflake account identifier from db
@@ -129,6 +113,94 @@
 			oauths?.snowflake_oauth?.connect_config?.extra_params?.account_identifier
 		if (account_identifier) {
 			snowflakeAccountIdentifier = account_identifier
+		}
+	}
+
+	export async function saveSettings() {
+		if (yamlMode) {
+			if (!syncYamlToForm()) {
+				return
+			}
+		}
+
+		if (
+			oauths?.snowflake_oauth &&
+			oauths?.snowflake_oauth?.connect_config?.extra_params?.account_identifier !==
+				snowflakeAccountIdentifier
+		) {
+			setupSnowflakeUrls()
+		}
+
+		// Remove empty or invalid entries for critical error channels
+		$values.critical_error_channels = $values.critical_error_channels.filter((entry: any) => {
+			if (!entry || typeof entry !== 'object') return false
+			if ('teams_channel' in entry) {
+				return isValidTeamsChannel(entry.teams_channel)
+			}
+			if ('slack_channel' in entry) {
+				return typeof entry.slack_channel === 'string' && entry.slack_channel.trim() !== ''
+			}
+			if ('email' in entry) {
+				return typeof entry.email === 'string' && entry.email.trim() !== ''
+			}
+			// Unknown shape
+			return false
+		})
+
+		let shouldReloadPage = false
+		if ($values) {
+			// Trim license key before saving
+			if ($values['license_key'] && typeof $values['license_key'] === 'string') {
+				$values['license_key'] = $values['license_key'].trim()
+			}
+
+			// Check which settings require a page reload
+			const allSettings = [...Object.values(settings), scimSamlSetting].flat()
+			let licenseKeySet = false
+			for (const s of allSettings) {
+				if (s.storage === 'setting' && !deepEqual(initialValues?.[s.key], $values?.[s.key])) {
+					if (s.key === 'license_key') {
+						licenseKeySet = true
+					}
+					if (s.requiresReloadOnChange) {
+						shouldReloadPage = true
+					}
+				}
+			}
+
+			// Build the full global_settings object for the bulk PUT
+			const globalSettings: Record<string, any> = { ...$values }
+
+			// Include oauths and require_preexisting_user_for_oauth
+			if (!deepEqual(initialOauths, oauths)) {
+				globalSettings['oauths'] = oauths
+			}
+			if (initialRequirePreexistingUserForOauth !== requirePreexistingUserForOauth) {
+				globalSettings['require_preexisting_user_for_oauth'] = requirePreexistingUserForOauth
+			}
+
+			await SettingService.setInstanceConfig({
+				requestBody: { global_settings: globalSettings },
+				skipWorkerConfigs: true
+			})
+
+			initialValues = JSON.parse(JSON.stringify($values))
+			initialOauths = JSON.parse(JSON.stringify(oauths))
+			initialRequirePreexistingUserForOauth = requirePreexistingUserForOauth
+
+			if (licenseKeySet) {
+				setLicense()
+			}
+		} else {
+			console.error('Values not loaded')
+		}
+		if (shouldReloadPage) {
+			sendUserToast('Settings updated, reloading page...')
+			await sleep(1000)
+			window.location.reload()
+		} else {
+			sendUserToast('Settings updated')
+			dispatch('saved')
 		}
 	}
 
@@ -205,19 +277,14 @@
 		}
 	}
 
-	// --- Per-category dirty state tracking ---
-
-	// Trigger to force re-derivation when initialValues changes (after save/load)
-	let dirtyCheckTrigger = $state(0)
+	// --- Dirty state tracking (YAML-based) ---
 
 	function stripEmpty(obj: Record<string, any>): Record<string, any> {
 		return Object.fromEntries(
 			Object.entries(obj)
 				.filter(([_, v]) => v !== undefined && v !== '')
 				.map(([k, v]) =>
-					v != null && typeof v === 'object' && !Array.isArray(v)
-						? [k, stripEmpty(v)]
-						: [k, v]
+					v != null && typeof v === 'object' && !Array.isArray(v) ? [k, stripEmpty(v)] : [k, v]
 				)
 		)
 	}
@@ -234,31 +301,85 @@
 			const jobSettings = settings['Jobs'] ?? []
 			const jobIsolation = jobSettings.find((s) => s.key === 'job_isolation')
 			const retentionPeriod = jobSettings.find((s) => s.key === 'retention_period_secs')
-			const objectStorage = settings['Object Storage']?.find((s) => s.key === 'object_store_cache_config')
-			return [...baseWithout, ...(jobIsolation ? [jobIsolation] : []), ...(licenseKey ? [licenseKey] : []), ...(retentionPeriod ? [retentionPeriod] : []), ...(objectStorage ? [objectStorage] : [])]
+			const objectStorage = settings['Object Storage']?.find(
+				(s) => s.key === 'object_store_cache_config'
+			)
+			return [
+				...baseWithout,
+				...(jobIsolation ? [jobIsolation] : []),
+				...(licenseKey ? [licenseKey] : []),
+				...(retentionPeriod ? [retentionPeriod] : []),
+				...(objectStorage ? [objectStorage] : [])
+			]
 		}
 		return base
 	}
 
+	function normalizeValue(value: any, key?: string): any {
+		if (value == null) return undefined
+		if (value === false) return undefined
+		if (typeof value === 'string' && value.trim() === '') return undefined
+		if (Array.isArray(value) && value.length === 0) return undefined
+		if (typeof value === 'object' && Object.keys(value).length === 0) return undefined
+
+		// Key-specific defaults: these values are equivalent to "not set"
+		if (key === 'secret_backend') {
+			if (typeof value === 'object' && value?.type === 'Database' && Object.keys(value).length === 1) {
+				return undefined
+			}
+		}
+		if (key === 'automate_username_creation' && value === true) {
+			return undefined
+		}
+		if (key === 'critical_alerts_on_db_oversize' && typeof value === 'object') {
+			if (!value.enabled && (!value.value || value.value === 0)) {
+				return undefined
+			}
+		}
+
+		return value
+	}
+	function buildCategoryYaml(
+		category: string,
+		vals: Record<string, any>,
+		oauthsObj: Record<string, any>,
+		reqPreexisting: boolean
+	): string {
+		const categorySettings = getSettingsForCategory(category)
+		const obj: Record<string, any> = {}
+		for (const s of categorySettings) {
+			const normalized = normalizeValue(vals[s.key], s.key)
+			if (normalized !== undefined) {
+				obj[s.key] = vals[s.key]
+			}
+		}
+		if (category === 'Auth/OAuth/SAML') {
+			if (Object.keys(stripEmpty(oauthsObj)).length > 0) {
+				obj['oauths'] = oauthsObj
+			}
+			if (reqPreexisting) {
+				obj['require_preexisting_user_for_oauth'] = reqPreexisting
+			}
+		}
+		return YAML.stringify(obj)
+	}
+
 	let dirtyCategories: Record<string, boolean> = $derived.by(() => {
-		void dirtyCheckTrigger
-		const currentValues = $values
 		const result: Record<string, boolean> = {}
 		for (const category of settingsKeys) {
-			if (category === 'Auth/OAuth/SAML') {
-				const scimDirty = scimSamlSetting.some(
-					(s) => !deepEqual(initialValues[s.key], currentValues?.[s.key])
-				)
-				const oauthsDirty = !deepEqual(stripEmpty(initialOauths), stripEmpty(oauths))
-				const requirePreexistingDirty =
-					initialRequirePreexistingUserForOauth !== requirePreexistingUserForOauth
-				result[category] = scimDirty || oauthsDirty || requirePreexistingDirty
-			} else {
-				const categorySettings = getSettingsForCategory(category)
-				result[category] = categorySettings.some(
-					(s) => !deepEqual(initialValues[s.key], currentValues?.[s.key])
-				)
-			}
+			const initialYaml = buildCategoryYaml(
+				category,
+				initialValues,
+				initialOauths,
+				initialRequirePreexistingUserForOauth
+			)
+			const currentYaml = buildCategoryYaml(
+				category,
+				$values,
+				oauths,
+				requirePreexistingUserForOauth
+			)
+			result[category] = initialYaml !== currentYaml
 		}
 		return result
 	})
@@ -301,6 +422,19 @@
 				const v = initialValues[s.key]
 				$values[s.key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
 			}
+		}
+	}
+
+	export function discardAll() {
+		// Reset all values to initial state (deep copy to avoid reference sharing)
+		$values = JSON.parse(JSON.stringify(initialValues))
+		oauths = JSON.parse(JSON.stringify(initialOauths))
+		requirePreexistingUserForOauth = initialRequirePreexistingUserForOauth
+		const account_identifier =
+			initialOauths?.snowflake_oauth?.connect_config?.extra_params?.account_identifier
+		snowflakeAccountIdentifier = account_identifier ?? ''
+		if (yamlMode) {
+			syncFormToYaml()
 		}
 	}
 
@@ -390,9 +524,6 @@
 
 		if (licenseKeySet) setLicense()
 
-		// Force dirty state re-check
-		dirtyCheckTrigger++
-
 		if (shouldReloadPage) {
 			sendUserToast('Settings updated, reloading page...')
 			await sleep(1000)
@@ -402,11 +533,285 @@
 			dispatch('saved')
 		}
 	}
+
+	let yamlCode = $state('')
+	let yamlCodeInitial = $state('')
+	let yamlEditor: SimpleEditor | undefined = $state(undefined)
+	let yamlError = $state('')
+	let showSensitive = $state(false)
+
+	const SENSITIVE_UNCHANGED = '__SENSITIVE_AND_UNCHANGED__'
+
+	const sensitiveKeys: Set<string> = new Set(
+		[...Object.values(settings), scimSamlSetting]
+			.flatMap((s) => Object.values(s))
+			.filter((s) => s.fieldType === 'password' || s.fieldType === 'license_key')
+			.map((s) => s.key)
+	)
+
+	// Settings that should never appear in YAML export/import
+	const excludedKeys: Set<string> = new Set([
+		'custom_instance_pg_databases',
+		'ducklake_settings',
+		'ducklake_user_pg_pwd'
+	])
+
+	// Nested fields inside object-valued settings that contain secrets.
+	// Each entry maps a top-level key to its sensitive sub-field names.
+	const nestedSensitiveFields: Record<string, string[]> = {
+		smtp_settings: ['smtp_password'],
+		secret_backend: ['token'],
+		object_store_cache_config: ['secret_key', 'serviceAccountKey']
+	}
+
+	/** Returns SENSITIVE_UNCHANGED if the value is non-empty and matches the initial */
+	function maskField(current: any, initial: any): string | undefined {
+		if (current != null && current !== '' && current === initial) return SENSITIVE_UNCHANGED
+		return undefined
+	}
+
+	function maskSensitive(obj: Record<string, any>): Record<string, any> {
+		const masked: Record<string, any> = {}
+		for (const [key, value] of Object.entries(obj)) {
+			if (key === 'oauths' && typeof value === 'object' && value !== null) {
+				const maskedOauths: Record<string, any> = {}
+				for (const [provider, config] of Object.entries(value as Record<string, any>)) {
+					if (typeof config === 'object' && config !== null && 'secret' in config) {
+						const m = maskField(config.secret, initialOauths?.[provider]?.secret)
+						maskedOauths[provider] = m ? { ...config, secret: m } : config
+					} else {
+						maskedOauths[provider] = config
+					}
+				}
+				masked[key] = maskedOauths
+			} else if (key in nestedSensitiveFields && typeof value === 'object' && value !== null) {
+				const cp = { ...value }
+				const init = initialValues?.[key]
+				for (const field of nestedSensitiveFields[key]) {
+					const m = maskField(
+						field === 'serviceAccountKey' ? JSON.stringify(cp[field]) : cp[field],
+						field === 'serviceAccountKey' ? JSON.stringify(init?.[field]) : init?.[field]
+					)
+					if (m) cp[field] = m
+				}
+				masked[key] = cp
+			} else if (sensitiveKeys.has(key) && value != null && value !== '') {
+				masked[key] = value === initialValues?.[key] ? SENSITIVE_UNCHANGED : value
+			} else {
+				masked[key] = value
+			}
+		}
+		return masked
+	}
+
+	/**
+	 * Builds a sorted YAML string of all instance settings.
+	 * - normalize: strip keys whose values match the default (empty/falsy or key-specific defaults)
+	 * - mask: replace sensitive values with placeholder (for display)
+	 */
+	function buildSettingsYaml(
+		vals: Record<string, any>,
+		oauthsObj: Record<string, any>,
+		reqPreexisting: boolean,
+		opts: { normalize?: boolean; mask?: boolean } = {}
+	): string {
+		const obj: Record<string, any> = {}
+		for (const key of Object.keys(vals).sort()) {
+			if (excludedKeys.has(key)) continue
+			if (opts.normalize && normalizeValue(vals[key], key) === undefined) continue
+			obj[key] = vals[key]
+		}
+		if (oauthsObj && Object.keys(stripEmpty(oauthsObj)).length > 0) {
+			obj['oauths'] = oauthsObj
+		}
+		if (reqPreexisting) {
+			obj['require_preexisting_user_for_oauth'] = reqPreexisting
+		}
+		return YAML.stringify(opts.mask ? maskSensitive(obj) : obj)
+	}
+
+	function syncFormToYaml() {
+		yamlCode = buildSettingsYaml($values, oauths, requirePreexistingUserForOauth, {
+			normalize: true,
+			mask: !showSensitive
+		})
+		yamlCodeInitial = yamlCode
+		yamlEditor?.setCode(yamlCode)
+		yamlError = ''
+	}
+
+	function syncYamlToForm(): boolean {
+		try {
+			// Flush the editor's current content (bypasses the 200ms debounce in SimpleEditor)
+			const currentCode = yamlEditor?.getCode() ?? yamlCode
+			if (currentCode !== yamlCode) {
+				yamlCode = currentCode
+			}
+			const parsed = YAML.parse(yamlCode)
+			if (typeof parsed !== 'object' || parsed === null) {
+				sendUserToast('YAML must be a mapping (key: value)', true)
+				return false
+			}
+
+			// Restore sensitive values that were not changed (placeholder → original value)
+			if ('oauths' in parsed && typeof parsed['oauths'] === 'object') {
+				for (const [provider, config] of Object.entries(parsed['oauths'] as Record<string, any>)) {
+					if (
+						typeof config === 'object' &&
+						config !== null &&
+						config.secret === SENSITIVE_UNCHANGED
+					) {
+						config.secret = initialOauths?.[provider]?.secret
+					}
+				}
+				oauths = parsed['oauths'] ?? {}
+				delete parsed['oauths']
+			}
+			if ('require_preexisting_user_for_oauth' in parsed) {
+				requirePreexistingUserForOauth = parsed['require_preexisting_user_for_oauth'] ?? false
+				delete parsed['require_preexisting_user_for_oauth']
+			}
+
+			// Restore unchanged sensitive settings (placeholder → original value)
+			for (const key of sensitiveKeys) {
+				if (key in parsed && parsed[key] === SENSITIVE_UNCHANGED) {
+					parsed[key] = initialValues?.[key]
+				}
+			}
+			// Restore nested sensitive fields
+			for (const [parentKey, fields] of Object.entries(nestedSensitiveFields)) {
+				if (parsed[parentKey] && typeof parsed[parentKey] === 'object') {
+					const init = initialValues?.[parentKey]
+					for (const field of fields) {
+						if (parsed[parentKey][field] === SENSITIVE_UNCHANGED) {
+							parsed[parentKey][field] = init?.[field]
+						}
+					}
+				}
+			}
+
+			// Preserve excluded keys from current form state
+			for (const key of excludedKeys) {
+				if (key in $values) {
+					parsed[key] = $values[key]
+				}
+			}
+
+			$values = parsed
+			applyFormDefaults($values)
+
+			yamlError = ''
+			return true
+		} catch (e) {
+			yamlError = String(e)
+			sendUserToast('Invalid YAML: ' + e, true)
+			return false
+		}
+	}
+
+	let prevYamlMode = false
+	let prevLoading = true
+	$effect(() => {
+		if (yamlMode && !prevYamlMode) {
+			syncFormToYaml()
+		} else if (!yamlMode && prevYamlMode) {
+			if (!syncYamlToForm()) {
+				// Reset toggle back to YAML on parse failure
+				yamlMode = true
+			}
+		} else if (yamlMode && prevLoading && !loading) {
+			// Settings just finished loading while in YAML mode
+			syncFormToYaml()
+		}
+		prevYamlMode = yamlMode
+		prevLoading = loading
+	})
+
+	function handleShowSensitiveToggle(checked: boolean) {
+		// Sync any in-progress edits back to form state before re-rendering
+		syncYamlToForm()
+		showSensitive = checked
+		syncFormToYaml()
+	}
+
+	/** Call before entering diff mode to sync YAML edits into form state */
+	export function syncBeforeDiff(): boolean {
+		if (yamlMode) {
+			return syncYamlToForm()
+		}
+		return true
+	}
+
+	export function buildFullDiff(): { original: string; modified: string } {
+		return {
+			original: buildSettingsYaml(
+				initialValues,
+				initialOauths,
+				initialRequirePreexistingUserForOauth,
+				{ normalize: true }
+			),
+			modified: buildSettingsYaml($values, oauths, requirePreexistingUserForOauth, {
+				normalize: true
+			})
+		}
+	}
+
+	$effect(() => {
+		if (yamlMode) {
+			// In YAML mode, compare editor content against snapshot taken on entry
+			hasUnsavedChanges = yamlCodeInitial !== '' && yamlCode !== yamlCodeInitial
+		} else {
+			// Reuse per-category dirty tracking instead of rebuilding full YAML
+			hasUnsavedChanges = Object.values(dirtyCategories).some(Boolean)
+		}
+	})
 </script>
 
 <div class="pb-12">
-	<!-- svelte-ignore a11y_label_has_associated_control -->
-	{#if hideTabs}
+	{#if diffMode}
+		<div class="w-full h-[calc(100vh-8rem)]">
+			{#await import('$lib/components/DiffEditor.svelte')}
+				<Loader2 class="animate-spin m-4" />
+			{:then Module}
+				{@const diff = buildFullDiff()}
+				<Module.default
+					open={true}
+					className="!h-full"
+					defaultLang="yaml"
+					defaultOriginal={diff.original}
+					defaultModified={diff.modified}
+					readOnly
+					inlineDiff={true}
+				/>
+			{/await}
+		</div>
+	{:else if yamlMode}
+		<!-- svelte-ignore a11y_label_has_associated_control -->
+		<div class="flex items-center justify-end gap-4 mb-2">
+			<Toggle
+				checked={showSensitive}
+				on:change={(e) => handleShowSensitiveToggle(e.detail)}
+				options={{ right: 'Show sensitive values' }}
+				size="xs"
+			/>
+		</div>
+		<div class="border rounded w-full h-[calc(100vh-12rem)]">
+			{#await import('$lib/components/SimpleEditor.svelte')}
+				<Loader2 class="animate-spin" />
+			{:then Module}
+				<Module.default
+					bind:this={yamlEditor}
+					class="h-full"
+					lang="yaml"
+					bind:code={yamlCode}
+					fixedOverflowWidgets={false}
+				/>
+			{/await}
+		</div>
+		{#if yamlError}
+			<div class="text-red-500 text-xs mt-1">{yamlError}</div>
+		{/if}
+	{:else if hideTabs}
 		{@render categoryContent(tab)}
 	{:else}
 		<Tabs bind:selected={tab}>
@@ -586,7 +991,8 @@
 					...settings['Jobs'].filter((s) => s.key === 'job_isolation'),
 					...(licenseKeySetting ? [licenseKeySetting] : []),
 					...settings['Jobs'].filter((s) => s.key === 'retention_period_secs'),
-					...(settings['Object Storage']?.filter((s) => s.key === 'object_store_cache_config') ?? [])
+					...(settings['Object Storage']?.filter((s) => s.key === 'object_store_cache_config') ??
+						[])
 				]}
 				{#each extraSettings as setting}
 					<InstanceSetting
@@ -602,7 +1008,7 @@
 			{/if}
 		</div>
 
-		{#if !loading && !quickSetup}
+		{#if !loading && !quickSetup && !hideTabs}
 			<SettingsFooter
 				hasUnsavedChanges={dirtyCategories[category] ?? false}
 				disabled={invalidCategories[category] ?? false}

@@ -652,6 +652,18 @@ export async function getActiveInstance(opts: {
   }
 }
 
+async function getConfig(opts: InstanceSyncOptions & { outputFile?: string }) {
+  await pickInstance(opts, false);
+  const config = await wmill.getInstanceConfig();
+  const yaml = yamlStringify(config as Record<string, unknown>);
+  if (opts.outputFile) {
+    await Deno.writeTextFile(opts.outputFile, yaml);
+    log.info(colors.green(`Instance config written to ${opts.outputFile}`));
+  } else {
+    console.log(yaml);
+  }
+}
+
 async function whoami(opts: {}) {
   await pickInstance({}, false);
   try {
@@ -774,6 +786,14 @@ const command = new Command()
   .action(instancePush as any)
   .command("whoami")
   .description("Display information about the currently logged-in user")
-  .action(whoami as any);
+  .action(whoami as any)
+  .command("get-config")
+  .description("Dump the current instance config (global settings + worker configs) as YAML")
+  .option("-o, --output-file <file:string>", "Write YAML to a file instead of stdout")
+  .option(
+    "--instance <instance:string>",
+    "Name of the instance, override the active instance",
+  )
+  .action(getConfig as any);
 
 export default command;

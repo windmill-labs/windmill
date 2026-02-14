@@ -158,10 +158,13 @@
 	$effect(() => {
 		if (
 			(setting.fieldType == 'select' || setting.fieldType == 'select_python') &&
-			$values[setting.key] == undefined
+			$values[setting.key] == undefined &&
+			setting.defaultValue
 		) {
 			untrack(() => {
-				$values[setting.key] = setting.defaultValue ? setting.defaultValue() : 'default'
+				if (setting.defaultValue) {
+					$values[setting.key] = setting.defaultValue()
+				}
 			})
 		}
 	})
@@ -449,7 +452,8 @@
 							<div class="flex flex-row gap-1 items-center">
 								<Info size={12} class="text-blue-600" />
 								<span class="text-blue-600 dark:text-blue-400 text-xs">
-									License key is set but the current image is Community Edition ({version}). Switch to the EE image to finalize the upgrade.
+									License key is set but the current image is Community Edition ({version}). Switch
+									to the EE image to finalize the upgrade.
 								</span>
 							</div>
 						{/if}

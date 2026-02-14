@@ -33,6 +33,7 @@
 		readOnly?: boolean
 		buttons?: ButtonProp[]
 		modifiedModel?: meditor.ITextModel | meditor.IEditorModel
+		inlineDiff?: boolean
 	}
 
 	let {
@@ -46,7 +47,8 @@
 		defaultModified = undefined,
 		readOnly = false,
 		buttons = [],
-		modifiedModel
+		modifiedModel,
+		inlineDiff = false
 	}: Props = $props()
 
 	let diffEditor: meditor.IStandaloneDiffEditor | undefined = $state(undefined)
@@ -62,7 +64,7 @@
 
 		diffEditor = meditor.createDiffEditor(diffDivEl!, {
 			automaticLayout,
-			renderSideBySide: editorWidth >= SIDE_BY_SIDE_MIN_WIDTH,
+			renderSideBySide: inlineDiff ? false : editorWidth >= SIDE_BY_SIDE_MIN_WIDTH,
 			originalEditable: false,
 			readOnly,
 			minimap: {
@@ -168,7 +170,9 @@
 	}
 
 	function onWidthChange(editorWidth: number) {
-		diffEditor?.updateOptions({ renderSideBySide: editorWidth >= SIDE_BY_SIDE_MIN_WIDTH })
+		diffEditor?.updateOptions({
+			renderSideBySide: inlineDiff ? false : editorWidth >= SIDE_BY_SIDE_MIN_WIDTH
+		})
 	}
 
 	$effect(() => {
