@@ -10,7 +10,8 @@ pub use windmill_common::instance_config::{
     CustomInstanceDbLogs, CustomInstancePgDatabases, DbOversizeAlert, Ducklake, DucklakeCatalog,
     DucklakeCatalogResourceType, DucklakeSettings, DucklakeStorage, GlobalSettings,
     IndexerSettings, OAuthClient, OAuthConfig, OtelSettings, OtelTracingProxySettings, ScriptLang,
-    SmtpSettings, TeamsChannel, WorkerGroupConfig,
+    SecretKeyRef, SecretKeyRefWrapper, SmtpSettings, StringOrSecretRef, TeamsChannel,
+    WorkerGroupConfig,
 };
 
 /// WindmillInstance CRD spec.
@@ -182,5 +183,36 @@ mod tests {
         assert!(status.message.is_empty());
         assert_eq!(status.observed_generation, 0);
         assert!(status.last_synced_at.is_none());
+    }
+
+    #[test]
+    fn crd_schema_supports_secret_refs() {
+        let crd = WindmillInstance::crd();
+        let yaml = serde_yml::to_string(&crd).expect("CRD should serialize to YAML");
+        assert!(
+            yaml.contains("secretKeyRef"),
+            "CRD schema should contain secretKeyRef for secret reference support"
+        );
+    }
+
+    #[test]
+    fn spec_deserializes_secret_ref_fields() {
+        let json = r#"{
+            "global_settings": {
+                "license_key": {"secretKeyRef": {"name": "wm-secrets", "key": "license"}},
+                "base_url": "https://example.com"
+            }
+        }"#;
+        let spec: WindmillInstanceSpec = serde_json::from_str(json).unwrap();
+        assert!(spec
+            .global_settings
+            .license_key
+            .as_ref()
+            .unwrap()
+            .is_secret_ref());
+        assert_eq!(
+            spec.global_settings.base_url.as_deref(),
+            Some("https://example.com")
+        );
     }
 }

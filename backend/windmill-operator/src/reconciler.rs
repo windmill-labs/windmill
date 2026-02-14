@@ -11,6 +11,7 @@ use sqlx::{Pool, Postgres};
 
 use crate::crd::{WindmillInstance, WindmillInstanceStatus};
 use crate::db_sync;
+use crate::resolve;
 
 /// Shared state available to the reconciler.
 struct Context {
@@ -57,8 +58,31 @@ async fn reconcile(
 
     let generation = instance.metadata.generation.unwrap_or(0);
 
+    // Resolve any secretKeyRef fields by reading K8s Secrets
+    let resolved = match resolve::resolve_secret_refs(
+        &ctx.client,
+        &ns,
+        &instance.spec.global_settings,
+    )
+    .await
+    {
+        Ok(gs) => gs,
+        Err(e) => {
+            tracing::error!("Failed to resolve secret refs for {name}: {e:#}");
+            update_status(
+                &ctx.client,
+                &instance,
+                false,
+                format!("Error resolving secret references: {e}"),
+                generation,
+            )
+            .await?;
+            return Ok(Action::requeue(Duration::from_secs(30)));
+        }
+    };
+
     // Convert typed structs to BTreeMaps for db_sync
-    let settings_map = instance.spec.global_settings.to_settings_map();
+    let settings_map = resolved.to_settings_map();
     let configs_map: BTreeMap<String, serde_json::Value> = instance
         .spec
         .worker_configs

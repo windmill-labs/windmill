@@ -16694,6 +16694,7 @@ dependencies = [
  "serde_json",
  "serde_yml",
  "sqlx",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
  "windmill-common",

@@ -1,6 +1,122 @@
 use std::collections::BTreeMap;
+use std::fmt;
 
 use serde::{Deserialize, Serialize};
+
+// ---------------------------------------------------------------------------
+// Kubernetes Secret reference support
+// ---------------------------------------------------------------------------
+
+/// Reference to a key inside a Kubernetes Secret.
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
+pub struct SecretKeyRef {
+    pub name: String,
+    pub key: String,
+}
+
+/// Wrapper that produces `{ "secretKeyRef": { "name": "…", "key": "…" } }` in YAML/JSON.
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
+pub struct SecretKeyRefWrapper {
+    #[serde(rename = "secretKeyRef")]
+    pub secret_key_ref: SecretKeyRef,
+}
+
+/// A string field that can either be a literal value or a reference to a
+/// Kubernetes Secret key. Uses `#[serde(untagged)]` so that in YAML/JSON:
+///
+/// - A plain string deserializes as `Literal("…")`
+/// - An object `{ secretKeyRef: { name, key } }` deserializes as `SecretRef(…)`
+///
+/// `Literal` serializes back to a plain JSON string, preserving backwards
+/// compatibility with existing consumers.
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
+#[serde(untagged)]
+pub enum StringOrSecretRef {
+    Literal(String),
+    SecretRef(SecretKeyRefWrapper),
+}
+
+impl StringOrSecretRef {
+    /// Returns the literal string value, or `None` if this is an unresolved secret ref.
+    pub fn as_literal(&self) -> Option<&str> {
+        match self {
+            Self::Literal(s) => Some(s),
+            Self::SecretRef(_) => None,
+        }
+    }
+
+    /// Returns the literal value, panicking if this is an unresolved secret ref.
+    /// Use only after resolution.
+    pub fn literal_value(&self) -> &str {
+        match self {
+            Self::Literal(s) => s,
+            Self::SecretRef(_) => panic!("literal_value() called on unresolved secret ref"),
+        }
+    }
+
+    /// Returns `true` if this is a secret reference (not yet resolved).
+    pub fn is_secret_ref(&self) -> bool {
+        matches!(self, Self::SecretRef(_))
+    }
+
+    /// Returns the inner `SecretKeyRef` if this is a secret reference.
+    pub fn as_secret_ref(&self) -> Option<&SecretKeyRef> {
+        match self {
+            Self::SecretRef(w) => Some(&w.secret_key_ref),
+            Self::Literal(_) => None,
+        }
+    }
+}
+
+impl Default for StringOrSecretRef {
+    fn default() -> Self {
+        Self::Literal(String::new())
+    }
+}
+
+impl From<String> for StringOrSecretRef {
+    fn from(s: String) -> Self {
+        Self::Literal(s)
+    }
+}
+
+impl From<&str> for StringOrSecretRef {
+    fn from(s: &str) -> Self {
+        Self::Literal(s.to_string())
+    }
+}
+
+impl PartialEq<str> for StringOrSecretRef {
+    fn eq(&self, other: &str) -> bool {
+        self.as_literal() == Some(other)
+    }
+}
+
+impl PartialEq<StringOrSecretRef> for StringOrSecretRef {
+    fn eq(&self, other: &StringOrSecretRef) -> bool {
+        match (self, other) {
+            (Self::Literal(a), Self::Literal(b)) => a == b,
+            (Self::SecretRef(a), Self::SecretRef(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+impl fmt::Display for StringOrSecretRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Literal(s) => f.write_str(s),
+            Self::SecretRef(w) => write!(
+                f,
+                "secretKeyRef({}/{})",
+                w.secret_key_ref.name, w.secret_key_ref.key
+            ),
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Top-level wrapper
@@ -29,7 +145,7 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub license_key: Option<String>,
+    pub license_key: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retention_period_secs: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -71,11 +187,11 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hub_accessible_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub hub_api_secret: Option<String>,
+    pub hub_api_secret: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jwt_secret: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub scim_token: Option<String>,
+    pub scim_token: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub saml_metadata: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -171,7 +287,7 @@ pub struct SmtpSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub smtp_username: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub smtp_password: Option<String>,
+    pub smtp_password: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub smtp_port: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -217,7 +333,7 @@ pub struct IndexerSettings {
 #[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
 pub struct OAuthClient {
     pub id: String,
-    pub secret: String,
+    pub secret: StringOrSecretRef,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub allowed_domains: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -406,7 +522,7 @@ pub enum DucklakeCatalogResourceType {
 #[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
 pub struct CustomInstancePgDatabases {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub user_pwd: Option<String>,
+    pub user_pwd: Option<StringOrSecretRef>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub databases: BTreeMap<String, CustomInstanceDb>,
 }
@@ -1304,7 +1420,7 @@ mod tests {
         }"#;
         let client: OAuthClient = serde_json::from_str(json).unwrap();
         assert_eq!(client.id, "client_id_123");
-        assert_eq!(client.secret, "secret_456");
+        assert_eq!(client.secret, *"secret_456");
         assert_eq!(client.allowed_domains.as_ref().unwrap().len(), 2);
         let cc = client.connect_config.as_ref().unwrap();
         assert_eq!(cc.auth_url, "https://auth.example.com/authorize");
@@ -1340,7 +1456,10 @@ mod tests {
             }
         }"#;
         let pg: CustomInstancePgDatabases = serde_json::from_str(json).unwrap();
-        assert_eq!(pg.user_pwd.as_deref(), Some("secret123"));
+        assert_eq!(
+            pg.user_pwd.as_ref().and_then(|v| v.as_literal()),
+            Some("secret123")
+        );
         let db = &pg.databases["mydb"];
         assert!(db.success);
         assert_eq!(db.tag.as_deref(), Some("production"));
@@ -1399,5 +1518,101 @@ mod tests {
         let diff = diff_global_settings(&current, &desired, ApplyMode::Merge);
         assert_eq!(diff.upserts.len(), 1);
         assert_eq!(diff.upserts["smtp"]["port"], 587);
+    }
+
+    // -----------------------------------------------------------------------
+    // StringOrSecretRef tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn string_or_secret_ref_deserialize_literal() {
+        let v: StringOrSecretRef = serde_json::from_str(r#""hello""#).unwrap();
+        assert_eq!(v.as_literal(), Some("hello"));
+        assert!(!v.is_secret_ref());
+    }
+
+    #[test]
+    fn string_or_secret_ref_deserialize_secret_ref() {
+        let json = r#"{"secretKeyRef": {"name": "my-secret", "key": "password"}}"#;
+        let v: StringOrSecretRef = serde_json::from_str(json).unwrap();
+        assert!(v.is_secret_ref());
+        assert!(v.as_literal().is_none());
+        let r = v.as_secret_ref().unwrap();
+        assert_eq!(r.name, "my-secret");
+        assert_eq!(r.key, "password");
+    }
+
+    #[test]
+    fn string_or_secret_ref_serialize_literal() {
+        let v = StringOrSecretRef::Literal("plain".to_string());
+        let json = serde_json::to_value(&v).unwrap();
+        assert_eq!(json, serde_json::json!("plain"));
+    }
+
+    #[test]
+    fn string_or_secret_ref_serialize_secret_ref() {
+        let v = StringOrSecretRef::SecretRef(SecretKeyRefWrapper {
+            secret_key_ref: SecretKeyRef { name: "s".to_string(), key: "k".to_string() },
+        });
+        let json = serde_json::to_value(&v).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({"secretKeyRef": {"name": "s", "key": "k"}})
+        );
+    }
+
+    #[test]
+    fn string_or_secret_ref_from_impls() {
+        let v: StringOrSecretRef = "hello".into();
+        assert_eq!(v, *"hello");
+
+        let v: StringOrSecretRef = String::from("world").into();
+        assert_eq!(v, *"world");
+    }
+
+    #[test]
+    #[should_panic(expected = "literal_value() called on unresolved secret ref")]
+    fn string_or_secret_ref_literal_value_panics_on_ref() {
+        let v = StringOrSecretRef::SecretRef(SecretKeyRefWrapper {
+            secret_key_ref: SecretKeyRef { name: "s".to_string(), key: "k".to_string() },
+        });
+        let _ = v.literal_value();
+    }
+
+    #[test]
+    fn global_settings_with_mixed_literal_and_ref() {
+        let json = r#"{
+            "license_key": {"secretKeyRef": {"name": "wm-secrets", "key": "license"}},
+            "hub_api_secret": "plain-secret",
+            "base_url": "https://example.com"
+        }"#;
+        let gs: GlobalSettings = serde_json::from_str(json).unwrap();
+        assert!(gs.license_key.as_ref().unwrap().is_secret_ref());
+        assert_eq!(
+            gs.hub_api_secret.as_ref().and_then(|v| v.as_literal()),
+            Some("plain-secret")
+        );
+        assert_eq!(gs.base_url.as_deref(), Some("https://example.com"));
+    }
+
+    #[test]
+    fn string_or_secret_ref_backward_compat_plain_string() {
+        let json = r#"{"license_key": "my-key", "scim_token": "tok"}"#;
+        let gs: GlobalSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            gs.license_key.as_ref().and_then(|v| v.as_literal()),
+            Some("my-key")
+        );
+        assert_eq!(
+            gs.scim_token.as_ref().and_then(|v| v.as_literal()),
+            Some("tok")
+        );
+
+        let roundtripped = serde_json::to_string(&gs).unwrap();
+        let gs2: GlobalSettings = serde_json::from_str(&roundtripped).unwrap();
+        assert_eq!(
+            gs2.license_key.as_ref().and_then(|v| v.as_literal()),
+            Some("my-key")
+        );
     }
 }

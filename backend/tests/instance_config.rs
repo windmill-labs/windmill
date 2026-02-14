@@ -827,7 +827,11 @@ async fn test_full_config_roundtrip(db: Pool<Postgres>) {
         Some("https://prod.windmill.dev")
     );
     assert_eq!(
-        config.global_settings.license_key.as_deref(),
+        config
+            .global_settings
+            .license_key
+            .as_ref()
+            .and_then(|v| v.as_literal()),
         Some("prod-license-key")
     );
     assert_eq!(config.global_settings.retention_period_secs, Some(2592000));

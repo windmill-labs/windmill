@@ -20,6 +20,7 @@ sqlx.workspace = true
 tracing.workspace = true
 windmill-common = { workspace = true, default-features = false, features = ["instance_config_schema"] }
 anyhow.workspace = true
+thiserror.workspace = true
 kube.workspace = true
 k8s-openapi.workspace = true
 tokio.workspace = true
