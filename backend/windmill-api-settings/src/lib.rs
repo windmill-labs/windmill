@@ -12,9 +12,9 @@ use std::{collections::HashMap, time::Duration};
 mod ee;
 pub mod ee_oss;
 
-use windmill_api_auth::{require_super_admin, ApiAuthed};
 #[cfg(feature = "enterprise")]
 use windmill_api_auth::require_devops_role;
+use windmill_api_auth::{require_super_admin, ApiAuthed};
 use windmill_common::utils::HTTP_CLIENT_PERMISSIVE as HTTP_CLIENT;
 use windmill_common::DB;
 
@@ -154,10 +154,11 @@ use windmill_common::s3_helpers::build_object_store_from_settings;
 
 #[cfg(feature = "parquet")]
 pub async fn test_s3_bucket(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Json(test_s3_bucket): Json<ObjectSettings>,
 ) -> error::Result<String> {
+    require_super_admin(&db, &authed.email).await?;
     use bytes::Bytes;
     use futures::StreamExt;
 
@@ -445,8 +446,7 @@ async fn set_instance_config(
             .map(|(k, v)| {
                 (
                     k.clone(),
-                    serde_json::to_value(v)
-                        .expect("WorkerGroupConfig serialization cannot fail"),
+                    serde_json::to_value(v).expect("WorkerGroupConfig serialization cannot fail"),
                 )
             })
             .collect();
@@ -456,8 +456,7 @@ async fn set_instance_config(
             .map(|(k, v)| {
                 (
                     k.clone(),
-                    serde_json::to_value(v)
-                        .expect("WorkerGroupConfig serialization cannot fail"),
+                    serde_json::to_value(v).expect("WorkerGroupConfig serialization cannot fail"),
                 )
             })
             .collect();
@@ -1049,19 +1048,16 @@ async fn sync_cached_resource_types(
     use windmill_common::worker::HUB_RT_CACHE_DIR;
     let cache_path = format!("{}/resource_types.json", HUB_RT_CACHE_DIR);
 
-    let content = tokio::fs::read_to_string(&cache_path)
-        .await
-        .map_err(|e| {
-            error::Error::NotFound(format!(
-                "No cached resource types found at {}: {}",
-                cache_path, e
-            ))
-        })?;
+    let content = tokio::fs::read_to_string(&cache_path).await.map_err(|e| {
+        error::Error::NotFound(format!(
+            "No cached resource types found at {}: {}",
+            cache_path, e
+        ))
+    })?;
 
-    let cached_types: Vec<CachedResourceType> =
-        serde_json::from_str(&content).map_err(|e| {
-            error::Error::InternalErr(format!("Failed to parse cached resource types: {}", e))
-        })?;
+    let cached_types: Vec<CachedResourceType> = serde_json::from_str(&content).map_err(|e| {
+        error::Error::InternalErr(format!("Failed to parse cached resource types: {}", e))
+    })?;
 
     let mut synced_count = 0;
 
