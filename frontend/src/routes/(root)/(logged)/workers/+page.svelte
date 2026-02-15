@@ -39,6 +39,7 @@
 	import { onDestroy, onMount, untrack } from 'svelte'
 
 	import YAML from 'yaml'
+	import { cleanWorkerGroupConfig } from '$lib/components/worker_group'
 	import { DEFAULT_TAGS_WORKSPACES_SETTING } from '$lib/consts'
 	import AutoscalingEvents from '$lib/components/AutoscalingEvents.svelte'
 	import HttpAgentWorkerDrawer from '$lib/components/HttpAgentWorkerDrawer.svelte'
@@ -397,15 +398,8 @@
 			if (bi !== -1) return 1
 			return a.localeCompare(b)
 		})
-		for (const [name, { cache_clear, ...config }] of entries) {
-			const cleaned: Record<string, any> = {}
-			for (const [k, v] of Object.entries(config)) {
-				if (v == null) continue
-				if (Array.isArray(v) && v.length === 0) continue
-				if (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0) continue
-				cleaned[k] = v
-			}
-			sorted[name] = cleaned
+		for (const [name, config] of entries) {
+			sorted[name] = cleanWorkerGroupConfig(config)
 		}
 		return YAML.stringify(sorted)
 	}

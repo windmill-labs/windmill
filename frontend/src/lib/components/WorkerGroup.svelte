@@ -32,7 +32,7 @@
 	import Section from './Section.svelte'
 	import Label from './Label.svelte'
 	import Toggle from './Toggle.svelte'
-	import { defaultTags, nativeTags, type AutoscalingConfig } from './worker_group'
+	import { cleanWorkerGroupConfig, defaultTags, nativeTags, type AutoscalingConfig } from './worker_group'
 	import AutoscalingConfigEditor from './AutoscalingConfigEditor.svelte'
 	import TagsToListenTo from './TagsToListenTo.svelte'
 	import Select from './select/Select.svelte'
@@ -927,6 +927,16 @@
 				/>
 			</div>
 		</Section>
+
+		<div class="mt-8">
+			<Section label="Set via API" collapsable headerClass="text-secondary">
+				<p class="text-xs text-tertiary">Requires a superadmin token.</p>
+				<pre class="mt-1 p-2 bg-surface-secondary rounded text-xs overflow-x-auto whitespace-pre-wrap break-all">curl -X POST '{window.location.origin}/api/configs/update/worker__{name}' \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer &lt;token&gt;' \
+  -d '{JSON.stringify(cleanWorkerGroupConfig(nconfig ?? {}), null, 2)}'</pre>
+			</Section>
+		</div>
 		{#snippet actions()}
 			<div class="flex gap-4 items-center">
 				{#if onOpenYamlEditor}
