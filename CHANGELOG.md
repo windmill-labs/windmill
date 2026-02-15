@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.635.0](https://github.com/windmill-labs/windmill/compare/v1.634.6...v1.635.0) (2026-02-15)
+
+
+### Features
+
+* add Kubernetes operator and instance settings YAML editor ([#7836](https://github.com/windmill-labs/windmill/issues/7836)) ([82e5f6d](https://github.com/windmill-labs/windmill/commit/82e5f6de48e246a49b25e7d4ea7be65122e8772c))
+* add maven settings.xml support for java private registries ([#7940](https://github.com/windmill-labs/windmill/issues/7940)) ([581dde8](https://github.com/windmill-labs/windmill/commit/581dde8d0bc4428a5e95fcb5341239231ab36ef6))
+* **cli:** add `lint` command ([#7917](https://github.com/windmill-labs/windmill/issues/7917)) ([37d1277](https://github.com/windmill-labs/windmill/commit/37d1277b91d1b8a03e327b0585f547037482498d))
+* handle $var: and $res: in arrays for transform_json_value ([#7949](https://github.com/windmill-labs/windmill/issues/7949)) ([e4a34d0](https://github.com/windmill-labs/windmill/commit/e4a34d031b2bdb1b73a2a7ca68544fa34f83ed0f))
+* IaC hints, YAML editor for worker configs ([#7956](https://github.com/windmill-labs/windmill/issues/7956)) ([8b8e33e](https://github.com/windmill-labs/windmill/commit/8b8e33e2dc1a2b4c0effab70463f6d4b402a0f7f))
+* open-source worker group configuration UI ([#7954](https://github.com/windmill-labs/windmill/issues/7954)) ([6cf3f5f](https://github.com/windmill-labs/windmill/commit/6cf3f5f4a35a6139b5cdf9f44af29c3941f19645))
+
+
+### Bug Fixes
+
+* allow renaming of backend runnables in the UI ([6215760](https://github.com/windmill-labs/windmill/commit/6215760b1294d55245909a1c1de6c4cc8cef320a))
+* **go:** preserve proxy envs for go mod tidy/download ([#7946](https://github.com/windmill-labs/windmill/issues/7946)) ([8410b59](https://github.com/windmill-labs/windmill/commit/8410b59a8f23d62c57e497d170449643b46595a0))
+* Missing app policy for datatable ([#7944](https://github.com/windmill-labs/windmill/issues/7944)) ([a9dbd1f](https://github.com/windmill-labs/windmill/commit/a9dbd1f73fca9100b64106281802c43881181e78))
+* strip slack_oauth_client_secret from get_settings for non-admins ([#7950](https://github.com/windmill-labs/windmill/issues/7950)) ([43218c6](https://github.com/windmill-labs/windmill/commit/43218c62852490d0efafa8f94385bfe0e8f2ad82))
+
 ## [1.634.6](https://github.com/windmill-labs/windmill/compare/v1.634.5...v1.634.6) (2026-02-13)
 
 
