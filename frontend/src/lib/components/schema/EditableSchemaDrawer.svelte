@@ -53,12 +53,16 @@
 		jsonView?: boolean
 		hiddenArgs?: string[]
 		onClose?: () => void
+		isFlowInput?: boolean
+		isAppInput?: boolean
 	}
 
 	let {
 		schema = $bindable(),
 		jsonView = $bindable(false),
-		hiddenArgs = undefined
+		hiddenArgs = undefined,
+		isFlowInput = false,
+		isAppInput = false
 	}: Props = $props()
 
 	// let schema = $state(structuredClone($state.snapshot(schema)))
@@ -172,7 +176,11 @@
 							{#if schema.properties[item.value]?.type === 'object' && !(schema.properties[item.value].oneOf && schema.properties[item.value].oneOf.length >= 2)}
 								<div class="flex flex-col w-full mt-2">
 									<Label label="Nested properties">
-										<EditableSchemaDrawer bind:schema={schema.properties[item.value]} />
+										<EditableSchemaDrawer
+											bind:schema={schema.properties[item.value]}
+											{isFlowInput}
+											{isAppInput}
+										/>
 									</Label>
 								</div>
 							{/if}
@@ -191,7 +199,8 @@
 					schemaFormClassName="min-h-full"
 					bind:this={editableSchemaForm}
 					bind:schema
-					isAppInput
+					{isFlowInput}
+					{isAppInput}
 					on:edit={(e) => {
 						addPropertyComponent?.openDrawer(e.detail)
 					}}
