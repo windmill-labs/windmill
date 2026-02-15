@@ -166,7 +166,7 @@ oss_core = [
     "static_frontend", "mcp", "bedrock", "inline_preview",
     "quickjs"
 ]
-ce_core = ["oss_core", "private"]
+ce_core = ["oss_core", "private", "operator"]
 ee_core = [
     "enterprise", "stripe", "prometheus", "cloud",
     "kafka", "sqs_trigger", "nats", "gcp_trigger",
