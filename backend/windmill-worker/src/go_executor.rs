@@ -24,8 +24,8 @@ use crate::{
         read_result, start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
     },
     handle_child::handle_child,
-    is_sandboxing_enabled, DISABLE_NUSER, GOPRIVATE, GOPROXY, GO_BIN_CACHE_DIR, GO_CACHE_DIR, HOME_ENV,
-    NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
+    is_sandboxing_enabled, read_ee_registry, DISABLE_NUSER, GOPRIVATE, GOPROXY, GO_BIN_CACHE_DIR,
+    GO_CACHE_DIR, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
 
@@ -392,10 +392,26 @@ func Run(req Req) (interface{{}}, error){{
             })
             .env("HOME", HOME_ENV.as_str());
 
-        if let Some(ref goprivate) = *GOPRIVATE {
+        if let Some(ref goprivate) = read_ee_registry(
+            GOPRIVATE.clone(),
+            "go private",
+            &job.id,
+            &job.workspace_id,
+            conn,
+        )
+        .await
+        {
             run_go.env("GOPRIVATE", goprivate);
         }
-        if let Some(ref goproxy) = *GOPROXY {
+        if let Some(ref goproxy) = read_ee_registry(
+            GOPROXY.clone(),
+            "go proxy",
+            &job.id,
+            &job.workspace_id,
+            conn,
+        )
+        .await
+        {
             run_go.env("GOPROXY", goproxy);
         }
 
@@ -585,13 +601,17 @@ pub async fn install_go_dependencies(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    if let Some(ref goprivate) = *GOPRIVATE {
+    if let Some(ref goprivate) =
+        read_ee_registry(GOPRIVATE.clone(), "go private", job_id, w_id, conn).await
+    {
         child_cmd.env("GOPRIVATE", goprivate);
     }
 
     // TODO: Remove if no incidents reported
     if !std::env::var("WMDEBUG_NO_GOPROXY_ON_TIDY").ok().is_some() {
-        if let Some(ref goproxy) = *GOPROXY {
+        if let Some(ref goproxy) =
+            read_ee_registry(GOPROXY.clone(), "go proxy", job_id, w_id, conn).await
+        {
             child_cmd.env("GOPROXY", goproxy);
         }
     }
