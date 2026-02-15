@@ -934,7 +934,7 @@
 						variant="default"
 						unifiedSize="md"
 						startIcon={{ icon: FileCode }}
-						on:click={() => {
+						onClick={() => {
 							drawer?.closeDrawer()
 							onOpenYamlEditor?.()
 						}}

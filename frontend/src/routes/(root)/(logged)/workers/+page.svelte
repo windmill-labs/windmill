@@ -677,20 +677,20 @@
 					unifiedSize="md"
 					variant="default"
 					disabled={yamlSaving}
-					on:click={() => { yamlDiffMode = false }}
+					onClick={() => { yamlDiffMode = false }}
 				>Back to editor</Button>
 				<Button
 					unifiedSize="md"
 					variant="accent"
 					loading={yamlSaving}
-					on:click={saveYamlConfig}
+					onClick={saveYamlConfig}
 				>Save</Button>
 			{:else}
 				<Button
 					unifiedSize="md"
 					variant="accent"
 					disabled={!yamlConfigCode || yamlConfigCode === yamlConfigOriginal}
-					on:click={() => { yamlDiffMode = true }}
+					onClick={() => { yamlDiffMode = true }}
 				>Review & Save</Button>
 			{/if}
 		{/snippet}
