@@ -388,26 +388,26 @@
 
 	function serializeWorkerGroupsAsYaml(groups: Record<string, any>): string {
 		const priorityGroups = ['default', 'native']
-		const configs = Object.entries(groups)
-			.sort(([a], [b]) => {
-				const ai = priorityGroups.indexOf(a)
-				const bi = priorityGroups.indexOf(b)
-				if (ai !== -1 && bi !== -1) return ai - bi
-				if (ai !== -1) return -1
-				if (bi !== -1) return 1
-				return a.localeCompare(b)
-			})
-			.map(([name, { cache_clear, ...config }]) => {
-				const cleaned: Record<string, any> = { name }
-				for (const [k, v] of Object.entries(config)) {
-					if (v == null) continue
-					if (Array.isArray(v) && v.length === 0) continue
-					if (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0) continue
-					cleaned[k] = v
-				}
-				return cleaned
-			})
-		return YAML.stringify(configs)
+		const sorted: Record<string, any> = {}
+		const entries = Object.entries(groups).sort(([a], [b]) => {
+			const ai = priorityGroups.indexOf(a)
+			const bi = priorityGroups.indexOf(b)
+			if (ai !== -1 && bi !== -1) return ai - bi
+			if (ai !== -1) return -1
+			if (bi !== -1) return 1
+			return a.localeCompare(b)
+		})
+		for (const [name, { cache_clear, ...config }] of entries) {
+			const cleaned: Record<string, any> = {}
+			for (const [k, v] of Object.entries(config)) {
+				if (v == null) continue
+				if (Array.isArray(v) && v.length === 0) continue
+				if (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0) continue
+				cleaned[k] = v
+			}
+			sorted[name] = cleaned
+		}
+		return YAML.stringify(sorted)
 	}
 
 	function openYamlDrawer() {
@@ -424,19 +424,18 @@
 		yamlSaving = true
 		try {
 			const parsed = YAML.parse(yamlConfigCode)
-			if (!Array.isArray(parsed)) {
-				sendUserToast('YAML must be an array of worker group configs', true)
+			if (typeof parsed !== 'object' || parsed == null || Array.isArray(parsed)) {
+				sendUserToast('YAML must be a map of worker group name to config', true)
 				return
 			}
 
 			const newGroups = new Map<string, any>()
-			for (const c of parsed) {
-				if (typeof c !== 'object' || !c?.name || typeof c.name !== 'string') {
-					sendUserToast('Each entry must have a "name" field', true)
+			for (const [name, config] of Object.entries(parsed)) {
+				if (typeof name !== 'string' || name.length === 0) {
+					sendUserToast('Worker group names must be non-empty strings', true)
 					return
 				}
-				const { name: _, ...rest } = c
-				newGroups.set(c.name, rest)
+				newGroups.set(name, config ?? {})
 			}
 
 			const oldNames = new Set(Object.keys(workerGroups ?? {}))
