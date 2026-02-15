@@ -13,7 +13,8 @@ use crate::{
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
-    is_sandboxing_enabled, DENO_CACHE_DIR, DENO_PATH, HOME_ENV, NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
+    is_sandboxing_enabled, read_ee_registry, DENO_CACHE_DIR, DENO_PATH, HOME_ENV,
+    NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
 
@@ -54,6 +55,9 @@ lazy_static::lazy_static! {
 async fn get_common_deno_proc_envs(
     token: &str,
     base_internal_url: &str,
+    job_id: &Uuid,
+    w_id: &str,
+    conn: Option<&Connection>,
 ) -> HashMap<String, String> {
     let hostname = BASE_URL.read().await.clone();
     let hostname_base = hostname.split("://").last().unwrap_or("localhost");
@@ -75,7 +79,19 @@ async fn get_common_deno_proc_envs(
         ),
     ]);
 
-    if let Some(ref s) = NPM_CONFIG_REGISTRY.read().await.clone() {
+    let registry = if let Some(conn) = conn {
+        read_ee_registry(
+            NPM_CONFIG_REGISTRY.read().await.clone(),
+            "npm registry",
+            job_id,
+            w_id,
+            conn,
+        )
+        .await
+    } else {
+        NPM_CONFIG_REGISTRY.read().await.clone()
+    };
+    if let Some(ref s) = registry {
         let (url, _token_opt) = parse_npm_config(s);
         deno_envs.insert(String::from("NPM_CONFIG_REGISTRY"), url);
     }
@@ -131,7 +147,7 @@ pub async fn generate_deno_lock(
     write_file(job_dir, "import_map.json", &import_map)?;
     write_file(job_dir, "empty.ts", "")?;
 
-    let deno_envs = get_common_deno_proc_envs("", base_internal_url).await;
+    let deno_envs = get_common_deno_proc_envs("", base_internal_url, job_id, w_id, db).await;
 
     let mut child_cmd = Command::new(DENO_PATH.as_str());
     child_cmd
@@ -362,8 +378,14 @@ try {{
         write_import_map_f
     )?;
 
-    let mut common_deno_proc_envs =
-        get_common_deno_proc_envs(&client.token, base_internal_url).await;
+    let mut common_deno_proc_envs = get_common_deno_proc_envs(
+        &client.token,
+        base_internal_url,
+        &job.id,
+        &job.workspace_id,
+        Some(conn),
+    )
+    .await;
     if is_sandboxing_enabled() {
         common_deno_proc_envs.insert("HOME".to_string(), job_dir.to_string());
     }
@@ -553,7 +575,14 @@ pub async fn start_worker(
     use crate::common::build_envs_map;
 
     let _ = write_file(job_dir, "main.ts", inner_content)?;
-    let common_deno_proc_envs = get_common_deno_proc_envs(&token, base_internal_url).await;
+    let common_deno_proc_envs = get_common_deno_proc_envs(
+        &token,
+        base_internal_url,
+        &Uuid::nil(),
+        w_id,
+        Some(&db.into()),
+    )
+    .await;
 
     let context = variables::get_reserved_variables(
         &db.into(),
