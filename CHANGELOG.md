@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.635.1](https://github.com/windmill-labs/windmill/compare/v1.635.0...v1.635.1) (2026-02-15)
+
+
+### Bug Fixes
+
+* pin strum_macros to 0.27 to match strum version ([#7957](https://github.com/windmill-labs/windmill/issues/7957)) ([68f766e](https://github.com/windmill-labs/windmill/commit/68f766e1ae54dbe2fe42769559d81d4d76a409ef))
+
 ## [1.635.0](https://github.com/windmill-labs/windmill/compare/v1.634.6...v1.635.0) (2026-02-15)
 
 
