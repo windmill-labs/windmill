@@ -880,6 +880,14 @@
 					{/if}
 				</div>
 			{/snippet}
+			{#if (nconfig.periodic_script_bash ?? '') !== (config?.periodic_script_bash ?? '') || (nconfig.periodic_script_interval_seconds ?? 0) !== (config?.periodic_script_interval_seconds ?? 0)}
+				<div class="mb-2">
+					<Alert size="xs" type="info" title="Worker restart required">
+						Workers will get killed upon detecting changes to the periodic script or interval.
+						It is assumed they are in an environment where the supervisor will restart them.
+					</Alert>
+				</div>
+			{/if}
 
 			<div class="flex gap-4 items-center mb-4">
 				<Label label="Execution interval (seconds)" for="periodic-script-interval-seconds">

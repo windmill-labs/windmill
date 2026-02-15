@@ -384,13 +384,11 @@
 	let yamlConfigCode = $state('')
 	let yamlConfigOriginal = $state('')
 	let yamlDiffMode = $state(false)
+	let yamlSaving = $state(false)
 
-	function openYamlDrawer() {
-		if (!workerGroups) {
-			return sendUserToast('No worker groups found', true)
-		}
+	function serializeWorkerGroupsAsYaml(groups: Record<string, any>): string {
 		const priorityGroups = ['default', 'native']
-		const workersConfig = Object.entries(workerGroups)
+		const configs = Object.entries(groups)
 			.sort(([a], [b]) => {
 				const ai = priorityGroups.indexOf(a)
 				const bi = priorityGroups.indexOf(b)
@@ -409,13 +407,21 @@
 				}
 				return cleaned
 			})
-		yamlConfigCode = YAML.stringify(workersConfig)
+		return YAML.stringify(configs)
+	}
+
+	function openYamlDrawer() {
+		if (!workerGroups) {
+			return sendUserToast('No worker groups found', true)
+		}
+		yamlConfigCode = serializeWorkerGroupsAsYaml(workerGroups)
 		yamlConfigOriginal = yamlConfigCode
 		yamlDiffMode = false
 		yamlConfigDrawer?.toggleDrawer?.()
 	}
 
 	async function saveYamlConfig() {
+		yamlSaving = true
 		try {
 			const parsed = YAML.parse(yamlConfigCode)
 			if (!Array.isArray(parsed)) {
@@ -429,11 +435,25 @@
 					sendUserToast('Each entry must have a "name" field', true)
 					return
 				}
-				newGroups.set(c.name, { ...c, name: undefined })
+				const { name: _, ...rest } = c
+				newGroups.set(c.name, rest)
 			}
 
 			const oldNames = new Set(Object.keys(workerGroups ?? {}))
 			const newNames = new Set(newGroups.keys())
+
+			// Protect well-known groups from accidental deletion
+			const protectedGroups = ['default', 'native']
+			const deletedProtected = protectedGroups.filter(
+				(g) => oldNames.has(g) && !newNames.has(g)
+			)
+			if (deletedProtected.length > 0) {
+				sendUserToast(
+					`Cannot remove well-known groups: ${deletedProtected.join(', ')}. Add them back to the YAML.`,
+					true
+				)
+				return
+			}
 
 			// Delete removed groups
 			for (const name of oldNames) {
@@ -460,6 +480,8 @@
 			} else {
 				sendUserToast('Could not save worker group configs', true)
 			}
+		} finally {
+			yamlSaving = false
 		}
 	}
 
@@ -654,12 +676,14 @@
 				<Button
 					unifiedSize="md"
 					variant="default"
+					disabled={yamlSaving}
 					on:click={() => { yamlDiffMode = false }}
 				>Back to editor</Button>
 				<Button
 					unifiedSize="md"
 					variant="accent"
-					onClick={saveYamlConfig}
+					loading={yamlSaving}
+					on:click={saveYamlConfig}
 				>Save</Button>
 			{:else}
 				<Button
@@ -784,20 +808,7 @@
 																if (!workerGroups) {
 																	return sendUserToast('No worker groups found', true)
 																}
-
-																const workersConfig = Object.entries(workerGroups).map(
-																	([name, { cache_clear, ...config }]) => {
-																		const cleaned: Record<string, any> = { name }
-																		for (const [k, v] of Object.entries(config)) {
-																			if (v == null) continue
-																			if (Array.isArray(v) && v.length === 0) continue
-																			if (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0) continue
-																			cleaned[k] = v
-																		}
-																		return cleaned
-																	}
-																)
-																navigator.clipboard.writeText(YAML.stringify(workersConfig))
+																navigator.clipboard.writeText(serializeWorkerGroupsAsYaml(workerGroups))
 																sendUserToast('Worker groups config copied to clipboard as YAML')
 															}
 														},
