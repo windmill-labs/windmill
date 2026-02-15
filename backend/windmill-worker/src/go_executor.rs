@@ -570,6 +570,7 @@ pub async fn install_go_dependencies(
         .env_clear()
         .env("HOME", HOME_ENV.as_str())
         .env("PATH", PATH_ENV.as_str())
+        .envs(PROXY_ENVS.clone())
         .env("GOPATH", {
             #[cfg(unix)]
             {
