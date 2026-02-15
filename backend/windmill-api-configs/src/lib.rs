@@ -23,7 +23,7 @@ use windmill_common::{
     DB,
 };
 
-use windmill_api_auth::{ApiAuthed, require_devops_role};
+use windmill_api_auth::{require_devops_role, ApiAuthed};
 
 pub fn global_service() -> Router {
     Router::new()
@@ -128,12 +128,15 @@ async fn update_config(
     require_devops_role(&db, &authed.email).await?;
 
     #[cfg(not(feature = "enterprise"))]
-    if name.starts_with("worker__") {
-        return Err(error::Error::BadRequest(
-            "Worker groups configurable from UI available only in the enterprise version"
-                .to_string(),
-        ));
-    }
+    let config = if name.starts_with("worker__") {
+        // In CE, only allow setting worker_tags (and cache_clear for cache management)
+        serde_json::json!({
+            "worker_tags": config.get("worker_tags"),
+            "cache_clear": config.get("cache_clear")
+        })
+    } else {
+        config
+    };
 
     if name.starts_with("worker__") {
         let periodic_script_bash = config

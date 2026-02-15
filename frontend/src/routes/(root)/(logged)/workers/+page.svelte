@@ -45,7 +45,6 @@
 	import Select from '$lib/components/select/Select.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import TagList from '$lib/components/TagList.svelte'
-	import EEOnly from '$lib/components/EEOnly.svelte'
 	import MeltTooltip from '$lib/components/meltComponents/Tooltip.svelte'
 
 	let workers: WorkerPing[] | undefined = $state(undefined)
@@ -607,8 +606,7 @@
 								if (
 									e.key === 'Enter' &&
 									newConfigName &&
-									newConfigName.trim() !== '' &&
-									$enterpriseLicense
+									newConfigName.trim() !== ''
 								) {
 									addConfig()
 								}
@@ -627,7 +625,6 @@
 										unifiedSize="md"
 										startIcon={{ icon: Plus }}
 										nonCaptureEvent
-										disabled={!$enterpriseLicense}
 										dropdownItems={$enterpriseLicense
 											? [
 													{
@@ -657,7 +654,7 @@
 											: undefined}
 									>
 										<span class="hidden md:block"
-											>New group config {!$enterpriseLicense ? '(EE)' : ''}</span
+											>New group config</span
 										>
 
 										<Tooltip light>
@@ -674,14 +671,11 @@
 										bind:value={newConfigName}
 									/>
 
-									{#if !$enterpriseLicense}
-										<EEOnly />
-									{/if}
 									<Button
 										unifiedSize="md"
 										variant="accent"
 										startIcon={{ icon: Plus }}
-										disabled={!newConfigName || !$enterpriseLicense}
+										disabled={!newConfigName}
 										on:click={addConfig}
 									>
 										Create
