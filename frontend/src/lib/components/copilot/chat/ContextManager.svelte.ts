@@ -1,8 +1,20 @@
-import { ResourceService, type Flow, type ListResourceResponse, type ScriptLang } from '$lib/gen'
+import {
+	ResourceService,
+	ScriptService,
+	FlowService,
+	type Flow,
+	type ListResourceResponse,
+	type ScriptLang
+} from '$lib/gen'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { SQLSchemaLanguages, type DBSchemas } from '$lib/stores'
 import { diffLines } from 'diff'
-import type { ContextElement, FlowModuleElement } from './context'
+import type {
+	ContextElement,
+	FlowModuleElement,
+	WorkspaceScriptElement,
+	WorkspaceFlowElement
+} from './context'
 import type { FlowModule } from '$lib/gen'
 
 import type { DisplayMessage } from './shared'
@@ -420,6 +432,48 @@ export default class ContextManager {
 		} else if (!moduleId) {
 			this.selectedContext = this.selectedContext.filter((c) => c.type !== 'flow_module')
 		}
+	}
+
+	async addWorkspaceScript(path: string, workspace: string) {
+		if (this.selectedContext.find((c) => c.type === 'workspace_script' && c.title === path)) {
+			return
+		}
+		const script = await ScriptService.getScriptByPath({ workspace, path })
+		const element: WorkspaceScriptElement & { deletable: boolean } = {
+			type: 'workspace_script',
+			path: script.path,
+			title: script.path,
+			summary: script.summary,
+			language: script.language,
+			content: script.content,
+			schema: script.schema,
+			deletable: true
+		}
+		this.selectedContext = [...this.selectedContext, element]
+	}
+
+	async addWorkspaceFlow(path: string, workspace: string) {
+		if (this.selectedContext.find((c) => c.type === 'workspace_flow' && c.title === path)) {
+			return
+		}
+		const flow = await FlowService.getFlowByPath({ workspace, path })
+		const modules =
+			flow.value?.modules?.map((m) => ({
+				id: m.id,
+				summary: m.summary || '',
+				type: m.value.type
+			})) || []
+		const element: WorkspaceFlowElement & { deletable: boolean } = {
+			type: 'workspace_flow',
+			path: flow.path,
+			title: flow.path,
+			summary: flow.summary,
+			description: flow.description || '',
+			modules,
+			schema: flow.schema,
+			deletable: true
+		}
+		this.selectedContext = [...this.selectedContext, element]
 	}
 
 	clearContext() {
