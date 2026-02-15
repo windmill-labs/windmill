@@ -615,17 +615,19 @@
 		reqPreexisting: boolean,
 		opts: { normalize?: boolean; mask?: boolean } = {}
 	): string {
-		const obj: Record<string, any> = {}
-		for (const key of Object.keys(vals).sort()) {
-			if (excludedKeys.has(key)) continue
-			if (opts.normalize && normalizeValue(vals[key], key) === undefined) continue
-			obj[key] = vals[key]
-		}
+		// Merge all settings (including oauths) into one object so they sort together
+		const merged: Record<string, any> = { ...vals }
 		if (oauthsObj && Object.keys(stripEmpty(oauthsObj)).length > 0) {
-			obj['oauths'] = oauthsObj
+			merged['oauths'] = oauthsObj
 		}
 		if (reqPreexisting) {
-			obj['require_preexisting_user_for_oauth'] = reqPreexisting
+			merged['require_preexisting_user_for_oauth'] = reqPreexisting
+		}
+		const obj: Record<string, any> = {}
+		for (const key of Object.keys(merged).sort()) {
+			if (excludedKeys.has(key)) continue
+			if (opts.normalize && normalizeValue(merged[key], key) === undefined) continue
+			obj[key] = merged[key]
 		}
 		return YAML.stringify(opts.mask ? maskSensitive(obj) : obj)
 	}
