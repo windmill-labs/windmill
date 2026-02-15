@@ -139,9 +139,16 @@
 
 
 
-	/** Auto-save the current wizard step if dirty, then run the callback */
+	/** Auto-save dirty settings, then run the callback */
 	async function saveAndProceed(callback: () => void) {
-		if (isSettingsStep(wizardStep)) {
+		if (yamlMode) {
+			// In YAML mode, sync editor → form, then bulk-save everything
+			if (!instanceSettings?.syncBeforeDiff()) return
+			await instanceSettings.saveSettings()
+		} else if (mode === 'full') {
+			// In full (advanced) mode, bulk-save all settings
+			await instanceSettings?.saveSettings()
+		} else if (isSettingsStep(wizardStep)) {
 			const category = settingsSteps[wizardStep].id
 			if (instanceSettings?.isDirty(category)) {
 				await instanceSettings.saveCategorySettings(category)
@@ -471,10 +478,10 @@
 				>
 					Quick setup
 				</Button>
-				<Button variant="accent" unifiedSize="md" onClick={() => {
+				<Button variant="accent" unifiedSize="md" onClick={() => saveAndProceed(() => {
 					wizardStep = wizardStepLabels.length - 1
 					mode = 'wizard'
-				}}>Continue</Button>
+				})}>Continue</Button>
 			{/if}
 		</div>
 
