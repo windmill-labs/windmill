@@ -13,7 +13,7 @@
 		categoryToTabMap
 	} from '$lib/components/instanceSettings'
 	import Breadcrumb from '$lib/components/common/breadcrumb/Breadcrumb.svelte'
-	import { ChevronRight, ArrowLeft, X, FileDiff, Save, Loader2 } from 'lucide-svelte'
+	import { ChevronRight, ArrowLeft } from 'lucide-svelte'
 	import { superadmin } from '$lib/stores'
 	import { UserService, JobService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
@@ -121,10 +121,6 @@
 	let instanceSettingsCategory = $derived(tabToCategoryMap[fullTab] ?? 'Core')
 	let authSubTab: 'sso' | 'oauth' | 'scim' = $derived(tabToAuthSubTab[fullTab] ?? 'sso')
 	let yamlMode = $state(false)
-	let diffMode = $state(false)
-	let hasUnsavedChanges = $state(false)
-	let pendingSave = $state(false)
-	let isSaving = $state(false)
 
 	// --- Unsaved changes detection (full mode) ---
 	let pendingTab: string | undefined = $state(undefined)
@@ -141,40 +137,7 @@
 		}
 	}
 
-	async function handleSave() {
-		if (!pendingSave) {
-			if (!instanceSettings?.syncBeforeDiff()) return
-			diffMode = true
-			pendingSave = true
-			return
-		}
-		isSaving = true
-		try {
-			await instanceSettings?.saveSettings()
-			diffMode = false
-			pendingSave = false
-		} catch (e) {
-			console.error('Save failed:', e)
-		} finally {
-			isSaving = false
-		}
-	}
 
-	function handleDiscard() {
-		instanceSettings?.discardAll()
-		diffMode = false
-		pendingSave = false
-	}
-
-	function handleShowDiff() {
-		if (!diffMode) {
-			if (!instanceSettings?.syncBeforeDiff()) return
-		}
-		diffMode = !diffMode
-		if (!diffMode) {
-			pendingSave = false
-		}
-	}
 
 	/** Auto-save the current wizard step if dirty, then run the callback */
 	async function saveAndProceed(callback: () => void) {
@@ -416,46 +379,16 @@
 		{:else}
 			<!-- Action bar (full mode) -->
 			<div class="flex items-center justify-end gap-2 pb-2 border-b shrink-0">
-				<Button
-					variant="default"
-					size="xs"
-					startIcon={{ icon: X }}
-					onClick={handleDiscard}
-					disabled={!hasUnsavedChanges || isSaving}
-				>
-					Discard
-				</Button>
-				<Button
-					variant={diffMode ? 'accent' : 'default'}
-					size="xs"
-					startIcon={{ icon: FileDiff }}
-					onClick={handleShowDiff}
-					disabled={!hasUnsavedChanges}
-				>
-					{diffMode ? 'Hide diff' : 'Show diff'}
-				</Button>
 				<Toggle
 					bind:checked={yamlMode}
 					options={{ right: 'YAML' }}
 					size="sm"
 				/>
-				<Button
-					variant="accent"
-					size="xs"
-					startIcon={{
-						icon: isSaving ? Loader2 : Save,
-						classes: isSaving ? 'animate-spin' : ''
-					}}
-					disabled={!hasUnsavedChanges || isSaving}
-					onClick={handleSave}
-				>
-					{isSaving ? 'Saving...' : pendingSave ? 'Confirm & Save' : 'Save settings'}
-				</Button>
 			</div>
 
 			<!-- Sidebar + Content -->
 			<div class="flex flex-1 min-h-0">
-				{#if !yamlMode && !diffMode}
+				{#if !yamlMode}
 					<div class="w-44 shrink-0 overflow-auto pb-4 pr-4">
 						<SidebarNavigation
 							groups={setupNavigationGroups}
@@ -472,8 +405,6 @@
 						tab={instanceSettingsCategory}
 						{authSubTab}
 						bind:yamlMode
-						bind:diffMode
-						bind:hasUnsavedChanges
 						onNavigateToTab={(category) => {
 							const targetTab = categoryToTabMap[category]
 							if (targetTab) {
