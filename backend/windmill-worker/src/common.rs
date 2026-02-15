@@ -171,7 +171,7 @@ pub async fn transform_json<'a>(
                 error::Error::internal_err(format!("Error while parsing inner arg: {e:#}"))
             })?;
             let transformed =
-                transform_json_value(&k, &client, workspace, value, job, db, true).await?;
+                transform_json_value(&k, &client, workspace, value, job, db, 0).await?;
             let as_raw = serde_json::from_value(transformed).map_err(|e| {
                 error::Error::internal_err(format!("Error while parsing inner arg: {e:#}"))
             })?;
@@ -198,7 +198,7 @@ pub async fn transform_json_as_values<'a>(
                 error::Error::internal_err(format!("Error while parsing inner arg: {e:#}"))
             })?;
             let transformed =
-                transform_json_value(&k, &client, workspace, value, job, db, true).await?;
+                transform_json_value(&k, &client, workspace, value, job, db, 0).await?;
             let as_raw = serde_json::from_value(transformed).map_err(|e| {
                 error::Error::internal_err(format!("Error while parsing inner arg: {e:#}"))
             })?;
@@ -239,7 +239,7 @@ pub async fn transform_json_value(
     v: Value,
     job: &MiniPulledJob,
     conn: &Connection,
-    top_level: bool,
+    depth: u8,
 ) -> error::Result<Value> {
     match v {
         Value::String(y) if y.starts_with("$var:") => {
@@ -309,17 +309,20 @@ pub async fn transform_json_value(
                 .unwrap_or_else(|| y);
             Ok(json!(value))
         }
-        Value::Array(mut arr) if top_level && arr.len() <= 1000 => {
+        Value::Array(mut arr) if depth <= 2 && arr.len() <= 1000 => {
             for i in 0..arr.len() {
-                match &arr[i] {
-                    Value::String(s) if s.starts_with("$var:") || s.starts_with("$res:") => {
-                        let val = std::mem::take(&mut arr[i]);
-                        arr[i] =
-                            transform_json_value(name, client, workspace, val, job, conn, false)
-                                .await?;
-                    }
-                    _ => {}
-                }
+                let val = std::mem::take(&mut arr[i]);
+                arr[i] = transform_json_value(name, client, workspace, val, job, conn, depth + 1)
+                    .await?;
+            }
+            Ok(Value::Array(arr))
+        }
+        Value::Array(arr) => {
+            if arr.len() > 1000 {
+                tracing::warn!(
+                    "Array with {} items exceeds 1000 item limit for variable/resource resolution, skipping",
+                    arr.len()
+                );
             }
             Ok(Value::Array(arr))
         }
@@ -327,7 +330,7 @@ pub async fn transform_json_value(
             for (a, b) in m.clone().into_iter() {
                 m.insert(
                     a.clone(),
-                    transform_json_value(&a, client, workspace, b, job, conn, false).await?,
+                    transform_json_value(&a, client, workspace, b, job, conn, depth + 1).await?,
                 );
             }
             Ok(Value::Object(m))
@@ -1493,7 +1496,7 @@ mod tests {
         let arr: Vec<Value> = (0..1001).map(|i| json!(format!("$var:x/{i}"))).collect();
         let input = Value::Array(arr.clone());
 
-        let result = transform_json_value("test", &client, "test", input, &job, &conn, true)
+        let result = transform_json_value("test", &client, "test", input, &job, &conn, 0)
             .await
             .unwrap();
 
@@ -1511,16 +1514,15 @@ mod tests {
 
         let input = json!(["hello", "world", 42, true, null, {"key": "val"}]);
 
-        let result =
-            transform_json_value("test", &client, "test", input.clone(), &job, &conn, true)
-                .await
-                .unwrap();
+        let result = transform_json_value("test", &client, "test", input.clone(), &job, &conn, 0)
+            .await
+            .unwrap();
 
         assert_eq!(result, input);
     }
 
     #[tokio::test]
-    async fn test_transform_array_top_level_false_passthrough() {
+    async fn test_transform_array_resolved_inside_object() {
         let db_url = std::env::var("DATABASE_URL")
             .unwrap_or("postgres://postgres:changeme@localhost:5432/windmill".to_string());
         let pool = sqlx::PgPool::connect(&db_url).await.unwrap();
@@ -1528,14 +1530,11 @@ mod tests {
         let client = test_client();
         let job = test_job();
 
-        let input = json!(["$var:u/test/var1", "$res:u/test/res1"]);
+        let input = json!({"urls": ["$var:u/test/nonexistent", "plain"]});
 
-        let result =
-            transform_json_value("test", &client, "test", input.clone(), &job, &conn, false)
-                .await
-                .unwrap();
+        let result = transform_json_value("test", &client, "test", input, &job, &conn, 0).await;
 
-        assert_eq!(result, input);
+        assert!(result.is_err());
     }
 
     #[tokio::test]
@@ -1549,7 +1548,7 @@ mod tests {
 
         let input = json!(["$var:u/test/nonexistent", "plain"]);
 
-        let result = transform_json_value("test", &client, "test", input, &job, &conn, true).await;
+        let result = transform_json_value("test", &client, "test", input, &job, &conn, 0).await;
 
         assert!(result.is_err());
     }
