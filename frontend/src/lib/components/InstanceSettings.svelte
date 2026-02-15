@@ -851,6 +851,13 @@
 				description="Add private registries for Pip, Bun and npm."
 				link="https://www.windmill.dev/docs/advanced/imports"
 			/>
+			{#if !$enterpriseLicense}
+				<Alert
+					type="info"
+					title="Private registries configuration is an EE feature"
+					class="mb-2"
+				/>
+			{/if}
 		{:else if category == 'Alerts'}
 			<SettingsPageHeader
 				title="Alerts"
