@@ -788,6 +788,14 @@
 			{/await}
 		</div>
 	{:else if yamlMode}
+		<p class="text-2xs text-tertiary mb-2">
+			Use this YAML to manage instance settings as code.
+			<a
+				href="https://www.windmill.dev/docs/advanced/instance_settings#kubernetes-operator"
+				target="_blank"
+				rel="noopener noreferrer"
+			>Learn more <ExternalLink size={12} class="inline-block" /></a>
+		</p>
 		<!-- svelte-ignore a11y_label_has_associated_control -->
 		<div class="flex items-center justify-end gap-4 mb-2">
 			<Toggle
@@ -833,16 +841,6 @@
 	{/if}
 
 	{#snippet categoryContent(category: string)}
-		{#if !quickSetup}
-			<p class="text-2xs text-tertiary mb-2">
-				On Kubernetes, instance settings can also be managed as code using the WindmillInstance CRD.
-				<a
-					href="https://www.windmill.dev/docs/advanced/instance_settings#kubernetes-operator"
-					target="_blank"
-					rel="noopener noreferrer"
-				>Learn more <ExternalLink size={12} class="inline-block" /></a>
-			</p>
-		{/if}
 		{#if category == 'Core'}
 			<SettingsPageHeader
 				title="Core"

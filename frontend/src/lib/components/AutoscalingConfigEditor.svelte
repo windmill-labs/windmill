@@ -20,9 +20,10 @@
 		config: AutoscalingConfig | undefined
 		worker_tags: string[] | undefined
 		disabled: boolean
+		eeOnly?: boolean
 	}
 
-	let { config = $bindable(), worker_tags, disabled }: Props = $props()
+	let { config = $bindable(), worker_tags, disabled, eeOnly = false }: Props = $props()
 	let test_input: number = $state(3)
 	let healthCheckLoading: boolean = $state(false)
 	let healthCheckResult: { success: boolean; error?: string } | null = $state(null)
@@ -62,6 +63,7 @@
 	class="flex flex-col gap-6"
 	bind:collapsed
 	description="Autoscaling automatically adjusts the number of workers based on your workload demands."
+	{eeOnly}
 >
 	{#snippet labelExtra()}
 		<Badge color="gray">Beta</Badge>
