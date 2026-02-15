@@ -407,16 +407,9 @@ async fn get_instance_config(
     Ok(Json(config))
 }
 
-#[derive(Deserialize)]
-struct SetInstanceConfigQuery {
-    #[serde(default)]
-    skip_worker_configs: Option<bool>,
-}
-
 async fn set_instance_config(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
-    Query(query): Query<SetInstanceConfigQuery>,
     Json(desired): Json<InstanceConfig>,
 ) -> error::Result<()> {
     require_super_admin(&db, &authed.email).await?;
@@ -425,20 +418,22 @@ async fn set_instance_config(
         .await
         .map_err(|e| error::Error::internal_err(e.to_string()))?;
 
-    let current_map = current.global_settings.to_settings_map();
     let desired_map = desired.global_settings.to_settings_map();
-    let settings_diff =
-        instance_config::diff_global_settings(&current_map, &desired_map, ApplyMode::Merge);
+    if !desired_map.is_empty() {
+        let current_map = current.global_settings.to_settings_map();
+        let settings_diff =
+            instance_config::diff_global_settings(&current_map, &desired_map, ApplyMode::Merge);
 
-    for (key, value) in &settings_diff.upserts {
-        run_setting_pre_write_hook(&db, key, value).await?;
+        for (key, value) in &settings_diff.upserts {
+            run_setting_pre_write_hook(&db, key, value).await?;
+        }
+
+        instance_config::apply_settings_diff(&db, &settings_diff)
+            .await
+            .map_err(|e| error::Error::internal_err(e.to_string()))?;
     }
 
-    instance_config::apply_settings_diff(&db, &settings_diff)
-        .await
-        .map_err(|e| error::Error::internal_err(e.to_string()))?;
-
-    if !query.skip_worker_configs.unwrap_or(false) {
+    if !desired.worker_configs.is_empty() {
         let current_wc: std::collections::BTreeMap<String, serde_json::Value> = current
             .worker_configs
             .iter()

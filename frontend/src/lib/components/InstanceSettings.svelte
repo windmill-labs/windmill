@@ -180,8 +180,7 @@
 			}
 
 			await SettingService.setInstanceConfig({
-				requestBody: { global_settings: globalSettings },
-				skipWorkerConfigs: true
+				requestBody: { global_settings: globalSettings }
 			})
 
 			initialValues = JSON.parse(JSON.stringify($values))
