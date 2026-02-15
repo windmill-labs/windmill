@@ -15725,7 +15725,7 @@ dependencies = [
 
 [[package]]
 name = "windmill"
-version = "2.0.0"
+version = "1.635.0"
 dependencies = [
  "anyhow",
  "async-nats",
