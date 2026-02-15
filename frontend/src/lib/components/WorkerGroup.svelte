@@ -226,9 +226,9 @@
 	}
 
 	// Centralized permission logic
-	let canEditConfig = $derived($enterpriseLicense && ($superadmin || $devopsRole))
+	let canEditConfig = $derived($superadmin || $devopsRole)
 	let hasEnterpriseFeatures = $derived($enterpriseLicense)
-	let isReadOnly = $derived(!canEditConfig)
+	let canEditEEConfig = $derived(canEditConfig && hasEnterpriseFeatures)
 
 	const dispatch = createEventDispatcher()
 
@@ -340,12 +340,11 @@
 	<DrawerContent
 		on:close={() => drawer?.closeDrawer()}
 		title={canEditConfig ? `Edit worker config '${name}'` : `Worker config '${name}'`}
-		eeOnly
 	>
 		{#if !hasEnterpriseFeatures}
-			<Alert type="info" title="Worker management UI is EE only" class="mb-4">
-				Workers can still have their WORKER_TAGS, INIT_SCRIPT and WHITELIST_ENVS passed as env.
-				Dedicated workers are an enterprise only feature.
+			<Alert type="info" title="Enterprise features" class="mb-4">
+				Some worker management features require the enterprise edition. In CE, you can configure
+				worker tags.
 			</Alert>
 		{:else if !canEditConfig}
 			<Alert type="info" title="Read-only mode" class="mb-4">
@@ -355,7 +354,7 @@
 		<Label label="Workers assignment">
 			<ToggleButtonGroup
 				{selected}
-				disabled={!canEditConfig}
+				disabled={!canEditEEConfig}
 				on:selected={(e) => {
 					if (nconfig == undefined) {
 						nconfig = {}
@@ -483,7 +482,7 @@
 						</Tooltip>
 					{/snippet}
 					<MultiSelect
-						disabled={!canEditConfig}
+						disabled={!canEditEEConfig}
 						bind:value={
 							() => (nconfig.priority_tags ? Object.keys(nconfig.priority_tags) : []),
 							(v) => {
@@ -509,7 +508,7 @@
 								nconfig.min_alive_workers_alert_threshold = ev.detail ? 1 : undefined
 							}
 						}}
-						disabled={!canEditConfig}
+						disabled={!canEditEEConfig}
 					/>
 					{#if nconfig.min_alive_workers_alert_threshold !== undefined}
 						<div class="flex flex-row items-center text-xs gap-2">
@@ -517,7 +516,7 @@
 							<input
 								type="number"
 								class="!w-14 text-center"
-								disabled={!canEditConfig}
+								disabled={!canEditEEConfig}
 								min="1"
 								bind:value={nconfig.min_alive_workers_alert_threshold}
 							/>
@@ -545,7 +544,7 @@
 				{#if nconfig !== undefined}
 					<DedicatedWorkersSelector
 						selectedTags={nconfig.dedicated_workers ?? []}
-						disabled={!canEditConfig}
+						disabled={!canEditEEConfig}
 						onchange={(tags) => {
 							if (nconfig) {
 								nconfig.dedicated_workers = tags
@@ -567,14 +566,14 @@
 				{#each customEnvVars as envvar, i}
 					<div class="flex gap-1 items-center">
 						<input
-							disabled={isReadOnly}
+							disabled={!canEditEEConfig}
 							type="text"
 							placeholder="ENV_VAR_NAME"
 							bind:value={envvar.key}
 							onkeypress={(e) => {}}
 						/>
 						<ToggleButtonGroup
-							disabled={!canEditConfig}
+							disabled={!canEditEEConfig}
 							class="w-128"
 							bind:selected={envvar.type}
 							on:selected={(e) => {
@@ -584,20 +583,20 @@
 							}}
 						>
 							{#snippet children({ item })}
-								<ToggleButton value="dynamic" label="Dynamic" {item} disabled={!canEditConfig} />
-								<ToggleButton value="static" label="Static" {item} disabled={!canEditConfig} />
+								<ToggleButton value="dynamic" label="Dynamic" {item} disabled={!canEditEEConfig} />
+								<ToggleButton value="static" label="Static" {item} disabled={!canEditEEConfig} />
 							{/snippet}
 						</ToggleButtonGroup>
 						<TextInput
 							inputProps={{
 								type: 'text',
-								disabled: isReadOnly || envvar.type === 'dynamic',
+								disabled: !canEditEEConfig || envvar.type === 'dynamic',
 								placeholder:
 									envvar.type === 'dynamic' ? 'value read from worker env var' : 'static value'
 							}}
 							bind:value={envvar.value}
 						/>
-						{#if canEditConfig}
+						{#if canEditEEConfig}
 							<Button
 								wrapperClasses="ml-2"
 								variant="subtle"
@@ -618,12 +617,12 @@
 								startIcon={{ icon: Trash }}
 								iconOnly
 								destructive
-								disabled={!canEditConfig}
+								disabled={!canEditEEConfig}
 							/>
 						{/if}
 					</div>
 				{/each}
-				{#if canEditConfig}
+				{#if canEditEEConfig}
 					<div class="flex flex-col gap-2">
 						<Button
 							variant="default"
@@ -633,7 +632,7 @@
 								customEnvVars.push({ key: '', type: 'dynamic', value: undefined })
 								customEnvVars = [...customEnvVars]
 							}}
-							disabled={!canEditConfig}
+							disabled={!canEditEEConfig}
 						>
 							Add environment variable
 						</Button>
@@ -698,7 +697,7 @@
 		<AutoscalingConfigEditor
 			worker_tags={config?.worker_tags}
 			bind:config={nconfig.autoscaling}
-			disabled={!canEditConfig}
+			disabled={!canEditEEConfig}
 		/>
 
 		<div class="mt-8"></div>
@@ -713,11 +712,11 @@
 						<div class="flex gap-1 items-center">
 							<input
 								type="text"
-								disabled={!canEditConfig}
+								disabled={!canEditEEConfig}
 								placeholder="/path/to/python3.X/site-packages"
 								bind:value={nconfig.additional_python_paths![i]}
 							/>
-							{#if canEditConfig}
+							{#if canEditEEConfig}
 								<button
 									class="rounded-full bg-surface/60 hover:bg-surface-hover"
 									aria-label="Clear"
@@ -738,7 +737,7 @@
 						</div>
 					{/each}
 				{/if}
-				{#if canEditConfig}
+				{#if canEditEEConfig}
 					<div class="flex">
 						<Button
 							variant="default"
@@ -765,12 +764,12 @@
 					{#each nconfig.pip_local_dependencies as _, i}
 						<div class="flex gap-1 items-center">
 							<input
-								disabled={!canEditConfig}
+								disabled={!canEditEEConfig}
 								type="text"
 								placeholder="httpx"
 								bind:value={nconfig.pip_local_dependencies[i]}
 							/>
-							{#if canEditConfig}
+							{#if canEditEEConfig}
 								<button
 									class="rounded-full bg-surface/60 hover:bg-surface-hover"
 									aria-label="Clear"
@@ -791,7 +790,7 @@
 						</div>
 					{/each}
 				{/if}
-				{#if canEditConfig}
+				{#if canEditEEConfig}
 					<div class="flex">
 						<Button
 							variant="default"
@@ -819,7 +818,7 @@
 			tooltip="Bash scripts for worker initialization and maintenance. Init scripts run at worker start, periodic scripts run at configurable intervals."
 			collapsable
 		>
-			{#if canEditConfig}
+			{#if canEditEEConfig}
 				<div class="mb-4">
 					<Alert size="xs" type="info" title="Worker restart required">
 						Workers will get killed upon detecting any changes in this section (scripts or
@@ -850,7 +849,7 @@
 						<div class="border w-full h-40">
 							<Editor
 								fixedOverflowWidgets={true}
-								disabled={!canEditConfig}
+								disabled={!canEditEEConfig}
 								class="flex flex-1 grow h-full w-full"
 								automaticLayout
 								scriptLang={'bash'}
@@ -893,7 +892,7 @@
 							<Label label="Execution interval (seconds)" for="periodic-script-interval-seconds">
 								<TextInput
 									inputProps={{
-										disabled: !canEditConfig,
+										disabled: !canEditEEConfig,
 										type: 'number',
 										min: '60',
 										placeholder: '3600',
@@ -907,7 +906,7 @@
 
 						<div class="border w-full h-40">
 							<Editor
-								disabled={!canEditConfig}
+								disabled={!canEditEEConfig}
 								class="flex flex-1 grow h-full w-full"
 								automaticLayout
 								scriptLang={'bash'}
