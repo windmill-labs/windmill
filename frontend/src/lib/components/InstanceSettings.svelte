@@ -15,7 +15,7 @@
 	import AuthSettings from './AuthSettings.svelte'
 	import InstanceSetting from './InstanceSetting.svelte'
 	import { writable, type Writable } from 'svelte/store'
-	import { Loader2 } from 'lucide-svelte'
+	import { ExternalLink, Loader2 } from 'lucide-svelte'
 	import YAML from 'yaml'
 	import Toggle from './Toggle.svelte'
 	import type SimpleEditor from './SimpleEditor.svelte'
@@ -833,6 +833,16 @@
 	{/if}
 
 	{#snippet categoryContent(category: string)}
+		{#if !quickSetup}
+			<p class="text-2xs text-tertiary mb-2">
+				On Kubernetes, instance settings can also be managed as code using the WindmillInstance CRD.
+				<a
+					href="https://www.windmill.dev/docs/advanced/instance_settings#kubernetes-operator"
+					target="_blank"
+					rel="noopener noreferrer"
+				>Learn more <ExternalLink size={12} class="inline-block" /></a>
+			</p>
+		{/if}
 		{#if category == 'Core'}
 			<SettingsPageHeader
 				title="Core"

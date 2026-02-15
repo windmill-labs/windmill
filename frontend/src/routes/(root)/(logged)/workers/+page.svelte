@@ -687,6 +687,15 @@
 				{/if}
 			</PageHeader>
 
+			<p class="text-2xs text-tertiary mb-2">
+				On Kubernetes, worker group configs can also be managed as code using the WindmillInstance CRD.
+				<a
+					href="https://www.windmill.dev/docs/advanced/instance_settings#kubernetes-operator"
+					target="_blank"
+					rel="noopener noreferrer"
+				>Learn more <ExternalLink size={12} class="inline-block" /></a>
+			</p>
+
 			{#if worstVersionWarning === 'critical'}
 				<Alert type="error" title="Critical: Workers below minimum version" class="my-4">
 					One or more workers are running below the minimum supported version.
