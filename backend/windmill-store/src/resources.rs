@@ -517,6 +517,7 @@ pub async fn get_resource_value_interpolated_internal<'a>(
             value,
             &job_id,
             token_for_context,
+            0,
         )
         .await?;
         if allow_cache {
@@ -535,6 +536,7 @@ pub async fn transform_json_value(
     v: Value,
     job_id: &Option<Uuid>,
     token: Option<&str>,
+    depth: u8,
 ) -> Result<Value> {
     match v {
         Value::String(y) if y.starts_with("$var:") => {
@@ -563,7 +565,8 @@ pub async fn transform_json_value(
             tx.commit().await?;
             let v = not_found_if_none(v, "Resource", path)?;
             if let Some(v) = v {
-                transform_json_value(db_with_opt_authed, workspace, v, job_id, token).await
+                transform_json_value(db_with_opt_authed, workspace, v, job_id, token, depth + 1)
+                    .await
             } else {
                 Ok(Value::Null)
             }
@@ -636,10 +639,41 @@ pub async fn transform_json_value(
                 .unwrap_or_else(|| y);
             Ok(serde_json::json!(value))
         }
+        Value::Array(mut arr) if depth <= 2 && arr.len() <= 1000 => {
+            for i in 0..arr.len() {
+                let val = std::mem::take(&mut arr[i]);
+                arr[i] = transform_json_value(
+                    db_with_opt_authed,
+                    workspace,
+                    val,
+                    job_id,
+                    token,
+                    depth + 1,
+                )
+                .await?;
+            }
+            Ok(Value::Array(arr))
+        }
+        Value::Array(arr) => {
+            if arr.len() > 1000 {
+                tracing::warn!(
+                    "Array with {} items exceeds 1000 item limit for variable/resource resolution, skipping",
+                    arr.len()
+                );
+            }
+            Ok(Value::Array(arr))
+        }
         Value::Object(mut m) => {
             for (a, b) in m.clone().into_iter() {
-                let v =
-                    transform_json_value(db_with_opt_authed, workspace, b, job_id, token).await?;
+                let v = transform_json_value(
+                    db_with_opt_authed,
+                    workspace,
+                    b,
+                    job_id,
+                    token,
+                    depth + 1,
+                )
+                .await?;
                 m.insert(a.clone(), v);
             }
             Ok(Value::Object(m))
@@ -1822,10 +1856,92 @@ pub async fn interpolate(
         value,
         &None,
         None,
+        0,
     )
     .await?
     {
         Value::String(s) => Ok(s),
         v => Err(anyhow::anyhow!("Expected string, got {:?}", v)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use windmill_common::audit::AuditAuthor;
+    use windmill_common::db::DbWithOptAuthed;
+
+    fn test_db_with_opt_authed(db: DB) -> DbWithOptAuthed<'static, ApiAuthed> {
+        DbWithOptAuthed::DB {
+            db,
+            audit_author: AuditAuthor {
+                username: "test".to_string(),
+                email: "test@test.com".to_string(),
+                username_override: None,
+                token_prefix: None,
+            },
+        }
+    }
+
+    #[tokio::test]
+    async fn test_transform_array_over_1000_passthrough() {
+        let db_url = std::env::var("DATABASE_URL")
+            .unwrap_or("postgres://postgres:changeme@localhost:5432/windmill".to_string());
+        let pool = sqlx::PgPool::connect(&db_url).await.unwrap();
+        let dba = test_db_with_opt_authed(pool);
+
+        let arr: Vec<Value> = (0..1001).map(|i| json!(format!("$var:x/{i}"))).collect();
+        let input = Value::Array(arr.clone());
+
+        let result = transform_json_value(&dba, "test", input, &None, None, 0)
+            .await
+            .unwrap();
+
+        assert_eq!(result, Value::Array(arr));
+    }
+
+    #[tokio::test]
+    async fn test_transform_array_non_matching_strings_passthrough() {
+        let db_url = std::env::var("DATABASE_URL")
+            .unwrap_or("postgres://postgres:changeme@localhost:5432/windmill".to_string());
+        let pool = sqlx::PgPool::connect(&db_url).await.unwrap();
+        let dba = test_db_with_opt_authed(pool);
+
+        let input = json!(["hello", "world", 42, true, null, {"key": "val"}]);
+
+        let result = transform_json_value(&dba, "test", input.clone(), &None, None, 0)
+            .await
+            .unwrap();
+
+        assert_eq!(result, input);
+    }
+
+    #[tokio::test]
+    async fn test_transform_array_resolved_inside_object() {
+        let db_url = std::env::var("DATABASE_URL")
+            .unwrap_or("postgres://postgres:changeme@localhost:5432/windmill".to_string());
+        let pool = sqlx::PgPool::connect(&db_url).await.unwrap();
+        let dba = test_db_with_opt_authed(pool);
+
+        let input = json!({"urls": ["$var:u/test/nonexistent", "plain"]});
+
+        let result = transform_json_value(&dba, "test", input, &None, None, 0).await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_transform_array_attempts_matching_items() {
+        let db_url = std::env::var("DATABASE_URL")
+            .unwrap_or("postgres://postgres:changeme@localhost:5432/windmill".to_string());
+        let pool = sqlx::PgPool::connect(&db_url).await.unwrap();
+        let dba = test_db_with_opt_authed(pool);
+
+        let input = json!(["$var:u/test/nonexistent", "plain"]);
+
+        let result = transform_json_value(&dba, "test", input, &None, None, 0).await;
+
+        assert!(result.is_err());
     }
 }
