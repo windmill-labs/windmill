@@ -19,7 +19,7 @@ defaults:
 
 jobs:
   cargo_test:
-    runs-on: ubicloud-standard-16
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     services:
       postgres:
         image: postgres
@@ -50,9 +50,9 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
-      - uses: actions/setup-go@v2
+      - uses: actions/setup-go@v6
         with:
-          go-version: 1.21.5
+          go-version: 1.25.0
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.8
@@ -72,11 +72,13 @@ jobs:
           bundler-cache: false
       - name: Install PowerShell, mold and clang
         run: |
-          sudo apt-get update && sudo apt-get install -y powershell mold clang libcurl4-openssl-dev
+          dotnet tool install --global PowerShell
+          echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
+          sudo apt-get update && sudo apt-get install -y mold clang libcurl4-openssl-dev
         working-directory: /
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          cache: false
+          cache: true
           toolchain: 1.93.0
       - name: Read EE repo commit hash
         run: |
@@ -214,7 +216,7 @@ jobs:
           RUST_LOG: "off"
           RUST_LOG_STYLE: never
           CARGO_NET_GIT_FETCH_WITH_CLI: true
-          CARGO_BUILD_JOBS: 12
+          CARGO_BUILD_JOBS: 16
           WMDEBUG_FORCE_V0_WORKSPACE_DEPENDENCIES: 1
           WMDEBUG_FORCE_RUNNABLE_SETTINGS_V0: 1
           WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT: 1
@@ -222,4 +224,4 @@ jobs:
         run: |
           deno --version && bun -v && node --version && go version && python3 --version && php --version && ruby --version && pwsh --version && dotnet --version
           cd windmill-duckdb-ffi-internal && ./build_dev.sh && cd ..
-          DENO_PATH=$(which deno) BUN_PATH=$(which bun) NODE_BIN_PATH=$(which node) GO_PATH=$(which go) UV_PATH=$(which uv) PHP_PATH=$(which php) COMPOSER_PATH=$(which composer) RUBY_PATH=$(which ruby) RUBY_BUNDLE_PATH=$(which bundle) RUBY_GEM_PATH=$(which gem) POWERSHELL_PATH=$(which pwsh) DOTNET_PATH=$(which dotnet) cargo test --features enterprise,deno_core,duckdb,license,python,rust,scoped_cache,parquet,private,private_registry_test,csharp,php,ruby,mysql,quickjs,mcp --all -- --nocapture --test-threads=10
+          DENO_PATH=$(which deno) BUN_PATH=$(which bun) NODE_BIN_PATH=$(which node) GO_PATH=$(which go) UV_PATH=$(which uv) PHP_PATH=$(which php) COMPOSER_PATH=$(which composer) RUBY_PATH=$(which ruby) RUBY_BUNDLE_PATH=$(which bundle) RUBY_GEM_PATH=$(which gem) POWERSHELL_PATH=$(which pwsh) DOTNET_PATH=$(which dotnet) cargo test --features enterprise,deno_core,duckdb,license,python,rust,scoped_cache,parquet,private,private_registry_test,csharp,php,ruby,mysql,quickjs,mcp --all -- --nocapture --test-threads=12
