@@ -162,6 +162,7 @@
 	}
 
 	function switchToWizardMode() {
+		yamlMode = false
 		mode = 'wizard'
 	}
 
@@ -479,6 +480,7 @@
 					Quick setup
 				</Button>
 				<Button variant="accent" unifiedSize="md" onClick={() => saveAndProceed(() => {
+					yamlMode = false
 					wizardStep = wizardStepLabels.length - 1
 					mode = 'wizard'
 				})}>Continue</Button>
