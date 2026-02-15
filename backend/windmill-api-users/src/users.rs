@@ -86,6 +86,10 @@ pub fn global_service() -> Router {
         .route("/decline_invite", post(decline_invite))
         .route("/accept_invite", post(accept_invite))
         .route("/list_as_super_admin", get(list_users_as_super_admin))
+        .route(
+            "/list_instance_emails",
+            get(list_instance_emails),
+        )
         .route("/set_login_type/:user", post(set_login_type))
         .route("/update/:user", post(update_user))
         .route("/delete/:user", delete(delete_user))
@@ -417,6 +421,21 @@ async fn list_users_as_super_admin(
         .await?
     };
 
+    Ok(Json(rows))
+}
+
+async fn list_instance_emails(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> JsonResult<Vec<String>> {
+    if *CLOUD_HOSTED {
+        return Err(Error::BadRequest(
+            "This endpoint is not available on cloud hosted instances".to_string(),
+        ));
+    }
+    let rows = sqlx::query_scalar!("SELECT email FROM password ORDER BY email")
+        .fetch_all(&db)
+        .await?;
     Ok(Json(rows))
 }
 

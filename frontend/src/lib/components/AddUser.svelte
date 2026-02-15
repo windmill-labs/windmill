@@ -10,6 +10,7 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { UserPlus } from 'lucide-svelte'
+	import Select from './select/Select.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -30,6 +31,19 @@
 			((await SettingService.getGlobal({ key: 'automate_username_creation' })) as any) ?? false
 	}
 	getAutomateUsernameCreationSetting()
+
+	let instanceEmails: { label: string; value: string }[] | undefined = $state(undefined)
+
+	async function loadInstanceEmails() {
+		if (isCloudHosted()) return
+		try {
+			const emails = await UserService.listInstanceEmails()
+			instanceEmails = emails.map((e) => ({ label: e, value: e }))
+		} catch {
+			instanceEmails = undefined
+		}
+	}
+	loadInstanceEmails()
 
 	async function addUser() {
 		await WorkspaceService.addUser({
@@ -84,7 +98,25 @@
 			<span class="text-sm mb-2 leading-6 font-semibold">Add a new user</span>
 
 			<span class="text-xs mb-1 leading-6">Email</span>
-			<input type="email mb-1" onkeyup={handleKeyUp} placeholder="email" bind:value={email} />
+			{#if instanceEmails}
+				<Select
+					items={instanceEmails}
+					bind:value={email}
+					placeholder="Select or type an email"
+					createText="Use custom email:"
+					onCreateItem={(v) => {
+						email = v
+					}}
+					disablePortal={true}
+				/>
+			{:else}
+				<input
+					type="email"
+					onkeyup={handleKeyUp}
+					placeholder="email"
+					bind:value={email}
+				/>
+			{/if}
 
 			{#if !automateUsernameCreation}
 				<span class="text-xs mb-1 pt-2 leading-6">Username</span>
