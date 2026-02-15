@@ -164,6 +164,31 @@ pub struct InstanceConfig {
 // Global settings
 // ---------------------------------------------------------------------------
 
+/// Generate a schema for opaque JSON objects (used for EE-private settings).
+/// Produces `{"type": "object", "nullable": true}` so the CRD passes K8s
+/// structural schema validation while still accepting any JSON object.
+#[cfg(feature = "instance_config_schema")]
+fn opaque_json_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+    schemars::schema::SchemaObject {
+        instance_type: Some(schemars::schema::InstanceType::Object.into()),
+        metadata: Some(Box::default()),
+        extensions: {
+            let mut m = schemars::Map::new();
+            m.insert(
+                "nullable".to_string(),
+                serde_json::Value::Bool(true),
+            );
+            m.insert(
+                "x-kubernetes-preserve-unknown-fields".to_string(),
+                serde_json::Value::Bool(true),
+            );
+            m
+        },
+        ..Default::default()
+    }
+    .into()
+}
+
 /// Typed global settings with schema validation.
 /// Known settings have explicit fields; unknown settings pass through via `extra`.
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
@@ -265,6 +290,7 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub otel_tracing_proxy: Option<OtelTracingProxySettings>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "instance_config_schema", schemars(schema_with = "opaque_json_schema"))]
     pub object_store_cache_config: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub critical_error_channels: Option<Vec<CriticalErrorChannel>>,
@@ -277,10 +303,13 @@ pub struct GlobalSettings {
 
     // Opaque settings (EE-private structs or no clear schema)
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "instance_config_schema", schemars(schema_with = "opaque_json_schema"))]
     pub secret_backend: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "instance_config_schema", schemars(schema_with = "opaque_json_schema"))]
     pub slack: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "instance_config_schema", schemars(schema_with = "opaque_json_schema"))]
     pub teams: Option<serde_json::Value>,
 
     /// Catch-all for settings not yet covered by typed fields.
