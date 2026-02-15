@@ -1,14 +1,14 @@
 <script lang="ts">
 	import {
 		TriangleAlert,
-		Copy,
 		Plus,
 		RefreshCcwIcon,
 		RotateCcw,
 		Settings,
 		Trash,
 		X,
-		ExternalLink
+		ExternalLink,
+		FileCode
 	} from 'lucide-svelte'
 	import { Alert, Button, Drawer } from './common'
 	import Badge from './common/badge/Badge.svelte'
@@ -31,7 +31,6 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Section from './Section.svelte'
 	import Label from './Label.svelte'
-	import YAML from 'yaml'
 	import Toggle from './Toggle.svelte'
 	import { defaultTags, nativeTags, type AutoscalingConfig } from './worker_group'
 	import AutoscalingConfigEditor from './AutoscalingConfigEditor.svelte'
@@ -202,6 +201,7 @@
 		shouldAutoOpenDrawer?: boolean
 		onDrawerOpened?: () => void
 		onDeleted?: (deletedGroupName: string) => void
+		onOpenYamlEditor?: () => void
 		selectGroup?: import('svelte').Snippet
 	}
 
@@ -217,6 +217,7 @@
 		shouldAutoOpenDrawer = false,
 		onDrawerOpened = () => {},
 		onDeleted = () => {},
+		onOpenYamlEditor = undefined,
 		selectGroup = undefined
 	}: Props = $props()
 
@@ -351,7 +352,7 @@
 				Only superadmin or devops role can edit the worker config.
 			</Alert>
 		{/if}
-		<Label label="Workers assignment">
+		<Label label="Workers assignment" eeOnly={!hasEnterpriseFeatures}>
 			<ToggleButtonGroup
 				{selected}
 				disabled={!canEditEEConfig}
@@ -469,7 +470,7 @@
 
 			{#if nconfig?.worker_tags !== undefined && nconfig?.worker_tags.length > 0}
 				<div class="mt-8"></div>
-				<Label label="High-priority tags">
+				<Label label="High-priority tags" eeOnly={!hasEnterpriseFeatures}>
 					{#snippet header()}
 						<Tooltip>
 							{#snippet text()}
@@ -496,7 +497,7 @@
 
 			{#if nconfig !== undefined}
 				<div class="mt-8"></div>
-				<Label label="Alerts" tooltip="Alert is sent to the configured critical error channels">
+				<Label label="Alerts" tooltip="Alert is sent to the configured critical error channels" eeOnly={!hasEnterpriseFeatures}>
 					<Toggle
 						size="sm"
 						options={{
@@ -561,6 +562,7 @@
 		<Label
 			label="Environment variables passed to jobs"
 			tooltip="Add static and dynamic environment variables that will be passed to jobs handled by this worker group. Dynamic environment variable values will be loaded from the worker host environment variables while static environment variables will be set directly from their values below."
+			eeOnly={!hasEnterpriseFeatures}
 		>
 			<div class="flex flex-col gap-y-2 pb-2 max-w">
 				{#each customEnvVars as envvar, i}
@@ -698,10 +700,11 @@
 			worker_tags={config?.worker_tags}
 			bind:config={nconfig.autoscaling}
 			disabled={!canEditEEConfig}
+			eeOnly={!hasEnterpriseFeatures}
 		/>
 
 		<div class="mt-8"></div>
-		<Section label="Python dependencies overrides" collapsable={true} class="flex flex-col gap-y-6">
+		<Section label="Python dependencies overrides" collapsable={true} class="flex flex-col gap-y-6" eeOnly={!hasEnterpriseFeatures}>
 			<Label
 				label="Additional Python paths"
 				tooltip="Paths to add to the Python path for it to search dependencies, useful if you have packages pre-installed on the workers at a given path."
@@ -814,123 +817,131 @@
 		<div class="mt-8"></div>
 
 		<Section
-			label="Worker scripts"
-			tooltip="Bash scripts for worker initialization and maintenance. Init scripts run at worker start, periodic scripts run at configurable intervals."
+			label="Init script"
+			tooltip="Bash script run at start of the workers. More lightweight than requiring custom worker images."
 			collapsable
+			initiallyCollapsed={nconfig.init_bash === undefined}
 		>
-			{#if canEditEEConfig}
-				<div class="mb-4">
+			{#snippet header()}
+				<div class="ml-4 flex flex-row gap-2 items-center">
+					{#if nconfig.init_bash !== undefined}
+						<Badge color="green">Enabled</Badge>
+					{/if}
+				</div>
+			{/snippet}
+			{#if (nconfig.init_bash ?? '') !== (config?.init_bash ?? '')}
+				<div class="mb-2">
 					<Alert size="xs" type="info" title="Worker restart required">
-						Workers will get killed upon detecting any changes in this section (scripts or
-						interval). It is assumed they are in an environment where the supervisor will restart
-						them.
+						Workers will get killed upon detecting changes to the init script. It is assumed they
+						are in an environment where the supervisor will restart them.
+					</Alert>
+				</div>
+			{/if}
+			<p class="text-xs text-secondary mb-2">
+				Execution logs are visible on the runs page of the admins workspace. Use the script editor
+				with Bash to iterate on your script before setting it here.
+			</p>
+			<div class="border w-full h-40">
+				<Editor
+					fixedOverflowWidgets={true}
+					disabled={!canEditConfig}
+					class="flex flex-1 grow h-full w-full"
+					automaticLayout
+					scriptLang={'bash'}
+					useWebsockets={false}
+					code={config?.init_bash ?? ''}
+					on:change={(e) => {
+						if (config) {
+							const code = e.detail
+							if (code != '') {
+								nconfig.init_bash = code?.replace(/\r\n/g, '\n')
+							} else {
+								nconfig.init_bash = undefined
+							}
+						}
+					}}
+				/>
+			</div>
+		</Section>
+
+		<div class="mt-8"></div>
+
+		<Section
+			label="Periodic script"
+			tooltip="Bash script run periodically at configurable intervals. Useful for maintenance tasks like cleaning disk space."
+			collapsable
+			eeOnly={!hasEnterpriseFeatures}
+			initiallyCollapsed={nconfig.periodic_script_bash === undefined}
+		>
+			{#snippet header()}
+				<div class="ml-4 flex flex-row gap-2 items-center">
+					{#if nconfig.periodic_script_bash !== undefined}
+						<Badge color="green">Enabled</Badge>
+					{/if}
+				</div>
+			{/snippet}
+			{#if (nconfig.periodic_script_bash ?? '') !== (config?.periodic_script_bash ?? '') || (nconfig.periodic_script_interval_seconds ?? 0) !== (config?.periodic_script_interval_seconds ?? 0)}
+				<div class="mb-2">
+					<Alert size="xs" type="info" title="Worker restart required">
+						Workers will get killed upon detecting changes to the periodic script or interval.
+						It is assumed they are in an environment where the supervisor will restart them.
 					</Alert>
 				</div>
 			{/if}
 
-			<div class="space-y-6">
-				<div>
-					<div class="text-xs text-secondary mb-1">
-						Run at start of the workers. More lightweight than requiring custom worker images.
-					</div>
-					<Section
-						small
-						label="Init script"
-						collapsable
-						initiallyCollapsed={nconfig.init_bash === undefined}
-					>
-						{#snippet header()}
-							<div class="ml-4 flex flex-row gap-2 items-center">
-								{#if nconfig.init_bash !== undefined}
-									<Badge color="green">Enabled</Badge>
-								{/if}
-							</div>
-						{/snippet}
-						<div class="border w-full h-40">
-							<Editor
-								fixedOverflowWidgets={true}
-								disabled={!canEditEEConfig}
-								class="flex flex-1 grow h-full w-full"
-								automaticLayout
-								scriptLang={'bash'}
-								useWebsockets={false}
-								code={config?.init_bash ?? ''}
-								on:change={(e) => {
-									if (config) {
-										const code = e.detail
-										if (code != '') {
-											nconfig.init_bash = code?.replace(/\r\n/g, '\n')
-										} else {
-											nconfig.init_bash = undefined
-										}
-									}
-								}}
-							/>
-						</div>
-					</Section>
-				</div>
-				<div>
-					<div class="text-xs text-secondary mb-1">
-						Run periodically at configurable intervals. Useful for maintenance tasks like cleaning
-						disk space.
-					</div>
-					<Section
-						small
-						label="Periodic script"
-						collapsable
-						initiallyCollapsed={nconfig.periodic_script_bash === undefined}
-					>
-						{#snippet header()}
-							<div class="ml-4 flex flex-row gap-2 items-center">
-								{#if nconfig.periodic_script_bash !== undefined}
-									<Badge color="green">Enabled</Badge>
-								{/if}
-							</div>
-						{/snippet}
+			<div class="flex gap-4 items-center mb-4">
+				<Label label="Execution interval (seconds)" for="periodic-script-interval-seconds">
+					<TextInput
+						inputProps={{
+							disabled: !canEditEEConfig,
+							type: 'number',
+							min: '60',
+							placeholder: '3600',
+							class: '!w-24 '
+						}}
+						bind:value={nconfig.periodic_script_interval_seconds}
+					/>
+					<span class="text-2xs text-hint">Minimum: 60 seconds</span>
+				</Label>
+			</div>
 
-						<div class="flex gap-4 items-center mb-4">
-							<Label label="Execution interval (seconds)" for="periodic-script-interval-seconds">
-								<TextInput
-									inputProps={{
-										disabled: !canEditEEConfig,
-										type: 'number',
-										min: '60',
-										placeholder: '3600',
-										class: '!w-24 '
-									}}
-									bind:value={nconfig.periodic_script_interval_seconds}
-								/>
-								<span class="text-2xs text-hint">Minimum: 60 seconds</span>
-							</Label>
-						</div>
-
-						<div class="border w-full h-40">
-							<Editor
-								disabled={!canEditEEConfig}
-								class="flex flex-1 grow h-full w-full"
-								automaticLayout
-								scriptLang={'bash'}
-								useWebsockets={false}
-								fixedOverflowWidgets={false}
-								code={config?.periodic_script_bash ?? ''}
-								on:change={(e) => {
-									if (config) {
-										const code = e.detail
-										if (code != '') {
-											nconfig.periodic_script_bash = code?.replace(/\r\n/g, '\n')
-										} else {
-											nconfig.periodic_script_bash = undefined
-										}
-									}
-								}}
-							/>
-						</div>
-					</Section>
-				</div>
+			<div class="border w-full h-40">
+				<Editor
+					disabled={!canEditEEConfig}
+					class="flex flex-1 grow h-full w-full"
+					automaticLayout
+					scriptLang={'bash'}
+					useWebsockets={false}
+					fixedOverflowWidgets={false}
+					code={config?.periodic_script_bash ?? ''}
+					on:change={(e) => {
+						if (config) {
+							const code = e.detail
+							if (code != '') {
+								nconfig.periodic_script_bash = code?.replace(/\r\n/g, '\n')
+							} else {
+								nconfig.periodic_script_bash = undefined
+							}
+						}
+					}}
+				/>
 			</div>
 		</Section>
 		{#snippet actions()}
 			<div class="flex gap-4 items-center">
+				{#if onOpenYamlEditor}
+					<Button
+						variant="default"
+						unifiedSize="md"
+						startIcon={{ icon: FileCode }}
+						onClick={() => {
+							drawer?.closeDrawer()
+							onOpenYamlEditor?.()
+						}}
+					>
+						YAML editor
+					</Button>
+				{/if}
 				<div class="flex gap-2 items-center">
 					{#if canEditConfig}
 						<Button
@@ -1092,36 +1103,9 @@
 						>
 							Clean cache
 						</Button>
-
-						{#if config}
-							<Button
-								unifiedSize="sm"
-								variant="subtle"
-								on:click={() => {
-									navigator.clipboard.writeText(
-										YAML.stringify({
-											name,
-											...config
-										})
-									)
-									sendUserToast('Worker config copied to clipboard as YAML')
-								}}
-								startIcon={{ icon: Copy }}
-							>
-								Copy config
-							</Button>
-						{/if}
 					{:else}
 						<Dropdown
 							items={[
-								{
-									displayName: 'Copy config',
-									action: () => {
-										navigator.clipboard.writeText(YAML.stringify({ name, ...config }))
-										sendUserToast('Worker config copied to clipboard as YAML')
-									},
-									disabled: !config
-								},
 								{
 									displayName: 'Clean cache',
 									action: () => {

@@ -15,7 +15,7 @@
 	import AuthSettings from './AuthSettings.svelte'
 	import InstanceSetting from './InstanceSetting.svelte'
 	import { writable, type Writable } from 'svelte/store'
-	import { Loader2 } from 'lucide-svelte'
+	import { ExternalLink, Loader2 } from 'lucide-svelte'
 	import YAML from 'yaml'
 	import Toggle from './Toggle.svelte'
 	import type SimpleEditor from './SimpleEditor.svelte'
@@ -788,6 +788,14 @@
 			{/await}
 		</div>
 	{:else if yamlMode}
+		<p class="text-2xs text-tertiary mb-2">
+			Use this YAML to manage instance settings as code.
+			<a
+				href="https://www.windmill.dev/docs/advanced/instance_settings#kubernetes-operator"
+				target="_blank"
+				rel="noopener noreferrer"
+			>Learn more <ExternalLink size={12} class="inline-block" /></a>
+		</p>
 		<!-- svelte-ignore a11y_label_has_associated_control -->
 		<div class="flex items-center justify-end gap-4 mb-2">
 			<Toggle

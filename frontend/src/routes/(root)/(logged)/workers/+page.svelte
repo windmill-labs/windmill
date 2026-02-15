@@ -29,6 +29,7 @@
 	import {
 		ExternalLink,
 		LineChart,
+		Loader2,
 		Plus,
 		Search,
 		Tags,
@@ -379,6 +380,111 @@
 		await loadWorkerGroups()
 	}
 
+	let yamlConfigDrawer: Drawer | undefined = $state(undefined)
+	let yamlConfigCode = $state('')
+	let yamlConfigOriginal = $state('')
+	let yamlDiffMode = $state(false)
+	let yamlSaving = $state(false)
+
+	function serializeWorkerGroupsAsYaml(groups: Record<string, any>): string {
+		const priorityGroups = ['default', 'native']
+		const configs = Object.entries(groups)
+			.sort(([a], [b]) => {
+				const ai = priorityGroups.indexOf(a)
+				const bi = priorityGroups.indexOf(b)
+				if (ai !== -1 && bi !== -1) return ai - bi
+				if (ai !== -1) return -1
+				if (bi !== -1) return 1
+				return a.localeCompare(b)
+			})
+			.map(([name, { cache_clear, ...config }]) => {
+				const cleaned: Record<string, any> = { name }
+				for (const [k, v] of Object.entries(config)) {
+					if (v == null) continue
+					if (Array.isArray(v) && v.length === 0) continue
+					if (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0) continue
+					cleaned[k] = v
+				}
+				return cleaned
+			})
+		return YAML.stringify(configs)
+	}
+
+	function openYamlDrawer() {
+		if (!workerGroups) {
+			return sendUserToast('No worker groups found', true)
+		}
+		yamlConfigCode = serializeWorkerGroupsAsYaml(workerGroups)
+		yamlConfigOriginal = yamlConfigCode
+		yamlDiffMode = false
+		yamlConfigDrawer?.toggleDrawer?.()
+	}
+
+	async function saveYamlConfig() {
+		yamlSaving = true
+		try {
+			const parsed = YAML.parse(yamlConfigCode)
+			if (!Array.isArray(parsed)) {
+				sendUserToast('YAML must be an array of worker group configs', true)
+				return
+			}
+
+			const newGroups = new Map<string, any>()
+			for (const c of parsed) {
+				if (typeof c !== 'object' || !c?.name || typeof c.name !== 'string') {
+					sendUserToast('Each entry must have a "name" field', true)
+					return
+				}
+				const { name: _, ...rest } = c
+				newGroups.set(c.name, rest)
+			}
+
+			const oldNames = new Set(Object.keys(workerGroups ?? {}))
+			const newNames = new Set(newGroups.keys())
+
+			// Protect well-known groups from accidental deletion
+			const protectedGroups = ['default', 'native']
+			const deletedProtected = protectedGroups.filter(
+				(g) => oldNames.has(g) && !newNames.has(g)
+			)
+			if (deletedProtected.length > 0) {
+				sendUserToast(
+					`Cannot remove well-known groups: ${deletedProtected.join(', ')}. Add them back to the YAML.`,
+					true
+				)
+				return
+			}
+
+			// Delete removed groups
+			for (const name of oldNames) {
+				if (!newNames.has(name)) {
+					await ConfigService.deleteConfig({ name: 'worker__' + name })
+				}
+			}
+
+			// Create or update groups
+			for (const [name, config] of newGroups) {
+				await ConfigService.updateConfig({
+					name: 'worker__' + name,
+					requestBody: config
+				})
+			}
+
+			yamlDiffMode = false
+			yamlConfigDrawer?.toggleDrawer?.()
+			sendUserToast('Worker group configs saved')
+			await loadWorkerGroups()
+		} catch (err) {
+			if (err instanceof Error) {
+				sendUserToast(err.message, true)
+			} else {
+				sendUserToast('Could not save worker group configs', true)
+			}
+		} finally {
+			yamlSaving = false
+		}
+	}
+
 	let queueMetricsDrawer: QueueMetricsDrawer | undefined = $state(undefined)
 	let manageTagsDrawer: ManageTagsDrawer | undefined = $state(undefined)
 	let selectedTab: string = $state('default')
@@ -523,6 +629,74 @@
 	</DrawerContent>
 </Drawer>
 
+<Drawer bind:this={yamlConfigDrawer} size="800px">
+	<DrawerContent
+		title="Worker groups config (YAML)"
+		on:close={() => {
+			yamlDiffMode = false
+			yamlConfigDrawer?.toggleDrawer?.()
+		}}
+	>
+		<p class="text-2xs text-tertiary mb-2">
+			Use this YAML to manage worker group configs as code.
+			<a
+				href="https://www.windmill.dev/docs/advanced/instance_settings#kubernetes-operator"
+				target="_blank"
+				rel="noopener noreferrer"
+			>Learn more <ExternalLink size={12} class="inline-block" /></a>
+		</p>
+		{#if yamlDiffMode}
+			<div class="w-full h-full">
+				{#await import('$lib/components/DiffEditor.svelte')}
+					<div class="flex items-center justify-center h-full">
+						<Loader2 class="animate-spin" />
+					</div>
+				{:then Module}
+					<Module.default
+						open={true}
+						className="!h-full"
+						defaultLang="yaml"
+						defaultOriginal={yamlConfigOriginal}
+						defaultModified={yamlConfigCode}
+						readOnly
+						inlineDiff={true}
+					/>
+				{/await}
+			</div>
+		{:else}
+			<SimpleEditor
+				bind:code={yamlConfigCode}
+				lang="yaml"
+				class="h-full"
+				fixedOverflowWidgets={false}
+			/>
+		{/if}
+		{#snippet actions()}
+			{#if yamlDiffMode}
+				<Button
+					unifiedSize="md"
+					variant="default"
+					disabled={yamlSaving}
+					onClick={() => { yamlDiffMode = false }}
+				>Back to editor</Button>
+				<Button
+					unifiedSize="md"
+					variant="accent"
+					loading={yamlSaving}
+					onClick={saveYamlConfig}
+				>Save</Button>
+			{:else}
+				<Button
+					unifiedSize="md"
+					variant="accent"
+					disabled={!yamlConfigCode || yamlConfigCode === yamlConfigOriginal}
+					onClick={() => { yamlDiffMode = true }}
+				>Review & Save</Button>
+			{/if}
+		{/snippet}
+	</DrawerContent>
+</Drawer>
+
 <Drawer bind:this={newHttpAgentWorkerDrawer} size="800px">
 	<DrawerContent
 		title="New HTTP agent worker"
@@ -625,33 +799,32 @@
 										unifiedSize="md"
 										startIcon={{ icon: Plus }}
 										nonCaptureEvent
-										dropdownItems={$enterpriseLicense
-											? [
-													{
-														label: 'Copy groups config as YAML',
-														onClick: () => {
-															if (!workerGroups) {
-																return sendUserToast('No worker groups found', true)
+										dropdownItems={[
+											...$enterpriseLicense
+												? [
+														{
+															label: 'Copy groups config as YAML',
+															onClick: () => {
+																if (!workerGroups) {
+																	return sendUserToast('No worker groups found', true)
+																}
+																navigator.clipboard.writeText(serializeWorkerGroupsAsYaml(workerGroups))
+																sendUserToast('Worker groups config copied to clipboard as YAML')
 															}
-
-															const workersConfig = Object.entries(workerGroups).map(
-																([name, config]) => ({
-																	name,
-																	...config
-																})
-															)
-															navigator.clipboard.writeText(YAML.stringify(workersConfig))
-															sendUserToast('Worker groups config copied to clipboard as YAML')
+														},
+														{
+															label: 'Import groups config from YAML',
+															onClick: () => {
+																importConfigDrawer?.toggleDrawer?.()
+															}
 														}
-													},
-													{
-														label: 'Import groups config from YAML',
-														onClick: () => {
-															importConfigDrawer?.toggleDrawer?.()
-														}
-													}
-												]
-											: undefined}
+													]
+												: [],
+											{
+												label: 'Edit all configs as YAML',
+												onClick: openYamlDrawer
+											}
+										]}
 									>
 										<span class="hidden md:block"
 											>New group config</span
@@ -758,6 +931,7 @@
 								shouldAutoOpenDrawer = ''
 							}}
 							onDeleted={handleWorkerGroupDeleted}
+							onOpenYamlEditor={openYamlDrawer}
 							selectGroup={(groupedWorkers ?? []).length > 5 ? selectGroup : undefined}
 						/>
 
@@ -1080,6 +1254,7 @@
 									shouldAutoOpenDrawer = ''
 								}}
 								onDeleted={handleWorkerGroupDeleted}
+								onOpenYamlEditor={openYamlDrawer}
 							/>
 							<div class="text-xs text-primary"> No workers currently in this worker group </div>
 						{/if}
