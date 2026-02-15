@@ -1,13 +1,11 @@
-pub mod crd;
-pub mod db_sync;
-pub mod reconciler;
-pub mod resolve;
+#[cfg(feature = "private")]
+pub mod crd_ee;
+#[cfg(feature = "private")]
+pub mod db_sync_ee;
+#[cfg(feature = "private")]
+pub mod reconciler_ee;
+#[cfg(feature = "private")]
+pub mod resolve_ee;
 
-pub use reconciler::run;
-
-/// Print the CRD YAML definition to stdout.
-pub fn print_crd_yaml() {
-    use kube::CustomResourceExt;
-    let crd = crd::WindmillInstance::crd();
-    println!("{}", serde_yml::to_string(&crd).unwrap());
-}
+mod operator_oss;
+pub use operator_oss::*;
