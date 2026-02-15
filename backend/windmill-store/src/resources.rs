@@ -644,6 +644,16 @@ pub async fn transform_json_value(
             }
             Ok(Value::Object(m))
         }
+        Value::Array(arr) => {
+            let mut result = Vec::with_capacity(arr.len());
+            for item in arr {
+                result.push(
+                    transform_json_value(db_with_opt_authed, workspace, item, job_id, token)
+                        .await?,
+                );
+            }
+            Ok(Value::Array(result))
+        }
         a @ _ => Ok(a),
     }
 }
