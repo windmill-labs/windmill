@@ -28,8 +28,9 @@ use crate::{
     },
     get_proxy_envs_for_lang,
     handle_child::{self},
+    is_sandboxing_enabled, read_ee_registry,
     universal_pkg_installer::{par_install_language_dependencies_seq, RequiredDependency},
-    is_sandboxing_enabled, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUBY_CACHE_DIR, RUBY_REPOS,
+    DISABLE_NUSER, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUBY_CACHE_DIR, RUBY_REPOS,
     TRACING_PROXY_CA_CERT_PATH,
 };
 use windmill_common::scripts::ScriptLang;
@@ -360,7 +361,16 @@ Your Gemfile syntax will continue to work as-is."
             ])
             .envs(RUBY_PROXY_ENVS.clone());
 
-        for repo in RUBY_REPOS.read().await.clone().unwrap_or_default() {
+        for repo in read_ee_registry(
+            RUBY_REPOS.read().await.clone(),
+            "ruby repos",
+            job_id,
+            w_id,
+            conn,
+        )
+        .await
+        .unwrap_or_default()
+        {
             if let (Some(url), usr, Some(passwd)) =
                 (repo.domain(), repo.username(), repo.password())
             {
@@ -591,7 +601,15 @@ async fn install<'a>(
     let job_dir = job_dir.to_owned();
     let jailed = !cfg!(windows) && is_sandboxing_enabled();
     let RubyAnnotations { verbose } = RubyAnnotations::parse(&inner_content);
-    let repos = RUBY_REPOS.read().await.clone().unwrap_or_default();
+    let repos = read_ee_registry(
+        RUBY_REPOS.read().await.clone(),
+        "ruby repos",
+        &job.id,
+        &job.workspace_id,
+        conn,
+    )
+    .await
+    .unwrap_or_default();
     let (envs, reserved_variables) = (
         envs.clone(),
         get_reserved_variables(job, &client.token, conn, parent_runnable_path.clone()).await?,

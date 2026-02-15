@@ -132,7 +132,7 @@ use crate::{
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
-    is_sandboxing_enabled,
+    is_sandboxing_enabled, read_ee_registry,
     worker_utils::ping_job_status,
     PyV, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL,
     PROXY_ENVS, PY_INSTALL_DIR, TRACING_PROXY_CA_CERT_PATH, TZ_ENV, UV_CACHE_DIR,
@@ -286,21 +286,29 @@ pub async fn uv_pip_compile(
         if no_cache {
             args.extend(["--no-cache"]);
         }
-        let pip_extra_index_url = PIP_EXTRA_INDEX_URL
-            .read()
-            .await
-            .clone()
-            .map(handle_ephemeral_token);
+        let pip_extra_index_url = read_ee_registry(
+            PIP_EXTRA_INDEX_URL.read().await.clone(),
+            "pip extra index url",
+            job_id,
+            w_id,
+            conn,
+        )
+        .await
+        .map(handle_ephemeral_token);
         if let Some(url) = pip_extra_index_url.as_ref() {
             url.split(",").for_each(|url| {
                 args.extend(["--extra-index-url", url]);
             });
         }
-        let pip_index_url = PIP_INDEX_URL
-            .read()
-            .await
-            .clone()
-            .map(handle_ephemeral_token);
+        let pip_index_url = read_ee_registry(
+            PIP_INDEX_URL.read().await.clone(),
+            "pip index url",
+            job_id,
+            w_id,
+            conn,
+        )
+        .await
+        .map(handle_ephemeral_token);
         if let Some(url) = pip_index_url.as_ref() {
             args.extend(["--index-url", url]);
         }
@@ -1635,16 +1643,24 @@ pub async fn handle_python_reqs(
     );
 
     let pip_indexes = (
-        PIP_EXTRA_INDEX_URL
-            .read()
-            .await
-            .clone()
-            .map(handle_ephemeral_token),
-        PIP_INDEX_URL
-            .read()
-            .await
-            .clone()
-            .map(handle_ephemeral_token),
+        read_ee_registry(
+            PIP_EXTRA_INDEX_URL.read().await.clone(),
+            "pip extra index url",
+            job_id,
+            w_id,
+            conn,
+        )
+        .await
+        .map(handle_ephemeral_token),
+        read_ee_registry(
+            PIP_INDEX_URL.read().await.clone(),
+            "pip index url",
+            job_id,
+            w_id,
+            conn,
+        )
+        .await
+        .map(handle_ephemeral_token),
     );
 
     // Cached paths

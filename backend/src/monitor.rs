@@ -1346,6 +1346,10 @@ pub async fn reload_maven_settings_xml_setting(conn: &Connection) {
     )
     .await;
 
+    if !cfg!(feature = "enterprise") {
+        return;
+    }
+
     let settings_xml = MAVEN_SETTINGS_XML.read().await.clone();
     match settings_xml {
         Some(ref content) if !content.trim().is_empty() => {

@@ -24,10 +24,10 @@ use crate::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
         read_result, start_child_process, OccupancyMetrics,
     },
-    handle_child,
+    handle_child, is_sandboxing_enabled, read_ee_registry,
     universal_pkg_installer::{par_install_language_dependencies_all_at_once, RequiredDependency},
-    is_sandboxing_enabled, COURSIER_CACHE_DIR, DISABLE_NUSER, JAVA_CACHE_DIR, JAVA_HOME_DIR,
-    JAVA_REPOSITORY_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    COURSIER_CACHE_DIR, DISABLE_NUSER, JAVA_CACHE_DIR, JAVA_HOME_DIR, JAVA_REPOSITORY_DIR,
+    MAVEN_REPOS, NO_DEFAULT_MAVEN, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
 };
 use windmill_common::client::AuthedClient;
 
@@ -224,7 +224,7 @@ pub async fn resolve<'a>(
             "--cache",
             COURSIER_CACHE_DIR,
         ])
-        .args(&get_repos().await)
+        .args(&get_repos(job_id, w_id, conn).await)
         .args(&deps.split("\n").collect_vec())
         .stderr(Stdio::piped());
 
@@ -306,7 +306,7 @@ async fn install<'a>(
         "JAVA classpath: {}", &classpath
     );
     let (repos, no_default, trust_store_metadata) = (
-        get_repos().await,
+        get_repos(&job.id, &job.workspace_id, conn).await,
         get_no_default(),
         metadata(TRUST_STORE_PATH.clone()).await,
     );
@@ -788,21 +788,26 @@ fn parse_proxy() -> anyhow::Result<JavaProxySettings> {
 
     Ok(jps)
 }
-async fn get_repos() -> Vec<String> {
-    MAVEN_REPOS
-        .read()
-        .await
-        .as_ref()
-        .map(|repos| {
-            repos
-                .trim()
-                .split_whitespace()
-                .into_iter()
-                .map(|el| vec!["--repository".to_owned(), el.to_owned()])
-                .collect_vec()
-        })
-        .unwrap_or_default()
-        .concat()
+async fn get_repos(job_id: &Uuid, w_id: &str, conn: &Connection) -> Vec<String> {
+    read_ee_registry(
+        MAVEN_REPOS.read().await.clone(),
+        "maven repos",
+        job_id,
+        w_id,
+        conn,
+    )
+    .await
+    .as_ref()
+    .map(|repos| {
+        repos
+            .trim()
+            .split_whitespace()
+            .into_iter()
+            .map(|el| vec!["--repository".to_owned(), el.to_owned()])
+            .collect_vec()
+    })
+    .unwrap_or_default()
+    .concat()
 }
 
 fn get_no_default() -> String {
