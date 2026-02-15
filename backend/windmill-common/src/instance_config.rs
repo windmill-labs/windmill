@@ -3,6 +3,8 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use crate::global_settings::LICENSE_KEY_SETTING;
+
 // ---------------------------------------------------------------------------
 // Kubernetes Secret reference support
 // ---------------------------------------------------------------------------
@@ -746,6 +748,33 @@ pub const PROTECTED_SETTINGS: &[&str] = &[
 /// Internal settings that are never exposed via the API or included in config exports.
 pub const HIDDEN_SETTINGS: &[&str] = &["uid", "rsa_keys", "jwt_secret", "min_keep_alive_version"];
 
+/// Extract the expiry timestamp from a license key JSON value.
+///
+/// License keys have the format `<client_id>.<expiry>.<signature>`.
+/// Returns `None` if the value is not a string or doesn't match the format.
+fn license_key_expiry(value: &serde_json::Value) -> Option<u64> {
+    let s = value.as_str()?;
+    let parts: Vec<&str> = s.split('.').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    parts[1].parse::<u64>().ok()
+}
+
+/// Returns true if two license key values share the same client ID and signature
+/// (i.e. they differ only in the expiry field).
+fn license_keys_same_except_expiry(a: &serde_json::Value, b: &serde_json::Value) -> bool {
+    let (Some(a_str), Some(b_str)) = (a.as_str(), b.as_str()) else {
+        return false;
+    };
+    let a_parts: Vec<&str> = a_str.split('.').collect();
+    let b_parts: Vec<&str> = b_str.split('.').collect();
+    if a_parts.len() != 3 || b_parts.len() != 3 {
+        return false;
+    }
+    a_parts[0] == b_parts[0] && a_parts[2] == b_parts[2]
+}
+
 /// Compute the diff between current and desired global settings.
 pub fn diff_global_settings(
     current: &BTreeMap<String, serde_json::Value>,
@@ -756,6 +785,23 @@ pub fn diff_global_settings(
     for (key, value) in desired {
         match current.get(key) {
             Some(existing) if existing == value => {} // no change
+            Some(existing) if key == LICENSE_KEY_SETTING => {
+                if license_keys_same_except_expiry(existing, value) {
+                    let current_expiry = license_key_expiry(existing).unwrap_or(0);
+                    let desired_expiry = license_key_expiry(value).unwrap_or(0);
+                    if desired_expiry > current_expiry {
+                        upserts.insert(key.clone(), value.clone());
+                    } else {
+                        tracing::info!(
+                            "Skipping license_key update: desired expiry ({}) is not posterior to current expiry ({})",
+                            desired_expiry,
+                            current_expiry
+                        );
+                    }
+                } else {
+                    upserts.insert(key.clone(), value.clone());
+                }
+            }
             _ => {
                 upserts.insert(key.clone(), value.clone());
             }
@@ -1937,6 +1983,119 @@ mod tests {
         assert_eq!(
             gs.scim_token.as_ref().and_then(|v| v.as_literal()),
             Some("plain-token")
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // License key expiry diff tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn diff_license_key_skips_older_expiry() {
+        let mut current = BTreeMap::new();
+        current.insert(
+            "license_key".to_string(),
+            serde_json::json!("client1.2000000000.sig123"),
+        );
+
+        let mut desired = BTreeMap::new();
+        desired.insert(
+            "license_key".to_string(),
+            serde_json::json!("client1.1000000000.sig123"),
+        );
+
+        let diff = diff_global_settings(&current, &desired, ApplyMode::Merge);
+        assert!(
+            diff.upserts.is_empty(),
+            "Should not update license_key when desired expiry is older"
+        );
+    }
+
+    #[test]
+    fn diff_license_key_skips_equal_expiry() {
+        let mut current = BTreeMap::new();
+        current.insert(
+            "license_key".to_string(),
+            serde_json::json!("client1.2000000000.sig_a"),
+        );
+
+        let mut desired = BTreeMap::new();
+        desired.insert(
+            "license_key".to_string(),
+            serde_json::json!("client1.2000000000.sig_b"),
+        );
+
+        let diff = diff_global_settings(&current, &desired, ApplyMode::Merge);
+        assert_eq!(
+            diff.upserts.len(),
+            1,
+            "Different signature means different key, should update"
+        );
+    }
+
+    #[test]
+    fn diff_license_key_updates_newer_expiry() {
+        let mut current = BTreeMap::new();
+        current.insert(
+            "license_key".to_string(),
+            serde_json::json!("client1.1000000000.sig123"),
+        );
+
+        let mut desired = BTreeMap::new();
+        desired.insert(
+            "license_key".to_string(),
+            serde_json::json!("client1.2000000000.sig123"),
+        );
+
+        let diff = diff_global_settings(&current, &desired, ApplyMode::Merge);
+        assert_eq!(diff.upserts.len(), 1);
+        assert_eq!(
+            diff.upserts["license_key"],
+            serde_json::json!("client1.2000000000.sig123")
+        );
+    }
+
+    #[test]
+    fn diff_license_key_updates_different_client() {
+        let mut current = BTreeMap::new();
+        current.insert(
+            "license_key".to_string(),
+            serde_json::json!("client1.2000000000.sig123"),
+        );
+
+        let mut desired = BTreeMap::new();
+        desired.insert(
+            "license_key".to_string(),
+            serde_json::json!("client2.1000000000.sig456"),
+        );
+
+        let diff = diff_global_settings(&current, &desired, ApplyMode::Merge);
+        assert_eq!(
+            diff.upserts.len(),
+            1,
+            "Different client ID means different key, should always update"
+        );
+    }
+
+    #[test]
+    fn diff_license_key_non_string_always_updates() {
+        let mut current = BTreeMap::new();
+        current.insert(
+            "license_key".to_string(),
+            serde_json::json!({"envRef": "LIC_KEY"}),
+        );
+
+        let mut desired = BTreeMap::new();
+        desired.insert(
+            "license_key".to_string(),
+            serde_json::json!({"envRef": "NEW_LIC_KEY"}),
+        );
+
+        let diff = diff_global_settings(&current, &desired, ApplyMode::Merge);
+        assert_eq!(
+            diff.upserts.len(),
+            1,
+            "Non-string license keys should always be updated when different"
         );
     }
 }
