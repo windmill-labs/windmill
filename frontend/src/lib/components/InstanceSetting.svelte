@@ -35,9 +35,10 @@
 		loading?: boolean
 		openSmtpSettings?: () => void
 		oauths?: Record<string, any>
+		warning?: string
 	}
 
-	let { setting, version, values, loading = true, openSmtpSettings, oauths }: Props = $props()
+	let { setting, version, values, loading = true, openSmtpSettings, oauths, warning }: Props = $props()
 	const dispatch = createEventDispatcher()
 
 	let latestKeyRenewalAttempt: {
@@ -282,6 +283,11 @@
 						bind:value={$values[setting.key]}
 						class="max-w-lg"
 					/>
+					{#if warning}
+						<span class="text-yellow-600 dark:text-yellow-500 text-2xs">
+							{warning}
+						</span>
+					{/if}
 					{#if setting.advancedToggle}
 						<div class="mt-1">
 							<Toggle
