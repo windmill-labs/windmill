@@ -3658,6 +3658,8 @@ paths:
                     type: boolean
                   nextcloud_used:
                     type: boolean
+                  google_used:
+                    type: boolean
                 required:
                   - http_routes_used
                   - websocket_used
@@ -3669,6 +3671,7 @@ paths:
                   - sqs_used
                   - email_used
                   - nextcloud_used
+                  - google_used
   /w/{workspace}/users/list:
     get:
       summary: list users
@@ -12320,6 +12323,55 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/native_triggers/integrations/{service_name}/instance_sharing_available:
+    get:
+      summary: check if instance-level credential sharing is available for a service
+      operationId: checkInstanceSharingAvailable
+      tags:
+        - workspace_integration
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+      responses:
+        "200":
+          description: whether instance sharing is available
+          content:
+            application/json:
+              schema:
+                type: boolean
+
+  /w/{workspace}/native_triggers/integrations/{service_name}/generate_instance_connect_url:
+    post:
+      summary: generate connect url using instance-level credentials
+      operationId: generateInstanceConnectUrl
+      tags:
+        - workspace_integration
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+      requestBody:
+        description: redirect_uri
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RedirectUri"
+      responses:
+        "200":
+          description: authorization URL using instance credentials
+          content:
+            application/json:
+              schema:
+                type: string
+
   /w/{workspace}/native_triggers/integrations/{service_name}/delete:
     delete:
       summary: delete native trigger service
@@ -12341,7 +12393,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/native_triggers/integrations/{service_name}/callback/{code}/{state}:
+  /w/{workspace}/native_triggers/integrations/{service_name}/callback:
     post:
       summary: native trigger service oauth callback
       operationId: nativeTriggerServiceCallback
@@ -12354,23 +12406,26 @@ paths:
           required: true
           schema:
             $ref: "#/components/schemas/NativeServiceName"
-        - name: code
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: state
-          in: path
-          required: true
-          schema:
-            type: string
       requestBody:
-        description: redirect_uri
+        description: OAuth callback data
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/RedirectUri"
+              type: object
+              properties:
+                code:
+                  type: string
+                state:
+                  type: string
+                redirect_uri:
+                  type: string
+                resource_path:
+                  type: string
+              required:
+                - code
+                - state
+                - redirect_uri
       responses:
         "200":
           description: native trigger service oauth completed
@@ -12609,6 +12664,91 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/NextCloudEventType"
+
+  /w/{workspace}/native_triggers/google/calendars:
+    get:
+      summary: list Google Calendars for the authenticated user
+      operationId: listGoogleCalendars
+      tags:
+        - native_trigger
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: list of Google Calendars
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GoogleCalendarEntry"
+
+  /w/{workspace}/native_triggers/google/drive/files:
+    get:
+      summary: list or search Google Drive files
+      operationId: listGoogleDriveFiles
+      tags:
+        - native_trigger
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: q
+          in: query
+          description: search query to filter files by name
+          schema:
+            type: string
+        - name: parent_id
+          in: query
+          description: folder ID to list children of
+          schema:
+            type: string
+        - name: page_token
+          in: query
+          description: token for next page of results
+          schema:
+            type: string
+        - name: shared_with_me
+          in: query
+          description: if true, list files shared with the user
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: list of Google Drive files
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoogleDriveFilesResponse"
+
+  /w/{workspace}/native_triggers/google/drive/shared_drives:
+    get:
+      summary: list shared drives accessible to the user
+      operationId: listGoogleSharedDrives
+      tags:
+        - native_trigger
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: list of shared drives
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SharedDriveEntry"
 
   /native_triggers/{service_name}/w/{workspace_id}/webhook/{internal_id}:
     post:
@@ -20050,6 +20190,7 @@ components:
         - mqtt
         - sqs
         - gcp
+        - google
 
     TriggerMode:
       description: job trigger mode
@@ -20512,6 +20653,8 @@ components:
         sqs_count:
           type: number
         nextcloud_count:
+          type: number
+        google_count:
           type: number
 
     WebsocketTrigger:
@@ -23513,6 +23656,7 @@ components:
       type: string
       enum:
         - nextcloud
+        - google
 
     NativeTrigger:
       type: object
@@ -23595,6 +23739,10 @@ components:
         oauth_data:
           nullable: true
           $ref: "#/components/schemas/WorkspaceOAuthConfig"
+        resource_path:
+          type: string
+          nullable: true
+          description: Path to the resource storing the OAuth token
       required:
         - service_name
 
@@ -23716,3 +23864,57 @@ components:
         - id
         - name
         - path
+
+    GoogleCalendarEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        summary:
+          type: string
+        primary:
+          type: boolean
+          default: false
+      required:
+        - id
+        - summary
+
+    GoogleDriveFile:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        mime_type:
+          type: string
+        is_folder:
+          type: boolean
+          default: false
+      required:
+        - id
+        - name
+        - mime_type
+
+    GoogleDriveFilesResponse:
+      type: object
+      properties:
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/GoogleDriveFile"
+        next_page_token:
+          type: string
+      required:
+        - files
+
+    SharedDriveEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+      required:
+        - id
+        - name

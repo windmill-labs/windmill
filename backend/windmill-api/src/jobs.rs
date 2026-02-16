@@ -3413,29 +3413,43 @@ pub async fn get_args_and_trigger_metadata(
 
     // Build trigger metadata if this is a native trigger request
     #[cfg(feature = "native_trigger")]
-    let trigger_metadata = if let Some(service_name_str) = &run_query.service_name {
-        use crate::native_triggers::ServiceName;
+    let (trigger_metadata, native_args) = if let Some(service_name_str) = &run_query.service_name {
+        use crate::native_triggers::{prepare_native_trigger_args, ServiceName};
         let service_name = ServiceName::try_from(service_name_str.to_owned())?;
-        Some(TriggerMetadata::new(
+        let metadata = Some(TriggerMetadata::new(
             run_query.trigger_external_id.clone(),
             service_name.as_job_trigger_kind(),
-        ))
+        ));
+        let body = match &args.body {
+            crate::args::RawBody::Json(s) => s.clone(),
+            crate::args::RawBody::Text(s) => s.clone(),
+            _ => String::new(),
+        };
+        let native =
+            prepare_native_trigger_args(service_name, db, w_id, &args.metadata.headers, body)
+                .await?;
+        (metadata, native)
     } else {
-        None
+        (None, None)
     };
 
     #[cfg(not(feature = "native_trigger"))]
     let trigger_metadata: Option<TriggerMetadata> = None;
+    #[cfg(not(feature = "native_trigger"))]
+    let native_args: Option<windmill_queue::PushArgsOwned> = None;
 
-    let args = args
-        .to_args_from_runnable(
+    let args = if let Some(prepared) = native_args {
+        prepared
+    } else {
+        args.to_args_from_runnable(
             &authed,
             &db,
             &w_id,
             runnable_id,
             run_query.skip_preprocessor,
         )
-        .await?;
+        .await?
+    };
 
     Ok((args, trigger_metadata))
 }

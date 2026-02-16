@@ -57,6 +57,7 @@ export type TriggerKind =
 	| 'sqs'
 	| 'gcp'
 	| 'nextcloud'
+	| 'google'
 export function captureTriggerKindToTriggerKind(kind: CaptureTriggerKind): TriggerKind {
 	switch (kind) {
 		case 'webhook':
