@@ -9,9 +9,6 @@
 #[cfg(feature = "private")]
 pub use crate::oauth_refresh_ee::_refresh_token;
 
-#[cfg(feature = "private")]
-pub use crate::oauth_refresh_ee::_refresh_workspace_integration_token;
-
 #[cfg(not(feature = "private"))]
 use sqlx::{Postgres, Transaction};
 #[cfg(not(feature = "private"))]
