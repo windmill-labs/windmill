@@ -30,7 +30,7 @@
 	import { onMount, setContext, untrack, type ComponentType } from 'svelte'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
-	import { Badge, Button, UndoRedo } from './common'
+	import { Button, UndoRedo } from './common'
 	import FlowEditor from './flows/FlowEditor.svelte'
 	import ScriptEditorDrawer from './flows/content/ScriptEditorDrawer.svelte'
 	import FlowEditorDrawer from './flows/content/FlowEditorDrawer.svelte'
@@ -44,7 +44,6 @@
 	import { cleanFlow } from './flows/utils.svelte'
 	import {
 		Calendar,
-		Pen,
 		Save,
 		DiffIcon,
 		HistoryIcon,
@@ -60,7 +59,7 @@
 	import FlowTutorials from './FlowTutorials.svelte'
 	import FlowHistory from './flows/FlowHistory.svelte'
 	import FlowEditorTutorial from './flows/FlowEditorTutorial.svelte'
-	import Summary from './Summary.svelte'
+	import SummaryPathDisplay from './SummaryPathDisplay.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
 	import FlowYamlEditor from './flows/header/FlowYamlEditor.svelte'
 	import { type TriggerContext, type ScheduleTrigger } from './triggers'
@@ -86,7 +85,6 @@
 	import type { FlowBuilderProps } from './flow_builder'
 	import { ModulesTestStates } from './modulesTest.svelte'
 	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from './flows/FlowAssetsHandler.svelte'
-	import { inputSizeClasses } from './text_input/TextInput.svelte'
 
 	let {
 		initialPath = $bindable(''),
@@ -1007,12 +1005,17 @@
 		<div class="flex flex-col flex-1 h-screen">
 			<!-- Nav between steps-->
 			<div
-				class="justify-between flex flex-row items-center pl-2.5 pr-6 space-x-4 scrollbar-hidden overflow-x-auto max-h-12 h-full relative"
+				class="justify-between flex flex-row items-center pl-4 pr-6 space-x-4 scrollbar-hidden overflow-x-auto max-h-12 h-full relative"
 			>
-				<div class="flex w-full max-w-md gap-4 items-center">
-					<Summary
-						disabled={customUi?.topBar?.editableSummary == false}
-						bind:value={flowStore.val.summary}
+				<div class="flex w-full max-w-md gap-8 items-center">
+					<SummaryPathDisplay
+						summary={flowStore.val.summary}
+						path={$pathStore}
+						kind="flow"
+						onEdit={(newSummary, newPath) => {
+							flowStore.val.summary = newSummary
+							$pathStore = newPath
+						}}
 					/>
 					<UndoRedo
 						undoProps={{ disabled: $history.index === 0 }}
@@ -1067,33 +1070,6 @@
 								triggersState.triggers[primaryScheduleIndex]?.lightConfig?.schedule ??
 								''}
 						</Button>
-					{/if}
-
-					{#if customUi?.topBar?.path != false}
-						<div class="flex justify-start items-center w-full">
-							<button
-								onclick={async () => {
-									select('settings-metadata')
-									document.getElementById('path')?.focus()
-								}}
-							>
-								<Badge
-									color="gray"
-									class="text-primary rounded-r-none border border-r-0 {inputSizeClasses.md}"
-								>
-									<Pen size={12} class="mr-2" /> Path
-								</Badge>
-							</button>
-							<input
-								type="text"
-								readonly
-								value={$pathStore && $pathStore != '' ? $pathStore : 'Choose a path'}
-								class="font-mono !text-2xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 cursor-default !rounded-l-none {inputSizeClasses.md}"
-								onfocus={({ currentTarget }) => {
-									currentTarget.select()
-								}}
-							/>
-						</div>
 					{/if}
 				</div>
 				<div class="flex flex-row gap-2 items-center">

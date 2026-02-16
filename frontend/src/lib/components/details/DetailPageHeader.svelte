@@ -6,12 +6,9 @@
 	import { twMerge } from 'tailwind-merge'
 	import { userStore } from '$lib/stores'
 	import { createEventDispatcher, getContext, tick } from 'svelte'
+	import SummaryPathDisplay from '$lib/components/SummaryPathDisplay.svelte'
 	import type { TriggerContext } from '../triggers'
-	import { Calendar, Pen } from 'lucide-svelte'
-	import { emptyString } from '$lib/utils'
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import Path from '$lib/components/Path.svelte'
+	import { Calendar } from 'lucide-svelte'
 
 	type MainButton = {
 		label: string
@@ -58,19 +55,6 @@
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
-
-	let editSummary = $state('')
-	let editPath = $state('')
-	let dirtyPath = $state(false)
-	let popoverOpen = $state(false)
-	let hasChanges = $derived(editSummary !== (summary ?? '') || dirtyPath)
-
-	$effect(() => {
-		if (popoverOpen) {
-			editSummary = summary ?? ''
-			editPath = path ?? ''
-		}
-	})
 </script>
 
 <div class="border-b p-1">
@@ -79,87 +63,8 @@
 			class="flex w-full flex-wrap md:flex-nowrap justify-end gap-x-2 gap-y-4 items-center min-h-10"
 		>
 			<div class="grow px-4 inline-flex items-center gap-4 min-w-0">
-				<div class="inline-flex items-center gap-1 min-w-0">
-					<div
-						class={twMerge(
-							'min-w-24 text-emphasis truncate flex flex-col gap-0',
-							$userStore?.operator ? 'pl-10' : ''
-						)}
-					>
-						<span
-							class={twMerge(
-								'text-sm min-w-24 text-emphasis font-semibold truncate',
-								$userStore?.operator ? 'pl-10' : ''
-							)}
-						>
-							{emptyString(summary) ? (path ?? '') : summary}
-						</span>
-						{#if !emptyString(summary)}
-							<span class="text-2xs text-secondary">{path}</span>
-						{/if}
-					</div>
-					{#if onEdit}
-						<Popover
-							placement="bottom-start"
-							contentClasses="p-4"
-							usePointerDownOutside
-							bind:isOpen={popoverOpen}
-						>
-							{#snippet trigger()}
-								<Button
-									variant="subtle"
-									unifiedSize="sm"
-									title="Edit summary and path"
-									nonCaptureEvent
-								>
-									<Pen size={14} />
-								</Button>
-							{/snippet}
-							{#snippet content({ close })}
-								<div class="flex flex-col gap-3 w-96">
-									<label class="block text-primary">
-										<div class="pb-1 text-xs font-semibold text-emphasis">Summary</div>
-										<TextInput
-											inputProps={{
-												type: 'text',
-												placeholder: 'Short summary',
-												onkeydown: (e) => {
-													if (e.key === 'Enter') {
-														onEdit?.(editSummary, editPath)
-														close()
-													}
-												}
-											}}
-											bind:value={editSummary}
-										/>
-									</label>
-									<div class="block text-primary">
-										<div class="pb-1 text-xs font-semibold text-emphasis">Path</div>
-										<Path
-											autofocus={false}
-											bind:path={editPath}
-											bind:dirty={dirtyPath}
-											initialPath={path ?? ''}
-											namePlaceholder={errorHandlerKind}
-											kind={errorHandlerKind}
-										/>
-									</div>
-									<Button
-										size="xs"
-										variant="accent"
-										disabled={!hasChanges}
-										title="Save summary and path"
-										onclick={() => {
-											onEdit?.(editSummary, editPath)
-											close()
-										}}
-									>
-										Save
-									</Button>
-								</div>
-							{/snippet}
-						</Popover>
-					{/if}
+				<div class={twMerge($userStore?.operator ? 'pl-10' : '')}>
+					<SummaryPathDisplay {summary} {path} {onEdit} kind={errorHandlerKind} />
 				</div>
 				{#if tag}
 					<Badge>tag: {tag}</Badge>
