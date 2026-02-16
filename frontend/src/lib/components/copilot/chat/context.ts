@@ -1,5 +1,15 @@
-import { Code, Database, TriangleAlert, Diff, FileCode, Code2, TextSelect, Table2 } from 'lucide-svelte'
-import type { ScriptLang } from '$lib/gen/types.gen'
+import {
+	Code,
+	Database,
+	TriangleAlert,
+	Diff,
+	FileCode,
+	Code2,
+	TextSelect,
+	Table2
+} from 'lucide-svelte'
+import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
+import type { ScriptLang, Script, OpenFlow } from '$lib/gen/types.gen'
 import { type DBSchema } from '$lib/stores'
 import { type Change } from 'diff'
 import type { BackendRunnable } from './app/core'
@@ -13,7 +23,9 @@ export const ContextIconMap = {
 	app_frontend_file: FileCode,
 	app_backend_runnable: Code2,
 	app_code_selection: TextSelect,
-	app_datatable: Table2
+	app_datatable: Table2,
+	workspace_script: Code2,
+	workspace_flow: BarsStaggered
 	// flow_module type is handled with FlowModuleIcon
 }
 
@@ -128,6 +140,23 @@ export interface AppDatatableElement {
 	columns: Record<string, string>
 }
 
+/** Workspace script context element — reference to a script in the workspace */
+export interface WorkspaceScriptElement
+	extends Pick<Script, 'path' | 'summary' | 'language' | 'content' | 'schema'> {
+	type: 'workspace_script'
+	title: string
+}
+
+/** Workspace flow context element — reference to a flow in the workspace */
+export interface WorkspaceFlowElement extends Pick<OpenFlow, 'summary' | 'schema'> {
+	type: 'workspace_flow'
+	path: string
+	title: string
+	description: string
+	/** Full flow value, JSON-stringified and possibly truncated */
+	value: string
+}
+
 export type ContextElement = (
 	| CodeElement
 	| ErrorElement
@@ -140,6 +169,8 @@ export type ContextElement = (
 	| AppBackendRunnableElement
 	| AppCodeSelectionElement
 	| AppDatatableElement
+	| WorkspaceScriptElement
+	| WorkspaceFlowElement
 ) & {
 	deletable?: boolean
 }

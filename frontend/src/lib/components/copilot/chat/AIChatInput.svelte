@@ -110,30 +110,39 @@
 	}
 
 	function addContextToSelection(contextElement: ContextElement) {
+		if (!selectedContext || !availableContext) return
+
+		const alreadySelected = selectedContext.find(
+			(c) => c.type === contextElement.type && c.title === contextElement.title
+		)
+		if (alreadySelected) return
+
+		// Workspace items are fetched on-demand and not in availableContext,
+		// so skip the availableContext check for them
+		const isWorkspaceItem =
+			contextElement.type === 'workspace_script' || contextElement.type === 'workspace_flow'
 		if (
-			selectedContext &&
-			availableContext &&
-			!selectedContext.find(
-				(c) => c.type === contextElement.type && c.title === contextElement.title
-			) &&
-			availableContext.find(
+			!isWorkspaceItem &&
+			!availableContext.find(
 				(c) => c.type === contextElement.type && c.title === contextElement.title
 			)
 		) {
-			selectedContext = [...selectedContext, contextElement]
+			return
+		}
 
-			// If it's a datatable table, add it to the app's whitelisted tables
-			if (
-				contextElement.type === 'app_datatable' &&
-				aiChatManager.mode === AIMode.APP &&
-				aiChatManager.appAiChatHelpers
-			) {
-				aiChatManager.appAiChatHelpers.addTableToWhitelist(
-					contextElement.datatableName,
-					contextElement.schemaName,
-					contextElement.tableName
-				)
-			}
+		selectedContext = [...selectedContext, contextElement]
+
+		// If it's a datatable table, add it to the app's whitelisted tables
+		if (
+			contextElement.type === 'app_datatable' &&
+			aiChatManager.mode === AIMode.APP &&
+			aiChatManager.appAiChatHelpers
+		) {
+			aiChatManager.appAiChatHelpers.addTableToWhitelist(
+				contextElement.datatableName,
+				contextElement.schemaName,
+				contextElement.tableName
+			)
 		}
 	}
 
@@ -365,6 +374,10 @@
 							{availableContext}
 							{selectedContext}
 							onSelect={(element) => {
+								addContextToSelection(element)
+								close()
+							}}
+							onSelectWorkspaceItem={(element) => {
 								addContextToSelection(element)
 								close()
 							}}
