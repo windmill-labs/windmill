@@ -4,6 +4,7 @@
 	import { Plus, Eye } from 'lucide-svelte'
 	import { Button, Drawer, DrawerContent } from './common'
 	import FolderEditor from './FolderEditor.svelte'
+	import TextInput from './text_input/TextInput.svelte'
 
 	let folders: { name: string; write: boolean }[] = $state([])
 	let newFolder: Drawer | null = $state(null)
@@ -78,7 +79,10 @@
 	>
 		{#if !folderCreated}
 			<div class="flex flex-col gap-2">
-				<input placeholder="New folder name" bind:value={newFolderName} />
+				<TextInput
+					inputProps={{ type: 'text', placeholder: 'New folder name' }}
+					bind:value={newFolderName}
+				/>
 				<Button size="md" startIcon={{ icon: Plus }} disabled={!newFolderName} on:click={addFolder}>
 					New&nbsp;folder
 				</Button>
@@ -96,7 +100,11 @@
 </Drawer>
 
 <div class="flex flex-row items-center gap-1 w-full">
-	<select class="grow w-full {size === 'sm' ? 'text-xs !h-[28px]' : ''}" disabled={disabled || disableEditing} bind:value={folderName}>
+	<select
+		class="grow w-full {size === 'sm' ? 'text-xs !h-[28px]' : ''}"
+		disabled={disabled || disableEditing}
+		bind:value={folderName}
+	>
 		{#if folders?.length == 0}
 			<option disabled>No folders</option>
 		{/if}

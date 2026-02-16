@@ -43,6 +43,7 @@
 			placement="bottom-start"
 			contentClasses="p-4"
 			usePointerDownOutside
+			excludeSelectors=".drawer"
 			bind:isOpen={popoverOpen}
 		>
 			{#snippet trigger()}
