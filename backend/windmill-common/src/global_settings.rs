@@ -181,6 +181,31 @@ pub async fn get_instance_oauth_credentials(
     Ok((id, secret))
 }
 
+/// Map service client name to the OAuth settings key in global_settings.
+/// e.g. "google" -> "gworkspace", "nextcloud" -> "nextcloud"
+pub fn workspace_integration_oauth_key(client_name: &str) -> &str {
+    match client_name {
+        "google" => "gworkspace",
+        other => other,
+    }
+}
+
+/// Resolve the token endpoint URL for a workspace integration service.
+pub fn workspace_integration_token_endpoint(client_name: &str, base_url: &str) -> String {
+    match client_name {
+        "google" => "https://oauth2.googleapis.com/token".to_string(),
+        _ => format!("{}/apps/oauth2/api/v1/token", base_url),
+    }
+}
+
+/// Resolve the auth endpoint URL for a workspace integration service.
+pub fn workspace_integration_auth_endpoint(client_name: &str, base_url: &str) -> String {
+    match client_name {
+        "google" => "https://accounts.google.com/o/oauth2/v2/auth".to_string(),
+        _ => format!("{}/apps/oauth2/authorize", base_url),
+    }
+}
+
 pub async fn set_value_in_global_settings(
     db: &Pool<Postgres>,
     setting_name: &str,

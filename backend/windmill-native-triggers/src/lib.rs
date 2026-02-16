@@ -678,9 +678,25 @@ async fn update_oauth_token_resource(
 
         if let Some(refresh_token) = new_refresh_token {
             sqlx::query!(
-                "UPDATE account SET refresh_token = $1, refresh_error = NULL
+                "UPDATE account SET
+                   refresh_token = $1,
+                   expires_at = now() + interval '1 hour',
+                   refresh_error = NULL
                  WHERE workspace_id = $2 AND client = $3 AND is_workspace_integration = true",
                 refresh_token,
+                workspace_id,
+                service_name.as_str(),
+            )
+            .execute(db)
+            .await?;
+        } else {
+            // Even without a new refresh token, update expires_at to prevent
+            // the background refresh from re-refreshing immediately
+            sqlx::query!(
+                "UPDATE account SET
+                   expires_at = now() + interval '1 hour',
+                   refresh_error = NULL
+                 WHERE workspace_id = $1 AND client = $2 AND is_workspace_integration = true",
                 workspace_id,
                 service_name.as_str(),
             )
