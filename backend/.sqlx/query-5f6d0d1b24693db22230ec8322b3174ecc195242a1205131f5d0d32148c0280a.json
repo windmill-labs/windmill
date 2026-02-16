@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT hash FROM script WHERE path = 'f/rel/leaf_2' AND workspace_id = 'test-workspace' AND archived = false ORDER BY created_at DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "hash",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "5f6d0d1b24693db22230ec8322b3174ecc195242a1205131f5d0d32148c0280a"
+}
