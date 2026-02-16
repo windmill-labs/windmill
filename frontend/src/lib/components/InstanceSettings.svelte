@@ -15,7 +15,7 @@
 	import AuthSettings from './AuthSettings.svelte'
 	import InstanceSetting from './InstanceSetting.svelte'
 	import { writable, type Writable } from 'svelte/store'
-	import { AlertCircle, ExternalLink, Loader2 } from 'lucide-svelte'
+	import { ExternalLink, Loader2 } from 'lucide-svelte'
 	import YAML from 'yaml'
 	import Toggle from './Toggle.svelte'
 	import type SimpleEditor from './SimpleEditor.svelte'
@@ -1007,15 +1007,8 @@
 						{values}
 						{version}
 						{oauths}
+						warning={setting.key === 'base_url' && baseUrlIsFallback ? 'Auto-detected from browser — not yet saved' : undefined}
 					/>
-					{#if setting.key === 'base_url' && baseUrlIsFallback}
-						<div class="flex items-center gap-1.5 mt-1">
-							<AlertCircle size={14} class="text-yellow-600 shrink-0" />
-							<span class="text-yellow-600 dark:text-yellow-500 text-xs">
-								Base URL was auto-detected from the browser and has not been saved yet. Save settings to persist it.
-							</span>
-						</div>
-					{/if}
 				{/if}
 			{/each}
 			{#if quickSetup && category === 'Core'}
