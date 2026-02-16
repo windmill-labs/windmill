@@ -1113,7 +1113,7 @@
 		<div class="flex flex-col flex-1 h-screen">
 			<!-- Nav between steps-->
 			<div
-				class="justify-between flex flex-row items-center pl-2 pr-6 space-x-4 scrollbar-hidden overflow-x-auto max-h-12 h-full relative"
+				class="justify-between flex flex-row items-center pl-3 pr-6 space-x-4 scrollbar-hidden overflow-x-auto max-h-12 h-full relative"
 			>
 				<div class="flex w-full max-w-md gap-8 items-center">
 					<SummaryPathDisplay

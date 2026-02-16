@@ -4,7 +4,6 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Path from '$lib/components/Path.svelte'
-	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		summary?: string
@@ -40,21 +39,18 @@
 	>
 		{#snippet trigger()}
 			<div
-				class={twMerge(
-					'min-w-24 truncate flex items-baseline gap-3 px-4 py-1 rounded-md border transition-colors cursor-pointer',
-					popoverOpen
-						? '!border-border-selected bg-surface-input'
-						: '!border-transparent hover:!border-border-selected/50 hover:bg-surface-input'
-				)}
+				class={'min-w-24 truncate flex flex-col items-start px-3 py-1 rounded-md  transition-colors cursor-pointer hover:bg-surface-hover'}
 			>
+				<span class="text-2xs leading-tight text-tertiary font-mono font-normal truncate max-w-full"
+					>{path}</span
+				>
 				<span
-					class="text-base font-semibold truncate {emptyString(summary)
-						? 'text-tertiary italic'
+					class="text-sm font-semibold truncate max-w-full {emptyString(summary)
+						? 'text-tertiary italic font-normal'
 						: 'text-emphasis'}"
 				>
 					{emptyString(summary) ? 'Add a summary...' : summary}
 				</span>
-				<span class="text-2xs text-secondary font-mono font-normal truncate shrink-0">{path}</span>
 			</div>
 		{/snippet}
 		{#snippet content({ close })}
@@ -105,12 +101,12 @@
 		{/snippet}
 	</Popover>
 {:else}
-	<div class="min-w-24 text-emphasis truncate flex items-baseline gap-2">
+	<div class="min-w-24 truncate flex flex-col">
+		{#if !emptyString(summary)}
+			<span class="text-[10px] leading-tight text-tertiary font-mono truncate">{path}</span>
+		{/if}
 		<span class="text-sm font-semibold text-emphasis truncate">
 			{emptyString(summary) ? (path ?? '') : summary}
 		</span>
-		{#if !emptyString(summary)}
-			<span class="text-2xs text-secondary font-mono truncate shrink-0">{path}</span>
-		{/if}
 	</div>
 {/if}
