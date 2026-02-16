@@ -239,11 +239,16 @@ pub async fn initial_load(
             Connection::Http(_) => {
                 // TODO: reload worker config from http
                 let mut config = WORKER_CONFIG.write().await;
+                let worker_tags = DECODED_AGENT_TOKEN
+                    .as_ref()
+                    .map(|x| x.tags.clone())
+                    .unwrap_or_default();
+                // we only check from env as native_mode is not stored in the token
+                let native_mode = windmill_common::worker::is_native_mode_from_env();
+                windmill_common::worker::NATIVE_MODE_RESOLVED
+                    .store(native_mode, std::sync::atomic::Ordering::Relaxed);
                 *config = WorkerConfig {
-                    worker_tags: DECODED_AGENT_TOKEN
-                        .as_ref()
-                        .map(|x| x.tags.clone())
-                        .unwrap_or_default(),
+                    worker_tags,
                     env_vars: load_env_vars(
                         load_whitelist_env_vars_from_env(),
                         &std::collections::HashMap::new(),
@@ -257,6 +262,7 @@ pub async fn initial_load(
                     cache_clear: None,
                     additional_python_paths: None,
                     pip_local_dependencies: None,
+                    native_mode,
                 };
             }
         }
@@ -2240,6 +2246,11 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
                 if (*wc).periodic_script_interval_seconds != config.periodic_script_interval_seconds
                 {
                     tracing::info!("Periodic script interval config changed, sending killpill. Expecting to be restarted by supervisor.");
+                    let _ = tx.send();
+                }
+
+                if (*wc).native_mode != config.native_mode {
+                    tracing::info!("Native mode config changed, sending killpill. Expecting to be restarted by supervisor.");
                     let _ = tx.send();
                 }
             }

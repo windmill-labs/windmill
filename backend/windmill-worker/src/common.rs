@@ -562,6 +562,7 @@ pub async fn update_worker_ping_for_failed_init_script(
                         memory_usage: None,
                         wm_memory_usage: None,
                         job_isolation: None,
+                        native_mode: None,
                         ping_type: PingType::InitScript,
                     },
                 )

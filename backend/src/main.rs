@@ -47,8 +47,8 @@ use windmill_common::{
         JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING,
         MAVEN_SETTINGS_XML_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
         NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING,
-        OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING,
-        POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
+        POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         RUBY_REPOS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING,
         TIMEOUT_WAIT_RESULT_SETTING, UV_INDEX_STRATEGY_SETTING,
@@ -61,8 +61,8 @@ use windmill_common::{
         MODE_AND_ADDONS,
     },
     worker::{
-        reload_custom_tags_setting, Connection, HUB_CACHE_DIR, HUB_RT_CACHE_DIR, TMP_DIR,
-        TMP_LOGS_DIR, WORKER_GROUP,
+        is_native_mode_from_env, reload_custom_tags_setting, Connection, HUB_CACHE_DIR,
+        HUB_RT_CACHE_DIR, NATIVE_MODE_RESOLVED, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP,
     },
     KillpillSender, DEFAULT_HUB_BASE_URL, METRICS_ENABLED,
 };
@@ -653,6 +653,9 @@ async fn windmill_main() -> anyhow::Result<()> {
     #[allow(unused_mut)]
     let mut num_workers = if mode == Mode::Server || mode == Mode::Indexer || mode == Mode::MCP {
         0
+    } else if is_native_mode_from_env() {
+        println!("Native mode enabled: forcing NUM_WORKERS=8");
+        8
     } else {
         std::env::var("NUM_WORKERS")
             .ok()
@@ -660,11 +663,21 @@ async fn windmill_main() -> anyhow::Result<()> {
             .unwrap_or(DEFAULT_NUM_WORKERS as i32)
     };
 
-    // TODO: maybe gate behind debug_assertions?
-    if num_workers > 1 && !std::env::var("WORKER_GROUP").is_ok_and(|x| x == "native") {
-        println!(
-            "We STRONGLY recommend using at most 1 worker per container, use at your own risks"
-        );
+    if num_workers > 1 && !is_native_mode_from_env() {
+        if std::env::var("I_ACK_NUM_WORKERS_IS_UNSAFE").is_ok_and(|x| x == "1" || x == "true") {
+            println!(
+                "WARNING: Running with NUM_WORKERS={} without native mode. \
+                 This is not recommended. Use at your own risk.",
+                num_workers
+            );
+        } else {
+            eprintln!(
+                "WARNING: NUM_WORKERS={} > 1 is only safe for native workers. \
+                 Falling back to NUM_WORKERS=1. Set NATIVE_MODE=true for native-only workers.",
+                num_workers
+            );
+            num_workers = 1;
+        }
     }
 
     let server_mode = !std::env::var("DISABLE_SERVER")
@@ -923,6 +936,16 @@ Windmill Community Edition {GIT_VERSION}
             disable_s3_store,
         )
         .await;
+
+        // native_mode may also be set via DB worker group config (not just env).
+        // NATIVE_MODE_RESOLVED is updated by load_worker_config during initial_load.
+        if worker_mode
+            && !is_native_mode_from_env()
+            && NATIVE_MODE_RESOLVED.load(std::sync::atomic::Ordering::Relaxed)
+        {
+            num_workers = 8;
+            tracing::info!("Native mode detected from worker config: forcing NUM_WORKERS=8");
+        }
 
         monitor_db(
             &conn,

@@ -102,6 +102,21 @@ impl ScriptLang {
         )
     }
 
+    pub fn is_native(&self) -> bool {
+        matches!(
+            self,
+            ScriptLang::Bunnative |
+            ScriptLang::Nativets |
+            ScriptLang::Postgresql |
+            ScriptLang::Mysql |
+            ScriptLang::Graphql |
+            ScriptLang::Snowflake |
+            ScriptLang::Mssql |
+            ScriptLang::Bigquery |
+            ScriptLang::OracleDB
+        )
+    }
+
     pub fn as_comment_lit(&self) -> String {
         use ScriptLang::*;
         match self {
@@ -142,9 +157,7 @@ impl FromStr for ScriptLang {
             "java" => ScriptLang::Java,
             "ruby" => ScriptLang::Ruby,
             // for related places search: ADD_NEW_LANG
-            language => {
-                return Err(anyhow::anyhow!("{} is currently not supported", language))
-            }
+            language => return Err(anyhow::anyhow!("{} is currently not supported", language)),
         };
 
         Ok(language)
@@ -581,9 +594,7 @@ where
 pub fn to_i64(s: &str) -> anyhow::Result<i64> {
     let v = hex::decode(s)?;
     if v.len() < 8 {
-        return Err(anyhow::anyhow!(
-            "hex string did not decode to an u64: {s}",
-        ));
+        return Err(anyhow::anyhow!("hex string did not decode to an u64: {s}",));
     }
     let nb: u64 = u64::from_be_bytes(
         v[0..8]

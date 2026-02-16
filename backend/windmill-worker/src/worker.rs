@@ -80,7 +80,7 @@ use windmill_common::{
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     tracing_init::{QUIET_MODE, VERBOSE_TARGET},
     utils::StripPath,
-    worker::{CLOUD_HOSTED, NO_LOGS, WORKER_CONFIG, WORKER_GROUP},
+    worker::{CLOUD_HOSTED, NATIVE_MODE_RESOLVED, NO_LOGS, WORKER_CONFIG, WORKER_GROUP},
     DB, IS_READY,
 };
 
@@ -3008,6 +3008,17 @@ pub async fn handle_queued_job(
             return Err(Error::ExecutionErr("Suspended job was not handled by the user within 30 days, job will not be executed.".to_string()));
         }
         _ => {}
+    }
+
+    if NATIVE_MODE_RESOLVED.load(std::sync::atomic::Ordering::Relaxed) {
+        if let Some(lang) = &job.script_lang {
+            if !lang.is_native() {
+                return Err(Error::ExecutionErr(format!(
+                    "Worker is in native mode and cannot execute non-native job with language '{}'",
+                    lang.as_str(),
+                )));
+            }
+        }
     }
 
     #[cfg(any(not(feature = "enterprise"), feature = "sqlx"))]
