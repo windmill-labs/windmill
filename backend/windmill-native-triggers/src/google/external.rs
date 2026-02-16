@@ -47,45 +47,9 @@ impl External for Google {
         db: &DB,
         _tx: &mut PgConnection,
     ) -> Result<Self::CreateResponse> {
-        let base_url = &*BASE_URL.read().await;
-
-        // Generate a unique channel ID
         let channel_id = uuid::Uuid::new_v4().to_string();
-
-        // Generate the webhook URL (external_id is the channel_id)
-        let webhook_url = generate_webhook_service_url(
-            base_url,
-            w_id,
-            &data.script_path,
-            data.is_flow,
-            Some(&channel_id),
-            Self::SERVICE_NAME,
-            webhook_token,
-        );
-
-        tracing::info!(
-            "Creating Google {} watch channel '{}' with webhook URL: {}",
-            data.service_config.trigger_type,
-            channel_id,
-            webhook_url
-        );
-
-        // Build the watch request with explicit expiration to avoid short Google defaults
-        let expiration_ms = chrono::Utc::now().timestamp_millis()
-            + (data.service_config.max_expiration_hours() as i64 * 3600 * 1000);
-        let mut watch_request = WatchRequest::new(channel_id.clone(), webhook_url);
-        watch_request.expiration = Some(expiration_ms);
-
-        match data.service_config.trigger_type {
-            GoogleTriggerType::Drive => {
-                self.create_drive_watch(w_id, &data.service_config, &watch_request, db)
-                    .await
-            }
-            GoogleTriggerType::Calendar => {
-                self.create_calendar_watch(w_id, &data.service_config, &watch_request, db)
-                    .await
-            }
-        }
+        self.create_watch_channel(w_id, &channel_id, webhook_token, data, db)
+            .await
     }
 
     async fn update(
@@ -99,14 +63,13 @@ impl External for Google {
         tx: &mut PgConnection,
     ) -> Result<serde_json::Value> {
         // Google doesn't support updating watch channels — delete old, create new.
-        // delete() already ignores missing channels, so no need to check first.
         let _ = self.delete(w_id, oauth_data, external_id, db, tx).await;
 
+        // Reuse the same channel ID so external_id stays permanent
         let resp = self
-            .create(w_id, oauth_data, webhook_token, data, db, tx)
+            .create_watch_channel(w_id, external_id, webhook_token, data, db)
             .await?;
 
-        // Build config from request data + response metadata
         self.service_config_from_create_response(data, &resp)
             .ok_or_else(|| {
                 Error::InternalErr(
@@ -230,6 +193,51 @@ impl External for Google {
 
 // Helper methods for creating trigger type-specific watches
 impl Google {
+    /// Build a webhook URL and watch request, then register the channel with Google.
+    /// Used by both `create()` (new UUID) and `update()` (reuse existing external_id).
+    async fn create_watch_channel(
+        &self,
+        w_id: &str,
+        channel_id: &str,
+        webhook_token: &str,
+        data: &NativeTriggerData<GoogleServiceConfig>,
+        db: &DB,
+    ) -> Result<CreateWatchResponse> {
+        let base_url = &*BASE_URL.read().await;
+        let webhook_url = generate_webhook_service_url(
+            base_url,
+            w_id,
+            &data.script_path,
+            data.is_flow,
+            Some(channel_id),
+            ServiceName::Google,
+            webhook_token,
+        );
+
+        tracing::info!(
+            "Creating Google {} watch channel '{}' with webhook URL: {}",
+            data.service_config.trigger_type,
+            channel_id,
+            webhook_url
+        );
+
+        let expiration_ms = chrono::Utc::now().timestamp_millis()
+            + (data.service_config.max_expiration_hours() as i64 * 3600 * 1000);
+        let mut watch_request = WatchRequest::new(channel_id.to_string(), webhook_url);
+        watch_request.expiration = Some(expiration_ms);
+
+        match data.service_config.trigger_type {
+            GoogleTriggerType::Drive => {
+                self.create_drive_watch(w_id, &data.service_config, &watch_request, db)
+                    .await
+            }
+            GoogleTriggerType::Calendar => {
+                self.create_calendar_watch(w_id, &data.service_config, &watch_request, db)
+                    .await
+            }
+        }
+    }
+
     async fn create_drive_watch(
         &self,
         w_id: &str,
