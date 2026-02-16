@@ -37,6 +37,7 @@
 	import { tick } from 'svelte'
 	import FolderPicker from './FolderPicker.svelte'
 	import TextInput from './text_input/TextInput.svelte'
+	import PathAutocompleteInput from './PathAutocompleteInput.svelte'
 
 	type PathKind =
 		| 'resource'
@@ -95,7 +96,7 @@
 		}
 	})
 
-	let inputP: TextInput | undefined = $state(undefined)
+	let inputP: PathAutocompleteInput | undefined = $state(undefined)
 
 	const dispatch = createEventDispatcher()
 
@@ -464,19 +465,18 @@
 			<div class="text-sm text-secondary">/</div>
 			<label class="block grow min-w-32 max-w-md">
 				<!-- svelte-ignore a11y_autofocus -->
-				<TextInput
-					bind:this={inputP}
-					bind:value={meta.name}
-					{error}
-					inputProps={{
-						disabled: disabled || disableEditing,
-						type: 'text',
-						id: 'path',
-						autofocus,
-						autocomplete: 'off',
-						onkeyup: handleKeyUp,
-						placeholder: namePlaceholder
-					}}
+				<PathAutocompleteInput
+						bind:this={inputP}
+						bind:value={meta.name}
+						workspace={$workspaceStore ?? ''}
+						{kind}
+						ownerPrefix={meta.ownerKind === 'folder' ? `f/${meta.owner}` : `u/${meta.owner}`}
+						{error}
+						disabled={disabled || disableEditing}
+						{autofocus}
+						placeholder={namePlaceholder}
+						id="path"
+						onKeyUp={handleKeyUp}
 				/>
 			</label>
 		{/if}
