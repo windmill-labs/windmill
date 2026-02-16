@@ -30,7 +30,7 @@
 	let driveResourceId = $state<string>(serviceConfig.resourceId ?? '')
 	let driveResourceName = $state<string>(serviceConfig.resourceName ?? '')
 	let driveWatchMode = $state<'file' | 'all'>(
-		serviceConfig.resourceId ? 'file' : (serviceConfig.watchMode ?? 'file')
+		serviceConfig.resourceId ? 'file' : serviceConfig.googleResourceId ? 'all' : 'file'
 	)
 
 	// Calendar state

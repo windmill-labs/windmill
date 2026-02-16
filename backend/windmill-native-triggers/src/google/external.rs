@@ -192,11 +192,7 @@ impl External for Google {
             "message_number": headers.get("x-goog-message-number").cloned().unwrap_or_default(),
             "channel_expiration": headers.get("x-goog-channel-expiration").cloned().unwrap_or_default(),
             "changed": headers.get("x-goog-changed").cloned().unwrap_or_default(),
-            "body": if body.is_empty() {
-                serde_json::Value::Null
-            } else {
-                serde_json::from_str(&body).unwrap_or(serde_json::Value::Null)
-            }
+            "channel_token": headers.get("x-goog-channel-token").cloned().unwrap_or_default(),
         });
 
         let mut args: HashMap<String, Box<RawValue>> = HashMap::new();

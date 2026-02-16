@@ -34,7 +34,11 @@ export const NATIVE_TRIGGER_SERVICES: Record<NativeServiceName, NativeTriggerCon
 		serviceKey: 'google',
 		supportsSync: true,
 		supportsFetchConfig: true,
-		isCloudCompatible: true
+		isCloudCompatible: true,
+		templates: {
+			script: '/scripts/add?hub=hub%2F28135',
+			flow: '/flows/add?hub=75'
+		}
 	}
 }
 
