@@ -3,7 +3,7 @@
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import type { FlowModule } from '$lib/gen/types.gen'
 	import { workspaceStore } from '$lib/stores'
-	import { workspaceRunnablesSearch } from './shared'
+	import { workspaceRunnablesSearch, MAX_RUNNABLE_CONTENT_LENGTH } from './shared'
 	import {
 		ContextIconMap,
 		type ContextElement,
@@ -191,19 +191,18 @@
 				onSelectWorkspaceItem(element)
 			} else if (currentView === 'flows') {
 				const flow = await workspaceRunnablesSearch.getFlow(path, workspace)
-				const modules =
-					flow.value?.modules?.map((m) => ({
-						id: m.id,
-						summary: m.summary || '',
-						type: m.value.type
-					})) || []
+				const flowValue = JSON.stringify(flow.value, null, 2)
+				const truncatedValue =
+					flowValue.length > MAX_RUNNABLE_CONTENT_LENGTH
+						? flowValue.slice(0, MAX_RUNNABLE_CONTENT_LENGTH) + '\n... (truncated)'
+						: flowValue
 				const element: WorkspaceFlowElement & { deletable: boolean } = {
 					type: 'workspace_flow',
 					path: flow.path,
 					title: flow.path,
 					summary: flow.summary,
 					description: flow.description || '',
-					modules,
+					value: truncatedValue,
 					schema: flow.schema,
 					deletable: true
 				}

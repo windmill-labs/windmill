@@ -9,7 +9,7 @@ import {
 	Table2
 } from 'lucide-svelte'
 import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
-import type { ScriptLang } from '$lib/gen/types.gen'
+import type { ScriptLang, Script, OpenFlow } from '$lib/gen/types.gen'
 import { type DBSchema } from '$lib/stores'
 import { type Change } from 'diff'
 import type { BackendRunnable } from './app/core'
@@ -141,37 +141,20 @@ export interface AppDatatableElement {
 }
 
 /** Workspace script context element — reference to a script in the workspace */
-export interface WorkspaceScriptElement {
+export interface WorkspaceScriptElement
+	extends Pick<Script, 'path' | 'summary' | 'language' | 'content' | 'schema'> {
 	type: 'workspace_script'
-	/** The script path */
-	path: string
-	/** Title for display */
 	title: string
-	/** The script summary */
-	summary: string
-	/** The script language */
-	language: ScriptLang
-	/** The script code content */
-	content: string
-	/** The script input schema */
-	schema?: Record<string, any>
 }
 
 /** Workspace flow context element — reference to a flow in the workspace */
-export interface WorkspaceFlowElement {
+export interface WorkspaceFlowElement extends Pick<OpenFlow, 'summary' | 'schema'> {
 	type: 'workspace_flow'
-	/** The flow path */
 	path: string
-	/** Title for display */
 	title: string
-	/** The flow summary */
-	summary: string
-	/** The flow description */
 	description: string
-	/** Summary of modules (id, summary, type) */
-	modules: { id: string; summary: string; type: string }[]
-	/** The flow input schema */
-	schema?: Record<string, any>
+	/** Full flow value, JSON-stringified and possibly truncated */
+	value: string
 }
 
 export type ContextElement = (

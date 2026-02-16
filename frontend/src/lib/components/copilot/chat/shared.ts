@@ -324,10 +324,10 @@ export function buildContextString(selectedContext: ContextElement[]): string {
 			workspaceItemsContext += `\nWORKSPACE FLOW (${context.path}):\n`
 			workspaceItemsContext += `Summary: ${context.summary}\n`
 			workspaceItemsContext += `Description: ${context.description}\n`
-			workspaceItemsContext += `Modules: ${JSON.stringify(context.modules)}\n`
 			if (context.schema) {
 				workspaceItemsContext += `Inputs: ${JSON.stringify(context.schema)}\n`
 			}
+			workspaceItemsContext += `Value:\n${context.value}\n`
 		}
 	}
 
@@ -688,7 +688,7 @@ export async function buildSchemaForTool(
 // Constants for result formatting
 const MAX_RESULT_LENGTH = 12000
 const MAX_LOG_LENGTH = 4000
-const MAX_RUNNABLE_CONTENT_LENGTH = 20000
+export const MAX_RUNNABLE_CONTENT_LENGTH = 20000
 
 export interface TestRunConfig {
 	jobStarter: () => Promise<string>
