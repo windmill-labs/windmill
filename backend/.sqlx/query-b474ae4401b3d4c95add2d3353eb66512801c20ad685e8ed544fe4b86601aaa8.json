@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO draft\n            (workspace_id, path, value, typ)\n            VALUES ($1, $2, $3::text::json, $4)\n            ON CONFLICT (workspace_id, path, typ) DO UPDATE SET value = EXCLUDED.value",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Text",
+        {
+          "Custom": {
+            "name": "draft_type",
+            "kind": {
+              "Enum": [
+                "script",
+                "flow",
+                "app"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b474ae4401b3d4c95add2d3353eb66512801c20ad685e8ed544fe4b86601aaa8"
+}

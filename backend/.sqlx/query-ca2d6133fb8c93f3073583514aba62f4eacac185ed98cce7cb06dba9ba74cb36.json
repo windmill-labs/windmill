@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO job_logs (job_id, workspace_id, logs) VALUES ($1, 'admins', 'test log output')\n                 ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ca2d6133fb8c93f3073583514aba62f4eacac185ed98cce7cb06dba9ba74cb36"
+}

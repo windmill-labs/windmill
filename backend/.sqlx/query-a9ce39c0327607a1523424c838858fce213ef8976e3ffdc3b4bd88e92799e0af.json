@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT postgres_resource_path, replication_slot_name, publication_name, mode AS \"mode: String\"\n        FROM postgres_trigger\n        WHERE workspace_id = $1 AND path = $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "postgres_resource_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "replication_slot_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "publication_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "mode: String",
+        "type_info": {
+          "Custom": {
+            "name": "trigger_mode",
+            "kind": {
+              "Enum": [
+                "enabled",
+                "disabled",
+                "suspended"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "a9ce39c0327607a1523424c838858fce213ef8976e3ffdc3b4bd88e92799e0af"
+}

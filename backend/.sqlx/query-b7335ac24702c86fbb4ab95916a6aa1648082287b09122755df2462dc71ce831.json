@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH j AS (\n            SELECT \n                raw_flow->>'concurrency_key' as concurrency_key, \n                raw_flow->>'concurrency_time_window_s' as concurrency_time_window_s,\n                raw_flow->>'concurrency_limit' as concurrent_limit,\n                runnable_path, \n                runnable_id as version FROM v2_job\n            WHERE id = $1\n        )\n        SELECT tag, j.concurrency_key, j.concurrency_time_window_s::int, j.concurrent_limit::int, j.version\n            FROM flow, j\n            WHERE path = j.runnable_path\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "tag",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "concurrency_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "concurrency_time_window_s",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "concurrent_limit",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "version",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true,
+      null,
+      null,
+      null,
+      true
+    ]
+  },
+  "hash": "b7335ac24702c86fbb4ab95916a6aa1648082287b09122755df2462dc71ce831"
+}

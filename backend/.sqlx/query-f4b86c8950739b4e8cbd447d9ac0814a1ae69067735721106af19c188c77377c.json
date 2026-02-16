@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM v2_job_completed WHERE id IN (SELECT id FROM v2_job WHERE created_by = $1 AND tag = $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f4b86c8950739b4e8cbd447d9ac0814a1ae69067735721106af19c188c77377c"
+}

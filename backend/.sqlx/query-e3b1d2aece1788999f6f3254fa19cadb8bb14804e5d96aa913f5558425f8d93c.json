@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM draft WHERE workspace_id = $1 AND path = ANY($2) AND typ = 'script'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e3b1d2aece1788999f6f3254fa19cadb8bb14804e5d96aa913f5558425f8d93c"
+}

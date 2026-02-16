@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT path FROM script\n                     WHERE workspace_id = $1 AND path = ANY($2) AND archived = false",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "2d1ba3c92c0385c530934082284cf548a50d533dc1bef58dfd0ecc163c9920f3"
+}

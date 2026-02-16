@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_status\n                         SET flow_status = JSONB_SET(flow_status, ARRAY['retry'], $1)\n                         WHERE id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3325f8ed245b1bce27c3d9f5e62ffc14b5c8aabf5ab53384f5f2b20eafd66cb3"
+}

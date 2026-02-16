@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM jobs_pending_deletion",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "51e1d713dc57f57531dce518e564bd9440582ffd3e396a947f3c93f139e770e2"
+}

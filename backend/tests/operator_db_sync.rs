@@ -7,7 +7,7 @@
  * - Protect certain internal settings from deletion
  */
 
-#[cfg(feature = "operator")]
+#[cfg(all(feature = "operator", feature = "private"))]
 mod tests {
     use std::collections::BTreeMap;
 
@@ -74,7 +74,7 @@ mod tests {
         );
         desired.insert("test_op_setting_b".to_string(), serde_json::json!(42));
 
-        windmill_operator::db_sync::sync_global_settings(&db, &desired)
+        windmill_operator::db_sync_ee::sync_global_settings(&db, &desired)
             .await
             .expect("sync should succeed");
 
@@ -97,7 +97,7 @@ mod tests {
         let mut desired = BTreeMap::new();
         desired.insert("test_op_existing".to_string(), serde_json::json!("new"));
 
-        windmill_operator::db_sync::sync_global_settings(&db, &desired)
+        windmill_operator::db_sync_ee::sync_global_settings(&db, &desired)
             .await
             .expect("sync should succeed");
 
@@ -117,7 +117,7 @@ mod tests {
         let mut desired = BTreeMap::new();
         desired.insert("test_op_keep".to_string(), serde_json::json!("keep"));
 
-        windmill_operator::db_sync::sync_global_settings(&db, &desired)
+        windmill_operator::db_sync_ee::sync_global_settings(&db, &desired)
             .await
             .expect("sync should succeed");
 
@@ -141,7 +141,7 @@ mod tests {
         // Sync with empty desired — protected key should survive
         let desired = BTreeMap::new();
 
-        windmill_operator::db_sync::sync_global_settings(&db, &desired)
+        windmill_operator::db_sync_ee::sync_global_settings(&db, &desired)
             .await
             .expect("sync should succeed");
 
@@ -165,7 +165,7 @@ mod tests {
 
         // Sync with empty desired
         let desired = BTreeMap::new();
-        windmill_operator::db_sync::sync_global_settings(&db, &desired)
+        windmill_operator::db_sync_ee::sync_global_settings(&db, &desired)
             .await
             .expect("sync should succeed");
 
@@ -183,7 +183,7 @@ mod tests {
         insert_global_setting(&db, "test_op_ephemeral", serde_json::json!("gone")).await;
 
         let desired = BTreeMap::new();
-        windmill_operator::db_sync::sync_global_settings(&db, &desired)
+        windmill_operator::db_sync_ee::sync_global_settings(&db, &desired)
             .await
             .expect("sync should succeed");
 
@@ -206,7 +206,7 @@ mod tests {
             }),
         );
 
-        windmill_operator::db_sync::sync_global_settings(&db, &desired)
+        windmill_operator::db_sync_ee::sync_global_settings(&db, &desired)
             .await
             .expect("sync should succeed");
 
@@ -230,7 +230,7 @@ mod tests {
             serde_json::json!({"dedicated_worker": false}),
         );
 
-        windmill_operator::db_sync::sync_worker_configs(&db, &desired)
+        windmill_operator::db_sync_ee::sync_worker_configs(&db, &desired)
             .await
             .expect("sync should succeed");
 
@@ -256,7 +256,7 @@ mod tests {
             serde_json::json!({"new": true}),
         );
 
-        windmill_operator::db_sync::sync_worker_configs(&db, &desired)
+        windmill_operator::db_sync_ee::sync_worker_configs(&db, &desired)
             .await
             .expect("sync should succeed");
 
@@ -290,7 +290,7 @@ mod tests {
             serde_json::json!({"keep": true}),
         );
 
-        windmill_operator::db_sync::sync_worker_configs(&db, &desired)
+        windmill_operator::db_sync_ee::sync_worker_configs(&db, &desired)
             .await
             .expect("sync should succeed");
 
@@ -308,7 +308,7 @@ mod tests {
 
         // Sync with empty worker configs
         let desired = BTreeMap::new();
-        windmill_operator::db_sync::sync_worker_configs(&db, &desired)
+        windmill_operator::db_sync_ee::sync_worker_configs(&db, &desired)
             .await
             .expect("sync should succeed");
 
@@ -334,7 +334,7 @@ mod tests {
             serde_json::json!({"init_bash": "echo native"}),
         );
 
-        windmill_operator::db_sync::sync_worker_configs(&db, &desired)
+        windmill_operator::db_sync_ee::sync_worker_configs(&db, &desired)
             .await
             .expect("sync should succeed");
 
@@ -353,7 +353,7 @@ mod tests {
         .await;
 
         let desired = BTreeMap::new();
-        windmill_operator::db_sync::sync_worker_configs(&db, &desired)
+        windmill_operator::db_sync_ee::sync_worker_configs(&db, &desired)
             .await
             .expect("sync should succeed");
 
@@ -396,10 +396,10 @@ mod tests {
         );
 
         // Sync both
-        windmill_operator::db_sync::sync_global_settings(&db, &global_settings)
+        windmill_operator::db_sync_ee::sync_global_settings(&db, &global_settings)
             .await
             .expect("global sync should succeed");
-        windmill_operator::db_sync::sync_worker_configs(&db, &worker_configs)
+        windmill_operator::db_sync_ee::sync_worker_configs(&db, &worker_configs)
             .await
             .expect("worker sync should succeed");
 
@@ -433,10 +433,10 @@ mod tests {
         desired.insert("test_op_idempotent".to_string(), serde_json::json!("value"));
 
         // Run sync twice — should be idempotent
-        windmill_operator::db_sync::sync_global_settings(&db, &desired)
+        windmill_operator::db_sync_ee::sync_global_settings(&db, &desired)
             .await
             .expect("first sync should succeed");
-        windmill_operator::db_sync::sync_global_settings(&db, &desired)
+        windmill_operator::db_sync_ee::sync_global_settings(&db, &desired)
             .await
             .expect("second sync should succeed");
 

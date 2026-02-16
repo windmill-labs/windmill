@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_settings SET default_scripts = NULL WHERE workspace_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "68fadd822c48b5cc5a314a3e6d00f9a44989694eed2e9f1f74a248b2f4b62b2b"
+}

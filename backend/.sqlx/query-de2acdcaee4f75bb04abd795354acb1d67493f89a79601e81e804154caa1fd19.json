@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO v2_job_completed (id, workspace_id, duration_ms, deleted, status, completed_at, started_at)\n                 VALUES ($1, 'admins', 100, false, 'success', now() - interval '30 minutes', now() - interval '30 minutes')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "de2acdcaee4f75bb04abd795354acb1d67493f89a79601e81e804154caa1fd19"
+}

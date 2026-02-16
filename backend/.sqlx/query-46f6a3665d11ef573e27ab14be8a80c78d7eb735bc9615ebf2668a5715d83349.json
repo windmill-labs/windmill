@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT (large_file_storage IS NOT NULL\n                     AND large_file_storage != 'null'::jsonb\n                     AND jsonb_typeof(large_file_storage) = 'object') AS \"has_primary!\"\n            FROM workspace_settings WHERE workspace_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "has_primary!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "46f6a3665d11ef573e27ab14be8a80c78d7eb735bc9615ebf2668a5715d83349"
+}

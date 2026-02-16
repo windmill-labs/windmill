@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id)\n            SELECT unnest($1::uuid[]), $2, $3, $4, $5, $6, $7, $8",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Varchar",
+        "Varchar",
+        "Bool",
+        "Bool",
+        "JsonbArray",
+        "TextArray",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ee56be959ce50ba4c8bfde170b5d965c0d35f69f62212549e14d3a2938be65c0"
+}

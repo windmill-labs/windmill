@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM v2_job_completed USING jobs_pending_deletion d\n         WHERE v2_job_completed.id = d.id AND d.marked_by = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "086b2564495eb07d8ea362bbfa33c9571ab11fde8172aeea6b93ccfeca1c1418"
+}

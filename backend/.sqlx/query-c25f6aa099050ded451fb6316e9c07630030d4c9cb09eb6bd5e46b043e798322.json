@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO jobs_pending_deletion (id, marked_by)\n             SELECT jc.id, $5 FROM v2_job_completed jc\n             JOIN v2_job j ON j.id = jc.id\n             WHERE jc.completed_at <= now() - ($1::bigint::text || ' s')::interval\n               AND COALESCE(j.root_job, j.flow_innermost_root_job, jc.id) != ALL($3)\n               AND j.tag = $4\n             ORDER BY jc.completed_at ASC\n             LIMIT $2\n             ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "UuidArray",
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c25f6aa099050ded451fb6316e9c07630030d4c9cb09eb6bd5e46b043e798322"
+}

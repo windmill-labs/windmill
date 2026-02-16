@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id\n                     FROM v2_job j JOIN v2_job_queue USING (id)\n                     WHERE j.workspace_id = $2 AND trigger_kind = 'schedule' AND trigger = $1 AND runnable_path = $4\n                         AND parent_job IS NULL\n                         AND j.id != $3\n                         AND running = true",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7470e7067b948509d14828c24a8725da747e6b967554eb7e088ee3a018ec1f8b"
+}

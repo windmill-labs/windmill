@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO v2_job (id, tag, workspace_id, created_at, created_by, permissioned_as, permissioned_as_email, kind, same_worker, visible_to_owner)\n                 VALUES ($1, $2, 'admins', now() - interval '30 minutes', $3, $3, 'bench@test.com', 'script', false, true)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2f2c8b6e3b75524f286a700b87a52697c28154b9ed551bcf9549275acd53625a"
+}
