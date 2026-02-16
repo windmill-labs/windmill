@@ -79,9 +79,9 @@ use windmill_common::{
         WORKER_CONFIG, WORKER_GROUP,
     },
     KillpillSender, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE, CRITICAL_ALERT_MUTE_UI_ENABLED,
-    CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS,
-    METRICS_DEBUG_ENABLED, METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED,
-    OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED, SERVICE_LOG_RETENTION_SECS,
+    CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, INSTANCE_NAME,
+    JOB_RETENTION_SECS, METRICS_DEBUG_ENABLED, METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE,
+    OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED, SERVICE_LOG_RETENTION_SECS,
 };
 use windmill_common::{client::AuthedClient, global_settings::APP_WORKSPACED_ROUTE_SETTING};
 use windmill_queue::{cancel_job, get_queued_job_v2, SameWorkerPayload};
@@ -1057,109 +1057,164 @@ pub async fn delete_expired_items(db: &DB) -> () {
     }
 }
 
-/// Delete a batch of expired jobs with LIMIT and SKIP LOCKED for high-scale environments.
-/// Uses a single transaction per batch to minimize lock duration.
-/// Returns the number of jobs deleted in this batch.
+/// Delete a batch of expired jobs using the `jobs_pending_deletion` staging table.
+///
+/// Each step runs in its own transaction so that crashes are recoverable: if the server
+/// restarts mid-cleanup, leftover rows in `jobs_pending_deletion` are picked up on the next run.
+/// No job UUIDs are held in application memory — all joins stay inside Postgres.
+///
+/// Rows are scoped by `marked_by` (the server's `INSTANCE_NAME`) so multiple servers
+/// can run cleanup concurrently without interfering with each other.
+///
+/// Returns the number of jobs marked for deletion in this batch.
 async fn delete_expired_jobs_batch(
     db: &DB,
     job_retention_secs: i64,
     batch_size: i64,
 ) -> error::Result<usize> {
-    let mut tx = db.begin().await?;
+    let instance = &*INSTANCE_NAME;
 
-    // Fetch active ROOT job IDs that started before the retention period. We only care about
-    // these because their child jobs could be old enough to be deletion candidates.
-    // Jobs started after the retention period can't have children old enough to delete.
-    let active_root_job_ids: Vec<Uuid> = sqlx::query_scalar!(
-        "SELECT q.id FROM v2_job_queue q
-         JOIN v2_job j ON j.id = q.id
-         WHERE j.parent_job IS NULL
-           AND j.created_at <= now() - ($1::bigint::text || ' s')::interval",
-        job_retention_secs
+    // Step 0: Crash recovery — check for leftover rows from a previous incomplete run
+    // by this same server instance.
+    let pending_count: i64 = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM jobs_pending_deletion WHERE marked_by = $1",
+        instance
     )
-    .fetch_all(&mut *tx)
-    .await?;
+    .fetch_one(db)
+    .await?
+    .unwrap_or(0);
 
-    // Use FOR UPDATE SKIP LOCKED to avoid contention between replicas
-    // ORDER BY completed_at ensures we delete oldest jobs first
-    let deleted_jobs: Vec<Uuid> = sqlx::query_scalar!(
-        "DELETE FROM v2_job_completed
-         WHERE id IN (
-             SELECT jc.id FROM v2_job_completed jc
+    let marked_count = if pending_count > 0 {
+        tracing::info!(
+            "Job cleanup: resuming with {} leftover jobs from previous run (instance {})",
+            pending_count,
+            instance
+        );
+        pending_count as usize
+    } else {
+        // Step 1: Mark expired jobs into the staging table.
+        let active_root_job_ids: Vec<Uuid> = sqlx::query_scalar!(
+            "SELECT q.id FROM v2_job_queue q
+             JOIN v2_job j ON j.id = q.id
+             WHERE j.parent_job IS NULL
+               AND j.created_at <= now() - ($1::bigint::text || ' s')::interval",
+            job_retention_secs
+        )
+        .fetch_all(db)
+        .await?;
+
+        let result = sqlx::query!(
+            "INSERT INTO jobs_pending_deletion (id, marked_by)
+             SELECT jc.id, $4 FROM v2_job_completed jc
              LEFT JOIN v2_job j ON j.id = jc.id
              WHERE jc.completed_at <= now() - ($1::bigint::text || ' s')::interval
                AND COALESCE(j.root_job, j.flow_innermost_root_job, jc.id) != ALL($3)
              ORDER BY jc.completed_at ASC
              LIMIT $2
-             FOR UPDATE OF jc SKIP LOCKED
-         )
-         RETURNING id",
-        job_retention_secs,
-        batch_size,
-        &active_root_job_ids
-    )
-    .fetch_all(&mut *tx)
-    .await?;
-
-    let deleted_count = deleted_jobs.len();
-
-    if deleted_count > 0 {
-        tracing::debug!(
-            "Deleting batch of {} expired jobs (retention: {}s)",
-            deleted_count,
-            job_retention_secs
-        );
-
-        if let Err(e) = sqlx::query!(
-            "DELETE FROM job_stats WHERE job_id = ANY($1)",
-            &deleted_jobs
+             ON CONFLICT DO NOTHING",
+            job_retention_secs,
+            batch_size,
+            &active_root_job_ids,
+            instance
         )
-        .execute(&mut *tx)
-        .await
-        {
-            tracing::error!("Error deleting job stats: {:?}", e);
-        }
+        .execute(db)
+        .await?;
 
-        match sqlx::query_scalar!(
-            "DELETE FROM job_logs WHERE job_id = ANY($1) RETURNING log_file_index",
-            &deleted_jobs
-        )
-        .fetch_all(&mut *tx)
-        .await
-        {
-            Ok(log_file_index) => {
-                let paths = log_file_index
-                    .into_iter()
-                    .filter_map(|opt| opt)
-                    .flat_map(|inner_vec| inner_vec.into_iter())
-                    .collect();
-                delete_log_files_from_disk_and_store(paths, TMP_DIR, "").await;
-            }
-            Err(e) => tracing::error!("Error deleting job logs: {:?}", e),
-        }
+        result.rows_affected() as usize
+    };
 
-        if let Err(e) = sqlx::query!("DELETE FROM v2_job WHERE id = ANY($1)", &deleted_jobs)
-            .execute(&mut *tx)
-            .await
-        {
-            tracing::error!("Error deleting job: {:?}", e);
-        }
-
-        // Should already be deleted but just in case
-        if let Err(e) = sqlx::query!(
-            "DELETE FROM job_result_stream_v2 WHERE job_id = ANY($1)",
-            &deleted_jobs
-        )
-        .execute(&mut *tx)
-        .await
-        {
-            tracing::error!("Error deleting job result stream: {:?}", e);
-        }
+    if marked_count == 0 {
+        return Ok(0);
     }
 
-    tx.commit().await?;
+    tracing::debug!(
+        "Deleting batch of {} expired jobs (retention: {}s, instance: {})",
+        marked_count,
+        job_retention_secs,
+        instance
+    );
 
-    Ok(deleted_count)
+    // Step 2: Delete from job_stats
+    if let Err(e) = sqlx::query!(
+        "DELETE FROM job_stats USING jobs_pending_deletion d
+         WHERE job_stats.job_id = d.id AND d.marked_by = $1",
+        instance
+    )
+    .execute(db)
+    .await
+    {
+        tracing::error!("Error deleting job stats: {:?}", e);
+    }
+
+    // Step 3: Delete from job_logs (collect log_file_index for disk cleanup)
+    match sqlx::query_scalar!(
+        "DELETE FROM job_logs USING jobs_pending_deletion d
+         WHERE job_logs.job_id = d.id AND d.marked_by = $1
+         RETURNING job_logs.log_file_index",
+        instance
+    )
+    .fetch_all(db)
+    .await
+    {
+        Ok(log_file_index) => {
+            let paths = log_file_index
+                .into_iter()
+                .filter_map(|opt| opt)
+                .flat_map(|inner_vec| inner_vec.into_iter())
+                .collect();
+            delete_log_files_from_disk_and_store(paths, TMP_DIR, "").await;
+        }
+        Err(e) => tracing::error!("Error deleting job logs: {:?}", e),
+    }
+
+    // Step 4: Delete from v2_job_completed
+    if let Err(e) = sqlx::query!(
+        "DELETE FROM v2_job_completed USING jobs_pending_deletion d
+         WHERE v2_job_completed.id = d.id AND d.marked_by = $1",
+        instance
+    )
+    .execute(db)
+    .await
+    {
+        tracing::error!("Error deleting completed jobs: {:?}", e);
+    }
+
+    // Step 5: Delete from v2_job
+    if let Err(e) = sqlx::query!(
+        "DELETE FROM v2_job USING jobs_pending_deletion d
+         WHERE v2_job.id = d.id AND d.marked_by = $1",
+        instance
+    )
+    .execute(db)
+    .await
+    {
+        tracing::error!("Error deleting jobs: {:?}", e);
+    }
+
+    // Step 6: Delete from job_result_stream_v2
+    if let Err(e) = sqlx::query!(
+        "DELETE FROM job_result_stream_v2 USING jobs_pending_deletion d
+         WHERE job_result_stream_v2.job_id = d.id AND d.marked_by = $1",
+        instance
+    )
+    .execute(db)
+    .await
+    {
+        tracing::error!("Error deleting job result stream: {:?}", e);
+    }
+
+    // Step 7: Clear this instance's rows from the staging table
+    if let Err(e) = sqlx::query!(
+        "DELETE FROM jobs_pending_deletion WHERE marked_by = $1",
+        instance
+    )
+    .execute(db)
+    .await
+    {
+        tracing::error!("Error clearing jobs_pending_deletion: {:?}", e);
+    }
+
+    Ok(marked_count)
 }
 
 async fn delete_log_files_from_disk_and_store(
