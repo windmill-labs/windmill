@@ -29,7 +29,7 @@
 			<div
 				class="flex justify-between {right ? '' : 'flex-row-reverse'} items-center gap-1 px-3 py-2"
 			>
-				<CloseButton onClick={() => secondaryMenu?.close()} />
+				<CloseButton on:close={() => secondaryMenu?.close()} />
 				{#if $secondaryMenu?.props?.type === 'style'}
 					<div class="flex flex-row items-center gap-1">
 						<div class="text-xs font-bold"> Style Panel</div>

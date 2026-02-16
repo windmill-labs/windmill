@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.630.2"
+version = "1.635.1"
 authors.workspace = true
 edition.workspace = true
 
@@ -9,6 +9,7 @@ resolver = "2"
 members = [
     "./windmill-api",
     "./windmill-api-scripts",
+    "./windmill-api-flows",
     "./windmill-api-users",
     "./windmill-api-workspaces",
     "./windmill-api-groups",
@@ -51,6 +52,7 @@ members = [
     "./windmill-audit",
     "./windmill-git-sync",
     "./windmill-autoscaling",
+    "./windmill-operator",
     "./windmill-indexer",
     "./windmill-macros",
     "./windmill-oauth",
@@ -66,12 +68,14 @@ members = [
     "./parsers/windmill-parser-py",
     "./parsers/windmill-parser-py-imports",
     "./parsers/windmill-sql-datatype-parser-wasm",
-    "./parsers/windmill-parser-yaml", "windmill-macros", "parsers/windmill-parser-nu"
+    "./parsers/windmill-parser-yaml", "windmill-macros", "parsers/windmill-parser-nu",
+    "./windmill-test-utils",
+    "./windmill-api-integration-tests",
 ]
 exclude = ["./windmill-duckdb-ffi-internal"]
 
 [workspace.package]
-version = "1.630.2"
+version = "1.635.1"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -92,8 +96,8 @@ lto = "thin"
 
 [features]
 default = []
-private = ["windmill-api/private", "windmill-api-agent-workers?/private", "windmill-autoscaling/private", "windmill-common/private", "windmill-git-sync/private", "windmill-indexer/private", "windmill-queue/private", "windmill-worker/private"]
-agent_worker_server = ["windmill-api/agent_worker_server", "dep:windmill-api-agent-workers"]
+private = ["windmill-api/private", "windmill-api-agent-workers?/private", "windmill-autoscaling/private", "windmill-common/private", "windmill-git-sync/private", "windmill-indexer/private", "windmill-operator?/private", "windmill-queue/private", "windmill-worker/private", "windmill-test-utils/private"]
+agent_worker_server = ["windmill-api/agent_worker_server", "dep:windmill-api-agent-workers", "windmill-test-utils/agent_worker_server"]
 enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "windmill-api-agent-workers?/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise"]
 local_reports = ["windmill-common/local_reports"]
 enterprise_saml = ["windmill-api/enterprise_saml", "oauth2"]
@@ -109,7 +113,7 @@ cloud = ["windmill-queue/cloud", "windmill-worker/cloud", "windmill-common/cloud
 jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemalloc-sys", "dep:tikv-jemalloc-ctl"]
 tantivy = ["dep:windmill-indexer", "windmill-api/tantivy", "windmill-indexer/enterprise", "windmill-indexer/parquet", "windmill-common/tantivy", "enterprise", "parquet"]
 sqlx = ["windmill-worker/sqlx"]
-deno_core = ["windmill-worker/deno_core", "dep:windmill-runtime-nativets"]
+deno_core = ["windmill-worker/deno_core", "dep:windmill-runtime-nativets", "windmill-test-utils/deno_core"]
 deno_core_mac = ["deno_core", "windmill-worker/libffi_mac"]
 kafka = ["windmill-api/kafka"]
 kafka-gssapi = ["windmill-api/kafka-gssapi"]
@@ -132,9 +136,11 @@ zip = ["windmill-api/zip"]
 static_frontend = ["windmill-api/static_frontend"]
 scoped_cache = ["windmill-common/scoped_cache"]
 no_auth = ["windmill-api/no_auth"]
+operator = ["dep:windmill-operator"]
+test_job_debouncing = []
 private_registry_test = []
 # Languages
-python = ["windmill-worker/python", "windmill-api/python"]
+python = ["windmill-worker/python", "windmill-api/python", "windmill-test-utils/python"]
 rust = ["windmill-worker/rust"]
 mysql = ["windmill-worker/mysql"]
 oracledb = ["windmill-worker/oracledb"]
@@ -160,11 +166,11 @@ oss_core = [
     "static_frontend", "mcp", "bedrock", "inline_preview",
     "quickjs"
 ]
-ce_core = ["oss_core", "private"]
+ce_core = ["oss_core", "private", "operator"]
 ee_core = [
     "enterprise", "stripe", "prometheus", "cloud",
     "kafka", "sqs_trigger", "nats", "gcp_trigger",
-    "jemalloc", "otel"
+    "jemalloc", "otel", "operator"
 ]
 ee_server = ["enterprise_saml", "tantivy", "agent_worker_server", "local_reports"]
 # Edition meta-features: CE variants
@@ -172,13 +178,14 @@ oss = ["oss_core", "all_languages", "no_auth"]
 ce_rpi = ["ce_core", "all_languages"]
 ce = ["ce_rpi", "jemalloc", "dind", "agent_worker_server"]
 # Edition meta-features: EE variants
-ee = ["ce", "ee_core", "ee_server"]
-ee_rhel = ["ce_core", "ee_core", "all_languages"]
+ee = ["ce", "ee_core", "ee_server", "kafka-gssapi"]
+ee_rhel = ["ce_core", "ee_core", "kafka-gssapi", "all_languages"]
 ee_windows = ["ce_core", "ee_core", "all_languages_windows"]
 all_sqlx_features = ["all_languages", "enterprise", "enterprise_saml", "embedding", "parquet", "prometheus", "flow_testing",
  "openidconnect", "cloud", "jemalloc", "tantivy", "sqlx", "kafka", "kafka-gssapi", "nats", "otel", "dind", "websocket", "http_trigger",
   "postgres_trigger", "mcp", "mqtt_trigger", "sqs_trigger", "gcp_trigger", "smtp", "stripe",
-   "license", "oauth2", "zip", "static_frontend", "scoped_cache", "agent_worker_server", "bedrock", "native_trigger", "quickjs"]
+   "license", "oauth2", "zip", "static_frontend", "scoped_cache", "agent_worker_server", "bedrock", "native_trigger", "quickjs",
+   "windmill-git-sync/all_sqlx_features"]
 
 [patch.crates-io]
 object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7" }
@@ -199,8 +206,10 @@ windmill-api-settings.workspace = true
 windmill-worker.workspace = true
 windmill-indexer = { workspace = true, optional = true }
 windmill-autoscaling = { workspace = true, optional = true }
+windmill-operator = { workspace = true, optional = true }
 futures.workspace = true
 tracing.workspace = true
+tracing-subscriber.workspace = true
 sqlx.workspace = true
 sql-builder.workspace = true
 rand.workspace = true
@@ -239,6 +248,7 @@ serde_json.workspace = true
 reqwest.workspace = true
 windmill-queue = { workspace = true, features = ["failpoints"] }
 windmill-dep-map.workspace = true
+windmill-test-utils.workspace = true
 axum.workspace = true
 serde.workspace = true
 windmill-api-client.workspace = true
@@ -261,12 +271,14 @@ windmill-common = { path = "./windmill-common", default-features = false }
 windmill-audit = { path = "./windmill-audit" }
 windmill-git-sync = { path = "./windmill-git-sync" }
 windmill-autoscaling = { path = "./windmill-autoscaling" }
+windmill-operator = { path = "./windmill-operator" }
 windmill-indexer = {path = "./windmill-indexer"}
 windmill-mcp = {path = "./windmill-mcp"}
 windmill-oauth = {path = "./windmill-oauth"}
 windmill-macros = {path = "./windmill-macros"}
 windmill-api-auth = { path = "./windmill-api-auth" }
 windmill-api-scripts = { path = "./windmill-api-scripts" }
+windmill-api-flows = { path = "./windmill-api-flows" }
 windmill-api-users = { path = "./windmill-api-users" }
 windmill-api-workspaces = { path = "./windmill-api-workspaces" }
 windmill-api-groups = { path = "./windmill-api-groups" }
@@ -315,6 +327,7 @@ windmill-parser-php = { path = "./parsers/windmill-parser-php" }
 windmill-jseval = { path = "./windmill-jseval" }
 windmill-runtime-nativets = { path = "./windmill-runtime-nativets" }
 windmill-api-client = { path = "./windmill-api-client" }
+windmill-test-utils = { path = "./windmill-test-utils" }
 
 reqwest-retry = "^0"
 reqwest-middleware = { version = "^0", features = ["json"] }
@@ -551,6 +564,7 @@ backon = "1.3.0"
 
 flume = { version = "0.11.1", features = ["async"] }
 kube = { version = "1.1.0", features = ["runtime", "derive"] }
+schemars = "0.8"
 k8s-openapi = { version = "0.25.0", features = ["latest"] }
 libloading = "0.8.8"
 
@@ -570,7 +584,7 @@ tree-sitter-ruby = "0.23.0"
 oracle = { version = "0.6.3", features = ["chrono"] }
 rumqttc = { version = "0.24.0", features = ["use-native-tls"]}
 strum = { version = "0.27", features = ["derive"] }
-strum_macros = "^0"
+strum_macros = "0.27"
 hudsucker = { version = "0.22", features = ["rcgen-ca", "native-tls-client"] }
 hyper-http-proxy = { version = "1", default-features = false, features = ["native-tls"] }
 rcgen = "0.13"

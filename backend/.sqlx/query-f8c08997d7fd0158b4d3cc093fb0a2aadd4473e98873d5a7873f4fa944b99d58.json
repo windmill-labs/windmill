@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH update_lock AS (\n                    UPDATE script SET lock = $1 WHERE hash = $2 AND workspace_id = $3\n                )\n                INSERT INTO lock_hash (workspace_id, path, lockfile_hash)\n                VALUES ($3, $4, $5)\n                ON CONFLICT (workspace_id, path) DO UPDATE SET lockfile_hash = $5",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Text",
+        "Varchar",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f8c08997d7fd0158b4d3cc093fb0a2aadd4473e98873d5a7873f4fa944b99d58"
+}

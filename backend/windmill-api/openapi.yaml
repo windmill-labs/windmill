@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.630.2
+  version: 1.635.1
   title: Windmill API
 
   contact:
@@ -40,6 +40,64 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /health/status:
+    get:
+      summary: health status
+      description: |
+        Health status endpoint. Returns cached health status (database connectivity, worker count).
+        Cache TTL is fixed at 5 seconds. Use force=true query parameter to bypass cache.
+        Note: This endpoint is intentionally different from Kubernetes probes to avoid confusion.
+        For k8s liveness/readiness probes, use /version endpoint.
+      operationId: getHealthStatus
+      tags:
+        - health
+      security: []
+      parameters:
+        - name: force
+          in: query
+          description: Force a fresh check, bypassing the cache
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: server is healthy or degraded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatusResponse"
+        "503":
+          description: server is unhealthy (database unreachable)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatusResponse"
+
+  /health/detailed:
+    get:
+      summary: detailed health status
+      description: |
+        Returns detailed health information including database pool stats, worker details, and queue status.
+        Requires authentication. Use for monitoring dashboards and debugging.
+        This endpoint always returns fresh data (no caching).
+      operationId: getHealthDetailed
+      tags:
+        - health
+      responses:
+        "200":
+          description: server is healthy or degraded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetailedHealthResponse"
+        "503":
+          description: server is unhealthy (database unreachable)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetailedHealthResponse"
 
   /uptodate:
     get:
@@ -1424,6 +1482,39 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/GlobalSetting"
+
+  /settings/instance_config:
+    get:
+      summary: get full instance config (global settings + worker configs)
+      operationId: getInstanceConfig
+      tags:
+        - setting
+      responses:
+        "200":
+          description: full instance configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstanceConfig"
+    put:
+      summary: update instance config (bulk upsert, no deletes). Empty or missing global_settings/worker_configs are skipped.
+      operationId: setInstanceConfig
+      tags:
+        - setting
+      requestBody:
+        description: full instance configuration to apply
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InstanceConfig"
+      responses:
+        "200":
+          description: instance config updated
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /min_keep_alive_version:
     get:
@@ -17416,6 +17507,167 @@ components:
     # -- INLINE END --
     # Do not change line above
 
+    HealthStatusResponse:
+      type: object
+      description: Health status response (cached with 5s TTL)
+      required:
+        - status
+        - checked_at
+        - database_healthy
+        - workers_alive
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+          description: Overall health status
+        checked_at:
+          type: string
+          format: date-time
+          description: Timestamp when the health check was actually performed (not cache return time)
+        database_healthy:
+          type: boolean
+          description: Whether the database is reachable
+        workers_alive:
+          type: integer
+          format: int64
+          description: Number of workers that pinged within last 5 minutes
+
+    DetailedHealthResponse:
+      type: object
+      description: Detailed health status response (always fresh, no caching)
+      required:
+        - status
+        - checked_at
+        - version
+        - checks
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+          description: Overall health status
+        checked_at:
+          type: string
+          format: date-time
+          description: Timestamp when the health check was performed
+        version:
+          type: string
+          description: Server version (e.g., "EE 1.615.3")
+        checks:
+          $ref: "#/components/schemas/HealthChecks"
+
+    HealthChecks:
+      type: object
+      description: Detailed health checks
+      required:
+        - database
+        - readiness
+      properties:
+        database:
+          $ref: "#/components/schemas/DatabaseHealth"
+        workers:
+          $ref: "#/components/schemas/WorkersHealth"
+          description: Worker status (null if database is unreachable)
+          nullable: true
+        queue:
+          $ref: "#/components/schemas/QueueHealth"
+          description: Queue status (null if database is unreachable)
+          nullable: true
+        readiness:
+          $ref: "#/components/schemas/ReadinessHealth"
+
+    DatabaseHealth:
+      type: object
+      description: Database health status
+      required:
+        - healthy
+        - latency_ms
+        - pool
+      properties:
+        healthy:
+          type: boolean
+          description: Whether the database is reachable
+        latency_ms:
+          type: integer
+          format: int64
+          description: Database query latency in milliseconds
+        pool:
+          $ref: "#/components/schemas/PoolStats"
+
+    PoolStats:
+      type: object
+      description: Database connection pool statistics
+      required:
+        - size
+        - idle
+        - max_connections
+      properties:
+        size:
+          type: integer
+          description: Current number of connections in the pool
+        idle:
+          type: integer
+          description: Number of idle connections
+        max_connections:
+          type: integer
+          description: Maximum number of connections allowed
+
+    WorkersHealth:
+      type: object
+      description: Workers health status
+      required:
+        - healthy
+        - active_count
+        - worker_groups
+        - min_version
+        - versions
+      properties:
+        healthy:
+          type: boolean
+          description: Whether any workers are active
+        active_count:
+          type: integer
+          format: int64
+          description: Number of active workers (pinged in last 5 minutes)
+        worker_groups:
+          type: array
+          items:
+            type: string
+          description: List of active worker groups
+        min_version:
+          type: string
+          description: Minimum required worker version
+        versions:
+          type: array
+          items:
+            type: string
+          description: List of active worker versions
+
+    QueueHealth:
+      type: object
+      description: Job queue status
+      required:
+        - pending_jobs
+        - running_jobs
+      properties:
+        pending_jobs:
+          type: integer
+          format: int64
+          description: Number of pending jobs in the queue
+        running_jobs:
+          type: integer
+          format: int64
+          description: Number of currently running jobs
+
+    ReadinessHealth:
+      type: object
+      description: Server readiness status
+      required:
+        - healthy
+      properties:
+        healthy:
+          type: boolean
+          description: Whether the server is ready to accept requests
+
     AutoInviteConfig:
       type: object
       description: Configuration for auto-inviting users to the workspace
@@ -19496,6 +19748,7 @@ components:
           description: True if script_path points to a flow, false if it points to a script
         args:
           $ref: "#/components/schemas/ScriptArgs"
+          nullable: true
         extra_perms:
           type: object
           additionalProperties:
@@ -19506,57 +19759,74 @@ components:
           description: Email of the user who owns this schedule, used for permissioned_as
         error:
           type: string
+          nullable: true
           description: Last error message if the schedule failed to trigger
         on_failure:
           type: string
+          nullable: true
           description: Path to a script or flow to run when the scheduled job fails
         on_failure_times:
           type: number
+          nullable: true
           description: Number of consecutive failures before the on_failure handler is triggered (default 1)
         on_failure_exact:
           type: boolean
+          nullable: true
           description: If true, trigger on_failure handler only on exactly N failures, not on every failure after N
         on_failure_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+          nullable: true
         on_recovery:
           type: string
+          nullable: true
           description: Path to a script or flow to run when the schedule recovers after failures
         on_recovery_times:
           type: number
+          nullable: true
           description: Number of consecutive successes before the on_recovery handler is triggered (default 1)
         on_recovery_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+          nullable: true
         on_success:
           type: string
+          nullable: true
           description: Path to a script or flow to run after each successful execution
         on_success_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+          nullable: true
         ws_error_handler_muted:
           type: boolean
           description: If true, the workspace-level error handler will not be triggered for this schedule's failures
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          nullable: true
         summary:
           type: string
+          nullable: true
           description: Short summary describing the purpose of this schedule
         description:
           type: string
+          nullable: true
           description: Detailed description of what this schedule does
         no_flow_overlap:
           type: boolean
           description: If true, skip this schedule's execution if the previous run is still in progress (prevents concurrent runs)
         tag:
           type: string
+          nullable: true
           description: Worker tag to route jobs to specific worker groups
         paused_until:
           type: string
           format: date-time
+          nullable: true
           description: ISO 8601 datetime until which the schedule is paused. Schedule resumes automatically after this time
         cron_version:
           type: string
+          nullable: true
           description: Cron parser version. Use 'v2' for extended syntax with additional features
         dynamic_skip:
           type: string
+          nullable: true
           description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean to skip (true) or run (false)
       required:
         - path
@@ -19618,60 +19888,77 @@ components:
           type: boolean
           description: True if script_path points to a flow, false if it points to a script
         args:
+          nullable: true
           $ref: "#/components/schemas/ScriptArgs"
         enabled:
           type: boolean
           description: Whether the schedule is currently active and will trigger jobs
         on_failure:
           type: string
+          nullable: true
           description: Path to a script or flow to run when the scheduled job fails
         on_failure_times:
           type: number
+          nullable: true
           description: Number of consecutive failures before the on_failure handler is triggered (default 1)
         on_failure_exact:
           type: boolean
+          nullable: true
           description: If true, trigger on_failure handler only on exactly N failures, not on every failure after N
         on_failure_extra_args:
+          nullable: true
           $ref: "#/components/schemas/ScriptArgs"
         on_recovery:
           type: string
+          nullable: true
           description: Path to a script or flow to run when the schedule recovers after failures
         on_recovery_times:
           type: number
+          nullable: true
           description: Number of consecutive successes before the on_recovery handler is triggered (default 1)
         on_recovery_extra_args:
+          nullable: true
           $ref: "#/components/schemas/ScriptArgs"
         on_success:
           type: string
+          nullable: true
           description: Path to a script or flow to run after each successful execution
         on_success_extra_args:
+          nullable: true
           $ref: "#/components/schemas/ScriptArgs"
         ws_error_handler_muted:
           type: boolean
           description: If true, the workspace-level error handler will not be triggered for this schedule's failures
         retry:
+          nullable: true
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
         no_flow_overlap:
           type: boolean
           description: If true, skip this schedule's execution if the previous run is still in progress (prevents concurrent runs)
         summary:
           type: string
+          nullable: true
           description: Short summary describing the purpose of this schedule
         description:
           type: string
+          nullable: true
           description: Detailed description of what this schedule does
         tag:
           type: string
+          nullable: true
           description: Worker tag to route jobs to specific worker groups
         paused_until:
           type: string
+          nullable: true
           format: date-time
           description: ISO 8601 datetime until which the schedule is paused. Schedule resumes automatically after this time
         cron_version:
           type: string
+          nullable: true
           description: Cron parser version. Use 'v2' for extended syntax with additional features
         dynamic_skip:
           type: string
+          nullable: true
           description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean to skip (true) or run (false)
       required:
         - path
@@ -19691,57 +19978,74 @@ components:
           type: string
           description: IANA timezone for the schedule (e.g., 'UTC', 'Europe/Paris', 'America/New_York')
         args:
+          nullable: true
           $ref: "#/components/schemas/ScriptArgs"
         on_failure:
           type: string
+          nullable: true
           description: Path to a script or flow to run when the scheduled job fails
         on_failure_times:
           type: number
+          nullable: true
           description: Number of consecutive failures before the on_failure handler is triggered (default 1)
         on_failure_exact:
           type: boolean
+          nullable: true
           description: If true, trigger on_failure handler only on exactly N failures, not on every failure after N
         on_failure_extra_args:
+          nullable: true
           $ref: "#/components/schemas/ScriptArgs"
         on_recovery:
           type: string
+          nullable: true
           description: Path to a script or flow to run when the schedule recovers after failures
         on_recovery_times:
           type: number
+          nullable: true
           description: Number of consecutive successes before the on_recovery handler is triggered (default 1)
         on_recovery_extra_args:
+          nullable: true
           $ref: "#/components/schemas/ScriptArgs"
         on_success:
           type: string
+          nullable: true
           description: Path to a script or flow to run after each successful execution
         on_success_extra_args:
+          nullable: true
           $ref: "#/components/schemas/ScriptArgs"
         ws_error_handler_muted:
           type: boolean
           description: If true, the workspace-level error handler will not be triggered for this schedule's failures
         retry:
+          nullable: true
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
         no_flow_overlap:
           type: boolean
           description: If true, skip this schedule's execution if the previous run is still in progress (prevents concurrent runs)
         summary:
           type: string
+          nullable: true
           description: Short summary describing the purpose of this schedule
         description:
           type: string
+          nullable: true
           description: Detailed description of what this schedule does
         tag:
           type: string
+          nullable: true
           description: Worker tag to route jobs to specific worker groups
         paused_until:
           type: string
+          nullable: true
           format: date-time
           description: ISO 8601 datetime until which the schedule is paused. Schedule resumes automatically after this time
         cron_version:
           type: string
+          nullable: true
           description: Cron parser version. Use 'v2' for extended syntax with additional features
         dynamic_skip:
           type: string
+          nullable: true
           description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean to skip (true) or run (false)
       required:
         - schedule
@@ -19953,6 +20257,7 @@ components:
           description: The URL route path that will trigger this endpoint (e.g., 'api/myendpoint'). Must NOT start with a /.
         static_asset_config:
           type: object
+          nullable: true
           description: Configuration for serving static assets (s3 bucket, storage path, filename)
           properties:
             s3:
@@ -19971,12 +20276,15 @@ components:
           description: HTTP method (get, post, put, delete, patch) that triggers this endpoint
         authentication_resource_path:
           type: string
+          nullable: true
           description: Path to the resource containing authentication configuration (for api_key, basic_http, custom_script, signature methods)
         summary:
           type: string
+          nullable: true
           description: Short summary describing the purpose of this trigger
         description:
           type: string
+          nullable: true
           description: Detailed description of what this trigger does
         request_type:
           $ref: "#/components/schemas/HttpRequestType"
@@ -20033,12 +20341,15 @@ components:
           description: If true, the route includes the workspace ID in the path
         summary:
           type: string
+          nullable: true
           description: Short summary describing the purpose of this trigger
         description:
           type: string
+          nullable: true
           description: Detailed description of what this trigger does
         static_asset_config:
           type: object
+          nullable: true
           description: Configuration for serving static assets (s3 bucket, storage path, filename)
           properties:
             s3:
@@ -20060,6 +20371,7 @@ components:
           description: HTTP method (get, post, put, delete, patch) that triggers this endpoint
         authentication_resource_path:
           type: string
+          nullable: true
           description: Path to the resource containing authentication configuration (for api_key, basic_http, custom_script, signature methods)
         is_async:
           type: boolean
@@ -20114,15 +20426,18 @@ components:
           description: The URL route path that will trigger this endpoint (e.g., 'api/myendpoint'). Must NOT start with a /.
         summary:
           type: string
+          nullable: true
           description: Short summary describing the purpose of this trigger
         description:
           type: string
+          nullable: true
           description: Detailed description of what this trigger does
         workspaced_route:
           type: boolean
           description: If true, the route includes the workspace ID in the path
         static_asset_config:
           type: object
+          nullable: true
           description: Configuration for serving static assets (s3 bucket, storage path, filename)
           properties:
             s3:
@@ -20138,6 +20453,7 @@ components:
             - s3
         authentication_resource_path:
           type: string
+          nullable: true
           description: Path to the resource containing authentication configuration (for api_key, basic_http, custom_script, signature methods)
         is_flow:
           type: boolean
@@ -20248,12 +20564,14 @@ components:
               - value
         initial_messages:
           type: array
+          nullable: true
           description: Messages to send immediately after connecting (can be raw strings or computed by runnables)
           items:
             $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
         url_runnable_args:
           description: Arguments to pass to the script/flow that computes the WebSocket URL
           $ref: "#/components/schemas/ScriptArgs"
+          nullable: true
         can_return_message:
           type: boolean
           description: If true, the script can return a message to send back through the WebSocket
@@ -20307,11 +20625,13 @@ components:
               - value
         initial_messages:
           type: array
+          nullable: true
           description: Messages to send immediately after connecting (can be raw strings or computed by runnables)
           items:
             $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
         url_runnable_args:
           description: Arguments to pass to the script/flow that computes the WebSocket URL
+          nullable: true
           $ref: "#/components/schemas/ScriptArgs"
         can_return_message:
           type: boolean
@@ -20367,11 +20687,13 @@ components:
               - value
         initial_messages:
           type: array
+          nullable: true
           description: Messages to send immediately after connecting (can be raw strings or computed by runnables)
           items:
             $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
         url_runnable_args:
           description: Arguments to pass to the script/flow that computes the WebSocket URL
+          nullable: true
           $ref: "#/components/schemas/ScriptArgs"
         can_return_message:
           type: boolean
@@ -20473,15 +20795,19 @@ components:
           description: Array of MQTT topics to subscribe to, each with topic name and QoS level
         v3_config:
           $ref: "#/components/schemas/MqttV3Config"
+          nullable: true
           description: MQTT v3 specific configuration (clean_session)
         v5_config:
           $ref: "#/components/schemas/MqttV5Config"
+          nullable: true
           description: MQTT v5 specific configuration (clean_start, topic_alias_maximum, session_expiry_interval)
         client_id:
           type: string
+          nullable: true
           description: MQTT client ID for this connection
         client_version:
           $ref: "#/components/schemas/MqttClientVersion"
+          nullable: true
           description: MQTT protocol version ('v3' or 'v5')
         server_id:
           type: string
@@ -20519,14 +20845,18 @@ components:
           description: Array of MQTT topics to subscribe to, each with topic name and QoS level
         client_id:
           type: string
+          nullable: true
           description: MQTT client ID for this connection
         v3_config:
+          nullable: true
           $ref: "#/components/schemas/MqttV3Config"
           description: MQTT v3 specific configuration (clean_session)
         v5_config:
+          nullable: true
           $ref: "#/components/schemas/MqttV5Config"
           description: MQTT v5 specific configuration (clean_start, topic_alias_maximum, session_expiry_interval)
         client_version:
+          nullable: true
           $ref: "#/components/schemas/MqttClientVersion"
           description: MQTT protocol version ('v3' or 'v5')
         path:
@@ -20569,14 +20899,18 @@ components:
           description: Array of MQTT topics to subscribe to, each with topic name and QoS level
         client_id:
           type: string
+          nullable: true
           description: MQTT client ID for this connection
         v3_config:
+          nullable: true
           $ref: "#/components/schemas/MqttV3Config"
           description: MQTT v3 specific configuration (clean_session)
         v5_config:
+          nullable: true
           $ref: "#/components/schemas/MqttV5Config"
           description: MQTT v5 specific configuration (clean_start, topic_alias_maximum, session_expiry_interval)
         client_version:
+          nullable: true
           $ref: "#/components/schemas/MqttClientVersion"
           description: MQTT protocol version ('v3' or 'v5')
         path:
@@ -20650,6 +20984,7 @@ components:
           $ref: "#/components/schemas/DeliveryType"
         delivery_config:
           $ref: "#/components/schemas/PushConfig"
+          nullable: true
         subscription_mode:
           $ref: "#/components/schemas/SubscriptionMode"
         last_server_ping:
@@ -20703,6 +21038,7 @@ components:
         delivery_type:
           $ref: "#/components/schemas/DeliveryType"
         delivery_config:
+          nullable: true
           $ref: "#/components/schemas/PushConfig"
         path:
           type: string
@@ -20779,6 +21115,7 @@ components:
           description: Path to the AWS resource containing credentials or OIDC configuration
         message_attributes:
           type: array
+          nullable: true
           items:
             type: string
           description: Array of SQS message attribute names to include with each message
@@ -20870,6 +21207,7 @@ components:
           description: Path to the AWS resource containing credentials or OIDC configuration
         message_attributes:
           type: array
+          nullable: true
           items:
             type: string
           description: Array of SQS message attribute names to include with each message
@@ -20915,6 +21253,7 @@ components:
           description: Path to the AWS resource containing credentials or OIDC configuration
         message_attributes:
           type: array
+          nullable: true
           items:
             type: string
           description: Array of SQS message attribute names to include with each message
@@ -21321,9 +21660,11 @@ components:
           description: If true, uses NATS JetStream for durable message delivery
         stream_name:
           type: string
+          nullable: true
           description: JetStream stream name (required when use_jetstream is true)
         consumer_name:
           type: string
+          nullable: true
           description: JetStream consumer name (required when use_jetstream is true)
         subjects:
           type: array
@@ -21375,9 +21716,11 @@ components:
           description: If true, uses NATS JetStream for durable message delivery
         stream_name:
           type: string
+          nullable: true
           description: JetStream stream name (required when use_jetstream is true)
         consumer_name:
           type: string
+          nullable: true
           description: JetStream consumer name (required when use_jetstream is true)
         subjects:
           type: array
@@ -21415,9 +21758,11 @@ components:
           description: If true, uses NATS JetStream for durable message delivery
         stream_name:
           type: string
+          nullable: true
           description: JetStream stream name (required when use_jetstream is true)
         consumer_name:
           type: string
+          nullable: true
           description: JetStream consumer name (required when use_jetstream is true)
         subjects:
           type: array
@@ -22671,6 +23016,26 @@ components:
       required:
         - name
         - value
+
+    InstanceConfig:
+      type: object
+      description: Unified instance configuration combining global settings and worker group configs
+      properties:
+        global_settings:
+          type: object
+          description: >
+            Global settings keyed by setting name. Known fields include base_url,
+            license_key, retention_period_secs, smtp_settings, otel, etc.
+            Unknown fields are preserved as-is.
+          additionalProperties: true
+        worker_configs:
+          type: object
+          description: >
+            Worker group configurations keyed by group name (e.g. "default", "gpu").
+            Each value contains worker_tags, init_bash, autoscaling, etc.
+          additionalProperties:
+            type: object
+            additionalProperties: true
 
     Config:
       type: object

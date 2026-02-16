@@ -1,7 +1,6 @@
 use sqlx::{Pool, Postgres};
 
-mod common;
-use common::*;
+use windmill_test_utils::*;
 
 /// Test that workspace error handler can be set and removed via database operations
 #[cfg(feature = "deno_core")]

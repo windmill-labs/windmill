@@ -90,7 +90,7 @@
 					{style}
 				>
 					{#if kind == 'X'}
-						<div class="absolute top-4 right-4"><CloseButton onClick={() => (open = false)} /></div
+						<div class="absolute top-4 right-4"><CloseButton on:close={() => (open = false)} /></div
 						>
 					{/if}
 					<div class="flex">

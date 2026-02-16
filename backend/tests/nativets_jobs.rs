@@ -14,10 +14,7 @@
  */
 
 #[cfg(feature = "deno_core")]
-mod common;
-
-#[cfg(feature = "deno_core")]
-use common::*;
+use windmill_test_utils::*;
 
 #[cfg(feature = "deno_core")]
 use futures::StreamExt;

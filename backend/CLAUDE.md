@@ -49,6 +49,28 @@ Windmill uses a workspace-based architecture with multiple crates:
 - Use feature flags: `#[cfg(feature = "enterprise")]`
 - Isolate enterprise code in separate modules
 
+## Code Validation (MUST DO)
+
+After making backend changes, you MUST run `cargo check` and fix all errors and warnings before considering the work done.
+
+Only enable the feature flags relevant to your changes — do NOT use `all_sqlx_features` as it compiles the entire codebase and is very slow. Check the `[features]` section in `Cargo.toml` to identify which flags gate the crates/modules you modified.
+
+Examples:
+```bash
+# Changed core code (no feature-gated modules)
+cargo check
+
+# Changed code behind the enterprise feature
+cargo check --features enterprise
+
+# Changed kafka trigger code
+cargo check --features kafka
+```
+
+## Git Workflow
+
+- **Never push directly to main** — always create a branch and open a pull request
+
 ## Testing
 
 - Write unit tests for core functionality

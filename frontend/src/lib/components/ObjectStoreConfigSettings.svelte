@@ -7,6 +7,8 @@
 	import TestConnection from './TestConnection.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 	import SimpleEditor from './SimpleEditor.svelte'
+	import Label from './Label.svelte'
+	import TextInput from './text_input/TextInput.svelte'
 
 	type S3Config = {
 		type: 'S3'
@@ -39,16 +41,24 @@
 	type GcsConfig = {
 		type: 'Gcs'
 		bucket: string
-		serviceAccountKey: Record<string, string>
+		serviceAccountKey: Record<string, string> | undefined
 	}
 
-	export let bucket_config: S3Config | AzureConfig | AwsOidcConfig | GcsConfig | undefined =
-		undefined
+	interface Props {
+		bucket_config?: S3Config | AzureConfig | AwsOidcConfig | GcsConfig | undefined
+	}
 
-	$: bucket_config?.type == 'S3' &&
-		bucket_config.allow_http == undefined &&
-		(bucket_config.allow_http = true)
-	let loading = false
+	let {
+		bucket_config = $bindable<S3Config | AzureConfig | AwsOidcConfig | GcsConfig | undefined>(
+			undefined
+		)
+	}: Props = $props()
+
+	let effectiveAllowHttp = $derived(
+		bucket_config?.type === 'S3' ? (bucket_config.allow_http ?? true) : false
+	)
+
+	let loading = $state(false)
 
 	async function testConnection() {
 		loading = true
@@ -65,6 +75,27 @@
 			loading = false
 		}
 	}
+
+	let simpleEditor: SimpleEditor | undefined = $state(undefined)
+	let serviceAccountKeyCode = $state(
+		bucket_config?.type === 'Gcs'
+			? JSON.stringify(bucket_config.serviceAccountKey, null, '\t')
+			: '{}'
+	)
+	let lastEditorSyncedJson =
+		bucket_config?.type === 'Gcs' ? JSON.stringify(bucket_config.serviceAccountKey) : '{}'
+
+	$effect(() => {
+		if (bucket_config?.type === 'Gcs') {
+			const configJson = JSON.stringify(bucket_config.serviceAccountKey)
+			if (configJson !== lastEditorSyncedJson) {
+				lastEditorSyncedJson = configJson
+				const formatted = JSON.stringify(bucket_config.serviceAccountKey, null, '\t')
+				serviceAccountKeyCode = formatted
+				simpleEditor?.setCode(formatted)
+			}
+		}
+	})
 </script>
 
 <div class="my-0.5">
@@ -80,7 +111,8 @@
 					region: '',
 					access_key: '',
 					secret_key: '',
-					endpoint: ''
+					endpoint: '',
+					allow_http: true
 				}
 			} else {
 				bucket_config = undefined
@@ -89,7 +121,7 @@
 	/>
 </div>
 {#if bucket_config}
-	<div class="p-2">
+	<div class="">
 		<div class="flex gap-2 py-1">
 			<Button
 				spacingSize="sm"
@@ -123,7 +155,8 @@
 						region: '',
 						access_key: '',
 						secret_key: '',
-						endpoint: ''
+						endpoint: '',
+						allow_http: true
 					}
 				} else if (e.detail === 'Azure' && bucket_config?.type !== 'Azure') {
 					bucket_config = {
@@ -156,11 +189,17 @@
 			<Tab value="AwsOidc" label="AWS OIDC" />
 			<Tab value="Gcs" label="Google Cloud Storage" />
 		</Tabs>
-		<div class="flex flex-col gap-2 mt-2 p-2 border rounded-md">
+		<div class="flex flex-col gap-6 mt-2 p-4 border rounded-md">
 			{#if bucket_config.type === 'S3'}
 				<label class="block pb-2">
 					<span class="text-xs font-semibold text-emphasis">Bucket</span>
-					<input type="text" placeholder="bucket-name" bind:value={bucket_config.bucket} />
+					<TextInput
+						inputProps={{ placeholder: 'bucket-name' }}
+						bind:value={
+							() => (bucket_config as S3Config).bucket,
+							(v) => (bucket_config = { ...(bucket_config as S3Config), bucket: v })
+						}
+					/>
 				</label>
 
 				<label class="block pb-2">
@@ -168,7 +207,12 @@
 					<span class="text-primary text-2xs"
 						>If left empty, will be derived automatically from $AWS_REGION</span
 					>
-					<input type="text" bind:value={bucket_config.region} />
+					<TextInput
+						bind:value={
+							() => (bucket_config as S3Config).region,
+							(v) => (bucket_config = { ...(bucket_config as S3Config), region: v })
+						}
+					/>
 				</label>
 				<label class="block pb-2">
 					<span class="text-xs font-semibold text-emphasis">Access key ID</span>
@@ -176,17 +220,24 @@
 						>If left empty, will be derived automatically from $AWS_ACCESS_KEY_ID, pod or ec2
 						profile</span
 					>
-					<input type="text" bind:value={bucket_config.access_key} />
+					<TextInput
+						bind:value={
+							() => (bucket_config as S3Config).access_key,
+							(v) => (bucket_config = { ...(bucket_config as S3Config), access_key: v })
+						}
+					/>
 				</label>
 				<label class="block pb-2">
 					<span class="text-xs font-semibold text-emphasis">Secret key</span>
 					<span class="text-primary text-2xs"
 						>If left empty, will be derived automatically from $AWS_SECRET_KEY, pod or ec2 profile</span
 					>
-					<input
-						type="password"
-						autocomplete="new-password"
-						bind:value={bucket_config.secret_key}
+					<TextInput
+						inputProps={{ type: 'password', autocomplete: 'new-password' }}
+						bind:value={
+							() => (bucket_config as S3Config).secret_key,
+							(v) => (bucket_config = { ...(bucket_config as S3Config), secret_key: v })
+						}
 					/>
 				</label>
 				<label class="block pb-2">
@@ -194,42 +245,79 @@
 					<span class="text-primary text-2xs"
 						>Only needed for non AWS S3 providers like R2 or MinIo</span
 					>
-					<input type="text" bind:value={bucket_config.endpoint} />
+					<TextInput
+						bind:value={
+							() => (bucket_config as S3Config).endpoint,
+							(v) => (bucket_config = { ...(bucket_config as S3Config), endpoint: v })
+						}
+					/>
 				</label>
 				<div class="block pb-2">
 					<span class="text-primary text-2xs">Disable if using https only policy</span>
 					<div>
-						<Toggle bind:checked={bucket_config.allow_http} options={{ right: 'Allow http' }} />
+						<Toggle
+							checked={effectiveAllowHttp}
+							on:change={(e) => {
+								if (bucket_config?.type === 'S3') {
+									bucket_config = { ...bucket_config, allow_http: e.detail }
+								}
+							}}
+							options={{ right: 'Allow http' }}
+						/>
 					</div>
 				</div>
 			{:else if bucket_config.type === 'Azure'}
 				<label class="block pb-2">
 					<span class="text-xs font-semibold text-emphasis">Account name</span>
-					<input type="text" placeholder="account-name" bind:value={bucket_config.accountName} />
+					<TextInput
+						inputProps={{ placeholder: 'account-name' }}
+						bind:value={
+							() => (bucket_config as AzureConfig).accountName,
+							(v) => (bucket_config = { ...(bucket_config as AzureConfig), accountName: v })
+						}
+					/>
 				</label>
 				<label class="block pb-2">
 					<span class="text-xs font-semibold text-emphasis">Container name</span>
-					<input
-						type="text"
-						placeholder="container-name"
-						bind:value={bucket_config.containerName}
+					<TextInput
+						inputProps={{ placeholder: 'container-name' }}
+						bind:value={
+							() => (bucket_config as AzureConfig).containerName,
+							(v) => (bucket_config = { ...(bucket_config as AzureConfig), containerName: v })
+						}
 					/>
 				</label>
 				<label class="block pb-2">
 					<span class="text-xs font-semibold text-emphasis">Access key</span>
-					<input type="password" autocomplete="new-password" bind:value={bucket_config.accessKey} />
+					<TextInput
+						inputProps={{ type: 'password', autocomplete: 'new-password' }}
+						bind:value={
+							() => (bucket_config as AzureConfig).accessKey,
+							(v) => (bucket_config = { ...(bucket_config as AzureConfig), accessKey: v })
+						}
+					/>
 				</label>
 				<label class="block pb-2">
 					<span class="text-xs font-semibold text-emphasis"
 						>Tenant ID <span class="text-2xs text-primary">(optional)</span></span
 					>
-					<input type="text" bind:value={bucket_config.tenantId} />
+					<TextInput
+						bind:value={
+							() => (bucket_config as AzureConfig).tenantId,
+							(v) => (bucket_config = { ...(bucket_config as AzureConfig), tenantId: v })
+						}
+					/>
 				</label>
 				<label class="block pb-2">
 					<span class="text-xs font-semibold text-emphasis"
 						>Client ID <span class="text-2xs text-primary">(optional)</span></span
 					>
-					<input type="text" bind:value={bucket_config.clientId} />
+					<TextInput
+						bind:value={
+							() => (bucket_config as AzureConfig).clientId,
+							(v) => (bucket_config = { ...(bucket_config as AzureConfig), clientId: v })
+						}
+					/>
 				</label>
 				<label class="block pb-2">
 					<span class="text-xs font-semibold text-emphasis"
@@ -238,56 +326,78 @@
 					<span class="text-primary text-2xs"
 						>Only needed for non Azure Blob providers like Azurite</span
 					>
-					<input type="text" bind:value={bucket_config.endpoint} />
+					<TextInput
+						bind:value={
+							() => (bucket_config as AzureConfig).endpoint,
+							(v) => (bucket_config = { ...(bucket_config as AzureConfig), endpoint: v })
+						}
+					/>
 				</label>
 			{:else if bucket_config.type === 'AwsOidc'}
 				<label class="block pb-2">
 					<span class="text-xs font-semibold text-emphasis">Bucket</span>
-					<input type="text" placeholder="bucket-name" bind:value={bucket_config.bucket} />
+					<TextInput
+						inputProps={{ placeholder: 'bucket-name' }}
+						bind:value={
+							() => (bucket_config as AwsOidcConfig).bucket,
+							(v) => (bucket_config = { ...(bucket_config as AwsOidcConfig), bucket: v })
+						}
+					/>
 				</label>
 				<label class="block pb-2">
 					<span class="text-xs font-semibold text-emphasis">Region</span>
-					<input type="text" placeholder="region" bind:value={bucket_config.region} />
+					<TextInput
+						inputProps={{ placeholder: 'region' }}
+						bind:value={
+							() => (bucket_config as AwsOidcConfig).region,
+							(v) => (bucket_config = { ...(bucket_config as AwsOidcConfig), region: v })
+						}
+					/>
 				</label>
 				<label class="block pb-2">
 					<span class="text-xs font-semibold text-emphasis">Role ARN</span>
-					<input
-						type="text"
-						placeholder="arn:aws:iam::123456789012:role/test"
-						bind:value={bucket_config.roleArn}
+					<TextInput
+						inputProps={{ placeholder: 'arn:aws:iam::123456789012:role/test' }}
+						bind:value={
+							() => (bucket_config as AwsOidcConfig).roleArn,
+							(v) => (bucket_config = { ...(bucket_config as AwsOidcConfig), roleArn: v })
+						}
 					/>
 				</label>
 			{:else if bucket_config.type === 'Gcs'}
-				<label class="block pb-2">
-					<span class="text-xs font-semibold text-emphasis">Bucket</span>
-					<input type="text" placeholder="bucket-name" bind:value={bucket_config.bucket} />
-				</label>
-				<label class="block pb-2">
-					<span class="text-xs font-semibold text-emphasis">Service Account Key</span>
+				<Label label="Bucket">
+					<TextInput
+						inputProps={{ placeholder: 'bucket-name' }}
+						bind:value={
+							() => (bucket_config as GcsConfig).bucket,
+							(v) => (bucket_config = { ...(bucket_config as GcsConfig), bucket: v })
+						}
+					/>
+				</Label>
+				<Label label="Service Account Key">
 					<span class="text-primary text-2xs">JSON content of the service account key file</span>
 					<SimpleEditor
+						bind:this={simpleEditor}
 						lang="json"
-						bind:code={
-							() => {
-								if (bucket_config?.type === 'Gcs') {
-									return JSON.stringify(bucket_config.serviceAccountKey)
-								} else {
-									return '{}'
+						bind:code={serviceAccountKeyCode}
+						on:change={(e) => {
+							if (bucket_config?.type === 'Gcs') {
+								if (e.detail.code === undefined || e.detail.code === '') {
+									bucket_config = { ...bucket_config, serviceAccountKey: undefined }
+									return
 								}
-							},
-							(v) => {
-								if (bucket_config?.type === 'Gcs') {
-									try {
-										bucket_config.serviceAccountKey = JSON.parse(v ?? '{}')
-									} catch (_) {
-										bucket_config.serviceAccountKey = {}
-									}
+								try {
+									const parsed = JSON.parse(e.detail.code ?? '{}')
+									lastEditorSyncedJson = JSON.stringify(parsed)
+									bucket_config = { ...bucket_config, serviceAccountKey: parsed }
+								} catch (_) {
+									bucket_config = { ...bucket_config, serviceAccountKey: undefined }
 								}
 							}
-						}
+						}}
 						class="h-80"
 					/>
-				</label>
+				</Label>
 			{:else}
 				<div>Unknown bucket type {bucket_config['type']}</div>
 			{/if}

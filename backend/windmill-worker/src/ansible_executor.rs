@@ -34,7 +34,7 @@ use crate::{
     },
     handle_child::handle_child,
     python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile},
-    DISABLE_NSJAIL, DISABLE_NUSER, GIT_PATH, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    is_sandboxing_enabled, DISABLE_NUSER, GIT_PATH, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
     PY_INSTALL_DIR, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
@@ -466,7 +466,7 @@ pub async fn install_galaxy_collections(
         mem_peak,
         canceled_by,
         child,
-        !*DISABLE_NSJAIL,
+        is_sandboxing_enabled(),
         worker_name,
         w_id,
         "ansible-galaxy role install",
@@ -505,7 +505,7 @@ pub async fn install_galaxy_collections(
         mem_peak,
         canceled_by,
         child,
-        !*DISABLE_NSJAIL,
+        is_sandboxing_enabled(),
         worker_name,
         w_id,
         "ansible-galaxy collection install",
@@ -1164,7 +1164,7 @@ pub async fn handle_ansible_job(
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
     let additional_python_paths_folders = additional_python_paths.join(":");
 
-    if !*DISABLE_NSJAIL {
+    if is_sandboxing_enabled() {
         let shared_deps = additional_python_paths
             .into_iter()
             .map(|pp| {
@@ -1206,7 +1206,7 @@ mount {{
     cmd_args.extend(inventories.iter().map(|s| s.as_str()));
     cmd_args.extend(cmd_options.iter().map(|s| s.as_str()));
 
-    let child = if !*DISABLE_NSJAIL {
+    let child = if is_sandboxing_enabled() {
         let wrapper = format!(
             r#"set -eou pipefail
 {0} "$@"
@@ -1279,7 +1279,7 @@ fi
         mem_peak,
         canceled_by,
         child,
-        !*DISABLE_NSJAIL,
+        is_sandboxing_enabled(),
         worker_name,
         &job.workspace_id,
         "python run",

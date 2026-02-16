@@ -61,6 +61,19 @@ export const defaultTags = [
 	'duckdb'
 	// for related places search: ADD_NEW_LANG
 ]
+/** Strip cache_clear, null/undefined values, empty arrays and empty objects from a worker group config. */
+export function cleanWorkerGroupConfig(config: Record<string, any>): Record<string, any> {
+	const { cache_clear, ...rest } = config
+	const cleaned: Record<string, any> = {}
+	for (const [k, v] of Object.entries(rest)) {
+		if (v == null) continue
+		if (Array.isArray(v) && v.length === 0) continue
+		if (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0) continue
+		cleaned[k] = v
+	}
+	return cleaned
+}
+
 export const nativeTags = [
 	'nativets',
 	'postgresql',

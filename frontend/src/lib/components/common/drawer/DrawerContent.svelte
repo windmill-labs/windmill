@@ -61,7 +61,7 @@
 					}
 				}}
 			>
-				<CloseButton onClick={() => dispatch('close')} Icon={CloseIcon} id="{id}-close-btn" />
+				<CloseButton on:close Icon={CloseIcon} id="{id}-close-btn" />
 			</div>
 			<span class="font-semibold text-emphasis truncate text-lg max-w-sm"
 				>{title ?? ''}
@@ -86,7 +86,7 @@
 	<div
 		class={classNames(
 			noPadding ? '' : 'p-4',
-			'grow h-full max-h-full',
+			'grow min-h-0 max-h-full',
 			forceOverflowVisible ? '!overflow-visible' : ''
 		)}
 		class:overflow-y-auto={overflow_y}

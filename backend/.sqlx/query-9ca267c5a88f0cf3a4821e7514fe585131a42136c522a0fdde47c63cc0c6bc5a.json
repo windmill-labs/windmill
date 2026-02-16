@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n            COUNT(*) > 0\n            AND BOOL_AND(\n                CASE\n                    -- For dependencies/: use IS NOT DISTINCT FROM (NULL = NULL is true for legacy)\n                    -- And the reason for this, is that for every script we also add dependency on default workspace dependencies by default\n                    -- that default/unnamed workspace dependencies may not exist, but we still do this.\n                    -- it is needed for windmill to know what to redeploy when default workspace dependencies are being added\n\n                    -- naturally for non-existant entries we have no hash of it\n                    -- so if we compared hash with '=' (instead of IS NOT DISTINCT FROM), it would give false on NULL = NULL,\n                    -- which would mean that this entire query returns false, which means relock skip cannot happen\n\n                    -- The solution is to say if both: referenced and current hash are NULLs we treat it as true, so it becomes no longer a blocker from skip.\n                    --\n                    -- It is backed up by the fact that server is responsible for deploying new workspace dependencies\n                    -- so if one was to deploy a new wdeps, server would assign it new hash, and this expression would be invalid and would not approve skip\n                    WHEN dm.imported_path LIKE 'dependencies/%'\n                    THEN dm.imported_lockfile_hash IS NOT DISTINCT FROM lh.lockfile_hash\n\n                    -- For scripts: use = with COALESCE (NULL = NULL becomes false)\n                    -- unlike w deps, we can't do IS NOT DISTINCT FROM here\n                    -- the reason is that scripts deployments are issued by other workers instead of the server\n                    -- which would mean that there is no guarantee that new d job will also write it's lock's hash to the `lock_hash`\n                    -- which could lead to false positives\n                    ELSE COALESCE(dm.imported_lockfile_hash = lh.lockfile_hash, false)\n                END\n            )\n        FROM dependency_map dm\n        LEFT JOIN lock_hash lh\n            ON lh.workspace_id = dm.workspace_id\n            AND lh.path = dm.imported_path\n        WHERE dm.workspace_id = $1\n            AND dm.importer_path = $2\n            AND dm.importer_node_id = $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "9ca267c5a88f0cf3a4821e7514fe585131a42136c522a0fdde47c63cc0c6bc5a"
+}

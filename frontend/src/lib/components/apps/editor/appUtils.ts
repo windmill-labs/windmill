@@ -50,7 +50,7 @@ type GridItemLocation =
 			subgridItemIndex: number
 			subgridKey: string
 	  }
-interface GridItemWithLocation {
+export interface GridItemWithLocation {
 	location: GridItemLocation
 	item: GridItem
 	parent: string | undefined

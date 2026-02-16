@@ -6,5 +6,4 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-pub mod flows;
 pub mod scripts;

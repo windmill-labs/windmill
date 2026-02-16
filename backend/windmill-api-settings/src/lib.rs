@@ -26,7 +26,6 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-
 #[cfg(feature = "enterprise")]
 use axum::extract::Query;
 use serde_json::json;
@@ -45,6 +44,7 @@ use windmill_common::{
         CRITICAL_ALERT_MUTE_UI_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
         HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
     },
+    instance_config::{self, ApplyMode, InstanceConfig},
     server::Smtp,
 };
 use windmill_common::{error::to_anyhow, PgDatabase};
@@ -58,6 +58,10 @@ pub fn global_service() -> Router {
             post(set_global_setting).get(get_global_setting),
         )
         .route("/list_global", get(list_global_settings))
+        .route(
+            "/instance_config",
+            get(get_instance_config).put(set_instance_config),
+        )
         .route("/test_smtp", post(test_email))
         .route("/test_license_key", post(test_license_key))
         .route("/send_stats", post(send_stats))
@@ -89,6 +93,10 @@ pub fn global_service() -> Router {
         .route(
             "/critical_alerts/acknowledge_all",
             post(acknowledge_all_critical_alerts),
+        )
+        .route(
+            "/sync_cached_resource_types",
+            post(sync_cached_resource_types),
         );
 
     // Vault integration routes (EE only - requires both private and enterprise features)
@@ -267,9 +275,40 @@ pub async fn set_global_setting_internal(
     key: String,
     value: serde_json::Value,
 ) -> error::Result<()> {
-    match key.as_str() {
+    run_setting_pre_write_hook(db, &key, &value).await?;
+
+    match value {
+        serde_json::Value::Null => {
+            delete_global_setting(db, &key).await?;
+        }
+        serde_json::Value::String(x) if x.is_empty() => {
+            delete_global_setting(db, &key).await?;
+        }
+        v => {
+            sqlx::query!(
+                 "INSERT INTO global_settings (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
+                 key,
+                 v
+             )
+             .execute(db)
+             .await?;
+            tracing::info!("Set global setting {} to {}", key, v);
+        }
+    };
+
+    Ok(())
+}
+
+/// Run side-effect hooks for specific settings before writing to DB.
+/// Extracted from `set_global_setting_internal` for reuse by the bulk endpoint.
+async fn run_setting_pre_write_hook(
+    db: &DB,
+    key: &str,
+    value: &serde_json::Value,
+) -> error::Result<()> {
+    match key {
         AUTOMATE_USERNAME_CREATION_SETTING => {
-            if value.clone().as_bool().unwrap_or(false) {
+            if value.as_bool().unwrap_or(false) {
                 generate_instance_username_for_all_users(db)
                     .await
                     .map_err(|err| {
@@ -281,14 +320,14 @@ pub async fn set_global_setting_internal(
             }
         }
         CRITICAL_ALERT_MUTE_UI_SETTING => {
-            if value.clone().as_bool().unwrap_or(false) {
+            if value.as_bool().unwrap_or(false) {
                 sqlx::query!("UPDATE alerts SET acknowledged = true")
                     .execute(db)
                     .await?;
             }
         }
         APP_WORKSPACED_ROUTE_SETTING => {
-            let serde_json::Value::Bool(workspaced_route) = &value else {
+            let serde_json::Value::Bool(workspaced_route) = value else {
                 return Err(error::Error::BadRequest(format!(
                     "{} setting Expected to be boolean",
                     APP_WORKSPACED_ROUTE_SETTING
@@ -308,15 +347,15 @@ pub async fn set_global_setting_internal(
                         SELECT
                             path,
                             custom_path
-                        FROM 
+                        FROM
                             app
-                        WHERE 
+                        WHERE
                             custom_path IN (
-                                SELECT 
+                                SELECT
                                     custom_path
-                                FROM 
+                                FROM
                                     app
-                                GROUP 
+                                GROUP
                                     BY custom_path
                                 HAVING COUNT(*) > 1
                             )
@@ -352,25 +391,79 @@ pub async fn set_global_setting_internal(
         }
         _ => {}
     }
+    Ok(())
+}
 
-    match value {
-        serde_json::Value::Null => {
-            delete_global_setting(db, &key).await?;
+// ---------------------------------------------------------------------------
+// Bulk instance config endpoints
+// ---------------------------------------------------------------------------
+
+async fn get_instance_config(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> JsonResult<InstanceConfig> {
+    require_super_admin(&db, &authed.email).await?;
+    let config = InstanceConfig::from_db(&db)
+        .await
+        .map_err(|e| error::Error::internal_err(e.to_string()))?;
+    Ok(Json(config))
+}
+
+async fn set_instance_config(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(desired): Json<InstanceConfig>,
+) -> error::Result<()> {
+    require_super_admin(&db, &authed.email).await?;
+
+    let current = InstanceConfig::from_db(&db)
+        .await
+        .map_err(|e| error::Error::internal_err(e.to_string()))?;
+
+    let desired_map = desired.global_settings.to_settings_map();
+    if !desired_map.is_empty() {
+        let current_map = current.global_settings.to_settings_map();
+        let settings_diff =
+            instance_config::diff_global_settings(&current_map, &desired_map, ApplyMode::Merge);
+
+        for (key, value) in &settings_diff.upserts {
+            run_setting_pre_write_hook(&db, key, value).await?;
         }
-        serde_json::Value::String(x) if x.is_empty() => {
-            delete_global_setting(db, &key).await?;
-        }
-        v => {
-            sqlx::query!(
-                 "INSERT INTO global_settings (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
-                 key,
-                 v
-             )
-             .execute(db)
-             .await?;
-            tracing::info!("Set global setting {} to {}", key, v);
-        }
-    };
+
+        instance_config::apply_settings_diff(&db, &settings_diff)
+            .await
+            .map_err(|e| error::Error::internal_err(e.to_string()))?;
+    }
+
+    if !desired.worker_configs.is_empty() {
+        let current_wc: std::collections::BTreeMap<String, serde_json::Value> = current
+            .worker_configs
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.clone(),
+                    serde_json::to_value(v)
+                        .expect("WorkerGroupConfig serialization cannot fail"),
+                )
+            })
+            .collect();
+        let desired_wc: std::collections::BTreeMap<String, serde_json::Value> = desired
+            .worker_configs
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.clone(),
+                    serde_json::to_value(v)
+                        .expect("WorkerGroupConfig serialization cannot fail"),
+                )
+            })
+            .collect();
+        let configs_diff =
+            instance_config::diff_worker_configs(&current_wc, &desired_wc, ApplyMode::Merge);
+        instance_config::apply_configs_diff(&db, &configs_diff)
+            .await
+            .map_err(|e| error::Error::internal_err(e.to_string()))?;
+    }
 
     Ok(())
 }
@@ -931,4 +1024,76 @@ pub async fn get_jwks() -> JsonResult<JwksResponse> {
         // For now, return empty - the EE implementation would override this
         Ok(Json(JwksResponse { keys: vec![] }))
     }
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+struct CachedResourceType {
+    #[allow(dead_code)]
+    id: i64,
+    name: String,
+    schema: Option<serde_json::Value>,
+    #[allow(dead_code)]
+    app: String,
+    description: Option<String>,
+}
+
+async fn sync_cached_resource_types(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> error::Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+
+    use windmill_common::worker::HUB_RT_CACHE_DIR;
+    let cache_path = format!("{}/resource_types.json", HUB_RT_CACHE_DIR);
+
+    let content = tokio::fs::read_to_string(&cache_path)
+        .await
+        .map_err(|e| {
+            error::Error::NotFound(format!(
+                "No cached resource types found at {}: {}",
+                cache_path, e
+            ))
+        })?;
+
+    let cached_types: Vec<CachedResourceType> =
+        serde_json::from_str(&content).map_err(|e| {
+            error::Error::InternalErr(format!("Failed to parse cached resource types: {}", e))
+        })?;
+
+    let mut synced_count = 0;
+
+    for rt in &cached_types {
+        let exists: Option<bool> = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM resource_type WHERE workspace_id = 'admins' AND name = $1 AND schema IS NOT DISTINCT FROM $2 AND description IS NOT DISTINCT FROM $3)",
+            &rt.name,
+            rt.schema.as_ref(),
+            rt.description.as_deref(),
+        )
+        .fetch_one(&db)
+        .await?;
+
+        if exists.unwrap_or(false) {
+            continue;
+        }
+
+        sqlx::query!(
+            "INSERT INTO resource_type (workspace_id, name, schema, description, edited_at)
+             VALUES ('admins', $1, $2, $3, now())
+             ON CONFLICT (workspace_id, name) DO UPDATE
+             SET schema = EXCLUDED.schema, description = EXCLUDED.description, edited_at = now()",
+            &rt.name,
+            rt.schema.as_ref(),
+            rt.description.as_deref(),
+        )
+        .execute(&db)
+        .await?;
+
+        synced_count += 1;
+    }
+
+    Ok(format!(
+        "Synced {} resource types ({} unchanged)",
+        synced_count,
+        cached_types.len() - synced_count
+    ))
 }

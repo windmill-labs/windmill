@@ -35,6 +35,8 @@
 	}
 
 	let currentJob: Job | undefined = $state(undefined)
+	let loadError: string | undefined = $state(undefined)
+	let isLoadingJobDetails: boolean = $state(false)
 
 	let lastJobId: string | undefined = $state(undefined)
 	let concurrencyKey: string | undefined = $state(undefined)
@@ -67,15 +69,30 @@
 		}
 	})
 	$effect(() => {
-		id &&
-			jobLoader &&
+		if (id && jobLoader) {
+			loadError = undefined
+			isLoadingJobDetails = true
 			untrack(() =>
 				jobLoader?.watchJob(id, {
 					done(x) {
 						onDone(x)
+						loadError = undefined
+						isLoadingJobDetails = false
+					},
+					doneError({ error }) {
+						// Only show error state if we couldn't load the job data
+						// If the job failed but we have the job object, let it display normally
+						if (!currentJob) {
+							loadError = (error as any)?.body || error?.message || 'Failed to load job details'
+						}
+						isLoadingJobDetails = false
+					},
+					change() {
+						isLoadingJobDetails = false
 					}
 				})
 			)
+		}
 	})
 
 	$effect(() => {
@@ -111,7 +128,21 @@
 
 <div class="h-full overflow-y-auto">
 	<div class="flex flex-col items-start p-4 pb-8 min-h-full">
-		{#if job}
+		{#if isLoadingJobDetails}
+			<div class="w-full flex-1 flex items-center justify-center">
+				<div class="text-center">
+					<LoaderCircle size={32} class="animate-spin text-primary mx-auto" />
+					<div class="text-secondary text-sm mt-2">Loading job details...</div>
+				</div>
+			</div>
+		{:else if loadError}
+			<div class="w-full h-full flex items-center justify-center">
+				<div class="text-center">
+					<div class="text-red-500 text-lg font-semibold mb-2">Error loading job</div>
+					<div class="text-secondary text-sm">{loadError}</div>
+				</div>
+			</div>
+		{:else if job}
 			{@const isFlow = job?.job_kind == 'flow' || isFlowPreview(job?.job_kind)}
 			<JobDetailHeader
 				{job}
