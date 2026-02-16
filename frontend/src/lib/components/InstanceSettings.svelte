@@ -15,7 +15,7 @@
 	import AuthSettings from './AuthSettings.svelte'
 	import InstanceSetting from './InstanceSetting.svelte'
 	import { writable, type Writable } from 'svelte/store'
-	import { ExternalLink, Loader2 } from 'lucide-svelte'
+	import { AlertCircle, ExternalLink, Loader2 } from 'lucide-svelte'
 	import YAML from 'yaml'
 	import Toggle from './Toggle.svelte'
 	import type SimpleEditor from './SimpleEditor.svelte'
@@ -52,6 +52,7 @@
 	let requirePreexistingUserForOauth: boolean = $state(false)
 
 	let initialValues: Record<string, any> = $state({})
+	let baseUrlIsFallback = $state(false)
 	let snowflakeAccountIdentifier = $state('')
 	let version: string = $state('')
 	let loading = $state(true)
@@ -96,16 +97,20 @@
 
 		let nvalues: Record<string, any> = { ...gs }
 
-		if (!nvalues['base_url']) {
-			nvalues['base_url'] = window.location.origin
-		}
+		baseUrlIsFallback = !nvalues['base_url']
 		if (nvalues['retention_period_secs'] == undefined) {
 			nvalues['retention_period_secs'] = 60 * 60 * 24 * 30
 		}
 		applyFormDefaults(nvalues)
 
+		// Snapshot initialValues before applying the base_url fallback so that
+		// the dirty-check detects the unsaved default and enables the Save button.
+		initialValues = JSON.parse(JSON.stringify(nvalues))
+
+		if (baseUrlIsFallback) {
+			nvalues['base_url'] = window.location.origin
+		}
 		$values = nvalues
-		initialValues = JSON.parse(JSON.stringify($values))
 		loading = false
 
 		// populate snowflake account identifier from db
@@ -186,6 +191,7 @@
 			initialValues = JSON.parse(JSON.stringify($values))
 			initialOauths = JSON.parse(JSON.stringify(oauths))
 			initialRequirePreexistingUserForOauth = requirePreexistingUserForOauth
+			baseUrlIsFallback = false
 
 			if (licenseKeySet) {
 				setLicense()
@@ -501,6 +507,9 @@
 		for (const s of categorySettings) {
 			const v = $values[s.key]
 			initialValues[s.key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
+		}
+		if (categorySettings.some((s) => s.key === 'base_url')) {
+			baseUrlIsFallback = false
 		}
 
 		// Handle Auth/OAuth/SAML-specific saves
@@ -999,6 +1008,14 @@
 						{version}
 						{oauths}
 					/>
+					{#if setting.key === 'base_url' && baseUrlIsFallback}
+						<div class="flex items-center gap-1.5 mt-1">
+							<AlertCircle size={14} class="text-yellow-600 shrink-0" />
+							<span class="text-yellow-600 dark:text-yellow-500 text-xs">
+								Base URL was auto-detected from the browser and has not been saved yet. Save settings to persist it.
+							</span>
+						</div>
+					{/if}
 				{/if}
 			{/each}
 			{#if quickSetup && category === 'Core'}
