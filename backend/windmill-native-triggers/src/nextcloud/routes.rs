@@ -12,10 +12,8 @@ use crate::{
     nextcloud::{NextCloudEventType, OcsResponse},
     External, ServiceName,
 };
-use windmill_api_auth::ApiAuthed;
 
 async fn list_available_events<T: External>(
-    _authed: ApiAuthed,
     Extension(handler): Extension<Arc<T>>,
     Extension(db): Extension<DB>,
     Path(workspace_id): Path<String>,

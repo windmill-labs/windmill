@@ -10,9 +10,12 @@ use serde::{Deserialize, Serialize};
 use windmill_common::{error::JsonResult, DB};
 
 use crate::{get_workspace_integration, External, ServiceName};
-use windmill_api_auth::ApiAuthed;
 
 use super::Google;
+
+fn escape_drive_query(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('\'', "\\'")
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GoogleCalendarEntry {
@@ -81,7 +84,6 @@ pub struct DriveFilesQuery {
 }
 
 async fn list_calendars(
-    _authed: ApiAuthed,
     Extension(handler): Extension<Arc<Google>>,
     Extension(db): Extension<DB>,
     Path(workspace_id): Path<String>,
@@ -111,7 +113,6 @@ async fn list_calendars(
 }
 
 async fn list_drive_files(
-    _authed: ApiAuthed,
     Extension(handler): Extension<Arc<Google>>,
     Extension(db): Extension<DB>,
     Path(workspace_id): Path<String>,
@@ -122,9 +123,15 @@ async fn list_drive_files(
     let drive_query = if query.shared_with_me {
         "sharedWithMe = true and trashed = false".to_string()
     } else if let Some(ref parent_id) = query.parent_id {
-        format!("'{}' in parents and trashed = false", parent_id)
+        format!(
+            "'{}' in parents and trashed = false",
+            escape_drive_query(parent_id)
+        )
     } else if let Some(ref search) = query.q {
-        format!("name contains '{}' and trashed = false", search)
+        format!(
+            "name contains '{}' and trashed = false",
+            escape_drive_query(search)
+        )
     } else {
         "'root' in parents and trashed = false".to_string()
     };
@@ -179,7 +186,6 @@ struct SharedDriveApiEntry {
 }
 
 async fn list_shared_drives(
-    _authed: ApiAuthed,
     Extension(handler): Extension<Arc<Google>>,
     Extension(db): Extension<DB>,
     Path(workspace_id): Path<String>,

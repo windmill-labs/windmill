@@ -8,7 +8,6 @@ export interface NativeTriggerConfig {
 	readonly serviceDisplayName: string
 	readonly serviceKey: NativeServiceName
 	readonly supportsSync: boolean
-	readonly supportsFetchConfig: boolean
 	readonly isCloudCompatible: boolean
 	readonly templates?: {
 		script?: string
@@ -21,7 +20,6 @@ export const NATIVE_TRIGGER_SERVICES: Record<NativeServiceName, NativeTriggerCon
 		serviceDisplayName: 'Nextcloud',
 		serviceKey: 'nextcloud',
 		supportsSync: true,
-		supportsFetchConfig: true,
 		isCloudCompatible: true,
 		templates: {
 			script: '/scripts/add?hub=hub%2F28115',
@@ -33,7 +31,6 @@ export const NATIVE_TRIGGER_SERVICES: Record<NativeServiceName, NativeTriggerCon
 		serviceDisplayName: 'Google',
 		serviceKey: 'google',
 		supportsSync: true,
-		supportsFetchConfig: true,
 		isCloudCompatible: true,
 		templates: {
 			script: '/scripts/add?hub=hub%2F28135',

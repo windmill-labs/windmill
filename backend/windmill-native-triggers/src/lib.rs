@@ -36,7 +36,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use http::StatusCode;
 use itertools::Itertools;
-use reqwest::{Client, Method};
+use reqwest::Method;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
 use serde_json::value::RawValue;
@@ -47,6 +47,7 @@ use tokio::task;
 use windmill_common::{
     error::{to_anyhow, Error, Result},
     triggers::TriggerKind,
+    utils::HTTP_CLIENT,
     variables::{build_crypt, decrypt, encrypt},
     DB,
 };
@@ -421,7 +422,7 @@ pub async fn make_http_request<T: DeserializeOwned + Send, B: Serialize>(
     body: Option<&B>,
     access_token: &str,
 ) -> std::result::Result<T, HttpRequestError> {
-    let client = Client::new();
+    let client = &*HTTP_CLIENT;
     let mut request = client.request(method, url);
 
     request = request

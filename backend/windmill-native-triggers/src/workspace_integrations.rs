@@ -24,7 +24,7 @@ use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
     global_settings::{load_value_from_global_settings, OAUTH_SETTING},
-    utils::require_admin,
+    utils::{require_admin, HTTP_CLIENT},
     variables::{build_crypt, encrypt},
     DB,
 };
@@ -225,8 +225,7 @@ async fn try_delete_nextcloud_webhook(base_url: &str, access_token: &str, extern
         "{}/ocs/v2.php/apps/webhook_listeners/api/v1/webhooks/{}",
         base_url, external_id
     );
-    let client = reqwest::Client::new();
-    let _ = client
+    let _ = HTTP_CLIENT
         .delete(&url)
         .bearer_auth(access_token)
         .header("OCS-APIRequest", "true")
@@ -244,8 +243,15 @@ async fn delete_triggers_for_service(db: &DB, workspace_id: &str, service_name: 
         service_name as ServiceName
     )
     .fetch_all(db)
-    .await
-    .unwrap_or_default();
+    .await;
+
+    let triggers = match triggers {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!("Failed to fetch native triggers for service {service_name:?} in workspace {workspace_id}: {e}");
+            return;
+        }
+    };
 
     if triggers.is_empty() {
         return;
@@ -269,17 +275,25 @@ async fn delete_triggers_for_service(db: &DB, workspace_id: &str, service_name: 
     // For Google: skip remote cleanup (watch channels expire naturally)
 
     // Bulk delete all triggers
-    let _ = sqlx::query!(
+    if let Err(e) = sqlx::query!(
         "DELETE FROM native_trigger WHERE workspace_id = $1 AND service_name = $2",
         workspace_id,
         service_name as ServiceName
     )
     .execute(db)
-    .await;
+    .await
+    {
+        tracing::error!("Failed to delete native triggers for service {service_name:?} in workspace {workspace_id}: {e}");
+    }
 
     // Delete all associated webhook tokens
     for trigger in &triggers {
-        let _ = delete_token_by_prefix(db, &trigger.webhook_token_prefix).await;
+        if let Err(e) = delete_token_by_prefix(db, &trigger.webhook_token_prefix).await {
+            tracing::error!(
+                "Failed to delete webhook token with prefix {}: {e}",
+                trigger.webhook_token_prefix
+            );
+        }
     }
 }
 

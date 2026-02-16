@@ -139,12 +139,8 @@ pub mod endpoints {
 pub mod scopes {
     /// Read-only access to Google Drive files
     pub const DRIVE_READONLY: &str = "https://www.googleapis.com/auth/drive.readonly";
-    /// Full access to Google Drive
-    pub const DRIVE_FULL: &str = "https://www.googleapis.com/auth/drive";
     /// Read-only access to Google Calendar
     pub const CALENDAR_READONLY: &str = "https://www.googleapis.com/auth/calendar.readonly";
-    /// Full access to Google Calendar
-    pub const CALENDAR_FULL: &str = "https://www.googleapis.com/auth/calendar";
     /// Events access to Google Calendar
     pub const CALENDAR_EVENTS: &str = "https://www.googleapis.com/auth/calendar.events";
 

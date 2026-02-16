@@ -6,6 +6,6 @@
 -- 4. Rename the new type
 
 -- For now, we just document what was added:
--- Removed from native_trigger_service: 'google', 'google_drive', 'google_calendar'
--- Removed from TRIGGER_KIND: 'google_drive', 'google_calendar'
--- Removed from job_trigger_kind: 'google_drive', 'google_calendar'
+-- Removed from native_trigger_service: 'google'
+-- Removed from TRIGGER_KIND: 'google'
+-- Removed from job_trigger_kind: 'google'
