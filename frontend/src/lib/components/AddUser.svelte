@@ -47,7 +47,7 @@
 	async function loadInstanceEmails() {
 		if (isCloudHosted()) return
 		try {
-			allInstanceEmails = await UserService.listInstanceEmails()
+			allInstanceEmails = await UserService.listInstanceEmails({ workspace: $workspaceStore! })
 		} catch {
 			allInstanceEmails = undefined
 		}

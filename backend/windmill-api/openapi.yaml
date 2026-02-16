@@ -2306,12 +2306,14 @@ paths:
                 items:
                   $ref: "#/components/schemas/GlobalUserInfo"
 
-  /users/list_instance_emails:
+  /w/{workspace}/users/list_instance_emails:
     get:
-      summary: list all instance user emails (only on non-cloud instances)
+      summary: list all instance user emails (only on non-cloud instances, requires workspace admin)
       operationId: listInstanceEmails
       tags:
         - user
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
       responses:
         "200":
           description: list of instance user emails
