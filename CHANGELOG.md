@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.636.0](https://github.com/windmill-labs/windmill/compare/v1.635.1...v1.636.0) (2026-02-16)
+
+
+### Features
+
+* allow adding workspace scripts and flows as AI chat context ([#7882](https://github.com/windmill-labs/windmill/issues/7882)) ([5b8ec50](https://github.com/windmill-labs/windmill/commit/5b8ec502fef8fb439200e18b8c610d0f5998b6df))
+* google native triggers ([#7837](https://github.com/windmill-labs/windmill/issues/7837)) ([6f24f19](https://github.com/windmill-labs/windmill/commit/6f24f1939d75a597acc74c1589794d511e041baa))
+
+
+### Bug Fixes
+
+* mark base_url as unsaved when using browser fallback ([#7964](https://github.com/windmill-labs/windmill/issues/7964)) ([e7b0b00](https://github.com/windmill-labs/windmill/commit/e7b0b00f5696828dec094155298d0c9dc033b355))
+
 ## [1.635.1](https://github.com/windmill-labs/windmill/compare/v1.635.0...v1.635.1) (2026-02-15)
 
 

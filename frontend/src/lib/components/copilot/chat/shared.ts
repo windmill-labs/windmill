@@ -277,6 +277,7 @@ export function buildContextString(selectedContext: ContextElement[]): string {
 	let hasDiff = false
 	let hasFlowModule = false
 	let hasError = false
+	let workspaceItemsContext = ''
 
 	let result = '\n\n'
 	for (const context of selectedContext) {
@@ -311,6 +312,22 @@ export function buildContextString(selectedContext: ContextElement[]): string {
 		} else if (context.type === 'flow_module') {
 			hasFlowModule = true
 			flowModuleContext += `${context.id}\n`
+		} else if (context.type === 'workspace_script') {
+			workspaceItemsContext += `\nWORKSPACE SCRIPT (${context.path}):\n`
+			workspaceItemsContext += `Summary: ${context.summary}\n`
+			workspaceItemsContext += `Language: ${context.language}\n`
+			if (context.schema) {
+				workspaceItemsContext += `Inputs: ${JSON.stringify(context.schema)}\n`
+			}
+			workspaceItemsContext += `Code:\n${context.content}\n`
+		} else if (context.type === 'workspace_flow') {
+			workspaceItemsContext += `\nWORKSPACE FLOW (${context.path}):\n`
+			workspaceItemsContext += `Summary: ${context.summary}\n`
+			workspaceItemsContext += `Description: ${context.description}\n`
+			if (context.schema) {
+				workspaceItemsContext += `Inputs: ${JSON.stringify(context.schema)}\n`
+			}
+			workspaceItemsContext += `Value:\n${context.value}\n`
 		}
 	}
 
@@ -328,6 +345,9 @@ export function buildContextString(selectedContext: ContextElement[]): string {
 	}
 	if (hasFlowModule) {
 		result += '\n' + flowModuleContext
+	}
+	if (workspaceItemsContext) {
+		result += '\n' + workspaceItemsContext
 	}
 
 	return result
@@ -668,7 +688,7 @@ export async function buildSchemaForTool(
 // Constants for result formatting
 const MAX_RESULT_LENGTH = 12000
 const MAX_LOG_LENGTH = 4000
-const MAX_RUNNABLE_CONTENT_LENGTH = 20000
+export const MAX_RUNNABLE_CONTENT_LENGTH = 20000
 
 export interface TestRunConfig {
 	jobStarter: () => Promise<string>
@@ -906,6 +926,9 @@ export class WorkspaceRunnablesSearch {
 	private flowsWorkspace: string | undefined = undefined
 	private scripts: Script[] | undefined = undefined
 	private flows: Flow[] | undefined = undefined
+	private scriptCache: Map<string, Awaited<ReturnType<typeof ScriptService.getScriptByPath>>> =
+		new Map()
+	private flowCache: Map<string, Awaited<ReturnType<typeof FlowService.getFlowByPath>>> = new Map()
 
 	constructor() {
 		this.uf = new uFuzzy()
@@ -930,10 +953,19 @@ export class WorkspaceRunnablesSearch {
 		const scripts = this.scripts
 		if (!scripts) return []
 
+		const trimmed = query.trim()
+		if (!trimmed) {
+			return scripts.map((s) => ({
+				type: 'script' as const,
+				path: s.path,
+				summary: s.summary
+			}))
+		}
+
 		const haystack = scripts.map((s) =>
 			emptyString(s.summary) ? s.path : s.summary + ' (' + s.path + ')'
 		)
-		const [idxs, , order] = this.uf.search(haystack, query.trim())
+		const [idxs, , order] = this.uf.search(haystack, trimmed)
 		if (!idxs || !order) return []
 		return order.map((orderIdx) => {
 			const haystackIdx = idxs[orderIdx]
@@ -950,10 +982,19 @@ export class WorkspaceRunnablesSearch {
 		const flows = this.flows
 		if (!flows) return []
 
+		const trimmed = query.trim()
+		if (!trimmed) {
+			return flows.map((f) => ({
+				type: 'flow' as const,
+				path: f.path,
+				summary: f.summary
+			}))
+		}
+
 		const haystack = flows.map((f) =>
 			emptyString(f.summary) ? f.path : f.summary + ' (' + f.path + ')'
 		)
-		const [idxs, , order] = this.uf.search(haystack, query.trim())
+		const [idxs, , order] = this.uf.search(haystack, trimmed)
 		if (!idxs || !order) return []
 		return order.map((orderIdx) => {
 			const haystackIdx = idxs[orderIdx]
@@ -977,6 +1018,26 @@ export class WorkspaceRunnablesSearch {
 
 		return results
 	}
+
+	async getScript(path: string, workspace: string) {
+		const key = `${workspace}:${path}`
+		let cached = this.scriptCache.get(key)
+		if (!cached) {
+			cached = await ScriptService.getScriptByPath({ workspace, path })
+			this.scriptCache.set(key, cached)
+		}
+		return cached
+	}
+
+	async getFlow(path: string, workspace: string) {
+		const key = `${workspace}:${path}`
+		let cached = this.flowCache.get(key)
+		if (!cached) {
+			cached = await FlowService.getFlowByPath({ workspace, path })
+			this.flowCache.set(key, cached)
+		}
+		return cached
+	}
 }
 
 const searchWorkspaceSchema = z.object({
@@ -996,7 +1057,7 @@ const searchWorkspaceToolDef = createToolDef(
 	'Search for scripts and flows in the workspace. Use this when a user asks about existing building blocks, wants to find a script/flow, or asks "what do I have for X". ALWAYS search really broadly.'
 )
 
-const workspaceRunnablesSearch = new WorkspaceRunnablesSearch()
+export const workspaceRunnablesSearch = new WorkspaceRunnablesSearch()
 
 export const createSearchWorkspaceTool = () => ({
 	def: searchWorkspaceToolDef,
@@ -1069,7 +1130,7 @@ export const createGetRunnableDetailsTool = () => ({
 
 		try {
 			if (type === 'script') {
-				const script = await ScriptService.getScriptByPath({ workspace, path })
+				const script = await workspaceRunnablesSearch.getScript(path, workspace)
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Retrieved script details for "${path}"`
 				})
@@ -1091,7 +1152,7 @@ export const createGetRunnableDetailsTool = () => ({
 					2
 				)
 			} else {
-				const flow = await FlowService.getFlowByPath({ workspace, path })
+				const flow = await workspaceRunnablesSearch.getFlow(path, workspace)
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Retrieved flow details for "${path}"`
 				})

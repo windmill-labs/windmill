@@ -36,7 +36,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use http::StatusCode;
 use itertools::Itertools;
-use reqwest::{Client, Method};
+use reqwest::Method;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
 use serde_json::value::RawValue;
@@ -47,6 +47,7 @@ use tokio::task;
 use windmill_common::{
     error::{to_anyhow, Error, Result},
     triggers::TriggerKind,
+    utils::HTTP_CLIENT,
     variables::{build_crypt, decrypt, encrypt},
     DB,
 };
@@ -62,9 +63,9 @@ pub mod workspace_integrations;
 
 // Service modules - add new services here:
 #[cfg(feature = "native_trigger")]
+pub mod google;
+#[cfg(feature = "native_trigger")]
 pub mod nextcloud;
-// #[cfg(feature = "native_trigger")]
-// pub mod newservice;
 
 /// Enum of all supported native trigger services.
 /// When adding a new service, add a variant here (e.g., `NewService`).
@@ -73,17 +74,15 @@ pub mod nextcloud;
 #[serde(rename_all = "lowercase")]
 pub enum ServiceName {
     Nextcloud,
-    // Add new services here:
-    // NewService,
+    Google,
 }
 
 impl TryFrom<String> for ServiceName {
     type Error = Error;
     fn try_from(value: String) -> std::result::Result<Self, Self::Error> {
-        // Add new service match arms here:
         let service = match value.as_str() {
             "nextcloud" => ServiceName::Nextcloud,
-            // "newservice" => ServiceName::NewService,
+            "google" => ServiceName::Google,
             _ => {
                 return Err(anyhow::anyhow!(
                     "Unknown service, currently supported services are: [{}]",
@@ -99,54 +98,88 @@ impl TryFrom<String> for ServiceName {
 
 impl ServiceName {
     /// Returns the lowercase string identifier for this service.
-    /// Add new service match arms here.
     pub fn as_str(&self) -> &'static str {
         match self {
             ServiceName::Nextcloud => "nextcloud",
-            // ServiceName::NewService => "newservice",
+            ServiceName::Google => "google",
         }
     }
 
     /// Returns the corresponding TriggerKind for this service.
-    /// Requires adding the variant to TriggerKind in windmill_common.
     pub fn as_trigger_kind(&self) -> TriggerKind {
         match self {
             ServiceName::Nextcloud => TriggerKind::Nextcloud,
-            // ServiceName::NewService => TriggerKind::NewService,
+            ServiceName::Google => TriggerKind::Google,
         }
     }
 
     /// Returns the corresponding JobTriggerKind for this service.
-    /// Requires adding the variant to JobTriggerKind in windmill_common.
     pub fn as_job_trigger_kind(&self) -> windmill_common::jobs::JobTriggerKind {
         match self {
             ServiceName::Nextcloud => windmill_common::jobs::JobTriggerKind::Nextcloud,
-            // ServiceName::NewService => windmill_common::jobs::JobTriggerKind::NewService,
+            ServiceName::Google => windmill_common::jobs::JobTriggerKind::Google,
         }
     }
 
     /// Returns the OAuth token endpoint path for this service.
-    /// Used for building OAuth clients dynamically.
     pub fn token_endpoint(&self) -> &'static str {
         match self {
             ServiceName::Nextcloud => "/apps/oauth2/api/v1/token",
-            // ServiceName::NewService => "/oauth/token",
+            ServiceName::Google => "https://oauth2.googleapis.com/token",
         }
     }
 
     /// Returns the OAuth authorization endpoint path for this service.
-    /// Used for building OAuth authorization URLs.
     pub fn auth_endpoint(&self) -> &'static str {
         match self {
             ServiceName::Nextcloud => "/apps/oauth2/authorize",
-            // ServiceName::NewService => "/oauth/authorize",
+            ServiceName::Google => "https://accounts.google.com/o/oauth2/v2/auth",
         }
+    }
+
+    /// Returns the OAuth scopes for this service's authorization flow.
+    pub fn oauth_scopes(&self) -> &'static str {
+        match self {
+            ServiceName::Nextcloud => "read write",
+            ServiceName::Google => "https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events",
+        }
+    }
+
+    /// Returns the resource type used for storing OAuth tokens.
+    pub fn resource_type(&self) -> &'static str {
+        match self {
+            ServiceName::Nextcloud => "nextcloud",
+            ServiceName::Google => "gworkspace",
+        }
+    }
+
+    /// Returns extra OAuth authorization parameters required by this service.
+    pub fn extra_auth_params(&self) -> &[(&'static str, &'static str)] {
+        match self {
+            ServiceName::Google => &[("access_type", "offline"), ("prompt", "consent")],
+            ServiceName::Nextcloud => &[],
+        }
+    }
+
+    /// Returns the integration service name for workspace_integrations lookup.
+    pub fn integration_service(&self) -> ServiceName {
+        *self
     }
 }
 
 impl std::fmt::Display for ServiceName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_str())
+    }
+}
+
+/// Resolves an endpoint URL. If the endpoint is already an absolute URL (starts with http),
+/// returns it as-is. Otherwise, prepends the base_url.
+pub fn resolve_endpoint(base_url: &str, endpoint: &str) -> String {
+    if endpoint.starts_with("http://") || endpoint.starts_with("https://") {
+        endpoint.to_string()
+    } else {
+        format!("{}{}", base_url, endpoint)
     }
 }
 
@@ -183,6 +216,7 @@ pub struct WorkspaceIntegration {
     pub workspace_id: String,
     pub service_name: ServiceName,
     pub oauth_data: serde_json::Value,
+    pub resource_path: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub created_by: String,
@@ -200,6 +234,7 @@ pub trait External: Send + Sync + 'static {
     const DISPLAY_NAME: &'static str;
     const TOKEN_ENDPOINT: &'static str;
     const REFRESH_ENDPOINT: &'static str;
+    const AUTH_ENDPOINT: &'static str;
 
     async fn create(
         &self,
@@ -211,6 +246,10 @@ pub trait External: Send + Sync + 'static {
         tx: &mut PgConnection,
     ) -> Result<Self::CreateResponse>;
 
+    /// Update a trigger on the external service and return the resolved service_config to store.
+    /// Each service is responsible for resolving the final config:
+    /// - Services that re-create the resource (e.g. Google) build config from request data + response metadata.
+    /// - Services that modify in-place (e.g. Nextcloud) fetch back the updated state and extract config.
     async fn update(
         &self,
         w_id: &str,
@@ -220,16 +259,21 @@ pub trait External: Send + Sync + 'static {
         data: &NativeTriggerData<Self::ServiceConfig>,
         db: &DB,
         tx: &mut PgConnection,
-    ) -> Result<()>;
+    ) -> Result<serde_json::Value>;
 
+    /// Fetch the trigger's state from the external service.
+    /// Returns `Ok(None)` (default) when the service has no "get" API (e.g. Google).
+    /// Services that can fetch state (e.g. Nextcloud) override to return `Ok(Some(data))`.
     async fn get(
         &self,
-        w_id: &str,
-        oauth_data: &Self::OAuthData,
-        external_id: &str,
-        db: &DB,
-        tx: &mut PgConnection,
-    ) -> Result<Self::TriggerData>;
+        _w_id: &str,
+        _oauth_data: &Self::OAuthData,
+        _external_id: &str,
+        _db: &DB,
+        _tx: &mut PgConnection,
+    ) -> Result<Option<Self::TriggerData>> {
+        Ok(None)
+    }
 
     async fn delete(
         &self,
@@ -240,23 +284,19 @@ pub trait External: Send + Sync + 'static {
         tx: &mut PgConnection,
     ) -> Result<()>;
 
-    #[allow(unused)]
-    async fn exists(
+    /// Periodic background maintenance for triggers in a workspace.
+    /// Each service implements its own logic:
+    /// - Nextcloud: lists external triggers and reconciles with DB state
+    /// - Google: renews expiring watch channels
+    async fn maintain_triggers(
         &self,
-        w_id: &str,
-        oauth_data: &Self::OAuthData,
-        external_id: &str,
         db: &DB,
-        tx: &mut PgConnection,
-    ) -> Result<bool>;
-
-    async fn list_all(
-        &self,
-        w_id: &str,
+        workspace_id: &str,
+        triggers: &[NativeTrigger],
         oauth_data: &Self::OAuthData,
-        db: &DB,
-        tx: &mut PgConnection,
-    ) -> Result<Vec<Self::TriggerData>>;
+        synced: &mut Vec<crate::sync::TriggerSyncInfo>,
+        errors: &mut Vec<crate::sync::SyncError>,
+    );
 
     async fn prepare_webhook(
         &self,
@@ -275,19 +315,18 @@ pub trait External: Send + Sync + 'static {
         resp: &Self::CreateResponse,
     ) -> (String, Option<serde_json::Value>);
 
-    fn get_external_id_from_trigger_data(&self, data: &Self::TriggerData) -> String;
-
-    /// Extracts the service-specific config from trigger data (from external service).
-    /// Used for comparison during sync to detect config drift.
-    /// Default implementation converts the trigger data to a JSON value
-    /// If you need to exclude some fields, skip serializing attributes on the TriggerData struct or override this method.
-    fn extract_service_config_from_trigger_data(
+    /// Build the service_config directly from the create response and input data,
+    /// skipping the update+get cycle after creation.
+    /// Return `None` (default) to use the update+get pattern (e.g. Nextcloud needs to
+    /// correct the webhook URL with the external_id assigned by the remote service).
+    /// Return `Some(config)` to skip update+get entirely (e.g. Google already includes
+    /// the channel_id in the webhook URL from the start).
+    fn service_config_from_create_response(
         &self,
-        data: &Self::TriggerData,
-    ) -> Result<serde_json::Value> {
-        serde_json::to_value(data).map_err(|e| {
-            Error::internal_err(format!("Failed to convert trigger data to JSON: {}", e))
-        })
+        _data: &NativeTriggerData<Self::ServiceConfig>,
+        _resp: &Self::CreateResponse,
+    ) -> Option<serde_json::Value> {
+        None
     }
 
     fn additional_routes(&self) -> axum::Router {
@@ -299,13 +338,12 @@ pub trait External: Send + Sync + 'static {
         url: &str,
         method: Method,
         workspace_id: &str,
-        tx: &mut PgConnection,
         db: &DB,
         headers: Option<HashMap<String, String>>,
         body: Option<&B>,
     ) -> Result<T> {
         let oauth_config: OAuthConfig =
-            decrypt_oauth_data(tx, db, workspace_id, Self::SERVICE_NAME).await?;
+            decrypt_oauth_data(db, workspace_id, Self::SERVICE_NAME).await?;
 
         let result = make_http_request(
             url,
@@ -327,19 +365,26 @@ pub trait External: Send + Sync + 'static {
                     err.status().unwrap()
                 );
 
-                let refreshed_oauth_config =
-                    refresh_oauth_tokens(&oauth_config, Self::REFRESH_ENDPOINT).await?;
+                let refreshed_oauth_config = refresh_oauth_tokens(
+                    &oauth_config,
+                    Self::REFRESH_ENDPOINT,
+                    Self::AUTH_ENDPOINT,
+                )
+                .await?;
 
                 task::spawn({
                     let db_clone = db.clone();
                     let workspace_id_clone = workspace_id.to_string();
-                    let refreshed_json = oauth_config_to_json(&refreshed_oauth_config);
+                    let service_name = Self::SERVICE_NAME;
+                    let new_access_token = refreshed_oauth_config.access_token.clone();
+                    let new_refresh_token = refreshed_oauth_config.refresh_token.clone();
                     async move {
-                        update_workspace_integration_tokens_helper(
-                            db_clone,
-                            workspace_id_clone,
-                            Self::SERVICE_NAME,
-                            refreshed_json,
+                        update_oauth_token_resource(
+                            &db_clone,
+                            &workspace_id_clone,
+                            service_name,
+                            &new_access_token,
+                            new_refresh_token.as_deref(),
                         )
                         .await;
                     }
@@ -376,8 +421,8 @@ pub async fn make_http_request<T: DeserializeOwned + Send, B: Serialize>(
     headers: Option<HashMap<String, String>>,
     body: Option<&B>,
     access_token: &str,
-) -> std::result::Result<T, reqwest::Error> {
-    let client = Client::new();
+) -> std::result::Result<T, HttpRequestError> {
+    let client = &*HTTP_CLIENT;
     let mut request = client.request(method, url);
 
     request = request
@@ -400,91 +445,148 @@ pub async fn make_http_request<T: DeserializeOwned + Send, B: Serialize>(
 
     let response = request.send().await?.error_for_status()?;
 
-    let response_json = response.json().await?;
-
-    Ok(response_json)
+    // Handle empty responses (e.g. 204 No Content from Google channels/stop)
+    let bytes = response.bytes().await?;
+    if bytes.is_empty() {
+        serde_json::from_str("null").map_err(HttpRequestError::Json)
+    } else {
+        serde_json::from_slice(&bytes).map_err(HttpRequestError::Json)
+    }
 }
 
-pub async fn decrypt_oauth_data<
-    'c,
-    E: sqlx::Executor<'c, Database = Postgres>,
-    T: DeserializeOwned,
->(
-    tx: E,
+#[derive(Debug)]
+pub enum HttpRequestError {
+    Reqwest(reqwest::Error),
+    Json(serde_json::Error),
+}
+
+impl std::fmt::Display for HttpRequestError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HttpRequestError::Reqwest(e) => write!(f, "{}", e),
+            HttpRequestError::Json(e) => write!(f, "JSON decode error: {}", e),
+        }
+    }
+}
+
+impl std::error::Error for HttpRequestError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            HttpRequestError::Reqwest(e) => Some(e),
+            HttpRequestError::Json(e) => Some(e),
+        }
+    }
+}
+
+impl From<reqwest::Error> for HttpRequestError {
+    fn from(e: reqwest::Error) -> Self {
+        HttpRequestError::Reqwest(e)
+    }
+}
+
+impl HttpRequestError {
+    pub fn status(&self) -> Option<StatusCode> {
+        match self {
+            HttpRequestError::Reqwest(e) => e.status(),
+            HttpRequestError::Json(_) => None,
+        }
+    }
+}
+
+/// Read OAuth client_id and client_secret from instance-level global settings.
+/// Used when a workspace integration has `instance_shared: true`.
+async fn get_instance_oauth_credentials(
+    db: &DB,
+    service_name: ServiceName,
+) -> Result<(String, String)> {
+    windmill_common::global_settings::get_instance_oauth_credentials(
+        db,
+        service_name.resource_type(),
+    )
+    .await
+}
+
+pub async fn decrypt_oauth_data<T: DeserializeOwned>(
     db: &DB,
     workspace_id: &str,
     service_name: ServiceName,
 ) -> Result<T> {
-    let integration = get_workspace_integration(tx, workspace_id, service_name).await?;
+    let integration = get_workspace_integration(db, workspace_id, service_name).await?;
+    let oauth_data = integration.oauth_data;
+
+    let resource_path = integration.resource_path.as_deref().ok_or_else(|| {
+        Error::InternalErr(format!(
+            "No resource_path in {} integration config. Please reconnect the integration.",
+            service_name
+        ))
+    })?;
 
     let mc = build_crypt(db, workspace_id).await?;
-    let mut oauth_data: serde_json::Value = integration.oauth_data;
 
-    if let Some(encrypted_access_token) = oauth_data.get("access_token").and_then(|v| v.as_str()) {
-        let decrypted_access_token = decrypt(&mc, encrypted_access_token.to_string())
-            .map_err(|e| Error::InternalErr(format!("Failed to decrypt access token: {}", e)))?;
-        oauth_data["access_token"] = serde_json::Value::String(decrypted_access_token);
-    }
+    let var_row = sqlx::query!(
+        "SELECT value, account FROM variable WHERE workspace_id = $1 AND path = $2",
+        workspace_id,
+        resource_path,
+    )
+    .fetch_optional(db)
+    .await?
+    .ok_or_else(|| {
+        Error::InternalErr(format!(
+            "Variable at {} not found for {} integration",
+            resource_path, service_name
+        ))
+    })?;
 
-    if let Some(encrypted_refresh_token) = oauth_data.get("refresh_token").and_then(|v| v.as_str())
+    let access_token = decrypt(&mc, var_row.value)
+        .map_err(|e| Error::InternalErr(format!("Failed to decrypt access token: {}", e)))?;
+
+    let refresh_token = if let Some(account_id) = var_row.account {
+        sqlx::query_scalar!(
+            "SELECT refresh_token FROM account WHERE workspace_id = $1 AND id = $2",
+            workspace_id,
+            account_id,
+        )
+        .fetch_optional(db)
+        .await?
+    } else {
+        None
+    };
+
+    let (client_id, client_secret) = if oauth_data
+        .get("instance_shared")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
     {
-        let decrypted_refresh_token = decrypt(&mc, encrypted_refresh_token.to_string())
-            .map_err(|e| Error::InternalErr(format!("Failed to decrypt refresh token: {}", e)))?;
-        oauth_data["refresh_token"] = serde_json::Value::String(decrypted_refresh_token);
-    }
+        // Read credentials from instance-level global settings instead of workspace_integrations
+        let (id, secret) = get_instance_oauth_credentials(db, service_name)
+            .await
+            .map_err(|e| {
+                Error::InternalErr(format!(
+                    "Failed to read instance OAuth credentials for {}: {}",
+                    service_name, e
+                ))
+            })?;
+        (id, secret)
+    } else {
+        (
+            oauth_data["client_id"].as_str().unwrap_or("").to_string(),
+            oauth_data["client_secret"]
+                .as_str()
+                .unwrap_or("")
+                .to_string(),
+        )
+    };
 
-    serde_json::from_value(oauth_data)
-        .map_err(|e| Error::InternalErr(format!("Failed to deserialize OAuth data: {}", e)))
-}
-
-#[allow(unused)]
-pub fn oauth_data_to_config(oauth_data: &serde_json::Value) -> Result<OAuthConfig> {
-    let base_url = oauth_data
-        .get("base_url")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| Error::InternalErr("No base_url in OAuth data".to_string()))?
-        .to_string();
-
-    let access_token = oauth_data
-        .get("access_token")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| Error::InternalErr("No access_token in OAuth data".to_string()))?
-        .to_string();
-
-    let refresh_token = oauth_data
-        .get("refresh_token")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-
-    let client_id = oauth_data
-        .get("client_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| Error::InternalErr("No client_id in OAuth data".to_string()))?
-        .to_string();
-
-    let client_secret = oauth_data
-        .get("client_secret")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| Error::InternalErr("No client_secret in OAuth data".to_string()))?
-        .to_string();
-
-    Ok(OAuthConfig { base_url, access_token, refresh_token, client_id, client_secret })
-}
-
-#[inline]
-pub fn oauth_config_to_json(config: &OAuthConfig) -> serde_json::Value {
-    let mut json = json!({
-        "base_url": config.base_url,
-        "access_token": config.access_token,
-        "client_id": config.client_id,
-        "client_secret": config.client_secret,
+    let assembled = json!({
+        "base_url": oauth_data["base_url"].as_str().unwrap_or(""),
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "client_id": client_id,
+        "client_secret": client_secret,
     });
 
-    if let Some(refresh_token) = &config.refresh_token {
-        json["refresh_token"] = serde_json::Value::String(refresh_token.clone());
-    }
-
-    json
+    serde_json::from_value(assembled)
+        .map_err(|e| Error::InternalErr(format!("Failed to deserialize OAuth data: {}", e)))
 }
 
 /// Token refresh response
@@ -500,6 +602,7 @@ struct RefreshTokenResponse {
 pub async fn refresh_oauth_tokens(
     oauth_config: &OAuthConfig,
     refresh_endpoint: &str,
+    auth_endpoint: &str,
 ) -> Result<OAuthConfig> {
     let refresh_token_str = oauth_config
         .refresh_token
@@ -508,9 +611,9 @@ pub async fn refresh_oauth_tokens(
 
     // Build OAuth client for token refresh
     // Auth URL is not used for refresh, but required by the client constructor
-    let auth_url = Url::parse(&format!("{}/oauth/authorize", oauth_config.base_url))
+    let auth_url = Url::parse(&resolve_endpoint(&oauth_config.base_url, auth_endpoint))
         .map_err(|e| Error::InternalErr(format!("Invalid auth URL: {}", e)))?;
-    let token_url = Url::parse(&format!("{}{}", oauth_config.base_url, refresh_endpoint))
+    let token_url = Url::parse(&resolve_endpoint(&oauth_config.base_url, refresh_endpoint))
         .map_err(|e| Error::InternalErr(format!("Invalid token URL: {}", e)))?;
 
     let mut client = OClient::new(oauth_config.client_id.clone(), auth_url, token_url);
@@ -539,62 +642,80 @@ pub async fn refresh_oauth_tokens(
 pub async fn refresh_oauth_tokens(
     _oauth_config: &OAuthConfig,
     _refresh_endpoint: &str,
+    _auth_endpoint: &str,
 ) -> Result<OAuthConfig> {
     Err(Error::InternalErr(
         "Native triggers feature is not enabled".to_string(),
     ))
 }
 
-async fn update_workspace_integration_tokens_helper(
-    db: DB,
-    workspace_id: String,
+async fn update_oauth_token_resource(
+    db: &DB,
+    workspace_id: &str,
     service_name: ServiceName,
-    oauth_data: serde_json::Value,
+    new_access_token: &str,
+    new_refresh_token: Option<&str>,
 ) {
     let result = async {
-        let mut tx = db.begin().await?;
-        let mc = build_crypt(&db, &workspace_id).await?;
-        let mut encrypted_oauth_data = oauth_data;
+        let integration = get_workspace_integration(db, workspace_id, service_name).await?;
+        let resource_path = integration.resource_path.ok_or_else(|| {
+            Error::InternalErr(format!(
+                "No resource_path in {} integration config",
+                service_name
+            ))
+        })?;
 
-        if let Some(access_token) = encrypted_oauth_data
-            .get("access_token")
-            .and_then(|v| v.as_str())
-        {
-            let encrypted_access_token = encrypt(&mc, access_token);
-            encrypted_oauth_data["access_token"] =
-                serde_json::Value::String(encrypted_access_token);
-        }
-
-        if let Some(refresh_token) = encrypted_oauth_data
-            .get("refresh_token")
-            .and_then(|v| v.as_str())
-        {
-            let encrypted_refresh_token = encrypt(&mc, refresh_token);
-            encrypted_oauth_data["refresh_token"] =
-                serde_json::Value::String(encrypted_refresh_token);
-        }
+        let mc = build_crypt(db, workspace_id).await?;
+        let encrypted_token = encrypt(&mc, new_access_token);
 
         sqlx::query!(
-            r#"
-            UPDATE workspace_integrations
-            SET oauth_data = $1, updated_at = now()
-            WHERE workspace_id = $2 AND service_name = $3
-            "#,
-            encrypted_oauth_data,
+            "UPDATE variable SET value = $1 WHERE workspace_id = $2 AND path = $3",
+            encrypted_token,
             workspace_id,
-            service_name as ServiceName,
+            resource_path,
         )
-        .execute(&mut *tx)
+        .execute(db)
         .await?;
 
-        tx.commit().await?;
+        if let Some(refresh_token) = new_refresh_token {
+            sqlx::query!(
+                "UPDATE account SET
+                   refresh_token = $1,
+                   expires_at = now() + interval '1 hour',
+                   refresh_error = NULL
+                 WHERE workspace_id = $2 AND client = $3 AND is_workspace_integration = true",
+                refresh_token,
+                workspace_id,
+                service_name.as_str(),
+            )
+            .execute(db)
+            .await?;
+        } else {
+            // Even without a new refresh token, update expires_at to prevent
+            // the background refresh from re-refreshing immediately
+            sqlx::query!(
+                "UPDATE account SET
+                   expires_at = now() + interval '1 hour',
+                   refresh_error = NULL
+                 WHERE workspace_id = $1 AND client = $2 AND is_workspace_integration = true",
+                workspace_id,
+                service_name.as_str(),
+            )
+            .execute(db)
+            .await?;
+        }
+
         Ok::<(), Error>(())
     }
     .await;
 
     if let Err(e) = result {
-        tracing::error!("Critical error: Failed to update workspace integration tokens for {} in workspace {}: {}",
-            service_name, workspace_id, e);
+        tracing::error!(
+            "Failed to update OAuth tokens for {} in workspace {}: {}",
+            service_name,
+            workspace_id,
+            e
+        );
     }
 }
 
@@ -939,6 +1060,7 @@ pub async fn store_workspace_integration(
     workspace_id: &str,
     service_name: ServiceName,
     oauth_data: serde_json::Value,
+    resource_path: Option<&str>,
 ) -> Result<()> {
     sqlx::query!(
         r#"
@@ -946,20 +1068,23 @@ pub async fn store_workspace_integration(
             workspace_id,
             service_name,
             oauth_data,
+            resource_path,
             created_by,
             created_at,
             updated_at
         ) VALUES (
-            $1, $2, $3, $4, now(), now()
+            $1, $2, $3, $4, $5, now(), now()
         )
         ON CONFLICT (workspace_id, service_name)
         DO UPDATE SET
             oauth_data = $3,
+            resource_path = $4,
             updated_at = now()
         "#,
         workspace_id,
         service_name as ServiceName,
         oauth_data,
+        resource_path,
         authed.username,
     )
     .execute(&mut *tx)
@@ -980,6 +1105,7 @@ pub async fn get_workspace_integration<'c, E: sqlx::Executor<'c, Database = Post
             workspace_id,
             service_name AS "service_name!: ServiceName",
             oauth_data,
+            resource_path,
             created_at,
             updated_at,
             created_by
@@ -1050,4 +1176,44 @@ pub fn generate_webhook_service_url(
     }
 
     url
+}
+
+/// Process incoming webhook request for a native trigger service.
+/// Dispatches to the service-specific `prepare_webhook` to transform headers/body into args.
+/// Returns `None` if the service doesn't need special processing (standard body parsing is used).
+#[cfg(feature = "native_trigger")]
+pub async fn prepare_native_trigger_args(
+    service_name: ServiceName,
+    db: &DB,
+    w_id: &str,
+    headers: &http::HeaderMap,
+    body: String,
+) -> Result<Option<PushArgsOwned>> {
+    let headers_map: HashMap<String, String> = headers
+        .iter()
+        .filter_map(|(k, v)| v.to_str().ok().map(|v| (k.to_string(), v.to_string())))
+        .collect();
+
+    match service_name {
+        ServiceName::Google => {
+            let handler = google::Google;
+            let args = handler
+                .prepare_webhook(db, w_id, headers_map, body, "", false)
+                .await?;
+            Ok(Some(args))
+        }
+        ServiceName::Nextcloud => Ok(None),
+    }
+}
+
+/// Fallback when native_trigger feature is disabled
+#[cfg(not(feature = "native_trigger"))]
+pub async fn prepare_native_trigger_args(
+    _service_name: ServiceName,
+    _db: &DB,
+    _w_id: &str,
+    _headers: &http::HeaderMap,
+    _body: String,
+) -> Result<Option<PushArgsOwned>> {
+    Ok(None)
 }
