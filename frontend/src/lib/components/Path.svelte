@@ -400,11 +400,7 @@
 </script>
 
 <div>
-	<div
-		class="flex gap-2 pb-0 mb-1 {hideFullPath
-			? 'flex-row items-center'
-			: 'flex-col flex-wrap sm:flex-row sm:items-center'}"
-	>
+	<div class="flex gap-2 pb-0 mb-1 flex-col flex-wrap sm:flex-row sm:items-center">
 		{#if meta != undefined}
 			<!-- svelte-ignore a11y_label_has_associated_control -->
 			{#if !hideUser}
