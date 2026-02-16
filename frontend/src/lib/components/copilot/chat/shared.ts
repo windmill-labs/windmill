@@ -926,6 +926,9 @@ export class WorkspaceRunnablesSearch {
 	private flowsWorkspace: string | undefined = undefined
 	private scripts: Script[] | undefined = undefined
 	private flows: Flow[] | undefined = undefined
+	private scriptCache: Map<string, Awaited<ReturnType<typeof ScriptService.getScriptByPath>>> =
+		new Map()
+	private flowCache: Map<string, Awaited<ReturnType<typeof FlowService.getFlowByPath>>> = new Map()
 
 	constructor() {
 		this.uf = new uFuzzy()
@@ -1014,6 +1017,26 @@ export class WorkspaceRunnablesSearch {
 		}
 
 		return results
+	}
+
+	async getScript(path: string, workspace: string) {
+		const key = `${workspace}:${path}`
+		let cached = this.scriptCache.get(key)
+		if (!cached) {
+			cached = await ScriptService.getScriptByPath({ workspace, path })
+			this.scriptCache.set(key, cached)
+		}
+		return cached
+	}
+
+	async getFlow(path: string, workspace: string) {
+		const key = `${workspace}:${path}`
+		let cached = this.flowCache.get(key)
+		if (!cached) {
+			cached = await FlowService.getFlowByPath({ workspace, path })
+			this.flowCache.set(key, cached)
+		}
+		return cached
 	}
 }
 
@@ -1107,7 +1130,7 @@ export const createGetRunnableDetailsTool = () => ({
 
 		try {
 			if (type === 'script') {
-				const script = await ScriptService.getScriptByPath({ workspace, path })
+				const script = await workspaceRunnablesSearch.getScript(path, workspace)
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Retrieved script details for "${path}"`
 				})
@@ -1129,7 +1152,7 @@ export const createGetRunnableDetailsTool = () => ({
 					2
 				)
 			} else {
-				const flow = await FlowService.getFlowByPath({ workspace, path })
+				const flow = await workspaceRunnablesSearch.getFlow(path, workspace)
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Retrieved flow details for "${path}"`
 				})

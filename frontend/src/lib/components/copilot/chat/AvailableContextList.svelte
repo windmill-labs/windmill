@@ -2,7 +2,6 @@
 	import FlowModuleIcon from '$lib/components/flows/FlowModuleIcon.svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import type { FlowModule } from '$lib/gen/types.gen'
-	import { ScriptService, FlowService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { workspaceRunnablesSearch } from './shared'
 	import {
@@ -178,7 +177,7 @@
 
 		try {
 			if (currentView === 'scripts') {
-				const script = await ScriptService.getScriptByPath({ workspace, path })
+				const script = await workspaceRunnablesSearch.getScript(path, workspace)
 				const element: WorkspaceScriptElement & { deletable: boolean } = {
 					type: 'workspace_script',
 					path: script.path,
@@ -191,7 +190,7 @@
 				}
 				onSelectWorkspaceItem(element)
 			} else if (currentView === 'flows') {
-				const flow = await FlowService.getFlowByPath({ workspace, path })
+				const flow = await workspaceRunnablesSearch.getFlow(path, workspace)
 				const modules =
 					flow.value?.modules?.map((m) => ({
 						id: m.id,
