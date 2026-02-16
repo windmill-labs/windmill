@@ -944,7 +944,7 @@ Windmill Community Edition {GIT_VERSION}
             && NATIVE_MODE_RESOLVED.load(std::sync::atomic::Ordering::Relaxed)
         {
             num_workers = 8;
-            println!("Native mode detected from worker config: forcing NUM_WORKERS=8");
+            tracing::info!("Native mode detected from worker config: forcing NUM_WORKERS=8");
         }
 
         monitor_db(
