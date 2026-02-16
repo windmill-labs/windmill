@@ -4,7 +4,8 @@ export function processItems<Item extends { label?: string; value: any }>({
 	groupBy,
 	sortBy,
 	onCreateItem,
-	createText
+	createText,
+	currentValue
 }: {
 	items?: Item[]
 	filterText?: string
@@ -12,6 +13,7 @@ export function processItems<Item extends { label?: string; value: any }>({
 	sortBy?: (a: Item, b: Item) => number
 	onCreateItem?: (value: string) => void
 	createText?: string
+	currentValue?: any
 }): ProcessedItem<Item['value']>[] {
 	let items2 =
 		items?.map((item) => ({
@@ -28,7 +30,12 @@ export function processItems<Item extends { label?: string; value: any }>({
 	if (sortBy) {
 		items2 = items2?.sort(sortBy)
 	}
-	if (onCreateItem && filterText && !items2.some((item) => item.label === filterText)) {
+	if (
+		onCreateItem &&
+		filterText &&
+		filterText !== currentValue &&
+		!items2.some((item) => item.label === filterText)
+	) {
 		items2.push({
 			label: createText ?? `Add new: "${filterText}"`,
 			value: filterText,

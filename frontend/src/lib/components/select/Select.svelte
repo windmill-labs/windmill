@@ -95,7 +95,7 @@
 	let inputEl: HTMLInputElement | undefined = $state()
 
 	let processedItems: ProcessedItem<Value>[] = $derived.by(() => {
-		let args = { items, createText, filterText, groupBy, onCreateItem, sortBy }
+		let args = { items, createText, filterText, groupBy, onCreateItem, sortBy, currentValue: value }
 		return untrack(() => processItems(args))
 	})
 
@@ -103,7 +103,15 @@
 		if (filterText) open = true
 	})
 	$effect(() => {
-		if (!open) filterText = ''
+		if (!open) {
+			filterText = ''
+		} else {
+			untrack(() => {
+				if (value && !valueEntry) {
+					filterText = inputText
+				}
+			})
+		}
 	})
 
 	let valueEntry = $derived(value && processedItems?.find((item) => deepEqual(item.value, value)))
@@ -163,7 +171,7 @@
 		bind:value={() => (open ? filterText : inputText), (v) => open && (filterText = v)}
 		placeholder={loading && !value
 			? 'Loading...'
-			: value && !showPlaceholderOnOpen
+			: value && !showPlaceholderOnOpen && !(open && !valueEntry)
 				? inputText
 				: placeholder}
 		style={containerStyle}
