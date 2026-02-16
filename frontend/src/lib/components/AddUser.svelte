@@ -11,6 +11,7 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { UserPlus } from 'lucide-svelte'
 	import Select from './select/Select.svelte'
+	import TextInput from './text_input/TextInput.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -93,6 +94,12 @@
 		dispatch('new')
 	}
 
+	let emailError = $derived.by(() => {
+		if (!email) return undefined
+		const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+		return emailRegex.test(email) ? undefined : 'Please enter a valid email address'
+	})
+
 	let selected: 'operator' | 'developer' | 'admin' = $state('developer')
 </script>
 
@@ -117,14 +124,18 @@
 						email = v
 					}}
 					disablePortal={true}
+					error={!!emailError}
 				/>
 			{:else}
-				<input type="email" onkeyup={handleKeyUp} placeholder="email" bind:value={email} />
+				<TextInput inputProps={{ type: 'email', onkeyup: handleKeyUp, placeholder: 'email' }} bind:value={email} error={!!emailError} />
+			{/if}
+			{#if emailError}
+				<span class="text-2xs text-red-500 mt-0.5">{emailError}</span>
 			{/if}
 
 			{#if !automateUsernameCreation}
 				<span class="text-xs mb-1 pt-2 leading-6">Username</span>
-				<input type="text" onkeyup={handleKeyUp} placeholder="username" bind:value={username} />
+				<TextInput inputProps={{ type: 'text', onkeyup: handleKeyUp, placeholder: 'username' }} bind:value={username} />
 			{/if}
 
 			<span class="text-xs mb-1 pt-6 leading-6">Role</span>
@@ -161,7 +172,7 @@
 						username = undefined
 					})
 				}}
-				disabled={email === undefined || (!automateUsernameCreation && username === undefined)}
+				disabled={email === undefined || !!emailError || (!automateUsernameCreation && username === undefined)}
 			>
 				Add
 			</Button>
