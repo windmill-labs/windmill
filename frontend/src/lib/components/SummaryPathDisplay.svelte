@@ -8,11 +8,18 @@
 	interface Props {
 		summary?: string
 		path?: string
+		editable?: boolean
 		onEdit?: (summary: string, path: string) => void
 		kind?: 'flow' | 'script'
 	}
 
-	let { summary, path, onEdit, kind = 'flow' }: Props = $props()
+	let {
+		summary = $bindable(''),
+		path = $bindable(''),
+		editable = false,
+		onEdit,
+		kind = 'flow'
+	}: Props = $props()
 
 	let editSummary = $state('')
 	let editPath = $state('')
@@ -21,14 +28,14 @@
 	let hasChanges = $derived(editSummary !== (summary ?? '') || dirtyPath)
 
 	$effect(() => {
-		if (popoverOpen) {
+		if (popoverOpen && onEdit) {
 			editSummary = summary ?? ''
 			editPath = path ?? ''
 		}
 	})
 </script>
 
-{#if onEdit}
+{#if editable || onEdit}
 	<Popover
 		placement="bottom-start"
 		contentClasses="p-4"
@@ -55,48 +62,80 @@
 		{/snippet}
 		{#snippet content({ close })}
 			<div class="flex flex-col gap-3 w-[480px]">
-				<label class="block text-primary">
-					<div class="pb-1 text-xs font-semibold text-emphasis">Summary</div>
-					<TextInput
-						inputProps={{
-							type: 'text',
-							placeholder: 'Short summary',
-							onkeydown: (e) => {
-								if (e.key === 'Enter') {
-									onEdit?.(editSummary, editPath)
-									close()
+				{#if onEdit}
+					<label class="block text-primary">
+						<div class="pb-1 text-xs font-semibold text-emphasis">Summary</div>
+						<TextInput
+							inputProps={{
+								type: 'text',
+								placeholder: 'Short summary',
+								onkeydown: (e) => {
+									if (e.key === 'Enter') {
+										onEdit(editSummary, editPath)
+										close()
+									}
 								}
-							}
+							}}
+							bind:value={editSummary}
+						/>
+					</label>
+					<div class="block text-primary">
+						<div class="pb-1 text-xs font-semibold text-emphasis">Path</div>
+						<Path
+							autofocus={false}
+							bind:path={editPath}
+							bind:dirty={dirtyPath}
+							initialPath={path ?? ''}
+							namePlaceholder={kind}
+							{kind}
+							hideFullPath
+							size="sm"
+							drawerOffset={4000}
+						/>
+					</div>
+					<Button
+						size="xs"
+						variant="accent"
+						disabled={!hasChanges}
+						title="Save summary and path"
+						onclick={() => {
+							onEdit?.(editSummary, editPath)
+							close()
 						}}
-						bind:value={editSummary}
-					/>
-				</label>
-				<div class="block text-primary">
-					<div class="pb-1 text-xs font-semibold text-emphasis">Path</div>
-					<Path
-						autofocus={false}
-						bind:path={editPath}
-						bind:dirty={dirtyPath}
-						initialPath={path ?? ''}
-						namePlaceholder={kind}
-						{kind}
-						hideFullPath
-						size="sm"
-						drawerOffset={4000}
-					/>
-				</div>
-				<Button
-					size="xs"
-					variant="accent"
-					disabled={!hasChanges}
-					title="Save summary and path"
-					onclick={() => {
-						onEdit?.(editSummary, editPath)
-						close()
-					}}
-				>
-					Save
-				</Button>
+					>
+						Save
+					</Button>
+				{:else}
+					<label class="block text-primary">
+						<div class="pb-1 text-xs font-semibold text-emphasis">Summary</div>
+						<TextInput
+							inputProps={{
+								type: 'text',
+								placeholder: 'Short summary',
+								onkeydown: (e) => {
+									if (e.key === 'Enter') {
+										close()
+									}
+								}
+							}}
+							bind:value={summary}
+						/>
+					</label>
+					<div class="block text-primary">
+						<div class="pb-1 text-xs font-semibold text-emphasis">Path</div>
+						<Path
+							autofocus={false}
+							bind:path={path}
+							bind:dirty={dirtyPath}
+							initialPath={path ?? ''}
+							namePlaceholder={kind}
+							{kind}
+							hideFullPath
+							size="sm"
+							drawerOffset={4000}
+						/>
+					</div>
+				{/if}
 			</div>
 		{/snippet}
 	</Popover>

@@ -1117,13 +1117,10 @@
 			>
 				<div class="flex w-full max-w-md gap-8 items-center">
 					<SummaryPathDisplay
-						summary={flowStore.val.summary}
-						path={$pathStore}
+						bind:summary={flowStore.val.summary}
+						bind:path={$pathStore}
 						kind="flow"
-						onEdit={(newSummary, newPath) => {
-							flowStore.val.summary = newSummary
-							$pathStore = newPath
-						}}
+						editable
 					/>
 				</div>
 
