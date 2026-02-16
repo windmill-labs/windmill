@@ -106,7 +106,7 @@ export const scimSamlSetting: Setting[] = [
 		label: 'SCIM token',
 		description: 'Token used to authenticate requests from the IdP',
 		key: 'scim_token',
-		fieldType: 'text',
+		fieldType: 'password',
 		placeholder: 'mytoken',
 		storage: 'setting',
 		ee_only: ''
@@ -439,6 +439,16 @@ export const settings: Record<string, Setting[]> = {
 			key: 'maven_repos',
 			fieldType: 'password',
 			placeholder: 'https://user:password@artifacts.foo.com/maven',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'Maven settings.xml',
+			description:
+				'Write a Maven settings.xml file for custom repositories, mirrors, and credentials',
+			key: 'maven_settings_xml',
+			fieldType: 'codearea',
+			codeAreaLang: 'xml',
 			storage: 'setting',
 			ee_only: ''
 		},

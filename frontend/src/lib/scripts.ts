@@ -105,7 +105,7 @@ export async function loadScriptSchedule(
 	})
 
 	return {
-		summary: schedule.summary,
+		summary: schedule.summary ?? undefined,
 		enabled: schedule.enabled,
 		cron: schedule.schedule,
 		timezone: schedule.timezone,

@@ -120,6 +120,7 @@
 	let fullTab = $state('general')
 	let instanceSettingsCategory = $derived(tabToCategoryMap[fullTab] ?? 'Core')
 	let authSubTab: 'sso' | 'oauth' | 'scim' = $derived(tabToAuthSubTab[fullTab] ?? 'sso')
+	let yamlMode = $state(false)
 
 	// --- Unsaved changes detection (full mode) ---
 	let pendingTab: string | undefined = $state(undefined)
@@ -136,9 +137,18 @@
 		}
 	}
 
-	/** Auto-save the current wizard step if dirty, then run the callback */
+
+
+	/** Auto-save dirty settings, then run the callback */
 	async function saveAndProceed(callback: () => void) {
-		if (isSettingsStep(wizardStep)) {
+		if (yamlMode) {
+			// In YAML mode, sync editor → form, then bulk-save everything
+			if (!instanceSettings?.syncBeforeDiff()) return
+			await instanceSettings.saveSettings()
+		} else if (mode === 'full') {
+			// In full (advanced) mode, bulk-save all settings
+			await instanceSettings?.saveSettings()
+		} else if (isSettingsStep(wizardStep)) {
 			const category = settingsSteps[wizardStep].id
 			if (instanceSettings?.isDirty(category)) {
 				await instanceSettings.saveCategorySettings(category)
@@ -152,6 +162,7 @@
 	}
 
 	function switchToWizardMode() {
+		yamlMode = false
 		mode = 'wizard'
 	}
 
@@ -374,15 +385,26 @@
 				{/if}
 			</div>
 		{:else}
+			<!-- Action bar (full mode) -->
+			<div class="flex items-center justify-end gap-2 pb-2 border-b shrink-0">
+				<Toggle
+					bind:checked={yamlMode}
+					options={{ right: 'YAML' }}
+					size="sm"
+				/>
+			</div>
+
 			<!-- Sidebar + Content -->
 			<div class="flex flex-1 min-h-0">
-				<div class="w-44 shrink-0 overflow-auto pb-4 pr-4">
-					<SidebarNavigation
-						groups={setupNavigationGroups}
-						selectedId={fullTab}
-						onNavigate={handleNavigate}
-					/>
-				</div>
+				{#if !yamlMode}
+					<div class="w-44 shrink-0 overflow-auto pb-4 pr-4">
+						<SidebarNavigation
+							groups={setupNavigationGroups}
+							selectedId={fullTab}
+							onNavigate={handleNavigate}
+						/>
+					</div>
+				{/if}
 
 				<div class="flex-1 min-w-0 overflow-auto px-4">
 					<InstanceSettings
@@ -390,6 +412,7 @@
 						hideTabs
 						tab={instanceSettingsCategory}
 						{authSubTab}
+						bind:yamlMode
 						onNavigateToTab={(category) => {
 							const targetTab = categoryToTabMap[category]
 							if (targetTab) {
@@ -456,10 +479,11 @@
 				>
 					Quick setup
 				</Button>
-				<Button variant="accent" unifiedSize="md" onClick={() => {
+				<Button variant="accent" unifiedSize="md" onClick={() => saveAndProceed(() => {
+					yamlMode = false
 					wizardStep = wizardStepLabels.length - 1
 					mode = 'wizard'
-				}}>Continue</Button>
+				})}>Continue</Button>
 			{/if}
 		</div>
 

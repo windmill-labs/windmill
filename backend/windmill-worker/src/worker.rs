@@ -59,7 +59,7 @@ use std::{
     collections::{HashMap, HashSet},
     fmt::Display,
     sync::{
-        atomic::{AtomicBool, AtomicU8, AtomicU16, Ordering},
+        atomic::{AtomicBool, AtomicU16, AtomicU8, Ordering},
         Arc,
     },
     time::Duration,
@@ -579,6 +579,7 @@ lazy_static::lazy_static! {
     pub static ref POWERSHELL_REPO_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref POWERSHELL_REPO_PAT: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref MAVEN_REPOS: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+    pub static ref MAVEN_SETTINGS_XML: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref NO_DEFAULT_MAVEN: AtomicBool = AtomicBool::new(std::env::var("NO_DEFAULT_MAVEN")
         .ok()
         .and_then(|x| x.parse::<bool>().ok())
@@ -672,6 +673,26 @@ pub fn get_job_isolation() -> JobIsolationLevel {
 
 /// Returns true if nsjail sandboxing should be used for job execution.
 /// DISABLE_NSJAIL=false forces nsjail regardless of the global setting.
+pub async fn read_ee_registry<T>(
+    value: Option<T>,
+    name: &str,
+    job_id: &uuid::Uuid,
+    w_id: &str,
+    conn: &Connection,
+) -> Option<T> {
+    if !cfg!(feature = "enterprise") && value.is_some() {
+        append_logs(
+            job_id,
+            w_id,
+            format!("Private registry ({name}) configuration ignored: this feature requires Windmill Enterprise Edition\n"),
+            conn,
+        )
+        .await;
+        return None;
+    }
+    value
+}
+
 pub fn is_sandboxing_enabled() -> bool {
     if !*DISABLE_NSJAIL {
         return true;

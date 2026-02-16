@@ -20,6 +20,26 @@ When implementing new features in Windmill, follow these best practices:
 - Backend (Rust): see `backend/CLAUDE.md` and the `rust-backend` skill: `.claude/skills/rust-backend/SKILL.md`
 - Frontend (Svelte 5): see `frontend/CLAUDE.md` and the `svelte-frontend` skill: `.claude/skills/svelte-frontend/SKILL.md`
 
+## Dev Environment
+
+- **Backend**: `cargo run` from `backend/` (API at http://localhost:8000)
+- **Frontend**: `REMOTE=http://localhost:8000 npm run dev` from `frontend/`
+  - The `REMOTE` env var configures the Vite proxy target. Without it, API calls proxy to `https://app.windmill.dev` instead of the local backend.
+  - The dev server starts on port 3000 (or 3001+ if 3000 is in use).
+- **Default login**: `admin@windmill.dev` / `changeme`
+- **Instance settings**: navigate to `/#superadmin-settings` (opens the drawer overlay)
+
+## UI Testing with Playwright MCP
+
+When testing the frontend with the Playwright MCP tools:
+
+1. **Start servers**: Launch backend (`cargo run`) and frontend (`REMOTE=http://localhost:8000 npm run dev`) as background tasks
+2. **Wait for readiness**: Backend takes ~60s to compile; check output for `health check completed`. Frontend starts in ~5s.
+3. **Login flow**: Navigate to `/user/login`, click "Log in without third-party", fill email/password, submit
+4. **Instance settings drawer**: Navigate to `/#superadmin-settings` to open the drawer directly
+5. **Toggle components**: The YAML toggle uses a custom `<Toggle>` component where the checkbox is visually hidden (`sr-only`). Click the wrapper `<label>` element (the parent container with `cursor=pointer`), not the checkbox ref directly.
+6. **Console errors to ignore**: `critical_alerts` 404s are expected on CE builds (EE-only endpoint). VSCode worker 404s are dev-mode artifacts.
+
 ## Code Validation (MUST DO)
 
 After making code changes, you MUST run the appropriate checks and fix all errors before considering the work done:

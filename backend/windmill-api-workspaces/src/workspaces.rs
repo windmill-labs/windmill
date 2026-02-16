@@ -603,7 +603,10 @@ async fn get_settings(
 
     tx.commit().await?;
 
-    let settings = not_found_if_none(settings, "workspace settings", &w_id)?;
+    let mut settings = not_found_if_none(settings, "workspace settings", &w_id)?;
+    if !authed.is_admin {
+        settings.slack_oauth_client_secret = None;
+    }
     Ok(Json(settings))
 }
 
@@ -2752,7 +2755,7 @@ async fn create_workspace(
     .await?
     .map(|v| v.as_bool())
     .flatten()
-    .unwrap_or(false);
+    .unwrap_or(true);
 
     let username = if automate_username_creation {
         if nw.username.is_some() && nw.username.unwrap().len() > 0 {
@@ -3422,6 +3425,9 @@ async fn create_workspace_fork(
         )));
     }
 
+    #[cfg(not(feature = "enterprise"))]
+    _check_nb_of_workspaces(&db).await?;
+
     if *DISABLE_WORKSPACE_FORK {
         require_super_admin(&db, &authed.email).await?;
     }
@@ -3808,7 +3814,7 @@ async fn add_user(
     .await?
     .map(|v| v.as_bool())
     .flatten()
-    .unwrap_or(false);
+    .unwrap_or(true);
 
     let username = if automate_username_creation {
         if nu.username.is_some() && nu.username.unwrap().len() > 0 {
