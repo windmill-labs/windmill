@@ -10,7 +10,7 @@
 	} from '$lib/gen'
 
 	import { sendUserToast } from '$lib/toast'
-	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
+	import { userStore, workspaceStore, userWorkspaces, superadmin } from '$lib/stores'
 	import { Button, Drawer, DrawerContent, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import RunChart from '$lib/components/RunChart.svelte'
 
@@ -19,10 +19,7 @@
 
 	import RunsTable from '$lib/components/runs/RunsTable.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import {
-		buildRunsFilterSearchbarSchema,
-		runsFiltersSchema
-	} from '$lib/components/runs/runsFilter'
+	import { buildRunsFilterSearchbarSchema } from '$lib/components/runs/runsFilter'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import RunsQueue from '$lib/components/runs/RunsQueue.svelte'
@@ -37,7 +34,6 @@
 	import { page } from '$app/state'
 	import Select from '$lib/components/select/Select.svelte'
 	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
-	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
 	import { StaleWhileLoading } from '$lib/svelte5Utils.svelte'
 	import { TriangleAlertIcon } from 'lucide-svelte'
 	import DropdownV2 from './DropdownV2.svelte'
@@ -54,30 +50,21 @@
 		initialPath?: string
 	}
 
+	let filters = useUrlSyncedFilterInstance(untrack(() => runsFilterSearchbarSchema))
+
 	let { initialPath }: Props = $props()
 
 	let batchRerunOptionsIsOpen = $state(false)
-	let filters = useSearchParams(runsFiltersSchema)
 
 	// Initialize path filter from route param if provided and not already set via query params
-	if (initialPath && !filters.path) {
-		filters.path = initialPath
-	}
-
-	// Initialize toggle filters from localStorage if not set via URL params
-	// Check if URL has the params explicitly set; if not, use localStorage values
-	const urlParams = new URLSearchParams(window.location.search)
-	if (!urlParams.has('show_schedules')) {
-		filters.show_schedules = getShowSchedules()
-	}
-	if (!urlParams.has('show_future_jobs')) {
-		filters.show_future_jobs = getShowFutureJobs()
+	if (initialPath && !filters.val.path) {
+		filters.val.path = initialPath
 	}
 
 	let selectedIds: string[] = $state([])
 	let selectedWorkspace: string | undefined = $state(undefined)
 
-	let jobKinds: string | undefined = $derived(computeJobKinds(filters.job_kinds))
+	let jobKinds: string | undefined = $derived(computeJobKinds(filters.val.job_kinds ?? null))
 	let paths: string[] = $state([])
 	let usernames: string[] = $state([])
 	let folders: string[] = $state([])
@@ -106,24 +93,6 @@
 		}
 	}
 
-	function getShowSchedules() {
-		try {
-			return localStorage.getItem('show_schedules_in_runs') != 'false'
-		} catch (e) {
-			console.error('Error getting show schedules', e)
-			return true
-		}
-	}
-
-	function getShowFutureJobs() {
-		try {
-			return localStorage.getItem('show_future_jobs_in_runs') != 'false'
-		} catch (e) {
-			console.error('Error getting show future jobs', e)
-			return true
-		}
-	}
-
 	let _timeframe = useUrlSyncedTimeframe(runsTimeframes)
 	let timeframe = $derived(_timeframe.timeframe)
 
@@ -141,7 +110,7 @@
 		argError,
 		resultError,
 		lookback: graph === 'RunChart' ? 0 : lookback,
-		onSetPerPage: (p) => (filters.per_page = p),
+		onSetPerPage: (p) => (filters.val.per_page = p),
 		currentWorkspace: $workspaceStore ?? ''
 	}))
 	let lastFetchWentToEnd = $derived(jobsLoader.lastFetchWentToEnd)
@@ -160,7 +129,7 @@
 	function reset() {
 		_timeframe.timeframe = { ...runsTimeframes[0] }
 		selectedIds = []
-		filters.schedule_path = null
+		filters.val.schedule_path = undefined
 		selectedWorkspace = undefined
 		jobsLoader?.loadJobs(true)
 	}
@@ -183,26 +152,26 @@
 
 	function resetAndFilterBy(setter: (string) => void) {
 		return (e: CustomEvent<string>) => {
-			filters.path = null
-			filters.user = null
-			filters.folder = null
-			filters.label = null
-			filters.concurrency_key = null
-			filters.tag = null
-			filters.worker = null
-			filters.schedule_path = null
+			filters.val.path = undefined
+			filters.val.user = undefined
+			filters.val.folder = undefined
+			filters.val.label = undefined
+			filters.val.concurrency_key = undefined
+			filters.val.tag = undefined
+			filters.val.worker = undefined
+			filters.val.schedule_path = undefined
 			setter(e.detail)
 		}
 	}
 
-	const filterByPath = resetAndFilterBy((s) => (filters.path = s))
-	const filterByUser = resetAndFilterBy((s) => (filters.user = s))
-	const filterByFolder = resetAndFilterBy((s) => (filters.folder = s))
-	const filterByLabel = resetAndFilterBy((s) => (filters.label = s))
-	const filterByConcurrencyKey = resetAndFilterBy((s) => (filters.concurrency_key = s))
-	const filterByTag = resetAndFilterBy((s) => (filters.tag = s))
-	const filterBySchedule = resetAndFilterBy((s) => (filters.schedule_path = s))
-	const filterByWorker = resetAndFilterBy((s) => (filters.worker = s))
+	const filterByPath = resetAndFilterBy((s) => (filters.val.path = s))
+	const filterByUser = resetAndFilterBy((s) => (filters.val.user = s))
+	const filterByFolder = resetAndFilterBy((s) => (filters.val.folder = s))
+	const filterByLabel = resetAndFilterBy((s) => (filters.val.label = s))
+	const filterByConcurrencyKey = resetAndFilterBy((s) => (filters.val.concurrency_key = s))
+	const filterByTag = resetAndFilterBy((s) => (filters.val.tag = s))
+	const filterBySchedule = resetAndFilterBy((s) => (filters.val.schedule_path = s))
+	const filterByWorker = resetAndFilterBy((s) => (filters.val.worker = s))
 
 	function typeOfChart(s: string | null): 'RunChart' | 'ConcurrencyChart' {
 		switch (s) {
@@ -216,65 +185,72 @@
 	}
 
 	function getSelectedFilters() {
-		const argFilter = filters.arg && JSON.parse(filters.arg)
-		const resultFilter = filters.result && JSON.parse(filters.result)
+		const argFilter = filters.val.arg && JSON.parse(filters.val.arg)
+		const resultFilter = filters.val.result && JSON.parse(filters.val.result)
 		const { minTs, maxTs } = timeframe.computeMinMax()
 		return {
 			workspace: $workspaceStore ?? '',
 			startedBefore: maxTs ?? undefined,
 			startedAfter: minTs ?? undefined,
-			schedulePath: filters.schedule_path ?? undefined,
-			scriptPathExact: filters.path === null || filters.path === '' ? undefined : filters.path,
-			createdBy: filters.user || undefined,
-			scriptPathStart: filters.folder ? `f/${filters.folder}/` : undefined,
+			schedulePath: filters.val.schedule_path ?? undefined,
+			scriptPathExact:
+				filters.val.path === null || filters.val.path === '' ? undefined : filters.val.path,
+			createdBy: filters.val.user || undefined,
+			scriptPathStart: filters.val.folder ? `f/${filters.val.folder}/` : undefined,
 			jobKinds: jobKinds == '' ? undefined : jobKinds,
 			success:
-				filters.success == 'success' ? true : filters.success == 'failure' ? false : undefined,
-			running:
-				filters.success == 'running' || filters.success == 'suspended'
+				filters.val.status == 'success'
 					? true
-					: filters.success == 'waiting'
+					: filters.val.status == 'failure'
 						? false
 						: undefined,
-			isSkipped: filters.show_skipped ? undefined : false,
+			running:
+				filters.val.status == 'running' || filters.val.status == 'suspended'
+					? true
+					: filters.val.status == 'waiting'
+						? false
+						: undefined,
+			isSkipped: filters.val.show_skipped ? undefined : false,
 			// isFlowStep: jobKindsCat != 'all' ? false : undefined,
 			hasNullParent:
-				filters.path != undefined || filters.path != undefined || filters.job_kinds != 'all'
+				filters.val.path != undefined ||
+				filters.val.path != undefined ||
+				filters.val.job_kinds != 'all'
 					? true
 					: undefined,
-			label: filters.label || undefined,
-			tag: filters.tag || undefined,
-			isNotSchedule: filters.show_schedules == false ? true : undefined,
+			label: filters.val.label || undefined,
+			tag: filters.val.tag || undefined,
 			suspended:
-				filters.success == 'waiting' ? false : filters.success == 'suspended' ? true : undefined,
+				filters.val.status == 'waiting'
+					? false
+					: filters.val.status == 'suspended'
+						? true
+						: undefined,
 			scheduledForBeforeNow:
-				filters.show_future_jobs == false ||
-				filters.success == 'waiting' ||
-				filters.success == 'suspended'
+				filters.val.show_future_jobs == false ||
+				filters.val.status == 'waiting' ||
+				filters.val.status == 'suspended'
 					? true
 					: undefined,
 			args: argFilter && Object.keys(argFilter).length && !argError ? argFilter : undefined,
 			result:
 				resultFilter && Object.keys(resultFilter).length && !resultError ? resultFilter : undefined,
-			jobTriggerKind: filters.job_trigger_kind || undefined,
-			allWorkspaces: filters.all_workspaces || undefined,
-			allowWildcards: filters.allow_wildcards || undefined
+			jobTriggerKind: filters.val.job_trigger_kind || undefined,
+			allWorkspaces: filters.val.all_workspaces || undefined,
+			allowWildcards: filters.val.allow_wildcards || undefined
 		}
 	}
 
-	$effect(() => {
-		if (filters.job_trigger_kind === 'schedule' && !filters.show_schedules) {
-			filters.show_schedules = true
-		}
-	})
-
 	// Persist toggle filters to localStorage
 	$effect(() => {
-		localStorage.setItem('show_schedules_in_runs', filters.show_schedules ? 'true' : 'false')
+		localStorage.setItem('show_schedules_in_runs', filters.val.show_schedules ? 'true' : 'false')
 	})
 
 	$effect(() => {
-		localStorage.setItem('show_future_jobs_in_runs', filters.show_future_jobs ? 'true' : 'false')
+		localStorage.setItem(
+			'show_future_jobs_in_runs',
+			filters.val.show_future_jobs ? 'true' : 'false'
+		)
 	})
 
 	async function cancelJobs(uuidsToCancel: string[], forceCancel: boolean = false) {
@@ -398,7 +374,7 @@
 
 		const loadingToast = sendUserToast('Loading job ids', 'info')
 
-		if (filters.job_kinds !== 'runs') {
+		if (filters.val.job_kinds !== 'runs') {
 			sendUserToast('Batch re-run is only supported for scripts and flows', true)
 			loadingToast.destroy()
 			return
@@ -428,20 +404,16 @@
 	}
 
 	function jobsFilter(f: 'waiting' | 'suspended') {
-		filters.path = null
-		filters.user = null
-		filters.folder = null
-		filters.label = null
-		filters.concurrency_key = null
-		filters.tag = null
-		filters.worker = null
-		filters.schedule_path = null
-		if (filters.success == f) {
-			filters.success = null
-		} else {
-			filters.success = f
-		}
-		filters.job_kinds = 'all'
+		filters.val.path = undefined
+		filters.val.user = undefined
+		filters.val.folder = undefined
+		filters.val.label = undefined
+		filters.val.concurrency_key = undefined
+		filters.val.tag = undefined
+		filters.val.worker = undefined
+		filters.val.schedule_path = undefined
+		filters.val.status = filters.val.status == f ? undefined : f
+		filters.val.job_kinds = 'all'
 	}
 
 	$effect(() => {
@@ -467,15 +439,20 @@
 	let forceCancelInPopup = $state(false)
 
 	const warnJobLimitMsg = $derived(
-		`The exact number of concurrent jobs at the beginning of the time range may be incorrect as only the last ${filters.per_page} jobs are taken into account: a job that was started earlier than this limit will not be taken into account`
+		`The exact number of concurrent jobs at the beginning of the time range may be incorrect as only the last ${filters.val.per_page} jobs are taken into account: a job that was started earlier than this limit will not be taken into account`
 	)
 
 	let manualSelectionMode: undefined | 'cancel' | 'rerun' = $state()
 
 	let runsFilterSearchbarSchema = $derived(
-		buildRunsFilterSearchbarSchema({ paths, usernames, folders, jobTriggerKinds })
+		buildRunsFilterSearchbarSchema({
+			paths,
+			usernames,
+			folders,
+			jobTriggerKinds,
+			isSuperAdmin: !!$superadmin
+		})
 	)
-	let filterSearchBarValue = useUrlSyncedFilterInstance(untrack(() => runsFilterSearchbarSchema))
 </script>
 
 <ConfirmationModal
@@ -565,7 +542,7 @@
 
 				<!-- Queue -->
 				<RunsQueue
-					success={filters.success}
+					success={filters.val.status ?? null}
 					{queue_count}
 					{suspended_count}
 					onJobsWaiting={() => {
@@ -588,7 +565,7 @@
 				<FilterSearchbar
 					class="w-[24rem]"
 					schema={runsFilterSearchbarSchema}
-					bind:value={filterSearchBarValue.val}
+					bind:value={filters.val}
 				/>
 			</div>
 		</div>
@@ -672,7 +649,7 @@
 										externalJobs={externalJobs ?? []}
 										omittedObscuredJobs={extendedJobs?.omitted_obscured_jobs ?? false}
 										showExternalJobs={graph !== 'RunChart'}
-										activeLabel={filters.label}
+										activeLabel={filters.val.label}
 										{lastFetchWentToEnd}
 										bind:selectedIds
 										bind:selectedWorkspace
@@ -686,7 +663,7 @@
 										on:filterBySchedule={filterBySchedule}
 										on:filterByWorker={filterByWorker}
 										bind:this={runsTable}
-										perPage={filters.per_page}
+										perPage={filters.val.per_page}
 										bind:batchRerunOptionsIsOpen
 										onCancelJobs={onCancelSelectedJobs}
 										{manualSelectionMode}
@@ -754,13 +731,13 @@
 								<Select
 									class="w-24"
 									bind:value={
-										() => filters.per_page,
+										() => filters.val.per_page,
 										(newPerPage) => {
-											filters.per_page = newPerPage
+											filters.val.per_page = newPerPage
 											if (newPerPage > (jobs?.length ?? 1000)) loadExtra()
 										}
 									}
-									onCreateItem={(v) => (filters.per_page = parseInt(v))}
+									onCreateItem={(v) => (filters.val.per_page = parseInt(v))}
 									items={[
 										{ value: 25, label: '25' },
 										{ value: 100, label: '100' },

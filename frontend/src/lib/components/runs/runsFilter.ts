@@ -1,48 +1,20 @@
 import type { JobTriggerKind } from '$lib/gen'
 import { Calendar, FolderIcon, UserIcon } from 'lucide-svelte'
-import z from 'zod'
 import { triggerDisplayNamesMap } from '../triggers/utils'
-
-export const runsFiltersSchema = z.object({
-	path: z.string().nullable().default(null),
-	worker: z.string().nullable().default(null),
-	user: z.string().nullable().default(null),
-	folder: z.string().nullable().default(null),
-	label: z.string().nullable().default(null),
-	concurrency_key: z.string().nullable().default(null),
-	tag: z.string().nullable().default(null),
-	allow_wildcards: z.boolean().default(false),
-	show_future_jobs: z.boolean().default(true),
-	success: z
-		.enum(['running', 'suspended', 'waiting', 'success', 'failure'])
-		.nullable()
-		.default(null),
-	show_skipped: z.boolean().default(false),
-	show_schedules: z.boolean().default(true),
-	schedule_path: z.string().nullable().default(null),
-	job_kinds: z.string().default('runs'),
-	all_workspaces: z.boolean().default(false),
-	arg: z.string().default(''),
-	result: z.string().default(''),
-	job_trigger_kind: z
-		.string()
-		.transform((s) => s as JobTriggerKind)
-		.nullable()
-		.default(null),
-	per_page: z.number().default(1000)
-})
-export type RunsFilters = z.infer<typeof runsFiltersSchema>
+import type { FilterInstanceRec } from '../FilterSearchbar.svelte'
 
 export function buildRunsFilterSearchbarSchema({
 	paths,
 	usernames,
 	folders,
-	jobTriggerKinds
+	jobTriggerKinds,
+	isSuperAdmin
 }: {
 	paths: string[]
 	usernames: string[]
 	folders: string[]
 	jobTriggerKinds: JobTriggerKind[]
+	isSuperAdmin: boolean
 }) {
 	return {
 		min_ts: {
@@ -138,7 +110,9 @@ export function buildRunsFilterSearchbarSchema({
 				{ label: 'All (default)', value: 'all' as const },
 				{ label: 'Running', value: 'running' as const },
 				{ label: 'Success', value: 'success' as const },
-				{ label: 'Failure', value: 'failure' as const }
+				{ label: 'Failure', value: 'failure' as const },
+				{ label: 'Waiting', value: 'waiting' as const },
+				{ label: 'Suspended', value: 'suspended' as const }
 			],
 			label: 'Status',
 			description: 'Filter by job execution status'
@@ -166,8 +140,19 @@ export function buildRunsFilterSearchbarSchema({
 			type: 'string' as const,
 			label: 'Result',
 			description: 'Filter by job result (JSON format)'
+		},
+		show_future_jobs: {
+			type: 'boolean' as const,
+			label: 'Show future jobs (Default: true)',
+			description: 'Include jobs that are planned later'
+		},
+		all_workspaces: {
+			type: 'boolean' as const,
+			label: 'All workspaces',
+			description: 'Show jobs of all workspaces (superadmin only)'
 		}
 	}
 }
 
 export type RunsFilterSearchbarSchema = ReturnType<typeof buildRunsFilterSearchbarSchema>
+export type RunsFilterInstance = FilterInstanceRec<RunsFilterSearchbarSchema>
