@@ -145,6 +145,68 @@ pub async fn load_value_from_global_settings(
     Ok(r)
 }
 
+/// Read OAuth client_id and client_secret from instance-level global settings.
+/// `oauth_key` is the key under `oauths` (e.g., "gworkspace", "nextcloud").
+pub async fn get_instance_oauth_credentials(
+    db: &Pool<Postgres>,
+    oauth_key: &str,
+) -> error::Result<(String, String)> {
+    let oauths_value = load_value_from_global_settings(db, OAUTH_SETTING)
+        .await?
+        .ok_or_else(|| {
+            error::Error::InternalErr("Instance OAuth settings not found".to_string())
+        })?;
+
+    let entry = oauths_value.get(oauth_key).ok_or_else(|| {
+        error::Error::InternalErr(format!("No {} entry in instance OAuth settings", oauth_key))
+    })?;
+
+    let id = entry
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let secret = entry
+        .get("secret")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    if id.is_empty() || secret.is_empty() {
+        return Err(error::Error::InternalErr(format!(
+            "Instance OAuth credentials for {} are incomplete",
+            oauth_key
+        )));
+    }
+
+    Ok((id, secret))
+}
+
+/// Map service client name to the OAuth settings key in global_settings.
+/// e.g. "google" -> "gworkspace", "nextcloud" -> "nextcloud"
+pub fn workspace_integration_oauth_key(client_name: &str) -> &str {
+    match client_name {
+        "google" => "gworkspace",
+        other => other,
+    }
+}
+
+/// Resolve the token endpoint URL for a workspace integration service.
+pub fn workspace_integration_token_endpoint(client_name: &str, base_url: &str) -> String {
+    match client_name {
+        "google" => "https://oauth2.googleapis.com/token".to_string(),
+        _ => format!("{}/apps/oauth2/api/v1/token", base_url),
+    }
+}
+
+/// Resolve the auth endpoint URL for a workspace integration service.
+pub fn workspace_integration_auth_endpoint(client_name: &str, base_url: &str) -> String {
+    match client_name {
+        "google" => "https://accounts.google.com/o/oauth2/v2/auth".to_string(),
+        _ => format!("{}/apps/oauth2/authorize", base_url),
+    }
+}
+
 pub async fn set_value_in_global_settings(
     db: &Pool<Postgres>,
     setting_name: &str,

@@ -19,6 +19,8 @@ mcp = []
 windmill-test-utils.workspace = true
 windmill-api-client.workspace = true
 windmill-common = { workspace = true, default-features = false }
+windmill-native-triggers = { workspace = true, features = ["native_trigger"] }
+windmill-api-auth.workspace = true
 sqlx.workspace = true
 serde_json.workspace = true
 serde.workspace = true

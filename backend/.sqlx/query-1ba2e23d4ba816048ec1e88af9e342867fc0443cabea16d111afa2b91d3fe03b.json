@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT client, refresh_token, grant_type, cc_client_id, cc_client_secret, cc_token_url, mcp_server_url FROM account WHERE workspace_id = $1 AND id = $2",
+  "query": "SELECT client, refresh_token, grant_type, cc_client_id, cc_client_secret, cc_token_url, mcp_server_url, is_workspace_integration FROM account WHERE workspace_id = $1 AND id = $2",
   "describe": {
     "columns": [
       {
@@ -37,6 +37,11 @@
         "ordinal": 6,
         "name": "mcp_server_url",
         "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "is_workspace_integration",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -52,8 +57,9 @@
       true,
       true,
       true,
-      true
+      true,
+      false
     ]
   },
-  "hash": "e26ccc6607a9c78c1a8c1fd7b3bec931cf0ed27f79f852ae7f63a0ed6e12042f"
+  "hash": "1ba2e23d4ba816048ec1e88af9e342867fc0443cabea16d111afa2b91d3fe03b"
 }
