@@ -312,7 +312,7 @@
 
 <div class="flex flex-col">
 	<SettingsPageHeader
-		title="Native Triggers (Beta)"
+		title="Native Triggers"
 		description="Connect your workspace to external services for native triggers and enhanced functionality. These connections are shared across all workspace members and are required for native triggers to work."
 		link="https://www.windmill.dev/docs/integrations/native-triggers"
 	/>
