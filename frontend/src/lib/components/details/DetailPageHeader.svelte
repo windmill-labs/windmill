@@ -11,6 +11,7 @@
 	import { emptyString } from '$lib/utils'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import Path from '$lib/components/Path.svelte'
 
 	type MainButton = {
 		label: string
@@ -60,8 +61,9 @@
 
 	let editSummary = $state('')
 	let editPath = $state('')
+	let dirtyPath = $state(false)
 	let popoverOpen = $state(false)
-	let hasChanges = $derived(editSummary !== (summary ?? '') || editPath !== (path ?? ''))
+	let hasChanges = $derived(editSummary !== (summary ?? '') || dirtyPath)
 
 	$effect(() => {
 		if (popoverOpen) {
@@ -114,7 +116,7 @@
 								</Button>
 							{/snippet}
 							{#snippet content({ close })}
-								<div class="flex flex-col gap-3 w-72">
+								<div class="flex flex-col gap-3 w-96">
 									<label class="block text-primary">
 										<div class="pb-1 text-xs font-semibold text-emphasis">Summary</div>
 										<TextInput
@@ -131,22 +133,17 @@
 											bind:value={editSummary}
 										/>
 									</label>
-									<label class="block text-primary">
+									<div class="block text-primary">
 										<div class="pb-1 text-xs font-semibold text-emphasis">Path</div>
-										<TextInput
-											inputProps={{
-												type: 'text',
-												placeholder: 'Path',
-												onkeydown: (e) => {
-													if (e.key === 'Enter') {
-														onEdit?.(editSummary, editPath)
-														close()
-													}
-												}
-											}}
-											bind:value={editPath}
+										<Path
+											autofocus={false}
+											bind:path={editPath}
+											bind:dirty={dirtyPath}
+											initialPath={path ?? ''}
+											namePlaceholder={errorHandlerKind}
+											kind={errorHandlerKind}
 										/>
-									</label>
+									</div>
 									<Button
 										size="xs"
 										variant="accent"
