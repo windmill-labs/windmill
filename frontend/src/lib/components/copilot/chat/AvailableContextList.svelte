@@ -128,6 +128,7 @@
 		if (categoryId === 'scripts' || categoryId === 'flows') {
 			workspaceSearchQuery = ''
 			workspaceSearchResults = []
+			searchWorkspaceItems('')
 			setTimeout(() => searchInputElement?.focus(), 0)
 		}
 	}
@@ -173,13 +174,18 @@
 		try {
 			if (currentView === 'scripts') {
 				const script = await workspaceRunnablesSearch.getScript(path, workspace)
+				const content = script.content ?? ''
+				const truncatedContent =
+					content.length > MAX_RUNNABLE_CONTENT_LENGTH
+						? content.slice(0, MAX_RUNNABLE_CONTENT_LENGTH) + '\n... (truncated)'
+						: content
 				const element: WorkspaceScriptElement & { deletable: boolean } = {
 					type: 'workspace_script',
 					path: script.path,
 					title: script.path,
 					summary: script.summary,
 					language: script.language,
-					content: script.content,
+					content: truncatedContent,
 					schema: script.schema,
 					deletable: true
 				}
@@ -203,12 +209,12 @@
 				}
 				onSelectWorkspaceItem(element)
 			}
+			currentView = 'categories'
+			workspaceSearchQuery = ''
+			workspaceSearchResults = []
 		} catch (err) {
 			console.error('Error fetching workspace item', err)
 		}
-		currentView = 'categories'
-		workspaceSearchQuery = ''
-		workspaceSearchResults = []
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {
@@ -321,11 +327,12 @@
 		}
 	}
 
-	// Listen for keyboard events
+	// Listen for keyboard events + clean up debounce timer
 	$effect(() => {
 		document.addEventListener('keydown', handleKeyDown)
 		return () => {
 			document.removeEventListener('keydown', handleKeyDown)
+			if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
 		}
 	})
 
@@ -335,12 +342,6 @@
 		}
 	})
 
-	// Trigger initial search when entering a searchable category
-	$effect(() => {
-		if (isSearchableView) {
-			searchWorkspaceItems('')
-		}
-	})
 </script>
 
 <div

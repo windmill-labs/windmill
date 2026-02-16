@@ -1137,7 +1137,7 @@
 				},
 				{
 					id: 'native_triggers',
-					label: 'Native triggers (Beta)',
+					label: 'Native triggers',
 					aiId: 'workspace-settings-integrations',
 					aiDescription: 'Workspace integrations for native triggers'
 				}

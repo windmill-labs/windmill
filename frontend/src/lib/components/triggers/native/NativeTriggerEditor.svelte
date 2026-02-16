@@ -18,6 +18,7 @@
 	import Section from '$lib/components/Section.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import NextcloudTriggerForm from './services/nextcloud/NextcloudTriggerForm.svelte'
+	import GoogleTriggerForm from './services/google/GoogleTriggerForm.svelte'
 	import TriggerEditorToolbar from '$lib/components/triggers/TriggerEditorToolbar.svelte'
 	import { handleConfigChange, type Trigger } from '$lib/components/triggers/utils'
 	import { deepEqual } from 'fast-equals'
@@ -71,6 +72,8 @@
 		switch (service) {
 			case 'nextcloud':
 				return NextcloudTriggerForm
+			case 'google':
+				return GoogleTriggerForm
 			default:
 				return null
 		}
@@ -113,7 +116,7 @@
 		fixedScriptPath = fixedScriptPath_ ?? ''
 		scriptPath = fixedScriptPath
 		initialScriptPath = ''
-		isFlow = nis_flow ?? false
+		itemKind = nis_flow ? 'flow' : 'script'
 		externalId = null
 		loadingConfig = false
 		can_write = true
@@ -135,7 +138,7 @@
 		errors = {}
 		scriptPath = nativeTrigger.script_path
 		initialScriptPath = nativeTrigger.script_path
-		isFlow = nativeTrigger.is_flow
+		itemKind = nativeTrigger.is_flow ? 'flow' : 'script'
 		externalId = null
 		loadingConfig = false
 		loadingForm = false
@@ -164,6 +167,7 @@
 		loadingConfig = true
 		loadingForm = true
 		initialConfig = undefined
+		itemKind = nis_flow ? 'flow' : 'script'
 
 		try {
 			const fullTrigger = await NativeTriggerService.getNativeTrigger({
@@ -175,7 +179,6 @@
 			serviceConfig = (fullTrigger.service_config as Record<string, any>) || {}
 			scriptPath = fullTrigger.script_path
 			initialScriptPath = fullTrigger.script_path
-			isFlow = nis_flow ?? fullTrigger.is_flow
 			can_write = canWrite(fullTrigger.script_path, {}, $userStore)
 			externalData = fullTrigger.external_data
 
@@ -231,9 +234,6 @@
 	let isValid = $derived.by(() => Object.keys(validationErrors).length === 0)
 	let hasChanged = $derived(!deepEqual(getSaveCfg(), originalConfig ?? {}))
 
-	$effect(() => {
-		console.log('loading', getSaveCfg(), originalConfig)
-	})
 	let saveDisabled = $derived(
 		loading ||
 			!isValid ||
@@ -296,7 +296,11 @@
 		loading = false
 	}
 	let templateUrl = $derived(isFlow ? flowTemplateUrl : scriptTemplateUrl)
-	let itemKind: 'flow' | 'script' = $derived(isFlow ? 'flow' : 'script')
+	let itemKind = $state<'flow' | 'script'>('script')
+
+	$effect(() => {
+		isFlow = itemKind === 'flow'
+	})
 </script>
 
 {#if useDrawer}
@@ -388,9 +392,6 @@
 							bind:scriptPath
 							allowRefresh={can_write}
 							bind:itemKind
-							on:select={(e) => {
-								isFlow = e.detail.itemKind === 'flow'
-							}}
 							kinds={['script']}
 							allowFlow={true}
 							allowEdit={!$userStore?.operator}
