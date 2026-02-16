@@ -56,7 +56,7 @@
 				</Button>
 			{/snippet}
 			{#snippet content({ close })}
-				<div class="flex flex-col gap-3 w-96">
+				<div class="flex flex-col gap-3 w-[480px]">
 					<label class="block text-primary">
 						<div class="pb-1 text-xs font-semibold text-emphasis">Summary</div>
 						<TextInput
@@ -82,6 +82,8 @@
 							initialPath={path ?? ''}
 							namePlaceholder={kind}
 							{kind}
+							hideFullPath
+							size="sm"
 						/>
 					</div>
 					<Button

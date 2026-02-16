@@ -16,6 +16,7 @@
 		initialPath?: string
 		disabled?: boolean
 		disableEditing?: boolean
+		size?: 'sm' | 'md'
 	}
 
 	let {
@@ -23,6 +24,7 @@
 		initialPath = $bindable(undefined),
 		disabled = $bindable(undefined),
 		disableEditing = $bindable(undefined),
+		size = 'md'
 	}: Props = $props()
 
 	async function loadFolders(): Promise<void> {
@@ -94,7 +96,7 @@
 </Drawer>
 
 <div class="flex flex-row items-center gap-1 w-full">
-	<select class="grow w-full" disabled={disabled || disableEditing} bind:value={folderName}>
+	<select class="grow w-full {size === 'sm' ? 'text-xs !h-[28px]' : ''}" disabled={disabled || disableEditing} bind:value={folderName}>
 		{#if folders?.length == 0}
 			<option disabled>No folders</option>
 		{/if}
@@ -105,7 +107,7 @@
 	<Button
 		title="View folder"
 		variant="default"
-		unifiedSize="md"
+		unifiedSize={size}
 		disabled={!folderName || folderName == ''}
 		on:click={viewFolder.openDrawer}
 		iconOnly
@@ -114,7 +116,7 @@
 	<Button
 		title="New folder"
 		variant="default"
-		unifiedSize="md"
+		unifiedSize={size}
 		{disabled}
 		on:click={newFolder.openDrawer}
 		iconOnly
