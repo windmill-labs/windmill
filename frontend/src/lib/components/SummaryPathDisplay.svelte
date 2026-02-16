@@ -86,6 +86,7 @@
 							{kind}
 							hideFullPath
 							size="sm"
+							drawerOffset={4000}
 						/>
 					</div>
 					<Button

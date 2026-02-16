@@ -71,6 +71,7 @@
 		disableEditing?: boolean
 		hideFullPath?: boolean
 		size?: 'sm' | 'md'
+		drawerOffset?: number
 	}
 
 	let {
@@ -87,7 +88,8 @@
 		hideUser = false,
 		disableEditing = false,
 		hideFullPath = false,
-		size = 'md'
+		size = 'md',
+		drawerOffset = 0
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -474,6 +476,7 @@
 							{disabled}
 							{disableEditing}
 							{size}
+							{drawerOffset}
 						/>
 					</label>
 				{/if}

@@ -5,7 +5,6 @@
 	import { Button, Drawer, DrawerContent } from './common'
 	import FolderEditor from './FolderEditor.svelte'
 	import Select from './select/Select.svelte'
-	import TextInput from './text_input/TextInput.svelte'
 
 	let folders: { name: string; write: boolean }[] = $state([])
 	let newFolder: Drawer | null = $state(null)
@@ -19,6 +18,7 @@
 		disabled?: boolean
 		disableEditing?: boolean
 		size?: 'sm' | 'md'
+		drawerOffset?: number
 	}
 
 	let {
@@ -26,7 +26,8 @@
 		initialPath = $bindable(undefined),
 		disabled = $bindable(undefined),
 		disableEditing = $bindable(undefined),
-		size = 'md'
+		size = 'md',
+		drawerOffset = 0
 	}: Props = $props()
 
 	async function loadFolders(): Promise<void> {
@@ -56,8 +57,9 @@
 		)
 	}
 
-	function openCreateFolder(name: string) {
+	async function openCreateFolder(name: string) {
 		newFolderName = name
+		await addFolder()
 		newFolder?.openDrawer()
 	}
 
@@ -83,29 +85,21 @@
 	loadFolders()
 </script>
 
-<Drawer bind:this={newFolder} name="newFolder">
+<Drawer bind:this={newFolder} name="newFolder" offset={drawerOffset}>
 	<DrawerContent
-		title="New Folder"
+		title="Folder {folderCreated ?? ''}"
 		on:close={() => {
 			newFolder?.closeDrawer()
 			folderCreated = undefined
 		}}
 	>
-		{#if !folderCreated}
-			<div class="flex flex-col gap-2">
-				<TextInput
-					inputProps={{ type: 'text', placeholder: 'New folder name' }}
-					bind:value={newFolderName}
-				/>
-				<Button size="md" disabled={!newFolderName} on:click={addFolder}>Create folder</Button>
-			</div>
-		{:else}
+		{#if folderCreated}
 			<FolderEditor name={folderCreated} />
 		{/if}
 	</DrawerContent>
 </Drawer>
 
-<Drawer bind:this={viewFolder}>
+<Drawer bind:this={viewFolder} offset={drawerOffset}>
 	<DrawerContent title="Folder {folderName}" on:close={viewFolder.closeDrawer}>
 		<FolderEditor name={folderName ?? ''} />
 	</DrawerContent>
