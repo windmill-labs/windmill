@@ -42,7 +42,7 @@
 		itemLabelWrapperClasses,
 		itemButtonWrapperClasses,
 		size = 'md',
-		showPlaceholderOnOpen = false,
+		allowUserInput = false,
 		transformInputSelectedText,
 		groupBy,
 		sortBy,
@@ -76,7 +76,8 @@
 		itemLabelWrapperClasses?: string
 		itemButtonWrapperClasses?: string
 		size?: 'sm' | 'md' | 'lg'
-		showPlaceholderOnOpen?: boolean
+		/** When true, any text typed by the user becomes the value when the dropdown closes */
+		allowUserInput?: boolean
 		transformInputSelectedText?: (text: string) => string
 		groupBy?: (item: Item) => string
 		sortBy?: (a: Item, b: Item) => number
@@ -99,6 +100,23 @@
 		return untrack(() => processItems(args))
 	})
 
+	let valueEntry = $derived(value && processedItems?.find((item) => deepEqual(item.value, value)))
+
+	let rawLabel = $derived(valueEntry?.label ?? getLabel({ value }) ?? '')
+
+	let displayText = $derived(transformInputSelectedText?.(rawLabel) ?? rawLabel)
+
+	let inputValue = $derived(open ? filterText : displayText)
+
+	let hasFilteredItems = $derived(
+		!filterText ||
+			processedItems?.some(
+				(item) => !item.__is_create && item.label?.toLowerCase().includes(filterText.toLowerCase())
+			)
+	)
+
+	let dropdownVisible = $derived(open && (!allowUserInput || hasFilteredItems))
+
 	$effect(() => {
 		if (filterText) open = true
 	})
@@ -107,14 +125,12 @@
 			filterText = ''
 		} else {
 			untrack(() => {
-				if (value && !valueEntry) {
-					filterText = inputText
+				if (rawLabel) {
+					filterText = rawLabel
 				}
 			})
 		}
 	})
-
-	let valueEntry = $derived(value && processedItems?.find((item) => deepEqual(item.value, value)))
 
 	function setValue(item: ProcessedItem<Value>) {
 		if (item.__is_create && onCreateItem) {
@@ -131,11 +147,6 @@
 		if (onClear) onClear()
 		else value = undefined
 	}
-
-	let inputText = $derived.by(() => {
-		let text = valueEntry?.label ?? getLabel({ value }) ?? ''
-		return transformInputSelectedText?.(text) ?? text
-	})
 </script>
 
 <div
@@ -168,12 +179,8 @@
 		{autofocus}
 		{disabled}
 		type="text"
-		bind:value={() => (open ? filterText : inputText), (v) => open && (filterText = v)}
-		placeholder={loading && !value
-			? 'Loading...'
-			: value && !showPlaceholderOnOpen && !(open && !valueEntry)
-				? inputText
-				: placeholder}
+		value={inputValue}
+		placeholder={loading && !value ? 'Loading...' : placeholder}
 		style={containerStyle}
 		class={twMerge(
 			inputBaseClass,
@@ -182,16 +189,17 @@
 			inputBorderClass({ error, forceFocus: open }),
 			'w-full',
 			open ? '' : 'cursor-pointer',
-			// Show value as placeholder when opening the dropdown and the search is empty
-			!value ? 'placeholder-hint' : '!placeholder-primary',
+			'placeholder-hint',
 			(clearable || RightIcon) && !disabled && value ? 'pr-8' : '',
 			inputClass ?? ''
 		)}
 		autocomplete="off"
 		oninput={(e) => {
-			// Explicitly open dropdown if closed and update filterText
 			if (!open) open = true
 			filterText = e.currentTarget.value
+			if (allowUserInput) {
+				value = filterText || undefined
+			}
 		}}
 		onpointerdown={() => (open = true)}
 		bind:this={inputEl}
@@ -200,7 +208,7 @@
 	<SelectDropdown
 		{disablePortal}
 		onSelectValue={setValue}
-		{open}
+		open={dropdownVisible}
 		{processedItems}
 		{value}
 		{disabled}

@@ -119,23 +119,27 @@
 					items={instanceEmails}
 					bind:value={email}
 					placeholder="Select or type an email"
-					createText="Use custom email:"
-					onCreateItem={(v) => {
-						email = v
-					}}
+					allowUserInput
 					disablePortal={true}
 					error={!!emailError}
 				/>
 			{:else}
-				<TextInput inputProps={{ type: 'email', onkeyup: handleKeyUp, placeholder: 'email' }} bind:value={email} error={!!emailError} />
+				<TextInput
+					inputProps={{ type: 'email', onkeyup: handleKeyUp, placeholder: 'email' }}
+					bind:value={email}
+					error={!!emailError}
+				/>
 			{/if}
 			{#if emailError}
-				<span class="text-2xs text-red-500 mt-0.5">{emailError}</span>
+				<InputError error={emailError} />
 			{/if}
 
 			{#if !automateUsernameCreation}
 				<span class="text-xs mb-1 pt-2 leading-6">Username</span>
-				<TextInput inputProps={{ type: 'text', onkeyup: handleKeyUp, placeholder: 'username' }} bind:value={username} />
+				<TextInput
+					inputProps={{ type: 'text', onkeyup: handleKeyUp, placeholder: 'username' }}
+					bind:value={username}
+				/>
 			{/if}
 
 			<span class="text-xs mb-1 pt-6 leading-6">Role</span>
@@ -172,7 +176,9 @@
 						username = undefined
 					})
 				}}
-				disabled={email === undefined || !!emailError || (!automateUsernameCreation && username === undefined)}
+				disabled={email === undefined ||
+					!!emailError ||
+					(!automateUsernameCreation && username === undefined)}
 			>
 				Add
 			</Button>
