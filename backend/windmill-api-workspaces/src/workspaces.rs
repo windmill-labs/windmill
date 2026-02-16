@@ -2499,6 +2499,7 @@ struct UsedTriggers {
     pub gcp_used: bool,
     pub email_used: bool,
     pub nextcloud_used: bool,
+    pub google_used: bool,
 }
 
 async fn get_used_triggers(
@@ -2520,7 +2521,8 @@ async fn get_used_triggers(
             EXISTS(SELECT 1 FROM sqs_trigger WHERE workspace_id = $1) AS "sqs_used!",
             EXISTS(SELECT 1 FROM gcp_trigger WHERE workspace_id = $1) AS "gcp_used!",
             EXISTS(SELECT 1 FROM email_trigger WHERE workspace_id = $1) AS "email_used!",
-            EXISTS(SELECT 1 FROM native_trigger WHERE workspace_id = $1 AND service_name = 'nextcloud'::native_trigger_service) AS "nextcloud_used!"
+            EXISTS(SELECT 1 FROM native_trigger WHERE workspace_id = $1 AND service_name = 'nextcloud'::native_trigger_service) AS "nextcloud_used!",
+            EXISTS(SELECT 1 FROM native_trigger WHERE workspace_id = $1 AND service_name = 'google'::native_trigger_service) AS "google_used!"
         "#,
         w_id
     )

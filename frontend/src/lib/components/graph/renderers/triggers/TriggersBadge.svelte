@@ -14,6 +14,7 @@
 	import TriggerLabel from '$lib/components/triggers/TriggerLabel.svelte'
 	import CountBadge from '$lib/components/common/badge/CountBadge.svelte'
 	import NextcloudIcon from '$lib/components/icons/NextcloudIcon.svelte'
+	import GoogleIcon from '$lib/components/icons/GoogleIcon.svelte'
 
 	const { triggersState, triggersCount } = getContext<TriggerContext>('TriggerContext')
 
@@ -70,7 +71,8 @@
 			gcp: { icon: GoogleCloudIcon, countKey: 'gcp_count', disabled: !$enterpriseLicense },
 			poll: { icon: SchedulePollIcon },
 			cli: { icon: Terminal },
-			nextcloud: { icon: NextcloudIcon, countKey: 'nextcloud_count' }
+			nextcloud: { icon: NextcloudIcon, countKey: 'nextcloud_count' },
+			google: { icon: GoogleIcon, countKey: 'google_count' }
 		}
 
 		// Add native trigger services that are available
@@ -102,7 +104,8 @@
 		'email',
 		'poll',
 		'cli',
-		'nextcloud'
+		'nextcloud',
+		'google'
 	])
 
 	function camelCaseToWords(s: string) {

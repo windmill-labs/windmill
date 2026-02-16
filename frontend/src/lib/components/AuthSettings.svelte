@@ -15,6 +15,7 @@
 	import NextcloudSetting from '$lib/components/NextcloudSetting.svelte'
 	import CustomOauth from './CustomOauth.svelte'
 	import { capitalize, type Item } from '$lib/utils'
+	import ClipboardPanel from './details/ClipboardPanel.svelte'
 	import Toggle from './Toggle.svelte'
 	import DropdownV2 from './DropdownV2.svelte'
 	import { APP_TO_ICON_COMPONENT } from './icons'
@@ -460,6 +461,42 @@
 											bind:value={snowflakeAccountIdentifier}
 										/>
 									</label>
+								{/if}
+								{#if k === 'gworkspace'}
+									<div>
+										<Toggle
+											options={{
+												right:
+													'Allow workspace admins to setup Google native triggers using these credentials'
+											}}
+											checked={oauths[k]?.share_with_workspaces ?? false}
+											on:change={(e) => {
+												if (oauths && oauths[k]) {
+													oauths[k] = { ...oauths[k], share_with_workspaces: e.detail }
+												}
+											}}
+										/>
+										{#if oauths[k]?.share_with_workspaces}
+											<p class="text-xs text-tertiary mt-1">
+												Workspace admins will be able to connect Google native triggers without
+												configuring their own OAuth client. The credentials are not exposed to them.
+											</p>
+											<p class="text-xs text-tertiary mt-2">
+												Add the following redirect URI to
+												<a
+													href="https://console.cloud.google.com/apis/credentials"
+													target="_blank"
+													class="underline">Google Cloud Console</a
+												>:
+											</p>
+											<div class="mt-1">
+												<ClipboardPanel
+													content="{baseUrl}/workspace_settings?tab=native_triggers&service=google"
+													size="sm"
+												/>
+											</div>
+										{/if}
+									</div>
 								{/if}
 							</div>
 						</div>

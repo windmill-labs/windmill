@@ -176,10 +176,7 @@ fn opaque_json_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schem
         metadata: Some(Box::default()),
         extensions: {
             let mut m = schemars::Map::new();
-            m.insert(
-                "nullable".to_string(),
-                serde_json::Value::Bool(true),
-            );
+            m.insert("nullable".to_string(), serde_json::Value::Bool(true));
             m.insert(
                 "x-kubernetes-preserve-unknown-fields".to_string(),
                 serde_json::Value::Bool(true),
@@ -292,7 +289,10 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub otel_tracing_proxy: Option<OtelTracingProxySettings>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "instance_config_schema", schemars(schema_with = "opaque_json_schema"))]
+    #[cfg_attr(
+        feature = "instance_config_schema",
+        schemars(schema_with = "opaque_json_schema")
+    )]
     pub object_store_cache_config: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub critical_error_channels: Option<Vec<CriticalErrorChannel>>,
@@ -305,13 +305,22 @@ pub struct GlobalSettings {
 
     // Opaque settings (EE-private structs or no clear schema)
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "instance_config_schema", schemars(schema_with = "opaque_json_schema"))]
+    #[cfg_attr(
+        feature = "instance_config_schema",
+        schemars(schema_with = "opaque_json_schema")
+    )]
     pub secret_backend: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "instance_config_schema", schemars(schema_with = "opaque_json_schema"))]
+    #[cfg_attr(
+        feature = "instance_config_schema",
+        schemars(schema_with = "opaque_json_schema")
+    )]
     pub slack: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "instance_config_schema", schemars(schema_with = "opaque_json_schema"))]
+    #[cfg_attr(
+        feature = "instance_config_schema",
+        schemars(schema_with = "opaque_json_schema")
+    )]
     pub teams: Option<serde_json::Value>,
 
     /// Catch-all for settings not yet covered by typed fields.
@@ -399,6 +408,8 @@ pub struct OAuthClient {
     pub connect_config: Option<OAuthConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub login_config: Option<OAuthConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub share_with_workspaces: Option<bool>,
 }
 
 /// OAuth provider endpoint configuration.
@@ -1941,6 +1952,7 @@ mod tests {
                         allowed_domains: None,
                         connect_config: None,
                         login_config: None,
+                        share_with_workspaces: None,
                     },
                 );
                 m
