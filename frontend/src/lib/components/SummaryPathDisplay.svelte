@@ -29,12 +29,16 @@
 	})
 </script>
 
-<div class="inline-flex items-center gap-1 min-w-0">
+<div class="group inline-flex items-center gap-1 min-w-0">
 	<div class="min-w-24 text-emphasis truncate flex flex-col gap-0">
-		<span class="text-sm min-w-24 text-emphasis font-semibold truncate">
-			{emptyString(summary) ? (path ?? '') : summary}
+		<span
+			class="text-sm min-w-24 font-semibold truncate {emptyString(summary) && onEdit
+				? 'text-tertiary italic'
+				: 'text-emphasis'}"
+		>
+			{emptyString(summary) ? (onEdit ? 'Add a summary...' : (path ?? '')) : summary}
 		</span>
-		{#if !emptyString(summary)}
+		{#if !emptyString(summary) || onEdit}
 			<span class="text-2xs text-secondary">{path}</span>
 		{/if}
 	</div>
@@ -53,6 +57,7 @@
 					unifiedSize="sm"
 					title="Edit summary and path"
 					nonCaptureEvent
+					btnClasses="{popoverOpen ? '' : 'opacity-0 group-hover:opacity-100'} transition-opacity"
 				>
 					<Pen size={14} />
 				</Button>
