@@ -6,10 +6,9 @@ import {
 	FileCode,
 	Code2,
 	TextSelect,
-	Table2,
-	FileCode2,
-	GitBranch
+	Table2
 } from 'lucide-svelte'
+import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 import type { ScriptLang } from '$lib/gen/types.gen'
 import { type DBSchema } from '$lib/stores'
 import { type Change } from 'diff'
@@ -25,8 +24,8 @@ export const ContextIconMap = {
 	app_backend_runnable: Code2,
 	app_code_selection: TextSelect,
 	app_datatable: Table2,
-	workspace_script: FileCode2,
-	workspace_flow: GitBranch
+	workspace_script: Code2,
+	workspace_flow: BarsStaggered
 	// flow_module type is handled with FlowModuleIcon
 }
 

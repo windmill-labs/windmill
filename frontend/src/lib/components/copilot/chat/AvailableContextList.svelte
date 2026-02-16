@@ -4,6 +4,7 @@
 	import type { FlowModule } from '$lib/gen/types.gen'
 	import { ScriptService, FlowService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { workspaceRunnablesSearch } from './shared'
 	import {
 		ContextIconMap,
 		type ContextElement,
@@ -15,8 +16,7 @@
 		Diff,
 		Database,
 		ChevronRight,
-		FileCode2,
-		GitBranch,
+		Code2,
 		Loader2
 	} from 'lucide-svelte'
 
@@ -63,8 +63,8 @@
 		{ id: 'diffs' as const, label: 'Diffs', icon: Diff, searchable: false },
 		{ id: 'modules' as const, label: 'Modules', icon: BarsStaggered, searchable: false },
 		{ id: 'databases' as const, label: 'Databases', icon: Database, searchable: false },
-		{ id: 'scripts' as const, label: 'Scripts', icon: FileCode2, searchable: true },
-		{ id: 'flows' as const, label: 'Flows', icon: GitBranch, searchable: true }
+		{ id: 'scripts' as const, label: 'Scripts', icon: Code2, searchable: true },
+		{ id: 'flows' as const, label: 'Flows', icon: BarsStaggered, searchable: true }
 	]
 
 	const isSearchableView = $derived(
@@ -129,8 +129,12 @@
 		if (categoryId === 'scripts' || categoryId === 'flows') {
 			workspaceSearchQuery = ''
 			workspaceSearchResults = []
-			// Focus the search input after rendering
-			setTimeout(() => searchInputElement?.focus(), 0)
+			// Only auto-focus search input in popover mode (not tooltip mode)
+			// In tooltip mode (setShowing is defined), focusing would steal focus
+			// from the textarea and cause the tooltip to close
+			if (!setShowing) {
+				setTimeout(() => searchInputElement?.focus(), 0)
+			}
 		}
 	}
 
@@ -147,27 +151,12 @@
 
 		workspaceSearchLoading = true
 		try {
-			if (currentView === 'scripts') {
-				const scripts = await ScriptService.listScripts({
-					workspace,
-					pathStart: query || undefined,
-					perPage: 15
-				})
-				workspaceSearchResults = scripts.map((s) => ({
-					path: s.path,
-					summary: s.summary
-				}))
-			} else if (currentView === 'flows') {
-				const flows = await FlowService.listFlows({
-					workspace,
-					pathStart: query || undefined,
-					perPage: 15
-				})
-				workspaceSearchResults = flows.map((f) => ({
-					path: f.path,
-					summary: f.summary
-				}))
-			}
+			const type = currentView === 'scripts' ? 'scripts' : 'flows'
+			const results = await workspaceRunnablesSearch.search(query, workspace, type)
+			workspaceSearchResults = results.map((r) => ({
+				path: r.path,
+				summary: r.summary
+			}))
 		} catch (err) {
 			console.error('Error searching workspace items', err)
 			workspaceSearchResults = []
@@ -363,9 +352,13 @@
 
 <div
 	class="flex flex-col gap-1 text-primary text-xs p-1 pr-0 min-w-24 max-h-48 overflow-y-scroll"
-	onmousedown={(e) =>
+	onmousedown={(e) => {
 		// avoids triggering onblur on the textinput and closing the tooltip
-		e.preventDefault()}
+		// but allow input elements to receive focus for the search input
+		if (!(e.target instanceof HTMLInputElement)) {
+			e.preventDefault()
+		}
+	}}
 	role="listbox"
 	tabindex={0}
 >
@@ -442,7 +435,7 @@
 			</div>
 		{:else if workspaceSearchResults.length === 0}
 			<div class="text-center text-secondary text-xs py-2">
-				{workspaceSearchQuery ? 'No results found' : 'Type to search'}
+				No results found
 			</div>
 		{:else}
 			{#each workspaceSearchResults as item, i}
@@ -466,9 +459,9 @@
 				>
 					<div class="flex flex-row gap-1 items-center">
 						{#if currentView === 'scripts'}
-							<FileCode2 size={14} class="shrink-0" />
+							<Code2 size={14} class="shrink-0" />
 						{:else}
-							<GitBranch size={14} class="shrink-0" />
+							<BarsStaggered size={14} class="shrink-0" />
 						{/if}
 						<span class="truncate">{item.path}</span>
 					</div>

@@ -950,10 +950,19 @@ export class WorkspaceRunnablesSearch {
 		const scripts = this.scripts
 		if (!scripts) return []
 
+		const trimmed = query.trim()
+		if (!trimmed) {
+			return scripts.map((s) => ({
+				type: 'script' as const,
+				path: s.path,
+				summary: s.summary
+			}))
+		}
+
 		const haystack = scripts.map((s) =>
 			emptyString(s.summary) ? s.path : s.summary + ' (' + s.path + ')'
 		)
-		const [idxs, , order] = this.uf.search(haystack, query.trim())
+		const [idxs, , order] = this.uf.search(haystack, trimmed)
 		if (!idxs || !order) return []
 		return order.map((orderIdx) => {
 			const haystackIdx = idxs[orderIdx]
@@ -970,10 +979,19 @@ export class WorkspaceRunnablesSearch {
 		const flows = this.flows
 		if (!flows) return []
 
+		const trimmed = query.trim()
+		if (!trimmed) {
+			return flows.map((f) => ({
+				type: 'flow' as const,
+				path: f.path,
+				summary: f.summary
+			}))
+		}
+
 		const haystack = flows.map((f) =>
 			emptyString(f.summary) ? f.path : f.summary + ' (' + f.path + ')'
 		)
-		const [idxs, , order] = this.uf.search(haystack, query.trim())
+		const [idxs, , order] = this.uf.search(haystack, trimmed)
 		if (!idxs || !order) return []
 		return order.map((orderIdx) => {
 			const haystackIdx = idxs[orderIdx]
@@ -1016,7 +1034,7 @@ const searchWorkspaceToolDef = createToolDef(
 	'Search for scripts and flows in the workspace. Use this when a user asks about existing building blocks, wants to find a script/flow, or asks "what do I have for X". ALWAYS search really broadly.'
 )
 
-const workspaceRunnablesSearch = new WorkspaceRunnablesSearch()
+export const workspaceRunnablesSearch = new WorkspaceRunnablesSearch()
 
 export const createSearchWorkspaceTool = () => ({
 	def: searchWorkspaceToolDef,

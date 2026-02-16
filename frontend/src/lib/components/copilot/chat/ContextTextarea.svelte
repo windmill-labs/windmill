@@ -158,8 +158,11 @@
 
 	function getHighlightedText(text: string) {
 		return text.replace(/@[\w/.\-\[\]]+/g, (match) => {
-			const contextElement = availableContext.find((c) => c.title === match.slice(1))
-			if (contextElement) {
+			const title = match.slice(1)
+			const inContext =
+				availableContext.find((c) => c.title === title) ||
+				selectedContext.find((c) => c.title === title)
+			if (inContext) {
 				return `<span class="bg-black dark:bg-white text-white dark:text-black z-10">${match}</span>`
 			}
 			return match
@@ -318,6 +321,10 @@
 		oninput={handleInput}
 		onblur={() => {
 			setTimeout(() => {
+				// Don't close if focus moved to inside the tooltip (e.g., search input)
+				if (tooltipElement?.contains(document.activeElement)) {
+					return
+				}
 				showContextTooltip = false
 			}, 200)
 		}}
@@ -347,6 +354,7 @@
 				onSelectWorkspaceItem={onAddWorkspaceItem
 					? (element) => {
 							onAddWorkspaceItem(element)
+							updateInstructionsWithContext(element)
 							showContextTooltip = false
 						}
 					: undefined}
