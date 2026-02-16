@@ -245,6 +245,8 @@ pub async fn initial_load(
                     .unwrap_or_default();
                 // we only check from env as native_mode is not stored in the token
                 let native_mode = windmill_common::worker::is_native_mode_from_env();
+                windmill_common::worker::NATIVE_MODE_RESOLVED
+                    .store(native_mode, std::sync::atomic::Ordering::Relaxed);
                 *config = WorkerConfig {
                     worker_tags,
                     env_vars: load_env_vars(

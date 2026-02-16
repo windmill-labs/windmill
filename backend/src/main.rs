@@ -62,7 +62,7 @@ use windmill_common::{
     },
     worker::{
         is_native_mode_from_env, reload_custom_tags_setting, Connection, HUB_CACHE_DIR,
-        HUB_RT_CACHE_DIR, TMP_DIR, TMP_LOGS_DIR, WORKER_CONFIG, WORKER_GROUP,
+        HUB_RT_CACHE_DIR, NATIVE_MODE_RESOLVED, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP,
     },
     KillpillSender, DEFAULT_HUB_BASE_URL, METRICS_ENABLED,
 };
@@ -664,18 +664,20 @@ async fn windmill_main() -> anyhow::Result<()> {
     };
 
     if num_workers > 1 && !is_native_mode_from_env() {
-        if !std::env::var("I_ACK_NUM_WORKERS_IS_UNSAFE").is_ok_and(|x| x == "1" || x == "true") {
-            eprintln!(
-                "ERROR: NUM_WORKERS > 1 is only safe for native workers. \
-                 Set NATIVE_MODE=true for native-only workers."
+        if std::env::var("I_ACK_NUM_WORKERS_IS_UNSAFE").is_ok_and(|x| x == "1" || x == "true") {
+            println!(
+                "WARNING: Running with NUM_WORKERS={} without native mode. \
+                 This is not recommended. Use at your own risk.",
+                num_workers
             );
-            std::process::exit(1);
+        } else {
+            eprintln!(
+                "WARNING: NUM_WORKERS={} > 1 is only safe for native workers. \
+                 Falling back to NUM_WORKERS=1. Set NATIVE_MODE=true for native-only workers.",
+                num_workers
+            );
+            num_workers = 1;
         }
-        println!(
-            "WARNING: Running with NUM_WORKERS={} without native mode. \
-             This is not recommended. Use at your own risk.",
-            num_workers
-        );
     }
 
     let server_mode = !std::env::var("DISABLE_SERVER")
@@ -936,11 +938,10 @@ Windmill Community Edition {GIT_VERSION}
         .await;
 
         // native_mode may also be set via DB worker group config (not just env).
-        // WORKER_CONFIG.native_mode is the resolved value combining all sources.
+        // NATIVE_MODE_RESOLVED is updated by load_worker_config during initial_load.
         if worker_mode
-            && num_workers <= 1
             && !is_native_mode_from_env()
-            && WORKER_CONFIG.read().await.native_mode
+            && NATIVE_MODE_RESOLVED.load(std::sync::atomic::Ordering::Relaxed)
         {
             num_workers = 8;
             println!("Native mode detected from worker config: forcing NUM_WORKERS=8");

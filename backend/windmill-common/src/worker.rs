@@ -283,6 +283,10 @@ pub fn is_native_mode_from_env() -> bool {
     *NATIVE_MODE || *WORKER_GROUP == "native"
 }
 
+/// Cached resolved native mode flag, updated when worker config is reloaded.
+/// Use this for hot-path checks (e.g. per-job dispatch) to avoid read-locking WORKER_CONFIG.
+pub static NATIVE_MODE_RESOLVED: AtomicBool = AtomicBool::new(false);
+
 pub static MIN_VERSION_IS_LATEST: AtomicBool = AtomicBool::new(false);
 #[derive(Clone)]
 pub struct HttpClient {
@@ -1807,6 +1811,7 @@ pub async fn load_worker_config(
     }
 
     let native_mode = is_native_mode_from_env() || config.native_mode.unwrap_or(false);
+    NATIVE_MODE_RESOLVED.store(native_mode, std::sync::atomic::Ordering::Relaxed);
 
     Ok(WorkerConfig {
         worker_tags,

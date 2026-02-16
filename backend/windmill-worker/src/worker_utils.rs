@@ -7,8 +7,8 @@ use windmill_common::{
     worker::{
         get_memory, get_vcpus, get_windmill_memory_usage, get_worker_memory_usage,
         insert_ping_query, update_job_ping_query, update_worker_ping_from_job_query,
-        update_worker_ping_main_loop_query, Connection, Ping, PingType, WORKER_CONFIG,
-        WORKER_GROUP,
+        update_worker_ping_main_loop_query, Connection, Ping, PingType, NATIVE_MODE_RESOLVED,
+        WORKER_CONFIG, WORKER_GROUP,
     },
     KillpillSender, DB,
 };
@@ -315,7 +315,9 @@ pub async fn update_worker_ping_from_job(
                         occupancy_rate_5m: occupancy_rate_5m,
                         occupancy_rate_30m: occupancy_rate_30m,
                         job_isolation,
-                        native_mode: None,
+                        native_mode: Some(
+                            NATIVE_MODE_RESOLVED.load(std::sync::atomic::Ordering::Relaxed),
+                        ),
                     },
                 )
                 .await?;
