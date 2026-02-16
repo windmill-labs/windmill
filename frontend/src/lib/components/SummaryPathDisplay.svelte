@@ -44,6 +44,7 @@
 			contentClasses="p-4"
 			usePointerDownOutside
 			excludeSelectors=".drawer"
+			disableFocusTrap
 			bind:isOpen={popoverOpen}
 		>
 			{#snippet trigger()}
