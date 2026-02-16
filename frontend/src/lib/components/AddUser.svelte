@@ -14,6 +14,8 @@
 
 	const dispatch = createEventDispatcher()
 
+	let { workspaceEmails = [] }: { workspaceEmails?: string[] } = $props()
+
 	let email: string | undefined = $state()
 	let username: string | undefined = $state()
 
@@ -32,15 +34,22 @@
 	}
 	getAutomateUsernameCreationSetting()
 
-	let instanceEmails: { label: string; value: string }[] | undefined = $state(undefined)
+	let allInstanceEmails: string[] | undefined = $state(undefined)
+
+	let instanceEmails = $derived.by(() => {
+		if (!allInstanceEmails) return undefined
+		const workspaceSet = new Set(workspaceEmails)
+		return allInstanceEmails
+			.filter((e) => !workspaceSet.has(e))
+			.map((e) => ({ label: e, value: e }))
+	})
 
 	async function loadInstanceEmails() {
 		if (isCloudHosted()) return
 		try {
-			const emails = await UserService.listInstanceEmails()
-			instanceEmails = emails.map((e) => ({ label: e, value: e }))
+			allInstanceEmails = await UserService.listInstanceEmails()
 		} catch {
-			instanceEmails = undefined
+			allInstanceEmails = undefined
 		}
 	}
 	loadInstanceEmails()
@@ -110,12 +119,7 @@
 					disablePortal={true}
 				/>
 			{:else}
-				<input
-					type="email"
-					onkeyup={handleKeyUp}
-					placeholder="email"
-					bind:value={email}
-				/>
+				<input type="email" onkeyup={handleKeyUp} placeholder="email" bind:value={email} />
 			{/if}
 
 			{#if !automateUsernameCreation}

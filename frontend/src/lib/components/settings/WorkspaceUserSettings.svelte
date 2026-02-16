@@ -724,6 +724,7 @@
 			{/if}
 
 			<AddUser
+				workspaceEmails={users?.map((u) => u.email) ?? []}
 				on:new={() => {
 					listUsers()
 					listInvites()
