@@ -4,7 +4,7 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import GoogleDrivePicker from './GoogleDrivePicker.svelte'
 	import GoogleCalendarPicker from './GoogleCalendarPicker.svelte'
-	import { Loader2, Eye, FileText } from 'lucide-svelte'
+	import { Eye, FileText } from 'lucide-svelte'
 	import GoogleDriveIcon from '$lib/components/icons/GoogleDriveIcon.svelte'
 	import GoogleCalendarIcon from '$lib/components/icons/GoogleCalendarIcon.svelte'
 
@@ -13,15 +13,14 @@
 		errors: Record<string, string>
 		disabled?: boolean
 		externalData?: any
-		loading: boolean
+		loading?: boolean
 	}
 
 	let {
 		serviceConfig = $bindable(),
 		errors = $bindable(),
-		disabled = false,
-		externalData = undefined,
-		loading = $bindable()
+		loading = $bindable(false),
+		disabled = false
 	}: Props = $props()
 
 	let triggerType = $state<'drive' | 'calendar'>(serviceConfig.triggerType ?? 'drive')
@@ -36,6 +35,11 @@
 	// Calendar state
 	let calendarId = $state<string>(serviceConfig.calendarId ?? 'primary')
 	let calendarName = $state<string>(serviceConfig.calendarName ?? '')
+
+	// No async loading — signal ready immediately
+	$effect(() => {
+		loading = false
+	})
 
 	// Sync form state back to serviceConfig
 	$effect(() => {
@@ -71,105 +75,65 @@
 
 		return serviceErrors
 	}
-
-	// Apply external data when editing existing trigger
-	let externalDataApplied = $state(false)
-
-	$effect(() => {
-		if (externalData && !externalDataApplied) {
-			if (externalData.triggerType) {
-				triggerType = externalData.triggerType
-			}
-			driveResourceId = externalData.resourceId ?? driveResourceId
-			driveResourceName = externalData.resourceName ?? driveResourceName
-			driveWatchMode = externalData.resourceId ? 'file' : 'all'
-			calendarId = externalData.calendarId ?? calendarId
-			calendarName = externalData.calendarName ?? calendarName
-			externalDataApplied = true
-			loading = false
-		}
-	})
-
-	$effect(() => {
-		if (!externalData) {
-			externalDataApplied = false
-			loading = false
-		}
-	})
 </script>
 
 <Section label="Google Trigger Configuration">
-	{#if loading}
-		<div class="flex items-center gap-2 text-secondary text-xs">
-			<Loader2 class="animate-spin" size={16} />
-			Loading configuration...
+	<div class="flex flex-col gap-4">
+		<div>
+			<p class="block text-xs font-semibold text-primary mb-1">Trigger Type</p>
+			<ToggleButtonGroup bind:selected={triggerType} {disabled}>
+				{#snippet children({ item })}
+					<ToggleButton value="drive" label="Drive" icon={GoogleDriveIcon} {item} />
+					<ToggleButton value="calendar" label="Calendar" icon={GoogleCalendarIcon} {item} />
+				{/snippet}
+			</ToggleButtonGroup>
 		</div>
-	{:else}
-		<div class="flex flex-col gap-4">
-			<div>
-				<p class="block text-xs font-semibold text-primary mb-1">Trigger Type</p>
-				<ToggleButtonGroup bind:selected={triggerType} {disabled}>
+
+		{#if triggerType === 'drive'}
+			<div class="flex flex-col gap-2">
+				<p class="block text-xs font-semibold text-primary">Watch Mode</p>
+				<ToggleButtonGroup bind:selected={driveWatchMode} {disabled}>
 					{#snippet children({ item })}
-						<ToggleButton value="drive" label="Drive" icon={GoogleDriveIcon} {item} />
-						<ToggleButton
-							value="calendar"
-							label="Calendar"
-							icon={GoogleCalendarIcon}
-							{item}
-						/>
+						<ToggleButton value="file" label="Specific file" icon={FileText} {item} />
+						<ToggleButton value="all" label="All changes" icon={Eye} {item} />
 					{/snippet}
 				</ToggleButtonGroup>
-			</div>
 
-			{#if triggerType === 'drive'}
-				<div class="flex flex-col gap-2">
-					<p class="block text-xs font-semibold text-primary">Watch Mode</p>
-					<ToggleButtonGroup bind:selected={driveWatchMode} {disabled}>
-						{#snippet children({ item })}
-							<ToggleButton value="file" label="Specific file" icon={FileText} {item} />
-							<ToggleButton value="all" label="All changes" icon={Eye} {item} />
-						{/snippet}
-					</ToggleButtonGroup>
-
-					{#if driveWatchMode === 'file'}
-						<p class="block text-xs font-semibold text-primary">File</p>
-						<GoogleDrivePicker
-							bind:resourceId={driveResourceId}
-							bind:resourceName={driveResourceName}
-							{disabled}
-						/>
-						{#if errors.resourceId}
-							<p class="text-red-500 text-xs">{errors.resourceId}</p>
-						{/if}
-					{:else}
-						<p class="text-tertiary text-xs">
-							Watches all changes across your Google Drive. The trigger will fire whenever any file is created, modified, or deleted.
-						</p>
-					{/if}
-				</div>
-			{:else if triggerType === 'calendar'}
-				<div class="flex flex-col gap-2">
-					<p class="block text-xs font-semibold text-primary">Calendar</p>
-					<GoogleCalendarPicker
-						bind:calendarId
-						bind:calendarName
+				{#if driveWatchMode === 'file'}
+					<p class="block text-xs font-semibold text-primary">File</p>
+					<GoogleDrivePicker
+						bind:resourceId={driveResourceId}
+						bind:resourceName={driveResourceName}
 						{disabled}
 					/>
-					{#if errors.calendarId}
-						<p class="text-red-500 text-xs">{errors.calendarId}</p>
+					{#if errors.resourceId}
+						<p class="text-red-500 text-xs">{errors.resourceId}</p>
 					{/if}
-					<div class="text-tertiary text-xs">
-						<p>
-							Requires the <a
-								href="https://console.cloud.google.com/apis/library/calendar-json.googleapis.com"
-								target="_blank"
-								rel="noopener"
-								class="underline">Google Calendar API</a
-							> to be enabled in your Google Cloud project.
-						</p>
-					</div>
+				{:else}
+					<p class="text-tertiary text-xs">
+						Watches all changes across your Google Drive. The trigger will fire whenever any file is
+						created, modified, or deleted.
+					</p>
+				{/if}
+			</div>
+		{:else if triggerType === 'calendar'}
+			<div class="flex flex-col gap-2">
+				<p class="block text-xs font-semibold text-primary">Calendar</p>
+				<GoogleCalendarPicker bind:calendarId bind:calendarName {disabled} />
+				{#if errors.calendarId}
+					<p class="text-red-500 text-xs">{errors.calendarId}</p>
+				{/if}
+				<div class="text-tertiary text-xs">
+					<p>
+						Requires the <a
+							href="https://console.cloud.google.com/apis/library/calendar-json.googleapis.com"
+							target="_blank"
+							rel="noopener"
+							class="underline">Google Calendar API</a
+						> to be enabled in your Google Cloud project.
+					</p>
 				</div>
-			{/if}
-		</div>
-	{/if}
+			</div>
+		{/if}
+	</div>
 </Section>

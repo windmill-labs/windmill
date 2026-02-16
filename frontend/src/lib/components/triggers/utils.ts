@@ -529,10 +529,10 @@ export function getTriggerLabel(trigger: Trigger): string {
 	} else if (type === 'google' && path) {
 		const triggerType = config?.trigger_type ?? config?.triggerType
 		if (triggerType === 'calendar') {
-			const name = config?.calendar_name ?? config?.calendarName ?? config?.calendar_id ?? ''
+			const name = config?.resource_name ?? config?.calendar_id ?? ''
 			return `Calendar: ${name || path}`
 		} else {
-			const name = config?.resource_name ?? config?.resourceName ?? ''
+			const name = config?.resource_name ?? ''
 			return name ? `Drive: ${name}` : config?.resource_id ? `Drive: ${path}` : `Drive: All changes`
 		}
 	} else if (isDraft && draftConfig?.path) {
