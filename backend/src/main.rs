@@ -485,8 +485,7 @@ fn print_help() {
     println!("  cache [hubPaths.json]  Pre-cache hub scripts (default: ./hubPaths.json)");
     println!("  cache-rt             Pre-cache hub resource types");
     println!("  sync-config <file>   Sync instance config from a YAML file to the database");
-    println!("  operator             Run the Kubernetes operator (watches WindmillInstance CRDs)");
-    println!("  operator crd         Print the WindmillInstance CRD YAML to stdout");
+    println!("  operator             Run the Kubernetes operator (watches a ConfigMap)");
     println!();
     println!("Environment variables (name = default):");
     println!("  DATABASE_URL = <required>              The Postgres database url.");
@@ -633,17 +632,11 @@ async fn windmill_main() -> anyhow::Result<()> {
         }
         #[cfg(feature = "operator")]
         "operator" => {
-            let sub_arg = std::env::args().nth(2).unwrap_or_default();
-            if sub_arg == "crd" {
-                windmill_operator::print_crd_yaml();
-                return Ok(());
-            }
-
             tracing_subscriber::fmt::init();
             tracing::info!("Starting Windmill Kubernetes operator...");
             tracing::info!("Connecting to database...");
             let db = crate::db_connect::initial_connection().await?;
-            tracing::info!("Database connected. Starting controller...");
+            tracing::info!("Database connected. Starting ConfigMap watcher...");
             windmill_operator::run(db).await?;
             return Ok(());
         }

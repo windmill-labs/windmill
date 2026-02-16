@@ -1,67 +1,67 @@
-# Example: WindmillInstance CRD for the Kubernetes operator.
+# Example: ConfigMap for the Windmill Kubernetes operator.
 #
 # Prerequisites:
-#   1. Install the CRD:  windmill operator crd | kubectl apply -f -
-#   2. Create the Secret: kubectl apply -f k8s-secrets.yaml
-#   3. Apply this file:   kubectl apply -f k8s-windmill-instance.yaml
-#   4. Check status:      kubectl get wmi
+#   1. Create the Secret: kubectl apply -f k8s-secrets.yaml
+#   2. Apply this file:   kubectl apply -f k8s-windmill-instance.yaml
+#   3. Check events:      kubectl get events --field-selector involvedObject.name=windmill-instance
 
-apiVersion: windmill.dev/v1alpha1
-kind: WindmillInstance
+apiVersion: v1
+kind: ConfigMap
 metadata:
-  name: production
+  name: windmill-instance
   namespace: windmill
-spec:
-  global_settings:
-    base_url: "https://windmill.example.com"
+data:
+  spec: |
+    global_settings:
+      base_url: "https://windmill.example.com"
 
-    # Secret reference: reads "license-key" from K8s Secret "windmill-secrets"
-    license_key:
-      secretKeyRef:
-        name: windmill-secrets
-        key: license-key
-
-    retention_period_secs: 2592000
-    job_default_timeout: 900
-    expose_metrics: true
-
-    smtp_settings:
-      smtp_host: "smtp.example.com"
-      smtp_port: 587
-      smtp_from: "windmill@example.com"
-      smtp_tls_implicit: false
-      smtp_password:
+      # Secret reference: reads "license-key" from K8s Secret "windmill-secrets"
+      license_key:
         secretKeyRef:
           name: windmill-secrets
-          key: smtp-password
+          key: license-key
 
-    oauths:
-      google:
-        id: "your-google-client-id"
-        secret:
+      retention_period_secs: 2592000
+      job_default_timeout: 900
+      expose_metrics: true
+
+      smtp_settings:
+        smtp_host: "smtp.example.com"
+        smtp_port: 587
+        smtp_from: "windmill@example.com"
+        smtp_tls_implicit: false
+        smtp_password:
           secretKeyRef:
             name: windmill-secrets
-            key: google-oauth-secret
-        login_config:
-          auth_url: "https://accounts.google.com/o/oauth2/v2/auth"
-          token_url: "https://oauth2.googleapis.com/token"
-          userinfo_url: "https://openidconnect.googleapis.com/v1/userinfo"
-          scopes: ["openid", "profile", "email"]
+            key: smtp-password
 
-    custom_tags:
-      - gpu
-      - high-mem
+      oauths:
+        google:
+          id: "your-google-client-id"
+          secret:
+            secretKeyRef:
+              name: windmill-secrets
+              key: google-oauth-secret
+          login_config:
+            auth_url: "https://accounts.google.com/o/oauth2/v2/auth"
+            token_url: "https://oauth2.googleapis.com/token"
+            userinfo_url: "https://openidconnect.googleapis.com/v1/userinfo"
+            scopes: ["openid", "profile", "email"]
 
-  worker_configs:
-    default:
-      worker_tags:
-        - deno
-        - python3
-        - bun
-        - go
-        - bash
-        - powershell
+      custom_tags:
+        - gpu
+        - high-mem
 
-    native:
-      worker_tags:
-        - nativets
+    worker_configs:
+      default:
+        worker_tags:
+          - deno
+          - python3
+          - bun
+          - go
+          - bash
+          - powershell
+
+      native:
+        worker_tags:
+          - nativets
