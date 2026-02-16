@@ -52,6 +52,7 @@
 	let requirePreexistingUserForOauth: boolean = $state(false)
 
 	let initialValues: Record<string, any> = $state({})
+	let baseUrlIsFallback = $state(false)
 	let snowflakeAccountIdentifier = $state('')
 	let version: string = $state('')
 	let loading = $state(true)
@@ -96,16 +97,20 @@
 
 		let nvalues: Record<string, any> = { ...gs }
 
-		if (!nvalues['base_url']) {
-			nvalues['base_url'] = window.location.origin
-		}
+		baseUrlIsFallback = !nvalues['base_url']
 		if (nvalues['retention_period_secs'] == undefined) {
 			nvalues['retention_period_secs'] = 60 * 60 * 24 * 30
 		}
 		applyFormDefaults(nvalues)
 
+		// Snapshot initialValues before applying the base_url fallback so that
+		// the dirty-check detects the unsaved default and enables the Save button.
+		initialValues = JSON.parse(JSON.stringify(nvalues))
+
+		if (baseUrlIsFallback) {
+			nvalues['base_url'] = window.location.origin
+		}
 		$values = nvalues
-		initialValues = JSON.parse(JSON.stringify($values))
 		loading = false
 
 		// populate snowflake account identifier from db
@@ -186,6 +191,7 @@
 			initialValues = JSON.parse(JSON.stringify($values))
 			initialOauths = JSON.parse(JSON.stringify(oauths))
 			initialRequirePreexistingUserForOauth = requirePreexistingUserForOauth
+			baseUrlIsFallback = false
 
 			if (licenseKeySet) {
 				setLicense()
@@ -501,6 +507,9 @@
 		for (const s of categorySettings) {
 			const v = $values[s.key]
 			initialValues[s.key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
+		}
+		if (categorySettings.some((s) => s.key === 'base_url')) {
+			baseUrlIsFallback = false
 		}
 
 		// Handle Auth/OAuth/SAML-specific saves
@@ -998,6 +1007,7 @@
 						{values}
 						{version}
 						{oauths}
+						warning={setting.key === 'base_url' && baseUrlIsFallback ? 'Auto-detected from browser — not yet saved' : undefined}
 					/>
 				{/if}
 			{/each}
