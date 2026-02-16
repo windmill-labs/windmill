@@ -50,6 +50,7 @@
 		bind:value
 		onCreateItem={(i) => (value = i)}
 		placeholder="Search or create..."
+		showPlaceholderOnOpen
 		items={onlySelectedTags}
 		id="custom-instance-db-select"
 		disabled={!$isCustomInstanceDbEnabled}

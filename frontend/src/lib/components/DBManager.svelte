@@ -251,6 +251,7 @@
 					id="db-schema-select"
 					transformInputSelectedText={(s) => `Schema: ${s}`}
 					RightIcon={ChevronDownIcon}
+					showPlaceholderOnOpen
 					placeholder="Search or create schema..."
 					onCreateItem={(schema) => {
 						schema = schema.trim().replace(/[^a-zA-Z0-9_]/g, '')

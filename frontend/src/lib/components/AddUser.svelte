@@ -10,7 +10,8 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { UserPlus } from 'lucide-svelte'
-	import Select from './select/Select.svelte'
+	import AutocompleteSelect from './select/AutocompleteSelect.svelte'
+	import InputError from './InputError.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 
 	const dispatch = createEventDispatcher()
@@ -115,11 +116,10 @@
 
 			<span class="text-xs mb-1 leading-6">Email</span>
 			{#if instanceEmails}
-				<Select
+				<AutocompleteSelect
 					items={instanceEmails}
 					bind:value={email}
 					placeholder="Select or type an email"
-					allowUserInput
 					disablePortal={true}
 					error={!!emailError}
 				/>
