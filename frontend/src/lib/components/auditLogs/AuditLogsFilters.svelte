@@ -460,7 +460,12 @@
 		>
 			Clear filters
 		</Button>
-		<Button variant="subtle" on:click={downloadAuditLogsAsJson} unifiedSize="md">
+		<Button
+			variant="subtle"
+			on:click={downloadAuditLogsAsJson}
+			unifiedSize="md"
+			title="Downloads currently displayed logs only (up to {perPage} entries)"
+		>
 			<div class="flex flex-row gap-1 items-center">
 				<Download size={14} />
 				Download JSON
