@@ -61,6 +61,7 @@
 	let editSummary = $state('')
 	let editPath = $state('')
 	let popoverOpen = $state(false)
+	let hasChanges = $derived(editSummary !== (summary ?? '') || editPath !== (path ?? ''))
 
 	$effect(() => {
 		if (popoverOpen) {
@@ -103,12 +104,14 @@
 							bind:isOpen={popoverOpen}
 						>
 							{#snippet trigger()}
-								<span
-									class="p-1 rounded hover:bg-surface-hover text-secondary hover:text-primary flex-shrink-0"
+								<Button
+									variant="subtle"
+									unifiedSize="sm"
 									title="Edit summary and path"
+									nonCaptureEvent
 								>
 									<Pen size={14} />
-								</span>
+								</Button>
 							{/snippet}
 							{#snippet content({ close })}
 								<div class="flex flex-col gap-3 w-72">
@@ -146,7 +149,10 @@
 									</label>
 									<Button
 										size="xs"
-										on:click={() => {
+										variant="accent"
+										disabled={!hasChanges}
+										title="Save summary and path"
+										onclick={() => {
 											onEdit?.(editSummary, editPath)
 											close()
 										}}
