@@ -46,7 +46,7 @@
 	>
 		{#snippet trigger()}
 			<div
-				class={'min-w-24 truncate flex flex-col items-start px-3 py-1 rounded-md  transition-colors cursor-pointer hover:bg-surface-hover'}
+				class={'min-w-24 truncate flex flex-col items-start px-2 py-1 rounded-md  transition-colors cursor-pointer hover:bg-surface-hover'}
 			>
 				<span class="text-2xs leading-tight text-tertiary font-mono font-normal truncate max-w-full"
 					>{path}</span
@@ -125,7 +125,7 @@
 						<div class="pb-1 text-xs font-semibold text-emphasis">Path</div>
 						<Path
 							autofocus={false}
-							bind:path={path}
+							bind:path
 							bind:dirty={dirtyPath}
 							initialPath={path ?? ''}
 							namePlaceholder={kind}

@@ -62,7 +62,7 @@
 		<div
 			class="flex w-full flex-wrap md:flex-nowrap justify-end gap-x-2 gap-y-4 items-center min-h-12"
 		>
-			<div class="grow px-3 inline-flex items-center gap-4 min-w-0">
+			<div class="grow px-2 inline-flex items-center gap-4 min-w-0">
 				<div class={twMerge($userStore?.operator ? 'pl-10' : '')}>
 					<SummaryPathDisplay {summary} {path} {onEdit} kind={errorHandlerKind} />
 				</div>
@@ -91,7 +91,7 @@
 				{/if}
 				{@render trigger_badges?.()}
 			</div>
-			<div class="flex gap-1 items-center">
+			<div class="flex gap-1 items-center pr-4">
 				{#if menuItems.length > 0}
 					{#key menuItems}
 						<DropdownV2
