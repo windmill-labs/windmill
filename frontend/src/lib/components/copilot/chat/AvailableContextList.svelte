@@ -128,12 +128,7 @@
 		if (categoryId === 'scripts' || categoryId === 'flows') {
 			workspaceSearchQuery = ''
 			workspaceSearchResults = []
-			// Only auto-focus search input in popover mode (not tooltip mode)
-			// In tooltip mode (setShowing is defined), focusing would steal focus
-			// from the textarea and cause the tooltip to close
-			if (!setShowing) {
-				setTimeout(() => searchInputElement?.focus(), 0)
-			}
+			setTimeout(() => searchInputElement?.focus(), 0)
 		}
 	}
 

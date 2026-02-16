@@ -353,6 +353,8 @@
 					onAddContext(element)
 					updateInstructionsWithContext(element)
 					showContextTooltip = false
+					// Refocus the textarea since focus may have been on the search input
+					setTimeout(() => textarea?.focus(), 0)
 				}}
 				showAllAvailable={true}
 				stringSearch={contextTooltipWord.slice(1)}
