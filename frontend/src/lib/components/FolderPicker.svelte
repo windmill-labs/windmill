@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { FolderService } from '$lib/gen'
 	import { workspaceStore, userStore } from '$lib/stores'
-	import { Plus, Eye } from 'lucide-svelte'
+	import { Eye } from 'lucide-svelte'
 	import { Button, Drawer, DrawerContent } from './common'
 	import FolderEditor from './FolderEditor.svelte'
+	import Select from './select/Select.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 
 	let folders: { name: string; write: boolean }[] = $state([])
@@ -55,6 +56,11 @@
 		)
 	}
 
+	function openCreateFolder(name: string) {
+		newFolderName = name
+		newFolder?.openDrawer()
+	}
+
 	async function addFolder() {
 		await FolderService.createFolder({
 			workspace: $workspaceStore ?? '',
@@ -65,6 +71,14 @@
 		folderName = newFolderName
 		loadFolders()
 	}
+
+	let selectItems = $derived(
+		folders.map((f) => ({
+			value: f.name,
+			label: f.name + (f.write ? '' : ' (read-only)'),
+			disabled: !f.write
+		}))
+	)
 
 	loadFolders()
 </script>
@@ -83,9 +97,7 @@
 					inputProps={{ type: 'text', placeholder: 'New folder name' }}
 					bind:value={newFolderName}
 				/>
-				<Button size="md" startIcon={{ icon: Plus }} disabled={!newFolderName} on:click={addFolder}>
-					New&nbsp;folder
-				</Button>
+				<Button size="md" disabled={!newFolderName} on:click={addFolder}>Create folder</Button>
 			</div>
 		{:else}
 			<FolderEditor name={folderCreated} />
@@ -100,34 +112,22 @@
 </Drawer>
 
 <div class="flex flex-row items-center gap-1 w-full">
-	<select
-		class="grow w-full {size === 'sm' ? 'text-xs !h-[28px]' : ''}"
-		disabled={disabled || disableEditing}
+	<Select
 		bind:value={folderName}
-	>
-		{#if folders?.length == 0}
-			<option disabled>No folders</option>
-		{/if}
-		{#each folders as { name, write }}
-			<option disabled={!write}>{name}{write ? '' : ' (read-only)'}</option>
-		{/each}
-	</select>
+		items={selectItems}
+		disabled={disabled || disableEditing}
+		{size}
+		placeholder="Select folder"
+		createText="Create folder"
+		onCreateItem={openCreateFolder}
+	/>
 	<Button
 		title="View folder"
-		variant="default"
+		variant="subtle"
 		unifiedSize={size}
 		disabled={!folderName || folderName == ''}
 		on:click={viewFolder.openDrawer}
 		iconOnly
 		startIcon={{ icon: Eye }}
-	/>
-	<Button
-		title="New folder"
-		variant="default"
-		unifiedSize={size}
-		{disabled}
-		on:click={newFolder.openDrawer}
-		iconOnly
-		startIcon={{ icon: Plus }}
 	/>
 </div>
