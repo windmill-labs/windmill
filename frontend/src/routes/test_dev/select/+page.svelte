@@ -262,18 +262,20 @@
 					items={schemas}
 					bind:value={createVal}
 					createText="Create schema:"
+					placeholder="Search or create schema..."
 					onCreateItem={(v) => {
 						createVal = v
 						addLog(`onCreateItem: ${v}`)
 					}}
-					placeholder="Search or create schema..."
 				/>
 				<p class="text-2xs text-primary">Value: {JSON.stringify(createVal)}</p>
 			</div>
 
 			<div class="flex flex-col gap-3 p-5 border border-border-light rounded-lg bg-surface">
 				<h4 class="text-xs font-semibold text-emphasis">AutocompleteSelect</h4>
-				<p class="text-2xs text-secondary">Type anything, value syncs live. Dropdown hides when no matches.</p>
+				<p class="text-2xs text-secondary"
+					>Type anything, value syncs live. Dropdown hides when no matches.</p
+				>
 				<AutocompleteSelect
 					items={emails}
 					bind:value={allowUserInputVal}
@@ -356,11 +358,7 @@
 			<div class="flex flex-col gap-3 p-5 border border-border-light rounded-lg bg-surface">
 				<h4 class="text-xs font-semibold text-emphasis">Disabled items</h4>
 				<p class="text-2xs text-secondary">Some items cannot be selected</p>
-				<Select
-					items={disabledItems}
-					bind:value={disabledItemsVal}
-					placeholder="Pick an option"
-				/>
+				<Select items={disabledItems} bind:value={disabledItemsVal} placeholder="Pick an option" />
 				<p class="text-2xs text-primary">Value: {JSON.stringify(disabledItemsVal)}</p>
 			</div>
 		</div>
