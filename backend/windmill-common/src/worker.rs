@@ -276,11 +276,11 @@ lazy_static::lazy_static! {
 
 pub const ROOT_CACHE_NOMOUNT_DIR: &str = concatcp!(TMP_DIR, "/cache_nomount/");
 
-pub fn is_native_mode(worker_tags: &[String]) -> bool {
-    if *NATIVE_MODE || *WORKER_GROUP == "native" {
-        return true;
-    }
-    !worker_tags.is_empty() && worker_tags.iter().all(|t| NATIVE_TAGS.contains(t))
+/// Whether native mode is forced by the environment (NATIVE_MODE=true env var or WORKER_GROUP=native).
+/// This does NOT account for native_mode set in the DB worker group config — for that, read
+/// `WORKER_CONFIG.native_mode` which combines all sources.
+pub fn is_native_mode_from_env() -> bool {
+    *NATIVE_MODE || *WORKER_GROUP == "native"
 }
 
 pub static MIN_VERSION_IS_LATEST: AtomicBool = AtomicBool::new(false);
@@ -1806,8 +1806,7 @@ pub async fn load_worker_config(
         }
     }
 
-    let native_mode =
-        *NATIVE_MODE || config.native_mode.unwrap_or(false) || is_native_mode(&worker_tags);
+    let native_mode = is_native_mode_from_env() || config.native_mode.unwrap_or(false);
 
     Ok(WorkerConfig {
         worker_tags,

@@ -243,7 +243,8 @@ pub async fn initial_load(
                     .as_ref()
                     .map(|x| x.tags.clone())
                     .unwrap_or_default();
-                let native_mode = windmill_common::worker::is_native_mode(&worker_tags);
+                // we only check from env as native_mode is not stored in the token
+                let native_mode = windmill_common::worker::is_native_mode_from_env();
                 *config = WorkerConfig {
                     worker_tags,
                     env_vars: load_env_vars(
@@ -2243,6 +2244,11 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
                 if (*wc).periodic_script_interval_seconds != config.periodic_script_interval_seconds
                 {
                     tracing::info!("Periodic script interval config changed, sending killpill. Expecting to be restarted by supervisor.");
+                    let _ = tx.send();
+                }
+
+                if (*wc).native_mode != config.native_mode {
+                    tracing::info!("Native mode config changed, sending killpill. Expecting to be restarted by supervisor.");
                     let _ = tx.send();
                 }
             }

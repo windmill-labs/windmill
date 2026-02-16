@@ -61,8 +61,8 @@ use windmill_common::{
         MODE_AND_ADDONS,
     },
     worker::{
-        reload_custom_tags_setting, Connection, HUB_CACHE_DIR, HUB_RT_CACHE_DIR, NATIVE_MODE,
-        TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP,
+        is_native_mode_from_env, reload_custom_tags_setting, Connection, HUB_CACHE_DIR,
+        HUB_RT_CACHE_DIR, TMP_DIR, TMP_LOGS_DIR, WORKER_CONFIG, WORKER_GROUP,
     },
     KillpillSender, DEFAULT_HUB_BASE_URL, METRICS_ENABLED,
 };
@@ -653,8 +653,8 @@ async fn windmill_main() -> anyhow::Result<()> {
     #[allow(unused_mut)]
     let mut num_workers = if mode == Mode::Server || mode == Mode::Indexer || mode == Mode::MCP {
         0
-    } else if *NATIVE_MODE {
-        println!("NATIVE_MODE enabled: forcing NUM_WORKERS=8");
+    } else if is_native_mode_from_env() {
+        println!("Native mode enabled: forcing NUM_WORKERS=8");
         8
     } else {
         std::env::var("NUM_WORKERS")
@@ -663,12 +663,11 @@ async fn windmill_main() -> anyhow::Result<()> {
             .unwrap_or(DEFAULT_NUM_WORKERS as i32)
     };
 
-    if num_workers > 1 && !*NATIVE_MODE && *WORKER_GROUP != "native" {
+    if num_workers > 1 && !is_native_mode_from_env() {
         if !std::env::var("I_ACK_NUM_WORKERS_IS_UNSAFE").is_ok_and(|x| x == "1" || x == "true") {
             eprintln!(
                 "ERROR: NUM_WORKERS > 1 is only safe for native workers. \
-                 Set NATIVE_MODE=true for native-only workers, or set \
-                 I_ACK_NUM_WORKERS_IS_UNSAFE=1 to bypass this check at your own risk."
+                 Set NATIVE_MODE=true for native-only workers."
             );
             std::process::exit(1);
         }
@@ -935,6 +934,17 @@ Windmill Community Edition {GIT_VERSION}
             disable_s3_store,
         )
         .await;
+
+        // native_mode may also be set via DB worker group config (not just env).
+        // WORKER_CONFIG.native_mode is the resolved value combining all sources.
+        if worker_mode
+            && num_workers <= 1
+            && !is_native_mode_from_env()
+            && WORKER_CONFIG.read().await.native_mode
+        {
+            num_workers = 8;
+            println!("Native mode detected from worker config: forcing NUM_WORKERS=8");
+        }
 
         monitor_db(
             &conn,
