@@ -239,15 +239,19 @@ async fn run_new_method(
         .unwrap();
 
         let result = sqlx::query!(
-            "INSERT INTO jobs_pending_deletion (id, marked_by)
-             SELECT jc.id, $5 FROM v2_job_completed jc
-             JOIN v2_job j ON j.id = jc.id
-             WHERE jc.completed_at <= now() - ($1::bigint::text || ' s')::interval
-               AND COALESCE(j.root_job, j.flow_innermost_root_job, jc.id) != ALL($3)
-               AND j.tag = $4
-             ORDER BY jc.completed_at ASC
-             LIMIT $2
-             ON CONFLICT DO NOTHING",
+            "WITH marked AS (
+                 INSERT INTO jobs_pending_deletion (id, marked_by)
+                 SELECT jc.id, $5 FROM v2_job_completed jc
+                 JOIN v2_job j ON j.id = jc.id
+                 WHERE jc.completed_at <= now() - ($1::bigint::text || ' s')::interval
+                   AND COALESCE(j.root_job, j.flow_innermost_root_job, jc.id) != ALL($3)
+                   AND j.tag = $4
+                 ORDER BY jc.completed_at ASC
+                 LIMIT $2
+                 ON CONFLICT DO NOTHING
+                 RETURNING id
+             )
+             DELETE FROM v2_job_completed WHERE id IN (SELECT id FROM marked)",
             retention_secs,
             batch_size,
             &active_roots,
@@ -274,14 +278,6 @@ async fn run_new_method(
         sqlx::query!(
             "DELETE FROM job_logs USING jobs_pending_deletion d
              WHERE job_logs.job_id = d.id AND d.marked_by = $1",
-            instance
-        )
-        .execute(db)
-        .await
-        .ok();
-        sqlx::query!(
-            "DELETE FROM v2_job_completed USING jobs_pending_deletion d
-             WHERE v2_job_completed.id = d.id AND d.marked_by = $1",
             instance
         )
         .execute(db)

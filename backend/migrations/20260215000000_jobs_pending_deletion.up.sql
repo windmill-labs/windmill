@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS jobs_pending_deletion (
     id UUID PRIMARY KEY,
-    marked_by VARCHAR(10) NOT NULL
+    marked_by VARCHAR(10) NOT NULL,
+    marked_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_jobs_pending_deletion_marked_by

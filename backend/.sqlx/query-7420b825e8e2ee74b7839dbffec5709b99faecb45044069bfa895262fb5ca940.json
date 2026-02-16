@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE jobs_pending_deletion SET marked_by = $1, marked_at = now()\n         WHERE marked_at < now() - interval '30 minutes'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7420b825e8e2ee74b7839dbffec5709b99faecb45044069bfa895262fb5ca940"
+}

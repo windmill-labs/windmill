@@ -1064,7 +1064,8 @@ pub async fn delete_expired_items(db: &DB) -> () {
 /// No job UUIDs are held in application memory — all joins stay inside Postgres.
 ///
 /// Rows are scoped by `marked_by` (the server's `INSTANCE_NAME`) so multiple servers
-/// can run cleanup concurrently without interfering with each other.
+/// can run cleanup concurrently without interfering with each other. Stale rows from dead
+/// servers are adopted via `marked_at` timestamp after 30 minutes.
 ///
 /// Returns the number of jobs marked for deletion in this batch.
 async fn delete_expired_jobs_batch(
@@ -1074,8 +1075,16 @@ async fn delete_expired_jobs_batch(
 ) -> error::Result<usize> {
     let instance = &*INSTANCE_NAME;
 
-    // Step 0: Crash recovery — check for leftover rows from a previous incomplete run
-    // by this same server instance.
+    // Step 0: Adopt orphaned rows from dead servers (stale for >30 min), then check
+    // for leftover rows from a previous incomplete run by this same instance.
+    sqlx::query!(
+        "UPDATE jobs_pending_deletion SET marked_by = $1, marked_at = now()
+         WHERE marked_at < now() - interval '30 minutes'",
+        instance
+    )
+    .execute(db)
+    .await?;
+
     let pending_count: i64 = sqlx::query_scalar!(
         "SELECT COUNT(*) FROM jobs_pending_deletion WHERE marked_by = $1",
         instance
@@ -1092,7 +1101,7 @@ async fn delete_expired_jobs_batch(
         );
         pending_count as usize
     } else {
-        // Step 1: Mark expired jobs into the staging table.
+        // Step 1: Mark expired jobs and atomically remove them from v2_job_completed.
         let active_root_job_ids: Vec<Uuid> = sqlx::query_scalar!(
             "SELECT q.id FROM v2_job_queue q
              JOIN v2_job j ON j.id = q.id
@@ -1104,14 +1113,18 @@ async fn delete_expired_jobs_batch(
         .await?;
 
         let result = sqlx::query!(
-            "INSERT INTO jobs_pending_deletion (id, marked_by)
-             SELECT jc.id, $4 FROM v2_job_completed jc
-             LEFT JOIN v2_job j ON j.id = jc.id
-             WHERE jc.completed_at <= now() - ($1::bigint::text || ' s')::interval
-               AND COALESCE(j.root_job, j.flow_innermost_root_job, jc.id) != ALL($3)
-             ORDER BY jc.completed_at ASC
-             LIMIT $2
-             ON CONFLICT DO NOTHING",
+            "WITH marked AS (
+                 INSERT INTO jobs_pending_deletion (id, marked_by)
+                 SELECT jc.id, $4 FROM v2_job_completed jc
+                 LEFT JOIN v2_job j ON j.id = jc.id
+                 WHERE jc.completed_at <= now() - ($1::bigint::text || ' s')::interval
+                   AND COALESCE(j.root_job, j.flow_innermost_root_job, jc.id) != ALL($3)
+                 ORDER BY jc.completed_at ASC
+                 LIMIT $2
+                 ON CONFLICT DO NOTHING
+                 RETURNING id
+             )
+             DELETE FROM v2_job_completed WHERE id IN (SELECT id FROM marked)",
             job_retention_secs,
             batch_size,
             &active_root_job_ids,
@@ -1167,7 +1180,8 @@ async fn delete_expired_jobs_batch(
         Err(e) => tracing::error!("Error deleting job logs: {:?}", e),
     }
 
-    // Step 4: Delete from v2_job_completed
+    // Step 4: Delete from v2_job_completed (idempotent — already done for fresh batches
+    // via the CTE in step 1, but needed for crash-recovery and adopted orphan rows).
     if let Err(e) = sqlx::query!(
         "DELETE FROM v2_job_completed USING jobs_pending_deletion d
          WHERE v2_job_completed.id = d.id AND d.marked_by = $1",
