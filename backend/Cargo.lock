@@ -16294,6 +16294,7 @@ dependencies = [
  "rsa",
  "serde",
  "serde_json",
+ "serde_yml",
  "sha2 0.10.9",
  "sqlx",
  "tokio",

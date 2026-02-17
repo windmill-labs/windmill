@@ -24,6 +24,8 @@ use windmill_common::usernames::generate_instance_username_for_all_users;
 use axum::{
     extract::{Extension, Path},
     routing::{get, post},
+    body::Body,
+    response::Response,
     Json, Router,
 };
 #[cfg(feature = "enterprise")]
@@ -62,6 +64,7 @@ pub fn global_service() -> Router {
             "/instance_config",
             get(get_instance_config).put(set_instance_config),
         )
+        .route("/instance_config/yaml", get(get_instance_config_yaml))
         .route("/test_smtp", post(test_email))
         .route("/test_license_key", post(test_license_key))
         .route("/send_stats", post(send_stats))
@@ -407,6 +410,22 @@ async fn get_instance_config(
         .await
         .map_err(|e| error::Error::internal_err(e.to_string()))?;
     Ok(Json(config))
+}
+
+async fn get_instance_config_yaml(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> error::Result<Response> {
+    require_super_admin(&db, &authed.email).await?;
+    let config = InstanceConfig::from_db(&db)
+        .await
+        .map_err(|e| error::Error::internal_err(e.to_string()))?;
+    let yaml = serde_yml::to_string(&config)
+        .map_err(|e| error::Error::internal_err(format!("YAML serialization failed: {e}")))?;
+    Response::builder()
+        .header("content-type", "application/yaml")
+        .body(Body::from(yaml))
+        .map_err(|e| error::Error::internal_err(e.to_string()))
 }
 
 async fn set_instance_config(
@@ -1096,4 +1115,56 @@ async fn sync_cached_resource_types(
         synced_count,
         cached_types.len() - synced_count
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+    use windmill_common::instance_config::{GlobalSettings, InstanceConfig, WorkerGroupConfig};
+
+    #[test]
+    fn instance_config_yaml_round_trip() {
+        let config = InstanceConfig {
+            global_settings: GlobalSettings {
+                base_url: Some("https://windmill.example.com".to_string()),
+                retention_period_secs: Some(86400),
+                expose_metrics: Some(true),
+                ..Default::default()
+            },
+            worker_configs: BTreeMap::from([(
+                "default".to_string(),
+                WorkerGroupConfig {
+                    worker_tags: Some(vec!["deno".to_string(), "python3".to_string()]),
+                    init_bash: Some("apt-get update".to_string()),
+                    ..Default::default()
+                },
+            )]),
+        };
+
+        let yaml = serde_yml::to_string(&config).unwrap();
+
+        // Verify key fields appear in the YAML output
+        assert!(yaml.contains("base_url: https://windmill.example.com"));
+        assert!(yaml.contains("retention_period_secs: 86400"));
+        assert!(yaml.contains("expose_metrics: true"));
+        assert!(yaml.contains("default:"));
+        assert!(yaml.contains("- deno"));
+        assert!(yaml.contains("- python3"));
+        assert!(yaml.contains("init_bash: apt-get update"));
+
+        // Round-trip back to struct
+        let deserialized: InstanceConfig = serde_yml::from_str(&yaml).unwrap();
+        assert_eq!(
+            deserialized.global_settings.base_url.as_deref(),
+            Some("https://windmill.example.com")
+        );
+        assert_eq!(deserialized.global_settings.retention_period_secs, Some(86400));
+        assert_eq!(deserialized.global_settings.expose_metrics, Some(true));
+        let wc = &deserialized.worker_configs["default"];
+        assert_eq!(
+            wc.worker_tags.as_deref(),
+            Some(["deno".to_string(), "python3".to_string()].as_slice())
+        );
+        assert_eq!(wc.init_bash.as_deref(), Some("apt-get update"));
+    }
 }
