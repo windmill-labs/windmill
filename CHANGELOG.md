@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.638.1](https://github.com/windmill-labs/windmill/compare/v1.638.0...v1.638.1) (2026-02-17)
+
+
+### Bug Fixes
+
+* **operator:** improve configmap handling of older license keys ([b7bec1a](https://github.com/windmill-labs/windmill/commit/b7bec1a83d97a823ff6fc7d7fa549b975f848066))
+
 ## [1.638.0](https://github.com/windmill-labs/windmill/compare/v1.637.0...v1.638.0) (2026-02-17)
 
 
