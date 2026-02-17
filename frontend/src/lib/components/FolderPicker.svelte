@@ -69,6 +69,8 @@
 							($userStore?.is_super_admin ?? false)
 					}))
 			)
+		} catch (e) {
+			sendUserToast(`Could not load folders: ${e}`, true)
 		} finally {
 			loadingFolders = false
 		}
