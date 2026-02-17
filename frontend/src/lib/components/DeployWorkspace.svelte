@@ -37,6 +37,7 @@
 		needsOnBehalfOfSelection,
 		type OnBehalfOfChoice
 	} from './OnBehalfOfSelector.svelte'
+	import ParentWorkspaceProtectionAlert from './ParentWorkspaceProtectionAlert.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -55,7 +56,7 @@
 		additionalInformation = undefined,
 		workspaceToDeployTo = $bindable(undefined),
 		hideButton = false,
-		canDeployToWorkspace = $bindable(false)
+		canDeployToWorkspace = $bindable(true)
 	}: Props = $props()
 
 	let canSeeTarget: 'yes' | 'cant-deploy-to-workspace' | 'cant-see-all-deps' | undefined =
@@ -406,6 +407,15 @@
 		></h3
 	>
 	<input class="max-w-xs" type="text" disabled value={workspaceToDeployTo} />
+
+	{#if workspaceToDeployTo}
+		<ParentWorkspaceProtectionAlert
+			parentWorkspaceId={workspaceToDeployTo}
+			onUpdateCanDeploy={(canDeploy) => {
+				canDeployToWorkspace = canDeploy
+			}}
+		/>
+	{/if}
 
 	{#if canSeeTarget == undefined}
 		<div class="mt-6"></div>
