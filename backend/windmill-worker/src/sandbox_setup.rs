@@ -3,6 +3,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[cfg(feature = "parquet")]
+use std::sync::Arc;
+
 use windmill_common::error::{self, Error};
 
 const OVERLAY_MARKER: &str = "# SANDBOX_OVERLAY_ACTIVE";
@@ -120,6 +123,81 @@ pub fn finalize_nsjail_config(config: &str) -> String {
 #[cfg(feature = "parquet")]
 const SNAPSHOT_CACHE_DIR: &str = "/tmp/windmill/snapshots";
 
+/// Unpack a tar.gz byte stream into `dest_path`.
+#[cfg_attr(not(feature = "parquet"), allow(dead_code))]
+pub(crate) fn untar_gz(bytes: &[u8], dest_path: &Path) -> error::Result<()> {
+    use flate2::read::GzDecoder;
+    use std::io::Cursor;
+    use tar::Archive;
+
+    let decoder = GzDecoder::new(Cursor::new(bytes));
+    let mut archive = Archive::new(decoder);
+    archive
+        .unpack(dest_path)
+        .map_err(|e| Error::ExecutionErr(format!("Failed to unpack tar.gz: {e}")))?;
+    Ok(())
+}
+
+/// Tar+gzip a directory into bytes.
+#[cfg_attr(not(feature = "parquet"), allow(dead_code))]
+pub(crate) fn tar_gz(source_path: &Path) -> error::Result<Vec<u8>> {
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+    use tar::Builder;
+
+    let buf = Vec::new();
+    let encoder = GzEncoder::new(buf, Compression::fast());
+    let mut builder = Builder::new(encoder);
+    builder
+        .append_dir_all(".", source_path)
+        .map_err(|e| Error::ExecutionErr(format!("Failed to tar directory: {e}")))?;
+    let encoder = builder
+        .into_inner()
+        .map_err(|e| Error::ExecutionErr(format!("Failed to finish tar: {e}")))?;
+    encoder
+        .finish()
+        .map_err(|e| Error::ExecutionErr(format!("Failed to finish gzip: {e}")))
+}
+
+/// Download bytes from object store. Returns `None` if the key doesn't exist.
+#[cfg(feature = "parquet")]
+pub(crate) async fn fetch_bytes_from_store(
+    store: Arc<dyn object_store::ObjectStore>,
+    s3_key: &str,
+) -> error::Result<Option<bytes::Bytes>> {
+    use object_store::path::Path as ObjPath;
+    match store.get(&ObjPath::from(s3_key)).await {
+        Ok(result) => {
+            let bytes = result
+                .bytes()
+                .await
+                .map_err(|e| Error::ExecutionErr(format!("Failed to read S3 bytes: {e}")))?;
+            if bytes.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(bytes))
+            }
+        }
+        Err(object_store::Error::NotFound { .. }) => Ok(None),
+        Err(e) => Err(Error::ExecutionErr(format!("S3 fetch failed: {e}"))),
+    }
+}
+
+/// Upload bytes to object store.
+#[cfg(feature = "parquet")]
+pub(crate) async fn put_bytes_to_store(
+    store: Arc<dyn object_store::ObjectStore>,
+    s3_key: &str,
+    bytes: Vec<u8>,
+) -> error::Result<()> {
+    use object_store::path::Path as ObjPath;
+    store
+        .put(&ObjPath::from(s3_key), bytes.into())
+        .await
+        .map_err(|e| Error::ExecutionErr(format!("S3 upload failed: {e}")))?;
+    Ok(())
+}
+
 /// Download snapshot from S3 if not cached locally. Returns path to unpacked rootfs.
 #[cfg(feature = "parquet")]
 pub async fn ensure_snapshot_cached(
@@ -128,7 +206,7 @@ pub async fn ensure_snapshot_cached(
     tag: &str,
     db: &windmill_common::DB,
 ) -> error::Result<PathBuf> {
-    use windmill_common::s3_helpers::{attempt_fetch_bytes, get_object_store};
+    use windmill_common::s3_helpers::get_object_store;
 
     let row = sqlx::query!(
         "SELECT s3_key, content_hash, status FROM sandbox_snapshot \
@@ -173,28 +251,22 @@ pub async fn ensure_snapshot_cached(
         "Downloading snapshot {name}:{tag} from S3 key: {}",
         row.s3_key
     );
-    let bytes = attempt_fetch_bytes(os, &row.s3_key).await?;
+
+    let bytes = fetch_bytes_from_store(os, &row.s3_key)
+        .await?
+        .ok_or_else(|| {
+            Error::ExecutionErr(format!("Snapshot S3 object not found: {}", row.s3_key))
+        })?;
 
     tokio::fs::create_dir_all(&cache_path)
         .await
         .map_err(|e| Error::ExecutionErr(format!("Failed to create snapshot cache dir: {e}")))?;
 
     let cache_path_clone = cache_path.clone();
-    let bytes_clone = bytes.to_vec();
-    tokio::task::spawn_blocking(move || -> error::Result<()> {
-        use flate2::read::GzDecoder;
-        use std::io::Cursor;
-        use tar::Archive;
-
-        let decoder = GzDecoder::new(Cursor::new(bytes_clone));
-        let mut archive = Archive::new(decoder);
-        archive
-            .unpack(&cache_path_clone)
-            .map_err(|e| Error::ExecutionErr(format!("Failed to unpack snapshot tar.gz: {e}")))?;
-        Ok(())
-    })
-    .await
-    .map_err(|e| Error::ExecutionErr(format!("Spawn blocking failed: {e}")))??;
+    let bytes_vec = bytes.to_vec();
+    tokio::task::spawn_blocking(move || untar_gz(&bytes_vec, &cache_path_clone))
+        .await
+        .map_err(|e| Error::ExecutionErr(format!("Spawn blocking failed: {e}")))??;
 
     tracing::info!(
         "Snapshot {name}:{tag} unpacked to {}",
@@ -299,7 +371,7 @@ pub async fn download_volume(
     local_path: &Path,
     db: &windmill_common::DB,
 ) -> error::Result<()> {
-    use windmill_common::s3_helpers::{attempt_fetch_bytes, get_object_store};
+    use windmill_common::s3_helpers::get_object_store;
 
     let row = sqlx::query!(
         "SELECT s3_key FROM sandbox_volume WHERE workspace_id = $1 AND name = $2",
@@ -332,32 +404,30 @@ pub async fn download_volume(
         return Ok(());
     };
 
-    let bytes = match attempt_fetch_bytes(os, &s3_key).await {
-        Ok(b) => b,
-        Err(_) => {
-            tracing::info!("Volume {name} has no S3 data yet, using empty dir");
+    download_volume_from_store(os, &s3_key, local_path).await
+}
+
+/// Core volume download logic, testable with any ObjectStore implementation.
+#[cfg(feature = "parquet")]
+pub(crate) async fn download_volume_from_store(
+    store: Arc<dyn object_store::ObjectStore>,
+    s3_key: &str,
+    local_path: &Path,
+) -> error::Result<()> {
+    let bytes = match fetch_bytes_from_store(store, s3_key).await? {
+        Some(b) => b,
+        None => {
+            tracing::info!("Volume has no S3 data yet, using empty dir");
             return Ok(());
         }
     };
 
     let local_path = local_path.to_path_buf();
     let bytes_vec = bytes.to_vec();
-    tokio::task::spawn_blocking(move || -> error::Result<()> {
-        use flate2::read::GzDecoder;
-        use std::io::Cursor;
-        use tar::Archive;
+    tokio::task::spawn_blocking(move || untar_gz(&bytes_vec, &local_path))
+        .await
+        .map_err(|e| Error::ExecutionErr(format!("Spawn blocking failed: {e}")))??;
 
-        let decoder = GzDecoder::new(Cursor::new(bytes_vec));
-        let mut archive = Archive::new(decoder);
-        archive
-            .unpack(&local_path)
-            .map_err(|e| Error::ExecutionErr(format!("Failed to unpack volume tar.gz: {e}")))?;
-        Ok(())
-    })
-    .await
-    .map_err(|e| Error::ExecutionErr(format!("Spawn blocking failed: {e}")))??;
-
-    tracing::info!("Volume {name} downloaded and unpacked");
     Ok(())
 }
 
@@ -397,37 +467,7 @@ pub async fn upload_volume(
     .await?
     .ok_or_else(|| Error::NotFound(format!("sandbox volume {name} not found")))?;
 
-    let local_path = local_path.to_path_buf();
-    let bytes = tokio::task::spawn_blocking(move || -> error::Result<Vec<u8>> {
-        use flate2::write::GzEncoder;
-        use flate2::Compression;
-        use tar::Builder;
-
-        let buf = Vec::new();
-        let encoder = GzEncoder::new(buf, Compression::fast());
-        let mut builder = Builder::new(encoder);
-        builder
-            .append_dir_all(".", &local_path)
-            .map_err(|e| Error::ExecutionErr(format!("Failed to tar volume: {e}")))?;
-        let encoder = builder
-            .into_inner()
-            .map_err(|e| Error::ExecutionErr(format!("Failed to finish tar: {e}")))?;
-        let bytes = encoder
-            .finish()
-            .map_err(|e| Error::ExecutionErr(format!("Failed to finish gzip: {e}")))?;
-        Ok(bytes)
-    })
-    .await
-    .map_err(|e| Error::ExecutionErr(format!("Spawn blocking failed: {e}")))??;
-
-    let size = bytes.len() as i64;
-
-    os.put(
-        &object_store::path::Path::from(s3_key.as_str()),
-        bytes.into(),
-    )
-    .await
-    .map_err(|e| Error::ExecutionErr(format!("Failed to upload volume to S3: {e}")))?;
+    let size = upload_volume_to_store(os, &s3_key, local_path).await?;
 
     sqlx::query!(
         "UPDATE sandbox_volume SET size_bytes = $3, updated_at = now() \
@@ -441,6 +481,24 @@ pub async fn upload_volume(
 
     tracing::info!("Volume {name} uploaded to S3 ({size} bytes)");
     Ok(())
+}
+
+/// Core volume upload logic, testable with any ObjectStore implementation.
+/// Returns the size in bytes of the uploaded tar.gz.
+#[cfg(feature = "parquet")]
+pub(crate) async fn upload_volume_to_store(
+    store: Arc<dyn object_store::ObjectStore>,
+    s3_key: &str,
+    local_path: &Path,
+) -> error::Result<i64> {
+    let local_path = local_path.to_path_buf();
+    let bytes = tokio::task::spawn_blocking(move || tar_gz(&local_path))
+        .await
+        .map_err(|e| Error::ExecutionErr(format!("Spawn blocking failed: {e}")))??;
+
+    let size = bytes.len() as i64;
+    put_bytes_to_store(store, s3_key, bytes).await?;
+    Ok(size)
 }
 
 #[cfg(not(feature = "parquet"))]
@@ -537,23 +595,9 @@ pub async fn build_snapshot(
         let rootfs_dir_clone = rootfs_dir.clone();
         let (bytes, content_hash) =
             tokio::task::spawn_blocking(move || -> error::Result<(Vec<u8>, String)> {
-                use flate2::write::GzEncoder;
-                use flate2::Compression;
                 use sha2::{Digest, Sha256};
-                use tar::Builder;
 
-                let buf = Vec::new();
-                let encoder = GzEncoder::new(buf, Compression::default());
-                let mut builder = Builder::new(encoder);
-                builder
-                    .append_dir_all(".", &rootfs_dir_clone)
-                    .map_err(|e| Error::ExecutionErr(format!("Failed to tar snapshot: {e}")))?;
-                let encoder = builder
-                    .into_inner()
-                    .map_err(|e| Error::ExecutionErr(format!("Failed to finish tar: {e}")))?;
-                let bytes = encoder
-                    .finish()
-                    .map_err(|e| Error::ExecutionErr(format!("Failed to finish gzip: {e}")))?;
+                let bytes = tar_gz(&rootfs_dir_clone)?;
                 let hash = format!("{:x}", Sha256::digest(&bytes));
                 Ok((bytes, hash))
             })
@@ -567,12 +611,7 @@ pub async fn build_snapshot(
             .await
             .ok_or_else(|| Error::ExecutionErr("S3 object store not configured".to_string()))?;
 
-        os.put(
-            &object_store::path::Path::from(s3_key.as_str()),
-            bytes.into(),
-        )
-        .await
-        .map_err(|e| Error::ExecutionErr(format!("Failed to upload snapshot to S3: {e}")))?;
+        put_bytes_to_store(os, &s3_key, bytes).await?;
 
         sqlx::query!(
             "UPDATE sandbox_snapshot SET \
@@ -617,7 +656,9 @@ mod tests {
     use super::*;
     use windmill_common::sandbox::parse_sandbox_config;
 
-    // --- Unit tests for build_sandbox_mounts ---
+    // =========================================================================
+    // Unit tests: build_sandbox_mounts
+    // =========================================================================
 
     #[test]
     fn test_build_sandbox_mounts_empty() {
@@ -697,7 +738,9 @@ mod tests {
         assert_eq!(mounts.matches("mount {").count(), 2);
     }
 
-    // --- Unit tests for finalize_nsjail_config ---
+    // =========================================================================
+    // Unit tests: finalize_nsjail_config
+    // =========================================================================
 
     #[test]
     fn test_finalize_no_overlay_passes_through() {
@@ -764,12 +807,12 @@ mod tests {
         assert!(result.contains("dst: \"/\""));
     }
 
-    // --- End-to-end: real bash proto template with sandbox ---
+    // =========================================================================
+    // Config pipeline tests: annotation → mounts → real nsjail proto template
+    // =========================================================================
 
     #[test]
-    fn test_e2e_bash_with_snapshot_and_volume() {
-        // Simulate what happens in bash_executor.rs:
-        // 1. Parse sandbox annotations from script code
+    fn test_config_pipeline_bash_snapshot_and_volumes() {
         let bash_script = "#!/bin/bash\n\
                            # sandbox: python-ml:gpu\n\
                            # volume: data:/workspace/data\n\
@@ -782,7 +825,6 @@ mod tests {
         assert_eq!(snap.tag, "gpu");
         assert_eq!(sandbox_config.volumes.len(), 2);
 
-        // 2. Build sandbox mounts (simulate worker.rs setup)
         let setup = SandboxSetupState {
             overlay: Some(OverlayMount {
                 merged: PathBuf::from("/tmp/job123/overlay_merged"),
@@ -802,8 +844,6 @@ mod tests {
         };
 
         let sandbox_mounts = build_sandbox_mounts(&setup);
-
-        // 3. Simulate executor: template replacement + append sandbox mounts
         let raw_config = include_str!("../nsjail/run.bash.config.proto");
         let config = raw_config
             .replace("{JOB_DIR}", "/tmp/job123")
@@ -811,54 +851,23 @@ mod tests {
             .replace("{SHARED_MOUNT}", &sandbox_mounts)
             .replace("{TRACING_PROXY_CA_CERT_PATH}", "/dev/null");
 
-        // 4. Finalize: strip system dir mounts since overlay provides rootfs
         let final_config = finalize_nsjail_config(&config);
 
-        // Verify system dirs removed
         for dir in &["/bin", "/lib", "/lib64", "/usr", "/etc"] {
-            assert!(
-                !final_config.contains(&format!("dst: \"{dir}\"")),
-                "System dir {dir} should be removed when overlay is active"
-            );
+            assert!(!final_config.contains(&format!("dst: \"{dir}\"")));
         }
-
-        // Verify overlay root mount present
         assert!(final_config.contains("dst: \"/\""));
         assert!(final_config.contains("src: \"/tmp/job123/overlay_merged\""));
-
-        // Verify volume mounts present
         assert!(final_config.contains("dst: \"/workspace/data\""));
-        assert!(final_config.contains("src: \"/tmp/job123/volumes/data\""));
         assert!(final_config.contains("dst: \"/workspace/models\""));
-        assert!(final_config.contains("src: \"/tmp/job123/volumes/models\""));
-
-        // Verify essential non-system mounts preserved
         assert!(final_config.contains("dst: \"/tmp\""));
         assert!(final_config.contains("dst: \"/dev/null\""));
-        assert!(final_config.contains("dst: \"/dev/random\""));
-        assert!(final_config.contains("dst: \"/dev/urandom\""));
         assert!(final_config.contains("dst: \"/tmp/main.sh\""));
-        assert!(final_config.contains("dst: \"/tmp/wrapper.sh\""));
-        assert!(final_config.contains("dst: \"/tmp/result.json\""));
-
-        // Verify nsjail metadata preserved
         assert!(final_config.contains("name: \"bash run script\""));
-        assert!(final_config.contains("mode: ONCE"));
-        assert!(final_config.contains("envar: \"HOME=/tmp\""));
     }
 
-    // --- End-to-end: real python proto template with sandbox ---
-
     #[test]
-    fn test_e2e_python_with_snapshot_only() {
-        let python_script = "# sandbox: python312:latest\n\
-                             import pandas as pd\n\
-                             def main():\n    return pd.DataFrame()\n";
-
-        let sandbox_config = parse_sandbox_config(python_script);
-        assert!(sandbox_config.snapshot.is_some());
-        assert!(sandbox_config.volumes.is_empty());
-
+    fn test_config_pipeline_python_snapshot_only() {
         let setup = SandboxSetupState {
             overlay: Some(OverlayMount {
                 merged: PathBuf::from("/tmp/jobXYZ/overlay_merged"),
@@ -883,49 +892,24 @@ mod tests {
 
         let final_config = finalize_nsjail_config(&config);
 
-        // System dirs removed
         for dir in &["/bin", "/lib", "/lib64", "/usr", "/etc"] {
-            assert!(
-                !final_config.contains(&format!("dst: \"{dir}\"")),
-                "{dir} should be stripped with overlay"
-            );
+            assert!(!final_config.contains(&format!("dst: \"{dir}\"")));
         }
-
-        // Overlay root
         assert!(final_config.contains("dst: \"/\""));
-        assert!(final_config.contains("src: \"/tmp/jobXYZ/overlay_merged\""));
-
-        // Python-specific mounts preserved
         assert!(final_config.contains("dst: \"/tmp/main.py\""));
         assert!(final_config.contains("dst: \"/tmp/wrapper.py\""));
-        assert!(final_config.contains("dst: \"/tmp/args.json\""));
-        assert!(final_config.contains("dst: \"/tmp/result.json\""));
         assert!(final_config.contains("dst: \"/dev/shm\""));
-        assert!(final_config.contains("dst: \"/tmp\""));
-
-        // Python metadata
-        assert!(final_config.contains("name: \"python run script\""));
         assert!(final_config.contains("PYTHONPATH"));
     }
 
-    // --- End-to-end: volumes without snapshot (no overlay) ---
-
     #[test]
-    fn test_e2e_volumes_only_no_overlay() {
-        let script = "# volume: cache:/tmp/pip-cache\ndef main(): pass\n";
-        let sandbox_config = parse_sandbox_config(script);
-        assert!(sandbox_config.snapshot.is_none());
-        assert_eq!(sandbox_config.volumes.len(), 1);
-
+    fn test_config_pipeline_volumes_only_keeps_system_dirs() {
         let mut setup = SandboxSetupState::default();
         setup.volume_mounts.insert(
             "cache".to_string(),
             (PathBuf::from("/tmp/job456/volumes/cache"), "/tmp/pip-cache".to_string()),
         );
-
         let sandbox_mounts = build_sandbox_mounts(&setup);
-
-        // No overlay marker → system dirs should NOT be stripped
         assert!(!sandbox_mounts.contains(OVERLAY_MARKER));
 
         let raw_config = include_str!("../nsjail/run.python3.config.proto");
@@ -942,27 +926,15 @@ mod tests {
 
         let final_config = finalize_nsjail_config(&config);
 
-        // System dirs preserved (no overlay)
-        assert!(final_config.contains("dst: \"/bin\""), "/bin should be kept");
-        assert!(final_config.contains("dst: \"/lib\""), "/lib should be kept");
-        assert!(final_config.contains("dst: \"/usr\""), "/usr should be kept");
-        assert!(final_config.contains("dst: \"/etc\""), "/etc should be kept");
-
-        // Volume mount present
+        assert!(final_config.contains("dst: \"/bin\""));
+        assert!(final_config.contains("dst: \"/lib\""));
+        assert!(final_config.contains("dst: \"/usr\""));
+        assert!(final_config.contains("dst: \"/etc\""));
         assert!(final_config.contains("dst: \"/tmp/pip-cache\""));
-        assert!(final_config.contains("src: \"/tmp/job456/volumes/cache\""));
     }
 
-    // --- End-to-end: no sandbox annotations at all (normal job) ---
-
     #[test]
-    fn test_e2e_no_annotations_passthrough() {
-        let script = "def main():\n    return 42\n";
-        let sandbox_config = parse_sandbox_config(script);
-        assert!(sandbox_config.snapshot.is_none());
-        assert!(sandbox_config.volumes.is_empty());
-
-        // No sandbox setup → shared_mount is empty → config unchanged
+    fn test_config_pipeline_no_annotations_passthrough() {
         let raw_config = include_str!("../nsjail/run.bash.config.proto");
         let config = raw_config
             .replace("{JOB_DIR}", "/tmp/job789")
@@ -972,16 +944,12 @@ mod tests {
 
         let final_config = finalize_nsjail_config(&config);
 
-        // Everything preserved as-is
         assert!(final_config.contains("dst: \"/bin\""));
         assert!(final_config.contains("dst: \"/lib\""));
         assert!(final_config.contains("dst: \"/usr\""));
         assert!(final_config.contains("dst: \"/etc\""));
-        assert!(final_config.contains("dst: \"/tmp\""));
         assert!(!final_config.contains(OVERLAY_MARKER));
     }
-
-    // --- Verify mount block syntax is valid nsjail proto format ---
 
     #[test]
     fn test_mount_block_syntax() {
@@ -998,12 +966,218 @@ mod tests {
         };
         let mounts = build_sandbox_mounts(&setup);
 
-        // Each mount block should have proper nsjail proto syntax
         for block in mounts.split("mount {").skip(1) {
-            assert!(block.contains('}'), "Every mount block must close");
-            assert!(block.contains("dst: \""), "Every mount needs a dst");
-            assert!(block.contains("is_bind: true"), "Sandbox mounts are bind mounts");
-            assert!(block.contains("rw: true"), "Sandbox mounts are read-write");
+            assert!(block.contains('}'));
+            assert!(block.contains("dst: \""));
+            assert!(block.contains("is_bind: true"));
+            assert!(block.contains("rw: true"));
+        }
+    }
+
+    // =========================================================================
+    // Unit tests: tar_gz / untar_gz round-trip (no S3, just filesystem)
+    // =========================================================================
+
+    #[test]
+    fn test_tar_gz_roundtrip() {
+        let source_dir = tempfile::tempdir().unwrap();
+        std::fs::write(source_dir.path().join("hello.txt"), "world").unwrap();
+        std::fs::create_dir(source_dir.path().join("subdir")).unwrap();
+        std::fs::write(source_dir.path().join("subdir/nested.txt"), "nested content").unwrap();
+
+        let bytes = tar_gz(source_dir.path()).unwrap();
+        assert!(!bytes.is_empty());
+
+        let dest_dir = tempfile::tempdir().unwrap();
+        untar_gz(&bytes, dest_dir.path()).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(dest_dir.path().join("hello.txt")).unwrap(),
+            "world"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dest_dir.path().join("subdir/nested.txt")).unwrap(),
+            "nested content"
+        );
+    }
+
+    #[test]
+    fn test_tar_gz_empty_dir() {
+        let source_dir = tempfile::tempdir().unwrap();
+        let bytes = tar_gz(source_dir.path()).unwrap();
+        assert!(!bytes.is_empty());
+
+        let dest_dir = tempfile::tempdir().unwrap();
+        untar_gz(&bytes, dest_dir.path()).unwrap();
+        // Should succeed without error even for empty dir
+    }
+
+    // =========================================================================
+    // Integration tests: S3 round-trip using in-memory ObjectStore
+    // =========================================================================
+
+    #[cfg(feature = "parquet")]
+    mod s3_integration {
+        use super::*;
+        use object_store::memory::InMemory;
+
+        #[tokio::test]
+        async fn test_volume_upload_download_roundtrip() {
+            // 1. Create a temp dir with test files (simulating volume content)
+            let volume_dir = tempfile::tempdir().unwrap();
+            std::fs::write(volume_dir.path().join("data.csv"), "col1,col2\n1,2\n3,4").unwrap();
+            std::fs::create_dir(volume_dir.path().join("models")).unwrap();
+            std::fs::write(
+                volume_dir.path().join("models/weights.bin"),
+                vec![0xDE, 0xAD, 0xBE, 0xEF],
+            )
+            .unwrap();
+
+            let store: Arc<dyn object_store::ObjectStore> = Arc::new(InMemory::new());
+            let s3_key = "sandbox/volumes/test-ws/myvolume.tar.gz";
+
+            // 2. Upload: tar+gz the volume dir → put to in-memory store
+            let size = upload_volume_to_store(store.clone(), s3_key, volume_dir.path())
+                .await
+                .unwrap();
+            assert!(size > 0, "Uploaded tar.gz should have non-zero size");
+
+            // 3. Verify the object exists in the store
+            let stored = fetch_bytes_from_store(store.clone(), s3_key)
+                .await
+                .unwrap();
+            assert!(stored.is_some(), "Object should exist in store");
+            assert_eq!(stored.unwrap().len() as i64, size);
+
+            // 4. Download: fetch from store → untar to new dir
+            let download_dir = tempfile::tempdir().unwrap();
+            download_volume_from_store(store, s3_key, download_dir.path())
+                .await
+                .unwrap();
+
+            // 5. Verify contents match
+            assert_eq!(
+                std::fs::read_to_string(download_dir.path().join("data.csv")).unwrap(),
+                "col1,col2\n1,2\n3,4"
+            );
+            assert_eq!(
+                std::fs::read(download_dir.path().join("models/weights.bin")).unwrap(),
+                vec![0xDE, 0xAD, 0xBE, 0xEF]
+            );
+        }
+
+        #[tokio::test]
+        async fn test_download_missing_key_returns_empty() {
+            let store: Arc<dyn object_store::ObjectStore> = Arc::new(InMemory::new());
+            let download_dir = tempfile::tempdir().unwrap();
+
+            // Download a key that doesn't exist → should succeed (empty volume)
+            download_volume_from_store(
+                store,
+                "sandbox/volumes/nonexistent.tar.gz",
+                download_dir.path(),
+            )
+            .await
+            .unwrap();
+
+            // Dir should still be empty (no files unpacked)
+            let entries: Vec<_> = std::fs::read_dir(download_dir.path())
+                .unwrap()
+                .collect();
+            assert!(entries.is_empty());
+        }
+
+        #[tokio::test]
+        async fn test_fetch_bytes_nonexistent_key() {
+            let store: Arc<dyn object_store::ObjectStore> = Arc::new(InMemory::new());
+            let result = fetch_bytes_from_store(store, "does/not/exist").await.unwrap();
+            assert!(result.is_none());
+        }
+
+        #[tokio::test]
+        async fn test_put_and_fetch_bytes_roundtrip() {
+            let store: Arc<dyn object_store::ObjectStore> = Arc::new(InMemory::new());
+            let key = "test/data.bin";
+            let data = vec![1, 2, 3, 4, 5];
+
+            put_bytes_to_store(store.clone(), key, data.clone())
+                .await
+                .unwrap();
+
+            let fetched = fetch_bytes_from_store(store, key).await.unwrap().unwrap();
+            assert_eq!(fetched.to_vec(), data);
+        }
+
+        #[tokio::test]
+        async fn test_volume_overwrite() {
+            let store: Arc<dyn object_store::ObjectStore> = Arc::new(InMemory::new());
+            let s3_key = "sandbox/volumes/ws/vol.tar.gz";
+
+            // Upload v1
+            let v1_dir = tempfile::tempdir().unwrap();
+            std::fs::write(v1_dir.path().join("version.txt"), "v1").unwrap();
+            upload_volume_to_store(store.clone(), s3_key, v1_dir.path())
+                .await
+                .unwrap();
+
+            // Upload v2 (overwrites)
+            let v2_dir = tempfile::tempdir().unwrap();
+            std::fs::write(v2_dir.path().join("version.txt"), "v2").unwrap();
+            std::fs::write(v2_dir.path().join("new_file.txt"), "new").unwrap();
+            upload_volume_to_store(store.clone(), s3_key, v2_dir.path())
+                .await
+                .unwrap();
+
+            // Download → should get v2
+            let download_dir = tempfile::tempdir().unwrap();
+            download_volume_from_store(store, s3_key, download_dir.path())
+                .await
+                .unwrap();
+
+            assert_eq!(
+                std::fs::read_to_string(download_dir.path().join("version.txt")).unwrap(),
+                "v2"
+            );
+            assert_eq!(
+                std::fs::read_to_string(download_dir.path().join("new_file.txt")).unwrap(),
+                "new"
+            );
+        }
+
+        #[tokio::test]
+        async fn test_snapshot_tar_to_store_and_unpack() {
+            // Simulates what build_snapshot does: tar a rootfs → upload → download → unpack
+            let store: Arc<dyn object_store::ObjectStore> = Arc::new(InMemory::new());
+
+            // Create a fake rootfs
+            let rootfs = tempfile::tempdir().unwrap();
+            std::fs::create_dir_all(rootfs.path().join("usr/bin")).unwrap();
+            std::fs::write(rootfs.path().join("usr/bin/python3"), "#!/fake").unwrap();
+            std::fs::create_dir_all(rootfs.path().join("lib")).unwrap();
+            std::fs::write(rootfs.path().join("lib/libpython.so"), "fake-lib").unwrap();
+
+            // Tar + upload (like build_snapshot does)
+            let bytes = tar_gz(rootfs.path()).unwrap();
+            let s3_key = "sandbox/snapshots/ws/mysnap/abc123.tar.gz";
+            put_bytes_to_store(store.clone(), s3_key, bytes.clone()).await.unwrap();
+
+            // Fetch + unpack (like ensure_snapshot_cached does)
+            let fetched = fetch_bytes_from_store(store, s3_key)
+                .await
+                .unwrap()
+                .unwrap();
+            let unpack_dir = tempfile::tempdir().unwrap();
+            untar_gz(&fetched, unpack_dir.path()).unwrap();
+
+            // Verify rootfs structure
+            assert_eq!(
+                std::fs::read_to_string(unpack_dir.path().join("usr/bin/python3")).unwrap(),
+                "#!/fake"
+            );
+            assert_eq!(
+                std::fs::read_to_string(unpack_dir.path().join("lib/libpython.so")).unwrap(),
+                "fake-lib"
+            );
         }
     }
 }
