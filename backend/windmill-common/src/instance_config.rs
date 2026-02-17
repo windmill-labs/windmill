@@ -712,6 +712,8 @@ pub struct WorkerGroupConfig {
     pub min_alive_workers_alert_threshold: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub autoscaling: Option<AutoscalingConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub native_mode: Option<bool>,
 
     /// Catch-all for fields not yet covered by typed fields.
     #[serde(flatten)]
