@@ -14,7 +14,7 @@
 	import Button from './common/button/Button.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import Alert from './common/alert/Alert.svelte'
-	import { DiffIcon, Loader2, UserCog, Check } from 'lucide-svelte'
+	import { DiffIcon, Loader2 } from 'lucide-svelte'
 	import Badge from './common/badge/Badge.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
 	import {
@@ -33,7 +33,10 @@
 	import { isRunnableByPath } from './apps/inputType'
 	import type { Runnable } from './raw_apps/utils'
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
-	import MeltPopover from './meltComponents/Popover.svelte'
+	import OnBehalfOfSelector, {
+		needsOnBehalfOfSelection,
+		type OnBehalfOfChoice
+	} from './OnBehalfOfSelector.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -67,37 +70,20 @@
 	let isFlow: boolean | undefined = $state(undefined)
 
 	// On-behalf-of tracking for flows and scripts
-	const WM_DEPLOYERS_GROUP = 'wm_deployers'
-	let canPreserve = $derived(
-		$userStore?.is_admin || $userStore?.groups?.includes(WM_DEPLOYERS_GROUP) || false
-	)
 	// Source workspace on_behalf_of emails (keyed by kind:path)
 	let sourceOnBehalfOfInfo = $state<Record<string, string | undefined>>({})
 	// Target workspace on_behalf_of emails (keyed by kind:path)
 	let targetOnBehalfOfInfo = $state<Record<string, string | undefined>>({})
-	// Tri-state selector: 'source' | 'target' | 'me' | undefined (undefined = not yet selected)
-	type OnBehalfOfChoice = 'source' | 'target' | 'me' | undefined
 	let onBehalfOfChoice = $state<Record<string, OnBehalfOfChoice>>({})
 
 	// Check if an item needs on_behalf_of selection (more than 1 unique option)
 	function itemNeedsOnBehalfOfSelection(statusPath: string, kind: string): boolean {
-		if (kind !== 'flow' && kind !== 'script' && kind !== 'app') return false
-		const sourceEmail = sourceOnBehalfOfInfo[statusPath]
-		const targetEmail = targetOnBehalfOfInfo[statusPath]
-		const myEmail = $userStore?.email
-
-		// Don't show if no on_behalf_of is set in source
-		if (!sourceEmail) return false
-
-		// Count unique options: source, target (even if undefined counts as different), me
-		const options = new Set([sourceEmail, myEmail])
-		// Target is a unique option if it differs from source (including undefined != defined)
-		if (targetEmail !== sourceEmail) {
-			options.add(targetEmail ?? '__not_set__')
-		}
-
-		// Show if more than 1 unique option
-		return options.size > 1
+		return needsOnBehalfOfSelection(
+			kind,
+			sourceOnBehalfOfInfo[statusPath],
+			targetOnBehalfOfInfo[statusPath],
+			$userStore?.email
+		)
 	}
 
 	// Check if all required on_behalf_of selections are made
@@ -449,51 +435,12 @@
 
 				<!-- On-behalf-of selector -->
 				{#if itemNeedsOnBehalfOfSelection(statusPath, item.kind)}
-					{@const selected = onBehalfOfChoice[statusPath]}
-					<MeltPopover placement="bottom">
-						<svelte:fragment slot="trigger">
-							<UserCog
-								class="w-4 h-4 {selected ? 'text-green-500' : 'text-yellow-500'}"
-							/>
-						</svelte:fragment>
-						<div slot="content" class="p-3 flex flex-col gap-2 min-w-48">
-							<div class="text-xs font-medium text-secondary mb-1">Set on behalf of:</div>
-							<button
-								class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover {!canPreserve
-									? 'opacity-50 cursor-not-allowed'
-									: ''}"
-								disabled={!canPreserve}
-								onclick={() => (onBehalfOfChoice[statusPath] = 'source')}
-							>
-								<Check class="w-3 h-3 {selected === 'source' ? 'opacity-100' : 'opacity-0'}" />
-								<span class="truncate max-w-40">{sourceEmail}</span>
-								<span class="text-xs text-tertiary">(source)</span>
-							</button>
-							{#if targetEmail !== sourceEmail}
-								<button
-									class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover {!canPreserve
-										? 'opacity-50 cursor-not-allowed'
-										: ''}"
-									disabled={!canPreserve}
-									onclick={() => (onBehalfOfChoice[statusPath] = 'target')}
-								>
-									<Check class="w-3 h-3 {selected === 'target' ? 'opacity-100' : 'opacity-0'}" />
-									<span class="truncate max-w-40 {!targetEmail ? 'italic text-tertiary' : ''}"
-										>{targetEmail ?? 'unknown'}</span
-									>
-									<span class="text-xs text-tertiary">(target)</span>
-								</button>
-							{/if}
-							<button
-								class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover"
-								onclick={() => (onBehalfOfChoice[statusPath] = 'me')}
-							>
-								<Check class="w-3 h-3 {selected === 'me' ? 'opacity-100' : 'opacity-0'}" />
-								<span class="truncate max-w-40">{$userStore?.email}</span>
-								<span class="text-xs text-tertiary">(me)</span>
-							</button>
-						</div>
-					</MeltPopover>
+					<OnBehalfOfSelector
+						{sourceEmail}
+						{targetEmail}
+						selected={onBehalfOfChoice[statusPath]}
+						onSelect={(choice) => (onBehalfOfChoice[statusPath] = choice)}
+					/>
 				{/if}
 
 				{#if exists === false}
