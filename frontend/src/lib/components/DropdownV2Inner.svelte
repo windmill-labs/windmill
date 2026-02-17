@@ -3,7 +3,7 @@
 	import DropdownSubmenuItem from '$lib/components/DropdownSubmenuItem.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
-	import type { MenubarMenuElements } from '@melt-ui/svelte'
+	import type { MenubarMenuElements, createDropdownMenu } from '@melt-ui/svelte'
 	import type { Item } from '$lib/utils'
 	import { Tooltip } from './meltComponents'
 
@@ -11,7 +11,7 @@
 		aiId?: string
 		items?: Item[] | (() => Item[]) | (() => Promise<Item[]>)
 		meltItem: MenubarMenuElements['item']
-		builders?: any
+		builders?: ReturnType<typeof createDropdownMenu>['builders']
 	}
 
 	let { aiId, items = [], meltItem, builders }: Props = $props()

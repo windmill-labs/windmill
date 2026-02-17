@@ -4,12 +4,12 @@
 	import { twMerge } from 'tailwind-merge'
 	import { ChevronRight } from 'lucide-svelte'
 	import type { Item } from '$lib/utils'
-	import type { MenubarMenuElements } from '@melt-ui/svelte'
+	import type { MenubarMenuElements, createDropdownMenu } from '@melt-ui/svelte'
 	import { Tooltip } from './meltComponents'
 
 	interface Props {
 		item: Item
-		builders: any
+		builders: ReturnType<typeof createDropdownMenu>['builders']
 		meltItem: MenubarMenuElements['item']
 	}
 
