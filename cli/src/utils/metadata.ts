@@ -54,19 +54,46 @@ export async function getRawWorkspaceDependencies(): Promise<Record<string, stri
   } catch {
     // dependencies directory doesn't exist
   }
-    return rawWorkspaceDeps;
+  return rawWorkspaceDeps;
 }
 
 export function workspaceDependenciesPathToLanguageAndFilename(path: string): { name: string | undefined, language: ScriptLanguage } | undefined {
-    const relativePath = path.replace("dependencies/", "");
-    for (const { filename, language } of workspaceDependenciesLanguages) {
-      if (relativePath.endsWith(filename)) {
-        return {
-          name: relativePath === filename ? undefined : relativePath.replace("." + filename, ""),
-          language
-        };
+  const relativePath = path.replace("dependencies/", "");
+  for (const { filename, language } of workspaceDependenciesLanguages) {
+    if (relativePath.endsWith(filename)) {
+      return {
+        name: relativePath === filename ? undefined : relativePath.replace("." + filename, ""),
+        language
+      };
+    }
+  }
+}
+
+/**
+ * Filters raw workspace dependencies to only include those that:
+ * 1. Match the given script language
+ * 2. Are referenced by the script's workspace dependency annotation, OR
+ *    are the default dependency (no name) when there's no annotation
+ */
+export function filterWorkspaceDependencies(
+  rawWorkspaceDependencies: Record<string, string>,
+  scriptContent: string,
+  language: ScriptLanguage
+): Record<string, string> {
+  const wda = extractWorkspaceDepsAnnotation(scriptContent, language);
+  const filtered: Record<string, string> = {};
+
+  for (const [depPath, depContent] of Object.entries(rawWorkspaceDependencies)) {
+    const depInfo = workspaceDependenciesPathToLanguageAndFilename(depPath);
+
+    if (depInfo && depInfo.language === language) {
+      if ((wda && wda.external.includes(depInfo.name ?? "default")) || wda == null && depInfo.name == undefined) {
+        filtered[depPath] = depContent;
       }
     }
+  }
+
+  return filtered;
 }
 
 // on windows, when using powershell, blue is not readable
@@ -95,14 +122,6 @@ export async function generateScriptMetadataInternal(
 
   const language = inferContentTypeFromFilePath(scriptPath, opts.defaultTs);
 
-  // Filter workspace dependencies to only include those matching the script's language
-  const filteredRawWorkspaceDependencies: Record<string, string> = {};
-  for (const [depPath, depContent] of Object.entries(rawWorkspaceDependencies)) {
-    const depInfo = workspaceDependenciesPathToLanguageAndFilename(depPath);
-    if (depInfo && depInfo.language === language) {
-      filteredRawWorkspaceDependencies[depPath] = depContent;
-    }
-  }
 
   const metadataWithType = await parseMetadataFile(
     remotePath,
@@ -112,7 +131,14 @@ export async function generateScriptMetadataInternal(
   // read script content
   const scriptContent = await Deno.readTextFile(scriptPath);
   const metadataContent = await Deno.readTextFile(metadataWithType.path);
-  
+
+  const filteredRawWorkspaceDependencies = filterWorkspaceDependencies(
+    rawWorkspaceDependencies,
+    scriptContent,
+    language
+  );
+
+
   // Note: rawWorkspaceDependencies are now passed in as parameter instead of being searched hierarchically
   let hash = await generateScriptHash(filteredRawWorkspaceDependencies, scriptContent, metadataContent);
 
@@ -671,12 +697,12 @@ export async function parseMetadataFile(
   scriptPath: string,
   generateMetadataIfMissing:
     | (GlobalOptions & {
-        path: string;
-        workspaceRemote: Workspace;
-        schemaOnly?: boolean;
-        rawWorkspaceDependencies: Record<string, string>;
-        codebases: SyncCodebase[]
-      })
+      path: string;
+      workspaceRemote: Workspace;
+      schemaOnly?: boolean;
+      rawWorkspaceDependencies: Record<string, string>;
+      codebases: SyncCodebase[]
+    })
     | undefined
 ): Promise<{ isJson: boolean; payload: any; path: string }> {
   let metadataFilePath = scriptPath + ".script.json";

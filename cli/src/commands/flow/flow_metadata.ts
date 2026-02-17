@@ -16,7 +16,9 @@ import {
   LockfileGenerationError,
   getRawWorkspaceDependencies,
   normalizeLockPath,
+  filterWorkspaceDependencies,
 } from "../../utils/metadata.ts";
+import { ScriptLanguage } from "../../utils/script_common.ts";
 import { extractInlineScripts as extractInlineScriptsForFlows } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
 
 import { generateHash, getHeaders, writeIfChanged } from "../../utils/utils.ts";
@@ -70,8 +72,16 @@ export async function generateFlowLockInternal(
   // Always get out-of-sync workspace dependencies
   const rawWorkspaceDependencies: Record<string, string> =
     await getRawWorkspaceDependencies();
+
+  const flowValue = (await yamlParseFile(
+    folder! + SEP + "flow.yaml"
+  )) as FlowFile;
+
+  // Filter workspace dependencies based on inline scripts' languages and annotations
+  const filteredDeps = filterWorkspaceDependenciesForFlow(flowValue.value as FlowValue, rawWorkspaceDependencies, folder);
+
   let hashes = await generateFlowHash(
-    rawWorkspaceDependencies,
+    filteredDeps,
     folder,
     opts.defaultTs
   );
@@ -88,8 +98,8 @@ export async function generateFlowLockInternal(
     return remote_path;
   }
 
-  if (Object.keys(rawWorkspaceDependencies).length > 0) {
-    log.info(
+  if (Object.keys(filteredDeps).length > 0) {
+          log.info(
       (await blueColor())(
         `Found workspace dependencies (${workspaceDependenciesLanguages
           .map((l) => l.filename)
@@ -98,9 +108,6 @@ export async function generateFlowLockInternal(
     );
   }
 
-  const flowValue = (await yamlParseFile(
-    folder! + SEP + "flow.yaml"
-  )) as FlowFile;
 
   if (!justUpdateMetadataLock) {
     const changedScripts = [];
@@ -131,7 +138,7 @@ export async function generateFlowLockInternal(
       workspace,
       flowValue.value,
       remote_path,
-      rawWorkspaceDependencies
+      filteredDeps
     );
 
     const inlineScripts = extractInlineScriptsForFlows(
@@ -152,7 +159,7 @@ export async function generateFlowLockInternal(
   }
 
   hashes = await generateFlowHash(
-    rawWorkspaceDependencies,
+    filteredDeps,
     folder,
     opts.defaultTs
   );
@@ -161,6 +168,47 @@ export async function generateFlowLockInternal(
     await updateMetadataGlobalLock(folder, hash, path);
   }
   log.info(colors.green(`Flow ${remote_path} lockfiles updated`));
+}
+
+/**
+ * Filters raw workspace dependencies for a flow by extracting all inline scripts,
+ * filtering deps for each based on language and annotations, then computing the union.
+ */
+function filterWorkspaceDependenciesForFlow(
+  flowValue: FlowValue,
+  rawWorkspaceDependencies: Record<string, string>,
+  folder: string
+): Record<string, string> {
+  const inlineScripts = extractInlineScriptsForFlows(structuredClone(flowValue.modules), {}, SEP, undefined);
+  const filtered: Record<string, string> = {};
+
+  for (const script of inlineScripts) {
+    if (script.is_lock) continue;
+
+    // Read actual content if it's an !inline reference
+    let content = script.content;
+    if (content.startsWith("!inline ")) {
+      const filePath = folder + SEP + content.replace("!inline ", "");
+      try {
+        content = Deno.readTextFileSync(filePath);
+      } catch {
+        continue; // Skip if file doesn't exist
+      }
+    }
+
+    const scriptFiltered = filterWorkspaceDependencies(
+      rawWorkspaceDependencies,
+      content,
+      script.language as ScriptLanguage
+    );
+
+    // Merge into union
+    for (const [path, depContent] of Object.entries(scriptFiltered)) {
+      filtered[path] = depContent;
+    }
+  }
+
+  return filtered;
 }
 
 export async function updateFlow(
@@ -191,10 +239,7 @@ export async function updateFlow(
           flow_value,
           path: remotePath,
           use_local_lockfiles: true,
-          raw_workspace_dependencies:
-            Object.keys(rawWorkspaceDependencies).length > 0
-              ? rawWorkspaceDependencies
-              : null,
+          raw_workspace_dependencies: rawWorkspaceDependencies,
         }),
       }
     );

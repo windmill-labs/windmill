@@ -16,6 +16,7 @@ import {
   inferSchema,
   getRawWorkspaceDependencies,
   normalizeLockPath,
+  filterWorkspaceDependencies,
 } from "../../utils/metadata.ts";
 import {
   ScriptLanguage,
@@ -118,8 +119,23 @@ export async function generateAppLocksInternal(
   const rawWorkspaceDependencies: Record<string, string> =
     await getRawWorkspaceDependencies();
 
-  let hashes = await generateAppHash(
+  // Read the app file first to filter workspace dependencies
+  const appFilePath = path.join(
+    appFolder,
+    rawApp ? "raw_app.yaml" : "app.yaml"
+  );
+  const appFile = (await yamlParseFile(appFilePath)) as AppFile;
+
+  // Filter workspace dependencies based on inline scripts' languages and annotations
+  const appValue = rawApp ? (appFile as RawAppFile).runnables : (appFile as NormalAppFile).value;
+  const filteredDeps = await filterWorkspaceDependenciesForApp(
+    appValue,
     rawWorkspaceDependencies,
+    appFolder
+  );
+
+  let hashes = await generateAppHash(
+    filteredDeps,
     appFolder,
     rawApp,
     opts.defaultTs
@@ -141,7 +157,7 @@ export async function generateAppLocksInternal(
     return remote_path;
   }
 
-  if (Object.keys(rawWorkspaceDependencies).length > 0) {
+  if (Object.keys(filteredDeps).length > 0) {
     log.info(
       (await blueColor())(
         `Found workspace dependencies (${workspaceDependenciesLanguages
@@ -150,13 +166,6 @@ export async function generateAppLocksInternal(
       )
     );
   }
-
-  // Read the app file
-  const appFilePath = path.join(
-    appFolder,
-    rawApp ? "raw_app.yaml" : "app.yaml"
-  );
-  const appFile = (await yamlParseFile(appFilePath)) as AppFile;
 
   if (!justUpdateMetadataLock) {
     const changedScripts = [];
@@ -195,7 +204,7 @@ export async function generateAppLocksInternal(
           runnables,
           remote_path,
           appFolder,
-          rawWorkspaceDependencies,
+          filteredDeps,
           opts.defaultTs
         );
         // Note: updateRawAppRunnables now writes each runnable to its own file
@@ -211,7 +220,7 @@ export async function generateAppLocksInternal(
           normalAppFile.value,
           remote_path,
           appFolder,
-          rawWorkspaceDependencies,
+          filteredDeps,
           opts.defaultTs
         );
 
@@ -228,7 +237,7 @@ export async function generateAppLocksInternal(
 
   // Regenerate hashes after updates
   hashes = await generateAppHash(
-    rawWorkspaceDependencies,
+    filteredDeps,
     appFolder,
     rawApp,
     opts.defaultTs
@@ -251,6 +260,48 @@ type InlineScriptProcessor = (
     parentObject: any;
   }
 ) => Promise<any>;
+
+/**
+ * Filters raw workspace dependencies for an app by traversing all inline scripts,
+ * filtering deps for each based on language and annotations, then computing the union.
+ */
+async function filterWorkspaceDependenciesForApp(
+  appValue: any,
+  rawWorkspaceDependencies: Record<string, string>,
+  folder: string
+): Promise<Record<string, string>> {
+  const filtered: Record<string, string> = {};
+
+  await traverseAndProcessInlineScripts(appValue, async (inlineScript) => {
+    const language = inlineScript.language;
+    let content = inlineScript.content;
+
+    // Read actual content if it's an !inline reference
+    if (typeof content === "string" && content.startsWith("!inline ")) {
+      const filePath = folder + SEP + content.replace("!inline ", "");
+      try {
+        content = await Deno.readTextFile(filePath);
+      } catch {
+        return inlineScript;
+      }
+    }
+
+    if (content && language) {
+      const scriptFiltered = filterWorkspaceDependencies(
+        rawWorkspaceDependencies,
+        content,
+        language as ScriptLanguage
+      );
+      for (const [depPath, depContent] of Object.entries(scriptFiltered)) {
+        filtered[depPath] = depContent;
+      }
+    }
+
+    return inlineScript; // Return unchanged
+  });
+
+  return filtered;
+}
 
 /**
  * Traverses an app structure (either app.value for normal apps or app.runnables for raw apps)
@@ -552,6 +603,11 @@ async function generateInlineScriptLock(
   scriptPath: string,
   rawWorkspaceDependencies: Record<string, string> | undefined
 ): Promise<string> {
+  // Filter workspace dependencies to only include those matching this script's language and annotations
+  const filteredDeps = rawWorkspaceDependencies
+    ? filterWorkspaceDependencies(rawWorkspaceDependencies, content, language as ScriptLanguage)
+    : undefined;
+
   const extraHeaders = getHeaders();
 
   const rawResponse = await fetch(
@@ -572,9 +628,8 @@ async function generateInlineScriptLock(
           },
         ],
         raw_workspace_dependencies:
-          rawWorkspaceDependencies &&
-          Object.keys(rawWorkspaceDependencies).length > 0
-            ? rawWorkspaceDependencies
+          filteredDeps && Object.keys(filteredDeps).length > 0
+            ? filteredDeps
             : null,
         entrypoint: scriptPath,
       }),
