@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.638.0](https://github.com/windmill-labs/windmill/compare/v1.637.0...v1.638.0) (2026-02-17)
+
+
+### Features
+
+* add native_mode as typed field on WorkerGroupConfig ([3e313cc](https://github.com/windmill-labs/windmill/commit/3e313cc4e864108d7dee866e784dff428883cadf))
+* show all settings in YAML UI and protect from empty overwrites ([#7976](https://github.com/windmill-labs/windmill/issues/7976)) ([b3eeee4](https://github.com/windmill-labs/windmill/commit/b3eeee413114cb54b5932542b14d8904a3c6c93c))
+
+
+### Bug Fixes
+
+* add missing google native triggers to triggers panel ([#7966](https://github.com/windmill-labs/windmill/issues/7966)) ([bb03c62](https://github.com/windmill-labs/windmill/commit/bb03c62c2819d40acd676d10cc586958f4117b5d))
+* download audit logs ([#7965](https://github.com/windmill-labs/windmill/issues/7965)) ([bba319b](https://github.com/windmill-labs/windmill/commit/bba319b2826f4d264ecebef3258d3c3f16237cc5))
+* improve operator ConfigMap settings handling ([#7975](https://github.com/windmill-labs/windmill/issues/7975)) ([2019aec](https://github.com/windmill-labs/windmill/commit/2019aecf4253edcf7b33e30862f642b303948440))
+
 ## [1.637.0](https://github.com/windmill-labs/windmill/compare/v1.636.0...v1.637.0) (2026-02-17)
 
 
