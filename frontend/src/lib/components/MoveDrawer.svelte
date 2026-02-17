@@ -71,7 +71,7 @@
 				Since you do not own this item, you cannot move this item (you can however fork it)
 			</Alert>
 		{/if}
-		{#if onBehalfOfEmail}
+		{#if own && onBehalfOfEmail}
 			<Alert type="info" title="Run on behalf of" class="mb-4">
 				This flow will be redeployed on behalf of you ({$userStore?.email}) instead of {onBehalfOfEmail}
 			</Alert>

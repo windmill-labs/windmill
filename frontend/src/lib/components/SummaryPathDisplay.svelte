@@ -177,7 +177,7 @@
 		{/snippet}
 	</Popover>
 {:else}
-	<div class="min-w-24 truncate flex flex-col">
+	<div class="min-w-24 truncate flex flex-col px-2">
 		{#if !emptyString(summary)}
 			<span class="text-[10px] leading-tight text-tertiary font-mono truncate">{path}</span>
 		{/if}
