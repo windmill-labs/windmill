@@ -878,9 +878,9 @@ fn license_key_expiry(value: &serde_json::Value) -> Option<u64> {
     parts[1].parse::<u64>().ok()
 }
 
-/// Returns true if two license key values share the same client ID and signature
-/// (i.e. they differ only in the expiry field).
-fn license_keys_same_except_expiry(a: &serde_json::Value, b: &serde_json::Value) -> bool {
+/// Returns true if two license key values share the same client ID
+/// (i.e. they belong to the same customer, possibly with different expiry/signature).
+fn license_keys_same_client(a: &serde_json::Value, b: &serde_json::Value) -> bool {
     let (Some(a_str), Some(b_str)) = (a.as_str(), b.as_str()) else {
         return false;
     };
@@ -889,7 +889,7 @@ fn license_keys_same_except_expiry(a: &serde_json::Value, b: &serde_json::Value)
     if a_parts.len() != 3 || b_parts.len() != 3 {
         return false;
     }
-    a_parts[0] == b_parts[0] && a_parts[2] == b_parts[2]
+    a_parts[0] == b_parts[0]
 }
 
 fn is_empty_or_null(value: &serde_json::Value) -> bool {
@@ -951,7 +951,7 @@ pub fn diff_global_settings(
                 unchanged_count += 1;
             }
             Some(existing) if key == LICENSE_KEY_SETTING => {
-                if license_keys_same_except_expiry(existing, &value) {
+                if license_keys_same_client(existing, &value) {
                     let current_expiry = license_key_expiry(existing).unwrap_or(0);
                     let desired_expiry = license_key_expiry(&value).unwrap_or(0);
                     if desired_expiry > current_expiry {
@@ -1273,7 +1273,11 @@ fn write_yaml_field(
 
     let prefix = "  ".repeat(indent);
     let trimmed = value_yaml.trim();
-    let is_nested = matches!(value, serde_json::Value::Object(_) | serde_json::Value::Array(_));
+    let is_nested = match value {
+        serde_json::Value::Object(m) => !m.is_empty(),
+        serde_json::Value::Array(a) => !a.is_empty(),
+        _ => false,
+    };
     if is_nested {
         let _ = writeln!(yaml, "{prefix}{key}:");
         let inner_prefix = "  ".repeat(indent + 1);
@@ -2269,7 +2273,7 @@ mod tests {
     }
 
     #[test]
-    fn diff_license_key_skips_equal_expiry() {
+    fn diff_license_key_skips_equal_expiry_different_sig() {
         let mut current = BTreeMap::new();
         current.insert(
             "license_key".to_string(),
@@ -2283,10 +2287,9 @@ mod tests {
         );
 
         let diff = diff_global_settings(&current, &desired, ApplyMode::Merge);
-        assert_eq!(
-            diff.upserts.len(),
-            1,
-            "Different signature means different key, should update"
+        assert!(
+            diff.upserts.is_empty(),
+            "Same client and equal expiry should not update even with different signature"
         );
     }
 
@@ -2309,6 +2312,45 @@ mod tests {
         assert_eq!(
             diff.upserts["license_key"],
             serde_json::json!("client1.2000000000.sig123")
+        );
+    }
+
+    #[test]
+    fn diff_license_key_updates_newer_expiry_different_sig() {
+        let mut current = BTreeMap::new();
+        current.insert(
+            "license_key".to_string(),
+            serde_json::json!("client1.1000000000.sig_old"),
+        );
+
+        let mut desired = BTreeMap::new();
+        desired.insert(
+            "license_key".to_string(),
+            serde_json::json!("client1.2000000000.sig_new"),
+        );
+
+        let diff = diff_global_settings(&current, &desired, ApplyMode::Merge);
+        assert_eq!(diff.upserts.len(), 1, "Same client with newer expiry should update even with different signature");
+    }
+
+    #[test]
+    fn diff_license_key_skips_older_expiry_different_sig() {
+        let mut current = BTreeMap::new();
+        current.insert(
+            "license_key".to_string(),
+            serde_json::json!("client1.2000000000.sig_new"),
+        );
+
+        let mut desired = BTreeMap::new();
+        desired.insert(
+            "license_key".to_string(),
+            serde_json::json!("client1.1000000000.sig_old"),
+        );
+
+        let diff = diff_global_settings(&current, &desired, ApplyMode::Merge);
+        assert!(
+            diff.upserts.is_empty(),
+            "Same client with older expiry should not update even with different signature"
         );
     }
 
