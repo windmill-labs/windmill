@@ -1,0 +1,22 @@
+[package]
+name = "windmill-api-sandbox"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_api_sandbox"
+path = "src/lib.rs"
+
+[dependencies]
+windmill-api-auth.workspace = true
+windmill-common = { workspace = true, default-features = false }
+windmill-sandbox.workspace = true
+axum.workspace = true
+chrono.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+tracing.workspace = true
+uuid.workspace = true

@@ -66,6 +66,8 @@ mod python_versions;
 pub mod result_processor;
 #[cfg(feature = "rust")]
 mod rust_executor;
+#[allow(dead_code)]
+mod sandbox_server;
 mod sanitized_sql_params;
 mod schema;
 pub mod sql_utils;

@@ -15899,6 +15899,7 @@ dependencies = [
  "windmill-api-jobs",
  "windmill-api-npm-proxy",
  "windmill-api-openapi",
+ "windmill-api-sandbox",
  "windmill-api-schedule",
  "windmill-api-scripts",
  "windmill-api-settings",
@@ -16227,6 +16228,23 @@ dependencies = [
  "windmill-common",
  "windmill-store",
  "windmill-trigger-http",
+]
+
+[[package]]
+name = "windmill-api-sandbox"
+version = "1.638.2"
+dependencies = [
+ "axum 0.7.9",
+ "chrono",
+ "reqwest 0.13.1",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tracing",
+ "uuid",
+ "windmill-api-auth",
+ "windmill-common",
+ "windmill-sandbox",
 ]
 
 [[package]]
@@ -16980,6 +16998,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "windmill-sandbox"
+version = "1.638.2"
+dependencies = [
+ "axum 0.7.9",
+ "chrono",
+ "nix 0.27.1",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+ "windmill-common",
+]
+
+[[package]]
 name = "windmill-sql-datatype-parser-wasm"
 version = "1.638.2"
 dependencies = [
@@ -17437,6 +17471,7 @@ dependencies = [
  "windmill-parser-yaml",
  "windmill-queue",
  "windmill-runtime-nativets",
+ "windmill-sandbox",
  "yaml-rust",
 ]
 

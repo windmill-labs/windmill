@@ -37,9 +37,11 @@ members = [
     "./windmill-api-inputs",
     "./windmill-api-npm-proxy",
     "./windmill-api-openapi",
+    "./windmill-api-sandbox",
     "./windmill-api-schedule",
     "./windmill-api-settings",
     "./windmill-api-workers",
+    "./windmill-sandbox",
     "./windmill-store",
     "./windmill-queue",
     "./windmill-worker",
@@ -305,9 +307,11 @@ windmill-api-flow-conversations = { path = "./windmill-api-flow-conversations" }
 windmill-api-inputs = { path = "./windmill-api-inputs" }
 windmill-api-npm-proxy = { path = "./windmill-api-npm-proxy" }
 windmill-api-openapi = { path = "./windmill-api-openapi" }
+windmill-api-sandbox = { path = "./windmill-api-sandbox" }
 windmill-api-schedule = { path = "./windmill-api-schedule" }
 windmill-api-settings = { path = "./windmill-api-settings" }
 windmill-api-workers = { path = "./windmill-api-workers" }
+windmill-sandbox = { path = "./windmill-sandbox" }
 windmill-store = { path = "./windmill-store" }
 windmill-parser = { path = "./parsers/windmill-parser" }
 windmill-parser-ts = { path = "./parsers/windmill-parser-ts" }

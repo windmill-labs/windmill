@@ -1,0 +1,21 @@
+[package]
+name = "windmill-sandbox"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_sandbox"
+path = "src/lib.rs"
+
+[dependencies]
+axum.workspace = true
+chrono.workspace = true
+nix.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+windmill-common = { workspace = true, default-features = false }

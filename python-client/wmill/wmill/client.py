@@ -2352,7 +2352,226 @@ def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]:
     name = name
     schema = None
     if ":" in name:
-        name, schema = name.split(":", 1) 
+        name, schema = name.split(":", 1)
     if not name:
         name = "main"
     return name, schema
+
+
+# --- Sandbox SDK ---
+
+
+class SandboxExecResult:
+    def __init__(self, data: dict):
+        self.exec_id: str = data.get("exec_id", "")
+        self.exit_code: int = data.get("exit_code", -1)
+        self.stdout: str = data.get("stdout", "")
+        self.stderr: str = data.get("stderr", "")
+        self.duration_ms: int = data.get("duration_ms", 0)
+
+    def __repr__(self):
+        return f"SandboxExecResult(exit_code={self.exit_code}, duration_ms={self.duration_ms})"
+
+
+class SandboxInfo:
+    def __init__(self, data: dict):
+        self.id: str = data["id"]
+        self.workspace_id: str = data.get("workspace_id", "")
+        self.status: str = data["status"]
+        self.image: Optional[str] = data.get("image")
+        self.labels: dict = data.get("labels", {})
+        self.mode: str = data.get("mode", "embedded")
+        self.created_by: str = data.get("created_by", "")
+        self.created_at: str = data.get("created_at", "")
+        self.started_at: Optional[str] = data.get("started_at")
+        self.last_activity_at: Optional[str] = data.get("last_activity_at")
+        self.suspended_at: Optional[str] = data.get("suspended_at")
+        self.stopped_at: Optional[str] = data.get("stopped_at")
+        self.error_message: Optional[str] = data.get("error_message")
+        self.ephemeral: bool = data.get("ephemeral", False)
+        self.cpu_limit: int = data.get("cpu_limit", 1)
+        self.memory_limit_mb: int = data.get("memory_limit_mb", 512)
+        self.network_enabled: bool = data.get("network_enabled", False)
+
+    def __repr__(self):
+        return f"SandboxInfo(id={self.id}, status={self.status})"
+
+
+class Sandbox:
+    def __init__(self, sandbox_id: str, base_url: str, use_direct_http: bool, token: str = "", workspace: str = ""):
+        self.id = sandbox_id
+        self._base_url = base_url
+        self._use_direct_http = use_direct_http
+        self._token = token
+        self._workspace = workspace
+
+    @staticmethod
+    def create(
+        mode: str = "embedded",
+        image: Optional[str] = None,
+        timeout_secs: Optional[int] = None,
+        idle_timeout_secs: Optional[int] = None,
+        cpu_limit: int = 1,
+        memory_limit_mb: int = 512,
+        disk_limit_mb: int = 1024,
+        env_vars: Optional[Dict[str, str]] = None,
+        labels: Optional[Dict[str, str]] = None,
+        network_enabled: bool = False,
+        ephemeral: bool = False,
+    ) -> "Sandbox":
+        config = {
+            "mode": mode,
+            "cpu_limit": cpu_limit,
+            "memory_limit_mb": memory_limit_mb,
+            "disk_limit_mb": disk_limit_mb,
+            "env_vars": env_vars or {},
+            "labels": labels or {},
+            "mounts": [],
+            "network_enabled": network_enabled,
+            "ephemeral": ephemeral,
+        }
+        if image is not None:
+            config["image"] = image
+        if timeout_secs is not None:
+            config["timeout_secs"] = timeout_secs
+        if idle_timeout_secs is not None:
+            config["idle_timeout_secs"] = idle_timeout_secs
+
+        sandbox_url = os.environ.get("WM_SANDBOX_URL")
+        if mode == "embedded" and sandbox_url:
+            resp = httpx.post(f"{sandbox_url}/sandbox/create", json=config, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+            return Sandbox(data["id"], sandbox_url, True)
+
+        wm = _client or Windmill()
+        data = wm.post(
+            f"/w/{wm.workspace}/sandboxes/create",
+            json=config,
+        ).json()
+        return Sandbox(
+            data["id"],
+            wm.base_url,
+            False,
+            wm.token,
+            wm.workspace,
+        )
+
+    @staticmethod
+    def get(sandbox_id: str) -> "Sandbox":
+        sandbox_url = os.environ.get("WM_SANDBOX_URL")
+        if sandbox_url:
+            return Sandbox(sandbox_id, sandbox_url, True)
+
+        wm = _client or Windmill()
+        return Sandbox(sandbox_id, wm.base_url, False, wm.token, wm.workspace)
+
+    @staticmethod
+    def list(
+        status: Optional[list[str]] = None,
+        labels: Optional[Dict[str, str]] = None,
+    ) -> list[SandboxInfo]:
+        wm = _client or Windmill()
+        params: Dict[str, str] = {}
+        if status:
+            params["status"] = ",".join(status)
+        if labels:
+            first_key = next(iter(labels))
+            params["label_key"] = first_key
+            params["label_value"] = labels[first_key]
+        resp = wm.get(f"/w/{wm.workspace}/sandboxes/list", params=params).json()
+        return [SandboxInfo(s) for s in resp]
+
+    def exec(
+        self,
+        command: str,
+        *,
+        timeout_secs: Optional[int] = None,
+        cwd: Optional[str] = None,
+        env: Optional[Dict[str, str]] = None,
+    ) -> SandboxExecResult:
+        payload: Dict[str, Any] = {"command": command}
+        if timeout_secs is not None:
+            payload["timeout_secs"] = timeout_secs
+        if cwd is not None:
+            payload["cwd"] = cwd
+        if env is not None:
+            payload["env"] = env
+
+        if self._use_direct_http:
+            resp = httpx.post(
+                f"{self._base_url}/sandbox/{self.id}/exec",
+                json=payload,
+                timeout=httpx.Timeout((timeout_secs or 300) + 10, connect=10),
+            )
+            resp.raise_for_status()
+            return SandboxExecResult(resp.json())
+
+        wm = _client or Windmill()
+        data = wm.post(f"/w/{wm.workspace}/sandboxes/{self.id}/exec", json=payload).json()
+        return SandboxExecResult(data)
+
+    def suspend(self) -> None:
+        self._action("suspend")
+
+    def resume(self) -> None:
+        self._action("resume")
+
+    def terminate(self) -> None:
+        self._action("terminate")
+
+    def status(self) -> SandboxInfo:
+        if self._use_direct_http:
+            resp = httpx.get(f"{self._base_url}/sandbox/{self.id}/status", timeout=10)
+            resp.raise_for_status()
+            return SandboxInfo(resp.json())
+
+        wm = _client or Windmill()
+        data = wm.get(f"/w/{wm.workspace}/sandboxes/{self.id}").json()
+        return SandboxInfo(data)
+
+    def write_file(self, path: str, content: Union[str, bytes]) -> None:
+        if isinstance(content, bytes):
+            content = content.decode("utf-8")
+
+        if self._use_direct_http:
+            resp = httpx.post(
+                f"{self._base_url}/sandbox/{self.id}/write_file",
+                json={"path": path, "content": content},
+                timeout=30,
+            )
+            resp.raise_for_status()
+            return
+
+        wm = _client or Windmill()
+        wm.post(f"/w/{wm.workspace}/sandboxes/{self.id}/write_file", json={"path": path, "content": content})
+
+    def read_file(self, path: str) -> str:
+        if self._use_direct_http:
+            resp = httpx.get(
+                f"{self._base_url}/sandbox/{self.id}/read_file",
+                params={"path": path},
+                timeout=30,
+            )
+            resp.raise_for_status()
+            return resp.text()
+
+        wm = _client or Windmill()
+        return wm.get(f"/w/{wm.workspace}/sandboxes/{self.id}/read_file", params={"path": path}).json()
+
+    def list_execs(self) -> list[SandboxExecResult]:
+        wm = _client or Windmill()
+        data = wm.get(f"/w/{wm.workspace}/sandboxes/{self.id}/execs").json()
+        return [SandboxExecResult(e) for e in data]
+
+    def _action(self, action: str) -> None:
+        if self._use_direct_http:
+            resp = httpx.post(
+                f"{self._base_url}/sandbox/{self.id}/{action}",
+                timeout=30,
+            )
+            resp.raise_for_status()
+            return
+
+        wm = _client or Windmill()
+        wm.post(f"/w/{wm.workspace}/sandboxes/{self.id}/{action}", json={})

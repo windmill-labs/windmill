@@ -1004,6 +1004,77 @@ pub async fn delete_expired_items(db: &DB) -> () {
         ),
     }
 
+    // Sandbox cleanup: terminate expired sandboxes, stop idle ones, delete ephemeral stopped sandboxes
+    let sandbox_expired = sqlx::query_scalar!(
+        "UPDATE sandbox SET status = 'stopped'::sandbox_status, stopped_at = now()
+        WHERE status IN ('running', 'suspended', 'creating')
+            AND expires_at IS NOT NULL AND expires_at <= now()
+        RETURNING id"
+    )
+    .fetch_all(db)
+    .await;
+    match sandbox_expired {
+        Ok(ids) if !ids.is_empty() => {
+            tracing::info!("stopped {} expired sandboxes", ids.len());
+        }
+        Err(e) => tracing::error!("Error stopping expired sandboxes: {e}"),
+        _ => {}
+    }
+
+    let sandbox_idle_stopped = sqlx::query_scalar!(
+        "UPDATE sandbox SET status = 'stopped'::sandbox_status, stopped_at = now()
+        WHERE status = 'running'
+            AND idle_timeout_secs IS NOT NULL
+            AND last_activity_at IS NOT NULL
+            AND last_activity_at + (idle_timeout_secs::text || ' seconds')::interval <= now()
+        RETURNING id"
+    )
+    .fetch_all(db)
+    .await;
+    match sandbox_idle_stopped {
+        Ok(ids) if !ids.is_empty() => {
+            tracing::info!("stopped {} idle sandboxes", ids.len());
+        }
+        Err(e) => tracing::error!("Error stopping idle sandboxes: {e}"),
+        _ => {}
+    }
+
+    let sandbox_ephemeral_deleted = sqlx::query_scalar!(
+        "DELETE FROM sandbox WHERE ephemeral = true AND status IN ('stopped', 'error')
+        RETURNING id"
+    )
+    .fetch_all(db)
+    .await;
+    match sandbox_ephemeral_deleted {
+        Ok(ids) if !ids.is_empty() => {
+            tracing::info!("deleted {} ephemeral stopped sandboxes", ids.len());
+        }
+        Err(e) => tracing::error!("Error deleting ephemeral sandboxes: {e}"),
+        _ => {}
+    }
+
+    // Mark sandboxes on dead hosts as errored
+    let sandbox_orphaned = sqlx::query_scalar!(
+        "UPDATE sandbox SET status = 'error'::sandbox_status,
+            error_message = 'Sandbox host became unreachable'
+        WHERE status IN ('running', 'suspended')
+            AND mode = 'remote'
+            AND host_id IS NOT NULL
+            AND host_id NOT IN (
+                SELECT id FROM sandbox_host WHERE last_ping > now() - interval '2 minutes'
+            )
+        RETURNING id"
+    )
+    .fetch_all(db)
+    .await;
+    match sandbox_orphaned {
+        Ok(ids) if !ids.is_empty() => {
+            tracing::info!("marked {} orphaned sandboxes as error", ids.len());
+        }
+        Err(e) => tracing::error!("Error marking orphaned sandboxes: {e}"),
+        _ => {}
+    }
+
     let job_retention_secs = *JOB_RETENTION_SECS.read().await;
     if job_retention_secs > 0 {
         let batch_size = *JOB_CLEANUP_BATCH_SIZE;

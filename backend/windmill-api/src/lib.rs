@@ -509,6 +509,7 @@ pub async fn run_server(
                         .nest("/npm_proxy", windmill_api_npm_proxy::workspaced_service())
                         .nest("/raw_apps", raw_apps::workspaced_service())
                         .nest("/resources", resources::workspaced_service())
+                        .nest("/sandboxes", windmill_api_sandbox::workspaced_service())
                         .nest("/schedules", windmill_api_schedule::workspaced_service())
                         .nest("/scripts", scripts::workspaced_service())
                         .nest(
