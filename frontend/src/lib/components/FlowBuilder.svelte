@@ -19,6 +19,8 @@
 		orderedJsonStringify,
 		readFieldsRecursively,
 		replaceFalseWithUndefined,
+		isMac,
+		type Item,
 		type StateStore,
 		type Value
 	} from '$lib/utils'
@@ -27,10 +29,10 @@
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import AIChangesWarningModal from '$lib/components/copilot/chat/flow/AIChangesWarningModal.svelte'
 
-	import { onMount, setContext, untrack, type ComponentType } from 'svelte'
+	import { createRawSnippet, onMount, setContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
-	import { Badge, Button, UndoRedo } from './common'
+	import { Button } from './common'
 	import FlowEditor from './flows/FlowEditor.svelte'
 	import ScriptEditorDrawer from './flows/content/ScriptEditorDrawer.svelte'
 	import FlowEditorDrawer from './flows/content/FlowEditorDrawer.svelte'
@@ -44,13 +46,18 @@
 	import { cleanFlow } from './flows/utils.svelte'
 	import {
 		Calendar,
-		Pen,
 		Save,
 		DiffIcon,
 		HistoryIcon,
 		FileJson,
-		type Icon,
-		Settings
+		Settings,
+		Undo,
+		Redo,
+		BookOpen,
+		Circle,
+		CheckCircle,
+		RefreshCw,
+		CheckCheck
 	} from 'lucide-svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
@@ -59,8 +66,10 @@
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import FlowTutorials from './FlowTutorials.svelte'
 	import FlowHistory from './flows/FlowHistory.svelte'
-	import FlowEditorTutorial from './flows/FlowEditorTutorial.svelte'
-	import Summary from './Summary.svelte'
+	import { resetAllTodos, skipAllTodos } from '$lib/tutorialUtils'
+	import { tutorialsToDo } from '$lib/stores'
+	import { getTutorialIndex } from '$lib/tutorials/config'
+	import SummaryPathDisplay from './SummaryPathDisplay.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
 	import FlowYamlEditor from './flows/header/FlowYamlEditor.svelte'
 	import { type TriggerContext, type ScheduleTrigger } from './triggers'
@@ -86,7 +95,6 @@
 	import type { FlowBuilderProps } from './flow_builder'
 	import { ModulesTestStates } from './modulesTest.svelte'
 	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from './flows/FlowAssetsHandler.svelte'
-	import { inputSizeClasses } from './text_input/TextInput.svelte'
 
 	let {
 		initialPath = $bindable(''),
@@ -689,6 +697,29 @@
 		}
 	}
 
+	function handleUndo() {
+		const currentModules = flowStore.val?.value?.modules
+		flowStore.val = undo(history, flowStore.val)
+		const newModules = flowStore.val?.value?.modules
+		const restoredModules = newModules?.filter(
+			(node) => !currentModules?.some((currentNode) => currentNode?.id === node?.id)
+		)
+		for (const mod of restoredModules) {
+			if (mod) {
+				try {
+					loadFlowModuleState(mod).then((state) => (flowStateStore.val[mod.id] = state))
+				} catch (e) {
+					console.error('Error loading state for restored node', e)
+				}
+			}
+		}
+		selectionManager.selectId('Input')
+	}
+
+	function handleRedo() {
+		flowStore.val = redo(history)
+	}
+
 	function onKeyDown(event: KeyboardEvent) {
 		let classes = event.target?.['className']
 		if (
@@ -701,14 +732,13 @@
 		switch (event.key) {
 			case 'Z':
 				if (event.ctrlKey || event.metaKey) {
-					flowStore.val = redo(history)
+					handleRedo()
 					event.preventDefault()
 				}
 				break
 			case 'z':
 				if (event.ctrlKey || event.metaKey) {
-					flowStore.val = undo(history, flowStore.val)
-					selectionManager.selectId('Input')
+					handleUndo()
 					event.preventDefault()
 				}
 				break
@@ -804,18 +834,94 @@
 		}
 	}
 
-	let moreItems: {
-		displayName: string
-		icon: ComponentType<Icon>
-		action: () => void
-		disabled?: boolean
-	}[] = $state([])
+	let baseMenuItems: Item[] = $state([])
+
+	const mod = isMac() ? '⌘' : 'Ctrl+'
+
+	const undoShortcutSnippet = createRawSnippet(() => ({
+		render: () => `<span class="ml-auto text-2xs text-tertiary">${mod}Z</span>`
+	}))
+
+	const redoShortcutSnippet = createRawSnippet(() => ({
+		render: () => `<span class="ml-auto text-2xs text-tertiary">${mod}⇧Z</span>`
+	}))
+
+	function getMoreItems(): Item[] {
+		return [
+			...baseMenuItems,
+			{
+				displayName: 'Undo',
+				icon: Undo,
+				action: () => handleUndo(),
+				disabled: $history.index === 0,
+				extra: undoShortcutSnippet,
+				separatorTop: baseMenuItems.length > 0
+			},
+			{
+				displayName: 'Redo',
+				icon: Redo,
+				action: () => handleRedo(),
+				disabled: $history.index === $history.history.length - 1,
+				extra: redoShortcutSnippet
+			},
+			{
+				displayName: 'Tutorials',
+				icon: BookOpen,
+				separatorTop: true,
+				extra: (() => {
+					const remaining = [
+						getTutorialIndex('flow-live-tutorial'),
+						getTutorialIndex('troubleshoot-flow')
+					].filter((i) => $tutorialsToDo.includes(i)).length
+					return remaining > 0
+						? createRawSnippet(() => ({
+								render: () =>
+									`<span class="ml-auto inline-flex items-center justify-center w-4 h-4 text-[10px] font-medium text-white rounded-full bg-surface-accent-primary">${remaining}</span>`
+							}))
+						: undefined
+				})(),
+				submenuItems: [
+					{
+						displayName: 'Build a flow',
+						action: () => flowTutorials?.runTutorialById('flow-live-tutorial'),
+						icon: $tutorialsToDo.includes(getTutorialIndex('flow-live-tutorial'))
+							? Circle
+							: CheckCircle,
+						iconColor: $tutorialsToDo.includes(getTutorialIndex('flow-live-tutorial'))
+							? undefined
+							: 'green'
+					},
+					{
+						displayName: 'Fix a broken flow',
+						action: () => flowTutorials?.runTutorialById('troubleshoot-flow'),
+						icon: $tutorialsToDo.includes(getTutorialIndex('troubleshoot-flow'))
+							? Circle
+							: CheckCircle,
+						iconColor: $tutorialsToDo.includes(getTutorialIndex('troubleshoot-flow'))
+							? undefined
+							: 'green'
+					},
+					{
+						displayName: 'Reset tutorials',
+						action: () => resetAllTodos(),
+						icon: RefreshCw,
+						separatorTop: true
+					},
+					{
+						displayName: 'Skip tutorials',
+						action: () => skipAllTodos(),
+						icon: CheckCheck
+					}
+				]
+			}
+		]
+	}
 
 	function onCustomUiChange(
 		customUi: FlowBuilderWhitelabelCustomUi | undefined,
 		hasAiDiff: boolean
 	) {
-		moreItems = [
+		baseMenuItems = [
 			...(customUi?.topBar?.history != false
 				? [
 						{
@@ -1007,42 +1113,14 @@
 		<div class="flex flex-col flex-1 h-screen">
 			<!-- Nav between steps-->
 			<div
-				class="justify-between flex flex-row items-center pl-2.5 pr-6 space-x-4 scrollbar-hidden overflow-x-auto max-h-12 h-full relative"
+				class="justify-between flex flex-row items-center pl-2 pr-4 space-x-4 scrollbar-hidden overflow-x-auto max-h-12 h-full relative"
 			>
-				<div class="flex w-full max-w-md gap-4 items-center">
-					<Summary
-						disabled={customUi?.topBar?.editableSummary == false}
-						bind:value={flowStore.val.summary}
-					/>
-					<UndoRedo
-						undoProps={{ disabled: $history.index === 0 }}
-						redoProps={{ disabled: $history.index === $history.history.length - 1 }}
-						on:undo={() => {
-							const currentModules = flowStore.val?.value?.modules
-							// console.log('undo before', flowStore.val, JSON.stringify(flowStore.val, null, 2))
-							flowStore.val = undo(history, flowStore.val)
-							// console.log('undo after', flowStore.val, JSON.stringify(flowStore.val, null, 2))
-
-							const newModules = flowStore.val?.value?.modules
-							const restoredModules = newModules?.filter(
-								(node) => !currentModules?.some((currentNode) => currentNode?.id === node?.id)
-							)
-
-							for (const mod of restoredModules) {
-								if (mod) {
-									try {
-										loadFlowModuleState(mod).then((state) => (flowStateStore.val[mod.id] = state))
-									} catch (e) {
-										console.error('Error loading state for restored node', e)
-									}
-								}
-							}
-
-							selectionManager.selectId('Input')
-						}}
-						on:redo={() => {
-							flowStore.val = redo(history)
-						}}
+				<div class="flex w-full max-w-md gap-8 items-center">
+					<SummaryPathDisplay
+						bind:summary={flowStore.val.summary}
+						bind:path={$pathStore}
+						kind="flow"
+						editable
 					/>
 				</div>
 
@@ -1068,44 +1146,19 @@
 								''}
 						</Button>
 					{/if}
-
-					{#if customUi?.topBar?.path != false}
-						<div class="flex justify-start items-center w-full">
-							<button
-								onclick={async () => {
-									select('settings-metadata')
-									document.getElementById('path')?.focus()
-								}}
-							>
-								<Badge
-									color="gray"
-									class="text-primary rounded-r-none border border-r-0 {inputSizeClasses.md}"
-								>
-									<Pen size={12} class="mr-2" /> Path
-								</Badge>
-							</button>
-							<input
-								type="text"
-								readonly
-								value={$pathStore && $pathStore != '' ? $pathStore : 'Choose a path'}
-								class="font-mono !text-2xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 cursor-default !rounded-l-none {inputSizeClasses.md}"
-								onfocus={({ currentTarget }) => {
-									currentTarget.select()
-								}}
-							/>
-						</div>
-					{/if}
 				</div>
 				<div class="flex flex-row gap-2 items-center">
 					{#if $enterpriseLicense && !newFlow}
 						<Awareness />
 					{/if}
-					<div>
-						{#if moreItems?.length > 0}
-							<Dropdown items={moreItems} />
+					<div class="relative">
+						<Dropdown items={getMoreItems} />
+						{#if $tutorialsToDo.includes(getTutorialIndex('flow-live-tutorial')) || $tutorialsToDo.includes(getTutorialIndex('troubleshoot-flow'))}
+							<span
+								class="absolute top-0.5 right-0.5 block w-2 h-2 rounded-full bg-surface-accent-primary pointer-events-none"
+							></span>
 						{/if}
 					</div>
-					<FlowEditorTutorial />
 					{#if customUi?.topBar?.diff != false}
 						<Button
 							variant="default"

@@ -45,6 +45,10 @@
 	 * If provided, the popover will only open if the click is on the element with the given id.
 	 */
 	export let targetId: string | undefined = undefined
+	/**
+	 * Additional CSS selectors whose matching elements should be excluded from outside-click detection.
+	 */
+	export let excludeSelectors: string | undefined = undefined
 
 	let fullScreen = false
 	const dispatch = createEventDispatcher()
@@ -138,7 +142,10 @@
 	}
 
 	async function getMenuElements(): Promise<HTMLElement[]> {
-		return Array.from(document.querySelectorAll('[data-popover]')) as HTMLElement[]
+		const selector = excludeSelectors
+			? `[data-popover], ${excludeSelectors}`
+			: '[data-popover]'
+		return Array.from(document.querySelectorAll(selector)) as HTMLElement[]
 	}
 
 	let { debounced: debounceClose, clearDebounce: clearDebounceClose } = debounce(
