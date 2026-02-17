@@ -3011,6 +3011,20 @@ pub async fn handle_queued_job(
     }
 
     if NATIVE_MODE_RESOLVED.load(std::sync::atomic::Ordering::Relaxed) {
+        // Block flow/app dependency jobs (they have no script_lang so the language check below
+        // wouldn't catch them). Script dependency jobs are not blocked here: native scripts don't
+        // have dependency jobs, and non-native ones are caught by the language check.
+        // Only exception is bunnative scripts which have a dependency job but is tagged as bun — except when
+        // a custom tag is used which will route them here. In this case, we allow them for simplicity.
+        if matches!(
+            job.kind,
+            JobKind::FlowDependencies | JobKind::AppDependencies
+        ) || job.tag == "dependency"
+        {
+            return Err(Error::ExecutionErr(
+                "Worker is in native mode and cannot execute dependency jobs".to_string(),
+            ));
+        }
         if let Some(lang) = &job.script_lang {
             if !lang.is_native() {
                 return Err(Error::ExecutionErr(format!(

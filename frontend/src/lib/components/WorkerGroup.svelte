@@ -290,7 +290,9 @@
 			(workers.length > 0 &&
 				workers.some(([_, pings]) => pings.some((p) => p.native_mode === true)))
 	)
-	let nonNativeTags = $derived((nconfig?.worker_tags ?? []).filter((t) => !nativeTags.includes(t)))
+	let nonNativeTags = $derived(
+		(nconfig?.worker_tags ?? []).filter((t) => !nativeTags.includes(t) && t !== 'flow')
+	)
 	let isAutoNativeMode = $derived(name === 'native')
 	let isNativeModeEnabled = $derived(nconfig?.native_mode === true || isAutoNativeMode)
 	$effect(() => {
@@ -410,7 +412,9 @@
 											? (defaultTagPerWorkspace && workspaceTag
 												? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
 												: defaultTags.concat(nativeTags))
-											: defaultTags
+											: (defaultTagPerWorkspace && workspaceTag
+												? defaultTags.map((nt) => `${nt}-${workspaceTag}`)
+												: defaultTags)
 									}
 								},
 								disabled: !canEditConfig,
