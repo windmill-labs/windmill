@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.638.2](https://github.com/windmill-labs/windmill/compare/v1.638.1...v1.638.2) (2026-02-17)
+
+
+### Bug Fixes
+
+* **backend:** gcp private key parsing ([#7979](https://github.com/windmill-labs/windmill/issues/7979)) ([5b7bb2f](https://github.com/windmill-labs/windmill/commit/5b7bb2fb84a12433c48f1cdfc022edff0cbc88ea))
+* yaml settings UI mask rsa_keys and jwt_secret ([71608bf](https://github.com/windmill-labs/windmill/commit/71608bf669658241b4ce4e1da3a83f1045dea1f6))
+
 ## [1.638.1](https://github.com/windmill-labs/windmill/compare/v1.638.0...v1.638.1) (2026-02-17)
 
 
