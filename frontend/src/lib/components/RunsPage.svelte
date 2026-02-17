@@ -643,7 +643,7 @@
 				</ToggleButtonGroup>
 			</div>
 
-			<div class="flex gap-2 ml-auto">
+			<div class="flex gap-2 ml-auto grow max-w-[42rem]">
 				<TimeframeSelect
 					onClick={() => jobsLoader?.loadJobs(true)}
 					loading={jobsLoader?.loading}
@@ -651,7 +651,7 @@
 					bind:value={_timeframe.timeframe}
 				/>
 				<FilterSearchbar
-					class="w-[20rem] 2xl:w-[24rem]"
+					class="flex-1 overflow-x-auto"
 					schema={runsFilterSearchbarSchema}
 					bind:value={filters.val}
 				/>
