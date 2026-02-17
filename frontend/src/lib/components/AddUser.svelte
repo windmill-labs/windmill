@@ -40,7 +40,7 @@
 	let emailsLoading = $state(!isCloudHosted())
 
 	let instanceEmails = $derived.by(() => {
-		if (!allInstanceEmails) return undefined
+		if (!allInstanceEmails) return []
 		const workspaceSet = new Set(workspaceEmails)
 		return allInstanceEmails
 			.filter((e) => !workspaceSet.has(e))
@@ -119,18 +119,12 @@
 			<span class="text-sm mb-2 leading-6 font-semibold">Add a new user</span>
 
 			<span class="text-xs mb-1 leading-6">Email</span>
-			{#if emailsLoading}
-				<AutocompleteSelect
-					placeholder="Loading..."
-					loading={true}
-					disablePortal={true}
-					bind:value={email}
-				/>
-			{:else if instanceEmails}
+			{#if !isCloudHosted()}
 				<AutocompleteSelect
 					items={instanceEmails}
 					bind:value={email}
-					placeholder="Select or type an email"
+					placeholder={emailsLoading ? 'Loading...' : 'Select or type an email'}
+					loading={emailsLoading}
 					disablePortal={true}
 					error={!!emailError}
 					onBlur={() => (emailTouched = true)}
