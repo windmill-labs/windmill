@@ -40,7 +40,7 @@
 	import TimeframeSelect, {
 		buildManualTimeframe,
 		runsTimeframes,
-		useUrlSyncedTimeframe
+		useSyncedTimeframe
 	} from './runs/TimeframeSelect.svelte'
 	import FilterSearchbar, { useUrlSyncedFilterInstance } from './FilterSearchbar.svelte'
 	import { jobTriggerKinds } from './triggers/utils'
@@ -97,8 +97,21 @@
 				type?: ConfirmationModal['$$prop_def']['type']
 		  } = $state(undefined)
 
-	let _timeframe = useUrlSyncedTimeframe(runsTimeframes)
-	let timeframe = $derived(_timeframe.timeframe)
+	let automaticTimeframeState = useLocalStorageValue('runs_automatic_timeframe', 'null', 'string')
+	let _timeframe = useSyncedTimeframe(
+		runsTimeframes,
+		() => ({
+			maxTs: filters.val.max_ts?.toISOString(),
+			minTs: filters.val.min_ts?.toISOString(),
+			timeframe: automaticTimeframeState.val === 'null' ? null : automaticTimeframeState.val
+		}),
+		(v) => {
+			v.maxTs ? (filters.val.max_ts = new Date(v.maxTs)) : delete filters.val.max_ts
+			v.minTs ? (filters.val.min_ts = new Date(v.minTs)) : delete filters.val.min_ts
+			automaticTimeframeState.val = v.timeframe ?? 'null'
+		}
+	)
+	let timeframe = $derived(_timeframe.val)
 
 	let manualTimeframe = $derived(timeframe.type === 'manual' ? timeframe : undefined)
 
@@ -132,7 +145,7 @@
 	let runsTable: RunsTable | undefined = $state(undefined)
 
 	function reset() {
-		_timeframe.timeframe = { ...runsTimeframes[0] }
+		_timeframe.val = { ...runsTimeframes[0] }
 		selectedIds = []
 		filters.val.schedule_path = undefined
 		selectedWorkspace = undefined
@@ -648,7 +661,7 @@
 					onClick={() => jobsLoader?.loadJobs(true)}
 					loading={jobsLoader?.loading}
 					items={runsTimeframes}
-					bind:value={_timeframe.timeframe}
+					bind:value={_timeframe.val}
 				/>
 				<FilterSearchbar
 					class="flex-1"
@@ -698,10 +711,7 @@
 					maxIsNow={manualTimeframe?.maxTs == undefined}
 					jobs={completedJobs}
 					onZoom={async (zoom) => {
-						_timeframe.timeframe = buildManualTimeframe(
-							zoom.min.toISOString(),
-							zoom.max.toISOString()
-						)
+						_timeframe.val = buildManualTimeframe(zoom.min.toISOString(), zoom.max.toISOString())
 						jobsLoader?.loadJobs(true)
 					}}
 					onPointClicked={(ids) => {
@@ -715,10 +725,7 @@
 					maxIsNow={manualTimeframe?.maxTs == undefined}
 					{extendedJobs}
 					onZoom={async (zoom) => {
-						_timeframe.timeframe = buildManualTimeframe(
-							zoom.min.toISOString(),
-							zoom.max.toISOString()
-						)
+						_timeframe.val = buildManualTimeframe(zoom.min.toISOString(), zoom.max.toISOString())
 						jobsLoader?.loadJobs(true)
 					}}
 				/>

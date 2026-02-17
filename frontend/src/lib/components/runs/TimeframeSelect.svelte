@@ -86,6 +86,35 @@
 
 		return obj
 	}
+
+	export function useSyncedTimeframe(
+		timeframes: Timeframe[],
+		getter: () => { minTs?: string | null; maxTs?: string | null; timeframe?: string | null },
+		setter: (v: { minTs?: string | null; maxTs?: string | null; timeframe?: string | null }) => void
+	) {
+		const val = $derived.by(() => {
+			const v = getter()
+			if (v.minTs || v.maxTs) {
+				return buildManualTimeframe(v.minTs ?? null, v.maxTs ?? null)
+			} else if (v.timeframe) {
+				const tf = timeframes.find((tf) => tf.label === v.timeframe)
+				if (tf) return { ...tf }
+			}
+			return timeframes[0]
+		})
+		return {
+			get val() {
+				return val
+			},
+			set val(v: Timeframe) {
+				if (v.type === 'manual') {
+					setter({ minTs: v.minTs, maxTs: v.maxTs, timeframe: null })
+				} else {
+					setter({ minTs: null, maxTs: null, timeframe: v.label })
+				}
+			}
+		}
+	}
 </script>
 
 <script lang="ts">
