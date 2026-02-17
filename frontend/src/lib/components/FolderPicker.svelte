@@ -96,8 +96,8 @@
 			if ($userStore) {
 				$userStore.folders = [...($userStore.folders ?? []), newFolderName]
 			}
+			await loadFolders()
 			folderName = newFolderName
-			loadFolders()
 		} catch (e) {
 			sendUserToast(`Could not create folder: ${e}`, true)
 		} finally {
