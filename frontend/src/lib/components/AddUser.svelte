@@ -105,12 +105,15 @@
 		dispatch('new')
 	}
 
-	let emailTouched = $state(false)
+	let emailSelect: AutocompleteSelect | undefined = $state()
 	let emailError = $derived.by(() => {
-		if (!email || !emailTouched) return undefined
+		if (!email) return undefined
 		const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 		return emailRegex.test(email) ? undefined : 'Please enter a valid email address'
 	})
+	const displayEmailError = $derived(
+		!emailSelect?.getDropdownVisible() && !!emailError ? emailError : undefined
+	)
 
 	let selected: 'operator' | 'developer' | 'admin' = $state('developer')
 </script>
@@ -128,29 +131,26 @@
 			<span class="text-xs mb-1 leading-6">Email</span>
 			{#if !isCloudHosted()}
 				<AutocompleteSelect
+					bind:this={emailSelect}
 					items={instanceEmails}
 					bind:value={email}
 					placeholder={emailsLoading ? 'Loading...' : 'Select or type an email'}
 					loading={emailsLoading}
 					disablePortal={true}
-					error={!!emailError}
-					onClose={() => (emailTouched = true)}
+					error={displayEmailError}
 				/>
 			{:else}
 				<TextInput
 					inputProps={{
 						type: 'email',
 						onkeyup: handleKeyUp,
-						placeholder: 'email',
-						onblur: () => (emailTouched = true)
+						placeholder: 'email'
 					}}
 					bind:value={email}
-					error={!!emailError}
+					error={displayEmailError}
 				/>
 			{/if}
-			{#if emailError}
-				<InputError error={emailError} />
-			{/if}
+			<InputError error={displayEmailError} />
 
 			{#if !automateUsernameCreation}
 				<span class="text-xs mb-1 pt-2 leading-6">Username</span>
