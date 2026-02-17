@@ -6,6 +6,8 @@
 	import Path from './Path.svelte'
 	import { isOwner } from '$lib/utils'
 	import { updateItemPathAndSummary } from './moveRenameManager'
+	import Label from './Label.svelte'
+	import TextInput from './text_input/TextInput.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -58,20 +60,22 @@
 				Since you do not own this item, you cannot move this item (you can however fork it)
 			</Alert>
 		{/if}
-		<h2 class="border-b pb-1 mt-2 mb-4">Summary</h2>
-		<input
-			type="text"
-			bind:value={summary}
-			placeholder="Short summary to be displayed when listed"
-			disabled={!own}
-		/>
+		<Label label="Summary" class="mb-6">
+			<TextInput
+				inputProps={{
+					type: 'text',
+					placeholder: 'Short summary to be displayed when listed',
+					disabled: !own
+				}}
+				bind:value={summary}
+			/>
+		</Label>
 
-		<h2 class="border-b pb-1 mt-10 mb-4">Path</h2>
-		<div class="flex flex-col mb-2 gap-6">
+		<Label label="Path">
 			<Path disabled={!own} {kind} {initialPath} bind:path />
-		</div>
+		</Label>
 		{#snippet actions()}
-			<Button disabled={!own} on:click={updatePath}>Move/Rename</Button>
+			<Button variant="accent" disabled={!own} on:click={updatePath}>Move/Rename</Button>
 		{/snippet}
 	</DrawerContent>
 </Drawer>

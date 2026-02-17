@@ -7,6 +7,7 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { updateItemPathAndSummary } from './moveRenameManager'
+	import Label from './Label.svelte'
 
 	interface Props {
 		summary?: string
@@ -86,10 +87,9 @@
 			</div>
 		{/snippet}
 		{#snippet content({ close })}
-			<div class="flex flex-col gap-3 w-[480px]">
+			<div class="flex flex-col gap-6 w-[480px]">
 				{#if onSaved}
-					<label class="block text-primary">
-						<div class="pb-1 text-xs font-semibold text-emphasis">Summary</div>
+					<Label label="Summary">
 						<TextInput
 							inputProps={{
 								type: 'text',
@@ -102,9 +102,8 @@
 							}}
 							bind:value={editSummary}
 						/>
-					</label>
-					<div class="block text-primary">
-						<div class="pb-1 text-xs font-semibold text-emphasis">Path</div>
+					</Label>
+					<Label label="Path">
 						{#if own}
 							<Path
 								autofocus={false}
@@ -121,7 +120,7 @@
 							<span class="text-xs font-mono text-secondary">{path}</span>
 							<p class="text-2xs text-tertiary mt-1">Only the owner can change the path</p>
 						{/if}
-					</div>
+					</Label>
 					<Button
 						size="xs"
 						variant="accent"
