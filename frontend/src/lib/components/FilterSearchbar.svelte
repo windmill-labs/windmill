@@ -177,15 +177,17 @@
 	import TaggedTextInput from './TaggedTextInput.svelte'
 	import { useTransformedSyncedValue } from '$lib/svelte5Utils.svelte'
 	import { untrack } from 'svelte'
+	import CloseButton from './common/CloseButton.svelte'
 
 	type Props<SchemaT extends FilterSchemaRec> = {
 		schema: SchemaT
 		value: Partial<FilterInstanceRec<SchemaT>>
 		class?: string
+		innerClass?: string
 	}
 
 	type SchemaT = FilterSchemaRec // TODO: Generic
-	let { schema, value = $bindable(), class: className }: Props<SchemaT> = $props()
+	let { schema, value = $bindable(), class: className, innerClass }: Props<SchemaT> = $props()
 
 	let currentTag: keyof SchemaT | undefined = $state()
 	let currentTextSegment = $state({ text: '', start: 0, end: 0 })
@@ -331,7 +333,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
-	class="relative {className}"
+	class="relative {className ?? ''}"
 	onmousedown={(e) => {
 		if (!open) {
 			e.preventDefault()
@@ -351,13 +353,21 @@
 		onCurrentTagChange={(tag) => (currentTag = tag ? (tag.id as keyof SchemaT) : undefined)}
 		onTextSegmentAtCursorChange={(segment) => (currentTextSegment = segment)}
 		class={twMerge(
-			'bg-surface-input outline-none overflow-x-auto scrollbar-hidden text-nowrap',
+			'overflow-x-auto !pr-24 bg-surface-input outline-none scrollbar-hidden text-nowrap',
 			inputBaseClass,
 			inputBorderClass(),
-			inputSizeClasses.md
+			inputSizeClasses.md,
+			innerClass
 		)}
 		placeholder="Filter runs..."
 	/>
+	{#if asText.val}
+		<CloseButton small class="absolute top-1 right-1.5" onClick={() => (value = {})} />
+	{:else}
+		<div class="absolute top-2 right-3">
+			<SearchIcon size={16} class="text-hint" />
+		</div>
+	{/if}
 </div>
 
 <GenericDropdown

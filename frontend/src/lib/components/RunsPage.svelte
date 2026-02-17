@@ -651,7 +651,8 @@
 					bind:value={_timeframe.timeframe}
 				/>
 				<FilterSearchbar
-					class="flex-1 overflow-x-auto"
+					class="flex-1"
+					innerClass="absolute inset-0"
 					schema={runsFilterSearchbarSchema}
 					bind:value={filters.val}
 				/>
