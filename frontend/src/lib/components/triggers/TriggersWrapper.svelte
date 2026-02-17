@@ -182,6 +182,16 @@
 		{customLabel}
 		{...props}
 	/>
+{:else if selectedTrigger.type === 'google'}
+	<NativeTriggersPanel
+		service="google"
+		{isFlow}
+		path={initialPath || fakeInitialPath}
+		{selectedTrigger}
+		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		{customLabel}
+		{...props}
+	/>
 {:else if selectedTrigger.type === 'cli'}
 	<div class="py-1 flex flex-col gap-6">
 		<ClipboardPanel content={selectedTrigger.extra?.cliCommand ?? ''} />

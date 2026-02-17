@@ -29,7 +29,9 @@
 		HttpTriggerService,
 		GcpTriggerService,
 		SqsTriggerService,
-		EmailTriggerService
+		EmailTriggerService,
+		NativeTriggerService,
+		type NativeServiceName
 	} from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import Alert from '../common/alert/Alert.svelte'
@@ -116,20 +118,37 @@
 			email: () => EmailTriggerService.deleteEmailTrigger
 		}
 
+		const nativeTriggerServices: Record<string, NativeServiceName> = {
+			nextcloud: 'nextcloud',
+			google: 'google'
+		}
+
 		const deleteHandler = deleteHandlers[triggerType as keyof typeof deleteHandlers]
-		if (deleteHandler && deletingTrigger !== triggerIndex) {
-			deletingTrigger = triggerIndex
-			try {
+		const nativeServiceName = nativeTriggerServices[triggerType]
+
+		if (deletingTrigger === triggerIndex) return
+
+		deletingTrigger = triggerIndex
+		try {
+			if (nativeServiceName) {
+				await NativeTriggerService.deleteNativeTrigger({
+					workspace: $workspaceStore ?? '',
+					serviceName: nativeServiceName,
+					externalId: triggerPath ?? ''
+				})
+			} else if (deleteHandler) {
 				await deleteHandler()({
 					workspace: $workspaceStore ?? '',
 					path: triggerPath ?? ''
 				})
-				sendUserToast(`Successfully deleted ${triggerType} trigger: ${triggerPath}`)
-			} catch (error) {
-				sendUserToast(error.body || error.message, true)
-			} finally {
-				deletingTrigger = undefined
+			} else {
+				return
 			}
+			sendUserToast(`Successfully deleted ${triggerType} trigger: ${triggerPath}`)
+		} catch (error) {
+			sendUserToast(error.body || error.message, true)
+		} finally {
+			deletingTrigger = undefined
 		}
 	}
 

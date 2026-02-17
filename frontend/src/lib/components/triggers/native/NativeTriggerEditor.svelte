@@ -97,7 +97,7 @@
 	let externalId = $state<string | null>(null)
 	let can_write = $state(true)
 	let originalConfig = $state<Record<string, any> | undefined>(undefined)
-	let initialConfig: Record<string, any> | undefined = undefined
+	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 
 	export function openNew(
 		nis_flow?: boolean,
@@ -119,6 +119,7 @@
 		itemKind = nis_flow ? 'flow' : 'script'
 		externalId = null
 		loadingConfig = false
+		loadingForm = false
 		can_write = true
 		originalConfig = undefined
 		initialConfig = undefined
@@ -166,6 +167,7 @@
 		externalId = externalIdOrPath
 		loadingConfig = true
 		loadingForm = true
+		originalConfig = undefined
 		initialConfig = undefined
 		itemKind = nis_flow ? 'flow' : 'script'
 
@@ -187,15 +189,10 @@
 				serviceConfig = { ...serviceConfig, ...defaultValues }
 				externalData = { ...externalData, ...defaultValues }
 			}
-			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 		} catch (err: any) {
 			sendUserToast(`Failed to load trigger configuration: ${err}`, true)
 			externalData = null
 		} finally {
-			// For drawer mode, set initialConfig here; for inline mode, the effect handles it after form settles
-			if (!defaultValues) {
-				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
-			}
 			clearTimeout(loadingTimeout)
 			loadingConfig = false
 			showLoading = false
@@ -209,6 +206,15 @@
 			service_config: serviceConfig
 		}
 	}
+
+	// Capture originalConfig after the form has settled (loadingConfig and loadingForm both false)
+	// This ensures we compare against the form's normalized config, not raw backend data
+	$effect(() => {
+		if (!loadingConfig && !loadingForm && originalConfig === undefined && !isNew) {
+			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
+			initialConfig = structuredClone($state.snapshot(getSaveCfg()))
+		}
+	})
 
 	function close() {
 		drawer?.closeDrawer()
@@ -246,7 +252,7 @@
 	const saveCfg = $derived.by(getSaveCfg)
 
 	$effect(() => {
-		if (!loadingConfig && !loadingForm) {
+		if (!loadingConfig && !loadingForm && (isNew || initialConfig)) {
 			handleConfigChange(saveCfg, initialConfig, saveDisabled, !isNew, onConfigChange)
 		}
 	})

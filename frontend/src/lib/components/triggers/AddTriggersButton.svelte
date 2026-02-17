@@ -35,12 +35,18 @@
 
 	const cloudHosted = isCloudHosted()
 	let nextcloudAvailable = $state(false)
+	let googleAvailable = $state(false)
 
 	async function setNextcloudState() {
 		nextcloudAvailable = await isServiceAvailable('nextcloud', $workspaceStore!)
 	}
 
+	async function setGoogleState() {
+		googleAvailable = await isServiceAvailable('google', $workspaceStore!)
+	}
+
 	setNextcloudState()
+	setGoogleState()
 
 	const addTriggerItems = $derived(
 		[
@@ -112,6 +118,12 @@
 				action: () => onAddDraftTrigger?.('nextcloud'),
 				icon: triggerIconMap.nextcloud,
 				hidden: !nextcloudAvailable
+			},
+			{
+				displayName: 'Google',
+				action: () => onAddDraftTrigger?.('google'),
+				icon: triggerIconMap.google,
+				hidden: !googleAvailable
 			}
 		].filter((item) => !item.hidden)
 	)
