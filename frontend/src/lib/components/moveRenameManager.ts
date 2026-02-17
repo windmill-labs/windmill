@@ -3,8 +3,23 @@ import { AppService, FlowService, ScriptService } from '$lib/gen'
 type ItemKind = 'flow' | 'script' | 'app'
 
 /**
+ * Check whether a flow uses on_behalf_of_email.
+ * Callers use this to show a warning before saving.
+ */
+export async function checkFlowOnBehalfOf(
+	workspace: string,
+	path: string
+): Promise<string | undefined> {
+	const flow = await FlowService.getFlowByPath({ workspace, path })
+	return flow.on_behalf_of_email
+}
+
+/**
  * Shared utility that performs the API call to update an item's path and summary.
  * No toast, no navigation — callers handle those.
+ *
+ * Note: on_behalf_of_email is intentionally omitted from flow updates for security
+ * reasons — the backend will redeploy the flow on behalf of the current user.
  */
 export async function updateItemPathAndSummary(opts: {
 	workspace: string
@@ -29,8 +44,7 @@ export async function updateItemPathAndSummary(opts: {
 				tag: flow.tag,
 				dedicated_worker: flow.dedicated_worker,
 				ws_error_handler_muted: flow.ws_error_handler_muted,
-				visible_to_runner_only: flow.visible_to_runner_only,
-				on_behalf_of_email: flow.on_behalf_of_email
+				visible_to_runner_only: flow.visible_to_runner_only
 			}
 		})
 	} else if (kind === 'script') {

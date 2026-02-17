@@ -5,7 +5,7 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Path from './Path.svelte'
 	import { isOwner } from '$lib/utils'
-	import { updateItemPathAndSummary } from './moveRenameManager'
+	import { updateItemPathAndSummary, checkFlowOnBehalfOf } from './moveRenameManager'
 	import Label from './Label.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 
@@ -23,6 +23,7 @@
 	let drawer = $state<Drawer>() as Drawer
 
 	let own = $state(false)
+	let onBehalfOfEmail = $state<string | undefined>(undefined)
 	let hasChanges = $derived((summary ?? '') !== initialSummary || dirtyPath)
 
 	export async function openDrawer(
@@ -33,11 +34,15 @@
 		kind = kind_l
 		path = undefined
 		dirtyPath = false
+		onBehalfOfEmail = undefined
 		initialPath = initialPath_l
 		initialSummary = summary_l ?? ''
 		summary = summary_l
 		loadOwner()
 		drawer.openDrawer()
+		if (kind === 'flow') {
+			onBehalfOfEmail = await checkFlowOnBehalfOf($workspaceStore!, initialPath_l)
+		}
 	}
 
 	function loadOwner() {
@@ -64,6 +69,11 @@
 		{#if !own}
 			<Alert type="warning" title="Not owner" class="mb-4">
 				Since you do not own this item, you cannot move this item (you can however fork it)
+			</Alert>
+		{/if}
+		{#if onBehalfOfEmail}
+			<Alert type="info" title="Run on behalf of" class="mb-4">
+				This flow will be redeployed on behalf of you ({$userStore?.email}) instead of {onBehalfOfEmail}
 			</Alert>
 		{/if}
 		<Label label="Summary" class="mb-6">

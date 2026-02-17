@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { emptyString, isOwner } from '$lib/utils'
-	import { Button } from '$lib/components/common'
+	import { Alert, Button } from '$lib/components/common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { updateItemPathAndSummary } from './moveRenameManager'
+	import { updateItemPathAndSummary, checkFlowOnBehalfOf } from './moveRenameManager'
 	import Label from './Label.svelte'
 
 	interface Props {
@@ -30,6 +30,7 @@
 	let dirtyPath = $state(false)
 	let popoverOpen = $state(false)
 	let own = $state(false)
+	let onBehalfOfEmail = $state<string | undefined>(undefined)
 	let hasChanges = $derived(editSummary !== (summary ?? '') || (own && dirtyPath))
 
 	$effect(() => {
@@ -37,6 +38,12 @@
 			editSummary = summary ?? ''
 			editPath = path ?? ''
 			own = isOwner(path ?? '', $userStore, $workspaceStore)
+			onBehalfOfEmail = undefined
+			if (kind === 'flow' && $workspaceStore && path) {
+				checkFlowOnBehalfOf($workspaceStore, path).then((email) => {
+					onBehalfOfEmail = email
+				})
+			}
 		}
 	})
 
@@ -121,6 +128,11 @@
 							<p class="text-2xs text-tertiary mt-1">Only the owner can change the path</p>
 						{/if}
 					</Label>
+					{#if onBehalfOfEmail}
+						<Alert type="info" title="Run on behalf of" size="xs">
+							This flow will be redeployed on behalf of you ({$userStore?.email}) instead of {onBehalfOfEmail}
+						</Alert>
+					{/if}
 					<Button
 						size="xs"
 						variant="accent"
