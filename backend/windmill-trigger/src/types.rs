@@ -10,7 +10,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{types::Json as SqlxJson, FromRow};
 use std::{collections::HashMap, fmt::Debug};
-use windmill_common::jobs::JobTriggerKind;
+use windmill_common::{db::Authable, jobs::JobTriggerKind};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -103,6 +103,12 @@ pub struct BaseTriggerData {
     #[deprecated(note = "Use mode instead")]
     enabled: Option<bool>, // Kept for backwards compatibility, use mode instead
     mode: Option<TriggerMode>,
+    /// Optional email for deployment - when set, the trigger will run jobs as this user
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    /// If true and user is admin/wm_deployers, preserve the provided email instead of using deploying user's email
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preserve_email: Option<bool>,
 }
 
 impl BaseTriggerData {
@@ -115,6 +121,20 @@ impl BaseTriggerData {
                 &TriggerMode::Disabled
             },
         )
+    }
+
+    /// Resolves the email to use for the trigger based on preservation settings.
+    /// - If `email` is provided and `preserve_email` is true AND user is admin/wm_deployers → use provided email
+    /// - Otherwise → use the authenticated user's email
+    pub fn resolve_email<'a>(&'a self, authed: &'a impl Authable) -> &'a str {
+        if let Some(ref email) = self.email {
+            if self.preserve_email.unwrap_or(false)
+                && windmill_common::can_preserve_on_behalf_of(authed)
+            {
+                return email.as_str();
+            }
+        }
+        authed.email()
     }
 }
 
@@ -166,9 +186,18 @@ mod tests {
 
     #[test]
     fn test_trigger_mode_serialize() {
-        assert_eq!(serde_json::to_value(TriggerMode::Enabled).unwrap(), json!("enabled"));
-        assert_eq!(serde_json::to_value(TriggerMode::Disabled).unwrap(), json!("disabled"));
-        assert_eq!(serde_json::to_value(TriggerMode::Suspended).unwrap(), json!("suspended"));
+        assert_eq!(
+            serde_json::to_value(TriggerMode::Enabled).unwrap(),
+            json!("enabled")
+        );
+        assert_eq!(
+            serde_json::to_value(TriggerMode::Disabled).unwrap(),
+            json!("disabled")
+        );
+        assert_eq!(
+            serde_json::to_value(TriggerMode::Suspended).unwrap(),
+            json!("suspended")
+        );
     }
 
     #[test]
@@ -314,11 +343,7 @@ mod tests {
 
     #[test]
     fn test_server_state_skip_none_fields() {
-        let state = ServerState {
-            server_id: None,
-            last_server_ping: None,
-            error: None,
-        };
+        let state = ServerState { server_id: None, last_server_ping: None, error: None };
         let json = serde_json::to_value(&state).unwrap();
         assert!(!json.as_object().unwrap().contains_key("server_id"));
         assert!(!json.as_object().unwrap().contains_key("error"));

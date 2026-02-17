@@ -93,7 +93,18 @@ export async function existsTrigger(
 	)
 }
 
-export async function getTriggersDeployData(kind: TriggerKind, path: string, workspace: string) {
+/**
+ * Get trigger deployment data with optional email preservation.
+ * @param onBehalfOfEmail - If set, the trigger will be deployed with this email and preserve_email=true.
+ */
+export async function getTriggersDeployData(
+	kind: TriggerKind,
+	path: string,
+	workspace: string,
+	onBehalfOfEmail?: string
+) {
+	const preserveEmail = onBehalfOfEmail !== undefined
+
 	if (kind === 'sqs') {
 		const sqsTrigger = await SqsTriggerService.getSqsTrigger({
 			workspace: workspace!,
@@ -101,7 +112,7 @@ export async function getTriggersDeployData(kind: TriggerKind, path: string, wor
 		})
 
 		return {
-			data: sqsTrigger,
+			data: { ...sqsTrigger, email: onBehalfOfEmail, preserve_email: preserveEmail },
 			createFn: SqsTriggerService.createSqsTrigger,
 			updateFn: SqsTriggerService.updateSqsTrigger
 		}
@@ -112,7 +123,7 @@ export async function getTriggersDeployData(kind: TriggerKind, path: string, wor
 		})
 
 		return {
-			data: kafkaTrigger,
+			data: { ...kafkaTrigger, email: onBehalfOfEmail, preserve_email: preserveEmail },
 			createFn: KafkaTriggerService.createKafkaTrigger,
 			updateFn: KafkaTriggerService.updateKafkaTrigger
 		}
@@ -123,7 +134,7 @@ export async function getTriggersDeployData(kind: TriggerKind, path: string, wor
 		})
 
 		return {
-			data: mqttTrigger,
+			data: { ...mqttTrigger, email: onBehalfOfEmail, preserve_email: preserveEmail },
 			createFn: MqttTriggerService.createMqttTrigger,
 			updateFn: MqttTriggerService.updateMqttTrigger
 		}
@@ -134,7 +145,7 @@ export async function getTriggersDeployData(kind: TriggerKind, path: string, wor
 		})
 
 		return {
-			data: natsTrigger,
+			data: { ...natsTrigger, email: onBehalfOfEmail, preserve_email: preserveEmail },
 			createFn: NatsTriggerService.createNatsTrigger,
 			updateFn: NatsTriggerService.updateNatsTrigger
 		}
@@ -154,7 +165,9 @@ export async function getTriggersDeployData(kind: TriggerKind, path: string, wor
 		const data: GcpTriggerData = {
 			...gcpTrigger,
 			base_endpoint:
-				gcpTrigger.delivery_type === 'push' ? `${window.location.origin}${base}` : undefined
+				gcpTrigger.delivery_type === 'push' ? `${window.location.origin}${base}` : undefined,
+			email: onBehalfOfEmail,
+			preserve_email: preserveEmail
 		}
 
 		return {
@@ -169,7 +182,7 @@ export async function getTriggersDeployData(kind: TriggerKind, path: string, wor
 		})
 
 		return {
-			data: postgresTrigger,
+			data: { ...postgresTrigger, email: onBehalfOfEmail, preserve_email: preserveEmail },
 			createFn: PostgresTriggerService.createPostgresTrigger,
 			updateFn: PostgresTriggerService.updatePostgresTrigger
 		}
@@ -180,7 +193,7 @@ export async function getTriggersDeployData(kind: TriggerKind, path: string, wor
 		})
 
 		return {
-			data: websocketTrigger,
+			data: { ...websocketTrigger, email: onBehalfOfEmail, preserve_email: preserveEmail },
 			createFn: WebsocketTriggerService.createWebsocketTrigger,
 			updateFn: WebsocketTriggerService.updateWebsocketTrigger
 		}
@@ -191,7 +204,7 @@ export async function getTriggersDeployData(kind: TriggerKind, path: string, wor
 		})
 
 		return {
-			data: httpTrigger,
+			data: { ...httpTrigger, email: onBehalfOfEmail, preserve_email: preserveEmail },
 			createFn: HttpTriggerService.createHttpTrigger,
 			updateFn: HttpTriggerService.updateHttpTrigger
 		}
@@ -201,7 +214,7 @@ export async function getTriggersDeployData(kind: TriggerKind, path: string, wor
 			path: path
 		})
 		return {
-			data: schedulesTrigger,
+			data: { ...schedulesTrigger, email: onBehalfOfEmail, preserve_email: preserveEmail },
 			createFn: ScheduleService.createSchedule,
 			updateFn: ScheduleService.updateSchedule
 		}
@@ -432,6 +445,49 @@ export async function getTriggerValue(kind: TriggerKind, path: string, workspace
 	}
 
 	throw new Error(`Unexpected trigger kind got: ${kind}`)
+}
+
+/**
+ * Get the email for a trigger (used for on_behalf_of during deployment).
+ */
+export async function getTriggerEmail(
+	kind: TriggerKind,
+	path: string,
+	workspace: string
+): Promise<string | undefined> {
+	try {
+		if (kind === 'sqs') {
+			const trigger = await SqsTriggerService.getSqsTrigger({ workspace, path })
+			return trigger.email
+		} else if (kind === 'kafka') {
+			const trigger = await KafkaTriggerService.getKafkaTrigger({ workspace, path })
+			return trigger.email
+		} else if (kind === 'mqtt') {
+			const trigger = await MqttTriggerService.getMqttTrigger({ workspace, path })
+			return trigger.email
+		} else if (kind === 'nats') {
+			const trigger = await NatsTriggerService.getNatsTrigger({ workspace, path })
+			return trigger.email
+		} else if (kind === 'gcp') {
+			const trigger = await GcpTriggerService.getGcpTrigger({ workspace, path })
+			return trigger.email
+		} else if (kind === 'postgres') {
+			const trigger = await PostgresTriggerService.getPostgresTrigger({ workspace, path })
+			return trigger.email
+		} else if (kind === 'websockets') {
+			const trigger = await WebsocketTriggerService.getWebsocketTrigger({ workspace, path })
+			return trigger.email
+		} else if (kind === 'routes') {
+			const trigger = await HttpTriggerService.getHttpTrigger({ workspace, path })
+			return trigger.email
+		} else if (kind === 'schedules') {
+			const trigger = await ScheduleService.getSchedule({ workspace, path })
+			return trigger.email
+		}
+	} catch {
+		// Trigger may not exist in the workspace
+	}
+	return undefined
 }
 
 function retrieveScriptOrFlowKind(path: string, is_flow: boolean): { kind: Kind; path: string } {

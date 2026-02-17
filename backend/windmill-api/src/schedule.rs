@@ -25,6 +25,7 @@ use std::str::FromStr;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::{
+    can_preserve_on_behalf_of,
     db::UserDB,
     error::{Error, JsonResult, Result},
     schedule::Schedule,
@@ -33,6 +34,22 @@ use windmill_common::{
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::schedule::push_scheduled_job;
+
+/// Resolves the email to use for a schedule based on preservation settings.
+/// - If `email` is provided and `preserve_email` is true AND user is admin/wm_deployers → use provided email
+/// - Otherwise → use the authenticated user's email
+fn resolve_email<'a>(
+    email: Option<&'a String>,
+    preserve_email: Option<bool>,
+    authed: &'a ApiAuthed,
+) -> &'a str {
+    if let Some(email) = email {
+        if preserve_email.unwrap_or(false) && can_preserve_on_behalf_of(authed) {
+            return email.as_str();
+        }
+    }
+    &authed.email
+}
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -79,6 +96,8 @@ pub struct NewSchedule {
     pub paused_until: Option<DateTime<Utc>>,
     pub cron_version: Option<String>,
     pub dynamic_skip: Option<String>,
+    pub email: Option<String>,
+    pub preserve_email: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -267,7 +286,7 @@ async fn create_schedule(
         to_json_raw_opt(ns.args.as_ref())
             as Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
         ns.enabled.unwrap_or(false),
-        authed.email,
+        resolve_email(ns.email.as_ref(), ns.preserve_email, &authed),
         ns.on_failure,
         ns.on_failure_times,
         ns.on_failure_exact,
@@ -381,7 +400,8 @@ async fn edit_schedule(
             workspace_id            = $20,
             cron_version            = COALESCE($21, cron_version),
             description             = $22,
-            dynamic_skip        = $23
+            dynamic_skip            = $23,
+            email                   = COALESCE($24, email)
         WHERE path = $19 AND workspace_id = $20
         RETURNING
             workspace_id,
@@ -442,7 +462,13 @@ async fn edit_schedule(
         w_id,
         es.cron_version,
         es.description,
-        es.dynamic_skip
+        es.dynamic_skip,
+        // Only update email if preserve_email is true and user has permission
+        if es.preserve_email.unwrap_or(false) && can_preserve_on_behalf_of(&authed) {
+            es.email.as_deref()
+        } else {
+            None
+        }
     )
     .fetch_one(&mut *tx)
     .await
@@ -1058,6 +1084,8 @@ pub struct EditSchedule {
     pub paused_until: Option<DateTime<Utc>>,
     pub cron_version: Option<String>,
     pub dynamic_skip: Option<String>,
+    pub email: Option<String>,
+    pub preserve_email: Option<bool>,
 }
 
 pub use windmill_queue::schedule::clear_schedule;

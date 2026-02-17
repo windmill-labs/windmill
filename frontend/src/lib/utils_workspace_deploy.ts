@@ -11,6 +11,7 @@ import { getAllModules } from './components/flows/flowExplorer'
 import {
 	existsTrigger,
 	getTriggersDeployData,
+	getTriggerEmail,
 	getTriggerValue,
 	type AdditionalInformation,
 	type Kind
@@ -255,7 +256,8 @@ export async function deployItem(params: DeployItemParams): Promise<DeployResult
 				const { data, createFn, updateFn } = await getTriggersDeployData(
 					additionalInformation.triggers.kind,
 					path,
-					workspaceFrom
+					workspaceFrom,
+					onBehalfOfEmail
 				)
 				if (alreadyExists) {
 					await updateFn({
@@ -444,12 +446,13 @@ export async function getItemValue(
 }
 
 /**
- * Get the on_behalf_of_email for a flow or script.
+ * Get the on_behalf_of_email for a flow, script, app, or trigger (including schedule).
  */
 export async function getOnBehalfOfEmail(
 	kind: Kind,
 	path: string,
-	workspace: string
+	workspace: string,
+	additionalInformation?: AdditionalInformation
 ): Promise<string | undefined> {
 	try {
 		if (kind === 'flow') {
@@ -461,6 +464,8 @@ export async function getOnBehalfOfEmail(
 		} else if (kind === 'app') {
 			const app = await AppService.getAppByPath({ workspace, path })
 			return app.policy.on_behalf_of_email
+		} else if (kind === 'trigger' && additionalInformation?.triggers) {
+			return await getTriggerEmail(additionalInformation.triggers.kind, path, workspace)
 		}
 	} catch {
 		// Item may not exist in the workspace

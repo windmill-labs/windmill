@@ -148,11 +148,23 @@
 				(x.kind != 'folder' || !allAlreadyExists[computeStatusPath(x.kind, x.path)])
 		}))
 
-		// Fetch on_behalf_of_email for flows and scripts from both workspaces
-		for (const dep of sortedSet.filter((d) => ['flow', 'script', 'app'].includes(d.kind))) {
+		// Fetch on_behalf_of_email for flows, scripts, apps, and triggers from both workspaces
+		for (const dep of sortedSet.filter((d) =>
+			['flow', 'script', 'app', 'trigger'].includes(d.kind)
+		)) {
 			const key = computeStatusPath(dep.kind, dep.path)
-			sourceOnBehalfOfInfo[key] = await getOnBehalfOfEmail(dep.kind, dep.path, $workspaceStore!)
-			targetOnBehalfOfInfo[key] = await getOnBehalfOfEmail(dep.kind, dep.path, workspaceToDeployTo!)
+			sourceOnBehalfOfInfo[key] = await getOnBehalfOfEmail(
+				dep.kind,
+				dep.path,
+				$workspaceStore!,
+				additionalInformation
+			)
+			targetOnBehalfOfInfo[key] = await getOnBehalfOfEmail(
+				dep.kind,
+				dep.path,
+				workspaceToDeployTo!,
+				additionalInformation
+			)
 		}
 	}
 

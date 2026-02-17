@@ -130,7 +130,7 @@ impl TriggerCrud for WebsocketTrigger {
             authed.username,
             trigger.config.can_return_message,
             trigger.config.can_return_error_result,
-            authed.email,
+            trigger.base.resolve_email(authed),
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
             trigger.error_handling.retry as _
@@ -201,7 +201,7 @@ impl TriggerCrud for WebsocketTrigger {
                 .map(|v| SqlxJson(serde_json::value::to_raw_value(&v).unwrap()))
                 as Option<SqlxJson<Box<RawValue>>>,
             &authed.username,
-            &authed.email,
+            trigger.base.resolve_email(authed),
             trigger.config.can_return_message,
             trigger.config.can_return_error_result,
             w_id,

@@ -10,7 +10,7 @@
 		targetEmail: string | undefined,
 		myEmail: string | undefined
 	): boolean {
-		if (kind !== 'flow' && kind !== 'script' && kind !== 'app') return false
+		if (kind !== 'flow' && kind !== 'script' && kind !== 'app' && kind !== 'trigger') return false
 
 		// Don't show if no on_behalf_of is set in source
 		if (!sourceEmail) return false

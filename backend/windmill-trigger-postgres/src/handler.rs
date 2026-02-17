@@ -138,7 +138,7 @@ impl TriggerCrud for PostgresTrigger {
             trigger.base.is_flow,
             trigger.base.mode() as _,
             authed.username,
-            authed.email,
+            trigger.base.resolve_email(authed),
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
             trigger.error_handling.retry as _
@@ -236,7 +236,7 @@ impl TriggerCrud for PostgresTrigger {
             trigger.base.path,
             trigger.base.is_flow,
             authed.username,
-            authed.email,
+            trigger.base.resolve_email(authed),
             w_id,
             path,
             trigger.error_handling.error_handler_path,
