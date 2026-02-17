@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.638.4](https://github.com/windmill-labs/windmill/compare/v1.638.3...v1.638.4) (2026-02-17)
+
+
+### Bug Fixes
+
+* **frontend:** add folder picker validation, error handling, and loading state ([#7987](https://github.com/windmill-labs/windmill/issues/7987)) ([4ea1692](https://github.com/windmill-labs/windmill/commit/4ea1692ee27adbba583d8ead753fa8a19099183f))
+* **frontend:** improve folder picker with sticky create button and drawer flow ([#7985](https://github.com/windmill-labs/windmill/issues/7985)) ([a46924a](https://github.com/windmill-labs/windmill/commit/a46924a0f21314826c00fa4ac61885bdf3700421))
+
 ## [1.638.3](https://github.com/windmill-labs/windmill/compare/v1.638.2...v1.638.3) (2026-02-17)
 
 
