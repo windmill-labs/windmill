@@ -94,7 +94,7 @@
 		const zodSchema = filterSchemaRecToZodSchema(schemaRec)
 
 		// Create URL-synced search params
-		const urlFilter = useSearchParams(zodSchema)
+		const urlFilter = useSearchParams(zodSchema) as Record<string, unknown>
 
 		// Create the filter instance object
 		const filterInstance: { val: Partial<FilterInstanceRec<T>> } = $state({ val: {} })
@@ -103,8 +103,8 @@
 		for (const key of Object.keys(schemaRec)) {
 			let urlValue = urlFilter[key]
 			if (schemaRec[key].type === 'date' && typeof urlValue === 'string') {
-				urlValue = new Date(urlValue)
-				if (isNaN(urlValue.getTime())) urlValue = null
+				const d = new Date(urlValue)
+				urlValue = isNaN(d.getTime()) ? null : d
 			}
 			if (urlValue !== undefined && urlValue !== null) {
 				;(filterInstance.val as any)[key] = urlValue
