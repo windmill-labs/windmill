@@ -54,12 +54,14 @@ use windmill_common::{
         DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
         HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
-        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
-        LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING,
-        NUGET_CONFIG_SETTING, OTEL_SETTING, OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING,
-        POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING, JWT_SECRET_SETTING,
+        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING,
+        NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OTEL_SETTING,
+        OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
+        POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
+        UV_INDEX_STRATEGY_SETTING,
     },
     indexer::load_indexer_config,
     jwt::JWT_SECRET,
@@ -84,11 +86,12 @@ use windmill_common::{
 use windmill_common::{client::AuthedClient, global_settings::APP_WORKSPACED_ROUTE_SETTING};
 use windmill_queue::{cancel_job, get_queued_job_v2, SameWorkerPayload};
 use windmill_worker::{
-    result_processor::handle_job_error, JobCompletedSender, OtelTracingProxySettings,
-    SameWorkerSender, BUNFIG_INSTALL_SCOPES, INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT,
-    KEEP_JOB_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN, NPM_CONFIG_REGISTRY, NUGET_CONFIG,
-    OTEL_TRACING_PROXY_SETTINGS, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, POWERSHELL_REPO_PAT,
-    POWERSHELL_REPO_URL,
+    result_processor::handle_job_error, JobCompletedSender, JobIsolationLevel,
+    OtelTracingProxySettings, SameWorkerSender, BUNFIG_INSTALL_SCOPES, CARGO_REGISTRIES,
+    INSTANCE_PYTHON_VERSION, JAVA_HOME_DIR, JOB_DEFAULT_TIMEOUT, JOB_ISOLATION, KEEP_JOB_DIR,
+    MAVEN_REPOS, MAVEN_SETTINGS_XML, NO_DEFAULT_MAVEN, NPM_CONFIG_REGISTRY, NSJAIL_AVAILABLE,
+    NUGET_CONFIG, OTEL_TRACING_PROXY_SETTINGS, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL,
+    POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL, UV_INDEX_STRATEGY,
 };
 
 #[cfg(feature = "parquet")]
@@ -236,11 +239,16 @@ pub async fn initial_load(
             Connection::Http(_) => {
                 // TODO: reload worker config from http
                 let mut config = WORKER_CONFIG.write().await;
+                let worker_tags = DECODED_AGENT_TOKEN
+                    .as_ref()
+                    .map(|x| x.tags.clone())
+                    .unwrap_or_default();
+                // we only check from env as native_mode is not stored in the token
+                let native_mode = windmill_common::worker::is_native_mode_from_env();
+                windmill_common::worker::NATIVE_MODE_RESOLVED
+                    .store(native_mode, std::sync::atomic::Ordering::Relaxed);
                 *config = WorkerConfig {
-                    worker_tags: DECODED_AGENT_TOKEN
-                        .as_ref()
-                        .map(|x| x.tags.clone())
-                        .unwrap_or_default(),
+                    worker_tags,
                     env_vars: load_env_vars(
                         load_whitelist_env_vars_from_env(),
                         &std::collections::HashMap::new(),
@@ -254,6 +262,7 @@ pub async fn initial_load(
                     cache_clear: None,
                     additional_python_paths: None,
                     pip_local_dependencies: None,
+                    native_mode,
                 };
             }
         }
@@ -315,8 +324,10 @@ pub async fn initial_load(
 
     if worker_mode {
         reload_job_default_timeout_setting(&conn).await;
+        reload_job_isolation_setting(&conn).await;
         reload_extra_pip_index_url_setting(&conn).await;
         reload_pip_index_url_setting(&conn).await;
+        reload_uv_index_strategy_setting(&conn).await;
         reload_npm_config_registry_setting(&conn).await;
         reload_bunfig_install_scopes_setting(&conn).await;
         reload_instance_python_version_setting(&conn).await;
@@ -324,8 +335,10 @@ pub async fn initial_load(
         reload_powershell_repo_url_setting(&conn).await;
         reload_powershell_repo_pat_setting(&conn).await;
         reload_maven_repos_setting(&conn).await;
+        reload_maven_settings_xml_setting(&conn).await;
         reload_no_default_maven_setting(&conn).await;
         reload_ruby_repos_setting(&conn).await;
+        reload_cargo_registries_setting(&conn).await;
     }
 }
 
@@ -1250,6 +1263,16 @@ pub async fn reload_pip_index_url_setting(conn: &Connection) {
     .await;
 }
 
+pub async fn reload_uv_index_strategy_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(
+        conn,
+        UV_INDEX_STRATEGY_SETTING,
+        "UV_INDEX_STRATEGY",
+        UV_INDEX_STRATEGY.clone(),
+    )
+    .await;
+}
+
 pub async fn reload_instance_python_version_setting(conn: &Connection) {
     reload_option_setting_with_tracing(
         conn,
@@ -1320,6 +1343,39 @@ pub async fn reload_maven_repos_setting(conn: &Connection) {
     .await;
 }
 
+pub async fn reload_maven_settings_xml_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(
+        conn,
+        windmill_common::global_settings::MAVEN_SETTINGS_XML_SETTING,
+        "MAVEN_SETTINGS_XML",
+        MAVEN_SETTINGS_XML.clone(),
+    )
+    .await;
+
+    if !cfg!(feature = "enterprise") {
+        return;
+    }
+
+    let settings_xml = MAVEN_SETTINGS_XML.read().await.clone();
+    match settings_xml {
+        Some(ref content) if !content.trim().is_empty() => {
+            let m2_dir = format!("{JAVA_HOME_DIR}/.m2");
+            if let Err(e) = tokio::fs::create_dir_all(&m2_dir).await {
+                tracing::error!("Failed to create .m2 directory: {e:#}");
+                return;
+            }
+            let settings_path = format!("{m2_dir}/settings.xml");
+            if let Err(e) = tokio::fs::write(&settings_path, content).await {
+                tracing::error!("Failed to write Maven settings.xml: {e:#}");
+            }
+        }
+        _ => {
+            let settings_path = format!("{JAVA_HOME_DIR}/.m2/settings.xml");
+            let _ = tokio::fs::remove_file(&settings_path).await;
+        }
+    }
+}
+
 pub async fn reload_no_default_maven_setting(conn: &Connection) {
     let value = load_value_from_global_settings_with_conn(
         conn,
@@ -1342,6 +1398,16 @@ pub async fn reload_ruby_repos_setting(conn: &Connection) {
         windmill_common::global_settings::RUBY_REPOS_SETTING,
         "RUBY_REPOS",
         windmill_worker::RUBY_REPOS.clone(),
+    )
+    .await;
+}
+
+pub async fn reload_cargo_registries_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(
+        conn,
+        windmill_common::global_settings::CARGO_REGISTRIES_SETTING,
+        "CARGO_REGISTRIES",
+        CARGO_REGISTRIES.clone(),
     )
     .await;
 }
@@ -1393,6 +1459,32 @@ pub async fn reload_job_default_timeout_setting(conn: &Connection) {
         JOB_DEFAULT_TIMEOUT.clone(),
     )
     .await;
+}
+
+pub async fn reload_job_isolation_setting(conn: &Connection) {
+    let value =
+        match load_value_from_global_settings_with_conn(conn, JOB_ISOLATION_SETTING, true).await {
+            Ok(Some(v)) => JobIsolationLevel::from_str(v.as_str().unwrap_or("")),
+            Ok(None) => JobIsolationLevel::Undefined,
+            Err(e) => {
+                tracing::error!("Error reloading job_isolation setting: {:?}", e);
+                return;
+            }
+        };
+    let old_value = JobIsolationLevel::from_u8(JOB_ISOLATION.swap(value as u8, Ordering::Relaxed));
+    if old_value != value {
+        tracing::info!(
+            "job_isolation setting changed from {:?} to {:?}",
+            old_value,
+            value
+        );
+    }
+    if value == JobIsolationLevel::NsjailSandboxing && NSJAIL_AVAILABLE.is_none() {
+        tracing::error!(
+            "job_isolation is set to nsjail_sandboxing but nsjail is not available on this worker. \
+            All jobs will fail until nsjail is installed or the setting is changed."
+        );
+    }
 }
 
 pub async fn reload_request_size(conn: &Connection) {
@@ -2154,6 +2246,11 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
                 if (*wc).periodic_script_interval_seconds != config.periodic_script_interval_seconds
                 {
                     tracing::info!("Periodic script interval config changed, sending killpill. Expecting to be restarted by supervisor.");
+                    let _ = tx.send();
+                }
+
+                if (*wc).native_mode != config.native_mode {
+                    tracing::info!("Native mode config changed, sending killpill. Expecting to be restarted by supervisor.");
                     let _ = tx.send();
                 }
             }
@@ -3092,7 +3189,13 @@ RETURNING job_id"
 
 async fn cleanup_job_result_stream_orphaned_jobs(db: &DB) -> error::Result<()> {
     let result = sqlx::query!(
-        "DELETE FROM job_result_stream_v2 WHERE job_id NOT IN (SELECT id FROM v2_job_queue) RETURNING job_id",
+        "DELETE FROM job_result_stream_v2
+         WHERE job_id NOT IN (SELECT id FROM v2_job_queue)
+           AND job_id NOT IN (
+               SELECT id FROM v2_job_completed
+               WHERE completed_at > NOW() - INTERVAL '60 seconds'
+           )
+         RETURNING job_id",
     )
     .fetch_all(db)
     .await?;

@@ -85,6 +85,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import FlowRestartButton from '$lib/components/FlowRestartButton.svelte'
 	import JobOtelTraces from '$lib/components/JobOtelTraces.svelte'
+	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	let job: (Job & { result?: any; result_stream?: string }) | undefined = $state()
 	let jobUpdateLastFetch: Date | undefined = $state()
 
@@ -282,13 +283,18 @@
 
 	function forkPreview() {
 		if (isFlowPreview(job?.job_kind)) {
-			$initialArgsStore = job?.args
 			const state = {
 				flow: { value: job?.raw_flow },
-				path: job?.script_path + '_fork'
+				path: job?.script_path + '_fork',
+				initialArgs: job?.args
 			}
-			const encodedArgs = encodeState(job?.args)
-			window.open(`/flows/add?initial_args=${encodedArgs}#${encodeState(state)}`)
+			try {
+				localStorage.setItem('fork_flow', JSON.stringify(state))
+			} catch {
+				// Flow too large for localStorage, pass via window reference
+				;(window as any).__forkPreviewData = state
+			}
+			window.open('/flows/add?fork=true')
 		} else {
 			$initialArgsStore = job?.args
 			let n: NewScript = {
@@ -353,6 +359,8 @@
 			runImmediatelyLoading = false
 		}
 	}
+
+	let showEditButton = $derived(!isRuleActive('DisableDirectDeployment'))
 
 	$effect(() => {
 		job?.id && lastJobId !== job.id && untrack(() => getConcurrencyKey(job))
@@ -641,6 +649,7 @@
 							}}
 							unifiedSize="md"
 							variant="default"
+							disabled={!showEditButton}
 							size="sm"
 							startIcon={{ icon: Pen }}>Edit</Button
 						>

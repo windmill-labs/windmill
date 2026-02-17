@@ -341,6 +341,7 @@
 		{/if}
 	{:else if kind == 'none'}
 		{#if !noExtra}
+			<div class="mt-2"></div>
 			<Label label="Min textarea rows">
 				<TextInput
 					inputProps={{ type: 'number' }}

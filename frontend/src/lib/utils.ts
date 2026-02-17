@@ -1494,6 +1494,8 @@ export type Item = {
 	extra?: Snippet
 	id?: string
 	tooltip?: string
+	separatorTop?: boolean
+	submenuItems?: Item[]
 }
 
 export function isObjectTooBig(obj: any): boolean {

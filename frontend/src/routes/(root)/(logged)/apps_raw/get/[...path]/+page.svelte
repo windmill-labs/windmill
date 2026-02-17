@@ -36,7 +36,7 @@
 
 	let can_write = $derived(canWrite(page.params.path ?? '', app?.extra_perms ?? {}, $userStore))
 	function getRunnables(app: AppWithLastVersion) {
-		return (app?.value?.runnables ?? {}) as Record<string, Runnable>
+		return ((app?.value as any)?.runnables ?? {}) as Record<string, Runnable>
 	}
 </script>
 

@@ -37,13 +37,39 @@ Windmill uses a workspace-based architecture with multiple crates:
 - Update database schema with migration if necessary
 - Use `sqlx` for database operations with prepared statements
 - Use transactions for multi-step operations
+- To apply pending migrations: `sqlx migrate run` (never manually run .sql files)
+- **Never use `SQLX_OFFLINE=true`** — a live database is always available for compilation
+- After all code changes are done, run `./update-sqlx` to regenerate the offline query cache
 
 ## Enterprise Features
 
 - Enterprise files use the `*_ee.rs` suffix
-- Enterprise source is in `windmill-ee-private` folder (sibling directory), symlinked into each crate's `src/`
+- Enterprise source is in `windmill-ee-private` folder (sibling directory at `../../windmill-ee-private`), symlinked into each crate's `src/`
+- You can and should modify `windmill-ee-private` directly when needed (e.g., when creating new crates that need EE code, mirror the package structure there)
 - Use feature flags: `#[cfg(feature = "enterprise")]`
 - Isolate enterprise code in separate modules
+
+## Code Validation (MUST DO)
+
+After making backend changes, you MUST run `cargo check` and fix all errors and warnings before considering the work done.
+
+Only enable the feature flags relevant to your changes — do NOT use `all_sqlx_features` as it compiles the entire codebase and is very slow. Check the `[features]` section in `Cargo.toml` to identify which flags gate the crates/modules you modified.
+
+Examples:
+```bash
+# Changed core code (no feature-gated modules)
+cargo check
+
+# Changed code behind the enterprise feature
+cargo check --features enterprise
+
+# Changed kafka trigger code
+cargo check --features kafka
+```
+
+## Git Workflow
+
+- **Never push directly to main** — always create a branch and open a pull request
 
 ## Testing
 

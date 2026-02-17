@@ -13,6 +13,7 @@ use windmill_api_auth::{
     Tokened,
 };
 use windmill_common::db::DB;
+use windmill_common::workspaces::{check_user_against_rule, ProtectionRuleKind, RuleCheckResult};
 
 use crate::secret_backend_ext::rename_vault_secret;
 use crate::var_resource_cache::{cache_resource, get_cached_resource};
@@ -516,6 +517,7 @@ pub async fn get_resource_value_interpolated_internal<'a>(
             value,
             &job_id,
             token_for_context,
+            0,
         )
         .await?;
         if allow_cache {
@@ -534,6 +536,7 @@ pub async fn transform_json_value(
     v: Value,
     job_id: &Option<Uuid>,
     token: Option<&str>,
+    depth: u8,
 ) -> Result<Value> {
     match v {
         Value::String(y) if y.starts_with("$var:") => {
@@ -562,7 +565,8 @@ pub async fn transform_json_value(
             tx.commit().await?;
             let v = not_found_if_none(v, "Resource", path)?;
             if let Some(v) = v {
-                transform_json_value(db_with_opt_authed, workspace, v, job_id, token).await
+                transform_json_value(db_with_opt_authed, workspace, v, job_id, token, depth + 1)
+                    .await
             } else {
                 Ok(Value::Null)
             }
@@ -635,10 +639,41 @@ pub async fn transform_json_value(
                 .unwrap_or_else(|| y);
             Ok(serde_json::json!(value))
         }
+        Value::Array(mut arr) if depth <= 2 && arr.len() <= 1000 => {
+            for i in 0..arr.len() {
+                let val = std::mem::take(&mut arr[i]);
+                arr[i] = transform_json_value(
+                    db_with_opt_authed,
+                    workspace,
+                    val,
+                    job_id,
+                    token,
+                    depth + 1,
+                )
+                .await?;
+            }
+            Ok(Value::Array(arr))
+        }
+        Value::Array(arr) => {
+            if arr.len() > 1000 {
+                tracing::warn!(
+                    "Array with {} items exceeds 1000 item limit for variable/resource resolution, skipping",
+                    arr.len()
+                );
+            }
+            Ok(Value::Array(arr))
+        }
         Value::Object(mut m) => {
             for (a, b) in m.clone().into_iter() {
-                let v =
-                    transform_json_value(db_with_opt_authed, workspace, b, job_id, token).await?;
+                let v = transform_json_value(
+                    db_with_opt_authed,
+                    workspace,
+                    b,
+                    job_id,
+                    token,
+                    depth + 1,
+                )
+                .await?;
                 m.insert(a.clone(), v);
             }
             Ok(Value::Object(m))
@@ -683,6 +718,18 @@ async fn create_resource(
     Json(resource): Json<CreateResource>,
 ) -> Result<(StatusCode, String)> {
     check_scopes(&authed, || format!("resources:write:{}", resource.path))?;
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
     if *CLOUD_HOSTED {
         let nb_resources = sqlx::query_scalar!(
             "SELECT COUNT(*) FROM resource WHERE workspace_id = $1",
@@ -793,6 +840,18 @@ async fn delete_resource(
     let path = path.to_path();
 
     check_scopes(&authed, || format!("resources:write:{}", path))?;
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
     let mut tx = user_db.begin(&authed).await?;
 
     let deleted_path = sqlx::query_scalar!(
@@ -852,6 +911,19 @@ async fn delete_resources_bulk(
 ) -> JsonResult<Vec<String>> {
     for path in &request.paths {
         check_scopes(&authed, || format!("resources:write:{}", path))?;
+    }
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
     }
 
     let mut tx = user_db.begin(&authed).await?;
@@ -916,6 +988,18 @@ async fn update_resource(
 
     let path = path.to_path();
     check_scopes(&authed, || format!("resources:write:{}", path))?;
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
 
     let mut sqlb = SqlBuilder::update_table("resource");
     sqlb.and_where_eq("path", "?".bind(&path));
@@ -977,6 +1061,15 @@ async fn update_resource(
                 npath,
                 path,
                 w_id
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            sqlx::query!(
+                "UPDATE workspace_integrations SET resource_path = $1 WHERE workspace_id = $2 AND resource_path = $3",
+                npath,
+                w_id,
+                path
             )
             .execute(&mut *tx)
             .await?;
@@ -1042,6 +1135,18 @@ async fn update_resource_value(
 ) -> Result<String> {
     let path = path.to_path();
     check_scopes(&authed, || format!("resources:write:{}", path))?;
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
@@ -1193,6 +1298,19 @@ async fn create_resource_type(
     Path(w_id): Path<String>,
     Json(resource_type): Json<CreateResourceType>,
 ) -> Result<(StatusCode, String)> {
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
     let mut tx = user_db.begin(&authed).await?;
 
     check_rt_path_conflict(&mut tx, &w_id, &resource_type.name).await?;
@@ -1279,6 +1397,18 @@ async fn delete_resource_type(
     Path((w_id, name)): Path<(String, String)>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -1333,6 +1463,18 @@ async fn update_resource_type(
     Json(ns): Json<EditResourceType>,
 ) -> Result<String> {
     use sql_builder::prelude::*;
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
 
     let mut sqlb = SqlBuilder::update_table("resource_type");
     sqlb.and_where_eq("name", "?".bind(&name));
@@ -1723,10 +1865,92 @@ pub async fn interpolate(
         value,
         &None,
         None,
+        0,
     )
     .await?
     {
         Value::String(s) => Ok(s),
         v => Err(anyhow::anyhow!("Expected string, got {:?}", v)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use windmill_common::audit::AuditAuthor;
+    use windmill_common::db::DbWithOptAuthed;
+
+    fn test_db_with_opt_authed(db: DB) -> DbWithOptAuthed<'static, ApiAuthed> {
+        DbWithOptAuthed::DB {
+            db,
+            audit_author: AuditAuthor {
+                username: "test".to_string(),
+                email: "test@test.com".to_string(),
+                username_override: None,
+                token_prefix: None,
+            },
+        }
+    }
+
+    #[tokio::test]
+    async fn test_transform_array_over_1000_passthrough() {
+        let db_url = std::env::var("DATABASE_URL")
+            .unwrap_or("postgres://postgres:changeme@localhost:5432/windmill".to_string());
+        let pool = sqlx::PgPool::connect(&db_url).await.unwrap();
+        let dba = test_db_with_opt_authed(pool);
+
+        let arr: Vec<Value> = (0..1001).map(|i| json!(format!("$var:x/{i}"))).collect();
+        let input = Value::Array(arr.clone());
+
+        let result = transform_json_value(&dba, "test", input, &None, None, 0)
+            .await
+            .unwrap();
+
+        assert_eq!(result, Value::Array(arr));
+    }
+
+    #[tokio::test]
+    async fn test_transform_array_non_matching_strings_passthrough() {
+        let db_url = std::env::var("DATABASE_URL")
+            .unwrap_or("postgres://postgres:changeme@localhost:5432/windmill".to_string());
+        let pool = sqlx::PgPool::connect(&db_url).await.unwrap();
+        let dba = test_db_with_opt_authed(pool);
+
+        let input = json!(["hello", "world", 42, true, null, {"key": "val"}]);
+
+        let result = transform_json_value(&dba, "test", input.clone(), &None, None, 0)
+            .await
+            .unwrap();
+
+        assert_eq!(result, input);
+    }
+
+    #[tokio::test]
+    async fn test_transform_array_resolved_inside_object() {
+        let db_url = std::env::var("DATABASE_URL")
+            .unwrap_or("postgres://postgres:changeme@localhost:5432/windmill".to_string());
+        let pool = sqlx::PgPool::connect(&db_url).await.unwrap();
+        let dba = test_db_with_opt_authed(pool);
+
+        let input = json!({"urls": ["$var:u/test/nonexistent", "plain"]});
+
+        let result = transform_json_value(&dba, "test", input, &None, None, 0).await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_transform_array_attempts_matching_items() {
+        let db_url = std::env::var("DATABASE_URL")
+            .unwrap_or("postgres://postgres:changeme@localhost:5432/windmill".to_string());
+        let pool = sqlx::PgPool::connect(&db_url).await.unwrap();
+        let dba = test_db_with_opt_authed(pool);
+
+        let input = json!(["$var:u/test/nonexistent", "plain"]);
+
+        let result = transform_json_value(&dba, "test", input, &None, None, 0).await;
+
+        assert!(result.is_err());
     }
 }

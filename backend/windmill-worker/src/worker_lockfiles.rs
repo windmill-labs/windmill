@@ -52,6 +52,7 @@ lazy_static::lazy_static! {
     static ref WMDEBUG_NO_NEW_FLOW_VERSION_ON_DJ: bool = std::env::var("WMDEBUG_NO_NEW_FLOW_VERSION_ON_DJ").is_ok();
     static ref WMDEBUG_NO_NEW_APP_VERSION_ON_DJ: bool = std::env::var("WMDEBUG_NO_NEW_APP_VERSION_ON_DJ").is_ok();
     static ref WMDEBUG_NO_COMPONENTS_TO_RELOCK: bool = std::env::var("WMDEBUG_NO_COMPONENTS_TO_RELOCK").is_ok();
+    static ref WMDEBUG_NO_RELOCK_SKIP_OPTIMIZATION: bool = std::env::var("WMDEBUG_NO_RELOCK_SKIP_OPTIMIZATION").is_ok();
 }
 
 use crate::common::{MaybeLock, OccupancyMetrics};
@@ -132,6 +133,12 @@ pub async fn handle_dependency_job(
         },
     };
 
+    let triggered_by_relative_import = job
+        .args
+        .as_ref()
+        .map(|x| x.get("triggered_by_relative_import").is_some())
+        .unwrap_or_default();
+
     let content = capture_dependency_job(
         &job.id,
         job.script_lang.as_ref().map(|v| Ok(v)).unwrap_or_else(|| {
@@ -152,6 +159,11 @@ pub async fn handle_dependency_job(
         script_path,
         occupancy_metrics,
         &raw_workspace_dependencies_o,
+        None,
+        triggered_by_relative_import,
+        script_path,
+        None,
+        "script",
     )
     .await;
 
@@ -172,11 +184,20 @@ pub async fn handle_dependency_job(
 
             // We do not create new row for this update
             // That means we can keep current hash and just update lock
+            // Also store lockfile hash for dependency change detection
+            let lockfile_hash = windmill_common::scripts::hash_script(&content);
             sqlx::query!(
-                "UPDATE script SET lock = $1 WHERE hash = $2 AND workspace_id = $3",
+                "WITH update_lock AS (
+                    UPDATE script SET lock = $1 WHERE hash = $2 AND workspace_id = $3
+                )
+                INSERT INTO lock_hash (workspace_id, path, lockfile_hash)
+                VALUES ($3, $4, $5)
+                ON CONFLICT (workspace_id, path) DO UPDATE SET lockfile_hash = $5",
                 &content,
                 &current_hash.0,
-                w_id
+                w_id,
+                script_path,
+                &lockfile_hash
             )
             .execute(db)
             .await?;
@@ -395,6 +416,7 @@ pub async fn handle_flow_dependency_job(
         &raw_deps,
         &mut dependency_map,
         &raw_workspace_dependencies_o,
+        triggered_by_relative_import,
     )
     .await?;
 
@@ -608,6 +630,7 @@ async fn lock_flow_value<'c>(
     raw_deps: &Option<HashMap<String, String>>,
     dependency_map: &mut ScopedDependencyMap,
     raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
+    triggered_by_relative_import: bool,
 ) -> Result<(
     FlowValue,
     sqlx::Transaction<'c, sqlx::Postgres>,
@@ -637,6 +660,7 @@ async fn lock_flow_value<'c>(
         &raw_deps,
         dependency_map,
         &raw_workspace_dependencies_o,
+        triggered_by_relative_import,
     )
     .await?;
 
@@ -667,6 +691,7 @@ async fn lock_flow_value<'c>(
                 &raw_deps,
                 dependency_map,
                 &raw_workspace_dependencies_o,
+                triggered_by_relative_import,
             )
             .await?;
 
@@ -703,6 +728,7 @@ async fn lock_flow_value<'c>(
             &raw_deps,
             dependency_map,
             raw_workspace_dependencies_o,
+            triggered_by_relative_import,
         )
         .await?;
 
@@ -740,6 +766,7 @@ async fn lock_modules<'c>(
     raw_deps: &Option<HashMap<String, String>>,
     dependency_map: &mut ScopedDependencyMap, // (modules to replace old seq (even unmmodified ones), new transaction, modified ids) )
     raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
+    triggered_by_relative_import: bool,
 ) -> Result<(
     Vec<FlowModule>,
     sqlx::Transaction<'c, sqlx::Postgres>,
@@ -794,6 +821,7 @@ async fn lock_modules<'c>(
                         &raw_deps,
                         dependency_map,
                         &raw_workspace_dependencies_o,
+                        triggered_by_relative_import,
                     ))
                     .await?;
                     e.value = FlowModuleValue::ForloopFlow {
@@ -832,6 +860,7 @@ async fn lock_modules<'c>(
                             &raw_deps,
                             dependency_map,
                             raw_workspace_dependencies_o,
+                            triggered_by_relative_import,
                         ))
                         .await?;
                         nmodified_ids.extend(inner_modified_ids);
@@ -862,6 +891,7 @@ async fn lock_modules<'c>(
                         &raw_deps,
                         dependency_map,
                         raw_workspace_dependencies_o,
+                        triggered_by_relative_import,
                     ))
                     .await?;
                     e.value = FlowModuleValue::WhileloopFlow {
@@ -897,6 +927,7 @@ async fn lock_modules<'c>(
                             &raw_deps,
                             dependency_map,
                             raw_workspace_dependencies_o,
+                            triggered_by_relative_import,
                         ))
                         .await?;
                         nmodified_ids.extend(inner_modified_ids);
@@ -926,6 +957,7 @@ async fn lock_modules<'c>(
                         &raw_deps,
                         dependency_map,
                         raw_workspace_dependencies_o,
+                        triggered_by_relative_import,
                     ))
                     .await?;
                     errors.extend(ninner_errors);
@@ -995,6 +1027,7 @@ async fn lock_modules<'c>(
                         &raw_deps,
                         dependency_map,
                         raw_workspace_dependencies_o,
+                        triggered_by_relative_import,
                     ))
                     .await?;
 
@@ -1091,6 +1124,11 @@ async fn lock_modules<'c>(
             ),
             occupancy_metrics,
             raw_workspace_dependencies_o,
+            lock.as_deref(),
+            triggered_by_relative_import,
+            job_path,
+            Some(&e.id),
+            "flow",
         )
         .await;
         //
@@ -1497,6 +1535,7 @@ async fn lock_modules_app(
     container_id: Option<String>,
     dependency_map: &mut ScopedDependencyMap,
     raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
+    triggered_by_relative_import: bool,
 ) -> Result<Value> {
     match value {
         Value::Object(mut m) => {
@@ -1585,7 +1624,7 @@ async fn lock_modules_app(
                                     return Ok(Value::Object(m.clone()));
                                 }
                             }
-                            logs.push_str("Found lockable inline script. Generating lock...\n");
+                            let existing_lock = v.get("lock").and_then(|x| x.as_str());
                             let new_lock = capture_dependency_job(
                                 &job.id,
                                 &language,
@@ -1601,8 +1640,12 @@ async fn lock_modules_app(
                                 token,
                                 &format!("{}/app", job.runnable_path()),
                                 occupancy_metrics,
-                                // TODO:
                                 &None,
+                                existing_lock,
+                                triggered_by_relative_import,
+                                &job.runnable_path(),
+                                container_id.as_deref(),
+                                "app",
                             )
                             .await;
                             match new_lock {
@@ -1679,6 +1722,7 @@ async fn lock_modules_app(
                             .or(container_id.clone()),
                         dependency_map,
                         raw_workspace_dependencies_o,
+                        triggered_by_relative_import,
                     )
                     .await?,
                 );
@@ -1706,6 +1750,7 @@ async fn lock_modules_app(
                         container_id.clone(),
                         dependency_map,
                         raw_workspace_dependencies_o,
+                        triggered_by_relative_import,
                     )
                     .await?,
                 );
@@ -1803,6 +1848,7 @@ pub async fn handle_app_dependency_job(
             None,
             &mut dependency_map,
             &raw_workspace_dependencies_o,
+            triggered_by_relative_import,
         )
         .await?;
 
@@ -2174,6 +2220,110 @@ async fn ansible_dep(
     serde_json::to_string(&ansible_lockfile).map_err(|e| e.into())
 }
 
+/// Checks if we can skip relocking because imported lockfiles haven't changed.
+/// Returns Ok(Some(lock)) if we can skip, Ok(None) if we should relock.
+async fn try_skip_relock(
+    db: &sqlx::Pool<sqlx::Postgres>,
+    w_id: &str,
+    base_path: &str,
+    step_id: Option<&str>,
+    runnable_type: &str,
+    existing_lock: Option<&str>,
+) -> error::Result<Option<String>> {
+    tracing::debug!(
+        workspace_id = %w_id,
+        base_path = %base_path,
+        step_id = ?step_id,
+        runnable_type = %runnable_type,
+        has_existing_lock = existing_lock.is_some(),
+        "try_skip_relock: checking if we can skip"
+    );
+
+    // Check that ALL imports have matching hashes and at least one import exists
+    // Returns true only if: count > 0 AND all hashes match
+    // Returns false if: no imports OR any hash mismatch
+    let all_imports_unchanged = sqlx::query_scalar!(
+        "SELECT
+            COUNT(*) > 0
+            AND BOOL_AND(
+                CASE
+                    -- For dependencies/: use IS NOT DISTINCT FROM (NULL = NULL is true for legacy)
+                    -- And the reason for this, is that for every script we also add dependency on default workspace dependencies by default
+                    -- that default/unnamed workspace dependencies may not exist, but we still do this.
+                    -- it is needed for windmill to know what to redeploy when default workspace dependencies are being added
+
+                    -- naturally for non-existant entries we have no hash of it
+                    -- so if we compared hash with '=' (instead of IS NOT DISTINCT FROM), it would give false on NULL = NULL,
+                    -- which would mean that this entire query returns false, which means relock skip cannot happen
+
+                    -- The solution is to say if both: referenced and current hash are NULLs we treat it as true, so it becomes no longer a blocker from skip.
+                    --
+                    -- It is backed up by the fact that server is responsible for deploying new workspace dependencies
+                    -- so if one was to deploy a new wdeps, server would assign it new hash, and this expression would be invalid and would not approve skip
+                    WHEN dm.imported_path LIKE 'dependencies/%'
+                    THEN dm.imported_lockfile_hash IS NOT DISTINCT FROM lh.lockfile_hash
+
+                    -- For scripts: use = with COALESCE (NULL = NULL becomes false)
+                    -- unlike w deps, we can't do IS NOT DISTINCT FROM here
+                    -- the reason is that scripts deployments are issued by other workers instead of the server
+                    -- which would mean that there is no guarantee that new d job will also write it's lock's hash to the `lock_hash`
+                    -- which could lead to false positives
+                    ELSE COALESCE(dm.imported_lockfile_hash = lh.lockfile_hash, false)
+                END
+            )
+        FROM dependency_map dm
+        LEFT JOIN lock_hash lh
+            ON lh.workspace_id = dm.workspace_id
+            AND lh.path = dm.imported_path
+        WHERE dm.workspace_id = $1
+            AND dm.importer_path = $2
+            AND dm.importer_node_id = $3",
+        w_id,
+        base_path,
+        step_id.unwrap_or("")
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false);
+
+    tracing::debug!(
+        workspace_id = %w_id,
+        base_path = %base_path,
+        all_imports_unchanged = all_imports_unchanged,
+        "try_skip_relock: query result"
+    );
+
+    if !all_imports_unchanged {
+        return Ok(None);
+    }
+
+    // Fetch existing lock based on runnable type
+    let lock = match runnable_type {
+        "script" => sqlx::query_scalar!(
+            "SELECT lock FROM script WHERE path = $1 AND workspace_id = $2 AND lock IS NOT NULL
+             AND deleted = false ORDER BY created_at DESC LIMIT 1",
+            base_path,
+            w_id
+        )
+        .fetch_optional(db)
+        .await?
+        .flatten(),
+
+        "flow" | "app" => existing_lock.map(|s| s.to_string()),
+        _ => None,
+    };
+
+    tracing::debug!(
+        workspace_id = %w_id,
+        base_path = %base_path,
+        lock_found = lock.is_some(),
+        "try_skip_relock: lock fetch result"
+    );
+
+    Ok(lock)
+}
+
+/// Captures dependencies for a script and generates a lockfile.
 async fn capture_dependency_job(
     job_id: &Uuid,
     job_language: &ScriptLang,
@@ -2190,7 +2340,48 @@ async fn capture_dependency_job(
     script_path: &str,
     occupancy_metrics: &mut OccupancyMetrics,
     raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
+    existing_lock: Option<&str>,
+    triggered_by_relative_import: bool,
+    // The base path of the runnable (script/flow/app) without suffixes.
+    //   Used for dependency_map lookups. For flows/apps, this is the flow/app path,
+    //   not the `script_path` which may have `/flow` or `/app` appended.
+    base_path: &str,
+    step_id: Option<&str>,
+    runnable_type: &str, // "script", "flow", or "app"
 ) -> error::Result<String> {
+    // Check if we can skip relocking:
+    // - Must be triggered by relative import
+    // - Debug flag must not be set
+    if triggered_by_relative_import && !*WMDEBUG_NO_RELOCK_SKIP_OPTIMIZATION {
+        match try_skip_relock(db, w_id, base_path, step_id, runnable_type, existing_lock).await {
+            Ok(Some(lock)) => {
+                let log_msg = match step_id {
+                    Some(id) => format!(
+                        "\nSkipping relock for step '{}' - imported lockfiles unchanged",
+                        id
+                    ),
+                    None => "\nSkipping relock - imported lockfiles unchanged".to_string(),
+                };
+
+                tracing::info!(workspace_id = %w_id, job_id = %job_id, "{log_msg}");
+                append_logs(job_id, w_id, log_msg, &db.into()).await;
+                return Ok(lock);
+            }
+            Ok(None) => {} // Continue to relock
+            Err(e) => {
+                tracing::error!(workspace_id = %w_id, job_id = %job_id, "Failed to check skip relock: {e}");
+            }
+        }
+    }
+
+    let log_msg = match step_id {
+        Some(id) => format!("\nRelocking script for step '{}'", id),
+        None => "\nRelocking script".to_string(),
+    };
+
+    tracing::info!(workspace_id = %w_id, job_id = %job_id, "{log_msg}");
+    append_logs(job_id, w_id, log_msg, &db.into()).await;
+
     let workspace_dependencies = WorkspaceDependenciesPrefetched::extract(
         job_raw_code,
         *job_language,
@@ -2466,15 +2657,14 @@ async fn capture_dependency_job(
         // for related places search: ADD_NEW_LANG
         _ => "".to_owned(),
     };
-    {
-        let mut lines = vec![];
-        add_lock_header(&mut lines, workspace_dependencies, *job_language, w_id, db).await?;
-        Ok(if lines.is_empty() {
-            lock
-        } else {
-            format!("{}\n{lock}", lines.join("\n"))
-        })
-    }
+
+    let mut lines = vec![];
+    add_lock_header(&mut lines, workspace_dependencies, *job_language, w_id, db).await?;
+    Ok(if lines.is_empty() {
+        lock
+    } else {
+        format!("{}\n{lock}", lines.join("\n"))
+    })
 }
 
 async fn add_lock_header(

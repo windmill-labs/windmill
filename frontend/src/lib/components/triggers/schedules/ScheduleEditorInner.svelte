@@ -288,19 +288,19 @@
 			schedule = s?.schedule ?? '0 0 12 * *'
 			initialSchedule = schedule
 			timezone = s?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone
-			paused_until = s?.paused_until
+			paused_until = s?.paused_until ?? undefined
 			showPauseUntil = paused_until !== undefined
 			summary = s?.summary ?? ''
 			description = s?.description ?? ''
 			script_path = s?.script_path ?? initialScriptPath
 			args = s?.args ?? {}
-			tag = s?.tag
+			tag = s?.tag ?? undefined
 
 			await loadScript(script_path)
 
 			no_flow_overlap = s?.no_flow_overlap ?? false
 			wsErrorHandlerMuted = s?.ws_error_handler_muted ?? false
-			retry = s?.retry
+			retry = s?.retry ?? undefined
 
 			await setScheduleHandler(s)
 		} finally {

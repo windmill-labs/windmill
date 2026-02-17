@@ -7,12 +7,18 @@ value:
         type: aiagent
         parallel: true
         input_transforms:
-          instruction:
+          provider:
+            type: static
+            value:
+              kind: openai
+              resource: "$res:u/admin/openai"
+              model: gpt-4o-mini
+          user_message:
             type: static
             value: "Process data in parallel"
-          model:
-            type: javascript
-            expr: "'gpt-4'"
+          output_type:
+            type: static
+            value: text
         tools:
           - id: parallel_tool_1
             summary: First parallel tool

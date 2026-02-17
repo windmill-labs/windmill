@@ -24,7 +24,7 @@
 </script>
 
 <Button
-	size="xs"
+	unifiedSize="md"
 	variant="default"
 	{disabled}
 	{loading}

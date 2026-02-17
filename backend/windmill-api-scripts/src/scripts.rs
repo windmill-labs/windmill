@@ -14,6 +14,7 @@ use windmill_api_auth::{
 use windmill_common::{
     utils::{BulkDeleteRequest, WithStarredInfoQuery, HTTP_CLIENT},
     webhook::{WebhookMessage, WebhookShared},
+    workspaces::{check_user_against_rule, ProtectionRuleKind, RuleCheckResult},
     DB,
 };
 use windmill_queue::schedule::clear_schedule;
@@ -35,7 +36,7 @@ use serde_json::value::RawValue;
 use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres, Transaction};
 use std::{collections::HashMap, sync::Arc};
-use windmill_audit::audit_oss::audit_log;
+use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_dep_map::process_relative_imports;
 use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
@@ -548,6 +549,18 @@ async fn create_script(
     Path(w_id): Path<String>,
     Json(ns): Json<NewScript>,
 ) -> Result<(StatusCode, String)> {
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
     let (hash, tx, hdm) =
         create_script_internal(ns, w_id, authed, db.clone(), user_db, webhook).await?;
     tx.commit().await?;
@@ -849,10 +862,13 @@ async fn create_script_internal<'c>(
         }
     };
 
-    let runnable_settings_handle = windmill_common::runnable_settings::insert_rs(RunnableSettings {
-        debouncing_settings: ns.debouncing_settings.insert_cached(&db).await?,
-        concurrency_settings: ns.concurrency_settings.insert_cached(&db).await?,
-    }, &db)
+    let runnable_settings_handle = windmill_common::runnable_settings::insert_rs(
+        RunnableSettings {
+            debouncing_settings: ns.debouncing_settings.insert_cached(&db).await?,
+            concurrency_settings: ns.concurrency_settings.insert_cached(&db).await?,
+        },
+        &db,
+    )
     .await?;
 
     let (
@@ -1062,7 +1078,9 @@ async fn create_script_internal<'c>(
     }
     if needs_lock_gen {
         let tag = if ns.dedicated_worker.is_some_and(|x| x) {
-            Some(format!("{}:{}", &w_id, &ns.path,))
+            Some(windmill_common::worker::dedicated_worker_tag(
+                &w_id, &ns.path,
+            ))
         } else if ns.tag.as_ref().is_some_and(|x| x.contains("$args[")) {
             None
         } else {
@@ -1829,7 +1847,9 @@ async fn get_script_by_hash(
 
     tx.commit().await?;
 
-    Ok(Json(windmill_common::scripts::prefetch_cached_script_with_starred(r, &db).await?))
+    Ok(Json(
+        windmill_common::scripts::prefetch_cached_script_with_starred(r, &db).await?,
+    ))
 }
 
 async fn raw_script_by_hash(
@@ -1906,6 +1926,18 @@ async fn archive_script_by_path(
     }
     let path = path.to_path();
     check_scopes(&authed, || format!("scripts:write:{}", path))?;
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
     let mut tx = user_db.begin(&authed).await?;
 
     require_owner_of_path(&authed, path)?;
@@ -1973,6 +2005,18 @@ async fn archive_script_by_hash(
             "Operators cannot archive scripts for security reasons".to_string(),
         ));
     }
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
     let mut tx = user_db.begin(&authed).await?;
 
     let script = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(
@@ -2008,7 +2052,9 @@ async fn archive_script_by_hash(
         WebhookMessage::DeleteScript { workspace: w_id, hash: hash.to_string() },
     );
 
-    Ok(Json(windmill_common::scripts::prefetch_cached_script(script, &db).await?))
+    Ok(Json(
+        windmill_common::scripts::prefetch_cached_script(script, &db).await?,
+    ))
 }
 
 async fn delete_script_by_hash(
@@ -2018,9 +2064,20 @@ async fn delete_script_by_hash(
     Extension(db): Extension<DB>,
     Path((w_id, hash)): Path<(String, ScriptHash)>,
 ) -> JsonResult<Script<ScriptRunnableSettingsInline>> {
-    let mut tx = user_db.begin(&authed).await?;
-
     require_admin(authed.is_admin, &authed.username)?;
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+    let mut tx = user_db.begin(&authed).await?;
     let script = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(
         "UPDATE script SET content = '', archived = true, deleted = true, lock = '', schema = null WHERE hash = $1 AND \
          workspace_id = $2 RETURNING *",
@@ -2052,7 +2109,9 @@ async fn delete_script_by_hash(
         WebhookMessage::DeleteScript { workspace: w_id, hash: hash.to_string() },
     );
 
-    Ok(Json(windmill_common::scripts::prefetch_cached_script(script, &db).await?))
+    Ok(Json(
+        windmill_common::scripts::prefetch_cached_script(script, &db).await?,
+    ))
 }
 
 #[derive(Deserialize)]
@@ -2076,6 +2135,19 @@ async fn delete_script_by_path(
         return Err(Error::BadRequest(
             "Cannot delete the global setup app".to_string(),
         ));
+    }
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
     }
 
     let mut tx = user_db.begin(&authed).await?;
@@ -2202,6 +2274,19 @@ async fn delete_scripts_bulk(
         return Err(Error::BadRequest(
             "Cannot delete the global setup app".to_string(),
         ));
+    }
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableDirectDeployment,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
     }
 
     let mut tx = db.begin().await?;

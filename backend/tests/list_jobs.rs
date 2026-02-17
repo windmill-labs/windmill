@@ -7,8 +7,7 @@ use windmill_common::{
     scripts::ScriptLang,
 };
 
-mod common;
-use common::*;
+use windmill_test_utils::*;
 
 #[derive(Debug, Deserialize)]
 struct ListJobsResponse {

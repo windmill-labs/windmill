@@ -22,7 +22,7 @@ export function loadStoredConfig(): ProviderConfig | undefined {
 	return undefined
 }
 
-export function saveConfig(config: ProviderConfig): void {
+export function saveConfig(config: ProviderConfig | undefined): void {
 	if (typeof localStorage === 'undefined') {
 		return
 	}
@@ -44,12 +44,12 @@ export function removeConfig(): void {
 	}
 }
 
-export function isSameAsStoredConfig(config: ProviderConfig): boolean {
+export function isSameAsStoredConfig(config: ProviderConfig | undefined): boolean {
 	const storedConfig = loadStoredConfig()
 	return (
 		storedConfig !== undefined &&
-		storedConfig.kind === config.kind &&
-		storedConfig.resource === config.resource &&
-		storedConfig.model === config.model
+		storedConfig.kind === config?.kind &&
+		storedConfig.resource === config?.resource &&
+		storedConfig.model === config?.model
 	)
 }

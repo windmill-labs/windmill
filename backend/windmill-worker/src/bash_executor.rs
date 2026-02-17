@@ -40,7 +40,8 @@ use crate::{
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
-    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, TRACING_PROXY_CA_CERT_PATH,
+    is_sandboxing_enabled, DISABLE_NUSER, HOME_ENV, NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV,
+    TRACING_PROXY_CA_CERT_PATH,
 };
 use windmill_common::client::AuthedClient;
 use windmill_common::scripts::ScriptLang;
@@ -77,9 +78,21 @@ pub async fn handle_bash_job(
 ) -> Result<Box<RawValue>, Error> {
     let annotation = windmill_common::worker::BashAnnotations::parse(&content);
 
+    // Check if sandbox annotation is used but nsjail is not available
+    if annotation.sandbox && NSJAIL_AVAILABLE.is_none() {
+        return Err(Error::ExecutionErr(
+            "Script has #sandbox annotation but nsjail is not available on this worker. \
+            Please ensure nsjail is installed or remove the #sandbox annotation."
+                .to_string(),
+        ));
+    }
+
     let mut logs1 = "\n\n--- BASH CODE EXECUTION ---\n".to_string();
     if annotation.docker {
         logs1.push_str("docker mode\n");
+    }
+    if annotation.sandbox {
+        logs1.push_str("sandbox mode (nsjail)\n");
     }
     append_logs(&job.id, &job.workspace_id, logs1, &conn).await;
 
@@ -171,7 +184,8 @@ exit $exit_status
         })
         .unwrap_or(true);
 
-    let nsjail = !*DISABLE_NSJAIL && is_regular_job;
+    // Use nsjail if globally enabled OR if script has #sandbox annotation
+    let nsjail = (is_sandboxing_enabled() || annotation.sandbox) && is_regular_job;
     let child = if nsjail {
         let _ = write_file(
             job_dir,

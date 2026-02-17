@@ -7,8 +7,8 @@ use windmill_common::{
     worker::{
         get_memory, get_vcpus, get_windmill_memory_usage, get_worker_memory_usage,
         insert_ping_query, update_job_ping_query, update_worker_ping_from_job_query,
-        update_worker_ping_main_loop_query, Connection, Ping, PingType, WORKER_CONFIG,
-        WORKER_GROUP,
+        update_worker_ping_main_loop_query, Connection, Ping, PingType, NATIVE_MODE_RESOLVED,
+        WORKER_CONFIG, WORKER_GROUP,
     },
     KillpillSender, DB,
 };
@@ -27,7 +27,10 @@ pub(crate) async fn update_worker_ping_full(
     occupancy_metrics: &mut OccupancyMetrics,
     killpill_tx: &KillpillSender,
 ) {
-    let tags = WORKER_CONFIG.read().await.worker_tags.clone();
+    let wc = WORKER_CONFIG.read().await;
+    let tags = wc.worker_tags.clone();
+    let native_mode = wc.native_mode;
+    drop(wc);
 
     let memory_usage = get_worker_memory_usage();
     let wm_memory_usage = get_windmill_memory_usage();
@@ -45,6 +48,7 @@ pub(crate) async fn update_worker_ping_full(
         occupancy_rate_30m,
     } = occupancy_metrics.update_occupancy_metrics();
 
+    let ping_start = std::time::Instant::now();
     if let Err(e) = (|| {
         update_worker_ping_full_inner(
             conn,
@@ -59,6 +63,7 @@ pub(crate) async fn update_worker_ping_full(
             occupancy_rate_15s,
             occupancy_rate_5m,
             occupancy_rate_30m,
+            native_mode,
         )
     })
     .retry(
@@ -81,11 +86,13 @@ pub(crate) async fn update_worker_ping_full(
                     "failed to update worker ping, exiting: {}", e);
         killpill_tx.send();
     }
+    let db_latency_ms = ping_start.elapsed().as_millis();
     tracing::info!(
         worker = %worker_name, hostname = %hostname,
-        "ping update, memory: container={}MB, windmill={}MB",
+        "ping update, memory: container={}MB, windmill={}MB, db_latency={}ms",
         memory_usage.unwrap_or_default() / (1024 * 1024),
-        wm_memory_usage.unwrap_or_default() / (1024 * 1024)
+        wm_memory_usage.unwrap_or_default() / (1024 * 1024),
+        db_latency_ms
     );
 }
 
@@ -102,6 +109,7 @@ async fn update_worker_ping_full_inner(
     occupancy_rate_15s: Option<f32>,
     occupancy_rate_5m: Option<f32>,
     occupancy_rate_30m: Option<f32>,
+    native_mode: bool,
 ) -> anyhow::Result<()> {
     match conn {
         Connection::Sql(db) => {
@@ -117,6 +125,7 @@ async fn update_worker_ping_full_inner(
                 occupancy_rate_15s,
                 occupancy_rate_5m,
                 occupancy_rate_30m,
+                native_mode,
                 db,
             )
             .await?;
@@ -145,6 +154,7 @@ async fn update_worker_ping_full_inner(
                         memory_usage: get_worker_memory_usage(),
                         wm_memory_usage: get_windmill_memory_usage(),
                         job_isolation: None,
+                        native_mode: Some(native_mode),
                         ping_type: PingType::MainLoop,
                     },
                 )
@@ -160,7 +170,7 @@ pub async fn insert_ping(
     ip: &str,
     db: &Connection,
 ) -> anyhow::Result<()> {
-    let (tags, dw, dws) = {
+    let (tags, dw, dws, native_mode) = {
         let wc = WORKER_CONFIG.read().await.clone();
         (
             wc.worker_tags,
@@ -173,16 +183,16 @@ pub async fn insert_ping(
                     .map(|x| format!("{}:{}", x.workspace_id, x.path))
                     .collect::<Vec<_>>()
             }),
+            wc.native_mode,
         )
     };
 
     let vcpus = get_vcpus();
     let memory = get_memory();
 
-    // Determine job isolation method
-    let job_isolation = if crate::NSJAIL_AVAILABLE.is_some() {
+    let job_isolation = if crate::is_sandboxing_enabled() {
         Some("nsjail".to_string())
-    } else if *crate::ENABLE_UNSHARE_PID && crate::UNSHARE_PATH.is_some() {
+    } else if crate::is_unshare_enabled() {
         Some("unshare".to_string())
     } else {
         Some("none".to_string())
@@ -202,6 +212,7 @@ pub async fn insert_ping(
                 vcpus,
                 memory,
                 job_isolation,
+                native_mode,
                 db,
             )
             .await?;
@@ -230,6 +241,7 @@ pub async fn insert_ping(
                         memory_usage: get_worker_memory_usage(),
                         wm_memory_usage: get_windmill_memory_usage(),
                         job_isolation,
+                        native_mode: Some(native_mode),
                         ping_type: PingType::Initial,
                     },
                 )
@@ -253,9 +265,9 @@ pub async fn update_worker_ping_from_job(
     let occupancy_rate_5m = occupancy.as_ref().and_then(|x| x.occupancy_rate_5m);
     let occupancy_rate_30m = occupancy.as_ref().and_then(|x| x.occupancy_rate_30m);
 
-    let job_isolation = if crate::NSJAIL_AVAILABLE.is_some() {
+    let job_isolation = if crate::is_sandboxing_enabled() {
         Some("nsjail".to_string())
-    } else if *crate::ENABLE_UNSHARE_PID && crate::UNSHARE_PATH.is_some() {
+    } else if crate::is_unshare_enabled() {
         Some("unshare".to_string())
     } else {
         Some("none".to_string())
@@ -303,6 +315,9 @@ pub async fn update_worker_ping_from_job(
                         occupancy_rate_5m: occupancy_rate_5m,
                         occupancy_rate_30m: occupancy_rate_30m,
                         job_isolation,
+                        native_mode: Some(
+                            NATIVE_MODE_RESOLVED.load(std::sync::atomic::Ordering::Relaxed),
+                        ),
                     },
                 )
                 .await?;

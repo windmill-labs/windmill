@@ -69,6 +69,9 @@
 		kind: PathKind
 		hideUser?: boolean
 		disableEditing?: boolean
+		hideFullPath?: boolean
+		size?: 'sm' | 'md'
+		drawerOffset?: number
 	}
 
 	let {
@@ -83,7 +86,10 @@
 		dirty = $bindable(false),
 		kind,
 		hideUser = false,
-		disableEditing = false
+		disableEditing = false,
+		hideFullPath = false,
+		size = 'md',
+		drawerOffset = 0
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -394,7 +400,7 @@
 </script>
 
 <div>
-	<div class="flex flex-col flex-wrap sm:flex-row sm:items-center gap-2 pb-0 mb-1">
+	<div class="flex gap-2 pb-0 mb-1 flex-col flex-wrap sm:flex-row sm:items-center">
 		{#if meta != undefined}
 			<!-- svelte-ignore a11y_label_has_associated_control -->
 			{#if !hideUser}
@@ -423,6 +429,7 @@
 								disabled={disabled || disableEditing}
 								value="user"
 								label="User"
+								{size}
 								{item}
 							/>
 							<!-- <ToggleButton light size="xs" value="group" position="center">Group</ToggleButton> -->
@@ -431,6 +438,7 @@
 								disabled={disabled || disableEditing}
 								value="folder"
 								label="Folder"
+								{size}
 								{item}
 							/>
 						{/snippet}
@@ -445,6 +453,7 @@
 					<label class="block shrink min-w-0">
 						<TextInput
 							class="!w-36"
+							{size}
 							bind:value={meta.owner}
 							inputProps={{
 								type: 'text',
@@ -456,8 +465,15 @@
 						/>
 					</label>
 				{:else if meta.ownerKind === 'folder'}
-					<label class="block grow w-48">
-						<FolderPicker bind:folderName={meta.owner} {initialPath} {disabled} {disableEditing} />
+					<label class="block grow w-42">
+						<FolderPicker
+							bind:folderName={meta.owner}
+							{initialPath}
+							{disabled}
+							{disableEditing}
+							{size}
+							{drawerOffset}
+						/>
 					</label>
 				{/if}
 			</div>
@@ -467,6 +483,7 @@
 				<TextInput
 					bind:this={inputP}
 					bind:value={meta.name}
+					{size}
 					{error}
 					inputProps={{
 						disabled: disabled || disableEditing,
@@ -482,28 +499,30 @@
 		{/if}
 	</div>
 
-	<div class="flex flex-col w-full mt-2">
-		<div class="flex justify-start w-full">
-			<Badge
-				color="gray"
-				class="center-center !bg-surface-secondary !text-primary !w-[70px] !h-[24px] rounded-r-none border"
-			>
-				Full path
-			</Badge>
-			<input
-				type="text"
-				readonly
-				value={path}
-				size={path?.length || 50}
-				class="font-mono !text-xs max-w-[calc(100%-70px)] !w-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
-				onfocus={({ currentTarget }) => {
-					currentTarget.select()
-				}}
-			/>
-			<!-- <span class="font-mono text-sm break-all">{path}</span> -->
+	{#if !hideFullPath}
+		<div class="flex flex-col w-full mt-2">
+			<div class="flex justify-start w-full">
+				<Badge
+					color="gray"
+					class="center-center !bg-surface-secondary !text-primary !w-[70px] !h-[24px] rounded-r-none border"
+				>
+					Full path
+				</Badge>
+				<input
+					type="text"
+					readonly
+					value={path}
+					size={path?.length || 50}
+					class="font-mono !text-xs max-w-[calc(100%-70px)] !w-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
+					onfocus={({ currentTarget }) => {
+						currentTarget.select()
+					}}
+				/>
+				<!-- <span class="font-mono text-sm break-all">{path}</span> -->
+			</div>
+			<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5">{error}</div>
 		</div>
-		<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5">{error}</div>
-	</div>
+	{/if}
 
 	{#if pathUsageInFlowsPromise || pathUsageInAppsPromise || pathUsageInScriptsPromise}
 		{#await Promise.all( [pathUsageInAppsPromise, pathUsageInFlowsPromise, pathUsageInScriptsPromise] )}

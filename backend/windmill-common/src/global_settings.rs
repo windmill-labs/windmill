@@ -14,11 +14,14 @@ pub const NUGET_CONFIG_SETTING: &str = "nuget_config";
 pub const POWERSHELL_REPO_URL_SETTING: &str = "powershell_repo_url";
 pub const POWERSHELL_REPO_PAT_SETTING: &str = "powershell_repo_pat";
 pub const MAVEN_REPOS_SETTING: &str = "maven_repos";
+pub const MAVEN_SETTINGS_XML_SETTING: &str = "maven_settings_xml";
 pub const NO_DEFAULT_MAVEN_SETTING: &str = "no_default_maven";
 pub const RUBY_REPOS_SETTING: &str = "ruby_repos";
+pub const CARGO_REGISTRIES_SETTING: &str = "cargo_registries";
 
 pub const EXTRA_PIP_INDEX_URL_SETTING: &str = "pip_extra_index_url";
 pub const PIP_INDEX_URL_SETTING: &str = "pip_index_url";
+pub const UV_INDEX_STRATEGY_SETTING: &str = "uv_index_strategy";
 pub const INSTANCE_PYTHON_VERSION_SETTING: &str = "instance_python_version";
 pub const SCIM_TOKEN_SETTING: &str = "scim_token";
 pub const SAML_METADATA_SETTING: &str = "saml_metadata";
@@ -33,6 +36,7 @@ pub const EXPOSE_METRICS_SETTING: &str = "expose_metrics";
 pub const EXPOSE_DEBUG_METRICS_SETTING: &str = "expose_debug_metrics";
 pub const KEEP_JOB_DIR_SETTING: &str = "keep_job_dir";
 pub const REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING: &str = "require_preexisting_user_for_oauth";
+pub const JOB_ISOLATION_SETTING: &str = "job_isolation";
 pub const OBJECT_STORE_CONFIG_SETTING: &str = "object_store_cache_config";
 pub const HUB_API_SECRET_SETTING: &str = "hub_api_secret";
 
@@ -81,6 +85,7 @@ pub const ENV_SETTINGS: &[&str] = &[
     "GOPRIVATE",
     "GOPROXY",
     "NETRC",
+    "CARGO_REGISTRIES",
     "INSTANCE_PYTHON_VERSION",
     "PIP_INDEX_URL",
     "PIP_EXTRA_INDEX_URL",
@@ -138,6 +143,68 @@ pub async fn load_value_from_global_settings(
     .await?
     .map(|x| x.value);
     Ok(r)
+}
+
+/// Read OAuth client_id and client_secret from instance-level global settings.
+/// `oauth_key` is the key under `oauths` (e.g., "gworkspace", "nextcloud").
+pub async fn get_instance_oauth_credentials(
+    db: &Pool<Postgres>,
+    oauth_key: &str,
+) -> error::Result<(String, String)> {
+    let oauths_value = load_value_from_global_settings(db, OAUTH_SETTING)
+        .await?
+        .ok_or_else(|| {
+            error::Error::InternalErr("Instance OAuth settings not found".to_string())
+        })?;
+
+    let entry = oauths_value.get(oauth_key).ok_or_else(|| {
+        error::Error::InternalErr(format!("No {} entry in instance OAuth settings", oauth_key))
+    })?;
+
+    let id = entry
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let secret = entry
+        .get("secret")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    if id.is_empty() || secret.is_empty() {
+        return Err(error::Error::InternalErr(format!(
+            "Instance OAuth credentials for {} are incomplete",
+            oauth_key
+        )));
+    }
+
+    Ok((id, secret))
+}
+
+/// Map service client name to the OAuth settings key in global_settings.
+/// e.g. "google" -> "gworkspace", "nextcloud" -> "nextcloud"
+pub fn workspace_integration_oauth_key(client_name: &str) -> &str {
+    match client_name {
+        "google" => "gworkspace",
+        other => other,
+    }
+}
+
+/// Resolve the token endpoint URL for a workspace integration service.
+pub fn workspace_integration_token_endpoint(client_name: &str, base_url: &str) -> String {
+    match client_name {
+        "google" => "https://oauth2.googleapis.com/token".to_string(),
+        _ => format!("{}/apps/oauth2/api/v1/token", base_url),
+    }
+}
+
+/// Resolve the auth endpoint URL for a workspace integration service.
+pub fn workspace_integration_auth_endpoint(client_name: &str, base_url: &str) -> String {
+    match client_name {
+        "google" => "https://accounts.google.com/o/oauth2/v2/auth".to_string(),
+        _ => format!("{}/apps/oauth2/authorize", base_url),
+    }
 }
 
 pub async fn set_value_in_global_settings(

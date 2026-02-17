@@ -1,27 +1,35 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte'
+	import type { Snippet } from 'svelte'
 	import Button from '../button/Button.svelte'
 
-	export let items: string[]
-	export let selectedIndex: number
-	export let disabled: boolean = false
-
-	const dispatch = createEventDispatcher()
+	let {
+		items,
+		selectedIndex,
+		numbered = false,
+		separator,
+		onselect
+	}: {
+		items: string[]
+		selectedIndex: number
+		numbered?: boolean
+		separator?: Snippet
+		onselect?: (index: number) => void
+	} = $props()
 </script>
 
 <div class="flex items-center justify-center">
 	{#each items as item, index}
-		{#if index > 0}
-			<slot name="separator" />
+		{#if index > 0 && separator}
+			{@render separator()}
 		{/if}
 		<Button
-			size="sm"
-			color="light"
-			btnClasses={selectedIndex - 1 === index ? 'text-gray-800 !font-bold' : '!text-primary'}
-			on:click={() => dispatch('select', { index })}
-			disabled={selectedIndex - 1 === index ? disabled : false}
+			unifiedSize="sm"
+			variant="subtle"
+			selected={selectedIndex - 1 === index}
+			onClick={() => onselect?.(index)}
+			disabled={index > selectedIndex - 1}
 		>
-			{item}
+			{numbered ? `${index + 1}. ` : ''}{item}
 		</Button>
 	{/each}
 </div>

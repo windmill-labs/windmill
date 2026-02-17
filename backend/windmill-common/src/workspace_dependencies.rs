@@ -18,8 +18,6 @@ use phf::phf_set;
 
 pub static BLACKLIST: phf::Set<&'static str> = phf_set! {
     "u/admin/hub_sync",
-    "g/all/setup_app/app",
-    "g/all/setup_app"
 };
 
 lazy_static::lazy_static! {

@@ -1,8 +1,6 @@
-mod common;
-
 #[cfg(feature = "deno_core")]
 mod retry {
-    use crate::common::*;
+    use windmill_test_utils::*;
     use serde_json::json;
     use sqlx::{Pool, Postgres};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};

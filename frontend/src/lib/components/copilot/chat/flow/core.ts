@@ -3,7 +3,6 @@ import {
 	type FlowModule,
 	type InputTransform,
 	type RawScript,
-	type Script,
 	JobService
 } from '$lib/gen'
 import type {
@@ -11,8 +10,6 @@ import type {
 	ChatCompletionUserMessageParam
 } from 'openai/resources/chat/completions.mjs'
 import { z } from 'zod'
-import uFuzzy from '@leeoniya/ufuzzy'
-import { emptyString } from '$lib/utils'
 import {
 	createDbSchemaTool,
 	getFormattedResourceTypes,
@@ -31,7 +28,9 @@ import {
 	findModuleById,
 	SPECIAL_MODULE_IDS,
 	formatScriptLintResult,
-	type ScriptLintResult
+	type ScriptLintResult,
+	createSearchWorkspaceTool,
+	createGetRunnableDetailsTool
 } from '../shared'
 import type { ContextElement } from '../context'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
@@ -208,10 +207,7 @@ function getExpectedFormat(schema: z.ZodType): string | null {
 	let current = schema
 
 	// Unwrap optional/nullable to get inner type
-	while (
-		(current as any)._def.type === 'optional' ||
-		(current as any)._def.type === 'nullable'
-	) {
+	while ((current as any)._def.type === 'optional' || (current as any)._def.type === 'nullable') {
 		current = (current as any)._def.innerType
 		if (!current || !(current as any)._def) break
 	}
@@ -285,18 +281,6 @@ export interface FlowAIChatHelpers {
 	getLintErrors: (moduleId: string) => Promise<ScriptLintResult>
 }
 
-const searchScriptsSchema = z.object({
-	query: z
-		.string()
-		.describe('The query to search for, e.g. send email, list stripe invoices, etc..')
-})
-
-const searchScriptsToolDef = createToolDef(
-	searchScriptsSchema,
-	'search_scripts',
-	'Search for scripts in the workspace. Returns array of {path, summary} objects.'
-)
-
 const langSchema = z.enum(
 	SUPPORTED_CHAT_SCRIPT_LANGUAGES as [RawScript['language'], ...RawScript['language'][]]
 )
@@ -336,47 +320,6 @@ const setFlowJsonToolDef = createToolDef(
 	'Set the entire flow by providing the complete flow object. This replaces all existing modules and schema.',
 	{ strict: false }
 )
-
-class WorkspaceScriptsSearch {
-	private uf: uFuzzy
-	private workspace: string | undefined = undefined
-	private scripts: Script[] | undefined = undefined
-
-	constructor() {
-		this.uf = new uFuzzy()
-	}
-
-	private async init(workspace: string) {
-		this.scripts = await ScriptService.listScripts({
-			workspace
-		})
-		this.workspace = workspace
-	}
-
-	async search(query: string, workspace: string) {
-		if (this.scripts === undefined || this.workspace !== workspace) {
-			await this.init(workspace)
-		}
-
-		const scripts = this.scripts
-
-		if (!scripts) {
-			throw new Error('Failed to load scripts')
-		}
-
-		const results = this.uf.search(
-			scripts.map((s) => (emptyString(s.summary) ? s.path : s.summary + ' (' + s.path + ')')),
-			query.trim()
-		)
-		const scriptResults =
-			results[2]?.map((id) => ({
-				path: scripts[id].path,
-				summary: scripts[id].summary
-			})) ?? []
-
-		return scriptResults
-	}
-}
 
 // Will be overridden by setSchema
 const testRunFlowSchema = z.object({
@@ -440,30 +383,11 @@ const getLintErrorsToolDef = createToolDef(
 	'Get lint errors and warnings from a rawscript module. Pass module_id to focus a specific module and check its errors. ALWAYS call this for EACH module where you modified inline script code.'
 )
 
-const workspaceScriptsSearch = new WorkspaceScriptsSearch()
-
 export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	createSearchHubScriptsTool(false),
 	createDbSchemaTool<FlowAIChatHelpers>(),
-	{
-		def: searchScriptsToolDef,
-		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
-			toolCallbacks.setToolStatus(toolId, {
-				content: 'Searching for workspace scripts related to "' + args.query + '"...'
-			})
-			const parsedArgs = searchScriptsSchema.parse(args)
-			const scriptResults = await workspaceScriptsSearch.search(parsedArgs.query, workspace)
-			toolCallbacks.setToolStatus(toolId, {
-				content:
-					'Found ' +
-					scriptResults.length +
-					' scripts in the workspace related to "' +
-					args.query +
-					'"'
-			})
-			return JSON.stringify(scriptResults)
-		}
-	},
+	createSearchWorkspaceTool(),
+	createGetRunnableDetailsTool(),
 	{
 		def: resourceTypeToolDef,
 		fn: async ({ args, toolId, workspace, toolCallbacks }) => {
@@ -748,8 +672,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 						const path = e.path
 						// Try to find module id for better context
 						const moduleIndex = typeof path[0] === 'number' ? path[0] : undefined
-						const moduleId =
-							moduleIndex !== undefined ? parsedModules[moduleIndex]?.id : undefined
+						const moduleId = moduleIndex !== undefined ? parsedModules[moduleIndex]?.id : undefined
 						const fieldPath = path.slice(1).join('.')
 
 						let message = e.message
@@ -852,7 +775,8 @@ export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionS
 - **View existing inline script code** → \`inspect_inline_script\`
 - **Change module code only** → \`set_module_code\`
 - **Get language-specific coding instructions** → \`get_instructions_for_code_generation\` (call BEFORE writing code)
-- **Find workspace scripts** → \`search_scripts\`
+- **Find workspace scripts and flows** → \`search_workspace\`
+- **Get details of a specific script or flow** → \`get_runnable_details\`
 - **Find Windmill Hub scripts** → \`search_hub_scripts\`
 
 **Testing & Linting:**
@@ -1059,7 +983,8 @@ Example: Before writing TypeScript/Bun code, call \`get_instructions_for_code_ge
 ### Creating Flows
 
 1. **Search for existing scripts first** (unless user explicitly asks to write from scratch):
-   - First: \`search_scripts\` to find workspace scripts
+   - First: \`search_workspace\` to find workspace scripts and flows
+   - Use \`get_runnable_details\` to inspect a specific script or flow (inputs, description, code)
    - Then: \`search_hub_scripts\` (only consider highly relevant results)
    - Only create raw scripts if no suitable script is found
 
