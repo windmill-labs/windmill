@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { globalEmailInvite, superadmin, workspaceStore } from '$lib/stores'
 	import { SettingService, UserService, WorkspaceService } from '$lib/gen'
 	import { Button } from './common'
@@ -57,7 +57,14 @@
 			emailsLoading = false
 		}
 	}
-	loadInstanceEmails()
+
+	$effect(() => {
+		if ($workspaceStore) {
+			untrack(() => {
+				loadInstanceEmails()
+			})
+		}
+	})
 
 	async function addUser() {
 		await WorkspaceService.addUser({
@@ -98,9 +105,8 @@
 		dispatch('new')
 	}
 
-	let emailTouched = $state(false)
 	let emailError = $derived.by(() => {
-		if (!email || !emailTouched) return undefined
+		if (!email) return undefined
 		const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 		return emailRegex.test(email) ? undefined : 'Please enter a valid email address'
 	})
@@ -127,7 +133,6 @@
 					loading={emailsLoading}
 					disablePortal={true}
 					error={!!emailError}
-					onBlur={() => (emailTouched = true)}
 				/>
 			{:else}
 				<TextInput
@@ -141,9 +146,7 @@
 					error={!!emailError}
 				/>
 			{/if}
-			{#if emailError}
-				<InputError error={emailError} />
-			{/if}
+			<InputError error={emailError} />
 
 			{#if !automateUsernameCreation}
 				<span class="text-xs mb-1 pt-2 leading-6">Username</span>
