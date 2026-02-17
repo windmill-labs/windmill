@@ -150,7 +150,7 @@
 					error={displayEmailError ?? ''}
 				/>
 			{/if}
-			<InputError error={displayEmailError} />
+			<InputError error={displayEmailError ?? ''} />
 
 			{#if !automateUsernameCreation}
 				<span class="text-xs mb-1 pt-2 leading-6">Username</span>
