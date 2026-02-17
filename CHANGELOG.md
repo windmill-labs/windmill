@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.638.3](https://github.com/windmill-labs/windmill/compare/v1.638.2...v1.638.3) (2026-02-17)
+
+
+### Bug Fixes
+
+* always create guidance files during wmill init ([#7974](https://github.com/windmill-labs/windmill/issues/7974)) ([f387daa](https://github.com/windmill-labs/windmill/commit/f387daa2a6c7eb260981a19c58374062f652fca6))
+* **frontend:** incorrect job result on the runs page ([#7982](https://github.com/windmill-labs/windmill/issues/7982)) ([2d53939](https://github.com/windmill-labs/windmill/commit/2d5393941cf17d45d1d4ff840766f07bd482f70b))
+* **frontend:** preserve user config when trimming oneOf non-selected keys ([b094649](https://github.com/windmill-labs/windmill/commit/b0946495863e206d12922536d2cae24cb78b55fc))
+
 ## [1.638.2](https://github.com/windmill-labs/windmill/compare/v1.638.1...v1.638.2) (2026-02-17)
 
 
