@@ -97,7 +97,7 @@
 		const urlFilter = useSearchParams(zodSchema)
 
 		// Create the filter instance object
-		const filterInstance: Partial<FilterInstanceRec<T>> = $state({})
+		const filterInstance: { val: Partial<FilterInstanceRec<T>> } = $state({ val: {} })
 
 		// Sync URL params to filter instance on initialization and when URL changes
 		for (const key of Object.keys(schemaRec)) {
@@ -107,14 +107,14 @@
 				if (isNaN(urlValue.getTime())) urlValue = null
 			}
 			if (urlValue !== undefined && urlValue !== null) {
-				;(filterInstance as any)[key] = urlValue
+				;(filterInstance.val as any)[key] = urlValue
 			}
 		}
 
 		// Sync filter instance changes back to URL params
 		for (const key of Object.keys(schemaRec)) {
 			$effect(() => {
-				let filterValue = (filterInstance as any)[key]
+				let filterValue = (filterInstance.val as any)[key]
 				if (schemaRec[key].type === 'date' && filterValue instanceof Date) {
 					// Convert Date to ISO string for URL
 					filterValue = filterValue.toISOString()
@@ -128,7 +128,7 @@
 			})
 		}
 
-		return { val: filterInstance }
+		return filterInstance
 	}
 
 	function filterToText<F extends FilterSchema>(filter: FilterInstance<F>, schema: F): string {
