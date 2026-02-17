@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.637.0](https://github.com/windmill-labs/windmill/compare/v1.636.0...v1.637.0) (2026-02-17)
+
+
+### Features
+
+* **frontend:** inline edit summary & path from header ([#7968](https://github.com/windmill-labs/windmill/issues/7968)) ([eb5a8da](https://github.com/windmill-labs/windmill/commit/eb5a8dab74822eb3e43557cf1c85bf14d6e1910f))
+* native mode ([#7939](https://github.com/windmill-labs/windmill/issues/7939)) ([535e108](https://github.com/windmill-labs/windmill/commit/535e108cbf5070a6a23183389007db63fb07a58f))
+
 ## [1.636.0](https://github.com/windmill-labs/windmill/compare/v1.635.1...v1.636.0) (2026-02-16)
 
 
