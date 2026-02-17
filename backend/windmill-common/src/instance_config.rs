@@ -738,6 +738,10 @@ pub enum ApplyMode {
 pub struct SettingsDiff {
     pub upserts: BTreeMap<String, serde_json::Value>,
     pub deletes: Vec<String>,
+    /// Previous values for keys being updated or deleted (for logging).
+    pub previous_values: BTreeMap<String, serde_json::Value>,
+    /// Count of desired keys that matched the current value exactly.
+    pub unchanged_count: usize,
 }
 
 /// The diff result for worker configs.
@@ -754,10 +758,110 @@ pub const PROTECTED_SETTINGS: &[&str] = &[
     "custom_instance_pg_databases",
     "uid",
     "rsa_keys",
+    "jwt_secret",
+    "min_keep_alive_version",
 ];
 
 /// Internal settings that are never exposed via the API or included in config exports.
-pub const HIDDEN_SETTINGS: &[&str] = &["uid", "rsa_keys", "jwt_secret", "min_keep_alive_version"];
+/// Note: jwt_secret is intentionally NOT hidden — it is included in YAML exports so that
+/// operators can set it via ConfigMap. It is protected from deletion (PROTECTED_SETTINGS)
+/// and from being set to empty/null, and its value is partially redacted in log output.
+pub const HIDDEN_SETTINGS: &[&str] = &["uid", "rsa_keys", "min_keep_alive_version"];
+
+/// Top-level settings whose entire value is sensitive and must be fully redacted in logs.
+const SENSITIVE_SETTINGS: &[&str] = &[
+    "jwt_secret",
+    "scim_token",
+    "hub_api_secret",
+    "license_key",
+    "pip_index_url",
+    "pip_extra_index_url",
+    "npm_config_registry",
+    "bunfig_install_scopes",
+    "maven_repos",
+    "ruby_repos",
+    "powershell_repo_pat",
+];
+
+/// Object-valued settings that contain sensitive sub-fields.
+/// Maps a top-level key to the sub-field names that must be redacted.
+const NESTED_SENSITIVE_FIELDS: &[(&str, &[&str])] = &[
+    ("smtp_settings", &["smtp_password"]),
+    ("secret_backend", &["token"]),
+    ("object_store_cache_config", &["secret_key", "serviceAccountKey"]),
+];
+
+fn redact_json_value(value: &serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::String(s) => serde_json::json!(redact_string(s)),
+        _ => serde_json::json!("[redacted]"),
+    }
+}
+
+fn mask_nested_sensitive(key: &str, value: &serde_json::Value) -> serde_json::Value {
+    for &(parent_key, sub_fields) in NESTED_SENSITIVE_FIELDS {
+        if key == parent_key {
+            if let serde_json::Value::Object(map) = value {
+                let mut masked = map.clone();
+                for &field in sub_fields {
+                    if let Some(v) = masked.get(field) {
+                        masked.insert(field.to_string(), redact_json_value(v));
+                    }
+                }
+                return serde_json::Value::Object(masked);
+            }
+        }
+    }
+    // Settings that are maps-of-objects where each child has a sensitive sub-field.
+    const NESTED_MAP_SENSITIVE: &[(&str, &str)] = &[
+        ("oauths", "secret"),
+        ("custom_instance_pg_databases", "user_pwd"),
+    ];
+    for &(parent_key, child_field) in NESTED_MAP_SENSITIVE {
+        if key == parent_key {
+            if let serde_json::Value::Object(entries) = value {
+                let mut masked = entries.clone();
+                for (_entry_key, entry_val) in masked.iter_mut() {
+                    if let serde_json::Value::Object(ref mut obj) = entry_val {
+                        if let Some(v) = obj.get(child_field) {
+                            obj.insert(child_field.to_string(), redact_json_value(v));
+                        }
+                    }
+                }
+                return serde_json::Value::Object(masked);
+            }
+        }
+    }
+    value.clone()
+}
+
+fn redact_string(s: &str) -> String {
+    let char_count = s.chars().count();
+    if char_count <= 6 {
+        "****".to_string()
+    } else {
+        let show = (char_count / 4).min(4);
+        let prefix: String = s.chars().take(show).collect();
+        let suffix: String = s.chars().skip(char_count - show).collect();
+        format!("{prefix}****{suffix}")
+    }
+}
+
+fn format_setting_value(key: &str, value: &serde_json::Value) -> String {
+    if SENSITIVE_SETTINGS.contains(&key) {
+        return match value {
+            serde_json::Value::String(s) => format!("\"{}\"", redact_string(s)),
+            _ => "[redacted]".to_string(),
+        };
+    }
+    let value = mask_nested_sensitive(key, value);
+    let s = value.to_string();
+    if s.len() > 200 {
+        format!("{}...", &s[..197])
+    } else {
+        s
+    }
+}
 
 /// Extract the expiry timestamp from a license key JSON value.
 ///
@@ -786,6 +890,36 @@ fn license_keys_same_except_expiry(a: &serde_json::Value, b: &serde_json::Value)
     a_parts[0] == b_parts[0] && a_parts[2] == b_parts[2]
 }
 
+fn is_empty_or_null(value: &serde_json::Value) -> bool {
+    value.is_null() || value.as_str().map_or(false, |s| s.is_empty())
+}
+
+/// Maximum retention period in seconds for CE builds (30 days).
+pub const CE_MAX_RETENTION_PERIOD_SECS: i64 = 30 * 24 * 3600;
+
+/// Clamp `retention_period_secs` to `CE_MAX_RETENTION_PERIOD_SECS` on CE builds.
+/// Returns the (possibly clamped) value. On EE builds this is a no-op.
+pub fn clamp_retention_period(value: serde_json::Value) -> serde_json::Value {
+    #[cfg(feature = "enterprise")]
+    {
+        value
+    }
+    #[cfg(not(feature = "enterprise"))]
+    {
+        if let Some(secs) = value.as_i64() {
+            if secs > CE_MAX_RETENTION_PERIOD_SECS {
+                tracing::warn!(
+                    "Clamping retention_period_secs from {} to {} (CE max: 30 days)",
+                    secs,
+                    CE_MAX_RETENTION_PERIOD_SECS
+                );
+                return serde_json::json!(CE_MAX_RETENTION_PERIOD_SECS);
+            }
+        }
+        value
+    }
+}
+
 /// Compute the diff between current and desired global settings.
 pub fn diff_global_settings(
     current: &BTreeMap<String, serde_json::Value>,
@@ -793,28 +927,50 @@ pub fn diff_global_settings(
     mode: ApplyMode,
 ) -> SettingsDiff {
     let mut upserts = BTreeMap::new();
-    for (key, value) in desired {
+    let mut previous_values = BTreeMap::new();
+    let mut unchanged_count: usize = 0;
+    for (key, desired_value) in desired {
+        if key == "jwt_secret" && is_empty_or_null(desired_value) {
+            tracing::warn!(
+                "Skipping jwt_secret update: value must not be empty or null"
+            );
+            continue;
+        }
+        let value = if key == "retention_period_secs" {
+            clamp_retention_period(desired_value.clone())
+        } else {
+            desired_value.clone()
+        };
         match current.get(key) {
-            Some(existing) if existing == value => {} // no change
+            Some(existing) if *existing == value => {
+                unchanged_count += 1;
+            }
             Some(existing) if key == LICENSE_KEY_SETTING => {
-                if license_keys_same_except_expiry(existing, value) {
+                if license_keys_same_except_expiry(existing, &value) {
                     let current_expiry = license_key_expiry(existing).unwrap_or(0);
-                    let desired_expiry = license_key_expiry(value).unwrap_or(0);
+                    let desired_expiry = license_key_expiry(&value).unwrap_or(0);
                     if desired_expiry > current_expiry {
-                        upserts.insert(key.clone(), value.clone());
+                        previous_values.insert(key.clone(), existing.clone());
+                        upserts.insert(key.clone(), value);
                     } else {
                         tracing::info!(
                             "Skipping license_key update: desired expiry ({}) is not posterior to current expiry ({})",
                             desired_expiry,
                             current_expiry
                         );
+                        unchanged_count += 1;
                     }
                 } else {
-                    upserts.insert(key.clone(), value.clone());
+                    previous_values.insert(key.clone(), existing.clone());
+                    upserts.insert(key.clone(), value);
                 }
             }
-            _ => {
-                upserts.insert(key.clone(), value.clone());
+            Some(existing) => {
+                previous_values.insert(key.clone(), existing.clone());
+                upserts.insert(key.clone(), value);
+            }
+            None => {
+                upserts.insert(key.clone(), value);
             }
         }
     }
@@ -822,11 +978,12 @@ pub fn diff_global_settings(
     if matches!(mode, ApplyMode::Replace) {
         for key in current.keys() {
             if !desired.contains_key(key) && !PROTECTED_SETTINGS.contains(&key.as_str()) {
+                previous_values.insert(key.clone(), current[key].clone());
                 deletes.push(key.clone());
             }
         }
     }
-    SettingsDiff { upserts, deletes }
+    SettingsDiff { upserts, deletes, previous_values, unchanged_count }
 }
 
 /// Compute the diff between current and desired worker configs.
@@ -869,14 +1026,35 @@ pub async fn apply_settings_diff(
         .bind(value)
         .execute(db)
         .await?;
-        tracing::info!("Synced global setting: {key}");
+        if let Some(old_value) = diff.previous_values.get(key) {
+            tracing::info!(
+                "Updated global setting: {key} ({} -> {})",
+                format_setting_value(key, old_value),
+                format_setting_value(key, value)
+            );
+        } else {
+            tracing::info!(
+                "Created global setting: {key} (value: {})",
+                format_setting_value(key, value)
+            );
+        }
     }
     for key in &diff.deletes {
         sqlx::query("DELETE FROM global_settings WHERE name = $1")
             .bind(key)
             .execute(db)
             .await?;
-        tracing::info!("Deleted global setting: {key}");
+        if let Some(old_value) = diff.previous_values.get(key) {
+            tracing::info!(
+                "Deleted global setting: {key} (was: {})",
+                format_setting_value(key, old_value)
+            );
+        } else {
+            tracing::info!("Deleted global setting: {key}");
+        }
+    }
+    if diff.unchanged_count > 0 {
+        tracing::info!("{} global setting(s) unchanged", diff.unchanged_count);
     }
     Ok(())
 }
@@ -1037,6 +1215,68 @@ impl InstanceConfig {
         apply_configs_diff(db, &configs_diff).await?;
 
         Ok(())
+    }
+
+    /// Serialize to YAML with sorted global_settings keys and worker_configs
+    /// ordered with "default" and "native" first.
+    pub fn to_sorted_yaml(&self) -> Result<String, String> {
+        let settings_map = self.global_settings.to_settings_map();
+
+        let mut yaml = String::from("global_settings:\n");
+        for (key, value) in &settings_map {
+            let value_yaml = serde_yml::to_string(value)
+                .map_err(|e| format!("YAML serialization failed for {key}: {e}"))?;
+            write_yaml_field(&mut yaml, key, value, &value_yaml, 1);
+        }
+
+        if !self.worker_configs.is_empty() {
+            yaml.push_str("worker_configs:\n");
+            let priority_keys = ["default", "native"];
+            for &pk in &priority_keys {
+                if let Some(wc) = self.worker_configs.get(pk) {
+                    let wc_value = serde_json::to_value(wc)
+                        .map_err(|e| format!("JSON serialization failed for {pk}: {e}"))?;
+                    let wc_yaml = serde_yml::to_string(&wc_value)
+                        .map_err(|e| format!("YAML serialization failed for {pk}: {e}"))?;
+                    write_yaml_field(&mut yaml, pk, &wc_value, &wc_yaml, 1);
+                }
+            }
+            for (key, wc) in &self.worker_configs {
+                if priority_keys.contains(&key.as_str()) {
+                    continue;
+                }
+                let wc_value = serde_json::to_value(wc)
+                    .map_err(|e| format!("JSON serialization failed for {key}: {e}"))?;
+                let wc_yaml = serde_yml::to_string(&wc_value)
+                    .map_err(|e| format!("YAML serialization failed for {key}: {e}"))?;
+                write_yaml_field(&mut yaml, key, &wc_value, &wc_yaml, 1);
+            }
+        }
+
+        Ok(yaml)
+    }
+}
+
+fn write_yaml_field(
+    yaml: &mut String,
+    key: &str,
+    value: &serde_json::Value,
+    value_yaml: &str,
+    indent: usize,
+) {
+    use std::fmt::Write;
+
+    let prefix = "  ".repeat(indent);
+    let trimmed = value_yaml.trim();
+    let is_nested = matches!(value, serde_json::Value::Object(_) | serde_json::Value::Array(_));
+    if is_nested {
+        let _ = writeln!(yaml, "{prefix}{key}:");
+        let inner_prefix = "  ".repeat(indent + 1);
+        for line in trimmed.lines() {
+            let _ = writeln!(yaml, "{inner_prefix}{line}");
+        }
+    } else {
+        let _ = writeln!(yaml, "{prefix}{key}: {trimmed}");
     }
 }
 
@@ -1393,7 +1633,7 @@ mod tests {
     }
 
     #[test]
-    fn diff_global_settings_replace_protects_all_three() {
+    fn diff_global_settings_replace_protects_all() {
         let mut current = BTreeMap::new();
         for key in PROTECTED_SETTINGS {
             current.insert(key.to_string(), serde_json::json!("val"));

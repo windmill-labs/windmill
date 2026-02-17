@@ -278,7 +278,26 @@ pub async fn set_global_setting_internal(
     key: String,
     value: serde_json::Value,
 ) -> error::Result<()> {
+    let value = if key == "retention_period_secs" {
+        instance_config::clamp_retention_period(value)
+    } else {
+        value
+    };
+
     run_setting_pre_write_hook(db, &key, &value).await?;
+
+    if key == "jwt_secret" {
+        match &value {
+            serde_json::Value::Null | serde_json::Value::String(_)
+                if value.as_str().map_or(true, |s| s.is_empty()) =>
+            {
+                return Err(error::Error::BadRequest(
+                    "jwt_secret cannot be set to empty or null".to_string(),
+                ));
+            }
+            _ => {}
+        }
+    }
 
     match value {
         serde_json::Value::Null => {
@@ -420,8 +439,8 @@ async fn get_instance_config_yaml(
     let config = InstanceConfig::from_db(&db)
         .await
         .map_err(|e| error::Error::internal_err(e.to_string()))?;
-    let yaml = serde_yml::to_string(&config)
-        .map_err(|e| error::Error::internal_err(format!("YAML serialization failed: {e}")))?;
+    let yaml = config.to_sorted_yaml()
+        .map_err(|e| error::Error::internal_err(e))?;
     Response::builder()
         .header("content-type", "application/yaml")
         .body(Body::from(yaml))
@@ -1141,7 +1160,7 @@ mod tests {
             )]),
         };
 
-        let yaml = serde_yml::to_string(&config).unwrap();
+        let yaml = config.to_sorted_yaml().unwrap();
 
         // Verify key fields appear in the YAML output
         assert!(yaml.contains("base_url: https://windmill.example.com"));
@@ -1166,5 +1185,111 @@ mod tests {
             Some(["deno".to_string(), "python3".to_string()].as_slice())
         );
         assert_eq!(wc.init_bash.as_deref(), Some("apt-get update"));
+    }
+
+    #[test]
+    fn sorted_yaml_global_settings_alphabetical() {
+        let config = InstanceConfig {
+            global_settings: GlobalSettings {
+                retention_period_secs: Some(3600),
+                base_url: Some("https://test.com".to_string()),
+                expose_metrics: Some(true),
+                email_domain: Some("example.com".to_string()),
+                ..Default::default()
+            },
+            worker_configs: BTreeMap::new(),
+        };
+
+        let yaml = config.to_sorted_yaml().unwrap();
+
+        // Keys must appear in alphabetical order
+        let base_url_pos = yaml.find("base_url:").unwrap();
+        let email_pos = yaml.find("email_domain:").unwrap();
+        let expose_pos = yaml.find("expose_metrics:").unwrap();
+        let retention_pos = yaml.find("retention_period_secs:").unwrap();
+
+        assert!(
+            base_url_pos < email_pos
+                && email_pos < expose_pos
+                && expose_pos < retention_pos,
+            "global_settings keys should be alphabetically sorted, got yaml:\n{yaml}"
+        );
+    }
+
+    #[test]
+    fn sorted_yaml_worker_configs_default_and_native_first() {
+        let config = InstanceConfig {
+            global_settings: GlobalSettings::default(),
+            worker_configs: BTreeMap::from([
+                ("gpu".to_string(), WorkerGroupConfig {
+                    init_bash: Some("echo gpu".to_string()),
+                    ..Default::default()
+                }),
+                ("native".to_string(), WorkerGroupConfig {
+                    init_bash: Some("echo native".to_string()),
+                    ..Default::default()
+                }),
+                ("default".to_string(), WorkerGroupConfig {
+                    init_bash: Some("echo default".to_string()),
+                    ..Default::default()
+                }),
+                ("alpha".to_string(), WorkerGroupConfig {
+                    init_bash: Some("echo alpha".to_string()),
+                    ..Default::default()
+                }),
+            ]),
+        };
+
+        let yaml = config.to_sorted_yaml().unwrap();
+
+        let default_pos = yaml.find("default:").unwrap();
+        let native_pos = yaml.find("native:").unwrap();
+        let alpha_pos = yaml.find("alpha:").unwrap();
+        let gpu_pos = yaml.find("gpu:").unwrap();
+
+        assert!(
+            default_pos < native_pos
+                && native_pos < alpha_pos
+                && alpha_pos < gpu_pos,
+            "worker_configs should have default, native first, then rest alphabetically, got yaml:\n{yaml}"
+        );
+    }
+
+    #[test]
+    fn sorted_yaml_roundtrips() {
+        let config = InstanceConfig {
+            global_settings: GlobalSettings {
+                base_url: Some("https://rt.test".to_string()),
+                retention_period_secs: Some(7200),
+                expose_metrics: Some(false),
+                ..Default::default()
+            },
+            worker_configs: BTreeMap::from([
+                ("default".to_string(), WorkerGroupConfig {
+                    worker_tags: Some(vec!["deno".to_string()]),
+                    ..Default::default()
+                }),
+                ("native".to_string(), WorkerGroupConfig {
+                    init_bash: Some("echo hi".to_string()),
+                    ..Default::default()
+                }),
+            ]),
+        };
+
+        let yaml = config.to_sorted_yaml().unwrap();
+        let deserialized: InstanceConfig = serde_yml::from_str(&yaml).unwrap();
+
+        assert_eq!(deserialized.global_settings.base_url.as_deref(), Some("https://rt.test"));
+        assert_eq!(deserialized.global_settings.retention_period_secs, Some(7200));
+        assert_eq!(deserialized.global_settings.expose_metrics, Some(false));
+        assert_eq!(deserialized.worker_configs.len(), 2);
+        assert_eq!(
+            deserialized.worker_configs["default"].worker_tags.as_deref(),
+            Some(["deno".to_string()].as_slice())
+        );
+        assert_eq!(
+            deserialized.worker_configs["native"].init_bash.as_deref(),
+            Some("echo hi")
+        );
     }
 }
