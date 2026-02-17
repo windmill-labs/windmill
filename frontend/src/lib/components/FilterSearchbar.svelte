@@ -192,6 +192,7 @@
 	let open = $state(false)
 	let inputElement: HTMLDivElement | undefined = $state()
 	let highlightedIndex = $state(0)
+	let taggedTextInput: TaggedTextInput | undefined = $state()
 
 	let tags = $derived(
 		Object.entries(schema).map(([key, filterSchema]) => ({
@@ -330,14 +331,21 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
-	class="relative"
+	class="relative {className}"
+	onmousedown={(e) => {
+		if (!open) {
+			e.preventDefault()
+			taggedTextInput?.focusAtEnd()
+		}
+	}}
 	onclick={(e) => {
-		open = true
 		e.stopPropagation()
+		open = true
 	}}
 	bind:this={inputElement}
 >
 	<TaggedTextInput
+		bind:this={taggedTextInput}
 		bind:value={asText.val}
 		{tags}
 		onCurrentTagChange={(tag) => (currentTag = tag ? (tag.id as keyof SchemaT) : undefined)}
@@ -346,8 +354,7 @@
 			'bg-surface-input outline-none overflow-x-auto scrollbar-hidden text-nowrap',
 			inputBaseClass,
 			inputBorderClass(),
-			inputSizeClasses.md,
-			className
+			inputSizeClasses.md
 		)}
 		placeholder="Filter runs..."
 	/>

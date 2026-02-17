@@ -411,6 +411,13 @@
 		text = text.replace(/\\/g, '\\\\').replace(/ /g, '\\ ')
 		document.execCommand('insertText', false, text)
 	}
+
+	export function focusAtEnd() {
+		if (!contentEditableDiv) return
+		contentEditableDiv.focus()
+		restoreCursor(value.length)
+		updateCurrentTag(value.length)
+	}
 </script>
 
 <div
