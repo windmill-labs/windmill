@@ -6,6 +6,17 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Claude Code skills for wmill init',
+		href: 'https://www.windmill.dev/changelog/claude-skills-wmill-init',
+		date: '2026-02-05'
+	},
+	{
+		label: 'Anthropic AI improvements',
+		href: 'https://www.windmill.dev/changelog/anthropic-ai-improvements',
+		date: '2026-02-11'
+	},
+
+	{
 		label: 'AWS Bedrock support for Windmill AI',
 		href: 'https://www.windmill.dev/changelog/aws-bedrock',
 		date: '2025-11-19'
