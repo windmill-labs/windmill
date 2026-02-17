@@ -405,39 +405,50 @@
 						{@const resetTags = isNativeModeEnabled ? nativeTags : defaultTags.concat(nativeTags)}
 						{@const dropdownResetToAllTags = [
 							{
-								label: isNativeModeEnabled ? 'Reset to all tags' : 'Reset to all tags minus native ones',
+								label: isNativeModeEnabled
+									? 'Reset to all tags'
+									: 'Reset to all tags minus native ones',
 								onClick: () => {
 									if (nconfig != undefined) {
 										nconfig.worker_tags = isNativeModeEnabled
-											? (defaultTagPerWorkspace && workspaceTag
+											? defaultTagPerWorkspace && workspaceTag
 												? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
-												: defaultTags.concat(nativeTags))
-											: (defaultTagPerWorkspace && workspaceTag
+												: defaultTags.concat(nativeTags)
+											: defaultTagPerWorkspace && workspaceTag
 												? defaultTags.map((nt) => `${nt}-${workspaceTag}`)
-												: defaultTags)
+												: defaultTags
 									}
 								},
 								disabled: !canEditConfig,
 								tooltip: (defaultTagPerWorkspace
-									? (isNativeModeEnabled ? defaultTags.concat(nativeTags) : defaultTags).map((nt) => `${nt}-${workspaceTag}`)
-									: (isNativeModeEnabled ? defaultTags.concat(nativeTags) : defaultTags)
+									? (isNativeModeEnabled ? defaultTags.concat(nativeTags) : defaultTags).map(
+											(nt) => `${nt}-${workspaceTag}`
+										)
+									: isNativeModeEnabled
+										? defaultTags.concat(nativeTags)
+										: defaultTags
 								).join(', ')
 							},
-						...(!isNativeModeEnabled ? [{
-								label: 'Reset to native tags',
-								onClick: () => {
-									if (nconfig != undefined) {
-										nconfig.worker_tags = defaultTagPerWorkspace && workspaceTag
-											? nativeTags.map((nt) => `${nt}-${workspaceTag}`)
-											: nativeTags
-									}
-								},
-								disabled: !canEditConfig,
-								tooltip: (defaultTagPerWorkspace && workspaceTag
-									? nativeTags.map((nt) => `${nt}-${workspaceTag}`)
-									: nativeTags
-								).join(', ')
-							}] : []),
+							...(!isNativeModeEnabled
+								? [
+										{
+											label: 'Reset to native tags',
+											onClick: () => {
+												if (nconfig != undefined) {
+													nconfig.worker_tags =
+														defaultTagPerWorkspace && workspaceTag
+															? nativeTags.map((nt) => `${nt}-${workspaceTag}`)
+															: nativeTags
+												}
+											},
+											disabled: !canEditConfig,
+											tooltip: (defaultTagPerWorkspace && workspaceTag
+												? nativeTags.map((nt) => `${nt}-${workspaceTag}`)
+												: nativeTags
+											).join(', ')
+										}
+									]
+								: []),
 							{
 								label: 'Clear tags',
 								onClick: () => {
@@ -465,7 +476,8 @@
 								startIcon={{ icon: RotateCcw }}
 								disabled={!canEditConfig}
 							>
-								{isNativeModeEnabled ? 'Reset to native tags' : 'Reset to all tags'} <Tooltip>
+								{isNativeModeEnabled ? 'Reset to native tags' : 'Reset to all tags'}
+								<Tooltip>
 									{#snippet text()}
 										{(defaultTagPerWorkspace && workspaceTag
 											? resetTags.map((nt) => `${nt}-${workspaceTag}`)
@@ -538,9 +550,7 @@
 					<Toggle
 						size="sm"
 						options={{
-							right: isAutoNativeMode
-								? 'Native mode (automatically enabled)'
-								: 'Enable native mode'
+							right: isAutoNativeMode ? 'Native mode (automatically enabled)' : 'Enable native mode'
 						}}
 						checked={nconfig?.native_mode === true || isAutoNativeMode}
 						on:change={(ev) => {
@@ -551,13 +561,38 @@
 						disabled={!canEditConfig || isAutoNativeMode}
 					/>
 					{#if isNativeModeEnabled}
-						<p class="text-xs text-secondary mt-1">8 subworkers will automatically be used for optimal throughput.</p>
+						<p class="text-xs text-secondary mt-1"
+							>8 subworkers will automatically be used for optimal throughput.</p
+						>
 					{/if}
 					{#if isNativeModeEnabled && nonNativeTags.length > 0}
 						<Alert size="xs" type="warning" title="Non-native tags detected">
 							This worker group has native mode enabled but includes non-native tags: {nonNativeTags.join(
 								', '
-							)}. Non-native jobs will be failed. This is fine if those custom tags are only used for native language jobs.
+							)}. Non-native jobs will be failed. This is fine if those custom tags are only used
+							for native language jobs.
+						</Alert>
+					{/if}
+					{#if isNativeModeEnabled && nconfig?.worker_tags != undefined && !nconfig.worker_tags.includes(defaultTagPerWorkspace && workspaceTag ? `flow-${workspaceTag}` : 'flow')}
+						<Alert size="xs" type="info" title="Flow tag not included">
+							Adding the flow tag to native workers can improve efficiency, but may cause issues
+							with large inputs.
+							<div class="mt-2 w-fit">
+								<Button
+									variant="default"
+									on:click={() => {
+										if (nconfig?.worker_tags != undefined) {
+											const flowTag =
+												defaultTagPerWorkspace && workspaceTag ? `flow-${workspaceTag}` : 'flow'
+											nconfig.worker_tags = [...nconfig.worker_tags, flowTag]
+										}
+									}}
+									disabled={!canEditConfig}
+									startIcon={{ icon: Plus }}
+								>
+									Add flow tag
+								</Button>
+							</div>
 						</Alert>
 					{/if}
 				</Label>
