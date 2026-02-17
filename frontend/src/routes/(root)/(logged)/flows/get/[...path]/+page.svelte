@@ -497,34 +497,12 @@
 			tag={flow?.tag ?? ''}
 			summary={flow?.summary}
 			path={flow?.path}
-			onEdit={can_write
-				? async (newSummary, newPath) => {
-						if (!flow || !$workspaceStore) return
-						try {
-							await FlowService.updateFlow({
-								workspace: $workspaceStore,
-								path: flow.path,
-								requestBody: {
-									path: newPath,
-									summary: newSummary,
-									description: flow.description,
-									value: flow.value,
-									schema: flow.schema,
-									tag: flow.tag,
-									dedicated_worker: flow.dedicated_worker,
-									ws_error_handler_muted: flow.ws_error_handler_muted,
-									visible_to_runner_only: flow.visible_to_runner_only,
-									on_behalf_of_email: flow.on_behalf_of_email
-								}
-							})
-							sendUserToast('Flow updated')
-							if (newPath !== flow.path) {
-								await goto(`/flows/get/${newPath}?workspace=${$workspaceStore}`)
-							} else {
-								loadFlow()
-							}
-						} catch (e) {
-							sendUserToast('Could not update flow: ' + e.body, true)
+			onSaved={can_write
+				? async (newPath) => {
+						if (newPath !== flow?.path) {
+							await goto(`/flows/get/${newPath}?workspace=${$workspaceStore}`)
+						} else {
+							loadFlow()
 						}
 					}
 				: undefined}

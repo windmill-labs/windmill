@@ -4,8 +4,8 @@
 	import { Alert, Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Path from './Path.svelte'
-	import { AppService, FlowService, ScriptService } from '$lib/gen'
 	import { isOwner } from '$lib/utils'
+	import { updateItemPathAndSummary } from './moveRenameManager'
 
 	const dispatch = createEventDispatcher()
 
@@ -37,51 +37,13 @@
 	}
 
 	async function updatePath() {
-		if (kind == 'flow') {
-			const flow = await FlowService.getFlowByPath({
+		if (kind === 'flow' || kind === 'script' || kind === 'app') {
+			await updateItemPathAndSummary({
 				workspace: $workspaceStore!,
-				path: initialPath
-			})
-			await FlowService.updateFlow({
-				workspace: $workspaceStore!,
-				path: initialPath,
-				requestBody: {
-					path: path ?? '',
-					summary: summary ?? '',
-					description: flow.description,
-					value: flow.value,
-					schema: flow.schema,
-					tag: flow.tag,
-					dedicated_worker: flow.dedicated_worker,
-					ws_error_handler_muted: flow.ws_error_handler_muted,
-					visible_to_runner_only: flow.visible_to_runner_only,
-					on_behalf_of_email: flow.on_behalf_of_email
-				}
-			})
-		} else if (kind == 'script') {
-			const script = await ScriptService.getScriptByPath({
-				workspace: $workspaceStore!,
-				path: initialPath
-			})
-			script.summary = summary ?? ''
-			await ScriptService.createScript({
-				workspace: $workspaceStore!,
-				requestBody: {
-					...script,
-					description: script.description ?? '',
-					lock: script.lock,
-					parent_hash: script.hash,
-					path: path ?? ''
-				}
-			})
-		} else if (kind == 'app') {
-			await AppService.updateApp({
-				workspace: $workspaceStore!,
-				path: initialPath,
-				requestBody: {
-					path: path != initialPath ? path : undefined,
-					summary
-				}
+				kind,
+				initialPath,
+				newPath: path ?? '',
+				newSummary: summary ?? ''
 			})
 		}
 		dispatch('update', path)
