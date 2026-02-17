@@ -93,7 +93,9 @@
 				requestBody: { name: newFolderName }
 			})
 			folderCreated = newFolderName
-			$userStore?.folders?.push(newFolderName)
+			if ($userStore) {
+				$userStore.folders = [...($userStore.folders ?? []), newFolderName]
+			}
 			folderName = newFolderName
 			loadFolders()
 		} catch (e) {
