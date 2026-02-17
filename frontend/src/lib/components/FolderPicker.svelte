@@ -22,6 +22,7 @@
 	let newFolderName: string = $state('')
 	let folderCreated: string | undefined = $state(undefined)
 	let creating: boolean = $state(false)
+	let loadingFolders: boolean = $state(true)
 
 	type Props = {
 		folderName: string
@@ -42,30 +43,35 @@
 	}: Props = $props()
 
 	async function loadFolders(): Promise<void> {
-		let initialFolders: { name: string; write: boolean }[] = []
-		let initialFolder = ''
-		if (initialPath?.split('/')?.[0] == 'f') {
-			initialFolder = initialPath?.split('/')?.[1]
-			initialFolders.push({ name: initialFolder, write: true })
-		}
+		loadingFolders = true
+		try {
+			let initialFolders: { name: string; write: boolean }[] = []
+			let initialFolder = ''
+			if (initialPath?.split('/')?.[0] == 'f') {
+				initialFolder = initialPath?.split('/')?.[1]
+				initialFolders.push({ name: initialFolder, write: true })
+			}
 
-		const excludedFolders = [initialFolder, 'app_groups', 'app_custom', 'app_themes']
+			const excludedFolders = [initialFolder, 'app_groups', 'app_custom', 'app_themes']
 
-		folders = initialFolders.concat(
-			(
-				await FolderService.listFolderNames({
-					workspace: $workspaceStore!
-				})
+			folders = initialFolders.concat(
+				(
+					await FolderService.listFolderNames({
+						workspace: $workspaceStore!
+					})
+				)
+					.filter((x) => !excludedFolders.includes(x))
+					.map((x) => ({
+						name: x,
+						write:
+							$userStore?.folders?.includes(x) == true ||
+							($userStore?.is_admin ?? false) ||
+							($userStore?.is_super_admin ?? false)
+					}))
 			)
-				.filter((x) => !excludedFolders.includes(x))
-				.map((x) => ({
-					name: x,
-					write:
-						$userStore?.folders?.includes(x) == true ||
-						($userStore?.is_admin ?? false) ||
-						($userStore?.is_super_admin ?? false)
-				}))
-		)
+		} finally {
+			loadingFolders = false
+		}
 	}
 
 	async function openCreateFolder() {
@@ -185,6 +191,7 @@
 		bind:open={selectOpen}
 		items={selectItems}
 		disabled={disabled || disableEditing}
+		loading={loadingFolders}
 		{size}
 		placeholder="Select folder"
 	>
