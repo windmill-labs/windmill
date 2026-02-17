@@ -701,8 +701,6 @@ pub struct WorkerGroupConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub periodic_script_interval_seconds: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub cache_clear: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub additional_python_paths: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pip_local_dependencies: Option<Vec<String>>,
@@ -1576,7 +1574,7 @@ mod tests {
         assert_eq!(config.init_bash.as_deref(), Some("apt-get install -y curl"));
         assert_eq!(config.periodic_script_bash.as_deref(), Some("echo ping"));
         assert_eq!(config.periodic_script_interval_seconds, Some(300));
-        assert_eq!(config.cache_clear, Some(7));
+        assert_eq!(config.extra["cache_clear"], serde_json::json!(7));
         assert_eq!(config.additional_python_paths.as_ref().unwrap().len(), 1);
         assert_eq!(config.pip_local_dependencies.as_ref().unwrap().len(), 1);
         assert_eq!(config.env_vars_static.as_ref().unwrap()["FOO"], "bar");

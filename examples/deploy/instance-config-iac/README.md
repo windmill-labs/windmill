@@ -173,23 +173,17 @@ If you only want to manage a subset of settings, include all settings you want t
 
 ## Kubernetes (Operator)
 
-The Windmill Kubernetes operator watches `WindmillInstance` Custom Resources and continuously reconciles the database to match the declared state. It also supports `secretKeyRef` to pull values from Kubernetes Secrets natively.
+The Windmill Kubernetes operator watches a ConfigMap and continuously reconciles the database to match the declared state. It also supports `secretKeyRef` to pull values from Kubernetes Secrets natively.
 
 ### Prerequisites
 
 - Windmill built with the `operator` feature flag
 - RBAC permissions for the operator pod (see below)
-- The CRD installed in the cluster
+- A ConfigMap named `windmill-instance` (or a custom name via the `OPERATOR_CONFIGMAP` env var)
 
 ### Setup
 
-**1. Install the CRD**:
-
-```bash
-windmill operator crd | kubectl apply -f -
-```
-
-**2. Create a Kubernetes Secret for sensitive values**:
+**1. Create a Kubernetes Secret for sensitive values**:
 
 ```yaml
 apiVersion: v1
@@ -204,78 +198,91 @@ stringData:
   google-oauth-secret: "your-google-oauth-secret"
 ```
 
-**3. Create the WindmillInstance resource** (`windmill-instance.yaml`):
+**2. Create the ConfigMap** (`windmill-instance.yaml`):
 
 ```yaml
-apiVersion: windmill.dev/v1alpha1
-kind: WindmillInstance
+apiVersion: v1
+kind: ConfigMap
 metadata:
-  name: production
+  name: windmill-instance
   namespace: windmill
-spec:
-  global_settings:
-    base_url: "https://windmill.example.com"
-    license_key:
-      secretKeyRef:
-        name: windmill-secrets
-        key: license-key
-    retention_period_secs: 2592000
-    expose_metrics: true
-    smtp_settings:
-      smtp_host: "smtp.example.com"
-      smtp_port: 587
-      smtp_from: "windmill@example.com"
-      smtp_password:
+data:
+  spec: |
+    global_settings:
+      base_url: "https://windmill.example.com"
+      license_key:
         secretKeyRef:
           name: windmill-secrets
-          key: smtp-password
-    oauths:
-      google:
-        id: "google-client-id"
-        secret:
+          key: license-key
+      retention_period_secs: 2592000
+      expose_metrics: true
+      smtp_settings:
+        smtp_host: "smtp.example.com"
+        smtp_port: 587
+        smtp_from: "windmill@example.com"
+        smtp_password:
           secretKeyRef:
             name: windmill-secrets
-            key: google-oauth-secret
-        login_config:
-          auth_url: "https://accounts.google.com/o/oauth2/v2/auth"
-          token_url: "https://oauth2.googleapis.com/token"
-          userinfo_url: "https://openidconnect.googleapis.com/v1/userinfo"
-          scopes: ["openid", "profile", "email"]
-    custom_tags:
-      - gpu
-      - high-mem
+            key: smtp-password
+      oauths:
+        google:
+          id: "google-client-id"
+          secret:
+            secretKeyRef:
+              name: windmill-secrets
+              key: google-oauth-secret
+          login_config:
+            auth_url: "https://accounts.google.com/o/oauth2/v2/auth"
+            token_url: "https://oauth2.googleapis.com/token"
+            userinfo_url: "https://openidconnect.googleapis.com/v1/userinfo"
+            scopes: ["openid", "profile", "email"]
+      custom_tags:
+        - gpu
+        - high-mem
 
-  worker_configs:
-    default:
-      worker_tags: ["deno", "python3", "bun", "go", "bash", "powershell"]
-      init_bash: "echo 'Worker starting'"
-    native:
-      worker_tags: ["nativets"]
+    worker_configs:
+      default:
+        worker_tags: ["deno", "python3", "bun", "go", "bash", "powershell"]
+        init_bash: "echo 'Worker starting'"
+      native:
+        worker_tags: ["nativets"]
 ```
 
-**4. Apply**:
+The config lives under `data.spec` as a YAML string. This is the same schema used by `sync-config`.
+
+**3. Apply**:
 
 ```bash
 kubectl apply -f windmill-instance.yaml
 ```
 
-**5. Check status**:
+**4. Check sync status** via events:
 
 ```bash
-kubectl get wmi
-# NAME         SYNCED   LAST SYNCED              AGE
-# production   true     2025-01-15T10:30:00Z     2d
+kubectl get events --field-selector involvedObject.name=windmill-instance
 ```
+
+### License key handling
+
+If `license_key` is absent or empty in the ConfigMap but already exists in the database, the operator preserves the database value. This lets you manage the license key separately (e.g., via the UI) without the operator overwriting it.
+
+### Environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `OPERATOR_NAMESPACE` | Pod's own namespace | Namespace of the ConfigMap |
+| `OPERATOR_CONFIGMAP` | `windmill-instance` | Name of the ConfigMap to watch |
 
 ### Using `envRef` in Kubernetes
 
 `envRef` also works in the operator context. Values are resolved from the operator pod's environment. This is useful when secrets are injected via pod env vars (e.g., from a vault sidecar):
 
 ```yaml
-spec:
-  global_settings:
-    license_key:
-      envRef: "WM_LICENSE_KEY"   # Read from operator pod env
+data:
+  spec: |
+    global_settings:
+      license_key:
+        envRef: "WM_LICENSE_KEY"   # Read from operator pod env
 ```
 
 The operator pod's Deployment would include:
@@ -289,21 +296,22 @@ env:
         key: license-key
 ```
 
-This is functionally equivalent to using `secretKeyRef` directly in the CRD, but lets you use any secret injection mechanism your cluster supports (external-secrets, vault-agent, etc.).
+This is functionally equivalent to using `secretKeyRef` directly in the ConfigMap, but lets you use any secret injection mechanism your cluster supports (external-secrets, vault-agent, etc.).
 
 ### RBAC
 
-The operator pod needs permissions to read Secrets and manage the CRD. Minimal ClusterRole:
+The operator pod needs permissions to read ConfigMaps, Secrets, and create Events. Minimal Role:
 
 ```yaml
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
+kind: Role
 metadata:
   name: windmill-operator
+  namespace: windmill
 rules:
-  - apiGroups: ["windmill.dev"]
-    resources: ["windmillinstances", "windmillinstances/status"]
-    verbs: ["get", "list", "watch", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get", "list", "watch"]
@@ -311,6 +319,8 @@ rules:
     resources: ["events"]
     verbs: ["create", "patch"]
 ```
+
+Note: This is now a namespace-scoped **Role** (not ClusterRole), since there is no CRD to manage.
 
 ### Running the operator
 
@@ -334,15 +344,3 @@ DATABASE_URL=postgres://... windmill operator
 | Requires RBAC for Secrets | No | Yes |
 
 **Recommendation**: Use `envRef` for portability across deployment targets. Use `secretKeyRef` when you want direct Kubernetes-native secret binding without intermediate env vars.
-
----
-
-## Full Settings Reference
-
-For a complete list of available settings fields, generate the CRD schema:
-
-```bash
-windmill operator crd
-```
-
-The CRD's OpenAPI schema documents every field, its type, and whether it's optional. The same schema applies to `sync-config` YAML files.

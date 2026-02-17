@@ -16294,6 +16294,7 @@ dependencies = [
  "rsa",
  "serde",
  "serde_json",
+ "serde_yml",
  "sha2 0.10.9",
  "sqlx",
  "tokio",
@@ -16687,11 +16688,9 @@ name = "windmill-operator"
 version = "1.636.0"
 dependencies = [
  "anyhow",
- "chrono",
  "futures",
  "k8s-openapi",
  "kube",
- "schemars 0.8.22",
  "serde",
  "serde_json",
  "serde_yml",
