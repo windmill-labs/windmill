@@ -99,7 +99,7 @@ export async function generateFlowLockInternal(
   }
 
   if (Object.keys(filteredDeps).length > 0) {
-          log.info(
+    log.info(
       (await blueColor())(
         `Found workspace dependencies (${workspaceDependenciesLanguages
           .map((l) => l.filename)

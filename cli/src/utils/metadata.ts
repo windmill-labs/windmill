@@ -87,7 +87,7 @@ export function filterWorkspaceDependencies(
     const depInfo = workspaceDependenciesPathToLanguageAndFilename(depPath);
 
     if (depInfo && depInfo.language === language) {
-      if ((wda && wda.external.includes(depInfo.name ?? "default")) || wda == null && depInfo.name == undefined) {
+      if ((wda && wda.external.includes(depInfo.name ?? "default")) || (wda == null && depInfo.name == undefined)) {
         filtered[depPath] = depContent;
       }
     }
