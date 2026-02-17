@@ -40,7 +40,7 @@
 	type _NegativeFilterInstance<T extends { options: { value: string }[] }> = T extends {
 		allowNegative: true
 	}
-		? T['options'][number]['value'] | `-${T['options'][number]['value']}`
+		? T['options'][number]['value'] | `!${T['options'][number]['value']}`
 		: T['options'][number]['value']
 
 	/**
@@ -170,7 +170,7 @@
 <script lang="ts">
 	import { twMerge } from 'tailwind-merge'
 	import { inputBaseClass, inputBorderClass, inputSizeClasses } from './text_input/TextInput.svelte'
-	import { SearchIcon } from 'lucide-svelte'
+	import { MinusIcon, SearchIcon } from 'lucide-svelte'
 	import { assignObjInPlace, formatDatePretty, parsePrettyDate, type IconType } from '$lib/utils'
 	import GenericDropdown from './select/GenericDropdown.svelte'
 	import DateTimeInput from './DateTimeInput.svelte'
@@ -178,6 +178,8 @@
 	import { useTransformedSyncedValue } from '$lib/svelte5Utils.svelte'
 	import { untrack } from 'svelte'
 	import CloseButton from './common/CloseButton.svelte'
+	import Popover from './meltComponents/Popover.svelte'
+	import Button from './common/button/Button.svelte'
 
 	type Props<SchemaT extends FilterSchemaRec> = {
 		schema: SchemaT
@@ -235,7 +237,10 @@
 					.map((option) => ({
 						type: 'option' as const,
 						option,
-						onClick: () => setValueForCurrentTag(option.value)
+						onClick: () => setValueForCurrentTag(option.value),
+						onNegativeClick: filter.allowNegative
+							? () => setValueForCurrentTag('!' + option.value)
+							: undefined
 					}))
 			} else if (filter.type === 'boolean') {
 				return [
@@ -409,7 +414,8 @@
 					{@render menuItem({
 						onClick: item.onClick,
 						label: item.option.label || item.option.value,
-						highlighted: index === highlightedIndex
+						highlighted: index === highlightedIndex,
+						onNegativeClick: item.onNegativeClick
 					})}
 				{/if}
 			{/each}
@@ -436,13 +442,15 @@
 	onClick,
 	label,
 	description,
-	highlighted = false
+	highlighted = false,
+	onNegativeClick
 }: {
 	Icon?: IconType
 	onClick: () => void
 	label: string
 	description?: string
 	highlighted?: boolean
+	onNegativeClick?: () => void
 })}
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -456,11 +464,29 @@
 		{#if Icon}
 			<Icon size={16} class="mr-3 inline" />
 		{/if}
-		<div class="inline">
+		<div class="inline flex-1">
 			<span class="text-sm">{label}</span>
 			{#if description}
 				<div class="text-xs text-hint">{description}</div>
 			{/if}
 		</div>
+		{#if onNegativeClick}
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<Popover openOnHover portal={null}>
+				{#snippet trigger()}
+					<Button
+						onClick={(e) => (e?.stopPropagation(), onNegativeClick?.())}
+						iconOnly
+						endIcon={{ icon: MinusIcon }}
+						unifiedSize="xs"
+						destructive
+					/>
+				{/snippet}
+				{#snippet content()}
+					<div class="text-xs">Exclude {label}</div>
+				{/snippet}
+			</Popover>
+		{/if}
 	</div>
 {/snippet}
