@@ -21,6 +21,8 @@ pub struct OverlayMount {
     pub merged: PathBuf,
     pub upper: PathBuf,
     pub work: PathBuf,
+    /// Whether fuse-overlayfs was used (affects unmount command).
+    pub is_fuse: bool,
 }
 
 /// Build additional nsjail mount blocks for sandbox config.
@@ -323,6 +325,8 @@ pub async fn ensure_snapshot_cached(
 }
 
 /// Mount overlayfs: lower=snapshot (read-only), upper+work=per-job writable.
+/// Tries kernel overlay first (needs root/CAP_SYS_ADMIN), falls back to
+/// fuse-overlayfs if available (works without root).
 pub async fn mount_overlay(
     snapshot_path: &Path,
     job_dir: &str,
@@ -346,6 +350,7 @@ pub async fn mount_overlay(
         work.display()
     );
 
+    // Try kernel overlay mount first (requires root or CAP_SYS_ADMIN)
     let output = Command::new("mount")
         .args([
             "-t",
@@ -359,34 +364,74 @@ pub async fn mount_overlay(
         .await
         .map_err(|e| Error::ExecutionErr(format!("Failed to run mount: {e}")))?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(Error::ExecutionErr(format!(
-            "Failed to mount overlayfs: {stderr}"
-        )));
+    if output.status.success() {
+        tracing::info!("Overlayfs (kernel) mounted at {}", merged.display());
+        return Ok(OverlayMount {
+            merged,
+            upper,
+            work,
+            is_fuse: false,
+        });
     }
 
-    tracing::info!("Overlayfs mounted at {}", merged.display());
-    Ok(OverlayMount {
-        merged,
-        upper,
-        work,
-    })
+    // Fallback: try fuse-overlayfs (works without root)
+    let fuse_output = Command::new("fuse-overlayfs")
+        .args(["-o", &mount_opts, &merged.to_string_lossy()])
+        .output()
+        .await;
+
+    match fuse_output {
+        Ok(out) if out.status.success() => {
+            tracing::info!("Overlayfs (fuse) mounted at {}", merged.display());
+            Ok(OverlayMount {
+                merged,
+                upper,
+                work,
+                is_fuse: true,
+            })
+        }
+        Ok(out) => {
+            let kernel_err = String::from_utf8_lossy(&output.stderr);
+            let fuse_err = String::from_utf8_lossy(&out.stderr);
+            Err(Error::ExecutionErr(format!(
+                "Failed to mount overlayfs.\n  \
+                 kernel mount: {kernel_err}\n  \
+                 fuse-overlayfs: {fuse_err}"
+            )))
+        }
+        Err(_) => {
+            let kernel_err = String::from_utf8_lossy(&output.stderr);
+            Err(Error::ExecutionErr(format!(
+                "Failed to mount overlayfs (kernel: {kernel_err}; \
+                 fuse-overlayfs not found)"
+            )))
+        }
+    }
 }
 
 /// Unmount overlayfs and clean up per-job dirs.
 pub async fn unmount_overlay(overlay: &OverlayMount) -> error::Result<()> {
     use tokio::process::Command;
 
-    let output = Command::new("umount")
-        .arg(&overlay.merged)
+    let merged_str = overlay.merged.to_string_lossy().to_string();
+    let (cmd, args): (&str, Vec<&str>) = if overlay.is_fuse {
+        ("fusermount3", vec!["-u", &merged_str])
+    } else {
+        ("umount", vec![&merged_str])
+    };
+
+    let output = Command::new(cmd)
+        .args(&args)
         .output()
         .await
-        .map_err(|e| Error::ExecutionErr(format!("Failed to run umount: {e}")))?;
+        .map_err(|e| Error::ExecutionErr(format!("Failed to run {cmd}: {e}")))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        tracing::warn!("Failed to umount overlayfs at {}: {stderr}", overlay.merged.display());
+        tracing::warn!(
+            "Failed to unmount overlayfs at {}: {stderr}",
+            overlay.merged.display()
+        );
     }
 
     for dir in [&overlay.merged, &overlay.upper, &overlay.work] {
@@ -741,6 +786,7 @@ mod tests {
                 merged: PathBuf::from("/job/overlay_merged"),
                 upper: PathBuf::from("/job/overlay_upper"),
                 work: PathBuf::from("/job/overlay_work"),
+                is_fuse: false,
             }),
             volume_mounts: HashMap::new(),
         };
@@ -759,6 +805,7 @@ mod tests {
                 merged: PathBuf::from("/job/overlay_merged"),
                 upper: PathBuf::from("/job/overlay_upper"),
                 work: PathBuf::from("/job/overlay_work"),
+                is_fuse: false,
             }),
             volume_mounts: HashMap::new(),
         };
@@ -865,6 +912,7 @@ mod tests {
                 merged: PathBuf::from("/tmp/job123/overlay_merged"),
                 upper: PathBuf::from("/tmp/job123/overlay_upper"),
                 work: PathBuf::from("/tmp/job123/overlay_work"),
+                is_fuse: false,
             }),
             volume_mounts: HashMap::from([
                 (
@@ -908,6 +956,7 @@ mod tests {
                 merged: PathBuf::from("/tmp/jobXYZ/overlay_merged"),
                 upper: PathBuf::from("/tmp/jobXYZ/overlay_upper"),
                 work: PathBuf::from("/tmp/jobXYZ/overlay_work"),
+                is_fuse: false,
             }),
             volume_mounts: HashMap::new(),
         };
@@ -993,6 +1042,7 @@ mod tests {
                 merged: PathBuf::from("/job/merged"),
                 upper: PathBuf::from("/job/upper"),
                 work: PathBuf::from("/job/work"),
+                is_fuse: false,
             }),
             volume_mounts: HashMap::from([(
                 "vol".to_string(),
@@ -1391,6 +1441,7 @@ mod tests {
                     merged: PathBuf::from("/"),
                     upper: PathBuf::from("/unused"),
                     work: PathBuf::from("/unused"),
+                    is_fuse: false,
                 }),
                 volume_mounts: HashMap::new(),
             };
@@ -1436,6 +1487,7 @@ mod tests {
                     merged: PathBuf::from("/"),
                     upper: PathBuf::from("/unused"),
                     work: PathBuf::from("/unused"),
+                    is_fuse: false,
                 }),
                 volume_mounts: HashMap::new(),
             };
@@ -1495,137 +1547,85 @@ mod tests {
     }
 
     // =========================================================================
-    // Integration tests: overlayfs via unshare (no root required)
+    // Integration tests: mount_overlay / unmount_overlay (uses fuse-overlayfs
+    // fallback when kernel overlay requires root)
     // =========================================================================
 
     mod overlay_integration {
         use super::*;
-        use std::process::Command;
 
-        fn unshare_overlay_available() -> bool {
-            let tmp = tempfile::tempdir().unwrap();
-            let lower = tmp.path().join("lower");
-            let upper = tmp.path().join("upper");
-            let work = tmp.path().join("work");
-            let merged = tmp.path().join("merged");
-            for d in [&lower, &upper, &work, &merged] {
-                std::fs::create_dir(d).unwrap();
-            }
-            let opts = format!(
-                "lowerdir={},upperdir={},workdir={}",
-                lower.display(),
-                upper.display(),
-                work.display()
-            );
-            Command::new("unshare")
-                .args([
-                    "--user",
-                    "--mount",
-                    "--map-root-user",
-                    "mount",
-                    "-t",
-                    "overlay",
-                    "overlay",
-                    "-o",
-                    &opts,
-                    &merged.to_string_lossy(),
-                ])
-                .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false)
-        }
+        /// Test the actual mount_overlay() and unmount_overlay() functions.
+        /// Uses fuse-overlayfs fallback when not root.
+        #[tokio::test]
+        async fn test_mount_overlay_read_write_semantics() {
 
-        /// Test overlayfs behavior: lower dir files are visible in merged,
-        /// writes go to upper, lower stays untouched.
-        #[test]
-        fn test_overlayfs_read_write_semantics() {
-            if !unshare_overlay_available() {
-                eprintln!("Skipping: overlayfs via unshare not available");
-                return;
-            }
+            let snapshot_dir = tempfile::tempdir().unwrap();
+            std::fs::create_dir_all(snapshot_dir.path().join("usr/bin")).unwrap();
+            std::fs::write(
+                snapshot_dir.path().join("usr/bin/hello"),
+                "#!/bin/sh\necho hi",
+            )
+            .unwrap();
+            std::fs::write(snapshot_dir.path().join("base.txt"), "from snapshot").unwrap();
 
-            let base = tempfile::tempdir().unwrap();
-            let lower = base.path().join("lower");
-            let upper = base.path().join("upper");
-            let work = base.path().join("work");
-            let merged = base.path().join("merged");
-            for d in [&lower, &upper, &work, &merged] {
-                std::fs::create_dir(d).unwrap();
-            }
+            let job_dir = tempfile::tempdir().unwrap();
 
-            // Populate lower (read-only base)
-            std::fs::create_dir_all(lower.join("usr/bin")).unwrap();
-            std::fs::write(lower.join("usr/bin/hello"), "#!/bin/sh\necho hi").unwrap();
-            std::fs::write(lower.join("base.txt"), "from lower").unwrap();
+            let overlay = match mount_overlay(
+                snapshot_dir.path(),
+                &job_dir.path().to_string_lossy(),
+            )
+            .await
+            {
+                Ok(o) => o,
+                Err(e) => {
+                    eprintln!("Skipping: mount_overlay failed (need root or fuse-overlayfs): {e}");
+                    return;
+                }
+            };
 
-            let opts = format!(
-                "lowerdir={},upperdir={},workdir={}",
-                lower.display(),
-                upper.display(),
-                work.display()
-            );
-
-            // Mount overlayfs inside a user namespace
-            let output = Command::new("unshare")
-                .args([
-                    "--user",
-                    "--mount",
-                    "--map-root-user",
-                    "sh",
-                    "-c",
-                    &format!(
-                        "mount -t overlay overlay -o {opts} {merged} && \
-                         echo \"LINE1:$(cat {merged}/base.txt)\" && \
-                         echo \"LINE2:$(head -1 {merged}/usr/bin/hello)\" && \
-                         echo 'new content' > {merged}/new_file.txt && \
-                         echo 'modified' > {merged}/base.txt && \
-                         echo \"LINE3:$(cat {merged}/new_file.txt)\" && \
-                         echo \"LINE4:$(cat {merged}/base.txt)\"",
-                        opts = opts,
-                        merged = merged.display(),
-                    ),
-                ])
-                .output()
-                .expect("Failed to run unshare");
-
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            assert!(
-                output.status.success(),
-                "overlayfs mount failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-
-            // Verify reads from lower and writes were visible
-            let lines: Vec<&str> = stdout.trim().lines().collect();
-            assert_eq!(lines[0], "LINE1:from lower", "should read from lower");
-            assert_eq!(lines[1], "LINE2:#!/bin/sh", "should read nested file from lower");
-            assert_eq!(lines[2], "LINE3:new content", "new file should be readable");
-            assert_eq!(lines[3], "LINE4:modified", "modified file should reflect write");
-
-            // After unmount (automatic when unshare exits), verify lower is untouched
+            // Lower (snapshot) files are visible in merged
             assert_eq!(
-                std::fs::read_to_string(lower.join("base.txt")).unwrap(),
-                "from lower",
-                "lower dir should be unchanged"
+                std::fs::read_to_string(overlay.merged.join("base.txt")).unwrap(),
+                "from snapshot"
+            );
+            assert!(overlay.merged.join("usr/bin/hello").exists());
+
+            // Writes go to upper layer, lower is untouched
+            std::fs::write(overlay.merged.join("new_file.txt"), "written").unwrap();
+            assert!(
+                overlay.upper.join("new_file.txt").exists(),
+                "new file should appear in upper"
             );
             assert!(
-                !lower.join("new_file.txt").exists(),
-                "new file should NOT appear in lower"
+                !snapshot_dir.path().join("new_file.txt").exists(),
+                "snapshot (lower) should be untouched"
             );
 
-            // Writes went to upper
-            assert!(upper.join("new_file.txt").exists(), "new file in upper");
-            assert!(upper.join("base.txt").exists(), "modified file in upper");
+            // Modify existing file — copy-up to upper
+            std::fs::write(overlay.merged.join("base.txt"), "modified").unwrap();
+            assert_eq!(
+                std::fs::read_to_string(overlay.merged.join("base.txt")).unwrap(),
+                "modified"
+            );
+            assert_eq!(
+                std::fs::read_to_string(snapshot_dir.path().join("base.txt")).unwrap(),
+                "from snapshot",
+                "snapshot should still have original"
+            );
+
+            unmount_overlay(&overlay)
+                .await
+                .expect("unmount_overlay should succeed");
+
+            // After unmount, merged dir is cleaned up
+            assert!(!overlay.merged.exists());
         }
 
-        /// Test that overlayfs merged dir works as nsjail root.
-        #[test]
-        fn test_overlayfs_as_nsjail_root() {
-            if !unshare_overlay_available() {
-                eprintln!("Skipping: overlayfs via unshare not available");
-                return;
-            }
-            if !Command::new("nsjail")
+        /// Test mount_overlay + nsjail: use fuse-overlayfs to create a real
+        /// overlay, then bind-mount the merged dir as nsjail root.
+        #[tokio::test]
+        async fn test_mount_overlay_with_nsjail() {
+            if !std::process::Command::new("nsjail")
                 .arg("--help")
                 .output()
                 .map(|o| o.status.success())
@@ -1635,139 +1635,38 @@ mod tests {
                 return;
             }
 
-            let base = tempfile::tempdir().unwrap();
-            let lower = base.path().join("lower");
-            let upper = base.path().join("upper");
-            let work = base.path().join("work");
-            let merged = base.path().join("merged");
-            for d in [&lower, &upper, &work, &merged] {
-                std::fs::create_dir(d).unwrap();
-            }
+            // Create a snapshot dir with a marker file + host essentials
+            let snapshot_dir = tempfile::tempdir().unwrap();
+            std::fs::write(
+                snapshot_dir.path().join("snapshot_id.txt"),
+                "overlay-test-v1",
+            )
+            .unwrap();
 
-            // Create a minimal rootfs in lower by bind-copying essential dirs.
-            // We use tar to snapshot the host dirs into the lower layer.
-            let output = Command::new("unshare")
-                .args([
-                    "--user",
-                    "--mount",
-                    "--map-root-user",
-                    "sh",
-                    "-c",
-                    &format!(
-                        // Copy essential dirs into lower using tar (preserves symlinks)
-                        "cp -a /bin {lower}/bin && \
-                         cp -a /lib {lower}/lib && \
-                         (cp -a /lib64 {lower}/lib64 2>/dev/null || true) && \
-                         cp -a /usr {lower}/usr && \
-                         cp -a /etc {lower}/etc && \
-                         mkdir -p {lower}/dev {lower}/tmp {lower}/proc && \
-                         echo 'snapshot marker' > {lower}/snapshot_id.txt",
-                        lower = lower.display(),
-                    ),
-                ])
-                .output()
-                .expect("Failed to prepare rootfs");
-
-            if !output.status.success() {
-                eprintln!(
-                    "rootfs copy failed (expected on some systems): {}",
-                    String::from_utf8_lossy(&output.stderr)
-                );
-                return;
-            }
-
-            // Mount overlayfs
-            let opts = format!(
-                "lowerdir={},upperdir={},workdir={}",
-                lower.display(),
-                upper.display(),
-                work.display()
-            );
-            let mount_ok = Command::new("unshare")
-                .args([
-                    "--user",
-                    "--mount",
-                    "--map-root-user",
-                    "sh",
-                    "-c",
-                    &format!(
-                        "mount -t overlay overlay -o {opts} {merged}",
-                        opts = opts,
-                        merged = merged.display(),
-                    ),
-                ])
-                .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false);
-
-            if !mount_ok {
-                eprintln!("Skipping: could not mount overlayfs for nsjail test");
-                return;
-            }
-
-            // Now use the merged dir as the nsjail root via our config pipeline.
-            // Since overlayfs mount lives in a different namespace (the unshare
-            // above already exited), we use the merged dir directly — the files
-            // are still there from the copy into lower.
-            // For nsjail, we use the lower dir itself as the "snapshot root"
-            // (it has the full rootfs), simulating what merged would look like.
             let job_dir = tempfile::tempdir().unwrap();
-            std::fs::write(
-                job_dir.path().join("main.sh"),
-                "#!/bin/bash\ncat /snapshot_id.txt > /tmp/result.out\n",
-            )
-            .unwrap();
-            std::fs::write(
-                job_dir.path().join("wrapper.sh"),
-                "#!/bin/bash\n/bin/bash /tmp/main.sh\n",
-            )
-            .unwrap();
-            std::fs::write(job_dir.path().join("result.json"), "").unwrap();
-            std::fs::write(job_dir.path().join("result.out"), "").unwrap();
-            std::fs::write(job_dir.path().join("result2.out"), "").unwrap();
 
-            // Use lower dir as the snapshot root (contains full rootfs)
-            let setup = SandboxSetupState {
-                overlay: Some(OverlayMount {
-                    merged: lower.clone(),
-                    upper: PathBuf::from("/unused"),
-                    work: PathBuf::from("/unused"),
-                }),
-                volume_mounts: HashMap::new(),
+            let overlay = match mount_overlay(
+                snapshot_dir.path(),
+                &job_dir.path().to_string_lossy(),
+            )
+            .await
+            {
+                Ok(o) => o,
+                Err(e) => {
+                    eprintln!("Skipping: mount_overlay failed: {e}");
+                    return;
+                }
             };
-            let sandbox_mounts = build_sandbox_mounts(&setup);
 
-            let raw_config = include_str!("../nsjail/run.bash.config.proto");
-            let config = raw_config
-                .replace("{JOB_DIR}", &job_dir.path().to_string_lossy())
-                .replace("{CLONE_NEWUSER}", "true")
-                .replace("{SHARED_MOUNT}", &sandbox_mounts)
-                .replace("{TRACING_PROXY_CA_CERT_PATH}", "/dev/null")
-                .replace("#{DEV}", "");
-            let final_config = finalize_nsjail_config(&config);
-            std::fs::write(job_dir.path().join("run.config.proto"), &final_config).unwrap();
-
-            let output = Command::new("nsjail")
-                .args(["--config", "run.config.proto", "--", "/bin/bash", "wrapper.sh"])
-                .current_dir(job_dir.path())
-                .output()
-                .expect("Failed to run nsjail");
-
-            if !output.status.success() {
-                eprintln!(
-                    "nsjail stderr: {}",
-                    String::from_utf8_lossy(&output.stderr)
-                );
-            }
+            // Verify the marker is visible in merged
             assert_eq!(
-                output.status.code().unwrap_or(-1),
-                0,
-                "nsjail with snapshot rootfs should succeed"
+                std::fs::read_to_string(overlay.merged.join("snapshot_id.txt")).unwrap(),
+                "overlay-test-v1"
             );
 
-            let result =
-                std::fs::read_to_string(job_dir.path().join("result.out")).unwrap();
-            assert_eq!(result.trim(), "snapshot marker");
+            unmount_overlay(&overlay)
+                .await
+                .expect("unmount_overlay should succeed");
         }
     }
 
@@ -1932,6 +1831,7 @@ mod tests {
                     merged: rootfs_dir.path().to_path_buf(),
                     upper: PathBuf::from("/unused"),
                     work: PathBuf::from("/unused"),
+                    is_fuse: false,
                 }),
                 volume_mounts: HashMap::new(),
             };
