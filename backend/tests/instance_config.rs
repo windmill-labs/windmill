@@ -280,6 +280,7 @@ async fn test_apply_settings_diff_upserts_only(db: Pool<Postgres>) {
             m
         },
         deletes: vec![],
+        ..Default::default()
     };
 
     apply_settings_diff(&db, &diff).await.unwrap();
@@ -303,6 +304,7 @@ async fn test_apply_settings_diff_deletes_only(db: Pool<Postgres>) {
     let diff = SettingsDiff {
         upserts: BTreeMap::new(),
         deletes: vec!["to_delete_1".to_string(), "to_delete_2".to_string()],
+        ..Default::default()
     };
 
     apply_settings_diff(&db, &diff).await.unwrap();
@@ -323,6 +325,7 @@ async fn test_apply_settings_diff_upserts_and_deletes(db: Pool<Postgres>) {
             m
         },
         deletes: vec!["old_key".to_string()],
+        ..Default::default()
     };
 
     apply_settings_diff(&db, &diff).await.unwrap();
@@ -358,6 +361,7 @@ async fn test_apply_settings_diff_upsert_overwrites(db: Pool<Postgres>) {
             m
         },
         deletes: vec![],
+        ..Default::default()
     };
 
     apply_settings_diff(&db, &diff).await.unwrap();
@@ -385,6 +389,7 @@ async fn test_apply_settings_diff_complex_json(db: Pool<Postgres>) {
             m
         },
         deletes: vec![],
+        ..Default::default()
     };
 
     apply_settings_diff(&db, &diff).await.unwrap();
@@ -396,7 +401,11 @@ async fn test_apply_settings_diff_complex_json(db: Pool<Postgres>) {
 #[sqlx::test(fixtures("base"))]
 async fn test_apply_settings_diff_delete_nonexistent_is_noop(db: Pool<Postgres>) {
     let diff =
-        SettingsDiff { upserts: BTreeMap::new(), deletes: vec!["does_not_exist".to_string()] };
+        SettingsDiff {
+            upserts: BTreeMap::new(),
+            deletes: vec!["does_not_exist".to_string()],
+            ..Default::default()
+        };
 
     // Should not error
     apply_settings_diff(&db, &diff).await.unwrap();
@@ -648,7 +657,11 @@ async fn test_roundtrip_to_settings_map_from_db_consistency(db: Pool<Postgres>) 
     };
 
     let map = original.to_settings_map();
-    let diff = SettingsDiff { upserts: map.into_iter().collect(), deletes: vec![] };
+    let diff = SettingsDiff {
+        upserts: map.into_iter().collect(),
+        deletes: vec![],
+        ..Default::default()
+    };
 
     apply_settings_diff(&db, &diff).await.unwrap();
 
@@ -694,6 +707,7 @@ async fn test_idempotent_apply(db: Pool<Postgres>) {
             m
         },
         deletes: vec![],
+        ..Default::default()
     };
 
     // Apply twice
