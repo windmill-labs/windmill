@@ -286,24 +286,21 @@ pub async fn set_global_setting_internal(
 
     run_setting_pre_write_hook(db, &key, &value).await?;
 
-    if key == "jwt_secret" {
-        match &value {
-            serde_json::Value::Null | serde_json::Value::String(_)
-                if value.as_str().map_or(true, |s| s.is_empty()) =>
-            {
-                return Err(error::Error::BadRequest(
-                    "jwt_secret cannot be set to empty or null".to_string(),
-                ));
-            }
-            _ => {}
-        }
-    }
-
     match value {
         serde_json::Value::Null => {
+            if instance_config::PROTECTED_SETTINGS.contains(&key.as_str()) {
+                return Err(error::Error::BadRequest(
+                    format!("{key} is a protected setting and cannot be deleted"),
+                ));
+            }
             delete_global_setting(db, &key).await?;
         }
         serde_json::Value::String(x) if x.is_empty() => {
+            if instance_config::PROTECTED_SETTINGS.contains(&key.as_str()) {
+                return Err(error::Error::BadRequest(
+                    format!("{key} is a protected setting and cannot be set to empty"),
+                ));
+            }
             delete_global_setting(db, &key).await?;
         }
         v => {

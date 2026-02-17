@@ -766,14 +766,16 @@ pub const PROTECTED_SETTINGS: &[&str] = &[
 /// Note: jwt_secret is intentionally NOT hidden — it is included in YAML exports so that
 /// operators can set it via ConfigMap. It is protected from deletion (PROTECTED_SETTINGS)
 /// and from being set to empty/null, and its value is partially redacted in log output.
-pub const HIDDEN_SETTINGS: &[&str] = &["uid", "rsa_keys", "min_keep_alive_version"];
+pub const HIDDEN_SETTINGS: &[&str] = &["uid", "min_keep_alive_version", "automate_username_creation"];
 
 /// Top-level settings whose entire value is sensitive and must be fully redacted in logs.
 const SENSITIVE_SETTINGS: &[&str] = &[
     "jwt_secret",
+    "rsa_keys",
     "scim_token",
     "hub_api_secret",
     "license_key",
+    "ducklake_user_pg_pwd",
     "pip_index_url",
     "pip_extra_index_url",
     "npm_config_registry",
@@ -930,9 +932,12 @@ pub fn diff_global_settings(
     let mut previous_values = BTreeMap::new();
     let mut unchanged_count: usize = 0;
     for (key, desired_value) in desired {
-        if key == "jwt_secret" && is_empty_or_null(desired_value) {
+        if PROTECTED_SETTINGS.contains(&key.as_str())
+            && is_empty_or_null(desired_value)
+            && current.contains_key(key)
+        {
             tracing::warn!(
-                "Skipping jwt_secret update: value must not be empty or null"
+                "Skipping {key} update: protected setting cannot be overwritten with empty/null value"
             );
             continue;
         }
