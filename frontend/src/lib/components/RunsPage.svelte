@@ -44,7 +44,6 @@
 	} from './runs/TimeframeSelect.svelte'
 	import FilterSearchbar, { useUrlSyncedFilterInstance } from './FilterSearchbar.svelte'
 	import { jobTriggerKinds } from './triggers/utils'
-	import RunOption from './runs/RunOption.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonMore from './common/toggleButton-v2/ToggleButtonMore.svelte'
@@ -541,7 +540,7 @@
 			<div class="hidden xl:flex gap-2 ml-2">
 				<ToggleButtonGroup
 					bind:selected={
-						() => filters.val.job_kinds,
+						() => filters.val.job_kinds ?? 'runs',
 						(v) => (v === 'runs' ? delete filters.val.job_kinds : (filters.val.job_kinds = v))
 					}
 				>

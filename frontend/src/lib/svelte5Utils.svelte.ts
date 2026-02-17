@@ -474,6 +474,7 @@ export function useTransformedSyncedValue<T, U>(
 	let skipUpdate = false
 	watch(source[0], (val) => {
 		if (skipUpdate) {
+			console.log('Skipping update to avoid loop')
 			skipUpdate = false
 			return
 		}
@@ -488,6 +489,9 @@ export function useTransformedSyncedValue<T, U>(
 			skipUpdate = true
 			st = newVal
 			source[1](inverseTransform(newVal))
+			setTimeout(() => {
+				skipUpdate = false
+			})
 		}
 	}
 }
