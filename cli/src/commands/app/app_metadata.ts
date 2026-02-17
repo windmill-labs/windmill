@@ -17,6 +17,8 @@ import {
   getRawWorkspaceDependencies,
   normalizeLockPath,
   filterWorkspaceDependencies,
+  filterWorkspaceDependenciesForScripts,
+  InlineScriptInfo,
 } from "../../utils/metadata.ts";
 import {
   ScriptLanguage,
@@ -270,37 +272,20 @@ async function filterWorkspaceDependenciesForApp(
   rawWorkspaceDependencies: Record<string, string>,
   folder: string
 ): Promise<Record<string, string>> {
-  const filtered: Record<string, string> = {};
+  // Collect all inline scripts
+  const scripts: InlineScriptInfo[] = [];
 
   await traverseAndProcessInlineScripts(appValue, async (inlineScript) => {
-    const language = inlineScript.language;
-    let content = inlineScript.content;
-
-    // Read actual content if it's an !inline reference
-    if (typeof content === "string" && content.startsWith("!inline ")) {
-      const filePath = folder + SEP + content.replace("!inline ", "");
-      try {
-        content = await Deno.readTextFile(filePath);
-      } catch {
-        return inlineScript;
-      }
+    if (inlineScript.content && inlineScript.language) {
+      scripts.push({
+        content: inlineScript.content,
+        language: inlineScript.language as ScriptLanguage,
+      });
     }
-
-    if (content && language) {
-      const scriptFiltered = filterWorkspaceDependencies(
-        rawWorkspaceDependencies,
-        content,
-        language as ScriptLanguage
-      );
-      for (const [depPath, depContent] of Object.entries(scriptFiltered)) {
-        filtered[depPath] = depContent;
-      }
-    }
-
-    return inlineScript; // Return unchanged
+    return inlineScript;
   });
 
-  return filtered;
+  return await filterWorkspaceDependenciesForScripts(scripts, rawWorkspaceDependencies, folder, SEP);
 }
 
 /**

@@ -16,7 +16,7 @@ import {
   LockfileGenerationError,
   getRawWorkspaceDependencies,
   normalizeLockPath,
-  filterWorkspaceDependencies,
+  filterWorkspaceDependenciesForScripts,
 } from "../../utils/metadata.ts";
 import { ScriptLanguage } from "../../utils/script_common.ts";
 import { extractInlineScripts as extractInlineScriptsForFlows } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
@@ -78,7 +78,7 @@ export async function generateFlowLockInternal(
   )) as FlowFile;
 
   // Filter workspace dependencies based on inline scripts' languages and annotations
-  const filteredDeps = filterWorkspaceDependenciesForFlow(flowValue.value as FlowValue, rawWorkspaceDependencies, folder);
+  const filteredDeps = await filterWorkspaceDependenciesForFlow(flowValue.value as FlowValue, rawWorkspaceDependencies, folder);
 
   let hashes = await generateFlowHash(
     filteredDeps,
@@ -174,41 +174,19 @@ export async function generateFlowLockInternal(
  * Filters raw workspace dependencies for a flow by extracting all inline scripts,
  * filtering deps for each based on language and annotations, then computing the union.
  */
-function filterWorkspaceDependenciesForFlow(
+async function filterWorkspaceDependenciesForFlow(
   flowValue: FlowValue,
   rawWorkspaceDependencies: Record<string, string>,
   folder: string
-): Record<string, string> {
+): Promise<Record<string, string>> {
   const inlineScripts = extractInlineScriptsForFlows(structuredClone(flowValue.modules), {}, SEP, undefined);
-  const filtered: Record<string, string> = {};
 
-  for (const script of inlineScripts) {
-    if (script.is_lock) continue;
+  // Filter out lock files and map to common interface
+  const scripts = inlineScripts
+    .filter(s => !s.is_lock)
+    .map(s => ({ content: s.content, language: s.language as ScriptLanguage }));
 
-    // Read actual content if it's an !inline reference
-    let content = script.content;
-    if (content.startsWith("!inline ")) {
-      const filePath = folder + SEP + content.replace("!inline ", "");
-      try {
-        content = Deno.readTextFileSync(filePath);
-      } catch {
-        continue; // Skip if file doesn't exist
-      }
-    }
-
-    const scriptFiltered = filterWorkspaceDependencies(
-      rawWorkspaceDependencies,
-      content,
-      script.language as ScriptLanguage
-    );
-
-    // Merge into union
-    for (const [path, depContent] of Object.entries(scriptFiltered)) {
-      filtered[path] = depContent;
-    }
-  }
-
-  return filtered;
+  return await filterWorkspaceDependenciesForScripts(scripts, rawWorkspaceDependencies, folder, SEP);
 }
 
 export async function updateFlow(

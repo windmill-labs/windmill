@@ -96,6 +96,50 @@ export function filterWorkspaceDependencies(
   return filtered;
 }
 
+export interface InlineScriptInfo {
+  content: string;
+  language: ScriptLanguage;
+}
+
+/**
+ * Filters workspace dependencies for multiple scripts, resolving !inline refs and computing union.
+ * Common helper used by flows and apps.
+ */
+export async function filterWorkspaceDependenciesForScripts(
+  scripts: InlineScriptInfo[],
+  rawWorkspaceDependencies: Record<string, string>,
+  folder: string,
+  sep: string
+): Promise<Record<string, string>> {
+  const filtered: Record<string, string> = {};
+
+  for (const script of scripts) {
+    let content = script.content;
+
+    // Resolve !inline reference to actual content
+    if (content.startsWith("!inline ")) {
+      const filePath = folder + sep + content.replace("!inline ", "");
+      try {
+        content = await Deno.readTextFile(filePath);
+      } catch {
+        continue;
+      }
+    }
+
+    const scriptFiltered = filterWorkspaceDependencies(
+      rawWorkspaceDependencies,
+      content,
+      script.language
+    );
+
+    for (const [depPath, depContent] of Object.entries(scriptFiltered)) {
+      filtered[depPath] = depContent;
+    }
+  }
+
+  return filtered;
+}
+
 // on windows, when using powershell, blue is not readable
 export async function blueColor(): Promise<(x: string) => void> {
   const isWin = await getIsWin();
