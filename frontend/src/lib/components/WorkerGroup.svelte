@@ -292,6 +292,7 @@
 	)
 	let nonNativeTags = $derived((nconfig?.worker_tags ?? []).filter((t) => !nativeTags.includes(t)))
 	let isAutoNativeMode = $derived(name === 'native')
+	let isNativeModeEnabled = $derived(nconfig?.native_mode === true || isAutoNativeMode)
 	$effect(() => {
 		;($superadmin || $devopsRole) && listWorkspaces()
 	})
@@ -399,25 +400,32 @@
 			<Label label="Tags to listen to">
 				{#snippet action()}
 					{#if nconfig?.worker_tags != undefined}
+						{@const resetTags = isNativeModeEnabled ? nativeTags : defaultTags.concat(nativeTags)}
 						{@const dropdownResetToAllTags = [
 							{
-								label: 'Reset to all tags minus native ones',
+								label: isNativeModeEnabled ? 'Reset to all tags' : 'Reset to all tags minus native ones',
 								onClick: () => {
 									if (nconfig != undefined) {
-										nconfig.worker_tags = defaultTags
+										nconfig.worker_tags = isNativeModeEnabled
+											? (defaultTagPerWorkspace && workspaceTag
+												? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
+												: defaultTags.concat(nativeTags))
+											: defaultTags
 									}
 								},
 								disabled: !canEditConfig,
 								tooltip: (defaultTagPerWorkspace
-									? defaultTags.map((nt) => `${nt}-${workspaceTag}`)
-									: defaultTags
+									? (isNativeModeEnabled ? defaultTags.concat(nativeTags) : defaultTags).map((nt) => `${nt}-${workspaceTag}`)
+									: (isNativeModeEnabled ? defaultTags.concat(nativeTags) : defaultTags)
 								).join(', ')
 							},
-							{
+						...(!isNativeModeEnabled ? [{
 								label: 'Reset to native tags',
 								onClick: () => {
 									if (nconfig != undefined) {
-										nconfig.worker_tags = nativeTags
+										nconfig.worker_tags = defaultTagPerWorkspace && workspaceTag
+											? nativeTags.map((nt) => `${nt}-${workspaceTag}`)
+											: nativeTags
 									}
 								},
 								disabled: !canEditConfig,
@@ -425,7 +433,7 @@
 									? nativeTags.map((nt) => `${nt}-${workspaceTag}`)
 									: nativeTags
 								).join(', ')
-							},
+							}] : []),
 							{
 								label: 'Clear tags',
 								onClick: () => {
@@ -444,8 +452,8 @@
 									if (nconfig != undefined) {
 										nconfig.worker_tags =
 											defaultTagPerWorkspace && workspaceTag
-												? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
-												: defaultTags.concat(nativeTags)
+												? resetTags.map((nt) => `${nt}-${workspaceTag}`)
+												: resetTags
 									}
 								}}
 								dropdownItems={dropdownResetToAllTags}
@@ -453,11 +461,11 @@
 								startIcon={{ icon: RotateCcw }}
 								disabled={!canEditConfig}
 							>
-								Reset to all tags <Tooltip>
+								{isNativeModeEnabled ? 'Reset to native tags' : 'Reset to all tags'} <Tooltip>
 									{#snippet text()}
 										{(defaultTagPerWorkspace && workspaceTag
-											? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
-											: defaultTags.concat(nativeTags)
+											? resetTags.map((nt) => `${nt}-${workspaceTag}`)
+											: resetTags
 										).join(', ')}
 									{/snippet}
 								</Tooltip>
@@ -513,6 +521,46 @@
 
 			{#if nconfig !== undefined}
 				<div class="mt-8"></div>
+				<Label label="Native mode">
+					{#snippet header()}
+						<Tooltip>
+							{#snippet text()}
+								When enabled, the worker will only accept native jobs (nativets, postgresql, mysql,
+								etc.) and automatically runs with 8 subworkers for optimal throughput. Non-native
+								jobs will be failed.
+							{/snippet}
+						</Tooltip>
+					{/snippet}
+					<Toggle
+						size="sm"
+						options={{
+							right: isAutoNativeMode
+								? 'Native mode (automatically enabled)'
+								: 'Enable native mode'
+						}}
+						checked={nconfig?.native_mode === true || isAutoNativeMode}
+						on:change={(ev) => {
+							if (nconfig !== undefined) {
+								nconfig.native_mode = ev.detail ? true : undefined
+							}
+						}}
+						disabled={!canEditConfig || isAutoNativeMode}
+					/>
+					{#if isNativeModeEnabled}
+						<p class="text-xs text-secondary mt-1">8 subworkers will automatically be used for optimal throughput.</p>
+					{/if}
+					{#if isNativeModeEnabled && nonNativeTags.length > 0}
+						<Alert size="xs" type="warning" title="Non-native tags detected">
+							This worker group has native mode enabled but includes non-native tags: {nonNativeTags.join(
+								', '
+							)}. Non-native jobs will be failed. This is fine if those custom tags are only used for native language jobs.
+						</Alert>
+					{/if}
+				</Label>
+			{/if}
+
+			{#if nconfig !== undefined}
+				<div class="mt-8"></div>
 				<Label
 					label="Alerts"
 					tooltip="Alert is sent to the configured critical error channels"
@@ -542,43 +590,6 @@
 								bind:value={nconfig.min_alive_workers_alert_threshold}
 							/>
 						</div>
-					{/if}
-				</Label>
-			{/if}
-
-			{#if nconfig !== undefined}
-				<div class="mt-8"></div>
-				<Label label="Native mode">
-					{#snippet header()}
-						<Tooltip>
-							{#snippet text()}
-								When enabled, the worker will only accept native jobs (nativets, postgresql, mysql,
-								etc.) and automatically runs with NUM_WORKERS=8 for optimal throughput. Non-native
-								jobs will be failed.
-							{/snippet}
-						</Tooltip>
-					{/snippet}
-					<Toggle
-						size="sm"
-						options={{
-							right: isAutoNativeMode
-								? 'Native mode (automatically enabled)'
-								: 'Enable native mode'
-						}}
-						checked={nconfig?.native_mode === true || isAutoNativeMode}
-						on:change={(ev) => {
-							if (nconfig !== undefined) {
-								nconfig.native_mode = ev.detail ? true : undefined
-							}
-						}}
-						disabled={!canEditConfig || isAutoNativeMode}
-					/>
-					{#if (nconfig.native_mode || isAutoNativeMode) && nonNativeTags.length > 0}
-						<Alert size="xs" type="warning" title="Non-native tags detected">
-							This worker group has native mode enabled but includes non-native tags: {nonNativeTags.join(
-								', '
-							)}. Non-native jobs will be failed. This is fine if those custom tags are only used for native language jobs.
-						</Alert>
 					{/if}
 				</Label>
 			{/if}
