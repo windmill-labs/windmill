@@ -492,16 +492,29 @@ export function useTransformedSyncedValue<T, U>(
 	}
 }
 
-export function useLocalStorageValue<T>(key: string, defaultValue: T): { val: T } {
+export function useLocalStorageValue<T>(
+	key: string,
+	defaultValue: T,
+	typ?: 'string' | 'number' | 'boolean'
+): { val: T } {
+	const serialize = (val: T) =>
+		typ === 'string' || typ === 'number' || typ === 'boolean' ? String(val) : JSON.stringify(val)
+	const deserialize = (val: string): T => {
+		if (typ === 'string') return val as any
+		if (typ === 'number') return Number(val) as any
+		if (typ === 'boolean') return (val === 'true') as any
+		return JSON.parse(val) as T
+	}
+
 	if (typeof window === 'undefined') return { val: defaultValue }
 	const savedValue = localStorage.getItem(key)
-	let s = $state(savedValue ? (JSON.parse(savedValue) as T) : defaultValue)
+	let s = $state(savedValue ? (deserialize(savedValue) as T) : defaultValue)
 	return {
 		get val() {
 			return s
 		},
 		set val(newVal: T) {
-			localStorage.setItem(key, JSON.stringify(newVal))
+			localStorage.setItem(key, serialize(newVal))
 			s = newVal
 		}
 	}

@@ -62,7 +62,7 @@
 			isSuperAdmin: !!$superadmin
 		})
 	)
-	let perPage = useLocalStorageValue('runs_per_page', 1000)
+	let perPage = useLocalStorageValue('runs_per_page', 1000, 'number')
 	let filters = useUrlSyncedFilterInstance(untrack(() => runsFilterSearchbarSchema))
 
 	let { initialPath }: Props = $props()
@@ -80,7 +80,7 @@
 	let jobKinds: string | undefined = $derived(computeJobKinds(filters.val.job_kinds ?? null))
 	let argError = $state('')
 	let resultError = $state('')
-	let autoRefresh: boolean = $state(getAutoRefresh())
+	let autoRefresh = useLocalStorageValue('auto_refresh_in_runs', true, 'boolean')
 	let runDrawer: Drawer | undefined = $state(undefined)
 	let lookback: number = $state(1)
 	let askingForConfirmation:
@@ -93,15 +93,6 @@
 				onConfirm?: (forceCancel: boolean) => void
 				type?: ConfirmationModal['$$prop_def']['type']
 		  } = $state(undefined)
-
-	function getAutoRefresh() {
-		try {
-			return localStorage.getItem('auto_refresh_in_runs') != 'false'
-		} catch (e) {
-			console.error('Error getting auto refresh', e)
-			return true
-		}
-	}
 
 	let _timeframe = useUrlSyncedTimeframe(runsTimeframes)
 	let timeframe = $derived(_timeframe.timeframe)
@@ -116,7 +107,7 @@
 		filters: filters.val,
 		timeframe,
 		jobKinds,
-		autoRefresh,
+		autoRefresh: autoRefresh.val,
 		argError,
 		resultError,
 		perPage: perPage.val,
@@ -251,14 +242,6 @@
 			allowWildcards: allowWildcards(filters.val) || undefined
 		}
 	}
-
-	$effect(() => {
-		localStorage.setItem(
-			'show_future_jobs_in_runs',
-			filters.val.show_future_jobs ? 'true' : 'false'
-		)
-	})
-
 	async function cancelJobs(uuidsToCancel: string[], forceCancel: boolean = false) {
 		const uuids = await JobService.cancelSelection({
 			workspace: $workspaceStore ?? '',
@@ -717,10 +700,7 @@
 								<div class="flex-1"></div>
 								<Toggle
 									size="xs"
-									bind:checked={autoRefresh}
-									on:change={() => {
-										localStorage.setItem('auto_refresh_in_runs', autoRefresh ? 'true' : 'false')
-									}}
+									bind:checked={autoRefresh.val}
 									options={{ right: 'Auto-refresh' }}
 									textClass="whitespace-nowrap"
 								/>
