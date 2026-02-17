@@ -982,7 +982,10 @@ pub fn diff_global_settings(
     let mut deletes = Vec::new();
     if matches!(mode, ApplyMode::Replace) {
         for key in current.keys() {
-            if !desired.contains_key(key) && !PROTECTED_SETTINGS.contains(&key.as_str()) {
+            if !desired.contains_key(key)
+                && !PROTECTED_SETTINGS.contains(&key.as_str())
+                && !HIDDEN_SETTINGS.contains(&key.as_str())
+            {
                 previous_values.insert(key.clone(), current[key].clone());
                 deletes.push(key.clone());
             }
