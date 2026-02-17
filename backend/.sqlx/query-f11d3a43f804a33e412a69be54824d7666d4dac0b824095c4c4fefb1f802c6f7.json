@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT email FROM password ORDER BY email",
+  "query": "SELECT email FROM password ORDER BY email LIMIT 1000",
   "describe": {
     "columns": [
       {
@@ -16,5 +16,5 @@
       false
     ]
   },
-  "hash": "21e9a9fc33dcdb66a2c8e95b1359ca1b3e04b4ecf155757abf5798834ebfd0ce"
+  "hash": "f11d3a43f804a33e412a69be54824d7666d4dac0b824095c4c4fefb1f802c6f7"
 }

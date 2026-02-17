@@ -37,6 +37,7 @@
 	getAutomateUsernameCreationSetting()
 
 	let allInstanceEmails: string[] | undefined = $state(undefined)
+	let emailsLoading = $state(!isCloudHosted())
 
 	let instanceEmails = $derived.by(() => {
 		if (!allInstanceEmails) return undefined
@@ -47,11 +48,13 @@
 	})
 
 	async function loadInstanceEmails() {
-		if (isCloudHosted()) return
+		if (isCloudHosted() || !$workspaceStore) return
 		try {
-			allInstanceEmails = await UserService.listInstanceEmails({ workspace: $workspaceStore! })
+			allInstanceEmails = await UserService.listInstanceEmails({ workspace: $workspaceStore })
 		} catch {
 			allInstanceEmails = undefined
+		} finally {
+			emailsLoading = false
 		}
 	}
 	loadInstanceEmails()
@@ -95,8 +98,9 @@
 		dispatch('new')
 	}
 
+	let emailTouched = $state(false)
 	let emailError = $derived.by(() => {
-		if (!email) return undefined
+		if (!email || !emailTouched) return undefined
 		const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 		return emailRegex.test(email) ? undefined : 'Please enter a valid email address'
 	})
@@ -115,17 +119,30 @@
 			<span class="text-sm mb-2 leading-6 font-semibold">Add a new user</span>
 
 			<span class="text-xs mb-1 leading-6">Email</span>
-			{#if instanceEmails}
+			{#if emailsLoading}
+				<AutocompleteSelect
+					placeholder="Loading..."
+					loading={true}
+					disablePortal={true}
+					bind:value={email}
+				/>
+			{:else if instanceEmails}
 				<AutocompleteSelect
 					items={instanceEmails}
 					bind:value={email}
 					placeholder="Select or type an email"
 					disablePortal={true}
 					error={!!emailError}
+					onBlur={() => (emailTouched = true)}
 				/>
 			{:else}
 				<TextInput
-					inputProps={{ type: 'email', onkeyup: handleKeyUp, placeholder: 'email' }}
+					inputProps={{
+						type: 'email',
+						onkeyup: handleKeyUp,
+						placeholder: 'email',
+						onblur: () => (emailTouched = true)
+					}}
 					bind:value={email}
 					error={!!emailError}
 				/>

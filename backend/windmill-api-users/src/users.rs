@@ -431,7 +431,7 @@ async fn list_instance_emails(
         ));
     }
     require_admin(authed.is_admin, &authed.username)?;
-    let rows = sqlx::query_scalar!("SELECT email FROM password ORDER BY email")
+    let rows = sqlx::query_scalar!("SELECT email FROM password ORDER BY email LIMIT 1000")
         .fetch_all(&db)
         .await?;
     Ok(Json(rows))
