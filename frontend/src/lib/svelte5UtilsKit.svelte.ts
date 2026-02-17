@@ -18,14 +18,10 @@ export function useSearchParams<S extends z.ZodType>(
 		// (e.g: filters.arg in RunsPage.svelte updates in the URL but does not trigger reactivity)
 		let derivedVal = $state(params[key])
 		Object.defineProperty(obj, key, {
-			get: () => {
-				if (typeof derivedVal === 'string') return decodeURIComponent(derivedVal)
-				return derivedVal
-			},
+			get: () => derivedVal,
 			set: (v) => {
-				const val = typeof v === 'string' ? encodeURIComponent(v) : v
-				params[key] = val
-				derivedVal = val
+				params[key] = v
+				derivedVal = v
 			},
 			enumerable: true,
 			configurable: true
