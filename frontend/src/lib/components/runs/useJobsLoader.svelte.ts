@@ -15,8 +15,8 @@ import { sendUserToast } from '$lib/toast'
 import { tweened, type Tweened } from 'svelte/motion'
 import { subtractDaysFromDateString } from '$lib/utils'
 import { CancelablePromiseUtils } from '$lib/cancelable-promise-utils'
-import type { RunsFilters } from './runsFilter'
 import type { Timeframe } from './TimeframeSelect.svelte'
+import { allowWildcards as _allowWildcards, type RunsFilterInstance } from './runsFilter'
 
 export function computeJobKinds(jobKindsCat: string | null): string {
 	if (jobKindsCat == 'all') {
@@ -47,7 +47,7 @@ export function computeJobKinds(jobKindsCat: string | null): string {
 
 export interface UseJobLoaderArgs {
 	currentWorkspace: string
-	filters?: Partial<RunsFilters>
+	filters?: Partial<RunsFilterInstance>
 	timeframe?: Timeframe
 	jobKinds?: string
 	autoRefresh?: boolean
@@ -57,6 +57,7 @@ export interface UseJobLoaderArgs {
 	syncQueuedRunsCount?: boolean
 	skip?: boolean
 	lookback?: number
+	perPage?: number
 	onSetPerPage?: (perPage: number) => void
 }
 
@@ -74,26 +75,26 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let lookback = $derived(_args.lookback ?? 0)
 	let onSetPerPage = $derived(_args.onSetPerPage)
 	let timeframe = $derived(_args?.timeframe)
+	let perPage = $derived(_args?.perPage ?? 100)
 
 	let label = $derived(filters?.label ?? null)
 	let worker = $derived(filters?.worker ?? null)
-	let success = $derived(filters?.success ?? null)
+	let success = $derived(filters?.status ?? null)
 	let showSkipped = $derived(filters?.show_skipped ?? false)
-	let showSchedules = $derived(filters?.show_schedules ?? true)
+	let showSchedules = $derived(!filters?.job_trigger_kind?.includes('-schedules'))
 	let showFutureJobs = $derived(filters?.show_future_jobs ?? true)
 	let resultFilter = $derived(filters?.result)
 	let jobTriggerKind = $derived(filters?.job_trigger_kind ?? null)
 	let schedulePath = $derived(filters?.schedule_path ?? null)
 	let jobKindsCat = $derived(filters?.job_kinds ?? null)
 	let allWorkspaces = $derived(filters?.all_workspaces ?? false)
-	let allowWildcards = $derived(filters?.allow_wildcards ?? false)
+	let allowWildcards = _allowWildcards(filters)
 	let concurrencyKey = $derived(filters?.concurrency_key)
 	let tag = $derived(filters?.tag)
 	let user = $derived(filters?.user)
 	let folder = $derived(filters?.folder)
 	let path = $derived(filters?.path)
 	let argFilter = $derived(filters?.arg)
-	let perPage = $derived(filters?.per_page ?? 100)
 
 	let queue_count: Tweened<number> | undefined = $state()
 	let suspended_count: Tweened<number> | undefined = $state()
@@ -520,7 +521,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		}
 	})
 	$effect(() => {
-		Object.keys(filters ?? {}).map((k) => filters?.[k as keyof RunsFilters])
+		Object.keys(filters ?? {}).map((k) => filters?.[k as keyof RunsFilterInstance])
 		currentWorkspace
 		lookback
 		timeframe

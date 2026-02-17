@@ -11,6 +11,7 @@
 				type: 'oneof'
 				options: { value: string; label?: string; description?: string }[]
 				allowCustomValue?: boolean
+				allowNegative?: boolean
 		  }
 	) & {
 		label?: string
@@ -28,13 +29,19 @@
 				? boolean
 				: T extends { type: 'date' }
 					? Date
-					: T extends { type: 'oneof'; options: infer O; allowCustomValue?: infer A }
+					: T extends { type: 'oneof'; options: any; allowCustomValue?: infer A }
 						? A extends true
 							? string
-							: O extends { value: string }[]
-								? O[number]['value']
+							: T['options'] extends { value: string }[]
+								? _NegativeFilterInstance<T>
 								: never
 						: never
+
+	type _NegativeFilterInstance<T extends { options: { value: string }[] }> = T extends {
+		allowNegative: true
+	}
+		? T['options'][number]['value'] | `-${T['options'][number]['value']}`
+		: T['options'][number]['value']
 
 	/**
 	 * Converts a FilterSchemaRec to a Zod schema for validation

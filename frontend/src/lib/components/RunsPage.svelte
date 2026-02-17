@@ -19,7 +19,7 @@
 
 	import RunsTable from '$lib/components/runs/RunsTable.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { buildRunsFilterSearchbarSchema } from '$lib/components/runs/runsFilter'
+	import { allowWildcards, buildRunsFilterSearchbarSchema } from '$lib/components/runs/runsFilter'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import RunsQueue from '$lib/components/runs/RunsQueue.svelte'
@@ -34,7 +34,7 @@
 	import { page } from '$app/state'
 	import Select from '$lib/components/select/Select.svelte'
 	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
-	import { StaleWhileLoading } from '$lib/svelte5Utils.svelte'
+	import { StaleWhileLoading, useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import { TriangleAlertIcon } from 'lucide-svelte'
 	import DropdownV2 from './DropdownV2.svelte'
 	import TimeframeSelect, {
@@ -50,6 +50,19 @@
 		initialPath?: string
 	}
 
+	let paths: string[] = $state([])
+	let usernames: string[] = $state([])
+	let folders: string[] = $state([])
+	let runsFilterSearchbarSchema = $derived(
+		buildRunsFilterSearchbarSchema({
+			paths,
+			usernames,
+			folders,
+			jobTriggerKinds,
+			isSuperAdmin: !!$superadmin
+		})
+	)
+	let perPage = useLocalStorageValue('runs_per_page', 1000)
 	let filters = useUrlSyncedFilterInstance(untrack(() => runsFilterSearchbarSchema))
 
 	let { initialPath }: Props = $props()
@@ -65,9 +78,6 @@
 	let selectedWorkspace: string | undefined = $state(undefined)
 
 	let jobKinds: string | undefined = $derived(computeJobKinds(filters.val.job_kinds ?? null))
-	let paths: string[] = $state([])
-	let usernames: string[] = $state([])
-	let folders: string[] = $state([])
 	let argError = $state('')
 	let resultError = $state('')
 	let autoRefresh: boolean = $state(getAutoRefresh())
@@ -103,14 +113,15 @@
 	)
 	let innerWidth = $state(window.innerWidth)
 	let jobsLoader = useJobsLoader(() => ({
-		filters,
+		filters: filters.val,
 		timeframe,
 		jobKinds,
 		autoRefresh,
 		argError,
 		resultError,
+		perPage: perPage.val,
 		lookback: graph === 'RunChart' ? 0 : lookback,
-		onSetPerPage: (p) => (filters.val.per_page = p),
+		onSetPerPage: (p) => (perPage.val = p),
 		currentWorkspace: $workspaceStore ?? ''
 	}))
 	let lastFetchWentToEnd = $derived(jobsLoader.lastFetchWentToEnd)
@@ -237,14 +248,9 @@
 				resultFilter && Object.keys(resultFilter).length && !resultError ? resultFilter : undefined,
 			jobTriggerKind: filters.val.job_trigger_kind || undefined,
 			allWorkspaces: filters.val.all_workspaces || undefined,
-			allowWildcards: filters.val.allow_wildcards || undefined
+			allowWildcards: allowWildcards(filters.val) || undefined
 		}
 	}
-
-	// Persist toggle filters to localStorage
-	$effect(() => {
-		localStorage.setItem('show_schedules_in_runs', filters.val.show_schedules ? 'true' : 'false')
-	})
 
 	$effect(() => {
 		localStorage.setItem(
@@ -439,20 +445,10 @@
 	let forceCancelInPopup = $state(false)
 
 	const warnJobLimitMsg = $derived(
-		`The exact number of concurrent jobs at the beginning of the time range may be incorrect as only the last ${filters.val.per_page} jobs are taken into account: a job that was started earlier than this limit will not be taken into account`
+		`The exact number of concurrent jobs at the beginning of the time range may be incorrect as only the last ${perPage.val} jobs are taken into account: a job that was started earlier than this limit will not be taken into account`
 	)
 
 	let manualSelectionMode: undefined | 'cancel' | 'rerun' = $state()
-
-	let runsFilterSearchbarSchema = $derived(
-		buildRunsFilterSearchbarSchema({
-			paths,
-			usernames,
-			folders,
-			jobTriggerKinds,
-			isSuperAdmin: !!$superadmin
-		})
-	)
 </script>
 
 <ConfirmationModal
@@ -663,7 +659,7 @@
 										on:filterBySchedule={filterBySchedule}
 										on:filterByWorker={filterByWorker}
 										bind:this={runsTable}
-										perPage={filters.val.per_page}
+										perPage={perPage.val}
 										bind:batchRerunOptionsIsOpen
 										onCancelJobs={onCancelSelectedJobs}
 										{manualSelectionMode}
@@ -731,13 +727,13 @@
 								<Select
 									class="w-24"
 									bind:value={
-										() => filters.val.per_page,
+										() => perPage.val,
 										(newPerPage) => {
-											filters.val.per_page = newPerPage
+											perPage.val = newPerPage
 											if (newPerPage > (jobs?.length ?? 1000)) loadExtra()
 										}
 									}
-									onCreateItem={(v) => (filters.val.per_page = parseInt(v))}
+									onCreateItem={(v) => (perPage.val = parseInt(v))}
 									items={[
 										{ value: 25, label: '25' },
 										{ value: 100, label: '100' },

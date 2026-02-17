@@ -1,7 +1,7 @@
 import type { JobTriggerKind } from '$lib/gen'
 import { Calendar, FolderIcon, UserIcon } from 'lucide-svelte'
 import { triggerDisplayNamesMap } from '../triggers/utils'
-import type { FilterInstanceRec } from '../FilterSearchbar.svelte'
+import type { FilterInstanceRec, FilterSchemaRec } from '../FilterSearchbar.svelte'
 
 export function buildRunsFilterSearchbarSchema({
 	paths,
@@ -129,6 +129,7 @@ export function buildRunsFilterSearchbarSchema({
 				label: triggerDisplayNamesMap[value],
 				value
 			})),
+			allowNegative: true,
 			description: 'Filter by how the job was triggered'
 		},
 		arg: {
@@ -146,13 +147,24 @@ export function buildRunsFilterSearchbarSchema({
 			label: 'Show future jobs (Default: true)',
 			description: 'Include jobs that are planned later'
 		},
-		all_workspaces: {
-			type: 'boolean' as const,
-			label: 'All workspaces',
-			description: 'Show jobs of all workspaces (superadmin only)'
-		}
-	}
+		...(isSuperAdmin && {
+			all_workspaces: {
+				type: 'boolean' as const,
+				label: 'All workspaces',
+				description: 'Show jobs of all workspaces (superadmin only)'
+			}
+		})
+	} satisfies FilterSchemaRec
 }
 
 export type RunsFilterSearchbarSchema = ReturnType<typeof buildRunsFilterSearchbarSchema>
 export type RunsFilterInstance = FilterInstanceRec<RunsFilterSearchbarSchema>
+
+export function allowWildcards(filters: Partial<RunsFilterInstance> | undefined) {
+	return (
+		filters?.label?.includes('*') ||
+		filters?.worker?.includes('*') ||
+		filters?.tag?.includes('*') ||
+		false
+	)
+}
