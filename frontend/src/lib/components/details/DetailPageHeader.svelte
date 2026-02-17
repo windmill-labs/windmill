@@ -35,7 +35,7 @@
 		errorHandlerKind: 'flow' | 'script'
 		scriptOrFlowPath: string
 		errorHandlerMuted: boolean | undefined
-		onEdit?: (summary: string, path: string) => void
+		onSaved?: (newPath: string) => void
 		children?: import('svelte').Snippet
 		trigger_badges?: import('svelte').Snippet
 	}
@@ -49,7 +49,7 @@
 		errorHandlerKind,
 		scriptOrFlowPath,
 		errorHandlerMuted = $bindable(),
-		onEdit,
+		onSaved,
 		children,
 		trigger_badges
 	}: Props = $props()
@@ -64,7 +64,7 @@
 		>
 			<div class="grow px-2 inline-flex items-center gap-4 min-w-0">
 				<div class={twMerge($userStore?.operator ? 'pl-10' : '')}>
-					<SummaryPathDisplay {summary} {path} {onEdit} kind={errorHandlerKind} />
+					<SummaryPathDisplay {summary} {path} {onSaved} kind={errorHandlerKind} />
 				</div>
 				{#if tag}
 					<Badge>tag: {tag}</Badge>

@@ -64,7 +64,7 @@
 			oneOf = {
 				...oneOf,
 				configuration: {
-					[oneOf.selected]: cleanseOneOfConfiguration(inputSpecsConfiguration)?.[oneOf.selected]
+					[oneOf.selected]: oneOf.configuration[oneOf.selected]
 				}
 			}
 		}
