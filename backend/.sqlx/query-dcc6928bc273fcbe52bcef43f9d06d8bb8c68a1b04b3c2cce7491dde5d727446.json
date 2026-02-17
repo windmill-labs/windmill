@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT worker, worker_instance, worker_group, vcpus, memory, ping_at, started_at, custom_tags, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m FROM worker_ping WHERE ping_at > now() - interval '30 days' ORDER BY started_at",
+  "query": "SELECT worker, worker_instance, worker_group, vcpus, memory, ping_at, started_at, custom_tags, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, native_mode FROM worker_ping WHERE ping_at > now() - interval '30 days' ORDER BY started_at",
   "describe": {
     "columns": [
       {
@@ -57,6 +57,11 @@
         "ordinal": 10,
         "name": "occupancy_rate_30m",
         "type_info": "Float4"
+      },
+      {
+        "ordinal": 11,
+        "name": "native_mode",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -73,8 +78,9 @@
       true,
       true,
       true,
-      true
+      true,
+      false
     ]
   },
-  "hash": "2b3b634b15eb58b95ce26b5a591258b54fb7bf21ae85e7a390ad73489c2247ac"
+  "hash": "dcc6928bc273fcbe52bcef43f9d06d8bb8c68a1b04b3c2cce7491dde5d727446"
 }

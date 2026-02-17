@@ -1,0 +1,1 @@
+ALTER TABLE worker_ping ADD COLUMN IF NOT EXISTS native_mode BOOLEAN NOT NULL DEFAULT false;

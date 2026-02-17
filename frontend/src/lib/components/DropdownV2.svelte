@@ -71,6 +71,7 @@
 
 	const {
 		elements: { menu: menuEl, item, trigger },
+		builders,
 		states,
 		ids: { menu: dropdownId }
 	} = createDropdownMenu({
@@ -177,7 +178,7 @@
 				class="bg-surface-tertiary dark:border w-56 origin-top-right rounded-lg shadow-lg focus:outline-none overflow-y-auto py-1"
 				style={`${customWidth ? `width: ${customWidth}px;` : ''} max-height: ${maxHeight || '50vh'};`}
 			>
-				<DropdownV2Inner {aiId} items={computeItems} meltItem={item} />
+				<DropdownV2Inner {aiId} items={computeItems} meltItem={item} {builders} />
 			</div>
 		{/if}
 	</div>

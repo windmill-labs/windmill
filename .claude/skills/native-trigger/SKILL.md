@@ -581,7 +581,28 @@ In `frontend/src/lib/components/graph/renderers/triggers/TriggersBadge.svelte`:
 2. Add to `baseConfig` with `countKey` (the dynamic `availableNativeServices` loop does NOT set `countKey`)
 3. Add to the `allTypes` array
 
-### Step 14: Update OpenAPI Spec and Regenerate Types
+### Step 14: Update TriggersWrapper.svelte
+
+In `frontend/src/lib/components/triggers/TriggersWrapper.svelte`:
+
+Add a `{:else if selectedTrigger.type === 'yourservice'}` case that renders `<NativeTriggersPanel service="yourservice" ...>` with the same props pattern as the existing native trigger cases (e.g., `nextcloud`).
+
+### Step 15: Update AddTriggersButton.svelte
+
+In `frontend/src/lib/components/triggers/AddTriggersButton.svelte`:
+
+1. Add `yourserviceAvailable` state variable
+2. Add `setYourserviceState()` async function using `isServiceAvailable('yourservice', $workspaceStore!)`
+3. Call it at module level
+4. Add a dropdown entry to `addTriggerItems` with `hidden: !yourserviceAvailable`
+
+### Step 16: Update TriggersEditor.svelte Delete Handling
+
+In `frontend/src/lib/components/triggers/TriggersEditor.svelte`:
+
+Add your service to the `nativeTriggerServices` map in `deleteDeployedTrigger()`. Native triggers use `NativeTriggerService.deleteNativeTrigger({ workspace, serviceName, externalId })` instead of the standard `path`-based delete.
+
+### Step 17: Update OpenAPI Spec and Regenerate Types
 
 Add to `JobTriggerKind` enum in `backend/windmill-api/openapi.yaml`, then:
 

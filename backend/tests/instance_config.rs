@@ -240,7 +240,7 @@ async fn test_from_db_worker_config_prefix_stripping(db: Pool<Postgres>) {
         config.worker_configs.contains_key("my_group_name"),
         "worker__ prefix should be stripped"
     );
-    assert_eq!(config.worker_configs["my_group_name"].cache_clear, Some(5));
+    assert_eq!(config.worker_configs["my_group_name"].extra["cache_clear"], serde_json::json!(5));
 }
 
 #[sqlx::test(fixtures("base"))]
@@ -280,6 +280,7 @@ async fn test_apply_settings_diff_upserts_only(db: Pool<Postgres>) {
             m
         },
         deletes: vec![],
+        ..Default::default()
     };
 
     apply_settings_diff(&db, &diff).await.unwrap();
@@ -303,6 +304,7 @@ async fn test_apply_settings_diff_deletes_only(db: Pool<Postgres>) {
     let diff = SettingsDiff {
         upserts: BTreeMap::new(),
         deletes: vec!["to_delete_1".to_string(), "to_delete_2".to_string()],
+        ..Default::default()
     };
 
     apply_settings_diff(&db, &diff).await.unwrap();
@@ -323,6 +325,7 @@ async fn test_apply_settings_diff_upserts_and_deletes(db: Pool<Postgres>) {
             m
         },
         deletes: vec!["old_key".to_string()],
+        ..Default::default()
     };
 
     apply_settings_diff(&db, &diff).await.unwrap();
@@ -358,6 +361,7 @@ async fn test_apply_settings_diff_upsert_overwrites(db: Pool<Postgres>) {
             m
         },
         deletes: vec![],
+        ..Default::default()
     };
 
     apply_settings_diff(&db, &diff).await.unwrap();
@@ -385,6 +389,7 @@ async fn test_apply_settings_diff_complex_json(db: Pool<Postgres>) {
             m
         },
         deletes: vec![],
+        ..Default::default()
     };
 
     apply_settings_diff(&db, &diff).await.unwrap();
@@ -396,7 +401,11 @@ async fn test_apply_settings_diff_complex_json(db: Pool<Postgres>) {
 #[sqlx::test(fixtures("base"))]
 async fn test_apply_settings_diff_delete_nonexistent_is_noop(db: Pool<Postgres>) {
     let diff =
-        SettingsDiff { upserts: BTreeMap::new(), deletes: vec!["does_not_exist".to_string()] };
+        SettingsDiff {
+            upserts: BTreeMap::new(),
+            deletes: vec!["does_not_exist".to_string()],
+            ..Default::default()
+        };
 
     // Should not error
     apply_settings_diff(&db, &diff).await.unwrap();
@@ -648,7 +657,11 @@ async fn test_roundtrip_to_settings_map_from_db_consistency(db: Pool<Postgres>) 
     };
 
     let map = original.to_settings_map();
-    let diff = SettingsDiff { upserts: map.into_iter().collect(), deletes: vec![] };
+    let diff = SettingsDiff {
+        upserts: map.into_iter().collect(),
+        deletes: vec![],
+        ..Default::default()
+    };
 
     apply_settings_diff(&db, &diff).await.unwrap();
 
@@ -694,6 +707,7 @@ async fn test_idempotent_apply(db: Pool<Postgres>) {
             m
         },
         deletes: vec![],
+        ..Default::default()
     };
 
     // Apply twice
@@ -852,7 +866,7 @@ async fn test_full_config_roundtrip(db: Pool<Postgres>) {
     assert_eq!(otel.tracing_enabled, Some(true));
 
     assert_eq!(config.worker_configs.len(), 2);
-    assert_eq!(config.worker_configs["default"].cache_clear, Some(7));
+    assert_eq!(config.worker_configs["default"].extra["cache_clear"], serde_json::json!(7));
     let gpu_auto = config.worker_configs["gpu"].autoscaling.as_ref().unwrap();
     assert!(gpu_auto.enabled);
     assert_eq!(gpu_auto.min_workers, Some(0));

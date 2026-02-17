@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.636.0
+  version: 1.638.2
   title: Windmill API
 
   contact:
@@ -22142,6 +22142,8 @@ components:
           type: number
         job_isolation:
           type: string
+        native_mode:
+          type: boolean
       required:
         - worker
         - worker_instance

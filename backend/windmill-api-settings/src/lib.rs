@@ -24,6 +24,8 @@ use windmill_common::usernames::generate_instance_username_for_all_users;
 use axum::{
     extract::{Extension, Path},
     routing::{get, post},
+    body::Body,
+    response::Response,
     Json, Router,
 };
 #[cfg(feature = "enterprise")]
@@ -62,6 +64,7 @@ pub fn global_service() -> Router {
             "/instance_config",
             get(get_instance_config).put(set_instance_config),
         )
+        .route("/instance_config/yaml", get(get_instance_config_yaml))
         .route("/test_smtp", post(test_email))
         .route("/test_license_key", post(test_license_key))
         .route("/send_stats", post(send_stats))
@@ -275,13 +278,29 @@ pub async fn set_global_setting_internal(
     key: String,
     value: serde_json::Value,
 ) -> error::Result<()> {
+    let value = if key == "retention_period_secs" {
+        instance_config::clamp_retention_period(value)
+    } else {
+        value
+    };
+
     run_setting_pre_write_hook(db, &key, &value).await?;
 
     match value {
         serde_json::Value::Null => {
+            if instance_config::PROTECTED_SETTINGS.contains(&key.as_str()) {
+                return Err(error::Error::BadRequest(
+                    format!("{key} is a protected setting and cannot be deleted"),
+                ));
+            }
             delete_global_setting(db, &key).await?;
         }
         serde_json::Value::String(x) if x.is_empty() => {
+            if instance_config::PROTECTED_SETTINGS.contains(&key.as_str()) {
+                return Err(error::Error::BadRequest(
+                    format!("{key} is a protected setting and cannot be set to empty"),
+                ));
+            }
             delete_global_setting(db, &key).await?;
         }
         v => {
@@ -407,6 +426,22 @@ async fn get_instance_config(
         .await
         .map_err(|e| error::Error::internal_err(e.to_string()))?;
     Ok(Json(config))
+}
+
+async fn get_instance_config_yaml(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> error::Result<Response> {
+    require_super_admin(&db, &authed.email).await?;
+    let config = InstanceConfig::from_db(&db)
+        .await
+        .map_err(|e| error::Error::internal_err(e.to_string()))?;
+    let yaml = config.to_sorted_yaml()
+        .map_err(|e| error::Error::internal_err(e))?;
+    Response::builder()
+        .header("content-type", "application/yaml")
+        .body(Body::from(yaml))
+        .map_err(|e| error::Error::internal_err(e.to_string()))
 }
 
 async fn set_instance_config(
@@ -1096,4 +1131,162 @@ async fn sync_cached_resource_types(
         synced_count,
         cached_types.len() - synced_count
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+    use windmill_common::instance_config::{GlobalSettings, InstanceConfig, WorkerGroupConfig};
+
+    #[test]
+    fn instance_config_yaml_round_trip() {
+        let config = InstanceConfig {
+            global_settings: GlobalSettings {
+                base_url: Some("https://windmill.example.com".to_string()),
+                retention_period_secs: Some(86400),
+                expose_metrics: Some(true),
+                ..Default::default()
+            },
+            worker_configs: BTreeMap::from([(
+                "default".to_string(),
+                WorkerGroupConfig {
+                    worker_tags: Some(vec!["deno".to_string(), "python3".to_string()]),
+                    init_bash: Some("apt-get update".to_string()),
+                    ..Default::default()
+                },
+            )]),
+        };
+
+        let yaml = config.to_sorted_yaml().unwrap();
+
+        // Verify key fields appear in the YAML output
+        assert!(yaml.contains("base_url: https://windmill.example.com"));
+        assert!(yaml.contains("retention_period_secs: 86400"));
+        assert!(yaml.contains("expose_metrics: true"));
+        assert!(yaml.contains("default:"));
+        assert!(yaml.contains("- deno"));
+        assert!(yaml.contains("- python3"));
+        assert!(yaml.contains("init_bash: apt-get update"));
+
+        // Round-trip back to struct
+        let deserialized: InstanceConfig = serde_yml::from_str(&yaml).unwrap();
+        assert_eq!(
+            deserialized.global_settings.base_url.as_deref(),
+            Some("https://windmill.example.com")
+        );
+        assert_eq!(deserialized.global_settings.retention_period_secs, Some(86400));
+        assert_eq!(deserialized.global_settings.expose_metrics, Some(true));
+        let wc = &deserialized.worker_configs["default"];
+        assert_eq!(
+            wc.worker_tags.as_deref(),
+            Some(["deno".to_string(), "python3".to_string()].as_slice())
+        );
+        assert_eq!(wc.init_bash.as_deref(), Some("apt-get update"));
+    }
+
+    #[test]
+    fn sorted_yaml_global_settings_alphabetical() {
+        let config = InstanceConfig {
+            global_settings: GlobalSettings {
+                retention_period_secs: Some(3600),
+                base_url: Some("https://test.com".to_string()),
+                expose_metrics: Some(true),
+                email_domain: Some("example.com".to_string()),
+                ..Default::default()
+            },
+            worker_configs: BTreeMap::new(),
+        };
+
+        let yaml = config.to_sorted_yaml().unwrap();
+
+        // Keys must appear in alphabetical order
+        let base_url_pos = yaml.find("base_url:").unwrap();
+        let email_pos = yaml.find("email_domain:").unwrap();
+        let expose_pos = yaml.find("expose_metrics:").unwrap();
+        let retention_pos = yaml.find("retention_period_secs:").unwrap();
+
+        assert!(
+            base_url_pos < email_pos
+                && email_pos < expose_pos
+                && expose_pos < retention_pos,
+            "global_settings keys should be alphabetically sorted, got yaml:\n{yaml}"
+        );
+    }
+
+    #[test]
+    fn sorted_yaml_worker_configs_default_and_native_first() {
+        let config = InstanceConfig {
+            global_settings: GlobalSettings::default(),
+            worker_configs: BTreeMap::from([
+                ("gpu".to_string(), WorkerGroupConfig {
+                    init_bash: Some("echo gpu".to_string()),
+                    ..Default::default()
+                }),
+                ("native".to_string(), WorkerGroupConfig {
+                    init_bash: Some("echo native".to_string()),
+                    ..Default::default()
+                }),
+                ("default".to_string(), WorkerGroupConfig {
+                    init_bash: Some("echo default".to_string()),
+                    ..Default::default()
+                }),
+                ("alpha".to_string(), WorkerGroupConfig {
+                    init_bash: Some("echo alpha".to_string()),
+                    ..Default::default()
+                }),
+            ]),
+        };
+
+        let yaml = config.to_sorted_yaml().unwrap();
+
+        let default_pos = yaml.find("default:").unwrap();
+        let native_pos = yaml.find("native:").unwrap();
+        let alpha_pos = yaml.find("alpha:").unwrap();
+        let gpu_pos = yaml.find("gpu:").unwrap();
+
+        assert!(
+            default_pos < native_pos
+                && native_pos < alpha_pos
+                && alpha_pos < gpu_pos,
+            "worker_configs should have default, native first, then rest alphabetically, got yaml:\n{yaml}"
+        );
+    }
+
+    #[test]
+    fn sorted_yaml_roundtrips() {
+        let config = InstanceConfig {
+            global_settings: GlobalSettings {
+                base_url: Some("https://rt.test".to_string()),
+                retention_period_secs: Some(7200),
+                expose_metrics: Some(false),
+                ..Default::default()
+            },
+            worker_configs: BTreeMap::from([
+                ("default".to_string(), WorkerGroupConfig {
+                    worker_tags: Some(vec!["deno".to_string()]),
+                    ..Default::default()
+                }),
+                ("native".to_string(), WorkerGroupConfig {
+                    init_bash: Some("echo hi".to_string()),
+                    ..Default::default()
+                }),
+            ]),
+        };
+
+        let yaml = config.to_sorted_yaml().unwrap();
+        let deserialized: InstanceConfig = serde_yml::from_str(&yaml).unwrap();
+
+        assert_eq!(deserialized.global_settings.base_url.as_deref(), Some("https://rt.test"));
+        assert_eq!(deserialized.global_settings.retention_period_secs, Some(7200));
+        assert_eq!(deserialized.global_settings.expose_metrics, Some(false));
+        assert_eq!(deserialized.worker_configs.len(), 2);
+        assert_eq!(
+            deserialized.worker_configs["default"].worker_tags.as_deref(),
+            Some(["deno".to_string()].as_slice())
+        );
+        assert_eq!(
+            deserialized.worker_configs["native"].init_bash.as_deref(),
+            Some("echo hi")
+        );
+    }
 }

@@ -1,5 +1,5 @@
 #[cfg(feature = "private")]
-pub mod crd_ee;
+pub mod configmap_ee;
 #[cfg(feature = "private")]
 pub mod db_sync_ee;
 #[cfg(feature = "private")]

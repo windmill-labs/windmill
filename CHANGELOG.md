@@ -1,5 +1,43 @@
 # Changelog
 
+## [1.638.2](https://github.com/windmill-labs/windmill/compare/v1.638.1...v1.638.2) (2026-02-17)
+
+
+### Bug Fixes
+
+* **backend:** gcp private key parsing ([#7979](https://github.com/windmill-labs/windmill/issues/7979)) ([5b7bb2f](https://github.com/windmill-labs/windmill/commit/5b7bb2fb84a12433c48f1cdfc022edff0cbc88ea))
+* yaml settings UI mask rsa_keys and jwt_secret ([71608bf](https://github.com/windmill-labs/windmill/commit/71608bf669658241b4ce4e1da3a83f1045dea1f6))
+
+## [1.638.1](https://github.com/windmill-labs/windmill/compare/v1.638.0...v1.638.1) (2026-02-17)
+
+
+### Bug Fixes
+
+* **operator:** improve configmap handling of older license keys ([b7bec1a](https://github.com/windmill-labs/windmill/commit/b7bec1a83d97a823ff6fc7d7fa549b975f848066))
+
+## [1.638.0](https://github.com/windmill-labs/windmill/compare/v1.637.0...v1.638.0) (2026-02-17)
+
+
+### Features
+
+* add native_mode as typed field on WorkerGroupConfig ([3e313cc](https://github.com/windmill-labs/windmill/commit/3e313cc4e864108d7dee866e784dff428883cadf))
+* show all settings in YAML UI and protect from empty overwrites ([#7976](https://github.com/windmill-labs/windmill/issues/7976)) ([b3eeee4](https://github.com/windmill-labs/windmill/commit/b3eeee413114cb54b5932542b14d8904a3c6c93c))
+
+
+### Bug Fixes
+
+* add missing google native triggers to triggers panel ([#7966](https://github.com/windmill-labs/windmill/issues/7966)) ([bb03c62](https://github.com/windmill-labs/windmill/commit/bb03c62c2819d40acd676d10cc586958f4117b5d))
+* download audit logs ([#7965](https://github.com/windmill-labs/windmill/issues/7965)) ([bba319b](https://github.com/windmill-labs/windmill/commit/bba319b2826f4d264ecebef3258d3c3f16237cc5))
+* improve operator ConfigMap settings handling ([#7975](https://github.com/windmill-labs/windmill/issues/7975)) ([2019aec](https://github.com/windmill-labs/windmill/commit/2019aecf4253edcf7b33e30862f642b303948440))
+
+## [1.637.0](https://github.com/windmill-labs/windmill/compare/v1.636.0...v1.637.0) (2026-02-17)
+
+
+### Features
+
+* **frontend:** inline edit summary & path from header ([#7968](https://github.com/windmill-labs/windmill/issues/7968)) ([eb5a8da](https://github.com/windmill-labs/windmill/commit/eb5a8dab74822eb3e43557cf1c85bf14d6e1910f))
+* native mode ([#7939](https://github.com/windmill-labs/windmill/issues/7939)) ([535e108](https://github.com/windmill-labs/windmill/commit/535e108cbf5070a6a23183389007db63fb07a58f))
+
 ## [1.636.0](https://github.com/windmill-labs/windmill/compare/v1.635.1...v1.636.0) (2026-02-16)
 
 

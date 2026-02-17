@@ -6,9 +6,9 @@
 	import { twMerge } from 'tailwind-merge'
 	import { userStore } from '$lib/stores'
 	import { createEventDispatcher, getContext, tick } from 'svelte'
+	import SummaryPathDisplay from '$lib/components/SummaryPathDisplay.svelte'
 	import type { TriggerContext } from '../triggers'
 	import { Calendar } from 'lucide-svelte'
-	import { emptyString } from '$lib/utils'
 
 	type MainButton = {
 		label: string
@@ -35,6 +35,7 @@
 		errorHandlerKind: 'flow' | 'script'
 		scriptOrFlowPath: string
 		errorHandlerMuted: boolean | undefined
+		onEdit?: (summary: string, path: string) => void
 		children?: import('svelte').Snippet
 		trigger_badges?: import('svelte').Snippet
 	}
@@ -48,6 +49,7 @@
 		errorHandlerKind,
 		scriptOrFlowPath,
 		errorHandlerMuted = $bindable(),
+		onEdit,
 		children,
 		trigger_badges
 	}: Props = $props()
@@ -55,29 +57,14 @@
 	const dispatch = createEventDispatcher()
 </script>
 
-<div class="border-b p-1">
+<div class="border-b">
 	<div class="mx-auto">
 		<div
-			class="flex w-full flex-wrap md:flex-nowrap justify-end gap-x-2 gap-y-4 items-center min-h-10"
+			class="flex w-full flex-wrap md:flex-nowrap justify-end gap-x-2 gap-y-4 items-center min-h-12"
 		>
-			<div class="grow px-4 inline-flex items-center gap-4 min-w-0">
-				<div
-					class={twMerge(
-						'min-w-24 text-emphasis truncate flex flex-col gap-0',
-						$userStore?.operator ? 'pl-10' : ''
-					)}
-				>
-					<span
-						class={twMerge(
-							'text-sm min-w-24 text-emphasis font-semibold truncate',
-							$userStore?.operator ? 'pl-10' : ''
-						)}
-					>
-						{emptyString(summary) ? (path ?? '') : summary}
-					</span>
-					{#if !emptyString(summary)}
-						<span class="text-2xs text-secondary">{path}</span>
-					{/if}
+			<div class="grow px-2 inline-flex items-center gap-4 min-w-0">
+				<div class={twMerge($userStore?.operator ? 'pl-10' : '')}>
+					<SummaryPathDisplay {summary} {path} {onEdit} kind={errorHandlerKind} />
 				</div>
 				{#if tag}
 					<Badge>tag: {tag}</Badge>
@@ -104,7 +91,7 @@
 				{/if}
 				{@render trigger_badges?.()}
 			</div>
-			<div class="flex gap-1 items-center">
+			<div class="flex gap-1 items-center pr-4">
 				{#if menuItems.length > 0}
 					{#key menuItems}
 						<DropdownV2

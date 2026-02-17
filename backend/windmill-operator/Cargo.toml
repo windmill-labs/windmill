@@ -18,13 +18,11 @@ serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
 tracing.workspace = true
-windmill-common = { workspace = true, default-features = false, features = ["instance_config_schema"] }
+windmill-common = { workspace = true, default-features = false }
 anyhow.workspace = true
 thiserror.workspace = true
 kube.workspace = true
 k8s-openapi.workspace = true
 tokio.workspace = true
 futures.workspace = true
-chrono.workspace = true
-schemars = "0.8"
 serde_yml.workspace = true

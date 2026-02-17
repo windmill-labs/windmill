@@ -32,7 +32,12 @@
 	import Section from './Section.svelte'
 	import Label from './Label.svelte'
 	import Toggle from './Toggle.svelte'
-	import { cleanWorkerGroupConfig, defaultTags, nativeTags, type AutoscalingConfig } from './worker_group'
+	import {
+		cleanWorkerGroupConfig,
+		defaultTags,
+		nativeTags,
+		type AutoscalingConfig
+	} from './worker_group'
 	import AutoscalingConfigEditor from './AutoscalingConfigEditor.svelte'
 	import TagsToListenTo from './TagsToListenTo.svelte'
 	import Select from './select/Select.svelte'
@@ -87,6 +92,7 @@
 		pip_local_dependencies?: string[]
 		min_alive_workers_alert_threshold?: number
 		autoscaling?: AutoscalingConfig
+		native_mode?: boolean
 	} = $state({})
 
 	function loadNConfig() {
@@ -191,6 +197,7 @@
 					autoscaling?: AutoscalingConfig
 					periodic_script_bash?: string
 					periodic_script_interval_seconds?: number
+					native_mode?: boolean
 			  }
 		activeWorkers: number
 		customTags: string[] | undefined
@@ -257,7 +264,8 @@
 	// Compute hashed tags for display (actual tags used by the worker)
 	let hashedDedicatedTags: Map<string, string> = $state(new Map())
 	$effect(() => {
-		const dws = config?.dedicated_workers ?? (config?.dedicated_worker ? [config.dedicated_worker] : [])
+		const dws =
+			config?.dedicated_workers ?? (config?.dedicated_worker ? [config.dedicated_worker] : [])
 		if (dws.length > 0) {
 			Promise.all(dws.map(async (dw) => [dw, await computeHashedTag(dw)] as const)).then(
 				(entries) => {
@@ -276,6 +284,14 @@
 			? 'dedicated'
 			: 'normal'
 	)
+	let isNativeMode = $derived(
+		config?.native_mode === true ||
+			name === 'native' ||
+			(workers.length > 0 &&
+				workers.some(([_, pings]) => pings.some((p) => p.native_mode === true)))
+	)
+	let nonNativeTags = $derived((nconfig?.worker_tags ?? []).filter((t) => !nativeTags.includes(t)))
+	let isAutoNativeMode = $derived(name === 'native')
 	$effect(() => {
 		;($superadmin || $devopsRole) && listWorkspaces()
 	})
@@ -497,7 +513,11 @@
 
 			{#if nconfig !== undefined}
 				<div class="mt-8"></div>
-				<Label label="Alerts" tooltip="Alert is sent to the configured critical error channels" eeOnly={!hasEnterpriseFeatures}>
+				<Label
+					label="Alerts"
+					tooltip="Alert is sent to the configured critical error channels"
+					eeOnly={!hasEnterpriseFeatures}
+				>
 					<Toggle
 						size="sm"
 						options={{
@@ -522,6 +542,43 @@
 								bind:value={nconfig.min_alive_workers_alert_threshold}
 							/>
 						</div>
+					{/if}
+				</Label>
+			{/if}
+
+			{#if nconfig !== undefined}
+				<div class="mt-8"></div>
+				<Label label="Native mode">
+					{#snippet header()}
+						<Tooltip>
+							{#snippet text()}
+								When enabled, the worker will only accept native jobs (nativets, postgresql, mysql,
+								etc.) and automatically runs with NUM_WORKERS=8 for optimal throughput. Non-native
+								jobs will be failed.
+							{/snippet}
+						</Tooltip>
+					{/snippet}
+					<Toggle
+						size="sm"
+						options={{
+							right: isAutoNativeMode
+								? 'Native mode (automatically enabled)'
+								: 'Enable native mode'
+						}}
+						checked={nconfig?.native_mode === true || isAutoNativeMode}
+						on:change={(ev) => {
+							if (nconfig !== undefined) {
+								nconfig.native_mode = ev.detail ? true : undefined
+							}
+						}}
+						disabled={!canEditConfig || isAutoNativeMode}
+					/>
+					{#if (nconfig.native_mode || isAutoNativeMode) && nonNativeTags.length > 0}
+						<Alert size="xs" type="warning" title="Non-native tags detected">
+							This worker group has native mode enabled but includes non-native tags: {nonNativeTags.join(
+								', '
+							)}. Non-native jobs will be failed. This is fine if those custom tags are only used for native language jobs.
+						</Alert>
 					{/if}
 				</Label>
 			{/if}
@@ -704,7 +761,12 @@
 		/>
 
 		<div class="mt-8"></div>
-		<Section label="Python dependencies overrides" collapsable={true} class="flex flex-col gap-y-6" eeOnly={!hasEnterpriseFeatures}>
+		<Section
+			label="Python dependencies overrides"
+			collapsable={true}
+			class="flex flex-col gap-y-6"
+			eeOnly={!hasEnterpriseFeatures}
+		>
 			<Label
 				label="Additional Python paths"
 				tooltip="Paths to add to the Python path for it to search dependencies, useful if you have packages pre-installed on the workers at a given path."
@@ -883,8 +945,8 @@
 			{#if (nconfig.periodic_script_bash ?? '') !== (config?.periodic_script_bash ?? '') || (nconfig.periodic_script_interval_seconds ?? 0) !== (config?.periodic_script_interval_seconds ?? 0)}
 				<div class="mb-2">
 					<Alert size="xs" type="info" title="Worker restart required">
-						Workers will get killed upon detecting changes to the periodic script or interval.
-						It is assumed they are in an environment where the supervisor will restart them.
+						Workers will get killed upon detecting changes to the periodic script or interval. It is
+						assumed they are in an environment where the supervisor will restart them.
 					</Alert>
 				</div>
 			{/if}
@@ -931,10 +993,13 @@
 		<div class="mt-8">
 			<Section label="Set via API" collapsable headerClass="text-secondary">
 				<p class="text-xs text-tertiary">Requires a superadmin token.</p>
-				<pre class="mt-1 p-2 bg-surface-secondary rounded text-xs overflow-x-auto whitespace-pre-wrap break-all">curl -X POST '{window.location.origin}/api/configs/update/worker__{name}' \
+				<pre
+					class="mt-1 p-2 bg-surface-secondary rounded text-xs overflow-x-auto whitespace-pre-wrap break-all"
+					>curl -X POST '{window.location.origin}/api/configs/update/worker__{name}' \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer &lt;token&gt;' \
-  -d '{JSON.stringify(cleanWorkerGroupConfig(nconfig ?? {}), null, 2)}'</pre>
+  -d '{JSON.stringify(cleanWorkerGroupConfig(nconfig ?? {}), null, 2)}'</pre
+				>
 			</Section>
 		</div>
 		{#snippet actions()}
@@ -1039,6 +1104,9 @@
 						>{#snippet text()}Number of active workers of this group in the last 15 seconds{/snippet}</Tooltip
 					></span
 				>
+				{#if isNativeMode}
+					<Badge color="blue" small>Native</Badge>
+				{/if}
 			</div>
 
 			{#if vcpus_memory?.vcpus}

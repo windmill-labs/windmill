@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { FolderService } from '$lib/gen'
 	import { workspaceStore, userStore } from '$lib/stores'
-	import { Plus, Eye } from 'lucide-svelte'
+	import { Eye } from 'lucide-svelte'
 	import { Button, Drawer, DrawerContent } from './common'
 	import FolderEditor from './FolderEditor.svelte'
+	import Select from './select/Select.svelte'
 
 	let folders: { name: string; write: boolean }[] = $state([])
 	let newFolder: Drawer | null = $state(null)
@@ -16,6 +17,8 @@
 		initialPath?: string
 		disabled?: boolean
 		disableEditing?: boolean
+		size?: 'sm' | 'md'
+		drawerOffset?: number
 	}
 
 	let {
@@ -23,6 +26,8 @@
 		initialPath = $bindable(undefined),
 		disabled = $bindable(undefined),
 		disableEditing = $bindable(undefined),
+		size = 'md',
+		drawerOffset = 0
 	}: Props = $props()
 
 	async function loadFolders(): Promise<void> {
@@ -52,6 +57,12 @@
 		)
 	}
 
+	async function openCreateFolder(name: string) {
+		newFolderName = name
+		await addFolder()
+		newFolder?.openDrawer()
+	}
+
 	async function addFolder() {
 		await FolderService.createFolder({
 			workspace: $workspaceStore ?? '',
@@ -63,61 +74,54 @@
 		loadFolders()
 	}
 
+	let selectItems = $derived(
+		folders.map((f) => ({
+			value: f.name,
+			label: f.name + (f.write ? '' : ' (read-only)'),
+			disabled: !f.write
+		}))
+	)
+
 	loadFolders()
 </script>
 
-<Drawer bind:this={newFolder} name="newFolder">
+<Drawer bind:this={newFolder} name="newFolder" offset={drawerOffset}>
 	<DrawerContent
-		title="New Folder"
+		title="Folder {folderCreated ?? ''}"
 		on:close={() => {
 			newFolder?.closeDrawer()
 			folderCreated = undefined
 		}}
 	>
-		{#if !folderCreated}
-			<div class="flex flex-col gap-2">
-				<input placeholder="New folder name" bind:value={newFolderName} />
-				<Button size="md" startIcon={{ icon: Plus }} disabled={!newFolderName} on:click={addFolder}>
-					New&nbsp;folder
-				</Button>
-			</div>
-		{:else}
+		{#if folderCreated}
 			<FolderEditor name={folderCreated} />
 		{/if}
 	</DrawerContent>
 </Drawer>
 
-<Drawer bind:this={viewFolder}>
+<Drawer bind:this={viewFolder} offset={drawerOffset}>
 	<DrawerContent title="Folder {folderName}" on:close={viewFolder.closeDrawer}>
 		<FolderEditor name={folderName ?? ''} />
 	</DrawerContent>
 </Drawer>
 
 <div class="flex flex-row items-center gap-1 w-full">
-	<select class="grow w-full" disabled={disabled || disableEditing} bind:value={folderName}>
-		{#if folders?.length == 0}
-			<option disabled>No folders</option>
-		{/if}
-		{#each folders as { name, write }}
-			<option disabled={!write}>{name}{write ? '' : ' (read-only)'}</option>
-		{/each}
-	</select>
+	<Select
+		bind:value={folderName}
+		items={selectItems}
+		disabled={disabled || disableEditing}
+		{size}
+		placeholder="Select folder"
+		createText="Create folder"
+		onCreateItem={openCreateFolder}
+	/>
 	<Button
 		title="View folder"
-		variant="default"
-		unifiedSize="md"
+		variant="subtle"
+		unifiedSize={size}
 		disabled={!folderName || folderName == ''}
 		on:click={viewFolder.openDrawer}
 		iconOnly
 		startIcon={{ icon: Eye }}
-	/>
-	<Button
-		title="New folder"
-		variant="default"
-		unifiedSize="md"
-		{disabled}
-		on:click={newFolder.openDrawer}
-		iconOnly
-		startIcon={{ icon: Plus }}
 	/>
 </div>
