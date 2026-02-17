@@ -34,6 +34,7 @@
 		transformInputSelectedText,
 		onFocus,
 		onBlur,
+		onClose,
 		onClear
 	}: {
 		items?: Item[]
@@ -54,6 +55,7 @@
 		transformInputSelectedText?: (text: string) => string
 		onFocus?: () => void
 		onBlur?: () => void
+		onClose?: () => void
 		onClear?: () => void
 	} = $props()
 
@@ -92,6 +94,7 @@
 	$effect(() => {
 		if (!open) {
 			filterText = ''
+			onClose?.()
 		} else {
 			untrack(() => {
 				if (rawLabel) {

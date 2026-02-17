@@ -105,8 +105,9 @@
 		dispatch('new')
 	}
 
+	let emailTouched = $state(false)
 	let emailError = $derived.by(() => {
-		if (!email) return undefined
+		if (!email || !emailTouched) return undefined
 		const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 		return emailRegex.test(email) ? undefined : 'Please enter a valid email address'
 	})
@@ -133,6 +134,7 @@
 					loading={emailsLoading}
 					disablePortal={true}
 					error={!!emailError}
+					onClose={() => (emailTouched = true)}
 				/>
 			{:else}
 				<TextInput
@@ -146,7 +148,9 @@
 					error={!!emailError}
 				/>
 			{/if}
-			<InputError error={emailError} />
+			{#if emailError}
+				<InputError error={emailError} />
+			{/if}
 
 			{#if !automateUsernameCreation}
 				<span class="text-xs mb-1 pt-2 leading-6">Username</span>
