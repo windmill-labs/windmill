@@ -161,7 +161,8 @@
 		}
 		if (schema.type === 'oneof') {
 			if (schema.allowCustomValue) return text
-			return schema.options.find((o) => o.value === text)?.value ?? null
+			const normalizedText = text.startsWith('!') && schema.allowNegative ? text.slice(1) : text
+			return schema.options.find((o) => o.value === normalizedText) ? text : null
 		}
 		return null
 	}
@@ -355,6 +356,7 @@
 		bind:this={taggedTextInput}
 		bind:value={asText.val}
 		{tags}
+		highlights={[{ regex: /![a-zA-Z0-9_\-\/]+/, classes: 'text-yellow-600 dark:text-yellow-500' }]}
 		onCurrentTagChange={(tag) => (currentTag = tag ? (tag.id as keyof SchemaT) : undefined)}
 		onTextSegmentAtCursorChange={(segment) => (currentTextSegment = segment)}
 		class={twMerge(

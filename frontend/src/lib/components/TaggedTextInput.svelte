@@ -3,6 +3,7 @@
 		tags,
 		value = $bindable(''),
 		placeholder = '',
+		highlights,
 		onCurrentTagChange,
 		onTextSegmentAtCursorChange,
 		class: className = ''
@@ -10,6 +11,7 @@
 		tags: { regex: RegExp; id: string }[]
 		value?: string
 		placeholder?: string
+		highlights?: { regex: RegExp; classes: string }[]
 		onCurrentTagChange?: (tag: { id: string } | null) => void
 		onTextSegmentAtCursorChange?: (segment: { text: string; start: number; end: number }) => void
 		class?: string
@@ -45,6 +47,47 @@
 
 		const html = highlightText(text)
 		contentEditableDiv.innerHTML = html
+	}
+
+	/** Apply secondary highlight spans within a raw-text chunk. Returns HTML. */
+	function applyHighlightsToChunk(rawText: string): string {
+		if (!highlights || highlights.length === 0) return escapeHtml(rawText)
+
+		// Find all highlight matches in the raw text
+		const hlMatches: Array<{ start: number; end: number; classes: string }> = []
+		for (const hl of highlights) {
+			const regex = new RegExp(hl.regex, 'g')
+			let m
+			while ((m = regex.exec(rawText)) !== null) {
+				hlMatches.push({ start: m.index, end: m.index + m[0].length, classes: hl.classes })
+			}
+		}
+		if (hlMatches.length === 0) return escapeHtml(rawText)
+
+		// Sort and deduplicate (keep first on overlap)
+		hlMatches.sort((a, b) => a.start - b.start)
+		const filtered: typeof hlMatches = []
+		let lastEnd = -1
+		for (const m of hlMatches) {
+			if (m.start >= lastEnd) {
+				filtered.push(m)
+				lastEnd = m.end
+			}
+		}
+
+		let result = ''
+		let idx = 0
+		for (const m of filtered) {
+			if (m.start > idx) {
+				result += escapeHtml(rawText.slice(idx, m.start))
+			}
+			result += `<span class="${m.classes}">${escapeHtml(rawText.slice(m.start, m.end))}</span>`
+			idx = m.end
+		}
+		if (idx < rawText.length) {
+			result += escapeHtml(rawText.slice(idx))
+		}
+		return result
 	}
 
 	function highlightText(text: string): string {
@@ -83,21 +126,21 @@
 		let lastIndex = 0
 
 		for (const match of filteredMatches) {
-			// Add text before the match
+			// Add text before the match (apply secondary highlights)
 			if (match.start > lastIndex) {
-				html += escapeHtml(text.slice(lastIndex, match.start))
+				html += applyHighlightsToChunk(text.slice(lastIndex, match.start))
 			}
 
-			// Add highlighted match
+			// Add highlighted match (with secondary highlights applied inside)
 			const matchedText = text.slice(match.start, match.end)
-			html += `<span class="bg-surface-sunken border py-0.5 px-1.5 rounded">${escapeHtml(matchedText)}</span>`
+			html += `<span class="bg-surface-sunken border py-0.5 px-1.5 rounded">${applyHighlightsToChunk(matchedText)}</span>`
 
 			lastIndex = match.end
 		}
 
-		// Add remaining text
+		// Add remaining text (apply secondary highlights)
 		if (lastIndex < text.length) {
-			html += escapeHtml(text.slice(lastIndex))
+			html += applyHighlightsToChunk(text.slice(lastIndex))
 		}
 
 		return html

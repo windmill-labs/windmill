@@ -81,7 +81,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let worker = $derived(filters?.worker ?? null)
 	let success = $derived(filters?.status ?? null)
 	let showSkipped = $derived(filters?.show_skipped ?? false)
-	let showSchedules = $derived(!filters?.job_trigger_kind?.includes('-schedules'))
+	let showSchedules = $derived(!filters?.job_trigger_kind?.includes('!schedule'))
 	let showFutureJobs = $derived(filters?.show_future_jobs ?? true)
 	let resultFilter = $derived(filters?.result)
 	let jobTriggerKind = $derived(filters?.job_trigger_kind ?? null)
@@ -526,6 +526,8 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		lookback
 		timeframe
 		perPage
+		showSchedules
+		showFutureJobs
 		let p = untrack(() => onParamChanges())
 		return () => p.cancel()
 	})
