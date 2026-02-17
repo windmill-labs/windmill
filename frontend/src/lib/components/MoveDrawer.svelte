@@ -62,7 +62,7 @@
 <Drawer bind:this={drawer}>
 	<DrawerContent title="Move/Rename {initialPath}" on:close={drawer.closeDrawer}>
 		{#if !own}
-			<Alert type="warning" title="Not owner">
+			<Alert type="warning" title="Not owner" class="mb-4">
 				Since you do not own this item, you cannot move this item (you can however fork it)
 			</Alert>
 		{/if}
@@ -81,7 +81,9 @@
 			<Path disabled={!own} {kind} {initialPath} bind:path bind:dirty={dirtyPath} />
 		</Label>
 		{#snippet actions()}
-			<Button variant="accent" disabled={!own || !hasChanges} on:click={updatePath}>Move/Rename</Button>
+			<Button variant="accent" disabled={!own || !hasChanges} on:click={updatePath}
+				>Move/Rename</Button
+			>
 		{/snippet}
 	</DrawerContent>
 </Drawer>
