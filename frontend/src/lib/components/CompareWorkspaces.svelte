@@ -162,7 +162,11 @@
 				const workspacedKey = getWorkspacedKey(workspace, getItemKey(diff))
 				if (onBehalfOfInfo[workspacedKey] !== undefined) continue
 
-				onBehalfOfInfo[workspacedKey] = await getOnBehalfOfEmail(diff.kind as Kind, diff.path, workspace)
+				onBehalfOfInfo[workspacedKey] = await getOnBehalfOfEmail(
+					diff.kind as Kind,
+					diff.path,
+					workspace
+				)
 			}
 		}
 	}
@@ -194,7 +198,9 @@
 		selectedItems.some((itemKey) => {
 			const diff = selectableDiffs.find((d) => getItemKey(d) === itemKey)
 			if (!diff) return false
-			return itemNeedsOnBehalfOfSelection(itemKey, diff.kind) && onBehalfOfChoice[itemKey] === undefined
+			return (
+				itemNeedsOnBehalfOfSelection(itemKey, diff.kind) && onBehalfOfChoice[itemKey] === undefined
+			)
 		})
 	)
 
@@ -431,7 +437,7 @@
 		{selectedItems}
 		{deploymentStatus}
 		selectablePredicate={(item) => selectableDiffs.some((d) => getItemKey(d) === item.key)}
-		allSelected={allSelected}
+		{allSelected}
 		onToggleItem={(item) => {
 			const diff = comparison?.diffs.find((d) => getItemKey(d) === item.key)
 			if (diff) toggleItem(diff)
@@ -526,8 +532,8 @@
 				<Alert title="Conflicting changes detected" type="warning" class="mt-2">
 					<span>
 						{conflictingDiffs.length} item{conflictingDiffs.length !== 1 ? 's have' : ' has'} conflicting
-						changes, it was modified on the original workspace while changes were made on this fork. Make
-						sure to resolve these before merging.
+						changes, it was modified on the original workspace while changes were made on this fork.
+						Make sure to resolve these before merging.
 					</span>
 				</Alert>
 			{/if}
@@ -537,8 +543,8 @@
 					type="warning"
 					class="my-2"
 				>
-					You have items behind '{parentWorkspaceId}'. You need to update and test your changes before
-					being able to deploy.
+					You have items behind '{parentWorkspaceId}'. You need to update and test your changes
+					before being able to deploy.
 					<span class="font-medium flex flex-row gap-1 text-red-500">
 						<input
 							type="checkbox"
@@ -562,8 +568,8 @@
 						This fork is ahead of its parent
 					{/if}
 					and some of the changes are not visible by you. Only a user with access to the whole context
-					may deploy or update this fork. You can share the link to this page to someone with proper permissions
-					to get it deployed.
+					may deploy or update this fork. You can share the link to this page to someone with proper
+					permissions to get it deployed.
 				</Alert>
 			{/if}
 		{/snippet}
@@ -572,12 +578,8 @@
 			{@const diff = item.diff}
 			{@const key = item.key}
 			{@const isSelectable = selectableDiffs.includes(diff)}
-			{@const oldSummary = mergeIntoParent
-				? summaryCache[key]?.parent
-				: summaryCache[key]?.current}
-			{@const newSummary = mergeIntoParent
-				? summaryCache[key]?.current
-				: summaryCache[key]?.parent}
+			{@const oldSummary = mergeIntoParent ? summaryCache[key]?.parent : summaryCache[key]?.current}
+			{@const newSummary = mergeIntoParent ? summaryCache[key]?.current : summaryCache[key]?.parent}
 			{@const existsInBothWorkspaces = !(
 				(diff.exists_in_fork && !diff.exists_in_source) ||
 				(!diff.exists_in_fork && diff.exists_in_source)
@@ -620,10 +622,8 @@
 				>
 			{/if}
 			{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead > 0}
-				<Badge
-					title="This item was deleted in '{currentWorkspaceId}'"
-					color="red"
-					size="xs">Deleted</Badge
+				<Badge title="This item was deleted in '{currentWorkspaceId}'" color="red" size="xs"
+					>Deleted</Badge
 				>
 			{/if}
 			{#if diff.exists_in_fork && !diff.exists_in_source && diff.behind > 0}
@@ -664,11 +664,7 @@
 					{/if}
 				</div>
 				<div class:invisible={!existsInBothWorkspaces}>
-					<Button
-						size="xs"
-						variant="subtle"
-						onclick={() => showDiff(diff.kind as Kind, diff.path)}
-					>
+					<Button size="xs" variant="subtle" onclick={() => showDiff(diff.kind as Kind, diff.path)}>
 						<DiffIcon class="w-3 h-3" />
 						Show diff
 					</Button>
@@ -700,9 +696,14 @@
 								{/if}
 							</Button>
 							{#if hasUnselectedOnBehalfOf}
-								<span class="text-xs text-yellow-600"
-									>Select "run on behalf of" for all items before deploying</span
-								>
+								<span class="text-xs text-yellow-600">
+									You must set the "on behalf of" for all items before deploying
+									<Tooltip class="text-yellow-600">
+										The "Run on behalf of" field defines a users permissions that will be applied
+										during execution instead of the user triggering the execution. Make sure that
+										this is set to an appropriate user before deploying
+									</Tooltip>
+								</span>
 							{/if}
 						{/if}
 					{/if}

@@ -92,7 +92,10 @@
 		selectedItems.some((statusPath) => {
 			const dep = dependencies?.find((d) => computeStatusPath(d.kind, d.path) === statusPath)
 			if (!dep) return false
-			return itemNeedsOnBehalfOfSelection(statusPath, dep.kind) && onBehalfOfChoice[statusPath] === undefined
+			return (
+				itemNeedsOnBehalfOfSelection(statusPath, dep.kind) &&
+				onBehalfOfChoice[statusPath] === undefined
+			)
 		})
 	)
 
@@ -356,9 +359,7 @@
 	)
 
 	let allSelected = $derived(
-		dependencies != null &&
-			dependencies.length > 0 &&
-			dependencies.every((dep) => dep.include)
+		dependencies != null && dependencies.length > 0 && dependencies.every((dep) => dep.include)
 	)
 
 	function toggleItem(item: { key: string }) {
@@ -465,12 +466,12 @@
 							Missing
 							<Tooltip
 								>{#if item.kind == 'resource_type'}
-									Resource types are not re-deployed by default. We strongly recommend to add
-									shared resource types in 'admin' workspace, which will have them be shared to
-									every workspace.
+									Resource types are not re-deployed by default. We strongly recommend to add shared
+									resource types in 'admin' workspace, which will have them be shared to every
+									workspace.
 								{:else}
-									This {item.kind} doesn't exist and is not included in the deployment. Variables and Resources
-									are considered to be workspace specific and are never included by default.
+									This {item.kind} doesn't exist and is not included in the deployment. Variables and
+									Resources are considered to be workspace specific and are never included by default.
 								{/if}</Tooltip
 							>
 						</Badge>
@@ -502,20 +503,23 @@
 			{/snippet}
 
 			{#snippet footer()}
-				{#if !hideButton}
-					<div class="flex flex-col items-end gap-2">
-						<Button
-							on:click={deployAll}
-							disabled={!canDeployToWorkspace || hasUnselectedOnBehalfOf}
+				<div class="flex flex-col items-end gap-2">
+					{#if !hideButton}
+						<Button on:click={deployAll} disabled={!canDeployToWorkspace || hasUnselectedOnBehalfOf}
 							>Deploy all toggled</Button
 						>
-						{#if hasUnselectedOnBehalfOf}
-							<span class="text-xs text-yellow-600"
-								>Select "run on behalf of" for all items before deploying</span
-							>
-						{/if}
-					</div>
-				{/if}
+					{/if}
+					{#if hasUnselectedOnBehalfOf}
+						<span class="text-xs text-yellow-600">
+							You must set the "on behalf of" for all items before deploying
+							<Tooltip class="text-yellow-600">
+								The "Run on behalf of" field defines a users permissions that will be applied during
+								execution instead of the user triggering the execution. Make sure that this is set
+								to an appropriate user before deploying
+							</Tooltip>
+						</span>
+					{/if}
+				</div>
 			{/snippet}
 		</WorkspaceDeployLayout>
 	{:else if canSeeTarget == 'cant-see-all-deps'}

@@ -28,7 +28,7 @@
 	<DrawerContent title="Deploy {initialPath}" on:close={drawer.closeDrawer}>
 		{#if (kind != 'trigger' && kind != undefined && initialPath != undefined) || (kind === 'trigger' && initialPath != undefined && additionalInformation?.triggers != undefined)}
 			<DeployWorkspace
-				hideButton
+				hideButton={false}
 				{initialPath}
 				{kind}
 				{additionalInformation}

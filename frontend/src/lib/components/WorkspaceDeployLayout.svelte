@@ -86,7 +86,7 @@
 		</div>
 
 		<!-- Items list -->
-		<div class="flex-1 overflow-y-auto">
+		<div class="overflow-y-auto">
 			<div class="border rounded-md bg-surface-tertiary">
 				{#each items as item (item.key)}
 					{@const isSelectable = selectablePredicate(item)}

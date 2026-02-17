@@ -53,7 +53,7 @@
 		<UserCog class="w-4 h-4 {selected ? 'text-green-500' : 'text-yellow-500'}" />
 	</svelte:fragment>
 	<div slot="content" class="p-3 flex flex-col gap-2 min-w-48">
-		<div class="text-xs font-medium text-secondary mb-1">Set on behalf of:</div>
+		<div class="text-xs font-medium text-secondary mb-1">Set the user this will be run on behalf of:</div>
 		<button
 			class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover {!canPreserve
 				? 'opacity-50 cursor-not-allowed'
