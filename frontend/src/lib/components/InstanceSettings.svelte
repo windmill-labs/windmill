@@ -550,26 +550,25 @@
 
 	const SENSITIVE_UNCHANGED = '__SENSITIVE_AND_UNCHANGED__'
 
-	const sensitiveKeys: Set<string> = new Set(
-		[...Object.values(settings), scimSamlSetting]
+	const sensitiveKeys: Set<string> = new Set([
+		...[...Object.values(settings), scimSamlSetting]
 			.flatMap((s) => Object.values(s))
 			.filter((s) => s.fieldType === 'password' || s.fieldType === 'license_key')
-			.map((s) => s.key)
-	)
+			.map((s) => s.key),
+		'ducklake_user_pg_pwd',
+		'rsa_keys'
+	])
 
 	// Settings that should never appear in YAML export/import
-	const excludedKeys: Set<string> = new Set([
-		'custom_instance_pg_databases',
-		'ducklake_settings',
-		'ducklake_user_pg_pwd'
-	])
+	const excludedKeys: Set<string> = new Set([])
 
 	// Nested fields inside object-valued settings that contain secrets.
 	// Each entry maps a top-level key to its sensitive sub-field names.
 	const nestedSensitiveFields: Record<string, string[]> = {
 		smtp_settings: ['smtp_password'],
 		secret_backend: ['token'],
-		object_store_cache_config: ['secret_key', 'serviceAccountKey']
+		object_store_cache_config: ['secret_key', 'serviceAccountKey'],
+		custom_instance_pg_databases: ['user_pwd']
 	}
 
 	/** Returns SENSITIVE_UNCHANGED if the value is non-empty and matches the initial */
