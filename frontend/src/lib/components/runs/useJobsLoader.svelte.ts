@@ -525,6 +525,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		currentWorkspace
 		lookback
 		timeframe
+		perPage
 		let p = untrack(() => onParamChanges())
 		return () => p.cancel()
 	})
