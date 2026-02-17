@@ -17,6 +17,14 @@ properties:
     items:
       type: string
     description: Array of Kafka topic names to subscribe to
+  filters:
+    type: array
+    items:
+      type: object
+      properties:
+        key:
+          type: string
+        value: {}
   error_handler_path:
     type: string
     description: Path to a script or flow to run when the triggered job fails
@@ -64,3 +72,4 @@ required:
 - kafka_resource_path
 - group_id
 - topics
+- filters

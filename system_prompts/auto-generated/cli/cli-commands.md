@@ -2,7 +2,7 @@
 
 The Windmill CLI (`wmill`) provides commands for managing scripts, flows, apps, and other resources.
 
-Current version: 1.624.0
+Current version: 1.638.3
 
 ## Global Options
 
@@ -162,6 +162,9 @@ sync local with a remote instance or the opposite (push or pull)
   - `--prefix <prefix:string>` - Prefix of the local workspaces folders to push
   - `--prefix-settings` - Store instance yamls inside prefixed folders when using --prefix and --folder-per-instance
 - `instance whoami` - Display information about the currently logged-in user
+- `instance get-config` - Dump the current instance config (global settings + worker configs) as YAML
+  - `-o, --output-file <file:string>` - Write YAML to a file instead of stdout
+  - `--instance <instance:string>` - Name of the instance, override the active instance
 
 ### jobs
 
@@ -178,6 +181,16 @@ Pull completed and queued jobs from workspace
 
 - `jobs pull`
 - `jobs push`
+
+### lint
+
+Validate Windmill flow, schedule, and trigger YAML files in a directory
+
+**Arguments:** `[directory:string]`
+
+**Options:**
+- `--json` - Output results in JSON format
+- `--fail-on-warn` - Exit with code 1 when warnings are emitted
 
 ### queues
 
@@ -309,6 +322,7 @@ sync local with a remote workspaces or the opposite (push or pull)
   - `--parallel <number>` - Number of changes to process in parallel
   - `--repository <repo:string>` - Specify repository path (e.g., u/user/repo) when multiple repositories exist
   - `--branch <branch:string>` - Override the current git branch (works even outside a git repository)
+  - `--lint` - Run lint validation before pushing
 
 ### trigger
 
@@ -387,7 +401,8 @@ workspace related commands
   - `--create-username <username:string>` - Specify your own username in the newly created workspace. Ignored if --create is not specified, the workspace already exists or automatic username creation is enabled on the instance.
 - `workspace remove <workspace_name:string>` - Remove a workspace
 - `workspace whoami` - Show the currently active user
-- `workspace list` - List workspaces on the remote server that you have access to
+- `workspace list` - List local workspace profiles
+- `workspace list-remote` - List workspaces on the remote server that you have access to
 - `workspace bind` - Bind the current Git branch to the active workspace
   - `--branch <branch:string>` - Specify branch (defaults to current)
 - `workspace unbind` - Remove workspace binding from the current Git branch
