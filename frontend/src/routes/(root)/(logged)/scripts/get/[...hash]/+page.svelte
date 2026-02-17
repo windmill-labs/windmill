@@ -639,8 +639,9 @@
 					? async (newPath) => {
 							if (newPath !== script?.path) {
 								await goto(`/scripts/get/${newPath}?workspace=${$workspaceStore}`)
+							} else {
+								loadScript(page.params.hash ?? '')
 							}
-							loadScript(page.params.hash ?? '')
 						}
 					: undefined}
 			>
