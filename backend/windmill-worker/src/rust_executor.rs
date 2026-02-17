@@ -663,9 +663,7 @@ pub async fn handle_rust_job(
     append_logs(&job.id, &job.workspace_id, logs2, conn).await;
 
     let child = if is_sandboxing_enabled() {
-        let _ = write_file(
-            job_dir,
-            "run.config.proto",
+        let nsjail_config = crate::sandbox_setup::finalize_nsjail_config(
             &NSJAIL_CONFIG_RUN_RUST_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CACHE_DIR}", RUST_CACHE_DIR)
@@ -674,7 +672,8 @@ pub async fn handle_rust_job(
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
                 .replace("{SHARED_MOUNT}", shared_mount),
-        )?;
+        );
+        let _ = write_file(job_dir, "run.config.proto", &nsjail_config)?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
             .current_dir(job_dir)

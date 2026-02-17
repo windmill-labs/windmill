@@ -584,9 +584,7 @@ pub async fn handle_csharp_job(
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
 
     let child = if is_sandboxing_enabled() {
-        write_file(
-            job_dir,
-            "run.config.proto",
+        let nsjail_config = crate::sandbox_setup::finalize_nsjail_config(
             &NSJAIL_CONFIG_RUN_CSHARP_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CACHE_DIR}", CSHARP_CACHE_DIR)
@@ -595,7 +593,8 @@ pub async fn handle_csharp_job(
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL),
-        )?;
+        );
+        write_file(job_dir, "run.config.proto", &nsjail_config)?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
             .current_dir(job_dir)

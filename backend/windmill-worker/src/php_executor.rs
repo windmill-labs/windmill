@@ -294,14 +294,13 @@ try {{
     let (reserved_variables, _) = tokio::try_join!(reserved_variables_args_out_f, write_wrapper_f)?;
 
     let child = if is_sandboxing_enabled() {
-        let _ = write_file(
-            job_dir,
-            "run.config.proto",
+        let nsjail_config = crate::sandbox_setup::finalize_nsjail_config(
             &NSJAIL_CONFIG_RUN_PHP_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount),
-        )?;
+        );
+        let _ = write_file(job_dir, "run.config.proto", &nsjail_config)?;
 
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         let args = vec![

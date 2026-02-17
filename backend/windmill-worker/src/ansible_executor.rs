@@ -1180,9 +1180,7 @@ mount {{
                 )
             })
             .join("\n");
-        let _ = write_file(
-            job_dir,
-            "run.config.proto",
+        let nsjail_config = crate::sandbox_setup::finalize_nsjail_config(
             &NSJAIL_CONFIG_RUN_ANSIBLE_CONTENT
                 .replace("{PY_INSTALL_DIR}", PY_INSTALL_DIR)
                 .replace("{JOB_DIR}", job_dir)
@@ -1194,7 +1192,8 @@ mount {{
                     "{ADDITIONAL_PYTHON_PATHS}",
                     additional_python_paths_folders.as_str(),
                 ),
-        )?;
+        );
+        let _ = write_file(job_dir, "run.config.proto", &nsjail_config)?;
     } else {
         reserved_variables.insert("PYTHONPATH".to_string(), additional_python_paths_folders);
     }

@@ -119,6 +119,8 @@ hex.workspace = true
 tiberius = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true }
 tar.workspace = true
+flate2.workspace = true
+tempfile.workspace = true
 object_store = { workspace = true, optional = true}
 convert_case.workspace = true
 yaml-rust.workspace = true

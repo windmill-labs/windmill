@@ -1451,9 +1451,7 @@ try {{
 
     //do not cache local dependencies
     let child = if is_sandboxing_enabled() {
-        let _ = write_file(
-            job_dir,
-            "run.config.proto",
+        let nsjail_config = crate::sandbox_setup::finalize_nsjail_config(
             &NSJAIL_CONFIG_RUN_BUN_CONTENT
                 .replace("{LANG}", if annotation.nodejs { "nodejs" } else { "bun" })
                 .replace("{JOB_DIR}", job_dir)
@@ -1471,7 +1469,8 @@ try {{
                 )
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL),
-        )?;
+        );
+        let _ = write_file(job_dir, "run.config.proto", &nsjail_config)?;
 
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         let args = if annotation.nodejs {

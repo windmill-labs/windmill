@@ -793,9 +793,7 @@ mount {{
             })
             .join("\n");
 
-        write_file(
-            job_dir,
-            "run.config.proto",
+        let nsjail_config = crate::sandbox_setup::finalize_nsjail_config(
             &NSJAIL_CONFIG_RUN_RUBY_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{SHARED_MOUNT}", &shared_mount)
@@ -803,7 +801,8 @@ mount {{
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
-        )?;
+        );
+        write_file(job_dir, "run.config.proto", &nsjail_config)?;
         let mut cmd = Command::new(NSJAIL_PATH.as_str());
         cmd.env_clear()
             .current_dir(job_dir)

@@ -4147,7 +4147,7 @@ pub async fn run_language_executor(
         job.id
     );
 
-    let shared_mount = if job.same_worker && job.script_lang != Some(ScriptLang::Deno) {
+    let mut shared_mount = if job.same_worker && job.script_lang != Some(ScriptLang::Deno) {
         let folder = if job.script_lang == Some(ScriptLang::Go) {
             "/go"
         } else {
@@ -4167,7 +4167,45 @@ mount {{
         "".to_string()
     };
 
-    // println!("handle lang job {:?}",  SystemTime::now());
+    let sandbox_config = windmill_common::sandbox::parse_sandbox_config(&code);
+    let sandbox_setup = if sandbox_config.snapshot.is_some() || !sandbox_config.volumes.is_empty() {
+        let db = conn.as_sql().ok_or_else(|| {
+            Error::ExecutionErr("Sandbox features require SQL connection".to_string())
+        })?;
+        let mut setup = crate::sandbox_setup::SandboxSetupState::default();
+
+        if let Some(ref snap) = sandbox_config.snapshot {
+            let snapshot_path = crate::sandbox_setup::ensure_snapshot_cached(
+                &job.workspace_id, &snap.name, &snap.tag, db,
+            )
+            .await?;
+            setup.overlay =
+                Some(crate::sandbox_setup::mount_overlay(&snapshot_path, job_dir).await?);
+        }
+
+        for (vol_name, mount_path) in &sandbox_config.volumes {
+            let local_dir = format!("{job_dir}/volumes/{vol_name}");
+            std::fs::create_dir_all(&local_dir).map_err(|e| {
+                Error::ExecutionErr(format!("Failed to create volume dir: {e}"))
+            })?;
+            crate::sandbox_setup::download_volume(
+                &job.workspace_id,
+                vol_name,
+                std::path::Path::new(&local_dir),
+                db,
+            )
+            .await?;
+            setup.volume_mounts.insert(
+                vol_name.clone(),
+                (std::path::PathBuf::from(&local_dir), mount_path.clone()),
+            );
+        }
+
+        shared_mount.push_str(&crate::sandbox_setup::build_sandbox_mounts(&setup));
+        Some(setup)
+    } else {
+        None
+    };
 
     let envs = build_envs(envs.as_ref())?;
 
@@ -4623,7 +4661,26 @@ mount {{
         &lang_str,
         job.id
     );
-    // println!("handled job: {:?}",  SystemTime::now());
+
+    if let Some(ref setup) = sandbox_setup {
+        if let Some(db) = conn.as_sql() {
+            for (vol_name, (local_dir, _)) in &setup.volume_mounts {
+                if let Err(e) = crate::sandbox_setup::upload_volume(
+                    &job.workspace_id,
+                    vol_name,
+                    local_dir,
+                    db,
+                )
+                .await
+                {
+                    tracing::error!("Failed to upload volume {vol_name}: {e}");
+                }
+            }
+        }
+        if let Some(ref overlay) = setup.overlay {
+            crate::sandbox_setup::unmount_overlay(overlay).await.ok();
+        }
+    }
 
     result
 }

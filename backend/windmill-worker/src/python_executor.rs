@@ -800,9 +800,7 @@ mount {{
                 )
             })
             .join("\n");
-        let _ = write_file(
-            job_dir,
-            "run.config.proto",
+        let nsjail_config = crate::sandbox_setup::finalize_nsjail_config(
             &NSJAIL_CONFIG_RUN_PYTHON3_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{PY_INSTALL_DIR}", PY_INSTALL_DIR)
@@ -817,7 +815,8 @@ mount {{
                 )
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL),
-        )?;
+        );
+        let _ = write_file(job_dir, "run.config.proto", &nsjail_config)?;
     } else {
         reserved_variables.insert("PYTHONPATH".to_string(), additional_python_paths_folders);
     }

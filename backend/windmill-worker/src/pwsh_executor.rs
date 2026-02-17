@@ -518,15 +518,14 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
 
     let nsjail = is_sandboxing_enabled() && is_regular_job;
     let child = if nsjail {
-        let _ = write_file(
-            job_dir,
-            "run.config.proto",
+        let nsjail_config = crate::sandbox_setup::finalize_nsjail_config(
             &NSJAIL_CONFIG_RUN_POWERSHELL_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{CACHE_DIR}", POWERSHELL_CACHE_DIR),
-        )?;
+        );
+        let _ = write_file(job_dir, "run.config.proto", &nsjail_config)?;
         let cmd_args = vec![
             "--config",
             "run.config.proto",
