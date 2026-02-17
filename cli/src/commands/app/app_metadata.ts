@@ -272,10 +272,10 @@ async function filterWorkspaceDependenciesForApp(
   rawWorkspaceDependencies: Record<string, string>,
   folder: string
 ): Promise<Record<string, string>> {
-  // Collect all inline scripts
+  // Collect all inline scripts (use clone to avoid any mutations)
   const scripts: InlineScriptInfo[] = [];
 
-  await traverseAndProcessInlineScripts(appValue, async (inlineScript) => {
+  await traverseAndProcessInlineScripts(structuredClone(appValue), async (inlineScript) => {
     if (inlineScript.content && inlineScript.language) {
       scripts.push({
         content: inlineScript.content,
