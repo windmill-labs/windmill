@@ -31,7 +31,7 @@
 	} from '$lib/gen'
 
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { ChevronDown, Loader2, RefreshCcw } from 'lucide-svelte'
+	import { ChevronDown, Download, Loader2, RefreshCcw } from 'lucide-svelte'
 	import { onDestroy, untrack } from 'svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
@@ -279,6 +279,28 @@
 	let refresh = $state(0)
 	let lastRefresh = $state(-1)
 
+	function downloadAuditLogsAsJson() {
+		if (!logs || logs.length === 0) {
+			sendUserToast('No audit logs to download', true)
+			return
+		}
+
+		const jsonContent = JSON.stringify(logs, null, 2)
+		const blob = new Blob([jsonContent], { type: 'application/json' })
+		const url = URL.createObjectURL(blob)
+
+		const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+		const filename = `audit_logs_${$workspaceStore}_${timestamp}.json`
+
+		const link = document.createElement('a')
+		link.href = url
+		link.download = filename
+		document.body.appendChild(link)
+		link.click()
+		document.body.removeChild(link)
+		URL.revokeObjectURL(url)
+	}
+
 	// observe all the variables that should trigger an update
 	$effect(() => {
 		;[refresh, username, perPage, before, after, operation, resource, actionKind, scope, pageIndex]
@@ -437,6 +459,17 @@
 			unifiedSize="md"
 		>
 			Clear filters
+		</Button>
+		<Button
+			variant="subtle"
+			on:click={downloadAuditLogsAsJson}
+			unifiedSize="md"
+			title="Downloads currently displayed logs only (up to {perPage} entries)"
+		>
+			<div class="flex flex-row gap-1 items-center">
+				<Download size={14} />
+				Download JSON
+			</div>
 		</Button>
 		<Button
 			variant="accent"
