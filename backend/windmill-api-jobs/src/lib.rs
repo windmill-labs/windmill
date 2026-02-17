@@ -10,9 +10,11 @@ pub mod concurrency_groups;
 pub mod execution;
 pub mod job_metrics;
 pub mod jobs_export;
+pub mod negated_filter;
 pub mod query;
 pub mod types;
 
 pub use execution::*;
+pub use negated_filter::{NegatedFilter, NegatedListFilter};
 pub use query::*;
 pub use types::*;
