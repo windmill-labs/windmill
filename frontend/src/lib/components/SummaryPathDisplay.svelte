@@ -1,15 +1,19 @@
 <script lang="ts">
-	import { emptyString } from '$lib/utils'
-	import { Button } from '$lib/components/common'
+	import { emptyString, isOwner } from '$lib/utils'
+	import { Alert, Button } from '$lib/components/common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Path from '$lib/components/Path.svelte'
+	import { userStore, workspaceStore } from '$lib/stores'
+	import { sendUserToast } from '$lib/toast'
+	import { updateItemPathAndSummary, checkFlowOnBehalfOf } from './moveRenameManager'
+	import Label from './Label.svelte'
 
 	interface Props {
 		summary?: string
 		path?: string
 		editable?: boolean
-		onEdit?: (summary: string, path: string) => void
+		onSaved?: (newPath: string) => void
 		kind?: 'flow' | 'script'
 	}
 
@@ -17,7 +21,7 @@
 		summary = $bindable(''),
 		path = $bindable(''),
 		editable = false,
-		onEdit,
+		onSaved,
 		kind = 'flow'
 	}: Props = $props()
 
@@ -25,17 +29,46 @@
 	let editPath = $state('')
 	let dirtyPath = $state(false)
 	let popoverOpen = $state(false)
-	let hasChanges = $derived(editSummary !== (summary ?? '') || dirtyPath)
+	let own = $state(false)
+	let onBehalfOfEmail = $state<string | undefined>(undefined)
+	let hasChanges = $derived(editSummary !== (summary ?? '') || (own && dirtyPath))
 
 	$effect(() => {
-		if (popoverOpen && onEdit) {
+		if (popoverOpen && onSaved) {
 			editSummary = summary ?? ''
 			editPath = path ?? ''
+			own = isOwner(path ?? '', $userStore, $workspaceStore)
+			onBehalfOfEmail = undefined
+			if (kind === 'flow' && $workspaceStore && path) {
+				checkFlowOnBehalfOf($workspaceStore, path).then((email) => {
+					onBehalfOfEmail = email
+				})
+			}
 		}
 	})
+
+	async function save(close: () => void) {
+		const initialPath = path ?? ''
+		const newPath = own ? editPath : initialPath
+
+		try {
+			await updateItemPathAndSummary({
+				workspace: $workspaceStore!,
+				kind,
+				initialPath,
+				newPath,
+				newSummary: editSummary
+			})
+			sendUserToast(`${kind === 'flow' ? 'Flow' : 'Script'} updated`)
+			close()
+			onSaved?.(newPath)
+		} catch (e: any) {
+			sendUserToast(`Could not update ${kind}: ${e.body ?? e.message}`, true)
+		}
+	}
 </script>
 
-{#if editable || onEdit}
+{#if editable || onSaved}
 	<Popover
 		placement="bottom-start"
 		contentClasses="p-4"
@@ -61,47 +94,51 @@
 			</div>
 		{/snippet}
 		{#snippet content({ close })}
-			<div class="flex flex-col gap-3 w-[480px]">
-				{#if onEdit}
-					<label class="block text-primary">
-						<div class="pb-1 text-xs font-semibold text-emphasis">Summary</div>
+			<div class="flex flex-col gap-6 w-[480px]">
+				{#if onSaved}
+					<Label label="Summary">
 						<TextInput
 							inputProps={{
 								type: 'text',
 								placeholder: 'Short summary',
 								onkeydown: (e) => {
 									if (e.key === 'Enter') {
-										onEdit(editSummary, editPath)
-										close()
+										save(close)
 									}
 								}
 							}}
 							bind:value={editSummary}
 						/>
-					</label>
-					<div class="block text-primary">
-						<div class="pb-1 text-xs font-semibold text-emphasis">Path</div>
-						<Path
-							autofocus={false}
-							bind:path={editPath}
-							bind:dirty={dirtyPath}
-							initialPath={path ?? ''}
-							namePlaceholder={kind}
-							{kind}
-							hideFullPath
-							size="sm"
-							drawerOffset={4000}
-						/>
-					</div>
+					</Label>
+					<Label label="Path">
+						{#if own}
+							<Path
+								autofocus={false}
+								bind:path={editPath}
+								bind:dirty={dirtyPath}
+								initialPath={path ?? ''}
+								namePlaceholder={kind}
+								{kind}
+								hideFullPath
+								size="sm"
+								drawerOffset={4000}
+							/>
+						{:else}
+							<span class="text-xs font-mono text-secondary">{path}</span>
+							<p class="text-2xs text-tertiary mt-1">Only the owner can change the path</p>
+						{/if}
+					</Label>
+					{#if onBehalfOfEmail}
+						<Alert type="info" title="Run on behalf of" size="xs">
+							This flow will be redeployed on behalf of you ({$userStore?.email}) instead of {onBehalfOfEmail}
+						</Alert>
+					{/if}
 					<Button
 						size="xs"
 						variant="accent"
 						disabled={!hasChanges}
 						title="Save summary and path"
-						onclick={() => {
-							onEdit?.(editSummary, editPath)
-							close()
-						}}
+						onclick={() => save(close)}
 					>
 						Save
 					</Button>
@@ -140,7 +177,7 @@
 		{/snippet}
 	</Popover>
 {:else}
-	<div class="min-w-24 truncate flex flex-col">
+	<div class="min-w-24 truncate flex flex-col px-2">
 		{#if !emptyString(summary)}
 			<span class="text-[10px] leading-tight text-tertiary font-mono truncate">{path}</span>
 		{/if}

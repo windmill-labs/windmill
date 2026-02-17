@@ -635,6 +635,15 @@
 				}}
 				summary={script?.summary}
 				path={script?.path}
+				onSaved={can_write
+					? async (newPath) => {
+							if (newPath !== script?.path) {
+								await goto(`/scripts/get/${newPath}?workspace=${$workspaceStore}`)
+							} else {
+								loadScript(page.params.hash ?? '')
+							}
+						}
+					: undefined}
 			>
 				{#snippet trigger_badges()}
 					<TriggersBadge

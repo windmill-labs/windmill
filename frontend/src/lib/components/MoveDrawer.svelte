@@ -4,21 +4,28 @@
 	import { Alert, Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Path from './Path.svelte'
-	import { AppService, FlowService, ScriptService } from '$lib/gen'
 	import { isOwner } from '$lib/utils'
+	import { updateItemPathAndSummary, checkFlowOnBehalfOf } from './moveRenameManager'
+	import Label from './Label.svelte'
+	import TextInput from './text_input/TextInput.svelte'
 
 	const dispatch = createEventDispatcher()
 
 	type Kind = 'script' | 'resource' | 'schedule' | 'variable' | 'flow' | 'app'
 
-	let kind: Kind
-	let initialPath: string = ''
-	let path: string | undefined = undefined
-	let summary: undefined | string = undefined
+	let kind = $state<Kind>('flow')
+	let initialPath = $state('')
+	let initialSummary = $state('')
+	let path = $state<string | undefined>(undefined)
+	let summary = $state<string | undefined>(undefined)
+	let dirtyPath = $state(false)
 
-	let drawer: Drawer
+	let drawer = $state<Drawer>() as Drawer
 
-	let own = false
+	let own = $state(false)
+	let onBehalfOfEmail = $state<string | undefined>(undefined)
+	let hasChanges = $derived((summary ?? '') !== initialSummary || dirtyPath)
+
 	export async function openDrawer(
 		initialPath_l: string,
 		summary_l: string | undefined,
@@ -26,10 +33,16 @@
 	) {
 		kind = kind_l
 		path = undefined
+		dirtyPath = false
+		onBehalfOfEmail = undefined
 		initialPath = initialPath_l
+		initialSummary = summary_l ?? ''
 		summary = summary_l
 		loadOwner()
 		drawer.openDrawer()
+		if (kind === 'flow') {
+			onBehalfOfEmail = await checkFlowOnBehalfOf($workspaceStore!, initialPath_l)
+		}
 	}
 
 	function loadOwner() {
@@ -37,51 +50,13 @@
 	}
 
 	async function updatePath() {
-		if (kind == 'flow') {
-			const flow = await FlowService.getFlowByPath({
+		if (kind === 'flow' || kind === 'script' || kind === 'app') {
+			await updateItemPathAndSummary({
 				workspace: $workspaceStore!,
-				path: initialPath
-			})
-			await FlowService.updateFlow({
-				workspace: $workspaceStore!,
-				path: initialPath,
-				requestBody: {
-					path: path ?? '',
-					summary: summary ?? '',
-					description: flow.description,
-					value: flow.value,
-					schema: flow.schema,
-					tag: flow.tag,
-					dedicated_worker: flow.dedicated_worker,
-					ws_error_handler_muted: flow.ws_error_handler_muted,
-					visible_to_runner_only: flow.visible_to_runner_only,
-					on_behalf_of_email: flow.on_behalf_of_email
-				}
-			})
-		} else if (kind == 'script') {
-			const script = await ScriptService.getScriptByPath({
-				workspace: $workspaceStore!,
-				path: initialPath
-			})
-			script.summary = summary ?? ''
-			await ScriptService.createScript({
-				workspace: $workspaceStore!,
-				requestBody: {
-					...script,
-					description: script.description ?? '',
-					lock: script.lock,
-					parent_hash: script.hash,
-					path: path ?? ''
-				}
-			})
-		} else if (kind == 'app') {
-			await AppService.updateApp({
-				workspace: $workspaceStore!,
-				path: initialPath,
-				requestBody: {
-					path: path != initialPath ? path : undefined,
-					summary
-				}
+				kind,
+				initialPath,
+				newPath: path ?? '',
+				newSummary: summary ?? ''
 			})
 		}
 		dispatch('update', path)
@@ -92,24 +67,33 @@
 <Drawer bind:this={drawer}>
 	<DrawerContent title="Move/Rename {initialPath}" on:close={drawer.closeDrawer}>
 		{#if !own}
-			<Alert type="warning" title="Not owner">
+			<Alert type="warning" title="Not owner" class="mb-4">
 				Since you do not own this item, you cannot move this item (you can however fork it)
 			</Alert>
 		{/if}
-		<h2 class="border-b pb-1 mt-2 mb-4">Summary</h2>
-		<input
-			type="text"
-			bind:value={summary}
-			placeholder="Short summary to be displayed when listed"
-			disabled={!own}
-		/>
+		{#if own && onBehalfOfEmail}
+			<Alert type="info" title="Run on behalf of" class="mb-4">
+				This flow will be redeployed on behalf of you ({$userStore?.email}) instead of {onBehalfOfEmail}
+			</Alert>
+		{/if}
+		<Label label="Summary" class="mb-6">
+			<TextInput
+				inputProps={{
+					type: 'text',
+					placeholder: 'Short summary to be displayed when listed',
+					disabled: !own
+				}}
+				bind:value={summary}
+			/>
+		</Label>
 
-		<h2 class="border-b pb-1 mt-10 mb-4">Path</h2>
-		<div class="flex flex-col mb-2 gap-6">
-			<Path disabled={!own} {kind} {initialPath} bind:path />
-		</div>
+		<Label label="Path">
+			<Path disabled={!own} {kind} {initialPath} bind:path bind:dirty={dirtyPath} />
+		</Label>
 		{#snippet actions()}
-			<Button disabled={!own} on:click={updatePath}>Move/Rename</Button>
+			<Button variant="accent" disabled={!own || !hasChanges} on:click={updatePath}
+				>Move/Rename</Button
+			>
 		{/snippet}
 	</DrawerContent>
 </Drawer>
