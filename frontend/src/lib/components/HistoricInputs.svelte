@@ -104,10 +104,10 @@
 				filters: {
 					show_skipped: false,
 					path: runnableId,
-					success: 'running',
-					arg: searchArgs ? JSON.stringify(searchArgs) : '',
-					per_page: 5
+					status: 'running',
+					arg: searchArgs ? JSON.stringify(searchArgs) : ''
 				},
+				perPage: 5,
 				jobKinds: getJobKinds(runnableType),
 				syncQueuedRunsCount: false,
 				refreshRate: 10000,

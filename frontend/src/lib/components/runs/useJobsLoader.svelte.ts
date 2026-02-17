@@ -75,7 +75,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let lookback = $derived(_args.lookback ?? 0)
 	let onSetPerPage = $derived(_args.onSetPerPage)
 	let timeframe = $derived(_args?.timeframe)
-	let perPage = $derived(_args?.perPage ?? 100)
+	let perPage = $derived(_args?.perPage ?? 1000)
 
 	let label = $derived(filters?.label ?? null)
 	let worker = $derived(filters?.worker ?? null)
@@ -88,7 +88,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let schedulePath = $derived(filters?.schedule_path ?? null)
 	let jobKindsCat = $derived(filters?.job_kinds ?? null)
 	let allWorkspaces = $derived(filters?.all_workspaces ?? false)
-	let allowWildcards = _allowWildcards(filters)
+	let allowWildcards = $derived(_allowWildcards(filters))
 	let concurrencyKey = $derived(filters?.concurrency_key)
 	let tag = $derived(filters?.tag)
 	let user = $derived(filters?.user)
