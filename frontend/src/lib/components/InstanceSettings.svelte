@@ -556,7 +556,7 @@
 			.filter((s) => s.fieldType === 'password' || s.fieldType === 'license_key')
 			.map((s) => s.key),
 		'ducklake_user_pg_pwd',
-		'rsa_keys'
+		'jwt_secret'
 	])
 
 	// Settings that should never appear in YAML export/import
@@ -568,7 +568,8 @@
 		smtp_settings: ['smtp_password'],
 		secret_backend: ['token'],
 		object_store_cache_config: ['secret_key', 'serviceAccountKey'],
-		custom_instance_pg_databases: ['user_pwd']
+		custom_instance_pg_databases: ['user_pwd'],
+		rsa_keys: ['private_key']
 	}
 
 	/** Returns SENSITIVE_UNCHANGED if the value is non-empty and matches the initial */
@@ -635,6 +636,11 @@
 			if (excludedKeys.has(key)) continue
 			if (opts.normalize && normalizeValue(merged[key], key) === undefined) continue
 			obj[key] = merged[key]
+		}
+		// Strip runtime-only `databases` sub-field from custom_instance_pg_databases
+		if (obj['custom_instance_pg_databases']?.databases) {
+			obj['custom_instance_pg_databases'] = { ...obj['custom_instance_pg_databases'] }
+			delete obj['custom_instance_pg_databases'].databases
 		}
 		return YAML.stringify(opts.mask ? maskSensitive(obj) : obj)
 	}
@@ -704,6 +710,12 @@
 				if (key in $values) {
 					parsed[key] = $values[key]
 				}
+			}
+
+			// Preserve runtime-only `databases` sub-field in custom_instance_pg_databases
+			const existingDatabases = initialValues?.['custom_instance_pg_databases']?.databases
+			if (existingDatabases && parsed['custom_instance_pg_databases']) {
+				parsed['custom_instance_pg_databases'].databases = existingDatabases
 			}
 
 			$values = parsed

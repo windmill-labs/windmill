@@ -335,10 +335,18 @@ impl GlobalSettings {
         // including `extra` into a single map. skip_serializing_if ensures
         // None fields are omitted.
         let value = serde_json::to_value(self).expect("GlobalSettings serialization cannot fail");
-        match value {
+        let mut map: BTreeMap<String, serde_json::Value> = match value {
             serde_json::Value::Object(map) => map.into_iter().collect(),
             _ => unreachable!(),
+        };
+        // Strip runtime-only `databases` sub-field from custom_instance_pg_databases.
+        // It contains setup status/logs managed by the setup endpoint, not configuration.
+        if let Some(pg) = map.get_mut("custom_instance_pg_databases") {
+            if let Some(obj) = pg.as_object_mut() {
+                obj.remove("databases");
+            }
         }
+        map
     }
 }
 
@@ -941,11 +949,23 @@ pub fn diff_global_settings(
             );
             continue;
         }
-        let value = if key == "retention_period_secs" {
+        let mut value = if key == "retention_period_secs" {
             clamp_retention_period(desired_value.clone())
         } else {
             desired_value.clone()
         };
+        // Preserve the runtime-only `databases` sub-field inside
+        // `custom_instance_pg_databases` so that config sync never wipes
+        // setup status/logs that are managed by the setup endpoint.
+        if key == "custom_instance_pg_databases" {
+            if let Some(existing) = current.get(key) {
+                if let Some(databases) = existing.get("databases") {
+                    if let Some(obj) = value.as_object_mut() {
+                        obj.entry("databases").or_insert_with(|| databases.clone());
+                    }
+                }
+            }
+        }
         match current.get(key) {
             Some(existing) if *existing == value => {
                 unchanged_count += 1;
