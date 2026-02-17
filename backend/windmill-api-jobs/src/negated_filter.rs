@@ -70,8 +70,8 @@ impl<'de, T: DeserializeOwned> de::Deserialize<'de> for NegatedFilter<T> {
 
 /// A comma-separated list of filter values, all sharing the same negation sense.
 ///
-/// Deserializes `"schedule,email"` → `{ values: [Schedule, Email], negated: false }`
-/// Deserializes `"!schedule,!email"` → `{ values: [Schedule, Email], negated: true }`
+/// Deserializes `"schedule,email"` → `NegatedListFilter { values: [Schedule, Email], negated: false }`
+/// Deserializes `"!schedule,!email"` → `NegatedListFilter { values: [Schedule, Email], negated: true }`
 ///
 /// The `!` is read from the **first** item only; subsequent items may or may not carry
 /// `!` and it is stripped regardless, keeping the API forgiving.
@@ -79,6 +79,12 @@ impl<'de, T: DeserializeOwned> de::Deserialize<'de> for NegatedFilter<T> {
 pub struct NegatedListFilter<T> {
     pub values: Vec<T>,
     pub negated: bool,
+}
+
+impl<T> NegatedListFilter<T> {
+    pub fn positive(values: Vec<T>) -> Self {
+        Self { values, negated: false }
+    }
 }
 
 struct NegatedListFilterVisitor<T>(PhantomData<T>);
