@@ -35,7 +35,7 @@
 	import Select from '$lib/components/select/Select.svelte'
 	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
 	import { StaleWhileLoading, useLocalStorageValue } from '$lib/svelte5Utils.svelte'
-	import { TriangleAlertIcon } from 'lucide-svelte'
+	import { CircleAlert, CircleCheck, CirclePlay, Hourglass, TriangleAlertIcon } from 'lucide-svelte'
 	import DropdownV2 from './DropdownV2.svelte'
 	import TimeframeSelect, {
 		buildManualTimeframe,
@@ -44,6 +44,10 @@
 	} from './runs/TimeframeSelect.svelte'
 	import FilterSearchbar, { useUrlSyncedFilterInstance } from './FilterSearchbar.svelte'
 	import { jobTriggerKinds } from './triggers/utils'
+	import RunOption from './runs/RunOption.svelte'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import ToggleButtonMore from './common/toggleButton-v2/ToggleButtonMore.svelte'
 
 	interface Props {
 		/** Initial path from route params (e.g., /runs/u/user/script) */
@@ -534,6 +538,112 @@
 				/>
 			</div>
 
+			<div class="hidden xl:flex gap-2 ml-2">
+				<ToggleButtonGroup
+					bind:selected={
+						() => filters.val.job_kinds,
+						(v) => (v === 'runs' ? delete filters.val.job_kinds : (filters.val.job_kinds = v))
+					}
+				>
+					{#snippet children({ item })}
+						<ToggleButton value="all" label="All" {item} />
+						<ToggleButton
+							value="runs"
+							label="Runs"
+							showTooltipIcon
+							tooltip="Runs are jobs that have no parent jobs (flows are jobs that are parent of the jobs they start), they have been triggered through the UI, a schedule or webhook"
+							{item}
+						/>
+						<ToggleButton
+							value="dependencies"
+							label="Deps"
+							showTooltipIcon
+							tooltip="Deploying a script, flow or an app launch a dependency job that create and then attach the lockfile to the deployed item. This mechanism ensure that logic is always executed with the exact same direct and indirect dependencies."
+							{item}
+						/>
+						<ToggleButtonMore
+							togglableItems={[
+								{
+									label: 'Previews',
+									value: 'previews',
+									tooltip: "Previews are jobs that have been started in the editor as 'Tests'"
+								},
+								{
+									label: 'Sync',
+									value: 'deploymentcallbacks',
+									tooltip:
+										'Sync jobs that are triggered on every script deployment to sync the workspace with the Git repository configured in the the workspace settings'
+								}
+							]}
+							{item}
+							bind:selected={filters.val.job_kinds}
+						/>
+					{/snippet}
+				</ToggleButtonGroup>
+				<ToggleButtonGroup
+					bind:selected={
+						() => filters.val.status ?? 'all',
+						(v) => (v === 'all' ? delete filters.val.status : (filters.val.status = v))
+					}
+					id="status"
+				>
+					{#snippet children({ item })}
+						<ToggleButton value={'all'} label="All" {item} />
+						<ToggleButton
+							value={'running'}
+							tooltip="Running"
+							class="whitespace-nowrap"
+							icon={CirclePlay}
+							iconProps={{
+								class:
+									'group-data-[state=on]:text-yellow-600 dark:group-data-[state=on]:text-yellow-400'
+							}}
+							{item}
+						/>
+						<ToggleButton
+							value={'success'}
+							tooltip="Success"
+							class="whitespace-nowrap"
+							icon={CircleCheck}
+							iconProps={{
+								class:
+									'group-data-[state=on]:text-green-500 dark:group-data-[state=on]:text-green-300'
+							}}
+							{item}
+						/>
+						<ToggleButton
+							value={'failure'}
+							tooltip="Failure"
+							class="whitespace-nowrap"
+							icon={CircleAlert}
+							iconProps={{
+								class: 'group-data-[state=on]:text-red-500 dark:group-data-[state=on]:text-red-300'
+							}}
+							{item}
+						/>
+						{#if filters.val.status == 'waiting'}
+							<ToggleButton
+								value={'waiting'}
+								tooltip="Waiting"
+								class="whitespace-nowrap"
+								icon={Hourglass}
+								selectedColor="blue"
+								{item}
+							/>
+						{:else if filters.val.status == 'suspended'}
+							<ToggleButton
+								value={'suspended'}
+								tooltip="Suspended"
+								class="whitespace-nowrap"
+								icon={Hourglass}
+								selectedColor="purple"
+								{item}
+							/>
+						{/if}
+					{/snippet}
+				</ToggleButtonGroup>
+			</div>
+
 			<div class="flex gap-2 ml-auto">
 				<TimeframeSelect
 					onClick={() => jobsLoader?.loadJobs(true)}
@@ -542,7 +652,7 @@
 					bind:value={_timeframe.timeframe}
 				/>
 				<FilterSearchbar
-					class="w-[24rem]"
+					class="w-[20rem] 2xl:w-[24rem]"
 					schema={runsFilterSearchbarSchema}
 					bind:value={filters.val}
 				/>
