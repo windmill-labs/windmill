@@ -13,14 +13,18 @@
 
 	type Kind = 'script' | 'resource' | 'schedule' | 'variable' | 'flow' | 'app'
 
-	let kind: Kind
-	let initialPath: string = ''
-	let path: string | undefined = undefined
-	let summary: undefined | string = undefined
+	let kind = $state<Kind>('flow')
+	let initialPath = $state('')
+	let initialSummary = $state('')
+	let path = $state<string | undefined>(undefined)
+	let summary = $state<string | undefined>(undefined)
+	let dirtyPath = $state(false)
 
-	let drawer: Drawer
+	let drawer = $state<Drawer>() as Drawer
 
-	let own = false
+	let own = $state(false)
+	let hasChanges = $derived((summary ?? '') !== initialSummary || dirtyPath)
+
 	export async function openDrawer(
 		initialPath_l: string,
 		summary_l: string | undefined,
@@ -28,7 +32,9 @@
 	) {
 		kind = kind_l
 		path = undefined
+		dirtyPath = false
 		initialPath = initialPath_l
+		initialSummary = summary_l ?? ''
 		summary = summary_l
 		loadOwner()
 		drawer.openDrawer()
@@ -72,10 +78,10 @@
 		</Label>
 
 		<Label label="Path">
-			<Path disabled={!own} {kind} {initialPath} bind:path />
+			<Path disabled={!own} {kind} {initialPath} bind:path bind:dirty={dirtyPath} />
 		</Label>
 		{#snippet actions()}
-			<Button variant="accent" disabled={!own} on:click={updatePath}>Move/Rename</Button>
+			<Button variant="accent" disabled={!own || !hasChanges} on:click={updatePath}>Move/Rename</Button>
 		{/snippet}
 	</DrawerContent>
 </Drawer>
