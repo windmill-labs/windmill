@@ -137,7 +137,7 @@
 					placeholder={emailsLoading ? 'Loading...' : 'Select or type an email'}
 					loading={emailsLoading}
 					disablePortal={true}
-					error={displayEmailError}
+					error={!!displayEmailError}
 				/>
 			{:else}
 				<TextInput
@@ -147,7 +147,7 @@
 						placeholder: 'email'
 					}}
 					bind:value={email}
-					error={displayEmailError}
+					error={displayEmailError ?? ''}
 				/>
 			{/if}
 			<InputError error={displayEmailError} />
