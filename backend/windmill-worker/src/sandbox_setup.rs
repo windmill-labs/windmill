@@ -48,9 +48,12 @@ pub fn build_sandbox_mounts(setup: &SandboxSetupState) -> String {
     mounts
 }
 
-/// Post-process an nsjail config string. If the overlay marker is present,
-/// remove bind mounts for system directories (/bin, /lib, /lib64, /usr, /etc)
-/// since the overlay root mount provides them.
+/// Post-process an nsjail config string. If the overlay marker is present:
+/// 1. Remove bind mounts for system directories (/bin, /lib, /lib64, /usr, /etc)
+///    since the overlay root mount provides them.
+/// 2. Move the overlay root mount (`dst: "/"`) to be the FIRST mount block.
+///    nsjail applies mounts in order, so the root bind must come before
+///    tmpfs/bind mounts that go on top of it.
 /// If no overlay marker is present, returns the config unchanged.
 pub fn finalize_nsjail_config(config: &str) -> String {
     if !config.contains(OVERLAY_MARKER) {
@@ -59,9 +62,11 @@ pub fn finalize_nsjail_config(config: &str) -> String {
 
     let system_dirs: &[&str] = &["/bin", "/lib", "/lib64", "/usr", "/etc"];
     let mut result_lines: Vec<&str> = Vec::new();
+    let mut overlay_root_lines: Vec<&str> = Vec::new();
     let mut in_mount_block = false;
     let mut mount_block_start = 0;
     let mut should_remove_block = false;
+    let mut is_overlay_root = false;
 
     let lines: Vec<&str> = config.lines().collect();
     let mut i = 0;
@@ -78,6 +83,7 @@ pub fn finalize_nsjail_config(config: &str) -> String {
             in_mount_block = true;
             mount_block_start = result_lines.len();
             should_remove_block = false;
+            is_overlay_root = false;
             result_lines.push(lines[i]);
             i += 1;
             continue;
@@ -92,11 +98,20 @@ pub fn finalize_nsjail_config(config: &str) -> String {
                     if system_dirs.contains(&dst) {
                         should_remove_block = true;
                     }
+                    if dst == "/" {
+                        is_overlay_root = true;
+                    }
                 }
             }
 
             if trimmed == "}" {
                 if should_remove_block {
+                    result_lines.truncate(mount_block_start);
+                } else if is_overlay_root {
+                    // Extract overlay root block — will be prepended later
+                    overlay_root_lines
+                        .extend_from_slice(&result_lines[mount_block_start..]);
+                    overlay_root_lines.push(lines[i]);
                     result_lines.truncate(mount_block_start);
                 } else {
                     result_lines.push(lines[i]);
@@ -115,6 +130,25 @@ pub fn finalize_nsjail_config(config: &str) -> String {
 
         result_lines.push(lines[i]);
         i += 1;
+    }
+
+    // Insert overlay root mount as the FIRST mount block
+    if !overlay_root_lines.is_empty() {
+        let first_mount_pos = result_lines.iter().position(|line| {
+            let t = line.trim();
+            t.starts_with("mount {") || t == "mount {"
+        });
+
+        match first_mount_pos {
+            Some(pos) => {
+                for (j, line) in overlay_root_lines.iter().enumerate() {
+                    result_lines.insert(pos + j, line);
+                }
+            }
+            None => {
+                result_lines.extend(overlay_root_lines.iter());
+            }
+        }
     }
 
     result_lines.join("\n")
@@ -1179,5 +1213,335 @@ mod tests {
                 "fake-lib"
             );
         }
+    }
+
+    // =========================================================================
+    // Integration tests: nsjail execution (requires nsjail binary)
+    // =========================================================================
+
+    mod nsjail_integration {
+        use super::*;
+        use std::process::Command;
+
+        fn nsjail_available() -> bool {
+            Command::new("nsjail")
+                .arg("--help")
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+        }
+
+        /// Helper: create a minimal nsjail bash config, run it, return (stdout, stderr, exit_code).
+        /// The `extra_shared_mount` string is inserted at the `{SHARED_MOUNT}` placeholder.
+        fn run_nsjail_bash(
+            job_dir: &Path,
+            main_script: &str,
+            extra_shared_mount: &str,
+        ) -> (String, String, i32) {
+            std::fs::write(job_dir.join("main.sh"), main_script).unwrap();
+            std::fs::write(
+                job_dir.join("wrapper.sh"),
+                "#!/bin/bash\n/bin/bash /tmp/main.sh\n",
+            )
+            .unwrap();
+
+            // nsjail bind-mounts these files, so they must exist
+            std::fs::write(job_dir.join("result.json"), "").unwrap();
+            std::fs::write(job_dir.join("result.out"), "").unwrap();
+            std::fs::write(job_dir.join("result2.out"), "").unwrap();
+
+            let raw_config = include_str!("../nsjail/run.bash.config.proto");
+            let config = raw_config
+                .replace("{JOB_DIR}", &job_dir.to_string_lossy())
+                .replace("{CLONE_NEWUSER}", "true")
+                .replace("{SHARED_MOUNT}", extra_shared_mount)
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", "/dev/null")
+                .replace("#{DEV}", "");
+
+            let final_config = finalize_nsjail_config(&config);
+            std::fs::write(job_dir.join("run.config.proto"), &final_config).unwrap();
+
+            let output = Command::new("nsjail")
+                .args(["--config", "run.config.proto", "--", "/bin/bash", "wrapper.sh"])
+                .current_dir(job_dir)
+                .output()
+                .expect("Failed to execute nsjail");
+
+            (
+                String::from_utf8_lossy(&output.stdout).to_string(),
+                String::from_utf8_lossy(&output.stderr).to_string(),
+                output.status.code().unwrap_or(-1),
+            )
+        }
+
+        #[test]
+        fn test_nsjail_basic_bash_execution() {
+            if !nsjail_available() {
+                eprintln!("Skipping: nsjail not available");
+                return;
+            }
+
+            let job_dir = tempfile::tempdir().unwrap();
+            let (stdout, stderr, exit_code) = run_nsjail_bash(
+                job_dir.path(),
+                "#!/bin/bash\necho 'hello from nsjail' > /tmp/result.out\n",
+                "",
+            );
+
+            if exit_code != 0 {
+                eprintln!("nsjail stdout: {stdout}");
+                eprintln!("nsjail stderr: {stderr}");
+            }
+            assert_eq!(exit_code, 0, "nsjail should exit successfully");
+
+            let result = std::fs::read_to_string(job_dir.path().join("result.out")).unwrap();
+            assert_eq!(result.trim(), "hello from nsjail");
+        }
+
+        #[test]
+        fn test_nsjail_bash_with_volume_read() {
+            if !nsjail_available() {
+                eprintln!("Skipping: nsjail not available");
+                return;
+            }
+
+            let job_dir = tempfile::tempdir().unwrap();
+
+            // Create a volume dir with test data
+            let vol_dir = job_dir.path().join("volumes/data");
+            std::fs::create_dir_all(&vol_dir).unwrap();
+            std::fs::write(vol_dir.join("input.txt"), "volume data here").unwrap();
+
+            let mut setup = SandboxSetupState::default();
+            setup.volume_mounts.insert(
+                "data".to_string(),
+                (vol_dir, "/workspace/data".to_string()),
+            );
+            let sandbox_mounts = build_sandbox_mounts(&setup);
+
+            let (stdout, stderr, exit_code) = run_nsjail_bash(
+                job_dir.path(),
+                "#!/bin/bash\ncat /workspace/data/input.txt > /tmp/result.out\n",
+                &sandbox_mounts,
+            );
+
+            if exit_code != 0 {
+                eprintln!("nsjail stdout: {stdout}");
+                eprintln!("nsjail stderr: {stderr}");
+            }
+            assert_eq!(exit_code, 0, "nsjail with volume should exit successfully");
+
+            let result = std::fs::read_to_string(job_dir.path().join("result.out")).unwrap();
+            assert_eq!(result.trim(), "volume data here");
+        }
+
+        #[test]
+        fn test_nsjail_bash_volume_write_back() {
+            if !nsjail_available() {
+                eprintln!("Skipping: nsjail not available");
+                return;
+            }
+
+            let job_dir = tempfile::tempdir().unwrap();
+
+            // Create an empty volume dir
+            let vol_dir = job_dir.path().join("volumes/output");
+            std::fs::create_dir_all(&vol_dir).unwrap();
+
+            let mut setup = SandboxSetupState::default();
+            setup.volume_mounts.insert(
+                "output".to_string(),
+                (vol_dir.clone(), "/workspace/output".to_string()),
+            );
+            let sandbox_mounts = build_sandbox_mounts(&setup);
+
+            let (stdout, stderr, exit_code) = run_nsjail_bash(
+                job_dir.path(),
+                "#!/bin/bash\necho 'written by nsjail' > /workspace/output/result.txt\necho 'done' > /tmp/result.out\n",
+                &sandbox_mounts,
+            );
+
+            if exit_code != 0 {
+                eprintln!("nsjail stdout: {stdout}");
+                eprintln!("nsjail stderr: {stderr}");
+            }
+            assert_eq!(exit_code, 0, "nsjail should exit successfully");
+
+            // Verify the script wrote to the volume dir (rw bind mount)
+            let written = std::fs::read_to_string(vol_dir.join("result.txt")).unwrap();
+            assert_eq!(written.trim(), "written by nsjail");
+        }
+
+        #[test]
+        fn test_nsjail_bash_with_overlay_root() {
+            if !nsjail_available() {
+                eprintln!("Skipping: nsjail not available");
+                return;
+            }
+
+            let job_dir = tempfile::tempdir().unwrap();
+
+            // Use "/" as the "snapshot" merged dir. This simulates what overlayfs
+            // would produce — a full rootfs. finalize_nsjail_config strips individual
+            // system dir mounts (/bin, /lib, /usr, /etc) and the root bind mount
+            // makes them available through "/".
+            let setup = SandboxSetupState {
+                overlay: Some(OverlayMount {
+                    merged: PathBuf::from("/"),
+                    upper: PathBuf::from("/unused"),
+                    work: PathBuf::from("/unused"),
+                }),
+                volume_mounts: HashMap::new(),
+            };
+            let sandbox_mounts = build_sandbox_mounts(&setup);
+
+            let (stdout, stderr, exit_code) = run_nsjail_bash(
+                job_dir.path(),
+                "#!/bin/bash\nuname -s > /tmp/result.out\n",
+                &sandbox_mounts,
+            );
+
+            if exit_code != 0 {
+                eprintln!("nsjail stdout: {stdout}");
+                eprintln!("nsjail stderr: {stderr}");
+            }
+            assert_eq!(
+                exit_code, 0,
+                "nsjail with overlay root should exit successfully"
+            );
+
+            let result = std::fs::read_to_string(job_dir.path().join("result.out")).unwrap();
+            assert_eq!(result.trim(), "Linux");
+        }
+
+        #[test]
+        fn test_nsjail_bash_overlay_with_volume() {
+            if !nsjail_available() {
+                eprintln!("Skipping: nsjail not available");
+                return;
+            }
+
+            let job_dir = tempfile::tempdir().unwrap();
+
+            // Volume dir with input
+            let vol_dir = job_dir.path().join("volumes/shared");
+            std::fs::create_dir_all(&vol_dir).unwrap();
+            std::fs::write(vol_dir.join("config.yaml"), "key: value").unwrap();
+
+            // Overlay root + volume mount. Mount under /tmp/volumes/ which is
+            // writable (tmpfs) inside the sandbox. nsjail can create dirs there.
+            let mut setup = SandboxSetupState {
+                overlay: Some(OverlayMount {
+                    merged: PathBuf::from("/"),
+                    upper: PathBuf::from("/unused"),
+                    work: PathBuf::from("/unused"),
+                }),
+                volume_mounts: HashMap::new(),
+            };
+            setup.volume_mounts.insert(
+                "shared".to_string(),
+                (vol_dir.clone(), "/tmp/volumes/shared".to_string()),
+            );
+            let sandbox_mounts = build_sandbox_mounts(&setup);
+
+            let (stdout, stderr, exit_code) = run_nsjail_bash(
+                job_dir.path(),
+                "#!/bin/bash\ncat /tmp/volumes/shared/config.yaml > /tmp/result.out\necho 'output' > /tmp/volumes/shared/output.txt\n",
+                &sandbox_mounts,
+            );
+
+            if exit_code != 0 {
+                eprintln!("nsjail stdout: {stdout}");
+                eprintln!("nsjail stderr: {stderr}");
+            }
+            assert_eq!(exit_code, 0);
+
+            // Verify read from volume
+            let result = std::fs::read_to_string(job_dir.path().join("result.out")).unwrap();
+            assert_eq!(result.trim(), "key: value");
+
+            // Verify write to volume
+            let output = std::fs::read_to_string(vol_dir.join("output.txt")).unwrap();
+            assert_eq!(output.trim(), "output");
+        }
+
+        #[test]
+        fn test_nsjail_bash_result_json() {
+            if !nsjail_available() {
+                eprintln!("Skipping: nsjail not available");
+                return;
+            }
+
+            let job_dir = tempfile::tempdir().unwrap();
+
+            let (stdout, stderr, exit_code) = run_nsjail_bash(
+                job_dir.path(),
+                "#!/bin/bash\necho '{\"status\": \"ok\", \"count\": 42}' > /tmp/result.json\necho 'done' > /tmp/result.out\n",
+                "",
+            );
+
+            if exit_code != 0 {
+                eprintln!("nsjail stdout: {stdout}");
+                eprintln!("nsjail stderr: {stderr}");
+            }
+            assert_eq!(exit_code, 0);
+
+            let result_json = std::fs::read_to_string(job_dir.path().join("result.json")).unwrap();
+            let parsed: serde_json::Value = serde_json::from_str(result_json.trim()).unwrap();
+            assert_eq!(parsed["status"], "ok");
+            assert_eq!(parsed["count"], 42);
+        }
+    }
+
+    // =========================================================================
+    // Tests that require special system setup (marked #[ignore])
+    // =========================================================================
+
+    /// mount_overlay requires root privileges to call `mount -t overlay`.
+    /// Run manually with: cargo test test_mount_overlay -- --ignored
+    #[test]
+    #[ignore]
+    fn test_mount_overlay_and_unmount() {
+        let snapshot_dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(snapshot_dir.path().join("usr/bin")).unwrap();
+        std::fs::write(snapshot_dir.path().join("usr/bin/hello"), "#!/bin/sh\necho hi").unwrap();
+
+        let job_dir = tempfile::tempdir().unwrap();
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let overlay = rt
+            .block_on(mount_overlay(
+                snapshot_dir.path(),
+                &job_dir.path().to_string_lossy(),
+            ))
+            .expect("mount_overlay should succeed (requires root)");
+
+        assert!(overlay.merged.exists());
+        assert!(overlay
+            .merged
+            .join("usr/bin/hello")
+            .exists());
+
+        // Write to the overlay (goes to upper layer)
+        std::fs::write(overlay.merged.join("new_file.txt"), "writable").unwrap();
+        assert!(overlay.upper.join("new_file.txt").exists());
+
+        rt.block_on(unmount_overlay(&overlay))
+            .expect("unmount_overlay should succeed");
+    }
+
+    /// build_snapshot requires `crane` CLI tool to export Docker images.
+    /// Run manually with: cargo test test_build_snapshot -- --ignored
+    #[cfg(feature = "parquet")]
+    #[test]
+    #[ignore]
+    fn test_build_snapshot_requires_crane() {
+        // This test validates the build_snapshot function.
+        // It requires:
+        //   - `crane` binary installed (go install github.com/google/go-containerregistry/cmd/crane@latest)
+        //   - Docker image accessible (e.g., alpine:latest)
+        //   - A database connection with the sandbox_snapshot table
+        //   - S3 object store configured
+        // Cannot be run in standard test environments.
     }
 }
