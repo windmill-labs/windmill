@@ -286,6 +286,19 @@ pub async fn set_global_setting_internal(
 
     run_setting_pre_write_hook(db, &key, &value).await?;
 
+    if key == "jwt_secret" {
+        match &value {
+            serde_json::Value::Null | serde_json::Value::String(_)
+                if value.as_str().map_or(true, |s| s.is_empty()) =>
+            {
+                return Err(error::Error::BadRequest(
+                    "jwt_secret cannot be set to empty or null".to_string(),
+                ));
+            }
+            _ => {}
+        }
+    }
+
     match value {
         serde_json::Value::Null => {
             delete_global_setting(db, &key).await?;

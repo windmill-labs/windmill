@@ -763,6 +763,9 @@ pub const PROTECTED_SETTINGS: &[&str] = &[
 ];
 
 /// Internal settings that are never exposed via the API or included in config exports.
+/// Note: jwt_secret is intentionally NOT hidden — it is included in YAML exports so that
+/// operators can set it via ConfigMap. It is protected from deletion (PROTECTED_SETTINGS)
+/// and from being set to empty/null, and its value is partially redacted in log output.
 pub const HIDDEN_SETTINGS: &[&str] = &["uid", "rsa_keys", "min_keep_alive_version"];
 
 /// Top-level settings whose entire value is sensitive and must be fully redacted in logs.
@@ -833,12 +836,14 @@ fn mask_nested_sensitive(key: &str, value: &serde_json::Value) -> serde_json::Va
 }
 
 fn redact_string(s: &str) -> String {
-    let len = s.len();
-    if len <= 6 {
+    let char_count = s.chars().count();
+    if char_count <= 6 {
         "****".to_string()
     } else {
-        let show = (len / 4).min(4);
-        format!("{}****{}", &s[..show], &s[len - show..])
+        let show = (char_count / 4).min(4);
+        let prefix: String = s.chars().take(show).collect();
+        let suffix: String = s.chars().skip(char_count - show).collect();
+        format!("{prefix}****{suffix}")
     }
 }
 
