@@ -27,6 +27,8 @@ use windmill_common::{
 
 use windmill_api_sse::{Job, JobExtended};
 
+use crate::negated_filter::NegatedFilter;
+
 // ------------ RunJobQuery ------------
 
 #[derive(Debug, Deserialize, Clone, Default)]
@@ -90,9 +92,9 @@ impl RunJobQuery {
 #[derive(Deserialize, Clone)]
 pub struct ListQueueQuery {
     pub script_path_start: Option<String>,
-    pub script_path_exact: Option<String>,
+    pub script_path_exact: Option<NegatedFilter<String>>,
     pub script_hash: Option<String>,
-    pub created_by: Option<String>,
+    pub created_by: Option<NegatedFilter<String>>,
     pub started_before: Option<chrono::DateTime<chrono::Utc>>,
     pub started_after: Option<chrono::DateTime<chrono::Utc>>,
     pub created_before: Option<chrono::DateTime<chrono::Utc>>,
@@ -105,10 +107,10 @@ pub struct ListQueueQuery {
     pub order_desc: Option<bool>,
     pub job_kinds: Option<String>,
     pub suspended: Option<bool>,
-    pub worker: Option<String>,
+    pub worker: Option<NegatedFilter<String>>,
     // filter by matching a subset of the args using base64 encoded json subset
     pub args: Option<String>,
-    pub tag: Option<String>,
+    pub tag: Option<NegatedFilter<String>>,
     pub scheduled_for_before_now: Option<bool>,
     pub all_workspaces: Option<bool>,
     pub is_flow_step: Option<bool>,
@@ -116,17 +118,17 @@ pub struct ListQueueQuery {
     pub is_not_schedule: Option<bool>,
     pub concurrency_key: Option<String>,
     pub allow_wildcards: Option<bool>,
-    pub trigger_kind: Option<JobTriggerKind>,
-    pub trigger_path: Option<String>,
+    pub trigger_kind: Option<NegatedFilter<JobTriggerKind>>,
+    pub trigger_path: Option<NegatedFilter<String>>,
     pub include_args: Option<bool>,
 }
 
 #[derive(Deserialize, Clone)]
 pub struct ListCompletedQuery {
     pub script_path_start: Option<String>,
-    pub script_path_exact: Option<String>,
+    pub script_path_exact: Option<NegatedFilter<String>>,
     pub script_hash: Option<String>,
-    pub created_by: Option<String>,
+    pub created_by: Option<NegatedFilter<String>>,
     pub started_before: Option<chrono::DateTime<chrono::Utc>>,
     pub started_after: Option<chrono::DateTime<chrono::Utc>>,
     pub created_before: Option<chrono::DateTime<chrono::Utc>>,
@@ -151,17 +153,17 @@ pub struct ListCompletedQuery {
     pub args: Option<String>,
     // filter by matching a subset of the result using base64 encoded json subset
     pub result: Option<String>,
-    pub tag: Option<String>,
+    pub tag: Option<NegatedFilter<String>>,
     pub scheduled_for_before_now: Option<bool>,
     pub all_workspaces: Option<bool>,
     pub has_null_parent: Option<bool>,
-    pub label: Option<String>,
+    pub label: Option<NegatedFilter<String>>,
     pub is_not_schedule: Option<bool>,
     pub concurrency_key: Option<String>,
-    pub worker: Option<String>,
+    pub worker: Option<NegatedFilter<String>>,
     pub allow_wildcards: Option<bool>,
-    pub trigger_kind: Option<JobTriggerKind>,
-    pub trigger_path: Option<String>,
+    pub trigger_kind: Option<NegatedFilter<JobTriggerKind>>,
+    pub trigger_path: Option<NegatedFilter<String>>,
     pub include_args: Option<bool>,
 }
 
@@ -578,8 +580,7 @@ mod tests {
 
     #[test]
     fn test_decode_payload_valid() {
-        let payload = base64::engine::general_purpose::STANDARD
-            .encode(r#"{"key": "value"}"#);
+        let payload = base64::engine::general_purpose::STANDARD.encode(r#"{"key": "value"}"#);
         let result: HashMap<String, serde_json::Value> = decode_payload(payload).unwrap();
         assert_eq!(result["key"], json!("value"));
     }
@@ -644,22 +645,15 @@ mod tests {
 
     #[test]
     fn test_run_job_query_payload_as_args_valid() {
-        let encoded = base64::engine::general_purpose::STANDARD
-            .encode(r#"{"x": 42}"#);
-        let q = RunJobQuery {
-            payload: Some(encoded),
-            ..Default::default()
-        };
+        let encoded = base64::engine::general_purpose::STANDARD.encode(r#"{"x": 42}"#);
+        let q = RunJobQuery { payload: Some(encoded), ..Default::default() };
         let result = q.payload_as_args().unwrap();
         assert!(result.contains_key("x"));
     }
 
     #[test]
     fn test_run_job_query_payload_as_args_invalid() {
-        let q = RunJobQuery {
-            payload: Some("invalid!!!".to_string()),
-            ..Default::default()
-        };
+        let q = RunJobQuery { payload: Some("invalid!!!".to_string()), ..Default::default() };
         assert!(q.payload_as_args().is_err());
     }
 
@@ -671,7 +665,7 @@ mod tests {
             script_path_start: Some("f/test".to_string()),
             script_path_exact: None,
             script_hash: None,
-            created_by: Some("admin".to_string()),
+            created_by: Some(NegatedFilter::positive("admin".to_string())),
             started_before: None,
             started_after: None,
             created_before: Some(chrono::Utc::now()),
@@ -694,7 +688,7 @@ mod tests {
             schedule_path: None,
             args: None,
             result: None,
-            tag: Some("custom".to_string()),
+            tag: Some(NegatedFilter::positive("custom".to_string())),
             scheduled_for_before_now: None,
             all_workspaces: None,
             has_null_parent: None,
@@ -710,10 +704,10 @@ mod tests {
 
         let lqq: ListQueueQuery = lcq.into();
         assert_eq!(lqq.script_path_start, Some("f/test".to_string()));
-        assert_eq!(lqq.created_by, Some("admin".to_string()));
+        assert_eq!(lqq.created_by.map(|f| f.value), Some("admin".to_string()));
         assert_eq!(lqq.running, Some(true));
         assert_eq!(lqq.job_kinds, Some("script,flow".to_string()));
-        assert_eq!(lqq.tag, Some("custom".to_string()));
+        assert_eq!(lqq.tag.map(|f| f.value), Some("custom".to_string()));
     }
 
     #[test]

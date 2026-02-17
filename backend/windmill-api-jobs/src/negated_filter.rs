@@ -22,12 +22,22 @@ use std::{fmt, marker::PhantomData};
 
 /// A single filter value optionally prefixed with `!` to indicate negation.
 ///
-/// Deserializes `"schedule"` → `{ value: Schedule, negated: false }`
-/// Deserializes `"!schedule"` → `{ value: Schedule, negated: true }`
+/// Deserializes `"schedule"` → `NegatedFilter { value: Schedule, negated: false }`
+/// Deserializes `"!schedule"` → `NegatedFilter { value: Schedule, negated: true }`
 #[derive(Debug, Clone)]
 pub struct NegatedFilter<T> {
     pub value: T,
     pub negated: bool,
+}
+
+impl<T> NegatedFilter<T> {
+    pub fn positive(value: T) -> Self {
+        Self { value, negated: false }
+    }
+
+    pub fn negated(value: T) -> Self {
+        Self { value, negated: true }
+    }
 }
 
 struct NegatedFilterVisitor<T>(PhantomData<T>);

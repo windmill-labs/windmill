@@ -34,9 +34,19 @@ pub fn filter_list_queue_query(
 
     if let Some(w) = &lq.worker {
         if lq.allow_wildcards.unwrap_or(false) {
-            sqlb.and_where_like_left("v2_job_queue.worker", w.replace("*", "%"));
+            let pattern = w.value.replace("*", "%");
+            if w.negated {
+                sqlb.and_where(format!(
+                    "v2_job_queue.worker NOT LIKE '{}'",
+                    pattern.replace("'", "''")
+                ));
+            } else {
+                sqlb.and_where_like_left("v2_job_queue.worker", pattern);
+            }
+        } else if w.negated {
+            sqlb.and_where_ne("v2_job_queue.worker", "?".bind(&w.value));
         } else {
-            sqlb.and_where_eq("v2_job_queue.worker", "?".bind(w));
+            sqlb.and_where_eq("v2_job_queue.worker", "?".bind(&w.value));
         }
     }
 
@@ -44,7 +54,11 @@ pub fn filter_list_queue_query(
         sqlb.and_where_like_left("runnable_path", ps);
     }
     if let Some(p) = &lq.script_path_exact {
-        sqlb.and_where_eq("runnable_path", "?".bind(p));
+        if p.negated {
+            sqlb.and_where_ne("runnable_path", "?".bind(&p.value));
+        } else {
+            sqlb.and_where_eq("runnable_path", "?".bind(&p.value));
+        }
     }
     if let Some(p) = &lq.schedule_path {
         sqlb.and_where_eq("trigger", "?".bind(p));
@@ -54,13 +68,27 @@ pub fn filter_list_queue_query(
         sqlb.and_where_eq("runnable_id", "?".bind(h));
     }
     if let Some(cb) = &lq.created_by {
-        sqlb.and_where_eq("created_by", "?".bind(cb));
+        if cb.negated {
+            sqlb.and_where_ne("created_by", "?".bind(&cb.value));
+        } else {
+            sqlb.and_where_eq("created_by", "?".bind(&cb.value));
+        }
     }
     if let Some(t) = &lq.tag {
         if lq.allow_wildcards.unwrap_or(false) {
-            sqlb.and_where_like_left("v2_job.tag", t.replace("*", "%"));
+            let pattern = t.value.replace("*", "%");
+            if t.negated {
+                sqlb.and_where(format!(
+                    "v2_job.tag NOT LIKE '{}'",
+                    pattern.replace("'", "''")
+                ));
+            } else {
+                sqlb.and_where_like_left("v2_job.tag", pattern);
+            }
+        } else if t.negated {
+            sqlb.and_where_ne("v2_job.tag", "?".bind(&t.value));
         } else {
-            sqlb.and_where_eq("v2_job.tag", "?".bind(t));
+            sqlb.and_where_eq("v2_job.tag", "?".bind(&t.value));
         }
     }
 
@@ -134,11 +162,22 @@ pub fn filter_list_queue_query(
     }
 
     if let Some(tk) = &lq.trigger_kind {
-        sqlb.and_where_eq("trigger_kind", "?".bind(&format!("{}", tk)));
+        if tk.negated {
+            sqlb.and_where(format!(
+                "trigger_kind IS DISTINCT FROM '{}'",
+                format!("{}", tk.value).replace("'", "''")
+            ));
+        } else {
+            sqlb.and_where_eq("trigger_kind", "?".bind(&format!("{}", tk.value)));
+        }
     }
 
     if let Some(tp) = &lq.trigger_path {
-        sqlb.and_where_eq("trigger", "?".bind(tp));
+        if tp.negated {
+            sqlb.and_where_ne("trigger", "?".bind(&tp.value));
+        } else {
+            sqlb.and_where_eq("trigger", "?".bind(&tp.value));
+        }
     }
 
     sqlb
@@ -187,15 +226,29 @@ pub fn filter_list_completed_query(
 
     if let Some(label) = &lq.label {
         if lq.allow_wildcards.unwrap_or(false) {
-            let wh = format!(
-                    "EXISTS (SELECT 1 FROM jsonb_array_elements_text(result->'wm_labels') label WHERE jsonb_typeof(result->'wm_labels') = 'array' AND label LIKE '{}')",
-                    &label.replace("*", "%").replace("'", "''")
+            let pattern = label.value.replace("*", "%").replace("'", "''");
+            if label.negated {
+                let wh = format!(
+                    "NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text(result->'wm_labels') label WHERE jsonb_typeof(result->'wm_labels') = 'array' AND label LIKE '{}')",
+                    pattern
                 );
-            sqlb.and_where("result ? 'wm_labels'");
+                sqlb.and_where(&wh);
+            } else {
+                let wh = format!(
+                    "EXISTS (SELECT 1 FROM jsonb_array_elements_text(result->'wm_labels') label WHERE jsonb_typeof(result->'wm_labels') = 'array' AND label LIKE '{}')",
+                    pattern
+                );
+                sqlb.and_where("result ? 'wm_labels'");
+                sqlb.and_where(&wh);
+            }
+        } else if label.negated {
+            let wh = format!(
+                "NOT (result->'wm_labels' ? '{}')",
+                label.value.replace("'", "''")
+            );
             sqlb.and_where(&wh);
         } else {
-            let mut wh = format!("result->'wm_labels' ? ");
-            wh.push_str(&format!("'{}'", &label.replace("'", "''")));
+            let wh = format!("result->'wm_labels' ? '{}'", label.value.replace("'", "''"));
             sqlb.and_where("result ? 'wm_labels'");
             sqlb.and_where(&wh);
         }
@@ -203,9 +256,19 @@ pub fn filter_list_completed_query(
 
     if let Some(worker) = &lq.worker {
         if lq.allow_wildcards.unwrap_or(false) {
-            sqlb.and_where_like_left("v2_job_completed.worker", worker.replace("*", "%"));
+            let pattern = worker.value.replace("*", "%");
+            if worker.negated {
+                sqlb.and_where(format!(
+                    "v2_job_completed.worker NOT LIKE '{}'",
+                    pattern.replace("'", "''")
+                ));
+            } else {
+                sqlb.and_where_like_left("v2_job_completed.worker", pattern);
+            }
+        } else if worker.negated {
+            sqlb.and_where_ne("v2_job_completed.worker", "?".bind(&worker.value));
         } else {
-            sqlb.and_where_eq("v2_job_completed.worker", "?".bind(worker));
+            sqlb.and_where_eq("v2_job_completed.worker", "?".bind(&worker.value));
         }
     }
 
@@ -223,21 +286,39 @@ pub fn filter_list_completed_query(
         sqlb.and_where_like_left("runnable_path", ps);
     }
     if let Some(p) = &lq.script_path_exact {
-        sqlb.and_where_eq("runnable_path", "?".bind(p));
+        if p.negated {
+            sqlb.and_where_ne("runnable_path", "?".bind(&p.value));
+        } else {
+            sqlb.and_where_eq("runnable_path", "?".bind(&p.value));
+        }
     }
     if let Some(h) = &lq.script_hash {
         sqlb.and_where_eq("runnable_id", "?".bind(h));
     }
     if let Some(t) = &lq.tag {
         if lq.allow_wildcards.unwrap_or(false) {
-            sqlb.and_where_like_left("v2_job.tag", t.replace("*", "%"));
+            let pattern = t.value.replace("*", "%");
+            if t.negated {
+                sqlb.and_where(format!(
+                    "v2_job.tag NOT LIKE '{}'",
+                    pattern.replace("'", "''")
+                ));
+            } else {
+                sqlb.and_where_like_left("v2_job.tag", pattern);
+            }
+        } else if t.negated {
+            sqlb.and_where_ne("v2_job.tag", "?".bind(&t.value));
         } else {
-            sqlb.and_where_eq("v2_job.tag", "?".bind(t));
+            sqlb.and_where_eq("v2_job.tag", "?".bind(&t.value));
         }
     }
 
     if let Some(cb) = &lq.created_by {
-        sqlb.and_where_eq("created_by", "?".bind(cb));
+        if cb.negated {
+            sqlb.and_where_ne("created_by", "?".bind(&cb.value));
+        } else {
+            sqlb.and_where_eq("created_by", "?".bind(&cb.value));
+        }
     }
     if let Some(r) = &lq.success {
         if *r {
@@ -327,11 +408,22 @@ pub fn filter_list_completed_query(
     }
 
     if let Some(tk) = &lq.trigger_kind {
-        sqlb.and_where_eq("trigger_kind", "?".bind(&format!("{}", tk)));
+        if tk.negated {
+            sqlb.and_where(format!(
+                "trigger_kind IS DISTINCT FROM '{}'",
+                format!("{}", tk.value).replace("'", "''")
+            ));
+        } else {
+            sqlb.and_where_eq("trigger_kind", "?".bind(&format!("{}", tk.value)));
+        }
     }
 
     if let Some(tp) = &lq.trigger_path {
-        sqlb.and_where_eq("trigger", "?".bind(tp));
+        if tp.negated {
+            sqlb.and_where_ne("trigger", "?".bind(&tp.value));
+        } else {
+            sqlb.and_where_eq("trigger", "?".bind(&tp.value));
+        }
     }
 
     sqlb
@@ -375,6 +467,7 @@ pub fn list_completed_jobs_query(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::negated_filter::NegatedFilter;
 
     fn empty_queue_query() -> ListQueueQuery {
         ListQueueQuery {
@@ -477,10 +570,8 @@ mod tests {
 
     #[test]
     fn test_queue_filter_script_path_start() {
-        let lq = ListQueueQuery {
-            script_path_start: Some("f/test".to_string()),
-            ..empty_queue_query()
-        };
+        let lq =
+            ListQueueQuery { script_path_start: Some("f/test".to_string()), ..empty_queue_query() };
         let sqlb = filter_list_queue_query(
             SqlBuilder::select_from("v2_job_queue").clone(),
             &lq,
@@ -495,7 +586,7 @@ mod tests {
     #[test]
     fn test_queue_filter_script_path_exact() {
         let lq = ListQueueQuery {
-            script_path_exact: Some("f/test/script".to_string()),
+            script_path_exact: Some(NegatedFilter::positive("f/test/script".to_string())),
             ..empty_queue_query()
         };
         let sqlb = filter_list_queue_query(
@@ -510,10 +601,7 @@ mod tests {
 
     #[test]
     fn test_queue_filter_running() {
-        let lq = ListQueueQuery {
-            running: Some(true),
-            ..empty_queue_query()
-        };
+        let lq = ListQueueQuery { running: Some(true), ..empty_queue_query() };
         let sqlb = filter_list_queue_query(
             SqlBuilder::select_from("v2_job_queue").clone(),
             &lq,
@@ -526,10 +614,8 @@ mod tests {
 
     #[test]
     fn test_queue_filter_job_kinds() {
-        let lq = ListQueueQuery {
-            job_kinds: Some("script,flow".to_string()),
-            ..empty_queue_query()
-        };
+        let lq =
+            ListQueueQuery { job_kinds: Some("script,flow".to_string()), ..empty_queue_query() };
         let sqlb = filter_list_queue_query(
             SqlBuilder::select_from("v2_job_queue").clone(),
             &lq,
@@ -543,10 +629,7 @@ mod tests {
 
     #[test]
     fn test_queue_filter_suspended() {
-        let lq = ListQueueQuery {
-            suspended: Some(true),
-            ..empty_queue_query()
-        };
+        let lq = ListQueueQuery { suspended: Some(true), ..empty_queue_query() };
         let sqlb = filter_list_queue_query(
             SqlBuilder::select_from("v2_job_queue").clone(),
             &lq,
@@ -559,10 +642,7 @@ mod tests {
 
     #[test]
     fn test_queue_filter_is_not_schedule() {
-        let lq = ListQueueQuery {
-            is_not_schedule: Some(true),
-            ..empty_queue_query()
-        };
+        let lq = ListQueueQuery { is_not_schedule: Some(true), ..empty_queue_query() };
         let sqlb = filter_list_queue_query(
             SqlBuilder::select_from("v2_job_queue").clone(),
             &lq,
@@ -575,10 +655,7 @@ mod tests {
 
     #[test]
     fn test_queue_filter_has_null_parent() {
-        let lq = ListQueueQuery {
-            has_null_parent: Some(true),
-            ..empty_queue_query()
-        };
+        let lq = ListQueueQuery { has_null_parent: Some(true), ..empty_queue_query() };
         let sqlb = filter_list_queue_query(
             SqlBuilder::select_from("v2_job_queue").clone(),
             &lq,
@@ -591,10 +668,7 @@ mod tests {
 
     #[test]
     fn test_queue_filter_is_flow_step_true() {
-        let lq = ListQueueQuery {
-            is_flow_step: Some(true),
-            ..empty_queue_query()
-        };
+        let lq = ListQueueQuery { is_flow_step: Some(true), ..empty_queue_query() };
         let sqlb = filter_list_queue_query(
             SqlBuilder::select_from("v2_job_queue").clone(),
             &lq,
@@ -607,10 +681,7 @@ mod tests {
 
     #[test]
     fn test_queue_filter_is_flow_step_false() {
-        let lq = ListQueueQuery {
-            is_flow_step: Some(false),
-            ..empty_queue_query()
-        };
+        let lq = ListQueueQuery { is_flow_step: Some(false), ..empty_queue_query() };
         let sqlb = filter_list_queue_query(
             SqlBuilder::select_from("v2_job_queue").clone(),
             &lq,
@@ -623,10 +694,7 @@ mod tests {
 
     #[test]
     fn test_queue_admins_all_workspaces() {
-        let lq = ListQueueQuery {
-            all_workspaces: Some(true),
-            ..empty_queue_query()
-        };
+        let lq = ListQueueQuery { all_workspaces: Some(true), ..empty_queue_query() };
         let sqlb = filter_list_queue_query(
             SqlBuilder::select_from("v2_job_queue").clone(),
             &lq,
@@ -639,10 +707,7 @@ mod tests {
 
     #[test]
     fn test_queue_non_admins_ignores_all_workspaces() {
-        let lq = ListQueueQuery {
-            all_workspaces: Some(true),
-            ..empty_queue_query()
-        };
+        let lq = ListQueueQuery { all_workspaces: Some(true), ..empty_queue_query() };
         let sqlb = filter_list_queue_query(
             SqlBuilder::select_from("v2_job_queue").clone(),
             &lq,
@@ -695,10 +760,7 @@ mod tests {
 
     #[test]
     fn test_completed_filter_success_true() {
-        let lq = ListCompletedQuery {
-            success: Some(true),
-            ..empty_completed_query()
-        };
+        let lq = ListCompletedQuery { success: Some(true), ..empty_completed_query() };
         let sqlb = filter_list_completed_query(
             SqlBuilder::select_from("v2_job_completed").clone(),
             &lq,
@@ -711,10 +773,7 @@ mod tests {
 
     #[test]
     fn test_completed_filter_success_false() {
-        let lq = ListCompletedQuery {
-            success: Some(false),
-            ..empty_completed_query()
-        };
+        let lq = ListCompletedQuery { success: Some(false), ..empty_completed_query() };
         let sqlb = filter_list_completed_query(
             SqlBuilder::select_from("v2_job_completed").clone(),
             &lq,
@@ -739,7 +798,7 @@ mod tests {
     #[test]
     fn test_completed_filter_label() {
         let lq = ListCompletedQuery {
-            label: Some("deploy".to_string()),
+            label: Some(NegatedFilter::positive("deploy".to_string())),
             ..empty_completed_query()
         };
         let sqlb = filter_list_completed_query(
@@ -754,10 +813,7 @@ mod tests {
 
     #[test]
     fn test_completed_filter_is_skipped() {
-        let lq = ListCompletedQuery {
-            is_skipped: Some(true),
-            ..empty_completed_query()
-        };
+        let lq = ListCompletedQuery { is_skipped: Some(true), ..empty_completed_query() };
         let sqlb = filter_list_completed_query(
             SqlBuilder::select_from("v2_job_completed").clone(),
             &lq,

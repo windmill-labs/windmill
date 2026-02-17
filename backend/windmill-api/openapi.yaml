@@ -17258,10 +17258,10 @@ components:
         type: integer
     JobTriggerKind:
       name: trigger_kind
-      description: trigger kind (schedule, http, websocket...)
+      description: "trigger kind filter. Prefix with '!' to negate, e.g. '!schedule'"
       in: query
       schema:
-        $ref: "#/components/schemas/JobTriggerKind"
+        $ref: "#/components/schemas/NegatedJobTriggerKind"
     OrderDesc:
       name: order_desc
       description: order by desc order (default true)
@@ -17270,19 +17270,19 @@ components:
         type: boolean
     CreatedBy:
       name: created_by
-      description: mask to filter exact matching user creator
+      description: "filter by exact matching user creator. Prefix with '!' to negate, e.g. '!admin@example.com'"
       in: query
       schema:
         type: string
     Label:
       name: label
-      description: mask to filter exact matching job's label (job labels are completed jobs with as a result an object containing a string in the array at key 'wm_labels')
+      description: "filter by exact matching job label. Prefix with '!' to negate, e.g. '!deploy'"
       in: query
       schema:
         type: string
     Worker:
       name: worker
-      description: worker this job was ran on
+      description: "filter by worker this job ran on. Prefix with '!' to negate, e.g. '!worker-1'"
       in: query
       schema:
         type: string
@@ -17360,13 +17360,13 @@ components:
         type: string
     TriggerPath:
       name: trigger_path
-      description: mask to filter by trigger path
+      description: "filter by trigger path. Prefix with '!' to negate, e.g. '!f/my/trigger'"
       in: query
       schema:
         type: string
     ScriptExactPath:
       name: script_path_exact
-      description: mask to filter exact matching path
+      description: "filter by exact matching script path. Prefix with '!' to negate, e.g. '!f/my/script'"
       in: query
       schema:
         type: string
@@ -17481,7 +17481,7 @@ components:
         type: string
     Tag:
       name: tag
-      description: filter on jobs with a given tag/worker group
+      description: "filter by tag/worker group. Prefix with '!' to negate, e.g. '!gpu'"
       in: query
       schema:
         type: string
@@ -20191,6 +20191,44 @@ components:
         - sqs
         - gcp
         - google
+
+    NegatedJobTriggerKind:
+      description: >
+        A job trigger kind filter value, optionally negated.
+        Either a plain trigger kind (e.g. `schedule`) or prefixed with `!` to exclude
+        that trigger kind (e.g. `!schedule`).
+      type: string
+      oneOf:
+        - description: positive match
+          enum:
+            - webhook
+            - default_email
+            - email
+            - schedule
+            - http
+            - websocket
+            - postgres
+            - kafka
+            - nats
+            - mqtt
+            - sqs
+            - gcp
+            - google
+        - description: negative match
+          enum:
+            - "!webhook"
+            - "!default_email"
+            - "!email"
+            - "!schedule"
+            - "!http"
+            - "!websocket"
+            - "!postgres"
+            - "!kafka"
+            - "!nats"
+            - "!mqtt"
+            - "!sqs"
+            - "!gcp"
+            - "!google"
 
     TriggerMode:
       description: job trigger mode
