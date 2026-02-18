@@ -43,7 +43,6 @@
 		closeDrawer,
 		showHeaderInfo = true,
 		yamlMode = $bindable(false),
-		diffMode = $bindable(false),
 		hasUnsavedChanges = $bindable(false)
 	} = $props()
 
@@ -138,6 +137,10 @@
 	export function syncBeforeDiff(): boolean {
 		return instanceSettings?.syncBeforeDiff() ?? true
 	}
+
+	export function buildFullDiff(): { original: string; modified: string } {
+		return instanceSettings?.buildFullDiff() ?? { original: '', modified: '' }
+	}
 </script>
 
 <SearchItems
@@ -171,7 +174,7 @@
 		{/if}
 	{/if}
 	<div class="{showHeaderInfo ? 'pt-4' : ''} flex grow min-h-0">
-		{#if !yamlMode && !diffMode}
+		{#if !yamlMode}
 			<!-- Sidebar Navigation -->
 			<div class="w-52 shrink-0 h-full overflow-auto p-4 bg-surface flex flex-col">
 				<SidebarNavigation
@@ -198,7 +201,7 @@
 		<div class="flex-1 min-w-0 h-full">
 			<div class="h-full overflow-auto bg-surface">
 				<div class="h-fit px-8 py-4">
-					{#if tab === 'users' && !yamlMode && !diffMode}
+					{#if tab === 'users' && !yamlMode}
 						<div class="h-full">
 							{#if !automateUsernameCreation && !isCloudHosted()}
 								<div class="mb-4">
@@ -474,7 +477,6 @@
 							bind:this={instanceSettings}
 							hideTabs
 							bind:yamlMode
-							bind:diffMode
 							bind:hasUnsavedChanges
 							tab={instanceSettingsCategory}
 							{authSubTab}

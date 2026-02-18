@@ -6,7 +6,7 @@
 	import Toggle from './Toggle.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import SaveButton from './SaveButton.svelte'
-	import { X, FileDiff } from 'lucide-svelte'
+	import { X, FileDiff, Loader2 } from 'lucide-svelte'
 	import { fade } from 'svelte/transition'
 	import { SettingsService } from '$lib/gen'
 	import { isCloudHosted } from '$lib/cloud'
@@ -18,13 +18,14 @@
 	let { disableChatOffset = false }: Props = $props()
 
 	let drawer: Drawer | undefined = $state()
+	let diffDrawer: Drawer | undefined = $state()
 	let innerComponent: SuperadminSettingsInner | undefined = $state()
 	let uptodateVersion: string | undefined = $state(undefined)
 	let yamlMode = $state(false)
-	let diffMode = $state(false)
 	let hasUnsavedChanges = $state(false)
-	let pendingSave = $state(false)
 	let showCloseConfirmModal = $state(false)
+	let diffData: { original: string; modified: string } = $state({ original: '', modified: '' })
+	let inlineDiff = $state(false)
 
 	async function loadUptodate() {
 		try {
@@ -66,34 +67,28 @@
 		bypassCloseCheck = false
 	}
 
-	function handleSave(): void | Promise<void> {
-		if (!pendingSave) {
-			if (!innerComponent?.syncBeforeDiff()) return
-			diffMode = true
-			pendingSave = true
-			return
-		}
+	function handleSave(): Promise<void> {
 		return (async () => {
+			if (!innerComponent?.syncBeforeDiff()) throw new Error('YAML sync failed')
 			await innerComponent?.saveSettings()
-			diffMode = false
-			pendingSave = false
+		})()
+	}
+
+	function handleSaveAndCloseDiff(): Promise<void> {
+		return (async () => {
+			await handleSave()
+			diffDrawer?.closeDrawer()
 		})()
 	}
 
 	function handleDiscard() {
 		innerComponent?.discardAll()
-		diffMode = false
-		pendingSave = false
 	}
 
-	function handleShowDiff() {
-		if (!diffMode) {
-			if (!innerComponent?.syncBeforeDiff()) return
-		}
-		diffMode = !diffMode
-		if (!diffMode) {
-			pendingSave = false
-		}
+	function handleReviewChanges() {
+		if (!innerComponent?.syncBeforeDiff()) return
+		diffData = innerComponent?.buildFullDiff() ?? { original: '', modified: '' }
+		diffDrawer?.openDrawer()
 	}
 </script>
 
@@ -131,29 +126,26 @@
 							Discard
 						</Button>
 					</div>
-				{/if}
-				{#if hasUnsavedChanges}
 					<div transition:fade={{ duration: 150 }}>
 						<Button
-							variant={diffMode ? 'accent' : 'default'}
+							variant="default"
 							size="xs"
 							startIcon={{ icon: FileDiff }}
-							onClick={handleShowDiff}
+							onClick={handleReviewChanges}
 						>
-							{diffMode ? 'Hide diff' : 'Show diff'}
+							Review changes
 						</Button>
 					</div>
 				{/if}
+				<SaveButton
+					onSave={handleSave}
+					disabled={!hasUnsavedChanges}
+					size="xs"
+				/>
 				<Toggle
 					bind:checked={yamlMode}
 					options={{ right: 'YAML' }}
 					size="sm"
-				/>
-				<SaveButton
-					onSave={handleSave}
-					disabled={!hasUnsavedChanges}
-					label={pendingSave ? 'Confirm & Save' : 'Save settings'}
-					size="xs"
 				/>
 			</div>
 		{/snippet}
@@ -162,9 +154,38 @@
 			closeDrawer={handleClose}
 			showHeaderInfo={false}
 			bind:yamlMode
-			bind:diffMode
 			bind:hasUnsavedChanges
 		/>
+	</DrawerContent>
+</Drawer>
+
+<Drawer bind:this={diffDrawer} size="1200px">
+	<DrawerContent title="Review changes" on:close={diffDrawer?.closeDrawer}>
+		{#snippet actions()}
+			<Toggle
+				bind:checked={inlineDiff}
+				options={{ right: 'Unified' }}
+				size="xs"
+			/>
+			<SaveButton onSave={handleSaveAndCloseDiff} disabled={!hasUnsavedChanges} size="xs" />
+		{/snippet}
+		<div class="h-full">
+			{#key inlineDiff}
+				{#await import('$lib/components/DiffEditor.svelte')}
+					<Loader2 class="animate-spin m-4" />
+				{:then Module}
+					<Module.default
+						open={true}
+						className="!h-full"
+						defaultLang="yaml"
+						defaultOriginal={diffData.original}
+						defaultModified={diffData.modified}
+						readOnly
+						{inlineDiff}
+					/>
+				{/await}
+			{/key}
+		</div>
 	</DrawerContent>
 </Drawer>
 
@@ -179,24 +200,11 @@
 		on:confirmed={() => {
 			innerComponent?.discardAll()
 			showCloseConfirmModal = false
-			diffMode = false
-			pendingSave = false
 			closeDrawer()
 		}}
 	>
 		<div class="flex flex-col w-full space-y-4">
 			<span>You have unsaved changes. Are you sure you want to discard them and close?</span>
-			<Button
-				variant="default"
-				size="xs"
-				startIcon={{ icon: FileDiff }}
-				onClick={() => {
-					showCloseConfirmModal = false
-					diffMode = true
-				}}
-			>
-				Show diff
-			</Button>
 		</div>
 	</ConfirmationModal>
 {/if}

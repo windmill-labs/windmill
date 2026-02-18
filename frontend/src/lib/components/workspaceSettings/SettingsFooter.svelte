@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button } from '../common'
 	import SaveButton from '../SaveButton.svelte'
-	import { X, FileDiff } from 'lucide-svelte'
+	import { X } from 'lucide-svelte'
 	import { fade } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
 
@@ -9,8 +9,6 @@
 		hasUnsavedChanges = false,
 		onSave,
 		onDiscard,
-		onShowDiff,
-		diffMode = false,
 		saveLabel = 'Save settings',
 		disabled = false,
 		inline = false,
@@ -19,8 +17,6 @@
 		hasUnsavedChanges?: boolean
 		onSave: () => void | Promise<void>
 		onDiscard: () => void
-		onShowDiff?: () => void
-		diffMode?: boolean
 		saveLabel?: string
 		disabled?: boolean
 		inline?: boolean
@@ -44,18 +40,6 @@
 						Discard changes
 					</Button>
 				</div>
-			{/if}
-
-			{#if onShowDiff}
-				<Button
-					variant={diffMode ? 'accent' : 'default'}
-					size="sm"
-					startIcon={{ icon: FileDiff }}
-					onClick={onShowDiff}
-					disabled={!hasUnsavedChanges}
-				>
-					{diffMode ? 'Hide diff' : 'Show diff'}
-				</Button>
 			{/if}
 
 			<SaveButton
