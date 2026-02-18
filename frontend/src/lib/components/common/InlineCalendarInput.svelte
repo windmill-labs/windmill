@@ -21,11 +21,16 @@
 	interface RangeProps {
 		mode: 'range'
 		value?: CalendarRange
+		onClickBehavior?: 'set-range' | 'set-start' | 'set-end'
 	}
 
 	type Props = DateProps | RangeProps
 
-	let { mode = 'date', value = $bindable() }: Props = $props()
+	let { mode = 'date', value = $bindable(), ...rest }: Props = $props()
+
+	const onClickBehavior = $derived(
+		mode === 'range' ? ((rest as RangeProps).onClickBehavior ?? 'set-range') : 'set-range'
+	)
 
 	const emptyDate: CalendarDate = { day: null, month: null, year: null }
 
@@ -72,12 +77,6 @@
 	})
 
 	// Year options for selector (current year ± 50)
-	const yearOptions = $derived.by(() => {
-		const years: number[] = []
-		for (let y = viewYear - 50; y <= viewYear + 50; y++) years.push(y)
-		return years
-	})
-
 	function calendarDateToDate(cd: CalendarDate): Date | null {
 		if (cd.day == null || cd.month == null || cd.year == null) return null
 		return new Date(cd.year, cd.month - 1, cd.day)
@@ -155,25 +154,30 @@
 			value = cd
 		} else {
 			const v = value as CalendarRange | undefined
-			if (!rangeSelectingStart) {
-				// First click: set start, clear end, begin range selection
-				const newRange: CalendarRange = { start: cd, end: emptyDate }
-				value = newRange
-				rangeSelectingStart = true
+
+			if (onClickBehavior === 'set-start') {
+				value = { start: cd, end: v?.end ?? emptyDate }
+			} else if (onClickBehavior === 'set-end') {
+				value = { start: v?.start ?? emptyDate, end: cd }
 			} else {
-				// Second click: set end
-				const start = v?.start ?? emptyDate
-				const startDate = calendarDateToDate(start)
-				const endDate = calendarDateToDate(cd)
-				let newRange: CalendarRange
-				if (startDate && endDate && endDate < startDate) {
-					newRange = { start: cd, end: start }
+				// 'set-range': two-click flow
+				if (!rangeSelectingStart) {
+					// First click: set start, clear end, begin range selection
+					value = { start: cd, end: emptyDate }
+					rangeSelectingStart = true
 				} else {
-					newRange = { start, end: cd }
+					// Second click: set end, auto-swap if needed
+					const start = v?.start ?? emptyDate
+					const startDate = calendarDateToDate(start)
+					const endDate = calendarDateToDate(cd)
+					if (startDate && endDate && endDate < startDate) {
+						value = { start: cd, end: start }
+					} else {
+						value = { start, end: cd }
+					}
+					rangeSelectingStart = false
+					hoverDate = null
 				}
-				value = newRange
-				rangeSelectingStart = false
-				hoverDate = null
 			}
 		}
 
@@ -202,12 +206,24 @@
 		}
 	}
 
+	let curr = $derived(
+		mode === 'date'
+			? (value as CalendarDate)
+			: onClickBehavior === 'set-start'
+				? (value as CalendarRange)?.start
+				: onClickBehavior === 'set-end'
+					? (value as CalendarRange)?.end
+					: undefined
+	)
+
 	function onMonthChange(e: Event) {
 		viewMonth = parseInt((e.target as HTMLSelectElement).value, 10)
+		if (curr != undefined) curr.month = viewMonth
 	}
 
 	function onYearChange(e: Event) {
 		viewYear = parseInt((e.target as HTMLSelectElement).value, 10)
+		if (curr != undefined) curr.year = viewYear
 	}
 </script>
 
@@ -243,7 +259,7 @@
 			<select
 				value={viewMonth}
 				onchange={onMonthChange}
-				class="cursor-pointer rounded-md border-none bg-transparent px-1 py-0.5 text-sm font-medium text-primary hover:bg-surface-hover focus:outline-none focus:ring-1 focus:ring-frost-400"
+				class="cursor-pointer rounded-md"
 				aria-label="Select month"
 			>
 				{#each MONTH_NAMES as name, i (i)}
@@ -251,16 +267,13 @@
 				{/each}
 			</select>
 
-			<select
+			<input
+				type="number"
 				value={viewYear}
 				onchange={onYearChange}
-				class="cursor-pointer rounded-md border-none bg-transparent px-1 py-0.5 text-sm font-medium text-primary hover:bg-surface-hover focus:outline-none focus:ring-1 focus:ring-frost-400"
+				class="w-16 cursor-pointer rounded-md"
 				aria-label="Select year"
-			>
-				{#each yearOptions as y (y)}
-					<option value={y}>{y}</option>
-				{/each}
-			</select>
+			/>
 		</div>
 
 		<button
@@ -317,7 +330,7 @@
 				class={twMerge(
 					'relative flex my-0.5 h-9 w-9 items-center justify-center text-sm transition-colors focus:outline-none',
 					!cell.isCurrentMonth ? 'text-tertiary' : 'text-primary',
-					selected ? 'font-semibold bg-surface-accent-secondary' : 'font-normal',
+					selected ? 'font-semibold' : 'font-normal',
 					inRange ? 'bg-surface-secondary' : '',
 					isStart || isEnd ? 'bg-surface-secondary' : '',
 					isStart && mode === 'range' ? 'rounded-l' : '',
