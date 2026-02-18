@@ -16687,7 +16687,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-object-store"
-version = "1.638.3"
+version = "1.638.4"
 dependencies = [
  "anyhow",
  "async-stream",

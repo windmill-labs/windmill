@@ -11,7 +11,15 @@
 
 	import { sendUserToast } from '$lib/toast'
 	import { userStore, workspaceStore, userWorkspaces, superadmin } from '$lib/stores'
-	import { Button, Drawer, DrawerContent, Skeleton, Tab, Tabs } from '$lib/components/common'
+	import {
+		Button,
+		ButtonType,
+		Drawer,
+		DrawerContent,
+		Skeleton,
+		Tab,
+		Tabs
+	} from '$lib/components/common'
 	import RunChart from '$lib/components/RunChart.svelte'
 
 	import JobRunsPreview from '$lib/components/runs/JobRunsPreview.svelte'
@@ -521,8 +529,8 @@
 {:else}
 	<div class="w-full h-screen flex flex-col" bind:clientWidth={innerWidth}>
 		<!-- Header and filters -->
-		<div class="flex flex-row items-start w-full px-4 gap-8 py-3">
-			<div class="flex flex-row items-center h-full gap-6">
+		<div class="flex flex-row items-start w-full px-4 gap-3 py-4 flex-wrap">
+			<div class="flex flex-row items-center gap-6">
 				<h1
 					class={twMerge(
 						'!text-2xl font-semibold leading-6 tracking-tight',
@@ -554,7 +562,7 @@
 				/>
 			</div>
 
-			<div class="hidden xl:flex gap-2 ml-2">
+			<div class="hidden xl:flex gap-2 ml-6">
 				<ToggleButtonGroup
 					bind:selected={
 						() => filters.val.job_kinds ?? 'runs',
@@ -660,21 +668,20 @@
 				</ToggleButtonGroup>
 			</div>
 
-			<div class="flex gap-2 ml-auto grow max-w-[42rem]">
-				<TimeframeSelect
-					onClick={() => jobsLoader?.loadJobs(true)}
-					loading={jobsLoader?.loading}
-					items={runsTimeframes}
-					bind:value={_timeframe.val}
-				/>
-				<FilterSearchbar
-					class="flex-1"
-					innerClass="absolute inset-0"
-					schema={runsFilterSearchbarSchema}
-					presets={buildRunsFilterPresets({ isSuperadmin: !!$superadmin })}
-					bind:value={filters.val}
-				/>
-			</div>
+			<TimeframeSelect
+				wrapperClasses="ml-auto"
+				onClick={() => jobsLoader?.loadJobs(true)}
+				loading={jobsLoader?.loading}
+				items={runsTimeframes}
+				bind:value={_timeframe.val}
+			/>
+			<FilterSearchbar
+				class="flex-1 relative max-w-[34rem] min-w-[18rem] {ButtonType.UnifiedMinHeightClasses.md}"
+				innerClass="absolute inset-0"
+				schema={runsFilterSearchbarSchema}
+				presets={buildRunsFilterPresets({ isSuperadmin: !!$superadmin })}
+				bind:value={filters.val}
+			/>
 		</div>
 
 		<!-- Graph -->
