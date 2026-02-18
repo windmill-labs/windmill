@@ -612,37 +612,39 @@
 		{/each}
 	{:else if filter.type === 'date'}
 		{@const filterMode = filter.mode}
-		{#if !filterMode || filterMode === 'single'}
-			<InlineCalendarInput
-				bind:value={
-					() => toCalendarDate(value[currentTag!]),
-					(v) => {
-						setValueForCurrentTag(fromCalendarDate(v))
-						taggedTextInput?.preventCursorMoveOnNextSync()
+		<div class="p-3 mb-1">
+			{#if !filterMode || filterMode === 'single'}
+				<InlineCalendarInput
+					bind:value={
+						() => toCalendarDate(value[currentTag!]),
+						(v) => {
+							setValueForCurrentTag(fromCalendarDate(v))
+							taggedTextInput?.preventCursorMoveOnNextSync()
+						}
 					}
-				}
-			/>
-		{:else}
-			{@const curr = toCalendarDate(value[currentTag!])}
-			{@const obj =
-				filterMode === 'end'
-					? { start: toCalendarDate(value[filter.otherField as keyof SchemaT]), end: curr }
-					: { end: toCalendarDate(value[filter.otherField as keyof SchemaT]), start: curr }}
-			<InlineCalendarInput
-				mode="range"
-				onClickBehavior={`set-${filterMode}`}
-				infiniteRange
-				bind:value={
-					() => obj,
-					(v) => {
-						setValueForCurrentTag(
-							calendarDateIsNull(v[filterMode]) ? null : fromCalendarDate(v[filterMode])
-						)
-						taggedTextInput?.preventCursorMoveOnNextSync()
+				/>
+			{:else}
+				{@const curr = toCalendarDate(value[currentTag!])}
+				{@const obj =
+					filterMode === 'end'
+						? { start: toCalendarDate(value[filter.otherField as keyof SchemaT]), end: curr }
+						: { end: toCalendarDate(value[filter.otherField as keyof SchemaT]), start: curr }}
+				<InlineCalendarInput
+					mode="range"
+					onClickBehavior={`set-${filterMode}`}
+					infiniteRange
+					bind:value={
+						() => obj,
+						(v) => {
+							setValueForCurrentTag(
+								calendarDateIsNull(v[filterMode]) ? null : fromCalendarDate(v[filterMode])
+							)
+							taggedTextInput?.preventCursorMoveOnNextSync()
+						}
 					}
-				}
-			/>
-		{/if}
+				/>
+			{/if}
+		</div>
 	{:else if filter.type === 'string' && filter.format === 'json'}
 		<div class="px-2 pb-2">
 			<SimpleEditor

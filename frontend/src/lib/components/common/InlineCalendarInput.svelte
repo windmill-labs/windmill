@@ -50,9 +50,11 @@
 		infiniteRange?: boolean
 	}
 
-	type Props = DateProps | RangeProps
+	type Props = (DateProps | RangeProps) & {
+		class?: string
+	}
 
-	let { mode = 'date', value = $bindable(), ...rest }: Props = $props()
+	let { mode = 'date', value = $bindable(), class: className, ...rest }: Props = $props()
 
 	const onClickBehavior = $derived(
 		mode === 'range' ? ((rest as RangeProps).onClickBehavior ?? 'set-range') : 'set-range'
@@ -293,30 +295,16 @@
 		}
 	}
 
-	let curr = $derived(
-		mode === 'date'
-			? (value as CalendarDate)
-			: onClickBehavior === 'set-start'
-				? (value as CalendarRange)?.start
-				: onClickBehavior === 'set-end'
-					? (value as CalendarRange)?.end
-					: undefined
-	)
-
 	function onMonthChange(e: Event) {
 		viewMonth = parseInt((e.target as HTMLSelectElement).value, 10)
-		if (curr != undefined) curr.month = viewMonth
 	}
 
 	function onYearChange(e: Event) {
 		viewYear = parseInt((e.target as HTMLSelectElement).value, 10)
-		if (curr != undefined) curr.year = viewYear
 	}
 </script>
 
-<div
-	class="inline-block select-none rounded-md border border-surface-secondary bg-surface p-3 shadow-sm"
->
+<div class={className}>
 	<!-- Header -->
 	<div class="mb-3 flex items-center gap-1">
 		<button
@@ -391,7 +379,7 @@
 	<div class="mb-1 grid grid-cols-7">
 		{#each DAY_LABELS as label (label)}
 			<div
-				class="flex h-7 items-center justify-center text-[10px] font-semibold uppercase tracking-wide text-secondary"
+				class="flex h-7 items-center justify-center text-3xs font-medium uppercase tracking-wide text-secondary"
 			>
 				{label}
 			</div>
