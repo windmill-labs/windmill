@@ -103,6 +103,19 @@
 		}
 		applyFormDefaults(nvalues)
 
+		// Apply select/select_python defaults so initialValues matches what InstanceSetting's $effect does
+		for (const category of settingsKeys) {
+			for (const s of settings[category]) {
+				if (
+					(s.fieldType === 'select' || s.fieldType === 'select_python') &&
+					nvalues[s.key] == undefined &&
+					s.defaultValue
+				) {
+					nvalues[s.key] = s.defaultValue()
+				}
+			}
+		}
+
 		// Snapshot initialValues before applying the base_url fallback so that
 		// the dirty-check detects the unsaved default and enables the Save button.
 		initialValues = JSON.parse(JSON.stringify(nvalues))
@@ -325,7 +338,12 @@
 		if (value === false) return undefined
 		if (typeof value === 'string' && value.trim() === '') return undefined
 		if (Array.isArray(value) && value.length === 0) return undefined
-		if (typeof value === 'object' && Object.keys(value).length === 0) return undefined
+		if (typeof value === 'object' && !Array.isArray(value)) {
+			const hasNonEmpty = Object.values(value).some(
+				(v) => v != null && v !== false && !(typeof v === 'string' && v.trim() === '')
+			)
+			if (!hasNonEmpty) return undefined
+		}
 
 		// Key-specific defaults: these values are equivalent to "not set"
 		if (key === 'secret_backend') {
