@@ -160,9 +160,7 @@
 			return date ? (date as any) : null
 		}
 		if (schema.type === 'oneof') {
-			if (schema.allowCustomValue) return text
-			const normalizedText = text.startsWith('!') && schema.allowNegative ? text.slice(1) : text
-			return schema.options.find((o) => o.value === normalizedText) ? text : null
+			return text
 		}
 		return null
 	}
@@ -172,11 +170,17 @@
 	import { twMerge } from 'tailwind-merge'
 	import { inputBaseClass, inputBorderClass, inputSizeClasses } from './text_input/TextInput.svelte'
 	import { MinusIcon, SearchIcon } from 'lucide-svelte'
-	import { assignObjInPlace, formatDatePretty, parsePrettyDate, type IconType } from '$lib/utils'
+	import {
+		assignObjInPlace,
+		clone,
+		formatDatePretty,
+		parsePrettyDate,
+		type IconType
+	} from '$lib/utils'
 	import GenericDropdown from './select/GenericDropdown.svelte'
 	import DateTimeInput from './DateTimeInput.svelte'
 	import TaggedTextInput from './TaggedTextInput.svelte'
-	import { useTransformedSyncedValue } from '$lib/svelte5Utils.svelte'
+	import { DebouncedTempValue, useTransformedSyncedValue } from '$lib/svelte5Utils.svelte'
 	import { untrack } from 'svelte'
 	import CloseButton from './common/CloseButton.svelte'
 	import Popover from './meltComponents/Popover.svelte'
@@ -191,7 +195,19 @@
 	}
 
 	type SchemaT = FilterSchemaRec // TODO: Generic
-	let { schema, value = $bindable(), class: className, innerClass }: Props<SchemaT> = $props()
+	let {
+		schema,
+		value: valueInput = $bindable(),
+		class: className,
+		innerClass
+	}: Props<SchemaT> = $props()
+
+	let _value = new DebouncedTempValue(
+		() => clone(valueInput),
+		(v) => (valueInput = clone(v)),
+		(t) => Object.entries(t)
+	)
+	let value = $derived(_value.current)
 
 	let currentTag: keyof SchemaT | undefined = $state()
 	let currentTextSegment = $state({ text: '', start: 0, end: 0 })
@@ -379,7 +395,7 @@
 		placeholder="Filter runs..."
 	/>
 	{#if asText.val}
-		<CloseButton small class="absolute top-1 right-1.5" onClick={() => (value = {})} />
+		<CloseButton small class="absolute top-1 right-1.5" onClick={() => (_value.current = {})} />
 	{:else}
 		<div class="absolute top-2 right-3">
 			<SearchIcon size={16} class="text-hint" />

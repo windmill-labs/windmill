@@ -495,6 +495,80 @@ export function useTransformedSyncedValue<T, U>(
 	}
 }
 
+/**
+ * Maintains a local copy of a value that syncs back to the parent state in a debounced way.
+ *
+ * Useful for inputs where you want immediate local reactivity but don't want to
+ * flood the parent with updates (e.g. text fields, sliders).
+ *
+ * @param getter - Reads the canonical value from the parent
+ * @param setter - Writes a new canonical value to the parent (called debounced)
+ * @param react - A function that reads the fields to react to.
+ * @param delay - Debounce delay in ms (default: 300)
+ *
+ * @example
+ * const debounced = new DebouncedTempValue(
+ *   () => props.value,
+ *   (v) => { props.value = v },
+ *   (t) => t, // react to the value itself
+ *   300
+ * )
+ * // Use debounced.current in the template; writes are debounced to the parent.
+ */
+export class DebouncedTempValue<T> {
+	current: T
+	#timer: ReturnType<typeof setTimeout> | undefined
+	#skipNextParentUpdate = false
+	#skipNextCurrentUpdate = false
+
+	constructor(
+		getter: () => T,
+		private setter: (val: T) => void,
+		react: (t: T) => void,
+		private delay: number = 300
+	) {
+		this.current = $state(untrack(getter))
+
+		watch(getter, (val) => {
+			if (this.#timer !== undefined) {
+				// An in-flight local edit is pending — don't overwrite it with stale parent data
+				return
+			}
+			if (this.#skipNextParentUpdate) {
+				// The parent just updated in response to our local edit — skip this update as it's not new data
+				this.#skipNextParentUpdate = false
+				return
+			}
+			this.#skipNextCurrentUpdate = true
+			this.current = val
+			setTimeout(() => (this.#skipNextCurrentUpdate = false), 0)
+		})
+
+		watch(
+			() => react(this.current),
+			() => {
+				if (this.#skipNextCurrentUpdate) return
+				if (this.#timer !== undefined) clearTimeout(this.#timer)
+				this.#timer = setTimeout(() => {
+					this.#timer = undefined
+					this.#skipNextParentUpdate = true
+					this.setter(this.current)
+					setTimeout(() => (this.#skipNextParentUpdate = false), 0)
+				}, this.delay)
+			}
+		)
+	}
+
+	/** Flush any pending debounced write immediately. */
+	flush(): void {
+		if (this.#timer !== undefined) {
+			clearTimeout(this.#timer)
+			this.#timer = undefined
+			this.setter(this.current)
+		}
+	}
+}
+
 export function useLocalStorageValue<T>(
 	key: string,
 	defaultValue: T,
