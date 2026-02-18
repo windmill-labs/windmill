@@ -9,6 +9,7 @@
 		type SearchableSettingItem
 	} from '../instanceSettings'
 	import { twMerge } from 'tailwind-merge'
+	import { untrack } from 'svelte'
 
 	let {
 		searchableItems,
@@ -28,7 +29,7 @@
 	// Debounce search to avoid running uFuzzy on every keystroke
 	$effect(() => {
 		const val = settingsSearchFilter
-		const timeout = setTimeout(() => (debouncedSearchFilter = val), 150)
+		const timeout = setTimeout(() => untrack(() => (debouncedSearchFilter = val)), 150)
 		return () => clearTimeout(timeout)
 	})
 
