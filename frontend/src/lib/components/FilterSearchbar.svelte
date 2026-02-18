@@ -590,9 +590,7 @@
 		{/each}
 	{:else if filter.type === 'date'}
 		<DateTimeInput
-			bind:value={
-				() => value[currentTag!], (d) => d && setValueForCurrentTag(formatDatePretty(new Date(d)))
-			}
+			bind:value={() => value[currentTag!], (d) => d && setValueForCurrentTag(new Date(d))}
 		/>
 	{:else if filter.type === 'string' && filter.format === 'json'}
 		<div class="px-2 pb-2">
