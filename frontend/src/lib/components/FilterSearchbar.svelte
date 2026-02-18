@@ -385,7 +385,6 @@
 				parsed[key] = textToFilter(val, schema[key]) as any
 			}
 		}
-		console.log('Parsed from text:', parsed)
 		return parsed
 	}
 
