@@ -1580,112 +1580,17 @@ export function formatDateShort(dateString: string | undefined): string {
 	}).format(date)
 }
 
-/**
- * Formats a date range intelligently by omitting redundant information.
- * Examples:
- * - Before 01/03 7:32 PM (no "end" when only start date is in the past)
- * - Before 01/03/2026 11:01 PM (different year)
- * - 01:12 AM to 02:50 AM (same day)
- * - 01/03 to 01/05 (same year, different days)
- * - 12/31/2025 to 01/05/2026 (different years)
- *
- * @param start - The start date (can be string or Date or undefined)
- * @param end - The end date (can be string or Date or undefined)
- * @returns Formatted string representing the date range
- */
 export function formatDateRange(
 	start: string | Date | undefined,
 	end: string | Date | undefined
 ): string {
-	const now = new Date()
-	const startDate = start ? new Date(start) : undefined
-	const endDate = end ? new Date(end) : undefined
+	if (typeof start === 'string') start = new Date(start)
+	if (typeof end === 'string') end = new Date(end)
 
-	// Helper to format time only
-	const formatTime = (date: Date) => {
-		return new Intl.DateTimeFormat('en-US', {
-			hour: '2-digit',
-			minute: '2-digit'
-		}).format(date)
-	}
-
-	// Helper to format date without year
-	const formatDateNoYear = (date: Date) => {
-		return new Intl.DateTimeFormat('en-US', {
-			month: '2-digit',
-			day: '2-digit'
-		}).format(date)
-	}
-
-	// Helper to format date with year
-	const formatDateWithYear = (date: Date) => {
-		return new Intl.DateTimeFormat('en-US', {
-			month: '2-digit',
-			day: '2-digit',
-			year: 'numeric'
-		}).format(date)
-	}
-
-	// Helper to check if dates are same day
-	const isSameDay = (d1: Date, d2: Date) => {
-		return (
-			d1.getFullYear() === d2.getFullYear() &&
-			d1.getMonth() === d2.getMonth() &&
-			d1.getDate() === d2.getDate()
-		)
-	}
-
-	// Helper to check if date is in current year
-	const isSameYear = (date: Date, reference: Date = now) => {
-		return date.getFullYear() === reference.getFullYear()
-	}
-
-	// Only start date provided
-	if (startDate && !endDate) {
-		const timeStr = formatTime(startDate)
-
-		// If it's today, only show time
-		if (isSameDay(startDate, now)) {
-			return `Before ${timeStr}`
-		}
-
-		const needsYear = !isSameYear(startDate)
-		const dateStr = needsYear ? formatDateWithYear(startDate) : formatDateNoYear(startDate)
-		return `Before ${dateStr} ${timeStr}`
-	}
-
-	// Only end date provided
-	if (endDate && !startDate) {
-		const timeStr = formatTime(endDate)
-
-		// If it's today, only show time
-		if (isSameDay(endDate, now)) {
-			return `After ${timeStr}`
-		}
-
-		const needsYear = !isSameYear(endDate)
-		const dateStr = needsYear ? formatDateWithYear(endDate) : formatDateNoYear(endDate)
-		return `After ${dateStr} ${timeStr}`
-	}
-
-	// Both dates provided
-	if (startDate && endDate) {
-		// Same day - only show times
-		if (isSameDay(startDate, endDate)) {
-			return `${formatTime(startDate)} to ${formatTime(endDate)}`
-		}
-
-		// Different days, same year
-		if (isSameYear(startDate, endDate)) {
-			return `${formatDateNoYear(startDate)} to ${formatDateNoYear(endDate)}`
-		}
-
-		// Different years
-		return `${formatDateWithYear(startDate)} to ${formatDateWithYear(endDate)}`
-	}
-
-	// No dates provided
-	return ''
+	if (!end && start) return `After ${formatDatePretty(start)}`
+	if (!start && end) return `Before ${formatDatePretty(end)}`
+	if (start && end) return `${formatDatePretty(start)} to ${formatDatePretty(end)}`
+	return 'No input'
 }
 
 export function toJsonStr(result: any) {
