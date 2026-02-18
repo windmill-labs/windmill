@@ -651,14 +651,17 @@ lazy_static::lazy_static! {
 
 fn parse_bucket_restrictions() -> Option<HashMap<String, Vec<String>>> {
     let env_var = std::env::var("S3_BUCKETS_WORKSPACE_RESTRICTIONS").ok()?;
+    parse_bucket_restrictions_from_str(&env_var)
+}
 
-    if env_var.trim().is_empty() {
+fn parse_bucket_restrictions_from_str(input: &str) -> Option<HashMap<String, Vec<String>>> {
+    if input.trim().is_empty() {
         return None;
     }
 
     let mut restrictions = HashMap::new();
 
-    for bucket_rule in env_var.split(';') {
+    for bucket_rule in input.split(';') {
         let bucket_rule = bucket_rule.trim();
         if bucket_rule.is_empty() {
             continue;
@@ -726,7 +729,7 @@ pub fn bundle(w_id: &str, hash: &str) -> String {
 }
 
 pub fn raw_app(w_id: &str, version: &i64) -> String {
-    format!("/home/rfiszel/raw_app/{}/{}", w_id, version)
+    format!("raw_app/{}/{}", w_id, version)
 }
 
 pub async fn upload_artifact_to_store(
@@ -1621,5 +1624,162 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(result, data);
+    }
+
+    // --- bundle / raw_app path tests ---
+
+    #[test]
+    fn test_bundle_path_format() {
+        assert_eq!(bundle("my_workspace", "abc123"), "script_bundle/my_workspace/abc123");
+    }
+
+    #[test]
+    fn test_raw_app_path_format() {
+        assert_eq!(raw_app("my_workspace", &42), "raw_app/my_workspace/42");
+    }
+
+    // --- parse_bucket_restrictions tests ---
+
+    #[test]
+    fn test_parse_bucket_restrictions_single_bucket() {
+        let result =
+            parse_bucket_restrictions_from_str("my-bucket:workspace1,workspace2").unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(
+            result.get("my-bucket").unwrap(),
+            &vec!["workspace1".to_string(), "workspace2".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_parse_bucket_restrictions_multiple_buckets() {
+        let result = parse_bucket_restrictions_from_str(
+            "bucket-a:ws1,ws2;bucket-b:ws3",
+        )
+        .unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(
+            result.get("bucket-a").unwrap(),
+            &vec!["ws1".to_string(), "ws2".to_string()]
+        );
+        assert_eq!(
+            result.get("bucket-b").unwrap(),
+            &vec!["ws3".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_parse_bucket_restrictions_empty_string() {
+        assert!(parse_bucket_restrictions_from_str("").is_none());
+        assert!(parse_bucket_restrictions_from_str("   ").is_none());
+    }
+
+    #[test]
+    fn test_parse_bucket_restrictions_invalid_format_skipped() {
+        // "no-colon" is invalid, only "valid:ws1" should be parsed
+        let result =
+            parse_bucket_restrictions_from_str("no-colon;valid:ws1").unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(result.contains_key("valid"));
+    }
+
+    #[test]
+    fn test_parse_bucket_restrictions_trailing_semicolons() {
+        let result =
+            parse_bucket_restrictions_from_str(";bucket:ws1;;").unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(result.contains_key("bucket"));
+    }
+
+    // --- build_filesystem_client error path ---
+
+    #[cfg(feature = "parquet")]
+    #[test]
+    fn test_build_filesystem_client_nonexistent_path() {
+        // LocalFileSystem::new_with_prefix fails when the directory doesn't exist
+        let result = build_filesystem_client("/tmp/windmill_test_nonexistent_dir_12345_xyz");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Error building filesystem object store"));
+    }
+
+    // --- get_logs_from_store test ---
+
+    #[cfg(feature = "parquet")]
+    #[tokio::test]
+    async fn test_get_logs_from_store_with_filesystem() {
+        use futures::StreamExt;
+        use object_store::{path::Path, ObjectStore, PutPayload};
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_str().unwrap().to_string();
+        let client = build_filesystem_client(&root).unwrap();
+
+        // Write two log chunk files
+        client
+            .put(
+                &Path::from("logs/chunk1.log"),
+                PutPayload::from(bytes::Bytes::from("chunk1 content\n")),
+            )
+            .await
+            .unwrap();
+        client
+            .put(
+                &Path::from("logs/chunk2.log"),
+                PutPayload::from(bytes::Bytes::from("chunk2 content\n")),
+            )
+            .await
+            .unwrap();
+
+        // Set the global OBJECT_STORE_SETTINGS to our filesystem store
+        {
+            let mut settings = OBJECT_STORE_SETTINGS.write().await;
+            *settings = Some(ExpirableObjectStore::from(client));
+        }
+
+        let file_index = Some(vec![
+            "logs/chunk1.log".to_string(),
+            "logs/chunk2.log".to_string(),
+        ]);
+        let tail_logs = "tail logs here";
+
+        // log_offset > 0, file_index Some, object store set → should return a stream
+        let stream = get_logs_from_store(1, tail_logs, &file_index).await;
+        assert!(stream.is_some());
+
+        let chunks: Vec<bytes::Bytes> = stream
+            .unwrap()
+            .filter_map(|r| async { r.ok() })
+            .collect()
+            .await;
+        assert_eq!(chunks.len(), 3); // chunk1 + chunk2 + tail_logs
+        assert_eq!(chunks[0], bytes::Bytes::from("chunk1 content\n"));
+        assert_eq!(chunks[1], bytes::Bytes::from("chunk2 content\n"));
+        assert_eq!(chunks[2], bytes::Bytes::from("tail logs here"));
+
+        // Clean up global state
+        {
+            let mut settings = OBJECT_STORE_SETTINGS.write().await;
+            *settings = None;
+        }
+    }
+
+    #[cfg(feature = "parquet")]
+    #[tokio::test]
+    async fn test_get_logs_from_store_zero_offset() {
+        // log_offset == 0 → always returns None regardless of other params
+        let file_index = Some(vec!["some/file.log".to_string()]);
+        let result = get_logs_from_store(0, "logs", &file_index).await;
+        assert!(result.is_none());
+    }
+
+    #[cfg(feature = "parquet")]
+    #[tokio::test]
+    async fn test_get_logs_from_store_no_file_index() {
+        // file_index is None → returns None
+        let result = get_logs_from_store(1, "logs", &None).await;
+        assert!(result.is_none());
     }
 }

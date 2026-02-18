@@ -13,6 +13,8 @@ use windmill_types::s3::StorageResourceType;
 use crate::db::{ApiAuthed, OptJobAuthed, DB};
 #[cfg(all(feature = "parquet", not(feature = "private")))]
 use windmill_object_store::object_store_reexports::{ObjectStore, PutMultipartOpts, PutResult};
+#[cfg(not(feature = "private"))]
+use windmill_object_store::ObjectStoreResource;
 #[cfg(all(feature = "parquet", not(feature = "private")))]
 use std::sync::Arc;
 #[cfg(not(feature = "private"))]
