@@ -30,7 +30,7 @@ use uuid::Uuid;
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
-use windmill_common::s3_helpers::LargeFileStorage;
+use windmill_types::s3::LargeFileStorage;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::{build_crypt, decrypt, encrypt, WORKSPACE_CRYPT_CACHE};
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};

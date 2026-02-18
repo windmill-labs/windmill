@@ -16,6 +16,7 @@ regex.workspace = true
 
 [dependencies]
 windmill-parser.workspace = true
+windmill-types.workspace = true
 anyhow.workspace = true
 lazy_static.workspace = true
 serde_json.workspace = true

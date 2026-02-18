@@ -42,7 +42,8 @@ use windmill_common::runnable_settings::{
 };
 #[cfg(feature = "inline_preview")]
 use windmill_common::runtime_assets::{register_runtime_asset, InsertRuntimeAssetParams};
-use windmill_common::s3_helpers::{upload_artifact_to_store, BundleFormat};
+use windmill_types::s3::BundleFormat;
+use windmill_object_store::upload_artifact_to_store;
 use windmill_common::scripts::ScriptRunnableSettingsInline;
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{RunnableKind, WarnAfterExt};
@@ -1384,40 +1385,15 @@ async fn get_logs_from_store(
     logs: &str,
     log_file_index: &Option<Vec<String>>,
 ) -> Option<error::Result<Body>> {
-    if log_offset > 0 {
-        if let Some(file_index) = log_file_index.clone() {
-            tracing::debug!("Getting logs from store: {file_index:?}");
-            if let Some(os) = windmill_common::s3_helpers::get_object_store().await {
-                tracing::debug!("object store client present, streaming from there");
-
-                let logs = logs.to_string();
-                let stream = async_stream::stream! {
-                    yield Ok(bytes::Bytes::from(
-                        r#"to remove ansi colors, use: | sed 's/\x1B\[[0-9;]\{1,\}[A-Za-z]//g'
-                "#
-                        .to_string(),
-                    ));
-                    for file_p in file_index.clone() {
-                        let file_p_2 = file_p.clone();
-                        let file = os.get(&object_store::path::Path::from(file_p)).await;
-                        if let Ok(file) = file {
-                            if let Ok(bytes) = file.bytes().await {
-                                yield Ok(bytes::Bytes::from(bytes)) as object_store::Result<bytes::Bytes>;
-                            }
-                        } else {
-                            tracing::debug!("error getting file from store: {file_p_2}: {}", file.err().unwrap());
-                        }
-                    }
-
-                    yield Ok(bytes::Bytes::from(logs))
-                };
-                return Some(Ok(Body::from_stream(stream)));
-            } else {
-                tracing::debug!("object store client not present, cannot stream logs from store");
-            }
-        }
-    }
-    return None;
+    use futures::StreamExt;
+    let stream = windmill_object_store::get_logs_from_store(log_offset, logs, log_file_index).await?;
+    let header = bytes::Bytes::from(
+        r#"to remove ansi colors, use: | sed 's/\x1B\[[0-9;]\{1,\}[A-Za-z]//g'
+"#
+        .to_string(),
+    );
+    let prefixed_stream = futures::stream::once(async { Ok(header) }).chain(stream);
+    Some(Ok(Body::from_stream(prefixed_stream)))
 }
 
 async fn get_logs_from_disk(
@@ -4840,7 +4816,7 @@ async fn run_bundle_preview_script(
 
             uploaded = true;
 
-            let path = windmill_common::s3_helpers::bundle(&w_id, &id);
+            let path = windmill_object_store::bundle(&w_id, &id);
             upload_artifact_to_store(
                 &path,
                 data,
@@ -5794,9 +5770,9 @@ async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::R
     }
 
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
-    if let Some(os) = windmill_common::s3_helpers::get_object_store().await {
+    if let Some(os) = windmill_object_store::get_object_store().await {
         let file = os
-            .get(&object_store::path::Path::from(format!("logs/{file_p}")))
+            .get(&windmill_object_store::object_store_reexports::Path::from(format!("logs/{file_p}")))
             .await;
         if let Ok(file) = file {
             if let Ok(bytes) = file.bytes().await {

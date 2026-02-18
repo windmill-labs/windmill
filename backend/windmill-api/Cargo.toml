@@ -18,7 +18,7 @@ agent_worker_server = ["dep:windmill-worker", "dep:windmill-api-agent-workers"]
 enterprise_saml = ["dep:samael", "dep:libxml"]
 benchmark = []
 embedding = ["windmill-api-embeddings/embedding"]
-parquet = ["dep:datafusion", "dep:object_store", "windmill-common/parquet", "windmill-worker?/parquet", "windmill-api-users/parquet", "windmill-api-settings/parquet", "dep:aws-sigv4", "dep:aws-sdk-config"]
+parquet = ["dep:datafusion", "windmill-common/parquet", "windmill-object-store/parquet", "windmill-worker?/parquet", "windmill-api-users/parquet", "windmill-api-settings/parquet", "dep:aws-sigv4", "dep:aws-sdk-config"]
 prometheus = ["windmill-common/prometheus", "windmill-queue/prometheus", "dep:prometheus", "windmill-worker?/prometheus"]
 openidconnect = ["dep:openidconnect", "windmill-common/openidconnect", "windmill-store/openidconnect"]
 tantivy = ["dep:windmill-indexer"]
@@ -58,6 +58,8 @@ windmill-trigger.workspace = true
 windmill-store.workspace = true
 windmill-queue.workspace = true
 windmill-common = { workspace = true, default-features = false }
+windmill-types.workspace = true
+windmill-object-store.workspace = true
 windmill-audit.workspace = true
 windmill-parser.workspace = true
 windmill-parser-sql.workspace = true
@@ -129,7 +131,6 @@ async-recursion.workspace = true
 rsa = { workspace = true, optional = true}
 uuid.workspace = true
 datafusion = { workspace = true, optional = true}
-object_store = { workspace = true, optional = true}
 openidconnect = { workspace = true, optional = true}
 jsonwebtoken = { workspace = true }
 matchit = { workspace = true, optional = true }

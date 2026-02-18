@@ -402,6 +402,7 @@ export async function getDbSchemas(
 	errorCallback: (message: string) => void,
 	options: {
 		useLegacyScripts?: boolean // To avoid breaking app policies
+		customTag?: string
 	} = {}
 ): Promise<DBSchema | undefined> {
 	let scripts = options.useLegacyScripts ? legacyScripts : scriptsV2
@@ -416,6 +417,7 @@ export async function getDbSchemas(
 			requestBody: {
 				language: sqlScript.lang as Preview['language'],
 				content: sqlScript.code,
+				tag: options.customTag,
 				args: {
 					[sqlScript.argName]: resourcePath.startsWith('datatable://')
 						? resourcePath

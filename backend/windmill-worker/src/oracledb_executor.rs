@@ -10,9 +10,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue, Value};
 use windmill_common::{
     error::{to_anyhow, Error},
-    s3_helpers::convert_json_line_stream,
     worker::{to_raw_value, Connection, SqlResultCollectionStrategy},
 };
+use windmill_object_store::convert_json_line_stream;
 use windmill_queue::MiniPulledJob;
 
 use windmill_parser_sql::{

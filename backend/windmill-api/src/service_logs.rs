@@ -98,11 +98,11 @@ async fn get_log_file(
     require_devops_role(&db, &email).await?;
     let path = path.to_path();
     #[cfg(feature = "parquet")]
-    let s3_client = windmill_common::s3_helpers::get_object_store().await;
+    let s3_client = windmill_object_store::get_object_store().await;
     #[cfg(feature = "parquet")]
     if let Some(s3_client) = s3_client {
         let path = format!("{}{}", windmill_common::tracing_init::LOGS_SERVICE, path);
-        let file = s3_client.get(&object_store::path::Path::from(path)).await;
+        let file = s3_client.get(&windmill_object_store::object_store_reexports::Path::from(path)).await;
         match file {
             Ok(file) => {
                 let bytes = file.bytes().await;

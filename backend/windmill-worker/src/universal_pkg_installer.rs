@@ -175,7 +175,7 @@ pub async fn par_install_language_dependencies_all_at_once<
             mark_success(path.clone(), job_id, w_id).await;
             #[cfg(all(feature = "enterprise", feature = "parquet"))]
             {
-                if let Some(os) = windmill_common::s3_helpers::get_object_store().await {
+                if let Some(os) = windmill_object_store::get_object_store().await {
                     let language_name = _language_name.to_owned();
                     tokio::spawn(async move {
                         if let Err(e) = crate::global_cache::build_tar_and_push(
@@ -524,7 +524,7 @@ async fn try_install_one_detached<'a, T: Clone + std::marker::Send + Sync + 'a +
 
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     let s3_pull_future = if is_not_pro {
-        if let Some(os) = windmill_common::s3_helpers::get_object_store().await {
+        if let Some(os) = windmill_object_store::get_object_store().await {
             Some(crate::global_cache::pull_from_tar(
                 os,
                 dep.path.clone(),
@@ -624,7 +624,7 @@ async fn try_install_one_detached<'a, T: Clone + std::marker::Send + Sync + 'a +
 
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
         {
-            if let Some(os) = windmill_common::s3_helpers::get_object_store().await {
+            if let Some(os) = windmill_object_store::get_object_store().await {
                 let language_name = _language_name.to_string();
                 let platform_agnostic = _platform_agnostic;
                 let path = dep.path.clone();
@@ -685,7 +685,7 @@ async fn print_success(
     }
 
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
-    if windmill_common::s3_helpers::OBJECT_STORE_SETTINGS
+    if windmill_object_store::OBJECT_STORE_SETTINGS
         .read()
         .await
         .is_none()

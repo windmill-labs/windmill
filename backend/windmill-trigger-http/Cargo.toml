@@ -16,6 +16,7 @@ cloud = ["windmill-common/cloud"]
 [dependencies]
 windmill-api-auth.workspace = true
 windmill-common = { workspace = true, default-features = false }
+windmill-types.workspace = true
 windmill-trigger.workspace = true
 windmill-audit.workspace = true
 windmill-git-sync.workspace = true
