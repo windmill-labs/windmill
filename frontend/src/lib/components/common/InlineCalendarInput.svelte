@@ -118,7 +118,8 @@
 			return v && !calendarDateIsNull(v) ? v : null
 		}
 		const v = value as CalendarRange | undefined
-		if (onClickBehavior === 'set-start') return v?.start && !calendarDateIsNull(v.start) ? v.start : null
+		if (onClickBehavior === 'set-start')
+			return v?.start && !calendarDateIsNull(v.start) ? v.start : null
 		if (onClickBehavior === 'set-end') return v?.end && !calendarDateIsNull(v.end) ? v.end : null
 		return null
 	})
@@ -189,6 +190,8 @@
 		} else {
 			const v = value as CalendarRange | undefined
 			if (!v) return false
+			if (onClickBehavior === 'set-start') return isSameCalDate(cell, v.start)
+			if (onClickBehavior === 'set-end') return isSameCalDate(cell, v.end)
 			return isSameCalDate(cell, v.start) || isSameCalDate(cell, v.end)
 		}
 	}
@@ -397,7 +400,7 @@
 	}
 </script>
 
-<div class={className}>
+<div class="flex flex-col {className}">
 	<!-- Header -->
 	<div class="mb-3 flex items-center gap-2">
 		<Button endIcon={{ icon: ChevronLeft }} iconOnly unifiedSize="md" onClick={prevMonth} />
@@ -472,6 +475,8 @@
 			</button>
 		{/each}
 	</div>
+
+	<div class="flex-1"></div>
 
 	<!-- Time inputs -->
 	{#if showTime}
