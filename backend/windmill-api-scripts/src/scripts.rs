@@ -1083,6 +1083,10 @@ async fn create_script_internal<'c>(
             ))
         } else if ns.tag.as_ref().is_some_and(|x| x.contains("$args[")) {
             None
+        } else if lang == ScriptLang::Bunnative {
+            // if a custom tag is set for a bunnative script, this prevents the custom tag to be used for the dependency job
+            // forcing the bundling to run on a worker with the bun tag
+            None
         } else {
             ns.tag
         };

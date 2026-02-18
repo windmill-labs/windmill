@@ -3011,6 +3011,17 @@ pub async fn handle_queued_job(
     }
 
     if NATIVE_MODE_RESOLVED.load(std::sync::atomic::Ordering::Relaxed) {
+        // Block all dependency jobs: native scripts don't have dependency jobs, and bunnative
+        // dep jobs are routed to bun workers (lang=bun, tag=bun) even when they have a custom tag .
+        if matches!(
+            job.kind,
+            JobKind::FlowDependencies | JobKind::AppDependencies | JobKind::Dependencies
+        ) || job.tag == "dependency"
+        {
+            return Err(Error::ExecutionErr(
+                "Worker is in native mode and cannot execute dependency jobs".to_string(),
+            ));
+        }
         if let Some(lang) = &job.script_lang {
             if !lang.is_native() {
                 return Err(Error::ExecutionErr(format!(

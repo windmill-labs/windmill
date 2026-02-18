@@ -28,12 +28,6 @@
 
 	let job: (Job & { result_stream?: string }) | undefined = $state(undefined)
 
-	let result: any = $state()
-
-	function onDone(job: Job) {
-		result = job['result']
-	}
-
 	let currentJob: Job | undefined = $state(undefined)
 	let loadError: string | undefined = $state(undefined)
 	let isLoadingJobDetails: boolean = $state(false)
@@ -75,7 +69,6 @@
 			untrack(() =>
 				jobLoader?.watchJob(id, {
 					done(x) {
-						onDone(x)
 						loadError = undefined
 						isLoadingJobDetails = false
 					},
@@ -202,7 +195,7 @@
 								<DisplayResult
 									workspaceId={job?.workspace_id}
 									jobId={job?.id}
-									{result}
+									result={job?.result}
 									disableExpand
 									language={job?.language}
 								/>

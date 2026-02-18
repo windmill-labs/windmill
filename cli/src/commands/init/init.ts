@@ -87,61 +87,59 @@ async function initAction(opts: InitOptions) {
           opts.bindProfile != true &&
           (opts.useDefault || !Deno.stdin.isTerminal());
 
-        if (shouldSkip) {
-          return;
-        }
-
-        // Show workspace info if we're binding or prompting
-        if (shouldBind || shouldPrompt) {
-          log.info(
-            colors.yellow(`\nCurrent Git branch: ${colors.bold(currentBranch)}`)
-          );
-          log.info(
-            colors.yellow(
-              `Active workspace profile: ${colors.bold(activeWorkspace.name)}`
-            )
-          );
-          log.info(
-            colors.yellow(
-              `  ${activeWorkspace.workspaceId} on ${activeWorkspace.remote}`
-            )
-          );
-        }
-
-        if (
-          shouldBind ||
-          (shouldPrompt &&
-            (await Confirm.prompt({
-              message: "Bind workspace profile to current Git branch?",
-              default: true,
-            })))
-        ) {
-          // Update the config with workspace binding
-          const currentConfig = await import("../../core/conf.ts").then((m) =>
-            m.readConfigFile()
-          );
-          if (!currentConfig.gitBranches) {
-            currentConfig.gitBranches = {};
-          }
-          if (!currentConfig.gitBranches[currentBranch]) {
-            currentConfig.gitBranches[currentBranch] = { overrides: {} };
+        if (!shouldSkip) {
+          // Show workspace info if we're binding or prompting
+          if (shouldBind || shouldPrompt) {
+            log.info(
+              colors.yellow(`\nCurrent Git branch: ${colors.bold(currentBranch)}`)
+            );
+            log.info(
+              colors.yellow(
+                `Active workspace profile: ${colors.bold(activeWorkspace.name)}`
+              )
+            );
+            log.info(
+              colors.yellow(
+                `  ${activeWorkspace.workspaceId} on ${activeWorkspace.remote}`
+              )
+            );
           }
 
-          log.info(
-            `binding branch ${currentBranch} to workspace ${activeWorkspace.name} on ${activeWorkspace.remote}`
-          );
-          currentConfig.gitBranches[currentBranch].baseUrl =
-            activeWorkspace.remote;
-          currentConfig.gitBranches[currentBranch].workspaceId =
-            activeWorkspace.workspaceId;
+          if (
+            shouldBind ||
+            (shouldPrompt &&
+              (await Confirm.prompt({
+                message: "Bind workspace profile to current Git branch?",
+                default: true,
+              })))
+          ) {
+            // Update the config with workspace binding
+            const currentConfig = await import("../../core/conf.ts").then((m) =>
+              m.readConfigFile()
+            );
+            if (!currentConfig.gitBranches) {
+              currentConfig.gitBranches = {};
+            }
+            if (!currentConfig.gitBranches[currentBranch]) {
+              currentConfig.gitBranches[currentBranch] = { overrides: {} };
+            }
 
-          await Deno.writeTextFile("wmill.yaml", yamlStringify(currentConfig));
+            log.info(
+              `binding branch ${currentBranch} to workspace ${activeWorkspace.name} on ${activeWorkspace.remote}`
+            );
+            currentConfig.gitBranches[currentBranch].baseUrl =
+              activeWorkspace.remote;
+            currentConfig.gitBranches[currentBranch].workspaceId =
+              activeWorkspace.workspaceId;
 
-          log.info(
-            colors.green(
-              `✓ Bound branch '${currentBranch}' to workspace '${activeWorkspace.name}'`
-            )
-          );
+            await Deno.writeTextFile("wmill.yaml", yamlStringify(currentConfig));
+
+            log.info(
+              colors.green(
+                `✓ Bound branch '${currentBranch}' to workspace '${activeWorkspace.name}'`
+              )
+            );
+          }
         }
       }
     }
@@ -163,81 +161,80 @@ async function initAction(opts: InitOptions) {
           log.info(
             "You can configure a workspace later with 'wmill workspace add'"
           );
-          return;
-        }
+        } else {
+          await requireLogin(opts as GlobalOptions);
+          const workspace = await resolveWorkspace(opts as GlobalOptions);
 
-        await requireLogin(opts as GlobalOptions);
-        const workspace = await resolveWorkspace(opts as GlobalOptions);
+          const wmill = await import("../../../gen/services.gen.ts");
+          const settings = await wmill.getSettings({
+            workspace: workspace.workspaceId,
+          });
 
-        const wmill = await import("../../../gen/services.gen.ts");
-        const settings = await wmill.getSettings({
-          workspace: workspace.workspaceId,
-        });
+          if (
+            settings.git_sync?.repositories &&
+            settings.git_sync.repositories.length > 0
+          ) {
+            let useBackendSettings = opts.useBackend;
 
-        if (
-          settings.git_sync?.repositories &&
-          settings.git_sync.repositories.length > 0
-        ) {
-          let useBackendSettings = opts.useBackend;
-
-          // If repository is specified, implicitly use backend settings
-          if (opts.repository && !opts.useDefault) {
-            useBackendSettings = true;
-          }
-
-          if (useBackendSettings === undefined) {
-            // Interactive prompt
-            const { Select } = await import("../../../deps.ts");
-            const choice = await Select.prompt({
-              message:
-                "Git-sync settings found on backend. What would you like to do?",
-              options: [
-                {
-                  name: "Use backend git-sync settings",
-                  value: "backend",
-                },
-                {
-                  name: "Use default settings",
-                  value: "default",
-                },
-                {
-                  name: "Cancel",
-                  value: "cancel",
-                },
-              ],
-            });
-
-            if (choice === "cancel") {
-              // Clean up the created files
-              try {
-                await Deno.remove("wmill.yaml");
-                await Deno.remove("wmill-lock.yaml");
-              } catch (e) {
-                // Ignore cleanup errors
-              }
-              log.info("Init cancelled");
-              Deno.exit(0);
+            // If repository is specified, implicitly use backend settings
+            if (opts.repository && !opts.useDefault) {
+              useBackendSettings = true;
             }
 
-            useBackendSettings = choice === "backend";
-          }
+            if (useBackendSettings === undefined) {
+              // Interactive prompt
+              const { Select } = await import("../../../deps.ts");
+              const choice = await Select.prompt({
+                message:
+                  "Git-sync settings found on backend. What would you like to do?",
+                options: [
+                  {
+                    name: "Use backend git-sync settings",
+                    value: "backend",
+                  },
+                  {
+                    name: "Use default settings",
+                    value: "default",
+                  },
+                  {
+                    name: "Cancel",
+                    value: "cancel",
+                  },
+                ],
+              });
 
-          if (useBackendSettings) {
-            log.info("Applying git-sync settings from backend...");
+              if (choice === "cancel") {
+                // Clean up the created files
+                try {
+                  await Deno.remove("wmill.yaml");
+                  await Deno.remove("wmill-lock.yaml");
+                } catch (e) {
+                  // Ignore cleanup errors
+                }
+                log.info("Init cancelled");
+                Deno.exit(0);
+              }
 
-            // Import and run the pull git-sync settings logic
-            const { pullGitSyncSettings } = await import(
-              "../gitsync-settings/gitsync-settings.ts"
-            );
-            await pullGitSyncSettings({
-              ...(opts as GlobalOptions),
-              repository: opts.repository,
-              jsonOutput: false,
-              diff: false,
-              replace: true, // Auto-replace when using backend settings during init
-            });
+              useBackendSettings = choice === "backend";
+            }
 
-            log.info(colors.green("Git-sync settings applied from backend"));
+            if (useBackendSettings) {
+              log.info("Applying git-sync settings from backend...");
+
+              // Import and run the pull git-sync settings logic
+              const { pullGitSyncSettings } = await import(
+                "../gitsync-settings/gitsync-settings.ts"
+              );
+              await pullGitSyncSettings({
+                ...(opts as GlobalOptions),
+                repository: opts.repository,
+                jsonOutput: false,
+                diff: false,
+                replace: true, // Auto-replace when using backend settings during init
+              });
+
+              log.info(colors.green("Git-sync settings applied from backend"));
+            }
           }
         }
       } catch (error) {
