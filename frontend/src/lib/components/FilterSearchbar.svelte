@@ -243,6 +243,7 @@
 	type Props<SchemaT extends FilterSchemaRec> = {
 		schema: SchemaT
 		value: Partial<FilterInstanceRec<SchemaT>>
+		presets?: { name: string; value: string }[]
 		class?: string
 		innerClass?: string
 	}
@@ -251,6 +252,7 @@
 	let {
 		schema,
 		value: valueInput = $bindable(),
+		presets: _presets = [],
 		class: className,
 		innerClass
 	}: Props<SchemaT> = $props()
@@ -461,10 +463,7 @@
 
 	type Preset = { name: string; value: string }
 	let presets: Preset[] = $derived(
-		[
-			{ name: 'Hide schedules', value: 'job_trigger_kind:\\ !schedule' },
-			{ name: 'Hide future jobs', value: 'show_future_jobs:\\ false' }
-		].filter((p) => {
+		_presets.filter((p) => {
 			// Only show presets that aren't already applied in asText
 			return !asText.val.includes(p.value)
 		})

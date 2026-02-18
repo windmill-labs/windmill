@@ -19,7 +19,11 @@
 
 	import RunsTable from '$lib/components/runs/RunsTable.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { allowWildcards, buildRunsFilterSearchbarSchema } from '$lib/components/runs/runsFilter'
+	import {
+		allowWildcards,
+		buildRunsFilterSearchbarSchema,
+		buildRunsFilterPresets
+	} from '$lib/components/runs/runsFilter'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import RunsQueue from '$lib/components/runs/RunsQueue.svelte'
@@ -667,6 +671,7 @@
 					class="flex-1"
 					innerClass="absolute inset-0"
 					schema={runsFilterSearchbarSchema}
+					presets={buildRunsFilterPresets({ isSuperadmin: !!$superadmin })}
 					bind:value={filters.val}
 				/>
 			</div>

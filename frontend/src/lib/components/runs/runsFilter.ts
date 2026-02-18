@@ -184,3 +184,9 @@ export function allowWildcards(filters: Partial<RunsFilterInstance> | undefined)
 		false
 	)
 }
+
+export const buildRunsFilterPresets = ({ isSuperadmin }: { isSuperadmin: boolean }) => [
+	{ name: 'Hide schedules', value: 'job_trigger_kind:\\ !schedule' },
+	{ name: 'Hide future jobs', value: 'show_future_jobs:\\ false' },
+	...(isSuperadmin ? [{ name: 'All workspaces', value: 'all_workspaces:\\ true' }] : [])
+]
