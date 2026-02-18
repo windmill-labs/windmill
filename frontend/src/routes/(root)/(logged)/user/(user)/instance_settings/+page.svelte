@@ -116,6 +116,20 @@
 	let passwordValid = $derived(newPassword.length >= 2)
 	let accountFormValid = $derived(emailValid && passwordValid)
 
+	// --- EE license key warning ---
+	let showLicenseKeyWarning = $state(false)
+	let pendingNextCallback: (() => void) | undefined = $state(undefined)
+
+	function isEeImage(): boolean {
+		const v = instanceSettings?.getVersion() ?? ''
+		return v.startsWith('EE')
+	}
+
+	function isLicenseKeyEmpty(): boolean {
+		const key = instanceSettings?.getLicenseKey() ?? ''
+		return key.trim() === ''
+	}
+
 	// --- Full settings mode state ---
 	let fullTab = $state('general')
 	let instanceSettingsCategory = $derived(tabToCategoryMap[fullTab] ?? 'Core')
@@ -138,6 +152,16 @@
 	}
 
 
+
+	/** Check if we need to warn about missing EE license key before proceeding */
+	function proceedFromCore(callback: () => void) {
+		if (wizardStep === 0 && isEeImage() && isLicenseKeyEmpty()) {
+			pendingNextCallback = callback
+			showLicenseKeyWarning = true
+			return
+		}
+		saveAndProceed(callback)
+	}
 
 	/** Auto-save dirty settings, then run the callback */
 	async function saveAndProceed(callback: () => void) {
@@ -454,7 +478,7 @@
 						<Button
 							variant="accent"
 							unifiedSize="md"
-							onClick={() => saveAndProceed(() => (wizardStep += 1))}
+							onClick={() => proceedFromCore(() => (wizardStep += 1))}
 						>
 							{currentStepDirty ? 'Save & Next' : 'Next'}
 						</Button>
@@ -519,6 +543,30 @@
 	>
 		<div class="flex flex-col w-full space-y-4">
 			<span>You have unsaved changes. Are you sure you want to discard them?</span>
+		</div>
+	</ConfirmationModal>
+{/if}
+
+{#if showLicenseKeyWarning}
+	<ConfirmationModal
+		open={showLicenseKeyWarning}
+		title="License key required"
+		confirmationText="Continue without license key"
+		on:canceled={() => {
+			showLicenseKeyWarning = false
+			pendingNextCallback = undefined
+		}}
+		on:confirmed={() => {
+			showLicenseKeyWarning = false
+			const cb = pendingNextCallback
+			pendingNextCallback = undefined
+			if (cb) saveAndProceed(cb)
+		}}
+	>
+		<div class="flex flex-col w-full space-y-4">
+			<span>
+				You are running the Enterprise Edition image but have not entered a license key. A valid license key is required to use EE features. Are you sure you want to continue without one?
+			</span>
 		</div>
 	</ConfirmationModal>
 {/if}
