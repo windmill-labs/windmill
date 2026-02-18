@@ -230,7 +230,6 @@
 	import { MinusIcon, SearchIcon } from 'lucide-svelte'
 	import { assignObjInPlace, clone } from '$lib/utils'
 	import GenericDropdown from './select/GenericDropdown.svelte'
-	import DateTimeInput from './DateTimeInput.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import TaggedTextInput from './TaggedTextInput.svelte'
 	import { DebouncedTempValue, useTransformedSyncedValue } from '$lib/svelte5Utils.svelte'
@@ -239,6 +238,7 @@
 	import Popover from './meltComponents/Popover.svelte'
 	import Button from './common/button/Button.svelte'
 	import Badge from './common/badge/Badge.svelte'
+	import InlineCalendarInput from './common/InlineCalendarInput.svelte'
 
 	type Props<SchemaT extends FilterSchemaRec> = {
 		schema: SchemaT
@@ -484,6 +484,8 @@
 		if (!asText.val.endsWith('\u00A0') && !asText.val.endsWith(' ')) asText.val += ' '
 		asText.val += presetValue + '\u00A0'
 	}
+
+	let testVal = $state({ day: null, month: null, year: null })
 </script>
 
 <svelte:window onmousedown={() => (open = false)} onkeydown={handleKeyDown} />
@@ -599,16 +601,7 @@
 			{/if}
 		{/each}
 	{:else if filter.type === 'date'}
-		<DateTimeInput
-			bind:value={
-				() => value[currentTag!],
-				(d) => {
-					if (!d) return
-					setValueForCurrentTag(new Date(d))
-					taggedTextInput?.preventCursorMoveOnNextSync()
-				}
-			}
-		/>
+		<InlineCalendarInput mode="date" bind:value={testVal} />
 	{:else if filter.type === 'string' && filter.format === 'json'}
 		<div class="px-2 pb-2">
 			<SimpleEditor
