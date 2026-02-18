@@ -760,7 +760,7 @@ def generate_skills(
         'cli_commands': cli_commands,
     }
 
-    # CLI intro for script skills
+    # CLI intro for the combined script skill
     script_cli_intro = """## CLI Commands
 
 Place scripts in a folder. After writing, run:
@@ -771,34 +771,34 @@ Use `wmill resource-type list --schema` to discover available resource types."""
 
     skills_generated = []
 
-    # Generate script skills for each language
-    for lang_key, lang_content in languages.items():
+    # Generate a single combined script skill with all languages
+    skill_name = "write-script"
+    skill_dir = OUTPUT_SKILLS_DIR / skill_name
+    skill_dir.mkdir(parents=True, exist_ok=True)
+
+    # Build combined content: script base + all languages
+    combined_parts = []
+    for lang_key in sorted(languages.keys()):
         if lang_key not in LANGUAGE_METADATA:
             print(f"  Warning: No metadata for language '{lang_key}', skipping")
             continue
+        combined_parts.append(languages[lang_key])
 
-        metadata = LANGUAGE_METADATA[lang_key]
-        skill_name = f"write-script-{lang_key}"
-        skill_dir = OUTPUT_SKILLS_DIR / skill_name
-        skill_dir.mkdir(parents=True, exist_ok=True)
+    combined_content = '\n\n'.join(combined_parts)
 
-        # Determine which SDK to include
-        sdk_content = ''
-        if lang_key in TS_SDK_LANGUAGES:
-            sdk_content = ts_sdk_md
-        elif lang_key in PY_SDK_LANGUAGES:
-            sdk_content = py_sdk_md
+    # Include both SDKs
+    combined_sdk = '\n\n'.join(filter(None, [ts_sdk_md, py_sdk_md]))
 
-        skill_content = generate_skill_content(
-            skill_name=skill_name,
-            description=metadata['description'],
-            intro=script_cli_intro,
-            content=lang_content,
-            sdk_content=sdk_content
-        )
+    skill_content = generate_skill_content(
+        skill_name=skill_name,
+        description='MUST use when writing or modifying scripts in any language.',
+        intro=script_cli_intro,
+        content=combined_content,
+        sdk_content=combined_sdk
+    )
 
-        (skill_dir / "SKILL.md").write_text(skill_content)
-        skills_generated.append(skill_name)
+    (skill_dir / "SKILL.md").write_text(skill_content)
+    skills_generated.append(skill_name)
 
     # Generate other skills from definitions
     # Note: Skills with schema_types (triggers, schedules) get base content only.
@@ -842,7 +842,6 @@ def generate_skills_ts_export(skills: list[str], schema_yaml_content: dict[str, 
     ts += "export interface SkillMetadata {\n"
     ts += "  name: string;\n"
     ts += "  description: string;\n"
-    ts += "  languageKey?: string;\n"
     ts += "}\n\n"
 
     ts += "export const SKILLS: SkillMetadata[] = [\n"
@@ -850,11 +849,8 @@ def generate_skills_ts_export(skills: list[str], schema_yaml_content: dict[str, 
     skill_desc_map = {s['name']: s['description'] for s in SKILL_DEFINITIONS}
 
     for skill in skills:
-        if skill.startswith('write-script-'):
-            lang_key = skill.replace('write-script-', '')
-            if lang_key in LANGUAGE_METADATA:
-                metadata = LANGUAGE_METADATA[lang_key]
-                ts += f'  {{ name: "{skill}", description: "{metadata["description"]}", languageKey: "{lang_key}" }},\n'
+        if skill == 'write-script':
+            ts += f'  {{ name: "write-script", description: "MUST use when writing or modifying scripts in any language." }},\n'
         elif skill in skill_desc_map:
             ts += f'  {{ name: "{skill}", description: "{skill_desc_map[skill]}" }},\n'
 

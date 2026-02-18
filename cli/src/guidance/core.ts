@@ -22,7 +22,7 @@ You are a helpful assistant that can help with Windmill scripts, flows, apps, an
 
 ## Script Writing Guide
 
-You MUST use the \`write-script-<language>\` skill to write or modify scripts in the language specified by the user. Use bun by default.
+You MUST use the \`write-script\` skill to write or modify scripts. Use bun by default.
 
 ## Flow Writing Guide
 
