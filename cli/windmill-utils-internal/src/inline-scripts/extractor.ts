@@ -1,14 +1,17 @@
 import { newPathAssigner, PathAssigner } from "../path-utils/path-assigner.ts";
-import { FlowModule, RawScript } from "../gen/types.gen.ts";
+import { FlowModule, RawScript, ScriptLang } from "../gen/types.gen.ts";
 
 /**
  * Represents an inline script extracted from a flow module
  */
-interface InlineScript {
+export interface InlineScript {
   /** File path where the script content should be written */
   path: string;
   /** The actual script content */
   content: string;
+  /** The script language */
+  language: ScriptLang;
+  is_lock: boolean;
 }
 
 function extractRawscriptInline(
@@ -21,14 +24,15 @@ function extractRawscriptInline(
 ): InlineScript[] {
   const [basePath, ext] = assigner.assignPath(summary ?? id, rawscript.language);
   const path = mapping[id] ?? basePath + ext;
+  const language = rawscript.language;
   const content = rawscript.content;
-  const r = [{ path: path, content: content }];
+  const r = [{ path: path, content: content, language, is_lock: false}];
   rawscript.content = "!inline " + path.replaceAll(separator, "/");
   const lock = rawscript.lock;
   if (lock && lock != "") {
     const lockPath = basePath + "lock";
     rawscript.lock = "!inline " + lockPath.replaceAll(separator, "/");
-    r.push({ path: lockPath, content: lock });
+    r.push({ path: lockPath, content: lock, language, is_lock: true});
   }
   return r;
 }

@@ -93,7 +93,7 @@ struct PiptarUploadTask {
 #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
 async fn handle_piptar_uploads(mut rx: tokio::sync::mpsc::UnboundedReceiver<PiptarUploadTask>) {
     use crate::global_cache::build_tar_and_push;
-    use windmill_common::s3_helpers::get_object_store;
+    use windmill_object_store::get_object_store;
 
     while let Some(task) = rx.recv().await {
         if let Some(os) = get_object_store().await {
@@ -123,7 +123,7 @@ const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
 use crate::global_cache::pull_from_tar;
 
 #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
-use windmill_common::s3_helpers::OBJECT_STORE_SETTINGS;
+use windmill_object_store::OBJECT_STORE_SETTINGS;
 
 use crate::{
     common::{
@@ -1921,7 +1921,7 @@ pub async fn handle_python_reqs(
             let start = std::time::Instant::now();
             #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
             if is_not_pro {
-                if let Some(os) = windmill_common::s3_helpers::get_object_store().await {
+                if let Some(os) = windmill_object_store::get_object_store().await {
                     tokio::select! {
                         // Cancel was called on the job
                         _ = kill_rx.recv() => return Err(Error::from(anyhow::anyhow!("S3 pull was canceled"))),

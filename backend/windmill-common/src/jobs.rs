@@ -250,42 +250,6 @@ pub async fn get_logs_from_disk(
     return None;
 }
 
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
-pub async fn get_logs_from_store(
-    log_offset: i32,
-    logs: &str,
-    log_file_index: &Option<Vec<String>>,
-) -> Option<impl Stream<Item = Result<Bytes, object_store::Error>>> {
-    use crate::s3_helpers::get_object_store;
-
-    if log_offset > 0 {
-        if let Some(file_index) = log_file_index.clone() {
-            if let Some(os) = get_object_store().await {
-                let logs = logs.to_string();
-                let stream = async_stream::stream! {
-                    for file_p in file_index.clone() {
-                        let file_p_2 = file_p.clone();
-                        let file = os.get(&object_store::path::Path::from(file_p)).await;
-                        if let Ok(file) = file {
-                            if let Ok(bytes) = file.bytes().await {
-                                yield Ok(bytes::Bytes::from(bytes)) as object_store::Result<bytes::Bytes>;
-                            }
-                        } else {
-                            tracing::debug!("error getting file from store: {file_p_2}: {}", file.err().unwrap());
-                        }
-                    }
-
-                    yield Ok(bytes::Bytes::from(logs))
-                };
-                return Some(stream);
-            } else {
-                tracing::debug!("object store client not present, cannot stream logs from store");
-            }
-        }
-    }
-    return None;
-}
-
 lazy_static::lazy_static! {
     pub static ref TAGS_ARE_SENSITIVE: bool = std::env::var("TAGS_ARE_SENSITIVE").map(
         |v| v.parse().unwrap()
