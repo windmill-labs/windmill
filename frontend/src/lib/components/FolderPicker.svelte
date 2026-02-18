@@ -95,11 +95,16 @@
 				requestBody: { name: newFolderName }
 			})
 			folderCreated = newFolderName
-			if ($userStore) {
-				$userStore.folders = [...($userStore.folders ?? []), newFolderName]
-			}
 			await loadFolders()
 			folderName = newFolderName
+
+			// Writing $userStore.folders = [...] would call userStore.set(),
+			// which re-triggers Path.svelte's $effect.pre and calls initPath()/reset(),
+			// switching the owner toggle from "Folder" back to "User".
+			if ($userStore) {
+				if (!$userStore.folders) $userStore.folders = []
+				$userStore.folders.push(newFolderName)
+			}
 		} catch (e) {
 			sendUserToast(`Could not create folder: ${e}`, true)
 		} finally {
@@ -190,6 +195,7 @@
 </Drawer>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
 	class="flex flex-row w-full items-center relative"
 	role="group"
@@ -212,10 +218,10 @@
 			<Button
 				disabled={disabled || disableEditing}
 				variant="subtle"
-				size="xs2"
+				unifiedSize="xs"
 				wrapperClasses="-mr-2 pl-1 -my-2"
 				btnClasses="hover:bg-surface-tertiary"
-				on:click={() => {
+				onClick={() => {
 					folderName = item.value ?? ''
 					viewFolder?.openDrawer()
 					close()
@@ -239,11 +245,11 @@
 			</button>
 		{/snippet}
 	</Select>
-	{#if folderName && hovering}
-		<div class="absolute {disabled || disableEditing ? 'right-2' : 'right-10'} z-20">
+	{#if folderName && hovering && !loadingFolders}
+		<div class="absolute {disabled || disableEditing ? 'right-2' : 'right-2'} z-20">
 			<Button
 				variant="subtle"
-				size="xs2"
+				unifiedSize="xs"
 				wrapperClasses="pl-1"
 				btnClasses="hover:bg-surface-tertiary"
 				on:click={() => viewFolder?.openDrawer()}
