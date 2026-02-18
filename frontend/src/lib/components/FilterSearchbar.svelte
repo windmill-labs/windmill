@@ -351,10 +351,15 @@
 	}
 
 	type Preset = { name: string; value: string }
-	let presets: Preset[] = $derived([
-		{ name: 'Hide schedules', value: 'job_trigger_kind:\\ !schedule' },
-		{ name: 'Hide future jobs', value: 'show_future_jobs:\\ false' }
-	])
+	let presets: Preset[] = $derived(
+		[
+			{ name: 'Hide schedules', value: 'job_trigger_kind:\\ !schedule' },
+			{ name: 'Hide future jobs', value: 'show_future_jobs:\\ false' }
+		].filter((p) => {
+			// Only show presets that aren't already applied in asText
+			return !asText.val.includes(p.value)
+		})
+	)
 
 	function appendFilterAsText(presetValue: string) {
 		if (!asText.val.endsWith('\u00A0') && !asText.val.endsWith(' ')) asText.val += ' '
@@ -413,12 +418,14 @@
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<div class="py-1 p-2 overflow-y-auto" onmousedown={(e) => e.stopPropagation()}>
 		{#if !currentTag}
-			<div class="text-xs px-2 my-2 font-bold">Presets</div>
-			<div class="mb-3 px-2 flex gap-2 flex-wrap">
-				{#each presets as preset}
-					{@render presetTag(preset)}
-				{/each}
-			</div>
+			{#if presets.length}
+				<div class="text-xs px-2 my-2 font-bold">Presets</div>
+				<div class="mb-3 px-2 flex gap-2 flex-wrap">
+					{#each presets as preset}
+						{@render presetTag(preset)}
+					{/each}
+				</div>
+			{/if}
 			<div class="text-xs px-2 my-2 font-bold">Filters</div>
 			{#each menuItems as item, index}
 				{#if item.type === 'filter' && item.filterSchema}
