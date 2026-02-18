@@ -180,7 +180,7 @@
 					variant="accent"
 					disabled={!newFolderName || !!nameError || creating}
 					loading={creating}
-					on:click={addFolder}
+					onClick={addFolder}
 				>
 					Create
 				</Button>
@@ -247,13 +247,13 @@
 		{/snippet}
 	</Select>
 	{#if folderName && hovering && !loadingFolders}
-		<div class="absolute {disabled || disableEditing ? 'right-2' : 'right-2'} z-20">
+		<div class="absolute right-2 z-20">
 			<Button
 				variant="subtle"
 				unifiedSize="xs"
 				wrapperClasses="pl-1"
 				btnClasses="hover:bg-surface-tertiary"
-				on:click={() => {
+				onClick={() => {
 					editingFolder = folderName
 					viewFolder?.openDrawer()
 				}}
