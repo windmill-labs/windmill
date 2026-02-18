@@ -192,8 +192,8 @@
 				const el = document.querySelector(`[data-setting-key="${item.settingKey}"]`)
 				if (el) {
 					el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-					el.classList.add('ring-1', 'ring-accent')
-					setTimeout(() => el.classList.remove('ring-1', 'ring-accent'), 1500)
+					el.classList.add('setting-highlight')
+					setTimeout(() => el.classList.remove('setting-highlight'), 2500)
 				}
 			}, 100)
 		}
@@ -605,3 +605,14 @@
 		<span>Are you sure you want to remove <b>{deleteUserEmail}</b>?</span>
 	</div>
 </ConfirmationModal>
+
+<style>
+	:global([data-setting-key]) {
+		transition: outline 0.8s ease;
+		outline: 2px solid transparent;
+		outline-offset: -2px;
+	}
+	:global([data-setting-key].setting-highlight) {
+		outline: 2px solid rgb(var(--color-border-accent, 59 130 246));
+	}
+</style>
