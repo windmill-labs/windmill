@@ -88,6 +88,7 @@ import {
   isAppPath,
   isRawAppPath,
   extractFolderPath,
+  extractResourceName,
   isFlowMetadataFile,
   isAppMetadataFile,
   isRawAppMetadataFile,
@@ -2730,18 +2731,40 @@ export async function push(
                       path: removeSuffix(target, getDeleteSuffix("raw_app", "json")),
                     });
                   } else {
-                    // For individual file deletions within a raw app,
-                    // re-push the entire raw app so the backend gets the updated file list
-                    // (the deleted file won't be included in the push)
-                    await pushObj(
-                      workspaceId,
-                      target,
-                      undefined,
-                      undefined,
-                      opts.plainSecrets ?? false,
-                      alreadySynced,
-                      opts.message,
-                    );
+                    const rawAppFolder = extractFolderPath(target, "raw_app");
+                    let folderExists = false;
+                    if (rawAppFolder) {
+                      try {
+                        await Deno.stat(rawAppFolder);
+                        folderExists = true;
+                      } catch {
+                        // folder doesn't exist
+                      }
+                    }
+                    if (folderExists) {
+                      // For individual file deletions within a raw app,
+                      // re-push the entire raw app so the backend gets the updated file list
+                      // (the deleted file won't be included in the push)
+                      await pushObj(
+                        workspaceId,
+                        target,
+                        undefined,
+                        undefined,
+                        opts.plainSecrets ?? false,
+                        alreadySynced,
+                        opts.message,
+                      );
+                    } else {
+                      // The entire raw app folder was deleted locally,
+                      // delete the raw app on the server
+                      const remotePath = extractResourceName(target, "raw_app");
+                      if (remotePath) {
+                        await wmill.deleteApp({
+                          workspace: workspaceId,
+                          path: remotePath,
+                        });
+                      }
+                    }
                   }
                   break;
                 case "schedule":
