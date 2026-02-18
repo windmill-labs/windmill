@@ -151,7 +151,7 @@
 	function reset() {
 		_timeframe.val = { ...runsTimeframes[0] }
 		selectedIds = []
-		filters.val.schedule_path = undefined
+		delete filters.val.schedule_path
 		selectedWorkspace = undefined
 		jobsLoader?.loadJobs(true)
 	}
@@ -174,14 +174,14 @@
 
 	function resetAndFilterBy(setter: (string) => void) {
 		return (e: CustomEvent<string>) => {
-			filters.val.path = undefined
-			filters.val.user = undefined
-			filters.val.folder = undefined
-			filters.val.label = undefined
-			filters.val.concurrency_key = undefined
-			filters.val.tag = undefined
-			filters.val.worker = undefined
-			filters.val.schedule_path = undefined
+			delete filters.val.path
+			delete filters.val.user
+			delete filters.val.folder
+			delete filters.val.label
+			delete filters.val.concurrency_key
+			delete filters.val.tag
+			delete filters.val.worker
+			delete filters.val.schedule_path
 			setter(e.detail)
 		}
 	}
