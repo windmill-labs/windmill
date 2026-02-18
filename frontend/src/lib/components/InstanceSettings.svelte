@@ -349,8 +349,11 @@
 		if (value === false) return undefined
 		if (typeof value === 'string' && value.trim() === '') return undefined
 		if (Array.isArray(value) && value.length === 0) return undefined
-		if (typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0) {
-			return undefined
+		if (typeof value === 'object' && !Array.isArray(value)) {
+			// Recursively normalize: if all values in the object normalize to undefined,
+			// the object itself is effectively empty (e.g. {smtp_tls_implicit: false} ≡ {})
+			const hasNonEmpty = Object.values(value).some((v) => normalizeValue(v) !== undefined)
+			if (!hasNonEmpty) return undefined
 		}
 
 		// Key-specific defaults: these values are equivalent to "not set"

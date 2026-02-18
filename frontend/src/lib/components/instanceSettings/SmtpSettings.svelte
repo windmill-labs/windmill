@@ -128,7 +128,7 @@
 			<Toggle
 				disabled={$values['smtp_settings'].smtp_disable_tls || disabled}
 				id="smtp_tls_implicit"
-				bind:checked={() => $values['smtp_settings'].smtp_tls_implicit ?? false, (v) => $values['smtp_settings'].smtp_tls_implicit = v}
+				bind:checked={$values['smtp_settings'].smtp_tls_implicit}
 				size="xs"
 				options={{ right: 'Implicit TLS' }}
 			/>
@@ -136,7 +136,7 @@
 			<Toggle
 				id="smtp_disable_tls"
 				{disabled}
-				bind:checked={() => $values['smtp_settings'].smtp_disable_tls ?? false, (v) => $values['smtp_settings'].smtp_disable_tls = v}
+				bind:checked={$values['smtp_settings'].smtp_disable_tls}
 				size="xs"
 				on:change={(e) => {
 					if (e.detail) {

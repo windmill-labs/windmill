@@ -538,28 +538,19 @@
 								<Toggle
 									disabled={!$enterpriseLicense}
 									id="tracing_enabled"
-									bind:checked={
-										() => $values[setting.key].tracing_enabled ?? false,
-										(v) => ($values[setting.key].tracing_enabled = v)
-									}
+									bind:checked={$values[setting.key].tracing_enabled}
 									options={{ right: 'Tracing' }}
 								/>
 								<Toggle
 									disabled={!$enterpriseLicense}
 									id="logs_enabled"
-									bind:checked={
-										() => $values[setting.key].logs_enabled ?? false,
-										(v) => ($values[setting.key].logs_enabled = v)
-									}
+									bind:checked={$values[setting.key].logs_enabled}
 									options={{ right: 'Logs' }}
 								/>
 								<Toggle
 									disabled
 									id="metrics_enabled"
-									bind:checked={
-										() => $values[setting.key].logs_enabled ?? false,
-										(v) => ($values[setting.key].logs_enabled = v)
-									}
+									bind:checked={$values[setting.key].metrics_enabled}
 									options={{ right: 'Metrics (coming soon)' }}
 								/>
 							</div>
