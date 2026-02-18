@@ -11,6 +11,7 @@
 		description?: string
 		ee_only?: string
 		tooltip?: string
+		settingKey?: string
 		actionButton?: {
 			label: string
 			onclick: (values: Record<string, any>) => Promise<void>
@@ -26,6 +27,7 @@
 		description,
 		ee_only,
 		tooltip,
+		settingKey,
 		actionButton,
 		values,
 		children,
@@ -33,7 +35,10 @@
 	}: Props = $props()
 </script>
 
-<div class={twMerge('p-4 rounded-md bg-surface-tertiary shadow-sm flex flex-col gap-1', clazz)}>
+<div
+	data-setting-key={settingKey}
+	class={twMerge('p-4 rounded-md bg-surface-tertiary shadow-sm flex flex-col gap-1', clazz)}
+>
 	{#if label}
 		<div class="flex items-center justify-between gap-2 w-full">
 			<div class="flex gap-1 items-baseline">

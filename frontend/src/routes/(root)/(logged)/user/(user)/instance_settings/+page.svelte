@@ -10,11 +10,15 @@
 		setupNavigationGroups,
 		tabToCategoryMap,
 		tabToAuthSubTab,
-		categoryToTabMap
+		categoryToTabMap,
+		buildSearchableSettingItems,
+		type SearchableSettingItem
 	} from '$lib/components/instanceSettings'
+	import SettingsSearchInput from '$lib/components/instanceSettings/SettingsSearchInput.svelte'
 	import Breadcrumb from '$lib/components/common/breadcrumb/Breadcrumb.svelte'
 	import { ChevronRight, ArrowLeft } from 'lucide-svelte'
 	import { superadmin } from '$lib/stores'
+	import { onDestroy, tick } from 'svelte'
 	import { UserService, JobService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
@@ -30,7 +34,10 @@
 	const wizardStepLabels = [...settingsSteps.map((s) => s.label), 'Root login & Resource Types']
 
 	const initialMode = $page.url.searchParams.get('mode') === 'full' ? 'full' : 'wizard'
-	const initialStep = Math.max(0, Math.min(parseInt($page.url.searchParams.get('step') ?? '0') || 0, wizardStepLabels.length - 1))
+	const initialStep = Math.max(
+		0,
+		Math.min(parseInt($page.url.searchParams.get('step') ?? '0') || 0, wizardStepLabels.length - 1)
+	)
 	let mode: 'wizard' | 'full' = $state(initialMode)
 	let wizardStep = $state(initialStep)
 
@@ -106,7 +113,12 @@
 			hubSyncStatus = 'success'
 			hubSyncMessage = 'Resource types synced from hub successfully'
 		} catch (e: any) {
-			hubSyncMessage = e?.body?.error?.message || e?.body?.message || (typeof e?.body === 'string' ? e.body : null) || e?.message || 'Failed to sync from hub'
+			hubSyncMessage =
+				e?.body?.error?.message ||
+				e?.body?.message ||
+				(typeof e?.body === 'string' ? e.body : null) ||
+				e?.message ||
+				'Failed to sync from hub'
 			hubSyncStatus = 'error'
 		}
 	}
@@ -151,7 +163,33 @@
 		}
 	}
 
+	// --- Settings search (full mode) ---
+	const searchableItems = buildSearchableSettingItems(setupNavigationGroups)
 
+	let scrollTimeout: ReturnType<typeof setTimeout> | undefined
+	let highlightTimeout: ReturnType<typeof setTimeout> | undefined
+
+	async function handleSearchSelect(item: SearchableSettingItem) {
+		handleNavigate(item.tabId)
+		if (item.settingKey) {
+			clearTimeout(scrollTimeout)
+			clearTimeout(highlightTimeout)
+			await tick()
+			scrollTimeout = setTimeout(() => {
+				const el = document.querySelector(`[data-setting-key="${item.settingKey}"]`)
+				if (el) {
+					el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+					el.classList.add('setting-highlight')
+					highlightTimeout = setTimeout(() => el.classList.remove('setting-highlight'), 2500)
+				}
+			}, 100)
+		}
+	}
+
+	onDestroy(() => {
+		clearTimeout(scrollTimeout)
+		clearTimeout(highlightTimeout)
+	})
 
 	/** Check if we need to warn about missing EE license key before proceeding */
 	function proceedFromCore(callback: () => void) {
@@ -312,9 +350,7 @@
 					{/key}
 				{:else}
 					<!-- Account setup step -->
-					<SettingsPageHeader
-						title="Root login & Resource Types"
-					/>
+					<SettingsPageHeader title="Root login & Resource Types" />
 
 					<div class="flex flex-col gap-6 pb-6">
 						<SettingCard
@@ -411,17 +447,14 @@
 		{:else}
 			<!-- Action bar (full mode) -->
 			<div class="flex items-center justify-end gap-2 pb-2 border-b shrink-0">
-				<Toggle
-					bind:checked={yamlMode}
-					options={{ right: 'YAML' }}
-					size="sm"
-				/>
+				<Toggle bind:checked={yamlMode} options={{ right: 'YAML' }} size="sm" />
 			</div>
 
 			<!-- Sidebar + Content -->
-			<div class="flex flex-1 min-h-0">
+			<div class="flex flex-1 min-h-0 pt-2">
 				{#if !yamlMode}
 					<div class="w-44 shrink-0 overflow-auto pb-4 pr-4">
+						<SettingsSearchInput {searchableItems} onSelect={handleSearchSelect} class="mb-3" />
 						<SidebarNavigation
 							groups={setupNavigationGroups}
 							selectedId={fullTab}
@@ -503,11 +536,16 @@
 				>
 					Quick setup
 				</Button>
-				<Button variant="accent" unifiedSize="md" onClick={() => saveAndProceed(() => {
-					yamlMode = false
-					wizardStep = wizardStepLabels.length - 1
-					mode = 'wizard'
-				})}>Continue</Button>
+				<Button
+					variant="accent"
+					unifiedSize="md"
+					onClick={() =>
+						saveAndProceed(() => {
+							yamlMode = false
+							wizardStep = wizardStepLabels.length - 1
+							mode = 'wizard'
+						})}>Continue</Button
+				>
 			{/if}
 		</div>
 
