@@ -181,12 +181,11 @@
 		const errors: FilterValidationError[] = []
 
 		for (const [key, rawValue] of Object.entries(instance)) {
-			if (rawValue === null || rawValue === undefined) continue
 			const schema = schemaRec[key]
 			if (!schema) continue
 
 			if (schema.type === 'date') {
-				if (!((rawValue as any) instanceof Date) || isNaN(rawValue.getTime())) {
+				if (!rawValue || !((rawValue as any) instanceof Date) || isNaN(rawValue.getTime())) {
 					errors.push({ fields: [key], error: `Invalid date format` })
 				}
 			} else if (schema.type === 'oneof') {
@@ -209,7 +208,7 @@
 				if (!schema.allowCustomValue) {
 					const invalid = elements
 						.map((v) => v.replace(/^!/, ''))
-						.filter((v) => v !== '' && !validValues.includes(v))
+						.filter((v) => !validValues.includes(v))
 					if (invalid.length > 0) {
 						errors.push({
 							fields: [key],
@@ -256,10 +255,11 @@
 
 	let _value = new DebouncedTempValue(
 		() => clone(valueInput),
-		(v) => (valueInput = clone(v)),
+		(v) => !errors.length && (valueInput = clone(v)),
 		(t) => Object.entries(t)
 	)
 	let value = $derived(_value.current)
+	let errors = $derived(validateFilterInstance(schema, value))
 
 	let currentTag: keyof SchemaT | undefined = $state()
 	let currentTextSegment = $state({ text: '', start: 0, end: 0 })
@@ -377,6 +377,7 @@
 				parsed[key] = textToFilter(val, schema[key]) as any
 			}
 		}
+		console.log('Parsed from text:', parsed)
 		return parsed
 	}
 
@@ -492,7 +493,7 @@
 		class={twMerge(
 			'overflow-x-auto !pr-24 bg-surface-input outline-none scrollbar-hidden text-nowrap',
 			inputBaseClass,
-			inputBorderClass(),
+			inputBorderClass({ error: errors.length > 0 }),
 			inputSizeClasses.md,
 			innerClass
 		)}
