@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { globalEmailInvite, superadmin, workspaceStore } from '$lib/stores'
 	import { SettingService, UserService, WorkspaceService } from '$lib/gen'
 	import { Button } from './common'
@@ -10,8 +10,13 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { UserPlus } from 'lucide-svelte'
+	import AutocompleteSelect from './select/AutocompleteSelect.svelte'
+	import InputError from './InputError.svelte'
+	import TextInput from './text_input/TextInput.svelte'
 
 	const dispatch = createEventDispatcher()
+
+	let { workspaceEmails = [] }: { workspaceEmails?: string[] } = $props()
 
 	let email: string | undefined = $state()
 	let username: string | undefined = $state()
@@ -30,6 +35,36 @@
 			((await SettingService.getGlobal({ key: 'automate_username_creation' })) as any) ?? false
 	}
 	getAutomateUsernameCreationSetting()
+
+	let allInstanceEmails: string[] | undefined = $state(undefined)
+	let emailsLoading = $state(!isCloudHosted())
+
+	let instanceEmails = $derived.by(() => {
+		if (!allInstanceEmails) return []
+		const workspaceSet = new Set(workspaceEmails)
+		return allInstanceEmails
+			.filter((e) => !workspaceSet.has(e))
+			.map((e) => ({ label: e, value: e }))
+	})
+
+	async function loadInstanceEmails() {
+		if (isCloudHosted() || !$workspaceStore) return
+		try {
+			allInstanceEmails = await UserService.listInstanceEmails({ workspace: $workspaceStore })
+		} catch {
+			allInstanceEmails = undefined
+		} finally {
+			emailsLoading = false
+		}
+	}
+
+	$effect(() => {
+		if ($workspaceStore) {
+			untrack(() => {
+				loadInstanceEmails()
+			})
+		}
+	})
 
 	async function addUser() {
 		await WorkspaceService.addUser({
@@ -70,6 +105,16 @@
 		dispatch('new')
 	}
 
+	let emailSelect: AutocompleteSelect | undefined = $state()
+	let emailError = $derived.by(() => {
+		if (!email) return undefined
+		const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+		return emailRegex.test(email) ? undefined : 'Please enter a valid email address'
+	})
+	const displayEmailError = $derived(
+		!emailSelect?.getDropdownVisible() && !!emailError ? emailError : undefined
+	)
+
 	let selected: 'operator' | 'developer' | 'admin' = $state('developer')
 </script>
 
@@ -84,11 +129,35 @@
 			<span class="text-sm mb-2 leading-6 font-semibold">Add a new user</span>
 
 			<span class="text-xs mb-1 leading-6">Email</span>
-			<input type="email mb-1" onkeyup={handleKeyUp} placeholder="email" bind:value={email} />
+			{#if !isCloudHosted()}
+				<AutocompleteSelect
+					bind:this={emailSelect}
+					items={instanceEmails}
+					bind:value={email}
+					placeholder={emailsLoading ? 'Loading...' : 'Select or type an email'}
+					loading={emailsLoading}
+					disablePortal={true}
+					error={!!displayEmailError}
+				/>
+			{:else}
+				<TextInput
+					inputProps={{
+						type: 'email',
+						onkeyup: handleKeyUp,
+						placeholder: 'email'
+					}}
+					bind:value={email}
+					error={displayEmailError ?? ''}
+				/>
+			{/if}
+			<InputError error={displayEmailError ?? ''} />
 
 			{#if !automateUsernameCreation}
 				<span class="text-xs mb-1 pt-2 leading-6">Username</span>
-				<input type="text" onkeyup={handleKeyUp} placeholder="username" bind:value={username} />
+				<TextInput
+					inputProps={{ type: 'text', onkeyup: handleKeyUp, placeholder: 'username' }}
+					bind:value={username}
+				/>
 			{/if}
 
 			<span class="text-xs mb-1 pt-6 leading-6">Role</span>
@@ -125,7 +194,9 @@
 						username = undefined
 					})
 				}}
-				disabled={email === undefined || (!automateUsernameCreation && username === undefined)}
+				disabled={email === undefined ||
+					!!emailError ||
+					(!automateUsernameCreation && username === undefined)}
 			>
 				Add
 			</Button>

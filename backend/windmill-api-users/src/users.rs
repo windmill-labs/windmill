@@ -75,6 +75,7 @@ pub fn workspaced_service() -> Router {
         .route("/whoami", get(whoami))
         .route("/leave", post(leave_workspace))
         .route("/username_to_email/:username", get(username_to_email))
+        .route("/list_instance_emails", get(list_instance_emails))
 }
 
 pub fn global_service() -> Router {
@@ -417,6 +418,22 @@ async fn list_users_as_super_admin(
         .await?
     };
 
+    Ok(Json(rows))
+}
+
+async fn list_instance_emails(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> JsonResult<Vec<String>> {
+    if *CLOUD_HOSTED {
+        return Err(Error::BadRequest(
+            "This endpoint is not available on cloud hosted instances".to_string(),
+        ));
+    }
+    require_admin(authed.is_admin, &authed.username)?;
+    let rows = sqlx::query_scalar!("SELECT email FROM password ORDER BY email LIMIT 1000")
+        .fetch_all(&db)
+        .await?;
     Ok(Json(rows))
 }
 
