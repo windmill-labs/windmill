@@ -122,22 +122,16 @@
 							Discard
 						</Button>
 					</div>
-					<div transition:fade={{ duration: 150 }}>
-						<Button
-							variant="default"
-							size="xs"
-							startIcon={{ icon: FileDiff }}
-							onClick={handleReviewChanges}
-						>
-							Review changes
-						</Button>
-					</div>
 				{/if}
-				<SaveButton
-					onSave={handleSave}
-					disabled={!hasUnsavedChanges}
+				<Button
+					variant="accent"
 					size="xs"
-				/>
+					startIcon={{ icon: FileDiff }}
+					onClick={handleReviewChanges}
+					disabled={!hasUnsavedChanges}
+				>
+					Review changes
+				</Button>
 				<Toggle
 					bind:checked={yamlMode}
 					options={{ right: 'YAML' }}
