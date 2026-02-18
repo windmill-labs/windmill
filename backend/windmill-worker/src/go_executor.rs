@@ -338,8 +338,8 @@ func Run(req Req) (interface{{}}, error){{
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
 
-    let child = if is_sandboxing_enabled() {
-        let nsjail_config = crate::sandbox_setup::finalize_nsjail_config(
+    let child = if is_sandboxing_enabled() || !shared_mount.is_empty() {
+        let nsjail_config = windmill_sandbox::finalize_nsjail_config(
             &NSJAIL_CONFIG_RUN_GO_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
@@ -429,7 +429,7 @@ func Run(req Req) (interface{{}}, error){{
         mem_peak,
         canceled_by,
         child,
-        is_sandboxing_enabled(),
+        is_sandboxing_enabled() || !shared_mount.is_empty(),
         worker_name,
         &job.workspace_id,
         "go run",

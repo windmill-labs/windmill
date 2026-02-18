@@ -948,7 +948,7 @@ async fn get_workspace_s3_resource_path(
                 resource_path.to_string(),
             )
         }
-        None => {
+        Some(LargeFileStorage::FilesystemStorage(_)) | None => {
             return Ok(None);
         }
     };

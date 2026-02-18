@@ -1180,7 +1180,7 @@ mount {{
                 )
             })
             .join("\n");
-        let nsjail_config = crate::sandbox_setup::finalize_nsjail_config(
+        let nsjail_config = windmill_sandbox::finalize_nsjail_config(
             &NSJAIL_CONFIG_RUN_ANSIBLE_CONTENT
                 .replace("{PY_INSTALL_DIR}", PY_INSTALL_DIR)
                 .replace("{JOB_DIR}", job_dir)

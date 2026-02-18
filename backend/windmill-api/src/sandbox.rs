@@ -1,4 +1,5 @@
 use axum::{
+    body::Bytes,
     extract::{Extension, Path, Query},
     routing::{delete, get, post},
     Json, Router,
@@ -7,31 +8,22 @@ use serde::Deserialize;
 use windmill_common::{
     db::DB,
     error::{self, JsonResult},
-    sandbox::{SandboxSnapshot, SandboxVolume},
     utils::require_admin,
 };
+use windmill_sandbox::{SandboxSnapshot, SandboxVolume};
 
 use crate::db::ApiAuthed;
-
-#[cfg(feature = "parquet")]
-async fn delete_s3_object(s3_key: &str) {
-    if let Some(os) = windmill_common::s3_helpers::get_object_store().await {
-        let path = object_store::path::Path::from(s3_key);
-        if let Err(e) = os.delete(&path).await {
-            tracing::warn!("Failed to delete S3 object {s3_key}: {e}");
-        }
-    }
-}
-
-#[cfg(not(feature = "parquet"))]
-async fn delete_s3_object(_s3_key: &str) {}
 
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/snapshots", get(list_snapshots).post(create_snapshot))
-        .route("/snapshots/:name/:tag", get(get_snapshot).delete(delete_snapshot))
+        .route(
+            "/snapshots/:name/:tag",
+            get(get_snapshot).delete(delete_snapshot),
+        )
         .route("/snapshots/:name", delete(delete_snapshot_all_tags))
         .route("/snapshots/:name/:tag/rebuild", post(rebuild_snapshot))
+        .route("/snapshots/:name/:tag/upload", post(upload_snapshot))
         .route("/volumes", get(list_volumes).post(create_volume))
         .route("/volumes/:name", get(get_volume).delete(delete_volume))
 }
@@ -163,7 +155,7 @@ async fn delete_snapshot(
     .await?;
 
     if let Some(row) = row {
-        delete_s3_object(&row.s3_key).await;
+        windmill_sandbox::delete_s3_object(&db, &w_id, &row.s3_key).await;
     }
 
     Ok(format!("Deleted snapshot {}:{}", name, tag))
@@ -185,7 +177,7 @@ async fn delete_snapshot_all_tags(
     .await?;
 
     for row in &rows {
-        delete_s3_object(&row.s3_key).await;
+        windmill_sandbox::delete_s3_object(&db, &w_id, &row.s3_key).await;
     }
 
     Ok(format!(
@@ -211,6 +203,17 @@ async fn rebuild_snapshot(
     .execute(&db)
     .await?;
     Ok(format!("Rebuild queued for snapshot {}:{}", name, tag))
+}
+
+async fn upload_snapshot(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, name, tag)): Path<(String, String, String)>,
+    body: Bytes,
+) -> error::Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    windmill_sandbox::upload_snapshot_bytes(&db, &w_id, &name, &tag, body, &authed.username).await
 }
 
 // --- Volumes ---
@@ -296,7 +299,7 @@ async fn delete_volume(
     .await?;
 
     if let Some(row) = row {
-        delete_s3_object(&row.s3_key).await;
+        windmill_sandbox::delete_s3_object(&db, &w_id, &row.s3_key).await;
     }
 
     Ok(format!("Deleted volume {}", name))

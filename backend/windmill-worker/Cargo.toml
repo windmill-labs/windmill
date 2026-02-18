@@ -10,16 +10,16 @@ path = "src/lib.rs"
 
 [features]
 default = []
-private = []
+private = ["windmill-sandbox/private"]
 mcp = ["dep:windmill-mcp"]
 prometheus = ["dep:prometheus", "windmill-common/prometheus"]
-enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "dep:pem", "dep:tokio-util", "dep:opentelemetry-proto", "dep:prost", "dep:hudsucker", "dep:rcgen", "dep:hyper-http-proxy", "dep:hyper-tls", "dep:hyper-util"]
+enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-sandbox/enterprise", "dep:pem", "dep:tokio-util", "dep:opentelemetry-proto", "dep:prost", "dep:hudsucker", "dep:rcgen", "dep:hyper-http-proxy", "dep:hyper-tls", "dep:hyper-util"]
 mssql = ["dep:tiberius"]
 mssql-kerberos = ["mssql", "tiberius/integrated-auth-gssapi"]  # Linux/Unix integrated auth
 mssql-winauth = ["mssql", "tiberius/winauth"]  # Windows integrated auth
 bigquery = ["dep:gcp_auth"]
 benchmark = ["windmill-queue/benchmark", "windmill-common/benchmark"]
-parquet = ["windmill-common/parquet", "dep:object_store"]
+parquet = ["windmill-common/parquet", "windmill-sandbox/parquet", "dep:object_store"]
 flow_testing = []
 cloud = []
 sqlx = []
@@ -45,6 +45,7 @@ windmill-queue.workspace = true
 windmill-dep-map.workspace = true
 windmill-audit.workspace = true # there isn't really a reason for audit-worth actions to happen in the worker.
 windmill-common = { workspace = true, default-features = false }
+windmill-sandbox.workspace = true
 windmill-jseval.workspace = true
 windmill-runtime-nativets = { workspace = true, optional = true }
 windmill-mcp = { workspace = true, optional = true }

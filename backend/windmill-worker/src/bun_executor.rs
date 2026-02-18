@@ -1450,8 +1450,8 @@ try {{
     append_logs(&job.id, &job.workspace_id, init_logs, conn).await;
 
     //do not cache local dependencies
-    let child = if is_sandboxing_enabled() {
-        let nsjail_config = crate::sandbox_setup::finalize_nsjail_config(
+    let child = if is_sandboxing_enabled() || !shared_mount.is_empty() {
+        let nsjail_config = windmill_sandbox::finalize_nsjail_config(
             &NSJAIL_CONFIG_RUN_BUN_CONTENT
                 .replace("{LANG}", if annotation.nodejs { "nodejs" } else { "bun" })
                 .replace("{JOB_DIR}", job_dir)
@@ -1587,7 +1587,7 @@ try {{
         mem_peak,
         canceled_by,
         child,
-        is_sandboxing_enabled(),
+        is_sandboxing_enabled() || !shared_mount.is_empty(),
         worker_name,
         &job.workspace_id,
         "bun run",

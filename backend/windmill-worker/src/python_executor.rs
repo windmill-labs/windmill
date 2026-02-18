@@ -800,7 +800,7 @@ mount {{
                 )
             })
             .join("\n");
-        let nsjail_config = crate::sandbox_setup::finalize_nsjail_config(
+        let nsjail_config = windmill_sandbox::finalize_nsjail_config(
             &NSJAIL_CONFIG_RUN_PYTHON3_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{PY_INSTALL_DIR}", PY_INSTALL_DIR)
@@ -827,7 +827,7 @@ mount {{
         job.id
     );
 
-    let child = if is_sandboxing_enabled() {
+    let child = if is_sandboxing_enabled() || !shared_mount.is_empty() {
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
             .current_dir(job_dir)
@@ -892,7 +892,7 @@ mount {{
         mem_peak,
         canceled_by,
         child,
-        is_sandboxing_enabled(),
+        is_sandboxing_enabled() || !shared_mount.is_empty(),
         worker_name,
         &job.workspace_id,
         "python run",

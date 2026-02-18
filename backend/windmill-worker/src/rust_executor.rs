@@ -663,7 +663,7 @@ pub async fn handle_rust_job(
     append_logs(&job.id, &job.workspace_id, logs2, conn).await;
 
     let child = if is_sandboxing_enabled() {
-        let nsjail_config = crate::sandbox_setup::finalize_nsjail_config(
+        let nsjail_config = windmill_sandbox::finalize_nsjail_config(
             &NSJAIL_CONFIG_RUN_RUST_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CACHE_DIR}", RUST_CACHE_DIR)

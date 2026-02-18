@@ -584,7 +584,7 @@ pub async fn handle_csharp_job(
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
 
     let child = if is_sandboxing_enabled() {
-        let nsjail_config = crate::sandbox_setup::finalize_nsjail_config(
+        let nsjail_config = windmill_sandbox::finalize_nsjail_config(
             &NSJAIL_CONFIG_RUN_CSHARP_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CACHE_DIR}", CSHARP_CACHE_DIR)

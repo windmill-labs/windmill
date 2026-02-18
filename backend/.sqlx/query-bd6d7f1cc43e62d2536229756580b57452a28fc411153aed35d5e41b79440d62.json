@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE sandbox_volume SET size_bytes = $3, updated_at = now() WHERE workspace_id = $1 AND name = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bd6d7f1cc43e62d2536229756580b57452a28fc411153aed35d5e41b79440d62"
+}

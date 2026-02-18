@@ -518,7 +518,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
 
     let nsjail = is_sandboxing_enabled() && is_regular_job;
     let child = if nsjail {
-        let nsjail_config = crate::sandbox_setup::finalize_nsjail_config(
+        let nsjail_config = windmill_sandbox::finalize_nsjail_config(
             &NSJAIL_CONFIG_RUN_POWERSHELL_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())

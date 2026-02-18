@@ -294,7 +294,7 @@ try {{
     let (reserved_variables, _) = tokio::try_join!(reserved_variables_args_out_f, write_wrapper_f)?;
 
     let child = if is_sandboxing_enabled() {
-        let nsjail_config = crate::sandbox_setup::finalize_nsjail_config(
+        let nsjail_config = windmill_sandbox::finalize_nsjail_config(
             &NSJAIL_CONFIG_RUN_PHP_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())

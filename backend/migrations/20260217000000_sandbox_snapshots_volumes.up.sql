@@ -1,6 +1,6 @@
 -- Add sandbox_snapshot and sandbox_volume tables
 
-CREATE TABLE sandbox_snapshot (
+CREATE TABLE IF NOT EXISTS sandbox_snapshot (
     workspace_id  VARCHAR(50) NOT NULL REFERENCES workspace(id),
     name          VARCHAR(255) NOT NULL,
     tag           VARCHAR(255) NOT NULL DEFAULT 'latest',
@@ -19,7 +19,7 @@ CREATE TABLE sandbox_snapshot (
     PRIMARY KEY (workspace_id, name, tag)
 );
 
-CREATE TABLE sandbox_volume (
+CREATE TABLE IF NOT EXISTS sandbox_volume (
     workspace_id  VARCHAR(50) NOT NULL REFERENCES workspace(id),
     name          VARCHAR(255) NOT NULL,
     s3_key        TEXT NOT NULL,

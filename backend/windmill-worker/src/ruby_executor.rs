@@ -793,7 +793,7 @@ mount {{
             })
             .join("\n");
 
-        let nsjail_config = crate::sandbox_setup::finalize_nsjail_config(
+        let nsjail_config = windmill_sandbox::finalize_nsjail_config(
             &NSJAIL_CONFIG_RUN_RUBY_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{SHARED_MOUNT}", &shared_mount)

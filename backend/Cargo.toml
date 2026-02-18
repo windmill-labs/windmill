@@ -71,6 +71,7 @@ members = [
     "./parsers/windmill-parser-yaml", "windmill-macros", "parsers/windmill-parser-nu",
     "./windmill-test-utils",
     "./windmill-api-integration-tests",
+    "./windmill-sandbox",
 ]
 exclude = ["./windmill-duckdb-ffi-internal"]
 
@@ -96,15 +97,15 @@ lto = "thin"
 
 [features]
 default = []
-private = ["windmill-api/private", "windmill-api-agent-workers?/private", "windmill-autoscaling/private", "windmill-common/private", "windmill-git-sync/private", "windmill-indexer/private", "windmill-operator?/private", "windmill-queue/private", "windmill-worker/private", "windmill-test-utils/private"]
+private = ["windmill-api/private", "windmill-api-agent-workers?/private", "windmill-autoscaling/private", "windmill-common/private", "windmill-git-sync/private", "windmill-indexer/private", "windmill-operator?/private", "windmill-queue/private", "windmill-worker/private", "windmill-sandbox/private", "windmill-test-utils/private"]
 agent_worker_server = ["windmill-api/agent_worker_server", "dep:windmill-api-agent-workers", "windmill-test-utils/agent_worker_server"]
-enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "windmill-api-agent-workers?/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise"]
+enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "windmill-api-agent-workers?/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise", "windmill-sandbox/enterprise"]
 local_reports = ["windmill-common/local_reports"]
 enterprise_saml = ["windmill-api/enterprise_saml", "oauth2"]
 stripe = ["windmill-api/stripe"]
 benchmark = ["windmill-api/benchmark", "windmill-worker/benchmark", "windmill-queue/benchmark", "windmill-common/benchmark"]
 embedding = ["windmill-api/embedding"]
-parquet = ["windmill-api/parquet", "windmill-common/parquet", "windmill-worker/parquet", "dep:object_store"]
+parquet = ["windmill-api/parquet", "windmill-common/parquet", "windmill-worker/parquet", "windmill-sandbox/parquet", "dep:object_store"]
 prometheus = ["windmill-common/prometheus", "windmill-api/prometheus", "windmill-worker/prometheus", "windmill-queue/prometheus", "dep:prometheus"]
 flow_testing = ["windmill-worker/flow_testing"]
 quickjs = ["windmill-worker/quickjs", "windmill-api/quickjs"]
@@ -204,6 +205,7 @@ windmill-api = { workspace = true, default-features = false }
 windmill-api-agent-workers = { workspace = true, optional = true }
 windmill-api-settings.workspace = true
 windmill-worker.workspace = true
+windmill-sandbox.workspace = true
 windmill-indexer = { workspace = true, optional = true }
 windmill-autoscaling = { workspace = true, optional = true }
 windmill-operator = { workspace = true, optional = true }
@@ -328,6 +330,7 @@ windmill-jseval = { path = "./windmill-jseval" }
 windmill-runtime-nativets = { path = "./windmill-runtime-nativets" }
 windmill-api-client = { path = "./windmill-api-client" }
 windmill-test-utils = { path = "./windmill-test-utils" }
+windmill-sandbox = { path = "./windmill-sandbox" }
 
 reqwest-retry = "^0"
 reqwest-middleware = { version = "^0", features = ["json"] }

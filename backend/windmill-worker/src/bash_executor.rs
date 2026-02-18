@@ -112,7 +112,7 @@ cleanup() {{
     rm -f bp 2>/dev/null
 
     # Kill the process group of the script (negative PID value)
-    pkill -P $$ 2>/dev/null || true
+    pkill -P $$ 2>/dev/null || kill -- -$$ 2>/dev/null || kill 0 2>/dev/null || true
     exit
 }}
 
@@ -140,7 +140,7 @@ wait $tail_pid 2>/dev/null || true
 
 # Clean up the named pipe and background processes
 rm -f bp
-pkill -P $$ || true
+pkill -P $$ 2>/dev/null || kill -- -$$ 2>/dev/null || kill 0 2>/dev/null || true
 
 # Exit with the captured status
 exit $exit_status
@@ -184,10 +184,12 @@ exit $exit_status
         })
         .unwrap_or(true);
 
-    // Use nsjail if globally enabled OR if script has #sandbox annotation
-    let nsjail = (is_sandboxing_enabled() || annotation.sandbox) && is_regular_job;
+    // Use nsjail if globally enabled, script has #sandbox annotation,
+    // or sandbox mounts are present (snapshot/volume annotations)
+    let nsjail =
+        (is_sandboxing_enabled() || annotation.sandbox || !shared_mount.is_empty()) && is_regular_job;
     let child = if nsjail {
-        let nsjail_config = crate::sandbox_setup::finalize_nsjail_config(
+        let nsjail_config = windmill_sandbox::finalize_nsjail_config(
             &NSJAIL_CONFIG_RUN_BASH_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())

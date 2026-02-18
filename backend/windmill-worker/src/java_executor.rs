@@ -598,7 +598,7 @@ async fn run<'a>(
         )
         .await;
 
-        let nsjail_config = crate::sandbox_setup::finalize_nsjail_config(
+        let nsjail_config = windmill_sandbox::finalize_nsjail_config(
             &NSJAIL_CONFIG_RUN_JAVA_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CACHE_DIR}", JAVA_CACHE_DIR)

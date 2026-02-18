@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE sandbox_snapshot SET status = 'failed', build_error = $4, updated_at = now() WHERE workspace_id = $1 AND name = $2 AND tag = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "701e7155e0f03a74aee0645d29543667bef39f08e54524f047c9b44e8930b517"
+}

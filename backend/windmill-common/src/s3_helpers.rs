@@ -308,7 +308,7 @@ pub enum LargeFileStorage {
     S3AwsOidc(S3Storage),
     AzureWorkloadIdentity(AzureBlobStorage),
     GoogleCloudStorage(GoogleCloudStorage),
-    // TODO: Add a filesystem type here in the future if needed
+    FilesystemStorage(FilesystemSettings),
 }
 
 impl LargeFileStorage {
@@ -319,6 +319,7 @@ impl LargeFileStorage {
             LargeFileStorage::AzureBlobStorage(az_lfs) => &az_lfs.azure_blob_resource_path,
             LargeFileStorage::AzureWorkloadIdentity(az_lfs) => &az_lfs.azure_blob_resource_path,
             LargeFileStorage::GoogleCloudStorage(gcs_lfs) => &gcs_lfs.gcs_resource_path,
+            LargeFileStorage::FilesystemStorage(fs) => &fs.root,
         }
     }
     pub fn is_public_resource(&self) -> bool {
@@ -328,6 +329,7 @@ impl LargeFileStorage {
             LargeFileStorage::AzureBlobStorage(lfs) => lfs.public_resource,
             LargeFileStorage::AzureWorkloadIdentity(lfs) => lfs.public_resource,
             LargeFileStorage::GoogleCloudStorage(glfs) => glfs.public_resource,
+            LargeFileStorage::FilesystemStorage(_) => Some(false),
         }
         .unwrap_or(false)
     }
@@ -338,6 +340,7 @@ impl LargeFileStorage {
             LargeFileStorage::AzureBlobStorage(lfs) => lfs.advanced_permissions.as_ref(),
             LargeFileStorage::AzureWorkloadIdentity(lfs) => lfs.advanced_permissions.as_ref(),
             LargeFileStorage::GoogleCloudStorage(glfs) => glfs.advanced_permissions.as_ref(),
+            LargeFileStorage::FilesystemStorage(_) => None,
         }
     }
 }
@@ -610,6 +613,111 @@ pub async fn build_object_store_client(
         }
         ObjectStoreResource::Gcs(gcs_resource_ref) => build_gcs_client(&gcs_resource_ref).await,
     }
+}
+
+/// Build an object store client from the workspace's `large_file_storage` setting.
+/// Supports FilesystemStorage directly; for S3/Azure/GCS, resolves the resource
+/// value from the DB (admin-only, no permission checks).
+#[cfg(feature = "parquet")]
+pub async fn get_workspace_object_store(
+    db: &crate::DB,
+    w_id: &str,
+) -> error::Result<Arc<dyn ObjectStore>> {
+    let raw_lfs = sqlx::query_scalar!(
+        "SELECT large_file_storage FROM workspace_settings WHERE workspace_id = $1",
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten()
+    .ok_or_else(|| {
+        error::Error::NotFound(format!(
+            "No large file storage configured for workspace {w_id}"
+        ))
+    })?;
+
+    let lfs: LargeFileStorage = serde_json::from_value(raw_lfs).map_err(|e| {
+        error::Error::internal_err(format!("Failed to parse workspace storage config: {e}"))
+    })?;
+
+    match lfs {
+        LargeFileStorage::FilesystemStorage(fs_settings) => {
+            let root = expand_home(&fs_settings.root);
+            std::fs::create_dir_all(&root).map_err(|e| {
+                error::Error::internal_err(format!(
+                    "Failed to create filesystem storage root {}: {e}",
+                    root.display()
+                ))
+            })?;
+            let store =
+                object_store::local::LocalFileSystem::new_with_prefix(&root).map_err(|e| {
+                    error::Error::internal_err(format!(
+                        "Failed to create filesystem object store at {}: {e}",
+                        root.display()
+                    ))
+                })?;
+            Ok(Arc::new(store) as Arc<dyn ObjectStore>)
+        }
+        LargeFileStorage::S3Storage(_) | LargeFileStorage::S3AwsOidc(_) => {
+            let resource_path = lfs.get_s3_resource_path().trim_start_matches("$res:");
+            let resource_value = get_resource_value(db, w_id, resource_path).await?;
+            let s3_resource: S3Resource = serde_json::from_value(resource_value).map_err(|e| {
+                error::Error::internal_err(format!("Failed to parse S3 resource: {e}"))
+            })?;
+            build_s3_client(&s3_resource).await
+        }
+        LargeFileStorage::AzureBlobStorage(_) | LargeFileStorage::AzureWorkloadIdentity(_) => {
+            let resource_path = lfs.get_s3_resource_path().trim_start_matches("$res:");
+            let resource_value = get_resource_value(db, w_id, resource_path).await?;
+            let azure_resource: AzureBlobResource =
+                serde_json::from_value(resource_value).map_err(|e| {
+                    error::Error::internal_err(format!("Failed to parse Azure resource: {e}"))
+                })?;
+            build_azure_blob_client(&azure_resource)
+        }
+        LargeFileStorage::GoogleCloudStorage(_) => {
+            let resource_path = lfs.get_s3_resource_path().trim_start_matches("$res:");
+            let resource_value = get_resource_value(db, w_id, resource_path).await?;
+            let gcs_resource: GcsResource =
+                serde_json::from_value(resource_value).map_err(|e| {
+                    error::Error::internal_err(format!("Failed to parse GCS resource: {e}"))
+                })?;
+            build_gcs_client(&gcs_resource).await
+        }
+    }
+}
+
+#[cfg(feature = "parquet")]
+fn expand_home(path: &str) -> std::path::PathBuf {
+    if path.starts_with("~/") {
+        if let Some(home) = std::env::var_os("HOME") {
+            let mut p = std::path::PathBuf::from(home);
+            p.push(&path[2..]);
+            return p;
+        }
+    }
+    std::path::PathBuf::from(path)
+}
+
+#[cfg(feature = "parquet")]
+async fn get_resource_value(
+    db: &crate::DB,
+    w_id: &str,
+    resource_path: &str,
+) -> error::Result<serde_json::Value> {
+    sqlx::query_scalar!(
+        "SELECT value FROM resource WHERE workspace_id = $1 AND path = $2",
+        w_id,
+        resource_path
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten()
+    .ok_or_else(|| {
+        error::Error::NotFound(format!(
+            "Resource {resource_path} not found in workspace {w_id}"
+        ))
+    })
 }
 
 #[derive(PartialEq)]
@@ -912,6 +1020,12 @@ pub enum ObjectSettings {
     Azure(AzureBlobResource),
     AwsOidc(S3AwsOidcResource),
     Gcs(GcsResource),
+    Filesystem(FilesystemSettings),
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct FilesystemSettings {
+    pub root: String,
 }
 
 impl ObjectSettings {
@@ -921,6 +1035,7 @@ impl ObjectSettings {
             ObjectSettings::Azure(azure_settings) => Some(&azure_settings.container_name),
             ObjectSettings::AwsOidc(s3_aws_oidc_settings) => Some(&s3_aws_oidc_settings.bucket),
             ObjectSettings::Gcs(gcs_settings) => Some(&gcs_settings.bucket),
+            ObjectSettings::Filesystem(fs_settings) => Some(&fs_settings.root),
         }
     }
 }
@@ -959,6 +1074,35 @@ pub async fn build_object_store_from_settings(
             build_gcs_client(&gcs_resource)
                 .await
                 .map(|x| ExpirableObjectStore::from(x))
+        }
+        ObjectSettings::Filesystem(fs_settings) => {
+            let root_str = if fs_settings.root.starts_with("~/") {
+                if let Some(home) = std::env::var_os("HOME") {
+                    let mut p = std::path::PathBuf::from(home);
+                    p.push(&fs_settings.root[2..]);
+                    p
+                } else {
+                    std::path::PathBuf::from(&fs_settings.root)
+                }
+            } else {
+                std::path::PathBuf::from(&fs_settings.root)
+            };
+            let root = root_str;
+            std::fs::create_dir_all(&root).map_err(|e| {
+                error::Error::internal_err(format!(
+                    "Failed to create filesystem object store root {}: {e}",
+                    root.display()
+                ))
+            })?;
+            let store = object_store::local::LocalFileSystem::new_with_prefix(&root).map_err(
+                |e| {
+                    error::Error::internal_err(format!(
+                        "Failed to create filesystem object store at {}: {e}",
+                        root.display()
+                    ))
+                },
+            )?;
+            Ok(ExpirableObjectStore::from(Arc::new(store) as Arc<dyn ObjectStore>))
         }
     }
 }
@@ -1266,6 +1410,9 @@ pub fn lfs_to_object_store_resource(
                 })?;
             Ok(ObjectStoreResource::Gcs(gcs_resource))
         }
+        LargeFileStorage::FilesystemStorage(_) => Err(error::Error::internal_err(
+            "FilesystemStorage does not have an ObjectStoreResource".to_string(),
+        )),
     }
 }
 

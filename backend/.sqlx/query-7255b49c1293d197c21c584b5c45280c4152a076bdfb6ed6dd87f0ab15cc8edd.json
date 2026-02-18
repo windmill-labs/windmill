@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO sandbox_volume (workspace_id, name, s3_key, created_by) VALUES ($1, $2, $3, 'system') ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7255b49c1293d197c21c584b5c45280c4152a076bdfb6ed6dd87f0ab15cc8edd"
+}
