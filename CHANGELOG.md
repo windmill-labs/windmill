@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.639.0](https://github.com/windmill-labs/windmill/compare/v1.638.4...v1.639.0) (2026-02-18)
+
+
+### Features
+
+* improve FolderPicker with edit icon pattern ([#7995](https://github.com/windmill-labs/windmill/issues/7995)) ([db8aa8a](https://github.com/windmill-labs/windmill/commit/db8aa8a0839b5729f0bb847e7a71766c7883ff36))
+
+
+### Bug Fixes
+
+* default automate_username_creation to true when setting is missing ([#8006](https://github.com/windmill-labs/windmill/issues/8006)) ([d2d08f8](https://github.com/windmill-labs/windmill/commit/d2d08f8817e6e7818eb4b6f092e66ae039f0c756))
+* handle raw app folder deletion in sync push without yaml parse error ([#7994](https://github.com/windmill-labs/windmill/issues/7994)) ([f6d99dd](https://github.com/windmill-labs/windmill/commit/f6d99dd18c06a7f5aea93122276dd68c45772b43))
+
+
+### Performance Improvements
+
+* **cli:** skip relock more accurate ([#7993](https://github.com/windmill-labs/windmill/issues/7993)) ([cd4151a](https://github.com/windmill-labs/windmill/commit/cd4151a84b2c1e0f2e616079091d0429bf469f4e))
+
 ## [1.638.4](https://github.com/windmill-labs/windmill/compare/v1.638.3...v1.638.4) (2026-02-17)
 
 
