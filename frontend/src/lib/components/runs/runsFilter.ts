@@ -34,6 +34,7 @@ export function buildRunsFilterSearchbarSchema({
 			options: paths.map((s) => ({ label: s, value: s })),
 			allowCustomValue: true,
 			allowNegative: true,
+			allowMultiple: true,
 			label: 'Path',
 			description: 'Filter by script or flow path'
 		},
@@ -42,6 +43,7 @@ export function buildRunsFilterSearchbarSchema({
 			options: usernames.map((s) => ({ label: s, value: s })),
 			allowCustomValue: true,
 			allowNegative: true,
+			allowMultiple: true,
 			label: 'User',
 			icon: UserIcon,
 			description: 'Filter by user who created the job'
@@ -51,18 +53,26 @@ export function buildRunsFilterSearchbarSchema({
 			options: folders.map((s) => ({ label: s, value: s })),
 			allowCustomValue: true,
 			allowNegative: true,
+			allowMultiple: true,
 			label: 'Folder',
 			icon: FolderIcon,
 			description: 'Filter by folder containing the script or flow'
 		},
 		label: {
 			type: 'string' as const,
+			allowMultiple: true,
 			label: 'Label',
 			description: 'Filter by custom label attached to jobs'
 		},
-		tag: { type: 'string' as const, label: 'Tag', description: 'Filter by worker tag' },
+		tag: {
+			type: 'string' as const,
+			allowMultiple: true,
+			label: 'Tag',
+			description: 'Filter by worker tag'
+		},
 		worker: {
 			type: 'string' as const,
+			allowMultiple: true,
 			label: 'Worker',
 			description: 'Filter by specific worker instance'
 		},
@@ -133,6 +143,7 @@ export function buildRunsFilterSearchbarSchema({
 				value
 			})),
 			allowNegative: true,
+			allowMultiple: true,
 			description: 'Filter by how the job was triggered'
 		},
 		arg: {

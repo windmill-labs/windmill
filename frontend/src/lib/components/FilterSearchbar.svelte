@@ -6,12 +6,14 @@
 	export type FilterSchema = (
 		| {
 				type: 'string' | 'number' | 'boolean' | 'date'
+				allowMultiple?: boolean
 		  }
 		| {
 				type: 'oneof'
 				options: { value: string; label?: string; description?: string }[]
 				allowCustomValue?: boolean
 				allowNegative?: boolean
+				allowMultiple?: boolean
 		  }
 	) & {
 		label?: string
@@ -252,14 +254,36 @@
 		} else {
 			const filter = schema[currentTag]
 			if (filter.type === 'oneof') {
+				// When allowMultiple, split on comma and match against the last segment
+				const currentVal = String(value[currentTag!] ?? '')
+				let searchSuffix: string
+				if (filter.allowMultiple) {
+					const parts = currentVal.split(',')
+					searchSuffix = parts[parts.length - 1].replace(/^!/, '').trim()
+				} else {
+					searchSuffix = currentVal
+				}
+
+				// Already-selected values (for allowMultiple, to avoid suggesting duplicates)
+				const selectedValues = filter.allowMultiple
+					? currentVal
+							.split(',')
+							.slice(0, -1)
+							.map((v) => v.replace(/^!/, '').trim())
+					: []
+
 				return filter.options
-					.filter((o) => !value[currentTag!] || o.value.includes(String(value[currentTag!] ?? '')))
+					.filter((o) => {
+						if (selectedValues.includes(o.value)) return false
+						if (!searchSuffix) return true
+						return o.value.includes(searchSuffix)
+					})
 					.map((option) => ({
 						type: 'option' as const,
 						option,
-						onClick: () => setValueForCurrentTag(option.value),
+						onClick: () => appendOrSetValueForCurrentTag(option.value),
 						onNegativeClick: filter.allowNegative
-							? () => setValueForCurrentTag('!' + option.value)
+							? () => appendOrSetValueForCurrentTag('!' + option.value)
 							: undefined
 					}))
 			} else if (filter.type === 'boolean') {
@@ -329,6 +353,25 @@
 	function setValueForCurrentTag(val: any) {
 		if (!currentTag) return
 		value[currentTag!] = val
+		onTagComplete()
+	}
+
+	/**
+	 * For allowMultiple fields: appends a new value to the existing comma-separated list,
+	 * replacing the last (in-progress) segment. For non-allowMultiple fields, behaves like setValueForCurrentTag.
+	 */
+	function appendOrSetValueForCurrentTag(val: string) {
+		if (!currentTag) return
+		const filter = schema[currentTag]
+		if (filter.allowMultiple) {
+			const existing = String(value[currentTag!] ?? '')
+			const parts = existing.split(',')
+			// Replace the last in-progress segment with the selected value
+			parts[parts.length - 1] = val
+			value[currentTag!] = parts.join(',')
+		} else {
+			value[currentTag!] = val
+		}
 		onTagComplete()
 	}
 
