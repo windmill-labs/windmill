@@ -13,24 +13,6 @@ const CE_VOLUME_SIZE_LIMIT: usize = 50 * 1024 * 1024;
 const SNAPSHOT_CACHE_DIR: &str = "/tmp/windmill/snapshots";
 
 #[cfg(all(not(feature = "private"), feature = "parquet"))]
-pub async fn delete_s3_object(db: &windmill_common::DB, w_id: &str, s3_key: &str) {
-    match windmill_common::s3_helpers::get_workspace_object_store(db, w_id).await {
-        Ok(os) => {
-            let path = object_store::path::Path::from(s3_key);
-            if let Err(e) = os.delete(&path).await {
-                tracing::warn!("Failed to delete S3 object {s3_key}: {e}");
-            }
-        }
-        Err(e) => {
-            tracing::warn!("Cannot delete S3 object {s3_key}, no workspace storage: {e}");
-        }
-    }
-}
-
-#[cfg(all(not(feature = "private"), not(feature = "parquet")))]
-pub async fn delete_s3_object(_db: &windmill_common::DB, _w_id: &str, _s3_key: &str) {}
-
-#[cfg(all(not(feature = "private"), feature = "parquet"))]
 pub async fn ensure_snapshot_cached(
     w_id: &str,
     name: &str,
@@ -38,7 +20,6 @@ pub async fn ensure_snapshot_cached(
     db: &windmill_common::DB,
 ) -> windmill_common::error::Result<PathBuf> {
     use windmill_common::error::Error;
-    use windmill_common::s3_helpers::get_workspace_object_store;
 
     let row = sqlx::query!(
         "SELECT s3_key, content_hash, status FROM sandbox_snapshot \
@@ -75,23 +56,15 @@ pub async fn ensure_snapshot_cached(
         return Ok(cache_path);
     }
 
-    let os = get_workspace_object_store(db, w_id).await?;
+    let os = windmill_object_store::get_workspace_object_store(db, w_id).await?;
 
     tracing::info!("Downloading snapshot {name}:{tag} from S3 key: {}", row.s3_key);
 
-    let path = object_store::path::Path::from(row.s3_key.as_str());
-    let bytes = match os.get(&path).await {
-        Ok(result) => result.bytes().await.map_err(|e| {
-            Error::ExecutionErr(format!("Failed to read snapshot bytes: {e}"))
-        })?,
-        Err(object_store::Error::NotFound { .. }) => {
-            return Err(Error::ExecutionErr(format!(
-                "Snapshot S3 object not found: {}",
-                row.s3_key
-            )));
-        }
-        Err(e) => return Err(Error::ExecutionErr(format!("S3 fetch failed: {e}"))),
-    };
+    let bytes = windmill_object_store::fetch_bytes_from_store(os, &row.s3_key)
+        .await?
+        .ok_or_else(|| {
+            Error::ExecutionErr(format!("Snapshot S3 object not found: {}", row.s3_key))
+        })?;
 
     tokio::fs::create_dir_all(&cache_path)
         .await
@@ -127,7 +100,6 @@ pub async fn download_volume(
     db: &windmill_common::DB,
 ) -> windmill_common::error::Result<()> {
     use windmill_common::error::Error;
-    use windmill_common::s3_helpers::get_workspace_object_store;
 
     let row = sqlx::query!(
         "SELECT s3_key FROM sandbox_volume WHERE workspace_id = $1 AND name = $2",
@@ -155,25 +127,15 @@ pub async fn download_volume(
         }
     };
 
-    let os = get_workspace_object_store(db, w_id).await?;
+    let os = windmill_object_store::get_workspace_object_store(db, w_id).await?;
 
-    let path = object_store::path::Path::from(s3_key.as_str());
-    let bytes = match os.get(&path).await {
-        Ok(result) => result
-            .bytes()
-            .await
-            .map_err(|e| Error::ExecutionErr(format!("Failed to read volume bytes: {e}")))?,
-        Err(object_store::Error::NotFound { .. }) => {
+    let bytes = match windmill_object_store::fetch_bytes_from_store(os, &s3_key).await? {
+        Some(b) => b,
+        None => {
             tracing::info!("Volume has no S3 data yet, using empty dir");
             return Ok(());
         }
-        Err(e) => return Err(Error::ExecutionErr(format!("S3 fetch failed: {e}"))),
     };
-
-    if bytes.is_empty() {
-        tracing::info!("Volume has no S3 data yet, using empty dir");
-        return Ok(());
-    }
 
     let local_path = local_path.to_path_buf();
     let bytes_vec = bytes.to_vec();
@@ -204,9 +166,8 @@ pub async fn upload_volume(
     db: &windmill_common::DB,
 ) -> windmill_common::error::Result<()> {
     use windmill_common::error::Error;
-    use windmill_common::s3_helpers::get_workspace_object_store;
 
-    let os = get_workspace_object_store(db, w_id).await?;
+    let os = windmill_object_store::get_workspace_object_store(db, w_id).await?;
 
     let s3_key = sqlx::query_scalar!(
         "SELECT s3_key FROM sandbox_volume WHERE workspace_id = $1 AND name = $2",
@@ -233,10 +194,7 @@ pub async fn upload_volume(
         )));
     }
 
-    let path = object_store::path::Path::from(s3_key.as_str());
-    os.put(&path, bytes.into()).await.map_err(|e| {
-        Error::ExecutionErr(format!("S3 upload failed: {e}"))
-    })?;
+    windmill_object_store::put_bytes_to_store(os, &s3_key, bytes.into()).await?;
 
     let size_i64 = size as i64;
     sqlx::query!(
@@ -276,7 +234,6 @@ pub async fn upload_snapshot_bytes(
 ) -> windmill_common::error::Result<String> {
     use sha2::Digest;
     use windmill_common::error::Error;
-    use windmill_common::s3_helpers::get_workspace_object_store;
 
     let size = body.len();
     if size > CE_SNAPSHOT_SIZE_LIMIT {
@@ -288,16 +245,13 @@ pub async fn upload_snapshot_bytes(
         )));
     }
 
-    let os = get_workspace_object_store(db, w_id).await?;
+    let os = windmill_object_store::get_workspace_object_store(db, w_id).await?;
 
     let s3_key = format!("sandbox/snapshots/{}/{}/{}.tar.gz", w_id, name, tag);
     let content_hash = format!("{:x}", sha2::Sha256::digest(&body));
     let size_bytes = body.len() as i64;
 
-    let path = object_store::path::Path::from(s3_key.as_str());
-    os.put(&path, body.into()).await.map_err(|e| {
-        Error::InternalErr(format!("Failed to upload snapshot to S3: {e}"))
-    })?;
+    windmill_object_store::put_bytes_to_store(os, &s3_key, body).await?;
 
     sqlx::query!(
         "INSERT INTO sandbox_snapshot \

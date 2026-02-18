@@ -155,7 +155,7 @@ async fn delete_snapshot(
     .await?;
 
     if let Some(row) = row {
-        windmill_sandbox::delete_s3_object(&db, &w_id, &row.s3_key).await;
+        windmill_object_store::delete_s3_object(&db, &w_id, &row.s3_key).await;
     }
 
     Ok(format!("Deleted snapshot {}:{}", name, tag))
@@ -177,7 +177,7 @@ async fn delete_snapshot_all_tags(
     .await?;
 
     for row in &rows {
-        windmill_sandbox::delete_s3_object(&db, &w_id, &row.s3_key).await;
+        windmill_object_store::delete_s3_object(&db, &w_id, &row.s3_key).await;
     }
 
     Ok(format!(
@@ -299,7 +299,7 @@ async fn delete_volume(
     .await?;
 
     if let Some(row) = row {
-        windmill_sandbox::delete_s3_object(&db, &w_id, &row.s3_key).await;
+        windmill_object_store::delete_s3_object(&db, &w_id, &row.s3_key).await;
     }
 
     Ok(format!("Deleted volume {}", name))

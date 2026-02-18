@@ -12,10 +12,11 @@ path = "src/lib.rs"
 default = []
 private = []
 enterprise = []
-parquet = ["windmill-common/parquet", "dep:object_store", "dep:sha2"]
+parquet = ["windmill-common/parquet", "windmill-object-store/parquet", "dep:sha2"]
 
 [dependencies]
 windmill-common = { workspace = true, default-features = false }
+windmill-object-store.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 sqlx.workspace = true
@@ -27,7 +28,6 @@ flate2.workspace = true
 tar.workspace = true
 tempfile.workspace = true
 
-# S3/object store (behind parquet feature)
-object_store = { workspace = true, optional = true }
+# S3/object store helpers (behind parquet feature)
 sha2 = { workspace = true, optional = true }
 bytes.workspace = true

@@ -51,6 +51,7 @@ members = [
     "./windmill-runtime-nativets",
     "./windmill-mcp",
     "./windmill-audit",
+    "./windmill-sandbox",
     "./windmill-git-sync",
     "./windmill-autoscaling",
     "./windmill-operator",
@@ -271,6 +272,7 @@ windmill-types = { path = "./windmill-types" }
 windmill-common = { path = "./windmill-common", default-features = false }
 windmill-object-store = { path = "./windmill-object-store" }
 windmill-audit = { path = "./windmill-audit" }
+windmill-sandbox = { path = "./windmill-sandbox" }
 windmill-git-sync = { path = "./windmill-git-sync" }
 windmill-autoscaling = { path = "./windmill-autoscaling" }
 windmill-operator = { path = "./windmill-operator" }

@@ -13663,9 +13663,9 @@ dependencies = [
 
 [[package]]
 name = "systemstat"
-version = "0.2.5"
+version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5021f5184d44b26fb184acd689671bbe1e4bbd24bbdaa6bc7ec383fad32d2033"
+checksum = "a6e89b75de097d0c52a1dc2114e19439d55f0e2e42d32168c6df44f139dfb66f"
 dependencies = [
  "bytesize",
  "lazy_static",
@@ -15922,6 +15922,7 @@ dependencies = [
  "windmill-parser-sql",
  "windmill-parser-ts",
  "windmill-queue",
+ "windmill-sandbox",
  "windmill-store",
  "windmill-trigger",
  "windmill-trigger-email",
@@ -16687,7 +16688,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-object-store"
-version = "1.638.3"
+version = "1.638.4"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -17014,6 +17015,26 @@ dependencies = [
  "windmill-common",
  "windmill-parser-ts",
  "windmill-queue",
+]
+
+[[package]]
+name = "windmill-sandbox"
+version = "1.638.4"
+dependencies = [
+ "bytes",
+ "chrono",
+ "flate2",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "tar",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
+ "windmill-common",
+ "windmill-object-store",
 ]
 
 [[package]]
@@ -17476,6 +17497,7 @@ dependencies = [
  "windmill-parser-yaml",
  "windmill-queue",
  "windmill-runtime-nativets",
+ "windmill-sandbox",
  "windmill-types",
  "yaml-rust",
 ]
@@ -18453,9 +18475,9 @@ dependencies = [
 
 [[package]]
 name = "zlib-rs"
-version = "0.6.1"
+version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a33bbf307b25a1774cee0687694ec72fa7814b3ab5c1c12a9d2fc6a36fc439c"
+checksum = "c745c48e1007337ed136dc99df34128b9faa6ed542d80a1c673cf55a6d7236c8"
 
 [[package]]
 name = "zstd"
