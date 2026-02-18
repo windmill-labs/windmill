@@ -260,7 +260,7 @@ export async function add(
     Deno.exit(1);
   }
 
-  await addWorkspace(
+  const added = await addWorkspace(
     {
       name: workspaceName,
       remote: remote,
@@ -269,6 +269,9 @@ export async function add(
     },
     opts
   );
+  if (!added) {
+    return;
+  }
   await setActiveWorkspace(workspaceName, opts.configDir);
 
   log.info(
@@ -278,7 +281,7 @@ export async function add(
   );
 }
 
-export async function addWorkspace(workspace: Workspace, opts: any) {
+export async function addWorkspace(workspace: Workspace, opts: any): Promise<boolean> {
   workspace.remote = new URL(workspace.remote).toString(); // add trailing slash in all cases!
 
   // Check for conflicts before adding
@@ -330,7 +333,7 @@ export async function addWorkspace(workspace: Workspace, opts: any) {
 
         if (!overwrite) {
           log.info(colors.yellow("Operation cancelled."));
-          return;
+          return false;
         }
       }
     }
@@ -350,6 +353,7 @@ export async function addWorkspace(workspace: Workspace, opts: any) {
   await file.write(new TextEncoder().encode(JSON.stringify(workspace) + "\n"));
 
   file.close();
+  return true;
 }
 
 export async function removeWorkspace(
