@@ -159,7 +159,7 @@
 <div class="relative flex {wrapperClasses}">
 	<Button
 		unifiedSize="md"
-		wrapperClasses="flex-1"
+		wrapperClasses="flex-1 min-w-36"
 		btnClasses="!rounded-r-none whitespace-nowrap"
 		onClick={() => onClick?.()}
 	>
