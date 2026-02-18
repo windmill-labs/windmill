@@ -153,6 +153,7 @@ windmill-api-flow-conversations.workspace = true
 windmill-api-inputs.workspace = true
 windmill-api-npm-proxy.workspace = true
 windmill-api-openapi = { workspace = true, optional = true }
+windmill-api-sandbox.workspace = true
 windmill-api-schedule.workspace = true
 windmill-api-settings = { workspace = true }
 windmill-api-workers.workspace = true

@@ -42,6 +42,7 @@ bedrock = ["dep:aws-sdk-bedrockruntime", "windmill-common/bedrock", "dep:aws-con
 
 [dependencies]
 windmill-queue.workspace = true
+windmill-sandbox.workspace = true
 windmill-dep-map.workspace = true
 windmill-audit.workspace = true # there isn't really a reason for audit-worth actions to happen in the worker.
 windmill-common = { workspace = true, default-features = false }
