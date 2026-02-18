@@ -12,7 +12,7 @@
 	export let value: string | undefined
 	export let email: string
 	export let username: string | undefined = undefined
-	export let automateUsernameCreation: boolean = false
+	export let automateUsernameCreation: boolean = true
 	export let login_type: string
 
 	let password: string = ''
