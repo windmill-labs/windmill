@@ -150,6 +150,7 @@
 	let filteredSearchItems: (SearchableSettingItem & { marked: string })[] = $state([])
 	let searchInputEl: HTMLDivElement | undefined = $state()
 
+	// Debounce search to avoid running uFuzzy on every keystroke
 	$effect(() => {
 		const val = settingsSearchFilter
 		const timeout = setTimeout(() => (debouncedSearchFilter = val), 150)
@@ -189,21 +190,32 @@
 		return marked.slice(0, markedIdx).replace(/<(?!\/?mark>)[^>]*>/g, '')
 	}
 
+	let scrollTimeout: ReturnType<typeof setTimeout> | undefined
+	let highlightTimeout: ReturnType<typeof setTimeout> | undefined
+
 	async function handleSearchSelect(item: SearchableSettingItem) {
 		settingsSearchFilter = ''
 		handleNavigate(item.tabId)
 		if (item.settingKey) {
+			clearTimeout(scrollTimeout)
+			clearTimeout(highlightTimeout)
 			await tick()
-			setTimeout(() => {
+			// Wait for the tab content to render before scrolling
+			scrollTimeout = setTimeout(() => {
 				const el = document.querySelector(`[data-setting-key="${item.settingKey}"]`)
 				if (el) {
 					el.scrollIntoView({ behavior: 'smooth', block: 'center' })
 					el.classList.add('setting-highlight')
-					setTimeout(() => el.classList.remove('setting-highlight'), 2500)
+					highlightTimeout = setTimeout(() => el.classList.remove('setting-highlight'), 2500)
 				}
 			}, 100)
 		}
 	}
+
+	onDestroy(() => {
+		clearTimeout(scrollTimeout)
+		clearTimeout(highlightTimeout)
+	})
 </script>
 
 <SearchItems
