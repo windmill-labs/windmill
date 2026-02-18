@@ -38,7 +38,15 @@
 		warning?: string
 	}
 
-	let { setting, version, values, loading = true, openSmtpSettings, oauths, warning }: Props = $props()
+	let {
+		setting,
+		version,
+		values,
+		loading = true,
+		openSmtpSettings,
+		oauths,
+		warning
+	}: Props = $props()
 	const dispatch = createEventDispatcher()
 
 	let latestKeyRenewalAttempt: {
@@ -190,7 +198,9 @@
 		</SettingCard>
 	{:else if setting.fieldType == 'select_python'}
 		<SettingCard label={setting.label} description={setting.description} ee_only={setting.ee_only}>
-			<ToggleButtonGroup bind:selected={$values[setting.key]}>
+			<ToggleButtonGroup
+				bind:selected={() => $values[setting.key] ?? 'default', (v) => ($values[setting.key] = v)}
+			>
 				{#snippet children({ item: toggleButton })}
 					{#each setting.select_items ?? [] as item}
 						<ToggleButton
