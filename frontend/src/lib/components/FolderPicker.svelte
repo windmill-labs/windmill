@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { FolderService } from '$lib/gen'
 	import { workspaceStore, userStore } from '$lib/stores'
-	import { Eye, PlusIcon } from 'lucide-svelte'
+	import { Pen, PlusIcon } from 'lucide-svelte'
 	import { Button, Drawer, DrawerContent } from './common'
 	import FolderEditor from './FolderEditor.svelte'
 	import Select from './select/Select.svelte'
@@ -41,6 +41,8 @@
 		size = 'md',
 		drawerOffset = 0
 	}: Props = $props()
+
+	let hovering = $state(false)
 
 	async function loadFolders(): Promise<void> {
 		loadingFolders = true
@@ -188,7 +190,13 @@
 </Drawer>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="flex flex-row items-center gap-1 w-full" onkeydown={handleSelectKeydown}>
+<div
+	class="flex flex-row w-full items-center relative"
+	role="group"
+	onkeydown={handleSelectKeydown}
+	onmouseenter={() => (hovering = true)}
+	onmouseleave={() => (hovering = false)}
+>
 	<Select
 		bind:value={folderName}
 		bind:filterText
@@ -198,7 +206,24 @@
 		loading={loadingFolders}
 		{size}
 		placeholder="Select folder"
+		class="grow min-w-0"
 	>
+		{#snippet endSnippet({ item, close })}
+			<Button
+				disabled={disabled || disableEditing}
+				variant="subtle"
+				size="xs2"
+				wrapperClasses="-mr-2 pl-1 -my-2"
+				btnClasses="hover:bg-surface-tertiary"
+				on:click={() => {
+					folderName = item.value ?? ''
+					viewFolder?.openDrawer()
+					close()
+				}}
+				startIcon={{ icon: Pen }}
+				iconOnly
+			/>
+		{/snippet}
 		{#snippet bottomSnippet({ close })}
 			<button
 				class="sticky py-2 px-4 w-full text-left text-xs font-medium hover:bg-surface-hover flex items-center justify-center gap-2 border-t border-border-light {noMatchingItems
@@ -214,13 +239,17 @@
 			</button>
 		{/snippet}
 	</Select>
-	<Button
-		title="View folder"
-		variant="subtle"
-		unifiedSize={size}
-		disabled={!folderName || folderName == ''}
-		on:click={viewFolder.openDrawer}
-		iconOnly
-		startIcon={{ icon: Eye }}
-	/>
+	{#if folderName && hovering}
+		<div class="absolute {disabled || disableEditing ? 'right-2' : 'right-10'} z-20">
+			<Button
+				variant="subtle"
+				size="xs2"
+				wrapperClasses="pl-1"
+				btnClasses="hover:bg-surface-tertiary"
+				on:click={() => viewFolder?.openDrawer()}
+				startIcon={{ icon: Pen }}
+				iconOnly
+			/>
+		</div>
+	{/if}
 </div>
