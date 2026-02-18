@@ -205,6 +205,10 @@
 			initialRequirePreexistingUserForOauth = requirePreexistingUserForOauth
 			baseUrlIsFallback = false
 
+			if (yamlMode) {
+				yamlCodeInitial = yamlCode
+			}
+
 			if (licenseKeySet) {
 				setLicense()
 			}
