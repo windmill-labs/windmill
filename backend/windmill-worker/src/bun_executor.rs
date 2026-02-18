@@ -27,11 +27,11 @@ use crate::{
 };
 use windmill_common::{
     client::AuthedClient,
-    s3_helpers::BundleFormat,
     scripts::{id_to_codebase_info, CodebaseInfo, ScriptLang},
     utils::WarnAfterExt,
     workspace_dependencies::WorkspaceDependenciesPrefetched,
 };
+use windmill_types::s3::BundleFormat;
 
 #[cfg(windows)]
 use crate::SYSTEM_ROOT;
@@ -43,12 +43,13 @@ use tokio::io::AsyncReadExt;
 use windmill_common::{
     error::{self, Result},
     get_latest_hash_for_path,
-    worker::{exists_in_cache, save_cache, write_file, Connection, DISABLE_BUNDLING},
+    worker::{write_file, Connection, DISABLE_BUNDLING},
     DB,
 };
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
-use windmill_common::s3_helpers::attempt_fetch_bytes;
+use windmill_object_store::attempt_fetch_bytes;
+use crate::global_cache::{exists_in_cache, save_cache};
 
 use windmill_parser::Typ;
 
@@ -699,7 +700,7 @@ struct PulledCodebase {
     is_esm: bool,
 }
 async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<PulledCodebase> {
-    let path = windmill_common::s3_helpers::bundle(&w_id, &id);
+    let path = windmill_object_store::bundle(&w_id, &id);
     let CodebaseInfo { is_tar, is_esm } = id_to_codebase_info(id);
 
     let bun_cache_path = format!(
@@ -719,7 +720,7 @@ async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<PulledCode
         extract_saved_codebase(job_dir, &bun_cache_path, is_tar, &dst, false)?;
     } else {
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        let object_store = windmill_common::s3_helpers::get_object_store().await;
+        let object_store = windmill_object_store::get_object_store().await;
 
         #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
         let object_store: Option<()> = None;
@@ -977,7 +978,7 @@ pub async fn handle_bun_job(
         };
 
         let (cache, logs) =
-            windmill_common::worker::load_cache(&local_path, &remote_path, false).await;
+            crate::global_cache::load_cache(&local_path, &remote_path, false).await;
         (cache, logs, local_path, remote_path)
     } else {
         (false, "".to_string(), "".to_string(), "".to_string())

@@ -15,10 +15,12 @@ use tokio::{fs::File, io::AsyncReadExt, process::Command};
 #[cfg(feature = "csharp")]
 use windmill_common::{
     utils::calculate_hash,
-    worker::{save_cache, write_file},
+    worker::write_file,
 };
 
 use windmill_common::error::{self, Error};
+#[cfg(feature = "csharp")]
+use crate::global_cache::save_cache;
 #[cfg(feature = "csharp")]
 use windmill_queue::append_logs;
 
@@ -518,7 +520,7 @@ pub async fn handle_csharp_job(
     let remote_path = format!("{CSHARP_OBJECT_STORE_PREFIX}{hash}");
 
     let (cache, cache_logs) =
-        windmill_common::worker::load_cache(&bin_path, &remote_path, false).await;
+        crate::global_cache::load_cache(&bin_path, &remote_path, false).await;
 
     let cache_logs = if cache {
         #[cfg(unix)]

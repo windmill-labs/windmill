@@ -57,10 +57,6 @@ pub mod global_settings;
 pub mod indexer;
 pub mod instance_config;
 pub mod job_metrics;
-#[cfg(all(feature = "parquet", feature = "private"))]
-pub mod job_s3_helpers_ee;
-#[cfg(feature = "parquet")]
-pub mod job_s3_helpers_oss;
 pub mod min_version;
 pub mod notify_events;
 pub mod runtime_assets;
@@ -83,7 +79,6 @@ pub mod otel_oss;
 pub mod queue;
 pub mod result_stream;
 pub mod runnable_settings;
-pub mod s3_helpers;
 pub mod schedule;
 pub mod schema;
 pub mod scripts;

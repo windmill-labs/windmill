@@ -19,8 +19,8 @@ use windmill_common::{
     error::Error,
     flow_status::AgentAction,
     flows::FlowModule,
-    s3_helpers::S3Object,
 };
+use windmill_types::s3::S3Object;
 use windmill_parser::Typ;
 
 // Re-export shared types from windmill_common::ai_types

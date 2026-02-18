@@ -53,8 +53,13 @@ if [[ $EE_CODE_DIR == /* ]]; then
 else
   EE_CODE_DIR="${root_dirpath}/${EE_CODE_DIR}"
 fi
-echo "EE code directory = ${EE_CODE_DIR} | Revert = ${REVERT}"
 
+# Fallback to ~/windmill-ee-private if the default location doesn't exist
+if [ ! -d "${EE_CODE_DIR}" ] && [ "${EE_CODE_DIR}" == "${root_dirpath}/../windmill-ee-private/" ]; then
+  EE_CODE_DIR="${HOME}/windmill-ee-private"
+fi
+
+echo "EE code directory = ${EE_CODE_DIR} | Revert = ${REVERT}"
 
 if [ ! -d "${EE_CODE_DIR}" ]; then
   echo "Windmill EE repo not found, please clone it next to this repository (or use the --dir option) and try again"
