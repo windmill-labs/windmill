@@ -12,7 +12,7 @@ path = "src/lib.rs"
 default = []
 enterprise = []
 private = ["windmill-common/private"]
-parquet = ["dep:object_store", "windmill-common/parquet"]
+parquet = ["windmill-common/parquet", "windmill-object-store/parquet"]
 license = ["dep:rsa"]
 
 [dependencies]
@@ -36,4 +36,4 @@ uuid.workspace = true
 base64.workspace = true
 sha2.workspace = true
 rsa = { workspace = true, optional = true }
-object_store = { workspace = true, optional = true }
+windmill-object-store.workspace = true

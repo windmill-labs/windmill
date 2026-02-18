@@ -19,7 +19,7 @@ mssql-kerberos = ["mssql", "tiberius/integrated-auth-gssapi"]  # Linux/Unix inte
 mssql-winauth = ["mssql", "tiberius/winauth"]  # Windows integrated auth
 bigquery = ["dep:gcp_auth"]
 benchmark = ["windmill-queue/benchmark", "windmill-common/benchmark"]
-parquet = ["windmill-common/parquet", "dep:object_store"]
+parquet = ["windmill-common/parquet", "windmill-object-store/parquet"]
 flow_testing = []
 cloud = []
 sqlx = []
@@ -45,6 +45,8 @@ windmill-queue.workspace = true
 windmill-dep-map.workspace = true
 windmill-audit.workspace = true # there isn't really a reason for audit-worth actions to happen in the worker.
 windmill-common = { workspace = true, default-features = false }
+windmill-types.workspace = true
+windmill-object-store.workspace = true
 windmill-jseval.workspace = true
 windmill-runtime-nativets = { workspace = true, optional = true }
 windmill-mcp = { workspace = true, optional = true }
@@ -119,7 +121,6 @@ hex.workspace = true
 tiberius = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true }
 tar.workspace = true
-object_store = { workspace = true, optional = true}
 convert_case.workspace = true
 yaml-rust.workspace = true
 backon.workspace = true

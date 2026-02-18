@@ -35,7 +35,7 @@ use windmill_trigger::TriggerMode;
 #[cfg(feature = "parquet")]
 use {
     crate::job_helpers_oss::get_workspace_s3_resource,
-    windmill_common::s3_helpers::build_object_store_client,
+    windmill_object_store::build_object_store_client,
 };
 
 async fn conditional_cors_middleware(
@@ -365,13 +365,13 @@ async fn route_job(
             } else {
                 config.s3.clone()
             };
-            let path = object_store::path::Path::from(path);
+            let path = windmill_object_store::object_store_reexports::Path::from(path);
             let s3_object = s3_client.get(&path).await;
 
             let s3_object = match s3_object {
-                Err(object_store::Error::NotFound { .. }) if trigger.is_static_website => {
+                Err(windmill_object_store::object_store_reexports::ObjectStoreError::NotFound { .. }) if trigger.is_static_website => {
                     // fallback to index.html if the file is not found
-                    let path = object_store::path::Path::from(format!(
+                    let path = windmill_object_store::object_store_reexports::Path::from(format!(
                         "{}/index.html",
                         config.s3.trim_end_matches('/')
                     ));
@@ -410,7 +410,7 @@ async fn route_job(
                 "content-type",
                 s3_object
                     .attributes
-                    .get(&object_store::Attribute::ContentType)
+                    .get(&windmill_object_store::object_store_reexports::Attribute::ContentType)
                     .map(|s| s.parse().ok())
                     .flatten()
                     .unwrap_or("application/octet-stream".parse().unwrap()),
@@ -422,7 +422,7 @@ async fn route_job(
                         || {
                             s3_object
                                 .attributes
-                                .get(&object_store::Attribute::ContentDisposition)
+                                .get(&windmill_object_store::object_store_reexports::Attribute::ContentDisposition)
                                 .map(|s| s.parse().ok())
                                 .flatten()
                                 .unwrap_or("inline".parse().unwrap())

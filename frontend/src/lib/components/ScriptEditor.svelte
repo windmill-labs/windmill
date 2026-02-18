@@ -1415,6 +1415,7 @@
 			{args}
 			{enablePreprocessorSnippet}
 			preparedAssetsSqlQueries={preparedSqlQueries.current}
+			customTag={tag}
 		/>
 		<DiffEditor
 			className="h-full"

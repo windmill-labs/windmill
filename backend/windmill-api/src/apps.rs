@@ -39,7 +39,7 @@ use itertools::Itertools;
 use lazy_static::lazy_static;
 use magic_crypt::MagicCryptTrait;
 #[cfg(feature = "parquet")]
-use object_store::{Attribute, Attributes};
+use windmill_object_store::object_store_reexports::{Attribute, Attributes};
 #[cfg(feature = "parquet")]
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -78,9 +78,10 @@ use hmac::Mac;
 use windmill_common::{
     jwt,
     oauth2::HmacSha256,
-    s3_helpers::{build_object_store_client, S3Object, S3Permission},
     variables::get_workspace_key,
 };
+#[cfg(feature = "parquet")]
+use windmill_types::s3::{S3Object, S3Permission};
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -406,7 +407,7 @@ async fn get_raw_app_data(
     Extension(db): Extension<DB>,
 ) -> Result<Response> {
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
-    let object_store = windmill_common::s3_helpers::get_object_store().await;
+    let object_store = windmill_object_store::get_object_store().await;
 
     // tracing::info!("secret_with_ext: {}", secret_with_ext);
     let mut splitted = secret_with_ext.split('.');
@@ -442,10 +443,12 @@ async fn get_raw_app_data(
     if let Some(os) = object_store {
         let path = format!("/app_bundles/{}/{}.{}", w_id, id, file_type);
         let stream = os
-            .get(&object_store::path::Path::from(path))
-            .await?
+            .get(&windmill_object_store::object_store_reexports::Path::from(path))
+            .await
+            .map_err(windmill_object_store::object_store_error_to_error)?
             .bytes()
-            .await?;
+            .await
+            .map_err(windmill_object_store::object_store_error_to_error)?;
         tracing::info!("stream: {}", stream.len());
         body = Some(Body::from(stream));
     }
@@ -949,13 +952,13 @@ async fn store_raw_app_file<'a>(
 ) -> Result<()> {
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     {
-        let object_store = windmill_common::s3_helpers::get_object_store().await;
+        let object_store = windmill_object_store::get_object_store().await;
 
         let path: String = format!("/app_bundles/{}/{}.{}", w_id, id, file_type);
 
         if let Some(os) = object_store {
             if let Err(e) = os
-                .put(&object_store::path::Path::from(path.clone()), data.into())
+                .put(&windmill_object_store::object_store_reexports::Path::from(path.clone()), data.into())
                 .await
             {
                 tracing::error!("Failed to put snapshot to s3 at {path}: {:?}", e);
@@ -2480,7 +2483,7 @@ async fn upload_s3_file_from_app(
     let s3_resource = s3_resource_opt.ok_or(Error::internal_err(
         "No files storage resource defined at the workspace level".to_string(),
     ))?;
-    let s3_client = build_object_store_client(&s3_resource).await?;
+    let s3_client = windmill_object_store::build_object_store_client(&s3_resource).await?;
 
     let options = Attributes::from_iter(vec![
         (
@@ -2537,7 +2540,7 @@ async fn delete_s3_file_from_app(
         ..
     } = jwt::decode_with_internal_secret::<S3DeleteTokenClaims>(&query.delete_token).await?;
 
-    let path = object_store::path::Path::parse(file_key.as_str())
+    let path = windmill_object_store::object_store_reexports::Path::parse(file_key.as_str())
         .map_err(|e| Error::internal_err(format!("Error parsing file key: {}", e)))?;
 
     if workspace != w_id {
@@ -2581,7 +2584,7 @@ async fn delete_s3_file_from_app(
         ))?
     };
 
-    let s3_client = build_object_store_client(&s3_resource).await?;
+    let s3_client = windmill_object_store::build_object_store_client(&s3_resource).await?;
 
     s3_client.delete(&path).await.map_err(|err| {
         tracing::error!("Error deleting file: {:?}", err);
