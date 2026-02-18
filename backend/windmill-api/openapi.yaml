@@ -17258,7 +17258,7 @@ components:
         type: integer
     JobTriggerKind:
       name: trigger_kind
-      description: "trigger kind filter. Prefix with '!' to negate, e.g. '!schedule'"
+      description: "filter by trigger kind. Supports comma-separated list (e.g. 'schedule,webhook') and negation by prefixing all values with '!' (e.g. '!schedule,!webhook')"
       in: query
       schema:
         $ref: "#/components/schemas/NegatedJobTriggerKind"
@@ -17270,19 +17270,19 @@ components:
         type: boolean
     CreatedBy:
       name: created_by
-      description: "filter by exact matching user creator. Prefix with '!' to negate, e.g. '!admin@example.com'"
+      description: "filter by exact matching user creator. Supports comma-separated list (e.g. 'alice,bob') and negation by prefixing all values with '!' (e.g. '!alice,!bob')"
       in: query
       schema:
         type: string
     Label:
       name: label
-      description: "filter by exact matching job label. Prefix with '!' to negate, e.g. '!deploy'"
+      description: "filter by exact matching job label. Supports comma-separated list (e.g. 'deploy,release') and negation by prefixing all values with '!' (e.g. '!deploy,!release')"
       in: query
       schema:
         type: string
     Worker:
       name: worker
-      description: "filter by worker this job ran on. Prefix with '!' to negate, e.g. '!worker-1'"
+      description: "filter by worker this job ran on. Supports comma-separated list (e.g. 'worker-1,worker-2') and negation by prefixing all values with '!' (e.g. '!worker-1,!worker-2')"
       in: query
       schema:
         type: string
@@ -17348,7 +17348,7 @@ components:
         type: string
     ScriptStartPath:
       name: script_path_start
-      description: mask to filter matching starting path
+      description: "filter by script path prefix. Supports comma-separated list (e.g. 'f/folder1,f/folder2') and negation by prefixing all values with '!' (e.g. '!f/folder1,!f/folder2')"
       in: query
       schema:
         type: string
@@ -17360,13 +17360,13 @@ components:
         type: string
     TriggerPath:
       name: trigger_path
-      description: "filter by trigger path. Prefix with '!' to negate, e.g. '!f/my/trigger'"
+      description: "filter by trigger path. Supports comma-separated list (e.g. 'f/trigger1,f/trigger2') and negation by prefixing all values with '!' (e.g. '!f/trigger1,!f/trigger2')"
       in: query
       schema:
         type: string
     ScriptExactPath:
       name: script_path_exact
-      description: "filter by exact matching script path. Prefix with '!' to negate, e.g. '!f/my/script'"
+      description: "filter by exact matching script path. Supports comma-separated list (e.g. 'f/script1,f/script2') and negation by prefixing all values with '!' (e.g. '!f/script1,!f/script2')"
       in: query
       schema:
         type: string
@@ -17481,7 +17481,7 @@ components:
         type: string
     Tag:
       name: tag
-      description: "filter by tag/worker group. Prefix with '!' to negate, e.g. '!gpu'"
+      description: "filter by tag/worker group. Supports comma-separated list (e.g. 'gpu,highmem') and negation by prefixing all values with '!' (e.g. '!gpu,!highmem')"
       in: query
       schema:
         type: string
@@ -17525,9 +17525,7 @@ components:
         enum: [Create, Update, Delete, Execute]
     JobKinds:
       name: job_kinds
-      description:
-        filter on job kind (values 'preview', 'script', 'dependencies', 'flow')
-        separated by,
+      description: "filter by job kind. Supports comma-separated list of values ('preview', 'script', 'dependencies', 'flow') and negation by prefixing all values with '!' (e.g. '!preview,!dependencies')"
       in: query
       schema:
         type: string
@@ -20196,7 +20194,8 @@ components:
       description: >
         A job trigger kind filter value, optionally negated.
         Either a plain trigger kind (e.g. `schedule`) or prefixed with `!` to exclude
-        that trigger kind (e.g. `!schedule`).
+        that trigger kind (e.g. `!schedule`). Also supports comma-separated lists of
+        values (e.g. `schedule,webhook`) or negated values (e.g. `!schedule,!webhook`).
       type: string
       oneOf:
         - description: positive match
