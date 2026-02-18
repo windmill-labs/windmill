@@ -8,6 +8,7 @@
 		| {
 				type: 'string' | 'number' | 'boolean' | 'date'
 				allowMultiple?: boolean
+				format?: 'json'
 		  }
 		| {
 				type: 'oneof'
@@ -230,6 +231,7 @@
 	import { assignObjInPlace, clone } from '$lib/utils'
 	import GenericDropdown from './select/GenericDropdown.svelte'
 	import DateTimeInput from './DateTimeInput.svelte'
+	import SimpleEditor from './SimpleEditor.svelte'
 	import TaggedTextInput from './TaggedTextInput.svelte'
 	import { DebouncedTempValue, useTransformedSyncedValue } from '$lib/svelte5Utils.svelte'
 	import { untrack } from 'svelte'
@@ -272,7 +274,7 @@
 		Object.entries(schema).map(([key, filterSchema]) => ({
 			regex: new RegExp(`\\b${key}:(?:\\\\.|[^\\s])*`, 'g'),
 			id: key,
-			onClear: () => (delete value[key], onTagComplete())
+			onClear: () => (delete value[key], reparseTextFromValue())
 		}))
 	)
 
@@ -405,14 +407,14 @@
 		parseFromText
 	)
 
-	function onTagComplete() {
+	function reparseTextFromValue() {
 		asText.val = parseToText(value)
 	}
 
 	function setValueForCurrentTag(val: any) {
 		if (!currentTag) return
 		value[currentTag!] = val
-		onTagComplete()
+		reparseTextFromValue()
 	}
 
 	/**
@@ -434,7 +436,19 @@
 		} else {
 			value[currentTag!] = val
 		}
-		onTagComplete()
+		reparseTextFromValue()
+	}
+
+	function setTextValueForTag(key: keyof SchemaT | undefined, rawValue: string) {
+		if (!key) return
+		const tagRegex = new RegExp(`\\b${String(key)}:(?:\\\\.|[^\\s])*`)
+		const escapedValue = rawValue.replace(/\\/g, '\\\\').replace(/ /g, '\\ ')
+		const replacement = `${String(key)}:${escapedValue}`
+		if (tagRegex.test(asText.val)) {
+			asText.val = asText.val.replace(tagRegex, replacement)
+		} else {
+			appendFilterAsText(replacement)
+		}
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {
@@ -588,8 +602,23 @@
 		{/each}
 	{:else if filter.type === 'date'}
 		<DateTimeInput
-			bind:value={() => value[currentTag!], (d) => d && setValueForCurrentTag(new Date(d))}
+			bind:value={
+				() => value[currentTag!],
+				(d) => d && setTextValueForTag(currentTag, formatDatePretty(new Date(d)))
+			}
 		/>
+	{:else if filter.type === 'string' && filter.format === 'json'}
+		<div class="px-2 pb-2">
+			<SimpleEditor
+				lang="json"
+				autoHeight
+				small
+				bind:code={
+					() => String(value[currentTag!] ?? ''), (v) => setTextValueForTag(currentTag, v ?? '')
+				}
+				class="border border-border-light rounded min-h-[4rem]"
+			/>
+		</div>
 	{/if}
 {/snippet}
 

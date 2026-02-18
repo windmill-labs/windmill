@@ -148,11 +148,13 @@ export function buildRunsFilterSearchbarSchema({
 		},
 		arg: {
 			type: 'string' as const,
+			format: 'json' as const,
 			label: 'Args',
 			description: 'Filter by job arguments (JSON format)'
 		},
 		result: {
 			type: 'string' as const,
+			format: 'json' as const,
 			label: 'Result',
 			description: 'Filter by job result (JSON format)'
 		},
