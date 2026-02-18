@@ -205,6 +205,17 @@
 	>
 		<div class="flex flex-col w-full space-y-4">
 			<span>You have unsaved changes. Are you sure you want to discard them and close?</span>
+			<Button
+				variant="default"
+				size="sm"
+				startIcon={{ icon: FileDiff }}
+				onClick={() => {
+					showCloseConfirmModal = false
+					handleReviewChanges()
+				}}
+			>
+				Review changes
+			</Button>
 		</div>
 	</ConfirmationModal>
 {/if}
