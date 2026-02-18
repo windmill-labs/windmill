@@ -122,7 +122,7 @@
 
 	function isEeImage(): boolean {
 		const v = instanceSettings?.getVersion() ?? ''
-		return v !== '' && !v.includes('CE')
+		return v.startsWith('EE')
 	}
 
 	function isLicenseKeyEmpty(): boolean {
