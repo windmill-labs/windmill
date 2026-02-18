@@ -2018,7 +2018,7 @@ export async function pull(
       log.info(`Updating lock metadata for raw app ${change}`);
       await generateAppLocksInternal(
         change,
-        false,
+        true,
         true,
         workspace,
         opts,

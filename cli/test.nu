@@ -30,12 +30,12 @@ const languages = [
 ];
 
 def main [] {
-  main test deno;
+  main test languages deno;
   main build;
-  main test node;
+  main test languages node;
 }
 
-def 'main test deno' [] {
+def 'main test languages deno' [] {
   main clean;
   print $"Testing Deno"
   $languages | each { |l|
@@ -46,7 +46,7 @@ def 'main test deno' [] {
   print $"\nDeno has passed!\n"
 }
 
-def 'main test node' [] {
+def 'main test languages node' [] {
   main clean;
   print $"Testing Node"
   $languages | each { |l|
@@ -67,6 +67,30 @@ def 'main build' [] {
   print $"Building..."
   cd ../cli; ./build.sh
   cd ../local
+}
+
+alias wm-cli = deno run -A --no-check ../cli/src/main.ts
+
+
+def 'main setup workspace_deps' [] {
+  mkdir f/workspace_deps
+  mkdir dependencies
+
+  wm-cli script bootstrap f/workspace_deps/test python3
+  "# requirements: test" | save -f f/workspace_deps/test.py
+  
+  wm-cli script bootstrap f/workspace_deps/demo python3
+  "# requirements: demo" | save -f f/workspace_deps/demo.py
+
+  wm-cli script bootstrap f/workspace_deps/default python3
+  "# requirements: default" | save -f f/workspace_deps/default.py
+
+  # wm-cli script bootstrap f/workspace_deps/default_and_demo python3
+  # "# requirements: default" | save -f f/workspace_deps/default_and_demo.py
+  
+  "tiny" | save -f dependencies/test.requirements.in
+  "tiny" | save -f dependencies/demo.requirements.in
+  "tiny" | save -f dependencies/requirements.in
 }
 
 # def main [] {
