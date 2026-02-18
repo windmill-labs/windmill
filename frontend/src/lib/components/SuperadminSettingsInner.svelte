@@ -89,10 +89,10 @@
 
 	let instanceSettings: InstanceSettings | undefined = $state()
 
-	let automateUsernameCreation = $state(false)
+	let automateUsernameCreation = $state(true)
 	async function getAutomateUsernameCreationSetting() {
 		automateUsernameCreation =
-			((await SettingService.getGlobal({ key: 'automate_username_creation' })) as any) ?? false
+			((await SettingService.getGlobal({ key: 'automate_username_creation' })) as any) ?? true
 	}
 	getAutomateUsernameCreationSetting()
 	let automateUsernameModalOpen = $state(false)
