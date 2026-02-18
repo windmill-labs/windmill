@@ -40,9 +40,16 @@
 		0,
 		Math.min(parseInt($page.url.searchParams.get('step') ?? '0') || 0, wizardStepLabels.length - 1)
 	)
-	const initialFullStep = initialMode === 'full'
-		? Math.max(0, Math.min(parseInt($page.url.searchParams.get('step') ?? '0') || 0, fullStepLabels.length - 1))
-		: 0
+	const initialFullStep =
+		initialMode === 'full'
+			? Math.max(
+					0,
+					Math.min(
+						parseInt($page.url.searchParams.get('step') ?? '0') || 0,
+						fullStepLabels.length - 1
+					)
+				)
+			: 0
 	let mode: 'wizard' | 'full' = $state(initialMode)
 	let wizardStep = $state(initialStep)
 	let fullStep = $state(initialFullStep)
@@ -100,10 +107,10 @@
 	}
 
 	$effect(() => {
-		if (rtSyncStatus === 'idle' && (
-			(mode === 'wizard' && !isSettingsStep(wizardStep)) ||
-			(mode === 'full' && fullStep === 1)
-		)) {
+		if (
+			rtSyncStatus === 'idle' &&
+			((mode === 'wizard' && !isSettingsStep(wizardStep)) || (mode === 'full' && fullStep === 1))
+		) {
 			syncCachedResourceTypes()
 		}
 	})
@@ -204,7 +211,9 @@
 
 	/** Check if we need to warn about missing EE license key before proceeding */
 	function proceedFromCore(callback: () => void) {
-		if (wizardStep === 0 && isEeImage() && isLicenseKeyEmpty()) {
+		const leavingSettings =
+			(mode === 'wizard' && wizardStep === 0) || (mode === 'full' && fullStep === 0)
+		if (leavingSettings && isEeImage() && isLicenseKeyEmpty()) {
 			pendingNextCallback = callback
 			showLicenseKeyWarning = true
 			return
@@ -325,9 +334,7 @@
 </script>
 
 {#snippet accountSetupContent()}
-	<SettingsPageHeader
-		title="Root login & Resource Types"
-	/>
+	<SettingsPageHeader title="Root login & Resource Types" />
 
 	<div class="flex flex-col gap-6 pb-6">
 		<SettingCard
@@ -388,8 +395,8 @@
 						Sync latest from hub
 					</Button>
 					<p class="text-tertiary text-2xs">
-						Fetches the latest resource types directly from the Windmill Hub (requires
-						internet access).
+						Fetches the latest resource types directly from the Windmill Hub (requires internet
+						access).
 					</p>
 				</div>
 				{#if hubSyncStatus === 'success'}
@@ -407,8 +414,7 @@
 					size="xs"
 				/>
 				<p class="text-tertiary text-2xs">
-					The daily schedule synchronizes resource types from the Hub every day at midnight
-					UTC.
+					The daily schedule synchronizes resource types from the Hub every day at midnight UTC.
 				</p>
 			</div>
 		</SettingCard>
@@ -469,7 +475,10 @@
 					selectedIndex={fullStep + 1}
 					numbered
 					onselect={(i) => {
-						if (i !== fullStep) saveAndProceed(() => { yamlMode = false; fullStep = i })
+						if (i !== fullStep) {
+							const cb = () => { yamlMode = false; fullStep = i }
+							i > fullStep ? proceedFromCore(cb) : saveAndProceed(cb)
+						}
 					}}
 				>
 					{#snippet separator()}
@@ -477,11 +486,7 @@
 					{/snippet}
 				</Breadcrumb>
 				{#if fullStep === 0}
-					<Toggle
-						bind:checked={yamlMode}
-						options={{ right: 'YAML' }}
-						size="sm"
-					/>
+					<Toggle bind:checked={yamlMode} options={{ right: 'YAML' }} size="sm" />
 				{/if}
 			</div>
 
@@ -568,42 +573,44 @@
 						</Button>
 					{/if}
 				</div>
+			{:else if fullStep === 0}
+				<Button
+					variant="default"
+					unifiedSize="md"
+					startIcon={{ icon: ArrowLeft }}
+					onClick={switchToWizardMode}
+				>
+					Quick setup
+				</Button>
+				<Button
+					variant="accent"
+					unifiedSize="md"
+					onClick={() =>
+						proceedFromCore(() => {
+							yamlMode = false
+							fullStep = 1
+						})}
+				>
+					Continue
+				</Button>
 			{:else}
-				{#if fullStep === 0}
-					<Button
-						variant="default"
-						unifiedSize="md"
-						startIcon={{ icon: ArrowLeft }}
-						onClick={switchToWizardMode}
-					>
-						Quick setup
-					</Button>
-					<Button
-						variant="accent"
-						unifiedSize="md"
-						onClick={() => saveAndProceed(() => { yamlMode = false; fullStep = 1 })}
-					>
-						Continue
-					</Button>
-				{:else}
-					<Button
-						variant="default"
-						unifiedSize="md"
-						startIcon={{ icon: ArrowLeft }}
-						onClick={() => saveAndProceed(() => (fullStep = 0))}
-					>
-						Back
-					</Button>
-					<Button
-						variant="accent"
-						unifiedSize="md"
-						disabled={!accountFormValid}
-						loading={accountSubmitting}
-						onClick={submitAccount}
-					>
-						Set account & finish
-					</Button>
-				{/if}
+				<Button
+					variant="default"
+					unifiedSize="md"
+					startIcon={{ icon: ArrowLeft }}
+					onClick={() => saveAndProceed(() => (fullStep = 0))}
+				>
+					Back
+				</Button>
+				<Button
+					variant="accent"
+					unifiedSize="md"
+					disabled={!accountFormValid}
+					loading={accountSubmitting}
+					onClick={submitAccount}
+				>
+					Set account & finish
+				</Button>
 			{/if}
 		</div>
 
@@ -661,7 +668,8 @@
 	>
 		<div class="flex flex-col w-full space-y-4">
 			<span>
-				You are running the Enterprise Edition image but have not entered a license key. A valid license key is required to use EE features. Are you sure you want to continue without one?
+				You are running the Enterprise Edition image but have not entered a license key. A valid
+				license key is required to use EE features. Are you sure you want to continue without one?
 			</span>
 		</div>
 	</ConfirmationModal>
