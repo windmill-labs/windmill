@@ -133,7 +133,7 @@
 
 			// Add highlighted match (with secondary highlights applied inside)
 			const matchedText = text.slice(match.start, match.end)
-			html += `<span class="bg-surface-sunken border py-0.5 px-1.5 rounded">${applyHighlightsToChunk(matchedText)}</span>`
+			html += `<span class="bg-surface-sunken/50 border border-border-light py-0.5 px-1.5 rounded">${applyHighlightsToChunk(matchedText)}</span>`
 
 			lastIndex = match.end
 		}
@@ -460,6 +460,7 @@
 		contentEditableDiv.focus()
 		restoreCursor(value.length)
 		updateCurrentTag(value.length)
+		contentEditableDiv.scrollLeft = contentEditableDiv.scrollWidth
 	}
 </script>
 
@@ -476,6 +477,7 @@
 	data-placeholder={placeholder}
 	role="textbox"
 	tabindex="0"
+	spellcheck="false"
 ></div>
 
 <style>

@@ -223,6 +223,8 @@
 		}))
 	)
 
+	let keyHighlightRegex = $derived(new RegExp(`\\b(${Object.keys(schema).join('|')}):`, 'g'))
+
 	let menuItems = $derived.by(() => {
 		if (!currentTag) {
 			const searchText = currentTextSegment.text.trim().toLowerCase()
@@ -387,7 +389,11 @@
 		bind:this={taggedTextInput}
 		bind:value={asText.val}
 		{tags}
-		highlights={[{ regex: /![a-zA-Z0-9_\-\/]+/, classes: 'text-yellow-600 dark:text-yellow-500' }]}
+		highlights={[
+			{ regex: /![a-zA-Z0-9_\-\/]+/, classes: 'text-yellow-600 dark:text-yellow-500' },
+			{ regex: keyHighlightRegex, classes: 'text-hint' },
+			{ regex: /,/, classes: 'text-hint mr-0.5' }
+		]}
 		onCurrentTagChange={(tag) => (currentTag = tag ? (tag.id as keyof SchemaT) : undefined)}
 		onTextSegmentAtCursorChange={(segment) => (currentTextSegment = segment)}
 		class={twMerge(
