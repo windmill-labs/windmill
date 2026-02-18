@@ -14,6 +14,17 @@ use windmill_common::utils::{paginate_without_limits, Pagination};
 
 use crate::types::{ListCompletedQuery, ListQueueQuery};
 
+/// Build a `NOT IN (...)` clause that also includes `OR col IS NULL`, so that
+/// rows where the nullable column is NULL are not silently excluded.
+fn not_in_nullable(col: &str, quoted: &[String]) -> String {
+    format!(
+        "({} IS NULL OR {} NOT IN ({}))",
+        col,
+        col,
+        quoted.join(", ")
+    )
+}
+
 pub fn filter_list_queue_query(
     mut sqlb: SqlBuilder,
     lq: &ListQueueQuery,
@@ -48,9 +59,14 @@ pub fn filter_list_queue_query(
                 })
                 .collect();
             let sep = if w.negated { " AND " } else { " OR " };
-            sqlb.and_where(format!("({})", clauses.join(sep)));
+            let inner = clauses.join(sep);
+            if w.negated {
+                sqlb.and_where(format!("(v2_job_queue.worker IS NULL OR ({inner}))"));
+            } else {
+                sqlb.and_where(format!("({inner})"));
+            }
         } else if w.negated {
-            sqlb.and_where_not_in("v2_job_queue.worker", &quoted);
+            sqlb.and_where(not_in_nullable("v2_job_queue.worker", &quoted));
         } else {
             sqlb.and_where_in("v2_job_queue.worker", &quoted);
         }
@@ -70,12 +86,17 @@ pub fn filter_list_queue_query(
             })
             .collect();
         let sep = if ps.negated { " AND " } else { " OR " };
-        sqlb.and_where(format!("({})", clauses.join(sep)));
+        let inner = clauses.join(sep);
+        if ps.negated {
+            sqlb.and_where(format!("(runnable_path IS NULL OR ({inner}))"));
+        } else {
+            sqlb.and_where(format!("({inner})"));
+        }
     }
     if let Some(p) = &lq.script_path_exact {
         let quoted: Vec<_> = p.values.iter().map(|v| quote(v)).collect();
         if p.negated {
-            sqlb.and_where_not_in("runnable_path", &quoted);
+            sqlb.and_where(not_in_nullable("runnable_path", &quoted));
         } else {
             sqlb.and_where_in("runnable_path", &quoted);
         }
@@ -193,7 +214,7 @@ pub fn filter_list_queue_query(
     if let Some(tk) = &lq.trigger_kind {
         let quoted: Vec<_> = tk.values.iter().map(|v| quote(&format!("{}", v))).collect();
         if tk.negated {
-            sqlb.and_where_not_in("trigger_kind", &quoted);
+            sqlb.and_where(not_in_nullable("trigger_kind", &quoted));
         } else {
             sqlb.and_where_in("trigger_kind", &quoted);
         }
@@ -202,7 +223,7 @@ pub fn filter_list_queue_query(
     if let Some(tp) = &lq.trigger_path {
         let quoted: Vec<_> = tp.values.iter().map(|v| quote(v)).collect();
         if tp.negated {
-            sqlb.and_where_not_in("trigger", &quoted);
+            sqlb.and_where(not_in_nullable("trigger", &quoted));
         } else {
             sqlb.and_where_in("trigger", &quoted);
         }
@@ -309,9 +330,14 @@ pub fn filter_list_completed_query(
                 })
                 .collect();
             let sep = if worker.negated { " AND " } else { " OR " };
-            sqlb.and_where(format!("({})", clauses.join(sep)));
+            let inner = clauses.join(sep);
+            if worker.negated {
+                sqlb.and_where(format!("(v2_job_completed.worker IS NULL OR ({inner}))"));
+            } else {
+                sqlb.and_where(format!("({inner})"));
+            }
         } else if worker.negated {
-            sqlb.and_where_not_in("v2_job_completed.worker", &quoted);
+            sqlb.and_where(not_in_nullable("v2_job_completed.worker", &quoted));
         } else {
             sqlb.and_where_in("v2_job_completed.worker", &quoted);
         }
@@ -341,12 +367,17 @@ pub fn filter_list_completed_query(
             })
             .collect();
         let sep = if ps.negated { " AND " } else { " OR " };
-        sqlb.and_where(format!("({})", clauses.join(sep)));
+        let inner = clauses.join(sep);
+        if ps.negated {
+            sqlb.and_where(format!("(runnable_path IS NULL OR ({inner}))"));
+        } else {
+            sqlb.and_where(format!("({inner})"));
+        }
     }
     if let Some(p) = &lq.script_path_exact {
         let quoted: Vec<_> = p.values.iter().map(|v| quote(v)).collect();
         if p.negated {
-            sqlb.and_where_not_in("runnable_path", &quoted);
+            sqlb.and_where(not_in_nullable("runnable_path", &quoted));
         } else {
             sqlb.and_where_in("runnable_path", &quoted);
         }
@@ -478,7 +509,7 @@ pub fn filter_list_completed_query(
     if let Some(tk) = &lq.trigger_kind {
         let quoted: Vec<_> = tk.values.iter().map(|v| quote(&format!("{}", v))).collect();
         if tk.negated {
-            sqlb.and_where_not_in("trigger_kind", &quoted);
+            sqlb.and_where(not_in_nullable("trigger_kind", &quoted));
         } else {
             sqlb.and_where_in("trigger_kind", &quoted);
         }
@@ -487,7 +518,7 @@ pub fn filter_list_completed_query(
     if let Some(tp) = &lq.trigger_path {
         let quoted: Vec<_> = tp.values.iter().map(|v| quote(v)).collect();
         if tp.negated {
-            sqlb.and_where_not_in("trigger", &quoted);
+            sqlb.and_where(not_in_nullable("trigger", &quoted));
         } else {
             sqlb.and_where_in("trigger", &quoted);
         }
