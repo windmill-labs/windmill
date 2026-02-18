@@ -439,18 +439,6 @@
 		reparseTextFromValue()
 	}
 
-	function setTextValueForTag(key: keyof SchemaT | undefined, rawValue: string) {
-		if (!key) return
-		const tagRegex = new RegExp(`\\b${String(key)}:(?:\\\\.|[^\\s])*`)
-		const escapedValue = rawValue.replace(/\\/g, '\\\\').replace(/ /g, '\\ ')
-		const replacement = `${String(key)}:${escapedValue}`
-		if (tagRegex.test(asText.val)) {
-			asText.val = asText.val.replace(tagRegex, replacement)
-		} else {
-			appendFilterAsText(replacement)
-		}
-	}
-
 	function handleKeyDown(e: KeyboardEvent) {
 		if (!open) return
 		if (e.key === 'Escape') {
@@ -603,8 +591,7 @@
 	{:else if filter.type === 'date'}
 		<DateTimeInput
 			bind:value={
-				() => value[currentTag!],
-				(d) => d && setTextValueForTag(currentTag, formatDatePretty(new Date(d)))
+				() => value[currentTag!], (d) => d && setValueForCurrentTag(formatDatePretty(new Date(d)))
 			}
 		/>
 	{:else if filter.type === 'string' && filter.format === 'json'}
@@ -613,9 +600,7 @@
 				lang="json"
 				autoHeight
 				small
-				bind:code={
-					() => String(value[currentTag!] ?? ''), (v) => setTextValueForTag(currentTag, v ?? '')
-				}
+				bind:code={() => String(value[currentTag!] ?? ''), (v) => setValueForCurrentTag(v ?? '')}
 				class="border border-border-light rounded min-h-[4rem]"
 			/>
 		</div>
