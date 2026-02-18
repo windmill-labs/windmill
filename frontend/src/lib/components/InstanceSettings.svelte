@@ -671,7 +671,12 @@
 			normalize: true,
 			mask: !showSensitive
 		})
-		yamlCodeInitial = yamlCode
+		yamlCodeInitial = buildSettingsYaml(
+			initialValues,
+			initialOauths,
+			initialRequirePreexistingUserForOauth,
+			{ normalize: true, mask: !showSensitive }
+		)
 		yamlEditor?.setCode(yamlCode)
 		yamlError = ''
 	}
