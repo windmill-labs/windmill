@@ -146,8 +146,15 @@
 	// --- Settings search ---
 	const searchableItems = buildSearchableSettingItems()
 	let settingsSearchFilter = $state('')
+	let debouncedSearchFilter = $state('')
 	let filteredSearchItems: (SearchableSettingItem & { marked: string })[] = $state([])
 	let searchInputEl: HTMLDivElement | undefined = $state()
+
+	$effect(() => {
+		const val = settingsSearchFilter
+		const timeout = setTimeout(() => (debouncedSearchFilter = val), 150)
+		return () => clearTimeout(timeout)
+	})
 
 	const searchDropdownOpen = $derived(
 		settingsSearchFilter.trim().length > 0 && filteredSearchItems.length > 0
@@ -207,7 +214,7 @@
 />
 
 <SearchItems
-	filter={settingsSearchFilter}
+	filter={debouncedSearchFilter}
 	items={searchableItems}
 	bind:filteredItems={filteredSearchItems}
 	f={(x) => x.label + ' ' + (x.description ?? '') + ' ' + x.category}
