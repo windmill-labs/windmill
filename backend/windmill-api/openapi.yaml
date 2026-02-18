@@ -17261,7 +17261,7 @@ components:
       description: "filter by trigger kind. Supports comma-separated list (e.g. 'schedule,webhook') and negation by prefixing all values with '!' (e.g. '!schedule,!webhook')"
       in: query
       schema:
-        $ref: "#/components/schemas/NegatedJobTriggerKind"
+        type: string
     OrderDesc:
       name: order_desc
       description: order by desc order (default true)
@@ -20189,45 +20189,6 @@ components:
         - sqs
         - gcp
         - google
-
-    NegatedJobTriggerKind:
-      description: >
-        A job trigger kind filter value, optionally negated.
-        Either a plain trigger kind (e.g. `schedule`) or prefixed with `!` to exclude
-        that trigger kind (e.g. `!schedule`). Also supports comma-separated lists of
-        values (e.g. `schedule,webhook`) or negated values (e.g. `!schedule,!webhook`).
-      type: string
-      oneOf:
-        - description: positive match
-          enum:
-            - webhook
-            - default_email
-            - email
-            - schedule
-            - http
-            - websocket
-            - postgres
-            - kafka
-            - nats
-            - mqtt
-            - sqs
-            - gcp
-            - google
-        - description: negative match
-          enum:
-            - "!webhook"
-            - "!default_email"
-            - "!email"
-            - "!schedule"
-            - "!http"
-            - "!websocket"
-            - "!postgres"
-            - "!kafka"
-            - "!nats"
-            - "!mqtt"
-            - "!sqs"
-            - "!gcp"
-            - "!google"
 
     TriggerMode:
       description: job trigger mode
