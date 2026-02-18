@@ -425,6 +425,9 @@
 		if (filter.allowMultiple) {
 			const existing = String(value[currentTag!] ?? '')
 			const parts = existing.split(',')
+			// If any existing part is negative, force the new value to be negative too
+			const isNegativeContext = parts.slice(0, -1).some((p) => p.startsWith('!'))
+			if (isNegativeContext && !val.startsWith('!')) val = '!' + val
 			// Replace the last in-progress segment with the selected value
 			parts[parts.length - 1] = val
 			value[currentTag!] = parts.join(',')
