@@ -62,10 +62,40 @@
 
 	const emptyDate: CalendarDate = { day: null, month: null, year: null }
 
+	export function calendarDateIsNull(cd: CalendarDate | null | undefined): boolean {
+		return !cd || (cd.day == null && cd.month == null && cd.year == null)
+	}
+
+	// Pick the date that should be visible on mount
+	function initialViewDate(): { month: number; year: number } {
+		const today = new Date()
+		const fallback = { month: today.getMonth() + 1, year: today.getFullYear() }
+
+		let cd: CalendarDate | null | undefined
+		if (mode === 'date') {
+			cd = value as CalendarDate | undefined
+		} else {
+			const v = value as CalendarRange | undefined
+			const behavior = (rest as RangeProps).onClickBehavior ?? 'set-range'
+			if (behavior === 'set-start') {
+				cd = v?.start
+			} else if (behavior === 'set-end') {
+				cd = v?.end
+			} else {
+				cd = !calendarDateIsNull(v?.start) ? v?.start : v?.end
+			}
+		}
+
+		if (!calendarDateIsNull(cd) && cd!.month != null && cd!.year != null) {
+			return { month: cd!.month, year: cd!.year }
+		}
+		return fallback
+	}
+
 	// Internal navigation state (what month/year is displayed in the calendar)
-	const today = new Date()
-	let viewMonth = $state(today.getMonth() + 1) // 1-indexed
-	let viewYear = $state(today.getFullYear())
+	const _init = initialViewDate()
+	let viewMonth = $state(_init.month)
+	let viewYear = $state(_init.year)
 
 	// Range hover tracking
 	let hoverDate: CalendarDate | null = $state(null)

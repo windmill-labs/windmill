@@ -573,7 +573,9 @@
 				{/if}
 			{/each}
 		{:else}
-			{@render suggestion(schema[currentTag])}
+			{#key currentTag}
+				{@render suggestion(schema[currentTag])}
+			{/key}
 		{/if}
 	</div>
 </GenericDropdown>
