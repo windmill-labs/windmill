@@ -94,7 +94,7 @@
 
 	$effect(() => {
 		if (rtSyncStatus === 'idle' && (
-			!isSettingsStep(wizardStep) ||
+			(mode === 'wizard' && !isSettingsStep(wizardStep)) ||
 			(mode === 'full' && fullStep === 1)
 		)) {
 			syncCachedResourceTypes()
@@ -407,7 +407,7 @@
 					selectedIndex={fullStep + 1}
 					numbered
 					onselect={(i) => {
-						if (i < fullStep) saveAndProceed(() => (fullStep = i))
+						if (i !== fullStep) saveAndProceed(() => { yamlMode = false; fullStep = i })
 					}}
 				>
 					{#snippet separator()}
@@ -518,7 +518,7 @@
 					<Button
 						variant="accent"
 						unifiedSize="md"
-						onClick={() => saveAndProceed(() => (fullStep = 1))}
+						onClick={() => saveAndProceed(() => { yamlMode = false; fullStep = 1 })}
 					>
 						Continue
 					</Button>
@@ -527,7 +527,7 @@
 						variant="default"
 						unifiedSize="md"
 						startIcon={{ icon: ArrowLeft }}
-						onClick={() => (fullStep = 0)}
+						onClick={() => saveAndProceed(() => (fullStep = 0))}
 					>
 						Back
 					</Button>
