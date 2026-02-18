@@ -277,6 +277,14 @@
 
 	let keyHighlightRegex = $derived(new RegExp(`\\b(${Object.keys(schema).join('|')}):`, 'g'))
 
+	let errorKeys = $derived(new Set(errors.flatMap((e) => e.fields)))
+	let errorHighlights = $derived(
+		[...errorKeys].map((key) => ({
+			regex: new RegExp(`(?<=\\b${key}:)(?:\\\\.|[^\\s])+`),
+			classes: 'text-red-500 dark:text-red-400'
+		}))
+	)
+
 	let menuItems = $derived.by(() => {
 		if (!currentTag) {
 			const searchText = currentTextSegment.text.trim().toLowerCase()
@@ -486,7 +494,8 @@
 		highlights={[
 			{ regex: /![a-zA-Z0-9_\-\/]+/, classes: 'text-yellow-600 dark:text-yellow-500' },
 			{ regex: keyHighlightRegex, classes: 'text-hint' },
-			{ regex: /,/, classes: 'text-hint mr-0.5' }
+			{ regex: /,/, classes: 'text-hint mr-0.5' },
+			...errorHighlights
 		]}
 		onCurrentTagChange={(tag) => (currentTag = tag ? (tag.id as keyof SchemaT) : undefined)}
 		onTextSegmentAtCursorChange={(segment) => (currentTextSegment = segment)}
