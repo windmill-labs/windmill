@@ -46,7 +46,7 @@
 					statusTimeout = setTimeout(() => {
 						saveStatus = null
 						statusTimeout = null
-					}, 3000)
+					}, 1500)
 				})
 				.catch((error) => {
 					console.error('Save failed:', error)
@@ -54,7 +54,7 @@
 					statusTimeout = setTimeout(() => {
 						saveStatus = null
 						statusTimeout = null
-					}, 5000)
+					}, 3000)
 				})
 				.finally(() => {
 					isSaving = false
