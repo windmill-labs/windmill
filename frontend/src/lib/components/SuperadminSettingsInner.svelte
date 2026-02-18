@@ -259,6 +259,7 @@
 						itemButtonWrapperClasses="overflow-hidden"
 						getInputRect={searchInputEl ? () => searchInputEl!.getBoundingClientRect() : undefined}
 						onSelectValue={(item) => handleSearchSelect(item.value)}
+						highlightFirstOnOpen
 						class="max-w-40"
 						maxHeight={400}
 					>

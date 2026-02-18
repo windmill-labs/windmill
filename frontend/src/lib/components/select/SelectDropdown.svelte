@@ -27,7 +27,8 @@
 		onSelectValue,
 		startSnippet,
 		endSnippet,
-		bottomSnippet
+		bottomSnippet,
+		highlightFirstOnOpen = false
 	}: {
 		processedItems?: ProcessedItem<T>[]
 		value: T | undefined
@@ -48,6 +49,8 @@
 		startSnippet?: Snippet<[{ item: ProcessedItem<T>; close: () => void }]>
 		endSnippet?: Snippet<[{ item: ProcessedItem<T>; close: () => void }]>
 		bottomSnippet?: Snippet<[{ close: () => void }]>
+		/** When true, the first item is highlighted when the dropdown opens (even without filterText) */
+		highlightFirstOnOpen?: boolean
 	} = $props()
 
 	let processedItems = $derived(
@@ -94,7 +97,7 @@
 
 	$effect(() => {
 		;[open, processedItems]
-		untrack(() => (keyArrowPos = open && filterText ? 0 : undefined))
+		untrack(() => (keyArrowPos = open && (filterText || highlightFirstOnOpen) ? 0 : undefined))
 	})
 
 	// We do not want to render the dropdown when it is closed for performance reasons
