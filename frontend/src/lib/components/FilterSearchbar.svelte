@@ -271,7 +271,8 @@
 	let tags = $derived(
 		Object.entries(schema).map(([key, filterSchema]) => ({
 			regex: new RegExp(`\\b${key}:(?:\\\\.|[^\\s])*`, 'g'),
-			id: key
+			id: key,
+			onClear: () => (delete value[key], onTagComplete())
 		}))
 	)
 

@@ -8,7 +8,7 @@
 		onTextSegmentAtCursorChange,
 		class: className = ''
 	}: {
-		tags: { regex: RegExp; id: string }[]
+		tags: { regex: RegExp; id: string; onClear?: () => void }[]
 		value?: string
 		placeholder?: string
 		highlights?: { regex: RegExp; classes: string }[]
@@ -133,7 +133,12 @@
 
 			// Add highlighted match (with secondary highlights applied inside)
 			const matchedText = text.slice(match.start, match.end)
-			html += `<span class="bg-surface-sunken/50 border border-border-light py-0.5 px-1.5 rounded">${applyHighlightsToChunk(matchedText)}</span>`
+			const tagId = tags[match.tagIndex].id
+			const hasClear = !!tags[match.tagIndex].onClear
+			const clearBtn = hasClear
+				? `<span data-clear-tag="${tagId}" class="inline-flex w-2.5 h-3 ml-1 cursor-pointer opacity-50 hover:opacity-100" style="vertical-align: middle;"><svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="pointer-events:none"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span>`
+				: ''
+			html += `<span class="bg-surface-sunken/50 border border-border-light py-0.5 px-1.5 rounded" data-tag-id="${tagId}">${applyHighlightsToChunk(matchedText)}${clearBtn}</span>`
 
 			lastIndex = match.end
 		}
@@ -287,7 +292,16 @@
 		}
 	}
 
-	function handleClick() {
+	function handleClick(e: MouseEvent) {
+		// Check if the click landed on a clear button
+		const target = e.target as HTMLElement | null
+		const clearTarget = target?.closest<HTMLElement>('[data-clear-tag]')
+		if (clearTarget) {
+			const tagId = clearTarget.dataset.clearTag!
+			const tag = tags.find((t) => t.id === tagId)
+			tag?.onClear?.()
+			return
+		}
 		const cursorPos = getCursorPosition()
 		updateCurrentTag(cursorPos)
 	}
