@@ -42,7 +42,12 @@
 
 <script lang="ts">
 	import { startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, getDaysInMonth } from 'date-fns'
+	import { ChevronLeft, ChevronRight, ClockIcon } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { ButtonType } from './button/model'
+	import Button from './button/Button.svelte'
+	import Select from '../select/Select.svelte'
+	import TextInput from '../text_input/TextInput.svelte'
 
 	interface DateProps {
 		mode?: 'date'
@@ -315,14 +320,6 @@
 		}
 	}
 
-	function onMonthChange(e: Event) {
-		viewMonth = parseInt((e.target as HTMLSelectElement).value, 10)
-	}
-
-	function onYearChange(e: Event) {
-		viewYear = parseInt((e.target as HTMLSelectElement).value, 10)
-	}
-
 	// The CalendarDate whose hour/minute the time inputs control
 	const timeTarget = $derived.by((): CalendarDate | null => {
 		if (mode === 'date') return (value as CalendarDate | undefined) ?? null
@@ -377,73 +374,23 @@
 
 <div class={className}>
 	<!-- Header -->
-	<div class="mb-3 flex items-center gap-1">
-		<button
-			type="button"
-			onclick={prevMonth}
-			class="flex h-7 w-7 items-center justify-center rounded-md hover:bg-surface-hover text-primary transition-colors"
-			aria-label="Previous month"
-		>
-			<svg
-				width="16"
-				height="16"
-				viewBox="0 0 16 16"
-				fill="none"
-				xmlns="http://www.w3.org/2000/svg"
-			>
-				<path
-					d="M10 12L6 8L10 4"
-					stroke="currentColor"
-					stroke-width="1.5"
-					stroke-linecap="round"
-					stroke-linejoin="round"
-				/>
-			</svg>
-		</button>
+	<div class="mb-3 flex items-center gap-2">
+		<Button endIcon={{ icon: ChevronLeft }} iconOnly unifiedSize="md" onClick={prevMonth} />
+		<Select
+			class="flex-1"
+			inputClass="text-center"
+			disablePortal
+			bind:value={viewMonth}
+			items={MONTH_NAMES.map((name, i) => ({ label: name, value: i + 1 }))}
+		/>
 
-		<div class="flex flex-1 items-center justify-center gap-1">
-			<select
-				value={viewMonth}
-				onchange={onMonthChange}
-				class="cursor-pointer rounded-md"
-				aria-label="Select month"
-			>
-				{#each MONTH_NAMES as name, i (i)}
-					<option value={i + 1}>{name}</option>
-				{/each}
-			</select>
+		<TextInput
+			inputProps={{ type: 'number', 'aria-label': 'Select year' }}
+			bind:value={viewYear}
+			class="flex-1 text-center"
+		/>
 
-			<input
-				type="number"
-				value={viewYear}
-				onchange={onYearChange}
-				class="w-16 cursor-pointer rounded-md"
-				aria-label="Select year"
-			/>
-		</div>
-
-		<button
-			type="button"
-			onclick={nextMonth}
-			class="flex h-7 w-7 items-center justify-center rounded-md hover:bg-surface-hover text-primary transition-colors"
-			aria-label="Next month"
-		>
-			<svg
-				width="16"
-				height="16"
-				viewBox="0 0 16 16"
-				fill="none"
-				xmlns="http://www.w3.org/2000/svg"
-			>
-				<path
-					d="M6 4L10 8L6 12"
-					stroke="currentColor"
-					stroke-width="1.5"
-					stroke-linecap="round"
-					stroke-linejoin="round"
-				/>
-			</svg>
-		</button>
+		<Button endIcon={{ icon: ChevronRight }} iconOnly unifiedSize="md" onClick={nextMonth} />
 	</div>
 
 	<!-- Day-of-week labels -->
@@ -503,7 +450,8 @@
 
 	<!-- Time inputs -->
 	{#if showTime}
-		<div class="mt-3 flex border rounded-md w-fit items-center gap-0">
+		<div class="border-t my-3"></div>
+		<div class="mt-3 !h-8 flex border rounded-md w-fit items-center gap-0">
 			<input
 				type="text"
 				inputmode="numeric"
@@ -511,7 +459,7 @@
 				value={timeTarget?.hour != null ? String(timeTarget.hour).padStart(2, '0') : ''}
 				placeholder="HH"
 				onchange={(e) => setHour((e.target as HTMLInputElement).value)}
-				class="!border-none !w-8 !px-1.5 text-right font-mono"
+				class="!border-none !w-8 !h-7 !px-1.5 text-right font-mono"
 				aria-label="Hour"
 			/>
 			<span class="text-sm font-medium font-mono text-secondary">:</span>
@@ -522,10 +470,10 @@
 				value={timeTarget?.minute != null ? String(timeTarget.minute).padStart(2, '0') : ''}
 				placeholder="MM"
 				onchange={(e) => setMinute((e.target as HTMLInputElement).value)}
-				class="!border-none !w-8 !px-1.5 text-left font-mono"
+				class="!border-none !w-8 !h-7 !px-1.5 text-left font-mono"
 				aria-label="Minute"
 			/>
-			<div class="flex-1"></div>
+			<ClockIcon size={14} class="mr-3" />
 		</div>
 	{/if}
 </div>
