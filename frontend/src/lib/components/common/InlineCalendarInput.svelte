@@ -33,7 +33,7 @@
 		mode === 'range' ? ((rest as RangeProps).onClickBehavior ?? 'set-range') : 'set-range'
 	)
 
-	const infiniteRange = $derived(mode === 'range' && !!((rest as RangeProps).infiniteRange))
+	const infiniteRange = $derived(mode === 'range' && !!(rest as RangeProps).infiniteRange)
 
 	const emptyDate: CalendarDate = { day: null, month: null, year: null }
 
@@ -135,6 +135,23 @@
 		return isSameCalDate(cell, v?.start ?? null)
 	}
 
+	function isDayDisabled(cell: CalendarDate): boolean {
+		if (mode !== 'range') return false
+		const v = value as CalendarRange | undefined
+		const cellDate = calendarDateToDate(cell)
+		if (!cellDate) return false
+
+		if (onClickBehavior === 'set-start') {
+			const endDate = v?.end ? calendarDateToDate(v.end) : null
+			return endDate != null && cellDate > endDate
+		}
+		if (onClickBehavior === 'set-end') {
+			const startDate = v?.start ? calendarDateToDate(v.start) : null
+			return startDate != null && cellDate < startDate
+		}
+		return false
+	}
+
 	function isDayRangeEnd(cell: CalendarDate): boolean {
 		if (mode !== 'range') return false
 		const v = value as CalendarRange | undefined
@@ -159,20 +176,27 @@
 		const cd: CalendarDate = { day: cell.day, month: cell.month, year: cell.year }
 
 		if (mode === 'date') {
-			value = cd
+			const v = value as CalendarDate | undefined
+			value = isSameCalDate(cd, v ?? null) ? emptyDate : cd
 		} else {
 			const v = value as CalendarRange | undefined
 
 			if (onClickBehavior === 'set-start') {
-				value = { start: cd, end: v?.end ?? emptyDate }
+				const newStart = isSameCalDate(cd, v?.start ?? null) ? emptyDate : cd
+				value = { start: newStart, end: v?.end ?? emptyDate }
 			} else if (onClickBehavior === 'set-end') {
-				value = { start: v?.start ?? emptyDate, end: cd }
+				const newEnd = isSameCalDate(cd, v?.end ?? null) ? emptyDate : cd
+				value = { start: v?.start ?? emptyDate, end: newEnd }
 			} else {
 				// 'set-range': two-click flow
 				if (!rangeSelectingStart) {
-					// First click: set start, clear end, begin range selection
-					value = { start: cd, end: emptyDate }
-					rangeSelectingStart = true
+					// First click: toggle start (deselect if same day), clear end
+					if (isSameCalDate(cd, v?.start ?? null)) {
+						value = { start: emptyDate, end: emptyDate }
+					} else {
+						value = { start: cd, end: emptyDate }
+						rangeSelectingStart = true
+					}
 				} else {
 					// Second click: set end, auto-swap if needed
 					const start = v?.start ?? emptyDate
@@ -326,9 +350,10 @@
 			{@const inRange = isDayInRange(cell)}
 			{@const isStart = isDayRangeStart(cell)}
 			{@const isEnd = isDayRangeEnd(cell)}
+			{@const disabled = isDayDisabled(cell)}
 			<button
 				type="button"
-				onclick={() => handleDayClick(cell)}
+				onclick={() => !disabled && handleDayClick(cell)}
 				onmouseenter={() => {
 					if (rangeSelectingStart) hoverDate = cell
 				}}
@@ -336,19 +361,20 @@
 					if (rangeSelectingStart) hoverDate = null
 				}}
 				class={twMerge(
-					'relative flex my-0.5 h-9 w-9 items-center justify-center text-sm transition-colors focus:outline-none',
-					!cell.isCurrentMonth ? 'text-tertiary' : 'text-primary',
-					selected ? 'font-semibold' : 'font-normal',
-					inRange ? 'bg-surface-secondary' : '',
-					isStart || isEnd ? 'bg-surface-secondary' : '',
-					isStart && mode === 'range' ? 'rounded-l' : '',
-					isEnd && mode === 'range' ? 'rounded-r' : ''
+					'relative flex my-0.5 h-9 min-w-9 w-full items-center justify-center text-sm transition-colors focus:outline-none',
+					disabled ? 'opacity-15' : !cell.isCurrentMonth ? 'text-hint' : 'text-primary',
+					!disabled && selected ? 'font-semibold' : 'font-normal',
+					!disabled && inRange ? 'bg-surface-secondary' : '',
+					!disabled && (isStart || isEnd) ? 'bg-surface-secondary' : '',
+					!disabled && isStart && mode === 'range' ? 'rounded-l' : '',
+					!disabled && isEnd && mode === 'range' ? 'rounded-r' : ''
 				)}
 				aria-label="{cell.year}-{String(cell.month).padStart(2, '0')}-{String(cell.day).padStart(
 					2,
 					'0'
 				)}"
 				aria-pressed={selected}
+				aria-disabled={disabled}
 			>
 				<!-- Selection circle / highlight -->
 				{#if selected}
