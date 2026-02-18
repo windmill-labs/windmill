@@ -185,6 +185,14 @@
 		onWidthChange(editorWidth)
 	})
 
+	$effect(() => {
+		if (diffEditor) {
+			diffEditor.updateOptions({
+				renderSideBySide: inlineDiff ? false : editorWidth >= SIDE_BY_SIDE_MIN_WIDTH
+			})
+		}
+	})
+
 	onMount(() => {
 		if (BROWSER) {
 			return () => {

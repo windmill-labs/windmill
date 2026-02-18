@@ -341,11 +341,8 @@
 		if (value === false) return undefined
 		if (typeof value === 'string' && value.trim() === '') return undefined
 		if (Array.isArray(value) && value.length === 0) return undefined
-		if (typeof value === 'object' && !Array.isArray(value)) {
-			const hasNonEmpty = Object.values(value).some(
-				(v) => v != null && v !== false && !(typeof v === 'string' && v.trim() === '')
-			)
-			if (!hasNonEmpty) return undefined
+		if (typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0) {
+			return undefined
 		}
 
 		// Key-specific defaults: these values are equivalent to "not set"

@@ -67,18 +67,14 @@
 		bypassCloseCheck = false
 	}
 
-	function handleSave(): Promise<void> {
-		return (async () => {
-			if (!innerComponent?.syncBeforeDiff()) throw new Error('YAML sync failed')
-			await innerComponent?.saveSettings()
-		})()
+	async function handleSave(): Promise<void> {
+		if (!innerComponent?.syncBeforeDiff()) throw new Error('YAML sync failed')
+		await innerComponent?.saveSettings()
 	}
 
-	function handleSaveAndCloseDiff(): Promise<void> {
-		return (async () => {
-			await handleSave()
-			diffDrawer?.closeDrawer()
-		})()
+	async function handleSaveAndCloseDiff(): Promise<void> {
+		await handleSave()
+		diffDrawer?.closeDrawer()
 	}
 
 	function handleDiscard() {
@@ -160,7 +156,7 @@
 </Drawer>
 
 <Drawer bind:this={diffDrawer} size="1200px">
-	<DrawerContent title="Review changes" on:close={diffDrawer?.closeDrawer}>
+	<DrawerContent title="Review changes" on:close={() => diffDrawer?.closeDrawer()}>
 		{#snippet actions()}
 			<Toggle
 				bind:checked={inlineDiff}
@@ -169,22 +165,21 @@
 			/>
 			<SaveButton onSave={handleSaveAndCloseDiff} disabled={!hasUnsavedChanges} size="xs" />
 		{/snippet}
+		<!-- DiffEditor reacts to inlineDiff changes via $effect — no {#key} needed -->
 		<div class="h-full">
-			{#key inlineDiff}
-				{#await import('$lib/components/DiffEditor.svelte')}
-					<Loader2 class="animate-spin m-4" />
-				{:then Module}
-					<Module.default
-						open={true}
-						className="!h-full"
-						defaultLang="yaml"
-						defaultOriginal={diffData.original}
-						defaultModified={diffData.modified}
-						readOnly
-						{inlineDiff}
-					/>
-				{/await}
-			{/key}
+			{#await import('$lib/components/DiffEditor.svelte')}
+				<Loader2 class="animate-spin m-4" />
+			{:then Module}
+				<Module.default
+					open={true}
+					className="!h-full"
+					defaultLang="yaml"
+					defaultOriginal={diffData.original}
+					defaultModified={diffData.modified}
+					readOnly
+					{inlineDiff}
+				/>
+			{/await}
 		</div>
 	</DrawerContent>
 </Drawer>

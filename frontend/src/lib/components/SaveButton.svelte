@@ -69,7 +69,7 @@
 	})
 </script>
 
-<div class="relative">
+<div class="relative overflow-hidden rounded-md">
 	<Button
 		{variant}
 		{size}
