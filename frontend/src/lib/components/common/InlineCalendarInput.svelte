@@ -111,6 +111,26 @@
 	let viewMonth = $state(_init.month)
 	let viewYear = $state(_init.year)
 
+	// The date whose month/year the calendar should track (mirrors initialViewDate logic)
+	const trackedDate = $derived.by((): CalendarDate | null => {
+		if (mode === 'date') {
+			const v = value as CalendarDate | undefined
+			return v && !calendarDateIsNull(v) ? v : null
+		}
+		const v = value as CalendarRange | undefined
+		if (onClickBehavior === 'set-start') return v?.start && !calendarDateIsNull(v.start) ? v.start : null
+		if (onClickBehavior === 'set-end') return v?.end && !calendarDateIsNull(v.end) ? v.end : null
+		return null
+	})
+
+	// Keep the view in sync when value is changed externally
+	$effect(() => {
+		if (trackedDate?.month != null && trackedDate?.year != null) {
+			viewMonth = trackedDate.month
+			viewYear = trackedDate.year
+		}
+	})
+
 	// Range hover tracking
 	let hoverDate: CalendarDate | null = $state(null)
 	let rangeSelectingStart: boolean = $state(false)
