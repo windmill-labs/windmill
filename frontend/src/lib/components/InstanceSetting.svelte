@@ -38,7 +38,15 @@
 		warning?: string
 	}
 
-	let { setting, version, values, loading = true, openSmtpSettings, oauths, warning }: Props = $props()
+	let {
+		setting,
+		version,
+		values,
+		loading = true,
+		openSmtpSettings,
+		oauths,
+		warning
+	}: Props = $props()
 	const dispatch = createEventDispatcher()
 
 	let latestKeyRenewalAttempt: {
@@ -174,7 +182,12 @@
 <!-- {JSON.stringify($values, null, 2)} -->
 {#if (!setting.cloudonly || isCloudHosted()) && showSetting(setting.key, $values) && !(setting.hiddenIfNull && $values[setting.key] == null) && !(setting.hiddenIfEmpty && !$values[setting.key]) && !(setting.hiddenInEe && $enterpriseLicense)}
 	{#if setting.fieldType == 'select'}
-		<SettingCard label={setting.label} description={setting.description} ee_only={setting.ee_only}>
+		<SettingCard
+			label={setting.label}
+			description={setting.description}
+			ee_only={setting.ee_only}
+			settingKey={setting.key}
+		>
 			<ToggleButtonGroup bind:selected={$values[setting.key]}>
 				{#snippet children({ item: toggleButton })}
 					{#each setting.select_items ?? [] as item}
@@ -189,7 +202,12 @@
 			</ToggleButtonGroup>
 		</SettingCard>
 	{:else if setting.fieldType == 'select_python'}
-		<SettingCard label={setting.label} description={setting.description} ee_only={setting.ee_only}>
+		<SettingCard
+			label={setting.label}
+			description={setting.description}
+			ee_only={setting.ee_only}
+			settingKey={setting.key}
+		>
 			<ToggleButtonGroup bind:selected={$values[setting.key]}>
 				{#snippet children({ item: toggleButton })}
 					{#each setting.select_items ?? [] as item}
@@ -234,6 +252,7 @@
 				label="Memory"
 				description="Configure the memory budget for the indexer and manage index clearing."
 				ee_only=""
+				settingKey="indexer_settings_memory"
 			>
 				<div class="p-4 rounded-md border mt-2">
 					<IndexerMemorySettings {values} disabled={!$enterpriseLicense} errors={fieldErrors} />
@@ -243,6 +262,7 @@
 				label="Completed Job Index"
 				description="Configure indexing parameters for completed jobs."
 				ee_only=""
+				settingKey="indexer_settings_jobs"
 			>
 				<div class="p-4 rounded-md border mt-2">
 					<IndexerJobIndexSettings {values} disabled={!$enterpriseLicense} errors={fieldErrors} />
@@ -252,6 +272,7 @@
 				label="Service Logs Index"
 				description="Configure indexing parameters for service logs."
 				ee_only=""
+				settingKey="indexer_settings_logs"
 			>
 				<div class="p-4 rounded-md border mt-2">
 					<IndexerLogIndexSettings {values} disabled={!$enterpriseLicense} errors={fieldErrors} />
@@ -264,6 +285,7 @@
 			description={setting.description}
 			ee_only={setting.ee_only}
 			tooltip={setting.tooltip}
+			settingKey={setting.key}
 			actionButton={setting.actionButton}
 			values={$values}
 		>

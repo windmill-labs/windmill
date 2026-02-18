@@ -10,11 +10,15 @@
 		setupNavigationGroups,
 		tabToCategoryMap,
 		tabToAuthSubTab,
-		categoryToTabMap
+		categoryToTabMap,
+		buildSearchableSettingItems,
+		type SearchableSettingItem
 	} from '$lib/components/instanceSettings'
+	import SettingsSearchInput from '$lib/components/instanceSettings/SettingsSearchInput.svelte'
 	import Breadcrumb from '$lib/components/common/breadcrumb/Breadcrumb.svelte'
 	import { ChevronRight, ArrowLeft } from 'lucide-svelte'
 	import { superadmin } from '$lib/stores'
+	import { onDestroy, tick } from 'svelte'
 	import { UserService, JobService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
@@ -32,7 +36,10 @@
 	const fullStepLabels = ['Settings', 'Root login & Resource Types']
 
 	const initialMode = $page.url.searchParams.get('mode') === 'full' ? 'full' : 'wizard'
-	const initialStep = Math.max(0, Math.min(parseInt($page.url.searchParams.get('step') ?? '0') || 0, wizardStepLabels.length - 1))
+	const initialStep = Math.max(
+		0,
+		Math.min(parseInt($page.url.searchParams.get('step') ?? '0') || 0, wizardStepLabels.length - 1)
+	)
 	const initialFullStep = initialMode === 'full'
 		? Math.max(0, Math.min(parseInt($page.url.searchParams.get('step') ?? '0') || 0, fullStepLabels.length - 1))
 		: 0
@@ -117,7 +124,12 @@
 			hubSyncStatus = 'success'
 			hubSyncMessage = 'Resource types synced from hub successfully'
 		} catch (e: any) {
-			hubSyncMessage = e?.body?.error?.message || e?.body?.message || (typeof e?.body === 'string' ? e.body : null) || e?.message || 'Failed to sync from hub'
+			hubSyncMessage =
+				e?.body?.error?.message ||
+				e?.body?.message ||
+				(typeof e?.body === 'string' ? e.body : null) ||
+				e?.message ||
+				'Failed to sync from hub'
 			hubSyncStatus = 'error'
 		}
 	}
@@ -126,6 +138,20 @@
 	let emailValid = $derived(emailPattern.test(newEmail))
 	let passwordValid = $derived(newPassword.length >= 2)
 	let accountFormValid = $derived(emailValid && passwordValid)
+
+	// --- EE license key warning ---
+	let showLicenseKeyWarning = $state(false)
+	let pendingNextCallback: (() => void) | undefined = $state(undefined)
+
+	function isEeImage(): boolean {
+		const v = instanceSettings?.getVersion() ?? ''
+		return v.startsWith('EE')
+	}
+
+	function isLicenseKeyEmpty(): boolean {
+		const key = instanceSettings?.getLicenseKey() ?? ''
+		return key.trim() === ''
+	}
 
 	// --- Full settings mode state ---
 	let fullTab = $state('general')
@@ -148,7 +174,43 @@
 		}
 	}
 
+	// --- Settings search (full mode) ---
+	const searchableItems = buildSearchableSettingItems(setupNavigationGroups)
 
+	let scrollTimeout: ReturnType<typeof setTimeout> | undefined
+	let highlightTimeout: ReturnType<typeof setTimeout> | undefined
+
+	async function handleSearchSelect(item: SearchableSettingItem) {
+		handleNavigate(item.tabId)
+		if (item.settingKey) {
+			clearTimeout(scrollTimeout)
+			clearTimeout(highlightTimeout)
+			await tick()
+			scrollTimeout = setTimeout(() => {
+				const el = document.querySelector(`[data-setting-key="${item.settingKey}"]`)
+				if (el) {
+					el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+					el.classList.add('setting-highlight')
+					highlightTimeout = setTimeout(() => el.classList.remove('setting-highlight'), 2500)
+				}
+			}, 100)
+		}
+	}
+
+	onDestroy(() => {
+		clearTimeout(scrollTimeout)
+		clearTimeout(highlightTimeout)
+	})
+
+	/** Check if we need to warn about missing EE license key before proceeding */
+	function proceedFromCore(callback: () => void) {
+		if (wizardStep === 0 && isEeImage() && isLicenseKeyEmpty()) {
+			pendingNextCallback = callback
+			showLicenseKeyWarning = true
+			return
+		}
+		saveAndProceed(callback)
+	}
 
 	/** Auto-save dirty settings, then run the callback */
 	async function saveAndProceed(callback: () => void) {
@@ -426,9 +488,10 @@
 			<!-- Full mode content (scrollable) -->
 			<div class="flex-1 overflow-auto min-h-0 pt-4">
 				{#if fullStep === 0}
-					<div class="flex flex-1 min-h-0">
+					<div class="flex flex-1 min-h-0 pt-2">
 						{#if !yamlMode}
 							<div class="w-44 shrink-0 overflow-auto pb-4 pr-4">
+								<SettingsSearchInput {searchableItems} onSelect={handleSearchSelect} class="mb-3" />
 								<SidebarNavigation
 									groups={setupNavigationGroups}
 									selectedId={fullTab}
@@ -489,7 +552,7 @@
 						<Button
 							variant="accent"
 							unifiedSize="md"
-							onClick={() => saveAndProceed(() => (wizardStep += 1))}
+							onClick={() => proceedFromCore(() => (wizardStep += 1))}
 						>
 							{currentStepDirty ? 'Save & Next' : 'Next'}
 						</Button>
@@ -576,6 +639,30 @@
 	>
 		<div class="flex flex-col w-full space-y-4">
 			<span>You have unsaved changes. Are you sure you want to discard them?</span>
+		</div>
+	</ConfirmationModal>
+{/if}
+
+{#if showLicenseKeyWarning}
+	<ConfirmationModal
+		open={showLicenseKeyWarning}
+		title="License key required"
+		confirmationText="Continue without license key"
+		on:canceled={() => {
+			showLicenseKeyWarning = false
+			pendingNextCallback = undefined
+		}}
+		on:confirmed={() => {
+			showLicenseKeyWarning = false
+			const cb = pendingNextCallback
+			pendingNextCallback = undefined
+			if (cb) saveAndProceed(cb)
+		}}
+	>
+		<div class="flex flex-col w-full space-y-4">
+			<span>
+				You are running the Enterprise Edition image but have not entered a license key. A valid license key is required to use EE features. Are you sure you want to continue without one?
+			</span>
 		</div>
 	</ConfirmationModal>
 {/if}
