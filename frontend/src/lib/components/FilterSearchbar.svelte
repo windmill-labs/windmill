@@ -181,6 +181,7 @@
 	import CloseButton from './common/CloseButton.svelte'
 	import Popover from './meltComponents/Popover.svelte'
 	import Button from './common/button/Button.svelte'
+	import Badge from './common/badge/Badge.svelte'
 
 	type Props<SchemaT extends FilterSchemaRec> = {
 		schema: SchemaT
@@ -332,9 +333,20 @@
 		}
 		e.preventDefault()
 	}
+
+	type Preset = { name: string; value: string }
+	let presets: Preset[] = $derived([
+		{ name: 'Hide schedules', value: 'job_trigger_kind:\\ !schedule' },
+		{ name: 'Hide future jobs', value: 'show_future_jobs:\\ false' }
+	])
+
+	function appendFilterAsText(presetValue: string) {
+		if (!asText.val.endsWith('\u00A0') && !asText.val.endsWith(' ')) asText.val += ' '
+		asText.val += presetValue + '\u00A0'
+	}
 </script>
 
-<svelte:window on:click={() => (open = false)} onkeydown={handleKeyDown} />
+<svelte:window onmousedown={() => (open = false)} onkeydown={handleKeyDown} />
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -345,10 +357,8 @@
 			e.preventDefault()
 			taggedTextInput?.focusAtEnd()
 		}
-	}}
-	onclick={(e) => {
-		e.stopPropagation()
 		open = true
+		e.stopPropagation()
 	}}
 	bind:this={inputElement}
 >
@@ -385,8 +395,14 @@
 >
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
-	<div class="py-1 p-2 overflow-y-auto" onclick={(e) => e.stopPropagation()}>
+	<div class="py-1 p-2 overflow-y-auto" onmousedown={(e) => e.stopPropagation()}>
 		{#if !currentTag}
+			<div class="text-xs px-2 my-2 font-bold">Presets</div>
+			<div class="mb-3 px-2 flex gap-2 flex-wrap">
+				{#each presets as preset}
+					{@render presetTag(preset)}
+				{/each}
+			</div>
 			<div class="text-xs px-2 my-2 font-bold">Filters</div>
 			{#each menuItems as item, index}
 				{#if item.type === 'filter' && item.filterSchema}
@@ -491,4 +507,10 @@
 			</Popover>
 		{/if}
 	</div>
+{/snippet}
+
+{#snippet presetTag({ name, value }: Preset)}
+	<Badge onclick={() => appendFilterAsText(value)} clickable>
+		{name}
+	</Badge>
 {/snippet}
