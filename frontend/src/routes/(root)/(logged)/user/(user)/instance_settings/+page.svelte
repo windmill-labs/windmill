@@ -475,12 +475,11 @@
 					selectedIndex={fullStep + 1}
 					numbered
 					onselect={(i) => {
-						if (i !== fullStep) {
-							const cb = () => {
+						if (i < fullStep) {
+							saveAndProceed(() => {
 								yamlMode = false
 								fullStep = i
-							}
-							i > fullStep ? proceedFromCore(cb) : saveAndProceed(cb)
+							})
 						}
 					}}
 				>
