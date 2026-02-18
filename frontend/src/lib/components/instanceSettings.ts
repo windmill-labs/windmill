@@ -788,6 +788,7 @@ export interface SearchableSettingItem {
 	tabId: string
 	settingKey?: string
 	category: string
+	/** Full description text (HTML stripped), used for search matching only — not displayed */
 	description?: string
 }
 

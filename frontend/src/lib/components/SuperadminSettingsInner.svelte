@@ -178,7 +178,8 @@
 		if (marked.startsWith('</mark>', markedIdx)) {
 			markedIdx += '</mark>'.length
 		}
-		return marked.slice(0, markedIdx)
+		// Sanitize: only allow <mark> and </mark> tags from uFuzzy highlight
+		return marked.slice(0, markedIdx).replace(/<(?!\/?mark>)[^>]*>/g, '')
 	}
 
 	async function handleSearchSelect(item: SearchableSettingItem) {
@@ -258,7 +259,6 @@
 						getInputRect={searchInputEl ? () => searchInputEl!.getBoundingClientRect() : undefined}
 						onSelectValue={(item) => handleSearchSelect(item.value)}
 						highlightFirstOnOpen
-						class="max-w-40"
 						maxHeight={400}
 					>
 						{#snippet startSnippet({ item })}
