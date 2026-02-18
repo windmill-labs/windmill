@@ -34,32 +34,29 @@
 	function handleClick() {
 		if (isSaving) return
 
-		const result = onSave()
-		if (result instanceof Promise) {
-			isSaving = true
-			saveStatus = null
-			clearStatusTimeout()
+		isSaving = true
+		saveStatus = null
+		clearStatusTimeout()
 
-			result
-				.then(() => {
-					saveStatus = 'success'
-					statusTimeout = setTimeout(() => {
-						saveStatus = null
-						statusTimeout = null
-					}, 1500)
-				})
-				.catch((error) => {
-					console.error('Save failed:', error)
-					saveStatus = 'error'
-					statusTimeout = setTimeout(() => {
-						saveStatus = null
-						statusTimeout = null
-					}, 3000)
-				})
-				.finally(() => {
-					isSaving = false
-				})
-		}
+		Promise.resolve(onSave())
+			.then(() => {
+				saveStatus = 'success'
+				statusTimeout = setTimeout(() => {
+					saveStatus = null
+					statusTimeout = null
+				}, 1500)
+			})
+			.catch((error) => {
+				console.error('Save failed:', error)
+				saveStatus = 'error'
+				statusTimeout = setTimeout(() => {
+					saveStatus = null
+					statusTimeout = null
+				}, 3000)
+			})
+			.finally(() => {
+				isSaving = false
+			})
 	}
 
 	$effect(() => {
