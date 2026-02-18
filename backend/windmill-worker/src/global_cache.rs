@@ -5,7 +5,7 @@ use tokio::time::Instant;
 use windmill_common::error;
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
-use object_store::ObjectStore;
+use windmill_object_store::object_store_reexports::ObjectStore;
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 use std::sync::Arc;
@@ -21,7 +21,7 @@ pub async fn build_tar_and_push(
     custom_folder_name: Option<String>,
     platform_agnostic: bool,
 ) -> error::Result<()> {
-    use object_store::path::Path;
+    use windmill_object_store::object_store_reexports::Path;
     use tokio::fs::create_dir_all;
 
     use crate::TAR_PYBASE_CACHE_DIR;
@@ -94,7 +94,7 @@ pub async fn pull_from_tar(
     custom_folder_name: Option<String>,
     platform_agnostic: bool,
 ) -> error::Result<()> {
-    use windmill_common::s3_helpers::attempt_fetch_bytes;
+    use windmill_object_store::attempt_fetch_bytes;
 
     let folder_name = if let Some(name) = custom_folder_name {
         name

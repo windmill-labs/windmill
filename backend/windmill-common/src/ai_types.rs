@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 
 use crate::flow_status::AgentAction;
-use crate::s3_helpers::S3Object;
+use windmill_types::s3::S3Object;
 
 // ============================================================================
 // Shared Types for OpenAI-compatible message format

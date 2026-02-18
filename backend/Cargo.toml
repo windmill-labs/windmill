@@ -7,6 +7,7 @@ edition.workspace = true
 [workspace]
 resolver = "2"
 members = [
+    "./windmill-object-store",
     "./windmill-api",
     "./windmill-api-scripts",
     "./windmill-api-flows",
@@ -96,19 +97,19 @@ lto = "thin"
 
 [features]
 default = []
-private = ["windmill-api/private", "windmill-api-agent-workers?/private", "windmill-autoscaling/private", "windmill-common/private", "windmill-git-sync/private", "windmill-indexer/private", "windmill-operator?/private", "windmill-queue/private", "windmill-worker/private", "windmill-test-utils/private"]
+private = ["windmill-api/private", "windmill-api-agent-workers?/private", "windmill-autoscaling/private", "windmill-common/private", "windmill-object-store/private", "windmill-git-sync/private", "windmill-indexer/private", "windmill-operator?/private", "windmill-queue/private", "windmill-worker/private", "windmill-test-utils/private"]
 agent_worker_server = ["windmill-api/agent_worker_server", "dep:windmill-api-agent-workers", "windmill-test-utils/agent_worker_server"]
-enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "windmill-api-agent-workers?/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise"]
+enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "windmill-api-agent-workers?/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise", "windmill-object-store/enterprise"]
 local_reports = ["windmill-common/local_reports"]
 enterprise_saml = ["windmill-api/enterprise_saml", "oauth2"]
 stripe = ["windmill-api/stripe"]
 benchmark = ["windmill-api/benchmark", "windmill-worker/benchmark", "windmill-queue/benchmark", "windmill-common/benchmark"]
 embedding = ["windmill-api/embedding"]
-parquet = ["windmill-api/parquet", "windmill-common/parquet", "windmill-worker/parquet", "dep:object_store"]
+parquet = ["windmill-api/parquet", "windmill-common/parquet", "windmill-object-store/parquet", "windmill-worker/parquet"]
 prometheus = ["windmill-common/prometheus", "windmill-api/prometheus", "windmill-worker/prometheus", "windmill-queue/prometheus", "dep:prometheus"]
 flow_testing = ["windmill-worker/flow_testing"]
 quickjs = ["windmill-worker/quickjs", "windmill-api/quickjs"]
-openidconnect = ["windmill-api/openidconnect", "windmill-common/openidconnect"]
+openidconnect = ["windmill-api/openidconnect", "windmill-common/openidconnect", "windmill-object-store/openidconnect"]
 cloud = ["windmill-queue/cloud", "windmill-worker/cloud", "windmill-common/cloud", "windmill-api/cloud"]
 jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemalloc-sys", "dep:tikv-jemalloc-ctl"]
 tantivy = ["dep:windmill-indexer", "windmill-api/tantivy", "windmill-indexer/enterprise", "windmill-indexer/parquet", "windmill-common/tantivy", "enterprise", "parquet"]
@@ -199,6 +200,7 @@ tokio-stream.workspace = true
 dotenv.workspace = true
 windmill-queue.workspace = true
 windmill-common = { workspace = true, default-features = false }
+windmill-object-store.workspace = true
 windmill-git-sync.workspace = true
 windmill-api = { workspace = true, default-features = false }
 windmill-api-agent-workers = { workspace = true, optional = true }
@@ -228,7 +230,6 @@ serde_derive.workspace = true
 serde_yml.workspace = true
 serde.workspace = true
 windmill-runtime-nativets = { workspace = true, optional = true }
-object_store = { workspace = true, optional = true }
 sha1 = { workspace = true, optional = true }
 constant_time_eq = { workspace = true, optional = true }
 rustls.workspace = true
@@ -268,6 +269,7 @@ windmill-worker = { path = "./windmill-worker" }
 windmill-dep-map = { path = "./windmill-dep-map" }
 windmill-types = { path = "./windmill-types" }
 windmill-common = { path = "./windmill-common", default-features = false }
+windmill-object-store = { path = "./windmill-object-store" }
 windmill-audit = { path = "./windmill-audit" }
 windmill-git-sync = { path = "./windmill-git-sync" }
 windmill-autoscaling = { path = "./windmill-autoscaling" }

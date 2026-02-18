@@ -91,8 +91,8 @@ impl RawWebhookArgs {
             get_random_file_name, get_workspace_s3_resource, upload_file_internal,
         };
         use futures::TryStreamExt;
-        use object_store::{Attribute, Attributes};
-        use windmill_common::s3_helpers::build_object_store_client;
+        use windmill_object_store::object_store_reexports::{Attribute, Attributes};
+        use windmill_object_store::build_object_store_client;
 
         let (_, s3_resource) = get_workspace_s3_resource(authed, db, None, w_id, None).await?;
 

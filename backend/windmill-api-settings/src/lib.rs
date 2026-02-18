@@ -152,10 +152,10 @@ pub async fn test_email(
 }
 
 #[cfg(feature = "parquet")]
-use windmill_common::s3_helpers::ObjectSettings;
+use windmill_object_store::ObjectSettings;
 
 #[cfg(feature = "parquet")]
-use windmill_common::s3_helpers::build_object_store_from_settings;
+use windmill_object_store::build_object_store_from_settings;
 
 #[cfg(feature = "parquet")]
 pub async fn test_s3_bucket(
@@ -170,7 +170,7 @@ pub async fn test_s3_bucket(
         .await?
         .store;
 
-    let mut list = client.list(Some(&object_store::path::Path::from("".to_string())));
+    let mut list = client.list(Some(&windmill_object_store::object_store_reexports::Path::from("".to_string())));
     let first_file = list.next().await;
     if first_file.is_some() {
         if let Err(e) = first_file.as_ref().unwrap() {
@@ -182,13 +182,13 @@ pub async fn test_s3_bucket(
         tracing::info!("No files in blob storage");
     }
 
-    let path = object_store::path::Path::from(format!(
+    let path = windmill_object_store::object_store_reexports::Path::from(format!(
         "/test-s3-bucket-{uuid}",
         uuid = uuid::Uuid::new_v4()
     ));
     tracing::info!("Testing blob storage at path: {path}");
     client
-        .put(&path, object_store::PutPayload::from_static(b"hello"))
+        .put(&path, windmill_object_store::object_store_reexports::PutPayload::from_static(b"hello"))
         .await
         .map_err(|e| anyhow::anyhow!("error writing file to {path}: {e:#}"))?;
     let content = client

@@ -51,11 +51,11 @@ use windmill_common::{
     runnable_settings::{
         min_version_supports_runnable_settings_v0, RunnableSettings, RunnableSettingsTrait,
     },
-    s3_helpers::upload_artifact_to_store,
     scripts::{hash_script, ScriptRunnableSettingsHandle, ScriptRunnableSettingsInline},
     utils::{paginate_without_limits, WarnAfterExt},
     worker::CLOUD_HOSTED,
 };
+use windmill_object_store::upload_artifact_to_store;
 
 use windmill_common::{
     db::UserDB,
@@ -497,7 +497,7 @@ async fn create_snapshot_script(
 
             uploaded = true;
 
-            let path = windmill_common::s3_helpers::bundle(&w_id, &hash);
+            let path = windmill_object_store::bundle(&w_id, &hash);
             upload_artifact_to_store(
                 &path,
                 data,

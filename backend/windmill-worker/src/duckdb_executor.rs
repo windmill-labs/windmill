@@ -10,7 +10,8 @@ use serde_json::value::RawValue;
 use serde_json::{json, Value};
 use uuid::Uuid;
 use windmill_common::error::{to_anyhow, Error, Result};
-use windmill_common::s3_helpers::{S3Object, S3_PROXY_LAST_ERRORS_CACHE};
+use windmill_types::s3::S3Object;
+use windmill_object_store::S3_PROXY_LAST_ERRORS_CACHE;
 use windmill_common::utils::sanitize_string_from_password;
 use windmill_common::worker::{Connection, SqlResultCollectionStrategy};
 use windmill_common::workspaces::{
@@ -29,7 +30,7 @@ use crate::mysql_executor::MysqlDatabase;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
 use crate::sql_utils::remove_comments;
 use windmill_common::client::AuthedClient;
-use windmill_common::s3_helpers::DEFAULT_STORAGE;
+use windmill_object_store::DEFAULT_STORAGE;
 
 pub async fn do_duckdb(
     job: &MiniPulledJob,

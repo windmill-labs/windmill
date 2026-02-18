@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [features]
 default = []
-parquet = ["dep:object_store", "windmill-common/parquet"]
+parquet = ["windmill-common/parquet"]
 private = ["windmill-common/private"]
 enterprise = ["windmill-common/enterprise"]
 
@@ -28,7 +28,6 @@ uuid.workspace = true
 futures.workspace = true
 tempfile.workspace = true
 bytes.workspace = true
-object_store = { workspace = true, optional = true}
 astral-tokio-tar.workspace = true
 lazy_static.workspace = true
 const_format.workspace = true

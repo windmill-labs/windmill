@@ -5,6 +5,7 @@ pub mod flows;
 pub mod jobs;
 pub mod more_serde;
 pub mod runnable_settings;
+pub mod s3;
 pub mod schedule;
 pub mod scripts;
 pub mod triggers;

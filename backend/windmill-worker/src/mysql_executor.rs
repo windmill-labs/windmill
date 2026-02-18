@@ -15,9 +15,9 @@ use tokio::sync::Mutex;
 use windmill_common::{
     client::AuthedClient,
     error::{to_anyhow, Error},
-    s3_helpers::convert_json_line_stream,
     worker::{to_raw_value, Connection, SqlResultCollectionStrategy},
 };
+use windmill_object_store::convert_json_line_stream;
 use windmill_parser_sql::{
     parse_db_resource, parse_mysql_sig, parse_s3_mode, parse_sql_blocks,
     parse_sql_statement_named_params, RE_ARG_MYSQL_NAMED,
