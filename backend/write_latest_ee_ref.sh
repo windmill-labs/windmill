@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Navigate to the target directory
-cd ../../windmill-ee-private || { echo "Directory not found"; exit 1; }
+cd ../../windmill-ee-private || cd ~/windmill-ee-private || { echo "Directory not found"; exit 1; }
 
 # Get the current commit hash
 commit_hash=$(git rev-parse HEAD)
