@@ -190,9 +190,10 @@
 				<div class="flex flex-col p-2">
 					{#each items as item}
 						<Button
-							onClick={() => ((value = { ...item }), (isOpen = false))}
+							onClick={() => (value = { ...item })}
 							variant="subtle"
-							unifiedSize="sm"
+							unifiedSize="md"
+							selected={value.label === item.label}
 							btnClasses="justify-start text-nowrap"
 						>
 							{item.label}

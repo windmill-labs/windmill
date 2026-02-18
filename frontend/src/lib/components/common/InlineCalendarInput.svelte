@@ -369,6 +369,10 @@
 
 	const usLocale = $derived(isUSLocale())
 
+	function selectAllOnFocus(e: FocusEvent) {
+		;(e.target as HTMLInputElement).select()
+	}
+
 	function patchTarget(patch: Partial<CalendarDate>) {
 		if (mode === 'date') {
 			value = { ...withTodayFallback(value as CalendarDate), ...patch }
@@ -491,7 +495,8 @@
 						maxlength="2"
 						value={timeTarget?.month != null ? String(timeTarget.month).padStart(2, '0') : ''}
 						placeholder="MM"
-						onchange={(e) => setMonth((e.target as HTMLInputElement).value)}
+						onfocus={selectAllOnFocus}
+					onchange={(e) => setMonth((e.target as HTMLInputElement).value)}
 						style="background: transparent !important;"
 						class="!border-none !w-8 !h-7 !px-1.5 text-center font-mono"
 						aria-label="Month"
@@ -503,7 +508,8 @@
 						maxlength="2"
 						value={timeTarget?.day != null ? String(timeTarget.day).padStart(2, '0') : ''}
 						placeholder="DD"
-						onchange={(e) => setDay((e.target as HTMLInputElement).value)}
+						onfocus={selectAllOnFocus}
+					onchange={(e) => setDay((e.target as HTMLInputElement).value)}
 						style="background: transparent !important;"
 						class="!border-none !w-8 !h-7 !px-1.5 text-center font-mono"
 						aria-label="Day"
@@ -516,7 +522,8 @@
 						maxlength="2"
 						value={timeTarget?.day != null ? String(timeTarget.day).padStart(2, '0') : ''}
 						placeholder="DD"
-						onchange={(e) => setDay((e.target as HTMLInputElement).value)}
+						onfocus={selectAllOnFocus}
+					onchange={(e) => setDay((e.target as HTMLInputElement).value)}
 						style="background: transparent !important;"
 						class="!border-none !w-8 !h-7 !px-1.5 text-center font-mono"
 						aria-label="Day"
@@ -528,7 +535,8 @@
 						maxlength="2"
 						value={timeTarget?.month != null ? String(timeTarget.month).padStart(2, '0') : ''}
 						placeholder="MM"
-						onchange={(e) => setMonth((e.target as HTMLInputElement).value)}
+						onfocus={selectAllOnFocus}
+					onchange={(e) => setMonth((e.target as HTMLInputElement).value)}
 						style="background: transparent !important;"
 						class="!border-none !w-8 !h-7 !px-1.5 text-center font-mono"
 						aria-label="Month"
@@ -541,7 +549,8 @@
 					maxlength="4"
 					value={timeTarget?.year != null ? String(timeTarget.year) : ''}
 					placeholder="YYYY"
-					onchange={(e) => setYear((e.target as HTMLInputElement).value)}
+					onfocus={selectAllOnFocus}
+				onchange={(e) => setYear((e.target as HTMLInputElement).value)}
 					style="background: transparent !important;"
 					class="!border-none !w-12 !h-7 !px-1.5 text-center font-mono"
 					aria-label="Year"
@@ -554,6 +563,7 @@
 					maxlength="2"
 					value={timeTarget?.hour != null ? String(timeTarget.hour).padStart(2, '0') : ''}
 					placeholder="HH"
+					onfocus={selectAllOnFocus}
 					onchange={(e) => {
 						const h = Math.max(0, Math.min(23, parseInt((e.target as HTMLInputElement).value, 10)))
 						if (!isNaN(h)) patchTarget({ hour: h })
@@ -568,6 +578,7 @@
 					maxlength="2"
 					value={timeTarget?.minute != null ? String(timeTarget.minute).padStart(2, '0') : ''}
 					placeholder="MM"
+					onfocus={selectAllOnFocus}
 					onchange={(e) => {
 						const m = Math.max(0, Math.min(59, parseInt((e.target as HTMLInputElement).value, 10)))
 						if (!isNaN(m)) patchTarget({ minute: m })
