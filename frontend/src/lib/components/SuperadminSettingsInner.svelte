@@ -17,10 +17,8 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { ExternalLink, Pencil, Search, UserMinus, UserPlus } from 'lucide-svelte'
+	import { ExternalLink, Pencil, UserMinus, UserPlus } from 'lucide-svelte'
 	import DropdownV2 from './DropdownV2.svelte'
-	import SelectDropdown from './select/SelectDropdown.svelte'
-	import type { ProcessedItem } from './select/utils.svelte'
 	import Popover from './meltComponents/Popover.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import ChangeInstanceUsername from './ChangeInstanceUsername.svelte'
@@ -40,6 +38,7 @@
 	} from './instanceSettings'
 	import TextInput from './text_input/TextInput.svelte'
 	import SettingsPageHeader from './settings/SettingsPageHeader.svelte'
+	import SettingsSearchInput from './instanceSettings/SettingsSearchInput.svelte'
 
 	let filter = $state('')
 
@@ -145,56 +144,11 @@
 
 	// --- Settings search ---
 	const searchableItems = buildSearchableSettingItems()
-	let settingsSearchFilter = $state('')
-	let debouncedSearchFilter = $state('')
-	let filteredSearchItems: (SearchableSettingItem & { marked: string })[] = $state([])
-	let searchInputEl: HTMLDivElement | undefined = $state()
-
-	// Debounce search to avoid running uFuzzy on every keystroke
-	$effect(() => {
-		const val = settingsSearchFilter
-		const timeout = setTimeout(() => (debouncedSearchFilter = val), 150)
-		return () => clearTimeout(timeout)
-	})
-
-	const searchDropdownOpen = $derived(
-		settingsSearchFilter.trim().length > 0 && filteredSearchItems.length > 0
-	)
-
-	let searchProcessedItems: ProcessedItem<SearchableSettingItem & { marked: string }>[] = $derived(
-		filteredSearchItems.map((item) => ({
-			label: item.label,
-			value: item,
-			subtitle: item.category
-		}))
-	)
-
-	function extractMarkedLabel(marked: string | undefined, labelLength: number): string {
-		if (!marked) return ''
-		let plainIdx = 0
-		let markedIdx = 0
-		while (plainIdx < labelLength && markedIdx < marked.length) {
-			if (marked[markedIdx] === '<') {
-				while (markedIdx < marked.length && marked[markedIdx] !== '>') markedIdx++
-				markedIdx++
-			} else {
-				plainIdx++
-				markedIdx++
-			}
-		}
-		// Include any closing </mark> right after
-		if (marked.startsWith('</mark>', markedIdx)) {
-			markedIdx += '</mark>'.length
-		}
-		// Sanitize: only allow <mark> and </mark> tags from uFuzzy highlight
-		return marked.slice(0, markedIdx).replace(/<(?!\/?mark>)[^>]*>/g, '')
-	}
 
 	let scrollTimeout: ReturnType<typeof setTimeout> | undefined
 	let highlightTimeout: ReturnType<typeof setTimeout> | undefined
 
 	async function handleSearchSelect(item: SearchableSettingItem) {
-		settingsSearchFilter = ''
 		handleNavigate(item.tabId)
 		if (item.settingKey) {
 			clearTimeout(scrollTimeout)
@@ -225,13 +179,6 @@
 	f={(x) => x.email + ' ' + x.name + ' ' + x.company}
 />
 
-<SearchItems
-	filter={debouncedSearchFilter}
-	items={searchableItems}
-	bind:filteredItems={filteredSearchItems}
-	f={(x) => x.label + ' ' + (x.description ?? '') + ' ' + x.category}
-/>
-
 <div class="flex flex-col h-full w-full">
 	{#if showHeaderInfo}
 		<div>
@@ -259,35 +206,7 @@
 		{#if !yamlMode && !diffMode}
 			<!-- Sidebar Navigation -->
 			<div class="w-52 shrink-0 h-full overflow-auto p-4 bg-surface flex flex-col">
-				<div class="mb-3 relative">
-					<div bind:this={searchInputEl} class="relative w-full">
-						<Search class="absolute left-2 top-1/2 -translate-y-1/2 text-tertiary" size={14} />
-						<TextInput
-							inputProps={{ placeholder: 'Search settings...' }}
-							bind:value={settingsSearchFilter}
-							class="pl-7 text-xs w-full"
-						/>
-					</div>
-					<SelectDropdown
-						processedItems={searchProcessedItems}
-						value={undefined}
-						open={searchDropdownOpen}
-						disablePortal
-						class="max-w-full"
-						itemLabelWrapperClasses="hidden"
-						itemButtonWrapperClasses="overflow-hidden"
-						getInputRect={searchInputEl ? () => searchInputEl!.getBoundingClientRect() : undefined}
-						onSelectValue={(item) => handleSearchSelect(item.value)}
-						highlightFirstOnOpen
-						maxHeight={400}
-					>
-						{#snippet startSnippet({ item })}
-							<div class="text-xs truncate w-full min-w-0"
-								>{@html extractMarkedLabel(item.value.marked, item.value.label.length)}</div
-							>
-						{/snippet}
-					</SelectDropdown>
-				</div>
+				<SettingsSearchInput {searchableItems} onSelect={handleSearchSelect} class="mb-3" />
 				<SidebarNavigation
 					groups={instanceSettingsNavigationGroups}
 					selectedId={tab}
@@ -625,13 +544,3 @@
 	</div>
 </ConfirmationModal>
 
-<style>
-	:global([data-setting-key]) {
-		transition: outline 0.8s ease;
-		outline: 2px solid transparent;
-		outline-offset: -2px;
-	}
-	:global([data-setting-key].setting-highlight) {
-		outline: 2px solid rgb(var(--color-border-accent, 59 130 246));
-	}
-</style>

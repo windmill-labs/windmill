@@ -792,11 +792,38 @@ export interface SearchableSettingItem {
 	description?: string
 }
 
-export function buildSearchableSettingItems(): SearchableSettingItem[] {
+/**
+ * Extract the label portion from a uFuzzy marked/highlighted string.
+ * Only allows `<mark>` and `</mark>` tags through (sanitizes everything else).
+ */
+export function extractMarkedLabel(marked: string | undefined, labelLength: number): string {
+	if (!marked) return ''
+	let plainIdx = 0
+	let markedIdx = 0
+	while (plainIdx < labelLength && markedIdx < marked.length) {
+		if (marked[markedIdx] === '<') {
+			while (markedIdx < marked.length && marked[markedIdx] !== '>') markedIdx++
+			markedIdx++
+		} else {
+			plainIdx++
+			markedIdx++
+		}
+	}
+	// Include any closing </mark> right after
+	if (marked.startsWith('</mark>', markedIdx)) {
+		markedIdx += '</mark>'.length
+	}
+	// Sanitize: only allow <mark> and </mark> tags from uFuzzy highlight
+	return marked.slice(0, markedIdx).replace(/<(?!\/?mark>)[^>]*>/g, '')
+}
+
+export function buildSearchableSettingItems(
+	navigationGroups: typeof instanceSettingsNavigationGroups = instanceSettingsNavigationGroups
+): SearchableSettingItem[] {
 	const items: SearchableSettingItem[] = []
 
 	// Add sidebar navigation items (tab-level)
-	for (const group of instanceSettingsNavigationGroups) {
+	for (const group of navigationGroups) {
 		for (const navItem of group.items) {
 			items.push({
 				label: navItem.label,
