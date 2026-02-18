@@ -53,9 +53,6 @@ use tokio::task;
 use windmill_common::error::to_anyhow;
 #[cfg(feature = "parquet")]
 use windmill_common::utils::rd_string;
-#[cfg(feature = "parquet")]
-use windmill_parser_sql::S3ModeFormat;
-
 #[cfg(all(feature = "parquet", feature = "private"))]
 pub mod job_s3_helpers_ee;
 #[cfg(feature = "parquet")]
@@ -952,7 +949,7 @@ impl Write for ChannelWriter {
 #[cfg(not(feature = "parquet"))]
 pub async fn convert_json_line_stream<E: Into<anyhow::Error>>(
     mut _stream: impl futures::TryStreamExt<Item = Result<serde_json::Value, E>> + Unpin,
-    _output_format: windmill_parser_sql::S3ModeFormat,
+    _output_format: S3ModeFormat,
 ) -> anyhow::Result<impl futures::TryStreamExt<Item = anyhow::Result<bytes::Bytes>>> {
     Ok(async_stream::stream! {
         yield Err(anyhow::anyhow!("Parquet feature is not enabled. Cannot convert JSON line stream."));
@@ -1088,16 +1085,23 @@ pub async fn get_logs_from_store(
                 let logs = logs.to_string();
                 let stream = async_stream::stream! {
                     for file_p in file_index {
-                        let file = os.get(&object_store::path::Path::from(file_p)).await;
-                        if let Ok(file) = file {
-                            if let Ok(bytes) = file.bytes().await {
-                                yield Ok(bytes::Bytes::from(bytes));
+                        let file = os.get(&object_store::path::Path::from(file_p.clone())).await;
+                        match file {
+                            Ok(file) => {
+                                if let Ok(bytes) = file.bytes().await {
+                                    yield Ok(bytes::Bytes::from(bytes));
+                                }
+                            }
+                            Err(e) => {
+                                tracing::debug!("error getting file from store: {file_p}: {e}");
                             }
                         }
                     }
                     yield Ok(bytes::Bytes::from(logs))
                 };
                 return Some(stream);
+            } else {
+                tracing::debug!("object store client not present");
             }
         }
     }

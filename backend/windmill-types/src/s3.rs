@@ -346,6 +346,21 @@ pub struct DuckdbConnectionSettingsQueryV2 {
     pub storage: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum S3ModeFormat {
+    Json,
+    Csv,
+    Parquet,
+}
+
+pub fn s3_mode_extension(format: S3ModeFormat) -> &'static str {
+    match format {
+        S3ModeFormat::Json => "json",
+        S3ModeFormat::Csv => "csv",
+        S3ModeFormat::Parquet => "parquet",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

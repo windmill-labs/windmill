@@ -16,6 +16,7 @@ parquet = [
     "dep:datafusion",
     "dep:aws-config",
     "dep:aws-credential-types",
+    "dep:windmill-parser-sql",
 ]
 openidconnect = ["windmill-common/openidconnect"]
 
@@ -42,7 +43,7 @@ quick_cache.workspace = true
 async-trait.workspace = true
 futures.workspace = true
 async-stream.workspace = true
-windmill-parser-sql.workspace = true
+windmill-parser-sql = { workspace = true, optional = true }
 globset.workspace = true
 axum.workspace = true
 

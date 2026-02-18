@@ -16908,6 +16908,7 @@ dependencies = [
  "serde_json",
  "sqlparser 0.59.0",
  "windmill-parser",
+ "windmill-types",
 ]
 
 [[package]]

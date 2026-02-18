@@ -141,19 +141,7 @@ pub fn parse_db_resource(code: &str) -> Option<String> {
     cap.map(|x| x.get(1).map(|x| x.as_str().to_string()).unwrap())
 }
 
-#[derive(Clone, Copy, Debug)]
-pub enum S3ModeFormat {
-    Json,
-    Csv,
-    Parquet,
-}
-pub fn s3_mode_extension(format: S3ModeFormat) -> &'static str {
-    match format {
-        S3ModeFormat::Json => "json",
-        S3ModeFormat::Csv => "csv",
-        S3ModeFormat::Parquet => "parquet",
-    }
-}
+pub use windmill_types::s3::{s3_mode_extension, S3ModeFormat};
 pub struct S3ModeArgs {
     pub prefix: Option<String>,
     pub storage: Option<String>,
