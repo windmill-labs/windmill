@@ -895,6 +895,7 @@
 																key={`flow-inline-${$workspaceStore}-${$pathStore}-${flowModule.id}`}
 																moduleId={flowModule.id}
 																preparedAssetsSqlQueries={preparedSqlQueries.current}
+																customTag={flowModule.value.tag}
 															/>
 														</div>
 													</Pane>
@@ -957,6 +958,7 @@
 														key={`flow-inline-${$workspaceStore}-${$pathStore}-${flowModule.id}`}
 														moduleId={flowModule.id}
 														preparedAssetsSqlQueries={preparedSqlQueries.current}
+														customTag={flowModule.value.tag}
 													/>
 												</div>
 											{/if}
