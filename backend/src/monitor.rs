@@ -40,7 +40,7 @@ use windmill_common::ee_oss::{jobs_waiting_alerts, worker_groups_alerts};
 #[cfg(feature = "oauth2")]
 use windmill_common::global_settings::OAUTH_SETTING;
 #[cfg(feature = "parquet")]
-use windmill_common::s3_helpers::reload_object_store_setting;
+use windmill_object_store::reload_object_store_setting;
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     apps::APP_WORKSPACED_ROUTE,
@@ -95,7 +95,7 @@ use windmill_worker::{
 };
 
 #[cfg(feature = "parquet")]
-use windmill_common::s3_helpers::ObjectStoreReload;
+use windmill_object_store::ObjectStoreReload;
 
 #[cfg(feature = "enterprise")]
 use crate::ee_oss::verify_license_key;
@@ -712,7 +712,7 @@ async fn send_log_file_to_object_store(
         }
 
         #[cfg(feature = "parquet")]
-        let s3_client = windmill_common::s3_helpers::get_object_store().await;
+        let s3_client = windmill_object_store::get_object_store().await;
         #[cfg(feature = "parquet")]
         if let Some(s3_client) = s3_client {
             let path = std::path::Path::new(TMP_WINDMILL_LOGS_SERVICE)
@@ -725,7 +725,7 @@ async fn send_log_file_to_object_store(
                 tracing::error!("Error reading log file: {:?}", e);
                 return;
             }
-            let path = object_store::path::Path::from_url_path(format!(
+            let path = windmill_object_store::object_store_reexports::Path::from_url_path(format!(
                 "{}{hostname}/{highest_file}",
                 windmill_common::tracing_init::LOGS_SERVICE
             ));
@@ -1174,7 +1174,7 @@ async fn delete_log_files_from_disk_and_store(
     _s3_prefix: &str,
 ) {
     #[cfg(feature = "parquet")]
-    let os = windmill_common::s3_helpers::get_object_store().await;
+    let os = windmill_object_store::get_object_store().await;
     #[cfg(not(feature = "parquet"))]
     let os: Option<()> = None;
 
@@ -1204,7 +1204,7 @@ async fn delete_log_files_from_disk_and_store(
             #[cfg(feature = "parquet")]
             if _should_del_from_store {
                 if let Some(os) = _os2 {
-                    let p = object_store::path::Path::from(format!("{}{}", _s3_prefix, path));
+                    let p = windmill_object_store::object_store_reexports::Path::from(format!("{}{}", _s3_prefix, path));
                     if let Err(e) = os.delete(&p).await {
                         tracing::error!("Failed to delete from object store {}: {e}", p.to_string())
                     } else {

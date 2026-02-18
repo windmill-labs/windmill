@@ -16,9 +16,9 @@ use tokio::{fs::File, io::AsyncReadExt};
 
 use windmill_common::flows::Step;
 #[cfg(feature = "parquet")]
-use windmill_common::s3_helpers::{
-    get_etag_or_empty, LargeFileStorage, ObjectStoreResource, S3Object,
-};
+use windmill_types::s3::{LargeFileStorage, ObjectStoreResource, S3Object};
+#[cfg(feature = "parquet")]
+use windmill_object_store::get_etag_or_empty;
 use windmill_common::variables::{build_crypt_with_key_suffix, decrypt};
 use windmill_common::worker::{
     to_raw_value, update_ping_for_failed_init_script_query, write_file, Connection, Ping, PingType,
@@ -893,9 +893,8 @@ async fn get_workspace_s3_resource_path(
     storage: Option<&String>,
     job_id: &Uuid,
 ) -> windmill_common::error::Result<Option<ObjectStoreResource>> {
-    use windmill_common::{
-        job_s3_helpers_oss::get_s3_resource_internal, s3_helpers::StorageResourceType,
-    };
+    use windmill_object_store::job_s3_helpers_oss::get_s3_resource_internal;
+    use windmill_types::s3::StorageResourceType;
 
     let raw_lfs_opt = if let Some(storage) = storage {
         sqlx::query_scalar!(
@@ -948,6 +947,9 @@ async fn get_workspace_s3_resource_path(
                 resource_path.to_string(),
             )
         }
+        Some(LargeFileStorage::FilesystemStorage(fs)) => {
+            (StorageResourceType::Filesystem, fs.root_path.clone())
+        }
         None => {
             return Ok(None);
         }
@@ -962,21 +964,22 @@ async fn get_workspace_s3_resource_path(
     let object_store_resource = get_s3_resource_internal(
         rt,
         s3_resource_value_raw,
-        windmill_common::job_s3_helpers_oss::TokenGenerator::AsClient(client),
+        windmill_object_store::job_s3_helpers_oss::TokenGenerator::AsClient(client),
         db,
     )
     .await?;
 
     // Check bucket workspace restrictions
-    use windmill_common::s3_helpers::ObjectStoreResource;
+    use windmill_object_store::ObjectStoreResource;
     let bucket_name = match &object_store_resource {
         ObjectStoreResource::S3(s3_resource) => Some(&s3_resource.bucket),
         ObjectStoreResource::Azure(azure_resource) => Some(&azure_resource.container_name),
         ObjectStoreResource::Gcs(gcs_resource) => Some(&gcs_resource.bucket),
+        ObjectStoreResource::Filesystem(_) => None,
     };
 
     if let Some(bucket) = bucket_name {
-        windmill_common::s3_helpers::check_bucket_workspace_restriction(bucket, workspace_id)?;
+        windmill_object_store::check_bucket_workspace_restriction(bucket, workspace_id)?;
     }
 
     Ok(Some(object_store_resource))
@@ -1364,8 +1367,8 @@ impl S3ModeWorkerData {
             .await
     }
 
-    pub fn to_return_s3_obj(&self) -> windmill_common::s3_helpers::S3Object {
-        windmill_common::s3_helpers::S3Object {
+    pub fn to_return_s3_obj(&self) -> windmill_types::s3::S3Object {
+        windmill_types::s3::S3Object {
             s3: self.object_key.clone(),
             storage: self.storage.clone(),
             ..Default::default()
@@ -1554,3 +1557,4 @@ mod tests {
         assert!(result.is_err());
     }
 }
+
