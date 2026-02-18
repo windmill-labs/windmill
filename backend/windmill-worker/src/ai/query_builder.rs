@@ -1,8 +1,9 @@
 use async_trait::async_trait;
 use windmill_common::{
-    client::AuthedClient, error::Error, s3_helpers::S3Object, worker::Connection,
+    client::AuthedClient, error::Error, worker::Connection,
 };
 use windmill_queue::MiniPulledJob;
+use windmill_types::s3::S3Object;
 
 use crate::{
     ai::{

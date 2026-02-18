@@ -1,7 +1,8 @@
 use base64::Engine;
 use futures;
 use ulid;
-use windmill_common::{client::AuthedClient, error::Error, s3_helpers::S3Object};
+use windmill_common::{client::AuthedClient, error::Error};
+use windmill_types::s3::S3Object;
 use windmill_queue::MiniPulledJob;
 
 use crate::ai::types::*;

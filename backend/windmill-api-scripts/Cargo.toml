@@ -16,6 +16,7 @@ python = ["dep:windmill-parser-py"]
 
 [dependencies]
 windmill-common = { workspace = true, default-features = false }
+windmill-object-store.workspace = true
 windmill-api-auth.workspace = true
 windmill-queue.workspace = true
 windmill-audit.workspace = true

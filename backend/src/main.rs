@@ -108,7 +108,7 @@ use crate::monitor::{
 };
 
 #[cfg(feature = "parquet")]
-use windmill_common::s3_helpers::reload_object_store_setting;
+use windmill_object_store::reload_object_store_setting;
 
 const DEFAULT_NUM_WORKERS: usize = 1;
 const DEFAULT_PORT: u16 = 8000;
