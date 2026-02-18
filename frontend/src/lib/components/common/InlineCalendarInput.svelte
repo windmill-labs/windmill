@@ -22,6 +22,7 @@
 		mode: 'range'
 		value?: CalendarRange
 		onClickBehavior?: 'set-range' | 'set-start' | 'set-end'
+		infiniteRange?: boolean
 	}
 
 	type Props = DateProps | RangeProps
@@ -31,6 +32,8 @@
 	const onClickBehavior = $derived(
 		mode === 'range' ? ((rest as RangeProps).onClickBehavior ?? 'set-range') : 'set-range'
 	)
+
+	const infiniteRange = $derived(mode === 'range' && !!((rest as RangeProps).infiniteRange))
 
 	const emptyDate: CalendarDate = { day: null, month: null, year: null }
 
@@ -117,6 +120,11 @@
 			}
 		}
 
+		if (infiniteRange) {
+			if (!startDate && !endDate) return false
+			if (!startDate) return cellDate < endDate!
+			if (!endDate) return cellDate > startDate
+		}
 		if (!startDate || !endDate) return false
 		return cellDate > startDate && cellDate < endDate
 	}
