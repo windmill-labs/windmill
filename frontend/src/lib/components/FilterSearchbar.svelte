@@ -495,7 +495,10 @@
 
 {#snippet suggestion(filter: FilterSchema)}
 	{#if filter.description}
-		<div class="text-xs text-hint px-2 my-2">{filter.description}</div>
+		<div class="text-xs text-secondary px-2 my-2">{filter.description}</div>
+	{/if}
+	{#if filter.allowMultiple && (filter.type === 'string' || filter.type === 'oneof')}
+		<div class="text-2xs text-hint px-2 -mt-1 mb-2">Separate multiple values with commas</div>
 	{/if}
 	{#if filter.type === 'oneof'}
 		<div class="max-h-60 overflow-y-auto">
