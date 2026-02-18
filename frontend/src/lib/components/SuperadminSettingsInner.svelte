@@ -147,12 +147,11 @@
 	const searchableItems = buildSearchableSettingItems()
 	let settingsSearchFilter = $state('')
 	let filteredSearchItems: (SearchableSettingItem & { marked: string })[] = $state([])
-	let searchDropdownOpen = $state(false)
 	let searchInputEl: HTMLDivElement | undefined = $state()
 
-	$effect(() => {
-		searchDropdownOpen = settingsSearchFilter.trim().length > 0 && filteredSearchItems.length > 0
-	})
+	const searchDropdownOpen = $derived(
+		settingsSearchFilter.trim().length > 0 && filteredSearchItems.length > 0
+	)
 
 	let searchProcessedItems: ProcessedItem<SearchableSettingItem & { marked: string }>[] = $derived(
 		filteredSearchItems.map((item) => ({
@@ -184,7 +183,6 @@
 
 	async function handleSearchSelect(item: SearchableSettingItem) {
 		settingsSearchFilter = ''
-		searchDropdownOpen = false
 		handleNavigate(item.tabId)
 		if (item.settingKey) {
 			await tick()
@@ -276,7 +274,7 @@
 					onNavigate={handleNavigate}
 				/>
 				{#if $workspaceStore !== 'admins'}
-					<div class="mt-auto pt-4 border-t border-surface-hover">
+					<div class="mt-4 pt-2 border-t border-surface-hover">
 						<a
 							href="{base}/?workspace=admins"
 							target="_blank"
