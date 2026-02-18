@@ -245,7 +245,6 @@
 	import Button from './common/button/Button.svelte'
 	import Badge from './common/badge/Badge.svelte'
 	import InlineCalendarInput, {
-		calendarDateIsNull,
 		fromCalendarDate,
 		toCalendarDate
 	} from './common/InlineCalendarInput.svelte'
@@ -636,9 +635,7 @@
 					bind:value={
 						() => obj,
 						(v) => {
-							setValueForCurrentTag(
-								calendarDateIsNull(v[filterMode]) ? null : fromCalendarDate(v[filterMode])
-							)
+							setValueForCurrentTag(fromCalendarDate(v[filterMode]))
 							taggedTextInput?.preventCursorMoveOnNextSync()
 						}
 					}

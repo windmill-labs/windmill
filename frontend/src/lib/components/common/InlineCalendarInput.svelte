@@ -13,6 +13,7 @@
 	}
 
 	export function fromCalendarDate(cd: CalendarDate | null | undefined): Date | null {
+		if (calendarDateIsNull(cd)) return null
 		const now = new Date()
 		return new Date(
 			cd?.year ?? now.getFullYear(),
@@ -34,7 +35,7 @@
 			minute: date.getMinutes()
 		}
 	}
-	export function calendarDateIsNull(cd: CalendarDate | null): boolean {
+	function calendarDateIsNull(cd: CalendarDate | undefined | null): boolean {
 		if (!cd) return true
 		return cd.day == null || cd.month == null || cd.year == null
 	}
