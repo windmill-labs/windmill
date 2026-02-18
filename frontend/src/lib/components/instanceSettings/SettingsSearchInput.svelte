@@ -8,6 +8,7 @@
 		extractMarkedLabel,
 		type SearchableSettingItem
 	} from '../instanceSettings'
+	import { twMerge } from 'tailwind-merge'
 
 	let {
 		searchableItems,
@@ -56,7 +57,7 @@
 	f={(x) => x.label + ' ' + (x.description ?? '') + ' ' + x.category}
 />
 
-<div class="{className} relative">
+<div class={twMerge('relative', className)}>
 	<div bind:this={searchInputEl} class="relative w-full">
 		<Search class="absolute left-2 top-1/2 -translate-y-1/2 text-tertiary" size={14} />
 		<TextInput
