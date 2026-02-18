@@ -33,6 +33,7 @@ export function buildRunsFilterSearchbarSchema({
 			type: 'oneof' as const,
 			options: paths.map((s) => ({ label: s, value: s })),
 			allowCustomValue: true,
+			allowNegative: true,
 			label: 'Path',
 			description: 'Filter by script or flow path'
 		},
@@ -40,6 +41,7 @@ export function buildRunsFilterSearchbarSchema({
 			type: 'oneof' as const,
 			options: usernames.map((s) => ({ label: s, value: s })),
 			allowCustomValue: true,
+			allowNegative: true,
 			label: 'User',
 			icon: UserIcon,
 			description: 'Filter by user who created the job'
@@ -48,6 +50,7 @@ export function buildRunsFilterSearchbarSchema({
 			type: 'oneof' as const,
 			options: folders.map((s) => ({ label: s, value: s })),
 			allowCustomValue: true,
+			allowNegative: true,
 			label: 'Folder',
 			icon: FolderIcon,
 			description: 'Filter by folder containing the script or flow'
