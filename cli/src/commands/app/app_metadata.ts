@@ -267,7 +267,7 @@ type InlineScriptProcessor = (
  * Filters raw workspace dependencies for an app by traversing all inline scripts,
  * filtering deps for each based on language and annotations, then computing the union.
  */
-async function filterWorkspaceDependenciesForApp(
+export async function filterWorkspaceDependenciesForApp(
   appValue: any,
   rawWorkspaceDependencies: Record<string, string>,
   folder: string
