@@ -49,7 +49,7 @@ use windmill_common::{
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 use windmill_object_store::attempt_fetch_bytes;
-use crate::common::{exists_in_cache, save_cache};
+use crate::global_cache::{exists_in_cache, save_cache};
 
 use windmill_parser::Typ;
 
@@ -978,7 +978,7 @@ pub async fn handle_bun_job(
         };
 
         let (cache, logs) =
-            crate::common::load_cache(&local_path, &remote_path, false).await;
+            crate::global_cache::load_cache(&local_path, &remote_path, false).await;
         (cache, logs, local_path, remote_path)
     } else {
         (false, "".to_string(), "".to_string(), "".to_string())

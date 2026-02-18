@@ -15,7 +15,7 @@ use windmill_common::{
     utils::calculate_hash,
     worker::{copy_dir_recursively, write_file, Connection},
 };
-use crate::common::save_cache;
+use crate::global_cache::save_cache;
 use windmill_parser::Arg;
 use windmill_parser_java::parse_java_sig_meta;
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
@@ -467,7 +467,7 @@ async fn compile<'a>(
     let hash = compute_hash(inner_content, *requirements_o);
     let bin_path = format!("{}/{hash}", JAVA_CACHE_DIR);
     let remote_path = format!("java_jar/{hash}");
-    let (cache, ..) = crate::common::load_cache(&bin_path, &remote_path, true).await;
+    let (cache, ..) = crate::global_cache::load_cache(&bin_path, &remote_path, true).await;
 
     if cache {
         let target = format!("{job_dir}/target");

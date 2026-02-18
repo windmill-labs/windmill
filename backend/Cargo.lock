@@ -16573,6 +16573,7 @@ dependencies = [
  "tracing",
  "uuid",
  "windmill-common",
+ "windmill-object-store",
 ]
 
 [[package]]

@@ -16,7 +16,7 @@ use windmill_common::{
     utils::calculate_hash,
     worker::{write_file, Connection},
 };
-use crate::common::save_cache;
+use crate::global_cache::save_cache;
 use windmill_queue::MiniPulledJob;
 use windmill_queue::{append_logs, CanceledBy};
 
@@ -612,7 +612,7 @@ pub async fn handle_rust_job(
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
 
     let (cache, cache_logs) =
-        crate::common::load_cache(&bin_path, &remote_path, false).await;
+        crate::global_cache::load_cache(&bin_path, &remote_path, false).await;
 
     let cache_logs = if cache {
         let target = format!("{job_dir}/main");

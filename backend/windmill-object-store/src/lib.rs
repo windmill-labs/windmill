@@ -68,8 +68,8 @@ pub mod object_store_reexports {
     pub use object_store::memory::InMemory;
     pub use object_store::path::Path;
     pub use object_store::{
-        Attribute, Attributes, Error as ObjectStoreError, ObjectStore, PutMultipartOpts,
-        PutPayload, PutResult, Result as ObjectStoreResult,
+        Attribute, Attributes, Error as ObjectStoreError, GetResult, ObjectStore,
+        PutMultipartOpts, PutPayload, PutResult, Result as ObjectStoreResult, WriteMultipart,
     };
 }
 
@@ -1071,6 +1071,34 @@ pub async fn convert_json_line_stream<E: Into<anyhow::Error>>(
 
 lazy_static::lazy_static! {
     pub static ref S3_PROXY_LAST_ERRORS_CACHE: Cache<String, String> = Cache::new(4);
+}
+
+#[cfg(feature = "parquet")]
+pub async fn get_logs_from_store(
+    log_offset: i32,
+    logs: &str,
+    log_file_index: &Option<Vec<String>>,
+) -> Option<impl futures::Stream<Item = Result<bytes::Bytes, object_store::Error>>> {
+    if log_offset > 0 {
+        if let Some(file_index) = log_file_index.clone() {
+            if let Some(os) = get_object_store().await {
+                let logs = logs.to_string();
+                let stream = async_stream::stream! {
+                    for file_p in file_index {
+                        let file = os.get(&object_store::path::Path::from(file_p)).await;
+                        if let Ok(file) = file {
+                            if let Ok(bytes) = file.bytes().await {
+                                yield Ok(bytes::Bytes::from(bytes));
+                            }
+                        }
+                    }
+                    yield Ok(bytes::Bytes::from(logs))
+                };
+                return Some(stream);
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]

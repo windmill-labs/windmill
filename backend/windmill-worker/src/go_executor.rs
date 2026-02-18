@@ -15,7 +15,7 @@ use windmill_common::{
     utils::calculate_hash,
     worker::{write_file, Connection, GoAnnotations},
 };
-use crate::common::save_cache;
+use crate::global_cache::save_cache;
 use windmill_parser_go::{parse_go_imports, REQUIRE_PARSE};
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
@@ -111,7 +111,7 @@ pub async fn handle_go_job(
     let bin_path = format!("{}/{hash}", GO_BIN_CACHE_DIR);
     let remote_path = format!("{GO_OBJECT_STORE_PREFIX}{hash}");
     let (cache, cache_logs) =
-        crate::common::load_cache(&bin_path, &remote_path, false).await;
+        crate::global_cache::load_cache(&bin_path, &remote_path, false).await;
 
     let (skip_go_mod, skip_tidy) = if cache {
         (true, true)
