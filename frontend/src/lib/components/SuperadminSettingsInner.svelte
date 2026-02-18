@@ -254,6 +254,7 @@
 						value={undefined}
 						open={searchDropdownOpen}
 						disablePortal
+						class="max-w-full"
 						itemLabelWrapperClasses="hidden"
 						itemButtonWrapperClasses="overflow-hidden"
 						getInputRect={searchInputEl ? () => searchInputEl!.getBoundingClientRect() : undefined}
@@ -262,7 +263,7 @@
 						maxHeight={400}
 					>
 						{#snippet startSnippet({ item })}
-							<div class="text-xs truncate"
+							<div class="text-xs truncate w-full min-w-0"
 								>{@html extractMarkedLabel(item.value.marked, item.value.label.length)}</div
 							>
 						{/snippet}
