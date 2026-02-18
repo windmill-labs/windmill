@@ -246,7 +246,7 @@
 			</button>
 		{/snippet}
 	</Select>
-	{#if folderName && hovering && !loadingFolders}
+	{#if folderName && hovering && !loadingFolders && !disabled && !disableEditing}
 		<div class="absolute right-2 z-20">
 			<Button
 				variant="subtle"
