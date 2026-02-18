@@ -476,7 +476,10 @@
 					numbered
 					onselect={(i) => {
 						if (i !== fullStep) {
-							const cb = () => { yamlMode = false; fullStep = i }
+							const cb = () => {
+								yamlMode = false
+								fullStep = i
+							}
 							i > fullStep ? proceedFromCore(cb) : saveAndProceed(cb)
 						}
 					}}
