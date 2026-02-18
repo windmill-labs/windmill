@@ -353,7 +353,8 @@
 					.map((option) => ({
 						type: 'option' as const,
 						option,
-						onClick: () => appendOrSetValueForCurrentTag(option.value),
+						onClick: () =>
+							appendOrSetValueForCurrentTag((currentVal.includes('!') ? '!' : '') + option.value),
 						onNegativeClick: filter.allowNegative
 							? () => appendOrSetValueForCurrentTag('!' + option.value)
 							: undefined
