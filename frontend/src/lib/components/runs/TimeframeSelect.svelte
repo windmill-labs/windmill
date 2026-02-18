@@ -121,11 +121,13 @@
 	import { CalendarIcon, RefreshCw } from 'lucide-svelte'
 	import { Button } from '../common'
 	import Popover from '../meltComponents/Popover.svelte'
-	import DateTimeInput from '../DateTimeInput.svelte'
-	import Label from '../Label.svelte'
 	import { formatDateRange } from '$lib/utils'
 	import { watch } from 'runed'
 	import { page } from '$app/state'
+	import InlineCalendarInput, {
+		fromCalendarDate,
+		toCalendarDate
+	} from '../common/InlineCalendarInput.svelte'
 
 	interface Props {
 		loading?: boolean
@@ -142,11 +144,12 @@
 	function onManualInput(input: { minTs?: string | null; maxTs?: string | null }) {
 		if (value.type !== 'manual')
 			value = buildManualTimeframe(input.minTs ?? null, input.maxTs ?? null)
-		else
+		else {
 			value = buildManualTimeframe(
 				'minTs' in input ? (input.minTs ?? null) : value.minTs,
 				'maxTs' in input ? (input.maxTs ?? null) : value.maxTs
 			)
+		}
 		if (value.type == 'manual' && value.minTs == null && value.maxTs == null) {
 			value = { ...items[0] }
 		}
@@ -175,38 +178,47 @@
 			/>
 		{/snippet}
 		{#snippet content()}
-			<div class="flex flex-col">
-				{#each items as item}
-					<Button
-						onClick={() => ((value = { ...item }), (isOpen = false))}
-						variant="subtle"
-						unifiedSize="md"
-						btnClasses="justify-start"
-					>
-						{item.label}
-					</Button>
-				{/each}
-				<div class="border-b"></div>
-				<div class="px-4 py-2 flex flex-col gap-2">
-					<Label label="From">
-						<DateTimeInput
-							clearable
-							bind:value={
-								() => (value.type === 'manual' ? value.minTs : undefined),
-								(v) => onManualInput({ minTs: v ?? null })
-							}
-						/>
-					</Label>
-					<Label label="To">
-						<DateTimeInput
-							clearable
-							bind:value={
-								() => (value.type === 'manual' ? value.maxTs : undefined),
-								(v) => onManualInput({ maxTs: v ?? null })
-							}
-						/>
-					</Label>
+			{@const range = {
+				end: toCalendarDate(
+					value.type === 'manual' && value.maxTs ? new Date(value.maxTs) : undefined
+				),
+				start: toCalendarDate(
+					value.type === 'manual' && value.minTs ? new Date(value.minTs) : undefined
+				)
+			}}
+			<div class="flex divide-x">
+				<div class="flex flex-col p-2">
+					{#each items as item}
+						<Button
+							onClick={() => ((value = { ...item }), (isOpen = false))}
+							variant="subtle"
+							unifiedSize="sm"
+							btnClasses="justify-start text-nowrap"
+						>
+							{item.label}
+						</Button>
+					{/each}
 				</div>
+				<InlineCalendarInput
+					class="p-4 max-w-[18rem]"
+					infiniteRange
+					mode="range"
+					onClickBehavior="set-start"
+					bind:value={
+						() => range,
+						(v) => onManualInput({ minTs: fromCalendarDate(v.start)?.toISOString() ?? null })
+					}
+				/>
+				<InlineCalendarInput
+					class="p-4 max-w-[18rem]"
+					infiniteRange
+					mode="range"
+					onClickBehavior="set-end"
+					bind:value={
+						() => range,
+						(v) => onManualInput({ maxTs: fromCalendarDate(v.end)?.toISOString() ?? null })
+					}
+				/>
 			</div>
 		{/snippet}
 	</Popover>
