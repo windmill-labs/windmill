@@ -1,0 +1,1 @@
+ALTER TYPE JOB_KIND ADD VALUE IF NOT EXISTS 'snapshotbuild';

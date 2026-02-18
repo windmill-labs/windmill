@@ -298,7 +298,7 @@
 	let automateUsernameCreation = $state(false)
 	async function getAutomateUsernameCreationSetting() {
 		automateUsernameCreation =
-			((await SettingService.getGlobal({ key: 'automate_username_creation' })) as any) ?? false
+			((await SettingService.getGlobal({ key: 'automate_username_creation' })) as any) ?? true
 
 		if (!automateUsernameCreation) {
 			UserService.globalWhoami().then((x) => {

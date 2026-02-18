@@ -224,6 +224,164 @@ pub async fn upload_volume(
 }
 
 #[cfg(all(not(feature = "private"), feature = "parquet"))]
+pub async fn build_snapshot(
+    w_id: &str,
+    name: &str,
+    tag: &str,
+    docker_image: &str,
+    setup_script: Option<&str>,
+    db: &windmill_common::DB,
+) -> windmill_common::error::Result<()> {
+    use windmill_common::error::Error;
+    use tokio::process::Command;
+
+    sqlx::query!(
+        "UPDATE sandbox_snapshot SET status = 'building', updated_at = now() \
+         WHERE workspace_id = $1 AND name = $2 AND tag = $3",
+        w_id,
+        name,
+        tag,
+    )
+    .execute(db)
+    .await?;
+
+    let result = async {
+        let temp_dir = tempfile::tempdir()
+            .map_err(|e| Error::ExecutionErr(format!("Failed to create temp dir: {e}")))?;
+        let rootfs_dir = temp_dir.path().join("rootfs");
+        tokio::fs::create_dir_all(&rootfs_dir)
+            .await
+            .map_err(|e| Error::ExecutionErr(format!("Failed to create rootfs dir: {e}")))?;
+
+        tracing::info!("Exporting docker image {docker_image} for snapshot {name}:{tag}");
+        let crane_output = Command::new("crane")
+            .args(["export", docker_image, "-"])
+            .output()
+            .await
+            .map_err(|e| Error::ExecutionErr(format!("Failed to run crane: {e}")))?;
+
+        if !crane_output.status.success() {
+            let stderr = String::from_utf8_lossy(&crane_output.stderr);
+            return Err(Error::ExecutionErr(format!("crane export failed: {stderr}")));
+        }
+
+        let crane_bytes = crane_output.stdout;
+        let rootfs_dir_clone = rootfs_dir.clone();
+        tokio::task::spawn_blocking(move || -> windmill_common::error::Result<()> {
+            use std::io::Cursor;
+            use tar::Archive;
+            let mut archive = Archive::new(Cursor::new(crane_bytes));
+            archive
+                .unpack(&rootfs_dir_clone)
+                .map_err(|e| Error::ExecutionErr(format!("Failed to unpack crane output: {e}")))?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| Error::ExecutionErr(format!("Spawn blocking failed: {e}")))??;
+
+        if let Some(script) = setup_script {
+            if !script.trim().is_empty() {
+                tracing::info!("Running setup script for snapshot {name}:{tag}");
+                let output = Command::new("chroot")
+                    .args([
+                        &rootfs_dir.to_string_lossy().to_string(),
+                        "/bin/sh",
+                        "-c",
+                        script,
+                    ])
+                    .output()
+                    .await
+                    .map_err(|e| Error::ExecutionErr(format!("Failed to run setup: {e}")))?;
+
+                if !output.status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    return Err(Error::ExecutionErr(format!("Setup script failed: {stderr}")));
+                }
+            }
+        }
+
+        let rootfs_dir_clone = rootfs_dir.clone();
+        let (bytes, content_hash) =
+            tokio::task::spawn_blocking(move || -> windmill_common::error::Result<(Vec<u8>, String)> {
+                use sha2::{Digest, Sha256};
+
+                let bytes = crate::tar_gz(&rootfs_dir_clone)?;
+                let hash = format!("{:x}", Sha256::digest(&bytes));
+                Ok((bytes, hash))
+            })
+            .await
+            .map_err(|e| Error::ExecutionErr(format!("Spawn blocking failed: {e}")))??;
+
+        let size = bytes.len();
+        if size > CE_SNAPSHOT_SIZE_LIMIT {
+            return Err(Error::ExecutionErr(format!(
+                "Snapshot size ({:.1} MB) exceeds the {} MB limit. \
+                 Upgrade to Windmill EE for unlimited snapshot sizes.",
+                size as f64 / 1_048_576.0,
+                CE_SNAPSHOT_SIZE_LIMIT / 1_048_576
+            )));
+        }
+
+        let s3_key = format!("sandbox/snapshots/{w_id}/{name}/{content_hash}.tar.gz");
+        let size_i64 = size as i64;
+
+        let os = windmill_object_store::get_workspace_object_store(db, w_id).await?;
+
+        windmill_object_store::put_bytes_to_store(os, &s3_key, bytes.into()).await?;
+
+        sqlx::query!(
+            "UPDATE sandbox_snapshot SET \
+             s3_key = $4, content_hash = $5, size_bytes = $6, status = 'ready', \
+             build_error = NULL, updated_at = now() \
+             WHERE workspace_id = $1 AND name = $2 AND tag = $3",
+            w_id,
+            name,
+            tag,
+            &s3_key,
+            &content_hash,
+            size_i64,
+        )
+        .execute(db)
+        .await?;
+
+        tracing::info!("Snapshot {name}:{tag} built successfully ({size_i64} bytes)");
+        Ok(())
+    }
+    .await;
+
+    if let Err(ref e) = result {
+        let err_str = e.to_string();
+        sqlx::query!(
+            "UPDATE sandbox_snapshot SET status = 'failed', build_error = $4, updated_at = now() \
+             WHERE workspace_id = $1 AND name = $2 AND tag = $3",
+            w_id,
+            name,
+            tag,
+            &err_str,
+        )
+        .execute(db)
+        .await
+        .ok();
+    }
+
+    result
+}
+
+#[cfg(all(not(feature = "private"), not(feature = "parquet")))]
+pub async fn build_snapshot(
+    _w_id: &str,
+    _name: &str,
+    _tag: &str,
+    _docker_image: &str,
+    _setup_script: Option<&str>,
+    _db: &windmill_common::DB,
+) -> windmill_common::error::Result<()> {
+    Err(windmill_common::error::Error::ExecutionErr(
+        "Sandbox snapshot builds require the parquet feature (S3 object store)".to_string(),
+    ))
+}
+
+#[cfg(all(not(feature = "private"), feature = "parquet"))]
 pub async fn upload_snapshot_bytes(
     db: &windmill_common::DB,
     w_id: &str,

@@ -134,7 +134,9 @@
 									? 'Script from hub'
 									: job.job_kind === 'aiagent'
 										? 'AI Agent'
-										: job.job_kind || 'Unknown job type'
+										: job.job_kind === 'snapshotbuild'
+											? 'snapshot build'
+											: job.job_kind || 'Unknown job type'
 	}
 </script>
 

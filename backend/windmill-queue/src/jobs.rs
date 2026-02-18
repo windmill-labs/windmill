@@ -5202,6 +5202,11 @@ async fn push_inner<'c, 'd>(
             job_kind: JobKind::AIAgent,
             ..Default::default()
         },
+        JobPayload::SnapshotBuild { snapshot_name, snapshot_tag } => JobPayloadUntagged {
+            runnable_path: Some(format!("sandbox/snapshot/{snapshot_name}:{snapshot_tag}")),
+            job_kind: JobKind::SnapshotBuild,
+            ..Default::default()
+        },
     };
 
     // Enforce concurrency limit on all dependency jobs.
@@ -5303,6 +5308,7 @@ async fn push_inner<'c, 'd>(
                 || job_kind == JobKind::FlowDependencies
                 || job_kind == JobKind::DeploymentCallback
                 || job_kind == JobKind::AppDependencies
+                || job_kind == JobKind::SnapshotBuild
             {
                 // using the dependency tag for deployment callback for now. We can create a separate tag when we need
                 "dependency".to_string()
@@ -5662,6 +5668,7 @@ async fn push_inner<'c, 'd>(
             JobKind::UnassignedScript => "jobs.run.unassigned_script",
             JobKind::UnassignedFlow => "jobs.run.unassigned_flow",
             JobKind::UnassignedSinglestepFlow => "jobs.run.unassigned_singlestepflow",
+            JobKind::SnapshotBuild => "jobs.run.snapshot_build",
         };
 
         let audit_author = if format!("u/{user}") != permissioned_as && user != permissioned_as {

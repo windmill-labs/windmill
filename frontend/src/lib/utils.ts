@@ -1824,7 +1824,8 @@ export function getJobKindIcon(jobKind: Job['job_kind']) {
 	} else if (
 		jobKind === 'dependencies' ||
 		jobKind === 'appdependencies' ||
-		jobKind === 'flowdependencies'
+		jobKind === 'flowdependencies' ||
+		jobKind === 'snapshotbuild'
 	) {
 		return Package
 	} else if (

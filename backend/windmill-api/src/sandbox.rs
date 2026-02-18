@@ -5,12 +5,17 @@ use axum::{
     Json, Router,
 };
 use serde::Deserialize;
+use serde_json::value::RawValue as JsonRawValue;
+use std::collections::HashMap;
 use windmill_common::{
     db::DB,
     error::{self, JsonResult},
+    users::username_to_permissioned_as,
     utils::require_admin,
 };
+use windmill_queue::{push, PushArgs, PushIsolationLevel};
 use windmill_sandbox::{SandboxSnapshot, SandboxVolume};
+use windmill_types::jobs::JobPayload;
 
 use crate::db::ApiAuthed;
 
@@ -109,9 +114,31 @@ async fn create_snapshot(
     .execute(&db)
     .await?;
 
+    let job_uuid = push_snapshot_build_job(
+        &db,
+        &w_id,
+        &body.name,
+        &body.tag,
+        &body.docker_image,
+        body.setup_script.as_deref(),
+        &authed,
+    )
+    .await?;
+
+    sqlx::query!(
+        "UPDATE sandbox_snapshot SET build_job_id = $4 \
+         WHERE workspace_id = $1 AND name = $2 AND tag = $3",
+        &w_id,
+        &body.name,
+        &body.tag,
+        job_uuid,
+    )
+    .execute(&db)
+    .await?;
+
     Ok(format!(
-        "Snapshot {}:{} created with status 'pending'",
-        body.name, body.tag
+        "Snapshot {}:{} created with build job {}",
+        body.name, body.tag, job_uuid
     ))
 }
 
@@ -193,6 +220,19 @@ async fn rebuild_snapshot(
     Path((w_id, name, tag)): Path<(String, String, String)>,
 ) -> error::Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
+
+    let row = sqlx::query!(
+        "SELECT docker_image, setup_script FROM sandbox_snapshot \
+         WHERE workspace_id = $1 AND name = $2 AND tag = $3",
+        &w_id,
+        &name,
+        &tag,
+    )
+    .fetch_optional(&db)
+    .await?;
+
+    let row = windmill_common::utils::not_found_if_none(row, "sandbox_snapshot", &name)?;
+
     sqlx::query!(
         "UPDATE sandbox_snapshot SET status = 'pending', build_error = NULL, updated_at = now() \
          WHERE workspace_id = $1 AND name = $2 AND tag = $3",
@@ -202,7 +242,33 @@ async fn rebuild_snapshot(
     )
     .execute(&db)
     .await?;
-    Ok(format!("Rebuild queued for snapshot {}:{}", name, tag))
+
+    let job_uuid = push_snapshot_build_job(
+        &db,
+        &w_id,
+        &name,
+        &tag,
+        &row.docker_image,
+        row.setup_script.as_deref(),
+        &authed,
+    )
+    .await?;
+
+    sqlx::query!(
+        "UPDATE sandbox_snapshot SET build_job_id = $4 \
+         WHERE workspace_id = $1 AND name = $2 AND tag = $3",
+        &w_id,
+        &name,
+        &tag,
+        job_uuid,
+    )
+    .execute(&db)
+    .await?;
+
+    Ok(format!(
+        "Rebuild queued for snapshot {}:{} with build job {}",
+        name, tag, job_uuid
+    ))
 }
 
 async fn upload_snapshot(
@@ -214,6 +280,73 @@ async fn upload_snapshot(
     require_admin(authed.is_admin, &authed.username)?;
 
     windmill_sandbox::upload_snapshot_bytes(&db, &w_id, &name, &tag, body, &authed.username).await
+}
+
+async fn push_snapshot_build_job(
+    db: &DB,
+    w_id: &str,
+    name: &str,
+    tag: &str,
+    docker_image: &str,
+    setup_script: Option<&str>,
+    authed: &ApiAuthed,
+) -> error::Result<uuid::Uuid> {
+    let mut args = HashMap::new();
+    args.insert(
+        "snapshot_name".to_string(),
+        JsonRawValue::from_string(serde_json::to_string(name).unwrap()).unwrap(),
+    );
+    args.insert(
+        "snapshot_tag".to_string(),
+        JsonRawValue::from_string(serde_json::to_string(tag).unwrap()).unwrap(),
+    );
+    args.insert(
+        "docker_image".to_string(),
+        JsonRawValue::from_string(serde_json::to_string(docker_image).unwrap()).unwrap(),
+    );
+    args.insert(
+        "setup_script".to_string(),
+        JsonRawValue::from_string(serde_json::to_string(&setup_script).unwrap()).unwrap(),
+    );
+
+    let tx = PushIsolationLevel::IsolatedRoot(db.clone());
+    let (job_uuid, tx) = push(
+        db,
+        tx,
+        w_id,
+        JobPayload::SnapshotBuild {
+            snapshot_name: name.to_string(),
+            snapshot_tag: tag.to_string(),
+        },
+        PushArgs { args: &args, extra: None },
+        &authed.username,
+        &authed.email,
+        username_to_permissioned_as(&authed.username),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        None,
+        true,
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(job_uuid)
 }
 
 // --- Volumes ---

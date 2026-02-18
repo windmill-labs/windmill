@@ -21,7 +21,7 @@ export function computeJobKinds(jobKindsCat: string | null): string {
 	if (jobKindsCat == 'all') {
 		return ''
 	} else if (jobKindsCat == 'dependencies') {
-		let kinds: CompletedJob['job_kind'][] = ['dependencies', 'flowdependencies', 'appdependencies']
+		let kinds: CompletedJob['job_kind'][] = ['dependencies', 'flowdependencies', 'appdependencies', 'snapshotbuild']
 		return kinds.join(',')
 	} else if (jobKindsCat == 'previews') {
 		let kinds: CompletedJob['job_kind'][] = ['preview', 'flowpreview']

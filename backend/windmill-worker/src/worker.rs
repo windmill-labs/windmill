@@ -3413,6 +3413,17 @@ pub async fn handle_queued_job(
                     ));
                 }
             },
+            JobKind::SnapshotBuild => match conn {
+                Connection::Sql(db) => {
+                    Box::pin(crate::snapshot_build::handle_snapshot_build(&job, db, conn))
+                        .await
+                }
+                Connection::Http(_) => {
+                    return Err(Error::internal_err(
+                        "Could not handle snapshot build job with agent worker".to_string(),
+                    ));
+                }
+            },
             _ => {
                 let metric_timer = Instant::now();
                 let preview_data = preview_data.and_then(|data| match data {
@@ -3619,6 +3630,7 @@ async fn try_validate_schema(
                 JobKind::UnassignedScript => 16,
                 JobKind::UnassignedFlow => 17,
                 JobKind::UnassignedSinglestepFlow => 18,
+                JobKind::SnapshotBuild => 19,
             };
 
             let sv = match job.runnable_id {
