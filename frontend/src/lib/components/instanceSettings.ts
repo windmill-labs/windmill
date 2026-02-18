@@ -1,5 +1,6 @@
 import type { ButtonType } from './common/button/model'
 import { z } from 'zod'
+import { truncate } from '$lib/utils'
 
 // Languages that support HTTP request tracing via OTEL proxy
 export const OTEL_TRACING_PROXY_LANGUAGES = [
@@ -816,7 +817,7 @@ export function buildSearchableSettingItems(): SearchableSettingItem[] {
 				tabId,
 				settingKey: setting.key,
 				category,
-				description: setting.description?.replace(/<[^>]*>/g, '')
+				description: truncate(setting.description?.replace(/<[^>]*>/g, '') ?? '', 80)
 			})
 		}
 	}
@@ -829,7 +830,7 @@ export function buildSearchableSettingItems(): SearchableSettingItem[] {
 			tabId: 'scim_saml',
 			settingKey: setting.key,
 			category: 'SCIM/SAML',
-			description: setting.description?.replace(/<[^>]*>/g, '')
+			description: truncate(setting.description?.replace(/<[^>]*>/g, '') ?? '', 80)
 		})
 	}
 

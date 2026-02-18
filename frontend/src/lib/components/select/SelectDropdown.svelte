@@ -21,6 +21,7 @@
 		ulClass = '',
 		itemLabelWrapperClasses = '',
 		itemButtonWrapperClasses = '',
+		maxHeight = 256,
 		header,
 		getInputRect,
 		onSelectValue,
@@ -40,6 +41,7 @@
 		ulClass?: string
 		itemLabelWrapperClasses?: string
 		itemButtonWrapperClasses?: string
+		maxHeight?: number
 		header?: Snippet
 		getInputRect?: () => DOMRect
 		onSelectValue: (item: ProcessedItem<T>) => void
@@ -185,7 +187,11 @@
 				)}
 				style="height: {uiState.visible ? dropdownPos.height : 0}px;"
 			>
-				<div bind:this={listEl} class="flex flex-col max-h-64 rounded-md bg-surface-input">
+				<div
+					bind:this={listEl}
+					class="flex flex-col rounded-md bg-surface-input"
+					style="max-height: {maxHeight}px;"
+				>
 					{@render header?.()}
 					{#if processedItems?.length === 0}
 						<div class="py-8 px-4 text-center text-primary text-xs">{noItemsMsg}</div>

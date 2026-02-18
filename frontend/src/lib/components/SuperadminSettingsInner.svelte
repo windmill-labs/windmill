@@ -28,7 +28,7 @@
 	import InstanceNameEditor from './InstanceNameEditor.svelte'
 	import Toggle from './Toggle.svelte'
 	import { instanceSettingsSelectedTab } from '$lib/stores'
-	import { onDestroy } from 'svelte'
+	import { onDestroy, tick } from 'svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
 	import {
 		instanceSettingsNavigationGroups,
@@ -162,19 +162,49 @@
 		}))
 	)
 
+	function extractMarkedLabel(marked: string, labelLength: number): string {
+		let plainIdx = 0
+		let markedIdx = 0
+		while (plainIdx < labelLength && markedIdx < marked.length) {
+			if (marked[markedIdx] === '<') {
+				while (markedIdx < marked.length && marked[markedIdx] !== '>') markedIdx++
+				markedIdx++
+			} else {
+				plainIdx++
+				markedIdx++
+			}
+		}
+		// Include any closing </mark> right after
+		if (marked.startsWith('</mark>', markedIdx)) {
+			markedIdx += '</mark>'.length
+		}
+		return marked.slice(0, markedIdx)
+	}
+
+	function shouldShowDescription(
+		label: string,
+		description: string | undefined,
+		filter: string
+	): boolean {
+		if (!description || !filter) return false
+		const lowerFilter = filter.trim().toLowerCase()
+		if (lowerFilter.length === 0) return false
+		const labelMatches = label.toLowerCase().includes(lowerFilter)
+		return !labelMatches && description.toLowerCase().includes(lowerFilter)
+	}
+
 	async function handleSearchSelect(item: SearchableSettingItem) {
 		settingsSearchFilter = ''
 		searchDropdownOpen = false
 		handleNavigate(item.tabId)
 		if (item.settingKey) {
-			const { tick } = await import('svelte')
 			await tick()
 			setTimeout(() => {
 				const el = document.querySelector(`[data-setting-key="${item.settingKey}"]`)
 				if (el) {
 					el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-					el.classList.add('ring-2', 'ring-blue-500')
-					setTimeout(() => el.classList.remove('ring-2', 'ring-blue-500'), 1500)
+					el.classList.add('ring-1', 'ring-accent')
+					setTimeout(() => el.classList.remove('ring-1', 'ring-accent'), 1500)
 				}
 			}, 100)
 		}
@@ -241,9 +271,15 @@
 						getInputRect={searchInputEl ? () => searchInputEl!.getBoundingClientRect() : undefined}
 						onSelectValue={(item) => handleSearchSelect(item.value)}
 						class="max-w-40"
+						maxHeight={400}
 					>
 						{#snippet startSnippet({ item })}
-							<span class="text-xs">{@html item.value.marked}</span>
+							<span class="text-xs truncate"
+								>{@html extractMarkedLabel(item.value.marked, item.value.label.length)}</span
+							>
+							{#if shouldShowDescription(item.value.label, item.value.description, settingsSearchFilter)}
+								<span class="text-2xs text-tertiary truncate">{item.value.description}</span>
+							{/if}
 						{/snippet}
 					</SelectDropdown>
 				</div>
