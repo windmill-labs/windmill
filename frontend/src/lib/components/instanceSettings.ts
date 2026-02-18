@@ -790,6 +790,7 @@ export interface SearchableSettingItem {
 	settingKey?: string
 	category: string
 	description?: string
+	displayDescription?: string
 }
 
 export function buildSearchableSettingItems(): SearchableSettingItem[] {
@@ -812,12 +813,14 @@ export function buildSearchableSettingItems(): SearchableSettingItem[] {
 		if (!tabId) continue
 		for (const setting of categorySettings) {
 			if (!setting.label) continue
+			const desc = setting.description?.replace(/<[^>]*>/g, '') ?? ''
 			items.push({
 				label: setting.label,
 				tabId,
 				settingKey: setting.key,
 				category,
-				description: truncate(setting.description?.replace(/<[^>]*>/g, '') ?? '', 80)
+				description: desc,
+				displayDescription: truncate(desc, 80)
 			})
 		}
 	}
@@ -825,12 +828,14 @@ export function buildSearchableSettingItems(): SearchableSettingItem[] {
 	// Add SCIM/SAML settings
 	for (const setting of scimSamlSetting) {
 		if (!setting.label) continue
+		const desc = setting.description?.replace(/<[^>]*>/g, '') ?? ''
 		items.push({
 			label: setting.label,
 			tabId: 'scim_saml',
 			settingKey: setting.key,
 			category: 'SCIM/SAML',
-			description: truncate(setting.description?.replace(/<[^>]*>/g, '') ?? '', 80)
+			description: desc,
+			displayDescription: truncate(desc, 80)
 		})
 	}
 

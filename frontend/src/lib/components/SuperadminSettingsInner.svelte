@@ -162,7 +162,8 @@
 		}))
 	)
 
-	function extractMarkedLabel(marked: string, labelLength: number): string {
+	function extractMarkedLabel(marked: string | undefined, labelLength: number): string {
+		if (!marked) return ''
 		let plainIdx = 0
 		let markedIdx = 0
 		while (plainIdx < labelLength && markedIdx < marked.length) {
@@ -274,12 +275,14 @@
 						maxHeight={400}
 					>
 						{#snippet startSnippet({ item })}
-							<span class="text-xs truncate"
-								>{@html extractMarkedLabel(item.value.marked, item.value.label.length)}</span
-							>
-							{#if shouldShowDescription(item.value.label, item.value.description, settingsSearchFilter)}
-								<span class="text-2xs text-tertiary truncate">{item.value.description}</span>
-							{/if}
+							<div class="min-w-0 w-full overflow-hidden">
+								<div class="text-xs truncate"
+									>{@html extractMarkedLabel(item.value.marked, item.value.label.length)}</div
+								>
+								{#if shouldShowDescription(item.value.label, item.value.description, settingsSearchFilter)}
+									<div class="text-2xs text-tertiary truncate">{item.value.displayDescription}</div>
+								{/if}
+							</div>
 						{/snippet}
 					</SelectDropdown>
 				</div>
