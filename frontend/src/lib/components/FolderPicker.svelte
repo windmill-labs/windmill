@@ -23,6 +23,7 @@
 	let folderCreated: string | undefined = $state(undefined)
 	let creating: boolean = $state(false)
 	let loadingFolders: boolean = $state(true)
+	let editingFolder: string = $state('')
 
 	type Props = {
 		folderName: string
@@ -189,8 +190,8 @@
 </Drawer>
 
 <Drawer bind:this={viewFolder} offset={drawerOffset}>
-	<DrawerContent title="Folder {folderName}" on:close={viewFolder.closeDrawer}>
-		<FolderEditor name={folderName ?? ''} />
+	<DrawerContent title="Folder {editingFolder}" on:close={viewFolder.closeDrawer}>
+		<FolderEditor name={editingFolder} />
 	</DrawerContent>
 </Drawer>
 
@@ -222,7 +223,7 @@
 				wrapperClasses="-mr-2 pl-1 -my-2"
 				btnClasses="hover:bg-surface-tertiary"
 				onClick={() => {
-					folderName = item.value ?? ''
+					editingFolder = item.value ?? ''
 					viewFolder?.openDrawer()
 					close()
 				}}
@@ -252,7 +253,10 @@
 				unifiedSize="xs"
 				wrapperClasses="pl-1"
 				btnClasses="hover:bg-surface-tertiary"
-				on:click={() => viewFolder?.openDrawer()}
+				on:click={() => {
+					editingFolder = folderName
+					viewFolder?.openDrawer()
+				}}
 				startIcon={{ icon: Pen }}
 				iconOnly
 			/>
