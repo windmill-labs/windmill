@@ -2071,7 +2071,7 @@ export function assignObjInPlace(
 	for (const key in source) target[key] = source[key]
 }
 
-function isUSLocale(): boolean {
+export function isUSLocale(): boolean {
 	try {
 		const locale = Intl.DateTimeFormat().resolvedOptions().locale
 		return locale.startsWith('en-US')

@@ -44,10 +44,10 @@
 	import { startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, getDaysInMonth } from 'date-fns'
 	import { ChevronLeft, ChevronRight, ClockIcon } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { ButtonType } from './button/model'
 	import Button from './button/Button.svelte'
 	import Select from '../select/Select.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
+	import { isUSLocale } from '$lib/utils'
 
 	interface DateProps {
 		mode?: 'date'
@@ -343,32 +343,36 @@
 		}
 	}
 
-	function setHour(raw: string) {
-		const h = Math.max(0, Math.min(23, parseInt(raw, 10)))
-		if (isNaN(h)) return
+	const usLocale = $derived(isUSLocale())
+
+	function patchTarget(patch: Partial<CalendarDate>) {
 		if (mode === 'date') {
-			value = { ...withTodayFallback(value as CalendarDate), hour: h }
+			value = { ...withTodayFallback(value as CalendarDate), ...patch }
 		} else {
 			const v = value as CalendarRange
 			if (onClickBehavior === 'set-start')
-				value = { start: { ...withTodayFallback(v.start), hour: h }, end: v.end }
+				value = { start: { ...withTodayFallback(v.start), ...patch }, end: v.end }
 			else if (onClickBehavior === 'set-end')
-				value = { start: v.start, end: { ...withTodayFallback(v.end), hour: h } }
+				value = { start: v.start, end: { ...withTodayFallback(v.end), ...patch } }
 		}
 	}
 
-	function setMinute(raw: string) {
-		const m = Math.max(0, Math.min(59, parseInt(raw, 10)))
-		if (isNaN(m)) return
-		if (mode === 'date') {
-			value = { ...withTodayFallback(value as CalendarDate), minute: m }
-		} else {
-			const v = value as CalendarRange
-			if (onClickBehavior === 'set-start')
-				value = { start: { ...withTodayFallback(v.start), minute: m }, end: v.end }
-			else if (onClickBehavior === 'set-end')
-				value = { start: v.start, end: { ...withTodayFallback(v.end), minute: m } }
-		}
+	function setDay(raw: string) {
+		const d = parseInt(raw, 10)
+		if (isNaN(d)) return
+		patchTarget({ day: Math.max(1, Math.min(31, d)) })
+	}
+
+	function setMonth(raw: string) {
+		const mo = parseInt(raw, 10)
+		if (isNaN(mo)) return
+		patchTarget({ month: Math.max(1, Math.min(12, mo)) })
+	}
+
+	function setYear(raw: string) {
+		const y = parseInt(raw, 10)
+		if (isNaN(y)) return
+		patchTarget({ year: y })
 	}
 </script>
 
@@ -450,30 +454,103 @@
 
 	<!-- Time inputs -->
 	{#if showTime}
-		<div class="border-t my-3"></div>
-		<div class="mt-3 !h-8 flex border rounded-md w-fit items-center gap-0">
-			<input
-				type="text"
-				inputmode="numeric"
-				maxlength="2"
-				value={timeTarget?.hour != null ? String(timeTarget.hour).padStart(2, '0') : ''}
-				placeholder="HH"
-				onchange={(e) => setHour((e.target as HTMLInputElement).value)}
-				class="!border-none !w-8 !h-7 !px-1.5 text-right font-mono"
-				aria-label="Hour"
-			/>
-			<span class="text-sm font-medium font-mono text-secondary">:</span>
-			<input
-				type="text"
-				inputmode="numeric"
-				maxlength="2"
-				value={timeTarget?.minute != null ? String(timeTarget.minute).padStart(2, '0') : ''}
-				placeholder="MM"
-				onchange={(e) => setMinute((e.target as HTMLInputElement).value)}
-				class="!border-none !w-8 !h-7 !px-1.5 text-left font-mono"
-				aria-label="Minute"
-			/>
-			<ClockIcon size={14} class="mr-3" />
+		<div class="border-t my-4"></div>
+		<div class="flex justify-center">
+			<div class="px-2 !h-8 flex border bg-surface-secondary rounded-l-md w-fit items-center gap-0">
+				{#if usLocale}
+					<!-- MM / DD / YYYY -->
+					<input
+						type="text"
+						inputmode="numeric"
+						maxlength="2"
+						value={timeTarget?.month != null ? String(timeTarget.month).padStart(2, '0') : ''}
+						placeholder="MM"
+						onchange={(e) => setMonth((e.target as HTMLInputElement).value)}
+						style="background: transparent !important;"
+						class="!border-none !w-8 !h-7 !px-1.5 text-center font-mono"
+						aria-label="Month"
+					/>
+					<span class="text-sm font-medium font-mono text-secondary">/</span>
+					<input
+						type="text"
+						inputmode="numeric"
+						maxlength="2"
+						value={timeTarget?.day != null ? String(timeTarget.day).padStart(2, '0') : ''}
+						placeholder="DD"
+						onchange={(e) => setDay((e.target as HTMLInputElement).value)}
+						style="background: transparent !important;"
+						class="!border-none !w-8 !h-7 !px-1.5 text-center font-mono"
+						aria-label="Day"
+					/>
+				{:else}
+					<!-- DD / MM / YYYY -->
+					<input
+						type="text"
+						inputmode="numeric"
+						maxlength="2"
+						value={timeTarget?.day != null ? String(timeTarget.day).padStart(2, '0') : ''}
+						placeholder="DD"
+						onchange={(e) => setDay((e.target as HTMLInputElement).value)}
+						style="background: transparent !important;"
+						class="!border-none !w-8 !h-7 !px-1.5 text-center font-mono"
+						aria-label="Day"
+					/>
+					<span class="text-sm font-medium font-mono text-secondary">/</span>
+					<input
+						type="text"
+						inputmode="numeric"
+						maxlength="2"
+						value={timeTarget?.month != null ? String(timeTarget.month).padStart(2, '0') : ''}
+						placeholder="MM"
+						onchange={(e) => setMonth((e.target as HTMLInputElement).value)}
+						style="background: transparent !important;"
+						class="!border-none !w-8 !h-7 !px-1.5 text-center font-mono"
+						aria-label="Month"
+					/>
+				{/if}
+				<span class="text-sm font-medium font-mono text-secondary">/</span>
+				<input
+					type="text"
+					inputmode="numeric"
+					maxlength="4"
+					value={timeTarget?.year != null ? String(timeTarget.year) : ''}
+					placeholder="YYYY"
+					onchange={(e) => setYear((e.target as HTMLInputElement).value)}
+					style="background: transparent !important;"
+					class="!border-none !w-12 !h-7 !px-1.5 text-center font-mono"
+					aria-label="Year"
+				/>
+			</div>
+			<div class="pl-2 !h-8 flex border border-l-0 rounded-r-md w-fit items-center gap-0">
+				<input
+					type="text"
+					inputmode="numeric"
+					maxlength="2"
+					value={timeTarget?.hour != null ? String(timeTarget.hour).padStart(2, '0') : ''}
+					placeholder="HH"
+					onchange={(e) => {
+						const h = Math.max(0, Math.min(23, parseInt((e.target as HTMLInputElement).value, 10)))
+						if (!isNaN(h)) patchTarget({ hour: h })
+					}}
+					class="!border-none !w-8 !h-7 !px-1.5 text-right font-mono"
+					aria-label="Hour"
+				/>
+				<span class="text-sm font-medium font-mono text-secondary">:</span>
+				<input
+					type="text"
+					inputmode="numeric"
+					maxlength="2"
+					value={timeTarget?.minute != null ? String(timeTarget.minute).padStart(2, '0') : ''}
+					placeholder="MM"
+					onchange={(e) => {
+						const m = Math.max(0, Math.min(59, parseInt((e.target as HTMLInputElement).value, 10)))
+						if (!isNaN(m)) patchTarget({ minute: m })
+					}}
+					class="!border-none !w-8 !h-7 !px-1.5 text-left font-mono"
+					aria-label="Minute"
+				/>
+				<ClockIcon size={14} class="mr-3" />
+			</div>
 		</div>
 	{/if}
 </div>
