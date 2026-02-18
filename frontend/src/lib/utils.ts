@@ -2166,6 +2166,15 @@ export function assignObjInPlace(
 	for (const key in source) target[key] = source[key]
 }
 
+function isUSLocale(): boolean {
+	try {
+		const locale = Intl.DateTimeFormat().resolvedOptions().locale
+		return locale.startsWith('en-US')
+	} catch {
+		return false
+	}
+}
+
 export function formatDatePretty(date: Date): string {
 	if (!date || isNaN(date.getTime())) return ''
 
@@ -2186,9 +2195,10 @@ export function formatDatePretty(date: Date): string {
 		return String(year)
 	}
 
-	// Format month/day
-	const monthDay = `${String(month).padStart(2, '0')}/${String(day).padStart(2, '0')}`
-
+	// Format month/day depending on locale: MM/DD for US, DD/MM otherwise
+	const mm = String(month).padStart(2, '0')
+	const dd = String(day).padStart(2, '0')
+	const monthDay = isUSLocale() ? `${mm}/${dd}` : `${dd}/${mm}`
 	// Format time if present (12-hour format with AM/PM)
 	let timeStr = ''
 	if (hasTime) {
@@ -2237,23 +2247,31 @@ export function parsePrettyDate(text: string): Date | null {
 		return new Date(currentYear, now.getMonth(), now.getDate(), hours, minutes, 0)
 	}
 
-	// Try parsing MM/DD (e.g., "01/04") - assumes current year, no time
+	const usLocale = isUSLocale()
+
+	// Parse a "first/second" pair as month/day (US) or day/month (non-US)
+	function parseFirstSecond(firstStr: string, secondStr: string): { month: number; day: number } {
+		const first = parseInt(firstStr)
+		const second = parseInt(secondStr)
+		return usLocale ? { month: first - 1, day: second } : { month: second - 1, day: first }
+	}
+
+	// Try parsing NN/NN (e.g., "01/04") - assumes current year, no time
+	// US: MM/DD, non-US: DD/MM
 	const monthDayMatch = text.match(/^(\d{2})\/(\d{2})$/)
 	if (monthDayMatch) {
-		const [, monthStr, dayStr] = monthDayMatch
-		const month = parseInt(monthStr) - 1
-		const day = parseInt(dayStr)
+		const { month, day } = parseFirstSecond(monthDayMatch[1], monthDayMatch[2])
 		return new Date(currentYear, month, day, 0, 0, 0)
 	}
 
-	// Try parsing MM/DD TIME (e.g., "01/04 11:02 AM") - assumes current year with time
+	// Try parsing NN/NN TIME (e.g., "01/04 11:02 AM") - assumes current year with time
+	// US: MM/DD TIME, non-US: DD/MM TIME
 	const monthDayTimeMatch = text.match(/^(\d{2})\/(\d{2})\s+(\d{1,2}):(\d{2})\s+(AM|PM)$/i)
 	if (monthDayTimeMatch) {
-		const [, monthStr, dayStr, hourStr, minuteStr, meridiem] = monthDayTimeMatch
-		const month = parseInt(monthStr) - 1
-		const day = parseInt(dayStr)
-		let hours = parseInt(hourStr)
-		const minutes = parseInt(minuteStr)
+		const { month, day } = parseFirstSecond(monthDayTimeMatch[1], monthDayTimeMatch[2])
+		let hours = parseInt(monthDayTimeMatch[3])
+		const minutes = parseInt(monthDayTimeMatch[4])
+		const meridiem = monthDayTimeMatch[5]
 
 		if (meridiem.toUpperCase() === 'PM' && hours !== 12) hours += 12
 		if (meridiem.toUpperCase() === 'AM' && hours === 12) hours = 0
@@ -2261,25 +2279,24 @@ export function parsePrettyDate(text: string): Date | null {
 		return new Date(currentYear, month, day, hours, minutes, 0)
 	}
 
-	// Try parsing MM/DD/YYYY (e.g., "01/04/2025") - no time
+	// Try parsing NN/NN/YYYY (e.g., "01/04/2025") - no time
+	// US: MM/DD/YYYY, non-US: DD/MM/YYYY
 	const fullDateMatch = text.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
 	if (fullDateMatch) {
-		const [, monthStr, dayStr, yearStr] = fullDateMatch
-		const month = parseInt(monthStr) - 1
-		const day = parseInt(dayStr)
-		const year = parseInt(yearStr)
+		const { month, day } = parseFirstSecond(fullDateMatch[1], fullDateMatch[2])
+		const year = parseInt(fullDateMatch[3])
 		return new Date(year, month, day, 0, 0, 0)
 	}
 
-	// Try parsing MM/DD/YYYY TIME (e.g., "01/04/2025 3:00 PM")
+	// Try parsing NN/NN/YYYY TIME (e.g., "01/04/2025 3:00 PM")
+	// US: MM/DD/YYYY TIME, non-US: DD/MM/YYYY TIME
 	const fullDateTimeMatch = text.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}):(\d{2})\s+(AM|PM)$/i)
 	if (fullDateTimeMatch) {
-		const [, monthStr, dayStr, yearStr, hourStr, minuteStr, meridiem] = fullDateTimeMatch
-		const month = parseInt(monthStr) - 1
-		const day = parseInt(dayStr)
-		const year = parseInt(yearStr)
-		let hours = parseInt(hourStr)
-		const minutes = parseInt(minuteStr)
+		const { month, day } = parseFirstSecond(fullDateTimeMatch[1], fullDateTimeMatch[2])
+		const year = parseInt(fullDateTimeMatch[3])
+		let hours = parseInt(fullDateTimeMatch[4])
+		const minutes = parseInt(fullDateTimeMatch[5])
+		const meridiem = fullDateTimeMatch[6]
 
 		if (meridiem.toUpperCase() === 'PM' && hours !== 12) hours += 12
 		if (meridiem.toUpperCase() === 'AM' && hours === 12) hours = 0
