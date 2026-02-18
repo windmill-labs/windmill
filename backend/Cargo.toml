@@ -103,7 +103,7 @@ enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmi
 local_reports = ["windmill-common/local_reports"]
 enterprise_saml = ["windmill-api/enterprise_saml", "oauth2"]
 stripe = ["windmill-api/stripe"]
-benchmark = ["windmill-api/benchmark", "windmill-worker/benchmark", "windmill-queue/benchmark", "windmill-common/benchmark"]
+benchmark = ["windmill-api/benchmark", "windmill-worker/benchmark", "windmill-queue/benchmark", "windmill-common/benchmark", "windmill-api-agent-workers?/benchmark"]
 embedding = ["windmill-api/embedding"]
 parquet = ["windmill-api/parquet", "windmill-common/parquet", "windmill-object-store/parquet", "windmill-worker/parquet"]
 prometheus = ["windmill-common/prometheus", "windmill-api/prometheus", "windmill-worker/prometheus", "windmill-queue/prometheus", "dep:prometheus"]
@@ -479,7 +479,7 @@ bit-vec = "=0.6.3"
 mappable-rc = "^0"
 mysql_async = { version = "*", default-features = false, features = ["minimal", "default", "native-tls-tls", "rust_decimal"]}
 postgres-native-tls = "^0"
-native-tls = "^0"
+native-tls = ">=0.2, <0.2.17"
 # samael will break compilation on MacOS. Use this fork instead to make it work
 # samael = { git="https://github.com/njaremko/samael", rev="464d015e3ae393e4b5dd00b4d6baa1b617de0dd6", features = ["xmlsec"] }
 libxml = { version = "=0.3.3" }

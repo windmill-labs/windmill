@@ -13,7 +13,7 @@ default = []
 enterprise = ["windmill-common/enterprise", "windmill-queue/enterprise"]
 private = ["windmill-common/private", "windmill-queue/private"]
 python = ["dep:windmill-parser-py-imports"]
-benchmark = []
+benchmark = ["windmill-queue/benchmark"]
 
 [dependencies]
 windmill-api-auth.workspace = true
