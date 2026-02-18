@@ -1,6 +1,7 @@
 <script lang="ts" module>
 	import { z } from 'zod'
 	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
+	import { formatDatePretty, parsePrettyDate, type IconType } from '$lib/utils'
 
 	export type FilterSchemaRec = Record<string, FilterSchema>
 	export type FilterSchema = (
@@ -166,19 +167,68 @@
 		}
 		return null
 	}
+
+	export type FilterValidationError = { fields: string[]; error: string }
+
+	/**
+	 * Validates a filter instance against its schema.
+	 * Returns a list of validation errors, each with the affected fields and an error message.
+	 */
+	export function validateFilterInstance<T extends FilterSchemaRec>(
+		schemaRec: T,
+		instance: Partial<FilterInstanceRec<T>>
+	): FilterValidationError[] {
+		const errors: FilterValidationError[] = []
+
+		for (const [key, rawValue] of Object.entries(instance)) {
+			if (rawValue === null || rawValue === undefined) continue
+			const schema = schemaRec[key]
+			if (!schema) continue
+
+			if (schema.type === 'date') {
+				if (!((rawValue as any) instanceof Date) || isNaN(rawValue.getTime())) {
+					errors.push({ fields: [key], error: `Invalid date format` })
+				}
+			} else if (schema.type === 'oneof') {
+				const strValue = String(rawValue)
+				const elements = schema.allowMultiple ? strValue.split(',') : [strValue]
+				const validValues = schema.options.map((o) => o.value)
+
+				if (schema.allowMultiple && schema.allowNegative) {
+					const hasPositive = elements.some((v) => !v.startsWith('!'))
+					const hasNegative = elements.some((v) => v.startsWith('!'))
+					if (hasPositive && hasNegative) {
+						errors.push({
+							fields: [key],
+							error: `Cannot mix positive and negative values`
+						})
+						continue
+					}
+				}
+
+				if (!schema.allowCustomValue) {
+					const invalid = elements
+						.map((v) => v.replace(/^!/, ''))
+						.filter((v) => v !== '' && !validValues.includes(v))
+					if (invalid.length > 0) {
+						errors.push({
+							fields: [key],
+							error: `Invalid value${invalid.length > 1 ? 's' : ''}: ${invalid.join(', ')}`
+						})
+					}
+				}
+			}
+		}
+
+		return errors
+	}
 </script>
 
 <script lang="ts">
 	import { twMerge } from 'tailwind-merge'
 	import { inputBaseClass, inputBorderClass, inputSizeClasses } from './text_input/TextInput.svelte'
 	import { MinusIcon, SearchIcon } from 'lucide-svelte'
-	import {
-		assignObjInPlace,
-		clone,
-		formatDatePretty,
-		parsePrettyDate,
-		type IconType
-	} from '$lib/utils'
+	import { assignObjInPlace, clone } from '$lib/utils'
 	import GenericDropdown from './select/GenericDropdown.svelte'
 	import DateTimeInput from './DateTimeInput.svelte'
 	import TaggedTextInput from './TaggedTextInput.svelte'
