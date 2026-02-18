@@ -55,6 +55,14 @@
 	let version: string = $state('')
 	let loading = $state(true)
 
+	export function getVersion(): string {
+		return version
+	}
+
+	export function getLicenseKey(): string {
+		return $values?.['license_key'] ?? ''
+	}
+
 	loadSettings()
 	loadVersion()
 
@@ -1031,12 +1039,24 @@
 							: undefined}
 					/>
 				{/if}
+				{#if quickSetup && category === 'Core' && setting.key === 'base_url'}
+					{@const licenseKeySetting = settings['Core'].find((s) => s.key === 'license_key')}
+					{#if licenseKeySetting}
+						<InstanceSetting
+							{openSmtpSettings}
+							on:closeDrawer={() => closeDrawer?.()}
+							{loading}
+							setting={licenseKeySetting}
+							{values}
+							{version}
+							{oauths}
+						/>
+					{/if}
+				{/if}
 			{/each}
 			{#if quickSetup && category === 'Core'}
-				{@const licenseKeySetting = settings['Core'].find((s) => s.key === 'license_key')}
 				{@const extraSettings = [
 					...settings['Jobs'].filter((s) => s.key === 'job_isolation'),
-					...(licenseKeySetting ? [licenseKeySetting] : []),
 					...settings['Jobs'].filter((s) => s.key === 'retention_period_secs'),
 					...(settings['Object Storage']?.filter((s) => s.key === 'object_store_cache_config') ??
 						[])

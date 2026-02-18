@@ -9,17 +9,22 @@
 		setupNavigationGroups,
 		tabToCategoryMap,
 		tabToAuthSubTab,
-		categoryToTabMap
+		categoryToTabMap,
+		buildSearchableSettingItems,
+		type SearchableSettingItem
 	} from '$lib/components/instanceSettings'
+	import SettingsSearchInput from '$lib/components/instanceSettings/SettingsSearchInput.svelte'
 	import Breadcrumb from '$lib/components/common/breadcrumb/Breadcrumb.svelte'
 	import { ChevronRight, ArrowLeft } from 'lucide-svelte'
 	import { superadmin } from '$lib/stores'
+	import { onDestroy, tick } from 'svelte'
 	import { UserService, JobService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
 	import SettingCard from '$lib/components/instanceSettings/SettingCard.svelte'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 
 	const settingsSteps = [
 		{ id: 'Core', label: 'Core' },
@@ -123,6 +128,20 @@
 	let passwordValid = $derived(newPassword.length >= 2)
 	let accountFormValid = $derived(emailValid && passwordValid)
 
+	// --- EE license key warning ---
+	let showLicenseKeyWarning = $state(false)
+	let pendingNextCallback: (() => void) | undefined = $state(undefined)
+
+	function isEeImage(): boolean {
+		const v = instanceSettings?.getVersion() ?? ''
+		return v.startsWith('EE')
+	}
+
+	function isLicenseKeyEmpty(): boolean {
+		const key = instanceSettings?.getLicenseKey() ?? ''
+		return key.trim() === ''
+	}
+
 	// --- Full settings mode state ---
 	let fullTab = $state('general')
 	let instanceSettingsCategory = $derived(tabToCategoryMap[fullTab] ?? 'Core')
@@ -132,6 +151,44 @@
 	function handleNavigate(newTab: string) {
 		if (newTab === fullTab) return
 		fullTab = newTab
+	}
+
+	// --- Settings search (full mode) ---
+	const searchableItems = buildSearchableSettingItems(setupNavigationGroups)
+
+	let scrollTimeout: ReturnType<typeof setTimeout> | undefined
+	let highlightTimeout: ReturnType<typeof setTimeout> | undefined
+
+	async function handleSearchSelect(item: SearchableSettingItem) {
+		handleNavigate(item.tabId)
+		if (item.settingKey) {
+			clearTimeout(scrollTimeout)
+			clearTimeout(highlightTimeout)
+			await tick()
+			scrollTimeout = setTimeout(() => {
+				const el = document.querySelector(`[data-setting-key="${item.settingKey}"]`)
+				if (el) {
+					el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+					el.classList.add('setting-highlight')
+					highlightTimeout = setTimeout(() => el.classList.remove('setting-highlight'), 2500)
+				}
+			}, 100)
+		}
+	}
+
+	onDestroy(() => {
+		clearTimeout(scrollTimeout)
+		clearTimeout(highlightTimeout)
+	})
+
+	/** Check if we need to warn about missing EE license key before proceeding */
+	function proceedFromCore(callback: () => void) {
+		if (wizardStep === 0 && isEeImage() && isLicenseKeyEmpty()) {
+			pendingNextCallback = callback
+			showLicenseKeyWarning = true
+			return
+		}
+		saveAndProceed(callback)
 	}
 
 	/** Auto-save dirty settings, then run the callback */
@@ -384,9 +441,10 @@
 			</div>
 
 			<!-- Sidebar + Content -->
-			<div class="flex flex-1 min-h-0 pt-4">
+			<div class="flex flex-1 min-h-0 pt-2">
 				{#if !yamlMode}
 					<div class="w-44 shrink-0 overflow-auto pb-4 pr-4">
+						<SettingsSearchInput {searchableItems} onSelect={handleSearchSelect} class="mb-3" />
 						<SidebarNavigation
 							groups={setupNavigationGroups}
 							selectedId={fullTab}
@@ -443,7 +501,7 @@
 						<Button
 							variant="accent"
 							unifiedSize="md"
-							onClick={() => saveAndProceed(() => (wizardStep += 1))}
+							onClick={() => proceedFromCore(() => (wizardStep += 1))}
 						>
 							{currentStepDirty ? 'Save & Next' : 'Next'}
 						</Button>
@@ -489,3 +547,28 @@
 		</div>
 	</div>
 </CenteredModal>
+
+{#if showLicenseKeyWarning}
+	<ConfirmationModal
+		open={showLicenseKeyWarning}
+		title="License key required"
+		confirmationText="Continue without license key"
+		on:canceled={() => {
+			showLicenseKeyWarning = false
+			pendingNextCallback = undefined
+		}}
+		on:confirmed={() => {
+			showLicenseKeyWarning = false
+			const cb = pendingNextCallback
+			pendingNextCallback = undefined
+			if (cb) saveAndProceed(cb)
+		}}
+	>
+		<div class="flex flex-col w-full space-y-4">
+			<span>
+				You are running the Enterprise Edition image but have not entered a license key. A valid
+				license key is required to use EE features. Are you sure you want to continue without one?
+			</span>
+		</div>
+	</ConfirmationModal>
+{/if}

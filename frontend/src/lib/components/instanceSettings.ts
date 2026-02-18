@@ -321,7 +321,7 @@ export const settings: Record<string, Setting[]> = {
 	],
 	SMTP: [
 		{
-			label: 'SMTP',
+			label: 'SMTP configuration',
 			key: 'smtp_settings',
 			fieldType: 'smtp_connect',
 			storage: 'setting',
@@ -781,4 +781,85 @@ export const categoryToTabMap: Record<string, string> = {
 	'Object Storage': 'object_storage',
 	Jobs: 'jobs',
 	'Private Hub': 'private_hub'
+}
+
+export interface SearchableSettingItem {
+	label: string
+	tabId: string
+	settingKey?: string
+	category: string
+	/** Full description text (HTML stripped), used for search matching only — not displayed */
+	description?: string
+}
+
+/**
+ * Extract the label portion from a uFuzzy marked/highlighted string.
+ * Only allows `<mark>` and `</mark>` tags through (sanitizes everything else).
+ */
+export function extractMarkedLabel(marked: string | undefined, labelLength: number): string {
+	if (!marked) return ''
+	let plainIdx = 0
+	let markedIdx = 0
+	while (plainIdx < labelLength && markedIdx < marked.length) {
+		if (marked[markedIdx] === '<') {
+			while (markedIdx < marked.length && marked[markedIdx] !== '>') markedIdx++
+			markedIdx++
+		} else {
+			plainIdx++
+			markedIdx++
+		}
+	}
+	// Include any closing </mark> right after
+	if (marked.startsWith('</mark>', markedIdx)) {
+		markedIdx += '</mark>'.length
+	}
+	// Sanitize: only allow <mark> and </mark> tags from uFuzzy highlight
+	return marked.slice(0, markedIdx).replace(/<(?!\/?mark>)[^>]*>/g, '')
+}
+
+export function buildSearchableSettingItems(
+	navigationGroups: typeof instanceSettingsNavigationGroups = instanceSettingsNavigationGroups
+): SearchableSettingItem[] {
+	const items: SearchableSettingItem[] = []
+
+	// Add sidebar navigation items (tab-level)
+	for (const group of navigationGroups) {
+		for (const navItem of group.items) {
+			items.push({
+				label: navItem.label,
+				tabId: navItem.id,
+				category: group.title
+			})
+		}
+	}
+
+	// Add individual settings from each category
+	for (const [category, categorySettings] of Object.entries(settings)) {
+		const tabId = categoryToTabMap[category]
+		if (!tabId) continue
+		for (const setting of categorySettings) {
+			if (!setting.label) continue
+			items.push({
+				label: setting.label,
+				tabId,
+				settingKey: setting.key,
+				category,
+				description: setting.description?.replace(/<[^>]*>/g, '') ?? ''
+			})
+		}
+	}
+
+	// Add SCIM/SAML settings
+	for (const setting of scimSamlSetting) {
+		if (!setting.label) continue
+		items.push({
+			label: setting.label,
+			tabId: 'scim_saml',
+			settingKey: setting.key,
+			category: 'SCIM/SAML',
+			description: setting.description?.replace(/<[^>]*>/g, '') ?? ''
+		})
+	}
+
+	return items
 }
