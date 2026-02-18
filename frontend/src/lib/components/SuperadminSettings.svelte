@@ -5,7 +5,9 @@
 	import MeltTooltip from './meltComponents/Tooltip.svelte'
 	import Toggle from './Toggle.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
-	import { X, FileDiff, Save, Loader2 } from 'lucide-svelte'
+	import SaveButton from './SaveButton.svelte'
+	import { X, FileDiff } from 'lucide-svelte'
+	import { fade } from 'svelte/transition'
 	import { SettingsService } from '$lib/gen'
 	import { isCloudHosted } from '$lib/cloud'
 
@@ -22,7 +24,6 @@
 	let diffMode = $state(false)
 	let hasUnsavedChanges = $state(false)
 	let pendingSave = $state(false)
-	let isSaving = $state(false)
 	let showCloseConfirmModal = $state(false)
 
 	async function loadUptodate() {
@@ -65,23 +66,18 @@
 		bypassCloseCheck = false
 	}
 
-	async function handleSave() {
+	function handleSave(): void | Promise<void> {
 		if (!pendingSave) {
 			if (!innerComponent?.syncBeforeDiff()) return
 			diffMode = true
 			pendingSave = true
 			return
 		}
-		isSaving = true
-		try {
+		return (async () => {
 			await innerComponent?.saveSettings()
 			diffMode = false
 			pendingSave = false
-		} catch (e) {
-			console.error('Save failed:', e)
-		} finally {
-			isSaving = false
-		}
+		})()
 	}
 
 	function handleDiscard() {
@@ -124,41 +120,41 @@
 		{/snippet}
 		{#snippet actions()}
 			<div class="flex items-center gap-2">
-				<Button
-					variant="default"
-					size="xs"
-					startIcon={{ icon: X }}
-					onClick={handleDiscard}
-					disabled={!hasUnsavedChanges || isSaving}
-				>
-					Discard
-				</Button>
-				<Button
-					variant={diffMode ? 'accent' : 'default'}
-					size="xs"
-					startIcon={{ icon: FileDiff }}
-					onClick={handleShowDiff}
-					disabled={!hasUnsavedChanges}
-				>
-					{diffMode ? 'Hide diff' : 'Show diff'}
-				</Button>
+				{#if hasUnsavedChanges}
+					<div transition:fade={{ duration: 150 }}>
+						<Button
+							variant="default"
+							size="xs"
+							startIcon={{ icon: X }}
+							onClick={handleDiscard}
+						>
+							Discard
+						</Button>
+					</div>
+				{/if}
+				{#if hasUnsavedChanges}
+					<div transition:fade={{ duration: 150 }}>
+						<Button
+							variant={diffMode ? 'accent' : 'default'}
+							size="xs"
+							startIcon={{ icon: FileDiff }}
+							onClick={handleShowDiff}
+						>
+							{diffMode ? 'Hide diff' : 'Show diff'}
+						</Button>
+					</div>
+				{/if}
 				<Toggle
 					bind:checked={yamlMode}
 					options={{ right: 'YAML' }}
 					size="sm"
 				/>
-				<Button
-					variant="accent"
+				<SaveButton
+					onSave={handleSave}
+					disabled={!hasUnsavedChanges}
+					label={pendingSave ? 'Confirm & Save' : 'Save settings'}
 					size="xs"
-					startIcon={{
-						icon: isSaving ? Loader2 : Save,
-						classes: isSaving ? 'animate-spin' : ''
-					}}
-					disabled={!hasUnsavedChanges || isSaving}
-					onClick={handleSave}
-				>
-					{isSaving ? 'Saving...' : pendingSave ? 'Confirm & Save' : 'Save settings'}
-				</Button>
+				/>
 			</div>
 		{/snippet}
 		<SuperadminSettingsInner
