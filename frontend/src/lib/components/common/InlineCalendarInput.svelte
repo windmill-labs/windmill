@@ -111,18 +111,18 @@
 
 	// Month names for selector
 	const MONTH_NAMES = [
-		'Jan',
-		'Feb',
-		'Mar',
-		'Apr',
+		'January',
+		'February',
+		'March',
+		'April',
 		'May',
-		'Jun',
-		'Jul',
-		'Aug',
-		'Sep',
-		'Oct',
-		'Nov',
-		'Dec'
+		'June',
+		'July',
+		'August',
+		'September',
+		'October',
+		'November',
+		'December'
 	]
 
 	const DAY_LABELS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
@@ -238,19 +238,31 @@
 		year: number
 		isCurrentMonth: boolean
 	}) {
-		const cd: CalendarDate = { day: cell.day, month: cell.month, year: cell.year, hour: null, minute: null }
+		const cd: CalendarDate = {
+			day: cell.day,
+			month: cell.month,
+			year: cell.year,
+			hour: null,
+			minute: null
+		}
 
 		if (mode === 'date') {
 			const v = value as CalendarDate | undefined
-			value = isSameCalDate(cd, v ?? null) ? emptyDate : { ...cd, hour: v?.hour ?? null, minute: v?.minute ?? null }
+			value = isSameCalDate(cd, v ?? null)
+				? emptyDate
+				: { ...cd, hour: v?.hour ?? null, minute: v?.minute ?? null }
 		} else {
 			const v = value as CalendarRange | undefined
 
 			if (onClickBehavior === 'set-start') {
-				const newStart = isSameCalDate(cd, v?.start ?? null) ? emptyDate : { ...cd, hour: v?.start?.hour ?? null, minute: v?.start?.minute ?? null }
+				const newStart = isSameCalDate(cd, v?.start ?? null)
+					? emptyDate
+					: { ...cd, hour: v?.start?.hour ?? null, minute: v?.start?.minute ?? null }
 				value = { start: newStart, end: v?.end ?? emptyDate }
 			} else if (onClickBehavior === 'set-end') {
-				const newEnd = isSameCalDate(cd, v?.end ?? null) ? emptyDate : { ...cd, hour: v?.end?.hour ?? null, minute: v?.end?.minute ?? null }
+				const newEnd = isSameCalDate(cd, v?.end ?? null)
+					? emptyDate
+					: { ...cd, hour: v?.end?.hour ?? null, minute: v?.end?.minute ?? null }
 				value = { start: v?.start ?? emptyDate, end: newEnd }
 			} else {
 				// 'set-range': two-click flow
@@ -322,15 +334,29 @@
 
 	const showTime = $derived(timeTarget !== null)
 
+	// Returns the base CalendarDate to mutate, falling back to today if no date selected yet
+	function withTodayFallback(cd: CalendarDate): CalendarDate {
+		if (cd.day != null && cd.month != null && cd.year != null) return cd
+		const t = new Date()
+		return {
+			...cd,
+			day: cd.day ?? t.getDate(),
+			month: cd.month ?? t.getMonth() + 1,
+			year: cd.year ?? t.getFullYear()
+		}
+	}
+
 	function setHour(raw: string) {
 		const h = Math.max(0, Math.min(23, parseInt(raw, 10)))
 		if (isNaN(h)) return
 		if (mode === 'date') {
-			value = { ...(value as CalendarDate), hour: h }
+			value = { ...withTodayFallback(value as CalendarDate), hour: h }
 		} else {
 			const v = value as CalendarRange
-			if (onClickBehavior === 'set-start') value = { start: { ...v.start, hour: h }, end: v.end }
-			else if (onClickBehavior === 'set-end') value = { start: v.start, end: { ...v.end, hour: h } }
+			if (onClickBehavior === 'set-start')
+				value = { start: { ...withTodayFallback(v.start), hour: h }, end: v.end }
+			else if (onClickBehavior === 'set-end')
+				value = { start: v.start, end: { ...withTodayFallback(v.end), hour: h } }
 		}
 	}
 
@@ -338,11 +364,13 @@
 		const m = Math.max(0, Math.min(59, parseInt(raw, 10)))
 		if (isNaN(m)) return
 		if (mode === 'date') {
-			value = { ...(value as CalendarDate), minute: m }
+			value = { ...withTodayFallback(value as CalendarDate), minute: m }
 		} else {
 			const v = value as CalendarRange
-			if (onClickBehavior === 'set-start') value = { start: { ...v.start, minute: m }, end: v.end }
-			else if (onClickBehavior === 'set-end') value = { start: v.start, end: { ...v.end, minute: m } }
+			if (onClickBehavior === 'set-start')
+				value = { start: { ...withTodayFallback(v.start), minute: m }, end: v.end }
+			else if (onClickBehavior === 'set-end')
+				value = { start: v.start, end: { ...withTodayFallback(v.end), minute: m } }
 		}
 	}
 </script>
@@ -475,7 +503,7 @@
 
 	<!-- Time inputs -->
 	{#if showTime}
-		<div class="mt-3 flex items-center justify-center gap-1 border-t border-surface-secondary pt-3">
+		<div class="mt-3 flex border rounded-md w-fit items-center gap-0">
 			<input
 				type="text"
 				inputmode="numeric"
@@ -483,10 +511,10 @@
 				value={timeTarget?.hour != null ? String(timeTarget.hour).padStart(2, '0') : ''}
 				placeholder="HH"
 				onchange={(e) => setHour((e.target as HTMLInputElement).value)}
-				class="w-12 rounded border border-surface-secondary bg-surface px-1.5 py-1 text-center text-sm text-primary focus:outline-none focus:ring-1 focus:ring-frost-400"
+				class="!border-none !w-8 !px-1.5 text-right font-mono"
 				aria-label="Hour"
 			/>
-			<span class="text-sm font-medium text-secondary">:</span>
+			<span class="text-sm font-medium font-mono text-secondary">:</span>
 			<input
 				type="text"
 				inputmode="numeric"
@@ -494,9 +522,10 @@
 				value={timeTarget?.minute != null ? String(timeTarget.minute).padStart(2, '0') : ''}
 				placeholder="MM"
 				onchange={(e) => setMinute((e.target as HTMLInputElement).value)}
-				class="w-12 rounded border border-surface-secondary bg-surface px-1.5 py-1 text-center text-sm text-primary focus:outline-none focus:ring-1 focus:ring-frost-400"
+				class="!border-none !w-8 !px-1.5 text-left font-mono"
 				aria-label="Minute"
 			/>
+			<div class="flex-1"></div>
 		</div>
 	{/if}
 </div>
