@@ -163,10 +163,11 @@
 		const div = document.createElement('div')
 		div.textContent = text
 		let html = div.innerHTML
-		html = html.replace(/\\./g, (match) => {
+		html = html.replace(/\\(n|r|.)/g, (match, c) => {
+			const display = c === 'n' ? '↵' : c === 'r' ? '↵' : c
 			return (
 				'<span style="display: inline; width: 0; height: 0; overflow: hidden; position: absolute;">\\</span>' +
-				match[1]
+				display
 			)
 		})
 		return html
@@ -194,6 +195,16 @@
 			const cleanedText = newText.replace(/\\\./g, '')
 			const removedCount = (newText.length - cleanedText.length) / 2 // Each "\." is 2 chars
 			applyTextUpdate(cleanedText, cursorPos - removedCount * 2)
+			return
+		}
+
+		// Escape any literal newlines (e.g. from Shift+Enter or IME input)
+		if (newText.includes('\n') || newText.includes('\r')) {
+			const before = newText.slice(0, cursorPos)
+			const newlinesBefore = (before.match(/[\n\r]/g) || []).length
+			const cleanedText = newText.replace(/\r\n/g, '\\n').replace(/[\n\r]/g, '\\n')
+			// Each newline becomes 2 chars (\n), so cursor shifts by +1 per newline before it
+			applyTextUpdate(cleanedText, cursorPos + newlinesBefore)
 			return
 		}
 
@@ -472,8 +483,12 @@
 	function handlePaste(e: ClipboardEvent) {
 		e.preventDefault()
 		let text = e.clipboardData?.getData('text/plain') || ''
-		// Escape slashes and spaces
-		text = text.replace(/\\/g, '\\\\').replace(/ /g, '\\ ')
+		// Escape backslashes, spaces, and newlines
+		text = text
+			.replace(/\\/g, '\\\\')
+			.replace(/ /g, '\\ ')
+			.replace(/\r\n/g, '\\n')
+			.replace(/[\n\r]/g, '\\n')
 		document.execCommand('insertText', false, text)
 	}
 

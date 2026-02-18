@@ -385,7 +385,11 @@
 			let [_, key, val] = match
 			if (key in schema) {
 				val ??= ''
-				val = val.replace(/\\(.)/g, '$1') // Unescape escaped characters
+				val = val.replace(/\\(.)/g, (_: string, c: string) => {
+					if (c === 'n') return '\n'
+					if (c === 'r') return '\r'
+					return c
+				}) // Unescape escaped characters
 				val = val.trim()
 				parsed[key] = textToFilter(val, schema[key]) as any
 			}
@@ -397,7 +401,10 @@
 		return (
 			Object.entries(v)
 				.map(([key, val]) =>
-					`${key}: ${filterToText(val as any, schema[key])}`.replace(/ /g, '\\ ')
+					`${key}: ${filterToText(val as any, schema[key])}`
+						.replace(/ /g, '\\ ')
+						.replace(/\n/g, '\\n')
+						.replace(/\r/g, '\\r')
 				)
 				.join(' ') + '\u00A0'
 		)
@@ -605,6 +612,7 @@
 	{:else if filter.type === 'string' && filter.format === 'json'}
 		<div class="px-2 pb-2">
 			<SimpleEditor
+				autofocus={String(value[currentTag!] ?? '').length === 0}
 				lang="json"
 				autoHeight
 				small
