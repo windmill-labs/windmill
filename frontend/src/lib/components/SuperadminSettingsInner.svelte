@@ -17,8 +17,10 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { ExternalLink, Pencil, UserMinus, UserPlus } from 'lucide-svelte'
+	import { ExternalLink, Pencil, Search, UserMinus, UserPlus } from 'lucide-svelte'
 	import DropdownV2 from './DropdownV2.svelte'
+	import SelectDropdown from './select/SelectDropdown.svelte'
+	import type { ProcessedItem } from './select/utils.svelte'
 	import Popover from './meltComponents/Popover.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import ChangeInstanceUsername from './ChangeInstanceUsername.svelte'
@@ -32,7 +34,9 @@
 		instanceSettingsNavigationGroups,
 		tabToCategoryMap,
 		tabToAuthSubTab,
-		categoryToTabMap
+		categoryToTabMap,
+		buildSearchableSettingItems,
+		type SearchableSettingItem
 	} from './instanceSettings'
 	import TextInput from './text_input/TextInput.svelte'
 	import SettingsPageHeader from './settings/SettingsPageHeader.svelte'
@@ -138,6 +142,43 @@
 	export function syncBeforeDiff(): boolean {
 		return instanceSettings?.syncBeforeDiff() ?? true
 	}
+
+	// --- Settings search ---
+	const searchableItems = buildSearchableSettingItems()
+	let settingsSearchFilter = $state('')
+	let filteredSearchItems: (SearchableSettingItem & { marked: string })[] = $state([])
+	let searchDropdownOpen = $state(false)
+	let searchInputEl: HTMLDivElement | undefined = $state()
+
+	$effect(() => {
+		searchDropdownOpen = settingsSearchFilter.trim().length > 0 && filteredSearchItems.length > 0
+	})
+
+	let searchProcessedItems: ProcessedItem<SearchableSettingItem & { marked: string }>[] = $derived(
+		filteredSearchItems.map((item) => ({
+			label: item.label,
+			value: item,
+			subtitle: item.category
+		}))
+	)
+
+	async function handleSearchSelect(item: SearchableSettingItem) {
+		settingsSearchFilter = ''
+		searchDropdownOpen = false
+		handleNavigate(item.tabId)
+		if (item.settingKey) {
+			const { tick } = await import('svelte')
+			await tick()
+			setTimeout(() => {
+				const el = document.querySelector(`[data-setting-key="${item.settingKey}"]`)
+				if (el) {
+					el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+					el.classList.add('ring-2', 'ring-blue-500')
+					setTimeout(() => el.classList.remove('ring-2', 'ring-blue-500'), 1500)
+				}
+			}, 100)
+		}
+	}
 </script>
 
 <SearchItems
@@ -145,6 +186,13 @@
 	items={users}
 	bind:filteredItems={filteredUsers}
 	f={(x) => x.email + ' ' + x.name + ' ' + x.company}
+/>
+
+<SearchItems
+	filter={settingsSearchFilter}
+	items={searchableItems}
+	bind:filteredItems={filteredSearchItems}
+	f={(x) => x.label + ' ' + (x.description ?? '') + ' ' + x.category}
 />
 
 <div class="flex flex-col h-full w-full">
@@ -174,6 +222,31 @@
 		{#if !yamlMode && !diffMode}
 			<!-- Sidebar Navigation -->
 			<div class="w-52 shrink-0 h-full overflow-auto p-4 bg-surface flex flex-col">
+				<div class="mb-3 relative">
+					<div bind:this={searchInputEl} class="relative w-full">
+						<Search class="absolute left-2 top-1/2 -translate-y-1/2 text-tertiary" size={14} />
+						<TextInput
+							inputProps={{ placeholder: 'Search settings...' }}
+							bind:value={settingsSearchFilter}
+							class="pl-7 text-xs w-full"
+						/>
+					</div>
+					<SelectDropdown
+						processedItems={searchProcessedItems}
+						value={undefined}
+						open={searchDropdownOpen}
+						disablePortal
+						itemLabelWrapperClasses="hidden"
+						itemButtonWrapperClasses="overflow-hidden"
+						getInputRect={searchInputEl ? () => searchInputEl!.getBoundingClientRect() : undefined}
+						onSelectValue={(item) => handleSearchSelect(item.value)}
+						class="max-w-40"
+					>
+						{#snippet startSnippet({ item })}
+							<span class="text-xs">{@html item.value.marked}</span>
+						{/snippet}
+					</SelectDropdown>
+				</div>
 				<SidebarNavigation
 					groups={instanceSettingsNavigationGroups}
 					selectedId={tab}

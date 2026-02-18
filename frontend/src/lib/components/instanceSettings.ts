@@ -782,3 +782,56 @@ export const categoryToTabMap: Record<string, string> = {
 	Jobs: 'jobs',
 	'Private Hub': 'private_hub'
 }
+
+export interface SearchableSettingItem {
+	label: string
+	tabId: string
+	settingKey?: string
+	category: string
+	description?: string
+}
+
+export function buildSearchableSettingItems(): SearchableSettingItem[] {
+	const items: SearchableSettingItem[] = []
+
+	// Add sidebar navigation items (tab-level)
+	for (const group of instanceSettingsNavigationGroups) {
+		for (const navItem of group.items) {
+			items.push({
+				label: navItem.label,
+				tabId: navItem.id,
+				category: group.title
+			})
+		}
+	}
+
+	// Add individual settings from each category
+	for (const [category, categorySettings] of Object.entries(settings)) {
+		const tabId = categoryToTabMap[category]
+		if (!tabId) continue
+		for (const setting of categorySettings) {
+			if (!setting.label) continue
+			items.push({
+				label: setting.label,
+				tabId,
+				settingKey: setting.key,
+				category,
+				description: setting.description?.replace(/<[^>]*>/g, '')
+			})
+		}
+	}
+
+	// Add SCIM/SAML settings
+	for (const setting of scimSamlSetting) {
+		if (!setting.label) continue
+		items.push({
+			label: setting.label,
+			tabId: 'scim_saml',
+			settingKey: setting.key,
+			category: 'SCIM/SAML',
+			description: setting.description?.replace(/<[^>]*>/g, '')
+		})
+	}
+
+	return items
+}
