@@ -490,41 +490,41 @@
 				{/if}
 			</div>
 
-			<!-- Full mode content (scrollable) -->
-			<div class="flex-1 overflow-auto min-h-0 pt-4">
-				{#if fullStep === 0}
-					<div class="flex flex-1 min-h-0 pt-2">
-						{#if !yamlMode}
-							<div class="w-44 shrink-0 overflow-auto pb-4 pr-4">
-								<SettingsSearchInput {searchableItems} onSelect={handleSearchSelect} class="mb-3" />
-								<SidebarNavigation
-									groups={setupNavigationGroups}
-									selectedId={fullTab}
-									onNavigate={handleNavigate}
-								/>
-							</div>
-						{/if}
-
-						<div class="flex-1 min-w-0 overflow-auto px-4">
-							<InstanceSettings
-								bind:this={instanceSettings}
-								hideTabs
-								tab={instanceSettingsCategory}
-								{authSubTab}
-								bind:yamlMode
-								onNavigateToTab={(category) => {
-									const targetTab = categoryToTabMap[category]
-									if (targetTab) {
-										handleNavigate(targetTab)
-									}
-								}}
+			<!-- Full mode content -->
+			{#if fullStep === 0}
+				<div class="flex flex-1 min-h-0 pt-4">
+					{#if !yamlMode}
+						<div class="w-44 shrink-0 h-full overflow-auto pb-4 pr-4">
+							<SettingsSearchInput {searchableItems} onSelect={handleSearchSelect} class="mb-3" />
+							<SidebarNavigation
+								groups={setupNavigationGroups}
+								selectedId={fullTab}
+								onNavigate={handleNavigate}
 							/>
 						</div>
+					{/if}
+
+					<div class="flex-1 min-w-0 h-full overflow-auto px-4">
+						<InstanceSettings
+							bind:this={instanceSettings}
+							hideTabs
+							tab={instanceSettingsCategory}
+							{authSubTab}
+							bind:yamlMode
+							onNavigateToTab={(category) => {
+								const targetTab = categoryToTabMap[category]
+								if (targetTab) {
+									handleNavigate(targetTab)
+								}
+							}}
+						/>
 					</div>
-				{:else}
+				</div>
+			{:else}
+				<div class="flex-1 overflow-auto min-h-0 pt-4">
 					{@render accountSetupContent()}
-				{/if}
-			</div>
+				</div>
+			{/if}
 		{/if}
 
 		<!-- Navigation (pinned bottom) -->
