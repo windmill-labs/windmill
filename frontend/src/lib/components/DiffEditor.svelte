@@ -169,12 +169,6 @@
 		open = false
 	}
 
-	function onWidthChange(editorWidth: number) {
-		diffEditor?.updateOptions({
-			renderSideBySide: inlineDiff ? false : editorWidth >= SIDE_BY_SIDE_MIN_WIDTH
-		})
-	}
-
 	$effect(() => {
 		if (open && diffDivEl) {
 			loadDiffEditor()
@@ -182,7 +176,11 @@
 	})
 
 	$effect(() => {
-		onWidthChange(editorWidth)
+		if (diffEditor) {
+			diffEditor.updateOptions({
+				renderSideBySide: inlineDiff ? false : editorWidth >= SIDE_BY_SIDE_MIN_WIDTH
+			})
+		}
 	})
 
 	onMount(() => {

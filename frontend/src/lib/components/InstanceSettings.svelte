@@ -30,7 +30,6 @@
 		onNavigateToTab?: (category: string) => void
 		quickSetup?: boolean
 		yamlMode?: boolean
-		diffMode?: boolean
 		hasUnsavedChanges?: boolean
 	}
 
@@ -42,7 +41,6 @@
 		onNavigateToTab,
 		quickSetup = false,
 		yamlMode = $bindable(false),
-		diffMode = $bindable(false),
 		hasUnsavedChanges = $bindable(false)
 	}: Props = $props()
 
@@ -86,7 +84,8 @@
 	function applyFormDefaults(vals: Record<string, any>): void {
 		for (const [key, defaultVal] of Object.entries(formDefaults)) {
 			if (vals[key] == undefined) {
-				vals[key] = typeof defaultVal === 'object' ? JSON.parse(JSON.stringify(defaultVal)) : defaultVal
+				vals[key] =
+					typeof defaultVal === 'object' ? JSON.parse(JSON.stringify(defaultVal)) : defaultVal
 			}
 		}
 	}
@@ -110,6 +109,19 @@
 			nvalues['retention_period_secs'] = 60 * 60 * 24 * 30
 		}
 		applyFormDefaults(nvalues)
+
+		// Apply select/select_python defaults so initialValues matches what InstanceSetting's $effect does
+		for (const category of settingsKeys) {
+			for (const s of settings[category]) {
+				if (
+					(s.fieldType === 'select' || s.fieldType === 'select_python') &&
+					nvalues[s.key] == undefined &&
+					s.defaultValue
+				) {
+					nvalues[s.key] = s.defaultValue()
+				}
+			}
+		}
 
 		// Snapshot initialValues before applying the base_url fallback so that
 		// the dirty-check detects the unsaved default and enables the Save button.
@@ -200,6 +212,10 @@
 			initialOauths = JSON.parse(JSON.stringify(oauths))
 			initialRequirePreexistingUserForOauth = requirePreexistingUserForOauth
 			baseUrlIsFallback = false
+
+			if (yamlMode) {
+				yamlCodeInitial = yamlCode
+			}
 
 			if (licenseKeySet) {
 				setLicense()
@@ -333,11 +349,20 @@
 		if (value === false) return undefined
 		if (typeof value === 'string' && value.trim() === '') return undefined
 		if (Array.isArray(value) && value.length === 0) return undefined
-		if (typeof value === 'object' && Object.keys(value).length === 0) return undefined
+		if (typeof value === 'object' && !Array.isArray(value)) {
+			// Recursively normalize: if all values in the object normalize to undefined,
+			// the object itself is effectively empty (e.g. {smtp_tls_implicit: false} ≡ {})
+			const hasNonEmpty = Object.values(value).some((v) => normalizeValue(v) !== undefined)
+			if (!hasNonEmpty) return undefined
+		}
 
 		// Key-specific defaults: these values are equivalent to "not set"
 		if (key === 'secret_backend') {
-			if (typeof value === 'object' && value?.type === 'Database' && Object.keys(value).length === 1) {
+			if (
+				typeof value === 'object' &&
+				value?.type === 'Database' &&
+				Object.keys(value).length === 1
+			) {
 				return undefined
 			}
 		}
@@ -658,7 +683,12 @@
 			normalize: true,
 			mask: !showSensitive
 		})
-		yamlCodeInitial = yamlCode
+		yamlCodeInitial = buildSettingsYaml(
+			initialValues,
+			initialOauths,
+			initialRequirePreexistingUserForOauth,
+			{ normalize: true, mask: !showSensitive }
+		)
 		yamlEditor?.setCode(yamlCode)
 		yamlError = ''
 	}
@@ -797,40 +827,25 @@
 </script>
 
 <div class="pb-12">
-	{#if diffMode}
-		<div class="w-full h-[calc(100vh-8rem)]">
-			{#await import('$lib/components/DiffEditor.svelte')}
-				<Loader2 class="animate-spin m-4" />
-			{:then Module}
-				{@const diff = buildFullDiff()}
-				<Module.default
-					open={true}
-					className="!h-full"
-					defaultLang="yaml"
-					defaultOriginal={diff.original}
-					defaultModified={diff.modified}
-					readOnly
-					inlineDiff={true}
+	{#if yamlMode}
+		<div class="flex flex-row justify-between">
+			<p class="text-2xs text-tertiary">
+				Use this YAML to manage instance settings as code.
+				<a
+					href="https://www.windmill.dev/docs/advanced/instance_settings#kubernetes-operator"
+					target="_blank"
+					rel="noopener noreferrer">Learn more <ExternalLink size={12} class="inline-block" /></a
+				>
+			</p>
+			<!-- svelte-ignore a11y_label_has_associated_control -->
+			<div class="flex items-center justify-end gap-4 mb-2">
+				<Toggle
+					checked={showSensitive}
+					on:change={(e) => handleShowSensitiveToggle(e.detail)}
+					options={{ right: 'Show sensitive values' }}
+					size="xs"
 				/>
-			{/await}
-		</div>
-	{:else if yamlMode}
-		<p class="text-2xs text-tertiary mb-2">
-			Use this YAML to manage instance settings as code.
-			<a
-				href="https://www.windmill.dev/docs/advanced/instance_settings#kubernetes-operator"
-				target="_blank"
-				rel="noopener noreferrer"
-			>Learn more <ExternalLink size={12} class="inline-block" /></a>
-		</p>
-		<!-- svelte-ignore a11y_label_has_associated_control -->
-		<div class="flex items-center justify-end gap-4 mb-2">
-			<Toggle
-				checked={showSensitive}
-				on:change={(e) => handleShowSensitiveToggle(e.detail)}
-				options={{ right: 'Show sensitive values' }}
-				size="xs"
-			/>
+			</div>
 		</div>
 		<div class="border rounded w-full h-[calc(100vh-12rem)]">
 			{#await import('$lib/components/SimpleEditor.svelte')}
@@ -887,11 +902,7 @@
 				link="https://www.windmill.dev/docs/advanced/imports"
 			/>
 			{#if !$enterpriseLicense}
-				<Alert
-					type="info"
-					title="Private registries configuration is an EE feature"
-					class="mb-2"
-				/>
+				<Alert type="info" title="Private registries configuration is an EE feature" class="mb-2" />
 			{/if}
 		{:else if category == 'Alerts'}
 			<SettingsPageHeader
@@ -1026,7 +1037,9 @@
 						{values}
 						{version}
 						{oauths}
-						warning={setting.key === 'base_url' && baseUrlIsFallback ? 'Auto-detected from browser — not yet saved' : undefined}
+						warning={setting.key === 'base_url' && baseUrlIsFallback
+							? 'Auto-detected from browser — not yet saved'
+							: undefined}
 					/>
 				{/if}
 				{#if quickSetup && category === 'Core' && setting.key === 'base_url'}
@@ -1076,4 +1089,5 @@
 			/>
 		{/if}
 	{/snippet}
+
 </div>

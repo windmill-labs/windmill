@@ -208,7 +208,9 @@
 			ee_only={setting.ee_only}
 			settingKey={setting.key}
 		>
-			<ToggleButtonGroup bind:selected={$values[setting.key]}>
+			<ToggleButtonGroup
+				bind:selected={() => $values[setting.key] ?? 'default', (v) => ($values[setting.key] = v)}
+			>
 				{#snippet children({ item: toggleButton })}
 					{#each setting.select_items ?? [] as item}
 						<ToggleButton
@@ -548,7 +550,7 @@
 								<Toggle
 									disabled
 									id="metrics_enabled"
-									bind:checked={$values[setting.key].logs_enabled}
+									bind:checked={$values[setting.key].metrics_enabled}
 									options={{ right: 'Metrics (coming soon)' }}
 								/>
 							</div>

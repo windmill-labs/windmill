@@ -5,7 +5,6 @@
 	import InstanceSettings from '$lib/components/InstanceSettings.svelte'
 	import { Alert, Button } from '$lib/components/common'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
-	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import {
 		setupNavigationGroups,
 		tabToCategoryMap,
@@ -25,6 +24,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
 	import SettingCard from '$lib/components/instanceSettings/SettingCard.svelte'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 
 	const settingsSteps = [
 		{ id: 'Core', label: 'Core' },
@@ -148,19 +148,9 @@
 	let authSubTab: 'sso' | 'oauth' | 'scim' = $derived(tabToAuthSubTab[fullTab] ?? 'sso')
 	let yamlMode = $state(false)
 
-	// --- Unsaved changes detection (full mode) ---
-	let pendingTab: string | undefined = $state(undefined)
-	let showUnsavedChangesModal = $state(false)
-
 	function handleNavigate(newTab: string) {
 		if (newTab === fullTab) return
-		const currentCategory = tabToCategoryMap[fullTab]
-		if (currentCategory && instanceSettings?.isDirty(currentCategory)) {
-			pendingTab = newTab
-			showUnsavedChangesModal = true
-		} else {
-			fullTab = newTab
-		}
+		fullTab = newTab
 	}
 
 	// --- Settings search (full mode) ---
@@ -558,33 +548,6 @@
 	</div>
 </CenteredModal>
 
-{#if showUnsavedChangesModal}
-	<ConfirmationModal
-		open={showUnsavedChangesModal}
-		title="Unsaved changes detected"
-		confirmationText="Discard changes"
-		on:canceled={() => {
-			showUnsavedChangesModal = false
-			pendingTab = undefined
-		}}
-		on:confirmed={() => {
-			if (pendingTab !== undefined) {
-				const currentCategory = tabToCategoryMap[fullTab]
-				if (currentCategory) {
-					instanceSettings?.discardCategory(currentCategory)
-				}
-				fullTab = pendingTab
-			}
-			showUnsavedChangesModal = false
-			pendingTab = undefined
-		}}
-	>
-		<div class="flex flex-col w-full space-y-4">
-			<span>You have unsaved changes. Are you sure you want to discard them?</span>
-		</div>
-	</ConfirmationModal>
-{/if}
-
 {#if showLicenseKeyWarning}
 	<ConfirmationModal
 		open={showLicenseKeyWarning}
@@ -603,7 +566,8 @@
 	>
 		<div class="flex flex-col w-full space-y-4">
 			<span>
-				You are running the Enterprise Edition image but have not entered a license key. A valid license key is required to use EE features. Are you sure you want to continue without one?
+				You are running the Enterprise Edition image but have not entered a license key. A valid
+				license key is required to use EE features. Are you sure you want to continue without one?
 			</span>
 		</div>
 	</ConfirmationModal>
