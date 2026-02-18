@@ -19,7 +19,6 @@ use std::sync::Arc;
 use windmill_common::error;
 #[cfg(all(feature = "parquet", not(feature = "private")))]
 use windmill_common::db::UserDB;
-use windmill_types::s3::ObjectStoreResource;
 
 #[cfg(all(feature = "parquet", not(feature = "private")))]
 use bytes::Bytes;
