@@ -282,20 +282,51 @@ pub async fn build_snapshot(
         if let Some(script) = setup_script {
             if !script.trim().is_empty() {
                 tracing::info!("Running setup script for snapshot {name}:{tag}");
-                let output = Command::new("chroot")
+
+                // Copy host resolv.conf so package managers can resolve DNS
+                let etc_dir = rootfs_dir.join("etc");
+                tokio::fs::create_dir_all(&etc_dir).await.ok();
+                tokio::fs::copy("/etc/resolv.conf", etc_dir.join("resolv.conf"))
+                    .await
+                    .ok();
+
+                let nsjail_path =
+                    std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
+                let rootfs_str = rootfs_dir.to_string_lossy().to_string();
+                let output = Command::new(&nsjail_path)
                     .args([
-                        &rootfs_dir.to_string_lossy().to_string(),
+                        "--mode",
+                        "once",
+                        "--chroot",
+                        &rootfs_str,
+                        "--rw",
+                        "--keep_env",
+                        "--disable_clone_newnet",
+                        "--quiet",
+                        "--rlimit_fsize",
+                        "max",
+                        "--rlimit_as",
+                        "max",
+                        "--",
                         "/bin/sh",
                         "-c",
                         script,
                     ])
                     .output()
                     .await
-                    .map_err(|e| Error::ExecutionErr(format!("Failed to run setup: {e}")))?;
+                    .map_err(|e| Error::ExecutionErr(format!("Failed to run nsjail: {e}")))?;
 
                 if !output.status.success() {
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    return Err(Error::ExecutionErr(format!("Setup script failed: {stderr}")));
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    let combined = if stdout.is_empty() {
+                        stderr.to_string()
+                    } else {
+                        format!("{stderr}\n{stdout}")
+                    };
+                    return Err(Error::ExecutionErr(format!(
+                        "Setup script failed: {combined}"
+                    )));
                 }
             }
         }
@@ -313,7 +344,9 @@ pub async fn build_snapshot(
             .map_err(|e| Error::ExecutionErr(format!("Spawn blocking failed: {e}")))??;
 
         let size = bytes.len();
-        if size > CE_SNAPSHOT_SIZE_LIMIT {
+        if !*windmill_common::ee_oss::LICENSE_KEY_VALID.read().await
+            && size > CE_SNAPSHOT_SIZE_LIMIT
+        {
             return Err(Error::ExecutionErr(format!(
                 "Snapshot size ({:.1} MB) exceeds the {} MB limit. \
                  Upgrade to Windmill EE for unlimited snapshot sizes.",
@@ -394,7 +427,9 @@ pub async fn upload_snapshot_bytes(
     use windmill_common::error::Error;
 
     let size = body.len();
-    if size > CE_SNAPSHOT_SIZE_LIMIT {
+    if !*windmill_common::ee_oss::LICENSE_KEY_VALID.read().await
+        && size > CE_SNAPSHOT_SIZE_LIMIT
+    {
         return Err(Error::ExecutionErr(format!(
             "Snapshot size ({:.1} MB) exceeds the {} MB limit. \
              Upgrade to Windmill EE for unlimited snapshot sizes.",

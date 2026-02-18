@@ -15780,6 +15780,7 @@ dependencies = [
  "windmill-operator",
  "windmill-queue",
  "windmill-runtime-nativets",
+ "windmill-sandbox",
  "windmill-test-utils",
  "windmill-worker",
  "windows-service",
