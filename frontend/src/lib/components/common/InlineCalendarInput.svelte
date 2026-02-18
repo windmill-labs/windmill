@@ -1,3 +1,28 @@
+<script module lang="ts">
+	export function fromCalendarDate(cd: CalendarDate | null | undefined): Date | null {
+		const now = new Date()
+		return new Date(
+			cd?.year ?? now.getFullYear(),
+			(cd?.month ?? now.getMonth() + 1) - 1,
+			cd?.day ?? now.getDate()
+		)
+	}
+	export function toCalendarDate(date: Date | null | undefined): CalendarDate {
+		if (!date) {
+			return { day: null, month: null, year: null }
+		}
+		return {
+			day: date.getDate(),
+			month: date.getMonth() + 1,
+			year: date.getFullYear()
+		}
+	}
+	export function calendarDateIsNull(cd: CalendarDate | null): boolean {
+		if (!cd) return true
+		return cd.day == null || cd.month == null || cd.year == null
+	}
+</script>
+
 <script lang="ts">
 	import { startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, getDaysInMonth } from 'date-fns'
 	import { twMerge } from 'tailwind-merge'

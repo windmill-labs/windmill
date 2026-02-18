@@ -6,9 +6,15 @@
 	export type FilterSchemaRec = Record<string, FilterSchema>
 	export type FilterSchema = (
 		| {
-				type: 'string' | 'number' | 'boolean' | 'date'
+				type: 'string' | 'number' | 'boolean'
 				allowMultiple?: boolean
 				format?: 'json'
+		  }
+		| {
+				type: 'date'
+				mode?: 'single' | 'end' | 'start'
+				otherField?: string // For range display
+				allowMultiple?: undefined
 		  }
 		| {
 				type: 'oneof'
@@ -238,7 +244,11 @@
 	import Popover from './meltComponents/Popover.svelte'
 	import Button from './common/button/Button.svelte'
 	import Badge from './common/badge/Badge.svelte'
-	import InlineCalendarInput from './common/InlineCalendarInput.svelte'
+	import InlineCalendarInput, {
+		calendarDateIsNull,
+		fromCalendarDate,
+		toCalendarDate
+	} from './common/InlineCalendarInput.svelte'
 
 	type Props<SchemaT extends FilterSchemaRec> = {
 		schema: SchemaT
@@ -484,8 +494,6 @@
 		if (!asText.val.endsWith('\u00A0') && !asText.val.endsWith(' ')) asText.val += ' '
 		asText.val += presetValue + '\u00A0'
 	}
-
-	let testVal = $state({ day: null, month: null, year: null })
 </script>
 
 <svelte:window onmousedown={() => (open = false)} onkeydown={handleKeyDown} />
@@ -601,7 +609,38 @@
 			{/if}
 		{/each}
 	{:else if filter.type === 'date'}
-		<InlineCalendarInput mode="date" bind:value={testVal} />
+		{@const filterMode = filter.mode}
+		{#if !filterMode || filterMode === 'single'}
+			<InlineCalendarInput
+				bind:value={
+					() => toCalendarDate(value[currentTag!]),
+					(v) => {
+						setValueForCurrentTag(fromCalendarDate(v))
+						taggedTextInput?.preventCursorMoveOnNextSync()
+					}
+				}
+			/>
+		{:else}
+			{@const curr = toCalendarDate(value[currentTag!])}
+			{@const obj =
+				filterMode === 'end'
+					? { start: toCalendarDate(value[filter.otherField as keyof SchemaT]), end: curr }
+					: { end: toCalendarDate(value[filter.otherField as keyof SchemaT]), start: curr }}
+			<InlineCalendarInput
+				mode="range"
+				onClickBehavior={`set-${filterMode}`}
+				infiniteRange
+				bind:value={
+					() => obj,
+					(v) => {
+						setValueForCurrentTag(
+							calendarDateIsNull(v[filterMode]) ? null : fromCalendarDate(v[filterMode])
+						)
+						taggedTextInput?.preventCursorMoveOnNextSync()
+					}
+				}
+			/>
+		{/if}
 	{:else if filter.type === 'string' && filter.format === 'json'}
 		<div class="px-2 pb-2">
 			<SimpleEditor

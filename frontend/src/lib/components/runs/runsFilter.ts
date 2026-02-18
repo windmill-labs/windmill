@@ -21,13 +21,17 @@ export function buildRunsFilterSearchbarSchema({
 			type: 'date' as const,
 			label: 'From',
 			icon: Calendar,
-			description: 'Only include jobs that completed after this date'
+			description: 'Only include jobs that completed after this date',
+			mode: 'start',
+			otherField: 'max_ts'
 		},
 		max_ts: {
 			type: 'date' as const,
 			label: 'To',
 			icon: Calendar,
-			description: 'Only include jobs that completed before this date'
+			description: 'Only include jobs that completed before this date',
+			mode: 'end',
+			otherField: 'min_ts'
 		},
 		path: {
 			type: 'oneof' as const,
