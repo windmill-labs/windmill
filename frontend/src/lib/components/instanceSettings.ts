@@ -1,6 +1,5 @@
 import type { ButtonType } from './common/button/model'
 import { z } from 'zod'
-import { truncate } from '$lib/utils'
 
 // Languages that support HTTP request tracing via OTEL proxy
 export const OTEL_TRACING_PROXY_LANGUAGES = [
@@ -790,7 +789,6 @@ export interface SearchableSettingItem {
 	settingKey?: string
 	category: string
 	description?: string
-	displayDescription?: string
 }
 
 export function buildSearchableSettingItems(): SearchableSettingItem[] {
@@ -813,14 +811,12 @@ export function buildSearchableSettingItems(): SearchableSettingItem[] {
 		if (!tabId) continue
 		for (const setting of categorySettings) {
 			if (!setting.label) continue
-			const desc = setting.description?.replace(/<[^>]*>/g, '') ?? ''
 			items.push({
 				label: setting.label,
 				tabId,
 				settingKey: setting.key,
 				category,
-				description: desc,
-				displayDescription: truncate(desc, 80)
+				description: setting.description?.replace(/<[^>]*>/g, '') ?? ''
 			})
 		}
 	}
@@ -828,14 +824,12 @@ export function buildSearchableSettingItems(): SearchableSettingItem[] {
 	// Add SCIM/SAML settings
 	for (const setting of scimSamlSetting) {
 		if (!setting.label) continue
-		const desc = setting.description?.replace(/<[^>]*>/g, '') ?? ''
 		items.push({
 			label: setting.label,
 			tabId: 'scim_saml',
 			settingKey: setting.key,
 			category: 'SCIM/SAML',
-			description: desc,
-			displayDescription: truncate(desc, 80)
+			description: setting.description?.replace(/<[^>]*>/g, '') ?? ''
 		})
 	}
 

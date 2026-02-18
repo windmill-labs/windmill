@@ -182,18 +182,6 @@
 		return marked.slice(0, markedIdx)
 	}
 
-	function shouldShowDescription(
-		label: string,
-		description: string | undefined,
-		filter: string
-	): boolean {
-		if (!description || !filter) return false
-		const lowerFilter = filter.trim().toLowerCase()
-		if (lowerFilter.length === 0) return false
-		const labelMatches = label.toLowerCase().includes(lowerFilter)
-		return !labelMatches && description.toLowerCase().includes(lowerFilter)
-	}
-
 	async function handleSearchSelect(item: SearchableSettingItem) {
 		settingsSearchFilter = ''
 		searchDropdownOpen = false
@@ -275,14 +263,9 @@
 						maxHeight={400}
 					>
 						{#snippet startSnippet({ item })}
-							<div class="min-w-0 w-full overflow-hidden">
-								<div class="text-xs truncate"
-									>{@html extractMarkedLabel(item.value.marked, item.value.label.length)}</div
-								>
-								{#if shouldShowDescription(item.value.label, item.value.description, settingsSearchFilter)}
-									<div class="text-2xs text-tertiary truncate">{item.value.displayDescription}</div>
-								{/if}
-							</div>
+							<div class="text-xs truncate"
+								>{@html extractMarkedLabel(item.value.marked, item.value.label.length)}</div
+							>
 						{/snippet}
 					</SelectDropdown>
 				</div>
