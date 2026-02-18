@@ -1,20 +1,37 @@
 <script module lang="ts">
+	export interface CalendarDate {
+		day: number | null
+		month: number | null // 1-indexed
+		year: number | null
+		hour: number | null
+		minute: number | null
+	}
+
+	export interface CalendarRange {
+		start: CalendarDate
+		end: CalendarDate
+	}
+
 	export function fromCalendarDate(cd: CalendarDate | null | undefined): Date | null {
 		const now = new Date()
 		return new Date(
 			cd?.year ?? now.getFullYear(),
 			(cd?.month ?? now.getMonth() + 1) - 1,
-			cd?.day ?? now.getDate()
+			cd?.day ?? now.getDate(),
+			cd?.hour ?? 0,
+			cd?.minute ?? 0
 		)
 	}
 	export function toCalendarDate(date: Date | null | undefined): CalendarDate {
 		if (!date) {
-			return { day: null, month: null, year: null }
+			return { day: null, month: null, year: null, hour: null, minute: null }
 		}
 		return {
 			day: date.getDate(),
 			month: date.getMonth() + 1,
-			year: date.getFullYear()
+			year: date.getFullYear(),
+			hour: date.getHours(),
+			minute: date.getMinutes()
 		}
 	}
 	export function calendarDateIsNull(cd: CalendarDate | null): boolean {
@@ -26,17 +43,6 @@
 <script lang="ts">
 	import { startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, getDaysInMonth } from 'date-fns'
 	import { twMerge } from 'tailwind-merge'
-
-	export interface CalendarDate {
-		day: number | null
-		month: number | null // 1-indexed
-		year: number | null
-	}
-
-	export interface CalendarRange {
-		start: CalendarDate
-		end: CalendarDate
-	}
 
 	interface DateProps {
 		mode?: 'date'
@@ -62,7 +68,7 @@
 
 	const infiniteRange = $derived(mode === 'range' && !!(rest as RangeProps).infiniteRange)
 
-	const emptyDate: CalendarDate = { day: null, month: null, year: null }
+	const emptyDate: CalendarDate = { day: null, month: null, year: null, hour: null, minute: null }
 
 	export function calendarDateIsNull(cd: CalendarDate | null | undefined): boolean {
 		return !cd || (cd.day == null && cd.month == null && cd.year == null)
@@ -132,6 +138,8 @@
 			day: d.getDate(),
 			month: d.getMonth() + 1,
 			year: d.getFullYear(),
+			hour: null as number | null,
+			minute: null as number | null,
 			isCurrentMonth: isSameMonth(d, firstDay)
 		}))
 	})
@@ -230,19 +238,19 @@
 		year: number
 		isCurrentMonth: boolean
 	}) {
-		const cd: CalendarDate = { day: cell.day, month: cell.month, year: cell.year }
+		const cd: CalendarDate = { day: cell.day, month: cell.month, year: cell.year, hour: null, minute: null }
 
 		if (mode === 'date') {
 			const v = value as CalendarDate | undefined
-			value = isSameCalDate(cd, v ?? null) ? emptyDate : cd
+			value = isSameCalDate(cd, v ?? null) ? emptyDate : { ...cd, hour: v?.hour ?? null, minute: v?.minute ?? null }
 		} else {
 			const v = value as CalendarRange | undefined
 
 			if (onClickBehavior === 'set-start') {
-				const newStart = isSameCalDate(cd, v?.start ?? null) ? emptyDate : cd
+				const newStart = isSameCalDate(cd, v?.start ?? null) ? emptyDate : { ...cd, hour: v?.start?.hour ?? null, minute: v?.start?.minute ?? null }
 				value = { start: newStart, end: v?.end ?? emptyDate }
 			} else if (onClickBehavior === 'set-end') {
-				const newEnd = isSameCalDate(cd, v?.end ?? null) ? emptyDate : cd
+				const newEnd = isSameCalDate(cd, v?.end ?? null) ? emptyDate : { ...cd, hour: v?.end?.hour ?? null, minute: v?.end?.minute ?? null }
 				value = { start: v?.start ?? emptyDate, end: newEnd }
 			} else {
 				// 'set-range': two-click flow
@@ -301,6 +309,41 @@
 
 	function onYearChange(e: Event) {
 		viewYear = parseInt((e.target as HTMLSelectElement).value, 10)
+	}
+
+	// The CalendarDate whose hour/minute the time inputs control
+	const timeTarget = $derived.by((): CalendarDate | null => {
+		if (mode === 'date') return (value as CalendarDate | undefined) ?? null
+		const v = value as CalendarRange | undefined
+		if (onClickBehavior === 'set-start') return v?.start ?? null
+		if (onClickBehavior === 'set-end') return v?.end ?? null
+		return null // set-range: no single time target
+	})
+
+	const showTime = $derived(timeTarget !== null)
+
+	function setHour(raw: string) {
+		const h = Math.max(0, Math.min(23, parseInt(raw, 10)))
+		if (isNaN(h)) return
+		if (mode === 'date') {
+			value = { ...(value as CalendarDate), hour: h }
+		} else {
+			const v = value as CalendarRange
+			if (onClickBehavior === 'set-start') value = { start: { ...v.start, hour: h }, end: v.end }
+			else if (onClickBehavior === 'set-end') value = { start: v.start, end: { ...v.end, hour: h } }
+		}
+	}
+
+	function setMinute(raw: string) {
+		const m = Math.max(0, Math.min(59, parseInt(raw, 10)))
+		if (isNaN(m)) return
+		if (mode === 'date') {
+			value = { ...(value as CalendarDate), minute: m }
+		} else {
+			const v = value as CalendarRange
+			if (onClickBehavior === 'set-start') value = { start: { ...v.start, minute: m }, end: v.end }
+			else if (onClickBehavior === 'set-end') value = { start: v.start, end: { ...v.end, minute: m } }
+		}
 	}
 </script>
 
@@ -429,4 +472,31 @@
 			</button>
 		{/each}
 	</div>
+
+	<!-- Time inputs -->
+	{#if showTime}
+		<div class="mt-3 flex items-center justify-center gap-1 border-t border-surface-secondary pt-3">
+			<input
+				type="text"
+				inputmode="numeric"
+				maxlength="2"
+				value={timeTarget?.hour != null ? String(timeTarget.hour).padStart(2, '0') : ''}
+				placeholder="HH"
+				onchange={(e) => setHour((e.target as HTMLInputElement).value)}
+				class="w-12 rounded border border-surface-secondary bg-surface px-1.5 py-1 text-center text-sm text-primary focus:outline-none focus:ring-1 focus:ring-frost-400"
+				aria-label="Hour"
+			/>
+			<span class="text-sm font-medium text-secondary">:</span>
+			<input
+				type="text"
+				inputmode="numeric"
+				maxlength="2"
+				value={timeTarget?.minute != null ? String(timeTarget.minute).padStart(2, '0') : ''}
+				placeholder="MM"
+				onchange={(e) => setMinute((e.target as HTMLInputElement).value)}
+				class="w-12 rounded border border-surface-secondary bg-surface px-1.5 py-1 text-center text-sm text-primary focus:outline-none focus:ring-1 focus:ring-frost-400"
+				aria-label="Minute"
+			/>
+		</div>
+	{/if}
 </div>
