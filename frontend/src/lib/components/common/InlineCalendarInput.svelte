@@ -47,7 +47,6 @@
 	import { twMerge } from 'tailwind-merge'
 	import Button from './button/Button.svelte'
 	import Select from '../select/Select.svelte'
-	import TextInput from '../text_input/TextInput.svelte'
 	import { isUSLocale } from '$lib/utils'
 
 	interface DateProps {
@@ -82,7 +81,6 @@
 
 	// Pick the date that should be visible on mount
 	function initialViewDate(): { month: number; year: number } {
-		const today = new Date()
 		const fallback = { month: today.getMonth() + 1, year: today.getFullYear() }
 
 		let cd: CalendarDate | null | undefined
@@ -105,6 +103,8 @@
 		}
 		return fallback
 	}
+
+	const today = new Date()
 
 	// Internal navigation state (what month/year is displayed in the calendar)
 	const _init = initialViewDate()
@@ -151,6 +151,12 @@
 		'November',
 		'December'
 	]
+
+	const YEAR_LIST_DELTA = 4
+	const YEAR_LIST = Array.from(
+		{ length: YEAR_LIST_DELTA * 2 + 1 },
+		(_, i) => new Date().getFullYear() - YEAR_LIST_DELTA + i
+	)
 
 	const DAY_LABELS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
 
@@ -406,23 +412,41 @@
 
 <div class="flex flex-col {className}">
 	<!-- Header -->
-	<div class="mb-3 flex items-center gap-2">
-		<Button endIcon={{ icon: ChevronLeft }} iconOnly unifiedSize="md" onClick={prevMonth} />
-		<Select
-			class="flex-1"
-			inputClass="text-center"
-			disablePortal
-			bind:value={viewMonth}
-			items={MONTH_NAMES.map((name, i) => ({ label: name, value: i + 1 }))}
+	<div class="mb-3 flex items-center gap-1.5">
+		<Button
+			endIcon={{ icon: ChevronLeft }}
+			iconOnly
+			unifiedSize="md"
+			onClick={prevMonth}
+			wrapperClasses="bg-surface-input"
 		/>
 
-		<TextInput
-			inputProps={{ type: 'number', 'aria-label': 'Select year' }}
-			bind:value={viewYear}
-			class="flex-1 text-center"
-		/>
+		<div class="flex flex-1">
+			<Select
+				class="basis-1/2"
+				inputClass="text-center !rounded-r-none !border-r-0"
+				disablePortal
+				bind:value={viewMonth}
+				items={MONTH_NAMES.map((name, i) => ({ label: name, value: i + 1 }))}
+			/>
 
-		<Button endIcon={{ icon: ChevronRight }} iconOnly unifiedSize="md" onClick={nextMonth} />
+			<Select
+				class="basis-1/2"
+				inputClass="text-center !rounded-l-none"
+				disablePortal
+				bind:value={viewYear}
+				onCreateItem={(val) => (viewYear = parseInt(val) || viewYear)}
+				items={YEAR_LIST.map((year) => ({ label: year.toString(), value: year }))}
+			/>
+		</div>
+
+		<Button
+			endIcon={{ icon: ChevronRight }}
+			iconOnly
+			unifiedSize="md"
+			onClick={nextMonth}
+			wrapperClasses="bg-surface-input"
+		/>
 	</div>
 
 	<!-- Day-of-week labels -->
@@ -444,6 +468,10 @@
 			{@const isStart = isDayRangeStart(cell)}
 			{@const isEnd = isDayRangeEnd(cell)}
 			{@const disabled = isDayDisabled(cell)}
+			{@const isToday =
+				cell.day === today.getDate() &&
+				cell.month === today.getMonth() + 1 &&
+				cell.year === today.getFullYear()}
 			<button
 				type="button"
 				onclick={() => !disabled && handleDayClick(cell)}
@@ -473,7 +501,12 @@
 				{#if selected}
 					<span class="absolute inset-0 z-0 rounded-md bg-surface-accent-primary"></span>
 				{/if}
-				<span class="relative z-10 {selected ? 'text-white dark:text-white' : ''}">
+				<span
+					class={twMerge(
+						'relative z-10',
+						selected ? 'text-white dark:text-white' : isToday && !disabled ? 'text-accent' : ''
+					)}
+				>
 					{cell.day}
 				</span>
 			</button>
@@ -486,7 +519,9 @@
 	{#if showTime}
 		<div class="border-t my-4"></div>
 		<div class="flex justify-center">
-			<div class="px-2 !h-8 flex border bg-surface-secondary rounded-l-md w-fit items-center gap-0">
+			<div
+				class="px-2 !h-8 flex border bg-surface-secondary dark:bg-surface rounded-l-md w-fit items-center gap-0"
+			>
 				{#if usLocale}
 					<!-- MM / DD / YYYY -->
 					<input
@@ -496,7 +531,7 @@
 						value={timeTarget?.month != null ? String(timeTarget.month).padStart(2, '0') : ''}
 						placeholder="MM"
 						onfocus={selectAllOnFocus}
-					onchange={(e) => setMonth((e.target as HTMLInputElement).value)}
+						onchange={(e) => setMonth((e.target as HTMLInputElement).value)}
 						style="background: transparent !important;"
 						class="!border-none !w-8 !h-7 !px-1.5 text-center font-mono"
 						aria-label="Month"
@@ -509,7 +544,7 @@
 						value={timeTarget?.day != null ? String(timeTarget.day).padStart(2, '0') : ''}
 						placeholder="DD"
 						onfocus={selectAllOnFocus}
-					onchange={(e) => setDay((e.target as HTMLInputElement).value)}
+						onchange={(e) => setDay((e.target as HTMLInputElement).value)}
 						style="background: transparent !important;"
 						class="!border-none !w-8 !h-7 !px-1.5 text-center font-mono"
 						aria-label="Day"
@@ -523,7 +558,7 @@
 						value={timeTarget?.day != null ? String(timeTarget.day).padStart(2, '0') : ''}
 						placeholder="DD"
 						onfocus={selectAllOnFocus}
-					onchange={(e) => setDay((e.target as HTMLInputElement).value)}
+						onchange={(e) => setDay((e.target as HTMLInputElement).value)}
 						style="background: transparent !important;"
 						class="!border-none !w-8 !h-7 !px-1.5 text-center font-mono"
 						aria-label="Day"
@@ -536,7 +571,7 @@
 						value={timeTarget?.month != null ? String(timeTarget.month).padStart(2, '0') : ''}
 						placeholder="MM"
 						onfocus={selectAllOnFocus}
-					onchange={(e) => setMonth((e.target as HTMLInputElement).value)}
+						onchange={(e) => setMonth((e.target as HTMLInputElement).value)}
 						style="background: transparent !important;"
 						class="!border-none !w-8 !h-7 !px-1.5 text-center font-mono"
 						aria-label="Month"
@@ -550,13 +585,15 @@
 					value={timeTarget?.year != null ? String(timeTarget.year) : ''}
 					placeholder="YYYY"
 					onfocus={selectAllOnFocus}
-				onchange={(e) => setYear((e.target as HTMLInputElement).value)}
+					onchange={(e) => setYear((e.target as HTMLInputElement).value)}
 					style="background: transparent !important;"
 					class="!border-none !w-12 !h-7 !px-1.5 text-center font-mono"
 					aria-label="Year"
 				/>
 			</div>
-			<div class="pl-2 !h-8 flex border border-l-0 rounded-r-md w-fit items-center gap-0">
+			<div
+				class="pl-2 !h-8 flex border border-l-0 rounded-r-md w-fit items-center gap-0 bg-surface-input"
+			>
 				<input
 					type="text"
 					inputmode="numeric"
