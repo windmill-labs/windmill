@@ -24,18 +24,26 @@
 		if (!value.trim() && value !== '') value = ''
 	})
 
+	let _preventCursorMoveOnNextSync = false
 	// Update the displayed HTML when value changes externally
 	$effect(() => {
 		if (contentEditableDiv && !isUpdating) {
 			const currentText = getTextContent()
 			if (currentText !== value) {
 				updateDisplay(value)
-				restoreCursor(value.length)
-				const cursorPos = getCursorPosition()
-				updateCurrentTag(cursorPos)
+				if (!_preventCursorMoveOnNextSync) {
+					restoreCursor(value.length)
+					const cursorPos = getCursorPosition()
+					updateCurrentTag(cursorPos)
+				}
 			}
 		}
+		_preventCursorMoveOnNextSync = false
 	})
+
+	export function preventCursorMoveOnNextSync() {
+		_preventCursorMoveOnNextSync = true
+	}
 
 	function getTextContent(): string {
 		if (!contentEditableDiv) return ''

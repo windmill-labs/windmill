@@ -455,6 +455,10 @@
 		} else if (e.key === 'Enter') {
 			if (menuItems[highlightedIndex]) menuItems[highlightedIndex].onClick()
 			else setValueForCurrentTag(value[currentTag!])
+			const currTagSchema = currentTag ? schema[currentTag] : undefined
+			if (currTagSchema && 'format' in currTagSchema && currTagSchema.format === 'json') {
+				return
+			}
 		} else {
 			return
 		}
@@ -589,7 +593,14 @@
 		{/each}
 	{:else if filter.type === 'date'}
 		<DateTimeInput
-			bind:value={() => value[currentTag!], (d) => d && setValueForCurrentTag(new Date(d))}
+			bind:value={
+				() => value[currentTag!],
+				(d) => {
+					if (!d) return
+					setValueForCurrentTag(new Date(d))
+					taggedTextInput?.preventCursorMoveOnNextSync()
+				}
+			}
 		/>
 	{:else if filter.type === 'string' && filter.format === 'json'}
 		<div class="px-2 pb-2">
@@ -597,7 +608,13 @@
 				lang="json"
 				autoHeight
 				small
-				bind:code={() => String(value[currentTag!] ?? ''), (v) => setValueForCurrentTag(v ?? '')}
+				bind:code={
+					() => String(value[currentTag!] ?? ''),
+					(v) => {
+						setValueForCurrentTag(v ?? '')
+						taggedTextInput?.preventCursorMoveOnNextSync()
+					}
+				}
 				class="border border-border-light rounded min-h-[4rem]"
 			/>
 		</div>
