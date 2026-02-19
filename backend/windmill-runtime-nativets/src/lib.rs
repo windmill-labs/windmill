@@ -120,6 +120,10 @@ struct LogString {
     pub s: mpsc::UnboundedSender<String>,
 }
 
+/// Channel for feeding job args (JSON lines) to the V8 dedicated worker loop
+/// via the `op_read_next_job` async op.
+struct JobArgsReceiver(Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<String>>>);
+
 pub struct NativeAnnotation {
     pub useragent: Option<String>,
     pub proxy: Option<(String, Option<(String, String)>)>,
@@ -177,7 +181,10 @@ pub fn setup_deno_runtime() -> anyhow::Result<()> {
         .collect::<Vec<_>>();
 
         if !unrecognized_v8_flags.is_empty() {
-            init_err = Some(format!("Unrecognized V8 flags: {:?}", unrecognized_v8_flags));
+            init_err = Some(format!(
+                "Unrecognized V8 flags: {:?}",
+                unrecognized_v8_flags
+            ));
         }
 
         // Use an unprotected platform that doesn't enforce thread-isolated allocations
@@ -349,6 +356,98 @@ fn op_log(op_state: Rc<RefCell<OpState>>, #[string] log: &str) {
     }
 }
 
+#[op2(async)]
+#[string]
+async fn op_read_next_job(state: Rc<RefCell<OpState>>) -> String {
+    let rx = { state.borrow().borrow::<JobArgsReceiver>().0.clone() };
+    let result = rx.lock().await.recv().await.unwrap_or_default();
+    result
+}
+
+// ── Shared V8 runtime creation ───────────────────────────────────────
+
+struct CreatedRuntime {
+    js_runtime: JsRuntime,
+    log_receiver: mpsc::UnboundedReceiver<String>,
+    memory_limit_rx: mpsc::UnboundedReceiver<()>,
+}
+
+/// Create a JsRuntime with the standard nativets extensions, heap limit
+/// callback, and log channel.  Must be called on a blocking thread (not
+/// on the async tokio runtime) because V8 isolate creation is
+/// synchronous and potentially heavy.
+fn create_nativets_runtime(
+    ann: NativeAnnotation,
+    initial_args: Vec<Option<Box<RawValue>>>,
+) -> anyhow::Result<CreatedRuntime> {
+    let ops = vec![op_get_static_args(), op_log(), op_read_next_job()];
+    let ext = Extension { name: "windmill", ops: ops.into(), ..Default::default() };
+
+    let fetch_options = deno_fetch::Options {
+        root_cert_store_provider: None,
+        user_agent: ann.useragent.unwrap_or_else(|| "windmill/beta".to_string()),
+        proxy: ann.proxy.map(|x| deno_tls::Proxy {
+            url: x.0,
+            basic_auth: x
+                .1
+                .map(|(username, password)| deno_tls::BasicAuth { username, password }),
+        }),
+        ..Default::default()
+    };
+
+    let exts: Vec<Extension> = vec![
+        deno_telemetry::deno_telemetry::init_ops(),
+        deno_webidl::deno_webidl::init_ops(),
+        deno_url::deno_url::init_ops(),
+        deno_console::deno_console::init_ops(),
+        deno_web::deno_web::init_ops::<PermissionsContainer>(Arc::new(BlobStore::default()), None),
+        deno_fetch::deno_fetch::init_ops::<PermissionsContainer>(fetch_options),
+        deno_net::deno_net::init_ops::<PermissionsContainer>(None, None),
+        ext,
+    ];
+
+    let options = RuntimeOptions {
+        is_main: true,
+        extensions: exts,
+        create_params: Some(
+            deno_core::v8::CreateParams::default().heap_limits(0, 1024 * 1024 * 128),
+        ),
+        startup_snapshot: Some(RUNTIME_SNAPSHOT),
+        module_loader: Some(Rc::new(deno_core::FsModuleLoader)),
+        extension_transpiler: None,
+        ..Default::default()
+    };
+
+    let (memory_limit_tx, memory_limit_rx) = mpsc::unbounded_channel::<()>();
+
+    setup_deno_runtime().expect("V8 platform init failed");
+
+    let mut js_runtime = {
+        let _v8_lock = V8_ISOLATE_CREATE_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        JsRuntime::new(options)
+    };
+
+    js_runtime.add_near_heap_limit_callback(move |x, y| {
+        tracing::error!("heap limit reached: {x} {y}");
+        let _ = memory_limit_tx.send(());
+        y * 2
+    });
+
+    let (log_sender, log_receiver) = mpsc::unbounded_channel::<String>();
+
+    {
+        let op_state = js_runtime.op_state();
+        let mut op_state = op_state.borrow_mut();
+        op_state.put(PermissionsContainer {});
+        op_state.put(MainArgs { args: initial_args });
+        op_state.put(LogString { s: log_sender });
+    }
+
+    Ok(CreatedRuntime { js_runtime, log_receiver, memory_limit_rx })
+}
+
 // ── eval_fetch_timeout ───────────────────────────────────────────────
 
 /// Execute a NativeTS script using deno_core/V8.
@@ -436,87 +535,15 @@ pub async fn eval_fetch_timeout(
     }
 
     let result_f = tokio::task::spawn_blocking(move || {
-        let ops = vec![op_get_static_args(), op_log()];
-        let ext = Extension { name: "windmill", ops: ops.into(), ..Default::default() };
+        let CreatedRuntime { mut js_runtime, mut log_receiver, mut memory_limit_rx } =
+            create_nativets_runtime(ann, spread)?;
 
-        let fetch_options = deno_fetch::Options {
-            root_cert_store_provider: None,
-            user_agent: ann.useragent.unwrap_or_else(|| "windmill/beta".to_string()),
-            proxy: ann.proxy.map(|x| deno_tls::Proxy {
-                url: x.0,
-                basic_auth: x
-                    .1
-                    .map(|(username, password)| deno_tls::BasicAuth { username, password }),
-            }),
-            ..Default::default()
-        };
-
-        let exts: Vec<Extension> = vec![
-            deno_telemetry::deno_telemetry::init_ops(),
-            deno_webidl::deno_webidl::init_ops(),
-            deno_url::deno_url::init_ops(),
-            deno_console::deno_console::init_ops(),
-            deno_web::deno_web::init_ops::<PermissionsContainer>(
-                Arc::new(BlobStore::default()),
-                None,
-            ),
-            deno_fetch::deno_fetch::init_ops::<PermissionsContainer>(fetch_options),
-            deno_net::deno_net::init_ops::<PermissionsContainer>(None, None),
-            ext,
-        ];
-
-        let options = RuntimeOptions {
-            is_main: true,
-            extensions: exts,
-            create_params: Some(
-                deno_core::v8::CreateParams::default().heap_limits(0, 1024 * 1024 * 128),
-            ),
-            startup_snapshot: Some(RUNTIME_SNAPSHOT),
-            module_loader: Some(Rc::new(deno_core::FsModuleLoader)),
-            extension_transpiler: None,
-            ..Default::default()
-        };
-
-        let (memory_limit_tx, mut memory_limit_rx) = mpsc::unbounded_channel::<()>();
-
-        // Ensure V8 platform is initialized (idempotent, no-op if already done).
-        setup_deno_runtime().expect("V8 platform init failed");
-
-        // Serialize isolate creation as extra safety net against concurrent V8
-        // isolate creation races. The main fix is the unprotected platform in
-        // setup_deno_runtime(), but this provides defense in depth.
-        let mut js_runtime = {
-            let _v8_lock = V8_ISOLATE_CREATE_LOCK
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            JsRuntime::new(options)
-        };
-
-        // Bootstrap OpenTelemetry for fetch auto-instrumentation if OTEL was initialized.
         if otel_initialized {
             if let Err(e) =
                 js_runtime.execute_script("<otel_bootstrap>", "globalThis.__bootstrapOtel()")
             {
                 tracing::warn!("Failed to bootstrap OTEL telemetry: {}", e);
             }
-        }
-
-        js_runtime.add_near_heap_limit_callback(move |x, y| {
-            tracing::error!("heap limit reached: {x} {y}");
-            if memory_limit_tx.send(()).is_err() {
-                tracing::error!("failed to send memory limit reached notification - isolate may already be terminating");
-            };
-            y * 2
-        });
-
-        let (log_sender, mut log_receiver) = mpsc::unbounded_channel::<String>();
-
-        {
-            let op_state = js_runtime.op_state();
-            let mut op_state = op_state.borrow_mut();
-            op_state.put(PermissionsContainer {});
-            op_state.put(MainArgs { args: spread });
-            op_state.put(LogString { s: log_sender });
         }
 
         *isolate_handle.lock().unwrap_or_else(|e| e.into_inner()) =
@@ -754,4 +781,151 @@ import("file:///eval.ts").then((module) => module.{main_override}(...args))
         }
         Err(e) => Err(Error::ExecutionErr(e.print_with_cause())),
     }
+}
+
+// ── Persistent V8 dedicated worker ──────────────────────────────────
+
+/// Run a persistent V8 runtime that speaks the same line protocol as
+/// bun/node dedicated workers (stdin: JSON args, stdout: "start" +
+/// logs + "wm_res[success/error]:...").
+///
+/// The entire job loop runs in JS (matching the bun dedicated worker
+/// pattern). Rust only sets up the runtime, bridges I/O, and drives
+/// the V8 event loop.
+pub async fn run_dedicated_loop(
+    env_code: String,
+    ts_expr: String,
+    js_expr: String,
+    stdin: tokio::io::DuplexStream,
+    stdout: tokio::io::DuplexStream,
+) -> anyhow::Result<()> {
+    let parsed_args = windmill_parser_ts::parse_deno_signature(&ts_expr, true, false, None)?.args;
+    let arg_names: Vec<String> = parsed_args.into_iter().map(|x| x.name).collect();
+    let ann = get_annotation(&ts_expr);
+
+    tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+        use anyhow::Context;
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+        let (job_args_tx, job_args_rx) = mpsc::unbounded_channel::<String>();
+
+        let CreatedRuntime { mut js_runtime, log_receiver, mut memory_limit_rx } =
+            create_nativets_runtime(ann, vec![])?;
+
+        {
+            let op_state = js_runtime.op_state();
+            let mut op_state = op_state.borrow_mut();
+            op_state.put(JobArgsReceiver(Arc::new(tokio::sync::Mutex::new(job_args_rx))));
+        }
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+
+        let source = format!("{env_code}\n{js_expr}");
+
+        runtime.block_on(async {
+            js_runtime
+                .load_side_es_module_from_code(
+                    &deno_core::resolve_url("file:///windmill.ts")
+                        .map_err(windmill_common::error::to_anyhow)?,
+                    format!("{env_code}\n{WINDMILL_CLIENT}"),
+                )
+                .await
+                .map_err(windmill_common::error::to_anyhow)?;
+
+            js_runtime
+                .load_side_es_module_from_code(
+                    &deno_core::resolve_url("file:///eval.ts")
+                        .map_err(windmill_common::error::to_anyhow)?,
+                    source,
+                )
+                .await
+                .context("failed to load user module")?;
+
+            // Bridge stdin → job args channel (spawned task reads lines, sends to op_read_next_job)
+            let mut reader = BufReader::new(stdin);
+            tokio::spawn(async move {
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    match reader.read_line(&mut line).await {
+                        Ok(0) => break,
+                        Ok(_) => {
+                            let trimmed = line.trim().to_string();
+                            if trimmed == "end" || trimmed.is_empty() {
+                                break;
+                            }
+                            if job_args_tx.send(trimmed).is_err() {
+                                break;
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+                // Dropping job_args_tx closes the channel → op_read_next_job returns ""
+            });
+
+            // Forward logs (including wm_res lines) from op_log channel → stdout DuplexStream
+            let mut log_receiver = log_receiver;
+            let mut writer = stdout;
+            let log_handle = tokio::spawn(async move {
+                while let Some(log) = log_receiver.recv().await {
+                    if writer.write_all(log.as_bytes()).await.is_err() {
+                        break;
+                    }
+                    if writer.write_all(b"\n").await.is_err() {
+                        break;
+                    }
+                    let _ = writer.flush().await;
+                }
+            });
+
+            // JS wrapper matching bun's generate_dedicated_worker_wrapper pattern
+            let spread = arg_names.join(", ");
+            let wrapper = format!(
+                r#"(async () => {{
+    const Main = await import("file:///eval.ts");
+    console.log('start');
+    while (true) {{
+        const line = await Deno.core.ops.op_read_next_job();
+        if (!line) break;
+        try {{
+            const {{ {spread} }} = JSON.parse(line);
+            const res = await Main.main({spread});
+            console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
+        }} catch (e) {{
+            console.log("wm_res[error]:" + JSON.stringify({{ message: e?.message ?? String(e), name: e?.name, stack: e?.stack, line: line }}));
+        }}
+    }}
+}})()"#
+            );
+
+            let result = tokio::select! {
+                r = async {
+                    let script = js_runtime.execute_script("<dedicated>", wrapper)
+                        .map_err(|e| anyhow::anyhow!("{e}"))?;
+                    let fut = js_runtime.resolve(script);
+                    js_runtime
+                        .with_event_loop_promise(fut, PollEventLoopOptions::default())
+                        .await
+                        .map_err(|e| anyhow::anyhow!("{}", e.print_with_cause()))
+                } => r,
+                _ = memory_limit_rx.recv() => {
+                    Err(anyhow::anyhow!("Memory limit reached, killing isolate"))
+                }
+            };
+
+            drop(js_runtime);
+            let _ = log_handle.await;
+
+            if let Err(e) = result {
+                tracing::error!("dedicated V8 worker loop failed: {e}");
+                return Err(e);
+            }
+
+            Ok(())
+        })
+    })
+    .await?
 }

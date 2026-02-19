@@ -47,9 +47,9 @@ use windmill_common::{
     DB,
 };
 
+use crate::global_cache::{exists_in_cache, save_cache};
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 use windmill_object_store::attempt_fetch_bytes;
-use crate::global_cache::{exists_in_cache, save_cache};
 
 use windmill_parser::Typ;
 
@@ -977,8 +977,7 @@ pub async fn handle_bun_job(
             }
         };
 
-        let (cache, logs) =
-            crate::global_cache::load_cache(&local_path, &remote_path, false).await;
+        let (cache, logs) = crate::global_cache::load_cache(&local_path, &remote_path, false).await;
         (cache, logs, local_path, remote_path)
     } else {
         (false, "".to_string(), "".to_string(), "".to_string())
@@ -1400,13 +1399,7 @@ try {{
 
         #[cfg(feature = "deno_core")]
         {
-            let env_code = format!(
-            "const process = {{ env: {{}} }};\nconst BASE_URL = '{base_internal_url}';\nconst BASE_INTERNAL_URL = '{base_internal_url}';\nprocess.env['BASE_URL'] = BASE_URL;process.env['BASE_INTERNAL_URL'] = BASE_INTERNAL_URL;\n{}",
-            reserved_variables
-                .iter()
-                .map(|(k, v)| format!("process.env['{}'] = '{}';\n", k, v))
-                .collect::<Vec<String>>()
-                .join("\n"));
+            let env_code = build_nativets_env_code(base_internal_url, &reserved_variables);
             let js_code = read_file_content(&format!("{job_dir}/main.js")).await?;
             let started_at = Instant::now();
             let args = crate::common::build_args_map(job, client, conn)
@@ -1661,9 +1654,25 @@ pub async fn get_common_bun_proc_envs(base_internal_url: Option<&str>) -> HashMa
     return bun_envs;
 }
 
+#[allow(dead_code)]
+pub fn build_nativets_env_code(
+    base_internal_url: &str,
+    reserved_variables: &HashMap<String, String>,
+) -> String {
+    format!(
+        "const process = {{ env: {{}} }};\nconst BASE_URL = '{base_internal_url}';\nconst BASE_INTERNAL_URL = '{base_internal_url}';\nprocess.env['BASE_URL'] = BASE_URL;process.env['BASE_INTERNAL_URL'] = BASE_INTERNAL_URL;\n{}",
+        reserved_variables
+            .iter()
+            .map(|(k, v)| format!("process.env['{}'] = '{}';", k, v))
+            .collect::<Vec<String>>()
+            .join("\n")
+    )
+}
+
 #[cfg(feature = "private")]
 use crate::{
-    common::build_envs_map, dedicated_worker_oss::handle_dedicated_process, JobCompletedSender,
+    common::build_envs_map, dedicated_worker_oss::dedicated_worker_ipc_loop,
+    dedicated_worker_oss::handle_dedicated_process, JobCompletedSender,
 };
 #[cfg(feature = "private")]
 use tokio::sync::mpsc::Receiver;
@@ -1671,6 +1680,96 @@ use tokio::sync::mpsc::Receiver;
 use windmill_common::variables;
 #[cfg(feature = "private")]
 use windmill_queue::DedicatedWorkerJob;
+
+#[cfg(feature = "private")]
+async fn handle_dedicated_bunnative(
+    inner_content: &str,
+    js_code: &str,
+    env_code: &str,
+    token: &str,
+    worker_name: &str,
+    _w_id: &str,
+    script_path: &str,
+    db: &DB,
+    jobs_rx: Receiver<DedicatedWorkerJob>,
+    killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    job_completed_tx: JobCompletedSender,
+    client: &windmill_common::client::AuthedClient,
+) -> Result<()> {
+    #[cfg(not(feature = "deno_core"))]
+    {
+        let _ = (
+            inner_content,
+            js_code,
+            env_code,
+            token,
+            worker_name,
+            script_path,
+            db,
+            jobs_rx,
+            killpill_rx,
+            job_completed_tx,
+            client,
+        );
+        return Err(error::Error::internal_err(
+            "deno_core feature is not activated but native dedicated worker was started"
+                .to_string(),
+        ));
+    }
+
+    #[cfg(feature = "deno_core")]
+    {
+        use tokio::io::{AsyncBufReadExt, BufReader};
+
+        // DuplexStream pairs bridge V8 to the IPC loop
+        let (mut handler_stdin_w, v8_stdin_r) = tokio::io::duplex(65536);
+        let (v8_stdout_w, handler_stdout_r) = tokio::io::duplex(65536);
+        // Dummy stderr (V8 has no stderr). The write-half is moved into the V8
+        // task so that it stays alive while V8 runs (keeping err_reader pending)
+        // but is dropped when V8 exits (unblocking the stderr drain in the IPC loop).
+        let (stderr_write, stderr_read) = tokio::io::duplex(1024);
+
+        // Spawn persistent V8 runtime
+        let env_code_owned = env_code.to_string();
+        let inner_content_owned = inner_content.to_string();
+        let js_code_owned = js_code.to_string();
+        let v8_handle = tokio::spawn(async move {
+            let _stderr_guard = stderr_write;
+            crate::js_eval::run_dedicated_loop(
+                env_code_owned,
+                inner_content_owned,
+                js_code_owned,
+                v8_stdin_r,
+                v8_stdout_w,
+            )
+            .await
+        });
+
+        // Reuse the extracted IPC loop
+        let mut reader = BufReader::new(handler_stdout_r).lines();
+        let mut err_reader = BufReader::new(stderr_read).lines();
+        let result = dedicated_worker_ipc_loop(
+            &mut reader,
+            &mut err_reader,
+            &mut handler_stdin_w,
+            killpill_rx,
+            job_completed_tx,
+            token,
+            jobs_rx,
+            worker_name,
+            db,
+            script_path,
+            "nativets",
+            client.clone(),
+        )
+        .await;
+
+        // Cleanup: drop stdin writer so V8 sees EOF and exits
+        drop(handler_stdin_w);
+        let _ = v8_handle.await;
+        result
+    }
+}
 
 #[cfg(feature = "private")]
 pub async fn start_worker(
@@ -1704,7 +1803,9 @@ pub async fn start_worker(
     let mut annotation = windmill_common::worker::TypeScriptAnnotations::parse(inner_content);
 
     //TODO: remove this when bun dedicated workers work without issues
-    annotation.nodejs = true;
+    if !annotation.native {
+        annotation.nodejs = true;
+    }
 
     let context = variables::get_reserved_variables(
         &Connection::from(db.clone()),
@@ -1727,6 +1828,81 @@ pub async fn start_worker(
     )
     .await;
     let context_envs = build_envs_map(context.to_vec()).await;
+
+    if annotation.native {
+        // Native (V8) dedicated worker: bundle the code and dispatch to V8 instead of a subprocess.
+        let main_code = remove_pinned_imports(inner_content)?;
+        write_file(job_dir, "main.ts", &main_code)?;
+
+        if let Some(reqs) = requirements_o.as_ref() {
+            let (pkg, lock, empty, is_binary) = split_lockfile(reqs);
+            write_file(job_dir, "package.json", pkg)?;
+            if let Some(lock) = lock {
+                if !empty {
+                    write_lock(lock, job_dir, is_binary).await?;
+                    install_bun_lockfile(
+                        &mut mem_peak,
+                        &mut canceled_by,
+                        &Uuid::nil(),
+                        w_id,
+                        Some(&Connection::from(db.clone())),
+                        job_dir,
+                        worker_name,
+                        common_bun_proc_envs.clone(),
+                        annotation.npm,
+                        &mut None,
+                    )
+                    .await?;
+                }
+            }
+        }
+
+        build_loader(
+            job_dir,
+            base_internal_url,
+            token,
+            w_id,
+            script_path,
+            LoaderMode::BrowserBundle,
+        )
+        .await?;
+        generate_bun_bundle(
+            job_dir,
+            w_id,
+            &Uuid::nil(),
+            worker_name,
+            Some(&Connection::from(db.clone())),
+            None,
+            &mut mem_peak,
+            &mut canceled_by,
+            &common_bun_proc_envs,
+            &mut None,
+        )
+        .await?;
+        let js_code = read_file_content(&format!("{job_dir}/main.js")).await?;
+
+        let reserved_variables: HashMap<String, String> = context
+            .iter()
+            .map(|x| (x.name.clone(), x.value.clone()))
+            .collect();
+        let env_code = build_nativets_env_code(base_internal_url, &reserved_variables);
+
+        return handle_dedicated_bunnative(
+            inner_content,
+            &js_code,
+            &env_code,
+            token,
+            worker_name,
+            w_id,
+            script_path,
+            db,
+            jobs_rx,
+            killpill_rx,
+            job_completed_tx,
+            &client,
+        )
+        .await;
+    }
 
     let mut format = BundleFormat::Cjs;
     if let Some(codebase) = codebase.as_ref() {

@@ -1425,6 +1425,7 @@
 											disabled={!$enterpriseLicense ||
 												isCloudHosted() ||
 												(script.language != 'bun' &&
+													script.language != 'bunnative' &&
 													script.language != 'python3' &&
 													script.language != 'deno')}
 											size="sm"
@@ -1454,8 +1455,8 @@
 											>
 												In this mode, the script is meant to be run on dedicated workers that run
 												the script at native speed. Can reach &gt;1500rps per dedicated worker. Only
-												available on enterprise edition and for Python3, Deno and Bun. For other
-												languages, the efficiency is already on par with deidcated workers since
+												available on enterprise edition and for Python3, Deno, Bun and Bunnative. For other
+												languages, the efficiency is already on par with dedicated workers since
 												they do not spawn a full runtime</Tooltip
 											>
 										{/snippet}
