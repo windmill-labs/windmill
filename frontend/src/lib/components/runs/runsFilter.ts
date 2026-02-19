@@ -1,5 +1,19 @@
 import type { JobTriggerKind } from '$lib/gen'
-import { Calendar, FolderIcon, UserIcon } from 'lucide-svelte'
+import {
+	Braces,
+	Calendar,
+	Clock,
+	ServerCog,
+	FileCode,
+	FolderIcon,
+	Hash,
+	ListFilter,
+	Lock,
+	Tag,
+	UserIcon,
+	Zap,
+	CirclePlayIcon
+} from 'lucide-svelte'
 import { triggerDisplayNamesMap } from '../triggers/utils'
 import type { FilterInstanceRec, FilterSchemaRec } from '../FilterSearchbar.svelte'
 
@@ -40,6 +54,7 @@ export function buildRunsFilterSearchbarSchema({
 			allowNegative: true,
 			allowMultiple: true,
 			label: 'Path',
+			icon: FileCode,
 			description: 'Filter by script or flow path'
 		},
 		user: {
@@ -66,28 +81,33 @@ export function buildRunsFilterSearchbarSchema({
 			type: 'string' as const,
 			allowMultiple: true,
 			label: 'Label',
+			icon: Tag,
 			description: 'Filter by custom label attached to jobs'
 		},
 		tag: {
 			type: 'string' as const,
 			allowMultiple: true,
 			label: 'Tag',
+			icon: Hash,
 			description: 'Filter by worker tag'
 		},
 		worker: {
 			type: 'string' as const,
 			allowMultiple: true,
 			label: 'Worker',
+			icon: ServerCog,
 			description: 'Filter by specific worker instance'
 		},
 		schedule_path: {
 			type: 'string' as const,
 			label: 'Schedule path',
+			icon: Clock,
 			description: 'Filter by schedule that triggered the job'
 		},
 		concurrency_key: {
 			type: 'string' as const,
 			label: 'Concurrency key',
+			icon: Lock,
 			description: 'Filter by concurrency limit key'
 		},
 		job_kinds: {
@@ -119,6 +139,7 @@ export function buildRunsFilterSearchbarSchema({
 				}
 			],
 			label: 'Job kinds',
+			icon: ListFilter,
 			description: 'Filter by job category'
 		},
 		status: {
@@ -132,6 +153,7 @@ export function buildRunsFilterSearchbarSchema({
 				{ label: 'Suspended', value: 'suspended' as const }
 			],
 			label: 'Status',
+			icon: CirclePlayIcon,
 			description: 'Filter by job execution status'
 		},
 		show_skipped: {
@@ -142,6 +164,7 @@ export function buildRunsFilterSearchbarSchema({
 		job_trigger_kind: {
 			type: 'oneof' as const,
 			label: 'Trigger kind',
+			icon: Zap,
 			options: jobTriggerKinds.map((value) => ({
 				label: triggerDisplayNamesMap[value],
 				value
@@ -154,12 +177,14 @@ export function buildRunsFilterSearchbarSchema({
 			type: 'string' as const,
 			format: 'json' as const,
 			label: 'Args',
+			icon: Braces,
 			description: 'Filter by job arguments (JSON format)'
 		},
 		result: {
 			type: 'string' as const,
 			format: 'json' as const,
 			label: 'Result',
+			icon: Braces,
 			description: 'Filter by job result (JSON format)'
 		},
 		show_future_jobs: {
