@@ -682,16 +682,16 @@
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<div
 		class={twMerge(
-			'py-1.5 px-2 rounded-md hover:bg-surface-hover cursor-pointer text-sm flex items-center',
+			'py-1.5 px-2 rounded-md hover:bg-surface-hover cursor-pointer text-sm flex items-center gap-3',
 			highlighted && 'bg-surface-hover'
 		)}
 		onclick={onClick}
 	>
 		{#if Icon}
-			<Icon size={16} class="mr-3 inline" />
+			<Icon size={16} class="inline" />
 		{/if}
-		<div class="inline flex-1">
-			<span class="text-sm">{label}</span>
+		<div class="inline flex-1 relative min-w-0">
+			<div class="text-sm ellipsize">{label}</div>
 			{#if description}
 				<div class="text-xs text-hint">{description}</div>
 			{/if}
