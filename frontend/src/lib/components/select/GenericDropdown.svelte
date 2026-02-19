@@ -11,8 +11,10 @@
 		strictWidth = false,
 		disablePortal = false,
 		open,
+		disabled = false,
 		class: className = '',
 		innerClass = '',
+		maxHeight = 256,
 		getInputRect,
 		children
 	}: {
@@ -20,8 +22,10 @@
 		strictWidth?: boolean
 		disablePortal?: boolean
 		open: boolean
+		disabled?: boolean
 		class?: string
 		innerClass?: string
+		maxHeight?: number
 		getInputRect?: () => DOMRect
 		children?: Snippet
 	} = $props()
@@ -67,7 +71,7 @@
 	let uiState = $state({ domExists: open, visible: open, timeout: null as number | null })
 	let initial = true
 	watch(
-		() => open,
+		() => open && !disabled,
 		(isOpen) => {
 			untrack(() => {
 				if (initial) {
@@ -76,8 +80,8 @@
 				}
 				if (reducedMotion.val) {
 					uiState = {
-						domExists: open,
-						visible: open,
+						domExists: open && !disabled,
+						visible: open && !disabled,
 						timeout: null
 					}
 					return
@@ -129,7 +133,8 @@
 			>
 				<div
 					bind:this={listEl}
-					class="flex flex-col max-h-64 rounded-md bg-surface-input {innerClass}"
+					class="flex flex-col rounded-md bg-surface-input {innerClass}"
+					style="max-height: {maxHeight}px;"
 				>
 					{@render children?.()}
 				</div>
