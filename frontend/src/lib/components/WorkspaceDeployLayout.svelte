@@ -10,6 +10,7 @@
 		key: string
 		path: string
 		kind: Kind
+		triggerKind?: string
 		[key: string]: unknown
 	}
 
@@ -107,6 +108,7 @@
 							: ''}
 						marked={undefined}
 						kind={item.kind}
+						triggerKind={item.triggerKind}
 						canFavorite={false}
 						workspaceId=""
 					>

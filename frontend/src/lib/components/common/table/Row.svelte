@@ -17,6 +17,7 @@
 		aiId?: string | undefined
 		aiDescription?: string | undefined
 		kind?: 'script' | 'flow' | 'app' | 'raw_app' | 'resource' | 'variable' | 'resource_type' | 'folder' | 'schedule' | 'trigger'
+		triggerKind?: string | undefined
 		summary?: string | undefined
 		path: string
 		href?: string
@@ -43,6 +44,7 @@
 		aiId = undefined,
 		aiDescription = undefined,
 		kind = 'script',
+		triggerKind = undefined,
 		summary = undefined,
 		path,
 		href = undefined,
@@ -120,7 +122,7 @@
 
 {#snippet rowContent()}
 	<div class="shrink">
-		<RowIcon {kind} />
+		<RowIcon {kind} {triggerKind} />
 	</div>
 	<div class="grow">
 		<div class="text-emphasis flex-wrap text-left text-xs font-semibold">

@@ -353,6 +353,7 @@
 		path: string
 		kind: Kind
 		include: boolean
+		triggerKind?: string
 	}
 
 	let deployableItems = $derived<DeployableItem[]>(
@@ -360,7 +361,8 @@
 			key: computeStatusPath(dep.kind, dep.path),
 			path: dep.path,
 			kind: dep.kind,
-			include: dep.include
+			include: dep.include,
+			triggerKind: dep.kind === 'trigger' ? additionalInformation?.triggers?.kind : undefined
 		}))
 	)
 
