@@ -326,6 +326,38 @@ pub struct RunInlinePreviewScriptFnParams {
     pub killpill_rx: tokio::sync::broadcast::Receiver<()>,
 }
 
+pub struct RunInlineScriptByPathFnParams {
+    pub workspace_id: String,
+    pub path: String,
+    pub args: Option<HashMap<String, Box<RawValue>>>,
+    pub created_by: String,
+    pub permissioned_as: String,
+    pub permissioned_as_email: String,
+    pub base_internal_url: String,
+    pub worker_name: String,
+    pub conn: crate::worker::Connection,
+    pub client: AuthedClient,
+    pub job_dir: String,
+    pub worker_dir: String,
+    pub killpill_rx: tokio::sync::broadcast::Receiver<()>,
+}
+
+pub struct RunInlineScriptByHashFnParams {
+    pub workspace_id: String,
+    pub hash: i64,
+    pub args: Option<HashMap<String, Box<RawValue>>>,
+    pub created_by: String,
+    pub permissioned_as: String,
+    pub permissioned_as_email: String,
+    pub base_internal_url: String,
+    pub worker_name: String,
+    pub conn: crate::worker::Connection,
+    pub client: AuthedClient,
+    pub job_dir: String,
+    pub worker_dir: String,
+    pub killpill_rx: tokio::sync::broadcast::Receiver<()>,
+}
+
 #[derive(Clone)]
 pub struct WorkerInternalServerInlineUtils {
     pub killpill_rx: Arc<tokio::sync::broadcast::Receiver<()>>,
@@ -333,6 +365,20 @@ pub struct WorkerInternalServerInlineUtils {
     pub run_inline_preview_script: Arc<
         dyn Fn(
                 RunInlinePreviewScriptFnParams,
+            ) -> Pin<Box<dyn Future<Output = error::Result<Box<RawValue>>> + Send>>
+            + Send
+            + Sync,
+    >,
+    pub run_inline_script_by_path: Arc<
+        dyn Fn(
+                RunInlineScriptByPathFnParams,
+            ) -> Pin<Box<dyn Future<Output = error::Result<Box<RawValue>>> + Send>>
+            + Send
+            + Sync,
+    >,
+    pub run_inline_script_by_hash: Arc<
+        dyn Fn(
+                RunInlineScriptByHashFnParams,
             ) -> Pin<Box<dyn Future<Output = error::Result<Box<RawValue>>> + Send>>
             + Send
             + Sync,

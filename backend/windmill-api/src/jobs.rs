@@ -32,18 +32,18 @@ use windmill_common::client::AuthedClient;
 use windmill_common::db::UserDbWithAuthed;
 use windmill_common::error::JsonResult;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
-#[cfg(feature = "inline_preview")]
-use windmill_common::jobs::RunInlinePreviewScriptFnParams;
 use windmill_common::jobs::{
     format_completed_job_result, format_result, DynamicInput, ENTRYPOINT_OVERRIDE,
+};
+#[cfg(feature = "inline_preview")]
+use windmill_common::jobs::{
+    RunInlinePreviewScriptFnParams, RunInlineScriptByHashFnParams, RunInlineScriptByPathFnParams,
 };
 use windmill_common::runnable_settings::{
     ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings,
 };
 #[cfg(feature = "inline_preview")]
 use windmill_common::runtime_assets::{register_runtime_asset, InsertRuntimeAssetParams};
-use windmill_types::s3::BundleFormat;
-use windmill_object_store::upload_artifact_to_store;
 use windmill_common::scripts::ScriptRunnableSettingsInline;
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{RunnableKind, WarnAfterExt};
@@ -54,8 +54,10 @@ use windmill_common::workspace_dependencies::{
 use windmill_common::DYNAMIC_INPUT_CACHE;
 #[cfg(all(feature = "enterprise", feature = "smtp"))]
 use windmill_common::{email_oss::send_email_html, server::load_smtp_config};
+use windmill_object_store::upload_artifact_to_store;
 #[cfg(feature = "inline_preview")]
 use windmill_parser::asset_parser::AssetKind;
+use windmill_types::s3::BundleFormat;
 #[cfg(feature = "inline_preview")]
 use windmill_worker::get_worker_internal_server_inline_utils;
 
@@ -242,6 +244,11 @@ pub fn workspaced_service() -> Router {
         )
         .route("/run/preview", post(run_preview_script))
         .route("/run_inline/preview", post(run_inline_preview_script))
+        .route(
+            "/run_inline/p/*script_path",
+            post(run_inline_script_by_path),
+        )
+        .route("/run_inline/h/:hash", post(run_inline_script_by_hash))
         .route(
             "/run_wait_result/preview",
             post(run_wait_result_preview_script),
@@ -1386,7 +1393,8 @@ async fn get_logs_from_store(
     log_file_index: &Option<Vec<String>>,
 ) -> Option<error::Result<Body>> {
     use futures::StreamExt;
-    let stream = windmill_object_store::get_logs_from_store(log_offset, logs, log_file_index).await?;
+    let stream =
+        windmill_object_store::get_logs_from_store(log_offset, logs, log_file_index).await?;
     let header = bytes::Bytes::from(
         r#"to remove ansi colors, use: | sed 's/\x1B\[[0-9;]\{1,\}[A-Za-z]//g'
 "#
@@ -2857,6 +2865,18 @@ struct PreviewInline {
     content: String,
     args: Option<HashMap<String, Box<JsonRawValue>>>,
     language: ScriptLang,
+}
+
+#[cfg(feature = "inline_preview")]
+#[derive(Debug, Deserialize)]
+struct InlineByPath {
+    args: Option<HashMap<String, Box<JsonRawValue>>>,
+}
+
+#[cfg(feature = "inline_preview")]
+#[derive(Debug, Deserialize)]
+struct InlineByHash {
+    args: Option<HashMap<String, Box<JsonRawValue>>>,
 }
 
 #[derive(Deserialize)]
@@ -4608,6 +4628,86 @@ async fn run_inline_preview_script() -> error::Result<Response> {
 }
 
 #[cfg(feature = "inline_preview")]
+async fn run_inline_script_by_path(
+    OptJobAuthed { authed, .. }: OptJobAuthed,
+    Tokened { token }: Tokened,
+    Extension(db): Extension<DB>,
+    Path((w_id, script_path)): Path<(String, StripPath)>,
+    Json(body): Json<InlineByPath>,
+) -> error::Result<Response> {
+    let utils = get_worker_internal_server_inline_utils()?;
+    let result = utils.run_inline_script_by_path.as_ref()(RunInlineScriptByPathFnParams {
+        path: script_path.to_path().to_string(),
+        args: body.args,
+        workspace_id: w_id.clone(),
+        base_internal_url: utils.base_internal_url.clone(),
+        killpill_rx: utils.killpill_rx.resubscribe(),
+        created_by: authed.display_username().to_string(),
+        permissioned_as: username_to_permissioned_as(&authed.username),
+        permissioned_as_email: authed.email.clone(),
+        job_dir: "".to_string(),
+        worker_name: "".to_string(),
+        worker_dir: "".to_string(),
+        client: AuthedClient {
+            base_internal_url: utils.base_internal_url.clone(),
+            force_client: None,
+            token,
+            workspace: w_id,
+        },
+        conn: windmill_common::worker::Connection::Sql(db),
+    })
+    .await?;
+    Ok(Json(to_raw_value(&result)).into_response())
+}
+
+#[cfg(not(feature = "inline_preview"))]
+async fn run_inline_script_by_path() -> error::Result<Response> {
+    Err(error::Error::InternalErr(
+        "inline script by path requires the worker feature".to_string(),
+    ))
+}
+
+#[cfg(feature = "inline_preview")]
+async fn run_inline_script_by_hash(
+    OptJobAuthed { authed, .. }: OptJobAuthed,
+    Tokened { token }: Tokened,
+    Extension(db): Extension<DB>,
+    Path((w_id, script_hash)): Path<(String, ScriptHash)>,
+    Json(body): Json<InlineByHash>,
+) -> error::Result<Response> {
+    let utils = get_worker_internal_server_inline_utils()?;
+    let result = utils.run_inline_script_by_hash.as_ref()(RunInlineScriptByHashFnParams {
+        hash: script_hash.0,
+        args: body.args,
+        workspace_id: w_id.clone(),
+        base_internal_url: utils.base_internal_url.clone(),
+        killpill_rx: utils.killpill_rx.resubscribe(),
+        created_by: authed.display_username().to_string(),
+        permissioned_as: username_to_permissioned_as(&authed.username),
+        permissioned_as_email: authed.email.clone(),
+        job_dir: "".to_string(),
+        worker_name: "".to_string(),
+        worker_dir: "".to_string(),
+        client: AuthedClient {
+            base_internal_url: utils.base_internal_url.clone(),
+            force_client: None,
+            token,
+            workspace: w_id,
+        },
+        conn: windmill_common::worker::Connection::Sql(db),
+    })
+    .await?;
+    Ok(Json(to_raw_value(&result)).into_response())
+}
+
+#[cfg(not(feature = "inline_preview"))]
+async fn run_inline_script_by_hash() -> error::Result<Response> {
+    Err(error::Error::InternalErr(
+        "inline script by hash requires the worker feature".to_string(),
+    ))
+}
+
+#[cfg(feature = "inline_preview")]
 fn register_potential_assets_on_inline_execution(
     job_id: Uuid,
     w_id: &str,
@@ -5772,7 +5872,9 @@ async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::R
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     if let Some(os) = windmill_object_store::get_object_store().await {
         let file = os
-            .get(&windmill_object_store::object_store_reexports::Path::from(format!("logs/{file_p}")))
+            .get(&windmill_object_store::object_store_reexports::Path::from(
+                format!("logs/{file_p}"),
+            ))
             .await;
         if let Ok(file) = file {
             if let Ok(bytes) = file.bytes().await {

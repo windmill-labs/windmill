@@ -14,6 +14,9 @@ use futures::TryFutureExt;
 use tokio::sync::Mutex;
 use tokio::time::timeout;
 use windmill_common::client::AuthedClient;
+use windmill_common::get_latest_deployed_hash_for_path;
+use windmill_common::jobs::RunInlineScriptByHashFnParams;
+use windmill_common::jobs::RunInlineScriptByPathFnParams;
 use windmill_common::jobs::WorkerInternalServerInlineUtils;
 use windmill_common::jobs::WORKER_INTERNAL_SERVER_INLINE_UTILS;
 use windmill_common::runtime_assets::init_runtime_asset_loop;
@@ -4773,6 +4776,174 @@ pub fn init_worker_internal_server_inline_utils(
                     &None,
                     &None,
                     &None,
+                    true,
+                )
+                .await
+            })
+        }),
+        run_inline_script_by_path: Arc::new(|params: RunInlineScriptByPathFnParams| {
+            Box::pin(async move {
+                let db = params
+                    .conn
+                    .as_sql()
+                    .ok_or_else(|| {
+                        error::Error::InternalErr(
+                            "run_inline_script_by_path requires a SQL connection".to_string(),
+                        )
+                    })?
+                    .clone();
+                let script_hash_info =
+                    get_latest_deployed_hash_for_path(None, db, &params.workspace_id, &params.path)
+                        .await?;
+                let script_hash = ScriptHash(script_hash_info.hash);
+                let content_info =
+                    get_script_content_by_hash(&script_hash, &params.workspace_id, &params.conn)
+                        .await?;
+                let job = MiniPulledJob {
+                    workspace_id: params.workspace_id,
+                    id: Uuid::new_v4(),
+                    args: params.args.map(Json),
+                    parent_job: None,
+                    created_by: params.created_by,
+                    scheduled_for: chrono::Utc::now(),
+                    started_at: None,
+                    runnable_path: Some(params.path),
+                    kind: JobKind::Script,
+                    runnable_id: Some(script_hash),
+                    canceled_reason: None,
+                    canceled_by: None,
+                    permissioned_as: params.permissioned_as,
+                    permissioned_as_email: params.permissioned_as_email,
+                    flow_status: None,
+                    tag: "inline_preview".to_string(),
+                    script_lang: content_info.language,
+                    same_worker: true,
+                    pre_run_error: None,
+                    flow_innermost_root_job: None,
+                    root_job: None,
+                    timeout: None,
+                    flow_step_id: None,
+                    cache_ttl: None,
+                    cache_ignore_s3_path: None,
+                    priority: None,
+                    preprocessed: None,
+                    script_entrypoint_override: None,
+                    trigger: None,
+                    trigger_kind: None,
+                    visible_to_owner: false,
+                    permissioned_as_end_user_email: None,
+                    runnable_settings_handle: None,
+                    concurrent_limit: None,
+                    concurrency_time_window_s: None,
+                };
+                let mut mem_peak: i32 = -1;
+                let mut canceled_by: Option<CanceledBy> = None;
+                let mut column_order: Option<Vec<String>> = None;
+                let mut new_args: Option<HashMap<String, Box<RawValue>>> = None;
+                let mut occupancy_metrics = OccupancyMetrics::new(Instant::now());
+                let mut has_stream: bool = false;
+                let mut killpill_rx = params.killpill_rx;
+
+                run_language_executor(
+                    &job,
+                    &params.conn,
+                    &params.client,
+                    None,
+                    &params.job_dir,
+                    &params.worker_dir,
+                    &mut mem_peak,
+                    &mut canceled_by,
+                    &params.base_internal_url,
+                    &params.worker_name,
+                    &mut column_order,
+                    &mut new_args,
+                    &mut occupancy_metrics,
+                    &mut killpill_rx,
+                    None,
+                    &mut has_stream,
+                    content_info.language,
+                    &content_info.content,
+                    &content_info.envs,
+                    &content_info.codebase,
+                    &content_info.lockfile,
+                    true,
+                )
+                .await
+            })
+        }),
+        run_inline_script_by_hash: Arc::new(|params: RunInlineScriptByHashFnParams| {
+            Box::pin(async move {
+                let script_hash = ScriptHash(params.hash);
+                let content_info =
+                    get_script_content_by_hash(&script_hash, &params.workspace_id, &params.conn)
+                        .await?;
+                let job = MiniPulledJob {
+                    workspace_id: params.workspace_id,
+                    id: Uuid::new_v4(),
+                    args: params.args.map(Json),
+                    parent_job: None,
+                    created_by: params.created_by,
+                    scheduled_for: chrono::Utc::now(),
+                    started_at: None,
+                    runnable_path: None,
+                    kind: JobKind::Script,
+                    runnable_id: Some(script_hash),
+                    canceled_reason: None,
+                    canceled_by: None,
+                    permissioned_as: params.permissioned_as,
+                    permissioned_as_email: params.permissioned_as_email,
+                    flow_status: None,
+                    tag: "inline_preview".to_string(),
+                    script_lang: content_info.language,
+                    same_worker: true,
+                    pre_run_error: None,
+                    flow_innermost_root_job: None,
+                    root_job: None,
+                    timeout: None,
+                    flow_step_id: None,
+                    cache_ttl: None,
+                    cache_ignore_s3_path: None,
+                    priority: None,
+                    preprocessed: None,
+                    script_entrypoint_override: None,
+                    trigger: None,
+                    trigger_kind: None,
+                    visible_to_owner: false,
+                    permissioned_as_end_user_email: None,
+                    runnable_settings_handle: None,
+                    concurrent_limit: None,
+                    concurrency_time_window_s: None,
+                };
+                let mut mem_peak: i32 = -1;
+                let mut canceled_by: Option<CanceledBy> = None;
+                let mut column_order: Option<Vec<String>> = None;
+                let mut new_args: Option<HashMap<String, Box<RawValue>>> = None;
+                let mut occupancy_metrics = OccupancyMetrics::new(Instant::now());
+                let mut has_stream: bool = false;
+                let mut killpill_rx = params.killpill_rx;
+
+                run_language_executor(
+                    &job,
+                    &params.conn,
+                    &params.client,
+                    None,
+                    &params.job_dir,
+                    &params.worker_dir,
+                    &mut mem_peak,
+                    &mut canceled_by,
+                    &params.base_internal_url,
+                    &params.worker_name,
+                    &mut column_order,
+                    &mut new_args,
+                    &mut occupancy_metrics,
+                    &mut killpill_rx,
+                    None,
+                    &mut has_stream,
+                    content_info.language,
+                    &content_info.content,
+                    &content_info.envs,
+                    &content_info.codebase,
+                    &content_info.lockfile,
                     true,
                 )
                 .await
