@@ -379,8 +379,12 @@ struct CreatedRuntime {
 fn create_nativets_runtime(
     ann: NativeAnnotation,
     initial_args: Vec<Option<Box<RawValue>>>,
+    dedicated: bool,
 ) -> anyhow::Result<CreatedRuntime> {
-    let ops = vec![op_get_static_args(), op_log(), op_read_next_job()];
+    let mut ops = vec![op_get_static_args(), op_log()];
+    if dedicated {
+        ops.push(op_read_next_job());
+    }
     let ext = Extension { name: "windmill", ops: ops.into(), ..Default::default() };
 
     let fetch_options = deno_fetch::Options {
@@ -431,7 +435,11 @@ fn create_nativets_runtime(
 
     js_runtime.add_near_heap_limit_callback(move |x, y| {
         tracing::error!("heap limit reached: {x} {y}");
-        let _ = memory_limit_tx.send(());
+        if memory_limit_tx.send(()).is_err() {
+            tracing::warn!(
+                "memory limit notification channel closed - isolate may already be terminating"
+            );
+        }
         y * 2
     });
 
@@ -536,7 +544,7 @@ pub async fn eval_fetch_timeout(
 
     let result_f = tokio::task::spawn_blocking(move || {
         let CreatedRuntime { mut js_runtime, mut log_receiver, mut memory_limit_rx } =
-            create_nativets_runtime(ann, spread)?;
+            create_nativets_runtime(ann, spread, false)?;
 
         if otel_initialized {
             if let Err(e) =
@@ -810,7 +818,7 @@ pub async fn run_dedicated_loop(
         let (job_args_tx, job_args_rx) = mpsc::unbounded_channel::<String>();
 
         let CreatedRuntime { mut js_runtime, log_receiver, mut memory_limit_rx } =
-            create_nativets_runtime(ann, vec![])?;
+            create_nativets_runtime(ann, vec![], true)?;
 
         {
             let op_state = js_runtime.op_state();

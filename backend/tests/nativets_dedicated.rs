@@ -54,9 +54,21 @@ mod v8_dedicated_worker_protocol {
         (ts, js)
     }
 
+    const TEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
     /// Run `run_dedicated_loop` with a bundled script and feed it `jobs`,
-    /// collecting one result line per job.
+    /// collecting one result line per job. Times out after 30s to prevent
+    /// hangs if V8 or the protocol deadlocks.
     async fn run_v8_dedicated_test(
+        script: &str,
+        jobs: Vec<serde_json::Value>,
+    ) -> Vec<Result<serde_json::Value, String>> {
+        tokio::time::timeout(TEST_TIMEOUT, run_v8_dedicated_test_inner(script, jobs))
+            .await
+            .expect("test timed out after 30s")
+    }
+
+    async fn run_v8_dedicated_test_inner(
         script: &str,
         jobs: Vec<serde_json::Value>,
     ) -> Vec<Result<serde_json::Value, String>> {

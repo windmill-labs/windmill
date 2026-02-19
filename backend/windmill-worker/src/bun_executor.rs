@@ -1654,7 +1654,7 @@ pub async fn get_common_bun_proc_envs(base_internal_url: Option<&str>) -> HashMa
     return bun_envs;
 }
 
-#[allow(dead_code)]
+#[cfg(any(feature = "deno_core", feature = "private"))]
 pub fn build_nativets_env_code(
     base_internal_url: &str,
     reserved_variables: &HashMap<String, String>,
