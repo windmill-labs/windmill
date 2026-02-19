@@ -2392,6 +2392,45 @@ export async function push(
   log.info(
     `remote (${workspace.name}) <- local: ${changes.length} changes to apply`,
   );
+  // Detect missing folders for paths under f/ before confirmation.
+  // Skip folders that already have a folder.meta change in the changeset
+  // (those will be created/updated by pushFolder during normal processing).
+  const missingFolders: string[] = [];
+  if (changes.length > 0) {
+    const folderNames = new Set<string>();
+    const foldersWithMetaChanges = new Set<string>();
+    for (const change of changes) {
+      const parts = change.path.split(SEP);
+      if (parts.length >= 3 && parts[0] === "f") {
+        if (change.name !== "deleted") {
+          folderNames.add(parts[1]);
+        }
+        if (getTypeStrFromPath(change.path) === "folder") {
+          foldersWithMetaChanges.add(parts[1]);
+        }
+      }
+    }
+    for (const folderName of folderNames) {
+      if (foldersWithMetaChanges.has(folderName)) continue;
+      try {
+        await wmill.getFolder({
+          workspace: workspace.workspaceId,
+          name: folderName,
+        });
+      } catch (e: any) {
+        if (e.status === undefined || e.status === 404) {
+          missingFolders.push(folderName);
+        } else {
+          log.warn(
+            `Could not check folder ${folderName}: ${
+              e.body ?? e.message
+            }`,
+          );
+        }
+      }
+    }
+  }
+
   // Handle JSON output for dry-run
   if (opts.dryRun && opts.jsonOutput) {
     const result = {
@@ -2413,6 +2452,9 @@ export async function push(
             }
           : {}),
       })),
+      ...(missingFolders.length > 0
+        ? { auto_create_folders: missingFolders }
+        : {}),
       total: changes.length,
     };
     console.log(JSON.stringify(result, null, 2));
@@ -2423,35 +2465,16 @@ export async function push(
     if (!opts.jsonOutput) {
       prettyChanges(changes, specificItems, opts.branch);
     }
-
-    // Detect missing folders for paths under f/ before confirmation
-    const missingFolders: string[] = [];
-    const folderNames = new Set<string>();
-    for (const change of changes) {
-      if (change.name === "deleted") continue;
-      const parts = change.path.split(SEP);
-      if (parts.length >= 3 && parts[0] === "f") {
-        folderNames.add(parts[1]);
-      }
-    }
-    for (const folderName of folderNames) {
-      try {
-        await wmill.getFolder({
-          workspace: workspace.workspaceId,
-          name: folderName,
-        });
-      } catch {
-        missingFolders.push(folderName);
-      }
-    }
-    if (missingFolders.length > 0 && !opts.jsonOutput) {
-      log.info("");
-      for (const folderName of missingFolders) {
-        log.info(
-          colors.yellow(
-            `+ folder ${folderName} (will be auto-created)`,
-          ),
-        );
+    if (missingFolders.length > 0) {
+      if (!opts.jsonOutput) {
+        log.info("");
+        for (const folderName of missingFolders) {
+          log.info(
+            colors.yellow(
+              `+ folder ${folderName} (will be auto-created)`,
+            ),
+          );
+        }
       }
     }
 
@@ -2995,6 +3018,9 @@ export async function push(
               }
             : {}),
         })),
+        ...(missingFolders.length > 0
+          ? { auto_created_folders: missingFolders }
+          : {}),
         total: changes.length,
         duration_ms: Math.round(performance.now() - start),
       };
