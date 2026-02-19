@@ -20,3 +20,4 @@ frontend/node_modules
 typescript-client/node_modules
 frontend/.svelte-kit
 backend/chrome_profiler.json
+.fast-check/
