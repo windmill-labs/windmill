@@ -33,6 +33,33 @@ Used for auto-recompiling the backend on file changes:
 cargo install cargo-watch
 ```
 
+### 4. Install llm CLI (required for auto branch naming)
+
+workmux uses the `llm` CLI to automatically generate branch names from prompts. Install it with:
+
+```bash
+uv tool install llm
+llm install llm-anthropic
+```
+
+Then set your Anthropic API key:
+
+```bash
+llm keys set anthropic
+# paste your API key when prompted
+```
+
+### 5. Recommended: shell alias and autocomplete
+
+Set up a `wm` alias for convenience:
+
+```bash
+# Add to your ~/.zshrc
+alias wm="workmux"
+```
+
+Setting up zsh autocomplete is also recommended — see the [workmux docs](https://github.com/rubenfiszel/workmux) for instructions.
+
 ## Port Slot System
 
 Each worktree is assigned a **slot** that determines its ports:
@@ -87,16 +114,24 @@ workmux add my-feature
 
 # Or with an explicit slot
 WM_SLOT=2 workmux add my-feature
+
+# Create a worktree and immediately send a prompt to the agent
+workmux add -A -p "fix the login bug in auth.rs"
 ```
 
-This will:
+The `add` command creates the worktree but does **not** open it. To open the tmux window and start working:
 
-1. Create a git worktree + branch `my-feature`
-2. Run `scripts/worktree-env` to assign ports and write `.env.local`
-3. Open a tmux window with three panes:
-   - **Claude Code agent** (focused)
-   - **Backend**: `cargo watch -x run` on the assigned port (auto-reloads on save)
-   - **Frontend**: `npm run dev` proxying to the backend
+```bash
+workmux open my-feature
+```
+
+This will open a tmux window with three panes:
+
+- **Claude Code agent** (focused)
+- **Backend**: `cargo watch -x run` on the assigned port (auto-reloads on save)
+- **Frontend**: `npm run dev` proxying to the backend
+
+When using `-A` with `add`, the worktree is created and opened automatically, and the prompt is sent to the agent right away.
 
 Check which ports were assigned:
 
@@ -114,18 +149,19 @@ workmux send my-feature "fix the login bug in auth.rs"
 workmux status
 ```
 
-### Cleaning up
+### Merging and cleaning up
+
+We never merge worktrees directly — always create a PR on GitHub and let it be merged there. Once the PR is merged, clean up the worktree:
 
 ```bash
 # Close the tmux window but keep the worktree
 workmux close my-feature
 
-# Remove everything (worktree, branch, tmux window)
+# After your PR is merged, remove the worktree, branch, and tmux window
 workmux rm my-feature
-
-# Merge into main, then clean up
-workmux merge my-feature
 ```
+
+> **Note**: Do not use `workmux merge`. Always go through a PR to get your changes into main. You can ask the Claude Code agent in the worktree to create the PR for you.
 
 ## Configuration
 
