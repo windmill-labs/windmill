@@ -186,8 +186,8 @@ exit $exit_status
 
     // Use nsjail if globally enabled, script has #sandbox annotation,
     // or sandbox mounts are present (snapshot/volume annotations)
-    let nsjail =
-        (is_sandboxing_enabled() || annotation.sandbox || !shared_mount.is_empty()) && is_regular_job;
+    let nsjail = (is_sandboxing_enabled() || annotation.sandbox || !shared_mount.is_empty())
+        && is_regular_job;
     let child = if nsjail {
         let nsjail_config = windmill_sandbox::finalize_nsjail_config(
             &NSJAIL_CONFIG_RUN_BASH_CONTENT
@@ -196,6 +196,7 @@ exit $exit_status
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL),
+            &[],
         );
         let _ = write_file(job_dir, "run.config.proto", &nsjail_config)?;
         let mut cmd_args = vec![

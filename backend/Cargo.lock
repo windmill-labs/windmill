@@ -17462,6 +17462,7 @@ dependencies = [
  "sha2 0.10.9",
  "sqlx",
  "tar",
+ "tempfile",
  "tiberius",
  "tokio",
  "tokio-postgres 0.7.13",

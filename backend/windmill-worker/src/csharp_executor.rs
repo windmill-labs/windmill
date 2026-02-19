@@ -13,14 +13,11 @@ use itertools::Itertools;
 #[cfg(feature = "csharp")]
 use tokio::{fs::File, io::AsyncReadExt, process::Command};
 #[cfg(feature = "csharp")]
-use windmill_common::{
-    utils::calculate_hash,
-    worker::write_file,
-};
+use windmill_common::{utils::calculate_hash, worker::write_file};
 
-use windmill_common::error::{self, Error};
 #[cfg(feature = "csharp")]
 use crate::global_cache::save_cache;
+use windmill_common::error::{self, Error};
 #[cfg(feature = "csharp")]
 use windmill_queue::append_logs;
 
@@ -519,8 +516,7 @@ pub async fn handle_csharp_job(
     let bin_path = format!("{}/{hash}", CSHARP_CACHE_DIR);
     let remote_path = format!("{CSHARP_OBJECT_STORE_PREFIX}{hash}");
 
-    let (cache, cache_logs) =
-        crate::global_cache::load_cache(&bin_path, &remote_path, false).await;
+    let (cache, cache_logs) = crate::global_cache::load_cache(&bin_path, &remote_path, false).await;
 
     let cache_logs = if cache {
         #[cfg(unix)]
@@ -595,6 +591,7 @@ pub async fn handle_csharp_job(
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL),
+            &[],
         );
         write_file(job_dir, "run.config.proto", &nsjail_config)?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());

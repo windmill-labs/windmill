@@ -47,9 +47,9 @@ use windmill_common::{
     DB,
 };
 
+use crate::global_cache::{exists_in_cache, save_cache};
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 use windmill_object_store::attempt_fetch_bytes;
-use crate::global_cache::{exists_in_cache, save_cache};
 
 use windmill_parser::Typ;
 
@@ -977,8 +977,7 @@ pub async fn handle_bun_job(
             }
         };
 
-        let (cache, logs) =
-            crate::global_cache::load_cache(&local_path, &remote_path, false).await;
+        let (cache, logs) = crate::global_cache::load_cache(&local_path, &remote_path, false).await;
         (cache, logs, local_path, remote_path)
     } else {
         (false, "".to_string(), "".to_string(), "".to_string())
@@ -1452,6 +1451,11 @@ try {{
 
     //do not cache local dependencies
     let child = if is_sandboxing_enabled() || !shared_mount.is_empty() {
+        let runtime_bin = if annotation.nodejs {
+            &*NODE_BIN_PATH
+        } else {
+            &*BUN_PATH
+        };
         let nsjail_config = windmill_sandbox::finalize_nsjail_config(
             &NSJAIL_CONFIG_RUN_BUN_CONTENT
                 .replace("{LANG}", if annotation.nodejs { "nodejs" } else { "bun" })
@@ -1470,6 +1474,7 @@ try {{
                 )
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL),
+            &[runtime_bin],
         );
         let _ = write_file(job_dir, "run.config.proto", &nsjail_config)?;
 

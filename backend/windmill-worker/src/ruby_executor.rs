@@ -801,6 +801,7 @@ mount {{
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
+            &[],
         );
         write_file(job_dir, "run.config.proto", &nsjail_config)?;
         let mut cmd = Command::new(NSJAIL_PATH.as_str());

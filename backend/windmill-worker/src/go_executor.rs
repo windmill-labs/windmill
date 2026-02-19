@@ -2,6 +2,7 @@ use crate::{common::MaybeLock, get_proxy_envs_for_lang};
 use std::{collections::HashMap, fs::DirBuilder, process::Stdio};
 use windmill_common::scripts::ScriptLang;
 
+use crate::global_cache::save_cache;
 use itertools::Itertools;
 use serde_json::value::RawValue;
 use tokio::{
@@ -15,7 +16,6 @@ use windmill_common::{
     utils::calculate_hash,
     worker::{write_file, Connection, GoAnnotations},
 };
-use crate::global_cache::save_cache;
 use windmill_parser_go::{parse_go_imports, REQUIRE_PARSE};
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
@@ -110,8 +110,7 @@ pub async fn handle_go_job(
     let hash = calculate_hash(&format!("{}{:?}v2", inner_content, &maybe_lock));
     let bin_path = format!("{}/{hash}", GO_BIN_CACHE_DIR);
     let remote_path = format!("{GO_OBJECT_STORE_PREFIX}{hash}");
-    let (cache, cache_logs) =
-        crate::global_cache::load_cache(&bin_path, &remote_path, false).await;
+    let (cache, cache_logs) = crate::global_cache::load_cache(&bin_path, &remote_path, false).await;
 
     let (skip_go_mod, skip_tidy) = if cache {
         (true, true)
@@ -347,6 +346,7 @@ func Run(req Req) (interface{{}}, error){{
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL),
+            &[],
         );
         let _ = write_file(job_dir, "run.config.proto", &nsjail_config)?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());

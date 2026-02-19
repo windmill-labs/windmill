@@ -3415,8 +3415,7 @@ pub async fn handle_queued_job(
             },
             JobKind::SnapshotBuild => match conn {
                 Connection::Sql(db) => {
-                    Box::pin(crate::snapshot_build::handle_snapshot_build(&job, db, conn))
-                        .await
+                    Box::pin(crate::snapshot_build::handle_snapshot_build(&job, db, conn)).await
                 }
                 Connection::Http(_) => {
                     return Err(Error::internal_err(
@@ -4193,18 +4192,19 @@ mount {{
 
         if let Some(ref snap) = sandbox_config.snapshot {
             let snapshot_path = windmill_sandbox::ensure_snapshot_cached(
-                &job.workspace_id, &snap.name, &snap.tag, db,
+                &job.workspace_id,
+                &snap.name,
+                &snap.tag,
+                db,
             )
             .await?;
-            setup.overlay =
-                Some(windmill_sandbox::mount_overlay(&snapshot_path, job_dir).await?);
+            setup.overlay = Some(windmill_sandbox::mount_overlay(&snapshot_path, job_dir).await?);
         }
 
         for (vol_name, mount_path) in &sandbox_config.volumes {
             let local_dir = format!("{job_dir}/volumes/{vol_name}");
-            std::fs::create_dir_all(&local_dir).map_err(|e| {
-                Error::ExecutionErr(format!("Failed to create volume dir: {e}"))
-            })?;
+            std::fs::create_dir_all(&local_dir)
+                .map_err(|e| Error::ExecutionErr(format!("Failed to create volume dir: {e}")))?;
             windmill_sandbox::download_volume(
                 &job.workspace_id,
                 vol_name,
@@ -4223,6 +4223,17 @@ mount {{
     } else {
         None
     };
+
+    if sandbox_config.snapshot.is_some() || !sandbox_config.volumes.is_empty() {
+        let mut sandbox_logs = "\n--- SANDBOX ---\n".to_string();
+        if let Some(ref snap) = sandbox_config.snapshot {
+            sandbox_logs.push_str(&format!("Snapshot: {}:{}\n", snap.name, snap.tag));
+        }
+        for (vol_name, mount_path) in &sandbox_config.volumes {
+            sandbox_logs.push_str(&format!("Volume: {} -> {}\n", vol_name, mount_path));
+        }
+        append_logs(&job.id, &job.workspace_id, sandbox_logs, conn).await;
+    }
 
     let envs = build_envs(envs.as_ref())?;
 
@@ -4682,13 +4693,9 @@ mount {{
     if let Some(ref setup) = sandbox_setup {
         if let Some(db) = conn.as_sql() {
             for (vol_name, (local_dir, _)) in &setup.volume_mounts {
-                if let Err(e) = windmill_sandbox::upload_volume(
-                    &job.workspace_id,
-                    vol_name,
-                    local_dir,
-                    db,
-                )
-                .await
+                if let Err(e) =
+                    windmill_sandbox::upload_volume(&job.workspace_id, vol_name, local_dir, db)
+                        .await
                 {
                     tracing::error!("Failed to upload volume {vol_name}: {e}");
                 }

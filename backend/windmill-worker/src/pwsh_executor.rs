@@ -524,6 +524,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{CACHE_DIR}", POWERSHELL_CACHE_DIR),
+            &[],
         );
         let _ = write_file(job_dir, "run.config.proto", &nsjail_config)?;
         let cmd_args = vec![

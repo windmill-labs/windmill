@@ -784,7 +784,7 @@ except BaseException as e:
     #[cfg(windows)]
     let additional_python_paths_folders = additional_python_paths_folders.replace(":", ";");
 
-    if is_sandboxing_enabled() {
+    if is_sandboxing_enabled() || !shared_mount.is_empty() {
         let shared_deps = additional_python_paths
             .into_iter()
             .map(|pp| {
@@ -815,6 +815,7 @@ mount {{
                 )
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL),
+            &[],
         );
         let _ = write_file(job_dir, "run.config.proto", &nsjail_config)?;
     } else {

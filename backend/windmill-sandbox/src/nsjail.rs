@@ -33,8 +33,11 @@ pub fn build_sandbox_mounts(setup: &SandboxSetupState) -> String {
 /// 2. Move the overlay root mount (`dst: "/"`) to be the FIRST mount block.
 ///    nsjail applies mounts in order, so the root bind must come before
 ///    tmpfs/bind mounts that go on top of it.
+/// 3. Re-add read-only bind mounts for `runtime_bins` paths that fall under
+///    stripped system dirs (e.g. `/usr/bin/bun`). These are layered on top of
+///    the overlay so the host runtime binary is available inside the sandbox.
 /// If no overlay marker is present, returns the config unchanged.
-pub fn finalize_nsjail_config(config: &str) -> String {
+pub fn finalize_nsjail_config(config: &str, runtime_bins: &[&str]) -> String {
     if !config.contains(OVERLAY_MARKER) {
         return config.to_string();
     }
@@ -87,8 +90,7 @@ pub fn finalize_nsjail_config(config: &str) -> String {
                 if should_remove_block {
                     result_lines.truncate(mount_block_start);
                 } else if is_overlay_root {
-                    overlay_root_lines
-                        .extend_from_slice(&result_lines[mount_block_start..]);
+                    overlay_root_lines.extend_from_slice(&result_lines[mount_block_start..]);
                     overlay_root_lines.push(lines[i]);
                     result_lines.truncate(mount_block_start);
                 } else {
@@ -129,7 +131,22 @@ pub fn finalize_nsjail_config(config: &str) -> String {
         }
     }
 
-    result_lines.join("\n")
+    // Re-add bind mounts for runtime binaries that fall under stripped system dirs.
+    // These are appended at the end so they layer on top of the overlay root.
+    let runtime_mounts: String = runtime_bins
+        .iter()
+        .filter(|bin| system_dirs.iter().any(|d| bin.starts_with(d)))
+        .map(|bin| {
+            format!("\nmount {{\n    src: \"{bin}\"\n    dst: \"{bin}\"\n    is_bind: true\n}}")
+        })
+        .collect();
+
+    let mut result = result_lines.join("\n");
+    if !runtime_mounts.is_empty() {
+        result.push_str(&runtime_mounts);
+        result.push('\n');
+    }
+    result
 }
 
 #[cfg(test)]
@@ -155,7 +172,10 @@ mod tests {
         let mut setup = SandboxSetupState::default();
         setup.volume_mounts.insert(
             "data".to_string(),
-            (PathBuf::from("/job/volumes/data"), "/workspace/data".to_string()),
+            (
+                PathBuf::from("/job/volumes/data"),
+                "/workspace/data".to_string(),
+            ),
         );
         let mounts = build_sandbox_mounts(&setup);
         assert!(mounts.contains("dst: \"/workspace/data\""));
@@ -170,11 +190,17 @@ mod tests {
         let mut setup = SandboxSetupState::default();
         setup.volume_mounts.insert(
             "input".to_string(),
-            (PathBuf::from("/job/volumes/input"), "/mnt/input".to_string()),
+            (
+                PathBuf::from("/job/volumes/input"),
+                "/mnt/input".to_string(),
+            ),
         );
         setup.volume_mounts.insert(
             "output".to_string(),
-            (PathBuf::from("/job/volumes/output"), "/mnt/output".to_string()),
+            (
+                PathBuf::from("/job/volumes/output"),
+                "/mnt/output".to_string(),
+            ),
         );
         let mounts = build_sandbox_mounts(&setup);
         assert!(mounts.contains("/mnt/input"));
@@ -212,7 +238,10 @@ mod tests {
         };
         setup.volume_mounts.insert(
             "data".to_string(),
-            (PathBuf::from("/job/volumes/data"), "/workspace/data".to_string()),
+            (
+                PathBuf::from("/job/volumes/data"),
+                "/workspace/data".to_string(),
+            ),
         );
         let mounts = build_sandbox_mounts(&setup);
         assert!(mounts.contains(OVERLAY_MARKER));
@@ -230,7 +259,7 @@ mod tests {
         let config = "name: \"test\"\n\
                        mount {\n    src: \"/bin\"\n    dst: \"/bin\"\n    is_bind: true\n}\n\
                        mount {\n    dst: \"/tmp\"\n    fstype: \"tmpfs\"\n    rw: true\n}\n";
-        let result = finalize_nsjail_config(config);
+        let result = finalize_nsjail_config(config, &[]);
         assert_eq!(result, config);
     }
 
@@ -245,14 +274,17 @@ mod tests {
                        # SANDBOX_OVERLAY_ACTIVE\n\
                        mount {\n    src: \"/job/merged\"\n    dst: \"/\"\n    is_bind: true\n    rw: true\n}\n\
                        mount {\n    dst: \"/tmp\"\n    fstype: \"tmpfs\"\n    rw: true\n}\n";
-        let result = finalize_nsjail_config(config);
+        let result = finalize_nsjail_config(config, &[]);
         for dir in &["/bin", "/lib", "/lib64", "/usr", "/etc"] {
             assert!(
                 !result.contains(&format!("dst: \"{dir}\"")),
                 "System dir {dir} should be stripped"
             );
         }
-        assert!(result.contains("dst: \"/\""), "Overlay root mount preserved");
+        assert!(
+            result.contains("dst: \"/\""),
+            "Overlay root mount preserved"
+        );
         assert!(result.contains("dst: \"/tmp\""), "tmpfs mount preserved");
     }
 
@@ -265,10 +297,13 @@ mod tests {
                        mount {\n    dst: \"/tmp\"\n    fstype: \"tmpfs\"\n    rw: true\n}\n\
                        # SANDBOX_OVERLAY_ACTIVE\n\
                        mount {\n    src: \"/job/merged\"\n    dst: \"/\"\n    is_bind: true\n    rw: true\n}\n";
-        let result = finalize_nsjail_config(config);
+        let result = finalize_nsjail_config(config, &[]);
         assert!(!result.contains("dst: \"/bin\""), "/bin stripped");
         assert!(result.contains("dst: \"/dev/null\""), "/dev/null kept");
-        assert!(result.contains("dst: \"/opt/microsoft\""), "/opt/microsoft kept");
+        assert!(
+            result.contains("dst: \"/opt/microsoft\""),
+            "/opt/microsoft kept"
+        );
         assert!(result.contains("dst: \"/tmp\""), "/tmp tmpfs kept");
     }
 
@@ -277,9 +312,31 @@ mod tests {
         let config = "name: \"test\"\n\
                        # SANDBOX_OVERLAY_ACTIVE\n\
                        mount {\n    src: \"/job/merged\"\n    dst: \"/\"\n    is_bind: true\n}\n";
-        let result = finalize_nsjail_config(config);
+        let result = finalize_nsjail_config(config, &[]);
         assert!(!result.contains(OVERLAY_MARKER));
         assert!(result.contains("dst: \"/\""));
+    }
+
+    #[test]
+    fn test_finalize_readds_runtime_bins_under_stripped_dirs() {
+        let config = "name: \"test\"\n\
+                       mount {\n    src: \"/usr\"\n    dst: \"/usr\"\n    is_bind: true\n}\n\
+                       # SANDBOX_OVERLAY_ACTIVE\n\
+                       mount {\n    src: \"/job/merged\"\n    dst: \"/\"\n    is_bind: true\n    rw: true\n}\n";
+        let result = finalize_nsjail_config(config, &["/usr/bin/bun"]);
+        assert!(!result.contains("dst: \"/usr\""), "/usr stripped");
+        assert!(result.contains("dst: \"/usr/bin/bun\""), "bun re-added");
+        assert!(result.contains("src: \"/usr/bin/bun\""), "bun src set");
+    }
+
+    #[test]
+    fn test_finalize_skips_runtime_bins_not_under_system_dirs() {
+        let config = "name: \"test\"\n\
+                       # SANDBOX_OVERLAY_ACTIVE\n\
+                       mount {\n    src: \"/job/merged\"\n    dst: \"/\"\n    is_bind: true\n}\n";
+        let result = finalize_nsjail_config(config, &["/tmp/windmill/cache/py_runtime"]);
+        // Should NOT add an extra mount since /tmp is not a stripped system dir
+        assert_eq!(result.matches("mount {").count(), 1);
     }
 
     #[test]
