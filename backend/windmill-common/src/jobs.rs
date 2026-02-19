@@ -326,25 +326,14 @@ pub struct RunInlinePreviewScriptFnParams {
     pub killpill_rx: tokio::sync::broadcast::Receiver<()>,
 }
 
-pub struct RunInlineScriptByPathFnParams {
-    pub workspace_id: String,
-    pub path: String,
-    pub args: Option<HashMap<String, Box<RawValue>>>,
-    pub created_by: String,
-    pub permissioned_as: String,
-    pub permissioned_as_email: String,
-    pub base_internal_url: String,
-    pub worker_name: String,
-    pub conn: crate::worker::Connection,
-    pub client: AuthedClient,
-    pub job_dir: String,
-    pub worker_dir: String,
-    pub killpill_rx: tokio::sync::broadcast::Receiver<()>,
+pub enum InlineScriptTarget {
+    Path(String),
+    Hash(i64),
 }
 
-pub struct RunInlineScriptByHashFnParams {
+pub struct RunInlineScriptFnParams {
     pub workspace_id: String,
-    pub hash: i64,
+    pub target: InlineScriptTarget,
     pub args: Option<HashMap<String, Box<RawValue>>>,
     pub created_by: String,
     pub permissioned_as: String,
@@ -369,16 +358,9 @@ pub struct WorkerInternalServerInlineUtils {
             + Send
             + Sync,
     >,
-    pub run_inline_script_by_path: Arc<
+    pub run_inline_script: Arc<
         dyn Fn(
-                RunInlineScriptByPathFnParams,
-            ) -> Pin<Box<dyn Future<Output = error::Result<Box<RawValue>>> + Send>>
-            + Send
-            + Sync,
-    >,
-    pub run_inline_script_by_hash: Arc<
-        dyn Fn(
-                RunInlineScriptByHashFnParams,
+                RunInlineScriptFnParams,
             ) -> Pin<Box<dyn Future<Output = error::Result<Box<RawValue>>> + Send>>
             + Send
             + Sync,

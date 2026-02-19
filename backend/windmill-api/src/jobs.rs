@@ -37,7 +37,7 @@ use windmill_common::jobs::{
 };
 #[cfg(feature = "inline_preview")]
 use windmill_common::jobs::{
-    RunInlinePreviewScriptFnParams, RunInlineScriptByHashFnParams, RunInlineScriptByPathFnParams,
+    InlineScriptTarget, RunInlinePreviewScriptFnParams, RunInlineScriptFnParams,
 };
 use windmill_common::runnable_settings::{
     ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings,
@@ -2869,13 +2869,7 @@ struct PreviewInline {
 
 #[cfg(feature = "inline_preview")]
 #[derive(Debug, Deserialize)]
-struct InlineByPath {
-    args: Option<HashMap<String, Box<JsonRawValue>>>,
-}
-
-#[cfg(feature = "inline_preview")]
-#[derive(Debug, Deserialize)]
-struct InlineByHash {
+struct InlineScriptArgs {
     args: Option<HashMap<String, Box<JsonRawValue>>>,
 }
 
@@ -4633,35 +4627,19 @@ async fn run_inline_script_by_path(
     Tokened { token }: Tokened,
     Extension(db): Extension<DB>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
-    Json(body): Json<InlineByPath>,
-    Json(body): Json<InlineByPath>,
+    Json(body): Json<InlineScriptArgs>,
 ) -> error::Result<Response> {
     let script_path_str = script_path.to_path();
     check_scopes(&authed, || format!("jobs:run:scripts:{script_path_str}"))?;
-    let utils = get_worker_internal_server_inline_utils()?;
-    let utils = get_worker_internal_server_inline_utils()?;
-    let result = utils.run_inline_script_by_path.as_ref()(RunInlineScriptByPathFnParams {
-        path: script_path.to_path().to_string(),
-        args: body.args,
-        workspace_id: w_id.clone(),
-        base_internal_url: utils.base_internal_url.clone(),
-        killpill_rx: utils.killpill_rx.resubscribe(),
-        created_by: authed.display_username().to_string(),
-        permissioned_as: username_to_permissioned_as(&authed.username),
-        permissioned_as_email: authed.email.clone(),
-        job_dir: "".to_string(),
-        worker_name: "".to_string(),
-        worker_dir: "".to_string(),
-        client: AuthedClient {
-            base_internal_url: utils.base_internal_url.clone(),
-            force_client: None,
-            token,
-            workspace: w_id,
-        },
-        conn: windmill_common::worker::Connection::Sql(db),
-    })
-    .await?;
-    Ok(Json(to_raw_value(&result)).into_response())
+    run_inline_script_inner(
+        authed,
+        token,
+        db,
+        w_id,
+        InlineScriptTarget::Path(script_path.to_path().to_string()),
+        body.args,
+    )
+    .await
 }
 
 #[cfg(not(feature = "inline_preview"))]
@@ -4677,12 +4655,40 @@ async fn run_inline_script_by_hash(
     Tokened { token }: Tokened,
     Extension(db): Extension<DB>,
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
-    Json(body): Json<InlineByHash>,
+    Json(body): Json<InlineScriptArgs>,
+) -> error::Result<Response> {
+    check_scopes(&authed, || format!("jobs:run"))?;
+    run_inline_script_inner(
+        authed,
+        token,
+        db,
+        w_id,
+        InlineScriptTarget::Hash(script_hash.0),
+        body.args,
+    )
+    .await
+}
+
+#[cfg(not(feature = "inline_preview"))]
+async fn run_inline_script_by_hash() -> error::Result<Response> {
+    Err(error::Error::InternalErr(
+        "inline script by hash requires the worker feature".to_string(),
+    ))
+}
+
+#[cfg(feature = "inline_preview")]
+async fn run_inline_script_inner(
+    authed: ApiAuthed,
+    token: String,
+    db: DB,
+    w_id: String,
+    target: InlineScriptTarget,
+    args: Option<HashMap<String, Box<JsonRawValue>>>,
 ) -> error::Result<Response> {
     let utils = get_worker_internal_server_inline_utils()?;
-    let result = utils.run_inline_script_by_hash.as_ref()(RunInlineScriptByHashFnParams {
-        hash: script_hash.0,
-        args: body.args,
+    let result = utils.run_inline_script.as_ref()(RunInlineScriptFnParams {
+        target,
+        args,
         workspace_id: w_id.clone(),
         base_internal_url: utils.base_internal_url.clone(),
         killpill_rx: utils.killpill_rx.resubscribe(),
@@ -4702,13 +4708,6 @@ async fn run_inline_script_by_hash(
     })
     .await?;
     Ok(Json(to_raw_value(&result)).into_response())
-}
-
-#[cfg(not(feature = "inline_preview"))]
-async fn run_inline_script_by_hash() -> error::Result<Response> {
-    Err(error::Error::InternalErr(
-        "inline script by hash requires the worker feature".to_string(),
-    ))
 }
 
 #[cfg(feature = "inline_preview")]
