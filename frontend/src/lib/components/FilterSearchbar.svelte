@@ -248,13 +248,13 @@
 		fromCalendarDate,
 		toCalendarDate
 	} from './common/InlineCalendarInput.svelte'
+	import { ButtonType } from './common'
 
 	type Props<SchemaT extends FilterSchemaRec> = {
 		schema: SchemaT
 		value: Partial<FilterInstanceRec<SchemaT>>
 		presets?: { name: string; value: string }[]
 		class?: string
-		innerClass?: string
 	}
 
 	type SchemaT = FilterSchemaRec // TODO: Generic
@@ -262,8 +262,7 @@
 		schema,
 		value: valueInput = $bindable(),
 		presets: _presets = [],
-		class: className,
-		innerClass
+		class: className
 	}: Props<SchemaT> = $props()
 
 	let _value = new DebouncedTempValue(
@@ -501,7 +500,12 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
-	class="relative {className ?? ''}"
+	class={twMerge(
+		'flex items-center rounded-md bg-surface-input overflow-clip',
+		inputBorderClass({ error: errors.length > 0 }),
+		ButtonType.UnifiedHeightClasses.md,
+		className
+	)}
 	onmousedown={(e) => {
 		if (!open) {
 			e.preventDefault()
@@ -525,18 +529,16 @@
 		onCurrentTagChange={(tag) => (currentTag = tag ? (tag.id as keyof SchemaT) : undefined)}
 		onTextSegmentAtCursorChange={(segment) => (currentTextSegment = segment)}
 		class={twMerge(
-			'overflow-x-auto !pr-24 bg-surface-input outline-none scrollbar-hidden text-nowrap',
+			'overflow-x-auto !pr-24 bg-surface-input outline-none scrollbar-hidden text-nowrap flex-1 mr-2 mt-0.5',
 			inputBaseClass,
-			inputBorderClass({ error: errors.length > 0 }),
-			inputSizeClasses.md,
-			innerClass
+			inputSizeClasses.md
 		)}
 		placeholder="Filter runs..."
 	/>
 	{#if asText.val}
-		<CloseButton small class="absolute top-1 right-1.5" onClick={() => (_value.current = {})} />
+		<CloseButton small class="mr-1.5" onClick={() => (_value.current = {})} />
 	{:else}
-		<div class="absolute top-2 right-3">
+		<div class="mr-3">
 			<SearchIcon size={16} class="text-hint" />
 		</div>
 	{/if}
