@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+port_in_use() {
+  lsof -nP -iTCP:"$1" -sTCP:LISTEN &>/dev/null
+}
+
+find_port() {
+  local port=$1
+  while port_in_use "$port"; do
+    ((port++))
+  done
+  echo "$port"
+}
+
+# Hash the handle to get a deterministic port offset (0-99)
+hash=$(echo -n "$WM_HANDLE" | md5sum | cut -c1-4)
+offset=$((16#$hash % 100))
+
+# Find available ports starting from the hash-based offset
+backend_port=$(find_port $((8000 + offset * 10)))
+frontend_port=$(find_port $((3000 + offset * 10)))
+
+# Generate .env.local with port overrides
+cat > .env.local <<EOF
+BACKEND_PORT=$backend_port
+FRONTEND_PORT=$frontend_port
+REMOTE=http://localhost:$backend_port
+EOF
+
+echo "Created .env.local with ports: backend=$backend_port, frontend=$frontend_port"

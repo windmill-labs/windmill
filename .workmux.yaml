@@ -1,0 +1,47 @@
+main_branch: main
+
+merge_strategy: rebase
+# worktree_dir: .worktrees
+
+worktree_naming: basename
+
+worktree_prefix: ""
+
+# Default: "wm-"
+window_prefix: "wm-"
+
+auto_name:
+  model: "claude-sonnet-4.6"
+  system_prompt: "Generate a kebab-case git branch name."
+  background: true  # Always run in background when using --auto-name
+
+
+# Commands to run in new worktree before tmux window opens.
+# These block window creation - use for short tasks only.
+# Use "<global>" to inherit from global config.
+# Set to empty list to disable: `post_create: []`
+# post_create:
+#   - "<global>"
+#   - mise use
+post_create:
+  - ./scripts/worktree-env
+
+panes:
+  - command: <agent>
+    focus: true
+  - command: "[ -f .env.local ] && source .env.local; cd backend && PORT=${BACKEND_PORT:-8000} cargo run"
+    split: horizontal
+  - command: "[ -f .env.local ] && source .env.local; cd frontend && REMOTE=${REMOTE:-http://localhost:${BACKEND_PORT:-8000}} npm run dev -- --port ${FRONTEND_PORT:-3000}"
+    split: vertical
+
+files:
+  copy:
+    - backend/.env
+    - scripts/
+  symlink:
+    - frontend/node_modules
+    - frontend/.svelte-kit
+
+sandbox:
+  enabled: false
+  toolchain: off
