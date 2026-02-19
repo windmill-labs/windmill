@@ -4634,7 +4634,11 @@ async fn run_inline_script_by_path(
     Extension(db): Extension<DB>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Json(body): Json<InlineByPath>,
+    Json(body): Json<InlineByPath>,
 ) -> error::Result<Response> {
+    let script_path_str = script_path.to_path();
+    check_scopes(&authed, || format!("jobs:run:scripts:{script_path_str}"))?;
+    let utils = get_worker_internal_server_inline_utils()?;
     let utils = get_worker_internal_server_inline_utils()?;
     let result = utils.run_inline_script_by_path.as_ref()(RunInlineScriptByPathFnParams {
         path: script_path.to_path().to_string(),
