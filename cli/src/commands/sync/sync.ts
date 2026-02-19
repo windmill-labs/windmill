@@ -2423,6 +2423,38 @@ export async function push(
     if (!opts.jsonOutput) {
       prettyChanges(changes, specificItems, opts.branch);
     }
+
+    // Detect missing folders for paths under f/ before confirmation
+    const missingFolders: string[] = [];
+    const folderNames = new Set<string>();
+    for (const change of changes) {
+      if (change.name === "deleted") continue;
+      const parts = change.path.split(SEP);
+      if (parts.length >= 3 && parts[0] === "f") {
+        folderNames.add(parts[1]);
+      }
+    }
+    for (const folderName of folderNames) {
+      try {
+        await wmill.getFolder({
+          workspace: workspace.workspaceId,
+          name: folderName,
+        });
+      } catch {
+        missingFolders.push(folderName);
+      }
+    }
+    if (missingFolders.length > 0 && !opts.jsonOutput) {
+      log.info("");
+      for (const folderName of missingFolders) {
+        log.info(
+          colors.yellow(
+            `+ folder ${folderName} (will be auto-created)`,
+          ),
+        );
+      }
+    }
+
     if (opts.dryRun) {
       log.info(colors.gray(`Dry run complete.`));
       return;
@@ -2440,41 +2472,24 @@ export async function push(
     const start = performance.now();
     log.info(colors.gray(`Applying changes to files ...`));
 
-    // Auto-create missing folders for paths under f/ to avoid RLS errors for non-admin users
-    const folderNames = new Set<string>();
-    for (const change of changes) {
-      if (change.name === "deleted") continue;
-      const parts = change.path.split(SEP);
-      if (parts.length >= 3 && parts[0] === "f") {
-        folderNames.add(parts[1]);
-      }
-    }
-    if (folderNames.size > 0) {
-      for (const folderName of folderNames) {
-        try {
-          await wmill.getFolder({
-            workspace: workspace.workspaceId,
+    // Auto-create missing folders before pushing resources
+    for (const folderName of missingFolders) {
+      log.info(
+        colors.yellow(`Auto-creating missing folder: ${folderName}`),
+      );
+      try {
+        await wmill.createFolder({
+          workspace: workspace.workspaceId,
+          requestBody: {
             name: folderName,
-          });
-        } catch {
-          log.info(
-            colors.yellow(`Auto-creating missing folder: ${folderName}`),
-          );
-          try {
-            await wmill.createFolder({
-              workspace: workspace.workspaceId,
-              requestBody: {
-                name: folderName,
-              },
-            });
-          } catch (e: any) {
-            log.warning(
-              `Could not create folder ${folderName}: ${
-                e.body ?? e.message
-              }. You may need to create it manually or have an admin create it.`,
-            );
-          }
-        }
+          },
+        });
+      } catch (e: any) {
+        log.warn(
+          `Could not create folder ${folderName}: ${
+            e.body ?? e.message
+          }. You may need to create it manually or have an admin create it.`,
+        );
       }
     }
 
