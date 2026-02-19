@@ -24,9 +24,22 @@ on:
       DISCORD_GUILD_ID:
         description: "The Discord guild ID"
         type: string
+      COMMENT_BODY:
+        description: "The comment body"
+        type: string
+        default: ""
+      COMMENT_AUTHOR:
+        description: "The comment author"
+        type: string
+        default: ""
+      COMMENT_URL:
+        description: "The comment URL"
+        type: string
+        default: ""
     secrets:
       DISCORD_WEBHOOK_URL:
         description: "Discord Webhook URL"
+        required: false
       DISCORD_BOT_TOKEN:
         description: "Discord Bot Token"
 
@@ -117,3 +130,54 @@ jobs:
           curl -X PUT \
             -H "Authorization: Bot $BOT_TOKEN" \
             "https://discord.com/api/v10/channels/$thread_id/messages/$message_id/reactions/%E2%9C%85/@me"
+
+  post_comment:
+    runs-on: ubuntu-latest
+    if: ${{ inputs.PR_STATUS == 'comment' }}
+    steps:
+      - name: Post comment to Discord thread
+        env:
+          BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          CHANNEL_ID: ${{ inputs.DISCORD_CHANNEL_ID }}
+          GUILD_ID: ${{ inputs.DISCORD_GUILD_ID }}
+          PR_NUMBER: ${{ inputs.PR_NUMBER }}
+          COMMENT_BODY: ${{ inputs.COMMENT_BODY }}
+          COMMENT_AUTHOR: ${{ inputs.COMMENT_AUTHOR }}
+          COMMENT_URL: ${{ inputs.COMMENT_URL }}
+        run: |
+          # 1) Find the thread by PR number
+          threads=$(curl -s -H "Authorization: Bot $BOT_TOKEN" \
+            "https://discord.com/api/v10/guilds/${GUILD_ID}/threads/active")
+          thread_id=$(echo "$threads" | jq -r \
+            --arg cid "$CHANNEL_ID" \
+            --arg pref "#${PR_NUMBER}:" \
+            '.threads[] | select(.parent_id == $cid and (.name | startswith($pref))) | .id')
+
+          if [ -z "$thread_id" ]; then
+            echo "Thread not found for PR #${PR_NUMBER}, skipping"
+            exit 0
+          fi
+
+          # 2) Truncate comment body to fit Discord's 2000 char limit
+          # Reserve space for the author line + link (~100 chars)
+          max_body=1800
+          if [ ${#COMMENT_BODY} -gt $max_body ]; then
+            # For bot comments, show the tail (conclusions/code tend to be at the end)
+            if [[ "$COMMENT_AUTHOR" == *"[bot]"* ]] || [[ "$COMMENT_AUTHOR" == *"-bot"* ]]; then
+              truncated_body="...${COMMENT_BODY: -$max_body}"
+            else
+              truncated_body="${COMMENT_BODY:0:$max_body}..."
+            fi
+          else
+            truncated_body="$COMMENT_BODY"
+          fi
+
+          # 3) Post the comment to the thread
+          message=$(printf '**%s** [commented](%s):\n%s' "$COMMENT_AUTHOR" "$COMMENT_URL" "$truncated_body")
+          payload=$(jq -n --arg content "$message" '{content: $content}')
+
+          curl -s -X POST \
+            -H "Authorization: Bot $BOT_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$payload" \
+            "https://discord.com/api/v10/channels/${thread_id}/messages"
