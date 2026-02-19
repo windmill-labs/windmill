@@ -174,7 +174,7 @@ jobs:
 
           # 3) Post the comment to the thread
           message=$(printf '**%s** [commented](%s):\n%s' "$COMMENT_AUTHOR" "$COMMENT_URL" "$truncated_body")
-          payload=$(jq -n --arg content "$message" '{content: $content}')
+          payload=$(jq -n --arg content "$message" '{content: $content, flags: 4, allowed_mentions: {parse: []}}')
 
           curl -s -X POST \
             -H "Authorization: Bot $BOT_TOKEN" \
