@@ -13,13 +13,33 @@ find_port() {
   echo "$port"
 }
 
-# Hash the handle to get a deterministic port offset (0-99)
-hash=$(echo -n "$WM_HANDLE" | md5sum | cut -c1-4)
-offset=$((16#$hash % 100))
+if [[ -z "${WM_SLOT:-}" ]]; then
+  # Auto-assign: find the first slot (1-99) where both ports are free
+  # Slot 0 (8000/3000) is reserved for the main worktree
+  for slot in $(seq 1 99); do
+    bp=$((8000 + slot * 10))
+    fp=$((3000 + slot * 10))
+    if ! port_in_use "$bp" && ! port_in_use "$fp"; then
+      WM_SLOT=$slot
+      break
+    fi
+  done
+  if [[ -z "${WM_SLOT:-}" ]]; then
+    echo "ERROR: No available slot found (tried 1-99)" >&2
+    exit 1
+  fi
+  echo "Auto-assigned slot $WM_SLOT"
+fi
 
-# Find available ports starting from the hash-based offset
-backend_port=$(find_port $((8000 + offset * 10)))
-frontend_port=$(find_port $((3000 + offset * 10)))
+# Slot-based: predictable ports for SSH forwarding
+# Slot 0 = 8000/3000, slot 1 = 8010/3010, slot 2 = 8020/3020, etc.
+backend_port=$((8000 + WM_SLOT * 10))
+frontend_port=$((3000 + WM_SLOT * 10))
+
+if port_in_use "$backend_port" || port_in_use "$frontend_port"; then
+  echo "ERROR: Slot $WM_SLOT ports ($backend_port/$frontend_port) already in use" >&2
+  exit 1
+fi
 
 # Generate .env.local with port overrides
 cat > .env.local <<EOF

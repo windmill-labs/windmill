@@ -29,7 +29,7 @@ post_create:
 panes:
   - command: <agent>
     focus: true
-  - command: "[ -f .env.local ] && source .env.local; cd backend && PORT=${BACKEND_PORT:-8000} cargo run"
+  - command: "[ -f .env.local ] && source .env.local; cd backend && PORT=${BACKEND_PORT:-8000} cargo watch -x run"
     split: horizontal
   - command: "[ -f .env.local ] && source .env.local; cd frontend && REMOTE=${REMOTE:-http://localhost:${BACKEND_PORT:-8000}} npm run dev -- --port ${FRONTEND_PORT:-3000}"
     split: vertical
