@@ -1587,9 +1587,34 @@ export function formatDateRange(
 	if (typeof start === 'string') start = new Date(start)
 	if (typeof end === 'string') end = new Date(end)
 
+	if (start && end) {
+		const differentDays =
+			start.getFullYear() !== end.getFullYear() ||
+			start.getMonth() !== end.getMonth() ||
+			start.getDate() !== end.getDate()
+
+		const differentYears = start.getFullYear() !== end.getFullYear()
+
+		if (differentDays || differentYears) {
+			// Clone to avoid mutating originals
+			start = new Date(start)
+			end = new Date(end)
+			// Zero out time for display
+			start.setHours(0, 0, 0, 0)
+			end.setHours(0, 0, 0, 0)
+		}
+
+		if (differentYears) {
+			// Zero out month and day for display
+			start.setMonth(0, 1)
+			end.setMonth(0, 1)
+		}
+
+		return `${formatDatePretty(start)} to ${formatDatePretty(end)}`
+	}
+
 	if (!end && start) return `After ${formatDatePretty(start)}`
 	if (!start && end) return `Before ${formatDatePretty(end)}`
-	if (start && end) return `${formatDatePretty(start)} to ${formatDatePretty(end)}`
 	return 'No input'
 }
 

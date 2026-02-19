@@ -564,6 +564,7 @@
 
 			<div class="hidden xl:flex gap-2 ml-6">
 				<ToggleButtonGroup
+					tabListClass="hidden 2xl:flex"
 					bind:selected={
 						() => filters.val.job_kinds ?? 'runs',
 						(v) => (v === 'runs' ? delete filters.val.job_kinds : (filters.val.job_kinds = v))

@@ -159,7 +159,7 @@
 <div class="relative flex {wrapperClasses}">
 	<Button
 		unifiedSize="md"
-		wrapperClasses="flex-1 min-w-36"
+		wrapperClasses="flex-1"
 		btnClasses="!rounded-r-none whitespace-nowrap"
 		onClick={() => onClick?.()}
 	>
@@ -168,6 +168,15 @@
 			{value.label}
 		</div>
 	</Button>
+	{#if value.type === 'manual'}
+		<Button
+			btnClasses="!rounded-none border-l-0"
+			unifiedSize="md"
+			onClick={() => (value = { ...items[0] })}
+		>
+			Reset
+		</Button>
+	{/if}
 	<Popover enableFlyTransition bind:isOpen>
 		{#snippet trigger()}
 			<Button
