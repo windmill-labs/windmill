@@ -2279,7 +2279,8 @@ pub async fn run_worker(
                                 if let Err(e) = flow_runner_tx.send(dedicated_job).await {
                                     let token = match &conn {
                                         Connection::Sql(db) => {
-                                            windmill_queue::jobs::create_token(db, &job, None).await
+                                            windmill_queue::jobs::create_token(db, &job, None, None)
+                                                .await
                                         }
                                         _ => "".to_string(),
                                     };

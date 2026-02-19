@@ -2586,6 +2586,42 @@ pub struct JobAndPerms {
     #[serde(skip)]
     pub flow_runners: Option<Arc<FlowRunners>>,
 }
+/// Parse `// wmill_scopes:` or `# wmill_scopes:` annotations from script source code.
+///
+/// Looks for a line matching `// wmill_scopes: scope1,scope2` (or `#` comment prefix)
+/// in the first 20 lines of the script. Returns the parsed scopes as a Vec.
+pub fn parse_wmill_scopes(code: &str) -> Option<Vec<String>> {
+    for line in code.lines().take(20) {
+        let trimmed = line.trim();
+        let after_comment = if let Some(rest) = trimmed.strip_prefix("//") {
+            Some(rest)
+        } else if let Some(rest) = trimmed.strip_prefix('#') {
+            // Skip shebangs like #!/bin/bash
+            if rest.starts_with('!') {
+                continue;
+            }
+            Some(rest)
+        } else if let Some(rest) = trimmed.strip_prefix("--") {
+            Some(rest)
+        } else {
+            None
+        };
+        if let Some(after_comment) = after_comment {
+            if let Some(scopes_str) = after_comment.trim().strip_prefix("wmill_scopes:") {
+                let scopes: Vec<String> = scopes_str
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                if !scopes.is_empty() {
+                    return Some(scopes);
+                }
+            }
+        }
+    }
+    None
+}
+
 impl PulledJob {
     pub async fn get_job_and_perms(self, db: &DB) -> JobAndPerms {
         let job_perms = match (
@@ -2607,7 +2643,8 @@ impl PulledJob {
             _ => None,
         };
 
-        let token = create_token(&db, &self.job, job_perms).await;
+        let scopes = self.raw_code.as_deref().and_then(parse_wmill_scopes);
+        let token = create_token(&db, &self.job, job_perms, scopes).await;
         JobAndPerms {
             job: self.job,
             raw_code: self.raw_code,
@@ -2622,7 +2659,12 @@ impl PulledJob {
 }
 
 // struct Permission
-pub async fn create_token(db: &DB, job: &MiniPulledJob, perms: Option<JobPerms>) -> String {
+pub async fn create_token(
+    db: &DB,
+    job: &MiniPulledJob,
+    perms: Option<JobPerms>,
+    scopes: Option<Vec<String>>,
+) -> String {
     // skipping test runs
     if job.workspace_id != "" {
         let label = if job.permissioned_as != format!("u/{}", job.created_by)
@@ -2645,6 +2687,7 @@ pub async fn create_token(db: &DB, job: &MiniPulledJob, perms: Option<JobPerms>)
                 "job-span-{}",
                 job.flow_innermost_root_job.unwrap_or(job.id)
             )),
+            scopes,
         )
         .warn_after_seconds(5)
         .await

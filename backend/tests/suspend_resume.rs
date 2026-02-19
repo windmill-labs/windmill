@@ -156,7 +156,7 @@ mod suspend_resume {
                 let second = completed.next().await.unwrap();
                 // print_job(second, &db).await;
 
-                let token = windmill_common::auth::create_token_for_owner(&db, "test-workspace", "u/test-user", "", 100, "", &Uuid::nil(), None, None).await.unwrap();
+                let token = windmill_common::auth::create_token_for_owner(&db, "test-workspace", "u/test-user", "", 100, "", &Uuid::nil(), None, None, None).await.unwrap();
                 let secret = reqwest::get(format!(
                     "http://localhost:{port}/api/w/test-workspace/jobs/job_signature/{second}/0?token={token}&approver=ruben"
                 ))
@@ -247,7 +247,9 @@ mod suspend_resume {
     #[cfg(feature = "enterprise")]
     #[cfg(feature = "deno_core")]
     #[sqlx::test(fixtures("base"))]
-    async fn test_self_approval_disabled_blocks_owner_resume(db: Pool<Postgres>) -> anyhow::Result<()> {
+    async fn test_self_approval_disabled_blocks_owner_resume(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
         initialize_tracing().await;
 
         let server = ApiServer::start(db.clone()).await?;
@@ -312,6 +314,7 @@ mod suspend_resume {
                     &Uuid::nil(),
                     None,
                     None,
+                    None,
                 )
                 .await
                 .unwrap();
@@ -358,7 +361,9 @@ mod suspend_resume {
     #[cfg(feature = "enterprise")]
     #[cfg(feature = "deno_core")]
     #[sqlx::test(fixtures("base"))]
-    async fn test_self_approval_allowed_when_not_disabled(db: Pool<Postgres>) -> anyhow::Result<()> {
+    async fn test_self_approval_allowed_when_not_disabled(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
         initialize_tracing().await;
 
         let server = ApiServer::start(db.clone()).await?;
@@ -420,6 +425,7 @@ mod suspend_resume {
                     &Uuid::nil(),
                     None,
                     None,
+                    None,
                 )
                 .await
                 .unwrap();
@@ -462,7 +468,9 @@ mod suspend_resume {
     #[cfg(feature = "enterprise")]
     #[cfg(feature = "deno_core")]
     #[sqlx::test(fixtures("base"))]
-    async fn test_different_user_can_approve_when_self_approval_disabled(db: Pool<Postgres>) -> anyhow::Result<()> {
+    async fn test_different_user_can_approve_when_self_approval_disabled(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
         initialize_tracing().await;
 
         let server = ApiServer::start(db.clone()).await?;
@@ -523,6 +531,7 @@ mod suspend_resume {
                     100,
                     "test@windmill.dev",
                     &Uuid::nil(),
+                    None,
                     None,
                     None,
                 )
@@ -588,7 +597,7 @@ mod suspend_resume {
                 /* ... and send a request resume it. */
                 let second = completed.next().await.unwrap();
 
-                let token = windmill_common::auth::create_token_for_owner(&db, "test-workspace", "u/test-user", "", 100, "", &Uuid::nil(), None, None).await.unwrap();
+                let token = windmill_common::auth::create_token_for_owner(&db, "test-workspace", "u/test-user", "", 100, "", &Uuid::nil(), None, None, None).await.unwrap();
                 let secret = reqwest::get(format!(
                     "http://localhost:{port}/api/w/test-workspace/jobs/job_signature/{second}/0?token={token}"
                 ))
