@@ -178,9 +178,10 @@
 
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		inputMatches: writable(undefined),
-		focusProp: () => {},
+		connectProp: () => {},
 		propPickerConfig: writable(undefined),
-		clearFocus: () => {}
+		clearConnect: () => {},
+		exprBeingEdited: writable([])
 	})
 </script>
 

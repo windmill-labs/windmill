@@ -1,13 +1,16 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
-	import { WorkspaceDependenciesService, type ScriptLang, type WorkspaceDependencies } from '$lib/gen'
+	import {
+		WorkspaceDependenciesService,
+		type ScriptLang,
+		type WorkspaceDependencies
+	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Button } from './common'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import DependenciesDeploymentWarning from './DependenciesDeploymentWarning.svelte'
-	import type SimpleEditor from './SimpleEditor.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import Section from './Section.svelte'
 	import { Loader2, Rocket, Code2, FolderOpen } from 'lucide-svelte'
@@ -20,13 +23,16 @@
 	// Helper function to get full filename
 	export function getFullFilename(language: ScriptLang, name: string | null): string | null {
 		const extension = getFileExtension(language)
-		if (extension == null) return null;
+		if (extension == null) return null
 		return name ? `${name}.${extension}` : extension
 	}
 
-	export function getWorkspaceDependenciesPath(name: string | null, language: ScriptLang): string | null {
+	export function getWorkspaceDependenciesPath(
+		name: string | null,
+		language: ScriptLang
+	): string | null {
 		const extension = getFileExtension(language)
-		if (extension == null) return null;
+		if (extension == null) return null
 		return name ? `dependencies/${name}.${extension}` : `dependencies/${extension}`
 	}
 
@@ -52,16 +58,16 @@
 	// Load existing workspace defaults from API
 	async function loadExistingWorkspaceDefaults(): Promise<void> {
 		if (!$workspaceStore) return
-		
+
 		try {
-			const workspaceDeps = await WorkspaceDependenciesService.listWorkspaceDependencies({ 
-				workspace: $workspaceStore 
+			const workspaceDeps = await WorkspaceDependenciesService.listWorkspaceDependencies({
+				workspace: $workspaceStore
 			})
-			
+
 			// Reset defaults
 			existingWorkspaceDefaults = {}
 			workspaceDefaultIds = {}
-			
+
 			// Check for workspace defaults (where name is null) for each language
 			workspaceDeps.forEach((dep) => {
 				if (dep.name === null) {
@@ -83,9 +89,9 @@
 	}
 
 	function goToWorkspaceDefault(): void {
-		const language = workspaceDependencies.language;
-		const defaultId = workspaceDefaultIds[language];
-		
+		const language = workspaceDependencies.language
+		const defaultId = workspaceDefaultIds[language]
+
 		if (defaultId) {
 			// Close current drawer and edit the workspace default
 			drawer?.closeDrawer()
@@ -101,7 +107,7 @@
 
 	let workspaceDependenciesName: string = $state('')
 	let workspaceDependenciesType = $state<'workspace' | 'named'>('workspace')
-	
+
 	// Language options for workspace dependencies - only supported languages
 	const LANGUAGE_OPTIONS = [
 		{ value: 'python3', label: 'Python' },
@@ -130,19 +136,19 @@ numpy>=1.24.0
 	}
 }`,
 
-// 		go: `module mymod
+		// 		go: `module mymod
 
-// go 1.25
+		// go 1.25
 
-// require (
-// 	rsc.io/quote v1.5.2 
-// 	github.com/gorilla/mux v1.8.1
-// 	github.com/lib/pq v1.10.9
-// 	github.com/joho/godotenv v1.5.1
-// 	github.com/sirupsen/logrus v1.9.3
-// 	github.com/stretchr/testify v1.8.4
-// )
-// `,
+		// require (
+		// 	rsc.io/quote v1.5.2
+		// 	github.com/gorilla/mux v1.8.1
+		// 	github.com/lib/pq v1.10.9
+		// 	github.com/joho/godotenv v1.5.1
+		// 	github.com/sirupsen/logrus v1.9.3
+		// 	github.com/stretchr/testify v1.8.4
+		// )
+		// `,
 
 		php: `{
   "require": {
@@ -172,7 +178,7 @@ numpy>=1.24.0
 	let existingWorkspaceDefaults: Record<string, boolean> = $state({})
 	let workspaceDefaultIds: Record<string, number> = $state({})
 	let can_write = $state(true)
-	let editor: SimpleEditor | undefined = $state(undefined)
+	let editor: any | undefined = $state(undefined)
 	let showWarning = $state(false)
 	let currentImportedPath: string | null = $state(null)
 
@@ -184,10 +190,14 @@ numpy>=1.24.0
 
 	// Track when editor is ready
 	let editorReady = $state(false)
-	
+
 	// Calculate when deploy button should be disabled
-	let isDisabled = $derived(!can_write || !valid || (workspaceDependenciesType === 'named' && workspaceDependenciesName.trim() === ''))
-	
+	let isDisabled = $derived(
+		!can_write ||
+			!valid ||
+			(workspaceDependenciesType === 'named' && workspaceDependenciesName.trim() === '')
+	)
+
 	$effect(() => {
 		if (editor && !editorReady) {
 			editor.setCode(workspaceDependencies.content)
@@ -227,7 +237,7 @@ numpy>=1.24.0
 		workspaceDependencies = {
 			content: LANGUAGE_TEMPLATES.python3,
 			language: 'python3',
-			description: "",
+			description: ''
 		}
 		edit = false
 		initialName = undefined
@@ -245,24 +255,29 @@ numpy>=1.24.0
 		drawer?.openDrawer()
 	}
 
-	export async function editWorkspaceDependencies(id: number, name: string | undefined, language: ScriptLang): Promise<void> {
+	export async function editWorkspaceDependencies(
+		id: number,
+		name: string | undefined,
+		language: ScriptLang
+	): Promise<void> {
 		edit = true
-		
+
 		try {
 			// Call the get-latest endpoint to get actual content
-			const workspaceDeps = await WorkspaceDependenciesService.getLatestWorkspaceDependencies({ 
+			const workspaceDeps = await WorkspaceDependenciesService.getLatestWorkspaceDependencies({
 				workspace: $workspaceStore!,
 				language,
 				name: name || undefined
 			})
-			
+
 			can_write = true // TODO: Implement proper permissions
 
 			if (workspaceDeps) {
 				workspaceDependencies = {
 					content: workspaceDeps.content,
 					language: workspaceDeps.language,
-					description: workspaceDeps.description || `${name || 'Default'} requirements for ${language}`
+					description:
+						workspaceDeps.description || `${name || 'Default'} requirements for ${language}`
 				}
 			} else {
 				sendUserToast('Enforced dependencies not found', true)
@@ -273,7 +288,7 @@ numpy>=1.24.0
 			sendUserToast(`Failed to load enforced dependencies: ${error.message}`, true)
 			return
 		}
-		
+
 		initialName = name
 		initialLanguage = language
 		workspaceDependenciesName = name || ''
@@ -294,11 +309,14 @@ numpy>=1.24.0
 					content: workspaceDependencies.content,
 					language: workspaceDependencies.language as any,
 					workspace_id: $workspaceStore!,
-					description: workspaceDependencies.description,
+					description: workspaceDependencies.description
 				}
 			})
 
-			const displayName = workspaceDependenciesType === 'workspace' ? `workspace default for ${workspaceDependencies.language}` : workspaceDependenciesName
+			const displayName =
+				workspaceDependenciesType === 'workspace'
+					? `workspace default for ${workspaceDependencies.language}`
+					: workspaceDependenciesName
 			sendUserToast(`Deployed enforced dependencies: ${displayName}`)
 			dispatch('create')
 			drawer?.closeDrawer()
@@ -335,12 +353,13 @@ numpy>=1.24.0
 	function cancelDeploy(): void {
 		showWarning = false
 	}
-
 </script>
 
 <Drawer bind:this={drawer} size="1200px">
 	<DrawerContent
-		title={edit ? `Deploy ${getFullFilename(workspaceDependencies.language, workspaceDependenciesType === 'workspace' ? null : workspaceDependenciesName)}` : 'Add enforced dependencies'}
+		title={edit
+			? `Deploy ${getFullFilename(workspaceDependencies.language, workspaceDependenciesType === 'workspace' ? null : workspaceDependenciesName)}`
+			: 'Add enforced dependencies'}
 		on:close={drawer?.closeDrawer}
 	>
 		<div class="flex flex-col gap-8">
@@ -353,15 +372,20 @@ numpy>=1.24.0
 			{#if showWarning && currentImportedPath}
 				<DependenciesDeploymentWarning
 					importedPath={currentImportedPath}
-					title={workspaceDependenciesType === 'workspace' ? "Redeploy impacted runnables?" : "Deployment Warning"}
-					confirmText={workspaceDependenciesType === 'workspace' ? "I'm Sure - Deploy Default" : "Deploy Anyway"}
+					title={workspaceDependenciesType === 'workspace'
+						? 'Redeploy impacted runnables?'
+						: 'Deployment Warning'}
+					confirmText={workspaceDependenciesType === 'workspace'
+						? "I'm Sure - Deploy Default"
+						: 'Deploy Anyway'}
 					onConfirm={confirmDeploy}
 					onCancel={cancelDeploy}
 					isUnnamedDefault={workspaceDependenciesType === 'workspace'}
-					language={LANGUAGE_OPTIONS.find(opt => opt.value === workspaceDependencies.language)?.label || workspaceDependencies.language}
+					language={LANGUAGE_OPTIONS.find((opt) => opt.value === workspaceDependencies.language)
+						?.label || workspaceDependencies.language}
 				/>
 			{/if}
-			
+
 			<Section label="Enforced Dependencies Type">
 				<div class="flex flex-col gap-4">
 					{#if hasWorkspaceDefault(workspaceDependencies.language) && !edit}
@@ -385,7 +409,10 @@ numpy>=1.24.0
 							</Button>
 						</div>
 					{:else}
-						<ToggleButtonGroup bind:selected={workspaceDependenciesType} disabled={!can_write || edit}>
+						<ToggleButtonGroup
+							bind:selected={workspaceDependenciesType}
+							disabled={!can_write || edit}
+						>
 							{#snippet children({ item })}
 								<ToggleButton
 									disabled={!can_write || edit}
@@ -413,8 +440,8 @@ numpy>=1.24.0
 					{/if}
 					<div class="text-sm text-tertiary">
 						<FolderOpen size={16} class="inline mr-2" />
-						Default Enforced Dependencies are used when no specific Dependencies are referenced from runnables.
-						Named dependencies can be referenced by scripts using
+						Default Enforced Dependencies are used when no specific Dependencies are referenced from
+						runnables. Named dependencies can be referenced by scripts using
 						<a
 							href="https://www.windmill.dev/docs/core_concepts/workspace_dependencies"
 							target="_blank"
@@ -436,7 +463,9 @@ numpy>=1.24.0
 					/>
 					<div class="text-sm text-tertiary">
 						<Code2 size={16} class="inline mr-2" />
-						{edit ? 'Language cannot be changed after creation.' : 'Select the programming language these dependencies are for. This will load a default template.'}
+						{edit
+							? 'Language cannot be changed after creation.'
+							: 'Select the programming language these dependencies are for. This will load a default template.'}
 					</div>
 				</div>
 			</Section>
@@ -450,7 +479,8 @@ numpy>=1.24.0
 					class="input"
 				/>
 				<div class="text-sm text-tertiary mt-2">
-					Provide a brief description to help others understand the purpose of these enforced dependencies.
+					Provide a brief description to help others understand the purpose of these enforced
+					dependencies.
 				</div>
 			</Section>
 
@@ -476,9 +506,8 @@ numpy>=1.24.0
 					{/await}
 				</div>
 			</Section>
-
 		</div>
-		
+
 		{#snippet actions()}
 			<Button
 				on:click={handleDeployClick}

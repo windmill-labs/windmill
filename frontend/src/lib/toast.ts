@@ -1,7 +1,10 @@
-import Toast, { type ToastType } from '$lib/components/Toast.svelte'
+import Toast from '$lib/components/Toast.svelte'
 import { toast } from '@zerodevx/svelte-toast'
 import type { ComponentProps } from 'svelte'
 import type { Button } from './components/common'
+import type { AlertType } from '$lib/components/common/alert/model'
+
+export type ToastType = AlertType
 
 export type ToastAction = {
 	label: string

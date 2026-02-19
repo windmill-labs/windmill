@@ -181,7 +181,7 @@ export const settings: Record<string, Setting[]> = {
 	],
 	Jobs: [
 		{
-			label: 'Job Isolation',
+			label: 'Job isolation',
 			key: 'job_isolation',
 			fieldType: 'select',
 			description:
