@@ -4,6 +4,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { PlusIcon } from 'lucide-svelte'
 	import GenericDropdown from './GenericDropdown.svelte'
+	import { Debounced } from 'runed'
 
 	let {
 		processedItems: _processedItems,
@@ -69,6 +70,10 @@
 	// Expose whether the dropdown is visually open for keyboard nav guard.
 	// We mirror the same logic GenericDropdown uses: open && !disabled.
 	let isVisible = $derived(open && !disabled)
+
+	// Dirty fix to prevent a rendering bug where the ul is present in the layout but
+	// displays as empty. It only happens with overflow-y-auto set.
+	let enableOverflowYAuto = new Debounced(() => isVisible, 15)
 </script>
 
 <svelte:window
@@ -105,7 +110,13 @@
 	{#if processedItems?.length === 0}
 		<div class="py-8 px-4 text-center text-primary text-xs">{noItemsMsg}</div>
 	{/if}
-	<ul class={twMerge('flex-1 overflow-y-auto flex flex-col', ulClass)}>
+	<ul
+		class={twMerge(
+			'flex-1 flex flex-col',
+			enableOverflowYAuto.current ? 'overflow-y-auto' : '',
+			ulClass
+		)}
+	>
 		{#each processedItems ?? [] as item, itemIndex (item.value)}
 			{#if (item.__select_group && itemIndex === 0) || processedItems?.[itemIndex - 1]?.__select_group !== item.__select_group}
 				<li
