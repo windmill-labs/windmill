@@ -48,6 +48,7 @@ export interface SimplifiedSettings {
   mute_critical_alerts?: boolean;
   color?: string;
   operator_settings?: any;
+  datatable?: any;
 }
 
 // Legacy settings interface for reading old settings.yaml files
@@ -89,6 +90,7 @@ export function migrateToGroupedFormat(settings: any): SimplifiedSettings {
   if (settings.mute_critical_alerts !== undefined) result.mute_critical_alerts = settings.mute_critical_alerts;
   if (settings.color !== undefined) result.color = settings.color;
   if (settings.operator_settings !== undefined) result.operator_settings = settings.operator_settings;
+  if (settings.datatable !== undefined) result.datatable = settings.datatable;
 
   // Handle auto_invite: check if already grouped or needs migration
   if (settings.auto_invite && typeof settings.auto_invite === "object") {
@@ -178,6 +180,7 @@ export async function pushWorkspaceSettings(
       mute_critical_alerts: remoteSettings.mute_critical_alerts,
       color: remoteSettings.color,
       operator_settings: remoteSettings.operator_settings,
+      datatable: remoteSettings.datatable,
     };
   } catch (err) {
     throw new Error(`Failed to get workspace settings: ${err}`);
@@ -359,6 +362,14 @@ export async function pushWorkspaceSettings(
     await wmill.updateOperatorSettings({
       workspace,
       requestBody: localSettings.operator_settings,
+    });
+  }
+
+  if (!deepEqual(localSettings.datatable, settings.datatable)) {
+    log.debug(`Updating datatable config...`);
+    await wmill.editDataTableConfig({
+      workspace,
+      requestBody: { settings: localSettings.datatable ?? { datatables: {} } },
     });
   }
 }
