@@ -421,7 +421,7 @@
 			wrapperClasses="bg-surface-input"
 		/>
 
-		<div class="flex flex-1">
+		<div class="flex flex-1 divide-x">
 			<Select
 				class="basis-1/2"
 				inputClass="text-center !rounded-r-none !border-r-0"
@@ -429,10 +429,9 @@
 				bind:value={viewMonth}
 				items={MONTH_NAMES.map((name, i) => ({ label: name, value: i + 1 }))}
 			/>
-
 			<Select
 				class="basis-1/2"
-				inputClass="text-center !rounded-l-none"
+				inputClass="text-center !rounded-l-none !border-l-0"
 				disablePortal
 				bind:value={viewYear}
 				onCreateItem={(val) => (viewYear = parseInt(val) || viewYear)}
