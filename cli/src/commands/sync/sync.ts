@@ -2418,7 +2418,7 @@ export async function push(
           name: folderName,
         });
       } catch (e: any) {
-        if (e.status === undefined || e.status === 404) {
+        if (e.status === 404) {
           missingFolders.push(folderName);
         } else {
           log.warn(
