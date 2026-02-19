@@ -44,11 +44,74 @@ fn resolve_email<'a>(
     authed: &'a ApiAuthed,
 ) -> &'a str {
     if let Some(email) = email {
-        if preserve_email.unwrap_or(false) && can_preserve_on_behalf_of(authed) {
+        let can_preserve = can_preserve_on_behalf_of(authed);
+        tracing::error!(
+            "resolve_email (schedule): email={}, preserve_email={:?}, can_preserve={}",
+            email,
+            preserve_email,
+            can_preserve
+        );
+        if preserve_email.unwrap_or(false) && can_preserve {
             return email.as_str();
         }
+    } else {
+        tracing::error!("resolve_email (schedule): no email provided, using deploying user");
     }
     &authed.email
+}
+
+/// Resolves the edited_by (username) to use for a schedule based on preservation settings.
+/// - If `email` is provided and `preserve_email` is true AND user is admin/wm_deployers → look up username from email
+/// - Otherwise → use the authenticated user's username
+async fn resolve_edited_by(
+    db: &DB,
+    workspace_id: &str,
+    email: Option<&String>,
+    preserve_email: Option<bool>,
+    authed: &ApiAuthed,
+) -> Result<String> {
+    if let Some(email) = email {
+        let can_preserve = can_preserve_on_behalf_of(authed);
+        tracing::error!(
+            "resolve_edited_by (schedule): email={}, preserve_email={:?}, can_preserve={}",
+            email,
+            preserve_email,
+            can_preserve
+        );
+
+        if preserve_email.unwrap_or(false) && can_preserve {
+            // Look up username from email in the usr table
+            if let Some(username) = sqlx::query_scalar!(
+                "SELECT username FROM usr WHERE workspace_id = $1 AND email = $2",
+                workspace_id,
+                email
+            )
+            .fetch_optional(db)
+            .await?
+            {
+                tracing::error!(
+                    "resolve_edited_by (schedule): resolved to username={}",
+                    username
+                );
+                return Ok(username);
+            } else {
+                tracing::error!(
+                    "resolve_edited_by (schedule): no user found with email {} in workspace {}, falling back to deploying user",
+                    email,
+                    workspace_id
+                );
+            }
+        }
+    } else {
+        tracing::error!("resolve_edited_by (schedule): no email provided, using deploying user");
+    }
+
+    let fallback = authed.username.clone();
+    tracing::error!(
+        "resolve_edited_by (schedule): using fallback username={}",
+        fallback
+    );
+    Ok(fallback)
 }
 
 pub fn workspaced_service() -> Router {
@@ -223,6 +286,10 @@ async fn create_schedule(
         validate_dynamic_skip(&mut tx, &w_id, handler_path).await?;
     }
 
+    // Resolve edited_by based on preserve_email settings
+    let resolved_edited_by =
+        resolve_edited_by(&db, &w_id, ns.email.as_ref(), ns.preserve_email, &authed).await?;
+
     let schedule = sqlx::query_as!(
         Schedule,
         r#"
@@ -280,7 +347,7 @@ async fn create_schedule(
         ns.path,
         ns.schedule,
         ns.timezone,
-        authed.username,
+        resolved_edited_by,
         ns.script_path,
         ns.is_flow,
         to_json_raw_opt(ns.args.as_ref())
@@ -374,6 +441,11 @@ async fn edit_schedule(
     }
 
     clear_schedule(&mut tx, path, &w_id).await?;
+
+    // Resolve edited_by based on preserve_email settings
+    let resolved_edited_by =
+        resolve_edited_by(&db, &w_id, es.email.as_ref(), es.preserve_email, &authed).await?;
+
     let schedule = sqlx::query_as!(
         Schedule,
         r#"
@@ -401,7 +473,8 @@ async fn edit_schedule(
             cron_version            = COALESCE($21, cron_version),
             description             = $22,
             dynamic_skip            = $23,
-            email                   = COALESCE($24, email)
+            email                   = COALESCE($24, email),
+            edited_by               = $25
         WHERE path = $19 AND workspace_id = $20
         RETURNING
             workspace_id,
@@ -468,7 +541,9 @@ async fn edit_schedule(
             es.email.as_deref()
         } else {
             None
-        }
+        },
+        // Always update edited_by - resolve_edited_by handles the preserve logic
+        resolved_edited_by
     )
     .fetch_one(&mut *tx)
     .await

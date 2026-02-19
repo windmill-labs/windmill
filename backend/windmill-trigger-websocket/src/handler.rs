@@ -72,12 +72,13 @@ impl TriggerCrud for WebsocketTrigger {
 
     async fn create_trigger(
         &self,
-        _db: &DB,
+        db: &DB,
         tx: &mut PgConnection,
         authed: &ApiAuthed,
         w_id: &str,
         trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
+        let resolved_edited_by = trigger.base.resolve_edited_by(authed, db, w_id).await?;
         let filters = trigger
             .config
             .filters
@@ -127,7 +128,7 @@ impl TriggerCrud for WebsocketTrigger {
                 .config
                 .url_runnable_args
                 .map(|v| SqlxJson(serde_json::value::to_raw_value(&v).unwrap())) as _,
-            authed.username,
+            &resolved_edited_by,
             trigger.config.can_return_message,
             trigger.config.can_return_error_result,
             trigger.base.resolve_email(authed),
@@ -142,13 +143,14 @@ impl TriggerCrud for WebsocketTrigger {
 
     async fn update_trigger(
         &self,
-        _db: &DB,
+        db: &DB,
         tx: &mut PgConnection,
         authed: &ApiAuthed,
         w_id: &str,
         path: &str,
         trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
+        let resolved_edited_by = trigger.base.resolve_edited_by(authed, db, w_id).await?;
         let filters = trigger
             .config
             .filters
@@ -200,7 +202,7 @@ impl TriggerCrud for WebsocketTrigger {
                 .url_runnable_args
                 .map(|v| SqlxJson(serde_json::value::to_raw_value(&v).unwrap()))
                 as Option<SqlxJson<Box<RawValue>>>,
-            &authed.username,
+            &resolved_edited_by,
             trigger.base.resolve_email(authed),
             trigger.config.can_return_message,
             trigger.config.can_return_error_result,

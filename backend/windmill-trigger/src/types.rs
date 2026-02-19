@@ -8,9 +8,9 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{types::Json as SqlxJson, FromRow};
+use sqlx::{postgres::Postgres, types::Json as SqlxJson, FromRow, Pool};
 use std::{collections::HashMap, fmt::Debug};
-use windmill_common::{db::Authable, jobs::JobTriggerKind};
+use windmill_common::{db::Authable, error::Result, jobs::JobTriggerKind};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -136,6 +136,53 @@ impl BaseTriggerData {
         }
         authed.email()
     }
+
+    /// Resolves the edited_by (username) to use for the trigger based on preservation settings.
+    /// - If `email` is provided and `preserve_email` is true AND user is admin/wm_deployers → look up username from email
+    /// - Otherwise → use the authenticated user's username
+    pub async fn resolve_edited_by(
+        &self,
+        authed: &impl Authable,
+        db: &Pool<Postgres>,
+        workspace_id: &str,
+    ) -> Result<String> {
+        if let Some(ref email) = self.email {
+            let can_preserve = windmill_common::can_preserve_on_behalf_of(authed);
+            tracing::error!(
+                "resolve_edited_by: email={}, preserve_email={:?}, can_preserve={}",
+                email,
+                self.preserve_email,
+                can_preserve
+            );
+
+            if self.preserve_email.unwrap_or(false) && can_preserve {
+                // Look up username from email in the usr table
+                if let Some(username) = sqlx::query_scalar!(
+                    "SELECT username FROM usr WHERE workspace_id = $1 AND email = $2",
+                    workspace_id,
+                    email
+                )
+                .fetch_optional(db)
+                .await?
+                {
+                    tracing::error!("resolve_edited_by: resolved to username={}", username);
+                    return Ok(username);
+                } else {
+                    tracing::error!(
+                        "resolve_edited_by: no user found with email {} in workspace {}, falling back to deploying user",
+                        email,
+                        workspace_id
+                    );
+                }
+            }
+        } else {
+            tracing::error!("resolve_edited_by: no email provided, using deploying user");
+        }
+
+        let fallback = authed.username().to_string();
+        tracing::error!("resolve_edited_by: using fallback username={}", fallback);
+        Ok(fallback)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -210,7 +257,7 @@ mod tests {
 
     #[test]
     fn test_trigger_mode_invalid() {
-        let result: Result<TriggerMode, _> = serde_json::from_value(json!("paused"));
+        let result: std::result::Result<TriggerMode, _> = serde_json::from_value(json!("paused"));
         assert!(result.is_err());
     }
 
