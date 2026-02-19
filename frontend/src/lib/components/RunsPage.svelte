@@ -678,7 +678,6 @@
 			/>
 			<FilterSearchbar
 				class="flex-1 relative max-w-[34rem] min-w-[18rem] {ButtonType.UnifiedMinHeightClasses.md}"
-				innerClass="absolute inset-0"
 				schema={runsFilterSearchbarSchema}
 				presets={buildRunsFilterPresets({ isSuperadmin: !!$superadmin })}
 				bind:value={filters.val}
