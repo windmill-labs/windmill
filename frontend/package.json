@@ -7,6 +7,7 @@
 		"build:utils": "vite build --config sharedUtils/vite.sharedUtils.config.js",
 		"preview": "vite preview",
 		"postinstall": "node -e \"if (require('fs').existsSync('./scripts/untar_ui_builder.js')) { require('child_process').execSync('node ./scripts/untar_ui_builder.js', {stdio: 'inherit'}) }\"",
+		"check:fast": "bun --bun svelte-fast-check --no-svelte-warnings --incremental",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --threshold warning",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"lint": "prettier --ignore-path .gitignore --check --plugin-search-dir=. . && eslint --ignore-path .gitignore .",

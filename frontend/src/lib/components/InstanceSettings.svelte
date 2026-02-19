@@ -18,7 +18,6 @@
 	import { ExternalLink, Loader2 } from 'lucide-svelte'
 	import YAML from 'yaml'
 	import Toggle from './Toggle.svelte'
-	import type SimpleEditor from './SimpleEditor.svelte'
 	import SettingsFooter from './workspaceSettings/SettingsFooter.svelte'
 	import SettingsPageHeader from './settings/SettingsPageHeader.svelte'
 
@@ -577,7 +576,7 @@
 
 	let yamlCode = $state('')
 	let yamlCodeInitial = $state('')
-	let yamlEditor: SimpleEditor | undefined = $state(undefined)
+	let yamlEditor: any | undefined = $state(undefined)
 	let yamlError = $state('')
 	let showSensitive = $state(false)
 
@@ -1089,5 +1088,4 @@
 			/>
 		{/if}
 	{/snippet}
-
 </div>

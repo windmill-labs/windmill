@@ -82,7 +82,7 @@
 	let assets = $derived(_assets.current?.flatMap((page) => page.assets))
 
 	let s3FilePicker: S3FilePicker | undefined = $state()
-	let dbManagerDrawer = $derived(globalDbManagerDrawer.val)
+	let dbManagerDrawer = $derived(globalDbManagerDrawer.val) as any
 	let assetsUsageDropdown: AssetsUsageDrawer | undefined = $state()
 
 	let allS3Storages = resource(

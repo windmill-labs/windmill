@@ -11,15 +11,9 @@
 	import EditorTheme from './EditorTheme.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import type { ButtonType } from './common'
+	import type { ButtonProp } from './diffEditorTypes'
 
 	const SIDE_BY_SIDE_MIN_WIDTH = 700
-
-	export interface ButtonProp {
-		text: string
-		color?: ButtonType.Color
-		onClick: () => void
-	}
 
 	interface Props {
 		open?: boolean
