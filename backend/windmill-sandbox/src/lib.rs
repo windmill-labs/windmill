@@ -15,6 +15,9 @@ pub use s3_oss::*;
 use std::path::Path;
 use windmill_common::error::{self, Error};
 
+/// Directory where Docker config.json is written for crane registry auth.
+pub const DOCKER_CONFIG_DIR: &str = "/tmp/windmill/docker";
+
 /// Unpack a tar.gz byte stream into `dest_path`.
 pub fn untar_gz(bytes: &[u8], dest_path: &Path) -> error::Result<()> {
     use flate2::read::GzDecoder;
@@ -59,7 +62,11 @@ mod tests {
         let source_dir = tempfile::tempdir().unwrap();
         std::fs::write(source_dir.path().join("hello.txt"), "world").unwrap();
         std::fs::create_dir(source_dir.path().join("subdir")).unwrap();
-        std::fs::write(source_dir.path().join("subdir/nested.txt"), "nested content").unwrap();
+        std::fs::write(
+            source_dir.path().join("subdir/nested.txt"),
+            "nested content",
+        )
+        .unwrap();
 
         let bytes = tar_gz(source_dir.path()).unwrap();
         assert!(!bytes.is_empty());

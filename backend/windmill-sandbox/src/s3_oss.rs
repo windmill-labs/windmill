@@ -52,13 +52,19 @@ pub async fn ensure_snapshot_cached(
     let cache_path = PathBuf::from(SNAPSHOT_CACHE_DIR).join(&cache_key);
 
     if cache_path.exists() {
-        tracing::info!("Snapshot {name}:{tag} found in cache at {}", cache_path.display());
+        tracing::info!(
+            "Snapshot {name}:{tag} found in cache at {}",
+            cache_path.display()
+        );
         return Ok(cache_path);
     }
 
     let os = windmill_object_store::get_workspace_object_store(db, w_id).await?;
 
-    tracing::info!("Downloading snapshot {name}:{tag} from S3 key: {}", row.s3_key);
+    tracing::info!(
+        "Downloading snapshot {name}:{tag} from S3 key: {}",
+        row.s3_key
+    );
 
     let bytes = windmill_object_store::fetch_bytes_from_store(os, &row.s3_key)
         .await?
@@ -179,10 +185,9 @@ pub async fn upload_volume(
     .ok_or_else(|| Error::NotFound(format!("sandbox volume {name} not found")))?;
 
     let local_path = local_path.to_path_buf();
-    let bytes =
-        tokio::task::spawn_blocking(move || crate::tar_gz(&local_path))
-            .await
-            .map_err(|e| Error::ExecutionErr(format!("Spawn blocking failed: {e}")))??;
+    let bytes = tokio::task::spawn_blocking(move || crate::tar_gz(&local_path))
+        .await
+        .map_err(|e| Error::ExecutionErr(format!("Spawn blocking failed: {e}")))??;
 
     let size = bytes.len();
     if size > CE_VOLUME_SIZE_LIMIT {
@@ -232,8 +237,8 @@ pub async fn build_snapshot(
     setup_script: Option<&str>,
     db: &windmill_common::DB,
 ) -> windmill_common::error::Result<()> {
-    use windmill_common::error::Error;
     use tokio::process::Command;
+    use windmill_common::error::Error;
 
     sqlx::query!(
         "UPDATE sandbox_snapshot SET status = 'building', updated_at = now() \
@@ -256,13 +261,16 @@ pub async fn build_snapshot(
         tracing::info!("Exporting docker image {docker_image} for snapshot {name}:{tag}");
         let crane_output = Command::new("crane")
             .args(["export", docker_image, "-"])
+            .env("DOCKER_CONFIG", crate::DOCKER_CONFIG_DIR)
             .output()
             .await
             .map_err(|e| Error::ExecutionErr(format!("Failed to run crane: {e}")))?;
 
         if !crane_output.status.success() {
             let stderr = String::from_utf8_lossy(&crane_output.stderr);
-            return Err(Error::ExecutionErr(format!("crane export failed: {stderr}")));
+            return Err(Error::ExecutionErr(format!(
+                "crane export failed: {stderr}"
+            )));
         }
 
         let crane_bytes = crane_output.stdout;
@@ -332,16 +340,17 @@ pub async fn build_snapshot(
         }
 
         let rootfs_dir_clone = rootfs_dir.clone();
-        let (bytes, content_hash) =
-            tokio::task::spawn_blocking(move || -> windmill_common::error::Result<(Vec<u8>, String)> {
+        let (bytes, content_hash) = tokio::task::spawn_blocking(
+            move || -> windmill_common::error::Result<(Vec<u8>, String)> {
                 use sha2::{Digest, Sha256};
 
                 let bytes = crate::tar_gz(&rootfs_dir_clone)?;
                 let hash = format!("{:x}", Sha256::digest(&bytes));
                 Ok((bytes, hash))
-            })
-            .await
-            .map_err(|e| Error::ExecutionErr(format!("Spawn blocking failed: {e}")))??;
+            },
+        )
+        .await
+        .map_err(|e| Error::ExecutionErr(format!("Spawn blocking failed: {e}")))??;
 
         let size = bytes.len();
         if !*windmill_common::ee_oss::LICENSE_KEY_VALID.read().await
@@ -427,9 +436,7 @@ pub async fn upload_snapshot_bytes(
     use windmill_common::error::Error;
 
     let size = body.len();
-    if !*windmill_common::ee_oss::LICENSE_KEY_VALID.read().await
-        && size > CE_SNAPSHOT_SIZE_LIMIT
-    {
+    if !*windmill_common::ee_oss::LICENSE_KEY_VALID.read().await && size > CE_SNAPSHOT_SIZE_LIMIT {
         return Err(Error::ExecutionErr(format!(
             "Snapshot size ({:.1} MB) exceeds the {} MB limit. \
              Upgrade to Windmill EE for unlimited snapshot sizes.",
@@ -466,7 +473,10 @@ pub async fn upload_snapshot_bytes(
 
     Ok(format!(
         "Snapshot {}:{} uploaded ({} bytes, hash={})",
-        name, tag, size_bytes, &content_hash[..12]
+        name,
+        tag,
+        size_bytes,
+        &content_hash[..12]
     ))
 }
 

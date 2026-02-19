@@ -18606,6 +18606,7 @@ components:
               "unassigned_script",
               "unassigned_flow",
               "unassigned_singlestepflow",
+              "snapshotbuild",
             ]
         schedule_path:
           type: string
@@ -18722,6 +18723,7 @@ components:
               "unassigned_script",
               "unassigned_flow",
               "unassigned_singlestepflow",
+              "snapshotbuild",
             ]
         schedule_path:
           type: string
@@ -18846,6 +18848,7 @@ components:
               "unassigned_script",
               "unassigned_flow",
               "unassigned_singlestepflow",
+              "snapshotbuild",
             ]
         trigger:
           type: string
@@ -18994,6 +18997,7 @@ components:
               "unassigned_script",
               "unassigned_flow",
               "unassigned_singlestepflow",
+              "snapshotbuild",
             ]
         trigger:
           type: string

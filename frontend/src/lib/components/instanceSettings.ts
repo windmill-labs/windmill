@@ -479,6 +479,16 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
+			label: 'Docker registries',
+			description:
+				'Docker registry credentials for pulling private container images (used by sandbox snapshots). JSON array of {registry, username, password} objects.',
+			key: 'docker_registries',
+			fieldType: 'codearea',
+			codeAreaLang: 'json',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
 			label: 'PowerShell Repository URL',
 			description: 'Add private PowerShell repository URL',
 			key: 'powershell_repo_url',

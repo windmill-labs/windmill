@@ -267,6 +267,8 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ruby_repos: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub docker_registries: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub powershell_repo_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub powershell_repo_pat: Option<String>,
@@ -774,7 +776,11 @@ pub const PROTECTED_SETTINGS: &[&str] = &[
 /// Note: jwt_secret is intentionally NOT hidden — it is included in YAML exports so that
 /// operators can set it via ConfigMap. It is protected from deletion (PROTECTED_SETTINGS)
 /// and from being set to empty/null, and its value is partially redacted in log output.
-pub const HIDDEN_SETTINGS: &[&str] = &["uid", "min_keep_alive_version", "automate_username_creation"];
+pub const HIDDEN_SETTINGS: &[&str] = &[
+    "uid",
+    "min_keep_alive_version",
+    "automate_username_creation",
+];
 
 /// Top-level settings whose entire value is sensitive and must be fully redacted in logs.
 const SENSITIVE_SETTINGS: &[&str] = &[
@@ -790,6 +796,7 @@ const SENSITIVE_SETTINGS: &[&str] = &[
     "bunfig_install_scopes",
     "maven_repos",
     "ruby_repos",
+    "docker_registries",
     "powershell_repo_pat",
 ];
 
@@ -798,7 +805,10 @@ const SENSITIVE_SETTINGS: &[&str] = &[
 const NESTED_SENSITIVE_FIELDS: &[(&str, &[&str])] = &[
     ("smtp_settings", &["smtp_password"]),
     ("secret_backend", &["token"]),
-    ("object_store_cache_config", &["secret_key", "serviceAccountKey"]),
+    (
+        "object_store_cache_config",
+        &["secret_key", "serviceAccountKey"],
+    ),
 ];
 
 fn redact_json_value(value: &serde_json::Value) -> serde_json::Value {
@@ -2353,7 +2363,11 @@ mod tests {
         );
 
         let diff = diff_global_settings(&current, &desired, ApplyMode::Merge);
-        assert_eq!(diff.upserts.len(), 1, "Same client with newer expiry should update even with different signature");
+        assert_eq!(
+            diff.upserts.len(),
+            1,
+            "Same client with newer expiry should update even with different signature"
+        );
     }
 
     #[test]

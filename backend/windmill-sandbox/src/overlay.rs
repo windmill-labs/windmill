@@ -16,10 +16,7 @@ fn find_fuse_overlayfs() -> Option<String> {
             }
         }
     }
-    let candidates = [
-        "/usr/local/bin/fuse-overlayfs",
-        "/usr/bin/fuse-overlayfs",
-    ];
+    let candidates = ["/usr/local/bin/fuse-overlayfs", "/usr/bin/fuse-overlayfs"];
     let home_bin = std::env::var("HOME")
         .ok()
         .map(|h| format!("{h}/bin/fuse-overlayfs"));
@@ -78,12 +75,7 @@ pub async fn mount_overlay(
 
     if output.status.success() {
         tracing::info!("Overlayfs (kernel) mounted at {}", merged.display());
-        return Ok(OverlayMount {
-            merged,
-            upper,
-            work,
-            is_fuse: false,
-        });
+        return Ok(OverlayMount { merged, upper, work, is_fuse: false });
     }
 
     // Fallback: try fuse-overlayfs (works without root)
@@ -96,12 +88,7 @@ pub async fn mount_overlay(
     match fuse_output {
         Ok(out) if out.status.success() => {
             tracing::info!("Overlayfs (fuse) mounted at {}", merged.display());
-            Ok(OverlayMount {
-                merged,
-                upper,
-                work,
-                is_fuse: true,
-            })
+            Ok(OverlayMount { merged, upper, work, is_fuse: true })
         }
         Ok(out) => {
             let kernel_err = String::from_utf8_lossy(&output.stderr);

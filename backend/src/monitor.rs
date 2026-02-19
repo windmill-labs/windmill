@@ -39,8 +39,6 @@ use windmill_common::ee_oss::{jobs_waiting_alerts, worker_groups_alerts};
 
 #[cfg(feature = "oauth2")]
 use windmill_common::global_settings::OAUTH_SETTING;
-#[cfg(feature = "parquet")]
-use windmill_object_store::reload_object_store_setting;
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     apps::APP_WORKSPACED_ROUTE,
@@ -52,13 +50,13 @@ use windmill_common::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
         CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
         DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
-        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
-        HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
-        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING, JWT_SECRET_SETTING,
-        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING,
-        NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OTEL_SETTING,
-        OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
-        POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        DOCKER_REGISTRIES_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
+        EXTRA_PIP_INDEX_URL_SETTING, HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING,
+        INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING,
+        JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
+        MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING,
+        OTEL_SETTING, OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING,
+        POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
         UV_INDEX_STRATEGY_SETTING,
@@ -84,6 +82,8 @@ use windmill_common::{
     OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED, SERVICE_LOG_RETENTION_SECS,
 };
 use windmill_common::{client::AuthedClient, global_settings::APP_WORKSPACED_ROUTE_SETTING};
+#[cfg(feature = "parquet")]
+use windmill_object_store::reload_object_store_setting;
 use windmill_queue::{cancel_job, get_queued_job_v2, SameWorkerPayload};
 use windmill_worker::{
     result_processor::handle_job_error, JobCompletedSender, JobIsolationLevel,
@@ -339,6 +339,7 @@ pub async fn initial_load(
         reload_no_default_maven_setting(&conn).await;
         reload_ruby_repos_setting(&conn).await;
         reload_cargo_registries_setting(&conn).await;
+        reload_docker_registries_setting(&conn).await;
     }
 }
 
@@ -1204,7 +1205,10 @@ async fn delete_log_files_from_disk_and_store(
             #[cfg(feature = "parquet")]
             if _should_del_from_store {
                 if let Some(os) = _os2 {
-                    let p = windmill_object_store::object_store_reexports::Path::from(format!("{}{}", _s3_prefix, path));
+                    let p = windmill_object_store::object_store_reexports::Path::from(format!(
+                        "{}{}",
+                        _s3_prefix, path
+                    ));
                     if let Err(e) = os.delete(&p).await {
                         tracing::error!("Failed to delete from object store {}: {e}", p.to_string())
                     } else {
@@ -1410,6 +1414,65 @@ pub async fn reload_cargo_registries_setting(conn: &Connection) {
         CARGO_REGISTRIES.clone(),
     )
     .await;
+}
+
+pub async fn reload_docker_registries_setting(conn: &Connection) {
+    use base64::Engine;
+
+    let value =
+        load_value_from_global_settings_with_conn(conn, DOCKER_REGISTRIES_SETTING, true).await;
+
+    let config_dir = "/tmp/windmill/docker";
+    let config_path = format!("{config_dir}/config.json");
+
+    match value {
+        Ok(Some(serde_json::Value::Array(entries))) if !entries.is_empty() => {
+            let mut auths = serde_json::Map::new();
+            for entry in &entries {
+                let registry = entry
+                    .get("registry")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
+                let username = entry
+                    .get("username")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
+                let password = entry
+                    .get("password")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
+                if registry.is_empty() || username.is_empty() {
+                    continue;
+                }
+                let auth_b64 = base64::engine::general_purpose::STANDARD
+                    .encode(format!("{username}:{password}"));
+                auths.insert(
+                    registry.to_string(),
+                    serde_json::json!({ "auth": auth_b64 }),
+                );
+            }
+            if auths.is_empty() {
+                let _ = tokio::fs::remove_file(&config_path).await;
+            } else {
+                let docker_config = serde_json::json!({ "auths": auths });
+                if let Err(e) = tokio::fs::create_dir_all(config_dir).await {
+                    tracing::error!("Failed to create docker config dir: {e}");
+                    return;
+                }
+                if let Err(e) =
+                    tokio::fs::write(&config_path, docker_config.to_string().as_bytes()).await
+                {
+                    tracing::error!("Failed to write docker config.json: {e}");
+                }
+            }
+        }
+        Ok(_) => {
+            let _ = tokio::fs::remove_file(&config_path).await;
+        }
+        Err(e) => {
+            tracing::error!("Error loading docker_registries setting: {e:#}");
+        }
+    }
 }
 
 pub async fn reload_hub_api_secret_setting(conn: &Connection) {
