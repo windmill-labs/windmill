@@ -9,6 +9,7 @@ use uuid::Uuid;
 pub struct SandboxConfig {
     pub snapshot: Option<SnapshotRef>,
     pub volumes: HashMap<String, String>,
+    pub allowed_domains: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -98,6 +99,12 @@ pub fn parse_sandbox_config(code: &str) -> SandboxConfig {
             if let Some((name, path)) = spec.split_once(':') {
                 config.volumes.insert(name.to_string(), path.to_string());
             }
+        } else if let Some(spec) = content.strip_prefix("allowed_domains:").map(|s| s.trim()) {
+            config.allowed_domains = spec
+                .split(',')
+                .map(|s| s.trim().to_lowercase())
+                .filter(|s| !s.is_empty())
+                .collect();
         }
     }
     config
@@ -245,6 +252,37 @@ mod tests {
         assert_eq!(snap.name, "custom-runtime");
         assert_eq!(snap.tag, "latest");
         assert_eq!(config.volumes.len(), 3);
+    }
+
+    #[test]
+    fn test_parse_allowed_domains() {
+        let code = "# sandbox: py-env:v1\n# allowed_domains: api.example.com, cdn.example.com\n";
+        let config = parse_sandbox_config(code);
+        assert_eq!(
+            config.allowed_domains,
+            vec!["api.example.com", "cdn.example.com"]
+        );
+    }
+
+    #[test]
+    fn test_parse_allowed_domains_ts_style() {
+        let code = "// allowed_domains: ghcr.io, registry.npm.org\n// sandbox: node:v2\n";
+        let config = parse_sandbox_config(code);
+        assert_eq!(config.allowed_domains, vec!["ghcr.io", "registry.npm.org"]);
+    }
+
+    #[test]
+    fn test_parse_allowed_domains_empty() {
+        let code = "# allowed_domains:   \ndef main(): pass\n";
+        let config = parse_sandbox_config(code);
+        assert!(config.allowed_domains.is_empty());
+    }
+
+    #[test]
+    fn test_parse_allowed_domains_case_insensitive() {
+        let code = "# allowed_domains: API.Example.COM\n";
+        let config = parse_sandbox_config(code);
+        assert_eq!(config.allowed_domains, vec!["api.example.com"]);
     }
 
     #[test]

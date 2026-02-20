@@ -727,35 +727,57 @@ pub async fn is_otel_tracing_proxy_enabled_for_lang(lang: &ScriptLang) -> bool {
 }
 
 /// Get proxy environment variables for job execution for a specific language.
-/// When OTEL tracing proxy is enabled for this language, routes all traffic through the proxy.
+/// When OTEL tracing proxy is enabled or domain filtering is active, routes traffic through the MITM proxy.
 /// Otherwise, uses the standard HTTP_PROXY/HTTPS_PROXY from environment.
 pub async fn get_proxy_envs_for_lang(
     lang: &ScriptLang,
 ) -> anyhow::Result<Vec<(&'static str, String)>> {
     #[cfg(all(feature = "private", feature = "enterprise"))]
-    if is_otel_tracing_proxy_enabled_for_lang(lang).await {
-        return get_otel_tracing_proxy_envs().await;
+    {
+        let otel_enabled = is_otel_tracing_proxy_enabled_for_lang(lang).await;
+        let has_allowed_domains = crate::otel_tracing_proxy_ee::CURRENT_JOB_ALLOWED_DOMAINS
+            .read()
+            .await
+            .is_some();
+
+        if otel_enabled || has_allowed_domains {
+            return get_mitm_proxy_envs(has_allowed_domains).await;
+        }
     }
     let _ = lang;
     Ok(PROXY_ENVS.clone())
 }
 
+/// Build proxy env vars that route traffic through the MITM proxy.
+/// When `domain_filtering` is true, includes BASE_INTERNAL_URL in NO_PROXY
+/// so jobs can always reach the Windmill API.
 #[cfg(all(feature = "private", feature = "enterprise"))]
-async fn get_otel_tracing_proxy_envs() -> anyhow::Result<Vec<(&'static str, String)>> {
+async fn get_mitm_proxy_envs(
+    domain_filtering: bool,
+) -> anyhow::Result<Vec<(&'static str, String)>> {
     let port = crate::otel_tracing_proxy_ee::TRACING_PROXY_PORT
         .read()
         .await
-        .ok_or_else(|| anyhow::anyhow!("OTEL tracing proxy port not initialized"))?;
+        .ok_or_else(|| anyhow::anyhow!("MITM proxy port not initialized"))?;
     let proxy_url = format!("http://127.0.0.1:{}", port);
+
+    // When domain filtering is active, bypass proxy for BASE_INTERNAL_URL
+    // so sandboxed jobs can always reach the Windmill API.
+    let no_proxy = if domain_filtering {
+        extract_no_proxy_from_base_url()
+    } else {
+        String::new()
+    };
+
     Ok(vec![
         ("HTTP_PROXY", proxy_url.clone()),
         ("HTTPS_PROXY", proxy_url.clone()),
         // Lowercase variants for Ruby and other runtimes that check lowercase first
         ("http_proxy", proxy_url.clone()),
         ("https_proxy", proxy_url),
-        ("NO_PROXY", "".to_string()),
-        ("no_proxy", "".to_string()),
-        // CA cert for various runtimes to trust the tracing proxy
+        ("NO_PROXY", no_proxy.clone()),
+        ("no_proxy", no_proxy),
+        // CA cert for various runtimes to trust the MITM proxy
         ("SSL_CERT_FILE", TRACING_PROXY_CA_CERT_PATH.to_string()),
         ("REQUESTS_CA_BUNDLE", TRACING_PROXY_CA_CERT_PATH.to_string()),
         (
@@ -765,6 +787,18 @@ async fn get_otel_tracing_proxy_envs() -> anyhow::Result<Vec<(&'static str, Stri
         ("CURL_CA_BUNDLE", TRACING_PROXY_CA_CERT_PATH.to_string()),
         ("DENO_CERT", TRACING_PROXY_CA_CERT_PATH.to_string()),
     ])
+}
+
+/// Extract the hostname from BASE_INTERNAL_URL for NO_PROXY.
+/// e.g. "http://localhost:8000" -> "localhost", "https://windmill.example.com" -> "windmill.example.com"
+#[cfg(all(feature = "private", feature = "enterprise"))]
+fn extract_no_proxy_from_base_url() -> String {
+    let base_url =
+        std::env::var("BASE_INTERNAL_URL").unwrap_or_else(|_| "http://localhost:8000".to_string());
+    url::Url::parse(&base_url)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_string()))
+        .unwrap_or_else(|| "localhost".to_string())
 }
 
 #[cfg(windows)]
@@ -4226,7 +4260,10 @@ mount {{
         None
     };
 
-    if sandbox_config.snapshot.is_some() || !sandbox_config.volumes.is_empty() {
+    if sandbox_config.snapshot.is_some()
+        || !sandbox_config.volumes.is_empty()
+        || !sandbox_config.allowed_domains.is_empty()
+    {
         let mut sandbox_logs = "\n--- SANDBOX ---\n".to_string();
         if let Some(ref snap) = sandbox_config.snapshot {
             sandbox_logs.push_str(&format!("Snapshot: {}:{}\n", snap.name, snap.tag));
@@ -4234,7 +4271,24 @@ mount {{
         for (vol_name, mount_path) in &sandbox_config.volumes {
             sandbox_logs.push_str(&format!("Volume: {} -> {}\n", vol_name, mount_path));
         }
+        if !sandbox_config.allowed_domains.is_empty() {
+            sandbox_logs.push_str(&format!(
+                "Allowed domains: {}\n",
+                sandbox_config.allowed_domains.join(", ")
+            ));
+        }
         append_logs(&job.id, &job.workspace_id, sandbox_logs, conn).await;
+    }
+
+    // Set domain filtering for the current job (cleared for jobs without the annotation)
+    #[cfg(all(feature = "private", feature = "enterprise"))]
+    {
+        let domains = if sandbox_config.allowed_domains.is_empty() {
+            None
+        } else {
+            Some(sandbox_config.allowed_domains.clone())
+        };
+        crate::otel_tracing_proxy_ee::set_current_job_allowed_domains(domains).await;
     }
 
     let envs = build_envs(envs.as_ref())?;
