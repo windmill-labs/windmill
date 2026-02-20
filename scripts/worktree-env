@@ -50,6 +50,12 @@ EOF
 
 echo "Created .env.local with ports: backend=$backend_port, frontend=$frontend_port"
 
+# --- Allow direnv so the nix devshell activates in pane commands ---
+if command -v direnv &>/dev/null && [ -f .envrc ]; then
+  direnv allow
+  echo "direnv allowed"
+fi
+
 # --- Create matching windmill-ee-private worktree ---
 # Check parent directory first (sibling to worktree root), then fall back to home
 parent_dir="$(cd "$(pwd)/.." && pwd)"
