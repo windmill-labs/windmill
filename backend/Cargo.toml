@@ -254,6 +254,7 @@ axum.workspace = true
 serde.workspace = true
 windmill-api-client.workspace = true
 tempfile.workspace = true
+windmill-parser-ts.workspace = true
 rumqttc.workspace = true
 rdkafka.workspace = true
 async-nats.workspace = true
