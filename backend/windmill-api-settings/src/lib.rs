@@ -43,8 +43,9 @@ use windmill_common::{
     get_database_url,
     global_settings::{
         APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
-        CRITICAL_ALERT_MUTE_UI_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
-        HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
+        CRITICAL_ALERT_MUTE_UI_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
+        EMAIL_DOMAIN_SETTING, ENV_SETTINGS, HUB_ACCESSIBLE_URL_SETTING,
+        HUB_BASE_URL_SETTING,
     },
     instance_config::{self, ApplyMode, InstanceConfig},
     server::Smtp,
@@ -512,6 +513,7 @@ pub async fn get_global_setting(
         && !key.starts_with("default_recovery_handler_")
         && !key.starts_with("default_success_handler_")
         && key != AUTOMATE_USERNAME_CREATION_SETTING
+        && key != DEFAULT_TAGS_WORKSPACES_SETTING
         && key != HUB_BASE_URL_SETTING
         && key != HUB_ACCESSIBLE_URL_SETTING
         && key != EMAIL_DOMAIN_SETTING

@@ -39,8 +39,6 @@ use windmill_common::ee_oss::{jobs_waiting_alerts, worker_groups_alerts};
 
 #[cfg(feature = "oauth2")]
 use windmill_common::global_settings::OAUTH_SETTING;
-#[cfg(feature = "parquet")]
-use windmill_object_store::reload_object_store_setting;
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     apps::APP_WORKSPACED_ROUTE,
@@ -84,6 +82,8 @@ use windmill_common::{
     OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED, SERVICE_LOG_RETENTION_SECS,
 };
 use windmill_common::{client::AuthedClient, global_settings::APP_WORKSPACED_ROUTE_SETTING};
+#[cfg(feature = "parquet")]
+use windmill_object_store::reload_object_store_setting;
 use windmill_queue::{cancel_job, get_queued_job_v2, SameWorkerPayload};
 use windmill_worker::{
     result_processor::handle_job_error, JobCompletedSender, JobIsolationLevel,
@@ -1204,7 +1204,10 @@ async fn delete_log_files_from_disk_and_store(
             #[cfg(feature = "parquet")]
             if _should_del_from_store {
                 if let Some(os) = _os2 {
-                    let p = windmill_object_store::object_store_reexports::Path::from(format!("{}{}", _s3_prefix, path));
+                    let p = windmill_object_store::object_store_reexports::Path::from(format!(
+                        "{}{}",
+                        _s3_prefix, path
+                    ));
                     if let Err(e) = os.delete(&p).await {
                         tracing::error!("Failed to delete from object store {}: {e}", p.to_string())
                     } else {
@@ -2341,7 +2344,7 @@ pub async fn reload_base_url_setting(conn: &Connection) -> error::Result<()> {
 async fn stale_job_cancellation(db: &Pool<Postgres>) {
     if let Some(threshold) = *STALE_JOB_THRESHOLD_MINUTES {
         let stale_jobs = sqlx::query!(
-            "SELECT v2_job_queue.id, v2_job.tag, v2_job_queue.scheduled_for, v2_job_queue.workspace_id FROM v2_job_queue LEFT JOIN v2_job ON v2_job_queue.id = v2_job.id WHERE running = false AND scheduled_for < now() - ($1 || ' minutes')::interval",
+            "SELECT v2_job_queue.id, v2_job.tag, v2_job_queue.scheduled_for, v2_job_queue.workspace_id FROM v2_job_queue LEFT JOIN v2_job ON v2_job_queue.id = v2_job.id WHERE running = false AND scheduled_for < now() - ($1 || ' minutes')::interval AND v2_job.trigger_kind IS DISTINCT FROM 'schedule'::job_trigger_kind",
             threshold.to_string()
         )
         .fetch_all(db)

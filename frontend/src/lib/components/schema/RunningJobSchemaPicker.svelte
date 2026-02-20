@@ -47,7 +47,7 @@
 		)}
 		on:hover={(e) => (hovering = e.detail ? true : false)}
 	>
-		<SchemaPickerRow {payloadData} date={job.created_at} {hovering}>
+		<SchemaPickerRow {payloadData} date={job.started_at} {hovering}>
 			<svelte:fragment slot="start">
 				<div class="center-center">
 					<div

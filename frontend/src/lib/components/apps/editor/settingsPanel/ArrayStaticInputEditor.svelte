@@ -304,7 +304,7 @@
 					}}
 					checked={items.some((x) => typeof x.value != 'string')}
 				/>
-			{:else if subFieldType === 'ag-grid' || subFieldType === 'table-column'}
+			{:else if subFieldType === 'ag-grid' || subFieldType === 'table-column' || subFieldType === 'db-explorer'}
 				<Toggle
 					options={{
 						right: 'Raw'
