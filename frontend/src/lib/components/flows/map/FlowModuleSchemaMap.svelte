@@ -43,8 +43,10 @@
 		type AgentTool,
 		flowModuleToAgentTool,
 		createMcpTool,
-		createWebsearchTool
+		createWebsearchTool,
+		createAiAgentTool
 	} from '../agentToolUtils'
+	import { loadFlowModuleState } from '../flowStateUtils.svelte'
 	import { getNoteEditorContext } from '$lib/components/graph/noteEditor.svelte'
 
 	interface Props {
@@ -123,7 +125,7 @@
 		wsScript?: { path: string; summary: string; hash: string | undefined },
 		wsFlow?: { path: string; summary: string },
 		inlineScript?: InlineScript,
-		toolKind?: 'mcpTool' | 'flowmoduleTool' | 'websearchTool'
+		toolKind?: 'mcpTool' | 'flowmoduleTool' | 'websearchTool' | 'aiAgentTool'
 	): Promise<FlowModule[] | AgentTool[]> {
 		push(history, flowStore.val)
 		let module = emptyModule(flowStateStore.val, flowStore.val, kind == 'flow')
@@ -184,6 +186,22 @@
 			// Create Websearch AgentTool
 			const websearchTool = createWebsearchTool(module.id)
 			;(modules as AgentTool[]).splice(index, 0, websearchTool)
+			return modules as AgentTool[]
+		} else if (toolKind === 'aiAgentTool') {
+			// Create AI Agent tool (nested agent)
+			const aiAgentTool = createAiAgentTool(module.id)
+			const syntheticModule = {
+				id: module.id,
+				value: {
+					type: 'aiagent' as const,
+					tools: [],
+					input_transforms: aiAgentTool.value.input_transforms
+				}
+			}
+			flowStateStore.val[module.id] = await loadFlowModuleState(
+				syntheticModule as FlowModule
+			)
+			;(modules as AgentTool[]).splice(index, 0, aiAgentTool)
 			return modules as AgentTool[]
 		} else if (toolKind === 'flowmoduleTool') {
 			// Create AgentTool from FlowModule
@@ -540,6 +558,8 @@
 										? 'mcpTool'
 										: detail.kind === 'websearchTool'
 											? 'websearchTool'
+											: detail.kind === 'aiAgentTool'
+												? 'aiAgentTool'
 										: 'flowmoduleTool'
 									: undefined
 

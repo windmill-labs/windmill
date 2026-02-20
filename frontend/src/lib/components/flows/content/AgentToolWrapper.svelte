@@ -1,10 +1,18 @@
 <script lang="ts">
 	import type { AgentTool } from '../agentToolUtils'
-	import { isFlowModuleTool, isMcpTool, isWebsearchTool, type McpTool } from '../agentToolUtils'
+	import {
+		isAiAgentTool,
+		isFlowModuleTool,
+		isMcpTool,
+		isWebsearchTool,
+		type AiAgentTool,
+		type McpTool
+	} from '../agentToolUtils'
 	import type { FlowModule } from '$lib/gen'
 	import FlowModuleComponent from './FlowModuleComponent.svelte'
 	import McpToolEditor from './McpToolEditor.svelte'
 	import WebsearchToolDisplay from './WebsearchToolDisplay.svelte'
+	import AiAgentToolEditor from './AiAgentToolEditor.svelte'
 
 	interface Props {
 		tool: AgentTool
@@ -27,7 +35,9 @@
 	}: Props = $props()
 </script>
 
-{#if isFlowModuleTool(tool)}
+{#if isAiAgentTool(tool)}
+	<AiAgentToolEditor bind:tool={tool as AiAgentTool} {parentModule} {previousModule} {enableAi} />
+{:else if isFlowModuleTool(tool)}
 	<!-- FlowModule tool - use existing FlowModuleComponent -->
 	<FlowModuleComponent
 		{noEditor}

@@ -1,8 +1,12 @@
 import type { AiAgent, FlowModule, FlowModuleValue } from '$lib/gen'
+import { loadStoredConfig } from '../aiProviderStorage'
 
 // Type aliases for better readability
 export type AgentTool = AiAgent['tools'][number]
 export type FlowModuleTool = AgentTool & { value: { tool_type: 'flowmodule' } & FlowModuleValue }
+export type AiAgentTool = AgentTool & {
+	value: { tool_type: 'flowmodule' } & { type: 'aiagent' } & FlowModuleValue
+}
 export type McpTool = AgentTool & {
 	value: {
 		tool_type: 'mcp'
@@ -15,6 +19,13 @@ export type WebsearchTool = AgentTool & {
 	value: {
 		tool_type: 'websearch'
 	}
+}
+
+/**
+ * Type guard to check if a tool is an AI Agent tool (nested agent)
+ */
+export function isAiAgentTool(tool: AgentTool): tool is AiAgentTool {
+	return isFlowModuleTool(tool) && tool.value.type === 'aiagent'
 }
 
 /**
@@ -36,6 +47,29 @@ export function isMcpTool(tool: AgentTool): tool is McpTool {
  */
 export function isWebsearchTool(tool: AgentTool): tool is WebsearchTool {
 	return tool.value.tool_type === 'websearch'
+}
+
+/**
+ * Create an AI Agent tool (nested agent)
+ */
+export function createAiAgentTool(id: string): AiAgentTool {
+	return {
+		id,
+		summary: '',
+		value: {
+			tool_type: 'flowmodule',
+			type: 'aiagent',
+			tools: [],
+			input_transforms: {
+				provider: {
+					type: 'static',
+					value: loadStoredConfig() ?? { kind: 'openai', resource: '', model: '' }
+				},
+				output_type: { type: 'static', value: 'text' },
+				user_message: { type: 'ai' }
+			}
+		}
+	} as AiAgentTool
 }
 
 /**
