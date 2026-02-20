@@ -79,140 +79,19 @@ lazy_static::lazy_static! {
             })
             .unwrap_or_default()
     };
+
+    static ref AI_AGENT_TOOL_SCHEMA: Box<RawValue> = to_raw_value(&serde_json::json!({
+        "type": "object",
+        "properties": {
+            "user_message": { "type": "string" },
+        },
+        "required": ["user_message"],
+        "additionalProperties": false,
+    }));
 }
 
 const DEFAULT_MAX_AGENT_ITERATIONS: usize = 10;
 const HARD_MAX_AGENT_ITERATIONS: usize = 1000;
-
-fn ai_agent_tool_schema() -> Box<RawValue> {
-    to_raw_value(&serde_json::json!({
-        "type": "object",
-        "properties": {
-            "provider": {
-                "type": "object",
-                "properties": {
-                    "kind": {
-                        "type": "string",
-                    },
-                    "model": {
-                        "type": "string",
-                    },
-                    "resource": {
-                        "type": "object",
-                        "properties": {
-                            "apiKey": { "type": "string" },
-                            "api_key": { "type": "string" },
-                            "baseUrl": { "type": "string" },
-                            "base_url": { "type": "string" },
-                            "region": { "type": "string" },
-                            "awsAccessKeyId": { "type": "string" },
-                            "aws_access_key_id": { "type": "string" },
-                            "awsSecretAccessKey": { "type": "string" },
-                            "aws_secret_access_key": { "type": "string" },
-                            "awsSessionToken": { "type": "string" },
-                            "aws_session_token": { "type": "string" },
-                            "platform": {
-                                "type": "string",
-                                "enum": ["standard", "google_vertex_ai"],
-                            },
-                            "enable_1M_context": { "type": "boolean" },
-                            "enable_1m_context": { "type": "boolean" },
-                        },
-                        "additionalProperties": true,
-                    },
-                },
-                "required": ["kind", "model", "resource"],
-                "additionalProperties": false,
-            },
-            "system_prompt": { "type": "string" },
-            "user_message": { "type": "string" },
-            "temperature": { "type": "number" },
-            "max_completion_tokens": {
-                "type": "integer",
-                "minimum": 1,
-            },
-            "output_schema": {
-                "type": "object",
-                "additionalProperties": true,
-            },
-            "output_type": {
-                "type": "string",
-                "enum": ["text", "image"],
-            },
-            "user_images": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "additionalProperties": true,
-                },
-            },
-            "streaming": { "type": "boolean" },
-            "max_iterations": {
-                "type": "integer",
-                "minimum": 1,
-            },
-            "memory": {
-                "oneOf": [
-                    {
-                        "type": "object",
-                        "properties": {
-                            "kind": {
-                                "type": "string",
-                                "enum": ["off"],
-                            },
-                        },
-                        "required": ["kind"],
-                        "additionalProperties": false,
-                    },
-                    {
-                        "type": "object",
-                        "properties": {
-                            "kind": {
-                                "type": "string",
-                                "enum": ["auto"],
-                            },
-                            "context_length": {
-                                "type": "integer",
-                                "minimum": 0,
-                            },
-                            "memory_id": {
-                                "type": "string",
-                                "format": "uuid",
-                            },
-                        },
-                        "required": ["kind"],
-                        "additionalProperties": false,
-                    },
-                    {
-                        "type": "object",
-                        "properties": {
-                            "kind": {
-                                "type": "string",
-                                "enum": ["manual"],
-                            },
-                            "messages": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "additionalProperties": true,
-                                },
-                            },
-                        },
-                        "required": ["kind", "messages"],
-                        "additionalProperties": false,
-                    },
-                ],
-            },
-            "messages_context_length": {
-                "type": "integer",
-                "minimum": 0,
-            },
-            "credentials_check": { "type": "boolean" },
-        },
-        "required": ["provider"],
-        "additionalProperties": false,
-    }))
-}
 
 fn find_module_by_id(
     modules: &Vec<FlowModule>,
@@ -489,7 +368,14 @@ pub async fn handle_ai_agent_job(
                     (schema, input_transforms)
                 }
                 FlowModuleValue::AIAgent { input_transforms, .. } => {
-                    (Some(ai_agent_tool_schema()), input_transforms)
+                    // By convention for AIAgent tools, only user_message is expected to be AI-filled.
+                    (
+                        Some(
+                            RawValue::from_string(AI_AGENT_TOOL_SCHEMA.get().to_string())
+                                .expect("AI_AGENT_TOOL_SCHEMA should always be valid JSON"),
+                        ),
+                        input_transforms,
+                    )
                 }
                 _ => {
                     return Err(Error::internal_err(format!(
