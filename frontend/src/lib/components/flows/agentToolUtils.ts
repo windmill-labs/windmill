@@ -1,5 +1,6 @@
-import type { AiAgent, FlowModule, FlowModuleValue } from '$lib/gen'
+import type { AiAgent, FlowModule, FlowModuleValue, InputTransform } from '$lib/gen'
 import { loadStoredConfig } from '../aiProviderStorage'
+import { AI_AGENT_SCHEMA } from './flowInfers'
 
 export const SPECIAL_TOOL_KINDS = ['mcpTool', 'websearchTool', 'aiAgentTool'] as const
 export type SpecialToolKind = (typeof SPECIAL_TOOL_KINDS)[number]
@@ -49,6 +50,23 @@ export function isWebsearchTool(tool: AgentTool): tool is WebsearchTool {
  * Create an AI Agent tool (nested agent)
  */
 export function createAiAgentTool(id: string): AiAgentTool {
+	const input_transforms: AiAgent['input_transforms'] = {
+		provider: {
+			type: 'static',
+			value: loadStoredConfig() ?? { kind: 'openai', resource: '', model: '' }
+		},
+		output_type: { type: 'static', value: 'text' },
+		user_message: { type: 'ai' }
+	}
+	for (const key of Object.keys(AI_AGENT_SCHEMA.properties ?? {})) {
+		if (!(key in input_transforms)) {
+			;(input_transforms as Record<string, InputTransform>)[key] = {
+				type: 'static',
+				value: undefined
+			}
+		}
+	}
+
 	return {
 		id,
 		summary: '',
@@ -56,14 +74,7 @@ export function createAiAgentTool(id: string): AiAgentTool {
 			tool_type: 'flowmodule',
 			type: 'aiagent',
 			tools: [],
-			input_transforms: {
-				provider: {
-					type: 'static',
-					value: loadStoredConfig() ?? { kind: 'openai', resource: '', model: '' }
-				},
-				output_type: { type: 'static', value: 'text' },
-				user_message: { type: 'ai' }
-			}
+			input_transforms
 		}
 	} as AiAgentTool
 }
