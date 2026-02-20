@@ -434,11 +434,17 @@ pub async fn handle_ai_agent_job(
         stream_notifier.update_flow_status_with_stream_job();
     }
 
+    let flow_status_job = if direct_parent_job.kind == JobKind::AIAgent {
+        None
+    } else {
+        Some(flow_job_id)
+    };
+
     let agent_fut = run_agent(
         db,
         conn,
         job,
-        &flow_job_id,
+        flow_status_job.as_ref(),
         &args,
         &tools,
         &mcp_clients,
@@ -483,7 +489,7 @@ pub async fn run_agent(
 
     // agent job and flow data
     job: &MiniPulledJob,
-    parent_job: &Uuid,
+    parent_job: Option<&Uuid>,
     args: &AIAgentArgs,
     tools: &[Tool],
     mcp_clients: &HashMap<String, Arc<McpClient>>,
@@ -973,8 +979,11 @@ pub async fn run_agent(
                         ..Default::default()
                     });
 
-                    update_flow_status_module_with_actions(db, parent_job, &actions).await?;
-                    update_flow_status_module_with_actions_success(db, parent_job, true).await?;
+                    if let Some(parent_job) = parent_job {
+                        update_flow_status_module_with_actions(db, parent_job, &actions).await?;
+                        update_flow_status_module_with_actions_success(db, parent_job, true)
+                            .await?;
+                    }
 
                     content = Some(OpenAIContent::Text(response_content.clone()));
 

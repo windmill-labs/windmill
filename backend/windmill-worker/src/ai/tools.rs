@@ -54,7 +54,7 @@ pub struct ToolExecutionContext<'a> {
 
     // Job context
     pub job: &'a MiniPulledJob,
-    pub parent_job: &'a Uuid,
+    pub parent_job: Option<&'a Uuid>,
     pub summary: &'a Option<&'a str>,
 
     // Execution parameters
@@ -283,7 +283,9 @@ async fn execute_windmill_tool(
         module_id: tool_module.id.clone(),
     });
 
-    update_flow_status_module_with_actions(ctx.db, ctx.parent_job, actions).await?;
+    if let Some(parent_job) = ctx.parent_job {
+        update_flow_status_module_with_actions(ctx.db, parent_job, actions).await?;
+    }
 
     let raw_tool_call_args = if tool_call.function.arguments.is_empty() {
         "{}".to_string()
@@ -647,7 +649,9 @@ async fn handle_tool_execution_error(
             .await?;
     }
 
-    update_flow_status_module_with_actions_success(ctx.db, ctx.parent_job, false).await?;
+    if let Some(parent_job) = ctx.parent_job {
+        update_flow_status_module_with_actions_success(ctx.db, parent_job, false).await?;
+    }
 
     // Add tool message to conversation if chat_input_enabled (error case)
     add_tool_message_to_chat(ctx, Some(job_id), &error_message, false).await;
@@ -716,7 +720,9 @@ async fn handle_tool_execution_success(
             .await?;
     }
 
-    update_flow_status_module_with_actions_success(ctx.db, ctx.parent_job, success).await?;
+    if let Some(parent_job) = ctx.parent_job {
+        update_flow_status_module_with_actions_success(ctx.db, parent_job, success).await?;
+    }
 
     // Add tool message to conversation if chat_input_enabled
     let content = if success {
