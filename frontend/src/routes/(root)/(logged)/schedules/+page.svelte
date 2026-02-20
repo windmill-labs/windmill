@@ -17,9 +17,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { userStore, workspaceStore, userWorkspaces, enterpriseLicense } from '$lib/stores'
 	import {
-		Calendar,
 		Circle,
-		Code,
 		Copy,
 		Eye,
 		FileUp,
@@ -33,11 +31,11 @@
 	} from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
-	import SearchItems from '$lib/components/SearchItems.svelte'
+	import FilterSearchbar, { useUrlSyncedFilterInstance } from '$lib/components/FilterSearchbar.svelte'
+	import { buildSchedulesFilterSchema } from '$lib/components/schedules/schedulesFilter'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import JobPreview from '$lib/components/jobs/JobPreview.svelte'
-	import ListFilters from '$lib/components/home/ListFilters.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { setQuery } from '$lib/navigation'
@@ -66,15 +64,55 @@
 	}
 	getDeployUiSettings()
 	async function loadSchedules(): Promise<void> {
-		schedules = (await ScheduleService.listSchedules({ workspace: $workspaceStore! })).map((x) => {
+		const currentFilters = filters.val
+
+		// Build API parameters from filters
+		const apiParams: any = {
+			workspace: $workspaceStore!
+		}
+
+		if (currentFilters.schedule_path) {
+			apiParams.schedulePath = currentFilters.schedule_path
+		}
+		if (currentFilters.path_start) {
+			apiParams.pathStart = currentFilters.path_start
+		}
+		if (currentFilters.path) {
+			apiParams.path = currentFilters.path
+		}
+		if (currentFilters.description) {
+			apiParams.description = currentFilters.description
+		}
+		if (currentFilters.summary) {
+			apiParams.summary = currentFilters.summary
+		}
+		if (currentFilters.args) {
+			apiParams.args = currentFilters.args
+		}
+
+		const result = (await ScheduleService.listSchedules(apiParams)).map((x) => {
 			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 		})
+
+		// Extract unique values for autocomplete
+		allPaths = Array.from(new Set(result.map((x) => x.path))).sort()
+		allScriptPaths = Array.from(new Set(result.map((x) => x.script_path))).sort()
+
+		schedules = result
 		loading = false
 		// after the schedule core data has been loaded, load all the job stats
 		// TODO: we could potentially not reload the job stats on every call to loadSchedules, but for now it's
 		// simpler to always call it. Update if performance becomes an issue.
 		loadSchedulesWithJobStats()
 	}
+
+	// Reload schedules when filters change
+	$effect(() => {
+		filters.val
+		if ($workspaceStore) {
+			untrack(() => loadSchedules())
+		}
+	})
 
 	async function loadSchedulesWithJobStats(): Promise<void> {
 		loadingSchedulesWithJobStats = true
@@ -116,12 +154,20 @@
 	})
 	let scheduleEditor: ScheduleEditor | undefined = $state()
 
-	let filteredItems: (ScheduleW & { marked?: any })[] | undefined = $state([])
-	let items: typeof filteredItems | undefined = $state([])
-	let filter = $state('')
-	let ownerFilter: string | undefined = $state(undefined)
-	let nbDisplayed = $state(15)
+	// Collect unique values for filter autocomplete
+	let allPaths: string[] = $state([])
+	let allScriptPaths: string[] = $state([])
 
+	// FilterSearchbar setup
+	let schedulesFilterSchema = $derived(
+		buildSchedulesFilterSchema({
+			paths: allPaths,
+			scriptPaths: allScriptPaths
+		})
+	)
+	let filters = useUrlSyncedFilterInstance(untrack(() => schedulesFilterSchema))
+
+	let nbDisplayed = $state(15)
 	let filterEnabledDisabled: 'all' | 'enabled' | 'disabled' = $state('all')
 
 	const SCHEDULE_PATH_KIND_FILTER_SETTING = 'schedulePathKindFilter'
@@ -169,47 +215,16 @@
 		if (filterEnabledDisabled === 'disabled') return !item.enabled
 	}
 
-	let preFilteredItems = $derived.by(() => {
-		return ownerFilter != undefined
-			? selectedFilterKind === 'schedule'
-				? schedules?.filter(
-						(x) =>
-							x.path.startsWith(ownerFilter + '/') &&
-							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders) &&
-							filterItemsBasedOnEnabledDisabled(x, filterEnabledDisabled)
-					)
-				: schedules?.filter(
-						(x) =>
-							x.script_path.startsWith(ownerFilter + '/') &&
-							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders) &&
-							filterItemsBasedOnEnabledDisabled(x, filterEnabledDisabled)
-					)
-			: schedules?.filter(
-					(x) =>
-						filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders) &&
-						filterItemsBasedOnEnabledDisabled(x, filterEnabledDisabled)
-				)
+	// Filter schedules client-side for enabled/disabled and user folders
+	let filteredItems = $derived.by(() => {
+		return schedules?.filter(
+			(x) =>
+				filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders) &&
+				filterItemsBasedOnEnabledDisabled(x, filterEnabledDisabled)
+		)
 	})
 
-	$effect(() => {
-		if ($workspaceStore) {
-			ownerFilter = undefined
-		}
-	})
-
-	let owners = $derived(
-		selectedFilterKind === 'schedule'
-			? Array.from(
-					new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
-				).sort()
-			: Array.from(
-					new Set(filteredItems?.map((x) => x.script_path.split('/').slice(0, 2).join('/')) ?? [])
-				).sort()
-	)
-
-	$effect(() => {
-		items = filter !== '' ? filteredItems : preFilteredItems
-	})
+	let items = $derived(filteredItems)
 
 	function updateQueryFilters(selectedFilterKind, filterUserFolders, filterEnabledDisabled) {
 		setQuery(new URL(window.location.href), 'filter_kind', selectedFilterKind).then(() => {
@@ -251,13 +266,6 @@
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 <ScheduleEditor onUpdate={loadSchedules} bind:this={scheduleEditor} />
 
-<SearchItems
-	{filter}
-	items={preFilteredItems}
-	bind:filteredItems
-	f={(x) => (x.summary ?? '') + ' ' + x.path + ' (' + x.script_path + ')'}
-/>
-
 {#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.schedules}
 	<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
 		<p class="font-bold">Unauthorized</p>
@@ -283,19 +291,9 @@
 		</PageHeader>
 		<div class="w-full h-full flex flex-col">
 			<div class="w-full pb-4 pt-6">
-				<input type="text" placeholder="Search schedule" bind:value={filter} class="search-item" />
-				<div class="flex flex-row items-center gap-2 mt-2">
-					<div class="text-xs font-semibold text-emphasis shrink-0"> Filter by path of </div>
-					<ToggleButtonGroup bind:selected={selectedFilterKind}>
-						{#snippet children({ item })}
-							<ToggleButton value="schedule" label="Schedule" icon={Calendar} {item} />
-							<ToggleButton value="script_flow" label="Script/Flow" icon={Code} {item} />
-						{/snippet}
-					</ToggleButtonGroup>
-				</div>
-				<ListFilters syncQuery bind:selectedFilter={ownerFilter} filters={owners} />
+				<FilterSearchbar schema={schedulesFilterSchema} bind:value={filters.val} />
 
-				<div class="flex flex-row items-center justify-end gap-4">
+				<div class="flex flex-row items-center justify-end gap-4 mt-4">
 					<ToggleButtonGroup class="w-auto" bind:selected={filterEnabledDisabled}>
 						{#snippet children({ item })}
 							<ToggleButton small value="all" label="All" {item} />
@@ -322,7 +320,7 @@
 				<div class="text-center text-xs font-semibold text-emphasis mt-2"> No schedules </div>
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
-					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, marked, jobs, paused_until } (path)}
+					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, jobs, paused_until } (path)}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 						{@const avg_s = jobs
 							? jobs.reduce((acc, x) => acc + x.duration_ms, 0) / jobs.length
@@ -343,13 +341,7 @@
 									<div
 										class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate"
 									>
-										{#if marked}
-											<span class="text-xs">
-												{@html marked}
-											</span>
-										{:else}
-											{summary || script_path}
-										{/if}
+										{summary || script_path}
 									</div>
 									<div class="text-secondary text-xs truncate text-left">
 										schedule: {path}

@@ -5,11 +5,11 @@
 	import ContextualVariableEditor from '$lib/components/ContextualVariableEditor.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
-	import ListFilters from '$lib/components/home/ListFilters.svelte'
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Popover from '$lib/components/Popover.svelte'
-	import SearchItems from '$lib/components/SearchItems.svelte'
+	import FilterSearchbar, { useUrlSyncedFilterInstance } from '$lib/components/FilterSearchbar.svelte'
+	import { buildVariablesFilterSchema } from '$lib/components/variables/variablesFilter'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
@@ -43,11 +43,21 @@
 
 	type ListableVariableW = ListableVariable & { canWrite: boolean }
 
-	let filter = $state('')
 	let variables = $state(undefined) as ListableVariableW[] | undefined
-	let filteredItems = $state(undefined) as (ListableVariableW & { marked?: string })[] | undefined
-
 	let showCreateButtons = $state(false)
+
+	// Collect unique values for filter autocomplete
+	let allPaths: string[] = $state([])
+	let allOwners: string[] = $state([])
+
+	// FilterSearchbar setup
+	let variablesFilterSchema = $derived(
+		buildVariablesFilterSchema({
+			paths: allPaths,
+			owners: allOwners
+		})
+	)
+	let filters = useUrlSyncedFilterInstance(untrack(() => variablesFilterSchema))
 	let contextualVariables: ContextualVariable[] = $state([])
 	let shareModal: ShareModal | undefined = $state()
 	let variableEditor: VariableEditor | undefined = $state()
@@ -59,44 +69,68 @@
 	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
 	let open = $derived(Boolean(deleteConfirmedCallback))
 
-	let owners = $derived(
-		Array.from(
-			new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
-		).sort()
-	)
-
-	let ownerFilter: string | undefined = $state(undefined)
-
-	$effect(() => {
-		if ($workspaceStore) {
-			ownerFilter = undefined
-		}
-	})
-
-	let preFilteredItems = $derived.by(() => {
-		let l =
-			ownerFilter == undefined
-				? variables
-				: variables?.filter((x) => x.path.startsWith(ownerFilter ?? ''))
-		if (filterUserFolders) {
-			l = l?.filter((item) => {
+	// Filter variables client-side for user folder filtering (admin feature)
+	let filteredItems = $derived.by(() => {
+		let items = variables
+		if (filterUserFolders && items) {
+			items = items.filter((item) => {
 				if (filterUserFoldersType === 'only f/*') return item.path.startsWith('f/')
 				if (filterUserFoldersType === 'u/username and f/*')
 					return item.path.startsWith('f/') || item.path.startsWith(`u/${$userStore?.username}/`)
+				return true
 			})
 		}
-		return l
+		return items
 	})
 
 	// If relative, the dropdown is positioned relative to its button
 	async function loadVariables(): Promise<void> {
-		variables = (await VariableService.listVariable({ workspace: $workspaceStore! })).map((x) => {
+		const currentFilters = filters.val
+
+		// Build API parameters from filters
+		const apiParams: any = {
+			workspace: $workspaceStore!
+		}
+
+		if (currentFilters.path) {
+			apiParams.path = currentFilters.path
+		}
+		if (currentFilters.path_start) {
+			apiParams.pathStart = currentFilters.path_start
+		}
+		if (currentFilters.description) {
+			apiParams.description = currentFilters.description
+		}
+		if (currentFilters.value) {
+			apiParams.value = currentFilters.value
+		}
+		if (currentFilters.owner) {
+			apiParams.pathStart = currentFilters.owner
+		}
+
+		const result = (await VariableService.listVariable(apiParams)).map((x) => {
 			return {
 				canWrite: canWrite(x.path, x.extra_perms!, $userStore) && x.workspace_id == $workspaceStore,
 				...x
 			}
 		})
+
+		// Extract unique values for autocomplete
+		allPaths = Array.from(new Set(result.map((x) => x.path))).sort()
+		allOwners = Array.from(
+			new Set(result.map((x) => x.path.split('/').slice(0, 2).join('/')))
+		).sort()
+
+		variables = result
 	}
+
+	// Reload variables when filters change
+	$effect(() => {
+		filters.val
+		if ($workspaceStore) {
+			untrack(() => loadVariables())
+		}
+	})
 
 	let deployUiSettings: WorkspaceDeployUISettings | undefined = $state(undefined)
 
@@ -167,13 +201,6 @@
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 
-<SearchItems
-	{filter}
-	items={preFilteredItems}
-	bind:filteredItems
-	f={(x) => x.path + ' ' + x.description}
-/>
-
 {#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.variables}
 	<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
 		<p class="font-bold">Unauthorized</p>
@@ -238,11 +265,8 @@
 			</Tab>
 		</Tabs>
 		{#if tab == 'workspace'}
-			<div class="pt-2">
-				<input placeholder="Search Variable" bind:value={filter} class="input mt-1" />
-			</div>
-			<div class="min-h-[56px]">
-				<ListFilters bind:selectedFilter={ownerFilter} filters={owners} />
+			<div class="pt-4">
+				<FilterSearchbar schema={variablesFilterSchema} bind:value={filters.val} />
 			</div>
 			<div class="relative overflow-x-auto pb-40 pr-4">
 				<div class="flex flex-row items-center justify-end gap-4 pb-2">
@@ -281,7 +305,7 @@
 							</tr>
 						</Head>
 						<tbody class="divide-y">
-							{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked, marked }}
+							{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked }}
 								<Row>
 									<Cell class="!px-0 text-center w-12" first>
 										<SharedBadge {canWrite} extraPerms={extra_perms} />
@@ -293,11 +317,7 @@
 											onclick={() => variableEditor?.editVariable(path)}
 											href="#{path}"
 										>
-											{#if marked}
-												{@html marked}
-											{:else}
-												{path}
-											{/if}
+											{path}
 										</a>
 									</Cell>
 									<Cell>

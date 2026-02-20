@@ -223,6 +223,12 @@
 						})
 					}
 				}
+			} else if (schema.type === 'string' && schema.format === 'json') {
+				try {
+					JSON.parse(String(rawValue))
+				} catch (e) {
+					errors.push({ fields: [key], error: `Invalid JSON format` })
+				}
 			}
 		}
 
