@@ -4091,6 +4091,21 @@ paths:
           in: query
           schema:
             type: string
+        - name: path
+          description: exact path match filter
+          in: query
+          schema:
+            type: string
+        - name: description
+          description: pattern match filter for description field (case-insensitive)
+          in: query
+          schema:
+            type: string
+        - name: value
+          description: pattern match filter for non-secret variable values (case-insensitive)
+          in: query
+          schema:
+            type: string
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
       responses:
@@ -5087,6 +5102,21 @@ paths:
             type: string
         - name: path_start
           description: filter resources by path prefix
+          in: query
+          schema:
+            type: string
+        - name: path
+          description: exact path match filter
+          in: query
+          schema:
+            type: string
+        - name: description
+          description: pattern match filter for description field (case-insensitive)
+          in: query
+          schema:
+            type: string
+        - name: value
+          description: JSONB subset match filter using base64 encoded JSON
           in: query
           schema:
             type: string
@@ -11120,7 +11150,7 @@ paths:
         - $ref: "#/components/parameters/PerPage"
         - $ref: "#/components/parameters/ArgsFilter"
         - name: path
-          description: filter by path
+          description: filter by path (script path)
           in: query
           schema:
             type: string
@@ -11131,6 +11161,21 @@ paths:
             type: boolean
         - name: path_start
           description: filter schedules by path prefix
+          in: query
+          schema:
+            type: string
+        - name: schedule_path
+          description: exact match on the schedule's path
+          in: query
+          schema:
+            type: string
+        - name: description
+          description: pattern match filter for description field (case-insensitive)
+          in: query
+          schema:
+            type: string
+        - name: summary
+          description: pattern match filter for summary field (case-insensitive)
           in: query
           schema:
             type: string
@@ -16883,6 +16928,16 @@ paths:
         - name: asset_kinds
           in: query
           description: Filter by asset kinds (multiple values allowed)
+          schema:
+            type: string
+        - name: path
+          in: query
+          description: exact path match filter
+          schema:
+            type: string
+        - name: columns
+          in: query
+          description: JSONB subset match filter for columns using base64 encoded JSON
           schema:
             type: string
       responses:
