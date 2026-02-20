@@ -121,9 +121,10 @@ mod tests {
         // This correctly handles the subtraction of negative number
         assert_eq!(result, sql);
     }
+
     #[test]
     fn test_remove_comments_invalid_truncate() {
-        let sql = r#"-- Update de la table abcd
+        let sql = r#"-- Mise à jour de la table café
 UPDATE xyz.abcd t
 SET
   uio = s.uio
@@ -136,7 +137,6 @@ SET
 FROM table1 s
 WHERE t.attrib = s.attrib;"#;
         let result = remove_comments(sql);
-        // This correctly handles the subtraction of negative number
         assert_eq!(result.trim(), expected);
     }
 }
