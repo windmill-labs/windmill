@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.639.0"
+version = "1.640.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -76,7 +76,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal"]
 
 [workspace.package]
-version = "1.639.0"
+version = "1.640.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
