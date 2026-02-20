@@ -3,8 +3,8 @@ use crate::ai::types::McpToolSource;
 use crate::ai::types::*;
 use crate::ai::utils::{
     add_message_to_conversation, execute_mcp_tool, get_step_name_from_flow,
-    update_flow_status_module_with_actions, update_flow_status_module_with_actions_success,
-    FlowContext,
+    is_completed_input_transform, update_flow_status_module_with_actions,
+    update_flow_status_module_with_actions_success, FlowContext,
 };
 use crate::common::OccupancyMetrics;
 use crate::result_processor::handle_non_flow_job_error;
@@ -21,7 +21,6 @@ use serde_json::value::RawValue;
 use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
 use windmill_common::ai_types::OpenAIToolCall;
-use windmill_common::flows::InputTransform;
 use windmill_common::jobs::JobPayload;
 
 #[cfg(feature = "mcp")]
@@ -56,6 +55,7 @@ pub struct ToolExecutionContext<'a> {
     pub job: &'a MiniPulledJob,
     pub parent_job: Option<&'a Uuid>,
     pub summary: &'a Option<&'a str>,
+    pub flow_step_id_override: Option<&'a str>,
 
     // Execution parameters
     pub client: &'a AuthedClient,
@@ -336,17 +336,8 @@ async fn execute_windmill_tool(
     // Evaluate each input transform and merge with AI-provided args
     for (key, transform) in input_transforms.iter() {
         // We skip static empty / null values, those are the one the AI will fill in
-        match transform {
-            InputTransform::Static { value } => {
-                let val = value.get().trim();
-                if val.is_empty() || val == "null" {
-                    continue;
-                }
-            }
-            InputTransform::Ai => {
-                continue;
-            }
-            _ => (),
+        if !is_completed_input_transform(transform) {
+            continue;
         }
         let result = evaluate_input_transform::<Box<RawValue>>(
             transform,
@@ -747,8 +738,10 @@ async fn add_tool_message_to_chat(
             .and_then(|fs| fs.memory_id)
         {
             let db_clone = ctx.db.clone();
-            let step_name =
-                get_step_name_from_flow(ctx.summary.as_deref(), ctx.job.flow_step_id.as_deref());
+            let effective_step_id = ctx
+                .flow_step_id_override
+                .or(ctx.job.flow_step_id.as_deref());
+            let step_name = get_step_name_from_flow(ctx.summary.as_deref(), effective_step_id);
             let content = content.to_string();
 
             // Spawn task because we do not need to wait for the result

@@ -181,7 +181,7 @@ pub async fn handle_ai_agent_job(
         ));
     };
 
-    const MAX_AGENT_NESTING_DEPTH: usize = 5;
+    const MAX_AGENT_NESTING_DEPTH: usize = 2;
 
     let mut flow_job_id = *immediate_parent_job;
     let mut flow_job = get_flow_job_runnable_and_raw_flow(db, &flow_job_id).await?;
@@ -250,9 +250,8 @@ pub async fn handle_ai_agent_job(
             ));
         }
     } else {
-        None
-    }
-    .or(find_module_by_id(&value.modules, flow_step_id)?);
+        find_module_by_id(&value.modules, flow_step_id)?
+    };
 
     let Some(module) = module else {
         return Err(Error::internal_err(
@@ -469,6 +468,8 @@ pub async fn handle_ai_agent_job(
         conn,
         job,
         flow_status_job.as_ref(),
+        Some(flow_step_id.as_str()),
+        Some(&flow_job_id),
         &args,
         &tools,
         &mcp_clients,
@@ -514,6 +515,8 @@ pub async fn run_agent(
     // agent job and flow data
     job: &MiniPulledJob,
     parent_job: Option<&Uuid>,
+    flow_step_id_override: Option<&str>,
+    flow_job_id_override: Option<&Uuid>,
     args: &AIAgentArgs,
     tools: &[Tool],
     mcp_clients: &HashMap<String, Arc<McpClient>>,
@@ -555,8 +558,12 @@ pub async fn run_agent(
             vec![]
         };
 
+    // Effective flow_step_id: override for nested agents, otherwise from job
+    let effective_flow_step_id: Option<&str> =
+        flow_step_id_override.or(job.flow_step_id.as_deref());
+
     // Fetch flow context for input transforms context, chat and memory
-    let mut flow_context = get_flow_context(db, job).await;
+    let mut flow_context = get_flow_context(db, job, flow_job_id_override).await;
 
     // Determine if we're using manual messages (which bypasses memory)
     let use_manual_messages = matches!(args.memory, Some(Memory::Manual { .. }));
@@ -601,7 +608,7 @@ pub async fn run_agent(
             }
             Some(Memory::Auto { context_length, .. }) => {
                 // Auto mode: load from memory
-                if let Some(step_id) = job.flow_step_id.as_deref() {
+                if let Some(step_id) = effective_flow_step_id {
                     if let Some(memory_id) = memory_id {
                         // Read messages from memory
                         match read_from_memory(db, &job.workspace_id, memory_id, step_id).await {
@@ -656,9 +663,8 @@ pub async fn run_agent(
     let id_context = {
         if let Some(ref flow_status) = flow_context.flow_status {
             // Get the step ID from the AI agent's flow step
-            let previous_id = job
-                .flow_step_id
-                .clone()
+            let previous_id = effective_flow_step_id
+                .map(str::to_string)
                 .unwrap_or_else(|| "unknown".to_string());
 
             Some(get_transform_context(job, &previous_id, flow_status))
@@ -771,7 +777,7 @@ pub async fn run_agent(
         .and_then(|fs| fs.chat_input_enabled)
         .unwrap_or(false);
 
-    let step_name = get_step_name_from_flow(summary.as_deref(), job.flow_step_id.as_deref());
+    let step_name = get_step_name_from_flow(summary.as_deref(), effective_flow_step_id);
 
     let max_iterations = args
         .max_iterations
@@ -1065,6 +1071,7 @@ pub async fn run_agent(
                     job,
                     parent_job,
                     summary: &summary,
+                    flow_step_id_override,
                     client,
                     worker_dir,
                     base_internal_url,
@@ -1196,7 +1203,7 @@ pub async fn run_agent(
     // final_messages contains the complete history (old messages + new ones)
     if matches!(output_type, OutputType::Text) && !use_manual_messages {
         if let Some(Memory::Auto { context_length, .. }) = &args.memory {
-            if let Some(step_id) = job.flow_step_id.as_deref() {
+            if let Some(step_id) = effective_flow_step_id {
                 // Extract OpenAIMessages from final_messages
                 let all_messages: Vec<OpenAIMessage> =
                     final_messages.iter().map(|m| m.message.clone()).collect();
