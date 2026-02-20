@@ -306,6 +306,7 @@ async fn execute_windmill_tool(
         FlowModuleValue::Script { input_transforms, .. } => input_transforms,
         FlowModuleValue::RawScript { input_transforms, .. } => input_transforms,
         FlowModuleValue::FlowScript { input_transforms, .. } => input_transforms,
+        FlowModuleValue::AIAgent { input_transforms, .. } => input_transforms,
         _ => {
             return Err(Error::internal_err(format!(
                 "Unsupported tool: {}",
@@ -411,6 +412,16 @@ async fn execute_windmill_tool(
                 on_behalf_of: None,
             };
             payload
+        }
+        FlowModuleValue::AIAgent { .. } => {
+            let path = format!("{}/tools/{}", ctx.job.runnable_path(), tool_module.id);
+            JobPayloadWithTag {
+                payload: JobPayload::AIAgent { path },
+                tag: None,
+                delete_after_use: tool_module.delete_after_use.unwrap_or(false),
+                timeout: None,
+                on_behalf_of: None,
+            }
         }
         _ => {
             return Err(Error::internal_err(format!(

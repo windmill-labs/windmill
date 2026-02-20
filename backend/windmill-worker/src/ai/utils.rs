@@ -64,6 +64,19 @@ pub fn parse_raw_script_schema(
 
 /// Filters out properties from a JSON schema that have completed input transforms.
 /// This allows AI agents to only see and fill parameters that don't have user-configured values.
+fn is_completed_input_transform(transform: &InputTransform) -> bool {
+    match transform {
+        InputTransform::Static { value } => {
+            let val = value.get().trim();
+            !val.is_empty() && val != "null"
+        }
+        InputTransform::Javascript { expr } => !expr.trim().is_empty(),
+        InputTransform::Ai => false,
+    }
+}
+
+/// Filters out properties from a JSON schema that have completed input transforms.
+/// This allows AI agents to only see and fill parameters that don't have user-configured values.
 pub fn filter_schema_by_input_transforms(
     schema: Box<RawValue>,
     input_transforms: &HashMap<String, InputTransform>,
@@ -77,14 +90,7 @@ pub fn filter_schema_by_input_transforms(
     let keys_to_remove: HashSet<String> = input_transforms
         .iter()
         .filter_map(|(key, transform)| {
-            let is_completed = match transform {
-                InputTransform::Static { value } => {
-                    let val = value.get().trim();
-                    !val.is_empty() && val != "null"
-                }
-                InputTransform::Javascript { expr } => !expr.trim().is_empty(),
-                InputTransform::Ai => false,
-            };
+            let is_completed = is_completed_input_transform(transform);
             if is_completed {
                 Some(key.clone())
             } else {
@@ -690,6 +696,7 @@ pub fn any_tool_needs_previous_result(tools: &[Tool]) -> bool {
                     FlowModuleValue::Script { input_transforms, .. } => input_transforms,
                     FlowModuleValue::RawScript { input_transforms, .. } => input_transforms,
                     FlowModuleValue::FlowScript { input_transforms, .. } => input_transforms,
+                    FlowModuleValue::AIAgent { input_transforms, .. } => input_transforms,
                     _ => return false,
                 };
 
