@@ -1,5 +1,3 @@
-import { file } from "bun";
-import * as path from "path";
 import {
   listWorktrees,
   getStatus,
@@ -20,7 +18,6 @@ import {
 } from "./terminal";
 
 const PORT = parseInt(process.env.DASHBOARD_PORT || "5111");
-const PUBLIC_DIR = path.join(import.meta.dir, "..", "public");
 
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -31,22 +28,6 @@ function jsonResponse(data: unknown, status = 200): Response {
 
 function errorResponse(message: string, status = 500): Response {
   return jsonResponse({ error: message }, status);
-}
-
-async function serveStatic(pathname: string): Promise<Response> {
-  if (pathname === "/" || pathname === "") pathname = "/index.html";
-
-  const filePath = path.join(PUBLIC_DIR, pathname);
-
-  if (!filePath.startsWith(PUBLIC_DIR)) {
-    return new Response("Forbidden", { status: 403 });
-  }
-
-  const f = file(filePath);
-  if (await f.exists()) {
-    return new Response(f);
-  }
-  return new Response("Not Found", { status: 404 });
 }
 
 interface WsData {
@@ -86,7 +67,7 @@ Bun.serve<WsData>({
       return handleApi(req, url);
     }
 
-    return serveStatic(url.pathname);
+    return new Response("Not Found", { status: 404 });
   },
 
   websocket: {
@@ -156,14 +137,11 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
 
     // POST /api/worktrees
     if (parts[0] === "worktrees" && parts.length === 1 && method === "POST") {
-      const body = await req.json() as { branch?: string; prompt?: string; autoName?: boolean };
-      if (!body.branch && !body.autoName) {
-        return errorResponse("branch is required (or use autoName)", 400);
+      const body = await req.json() as { branch?: string; prompt?: string };
+      if (!body.branch) {
+        return errorResponse("branch is required", 400);
       }
-      const result = await addWorktree(body.branch || "", {
-        prompt: body.prompt,
-        autoName: body.autoName,
-      });
+      const result = await addWorktree(body.branch, { prompt: body.prompt });
       return jsonResponse({ message: result }, 201);
     }
 
@@ -210,4 +188,4 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
   }
 }
 
-console.log(`Dev Dashboard running at http://localhost:${PORT}`);
+console.log(`Dev Dashboard API running at http://localhost:${PORT}`);

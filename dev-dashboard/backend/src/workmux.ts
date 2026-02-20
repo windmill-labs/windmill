@@ -77,10 +77,9 @@ async function runChecked(args: string[]): Promise<string> {
 
 export async function addWorktree(
   branch: string,
-  opts?: { prompt?: string; autoName?: boolean }
+  opts?: { prompt?: string }
 ): Promise<string> {
   const args: string[] = ["workmux", "add"];
-  if (opts?.autoName) args.push("-A");
   if (opts?.prompt) args.push("-p", opts.prompt);
   args.push(branch);
   return runChecked(args);
