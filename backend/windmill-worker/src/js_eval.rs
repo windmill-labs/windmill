@@ -112,9 +112,6 @@ pub fn transpile_ts(expr: String) -> anyhow::Result<String> {
     windmill_runtime_nativets::transpile_ts(expr)
 }
 
-#[cfg(feature = "deno_core")]
-pub use windmill_runtime_nativets::run_dedicated_loop;
-
 #[cfg(not(feature = "deno_core"))]
 pub fn transpile_ts(_expr: String) -> anyhow::Result<String> {
     Ok("require deno".to_string())

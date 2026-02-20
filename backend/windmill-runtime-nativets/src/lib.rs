@@ -12,6 +12,9 @@
 //! TypeScript scripts via the nativets runtime. By isolating this here,
 //! deno_core compilation no longer blocks windmill-worker or windmill-api.
 
+mod dedicated;
+pub use dedicated::{ExecutingIsolate, PrewarmedIsolate, PrewarmedResult};
+
 use std::{
     borrow::Cow,
     cell::RefCell,
@@ -112,18 +115,15 @@ impl NetPermissions for PermissionsContainer {
 
 // ── Types ────────────────────────────────────────────────────────────
 
-struct MainArgs {
-    args: Vec<Option<Box<RawValue>>>,
+pub(crate) struct MainArgs {
+    pub(crate) args: Vec<Option<Box<RawValue>>>,
 }
 
 struct LogString {
     pub s: mpsc::UnboundedSender<String>,
 }
 
-/// Channel for feeding job args (JSON lines) to the V8 dedicated worker loop
-/// via the `op_read_next_job` async op.
-struct JobArgsReceiver(Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<String>>>);
-
+#[derive(Clone)]
 pub struct NativeAnnotation {
     pub useragent: Option<String>,
     pub proxy: Option<(String, Option<(String, String)>)>,
@@ -149,7 +149,7 @@ impl Drop for IsolateDropGuard {
 
 static RUNTIME_SNAPSHOT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/FETCH_SNAPSHOT.bin"));
 
-const WINDMILL_CLIENT: &str = include_str!("./windmill-client.js");
+pub(crate) const WINDMILL_CLIENT: &str = include_str!("./windmill-client.js");
 
 const ERROR_DIR: &str = const_format::concatcp!(TMP_DIR, "/native_errors");
 
@@ -356,35 +356,23 @@ fn op_log(op_state: Rc<RefCell<OpState>>, #[string] log: &str) {
     }
 }
 
-#[op2(async)]
-#[string]
-async fn op_read_next_job(state: Rc<RefCell<OpState>>) -> String {
-    let rx = { state.borrow().borrow::<JobArgsReceiver>().0.clone() };
-    let result = rx.lock().await.recv().await.unwrap_or_default();
-    result
-}
-
 // ── Shared V8 runtime creation ───────────────────────────────────────
 
-struct CreatedRuntime {
-    js_runtime: JsRuntime,
-    log_receiver: mpsc::UnboundedReceiver<String>,
-    memory_limit_rx: mpsc::UnboundedReceiver<()>,
+pub(crate) struct CreatedRuntime {
+    pub(crate) js_runtime: JsRuntime,
+    pub(crate) log_receiver: mpsc::UnboundedReceiver<String>,
+    pub(crate) memory_limit_rx: mpsc::UnboundedReceiver<()>,
 }
 
 /// Create a JsRuntime with the standard nativets extensions, heap limit
 /// callback, and log channel.  Must be called on a blocking thread (not
 /// on the async tokio runtime) because V8 isolate creation is
 /// synchronous and potentially heavy.
-fn create_nativets_runtime(
+pub(crate) fn create_nativets_runtime(
     ann: NativeAnnotation,
     initial_args: Vec<Option<Box<RawValue>>>,
-    dedicated: bool,
 ) -> anyhow::Result<CreatedRuntime> {
-    let mut ops = vec![op_get_static_args(), op_log()];
-    if dedicated {
-        ops.push(op_read_next_job());
-    }
+    let ops = vec![op_get_static_args(), op_log()];
     let ext = Extension { name: "windmill", ops: ops.into(), ..Default::default() };
 
     let fetch_options = deno_fetch::Options {
@@ -454,6 +442,52 @@ fn create_nativets_runtime(
     }
 
     Ok(CreatedRuntime { js_runtime, log_receiver, memory_limit_rx })
+}
+
+// ── Shared module-loading helpers ────────────────────────────────────
+
+pub(crate) async fn load_client_module(
+    js_runtime: &mut JsRuntime,
+    env_code: &str,
+) -> anyhow::Result<()> {
+    js_runtime
+        .load_side_es_module_from_code(
+            &deno_core::resolve_url("file:///windmill.ts")
+                .map_err(windmill_common::error::to_anyhow)?,
+            format!("{env_code}\n{WINDMILL_CLIENT}"),
+        )
+        .await
+        .map_err(windmill_common::error::to_anyhow)?;
+    Ok(())
+}
+
+pub(crate) async fn load_user_module(
+    js_runtime: &mut JsRuntime,
+    source: String,
+) -> anyhow::Result<()> {
+    use anyhow::Context;
+    js_runtime
+        .load_side_es_module_from_code(
+            &deno_core::resolve_url("file:///eval.ts")
+                .map_err(windmill_common::error::to_anyhow)?,
+            source,
+        )
+        .await
+        .context("failed to load module")?;
+    Ok(())
+}
+
+/// Extract a string result from a resolved V8 global and convert to `Box<RawValue>`.
+pub(crate) fn extract_global_string(
+    js_runtime: &mut JsRuntime,
+    global: v8::Global<v8::Value>,
+) -> Result<Box<RawValue>, String> {
+    let scope = &mut js_runtime.handle_scope();
+    let local = v8::Local::new(scope, global);
+    match serde_v8::from_v8::<Option<String>>(scope, local) {
+        Ok(s) => Ok(unsafe_raw(s.unwrap_or_else(|| "null".to_string()))),
+        Err(e) => Err(format!("failed to deserialize result: {e}")),
+    }
 }
 
 // ── eval_fetch_timeout ───────────────────────────────────────────────
@@ -544,7 +578,7 @@ pub async fn eval_fetch_timeout(
 
     let result_f = tokio::task::spawn_blocking(move || {
         let CreatedRuntime { mut js_runtime, mut log_receiver, mut memory_limit_rx } =
-            create_nativets_runtime(ann, spread, false)?;
+            create_nativets_runtime(ann, spread)?;
 
         if otel_initialized {
             if let Err(e) =
@@ -636,42 +670,97 @@ async fn eval_fetch(
     script_entrypoint_override: Option<String>,
     load_client: bool,
     job_id: &Uuid,
-    _otel_initialized: bool,
+    otel_initialized: bool,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     if load_client {
         if let Some(env_code) = env_code.as_ref() {
-            let _ = js_runtime
-                .load_side_es_module_from_code(
-                    &deno_core::resolve_url("file:///windmill.ts")
-                        .map_err(windmill_common::error::to_anyhow)?,
-                    format!("{env_code}\n{}", WINDMILL_CLIENT.to_string()),
-                )
-                .await
-                .map_err(windmill_common::error::to_anyhow)?;
+            load_client_module(js_runtime, env_code).await?;
         }
     }
-    use anyhow::Context;
-    use deno_core::error::CoreError;
-    use windmill_common::worker::to_raw_value;
     let source = format!("{}\n{expr}", env_code.unwrap_or_default());
-    let _ = js_runtime
-        .load_side_es_module_from_code(
-            &deno_core::resolve_url("file:///eval.ts")
-                .map_err(windmill_common::error::to_anyhow)?,
-            source.to_string(),
-        )
-        .await
-        .map_err(|e| {
-            write_error_expr(expr, &job_id);
-            e
-        })
-        .context("failed to load module")?;
+    if let Err(e) = load_user_module(js_runtime, source.clone()).await {
+        write_error_expr(expr, job_id);
+        return Err(e.into());
+    }
 
-    let main_override = script_entrypoint_override.unwrap_or("main".to_string());
+    let result = execute_main(
+        js_runtime,
+        script_entrypoint_override.as_deref(),
+        otel_initialized,
+        Some(job_id),
+    )
+    .await;
+
+    match result {
+        Ok(raw) => Ok(raw),
+        Err(ExecuteError::Script(msg)) => {
+            write_error_expr(expr, job_id);
+            Err(Error::ExecutionErr(msg))
+        }
+        Err(ExecuteError::Js { message, stack, name, source: eval_source }) => {
+            write_error_expr(expr, job_id);
+            use windmill_common::worker::to_raw_value;
+            let stack_head = eval_source.and_then(|(file, line_no)| {
+                if file == "file:///eval.ts" {
+                    source
+                        .lines()
+                        .nth(line_no.saturating_sub(1))
+                        .map(|l| format!("{l}\n"))
+                } else {
+                    None
+                }
+            });
+            let stack_s = format!(
+                "{}{}",
+                stack_head.unwrap_or_default(),
+                stack.as_deref().unwrap_or_default()
+            );
+            let stack = if stack_s.is_empty() {
+                None
+            } else {
+                Some(stack_s)
+            };
+            Err(Error::ExecutionRawError(to_raw_value(&serde_json::json!({
+                "message": message,
+                "stack": stack,
+                "name": name,
+            }))))
+        }
+    }
+}
+
+// ── Shared execution engine ──────────────────────────────────────────
+
+pub(crate) enum ExecuteError {
+    /// Non-JS error (V8 internal, init failure, deserialization)
+    Script(String),
+    /// JS exception with structured error info
+    Js {
+        message: Option<String>,
+        stack: Option<String>,
+        name: Option<String>,
+        /// (file_name, line_number) from the first stack frame, if in user code
+        source: Option<(String, usize)>,
+    },
+}
+
+/// Execute the `main` function from the already-loaded `eval.ts` module.
+///
+/// Args must already be set in `MainArgs` in the runtime's OpState.
+/// Modules (`windmill.ts` and `eval.ts`) must already be loaded.
+pub(crate) async fn execute_main(
+    js_runtime: &mut JsRuntime,
+    entrypoint: Option<&str>,
+    _otel_initialized: bool,
+    _job_id: Option<&Uuid>,
+) -> Result<Box<RawValue>, ExecuteError> {
+    let main_fn = entrypoint.unwrap_or("main");
 
     #[cfg(all(feature = "private", feature = "enterprise"))]
     let otel_context_inject = if _otel_initialized {
-        let trace_id = job_id.as_simple().to_string();
+        let trace_id = _job_id
+            .map(|id| id.as_simple().to_string())
+            .unwrap_or_default();
         format!(
             r#"globalThis.__enterSpan?.({{
     isRecording: () => true,
@@ -722,7 +811,7 @@ function processStreamIterative(res) {{
 {otel_context_inject}
 
 let args = Deno.core.ops.op_get_static_args().map(JSON.parse)
-import("file:///eval.ts").then((module) => module.{main_override}(...args))
+import("file:///eval.ts").then((module) => module.{main_fn}(...args))
     .then(res => {{
         if (isAsyncIterable(res)) {{
             return processStreamIterative(res)
@@ -733,207 +822,25 @@ import("file:///eval.ts").then((module) => module.{main_override}(...args))
 "#
             ),
         )
-        .map_err(|e| {
-            write_error_expr(expr, &job_id);
-            e
-        })
-        .context("native script initialization")?;
+        .map_err(|e| ExecuteError::Script(format!("native script initialization: {e}")))?;
 
     let fut = js_runtime.resolve(script);
     let global = js_runtime
         .with_event_loop_promise(fut, PollEventLoopOptions::default())
-        .await
-        .map_err(|e| {
-            write_error_expr(expr, &job_id);
-            e
-        });
+        .await;
 
     match global {
         Ok(global) => {
-            let scope = &mut js_runtime.handle_scope();
-            let local = v8::Local::new(scope, global);
-            let r = serde_v8::from_v8::<Option<String>>(scope, local)
-                .map_err(windmill_common::error::to_anyhow)?;
-            Ok(unsafe_raw(r.unwrap_or_else(|| "null".to_string())))
+            extract_global_string(js_runtime, global).map_err(|e| ExecuteError::Script(e))
         }
-        Err(CoreError::Js(e)) => {
-            let stack_head = e.frames.first().and_then(|f| {
-                if f.file_name.as_ref().is_some_and(|x| x == "file:///eval.ts") {
-                    Some(format!(
-                        "{}\n",
-                        source
-                            .lines()
-                            .nth((f.line_number.unwrap_or(1)) as usize - 1)
-                            .unwrap_or("")
-                            .to_string()
-                    ))
-                } else {
-                    None
-                }
+        Err(deno_core::error::CoreError::Js(e)) => {
+            let source = e.frames.first().and_then(|f| {
+                f.file_name
+                    .as_ref()
+                    .map(|name| (name.clone(), f.line_number.unwrap_or(1) as usize))
             });
-            let stack_s = format!(
-                "{}{}",
-                stack_head.unwrap_or("".to_string()),
-                e.stack.unwrap_or("".to_string())
-            );
-            let stack = if stack_s.is_empty() {
-                None
-            } else {
-                Some(stack_s)
-            };
-            Err(Error::ExecutionRawError(to_raw_value(&serde_json::json!({
-                "message": e.message,
-                "stack": stack,
-                "name": e.name,
-            }))))
+            Err(ExecuteError::Js { message: e.message, stack: e.stack, name: e.name, source })
         }
-        Err(e) => Err(Error::ExecutionErr(e.print_with_cause())),
+        Err(e) => Err(ExecuteError::Script(e.print_with_cause())),
     }
-}
-
-// ── Persistent V8 dedicated worker ──────────────────────────────────
-
-/// Run a persistent V8 runtime that speaks the same line protocol as
-/// bun/node dedicated workers (stdin: JSON args, stdout: "start" +
-/// logs + "wm_res[success/error]:...").
-///
-/// The entire job loop runs in JS (matching the bun dedicated worker
-/// pattern). Rust only sets up the runtime, bridges I/O, and drives
-/// the V8 event loop.
-pub async fn run_dedicated_loop(
-    env_code: String,
-    ts_expr: String,
-    js_expr: String,
-    stdin: tokio::io::DuplexStream,
-    stdout: tokio::io::DuplexStream,
-) -> anyhow::Result<()> {
-    let parsed_args = windmill_parser_ts::parse_deno_signature(&ts_expr, true, false, None)?.args;
-    let arg_names: Vec<String> = parsed_args.into_iter().map(|x| x.name).collect();
-    let ann = get_annotation(&ts_expr);
-
-    tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
-        use anyhow::Context;
-        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-
-        let (job_args_tx, job_args_rx) = mpsc::unbounded_channel::<String>();
-
-        let CreatedRuntime { mut js_runtime, log_receiver, mut memory_limit_rx } =
-            create_nativets_runtime(ann, vec![], true)?;
-
-        {
-            let op_state = js_runtime.op_state();
-            let mut op_state = op_state.borrow_mut();
-            op_state.put(JobArgsReceiver(Arc::new(tokio::sync::Mutex::new(job_args_rx))));
-        }
-
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?;
-
-        let source = format!("{env_code}\n{js_expr}");
-
-        runtime.block_on(async {
-            js_runtime
-                .load_side_es_module_from_code(
-                    &deno_core::resolve_url("file:///windmill.ts")
-                        .map_err(windmill_common::error::to_anyhow)?,
-                    format!("{env_code}\n{WINDMILL_CLIENT}"),
-                )
-                .await
-                .map_err(windmill_common::error::to_anyhow)?;
-
-            js_runtime
-                .load_side_es_module_from_code(
-                    &deno_core::resolve_url("file:///eval.ts")
-                        .map_err(windmill_common::error::to_anyhow)?,
-                    source,
-                )
-                .await
-                .context("failed to load user module")?;
-
-            // Bridge stdin → job args channel (spawned task reads lines, sends to op_read_next_job)
-            let mut reader = BufReader::new(stdin);
-            tokio::spawn(async move {
-                let mut line = String::new();
-                loop {
-                    line.clear();
-                    match reader.read_line(&mut line).await {
-                        Ok(0) => break,
-                        Ok(_) => {
-                            let trimmed = line.trim().to_string();
-                            if trimmed == "end" || trimmed.is_empty() {
-                                break;
-                            }
-                            if job_args_tx.send(trimmed).is_err() {
-                                break;
-                            }
-                        }
-                        Err(_) => break,
-                    }
-                }
-                // Dropping job_args_tx closes the channel → op_read_next_job returns ""
-            });
-
-            // Forward logs (including wm_res lines) from op_log channel → stdout DuplexStream
-            let mut log_receiver = log_receiver;
-            let mut writer = stdout;
-            let log_handle = tokio::spawn(async move {
-                while let Some(log) = log_receiver.recv().await {
-                    if writer.write_all(log.as_bytes()).await.is_err() {
-                        break;
-                    }
-                    if writer.write_all(b"\n").await.is_err() {
-                        break;
-                    }
-                    let _ = writer.flush().await;
-                }
-            });
-
-            // JS wrapper matching bun's generate_dedicated_worker_wrapper pattern
-            let spread = arg_names.join(", ");
-            let wrapper = format!(
-                r#"(async () => {{
-    const Main = await import("file:///eval.ts");
-    console.log('start');
-    while (true) {{
-        const line = await Deno.core.ops.op_read_next_job();
-        if (!line) break;
-        try {{
-            const {{ {spread} }} = JSON.parse(line);
-            const res = await Main.main({spread});
-            console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
-        }} catch (e) {{
-            console.log("wm_res[error]:" + JSON.stringify({{ message: e?.message ?? String(e), name: e?.name, stack: e?.stack, line: line }}));
-        }}
-    }}
-}})()"#
-            );
-
-            let result = tokio::select! {
-                r = async {
-                    let script = js_runtime.execute_script("<dedicated>", wrapper)
-                        .map_err(|e| anyhow::anyhow!("{e}"))?;
-                    let fut = js_runtime.resolve(script);
-                    js_runtime
-                        .with_event_loop_promise(fut, PollEventLoopOptions::default())
-                        .await
-                        .map_err(|e| anyhow::anyhow!("{}", e.print_with_cause()))
-                } => r,
-                _ = memory_limit_rx.recv() => {
-                    Err(anyhow::anyhow!("Memory limit reached, killing isolate"))
-                }
-            };
-
-            drop(js_runtime);
-            let _ = log_handle.await;
-
-            if let Err(e) = result {
-                tracing::error!("dedicated V8 worker loop failed: {e}");
-                return Err(e);
-            }
-
-            Ok(())
-        })
-    })
-    .await?
 }

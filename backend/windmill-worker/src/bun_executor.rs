@@ -1671,8 +1671,7 @@ pub fn build_nativets_env_code(
 
 #[cfg(feature = "private")]
 use crate::{
-    common::build_envs_map, dedicated_worker_oss::dedicated_worker_ipc_loop,
-    dedicated_worker_oss::handle_dedicated_process, JobCompletedSender,
+    common::build_envs_map, dedicated_worker_oss::handle_dedicated_process, JobCompletedSender,
 };
 #[cfg(feature = "private")]
 use tokio::sync::mpsc::Receiver;
@@ -1719,55 +1718,171 @@ async fn handle_dedicated_bunnative(
 
     #[cfg(feature = "deno_core")]
     {
-        use tokio::io::{AsyncBufReadExt, BufReader};
+        use std::sync::Arc;
 
-        // DuplexStream pairs bridge V8 to the IPC loop
-        let (mut handler_stdin_w, v8_stdin_r) = tokio::io::duplex(65536);
-        let (v8_stdout_w, handler_stdout_r) = tokio::io::duplex(65536);
-        // Dummy stderr (V8 has no stderr). The write-half is moved into the V8
-        // task so that it stays alive while V8 runs (keeping err_reader pending)
-        // but is dropped when V8 exits (unblocking the stderr drain in the IPC loop).
-        let (stderr_write, stderr_read) = tokio::io::duplex(1024);
+        use crate::common::transform_json;
+        use windmill_common::worker::to_raw_value;
+        use windmill_queue::{append_logs, JobCompleted, MiniCompletedJob};
+        use windmill_runtime_nativets::PrewarmedIsolate;
 
-        // Spawn persistent V8 runtime
-        let env_code_owned = env_code.to_string();
-        let inner_content_owned = inner_content.to_string();
-        let js_code_owned = js_code.to_string();
-        let v8_handle = tokio::spawn(async move {
-            let _stderr_guard = stderr_write;
-            crate::js_eval::run_dedicated_loop(
-                env_code_owned,
-                inner_content_owned,
-                js_code_owned,
-                v8_stdin_r,
-                v8_stdout_w,
-            )
-            .await
-        });
+        let ann = windmill_runtime_nativets::get_annotation(inner_content);
+        let parsed_args =
+            windmill_parser_ts::parse_deno_signature(inner_content, true, false, None)?.args;
+        let arg_names: Vec<String> = parsed_args.into_iter().map(|x| x.name).collect();
 
-        // Reuse the extracted IPC loop
-        let mut reader = BufReader::new(handler_stdout_r).lines();
-        let mut err_reader = BufReader::new(stderr_read).lines();
-        let result = dedicated_worker_ipc_loop(
-            &mut reader,
-            &mut err_reader,
-            &mut handler_stdin_w,
-            killpill_rx,
-            job_completed_tx,
-            token,
-            jobs_rx,
-            worker_name,
-            db,
-            script_path,
-            "nativets",
-            client.clone(),
-        )
-        .await;
+        let env_code = env_code.to_string();
+        let js_code = js_code.to_string();
 
-        // Cleanup: drop stdin writer so V8 sees EOF and exits
-        drop(handler_stdin_w);
-        let _ = v8_handle.await;
-        result
+        let mut warm = PrewarmedIsolate::spawn(
+            env_code.clone(),
+            js_code.clone(),
+            ann.clone(),
+            arg_names.clone(),
+        );
+
+        let init_log = format!("dedicated worker nativets: {worker_name}\n\n");
+        let alive = true;
+        let mut killpill_rx = killpill_rx;
+        let mut jobs_rx = jobs_rx;
+        loop {
+            tokio::select! {
+                biased;
+                _ = killpill_rx.recv(), if alive => {
+                    tracing::info!("received killpill for nativets dedicated worker");
+                    break;
+                },
+                job = jobs_rx.recv(), if alive => {
+                    if let Some(DedicatedWorkerJob { job, flow_runners, done_tx }) = job {
+                        let id = job.id;
+                        tracing::info!(
+                            "received job on nativets dedicated worker for {script_path}: {id}"
+                        );
+
+                        let args = if let Some(args) = job.args.as_ref() {
+                            if let Some(x) = transform_json(
+                                client, &job.workspace_id, &args.0, &job, &db.into(),
+                            ).await? {
+                                serde_json::to_string(&x)
+                                    .unwrap_or_else(|_| "{}".to_string())
+                            } else {
+                                serde_json::to_string(&args)
+                                    .unwrap_or_else(|_| "{}".to_string())
+                            }
+                        } else {
+                            "{}".to_string()
+                        };
+
+                        if let Err(e) = warm.wait_ready().await {
+                            tracing::error!("pre-warmed isolate failed during init: {e}");
+                            let result = Arc::new(to_raw_value(&serde_json::json!({
+                                "message": format!("isolate init failed: {e}"),
+                                "name": "Error",
+                            })));
+                            append_logs(&id, &job.workspace_id, init_log.clone(), &db.into()).await;
+                            job_completed_tx.send_job(JobCompleted {
+                                job: MiniCompletedJob::from(job),
+                                result,
+                                result_columns: None,
+                                mem_peak: 0,
+                                canceled_by: None,
+                                success: false,
+                                cached_res_path: None,
+                                token: token.to_string(),
+                                duration: None,
+                                preprocessed_args: None,
+                                has_stream: Some(false),
+                                from_cache: None,
+                                flow_runners,
+                                done_tx,
+                            }, true).await?;
+                            warm = PrewarmedIsolate::spawn(
+                                env_code.clone(),
+                                js_code.clone(),
+                                ann.clone(),
+                                arg_names.clone(),
+                            );
+                            continue;
+                        }
+
+                        let executing = warm.start_execution(args);
+
+                        warm = PrewarmedIsolate::spawn(
+                            env_code.clone(),
+                            js_code.clone(),
+                            ann.clone(),
+                            arg_names.clone(),
+                        );
+
+                        match executing.wait().await {
+                            Ok(prewarmed_result) => {
+                                let mut logs = init_log.clone();
+                                if !prewarmed_result.logs.is_empty() {
+                                    logs.push_str(&prewarmed_result.logs);
+                                }
+                                append_logs(&id, &job.workspace_id, logs, &db.into()).await;
+
+                                let (result, success) = match prewarmed_result.result {
+                                    Ok(raw) => (Arc::new(raw), true),
+                                    Err(e) => (
+                                        Arc::new(to_raw_value(&serde_json::json!({
+                                            "message": e,
+                                            "name": "Error",
+                                        }))),
+                                        false,
+                                    ),
+                                };
+
+                                job_completed_tx.send_job(JobCompleted {
+                                    job: MiniCompletedJob::from(job),
+                                    result,
+                                    result_columns: None,
+                                    mem_peak: 0,
+                                    canceled_by: None,
+                                    success,
+                                    cached_res_path: None,
+                                    token: token.to_string(),
+                                    duration: None,
+                                    preprocessed_args: None,
+                                    has_stream: Some(false),
+                                    from_cache: None,
+                                    flow_runners,
+                                    done_tx,
+                                }, true).await?;
+                            }
+                            Err(e) => {
+                                tracing::error!("isolate execution failed: {e}");
+                                append_logs(&id, &job.workspace_id, init_log.clone(), &db.into()).await;
+                                let result = Arc::new(to_raw_value(&serde_json::json!({
+                                    "message": format!("{e}"),
+                                    "name": "Error",
+                                })));
+                                job_completed_tx.send_job(JobCompleted {
+                                    job: MiniCompletedJob::from(job),
+                                    result,
+                                    result_columns: None,
+                                    mem_peak: 0,
+                                    canceled_by: None,
+                                    success: false,
+                                    cached_res_path: None,
+                                    token: token.to_string(),
+                                    duration: None,
+                                    preprocessed_args: None,
+                                    has_stream: Some(false),
+                                    from_cache: None,
+                                    flow_runners: None,
+                                    done_tx: None,
+                                }, true).await?;
+                            }
+                        }
+                    } else {
+                        tracing::debug!("job channel closed for nativets dedicated worker");
+                        break;
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 
