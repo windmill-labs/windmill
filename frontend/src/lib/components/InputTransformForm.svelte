@@ -65,6 +65,7 @@
 		otherArgs?: Record<string, InputTransform>
 		helperScript?: DynamicInputTypes.HelperScript | undefined
 		isAgentTool?: boolean
+		defaultToAi?: boolean
 		s3StorageConfigured?: boolean
 		chatInputEnabled?: boolean
 	}
@@ -92,6 +93,7 @@
 		otherArgs = {},
 		helperScript = undefined,
 		isAgentTool = false,
+		defaultToAi = isAgentTool,
 		s3StorageConfigured = true,
 		chatInputEnabled = false
 	}: Props = $props()
@@ -167,7 +169,7 @@
 	function getPropertyType(arg: InputTransform | any): InputTransform['type'] {
 		// For agent tools, if static with undefined/empty value, treat as 'ai', meaning the field will be filled by the AI agent dynamically.
 		if (
-			isAgentTool &&
+			defaultToAi &&
 			((arg?.type === 'static' && arg?.value === undefined) || arg?.type === 'ai')
 		) {
 			if (arg?.type === 'static') {

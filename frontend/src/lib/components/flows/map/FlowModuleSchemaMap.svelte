@@ -190,16 +190,8 @@
 		} else if (toolKind === 'aiAgentTool') {
 			// Create AI Agent tool (nested agent)
 			const aiAgentTool = createAiAgentTool(module.id)
-			const syntheticModule = {
-				id: module.id,
-				value: {
-					type: 'aiagent' as const,
-					tools: [],
-					input_transforms: aiAgentTool.value.input_transforms
-				}
-			}
 			flowStateStore.val[module.id] = await loadFlowModuleState(
-				syntheticModule as FlowModule
+				aiAgentTool as unknown as FlowModule
 			)
 			;(modules as AgentTool[]).splice(index, 0, aiAgentTool)
 			return modules as AgentTool[]
