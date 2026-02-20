@@ -6,8 +6,6 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use windmill_api_auth::{check_scopes, maybe_refresh_folders, require_super_admin, ApiAuthed};
-use windmill_common::DB;
 use axum::{
     extract::{Extension, Path, Query},
     routing::{delete, get, post},
@@ -18,8 +16,10 @@ use serde::{Deserialize, Serialize};
 use sql_builder::{prelude::Bind, SqlBuilder};
 use sqlx::{Postgres, Transaction};
 use std::str::FromStr;
+use windmill_api_auth::{check_scopes, maybe_refresh_folders, require_super_admin, ApiAuthed};
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
+use windmill_common::DB;
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
@@ -486,8 +486,15 @@ pub struct ListScheduleQuery {
     pub per_page: Option<usize>,
     pub path: Option<String>,
     pub is_flow: Option<bool>,
+    // filter by matching a subset of the args using base64 encoded json subset
     pub args: Option<String>,
     pub path_start: Option<String>,
+    // exact match on schedule path
+    pub schedule_path: Option<String>,
+    // filter on description (pattern match)
+    pub description: Option<String>,
+    // filter on summary (pattern match)
+    pub summary: Option<String>,
 }
 
 #[derive(sqlx::FromRow, Serialize, Deserialize, Debug, Clone)]
@@ -542,6 +549,18 @@ async fn list_schedule(
     }
     if let Some(path_start) = &lsq.path_start {
         sqlb.and_where_like_left("path", path_start);
+    }
+    if let Some(schedule_path) = &lsq.schedule_path {
+        sqlb.and_where_eq("path", "?".bind(schedule_path));
+    }
+    if let Some(description) = &lsq.description {
+        sqlb.and_where(&format!(
+            "description ILIKE '%{}%'",
+            description.replace("'", "''")
+        ));
+    }
+    if let Some(summary) = &lsq.summary {
+        sqlb.and_where(&format!("summary ILIKE '%{}%'", summary.replace("'", "''")));
     }
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let rows = sqlx::query_as::<_, ScheduleLight>(&sql)

@@ -160,9 +160,13 @@ struct EditResource {
 
 #[derive(Deserialize)]
 pub struct ListResourceQuery {
-    resource_type: Option<String>,
-    resource_type_exclude: Option<String>,
-    path_start: Option<String>,
+    pub resource_type: Option<String>,
+    pub resource_type_exclude: Option<String>,
+    pub path_start: Option<String>,
+    pub path: Option<String>,
+    pub description: Option<String>,
+    // filter by matching a subset of the value using base64 encoded json subset
+    pub value: Option<String>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -280,6 +284,18 @@ async fn list_resources(
 
     if let Some(path_start) = &lq.path_start {
         sqlb.and_where_like_left("resource.path", path_start);
+    }
+
+    if let Some(path) = &lq.path {
+        sqlb.and_where_eq("resource.path", "?".bind(path));
+    }
+
+    if let Some(description) = &lq.description {
+        sqlb.and_where("resource.description ILIKE ?".bind(&format!("%{}%", description)));
+    }
+
+    if let Some(value) = &lq.value {
+        sqlb.and_where("resource.value @> ?".bind(&value.replace("'", "''")));
     }
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
