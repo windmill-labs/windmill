@@ -357,8 +357,8 @@ async fn execute_windmill_tool(
         tool_call_args.insert(key.clone(), result);
     }
 
-    let job_payload = match tool_module.get_value()? {
-        FlowModuleValue::Script { path: script_path, hash: script_hash, tag_override, .. } => {
+    let (job_payload, flow_step_id) = match tool_module.get_value()? {
+        FlowModuleValue::Script { path: script_path, hash: script_hash, tag_override, .. } => (
             script_to_payload(
                 script_hash,
                 script_path,
@@ -368,8 +368,9 @@ async fn execute_windmill_tool(
                 tag_override,
                 tool_module.apply_preprocessor,
             )
-            .await?
-        }
+            .await?,
+            None,
+        ),
         FlowModuleValue::RawScript {
             path,
             content,
@@ -382,46 +383,54 @@ async fn execute_windmill_tool(
             let path = path
                 .unwrap_or_else(|| format!("{}/tools/{}", ctx.job.runnable_path(), tool_module.id));
 
-            raw_script_to_payload(
-                path,
-                content,
-                language,
-                lock,
-                concurrency_settings,
-                tool_module,
-                tag,
-                tool_module.delete_after_use.unwrap_or(false),
+            (
+                raw_script_to_payload(
+                    path,
+                    content,
+                    language,
+                    lock,
+                    concurrency_settings,
+                    tool_module,
+                    tag,
+                    tool_module.delete_after_use.unwrap_or(false),
+                ),
+                None,
             )
         }
         FlowModuleValue::FlowScript { id, language, concurrency_settings, tag, .. } => {
             let path = format!("{}/tools/{}", ctx.job.runnable_path(), tool_module.id);
 
-            let payload = JobPayloadWithTag {
-                payload: JobPayload::FlowScript {
-                    id,
-                    language,
-                    concurrency_settings: concurrency_settings.into(),
-                    cache_ttl: tool_module.cache_ttl.map(|x| x as i32),
-                    cache_ignore_s3_path: tool_module.cache_ignore_s3_path.clone(),
-                    dedicated_worker: None,
-                    path,
+            (
+                JobPayloadWithTag {
+                    payload: JobPayload::FlowScript {
+                        id,
+                        language,
+                        concurrency_settings: concurrency_settings.into(),
+                        cache_ttl: tool_module.cache_ttl.map(|x| x as i32),
+                        cache_ignore_s3_path: tool_module.cache_ignore_s3_path.clone(),
+                        dedicated_worker: None,
+                        path,
+                    },
+                    tag: tag.clone(),
+                    delete_after_use: tool_module.delete_after_use.unwrap_or(false),
+                    timeout: None,
+                    on_behalf_of: None,
                 },
-                tag: tag.clone(),
-                delete_after_use: tool_module.delete_after_use.unwrap_or(false),
-                timeout: None,
-                on_behalf_of: None,
-            };
-            payload
+                None,
+            )
         }
         FlowModuleValue::AIAgent { .. } => {
             let path = format!("{}/tools/{}", ctx.job.runnable_path(), tool_module.id);
-            JobPayloadWithTag {
-                payload: JobPayload::AIAgent { path },
-                tag: None,
-                delete_after_use: tool_module.delete_after_use.unwrap_or(false),
-                timeout: None,
-                on_behalf_of: None,
-            }
+            (
+                JobPayloadWithTag {
+                    payload: JobPayload::AIAgent { path },
+                    tag: None,
+                    delete_after_use: tool_module.delete_after_use.unwrap_or(false),
+                    timeout: None,
+                    on_behalf_of: None,
+                },
+                Some(tool_module.id.clone()),
+            )
         }
         _ => {
             return Err(Error::internal_err(format!(
@@ -472,7 +481,7 @@ async fn execute_windmill_tool(
         ctx.job.visible_to_owner,
         Some(ctx.job.tag.clone()),
         job_payload.timeout,
-        None,
+        flow_step_id,
         job_priority,
         job_perms.as_ref(),
         true,

@@ -214,6 +214,43 @@ fn ai_agent_tool_schema() -> Box<RawValue> {
     }))
 }
 
+fn find_module_by_id(
+    modules: &Vec<FlowModule>,
+    target_id: &str,
+) -> Result<Option<FlowModule>, Error> {
+    let mut found: Option<FlowModule> = None;
+    FlowModule::traverse_modules(modules, &mut |module| {
+        if found.is_none() && module.id == target_id {
+            found = Some(module.clone());
+        }
+        Ok(())
+    })
+    .map_err(|e| Error::internal_err(format!("Failed to traverse flow modules: {e}")))?;
+    Ok(found)
+}
+
+fn find_ai_agent_tool_module_in_parent_agent(
+    modules: &Vec<FlowModule>,
+    parent_agent_step_id: &str,
+    tool_module_id: &str,
+) -> Result<Option<FlowModule>, Error> {
+    let Some(parent_agent_module) = find_module_by_id(modules, parent_agent_step_id)? else {
+        return Ok(None);
+    };
+
+    let FlowModuleValue::AIAgent { tools, .. } = parent_agent_module.get_value()? else {
+        return Ok(None);
+    };
+
+    for tool in tools {
+        if tool.id == tool_module_id {
+            return Ok(Option::<FlowModule>::from(&tool));
+        }
+    }
+
+    Ok(None)
+}
+
 pub async fn handle_ai_agent_job(
     // connection
     conn: &Connection,
@@ -253,20 +290,42 @@ pub async fn handle_ai_agent_job(
         ));
     };
 
-    let Some(parent_job) = &job.parent_job else {
+    let Some(immediate_parent_job) = &job.parent_job else {
         return Err(Error::internal_err(
             "AI agent job has no parent job".to_string(),
         ));
     };
 
-    let flow_job = get_flow_job_runnable_and_raw_flow(db, &parent_job).await?;
+    let mut flow_job_id = *immediate_parent_job;
+    let mut flow_job = get_flow_job_runnable_and_raw_flow(db, &flow_job_id).await?;
+    let direct_parent_job = flow_job.clone();
+
+    while !matches!(
+        flow_job.kind,
+        JobKind::Flow | JobKind::FlowNode | JobKind::FlowPreview
+    ) {
+        if flow_job.kind != JobKind::AIAgent {
+            return Err(Error::internal_err(format!(
+                "expected parent chain to lead to flow, got {:?}",
+                flow_job.kind
+            )));
+        }
+
+        let Some(parent_job_id) = flow_job.parent_job else {
+            return Err(Error::internal_err(
+                "AI agent parent chain does not contain a flow job".to_string(),
+            ));
+        };
+        flow_job_id = parent_job_id;
+        flow_job = get_flow_job_runnable_and_raw_flow(db, &flow_job_id).await?;
+    }
 
     let flow_data = match flow_job.kind {
         JobKind::Flow | JobKind::FlowNode => {
             cache::job::fetch_flow(db, &flow_job.kind, flow_job.runnable_id).await?
         }
         JobKind::FlowPreview => {
-            cache::job::fetch_preview_flow(db, &parent_job, flow_job.raw_flow).await?
+            cache::job::fetch_preview_flow(db, &flow_job_id, flow_job.raw_flow).await?
         }
         _ => {
             return Err(Error::internal_err(
@@ -277,14 +336,28 @@ pub async fn handle_ai_agent_job(
 
     let value = flow_data.value();
 
-    let module = value.modules.iter().find(|m| m.id == *flow_step_id);
-    let summary = module.as_ref().and_then(|m| m.summary.clone());
+    let module = if direct_parent_job.kind == JobKind::AIAgent {
+        if let Some(parent_agent_step_id) = direct_parent_job.flow_step_id.as_deref() {
+            find_ai_agent_tool_module_in_parent_agent(
+                &value.modules,
+                parent_agent_step_id,
+                flow_step_id,
+            )?
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+    .or(find_module_by_id(&value.modules, flow_step_id)?);
 
     let Some(module) = module else {
         return Err(Error::internal_err(
             "AI agent module not found in flow".to_string(),
         ));
     };
+
+    let summary = module.summary.clone();
 
     let FlowModuleValue::AIAgent { tools, .. } = module.get_value()? else {
         return Err(Error::internal_err(
@@ -479,7 +552,7 @@ pub async fn handle_ai_agent_job(
         db,
         conn,
         job,
-        parent_job,
+        &flow_job_id,
         &args,
         &tools,
         &mcp_clients,

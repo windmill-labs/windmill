@@ -129,10 +129,13 @@ pub fn filter_schema_by_input_transforms(
     Ok(to_raw_value(&schema_value))
 }
 
+#[derive(Clone)]
 pub struct FlowJobRunnableIdAndRawFlow {
     pub runnable_id: Option<ScriptHash>,
     pub raw_flow: Option<sqlx::types::Json<Box<RawValue>>>,
     pub kind: JobKind,
+    pub parent_job: Option<Uuid>,
+    pub flow_step_id: Option<String>,
 }
 
 pub async fn get_flow_job_runnable_and_raw_flow(
@@ -141,7 +144,7 @@ pub async fn get_flow_job_runnable_and_raw_flow(
 ) -> windmill_common::error::Result<FlowJobRunnableIdAndRawFlow> {
     let job = sqlx::query_as!(
         FlowJobRunnableIdAndRawFlow,
-        "SELECT runnable_id as \"runnable_id: ScriptHash\", raw_flow as \"raw_flow: _\", kind as \"kind: _\" FROM v2_job WHERE id = $1",
+        "SELECT runnable_id as \"runnable_id: ScriptHash\", raw_flow as \"raw_flow: _\", kind as \"kind: _\", parent_job, flow_step_id FROM v2_job WHERE id = $1",
         job_id
     )
     .fetch_one(db)
