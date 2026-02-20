@@ -41,10 +41,12 @@
 	import type { StateStore } from '$lib/utils'
 	import {
 		type AgentTool,
+		type SpecialToolKind,
 		flowModuleToAgentTool,
 		createMcpTool,
 		createWebsearchTool,
 		createAiAgentTool,
+		SPECIAL_TOOL_KINDS,
 		agentToolToFlowModule
 	} from '../agentToolUtils'
 	import { loadFlowModuleState } from '../flowStateUtils.svelte'
@@ -126,7 +128,7 @@
 		wsScript?: { path: string; summary: string; hash: string | undefined },
 		wsFlow?: { path: string; summary: string },
 		inlineScript?: InlineScript,
-		toolKind?: 'mcpTool' | 'flowmoduleTool' | 'websearchTool' | 'aiAgentTool'
+		toolKind?: SpecialToolKind | 'flowmoduleTool'
 	): Promise<FlowModule[] | AgentTool[]> {
 		push(history, flowStore.val)
 		let module = emptyModule(flowStateStore.val, flowStore.val, kind == 'flow')
@@ -191,9 +193,7 @@
 		} else if (toolKind === 'aiAgentTool') {
 			// Create AI Agent tool (nested agent)
 			const aiAgentTool = createAiAgentTool(module.id)
-			flowStateStore.val[module.id] = await loadFlowModuleState(
-				agentToolToFlowModule(aiAgentTool)
-			)
+			flowStateStore.val[module.id] = await loadFlowModuleState(agentToolToFlowModule(aiAgentTool))
 			;(modules as AgentTool[]).splice(index, 0, aiAgentTool)
 			return modules as AgentTool[]
 		} else if (toolKind === 'flowmoduleTool') {
@@ -328,7 +328,6 @@
 	function toggleNoteMode() {
 		noteMode = !noteMode
 	}
-
 
 	const dispatch = createEventDispatcher<{
 		generateStep: { moduleId: string; instructions: string; lang: ScriptLang }
@@ -546,11 +545,9 @@
 								}
 							} else {
 								const index = (detail.agentId ? targetModules?.length : detail.index) ?? 0
-								const toolKind: string | undefined = detail.agentId
-									? (['mcpTool', 'websearchTool', 'aiAgentTool'] as string[]).includes(
-											detail.kind
-										)
-										? detail.kind
+								const toolKind: SpecialToolKind | 'flowmoduleTool' | undefined = detail.agentId
+									? (SPECIAL_TOOL_KINDS as readonly string[]).includes(detail.kind)
+										? (detail.kind as SpecialToolKind)
 										: 'flowmoduleTool'
 									: undefined
 

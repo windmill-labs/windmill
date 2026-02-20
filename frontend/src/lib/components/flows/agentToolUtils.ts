@@ -1,6 +1,9 @@
 import type { AiAgent, FlowModule, FlowModuleValue } from '$lib/gen'
 import { loadStoredConfig } from '../aiProviderStorage'
 
+export const SPECIAL_TOOL_KINDS = ['mcpTool', 'websearchTool', 'aiAgentTool'] as const
+export type SpecialToolKind = (typeof SPECIAL_TOOL_KINDS)[number]
+
 // Type aliases for better readability
 export type AgentTool = AiAgent['tools'][number]
 export type FlowModuleTool = AgentTool & { value: { tool_type: 'flowmodule' } & FlowModuleValue }
