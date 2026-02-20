@@ -1190,6 +1190,49 @@ export function main(name: string) {
     Ok(())
 }
 
+// ============================================================================
+// NPM Dependency Tests
+// ============================================================================
+
+#[sqlx::test(fixtures("base"))]
+async fn test_bun_job_with_cowsay_dep(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"
+import * as cowsay from "cowsay";
+
+export function main() {
+    return cowsay.say({ text: "hoisted" });
+}
+"#
+    .to_owned();
+
+    let job = JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        language: ScriptLang::Bun,
+        lock: None,
+        concurrency_settings:
+            windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+    });
+
+    let result = run_job_in_new_worker_until_complete(&db, false, job, port)
+        .await
+        .json_result()
+        .unwrap();
+
+    let result_str = result.as_str().unwrap();
+    assert!(result_str.contains("hoisted"), "cowsay output should contain 'hoisted'");
+    Ok(())
+}
+
 /// Tests for RELATIVE_BUN_BUILDER (loader_builder.bun.js)
 /// These tests verify Bun's behavior for import scanning and package.json generation.
 /// Purpose: Catch regressions when upgrading Bun versions.
