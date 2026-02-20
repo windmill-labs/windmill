@@ -26,6 +26,9 @@ auto_name:
 post_create:
   - ./scripts/worktree-env
 
+pre_remove:
+  - ./scripts/worktree-cleanup
+
 panes:
   - command: <agent>
     focus: true
