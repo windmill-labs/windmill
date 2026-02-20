@@ -25,13 +25,6 @@ export type WebsearchTool = AgentTool & {
 }
 
 /**
- * Type guard to check if a tool is an AI Agent tool (nested agent)
- */
-export function isAiAgentTool(tool: AgentTool): tool is AiAgentTool {
-	return isFlowModuleTool(tool) && tool.value.type === 'aiagent'
-}
-
-/**
  * Type guard to check if a tool is a FlowModule tool
  */
 export function isFlowModuleTool(tool: AgentTool): tool is FlowModuleTool {

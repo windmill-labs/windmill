@@ -185,7 +185,8 @@ pub async fn handle_ai_agent_job(
 
     let mut flow_job_id = *immediate_parent_job;
     let mut flow_job = get_flow_job_runnable_and_raw_flow(db, &flow_job_id).await?;
-    let direct_parent_job = flow_job.clone();
+    let direct_parent_job_kind = flow_job.kind;
+    let direct_parent_job_flow_step_id = flow_job.flow_step_id;
 
     let mut depth = 0;
     while !matches!(
@@ -231,8 +232,8 @@ pub async fn handle_ai_agent_job(
 
     let value = flow_data.value();
 
-    let module = if direct_parent_job.kind == JobKind::AIAgent {
-        if let Some(parent_agent_step_id) = direct_parent_job.flow_step_id.as_deref() {
+    let module = if direct_parent_job_kind == JobKind::AIAgent {
+        if let Some(parent_agent_step_id) = direct_parent_job_flow_step_id.as_deref() {
             // Parent is a top-level AI agent (has flow_step_id from the flow executor).
             // We support 2 levels: flow → agent → nested agent tool.
             find_ai_agent_tool_module_in_parent_agent(
@@ -457,7 +458,7 @@ pub async fn handle_ai_agent_job(
         stream_notifier.update_flow_status_with_stream_job();
     }
 
-    let flow_status_job = if direct_parent_job.kind == JobKind::AIAgent {
+    let flow_status_job = if direct_parent_job_kind == JobKind::AIAgent {
         None
     } else {
         Some(flow_job_id)
