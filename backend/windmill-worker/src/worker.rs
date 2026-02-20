@@ -4220,6 +4220,12 @@ mount {{
             "# volume: annotations require a # sandbox: annotation to be present".to_string(),
         ));
     }
+    if !sandbox_config.allowed_domains.is_empty() && sandbox_config.snapshot.is_none() {
+        return Err(Error::ExecutionErr(
+            "# allowed_domains: annotation requires a # sandbox: annotation to be present"
+                .to_string(),
+        ));
+    }
     let sandbox_setup = if sandbox_config.snapshot.is_some() || !sandbox_config.volumes.is_empty() {
         let db = conn.as_sql().ok_or_else(|| {
             Error::ExecutionErr("Sandbox features require SQL connection".to_string())
