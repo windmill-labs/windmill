@@ -286,6 +286,37 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_allowed_domains_with_sandbox_and_volume() {
+        let code = "# sandbox: py-env:v1\n\
+                     # volume: data:/mnt/data\n\
+                     # allowed_domains: api.example.com, cdn.example.com\n\
+                     def main(): pass\n";
+        let config = parse_sandbox_config(code);
+        assert!(config.snapshot.is_some());
+        assert_eq!(config.volumes.len(), 1);
+        assert_eq!(
+            config.allowed_domains,
+            vec!["api.example.com", "cdn.example.com"]
+        );
+    }
+
+    #[test]
+    fn test_parse_allowed_domains_last_wins() {
+        let code = "# allowed_domains: first.com\n# allowed_domains: second.com, third.com\n";
+        let config = parse_sandbox_config(code);
+        assert_eq!(config.allowed_domains, vec!["second.com", "third.com"]);
+    }
+
+    #[test]
+    fn test_parse_allowed_domains_standalone() {
+        let code = "// allowed_domains: api.openai.com\nasync function main() { }";
+        let config = parse_sandbox_config(code);
+        assert!(config.snapshot.is_none());
+        assert!(config.volumes.is_empty());
+        assert_eq!(config.allowed_domains, vec!["api.openai.com"]);
+    }
+
+    #[test]
     fn test_parse_ignores_unrelated_comments() {
         let code = "# This is a normal comment\n\
                      # Another comment\n\

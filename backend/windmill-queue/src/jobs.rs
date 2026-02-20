@@ -6275,3 +6275,96 @@ pub async fn get_same_worker_job(
         ))
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::parse_wmill_scopes;
+
+    #[test]
+    fn test_parse_wmill_scopes_double_slash() {
+        let code = "// wmill_scopes: read:resource,read:variable\nconst x = 1;";
+        let scopes = parse_wmill_scopes(code).unwrap();
+        assert_eq!(scopes, vec!["read:resource", "read:variable"]);
+    }
+
+    #[test]
+    fn test_parse_wmill_scopes_hash() {
+        let code = "# wmill_scopes: run:script,read:resource\nimport os";
+        let scopes = parse_wmill_scopes(code).unwrap();
+        assert_eq!(scopes, vec!["run:script", "read:resource"]);
+    }
+
+    #[test]
+    fn test_parse_wmill_scopes_double_dash() {
+        let code = "-- wmill_scopes: read:resource\nSELECT 1;";
+        let scopes = parse_wmill_scopes(code).unwrap();
+        assert_eq!(scopes, vec!["read:resource"]);
+    }
+
+    #[test]
+    fn test_parse_wmill_scopes_skips_shebang() {
+        let code = "#!/bin/bash\n# wmill_scopes: run:script\necho hello";
+        let scopes = parse_wmill_scopes(code).unwrap();
+        assert_eq!(scopes, vec!["run:script"]);
+    }
+
+    #[test]
+    fn test_parse_wmill_scopes_none_when_absent() {
+        let code = "import os\ndef main():\n    pass";
+        assert!(parse_wmill_scopes(code).is_none());
+    }
+
+    #[test]
+    fn test_parse_wmill_scopes_none_when_empty() {
+        let code = "// wmill_scopes:\nconst x = 1;";
+        assert!(parse_wmill_scopes(code).is_none());
+    }
+
+    #[test]
+    fn test_parse_wmill_scopes_trims_whitespace() {
+        let code = "//   wmill_scopes:   read:resource ,  write:variable  \n";
+        let scopes = parse_wmill_scopes(code).unwrap();
+        assert_eq!(scopes, vec!["read:resource", "write:variable"]);
+    }
+
+    #[test]
+    fn test_parse_wmill_scopes_not_in_first_20_lines() {
+        let mut code = String::new();
+        for _ in 0..25 {
+            code.push_str("// some comment\n");
+        }
+        code.push_str("// wmill_scopes: read:resource\n");
+        assert!(parse_wmill_scopes(&code).is_none());
+    }
+
+    #[test]
+    fn test_parse_wmill_scopes_within_first_20_lines() {
+        let mut code = String::new();
+        for _ in 0..18 {
+            code.push_str("// some comment\n");
+        }
+        code.push_str("// wmill_scopes: read:resource\n");
+        let scopes = parse_wmill_scopes(&code).unwrap();
+        assert_eq!(scopes, vec!["read:resource"]);
+    }
+
+    #[test]
+    fn test_parse_wmill_scopes_with_leading_whitespace() {
+        let code = "  // wmill_scopes: read:resource\n";
+        let scopes = parse_wmill_scopes(code).unwrap();
+        assert_eq!(scopes, vec!["read:resource"]);
+    }
+
+    #[test]
+    fn test_parse_wmill_scopes_single_scope() {
+        let code = "# wmill_scopes: read:resource\n";
+        let scopes = parse_wmill_scopes(code).unwrap();
+        assert_eq!(scopes, vec!["read:resource"]);
+    }
+
+    #[test]
+    fn test_parse_wmill_scopes_ignores_non_comment_lines() {
+        let code = "wmill_scopes: read:resource\ndef main(): pass";
+        assert!(parse_wmill_scopes(code).is_none());
+    }
+}
