@@ -1,7 +1,7 @@
 {
   "version": "5",
   "specifiers": {
-    "jsr:@david/code-block-writer@^13.0.2": "13.0.2",
+    "jsr:@david/code-block-writer@^13.0.2": "13.0.3",
     "jsr:@david/code-block-writer@^13.0.3": "13.0.3",
     "jsr:@deno/cache-dir@~0.10.3": "0.10.3",
     "jsr:@deno/dnt@0.41.3": "0.41.3",
@@ -12,10 +12,13 @@
     "jsr:@std/assert@0.226": "0.226.0",
     "jsr:@std/assert@1.0.0-rc.2": "1.0.0-rc.2",
     "jsr:@std/bytes@0.223": "0.223.0",
+    "jsr:@std/bytes@^1.0.2": "1.0.6",
     "jsr:@std/bytes@^1.0.5": "1.0.6",
+    "jsr:@std/bytes@^1.0.6": "1.0.6",
     "jsr:@std/cli@1.0.0-rc.2": "1.0.0-rc.2",
     "jsr:@std/encoding@1.0.0-rc.2": "1.0.0-rc.2",
     "jsr:@std/encoding@1.0.4": "1.0.4",
+    "jsr:@std/encoding@^1.0.10": "1.0.10",
     "jsr:@std/fmt@0.223": "0.223.0",
     "jsr:@std/fmt@1": "1.0.8",
     "jsr:@std/fmt@^1.0.5": "1.0.8",
@@ -30,8 +33,11 @@
     "jsr:@std/io@*": "0.225.2",
     "jsr:@std/io@0.223": "0.223.0",
     "jsr:@std/io@~0.224.2": "0.224.9",
+    "jsr:@std/io@~0.224.9": "0.224.9",
     "jsr:@std/io@~0.225.2": "0.225.2",
     "jsr:@std/log@*": "0.224.14",
+    "jsr:@std/log@~0.224.14": "0.224.14",
+    "jsr:@std/net@^1.0.6": "1.0.6",
     "jsr:@std/path@*": "1.1.4",
     "jsr:@std/path@0.223": "0.223.0",
     "jsr:@std/path@1": "1.1.4",
@@ -40,6 +46,7 @@
     "jsr:@std/path@^1.1.3": "1.1.4",
     "jsr:@std/path@^1.1.4": "1.1.4",
     "jsr:@std/path@~0.225.2": "0.225.2",
+    "jsr:@std/streams@^1.0.16": "1.0.17",
     "jsr:@std/text@1.0.0-rc.1": "1.0.0-rc.1",
     "jsr:@std/yaml@*": "1.0.10",
     "jsr:@std/yaml@^1.0.10": "1.0.10",
@@ -48,12 +55,16 @@
     "jsr:@ts-morph/common@0.24": "0.24.0",
     "jsr:@ts-morph/common@0.27": "0.27.0",
     "jsr:@windmill-labs/cliffy-ansi@1.0.0-rc.5": "1.0.0-rc.5",
+    "jsr:@windmill-labs/cliffy-ansi@^1.0.0-rc.5": "1.0.0-rc.5",
     "jsr:@windmill-labs/cliffy-command@1.0.0-rc.5": "1.0.0-rc.5",
+    "jsr:@windmill-labs/cliffy-command@^1.0.0-rc.5": "1.0.0-rc.5",
     "jsr:@windmill-labs/cliffy-flags@1.0.0-rc.5": "1.0.0-rc.5",
     "jsr:@windmill-labs/cliffy-internal@1.0.0-rc.5": "1.0.0-rc.5",
     "jsr:@windmill-labs/cliffy-keycode@1.0.0-rc.5": "1.0.0-rc.5",
     "jsr:@windmill-labs/cliffy-prompt@1.0.0-rc.6": "1.0.0-rc.6",
+    "jsr:@windmill-labs/cliffy-prompt@^1.0.0-rc.6": "1.0.0-rc.6",
     "jsr:@windmill-labs/cliffy-table@1.0.0-rc.5": "1.0.0-rc.5",
+    "jsr:@windmill-labs/cliffy-table@^1.0.0-rc.5": "1.0.0-rc.5",
     "jsr:@windmill-labs/shared-utils@1.0.10": "1.0.10",
     "jsr:@windmill-labs/shared-utils@1.0.11": "1.0.11",
     "jsr:@windmill-labs/shared-utils@1.0.12": "1.0.12",
@@ -157,6 +168,9 @@
     "@std/encoding@1.0.4": {
       "integrity": "2266cd516b32369e3dc5695717c96bf88343a1f761d6e6187a02a2bbe2af86ae"
     },
+    "@std/encoding@1.0.10": {
+      "integrity": "8783c6384a2d13abd5e9e87a7ae0520a30e9f56aeeaa3bdf910a3eaaf5c811a1"
+    },
     "@std/fmt@0.223.0": {
       "integrity": "6deb37794127dfc7d7bded2586b9fc6f5d50e62a8134846608baf71ffc1a5208"
     },
@@ -200,7 +214,10 @@
       ]
     },
     "@std/io@0.224.9": {
-      "integrity": "4414664b6926f665102e73c969cfda06d2c4c59bd5d0c603fd4f1b1c840d6ee3"
+      "integrity": "4414664b6926f665102e73c969cfda06d2c4c59bd5d0c603fd4f1b1c840d6ee3",
+      "dependencies": [
+        "jsr:@std/bytes@^1.0.2"
+      ]
     },
     "@std/io@0.225.2": {
       "integrity": "3c740cd4ee4c082e6cfc86458f47e2ab7cb353dc6234d5e9b1f91a2de5f4d6c7",
@@ -215,6 +232,9 @@
         "jsr:@std/fs@^1.0.11",
         "jsr:@std/io@~0.225.2"
       ]
+    },
+    "@std/net@1.0.6": {
+      "integrity": "110735f93e95bb9feb95790a8b1d1bf69ec0dc74f3f97a00a76ea5efea25500c"
     },
     "@std/path@0.223.0": {
       "integrity": "593963402d7e6597f5a6e620931661053572c982fc014000459edc1f93cc3989",
@@ -244,6 +264,12 @@
       "integrity": "1d2d43f39efb1b42f0b1882a25486647cb851481862dc7313390b2bb044314b5",
       "dependencies": [
         "jsr:@std/internal"
+      ]
+    },
+    "@std/streams@1.0.17": {
+      "integrity": "7859f3d9deed83cf4b41f19223d4a67661b3d3819e9fc117698f493bf5992140",
+      "dependencies": [
+        "jsr:@std/bytes@^1.0.6"
       ]
     },
     "@std/text@1.0.0-rc.1": {
@@ -294,7 +320,7 @@
         "jsr:@std/text",
         "jsr:@windmill-labs/cliffy-flags",
         "jsr:@windmill-labs/cliffy-internal",
-        "jsr:@windmill-labs/cliffy-table"
+        "jsr:@windmill-labs/cliffy-table@1.0.0-rc.5"
       ]
     },
     "@windmill-labs/cliffy-flags@1.0.0-rc.5": {
@@ -317,7 +343,7 @@
         "jsr:@std/io@~0.224.2",
         "jsr:@std/path@1.0.0-rc.2",
         "jsr:@std/text",
-        "jsr:@windmill-labs/cliffy-ansi",
+        "jsr:@windmill-labs/cliffy-ansi@1.0.0-rc.5",
         "jsr:@windmill-labs/cliffy-internal",
         "jsr:@windmill-labs/cliffy-keycode"
       ]

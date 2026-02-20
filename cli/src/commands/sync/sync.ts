@@ -25,7 +25,7 @@ import {
   extractNativeTriggerInfo,
 } from "../../types.ts";
 import { downloadZip } from "./pull.ts";
-import { runLint, printReport } from "../lint/lint.ts";
+import { runLint, printReport, checkMissingLocks } from "../lint/lint.ts";
 
 import {
   exts,
@@ -2221,6 +2221,25 @@ export async function push(
     }
   }
 
+  if (opts.locksRequired) {
+    log.info("Checking for missing locks...");
+    const lockIssues = await checkMissingLocks(opts);
+    if (lockIssues.length > 0) {
+      for (const issue of lockIssues) {
+        for (const error of issue.errors) {
+          log.error(colors.red(`  ${issue.path}: ${error}`));
+        }
+      }
+      log.error(
+        colors.red(
+          `\nPush aborted: ${lockIssues.length} script(s) missing locks.`,
+        ),
+      );
+      Deno.exit(1);
+    }
+    log.info(colors.green("All scripts have valid locks."));
+  }
+
   const codebases = await listSyncCodebases(opts);
   if (opts.raw) {
     log.info("--raw is now the default, you can remove it as a flag");
@@ -3090,6 +3109,10 @@ const command = new Command()
     "Override the current git branch (works even outside a git repository)",
   )
   .option("--lint", "Run lint validation before pushing")
+  .option(
+    "--locks-required",
+    "Fail if scripts or flow inline scripts that need locks have no locks",
+  )
   // deno-lint-ignore no-explicit-any
   .action(push as any);
 
