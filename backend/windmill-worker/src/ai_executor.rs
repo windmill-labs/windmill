@@ -92,6 +92,7 @@ lazy_static::lazy_static! {
 
 const DEFAULT_MAX_AGENT_ITERATIONS: usize = 10;
 const HARD_MAX_AGENT_ITERATIONS: usize = 1000;
+const MAX_AGENT_NESTING_DEPTH: usize = 2;
 
 fn find_module_by_id(
     modules: &Vec<FlowModule>,
@@ -180,8 +181,6 @@ pub async fn handle_ai_agent_job(
             "AI agent job has no parent job".to_string(),
         ));
     };
-
-    const MAX_AGENT_NESTING_DEPTH: usize = 2;
 
     let mut flow_job_id = *immediate_parent_job;
     let mut flow_job = get_flow_job_runnable_and_raw_flow(db, &flow_job_id).await?;
