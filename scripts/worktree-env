@@ -51,7 +51,13 @@ EOF
 echo "Created .env.local with ports: backend=$backend_port, frontend=$frontend_port"
 
 # --- Create matching windmill-ee-private worktree ---
-ee_repo="${HOME}/windmill-ee-private"
+# Check parent directory first (sibling to worktree root), then fall back to home
+parent_dir="$(cd "$(pwd)/.." && pwd)"
+if [ -d "${parent_dir}/windmill-ee-private" ]; then
+  ee_repo="${parent_dir}/windmill-ee-private"
+else
+  ee_repo="${HOME}/windmill-ee-private"
+fi
 if [ -d "$ee_repo" ]; then
   branch=$(git branch --show-current 2>/dev/null || true)
   wt_basename=$(basename "$(pwd)")
