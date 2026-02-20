@@ -5,8 +5,21 @@ on:
     types: [created]
 
 jobs:
+  check-membership:
+    if: >-
+      github.event.issue.pull_request && (
+        startsWith(github.event.comment.body, '/updatesqlx') ||
+        startsWith(github.event.comment.body, '/demo') ||
+        startsWith(github.event.comment.body, '/eeref') ||
+        startsWith(github.event.comment.body, '/docs')
+      )
+    uses: ./.github/workflows/check-org-membership.yml
+    secrets:
+      access_token: ${{ secrets.ORG_ACCESS_TOKEN }}
+
   update-sqlx:
-    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/updatesqlx')
+    needs: check-membership
+    if: needs.check-membership.outputs.is_member == 'true' && startsWith(github.event.comment.body, '/updatesqlx')
     runs-on: ubicloud-standard-8
     permissions:
       contents: write
@@ -62,17 +75,17 @@ jobs:
           path: windmill-ee-private
           token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
 
-      # Cache rust dependencies
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      # Setup Rust toolchain
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          workspaces: "./backend -> target"
+          cache-workspaces: backend
+          toolchain: 1.93.0
 
       - name: Install xmlsec and gssapi build-time deps
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            pkg-config libxml2-dev libssl-dev libkrb5-dev \
+            pkg-config libxml2-dev libssl-dev libkrb5-dev libsasl2-dev libcurl4-openssl-dev mold clang \
             xmlsec1 libxmlsec1-dev libxmlsec1-openssl
 
       - name: Run update-sqlx script
@@ -121,7 +134,8 @@ jobs:
             })
 
   demo:
-    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/demo')
+    needs: check-membership
+    if: needs.check-membership.outputs.is_member == 'true' && startsWith(github.event.comment.body, '/demo')
     runs-on: ubicloud-standard-2
     permissions:
       contents: read
@@ -200,7 +214,8 @@ jobs:
           fi
 
   update-ee-ref:
-    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/eeref')
+    needs: check-membership
+    if: needs.check-membership.outputs.is_member == 'true' && startsWith(github.event.comment.body, '/eeref')
     runs-on: ubicloud-standard-2
     permissions:
       contents: write
@@ -283,3 +298,35 @@ jobs:
               repo: context.repo.repo,
               body: 'Successfully updated ee-repo-ref.txt'
             })
+
+  update-docs:
+    needs: check-membership
+    if: needs.check-membership.outputs.is_member == 'true' && startsWith(github.event.comment.body, '/docs')
+    runs-on: ubicloud-standard-2
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: app
+        with:
+          app-id: ${{ vars.INTERNAL_APP_ID }}
+          private-key: ${{ secrets.INTERNAL_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: |
+            windmilldocs
+
+      - name: Trigger docs update
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          COMMENT_TEXT: ${{ github.event.comment.body }}
+        run: |
+          jq -n \
+            --argjson pr_number ${{ github.event.issue.number }} \
+            --arg repo "${{ github.event.repository.name }}" \
+            --arg comment "$COMMENT_TEXT" \
+            '{event_type: "create-docs", client_payload: {pr_number: $pr_number, repo: $repo, comment_text: $comment}}' | \
+          gh api repos/windmill-labs/windmilldocs/dispatches \
+            --method POST \
+            --input -

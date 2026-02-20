@@ -44,7 +44,7 @@
 				result = e
 			}
 
-			if (event.data.type == 'backend') {
+			if (event.data.type == 'backend' || event.data.type == 'waitJob') {
 				respond({ result, error })
 			}
 			if (editor) {
@@ -134,6 +134,7 @@
 			const reqId = data.reqId
 			const params = new URLSearchParams()
 			params.set('fast', 'true')
+			params.set('only_result', 'true')
 
 			const sseUrl = `/api/w/${workspace}/jobs_u/getupdate_sse/${jobId}?${params.toString()}`
 			const eventSource = new EventSource(sseUrl)

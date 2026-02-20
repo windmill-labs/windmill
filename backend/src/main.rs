@@ -10,10 +10,11 @@ use monitor::{
     load_base_url, load_otel, reload_critical_alerts_on_db_oversize,
     reload_delete_logs_periodically_setting, reload_indexer_config,
     reload_instance_python_version_setting, reload_maven_repos_setting,
-    reload_no_default_maven_setting, reload_nuget_config_setting,
-    reload_powershell_repo_pat_setting, reload_powershell_repo_url_setting,
-    reload_ruby_repos_setting, reload_timeout_wait_result_setting,
-    send_current_log_file_to_object_store, send_logs_to_object_store, WORKERS_NAMES,
+    reload_maven_settings_xml_setting, reload_no_default_maven_setting,
+    reload_nuget_config_setting, reload_powershell_repo_pat_setting,
+    reload_powershell_repo_url_setting, reload_ruby_repos_setting,
+    reload_timeout_wait_result_setting, send_current_log_file_to_object_store,
+    send_logs_to_object_store, WORKERS_NAMES,
 };
 use rand::Rng;
 use sqlx::{Pool, Postgres};
@@ -42,15 +43,15 @@ use windmill_common::{
         DEFAULT_TAGS_WORKSPACES_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
         HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
-        INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING,
-        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING,
-        MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
+        INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING,
+        JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING,
+        MAVEN_SETTINGS_XML_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
         NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING,
         OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
         POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         RUBY_REPOS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING,
-        TIMEOUT_WAIT_RESULT_SETTING,
+        TIMEOUT_WAIT_RESULT_SETTING, UV_INDEX_STRATEGY_SETTING,
     },
     scripts::ScriptLang,
     stats_oss::schedule_stats,
@@ -60,8 +61,8 @@ use windmill_common::{
         MODE_AND_ADDONS,
     },
     worker::{
-        reload_custom_tags_setting, Connection, HUB_CACHE_DIR, HUB_RT_CACHE_DIR, TMP_DIR,
-        TMP_LOGS_DIR, WORKER_GROUP,
+        is_native_mode_from_env, reload_custom_tags_setting, Connection, HUB_CACHE_DIR,
+        HUB_RT_CACHE_DIR, NATIVE_MODE_RESOLVED, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP,
     },
     KillpillSender, DEFAULT_HUB_BASE_URL, METRICS_ENABLED,
 };
@@ -100,14 +101,14 @@ use crate::monitor::{
     reload_bunfig_install_scopes_setting, reload_critical_alert_mute_ui_setting,
     reload_critical_error_channels_setting, reload_extra_pip_index_url_setting,
     reload_hub_api_secret_setting, reload_hub_base_url_setting, reload_job_default_timeout_setting,
-    reload_jwt_secret_setting, reload_license_key, reload_npm_config_registry_setting,
-    reload_otel_tracing_proxy_setting, reload_pip_index_url_setting,
-    reload_retention_period_setting, reload_scim_token_setting, reload_smtp_config,
-    reload_worker_config, MonitorIteration,
+    reload_job_isolation_setting, reload_jwt_secret_setting, reload_license_key,
+    reload_npm_config_registry_setting, reload_otel_tracing_proxy_setting,
+    reload_pip_index_url_setting, reload_retention_period_setting, reload_scim_token_setting,
+    reload_smtp_config, reload_uv_index_strategy_setting, reload_worker_config, MonitorIteration,
 };
 
 #[cfg(feature = "parquet")]
-use windmill_common::s3_helpers::reload_object_store_setting;
+use windmill_object_store::reload_object_store_setting;
 
 const DEFAULT_NUM_WORKERS: usize = 1;
 const DEFAULT_PORT: u16 = 8000;
@@ -483,6 +484,8 @@ fn print_help() {
     println!("  version              Show Windmill version and exit");
     println!("  cache [hubPaths.json]  Pre-cache hub scripts (default: ./hubPaths.json)");
     println!("  cache-rt             Pre-cache hub resource types");
+    println!("  sync-config <file>   Sync instance config from a YAML file to the database");
+    println!("  operator             Run the Kubernetes operator (watches a ConfigMap)");
     println!();
     println!("Environment variables (name = default):");
     println!("  DATABASE_URL = <required>              The Postgres database url.");
@@ -606,12 +609,46 @@ async fn windmill_main() -> anyhow::Result<()> {
             cache_hub_resource_types().await?;
             return Ok(());
         }
+        "sync-config" => {
+            tracing_subscriber::fmt::init();
+            let path = std::env::args().nth(2).unwrap_or_else(|| {
+                eprintln!("Usage: windmill sync-config <file>");
+                std::process::exit(1);
+            });
+            let contents = tokio::fs::read_to_string(&path)
+                .await
+                .with_context(|| format!("Could not read config file: {path}"))?;
+            let mut config: windmill_common::instance_config::InstanceConfig =
+                serde_yml::from_str(&contents)
+                    .with_context(|| format!("Could not parse YAML from: {path}"))?;
+            windmill_common::instance_config::resolve_env_refs(&mut config.global_settings)
+                .map_err(|var| anyhow::anyhow!("environment variable '{var}' not found"))?;
+
+            tracing::info!("Connecting to database...");
+            let db = crate::db_connect::initial_connection().await?;
+            config.sync_to_db(&db).await?;
+            tracing::info!("Synced instance config from {path}");
+            return Ok(());
+        }
+        #[cfg(feature = "operator")]
+        "operator" => {
+            tracing_subscriber::fmt::init();
+            tracing::info!("Starting Windmill Kubernetes operator...");
+            tracing::info!("Connecting to database...");
+            let db = crate::db_connect::initial_connection().await?;
+            tracing::info!("Database connected. Starting ConfigMap watcher...");
+            windmill_operator::run(db).await?;
+            return Ok(());
+        }
         _ => {}
     }
 
     #[allow(unused_mut)]
     let mut num_workers = if mode == Mode::Server || mode == Mode::Indexer || mode == Mode::MCP {
         0
+    } else if is_native_mode_from_env() {
+        println!("Native mode enabled: forcing NUM_WORKERS=8");
+        8
     } else {
         std::env::var("NUM_WORKERS")
             .ok()
@@ -619,11 +656,21 @@ async fn windmill_main() -> anyhow::Result<()> {
             .unwrap_or(DEFAULT_NUM_WORKERS as i32)
     };
 
-    // TODO: maybe gate behind debug_assertions?
-    if num_workers > 1 && !std::env::var("WORKER_GROUP").is_ok_and(|x| x == "native") {
-        println!(
-            "We STRONGLY recommend using at most 1 worker per container, use at your own risks"
-        );
+    if num_workers > 1 && !is_native_mode_from_env() {
+        if std::env::var("I_ACK_NUM_WORKERS_IS_UNSAFE").is_ok_and(|x| x == "1" || x == "true") {
+            println!(
+                "WARNING: Running with NUM_WORKERS={} without native mode. \
+                 This is not recommended. Use at your own risk.",
+                num_workers
+            );
+        } else {
+            eprintln!(
+                "WARNING: NUM_WORKERS={} > 1 is only safe for native workers. \
+                 Falling back to NUM_WORKERS=1. Set NATIVE_MODE=true for native-only workers.",
+                num_workers
+            );
+            num_workers = 1;
+        }
     }
 
     let server_mode = !std::env::var("DISABLE_SERVER")
@@ -735,8 +782,12 @@ async fn windmill_main() -> anyhow::Result<()> {
                 .unwrap_or(false);
 
             if !skip_migration {
-                // migration code to avoid break
-                migration_handle = windmill_api::migrate_db(&db, killpill_rx.resubscribe()).await?;
+                if mode == Mode::Worker {
+                    windmill_api::wait_for_db_migrations(&db, killpill_rx.resubscribe()).await?;
+                } else {
+                    migration_handle =
+                        windmill_api::migrate_db(&db, killpill_rx.resubscribe()).await?;
+                }
             } else {
                 tracing::info!("SKIP_MIGRATION set, skipping db migration...")
             }
@@ -878,6 +929,16 @@ Windmill Community Edition {GIT_VERSION}
             disable_s3_store,
         )
         .await;
+
+        // native_mode may also be set via DB worker group config (not just env).
+        // NATIVE_MODE_RESOLVED is updated by load_worker_config during initial_load.
+        if worker_mode
+            && !is_native_mode_from_env()
+            && NATIVE_MODE_RESOLVED.load(std::sync::atomic::Ordering::Relaxed)
+        {
+            num_workers = 8;
+            tracing::info!("Native mode detected from worker config: forcing NUM_WORKERS=8");
+        }
 
         monitor_db(
             &conn,
@@ -1212,11 +1273,15 @@ Windmill Community Edition {GIT_VERSION}
                                         last_settings_reload = Instant::now();
                                     }
 
-                                    if server_mode {
-                                        if !*windmill_common::QUIET_LOGS {
-                                            tracing::info!("monitor task started");
-                                        }
-                                    }
+                                    let monitor_start = Instant::now();
+                                    let warn_handle = if server_mode {
+                                        Some(tokio::spawn(async move {
+                                            tokio::time::sleep(Duration::from_secs(5)).await;
+                                            tracing::warn!("monitor task has been running for more than 5s");
+                                        }))
+                                    } else {
+                                        None
+                                    };
                                     monitor_db(
                                         &conn,
                                         &base_internal_url,
@@ -1231,10 +1296,12 @@ Windmill Community Edition {GIT_VERSION}
                                     )
                                     .await;
                                     monitor_iteration += 1;
-                                    if server_mode {
-                                        if !*windmill_common::QUIET_LOGS {
-                                            tracing::info!("monitor task finished");
-                                        }
+                                    if let Some(handle) = warn_handle {
+                                        handle.abort();
+                                    }
+                                    let elapsed = monitor_start.elapsed();
+                                    if server_mode && elapsed >= Duration::from_secs(5) {
+                                        tracing::info!("monitor task finished in {elapsed:.1?}");
                                     }
                                 },
                             }
@@ -1551,6 +1618,7 @@ async fn process_notify_event(
                     reload_delete_logs_periodically_setting(conn).await
                 }
                 JOB_DEFAULT_TIMEOUT_SECS_SETTING => reload_job_default_timeout_setting(conn).await,
+                JOB_ISOLATION_SETTING => reload_job_isolation_setting(conn).await,
                 #[cfg(feature = "parquet")]
                 OBJECT_STORE_CONFIG_SETTING => {
                     if !disable_s3_store {
@@ -1560,6 +1628,7 @@ async fn process_notify_event(
                 SCIM_TOKEN_SETTING => reload_scim_token_setting(conn).await,
                 EXTRA_PIP_INDEX_URL_SETTING => reload_extra_pip_index_url_setting(conn).await,
                 PIP_INDEX_URL_SETTING => reload_pip_index_url_setting(conn).await,
+                UV_INDEX_STRATEGY_SETTING => reload_uv_index_strategy_setting(conn).await,
                 INSTANCE_PYTHON_VERSION_SETTING => {
                     reload_instance_python_version_setting(conn).await
                 }
@@ -1569,6 +1638,7 @@ async fn process_notify_event(
                 POWERSHELL_REPO_URL_SETTING => reload_powershell_repo_url_setting(conn).await,
                 POWERSHELL_REPO_PAT_SETTING => reload_powershell_repo_pat_setting(conn).await,
                 MAVEN_REPOS_SETTING => reload_maven_repos_setting(conn).await,
+                MAVEN_SETTINGS_XML_SETTING => reload_maven_settings_xml_setting(conn).await,
                 NO_DEFAULT_MAVEN_SETTING => reload_no_default_maven_setting(conn).await,
                 RUBY_REPOS_SETTING => reload_ruby_repos_setting(conn).await,
                 HUB_API_SECRET_SETTING => reload_hub_api_secret_setting(conn).await,

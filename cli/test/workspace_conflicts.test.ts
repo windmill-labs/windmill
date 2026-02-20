@@ -121,6 +121,45 @@ Deno.test("addWorkspace: allows same workspace (name, remote, workspaceId) with 
   });
 });
 
+Deno.test("addWorkspace: returns true on successful add", async () => {
+  await withTestConfig(async (testConfigDir) => {
+    await clearTestRemotes(testConfigDir);
+
+    const workspace = {
+      name: "return_test",
+      remote: "http://localhost:8001/",
+      workspaceId: "test",
+      token: "token1"
+    };
+
+    const result = await addWorkspace(workspace, { force: true, configDir: testConfigDir });
+    assertEquals(result, true);
+  });
+});
+
+Deno.test("addWorkspace: returns true when force-overwriting conflict", async () => {
+  await withTestConfig(async (testConfigDir) => {
+    await clearTestRemotes(testConfigDir);
+
+    const workspace1 = {
+      name: "force_test",
+      remote: "http://localhost:8001/",
+      workspaceId: "workspace1",
+      token: "token1"
+    };
+    await addWorkspace(workspace1, { force: true, configDir: testConfigDir });
+
+    const workspace2 = {
+      name: "force_test",
+      remote: "http://localhost:8002/",
+      workspaceId: "workspace2",
+      token: "token2"
+    };
+    const result = await addWorkspace(workspace2, { force: true, configDir: testConfigDir });
+    assertEquals(result, true);
+  });
+});
+
 Deno.test("addWorkspace: allows different workspaces on different remotes", async () => {
   await withTestConfig(async (testConfigDir) => {
     await clearTestRemotes(testConfigDir);

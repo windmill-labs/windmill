@@ -1,12 +1,13 @@
 {
 	"name": "windmill-components",
-	"version": "1.629.1",
+	"version": "1.639.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
 		"build:utils": "vite build --config sharedUtils/vite.sharedUtils.config.js",
 		"preview": "vite preview",
 		"postinstall": "node -e \"if (require('fs').existsSync('./scripts/untar_ui_builder.js')) { require('child_process').execSync('node ./scripts/untar_ui_builder.js', {stdio: 'inherit'}) }\"",
+		"check:fast": "bun --bun svelte-fast-check --no-svelte-warnings --incremental",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --threshold warning",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"lint": "prettier --ignore-path .gitignore --check --plugin-search-dir=. . && eslint --ignore-path .gitignore .",
@@ -58,6 +59,7 @@
 		"svelte": "^5.38.0",
 		"svelte-awesome-color-picker": "^3.0.4",
 		"svelte-check": "^4.0.0",
+		"svelte-fast-check": "^0.4.5",
 		"svelte-floating-ui": "^1.5.8",
 		"svelte-highlight": "^7.6.0",
 		"svelte-popperjs": "^1.3.2",

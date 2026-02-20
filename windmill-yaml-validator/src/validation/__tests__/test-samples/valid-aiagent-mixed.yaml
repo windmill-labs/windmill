@@ -11,9 +11,18 @@ value:
       value:
         type: aiagent
         input_transforms:
-          query:
+          provider:
+            type: static
+            value:
+              kind: openai
+              resource: "$res:u/admin/openai"
+              model: gpt-4o-mini
+          user_message:
             type: javascript
             expr: "flow_input.user_query"
+          output_type:
+            type: static
+            value: text
         tools:
           - id: custom_script
             value:

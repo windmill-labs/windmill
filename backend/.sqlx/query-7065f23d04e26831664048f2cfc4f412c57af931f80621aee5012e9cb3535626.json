@@ -29,7 +29,8 @@
                 "mqtt",
                 "gcp",
                 "default_email",
-                "nextcloud"
+                "nextcloud",
+                "google"
               ]
             }
           }

@@ -785,15 +785,16 @@
 												triggersState.getDraftTriggersSnapshot()
 											)
 
+											const deployed = deployedValue ?? savedScript
+											const current = { ...script, draft_triggers: currentDraftTriggers }
+											if (current.assets && !current.assets.length) delete current.assets
+
 											diffDrawer?.openDrawer()
 											diffDrawer?.setDiff({
 												mode: 'normal',
-												deployed: deployedValue ?? savedScript,
+												deployed,
 												draft: savedScript['draft'],
-												current: {
-													...script,
-													draft_triggers: currentDraftTriggers
-												}
+												current
 											})
 										}
 									}
@@ -1335,9 +1336,7 @@
 											/>
 											{#if script.cache_ttl}
 												<div class="text-2xs text-secondary">How long to keep the cache valid</div>
-												<div class="-mt-5">
-													<SecondsInput bind:seconds={script.cache_ttl} />
-												</div>
+												<SecondsInput bind:seconds={script.cache_ttl} />
 												<Toggle
 													size="2xs"
 													bind:checked={
@@ -1457,8 +1456,8 @@
 										{#if script.dedicated_worker}
 											<div class="py-2">
 												<Alert type="info" title="Require dedicated workers">
-													One worker in a worker group needs to be configured with dedicated worker
-													set to: <pre>{$workspaceStore}:{script.path}</pre>
+													A worker group needs to be configured to listen to this script. Select it
+													in the dedicated workers section of the worker group configuration.
 												</Alert>
 											</div>
 										{/if}

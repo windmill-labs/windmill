@@ -20,7 +20,6 @@
 	import ObjectResourceInput from './ObjectResourceInput.svelte'
 	import Range from './Range.svelte'
 	import ResourcePicker from './ResourcePicker.svelte'
-	import type SimpleEditor from './SimpleEditor.svelte'
 	import Toggle from './Toggle.svelte'
 	import type VariableEditor from './VariableEditor.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -97,7 +96,7 @@
 		title?: string | undefined
 		placeholder?: string | undefined
 		order?: string[] | undefined
-		editor?: SimpleEditor | undefined
+		editor?: any | undefined
 		orderEditable?: boolean
 		shouldDispatchChanges?: boolean
 		noDefaultOnSelectFirst?: boolean
@@ -667,10 +666,17 @@
 
 	<div class="flex space-x-1">
 		{#if inputCat == 'number'}
-			{#if extra['min'] != undefined && extra['max'] != undefined}
+			{#if extra['seconds'] !== undefined}
+				<div class="w-full">
+					<SecondsInput
+						bind:seconds={value}
+						onfocus={bubble('focus')}
+						{defaultValue}
+						clearable={extra['clearable'] !== false}
+					/>
+				</div>
+			{:else if extra['min'] != undefined && extra['max'] != undefined}
 				<Range bind:value min={extra['min']} max={extra['max']} {defaultValue} />
-			{:else if extra['seconds'] !== undefined}
-				<SecondsInput bind:seconds={value} on:focus />
 			{:else if extra?.currency}
 				<CurrencyInput
 					inputClasses={{

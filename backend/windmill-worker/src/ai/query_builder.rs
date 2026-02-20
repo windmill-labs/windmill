@@ -1,8 +1,9 @@
 use async_trait::async_trait;
 use windmill_common::{
-    client::AuthedClient, error::Error, s3_helpers::S3Object, worker::Connection,
+    client::AuthedClient, error::Error, worker::Connection,
 };
 use windmill_queue::MiniPulledJob;
+use windmill_types::s3::S3Object;
 
 use crate::{
     ai::{
@@ -119,6 +120,7 @@ pub fn create_query_builder(provider: &ProviderWithResource) -> Box<dyn QueryBui
         AIProvider::Anthropic => Box::new(AnthropicQueryBuilder::new(
             provider.kind.clone(),
             provider.get_platform().clone(),
+            provider.get_enable_1m_context(),
         )),
         AIProvider::OpenRouter => Box::new(OpenRouterQueryBuilder::new()),
         // All other providers use the completion endpoint

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM resource WHERE workspace_id = $1 AND resource_type = $2 AND path LIKE 'u/%/native_%'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8f33846f6c25a78267a5c8143b414f033280ebf57b7b9568dc2fe31bc625020d"
+}

@@ -1,4 +1,6 @@
 use serde_json::value::RawValue;
+#[cfg(not(windows))]
+use std::sync::Once;
 use std::{collections::HashMap, process::Stdio};
 use uuid::Uuid;
 use windmill_parser_rust::parse_rust_deps_into_manifest;
@@ -12,8 +14,9 @@ use tokio::{
 use windmill_common::{
     error::{self, Error},
     utils::calculate_hash,
-    worker::{save_cache, write_file, Connection},
+    worker::{write_file, Connection},
 };
+use crate::global_cache::save_cache;
 use windmill_queue::MiniPulledJob;
 use windmill_queue::{append_logs, CanceledBy};
 
@@ -25,8 +28,8 @@ use crate::{
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
-    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUST_CACHE_DIR,
-    TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
+    is_sandboxing_enabled, read_ee_registry, CARGO_REGISTRIES, DISABLE_NUSER, HOME_ENV,
+    NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUST_CACHE_DIR, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
 use windmill_common::scripts::ScriptLang;
@@ -38,15 +41,42 @@ const NSJAIL_CONFIG_RUN_RUST_CONTENT: &str = include_str!("../nsjail/run.rust.co
 const NSJAIL_CONFIG_COMPILE_RUST_CONTENT: &str =
     include_str!("../nsjail/download.rust.config.proto");
 
+fn find_cargo_path() -> String {
+    if let Ok(p) = std::env::var("CARGO_PATH") {
+        return p;
+    }
+    let from_home = format!("{}/bin/cargo", CARGO_HOME.as_str());
+    if std::path::Path::new(&from_home).exists() {
+        return from_home;
+    }
+    for p in ["/usr/local/cargo/bin/cargo", "/usr/bin/cargo"] {
+        if std::path::Path::new(p).exists() {
+            return p.to_string();
+        }
+    }
+    from_home
+}
+
+#[cfg(not(windows))]
+fn find_preinstalled_dir(env_var: &str, candidates: &[&str]) -> String {
+    if let Ok(p) = std::env::var(env_var) {
+        return p;
+    }
+    for c in candidates {
+        if std::path::Path::new(c).exists() {
+            return c.to_string();
+        }
+    }
+    candidates[0].to_string()
+}
+
 lazy_static::lazy_static! {
     static ref HOME_DIR: String = std::env::var("HOME").expect("Could not find the HOME environment variable");
     static ref CARGO_HOME: String = std::env::var("CARGO_HOME").unwrap_or_else(|_| { CARGO_HOME_DEFAULT.clone() });
     static ref RUSTUP_HOME: String = std::env::var("RUSTUP_HOME").unwrap_or_else(|_| { RUSTUP_HOME_DEFAULT.clone() });
-    static ref CARGO_PATH: String = std::env::var("CARGO_PATH").unwrap_or_else(|_| format!("{}/bin/cargo", CARGO_HOME.as_str()));
-    // static ref CARGO_SWEEP_PATH: String = std::env::var("CARGO_SWEEP_PATH").unwrap_or_else(|_| format!("{}/bin/cargo-sweep", CARGO_HOME.as_str()));
+    static ref CARGO_PATH: String = find_cargo_path();
     static ref SWEEP_MAXSIZE: String = std::env::var("CARGO_SWEEP_MAXSIZE").unwrap_or("25GB".to_owned());
     static ref NO_SHARED_BUILD_DIR: bool = std::env::var("RUST_NO_SHARED_BUILD_DIR").ok().map(|flag| flag == "true").unwrap_or(false);
-
 }
 
 #[cfg(windows)]
@@ -62,6 +92,72 @@ lazy_static::lazy_static! {
 }
 
 const RUST_OBJECT_STORE_PREFIX: &str = "rustbin/";
+
+#[cfg(not(windows))]
+lazy_static::lazy_static! {
+    static ref PREINSTALLED_CARGO: String = find_preinstalled_dir(
+        "CARGO_PREINSTALL_DIR",
+        &["/usr/local/cargo", &format!("{}/.cargo", *HOME_DIR)],
+    );
+    static ref PREINSTALLED_RUSTUP: String = find_preinstalled_dir(
+        "RUSTUP_PREINSTALL_DIR",
+        &["/usr/local/rustup", &format!("{}/.rustup", *HOME_DIR)],
+    );
+}
+
+#[cfg(not(windows))]
+static RUST_DIRS_INIT: Once = Once::new();
+
+#[cfg(not(windows))]
+fn symlink_preinstalled_entries(preinstalled: &str, target: &str) {
+    use std::fs;
+    use std::os::unix::fs as unix_fs;
+    use std::path::Path;
+
+    if target == preinstalled || !Path::new(preinstalled).exists() {
+        return;
+    }
+    let _ = fs::create_dir_all(target);
+    let Ok(entries) = fs::read_dir(preinstalled) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let link_path = Path::new(target).join(&name);
+        if !link_path.exists() {
+            let _ = unix_fs::symlink(entry.path(), &link_path);
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn symlink_single_entry(preinstalled: &str, target: &str, name: &str) {
+    use std::os::unix::fs as unix_fs;
+    use std::path::Path;
+
+    let src = Path::new(preinstalled).join(name);
+    if !src.exists() {
+        return;
+    }
+    let _ = std::fs::create_dir_all(target);
+    let dst = Path::new(target).join(name);
+    if !dst.exists() {
+        let _ = unix_fs::symlink(&src, &dst);
+    }
+}
+
+#[cfg(not(windows))]
+fn ensure_rust_runtime_dirs() {
+    RUST_DIRS_INIT.call_once(|| {
+        // Only symlink bin/ from cargo (registry/git must be writable)
+        symlink_single_entry(&PREINSTALLED_CARGO, CARGO_HOME.as_str(), "bin");
+        // Symlink all entries from rustup (toolchains, settings.toml, etc.)
+        symlink_preinstalled_entries(&PREINSTALLED_RUSTUP, RUSTUP_HOME.as_str());
+    });
+}
+
+#[cfg(windows)]
+fn ensure_rust_runtime_dirs() {}
 
 fn gen_cargo_crate(code: &str, job_dir: &str) -> anyhow::Result<()> {
     let manifest = parse_rust_deps_into_manifest(code)?;
@@ -135,6 +231,30 @@ pub fn __WINDMILL_RUN__(_args: __WINDMILL_ARGS__) -> Result<String, Box<dyn std:
     Ok(())
 }
 
+async fn write_cargo_config(
+    job_dir: &str,
+    job_id: &Uuid,
+    w_id: &str,
+    conn: &Connection,
+) -> anyhow::Result<()> {
+    if let Some(cargo_registries) = read_ee_registry(
+        CARGO_REGISTRIES.read().await.clone(),
+        "cargo registries",
+        job_id,
+        w_id,
+        conn,
+    )
+    .await
+    {
+        if !cargo_registries.trim().is_empty() {
+            let cargo_dir = format!("{job_dir}/.cargo");
+            create_dir_all(&cargo_dir).await?;
+            write_file(&cargo_dir, "config.toml", &cargo_registries)?;
+        }
+    }
+    Ok(())
+}
+
 pub async fn generate_cargo_lockfile(
     job_id: &Uuid,
     code: &str,
@@ -146,19 +266,28 @@ pub async fn generate_cargo_lockfile(
     w_id: &str,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
+    ensure_rust_runtime_dirs();
     check_executor_binary_exists("cargo", CARGO_PATH.as_str(), "rust")?;
 
     gen_cargo_crate(code, job_dir)?;
+    write_cargo_config(job_dir, job_id, w_id, conn).await?;
 
     let mut gen_lockfile_cmd = Command::new(CARGO_PATH.as_str());
     gen_lockfile_cmd
         .current_dir(job_dir)
+        .env_clear()
+        .env("PATH", PATH_ENV.as_str())
+        .env("HOME", HOME_ENV.as_str())
+        .env("CARGO_HOME", CARGO_HOME.as_str())
+        .env("RUSTUP_HOME", RUSTUP_HOME.as_str())
+        .envs(PROXY_ENVS.clone())
         .args(vec!["generate-lockfile"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     #[cfg(windows)]
     {
         gen_lockfile_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+        gen_lockfile_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
         gen_lockfile_cmd.env(
             "TMP",
             std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
@@ -205,7 +334,7 @@ async fn get_build_dir(
             if !is_preview || *NO_SHARED_BUILD_DIR {
                 None
             } else {
-                if *DISABLE_NSJAIL {
+                if !is_sandboxing_enabled() {
                     // If nsjail is disabled then entire worker has shared build directory
                     // It drastically improves cache hit-rate.
                     Some((format!("{RUST_CACHE_DIR}/build/{worker_name}"), true))
@@ -243,10 +372,11 @@ async fn get_build_dir(
     if run_sweep {
         // Also run sweep to make sure target isn't using too much disk
         let mut sweep_cmd = Command::new(CARGO_PATH.as_str());
+        let sweep_path = format!("{}/bin:{}", CARGO_HOME.as_str(), PATH_ENV.as_str());
         sweep_cmd
             .current_dir(job_dir)
             .env_clear()
-            .env("PATH", PATH_ENV.as_str())
+            .env("PATH", &sweep_path)
             .env("CARGO_HOME", CARGO_HOME.as_str())
             .env("HOME", HOME_ENV.as_str())
             .env("CARGO_TARGET_DIR", &(bd.clone() + "/target"))
@@ -318,11 +448,12 @@ pub async fn build_rust_crate(
     occupancy_metrics: &mut OccupancyMetrics,
     is_preview: bool,
 ) -> error::Result<String> {
+    ensure_rust_runtime_dirs();
     let bin_path = format!("{}/{hash}", RUST_CACHE_DIR);
 
     let build_dir = get_build_dir(job, job_dir, conn, worker_name, is_preview).await?;
 
-    let child = if !*DISABLE_NSJAIL {
+    let child = if is_sandboxing_enabled() {
         let _ = write_file(
             job_dir,
             "download.config.proto",
@@ -470,6 +601,7 @@ pub async fn handle_rust_job(
     envs: HashMap<String, String>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>, Error> {
+    ensure_rust_runtime_dirs();
     check_executor_binary_exists("cargo", CARGO_PATH.as_str(), "rust")?;
 
     let hash = compute_rust_hash(inner_content, requirements_o);
@@ -480,7 +612,7 @@ pub async fn handle_rust_job(
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
 
     let (cache, cache_logs) =
-        windmill_common::worker::load_cache(&bin_path, &remote_path, false).await;
+        crate::global_cache::load_cache(&bin_path, &remote_path, false).await;
 
     let cache_logs = if cache {
         let target = format!("{job_dir}/main");
@@ -503,6 +635,7 @@ pub async fn handle_rust_job(
         append_logs(&job.id, &job.workspace_id, logs1, conn).await;
 
         gen_cargo_crate(inner_content, job_dir)?;
+        write_cargo_config(job_dir, &job.id, &job.workspace_id, conn).await?;
 
         if let Some(reqs) = requirements_o {
             if !reqs.is_empty() {
@@ -530,7 +663,7 @@ pub async fn handle_rust_job(
     let logs2 = format!("{cache_logs}\n\n--- RUST CODE EXECUTION ---\n");
     append_logs(&job.id, &job.workspace_id, logs2, conn).await;
 
-    let child = if !*DISABLE_NSJAIL {
+    let child = if is_sandboxing_enabled() {
         let _ = write_file(
             job_dir,
             "run.config.proto",
@@ -588,7 +721,7 @@ pub async fn handle_rust_job(
         mem_peak,
         canceled_by,
         child,
-        !*DISABLE_NSJAIL,
+        is_sandboxing_enabled(),
         worker_name,
         &job.workspace_id,
         "rust run",

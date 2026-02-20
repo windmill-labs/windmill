@@ -1,0 +1,60 @@
+[package]
+name = "windmill-object-store"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[features]
+default = []
+private = []
+enterprise = []
+parquet = [
+    "windmill-common/parquet",
+    "dep:object_store",
+    "dep:aws-sdk-sts",
+    "dep:aws-smithy-types-convert",
+    "dep:datafusion",
+    "dep:aws-config",
+    "dep:aws-credential-types",
+    "dep:windmill-parser-sql",
+]
+openidconnect = ["windmill-common/openidconnect"]
+
+[lib]
+name = "windmill_object_store"
+path = "src/lib.rs"
+
+[dependencies]
+windmill-common = { workspace = true, default-features = false }
+windmill-types.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+tracing.workspace = true
+reqwest.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+bytes.workspace = true
+lazy_static.workspace = true
+quick_cache.workspace = true
+async-trait.workspace = true
+futures.workspace = true
+async-stream.workspace = true
+windmill-parser-sql = { workspace = true, optional = true }
+globset.workspace = true
+axum.workspace = true
+
+object_store = { workspace = true, optional = true }
+aws-sdk-sts = { workspace = true, optional = true }
+aws-smithy-types-convert = { workspace = true, optional = true }
+datafusion = { workspace = true, optional = true }
+aws-config = { workspace = true, optional = true }
+aws-credential-types = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt", "macros"] }
+object_store.workspace = true

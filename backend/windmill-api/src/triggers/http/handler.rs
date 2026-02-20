@@ -6,7 +6,6 @@ use crate::{
     auth::{AuthCache, OptTokened},
     db::{ApiAuthed, DB},
     jobs::start_job_update_sse_stream,
-    resources::try_get_resource_from_db_as,
     triggers::trigger_helpers::{
         get_runnable_format, trigger_runnable, trigger_runnable_and_wait_for_result,
         trigger_runnable_inner, RunnableId,
@@ -30,12 +29,13 @@ use windmill_common::{
     triggers::{TriggerKind, TriggerMetadata},
     utils::{not_found_if_none, StripPath},
 };
+use windmill_store::resources::try_get_resource_from_db_as;
 use windmill_trigger::TriggerMode;
 
 #[cfg(feature = "parquet")]
 use {
     crate::job_helpers_oss::get_workspace_s3_resource,
-    windmill_common::s3_helpers::build_object_store_client,
+    windmill_object_store::build_object_store_client,
 };
 
 async fn conditional_cors_middleware(
@@ -365,13 +365,13 @@ async fn route_job(
             } else {
                 config.s3.clone()
             };
-            let path = object_store::path::Path::from(path);
+            let path = windmill_object_store::object_store_reexports::Path::from(path);
             let s3_object = s3_client.get(&path).await;
 
             let s3_object = match s3_object {
-                Err(object_store::Error::NotFound { .. }) if trigger.is_static_website => {
+                Err(windmill_object_store::object_store_reexports::ObjectStoreError::NotFound { .. }) if trigger.is_static_website => {
                     // fallback to index.html if the file is not found
-                    let path = object_store::path::Path::from(format!(
+                    let path = windmill_object_store::object_store_reexports::Path::from(format!(
                         "{}/index.html",
                         config.s3.trim_end_matches('/')
                     ));
@@ -410,7 +410,7 @@ async fn route_job(
                 "content-type",
                 s3_object
                     .attributes
-                    .get(&object_store::Attribute::ContentType)
+                    .get(&windmill_object_store::object_store_reexports::Attribute::ContentType)
                     .map(|s| s.parse().ok())
                     .flatten()
                     .unwrap_or("application/octet-stream".parse().unwrap()),
@@ -422,7 +422,7 @@ async fn route_job(
                         || {
                             s3_object
                                 .attributes
-                                .get(&object_store::Attribute::ContentDisposition)
+                                .get(&windmill_object_store::object_store_reexports::Attribute::ContentDisposition)
                                 .map(|s| s.parse().ok())
                                 .flatten()
                                 .unwrap_or("inline".parse().unwrap())
@@ -505,7 +505,7 @@ async fn route_job(
     match trigger.request_type {
         RequestType::SyncSse => {
             // Trigger the job (always async when streaming)
-            let (uuid, _, _, _) = trigger_runnable_inner(
+            let (uuid, _, early_return, _) = trigger_runnable_inner(
                 &db,
                 None,
                 Some(user_db.clone()),
@@ -553,6 +553,7 @@ async fn route_job(
                 None,
                 tx,
                 None,
+                early_return,
             );
 
             let body = axum::body::Body::from_stream(

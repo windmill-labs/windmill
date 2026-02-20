@@ -10,7 +10,6 @@ use serde_json::value::RawValue;
 use serde_json::{json, Value};
 use uuid::Uuid;
 use windmill_common::error::{to_anyhow, Error, Result};
-use windmill_common::s3_helpers::{S3Object, S3_PROXY_LAST_ERRORS_CACHE};
 use windmill_common::utils::sanitize_string_from_password;
 use windmill_common::worker::{Connection, SqlResultCollectionStrategy};
 use windmill_common::workspaces::{
@@ -18,8 +17,10 @@ use windmill_common::workspaces::{
     DucklakeCatalogResourceType,
 };
 use windmill_common::PgDatabase;
+use windmill_object_store::S3_PROXY_LAST_ERRORS_CACHE;
 use windmill_parser_sql::{parse_duckdb_sig, parse_sql_blocks};
 use windmill_queue::{CanceledBy, MiniPulledJob};
+use windmill_types::s3::S3Object;
 
 use crate::agent_workers::{get_datatable_resource_from_agent_http, get_ducklake_from_agent_http};
 use crate::common::{build_args_values, get_reserved_variables, OccupancyMetrics};
@@ -29,7 +30,7 @@ use crate::mysql_executor::MysqlDatabase;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
 use crate::sql_utils::remove_comments;
 use windmill_common::client::AuthedClient;
-use windmill_common::s3_helpers::DEFAULT_STORAGE;
+use windmill_object_store::DEFAULT_STORAGE;
 
 pub async fn do_duckdb(
     job: &MiniPulledJob,
@@ -418,7 +419,7 @@ fn format_attach_db_conn_str(db_resource: Value, db_type: &str) -> Result<String
     let s = match db_type.to_lowercase().as_str() {
         "postgres" | "postgresql" => {
             let res: PgDatabase = serde_json::from_value(db_resource)?;
-            res.to_conn_str()
+            res.to_uri()
         }
         #[cfg(feature = "mysql")]
         "mysql" => {

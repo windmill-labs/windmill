@@ -1,0 +1,90 @@
+version: "3.7"
+
+# Example: Windmill with declarative instance configuration via sync-config.
+#
+# Usage:
+#   1. Copy .env.example to .env and fill in your secrets
+#   2. Edit windmill-config.yaml with your desired settings
+#   3. docker compose up -d
+#
+# The windmill_config_sync service runs once at startup, applies the YAML
+# config to the database, then exits. To re-apply after editing the config:
+#   docker compose run --rm windmill_config_sync
+
+services:
+  db:
+    image: postgres:16
+    shm_size: 1g
+    restart: unless-stopped
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    expose:
+      - 5432
+    environment:
+      POSTGRES_PASSWORD: changeme
+      POSTGRES_DB: windmill
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # One-shot init container that syncs the YAML config to the database.
+  # Resolves envRef fields from container environment, then exits.
+  windmill_config_sync:
+    image: ${WM_IMAGE}
+    restart: "no"
+    command: ["windmill", "sync-config", "/config/windmill-config.yaml"]
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      # Secrets are passed as env vars, referenced via envRef in the YAML
+      - WM_LICENSE_KEY=${WM_LICENSE_KEY}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+    volumes:
+      - ./windmill-config.yaml:/config/windmill-config.yaml:ro
+    depends_on:
+      db:
+        condition: service_healthy
+
+  windmill_server:
+    image: ${WM_IMAGE}
+    restart: unless-stopped
+    expose:
+      - 8000
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - MODE=server
+    depends_on:
+      db:
+        condition: service_healthy
+      windmill_config_sync:
+        condition: service_completed_successfully
+
+  windmill_worker:
+    image: ${WM_IMAGE}
+    deploy:
+      replicas: 2
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - MODE=worker
+      - WORKER_GROUP=default
+    depends_on:
+      db:
+        condition: service_healthy
+
+  windmill_worker_native:
+    image: ${WM_IMAGE}
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - MODE=worker
+      - WORKER_GROUP=native
+      - NUM_WORKERS=8
+      - SLEEP_QUEUE=200
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  db_data: null

@@ -1,14 +1,14 @@
 <script lang="ts">
 	import {
 		TriangleAlert,
-		Copy,
 		Plus,
 		RefreshCcwIcon,
 		RotateCcw,
 		Settings,
 		Trash,
 		X,
-		ExternalLink
+		ExternalLink,
+		FileCode
 	} from 'lucide-svelte'
 	import { Alert, Button, Drawer } from './common'
 	import Badge from './common/badge/Badge.svelte'
@@ -31,9 +31,13 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Section from './Section.svelte'
 	import Label from './Label.svelte'
-	import YAML from 'yaml'
 	import Toggle from './Toggle.svelte'
-	import { defaultTags, nativeTags, type AutoscalingConfig } from './worker_group'
+	import {
+		cleanWorkerGroupConfig,
+		defaultTags,
+		nativeTags,
+		type AutoscalingConfig
+	} from './worker_group'
 	import AutoscalingConfigEditor from './AutoscalingConfigEditor.svelte'
 	import TagsToListenTo from './TagsToListenTo.svelte'
 	import Select from './select/Select.svelte'
@@ -43,6 +47,7 @@
 	import Dropdown from './DropdownV2.svelte'
 	import TagList from './TagList.svelte'
 	import DedicatedWorkersSelector from './DedicatedWorkersSelector.svelte'
+	import { computeHashedTag } from './dedicated_worker'
 
 	function computeVCpuAndMemory(workers: [string, WorkerPing[]][]) {
 		let vcpus = 0
@@ -87,6 +92,7 @@
 		pip_local_dependencies?: string[]
 		min_alive_workers_alert_threshold?: number
 		autoscaling?: AutoscalingConfig
+		native_mode?: boolean
 	} = $state({})
 
 	function loadNConfig() {
@@ -191,6 +197,7 @@
 					autoscaling?: AutoscalingConfig
 					periodic_script_bash?: string
 					periodic_script_interval_seconds?: number
+					native_mode?: boolean
 			  }
 		activeWorkers: number
 		customTags: string[] | undefined
@@ -201,6 +208,7 @@
 		shouldAutoOpenDrawer?: boolean
 		onDrawerOpened?: () => void
 		onDeleted?: (deletedGroupName: string) => void
+		onOpenYamlEditor?: () => void
 		selectGroup?: import('svelte').Snippet
 	}
 
@@ -216,6 +224,7 @@
 		shouldAutoOpenDrawer = false,
 		onDrawerOpened = () => {},
 		onDeleted = () => {},
+		onOpenYamlEditor = undefined,
 		selectGroup = undefined
 	}: Props = $props()
 
@@ -225,9 +234,9 @@
 	}
 
 	// Centralized permission logic
-	let canEditConfig = $derived($enterpriseLicense && ($superadmin || $devopsRole))
+	let canEditConfig = $derived($superadmin || $devopsRole)
 	let hasEnterpriseFeatures = $derived($enterpriseLicense)
-	let isReadOnly = $derived(!canEditConfig)
+	let canEditEEConfig = $derived(canEditConfig && hasEnterpriseFeatures)
 
 	const dispatch = createEventDispatcher()
 
@@ -252,6 +261,22 @@
 	let openDelete = $state(false)
 	let openClean = $state(false)
 
+	// Compute hashed tags for display (actual tags used by the worker)
+	let hashedDedicatedTags: Map<string, string> = $state(new Map())
+	$effect(() => {
+		const dws =
+			config?.dedicated_workers ?? (config?.dedicated_worker ? [config.dedicated_worker] : [])
+		if (dws.length > 0) {
+			Promise.all(dws.map(async (dw) => [dw, await computeHashedTag(dw)] as const)).then(
+				(entries) => {
+					hashedDedicatedTags = new Map(entries)
+				}
+			)
+		} else {
+			hashedDedicatedTags = new Map()
+		}
+	})
+
 	let drawer: Drawer | undefined = $state()
 	let vcpus_memory = $derived(computeVCpuAndMemory(workers))
 	let selected = $derived(
@@ -259,6 +284,17 @@
 			? 'dedicated'
 			: 'normal'
 	)
+	let isNativeMode = $derived(
+		config?.native_mode === true ||
+			name === 'native' ||
+			(workers.length > 0 &&
+				workers.some(([_, pings]) => pings.some((p) => p.native_mode === true)))
+	)
+	let nonNativeTags = $derived(
+		(nconfig?.worker_tags ?? []).filter((t) => !nativeTags.includes(t) && t !== 'flow')
+	)
+	let isAutoNativeMode = $derived(name === 'native')
+	let isNativeModeEnabled = $derived(nconfig?.native_mode === true || isAutoNativeMode)
 	$effect(() => {
 		;($superadmin || $devopsRole) && listWorkspaces()
 	})
@@ -324,22 +360,21 @@
 	<DrawerContent
 		on:close={() => drawer?.closeDrawer()}
 		title={canEditConfig ? `Edit worker config '${name}'` : `Worker config '${name}'`}
-		eeOnly
 	>
 		{#if !hasEnterpriseFeatures}
-			<Alert type="info" title="Worker management UI is EE only" class="mb-4">
-				Workers can still have their WORKER_TAGS, INIT_SCRIPT and WHITELIST_ENVS passed as env.
-				Dedicated workers are an enterprise only feature.
+			<Alert type="info" title="Enterprise features" class="mb-4">
+				Some worker management features require the enterprise edition. In CE, you can configure
+				worker tags.
 			</Alert>
 		{:else if !canEditConfig}
 			<Alert type="info" title="Read-only mode" class="mb-4">
 				Only superadmin or devops role can edit the worker config.
 			</Alert>
 		{/if}
-		<Label label="Workers assignment">
+		<Label label="Workers assignment" eeOnly={!hasEnterpriseFeatures}>
 			<ToggleButtonGroup
 				{selected}
-				disabled={!canEditConfig}
+				disabled={!canEditEEConfig}
 				on:selected={(e) => {
 					if (nconfig == undefined) {
 						nconfig = {}
@@ -367,33 +402,53 @@
 			<Label label="Tags to listen to">
 				{#snippet action()}
 					{#if nconfig?.worker_tags != undefined}
+						{@const resetTags = isNativeModeEnabled ? nativeTags : defaultTags.concat(nativeTags)}
 						{@const dropdownResetToAllTags = [
 							{
-								label: 'Reset to all tags minus native ones',
+								label: isNativeModeEnabled
+									? 'Reset to all tags'
+									: 'Reset to all tags minus native ones',
 								onClick: () => {
 									if (nconfig != undefined) {
-										nconfig.worker_tags = defaultTags.concat(nativeTags)
+										nconfig.worker_tags = isNativeModeEnabled
+											? defaultTagPerWorkspace && workspaceTag
+												? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
+												: defaultTags.concat(nativeTags)
+											: defaultTagPerWorkspace && workspaceTag
+												? defaultTags.map((nt) => `${nt}-${workspaceTag}`)
+												: defaultTags
 									}
 								},
 								disabled: !canEditConfig,
 								tooltip: (defaultTagPerWorkspace
-									? defaultTags.map((nt) => `${nt}-${workspaceTag}`)
-									: defaultTags
+									? (isNativeModeEnabled ? defaultTags.concat(nativeTags) : defaultTags).map(
+											(nt) => `${nt}-${workspaceTag}`
+										)
+									: isNativeModeEnabled
+										? defaultTags.concat(nativeTags)
+										: defaultTags
 								).join(', ')
 							},
-							{
-								label: 'Reset to native tags',
-								onClick: () => {
-									if (nconfig != undefined) {
-										nconfig.worker_tags = nativeTags
-									}
-								},
-								disabled: !canEditConfig,
-								tooltip: (defaultTagPerWorkspace && workspaceTag
-									? nativeTags.map((nt) => `${nt}-${workspaceTag}`)
-									: nativeTags
-								).join(', ')
-							},
+							...(!isNativeModeEnabled
+								? [
+										{
+											label: 'Reset to native tags',
+											onClick: () => {
+												if (nconfig != undefined) {
+													nconfig.worker_tags =
+														defaultTagPerWorkspace && workspaceTag
+															? nativeTags.map((nt) => `${nt}-${workspaceTag}`)
+															: nativeTags
+												}
+											},
+											disabled: !canEditConfig,
+											tooltip: (defaultTagPerWorkspace && workspaceTag
+												? nativeTags.map((nt) => `${nt}-${workspaceTag}`)
+												: nativeTags
+											).join(', ')
+										}
+									]
+								: []),
 							{
 								label: 'Clear tags',
 								onClick: () => {
@@ -412,8 +467,8 @@
 									if (nconfig != undefined) {
 										nconfig.worker_tags =
 											defaultTagPerWorkspace && workspaceTag
-												? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
-												: defaultTags.concat(nativeTags)
+												? resetTags.map((nt) => `${nt}-${workspaceTag}`)
+												: resetTags
 									}
 								}}
 								dropdownItems={dropdownResetToAllTags}
@@ -421,11 +476,12 @@
 								startIcon={{ icon: RotateCcw }}
 								disabled={!canEditConfig}
 							>
-								Reset to all tags <Tooltip>
+								{isNativeModeEnabled ? 'Reset to native tags' : 'Reset to all tags'}
+								<Tooltip>
 									{#snippet text()}
 										{(defaultTagPerWorkspace && workspaceTag
-											? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
-											: defaultTags.concat(nativeTags)
+											? resetTags.map((nt) => `${nt}-${workspaceTag}`)
+											: resetTags
 										).join(', ')}
 									{/snippet}
 								</Tooltip>
@@ -454,7 +510,7 @@
 
 			{#if nconfig?.worker_tags !== undefined && nconfig?.worker_tags.length > 0}
 				<div class="mt-8"></div>
-				<Label label="High-priority tags">
+				<Label label="High-priority tags" eeOnly={!hasEnterpriseFeatures}>
 					{#snippet header()}
 						<Tooltip>
 							{#snippet text()}
@@ -467,7 +523,7 @@
 						</Tooltip>
 					{/snippet}
 					<MultiSelect
-						disabled={!canEditConfig}
+						disabled={!canEditEEConfig}
 						bind:value={
 							() => (nconfig.priority_tags ? Object.keys(nconfig.priority_tags) : []),
 							(v) => {
@@ -481,7 +537,74 @@
 
 			{#if nconfig !== undefined}
 				<div class="mt-8"></div>
-				<Label label="Alerts" tooltip="Alert is sent to the configured critical error channels">
+				<Label label="Native mode">
+					{#snippet header()}
+						<Tooltip>
+							{#snippet text()}
+								When enabled, the worker will only accept native jobs (nativets, postgresql, mysql,
+								etc.) and automatically runs with 8 subworkers for optimal throughput. Non-native
+								jobs will be failed.
+							{/snippet}
+						</Tooltip>
+					{/snippet}
+					<Toggle
+						size="sm"
+						options={{
+							right: isAutoNativeMode ? 'Native mode (automatically enabled)' : 'Enable native mode'
+						}}
+						checked={nconfig?.native_mode === true || isAutoNativeMode}
+						on:change={(ev) => {
+							if (nconfig !== undefined) {
+								nconfig.native_mode = ev.detail ? true : undefined
+							}
+						}}
+						disabled={!canEditConfig || isAutoNativeMode}
+					/>
+					{#if isNativeModeEnabled}
+						<p class="text-xs text-secondary mt-1"
+							>8 subworkers will automatically be used for optimal throughput.</p
+						>
+					{/if}
+					{#if isNativeModeEnabled && nonNativeTags.length > 0}
+						<Alert size="xs" type="warning" title="Non-native tags detected">
+							This worker group has native mode enabled but includes non-native tags: {nonNativeTags.join(
+								', '
+							)}. Non-native jobs will be failed. This is fine if those custom tags are only used
+							for native language jobs.
+						</Alert>
+					{/if}
+					{#if isNativeModeEnabled && nconfig?.worker_tags != undefined && !nconfig.worker_tags.includes(defaultTagPerWorkspace && workspaceTag ? `flow-${workspaceTag}` : 'flow')}
+						<Alert size="xs" type="info" title="Flow tag not included">
+							Adding the flow tag to native workers can improve efficiency, but may cause issues
+							with large inputs.
+							<div class="mt-2 w-fit">
+								<Button
+									variant="default"
+									on:click={() => {
+										if (nconfig?.worker_tags != undefined) {
+											const flowTag =
+												defaultTagPerWorkspace && workspaceTag ? `flow-${workspaceTag}` : 'flow'
+											nconfig.worker_tags = [...nconfig.worker_tags, flowTag]
+										}
+									}}
+									disabled={!canEditConfig}
+									startIcon={{ icon: Plus }}
+								>
+									Add flow tag
+								</Button>
+							</div>
+						</Alert>
+					{/if}
+				</Label>
+			{/if}
+
+			{#if nconfig !== undefined}
+				<div class="mt-8"></div>
+				<Label
+					label="Alerts"
+					tooltip="Alert is sent to the configured critical error channels"
+					eeOnly={!hasEnterpriseFeatures}
+				>
 					<Toggle
 						size="sm"
 						options={{
@@ -493,7 +616,7 @@
 								nconfig.min_alive_workers_alert_threshold = ev.detail ? 1 : undefined
 							}
 						}}
-						disabled={!canEditConfig}
+						disabled={!canEditEEConfig}
 					/>
 					{#if nconfig.min_alive_workers_alert_threshold !== undefined}
 						<div class="flex flex-row items-center text-xs gap-2">
@@ -501,7 +624,7 @@
 							<input
 								type="number"
 								class="!w-14 text-center"
-								disabled={!canEditConfig}
+								disabled={!canEditEEConfig}
 								min="1"
 								bind:value={nconfig.min_alive_workers_alert_threshold}
 							/>
@@ -529,7 +652,7 @@
 				{#if nconfig !== undefined}
 					<DedicatedWorkersSelector
 						selectedTags={nconfig.dedicated_workers ?? []}
-						disabled={!canEditConfig}
+						disabled={!canEditEEConfig}
 						onchange={(tags) => {
 							if (nconfig) {
 								nconfig.dedicated_workers = tags
@@ -546,19 +669,20 @@
 		<Label
 			label="Environment variables passed to jobs"
 			tooltip="Add static and dynamic environment variables that will be passed to jobs handled by this worker group. Dynamic environment variable values will be loaded from the worker host environment variables while static environment variables will be set directly from their values below."
+			eeOnly={!hasEnterpriseFeatures}
 		>
 			<div class="flex flex-col gap-y-2 pb-2 max-w">
 				{#each customEnvVars as envvar, i}
 					<div class="flex gap-1 items-center">
 						<input
-							disabled={isReadOnly}
+							disabled={!canEditEEConfig}
 							type="text"
 							placeholder="ENV_VAR_NAME"
 							bind:value={envvar.key}
 							onkeypress={(e) => {}}
 						/>
 						<ToggleButtonGroup
-							disabled={!canEditConfig}
+							disabled={!canEditEEConfig}
 							class="w-128"
 							bind:selected={envvar.type}
 							on:selected={(e) => {
@@ -568,20 +692,20 @@
 							}}
 						>
 							{#snippet children({ item })}
-								<ToggleButton value="dynamic" label="Dynamic" {item} disabled={!canEditConfig} />
-								<ToggleButton value="static" label="Static" {item} disabled={!canEditConfig} />
+								<ToggleButton value="dynamic" label="Dynamic" {item} disabled={!canEditEEConfig} />
+								<ToggleButton value="static" label="Static" {item} disabled={!canEditEEConfig} />
 							{/snippet}
 						</ToggleButtonGroup>
 						<TextInput
 							inputProps={{
 								type: 'text',
-								disabled: isReadOnly || envvar.type === 'dynamic',
+								disabled: !canEditEEConfig || envvar.type === 'dynamic',
 								placeholder:
 									envvar.type === 'dynamic' ? 'value read from worker env var' : 'static value'
 							}}
 							bind:value={envvar.value}
 						/>
-						{#if canEditConfig}
+						{#if canEditEEConfig}
 							<Button
 								wrapperClasses="ml-2"
 								variant="subtle"
@@ -602,12 +726,12 @@
 								startIcon={{ icon: Trash }}
 								iconOnly
 								destructive
-								disabled={!canEditConfig}
+								disabled={!canEditEEConfig}
 							/>
 						{/if}
 					</div>
 				{/each}
-				{#if canEditConfig}
+				{#if canEditEEConfig}
 					<div class="flex flex-col gap-2">
 						<Button
 							variant="default"
@@ -617,7 +741,7 @@
 								customEnvVars.push({ key: '', type: 'dynamic', value: undefined })
 								customEnvVars = [...customEnvVars]
 							}}
-							disabled={!canEditConfig}
+							disabled={!canEditEEConfig}
 						>
 							Add environment variable
 						</Button>
@@ -682,11 +806,17 @@
 		<AutoscalingConfigEditor
 			worker_tags={config?.worker_tags}
 			bind:config={nconfig.autoscaling}
-			disabled={!canEditConfig}
+			disabled={!canEditEEConfig}
+			eeOnly={!hasEnterpriseFeatures}
 		/>
 
 		<div class="mt-8"></div>
-		<Section label="Python dependencies overrides" collapsable={true} class="flex flex-col gap-y-6">
+		<Section
+			label="Python dependencies overrides"
+			collapsable={true}
+			class="flex flex-col gap-y-6"
+			eeOnly={!hasEnterpriseFeatures}
+		>
 			<Label
 				label="Additional Python paths"
 				tooltip="Paths to add to the Python path for it to search dependencies, useful if you have packages pre-installed on the workers at a given path."
@@ -697,11 +827,11 @@
 						<div class="flex gap-1 items-center">
 							<input
 								type="text"
-								disabled={!canEditConfig}
+								disabled={!canEditEEConfig}
 								placeholder="/path/to/python3.X/site-packages"
 								bind:value={nconfig.additional_python_paths![i]}
 							/>
-							{#if canEditConfig}
+							{#if canEditEEConfig}
 								<button
 									class="rounded-full bg-surface/60 hover:bg-surface-hover"
 									aria-label="Clear"
@@ -722,7 +852,7 @@
 						</div>
 					{/each}
 				{/if}
-				{#if canEditConfig}
+				{#if canEditEEConfig}
 					<div class="flex">
 						<Button
 							variant="default"
@@ -749,12 +879,12 @@
 					{#each nconfig.pip_local_dependencies as _, i}
 						<div class="flex gap-1 items-center">
 							<input
-								disabled={!canEditConfig}
+								disabled={!canEditEEConfig}
 								type="text"
 								placeholder="httpx"
 								bind:value={nconfig.pip_local_dependencies[i]}
 							/>
-							{#if canEditConfig}
+							{#if canEditEEConfig}
 								<button
 									class="rounded-full bg-surface/60 hover:bg-surface-hover"
 									aria-label="Clear"
@@ -775,7 +905,7 @@
 						</div>
 					{/each}
 				{/if}
-				{#if canEditConfig}
+				{#if canEditEEConfig}
 					<div class="flex">
 						<Button
 							variant="default"
@@ -799,123 +929,144 @@
 		<div class="mt-8"></div>
 
 		<Section
-			label="Worker scripts"
-			tooltip="Bash scripts for worker initialization and maintenance. Init scripts run at worker start, periodic scripts run at configurable intervals."
+			label="Init script"
+			tooltip="Bash script run at start of the workers. More lightweight than requiring custom worker images."
 			collapsable
+			initiallyCollapsed={nconfig.init_bash === undefined}
 		>
-			{#if canEditConfig}
-				<div class="mb-4">
+			{#snippet header()}
+				<div class="ml-4 flex flex-row gap-2 items-center">
+					{#if nconfig.init_bash !== undefined}
+						<Badge color="green">Enabled</Badge>
+					{/if}
+				</div>
+			{/snippet}
+			{#if (nconfig.init_bash ?? '') !== (config?.init_bash ?? '')}
+				<div class="mb-2">
 					<Alert size="xs" type="info" title="Worker restart required">
-						Workers will get killed upon detecting any changes in this section (scripts or
-						interval). It is assumed they are in an environment where the supervisor will restart
-						them.
+						Workers will get killed upon detecting changes to the init script. It is assumed they
+						are in an environment where the supervisor will restart them.
+					</Alert>
+				</div>
+			{/if}
+			<p class="text-xs text-secondary mb-2">
+				Execution logs are visible on the runs page of the admins workspace. Use the script editor
+				with Bash to iterate on your script before setting it here.
+			</p>
+			<div class="border w-full h-40">
+				<Editor
+					fixedOverflowWidgets={true}
+					disabled={!canEditConfig}
+					class="flex flex-1 grow h-full w-full"
+					automaticLayout
+					scriptLang={'bash'}
+					useWebsockets={false}
+					code={config?.init_bash ?? ''}
+					on:change={(e) => {
+						if (config) {
+							const code = e.detail
+							if (code != '') {
+								nconfig.init_bash = code?.replace(/\r\n/g, '\n')
+							} else {
+								nconfig.init_bash = undefined
+							}
+						}
+					}}
+				/>
+			</div>
+		</Section>
+
+		<div class="mt-8"></div>
+
+		<Section
+			label="Periodic script"
+			tooltip="Bash script run periodically at configurable intervals. Useful for maintenance tasks like cleaning disk space."
+			collapsable
+			eeOnly={!hasEnterpriseFeatures}
+			initiallyCollapsed={nconfig.periodic_script_bash === undefined}
+		>
+			{#snippet header()}
+				<div class="ml-4 flex flex-row gap-2 items-center">
+					{#if nconfig.periodic_script_bash !== undefined}
+						<Badge color="green">Enabled</Badge>
+					{/if}
+				</div>
+			{/snippet}
+			{#if (nconfig.periodic_script_bash ?? '') !== (config?.periodic_script_bash ?? '') || (nconfig.periodic_script_interval_seconds ?? 0) !== (config?.periodic_script_interval_seconds ?? 0)}
+				<div class="mb-2">
+					<Alert size="xs" type="info" title="Worker restart required">
+						Workers will get killed upon detecting changes to the periodic script or interval. It is
+						assumed they are in an environment where the supervisor will restart them.
 					</Alert>
 				</div>
 			{/if}
 
-			<div class="space-y-6">
-				<div>
-					<div class="text-xs text-secondary mb-1">
-						Run at start of the workers. More lightweight than requiring custom worker images.
-					</div>
-					<Section
-						small
-						label="Init script"
-						collapsable
-						initiallyCollapsed={nconfig.init_bash === undefined}
-					>
-						{#snippet header()}
-							<div class="ml-4 flex flex-row gap-2 items-center">
-								{#if nconfig.init_bash !== undefined}
-									<Badge color="green">Enabled</Badge>
-								{/if}
-							</div>
-						{/snippet}
-						<div class="border w-full h-40">
-							<Editor
-								fixedOverflowWidgets={true}
-								disabled={!canEditConfig}
-								class="flex flex-1 grow h-full w-full"
-								automaticLayout
-								scriptLang={'bash'}
-								useWebsockets={false}
-								code={config?.init_bash ?? ''}
-								on:change={(e) => {
-									if (config) {
-										const code = e.detail
-										if (code != '') {
-											nconfig.init_bash = code?.replace(/\r\n/g, '\n')
-										} else {
-											nconfig.init_bash = undefined
-										}
-									}
-								}}
-							/>
-						</div>
-					</Section>
-				</div>
-				<div>
-					<div class="text-xs text-secondary mb-1">
-						Run periodically at configurable intervals. Useful for maintenance tasks like cleaning
-						disk space.
-					</div>
-					<Section
-						small
-						label="Periodic script"
-						collapsable
-						initiallyCollapsed={nconfig.periodic_script_bash === undefined}
-					>
-						{#snippet header()}
-							<div class="ml-4 flex flex-row gap-2 items-center">
-								{#if nconfig.periodic_script_bash !== undefined}
-									<Badge color="green">Enabled</Badge>
-								{/if}
-							</div>
-						{/snippet}
+			<div class="flex gap-4 items-center mb-4">
+				<Label label="Execution interval (seconds)" for="periodic-script-interval-seconds">
+					<TextInput
+						inputProps={{
+							disabled: !canEditEEConfig,
+							type: 'number',
+							min: '60',
+							placeholder: '3600',
+							class: '!w-24 '
+						}}
+						bind:value={nconfig.periodic_script_interval_seconds}
+					/>
+					<span class="text-2xs text-hint">Minimum: 60 seconds</span>
+				</Label>
+			</div>
 
-						<div class="flex gap-4 items-center mb-4">
-							<Label label="Execution interval (seconds)" for="periodic-script-interval-seconds">
-								<TextInput
-									inputProps={{
-										disabled: !canEditConfig,
-										type: 'number',
-										min: '60',
-										placeholder: '3600',
-										class: '!w-24 '
-									}}
-									bind:value={nconfig.periodic_script_interval_seconds}
-								/>
-								<span class="text-2xs text-hint">Minimum: 60 seconds</span>
-							</Label>
-						</div>
-
-						<div class="border w-full h-40">
-							<Editor
-								disabled={!canEditConfig}
-								class="flex flex-1 grow h-full w-full"
-								automaticLayout
-								scriptLang={'bash'}
-								useWebsockets={false}
-								fixedOverflowWidgets={false}
-								code={config?.periodic_script_bash ?? ''}
-								on:change={(e) => {
-									if (config) {
-										const code = e.detail
-										if (code != '') {
-											nconfig.periodic_script_bash = code?.replace(/\r\n/g, '\n')
-										} else {
-											nconfig.periodic_script_bash = undefined
-										}
-									}
-								}}
-							/>
-						</div>
-					</Section>
-				</div>
+			<div class="border w-full h-40">
+				<Editor
+					disabled={!canEditEEConfig}
+					class="flex flex-1 grow h-full w-full"
+					automaticLayout
+					scriptLang={'bash'}
+					useWebsockets={false}
+					fixedOverflowWidgets={false}
+					code={config?.periodic_script_bash ?? ''}
+					on:change={(e) => {
+						if (config) {
+							const code = e.detail
+							if (code != '') {
+								nconfig.periodic_script_bash = code?.replace(/\r\n/g, '\n')
+							} else {
+								nconfig.periodic_script_bash = undefined
+							}
+						}
+					}}
+				/>
 			</div>
 		</Section>
+
+		<div class="mt-8">
+			<Section label="Set via API" collapsable headerClass="text-secondary">
+				<p class="text-xs text-tertiary">Requires a superadmin token.</p>
+				<pre
+					class="mt-1 p-2 bg-surface-secondary rounded text-xs overflow-x-auto whitespace-pre-wrap break-all"
+					>curl -X POST '{window.location.origin}/api/configs/update/worker__{name}' \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer &lt;token&gt;' \
+  -d '{JSON.stringify(cleanWorkerGroupConfig(nconfig ?? {}), null, 2)}'</pre
+				>
+			</Section>
+		</div>
 		{#snippet actions()}
 			<div class="flex gap-4 items-center">
+				{#if onOpenYamlEditor}
+					<Button
+						variant="default"
+						unifiedSize="md"
+						startIcon={{ icon: FileCode }}
+						onClick={() => {
+							drawer?.closeDrawer()
+							onOpenYamlEditor?.()
+						}}
+					>
+						YAML editor
+					</Button>
+				{/if}
 				<div class="flex gap-2 items-center">
 					{#if canEditConfig}
 						<Button
@@ -1003,6 +1154,9 @@
 						>{#snippet text()}Number of active workers of this group in the last 15 seconds{/snippet}</Tooltip
 					></span
 				>
+				{#if isNativeMode}
+					<Badge color="blue" small>Native</Badge>
+				{/if}
 			</div>
 
 			{#if vcpus_memory?.vcpus}
@@ -1077,36 +1231,9 @@
 						>
 							Clean cache
 						</Button>
-
-						{#if config}
-							<Button
-								unifiedSize="sm"
-								variant="subtle"
-								on:click={() => {
-									navigator.clipboard.writeText(
-										YAML.stringify({
-											name,
-											...config
-										})
-									)
-									sendUserToast('Worker config copied to clipboard as YAML')
-								}}
-								startIcon={{ icon: Copy }}
-							>
-								Copy config
-							</Button>
-						{/if}
 					{:else}
 						<Dropdown
 							items={[
-								{
-									displayName: 'Copy config',
-									action: () => {
-										navigator.clipboard.writeText(YAML.stringify({ name, ...config }))
-										sendUserToast('Worker config copied to clipboard as YAML')
-									},
-									disabled: !config
-								},
 								{
 									displayName: 'Clean cache',
 									action: () => {
@@ -1166,21 +1293,27 @@
 			<TagList tags={config.worker_tags} maxVisible={25} class="flex-wrap" />
 		</div>
 	{:else if config?.dedicated_workers && config.dedicated_workers.length > 0}
-		<div class="flex flex-row items-start gap-2 w-full">
-			<div class="text-secondary text-xs mt-1">Dedicated to:</div>
-			<div class="flex flex-wrap gap-1">
+		<div class="flex flex-row items-start gap-2 w-full min-w-0">
+			<div class="text-secondary text-xs mt-1 flex-shrink-0">Dedicated to:</div>
+			<div class="flex flex-wrap gap-1 min-w-0">
 				{#each config.dedicated_workers as dw}
-					<div class="text-xs bg-surface-secondary px-2 py-1 rounded text-primary font-mono">
-						{dw}
+					<div
+						class="text-xs bg-surface-secondary px-2 py-1 rounded text-primary font-mono truncate max-w-xs"
+						title={hashedDedicatedTags.get(dw) ?? dw}
+					>
+						{hashedDedicatedTags.get(dw) ?? dw}
 					</div>
 				{/each}
 			</div>
 		</div>
 	{:else if config?.dedicated_worker}
-		<div class="flex flex-row items-start gap-2 w-full">
-			<div class="text-secondary text-xs mt-1">Dedicated to:</div>
-			<div class="text-xs bg-surface-secondary px-2 py-1 rounded text-primary font-mono">
-				{config.dedicated_worker}
+		<div class="flex flex-row items-start gap-2 w-full min-w-0">
+			<div class="text-secondary text-xs mt-1 flex-shrink-0">Dedicated to:</div>
+			<div
+				class="text-xs bg-surface-secondary px-2 py-1 rounded text-primary font-mono truncate max-w-xs"
+				title={hashedDedicatedTags.get(config.dedicated_worker) ?? config.dedicated_worker}
+			>
+				{hashedDedicatedTags.get(config.dedicated_worker) ?? config.dedicated_worker}
 			</div>
 		</div>
 	{/if}

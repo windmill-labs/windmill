@@ -6,18 +6,14 @@
 		propName?: string
 		onSelect: SelectCallback
 		clearFocus: () => void
-		insertionMode: 'append' | 'connect' | 'insert'
 	}
 
 	export type PropPickerWrapperContext = {
 		propPickerConfig: Writable<PropPickerConfig | undefined>
 		inputMatches: Writable<{ word: string; value: string }[] | undefined>
-		focusProp: (
-			propName: string,
-			insertionMode: 'append' | 'connect' | 'insert',
-			onSelect: SelectCallback
-		) => void
-		clearFocus: () => void
+		connectProp: (propName: string, onSelect: SelectCallback) => void
+		clearConnect: () => void
+		exprBeingEdited: Writable<string[]>
 	}
 </script>
 
@@ -77,10 +73,9 @@
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		propPickerConfig,
 		inputMatches,
-		focusProp: (propName, insertionMode, onSelect) => {
+		connectProp: (propName, onSelect) => {
 			const config = {
 				propName,
-				insertionMode,
 				onSelect,
 				clearFocus: () => {
 					propPickerConfig.set(undefined)
@@ -98,10 +93,11 @@
 				})
 			}
 		},
-		clearFocus: () => {
+		clearConnect: () => {
 			flowPropPickerConfig.set(undefined)
 			propPickerConfig.set(undefined)
-		}
+		},
+		exprBeingEdited: writable<string[]>([])
 	})
 
 	async function getPropPickerElements(): Promise<HTMLElement[]> {
@@ -134,14 +130,11 @@
 		<Pane minSize={20} size={40} class="!transition-none z-1000 relative {paneClass}">
 			<div bind:clientHeight={rightPaneHeight} class="min-h-40 h-full !bg-surface-secondary">
 				<AnimatedButton
-					animate={$propPickerConfig?.insertionMode == 'connect'}
+					animate={$propPickerConfig != undefined}
 					baseRadius="4px"
 					wrapperClasses="prop-picker-inputs h-full w-full pt-1"
 					marginWidth="3px"
-					ringColor={$propPickerConfig?.insertionMode == 'insert' ||
-					$propPickerConfig?.insertionMode == 'append'
-						? '#3b82f6'
-						: 'transparent'}
+					ringColor="transparent"
 					animationDuration="4s"
 				>
 					{#if result != undefined && !pickableProperties}

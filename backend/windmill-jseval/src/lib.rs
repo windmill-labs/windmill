@@ -19,6 +19,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+pub const EVAL_TIMEOUT_MS: u64 = 20000;
+
 use lazy_static::lazy_static;
 use regex::Regex;
 #[cfg(feature = "quickjs")]
@@ -274,7 +276,7 @@ pub async fn eval_timeout_quickjs(
 
     // Run the QuickJS evaluation with a timeout
     tokio::time::timeout(
-        std::time::Duration::from_millis(10000),
+        std::time::Duration::from_millis(EVAL_TIMEOUT_MS),
         tokio::task::spawn_blocking(move || {
             // Create a new tokio runtime for async operations within the blocking context
             let rt = tokio::runtime::Builder::new_current_thread()
@@ -298,7 +300,7 @@ pub async fn eval_timeout_quickjs(
     )
     .await
     .map_err(|_| {
-        anyhow::anyhow!("The expression evaluation `{expr}` took too long to execute (>10000ms)")
+        anyhow::anyhow!("The expression evaluation `{expr}` took too long to execute (>{EVAL_TIMEOUT_MS}ms)")
     })??
 }
 
@@ -786,7 +788,7 @@ pub async fn eval_simple_js(
     globals: HashMap<String, serde_json::Value>,
 ) -> anyhow::Result<Box<RawValue>> {
     tokio::time::timeout(
-        std::time::Duration::from_millis(10000),
+        std::time::Duration::from_millis(EVAL_TIMEOUT_MS),
         tokio::task::spawn_blocking(move || {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -819,7 +821,7 @@ pub async fn eval_simple_js(
     )
     .await
     .map_err(|_| {
-        anyhow::anyhow!("The expression evaluation took too long to execute (>10000ms)")
+        anyhow::anyhow!("The expression evaluation took too long to execute (>{EVAL_TIMEOUT_MS}ms)")
     })??
 }
 

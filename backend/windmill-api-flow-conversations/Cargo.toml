@@ -1,0 +1,21 @@
+[package]
+name = "windmill-api-flow-conversations"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_api_flow_conversations"
+path = "src/lib.rs"
+
+[dependencies]
+windmill-api-auth.workspace = true
+windmill-common = { workspace = true, default-features = false }
+axum.workspace = true
+chrono.workspace = true
+serde.workspace = true
+sql-builder.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true

@@ -7,13 +7,14 @@ edition.workspace = true
 [features]
 default = []
 enterprise = ["dep:aws-config"]
+instance_config_schema = ["dep:schemars"]
 local_reports = ["dep:rsa", "dep:aes-gcm"]
 private = ["dep:aws-sdk-rds"]
 jemalloc = ["dep:tikv-jemalloc-ctl"]
 tantivy = []
 prometheus = ["dep:prometheus"]
 benchmark = []
-parquet = ["dep:object_store", "dep:aws-sdk-sts", "dep:aws-smithy-types-convert", "dep:datafusion", "dep:aws-config", "dep:aws-credential-types"]
+parquet = []
 aws_auth = ["dep:aws-sdk-sts", "dep:aws-config"]
 otel = ["dep:opentelemetry-semantic-conventions", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk",
     "dep:tracing-opentelemetry", "dep:opentelemetry-appender-tracing", "dep:tonic", "dep:opentelemetry"]
@@ -63,7 +64,6 @@ regex.workspace = true
 git-version.workspace = true
 cron.workspace = true
 magic-crypt.workspace = true
-object_store = { workspace = true, optional = true }
 prometheus = { workspace = true, optional = true }
 aws-config = { workspace = true, optional = true }
 aws-sdk-sts = { workspace = true, optional = true }
@@ -96,6 +96,7 @@ windmill-parser.workspace = true
 jsonwebtoken.workspace = true
 backon.workspace = true
 openidconnect = { workspace = true, optional = true }
+schemars = { workspace = true, optional = true }
 strum.workspace = true
 strum_macros.workspace = true
 windmill-types.workspace = true

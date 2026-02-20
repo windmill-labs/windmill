@@ -12,7 +12,10 @@ use windmill_api_auth::{
     check_scopes, maybe_refresh_folders, require_owner_of_path, ApiAuthed,
 };
 use windmill_common::{
-    utils::{BulkDeleteRequest, WithStarredInfoQuery, HTTP_CLIENT}, webhook::{WebhookMessage, WebhookShared}, workspaces::{check_user_against_rule, ProtectionRuleKind, RuleCheckResult}, DB
+    utils::{BulkDeleteRequest, WithStarredInfoQuery, HTTP_CLIENT},
+    webhook::{WebhookMessage, WebhookShared},
+    workspaces::{check_user_against_rule, ProtectionRuleKind, RuleCheckResult},
+    DB,
 };
 use windmill_queue::schedule::clear_schedule;
 
@@ -48,11 +51,11 @@ use windmill_common::{
     runnable_settings::{
         min_version_supports_runnable_settings_v0, RunnableSettings, RunnableSettingsTrait,
     },
-    s3_helpers::upload_artifact_to_store,
     scripts::{hash_script, ScriptRunnableSettingsHandle, ScriptRunnableSettingsInline},
     utils::{paginate_without_limits, WarnAfterExt},
     worker::CLOUD_HOSTED,
 };
+use windmill_object_store::upload_artifact_to_store;
 
 use windmill_common::{
     db::UserDB,
@@ -494,7 +497,7 @@ async fn create_snapshot_script(
 
             uploaded = true;
 
-            let path = windmill_common::s3_helpers::bundle(&w_id, &hash);
+            let path = windmill_object_store::bundle(&w_id, &hash);
             upload_artifact_to_store(
                 &path,
                 data,
@@ -859,10 +862,13 @@ async fn create_script_internal<'c>(
         }
     };
 
-    let runnable_settings_handle = windmill_common::runnable_settings::insert_rs(RunnableSettings {
-        debouncing_settings: ns.debouncing_settings.insert_cached(&db).await?,
-        concurrency_settings: ns.concurrency_settings.insert_cached(&db).await?,
-    }, &db)
+    let runnable_settings_handle = windmill_common::runnable_settings::insert_rs(
+        RunnableSettings {
+            debouncing_settings: ns.debouncing_settings.insert_cached(&db).await?,
+            concurrency_settings: ns.concurrency_settings.insert_cached(&db).await?,
+        },
+        &db,
+    )
     .await?;
 
     let (
@@ -1072,8 +1078,14 @@ async fn create_script_internal<'c>(
     }
     if needs_lock_gen {
         let tag = if ns.dedicated_worker.is_some_and(|x| x) {
-            Some(format!("{}:{}", &w_id, &ns.path,))
+            Some(windmill_common::worker::dedicated_worker_tag(
+                &w_id, &ns.path,
+            ))
         } else if ns.tag.as_ref().is_some_and(|x| x.contains("$args[")) {
+            None
+        } else if lang == ScriptLang::Bunnative {
+            // if a custom tag is set for a bunnative script, this prevents the custom tag to be used for the dependency job
+            // forcing the bundling to run on a worker with the bun tag
             None
         } else {
             ns.tag
@@ -1839,7 +1851,9 @@ async fn get_script_by_hash(
 
     tx.commit().await?;
 
-    Ok(Json(windmill_common::scripts::prefetch_cached_script_with_starred(r, &db).await?))
+    Ok(Json(
+        windmill_common::scripts::prefetch_cached_script_with_starred(r, &db).await?,
+    ))
 }
 
 async fn raw_script_by_hash(
@@ -2042,7 +2056,9 @@ async fn archive_script_by_hash(
         WebhookMessage::DeleteScript { workspace: w_id, hash: hash.to_string() },
     );
 
-    Ok(Json(windmill_common::scripts::prefetch_cached_script(script, &db).await?))
+    Ok(Json(
+        windmill_common::scripts::prefetch_cached_script(script, &db).await?,
+    ))
 }
 
 async fn delete_script_by_hash(
@@ -2097,7 +2113,9 @@ async fn delete_script_by_hash(
         WebhookMessage::DeleteScript { workspace: w_id, hash: hash.to_string() },
     );
 
-    Ok(Json(windmill_common::scripts::prefetch_cached_script(script, &db).await?))
+    Ok(Json(
+        windmill_common::scripts::prefetch_cached_script(script, &db).await?,
+    ))
 }
 
 #[derive(Deserialize)]

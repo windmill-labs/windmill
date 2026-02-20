@@ -1,6 +1,7 @@
 <script lang="ts">
 	import IconedResourceType from './IconedResourceType.svelte'
 	import Toggle from './Toggle.svelte'
+	import SettingCard from './instanceSettings/SettingCard.svelte'
 
 	export let value: any
 
@@ -46,7 +47,7 @@
 		/></label
 	>
 	{#if enabled}
-		<div class="border rounded p-4 flex flex-col gap-6">
+		<SettingCard class="flex flex-col gap-6">
 			<label>
 				<span class="text-emphasis font-semibold text-xs">Authentik Url</span>
 				<span class="text-secondary font-normal text-xs"
@@ -66,6 +67,6 @@
 				<span class="text-emphasis font-semibold text-xs">Client Secret </span>
 				<input type="text" placeholder="Client Secret" bind:value={value['secret']} />
 			</label>
-		</div>
+		</SettingCard>
 	{/if}
 </div>

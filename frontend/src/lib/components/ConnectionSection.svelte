@@ -9,6 +9,7 @@
 	import { sendUserToast } from '$lib/utils'
 	import TeamSelector from './TeamSelector.svelte'
 	import CollapseLink from './CollapseLink.svelte'
+	import SettingCard from './instanceSettings/SettingCard.svelte'
 
 	interface TeamItem {
 		team_id: string
@@ -88,85 +89,80 @@
 	const capitalizedPlatform = $derived(platform.charAt(0).toUpperCase() + platform.slice(1))
 </script>
 
-<div class="flex flex-col gap-1">
-	<div class="text-xs font-semibold text-emphasis">{capitalizedPlatform} connection</div>
-	<div class="rounded-md border p-4 flex flex-col gap-6">
-		{#if workspaceConfig}
-			{@render workspaceConfig()}
-		{/if}
-		{#if teamName || workspaceSpecificConnection}
-			<div class="flex flex-col gap-2 max-w-sm">
-				<div class="flex flex-row gap-2 items-center">
-					{#if display_name}
-						<Badge color="green">
-							<Plug size={14} />
-							Workspace connected to {capitalizedPlatform} team '{display_name}'</Badge
-						>
+<SettingCard label={capitalizedPlatform + ' connection'}>
+	{#if workspaceConfig}
+		{@render workspaceConfig()}
+	{/if}
+	{#if teamName || workspaceSpecificConnection}
+		<div class="flex flex-col gap-2 max-w-sm">
+			<div class="flex flex-row gap-2 items-center">
+				{#if display_name}
+					<Badge color="green">
+						<Plug size={14} />
+						Workspace connected to {capitalizedPlatform} team '{display_name}'</Badge
+					>
+				{/if}
+				<Button
+					unifiedSize="md"
+					startIcon={{ icon: Unplug }}
+					disabled={!$enterpriseLicense && platform === 'teams'}
+					onclick={onDisconnect}
+					destructive
+					variant="subtle"
+				>
+					Disconnect {capitalizedPlatform}
+					{!$enterpriseLicense && platform === 'teams' ? '(EE only)' : ''}
+				</Button>
+			</div>
+		</div>
+	{:else if !hideConnectButton}
+		<div class="flex flex-col gap-2">
+			<div class="flex flex-row gap-2 items-center">
+				{#if platform === 'teams'}
+					{#if $enterpriseLicense && isOAuthEnabled}
+						<TeamSelector
+							bind:selectedTeam
+							minWidth="180px"
+							disabled={!$enterpriseLicense}
+							onError={(e) => {
+								const errorMsg =
+									typeof (e as any)?.body === 'string'
+										? (e as any).body
+										: e?.message || 'Unknown error'
+								sendUserToast('Failed to load teams: ' + errorMsg, true)
+							}}
+						/>
 					{/if}
 					<Button
 						unifiedSize="md"
-						startIcon={{ icon: Unplug }}
-						disabled={!$enterpriseLicense && platform === 'teams'}
-						onclick={onDisconnect}
-						destructive
-						variant="subtle"
+						variant="accent"
+						onclick={connectTeams}
+						endIcon={{ icon: MsTeamsIcon }}
+						disabled={!selectedTeam || !$enterpriseLicense}
 					>
-						Disconnect {capitalizedPlatform}
-						{!$enterpriseLicense && platform === 'teams' ? '(EE only)' : ''}
+						Connect to {platform.charAt(0).toUpperCase() + platform.slice(1)}
+						{$enterpriseLicense ? '' : '(EE only)'}
 					</Button>
-				</div>
+				{:else}
+					<Button
+						size="xs"
+						variant="accent"
+						href={connectHref}
+						startIcon={{ icon: Slack }}
+						disabled={!isOAuthEnabled}
+					>
+						Connect to {platform.charAt(0).toUpperCase() + platform.slice(1)}
+					</Button>
+				{/if}
 			</div>
-		{:else if !hideConnectButton}
-			<div class="flex flex-col gap-2">
-				<div class="flex flex-row gap-2 items-center">
-					{#if platform === 'teams'}
-						{#if $enterpriseLicense && isOAuthEnabled}
-							<TeamSelector
-								bind:selectedTeam
-								minWidth="180px"
-								disabled={!$enterpriseLicense}
-								onError={(e) => {
-									const errorMsg =
-										typeof (e as any)?.body === 'string'
-											? (e as any).body
-											: e?.message || 'Unknown error'
-									sendUserToast('Failed to load teams: ' + errorMsg, true)
-								}}
-							/>
-						{/if}
-						<Button
-							unifiedSize="md"
-							variant="accent"
-							onclick={connectTeams}
-							endIcon={{ icon: MsTeamsIcon }}
-							disabled={!selectedTeam || !$enterpriseLicense}
-						>
-							Connect to {platform.charAt(0).toUpperCase() + platform.slice(1)}
-							{$enterpriseLicense ? '' : '(EE only)'}
-						</Button>
-					{:else}
-						<Button
-							size="xs"
-							variant="accent"
-							href={connectHref}
-							startIcon={{ icon: Slack }}
-							disabled={!isOAuthEnabled}
-						>
-							Connect to {platform.charAt(0).toUpperCase() + platform.slice(1)}
-						</Button>
-					{/if}
-				</div>
-			</div>
-		{/if}
-	</div>
-</div>
+		</div>
+	{/if}
+</SettingCard>
 
-<div class="flex flex-col gap-1">
-	<div class="text-primary text-xs font-semibold"> Script or flow to run on /windmill command </div>
-	<span class="text-xs text-secondary mb-2"
-		>Pick a script or flow meant to be triggered when the `/windmill` command is invoked.</span
-	>
-
+<SettingCard
+	label="Script or flow to run on /windmill command"
+	description="Pick a script or flow meant to be triggered when the `/windmill` command is invoked."
+>
 	<div class="flex flex-row gap-2">
 		<ScriptPicker
 			kinds={['script']}
@@ -228,4 +224,4 @@
 			<a href={documentationLink}>documentation</a>.
 		</div>
 	</CollapseLink>
-</div>
+</SettingCard>

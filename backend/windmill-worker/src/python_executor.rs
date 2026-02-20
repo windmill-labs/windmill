@@ -93,7 +93,7 @@ struct PiptarUploadTask {
 #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
 async fn handle_piptar_uploads(mut rx: tokio::sync::mpsc::UnboundedReceiver<PiptarUploadTask>) {
     use crate::global_cache::build_tar_and_push;
-    use windmill_common::s3_helpers::get_object_store;
+    use windmill_object_store::get_object_store;
 
     while let Some(task) = rx.recv().await {
         if let Some(os) = get_object_store().await {
@@ -123,7 +123,7 @@ const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
 use crate::global_cache::pull_from_tar;
 
 #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
-use windmill_common::s3_helpers::OBJECT_STORE_SETTINGS;
+use windmill_object_store::OBJECT_STORE_SETTINGS;
 
 use crate::{
     common::{
@@ -132,9 +132,11 @@ use crate::{
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
+    is_sandboxing_enabled, read_ee_registry,
     worker_utils::ping_job_status,
-    PyV, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PIP_EXTRA_INDEX_URL,
-    PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TRACING_PROXY_CA_CERT_PATH, TZ_ENV, UV_CACHE_DIR,
+    PyV, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL,
+    PROXY_ENVS, PY_INSTALL_DIR, TRACING_PROXY_CA_CERT_PATH, TZ_ENV, UV_CACHE_DIR,
+    UV_INDEX_STRATEGY,
 };
 use windmill_common::client::AuthedClient;
 
@@ -221,6 +223,9 @@ pub async fn uv_pip_compile(
         requirements.to_string()
     };
 
+    let uv_index_strategy = UV_INDEX_STRATEGY.read().await.clone();
+    let uv_index_strategy = uv_index_strategy.as_deref().unwrap_or("unsafe-best-match");
+
     let py_version_str = py_version.clone().to_string();
     // Include python version to requirements.in
     // We need it because same hash based on requirements.in can get calculated even for different python versions
@@ -230,7 +235,7 @@ pub async fn uv_pip_compile(
     #[cfg(feature = "enterprise")]
     let requirements = replace_pip_secret(conn, w_id, &requirements, worker_name, job_id).await?;
 
-    let req_hash = format!("py-{}", calculate_hash(&requirements));
+    let req_hash = format!("py-{}-{uv_index_strategy}", calculate_hash(&requirements));
 
     if !no_cache {
         if let Some(db) = conn.as_sql() {
@@ -271,11 +276,6 @@ pub async fn uv_pip_compile(
             "--strip-extras",
             "-o",
             "requirements.txt",
-            // Prefer main index over extra
-            // https://docs.astral.sh/uv/pip/compatibility/#packages-that-exist-on-multiple-indexes
-            // TODO: Use env variable that can be toggled from UI
-            "--index-strategy",
-            "unsafe-best-match",
             // Target to /tmp/windmill/cache/uv
             "--cache-dir",
             UV_CACHE_DIR,
@@ -286,21 +286,29 @@ pub async fn uv_pip_compile(
         if no_cache {
             args.extend(["--no-cache"]);
         }
-        let pip_extra_index_url = PIP_EXTRA_INDEX_URL
-            .read()
-            .await
-            .clone()
-            .map(handle_ephemeral_token);
+        let pip_extra_index_url = read_ee_registry(
+            PIP_EXTRA_INDEX_URL.read().await.clone(),
+            "pip extra index url",
+            job_id,
+            w_id,
+            conn,
+        )
+        .await
+        .map(handle_ephemeral_token);
         if let Some(url) = pip_extra_index_url.as_ref() {
             url.split(",").for_each(|url| {
                 args.extend(["--extra-index-url", url]);
             });
         }
-        let pip_index_url = PIP_INDEX_URL
-            .read()
-            .await
-            .clone()
-            .map(handle_ephemeral_token);
+        let pip_index_url = read_ee_registry(
+            PIP_INDEX_URL.read().await.clone(),
+            "pip index url",
+            job_id,
+            w_id,
+            conn,
+        )
+        .await
+        .map(handle_ephemeral_token);
         if let Some(url) = pip_index_url.as_ref() {
             args.extend(["--index-url", url]);
         }
@@ -328,6 +336,7 @@ pub async fn uv_pip_compile(
             .env("HOME", HOME_ENV.to_string())
             .env("PATH", PATH_ENV.to_string())
             .env("UV_PYTHON_INSTALL_DIR", PY_INSTALL_DIR.to_string())
+            .env("UV_INDEX_STRATEGY", uv_index_strategy)
             .envs(PROXY_ENVS.clone())
             .args(&args)
             .stdout(Stdio::piped())
@@ -775,7 +784,7 @@ except BaseException as e:
     #[cfg(windows)]
     let additional_python_paths_folders = additional_python_paths_folders.replace(":", ";");
 
-    if !*DISABLE_NSJAIL {
+    if is_sandboxing_enabled() {
         let shared_deps = additional_python_paths
             .into_iter()
             .map(|pp| {
@@ -819,7 +828,7 @@ mount {{
         job.id
     );
 
-    let child = if !*DISABLE_NSJAIL {
+    let child = if is_sandboxing_enabled() {
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
             .current_dir(job_dir)
@@ -884,7 +893,7 @@ mount {{
         mem_peak,
         canceled_by,
         child,
-        !*DISABLE_NSJAIL,
+        is_sandboxing_enabled(),
         worker_name,
         &job.workspace_id,
         "python run",
@@ -1353,7 +1362,12 @@ async fn spawn_uv_install(
     py_path: Option<String>,
     worker_dir: &str,
 ) -> Result<Box<dyn TokioChildWrapper>, Error> {
-    if !*DISABLE_NSJAIL {
+    let uv_index_strategy_guard = UV_INDEX_STRATEGY.read().await.clone();
+    let uv_index_strategy = uv_index_strategy_guard
+        .as_deref()
+        .unwrap_or("unsafe-best-match");
+
+    if is_sandboxing_enabled() {
         tracing::info!(
             workspace_id = %w_id,
             "starting nsjail"
@@ -1375,6 +1389,7 @@ async fn spawn_uv_install(
         if *NATIVE_CERT {
             vars.push(("UV_NATIVE_TLS", "true"));
         }
+
         let _owner;
         if let Some(py_path) = py_path.as_ref() {
             _owner = format!(
@@ -1385,6 +1400,7 @@ async fn spawn_uv_install(
         }
         vars.push(("REQ", &req));
         vars.push(("TARGET", venv_p));
+        vars.push(("UV_INDEX_STRATEGY", uv_index_strategy));
 
         std::fs::create_dir_all(venv_p)?;
         let nsjail_proto = format!("{req}.config.proto");
@@ -1430,11 +1446,6 @@ async fn spawn_uv_install(
             "--no-config",
             "--link-mode=copy",
             "--system",
-            // Prefer main index over extra
-            // https://docs.astral.sh/uv/pip/compatibility/#packages-that-exist-on-multiple-indexes
-            // TODO: Use env variable that can be toggled from UI
-            "--index-strategy",
-            "unsafe-best-match",
             "--target",
             venv_p,
             "--no-cache",
@@ -1464,6 +1475,7 @@ async fn spawn_uv_install(
 
         let mut envs = vec![("PATH", PATH_ENV.as_str())];
         envs.push(("HOME", HOME_ENV.as_str()));
+        envs.push(("UV_INDEX_STRATEGY", uv_index_strategy));
 
         if let Some(url) = pip_index_url.as_ref() {
             command_args.extend(["--index-url", url]);
@@ -1631,16 +1643,24 @@ pub async fn handle_python_reqs(
     );
 
     let pip_indexes = (
-        PIP_EXTRA_INDEX_URL
-            .read()
-            .await
-            .clone()
-            .map(handle_ephemeral_token),
-        PIP_INDEX_URL
-            .read()
-            .await
-            .clone()
-            .map(handle_ephemeral_token),
+        read_ee_registry(
+            PIP_EXTRA_INDEX_URL.read().await.clone(),
+            "pip extra index url",
+            job_id,
+            w_id,
+            conn,
+        )
+        .await
+        .map(handle_ephemeral_token),
+        read_ee_registry(
+            PIP_INDEX_URL.read().await.clone(),
+            "pip index url",
+            job_id,
+            w_id,
+            conn,
+        )
+        .await
+        .map(handle_ephemeral_token),
     );
 
     // Cached paths
@@ -1705,7 +1725,7 @@ pub async fn handle_python_reqs(
                         let mut local_mem_peak = 0;
                         for pid_o in pids.lock().await.iter() {
                             if pid_o.is_some(){
-                                let mem = crate::handle_child::get_mem_peak(*pid_o, !*DISABLE_NSJAIL).await;
+                                let mem = crate::handle_child::get_mem_peak(*pid_o, is_sandboxing_enabled()).await;
                                 if mem < 0 {
                                     tracing::warn!(
                                         workspace_id = %w_id_2,
@@ -1815,7 +1835,7 @@ pub async fn handle_python_reqs(
         }
 
         // Do we use Nsjail?
-        if !*DISABLE_NSJAIL {
+        if is_sandboxing_enabled() {
             logs.push_str(&format!(
                 "\nStarting isolated installation... ({} tasks in parallel) \n",
                 parallel_limit
@@ -1901,7 +1921,7 @@ pub async fn handle_python_reqs(
             let start = std::time::Instant::now();
             #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
             if is_not_pro {
-                if let Some(os) = windmill_common::s3_helpers::get_object_store().await {
+                if let Some(os) = windmill_object_store::get_object_store().await {
                     tokio::select! {
                         // Cancel was called on the job
                         _ = kill_rx.recv() => return Err(Error::from(anyhow::anyhow!("S3 pull was canceled"))),
@@ -2063,7 +2083,7 @@ pub async fn handle_python_reqs(
             #[cfg(not(all(feature = "enterprise", feature = "parquet", unix)))]
             let s3_push = false;
 
-            if !*DISABLE_NSJAIL {
+            if is_sandboxing_enabled() {
                 let _ = std::fs::remove_file(format!("{job_dir}/{req}.config.proto"));
             }
 

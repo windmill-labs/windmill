@@ -47,15 +47,18 @@ export async function updatePolicy(app: App, currentPolicy: Policy | undefined):
 					let nr: { id: string; input: AppInput }[] = []
 					let config = c.configuration as any
 
-					const dbType = config?.type?.selected as DbType
-					let pg = config?.type?.configuration?.[dbType]
+					const dbType = (
+						config?.type?.selected === 'datatable' ? 'postgresql' : config?.type?.selected
+					) as DbType
+					let pg = config?.type?.configuration?.[config?.type?.selected]
 
 					if (pg && dbType) {
-						const { table, resource, ducklake } = pg
+						const { table, resource, ducklake, datatable } = pg
 						const tableValue = table.value
 						const dbPath =
 							resource?.value.split('$res:')[1] ??
-							(ducklake?.value as string | undefined)?.split('ducklake://')[1]
+							(ducklake?.value as string | undefined)?.split('ducklake://')[1] ??
+							datatable?.value
 						const columnDefs = (c.configuration.columnDefs as any).value as ColumnDef[]
 						const whereClause = (c.configuration.whereClause as any).value as unknown as
 							| string

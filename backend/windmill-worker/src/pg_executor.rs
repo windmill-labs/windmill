@@ -24,7 +24,7 @@ use tokio_postgres::{
 use uuid::Uuid;
 use windmill_common::error::to_anyhow;
 use windmill_common::error::{self, Error};
-use windmill_common::s3_helpers::convert_json_line_stream;
+use windmill_object_store::convert_json_line_stream;
 use windmill_common::worker::{
     to_raw_value, Connection, SqlResultCollectionStrategy, CLOUD_HOSTED,
 };

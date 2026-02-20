@@ -1,5 +1,4 @@
-mod common;
-use crate::common::*;
+use windmill_test_utils::*;
 use sqlx::postgres::Postgres;
 use sqlx::Pool;
 use windmill_common::jobs::{JobPayload, RawCode};
@@ -860,7 +859,7 @@ export function main() {
 // ============================================================================
 
 mod dedicated_worker_protocol {
-    use crate::common::{parse_dedicated_worker_line, DedicatedWorkerResult};
+    use windmill_test_utils::{parse_dedicated_worker_line, DedicatedWorkerResult};
     use std::io::{BufRead, BufReader, Write};
     use std::process::{Command, Stdio};
     use windmill_worker::{

@@ -25,6 +25,7 @@ import {
   extractNativeTriggerInfo,
 } from "../../types.ts";
 import { downloadZip } from "./pull.ts";
+import { runLint, printReport, checkMissingLocks } from "../lint/lint.ts";
 
 import {
   exts,
@@ -87,6 +88,7 @@ import {
   isAppPath,
   isRawAppPath,
   extractFolderPath,
+  extractResourceName,
   isFlowMetadataFile,
   isAppMetadataFile,
   isRawAppMetadataFile,
@@ -2017,7 +2019,7 @@ export async function pull(
       log.info(`Updating lock metadata for raw app ${change}`);
       await generateAppLocksInternal(
         change,
-        false,
+        true,
         true,
         workspace,
         opts,
@@ -2208,6 +2210,35 @@ export async function push(
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
+
+  if (opts.lint) {
+    log.info("Running lint validation before push...");
+    const lintReport = await runLint(opts);
+    printReport(lintReport, !!opts.jsonOutput);
+    if (!lintReport.success) {
+      log.error(colors.red("Push aborted due to lint failures."));
+      Deno.exit(1);
+    }
+  }
+
+  if (opts.locksRequired) {
+    log.info("Checking for missing locks...");
+    const lockIssues = await checkMissingLocks(opts);
+    if (lockIssues.length > 0) {
+      for (const issue of lockIssues) {
+        for (const error of issue.errors) {
+          log.error(colors.red(`  ${issue.path}: ${error}`));
+        }
+      }
+      log.error(
+        colors.red(
+          `\nPush aborted: ${lockIssues.length} script(s) missing locks.`,
+        ),
+      );
+      Deno.exit(1);
+    }
+    log.info(colors.green("All scripts have valid locks."));
+  }
 
   const codebases = await listSyncCodebases(opts);
   if (opts.raw) {
@@ -2719,18 +2750,40 @@ export async function push(
                       path: removeSuffix(target, getDeleteSuffix("raw_app", "json")),
                     });
                   } else {
-                    // For individual file deletions within a raw app,
-                    // re-push the entire raw app so the backend gets the updated file list
-                    // (the deleted file won't be included in the push)
-                    await pushObj(
-                      workspaceId,
-                      target,
-                      undefined,
-                      undefined,
-                      opts.plainSecrets ?? false,
-                      alreadySynced,
-                      opts.message,
-                    );
+                    const rawAppFolder = extractFolderPath(target, "raw_app");
+                    let folderExists = false;
+                    if (rawAppFolder) {
+                      try {
+                        await Deno.stat(rawAppFolder);
+                        folderExists = true;
+                      } catch {
+                        // folder doesn't exist
+                      }
+                    }
+                    if (folderExists) {
+                      // For individual file deletions within a raw app,
+                      // re-push the entire raw app so the backend gets the updated file list
+                      // (the deleted file won't be included in the push)
+                      await pushObj(
+                        workspaceId,
+                        target,
+                        undefined,
+                        undefined,
+                        opts.plainSecrets ?? false,
+                        alreadySynced,
+                        opts.message,
+                      );
+                    } else {
+                      // The entire raw app folder was deleted locally,
+                      // delete the raw app on the server
+                      const remotePath = extractResourceName(target, "raw_app");
+                      if (remotePath) {
+                        await wmill.deleteApp({
+                          workspace: workspaceId,
+                          path: remotePath,
+                        });
+                      }
+                    }
                   }
                   break;
                 case "schedule":
@@ -3054,6 +3107,11 @@ const command = new Command()
   .option(
     "--branch <branch:string>",
     "Override the current git branch (works even outside a git repository)",
+  )
+  .option("--lint", "Run lint validation before pushing")
+  .option(
+    "--locks-required",
+    "Fail if scripts or flow inline scripts that need locks have no locks",
   )
   // deno-lint-ignore no-explicit-any
   .action(push as any);

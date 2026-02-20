@@ -68,6 +68,7 @@
 		selectedRowIndex: 0,
 		selectedRow: {},
 		selectedRows: [] as any[],
+		openedModalRow: {},
 		result: [] as any[],
 		inputs: {},
 		loading: false,

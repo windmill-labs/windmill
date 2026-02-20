@@ -283,13 +283,18 @@
 
 	function forkPreview() {
 		if (isFlowPreview(job?.job_kind)) {
-			$initialArgsStore = job?.args
 			const state = {
 				flow: { value: job?.raw_flow },
-				path: job?.script_path + '_fork'
+				path: job?.script_path + '_fork',
+				initialArgs: job?.args
 			}
-			const encodedArgs = encodeState(job?.args)
-			window.open(`/flows/add?initial_args=${encodedArgs}#${encodeState(state)}`)
+			try {
+				localStorage.setItem('fork_flow', JSON.stringify(state))
+			} catch {
+				// Flow too large for localStorage, pass via window reference
+				;(window as any).__forkPreviewData = state
+			}
+			window.open('/flows/add?fork=true')
 		} else {
 			$initialArgsStore = job?.args
 			let n: NewScript = {

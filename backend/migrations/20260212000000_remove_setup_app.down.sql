@@ -1,0 +1,3 @@
+-- The setup_app was a complex app created via multiple migrations.
+-- Restoring it would require re-running the original creation and update migrations.
+-- This is a no-op down migration since the app is no longer needed.

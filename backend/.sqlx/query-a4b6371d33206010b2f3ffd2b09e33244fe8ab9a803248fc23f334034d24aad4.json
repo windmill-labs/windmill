@@ -77,7 +77,8 @@
                 "aiagent",
                 "unassigned_script",
                 "unassigned_flow",
-                "unassigned_singlestepflow"
+                "unassigned_singlestepflow",
+                "snapshotbuild"
               ]
             }
           }
@@ -185,7 +186,8 @@
                 "sqs",
                 "gcp",
                 "mqtt",
-                "nextcloud"
+                "nextcloud",
+                "google"
               ]
             }
           }

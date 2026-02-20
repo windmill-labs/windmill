@@ -686,6 +686,7 @@ pub async fn run_agent(
                         structured_output_tool_name.as_deref(),
                         args.provider.get_aws_access_key_id(),
                         args.provider.get_aws_secret_access_key(),
+                        args.provider.get_aws_session_token(),
                     )
                     .await?
             }

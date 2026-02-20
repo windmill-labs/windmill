@@ -11,7 +11,7 @@ use tiberius::{
 use tokio::net::TcpStream;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 use uuid::Uuid;
-use windmill_common::s3_helpers::convert_json_line_stream;
+use windmill_object_store::convert_json_line_stream;
 use windmill_common::utils::merge_raw_values_to_object;
 use windmill_common::worker::SqlResultCollectionStrategy;
 use windmill_common::{

@@ -7,11 +7,11 @@ use tokio::sync::{RwLock, RwLockReadGuard};
 use windmill_common::{
     error::{Error, Result},
     flows::Retry,
-    s3_helpers::S3Object,
     utils::ExpiringCacheEntry,
     worker::CLOUD_HOSTED,
     DB,
 };
+use windmill_types::s3::S3Object;
 
 use windmill_api_auth::ApiAuthed;
 use windmill_trigger::TriggerMode;

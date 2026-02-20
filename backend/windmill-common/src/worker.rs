@@ -156,6 +156,8 @@ lazy_static::lazy_static! {
 
     pub static ref NO_LOGS: bool = std::env::var("NO_LOGS").ok().is_some_and(|x| x == "1" || x == "true");
 
+    pub static ref NATIVE_MODE: bool = std::env::var("NATIVE_MODE").ok().is_some_and(|x| x == "1" || x == "true");
+
     pub static ref CGROUP_V2_PATH_RE: Regex = Regex::new(r#"(?m)^0::(/.*)$"#).unwrap();
     pub static ref CGROUP_V2_CPU_RE: Regex = Regex::new(r#"(?m)^(\d+) \S+$"#).unwrap();
     pub static ref CGROUP_V1_INACTIVE_FILE_RE: Regex = Regex::new(r#"(?m)^total_inactive_file (\d+)$"#).unwrap();
@@ -227,6 +229,7 @@ lazy_static::lazy_static! {
         additional_python_paths: Default::default(),
         pip_local_dependencies: Default::default(),
         env_vars: Default::default(),
+        native_mode: false,
     }));
 
     pub static ref WORKER_PULL_QUERIES: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(vec![]));
@@ -272,6 +275,17 @@ lazy_static::lazy_static! {
 }
 
 pub const ROOT_CACHE_NOMOUNT_DIR: &str = concatcp!(TMP_DIR, "/cache_nomount/");
+
+/// Whether native mode is forced by the environment (NATIVE_MODE=true env var or WORKER_GROUP=native).
+/// This does NOT account for native_mode set in the DB worker group config — for that, read
+/// `WORKER_CONFIG.native_mode` which combines all sources.
+pub fn is_native_mode_from_env() -> bool {
+    *NATIVE_MODE || *WORKER_GROUP == "native"
+}
+
+/// Cached resolved native mode flag, updated when worker config is reloaded.
+/// Use this for hot-path checks (e.g. per-job dispatch) to avoid read-locking WORKER_CONFIG.
+pub static NATIVE_MODE_RESOLVED: AtomicBool = AtomicBool::new(false);
 
 pub static MIN_VERSION_IS_LATEST: AtomicBool = AtomicBool::new(false);
 #[derive(Clone)]
@@ -688,6 +702,7 @@ pub struct SqlAnnotations {
 #[annotations("#")]
 pub struct BashAnnotations {
     pub docker: bool,
+    pub sandbox: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -887,137 +902,6 @@ pub fn copy_dir_recursively(src: &Path, dst: &Path) -> error::Result<()> {
     Ok(())
 }
 
-pub async fn load_cache(bin_path: &str, _remote_path: &str, is_dir: bool) -> (bool, String) {
-    if tokio::fs::metadata(&bin_path).await.is_ok() {
-        (true, format!("loaded from local cache: {}\n", bin_path))
-    } else {
-        #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        if let Some(os) = crate::s3_helpers::get_object_store().await {
-            let started = std::time::Instant::now();
-            use crate::s3_helpers::attempt_fetch_bytes;
-
-            if let Ok(mut x) = attempt_fetch_bytes(os, _remote_path).await {
-                if is_dir {
-                    if let Err(e) = extract_tar(x, bin_path).await {
-                        tracing::error!("could not write tar archive locally: {e:?}");
-                        return (
-                            false,
-                            "error writing tar archive from object store".to_string(),
-                        );
-                    }
-                } else {
-                    if let Err(e) = write_binary_file(bin_path, &mut x) {
-                        tracing::error!("could not write bundle/bin file locally: {e:?}");
-                        return (
-                            false,
-                            "error writing bundle/bin file from object store".to_string(),
-                        );
-                    }
-                }
-                tracing::info!("loaded from object store {}", bin_path);
-                return (
-                    true,
-                    format!(
-                        "loaded bin/bundle from object store {} in {}ms",
-                        bin_path,
-                        started.elapsed().as_millis()
-                    ),
-                );
-            }
-        }
-        let _ = is_dir;
-        (false, "".to_string())
-    }
-}
-
-pub async fn exists_in_cache(bin_path: &str, _remote_path: &str) -> bool {
-    if tokio::fs::metadata(&bin_path).await.is_ok() {
-        return true;
-    } else {
-        #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        if let Some(os) = crate::s3_helpers::get_object_store().await {
-            return os
-                .get(&object_store::path::Path::from(_remote_path))
-                .await
-                .is_ok();
-        }
-        return false;
-    }
-}
-
-pub async fn save_cache(
-    local_cache_path: &str,
-    _remote_cache_path: &str,
-    origin: &str,
-    is_dir: bool,
-) -> crate::error::Result<String> {
-    let mut _cached_to_s3 = false;
-    #[cfg(all(feature = "enterprise", feature = "parquet"))]
-    if let Some(os) = crate::s3_helpers::get_object_store().await {
-        use object_store::path::Path;
-        let file_to_cache = if is_dir {
-            let tar_path = format!(
-                "{ROOT_CACHE_DIR}/tar/{}_tar.tar",
-                local_cache_path
-                    .split("/")
-                    .last()
-                    .unwrap_or(&uuid::Uuid::new_v4().to_string())
-            );
-            let tar_file = std::fs::File::create(&tar_path)?;
-            let mut tar = tar::Builder::new(tar_file);
-            tar.append_dir_all(".", &origin)?;
-            let tar_metadata = tokio::fs::metadata(&tar_path).await;
-            if tar_metadata.is_err() || tar_metadata.as_ref().unwrap().len() == 0 {
-                tracing::info!("Failed to tar cache: {origin}");
-                return Err(error::Error::ExecutionErr(format!(
-                    "Failed to tar cache: {origin}"
-                )));
-            }
-            tar_path
-        } else {
-            origin.to_owned()
-        };
-
-        if let Err(e) = os
-            .put(
-                &Path::from(_remote_cache_path),
-                std::fs::read(&file_to_cache)?.into(),
-            )
-            .await
-        {
-            tracing::error!(
-                "Failed to put go bin to object store: {_remote_cache_path}. Error: {:?}",
-                e
-            );
-        } else {
-            _cached_to_s3 = true;
-            if is_dir {
-                tokio::fs::remove_dir_all(&file_to_cache).await?;
-            }
-        }
-    }
-
-    // if !*CLOUD_HOSTED {
-    if true {
-        if is_dir {
-            copy_dir_recursively(&PathBuf::from(origin), &PathBuf::from(local_cache_path))?;
-        } else {
-            std::fs::copy(origin, local_cache_path)?;
-        }
-        Ok(format!(
-            "\nwrote cached binary: {} (backed by EE distributed object store: {_cached_to_s3})\n",
-            local_cache_path
-        ))
-    } else if _cached_to_s3 {
-        Ok(format!(
-            "wrote cached binary to object store {}\n",
-            local_cache_path
-        ))
-    } else {
-        Ok("".to_string())
-    }
-}
-
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 pub async fn extract_tar(tar: bytes::Bytes, folder: &str) -> error::Result<()> {
     use std::time::Instant;
@@ -1044,7 +928,7 @@ pub async fn extract_tar(tar: bytes::Bytes, folder: &str) -> error::Result<()> {
     Ok(())
 }
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
-fn write_binary_file(main_path: &str, byts: &mut bytes::Bytes) -> error::Result<()> {
+pub fn write_binary_file(main_path: &str, byts: &mut bytes::Bytes) -> error::Result<()> {
     use std::fs::File;
     use std::io::Write;
 
@@ -1247,6 +1131,7 @@ pub struct Ping {
     pub occupancy_rate_5m: Option<f32>,
     pub occupancy_rate_30m: Option<f32>,
     pub job_isolation: Option<String>,
+    pub native_mode: Option<bool>,
     pub ping_type: PingType,
 }
 pub async fn update_ping_http(
@@ -1270,6 +1155,7 @@ pub async fn update_ping_http(
                 insert_ping.occupancy_rate_15s,
                 insert_ping.occupancy_rate_5m,
                 insert_ping.occupancy_rate_30m,
+                insert_ping.native_mode.unwrap_or(false),
                 db,
             )
             .await?
@@ -1296,6 +1182,7 @@ pub async fn update_ping_http(
                 insert_ping.vcpus,
                 insert_ping.memory,
                 insert_ping.job_isolation,
+                insert_ping.native_mode.unwrap_or(false),
                 db,
             )
             .await?;
@@ -1427,11 +1314,12 @@ pub async fn insert_ping_query(
     vcpus: Option<i64>,
     memory: Option<i64>,
     job_isolation: Option<String>,
+    native_mode: bool,
     db: &DB,
 ) -> anyhow::Result<()> {
     sqlx::query!(
-        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) ON CONFLICT (worker)
-        DO UPDATE set ip = EXCLUDED.ip, custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_workers = EXCLUDED.dedicated_workers",
+        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation, native_mode) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (worker)
+        DO UPDATE set ip = EXCLUDED.ip, custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_workers = EXCLUDED.dedicated_workers, native_mode = EXCLUDED.native_mode",
         worker_instance,
         worker_name,
         ip,
@@ -1442,7 +1330,8 @@ pub async fn insert_ping_query(
         version,
         vcpus,
         memory,
-        job_isolation.as_deref()
+        job_isolation.as_deref(),
+        native_mode,
         )
         .execute(db)
         .await?;
@@ -1533,12 +1422,13 @@ pub async fn update_worker_ping_main_loop_query(
     occupancy_rate_15s: Option<f32>,
     occupancy_rate_5m: Option<f32>,
     occupancy_rate_30m: Option<f32>,
+    native_mode: bool,
     db: &DB,
 ) -> anyhow::Result<()> {
     timeout(Duration::from_secs(10), sqlx::query!(
         "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2,
          occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus),
-         memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11 WHERE worker = $6",
+         memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11, native_mode = $12 WHERE worker = $6",
         jobs_executed,
         tags,
         occupancy_rate,
@@ -1550,6 +1440,7 @@ pub async fn update_worker_ping_main_loop_query(
         occupancy_rate_15s,
         occupancy_rate_5m,
         occupancy_rate_30m,
+        native_mode,
     )
         .execute(db))
     .await??;
@@ -1559,6 +1450,24 @@ pub async fn update_worker_ping_main_loop_query(
 // "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2,
 // occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus),
 // memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11 WHERE worker = $6",
+
+const MAX_TAG_LEN: usize = 50;
+const HASH_SUFFIX_LEN: usize = 16;
+
+pub fn dedicated_worker_tag(workspace_id: &str, path: &str) -> String {
+    let full_tag = format!("{}:{}", workspace_id, path);
+    if full_tag.len() <= MAX_TAG_LEN {
+        return full_tag;
+    }
+    let hash = <sha2::Sha256 as sha2::Digest>::digest(full_tag.as_bytes());
+    let hex_hash = hex::encode(hash);
+    let prefix_len = MAX_TAG_LEN - 1 - HASH_SUFFIX_LEN;
+    format!(
+        "{}#{}",
+        &full_tag[..prefix_len],
+        &hex_hash[..HASH_SUFFIX_LEN]
+    )
+}
 
 pub async fn load_worker_config(
     db: &DB,
@@ -1671,7 +1580,7 @@ pub async fn load_worker_config(
             if let Some(ref dws) = dedicated_workers.as_ref() {
                 let mut dedi_tags: Vec<String> = dws
                     .iter()
-                    .map(|dw| format!("{}:{}", dw.workspace_id, dw.path))
+                    .map(|dw| dedicated_worker_tag(&dw.workspace_id, &dw.path))
                     .collect();
                 if std::env::var("ADD_FLOW_TAG").is_ok() {
                     dedi_tags.push("flow".to_string());
@@ -1679,9 +1588,9 @@ pub async fn load_worker_config(
                 Some(dedi_tags)
             } else if let Some(ref dedicated_worker) = dedicated_worker.as_ref() {
                 // Fallback to single dedicated worker for backward compatibility
-                let mut dedi_tags = vec![format!(
-                    "{}:{}",
-                    dedicated_worker.workspace_id, dedicated_worker.path
+                let mut dedi_tags = vec![dedicated_worker_tag(
+                    &dedicated_worker.workspace_id,
+                    &dedicated_worker.path,
                 )];
                 if std::env::var("ADD_FLOW_TAG").is_ok() {
                     dedi_tags.push("flow".to_string());
@@ -1770,6 +1679,9 @@ pub async fn load_worker_config(
         }
     }
 
+    let native_mode = is_native_mode_from_env() || config.native_mode.unwrap_or(false);
+    NATIVE_MODE_RESOLVED.store(native_mode, std::sync::atomic::Ordering::Relaxed);
+
     Ok(WorkerConfig {
         worker_tags,
         priority_tags_sorted,
@@ -1789,6 +1701,7 @@ pub async fn load_worker_config(
             .additional_python_paths
             .or_else(|| load_additional_python_paths_from_env()),
         env_vars: resolved_env_vars,
+        native_mode,
     })
 }
 
@@ -1877,6 +1790,7 @@ pub struct WorkerConfigOpt {
     pub pip_local_dependencies: Option<Vec<String>>,
     pub env_vars_static: Option<HashMap<String, String>>,
     pub env_vars_allowlist: Option<Vec<String>>,
+    pub native_mode: Option<bool>,
 }
 
 impl Default for WorkerConfigOpt {
@@ -1894,6 +1808,7 @@ impl Default for WorkerConfigOpt {
             pip_local_dependencies: Default::default(),
             env_vars_static: Default::default(),
             env_vars_allowlist: Default::default(),
+            native_mode: Default::default(),
         }
     }
 }
@@ -1911,12 +1826,13 @@ pub struct WorkerConfig {
     pub additional_python_paths: Option<Vec<String>>,
     pub pip_local_dependencies: Option<Vec<String>>,
     pub env_vars: HashMap<String, String>,
+    pub native_mode: bool,
 }
 
 impl std::fmt::Debug for WorkerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, dedicated_workers: {:?}, init_bash: {:?}, periodic_script_bash: {:?}, periodic_script_interval_seconds: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?} }}",
-        self.worker_tags, self.priority_tags_sorted, self.dedicated_worker, self.dedicated_workers, self.init_bash, self.periodic_script_bash, self.periodic_script_interval_seconds, self.cache_clear, self.additional_python_paths, self.pip_local_dependencies, self.env_vars.iter().map(|(k, v)| format!("{}: {}{} ({} chars)", k, &v[..3.min(v.len())], "***", v.len())).collect::<Vec<String>>().join(", "))
+        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, dedicated_workers: {:?}, init_bash: {:?}, periodic_script_bash: {:?}, periodic_script_interval_seconds: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?}, native_mode: {:?} }}",
+        self.worker_tags, self.priority_tags_sorted, self.dedicated_worker, self.dedicated_workers, self.init_bash, self.periodic_script_bash, self.periodic_script_interval_seconds, self.cache_clear, self.additional_python_paths, self.pip_local_dependencies, self.env_vars.iter().map(|(k, v)| format!("{}: {}{} ({} chars)", k, &v[..3.min(v.len())], "***", v.len())).collect::<Vec<String>>().join(", "), self.native_mode)
     }
 }
 
@@ -2177,5 +2093,59 @@ mod tests {
         let mut result = tags.to_string_vec(None);
         result.sort();
         assert_eq!(result, vec!["foo", "legacy(^ws1^ws2)", "urgent(ws1+ws2)"]);
+    }
+
+    #[test]
+    fn test_dedicated_worker_tag_short() {
+        let tag = dedicated_worker_tag("demo", "u/alice/script");
+        assert_eq!(tag, "demo:u/alice/script");
+        assert!(tag.len() <= MAX_TAG_LEN);
+    }
+
+    #[test]
+    fn test_dedicated_worker_tag_exactly_50() {
+        // 50 chars exactly should not be hashed
+        let workspace = "ws";
+        let path = "a".repeat(50 - workspace.len() - 1); // -1 for ':'
+        let tag = dedicated_worker_tag(workspace, &path);
+        assert_eq!(tag.len(), 50);
+        assert!(!tag.contains('#'));
+    }
+
+    #[test]
+    fn test_dedicated_worker_tag_long_is_hashed() {
+        let tag = dedicated_worker_tag(
+            "my_workspace",
+            "u/engineering/team/automation/critical_workflow_script_v2",
+        );
+        assert_eq!(tag.len(), MAX_TAG_LEN);
+        assert_eq!(tag, "my_workspace:u/engineering/team/a#5bc26db79926d4f0");
+    }
+
+    #[test]
+    fn test_dedicated_worker_tag_deterministic() {
+        let a = dedicated_worker_tag(
+            "ws",
+            "some/very/long/path/that/exceeds/the/fifty/char/limit/easily",
+        );
+        assert_eq!(a, "ws:some/very/long/path/that/excee#bbb038d4268a0b41");
+        let b = dedicated_worker_tag(
+            "ws",
+            "some/very/long/path/that/exceeds/the/fifty/char/limit/easily",
+        );
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn test_dedicated_worker_tag_different_paths_differ() {
+        let a = dedicated_worker_tag(
+            "ws",
+            "some/very/long/path/that/exceeds/the/fifty/char/limit/easily_a",
+        );
+        let b = dedicated_worker_tag(
+            "ws",
+            "some/very/long/path/that/exceeds/the/fifty/char/limit/easily_b",
+        );
+        assert_ne!(a, b);
     }
 }

@@ -48,7 +48,7 @@
 		| { open: false }
 		| { open: true; storage: S3ResourceSettingsItem } = $state({ open: false })
 
-	let s3FileViewer: S3FilePicker | undefined = $state()
+	let s3FileViewer: any | undefined = $state()
 
 	async function editWindmillLFSSettings(): Promise<void> {
 		const large_file_storage = convertFrontendToBackendSetting(s3ResourceSettings)
@@ -143,7 +143,7 @@
 				{/each}
 			</tr>
 		</Head>
-		<tbody class="divide-y bg-surface">
+		<tbody class="divide-y bg-surface-tertiary">
 			{#each tableRows as tableRow, idx}
 				<Row>
 					<Cell first class="w-48 relative">

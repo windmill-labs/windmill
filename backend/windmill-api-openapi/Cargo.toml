@@ -1,0 +1,26 @@
+[package]
+name = "windmill-api-openapi"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_api_openapi"
+path = "src/lib.rs"
+
+[dependencies]
+windmill-api-auth.workspace = true
+windmill-common = { workspace = true, default-features = false }
+windmill-store.workspace = true
+windmill-trigger-http.workspace = true
+anyhow.workspace = true
+axum.workspace = true
+http.workspace = true
+indexmap.workspace = true
+itertools.workspace = true
+lazy_static.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yml.workspace = true
+sqlx.workspace = true
+url.workspace = true

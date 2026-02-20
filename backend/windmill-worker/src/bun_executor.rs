@@ -20,17 +20,18 @@ use crate::{
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
-    BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_NO_CACHE, BUN_PATH,
-    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH, NPM_CONFIG_REGISTRY,
-    NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
+    is_sandboxing_enabled, read_ee_registry, BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR,
+    BUN_CACHE_DIR, BUN_NO_CACHE, BUN_PATH, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH,
+    NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TRACING_PROXY_CA_CERT_PATH,
+    TZ_ENV,
 };
 use windmill_common::{
     client::AuthedClient,
-    s3_helpers::BundleFormat,
     scripts::{id_to_codebase_info, CodebaseInfo, ScriptLang},
     utils::WarnAfterExt,
     workspace_dependencies::WorkspaceDependenciesPrefetched,
 };
+use windmill_types::s3::BundleFormat;
 
 #[cfg(windows)]
 use crate::SYSTEM_ROOT;
@@ -42,12 +43,13 @@ use tokio::io::AsyncReadExt;
 use windmill_common::{
     error::{self, Result},
     get_latest_hash_for_path,
-    worker::{exists_in_cache, save_cache, write_file, Connection, DISABLE_BUNDLING},
+    worker::{write_file, Connection, DISABLE_BUNDLING},
     DB,
 };
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
-use windmill_common::s3_helpers::attempt_fetch_bytes;
+use windmill_object_store::attempt_fetch_bytes;
+use crate::global_cache::{exists_in_cache, save_cache};
 
 use windmill_parser::Typ;
 
@@ -168,7 +170,7 @@ pub async fn gen_bun_lockfile(
     let mut empty_deps = false;
 
     if let Some(package_json_content) = workspace_dependencies.get_bun()? {
-        gen_bunfig(job_dir).await?;
+        gen_bunfig(job_dir, job_id, w_id, db).await?;
         write_file(job_dir, "package.json", package_json_content.as_str())?;
     } else {
         let loader = RELATIVE_BUN_LOADER
@@ -193,7 +195,7 @@ pub async fn gen_bun_lockfile(
             ),
         )?;
 
-        gen_bunfig(job_dir).await?;
+        gen_bunfig(job_dir, job_id, w_id, db).await?;
 
         let mut child_cmd = Command::new(&*BUN_PATH);
         child_cmd
@@ -291,9 +293,37 @@ pub async fn gen_bun_lockfile(
     }
 }
 
-async fn gen_bunfig(job_dir: &str) -> Result<()> {
-    let registry = NPM_CONFIG_REGISTRY.read().await.clone();
-    let bunfig_install_scopes = BUNFIG_INSTALL_SCOPES.read().await.clone();
+async fn gen_bunfig(
+    job_dir: &str,
+    job_id: &Uuid,
+    w_id: &str,
+    db: Option<&Connection>,
+) -> Result<()> {
+    let (registry, bunfig_install_scopes) = if let Some(conn) = db {
+        (
+            read_ee_registry(
+                NPM_CONFIG_REGISTRY.read().await.clone(),
+                "npm registry",
+                job_id,
+                w_id,
+                conn,
+            )
+            .await,
+            read_ee_registry(
+                BUNFIG_INSTALL_SCOPES.read().await.clone(),
+                "bunfig install scopes",
+                job_id,
+                w_id,
+                conn,
+            )
+            .await,
+        )
+    } else {
+        (
+            NPM_CONFIG_REGISTRY.read().await.clone(),
+            BUNFIG_INSTALL_SCOPES.read().await.clone(),
+        )
+    };
     if registry.is_some() || bunfig_install_scopes.is_some() {
         let (url, token_opt) = if let Some(ref s) = registry {
             let url = s.trim();
@@ -372,7 +402,18 @@ pub async fn install_bun_lockfile(
     };
 
     let has_file = if npm_mode {
-        let registry = NPM_CONFIG_REGISTRY.read().await.clone();
+        let registry = if let Some(conn) = db {
+            read_ee_registry(
+                NPM_CONFIG_REGISTRY.read().await.clone(),
+                "npm registry",
+                job_id,
+                w_id,
+                conn,
+            )
+            .await
+        } else {
+            NPM_CONFIG_REGISTRY.read().await.clone()
+        };
         if let Some(registry) = registry {
             let content = registry
                 .trim_start_matches("https:")
@@ -407,7 +448,7 @@ pub async fn install_bun_lockfile(
 
     let mut child_process = start_child_process(child_cmd, &*BUN_PATH, false).await?;
 
-    gen_bunfig(job_dir).await?;
+    gen_bunfig(job_dir, job_id, w_id, db).await?;
     if let Some(db) = db {
         handle_child(
             job_id,
@@ -659,7 +700,7 @@ struct PulledCodebase {
     is_esm: bool,
 }
 async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<PulledCodebase> {
-    let path = windmill_common::s3_helpers::bundle(&w_id, &id);
+    let path = windmill_object_store::bundle(&w_id, &id);
     let CodebaseInfo { is_tar, is_esm } = id_to_codebase_info(id);
 
     let bun_cache_path = format!(
@@ -679,7 +720,7 @@ async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<PulledCode
         extract_saved_codebase(job_dir, &bun_cache_path, is_tar, &dst, false)?;
     } else {
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        let object_store = windmill_common::s3_helpers::get_object_store().await;
+        let object_store = windmill_object_store::get_object_store().await;
 
         #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
         let object_store: Option<()> = None;
@@ -937,7 +978,7 @@ pub async fn handle_bun_job(
         };
 
         let (cache, logs) =
-            windmill_common::worker::load_cache(&local_path, &remote_path, false).await;
+            crate::global_cache::load_cache(&local_path, &remote_path, false).await;
         (cache, logs, local_path, remote_path)
     } else {
         (false, "".to_string(), "".to_string(), "".to_string())
@@ -1022,7 +1063,7 @@ pub async fn handle_bun_job(
                 }
             }
             MaybeLock::Unresolved { ref workspace_dependencies } => {
-                // if !*DISABLE_NSJAIL || !empty_trusted_deps || has_custom_config_registry {
+                // if is_sandboxing_enabled() || !empty_trusted_deps || has_custom_config_registry {
                 let logs1 = "\n\n--- BUN INSTALL ---\n".to_string();
                 append_logs(&job.id, &job.workspace_id, logs1, conn).await;
                 gen_bun_lockfile(
@@ -1410,7 +1451,7 @@ try {{
     append_logs(&job.id, &job.workspace_id, init_logs, conn).await;
 
     //do not cache local dependencies
-    let child = if !*DISABLE_NSJAIL {
+    let child = if is_sandboxing_enabled() {
         let _ = write_file(
             job_dir,
             "run.config.proto",
@@ -1548,7 +1589,7 @@ try {{
         mem_peak,
         canceled_by,
         child,
-        !*DISABLE_NSJAIL,
+        is_sandboxing_enabled(),
         worker_name,
         &job.workspace_id,
         "bun run",
@@ -1733,7 +1774,7 @@ pub async fn start_worker(
             .await?;
             tracing::info!("dedicated worker requirements installed: {reqs}");
         }
-    } else if !*DISABLE_NSJAIL {
+    } else if is_sandboxing_enabled() {
         logs.push_str("\n\n--- BUN INSTALL ---\n");
         let _ = gen_bun_lockfile(
             &mut mem_peak,

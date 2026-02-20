@@ -69,7 +69,7 @@
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
 
 	let flow: Flow | undefined = $state()
-	let can_write = false
+	let can_write = $state(false)
 	let shareModal: ShareModal | undefined = $state()
 
 	let scheduledForStr: string | undefined = $state(undefined)
@@ -497,6 +497,15 @@
 			tag={flow?.tag ?? ''}
 			summary={flow?.summary}
 			path={flow?.path}
+			onSaved={can_write
+				? async (newPath) => {
+						if (newPath !== flow?.path) {
+							await goto(`/flows/get/${newPath}?workspace=${$workspaceStore}`)
+						} else {
+							loadFlow()
+						}
+					}
+				: undefined}
 		>
 			<!-- @migration-task: migrate this slot by hand, `trigger-badges` is an invalid identifier -->
 			{#snippet trigger_badges()}

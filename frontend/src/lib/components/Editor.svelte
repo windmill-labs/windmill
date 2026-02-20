@@ -142,6 +142,8 @@
 		rawAppRunnableKey?: string | undefined
 		// Used to provide typed queries in TypeScript when detecting assets
 		preparedAssetsSqlQueries?: InferAssetsSqlQueryDetails[] | undefined
+		// To execute preview scripts with the right worker group
+		customTag?: string
 	}
 
 	let {
@@ -171,7 +173,8 @@
 		moduleId = undefined,
 		enablePreprocessorSnippet = false,
 		rawAppRunnableKey = undefined,
-		preparedAssetsSqlQueries
+		preparedAssetsSqlQueries,
+		customTag
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -595,7 +598,8 @@
 					lang === 'graphql' ? 'graphql' : (scriptLang ?? ''),
 					resourcePath,
 					$workspaceStore,
-					(e) => console.error(`error getting ${lang} (${scriptLang}) db schema`, e)
+					(e) => console.error(`error getting ${lang} (${scriptLang}) db schema`, e),
+					{ customTag }
 				)
 			}
 			dbSchema = $dbSchemas[resourcePath]

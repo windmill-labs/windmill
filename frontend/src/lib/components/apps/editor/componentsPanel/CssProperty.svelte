@@ -37,7 +37,7 @@
 
 	let {
 		name,
-		value = $bindable({}),
+		value = $bindable(),
 		forceStyle = false,
 		forceClass = false,
 		quickStyleProperties = undefined,
@@ -61,6 +61,7 @@
 	})
 
 	function toggleQuickMenu() {
+		if (!value) return
 		try {
 			if (!value.style) {
 				value.style = ''

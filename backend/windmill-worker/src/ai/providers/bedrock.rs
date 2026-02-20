@@ -49,6 +49,7 @@ impl BedrockQueryBuilder {
         structured_output_tool_name: Option<&str>,
         aws_access_key_id: Option<&str>,
         aws_secret_access_key: Option<&str>,
+        aws_session_token: Option<&str>,
     ) -> Result<ParsedResponse, Error> {
         let bedrock_client = if !api_key.is_empty() {
             BedrockClient::from_bearer_token(api_key.to_string(), region).await?
@@ -58,7 +59,7 @@ impl BedrockQueryBuilder {
             BedrockClient::from_credentials(
                 access_key_id.to_string(),
                 secret_access_key.to_string(),
-                None,
+                aws_session_token.map(str::to_string),
                 region,
             )
             .await?

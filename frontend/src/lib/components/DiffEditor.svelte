@@ -11,15 +11,9 @@
 	import EditorTheme from './EditorTheme.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import type { ButtonType } from './common'
+	import type { ButtonProp } from './diffEditorTypes'
 
 	const SIDE_BY_SIDE_MIN_WIDTH = 700
-
-	export interface ButtonProp {
-		text: string
-		color?: ButtonType.Color
-		onClick: () => void
-	}
 
 	interface Props {
 		open?: boolean
@@ -33,6 +27,7 @@
 		readOnly?: boolean
 		buttons?: ButtonProp[]
 		modifiedModel?: meditor.ITextModel | meditor.IEditorModel
+		inlineDiff?: boolean
 	}
 
 	let {
@@ -46,7 +41,8 @@
 		defaultModified = undefined,
 		readOnly = false,
 		buttons = [],
-		modifiedModel
+		modifiedModel,
+		inlineDiff = false
 	}: Props = $props()
 
 	let diffEditor: meditor.IStandaloneDiffEditor | undefined = $state(undefined)
@@ -62,7 +58,7 @@
 
 		diffEditor = meditor.createDiffEditor(diffDivEl!, {
 			automaticLayout,
-			renderSideBySide: editorWidth >= SIDE_BY_SIDE_MIN_WIDTH,
+			renderSideBySide: inlineDiff ? false : editorWidth >= SIDE_BY_SIDE_MIN_WIDTH,
 			originalEditable: false,
 			readOnly,
 			minimap: {
@@ -167,10 +163,6 @@
 		open = false
 	}
 
-	function onWidthChange(editorWidth: number) {
-		diffEditor?.updateOptions({ renderSideBySide: editorWidth >= SIDE_BY_SIDE_MIN_WIDTH })
-	}
-
 	$effect(() => {
 		if (open && diffDivEl) {
 			loadDiffEditor()
@@ -178,7 +170,11 @@
 	})
 
 	$effect(() => {
-		onWidthChange(editorWidth)
+		if (diffEditor) {
+			diffEditor.updateOptions({
+				renderSideBySide: inlineDiff ? false : editorWidth >= SIDE_BY_SIDE_MIN_WIDTH
+			})
+		}
 	})
 
 	onMount(() => {

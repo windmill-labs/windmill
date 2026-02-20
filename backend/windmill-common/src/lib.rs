@@ -55,11 +55,8 @@ pub mod flow_status;
 pub mod flows;
 pub mod global_settings;
 pub mod indexer;
+pub mod instance_config;
 pub mod job_metrics;
-#[cfg(all(feature = "parquet", feature = "private"))]
-pub mod job_s3_helpers_ee;
-#[cfg(feature = "parquet")]
-pub mod job_s3_helpers_oss;
 pub mod min_version;
 pub mod notify_events;
 pub mod runtime_assets;
@@ -82,7 +79,6 @@ pub mod otel_oss;
 pub mod queue;
 pub mod result_stream;
 pub mod runnable_settings;
-pub mod s3_helpers;
 pub mod schedule;
 pub mod schema;
 pub mod scripts;
@@ -431,30 +427,6 @@ impl PgDatabase {
             port = self.port.unwrap_or(5432),
             dbname = self.dbname,
             sslmode = sslmode
-        )
-    }
-
-    pub fn to_conn_str(&self) -> String {
-        format!(
-            "dbname={dbname} {user} host={host} {password} {port} {sslmode}",
-            dbname = self.dbname,
-            user = self
-                .user
-                .as_ref()
-                .map(|u| format!("user={}", urlencoding::encode(u)))
-                .unwrap_or_default(),
-            host = self.host,
-            password = self
-                .password
-                .as_ref()
-                .map(|p| format!("password={}", urlencoding::encode(p)))
-                .unwrap_or_default(),
-            port = self.port.map(|p| format!("port={}", p)).unwrap_or_default(),
-            sslmode = self
-                .sslmode
-                .as_ref()
-                .map(|s| format!("sslmode={}", s.clone()))
-                .unwrap_or_default(),
         )
     }
 
