@@ -65,7 +65,7 @@
 		otherArgs?: Record<string, InputTransform>
 		helperScript?: DynamicInputTypes.HelperScript | undefined
 		isAgentTool?: boolean
-		defaultToAi?: boolean
+		allowedAiTransforms?: string[] | undefined
 		s3StorageConfigured?: boolean
 		chatInputEnabled?: boolean
 	}
@@ -93,7 +93,7 @@
 		otherArgs = {},
 		helperScript = undefined,
 		isAgentTool = false,
-		defaultToAi = isAgentTool,
+		allowedAiTransforms = isAgentTool ? undefined : [],
 		s3StorageConfigured = true,
 		chatInputEnabled = false
 	}: Props = $props()
@@ -137,6 +137,11 @@
 		)
 	)
 
+	// Whether this specific field is allowed to use AI transforms
+	let fieldAllowsAi = $derived(
+		allowedAiTransforms === undefined || allowedAiTransforms.includes(argName)
+	)
+
 	let propertyType = $state(getPropertyType(arg))
 
 	function setExpr() {
@@ -169,7 +174,7 @@
 	function getPropertyType(arg: InputTransform | any): InputTransform['type'] {
 		// For agent tools, if static with undefined/empty value, treat as 'ai', meaning the field will be filled by the AI agent dynamically.
 		if (
-			defaultToAi &&
+			fieldAllowsAi &&
 			((arg?.type === 'static' && arg?.value === undefined) || arg?.type === 'ai')
 		) {
 			if (arg?.type === 'static') {
@@ -647,7 +652,7 @@
 							}}
 						>
 							{#snippet children({ item })}
-								{#if isAgentTool}
+								{#if fieldAllowsAi}
 									<ToggleButton
 										small
 										label="AI"

@@ -26,7 +26,7 @@
 		class?: string
 		helperScript?: DynamicInputTypes.HelperScript
 		isAgentTool?: boolean
-		defaultToAi?: boolean
+		allowedAiTransforms?: string[] | undefined
 		chatInputEnabled?: boolean
 	}
 
@@ -43,7 +43,7 @@
 		class: clazz = '',
 		helperScript = undefined,
 		isAgentTool = false,
-		defaultToAi = isAgentTool,
+		allowedAiTransforms = isAgentTool ? undefined : [],
 		chatInputEnabled = false
 	}: Props = $props()
 
@@ -143,7 +143,7 @@
 						{enableAi}
 						{helperScript}
 						{isAgentTool}
-						{defaultToAi}
+						{allowedAiTransforms}
 						{s3StorageConfigured}
 						{chatInputEnabled}
 						otherArgs={Object.fromEntries(
