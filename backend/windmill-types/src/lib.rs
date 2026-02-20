@@ -1,13 +1,23 @@
-pub mod apps;
-pub mod assets;
-pub mod flow_status;
-pub mod flows;
-pub mod jobs;
 pub mod more_serde;
-pub mod runnable_settings;
 pub mod s3;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod apps;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod assets;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod flow_status;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod flows;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod jobs;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod runnable_settings;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod schedule;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod scripts;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod triggers;
 
 /// Duplicated from windmill-common::worker::to_raw_value.
