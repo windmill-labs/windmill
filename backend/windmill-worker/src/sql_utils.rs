@@ -123,18 +123,18 @@ mod tests {
     }
     #[test]
     fn test_remove_comments_invalid_truncate() {
-        let sql = r#"-- Update de la table dossier_ads de la DB tamondais_ads pour y mettre ce qu'on a récupéré avant
-UPDATE db_talmondais_ads.dossiers_ads t
+        let sql = r#"-- Update de la table abcd
+UPDATE xyz.abcd t
 SET
-  wkb_geometry = s.wkb_geometry
-FROM sig_urba_temp s
-WHERE t.nom_dossier = s.nom_dossier;
+  uio = s.uio
+FROM table1 s
+WHERE t.attrib = s.attrib;
 "#;
-        let expected = r#"UPDATE db_talmondais_ads.dossiers_ads t
+        let expected = r#"UPDATE xyz.abcd t
 SET
-  wkb_geometry = s.wkb_geometry
-FROM sig_urba_temp s
-WHERE t.nom_dossier = s.nom_dossier;"#;
+  uio = s.uio
+FROM table1 s
+WHERE t.attrib = s.attrib;"#;
         let result = remove_comments(sql);
         // This correctly handles the subtraction of negative number
         assert_eq!(result.trim(), expected);
