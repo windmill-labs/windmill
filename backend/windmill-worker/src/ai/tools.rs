@@ -431,7 +431,7 @@ async fn execute_windmill_tool(
                     timeout: None,
                     on_behalf_of: None,
                 },
-                Some(tool_module.id.clone()),
+                None,
             )
         }
         _ => {

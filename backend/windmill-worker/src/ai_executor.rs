@@ -163,11 +163,17 @@ pub async fn handle_ai_agent_job(
         return handle_credentials_check(&args.provider).await;
     }
 
-    let Some(flow_step_id) = &job.flow_step_id else {
-        return Err(Error::internal_err(
-            "AI agent job has no flow step id".to_string(),
-        ));
-    };
+    // flow_step_id is set by the flow executor for top-level AI agents.
+    // For nested AI agent tools, it's not set (to avoid triggering flow step
+    // machinery on a parent that has no v2_job_status row), so we extract the
+    // tool module ID from the runnable_path which has the form ".../tools/{id}".
+    let flow_step_id = job
+        .flow_step_id
+        .as_deref()
+        .or_else(|| job.runnable_path().rsplit_once("/tools/").map(|(_, id)| id))
+        .ok_or_else(|| Error::internal_err("AI agent job has no flow step id".to_string()))?
+        .to_string();
+    let flow_step_id = &flow_step_id;
 
     let Some(immediate_parent_job) = &job.parent_job else {
         return Err(Error::internal_err(
