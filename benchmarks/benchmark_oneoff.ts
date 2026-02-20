@@ -37,7 +37,7 @@ async function verifyOutputs(uuids: string[], workspace: string) {
   console.log(`Incorrect results: ${incorrectResults}`);
 }
 
-export const NON_TEST_TAGS = ["deno", "python", "go", "bash", "dedicated", "bun", "nativets", "flow"]
+export const NON_TEST_TAGS = ["deno", "python", "go", "bash", "dedicated", "bun", "nativets", "dedicated_nativets", "flow"]
 export async function main({
   host,
   email,
@@ -146,7 +146,7 @@ export async function main({
   }
 
   if (
-    ["deno", "python", "go", "bash", "dedicated", "bun", "nativets"].includes(
+    ["deno", "python", "go", "bash", "dedicated", "bun", "nativets", "dedicated_nativets"].includes(
       kind
     )
   ) {
@@ -165,7 +165,7 @@ export async function main({
       kind: "noop",
     });
   } else if (
-    ["deno", "python", "go", "bash", "dedicated", "bun", "nativets"].includes(
+    ["deno", "python", "go", "bash", "dedicated", "bun", "nativets", "dedicated_nativets"].includes(
       kind
     )
   ) {
@@ -336,6 +336,7 @@ export async function main({
     !noVerify &&
     kind !== "noop" &&
     kind !== "nativets" &&
+    kind !== "dedicated_nativets" &&
     !kind.startsWith("flow:") &&
     !kind.startsWith("script:")
   ) {
@@ -386,7 +387,7 @@ if (import.meta.main) {
     )
     .option(
       "--kind <kind:string>",
-      "Specifiy the benchmark kind among: deno, identity, python, go, bash, dedicated, bun, noop, 2steps, nativets",
+      "Specifiy the benchmark kind among: deno, identity, python, go, bash, dedicated, bun, noop, 2steps, nativets, dedicated_nativets",
       {
         required: true,
       }

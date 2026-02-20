@@ -15778,6 +15778,7 @@ dependencies = [
  "windmill-indexer",
  "windmill-object-store",
  "windmill-operator",
+ "windmill-parser-ts",
  "windmill-queue",
  "windmill-runtime-nativets",
  "windmill-test-utils",

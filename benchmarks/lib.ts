@@ -25,7 +25,7 @@ async function waitForDeployment(workspace: string, hash: string) {
       if (resp.lock !== null) {
         return;
       }
-    } catch (err) { }
+    } catch (err) {}
     await sleep(0.5);
   }
   throw new Error("Script did not deploy in time");
@@ -49,7 +49,7 @@ async function waitForDedicatedWorker(workspace: string, path: string) {
 
 export async function createBenchScript(
   scriptPattern: string,
-  workspace: string
+  workspace: string,
 ) {
   const path = `f/benchmarks/${scriptPattern}`;
   const exists = await windmill.ScriptService.existsScriptByPath({
@@ -93,11 +93,14 @@ export async function createBenchScript(
     language = "deno";
   } else if (scriptPattern === "nativets") {
     scriptContent =
-      'export async function main(){ return (await fetch(BASE_URL + "/api/version")).text() }';
-    language = "nativets";
+      '//native\nexport async function main(){ return (await fetch(BASE_URL + "/api/version")).text() }';
+    language = "bunnative";
+  } else if (scriptPattern === "dedicated_nativets") {
+    scriptContent = "//native\nexport function main(){ return 42; }";
+    language = "bunnative";
   } else {
     throw new Error(
-      "Could not create script for script pattern " + scriptPattern
+      "Could not create script for script pattern " + scriptPattern,
     );
   }
 
@@ -109,7 +112,8 @@ export async function createBenchScript(
       summary: scriptPattern + " benchmark",
       description: "",
       language: language as api.NewScript.language,
-      dedicated_worker: scriptPattern === "dedicated",
+      dedicated_worker:
+        scriptPattern === "dedicated" || scriptPattern === "dedicated_nativets",
       schema: {
         $schema: "https://json-schema.org/draft/2020-12/schema",
         properties: schemaProperties,
@@ -123,7 +127,7 @@ export async function createBenchScript(
 
   console.log("Created benchmark script at path", path);
 
-  if (scriptPattern === "dedicated") {
+  if (scriptPattern === "dedicated" || scriptPattern === "dedicated_nativets") {
     await waitForDedicatedWorker(workspace, path);
   }
 }
@@ -246,11 +250,15 @@ export const getFlowPayload = (flowPattern: string): api.FlowPreview => {
               input_transforms: {},
               language: api.RawScript.language.BASH,
               type: "rawscript",
-              content: "# let's bloat that bash script, 3.. 2.. 1.. BOOM\n".repeat(100) + `if [[ -z $\{WM_FLOW_JOB_ID+x\} ]]; then\necho "not set"\nelif [[ -z "$WM_FLOW_JOB_ID" ]]; then\necho "empty"\nelse\necho "$WM_FLOW_JOB_ID"\nfi`,
+              content:
+                "# let's bloat that bash script, 3.. 2.. 1.. BOOM\n".repeat(
+                  100,
+                ) +
+                `if [[ -z $\{WM_FLOW_JOB_ID+x\} ]]; then\necho "not set"\nelif [[ -z "$WM_FLOW_JOB_ID" ]]; then\necho "empty"\nelse\necho "$WM_FLOW_JOB_ID"\nfi`,
             },
-          }
+          },
         ],
-      }
+      },
     };
   } else {
     return {
