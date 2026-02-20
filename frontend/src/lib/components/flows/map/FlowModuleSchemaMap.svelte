@@ -44,7 +44,8 @@
 		flowModuleToAgentTool,
 		createMcpTool,
 		createWebsearchTool,
-		createAiAgentTool
+		createAiAgentTool,
+		agentToolToFlowModule
 	} from '../agentToolUtils'
 	import { loadFlowModuleState } from '../flowStateUtils.svelte'
 	import { getNoteEditorContext } from '$lib/components/graph/noteEditor.svelte'
@@ -191,7 +192,7 @@
 			// Create AI Agent tool (nested agent)
 			const aiAgentTool = createAiAgentTool(module.id)
 			flowStateStore.val[module.id] = await loadFlowModuleState(
-				aiAgentTool as unknown as FlowModule
+				agentToolToFlowModule(aiAgentTool)
 			)
 			;(modules as AgentTool[]).splice(index, 0, aiAgentTool)
 			return modules as AgentTool[]
@@ -545,13 +546,11 @@
 								}
 							} else {
 								const index = (detail.agentId ? targetModules?.length : detail.index) ?? 0
-								const toolKind = detail.agentId
-									? detail.kind === 'mcpTool'
-										? 'mcpTool'
-										: detail.kind === 'websearchTool'
-											? 'websearchTool'
-											: detail.kind === 'aiAgentTool'
-												? 'aiAgentTool'
+								const toolKind: string | undefined = detail.agentId
+									? (['mcpTool', 'websearchTool', 'aiAgentTool'] as string[]).includes(
+											detail.kind
+										)
+										? detail.kind
 										: 'flowmoduleTool'
 									: undefined
 

@@ -62,8 +62,6 @@ pub fn parse_raw_script_schema(
     Ok(to_raw_value(&schema))
 }
 
-/// Filters out properties from a JSON schema that have completed input transforms.
-/// This allows AI agents to only see and fill parameters that don't have user-configured values.
 fn is_completed_input_transform(transform: &InputTransform) -> bool {
     match transform {
         InputTransform::Static { value } => {

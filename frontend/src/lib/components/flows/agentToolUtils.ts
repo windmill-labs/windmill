@@ -102,6 +102,19 @@ export function createWebsearchTool(id: string): WebsearchTool {
 }
 
 /**
+ * Convert a FlowModuleTool to a FlowModule for use with loadFlowModuleState etc.
+ * Strips the extra `tool_type` field and maps AgentTool fields to FlowModule fields.
+ */
+export function agentToolToFlowModule(tool: FlowModuleTool): FlowModule {
+	const { tool_type: _, ...value } = tool.value
+	return {
+		id: tool.id,
+		summary: tool.summary,
+		value: value as FlowModuleValue
+	}
+}
+
+/**
  * Convert a FlowModule back to an AgentTool
  * Used when saving changes back to the AI Agent tools array
  */
