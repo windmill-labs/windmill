@@ -5,16 +5,14 @@ pub fn remove_comments(stmt: &str) -> &str {
     let mut in_block_comment = false;
     let mut in_string = false;
     let mut string_delimiter = '\0';
-    let mut start = None;
-    let mut end = stmt.len();
+    let mut start_byte = None;
+    let mut end_byte = stmt.len();
 
-    let chars: Vec<char> = stmt.chars().collect();
-    let len = chars.len();
+    let mut prev_char = '\0';
+    let mut char_indices = stmt.char_indices().peekable();
 
-    for i in 0..len {
-        let c = chars[i];
-        let next_char = if i + 1 < len { chars[i + 1] } else { '\0' };
-        let prev_char = if i > 0 { chars[i - 1] } else { '\0' };
+    while let Some((byte_pos, c)) = char_indices.next() {
+        let next_char = char_indices.peek().map(|(_, ch)| *ch).unwrap_or('\0');
 
         // Handle string literals (single or double quotes)
         if !in_line_comment && !in_block_comment {
@@ -48,7 +46,9 @@ pub fn remove_comments(stmt: &str) -> &str {
             // Check for end of block comment
             else if in_block_comment && c == '*' && next_char == '/' {
                 in_block_comment = false;
-                // Skip the closing '/' by continuing after incrementing i in the loop
+                // Skip the closing '/' by advancing the iterator
+                char_indices.next();
+                prev_char = '/';
                 continue;
             }
         }
@@ -57,18 +57,20 @@ pub fn remove_comments(stmt: &str) -> &str {
         if !in_line_comment && !in_block_comment && !in_string {
             // Mark start of statement
             if !in_stmt && !c.is_whitespace() {
-                start = Some(i);
+                start_byte = Some(byte_pos);
                 in_stmt = true;
             }
             // Mark end of statement at semicolon
             if in_stmt && c == ';' {
-                end = i + 1;
+                end_byte = byte_pos + c.len_utf8();
                 break;
             }
         }
+
+        prev_char = c;
     }
 
-    &stmt[start.unwrap_or(0)..end]
+    &stmt[start_byte.unwrap_or(0)..end_byte]
 }
 
 #[cfg(test)]
@@ -118,5 +120,23 @@ mod tests {
         let result = remove_comments(sql);
         // This correctly handles the subtraction of negative number
         assert_eq!(result, sql);
+    }
+    #[test]
+    fn test_remove_comments_invalid_truncate() {
+        let sql = r#"-- Update de la table abcd
+UPDATE xyz.abcd t
+SET
+  uio = s.uio
+FROM table1 s
+WHERE t.attrib = s.attrib;
+"#;
+        let expected = r#"UPDATE xyz.abcd t
+SET
+  uio = s.uio
+FROM table1 s
+WHERE t.attrib = s.attrib;"#;
+        let result = remove_comments(sql);
+        // This correctly handles the subtraction of negative number
+        assert_eq!(result.trim(), expected);
     }
 }
