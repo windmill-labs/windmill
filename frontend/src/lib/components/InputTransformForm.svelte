@@ -735,8 +735,8 @@
 							<div
 								class="text-sm text-tertiary italic p-3 bg-surface-secondary rounded-md border border-gray-200"
 							>
-								<span class="flex items-center gap-2">
-									<InfoIcon size={16} />
+								<span class="flex items-center gap-2 text-xs">
+									<InfoIcon size={13} />
 									This field will be filled by the AI agent dynamically
 								</span>
 							</div>
