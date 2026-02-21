@@ -43,7 +43,8 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
 
 # Install sqlx-cli (for database migrations)
 RUN cargo install sqlx-cli --no-default-features --features native-tls,postgres && \
-    ln -sf /opt/cargo/bin/sqlx /usr/local/bin/sqlx
+    ln -sf /opt/cargo/bin/sqlx /usr/local/bin/sqlx && \
+    chmod -R a+rwX /opt/cargo
 
 # Embed network init script (sets up iptables firewall, then drops privileges)
 RUN cat <<'SCRIPT' > /usr/local/bin/network-init.sh
