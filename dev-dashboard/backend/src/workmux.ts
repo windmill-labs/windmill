@@ -77,11 +77,49 @@ async function runChecked(args: string[]): Promise<string> {
 
 export type Profile = "full" | "agent-only" | "agent-yolo";
 
-const PROFILE_PANE_CMDS: Record<Profile, string[]> = {
-  "full": [], // Use default workmux pane commands from .workmux.yaml
-  "agent-only": ["claude"], // Only start agent in pane 0
-  "agent-yolo": ["workmux sandbox agent -- claude --dangerously-skip-permissions"],
-};
+function readEnvLocal(wtDir: string): Record<string, string> {
+  try {
+    const content = Bun.spawnSync(["cat", `${wtDir}/.env.local`], { stdout: "pipe" });
+    const text = new TextDecoder().decode(content.stdout).trim();
+    const env: Record<string, string> = {};
+    for (const line of text.split("\n")) {
+      const match = line.match(/^(\w+)=(.*)$/);
+      if (match) env[match[1]] = match[2];
+    }
+    return env;
+  } catch {
+    return {};
+  }
+}
+
+function buildSystemPrompt(profile: Profile, env: Record<string, string>): string {
+  const backendPort = env.BACKEND_PORT || "8000";
+  const frontendPort = env.FRONTEND_PORT || "3000";
+  const lines: string[] = [];
+
+  if (profile === "agent-yolo") {
+    lines.push("You are running inside a sandboxed container with full permissions.");
+  }
+
+  lines.push(`This worktree is configured with the following ports:`);
+  lines.push(`- Backend: port ${backendPort}. Start with: cd backend && DATABASE_URL=postgres://postgres:changeme@localhost:5432/windmill cargo run -- --port ${backendPort}`);
+  lines.push(`- Frontend: port ${frontendPort}. Start with: cd frontend && REMOTE=http://localhost:${backendPort} npm run dev -- --port ${frontendPort} --host 0.0.0.0`);
+
+  return lines.join(" ");
+}
+
+function buildClaudeCmd(profile: Profile, env: Record<string, string>): string {
+  const prompt = buildSystemPrompt(profile, env);
+
+  if (profile === "agent-yolo") {
+    // Double-escape: outer single quotes for the host shell,
+    // inner double quotes to survive workmux sandbox's sh -c
+    const innerEscaped = prompt.replace(/["\\$`]/g, "\\$&");
+    return `workmux sandbox agent -- claude --dangerously-skip-permissions --append-system-prompt '"${innerEscaped}"'`;
+  }
+  const escapedPrompt = prompt.replace(/'/g, "'\\''");
+  return `claude --append-system-prompt '${escapedPrompt}'`;
+}
 
 export async function addWorktree(
   branch: string,
@@ -118,17 +156,17 @@ export async function addWorktree(
     for (let i = paneIds.length - 1; i >= 1; i--) {
       Bun.spawnSync(["tmux", "kill-pane", "-t", `${windowTarget}.${paneIds[i]}`]);
     }
-    // Send commands to remaining pane
-    const cmds = PROFILE_PANE_CMDS[profile];
-    for (const cmd of cmds) {
-      Bun.spawnSync(["tmux", "send-keys", "-t", `${windowTarget}.0`, cmd, "Enter"]);
-    }
     // Get the worktree directory from pane 0
     const cwdResult = Bun.spawnSync(
       ["tmux", "display-message", "-t", `${windowTarget}.0`, "-p", "#{pane_current_path}"],
       { stdout: "pipe" }
     );
     const wtDir = new TextDecoder().decode(cwdResult.stdout).trim();
+    // Build and send claude command with environment-aware system prompt
+    const env = readEnvLocal(wtDir);
+    const claudeCmd = buildClaudeCmd(profile, env);
+    console.log(`[workmux] sending command to ${windowTarget}.0:\n${claudeCmd}`);
+    Bun.spawnSync(["tmux", "send-keys", "-t", `${windowTarget}.0`, claudeCmd, "Enter"]);
     // Open a shell pane on the right (1/3 width) in the worktree dir
     Bun.spawnSync(["tmux", "split-window", "-h", "-t", `${windowTarget}.0`, "-l", "33%", "-c", wtDir]);
     // Keep focus on the agent pane (left)
