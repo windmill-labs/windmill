@@ -23,15 +23,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Deno
-        uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
 
       - name: Generate Windmill client
         working-directory: cli
@@ -69,11 +69,6 @@ jobs:
           cache: true
           cache-workspaces: backend
 
-      - name: Setup Deno
-        uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -90,6 +85,10 @@ jobs:
       - name: Symlink Node to /usr/bin/node
         run: sudo ln -sf $(which node) /usr/bin/node
 
+      - name: Install dependencies
+        working-directory: cli
+        run: bun install
+
       - name: Generate Windmill clients
         working-directory: cli
         run: |
@@ -101,12 +100,10 @@ jobs:
         env:
           DATABASE_URL: postgres://postgres:changeme@localhost:5432
           CI_MINIMAL_FEATURES: "true"
-        run: |
-          deno test --no-check --allow-all test/ \
-            --ignore=test/cargo_backend_example.test.ts
+        run: bun test --timeout 120000 test/
 
   test-windows:
-    runs-on: windows-latest
+    runs-on: blacksmith-16vcpu-windows-2025
 
     steps:
       - name: Checkout code
@@ -125,11 +122,6 @@ jobs:
         with:
           cache: true
           cache-workspaces: backend
-
-      - name: Setup Deno
-        uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -150,6 +142,10 @@ jobs:
           echo "BUN_PATH=$bunPath" >> $env:GITHUB_OUTPUT
           echo "NODE_BIN_PATH=$nodePath" >> $env:GITHUB_OUTPUT
 
+      - name: Install dependencies
+        working-directory: cli
+        run: bun install
+
       - name: Generate Windmill clients
         working-directory: cli
         shell: bash
@@ -165,9 +161,12 @@ jobs:
           CI_MINIMAL_FEATURES: "true"
           BUN_PATH: ${{ steps.runtime-paths.outputs.BUN_PATH }}
           NODE_BIN_PATH: ${{ steps.runtime-paths.outputs.NODE_BIN_PATH }}
-        run: |
-          deno test --no-check --allow-all test/ `
-            --ignore=test/cargo_backend_example.test.ts
+        run: bun test --timeout 120000 test/
+
+      - name: Keep runner alive for SSH debug
+        if: failure()
+        shell: pwsh
+        run: Start-Sleep -Seconds 3600
 
   # Combined summary job for branch protection
   test-summary:

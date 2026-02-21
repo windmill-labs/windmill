@@ -2,8 +2,13 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck This file is copied from a JS project, so it's not type-safe.
 
-import { colors, encodeHex, log, SEP } from "../../deps.ts";
+import { colors } from "@cliffy/ansi/colors";
+import { encodeHex } from "@std/encoding";
+import * as log from "@std/log";
+import { SEPARATOR as SEP } from "@std/path";
 import crypto from "node:crypto";
+import { readFileSync, writeFileSync } from "node:fs";
+import { readdir, readFile } from "node:fs/promises";
 import { fetchVersion } from "../core/context.ts";
 import { updateGlobalVersions } from "../commands/sync/global.ts";
 import { isRawAppPath } from "./resource_folders.ts";
@@ -86,7 +91,7 @@ export function deepEqual<T>(a: T, b: T): boolean {
 }
 
 export function getHeaders(): Record<string, string> | undefined {
-  const headers = Deno.env.get("HEADERS");
+  const headers = process.env["HEADERS"];
   if (headers) {
     const parsedHeaders = Object.fromEntries(
       headers.split(",").map((h) => h.split(":").map((s) => s.trim()))
@@ -102,11 +107,12 @@ export function getHeaders(): Record<string, string> | undefined {
 
 export async function digestDir(path: string, conf: string) {
   const hashes: string = [];
-  for await (const e of Deno.readDir(path)) {
+  const entries = await readdir(path, { withFileTypes: true });
+  for (const e of entries) {
     const npath = path + "/" + e.name;
-    if (e.isFile) {
-      hashes.push(await generateHashFromBuffer(await Deno.readFile(npath)));
-    } else if (e.isDirectory && !e.isSymlink) {
+    if (e.isFile()) {
+      hashes.push(await generateHashFromBuffer(await readFile(npath)));
+    } else if (e.isDirectory() && !e.isSymbolicLink()) {
       hashes.push(await digestDir(npath, ""));
     }
   }
@@ -125,13 +131,9 @@ export async function generateHashFromBuffer(
   return encodeHex(hashBuffer);
 }
 
-// export async function readInlinePath(path: string): Promise<string> {
-//   return await Deno.readTextFile(path.replaceAll("/", SEP));
-// }
-
 export function readInlinePathSync(path: string): string {
   try {
-    return Deno.readTextFileSync(path.replaceAll("/", SEP));
+    return readFileSync(path.replaceAll("/", SEP), "utf-8");
   } catch (error) {
     log.warn(`Error reading inline path: ${path}, ${error}`);
     return "";
@@ -161,13 +163,10 @@ export function isWorkspaceDependencies(path: string): boolean {
   return path.startsWith("dependencies/");
 }
 
-export function printSync(input: string | Uint8Array, to = Deno.stdout) {
-  let bytesWritten = 0;
-  const bytes =
-    typeof input === "string" ? new TextEncoder().encode(input) : input;
-  while (bytesWritten < bytes.length) {
-    bytesWritten += to.writeSync(bytes.subarray(bytesWritten));
-  }
+export function printSync(input: string | Uint8Array) {
+  process.stdout.write(
+    typeof input === "string" ? input : Buffer.from(input)
+  );
 }
 
 // Repository interface for shared selection logic
@@ -194,7 +193,7 @@ export async function selectRepository<T extends Repository>(
   }
 
   // Check if we're in a non-interactive environment
-  const isInteractive = Deno.stdin.isTerminal() && Deno.stdout.isTerminal();
+  const isInteractive = !!process.stdin.isTTY && !!process.stdout.isTTY;
 
   if (!isInteractive) {
     const repoPaths = repositories.map((r) =>
@@ -208,7 +207,7 @@ export async function selectRepository<T extends Repository>(
   }
 
   // Import Select dynamically to avoid dependency issues
-  const { Select } = await import("../../deps.ts");
+  const { Select } = await import("@cliffy/prompt/select");
 
   console.log(
     `\nMultiple repositories found. Please select which repository to ${
@@ -249,21 +248,19 @@ export async function getIsWin(): Promise<boolean> {
  */
 export function writeIfChanged(path: string, content: string): boolean {
   try {
-    const existing = Deno.readTextFileSync(path);
+    const existing = readFileSync(path, "utf-8");
     if (existing === content) {
-      // console.log(`Content unchanged for ${path}`);
       return false; // Content unchanged, skip write
     }
-  } catch (error) {
+  } catch (error: any) {
     // File doesn't exist or can't be read, proceed with write
-    if (!(error instanceof Deno.errors.NotFound)) {
+    if (error?.code !== "ENOENT") {
       // If it's not a "not found" error, we might want to know about it
       // but still proceed with the write attempt
     }
   }
 
-  // console.log(`Writing content to ${path}`);
-  Deno.writeTextFileSync(path, content);
+  writeFileSync(path, content, "utf-8");
   return true; // File was written
 }
 

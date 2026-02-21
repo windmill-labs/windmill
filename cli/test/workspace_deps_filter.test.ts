@@ -10,11 +10,11 @@
  * changing specific deps only marks the expected scripts as stale.
  */
 
-import { assertEquals, assertStringIncludes, assert } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { expect, test } from "bun:test";
 import { withTestBackend } from "./test_backend.ts";
 import { addWorkspace } from "../workspace.ts";
-import { ensureDir } from "https://deno.land/std@0.224.0/fs/mod.ts";
-import { stringify as stringifyYaml } from "jsr:@std/yaml";
+import { writeFile, mkdir } from "node:fs/promises";
+import { stringify as stringifyYaml } from "@std/yaml";
 
 // Import hash generation utilities from CLI
 import { generateHash } from "../src/utils/utils.ts";
@@ -45,12 +45,7 @@ function createLockfile(locks: Record<string, string>): string {
 // Test 1: Scripts - changing default dep only marks scripts without annotation as stale
 // =============================================================================
 
-Deno.test({
-  name: "Workspace deps: Scripts - dry-run shows correct stale scripts when default dep changes",
-  ignore: false,
-  sanitizeResources: false,
-  sanitizeOps: false,
-  fn: async () => {
+test("Workspace deps: Scripts - dry-run shows correct stale scripts when default dep changes", async () => {
     await withTestBackend(async (backend, tempDir) => {
       // Set up workspace
       const testWorkspace = {
@@ -62,20 +57,20 @@ Deno.test({
       await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
 
       // Create wmill.yaml
-      await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+      await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
 includes:
   - "**"
-excludes: []`);
+excludes: []`, "utf-8");
 
       // Setup dependencies folder (Bun/TypeScript)
-      await ensureDir(`${tempDir}/dependencies`);
+      await mkdir(`${tempDir}/dependencies`, { recursive: true });
       const defaultDep = `{"dependencies": {"lodash": "4.17.21"}}`;
       const explicitDep = `{"dependencies": {"axios": "1.6.0"}}`;
-      await Deno.writeTextFile(`${tempDir}/dependencies/package.json`, defaultDep);
-      await Deno.writeTextFile(`${tempDir}/dependencies/explicit.package.json`, explicitDep);
+      await writeFile(`${tempDir}/dependencies/package.json`, defaultDep, "utf-8");
+      await writeFile(`${tempDir}/dependencies/explicit.package.json`, explicitDep, "utf-8");
 
       // Setup script folder
-      await ensureDir(`${tempDir}/f/test`);
+      await mkdir(`${tempDir}/f/test`, { recursive: true });
 
       // Script 1: No annotation - uses default dep
       const script1Content = `export async function main() {
@@ -88,8 +83,8 @@ schema:
   properties: {}
 lock: ""
 `;
-      await Deno.writeTextFile(`${tempDir}/f/test/uses_default.ts`, script1Content);
-      await Deno.writeTextFile(`${tempDir}/f/test/uses_default.script.yaml`, script1Metadata);
+      await writeFile(`${tempDir}/f/test/uses_default.ts`, script1Content, "utf-8");
+      await writeFile(`${tempDir}/f/test/uses_default.script.yaml`, script1Metadata, "utf-8");
 
       // Script 2: Uses explicit dep (TypeScript/Bun with annotation)
       const script2Content = `// package_json: explicit
@@ -103,8 +98,8 @@ schema:
   properties: {}
 lock: ""
 `;
-      await Deno.writeTextFile(`${tempDir}/f/test/uses_explicit.ts`, script2Content);
-      await Deno.writeTextFile(`${tempDir}/f/test/uses_explicit.script.yaml`, script2Metadata);
+      await writeFile(`${tempDir}/f/test/uses_explicit.ts`, script2Content, "utf-8");
+      await writeFile(`${tempDir}/f/test/uses_explicit.script.yaml`, script2Metadata, "utf-8");
 
       // Build raw workspace dependencies map (as the CLI would)
       const rawWorkspaceDeps: Record<string, string> = {
@@ -120,10 +115,10 @@ lock: ""
       const script2Hash = await generateScriptHash(script2FilteredDeps, script2Content, script2Metadata);
 
       // Create initial wmill-lock.yaml with these hashes
-      await Deno.writeTextFile(`${tempDir}/wmill-lock.yaml`, createLockfile({
+      await writeFile(`${tempDir}/wmill-lock.yaml`, createLockfile({
         "f/test/uses_default": script1Hash,
         "f/test/uses_explicit": script2Hash,
-      }));
+      }), "utf-8");
 
       // Verify initial state - both scripts should be up-to-date
       const initialResult = await backend.runCLICommand(
@@ -131,13 +126,12 @@ lock: ""
         tempDir,
         "workspace_deps_test"
       );
-      assertEquals(initialResult.code, 0, `Initial dry-run should succeed: ${initialResult.stderr}`);
-      assertStringIncludes(initialResult.stdout, "No metadata to update",
-        `Initial state should show no updates needed. Output: ${initialResult.stdout}`);
+      expect(initialResult.code).toEqual(0);
+      expect(initialResult.stdout).toContain("No metadata to update");
 
       // Now change package.json (default dep)
       const newDefaultDep = `{"dependencies": {"lodash": "4.17.22"}}`;
-      await Deno.writeTextFile(`${tempDir}/dependencies/package.json`, newDefaultDep);
+      await writeFile(`${tempDir}/dependencies/package.json`, newDefaultDep, "utf-8");
 
       // Run dry-run again
       const afterDefaultChangeResult = await backend.runCLICommand(
@@ -145,20 +139,18 @@ lock: ""
         tempDir,
         "workspace_deps_test"
       );
-      assertEquals(afterDefaultChangeResult.code, 0, `Dry-run should succeed: ${afterDefaultChangeResult.stderr}`);
+      expect(afterDefaultChangeResult.code).toEqual(0);
 
       // uses_default should be stale (uses default dep which changed)
-      assertStringIncludes(afterDefaultChangeResult.stdout, "uses_default",
-        `uses_default should be marked stale after default dep change. Output: ${afterDefaultChangeResult.stdout}`);
+      expect(afterDefaultChangeResult.stdout).toContain("uses_default");
 
       // uses_explicit should NOT be stale (uses explicit dep, not default)
-      assert(!afterDefaultChangeResult.stdout.includes("uses_explicit"),
-        `uses_explicit should NOT be marked stale after default dep change. Output: ${afterDefaultChangeResult.stdout}`);
+      expect(!afterDefaultChangeResult.stdout.includes("uses_explicit")).toBeTruthy();
 
       // Reset and test the reverse: change explicit dep
-      await Deno.writeTextFile(`${tempDir}/dependencies/package.json`, defaultDep); // restore original
+      await writeFile(`${tempDir}/dependencies/package.json`, defaultDep, "utf-8"); // restore original
       const newExplicitDep = `{"dependencies": {"axios": "1.6.1"}}`;
-      await Deno.writeTextFile(`${tempDir}/dependencies/explicit.package.json`, newExplicitDep);
+      await writeFile(`${tempDir}/dependencies/explicit.package.json`, newExplicitDep, "utf-8");
 
       // Run dry-run again
       const afterExplicitChangeResult = await backend.runCLICommand(
@@ -166,29 +158,21 @@ lock: ""
         tempDir,
         "workspace_deps_test"
       );
-      assertEquals(afterExplicitChangeResult.code, 0, `Dry-run should succeed: ${afterExplicitChangeResult.stderr}`);
+      expect(afterExplicitChangeResult.code).toEqual(0);
 
       // uses_explicit should be stale (uses explicit dep which changed)
-      assertStringIncludes(afterExplicitChangeResult.stdout, "uses_explicit",
-        `uses_explicit should be marked stale after explicit dep change. Output: ${afterExplicitChangeResult.stdout}`);
+      expect(afterExplicitChangeResult.stdout).toContain("uses_explicit");
 
       // uses_default should NOT be stale (uses default dep, not explicit)
-      assert(!afterExplicitChangeResult.stdout.includes("uses_default"),
-        `uses_default should NOT be marked stale after explicit dep change. Output: ${afterExplicitChangeResult.stdout}`);
+      expect(!afterExplicitChangeResult.stdout.includes("uses_default")).toBeTruthy();
     });
-  },
-});
+  });
 
 // =============================================================================
 // Test 2: Flows - filterWorkspaceDependenciesForScripts correctly filters by annotation
 // =============================================================================
 
-Deno.test({
-  name: "Workspace deps: Flows - filterWorkspaceDependenciesForScripts correctly filters inline scripts",
-  ignore: false,
-  sanitizeResources: false,
-  sanitizeOps: false,
-  fn: async () => {
+test("Workspace deps: Flows - filterWorkspaceDependenciesForScripts correctly filters inline scripts", async () => {
     // This test verifies the filtering logic used by flows without needing workers
     // We test filterWorkspaceDependenciesForScripts directly since flow generate-locks
     // doesn't have a --dry-run option
@@ -216,21 +200,15 @@ export async function main() {
 
     // Filter for default script - should only include default dep
     const defaultFiltered = filterWorkspaceDependencies(rawWorkspaceDeps, defaultScriptContent, "bun");
-    assertEquals(Object.keys(defaultFiltered).length, 1,
-      `Default script should have 1 filtered dep, got: ${JSON.stringify(defaultFiltered)}`);
-    assert("dependencies/package.json" in defaultFiltered,
-      `Default script should have package.json`);
-    assert(!("dependencies/explicit.package.json" in defaultFiltered),
-      `Default script should NOT have explicit.package.json`);
+    expect(Object.keys(defaultFiltered).length).toEqual(1);
+    expect("dependencies/package.json" in defaultFiltered).toBeTruthy();
+    expect(!("dependencies/explicit.package.json" in defaultFiltered)).toBeTruthy();
 
     // Filter for explicit script - should only include explicit dep
     const explicitFiltered = filterWorkspaceDependencies(rawWorkspaceDeps, explicitScriptContent, "bun");
-    assertEquals(Object.keys(explicitFiltered).length, 1,
-      `Explicit script should have 1 filtered dep, got: ${JSON.stringify(explicitFiltered)}`);
-    assert("dependencies/explicit.package.json" in explicitFiltered,
-      `Explicit script should have explicit.package.json`);
-    assert(!("dependencies/package.json" in explicitFiltered),
-      `Explicit script should NOT have package.json`);
+    expect(Object.keys(explicitFiltered).length).toEqual(1);
+    expect("dependencies/explicit.package.json" in explicitFiltered).toBeTruthy();
+    expect(!("dependencies/package.json" in explicitFiltered)).toBeTruthy();
 
     // Verify hashes change correctly when deps change
     const defaultHash1 = await generateScriptHash(defaultFiltered, defaultScriptContent, "metadata");
@@ -250,12 +228,10 @@ export async function main() {
     const explicitHash2 = await generateScriptHash(explicitFiltered2, explicitScriptContent, "metadata");
 
     // Default script hash should change (its dep changed)
-    assert(defaultHash1 !== defaultHash2,
-      `Default script hash should change when default dep changes`);
+    expect(defaultHash1 !== defaultHash2).toBeTruthy();
 
     // Explicit script hash should NOT change (its dep didn't change)
-    assertEquals(explicitHash1, explicitHash2,
-      `Explicit script hash should NOT change when default dep changes`);
+    expect(explicitHash1).toEqual(explicitHash2);
 
     // Now change explicit dep
     const newExplicitDep = `{"dependencies": {"axios": "1.6.1"}}`;
@@ -271,25 +247,17 @@ export async function main() {
     const explicitHash3 = await generateScriptHash(explicitFiltered3, explicitScriptContent, "metadata");
 
     // Default script hash should be back to original (dep is back to original)
-    assertEquals(defaultHash1, defaultHash3,
-      `Default script hash should be same as original when dep reverts`);
+    expect(defaultHash1).toEqual(defaultHash3);
 
     // Explicit script hash should change (its dep changed)
-    assert(explicitHash1 !== explicitHash3,
-      `Explicit script hash should change when explicit dep changes`);
-  },
-});
+    expect(explicitHash1 !== explicitHash3).toBeTruthy();
+  });
 
 // =============================================================================
 // Test 3: Cross-language isolation - Python dep change doesn't affect Bun script
 // =============================================================================
 
-Deno.test({
-  name: "Workspace deps: Cross-language - Python dep change doesn't affect Bun script",
-  ignore: false,
-  sanitizeResources: false,
-  sanitizeOps: false,
-  fn: async () => {
+test("Workspace deps: Cross-language - Python dep change doesn't affect Bun script", async () => {
     await withTestBackend(async (backend, tempDir) => {
       // Set up workspace
       const testWorkspace = {
@@ -301,20 +269,20 @@ Deno.test({
       await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
 
       // Create wmill.yaml
-      await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+      await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
 includes:
   - "**"
-excludes: []`);
+excludes: []`, "utf-8");
 
       // Setup dependencies folder with deps for multiple languages
-      await ensureDir(`${tempDir}/dependencies`);
+      await mkdir(`${tempDir}/dependencies`, { recursive: true });
       const pythonDep = "requests==2.31.0";
       const bunDep = `{"dependencies": {"lodash": "4.17.21"}}`;
-      await Deno.writeTextFile(`${tempDir}/dependencies/requirements.in`, pythonDep);
-      await Deno.writeTextFile(`${tempDir}/dependencies/package.json`, bunDep);
+      await writeFile(`${tempDir}/dependencies/requirements.in`, pythonDep, "utf-8");
+      await writeFile(`${tempDir}/dependencies/package.json`, bunDep, "utf-8");
 
       // Setup script folder
-      await ensureDir(`${tempDir}/f/test`);
+      await mkdir(`${tempDir}/f/test`, { recursive: true });
 
       // Python script
       const pythonContent = `def main():
@@ -326,8 +294,8 @@ schema:
   properties: {}
 lock: ""
 `;
-      await Deno.writeTextFile(`${tempDir}/f/test/python_script.py`, pythonContent);
-      await Deno.writeTextFile(`${tempDir}/f/test/python_script.script.yaml`, pythonMetadata);
+      await writeFile(`${tempDir}/f/test/python_script.py`, pythonContent, "utf-8");
+      await writeFile(`${tempDir}/f/test/python_script.script.yaml`, pythonMetadata, "utf-8");
 
       // Bun script
       const bunContent = `export async function main() {
@@ -340,8 +308,8 @@ schema:
   properties: {}
 lock: ""
 `;
-      await Deno.writeTextFile(`${tempDir}/f/test/bun_script.ts`, bunContent);
-      await Deno.writeTextFile(`${tempDir}/f/test/bun_script.script.yaml`, bunMetadata);
+      await writeFile(`${tempDir}/f/test/bun_script.ts`, bunContent, "utf-8");
+      await writeFile(`${tempDir}/f/test/bun_script.script.yaml`, bunMetadata, "utf-8");
 
       // Build raw workspace dependencies map
       const rawWorkspaceDeps: Record<string, string> = {
@@ -354,26 +322,22 @@ lock: ""
       const bunFilteredDeps = filterWorkspaceDependencies(rawWorkspaceDeps, bunContent, "bun");
 
       // Python script should only get requirements.in
-      assertEquals(Object.keys(pythonFilteredDeps).length, 1,
-        `Python script should only have 1 filtered dep, got: ${JSON.stringify(pythonFilteredDeps)}`);
-      assert("dependencies/requirements.in" in pythonFilteredDeps,
-        `Python script should have requirements.in in filtered deps`);
+      expect(Object.keys(pythonFilteredDeps).length).toEqual(1);
+      expect("dependencies/requirements.in" in pythonFilteredDeps).toBeTruthy();
 
       // Bun script should only get package.json
-      assertEquals(Object.keys(bunFilteredDeps).length, 1,
-        `Bun script should only have 1 filtered dep, got: ${JSON.stringify(bunFilteredDeps)}`);
-      assert("dependencies/package.json" in bunFilteredDeps,
-        `Bun script should have package.json in filtered deps`);
+      expect(Object.keys(bunFilteredDeps).length).toEqual(1);
+      expect("dependencies/package.json" in bunFilteredDeps).toBeTruthy();
 
       // Compute initial hashes
       const pythonHash = await generateScriptHash(pythonFilteredDeps, pythonContent, pythonMetadata);
       const bunHash = await generateScriptHash(bunFilteredDeps, bunContent, bunMetadata);
 
       // Create initial wmill-lock.yaml
-      await Deno.writeTextFile(`${tempDir}/wmill-lock.yaml`, createLockfile({
+      await writeFile(`${tempDir}/wmill-lock.yaml`, createLockfile({
         "f/test/python_script": pythonHash,
         "f/test/bun_script": bunHash,
-      }));
+      }), "utf-8");
 
       // Verify initial state - both scripts should be up-to-date
       const initialResult = await backend.runCLICommand(
@@ -381,12 +345,11 @@ lock: ""
         tempDir,
         "workspace_deps_cross_lang_test"
       );
-      assertEquals(initialResult.code, 0, `Initial dry-run should succeed: ${initialResult.stderr}`);
-      assertStringIncludes(initialResult.stdout, "No metadata to update",
-        `Initial state should show no updates needed. Output: ${initialResult.stdout}`);
+      expect(initialResult.code).toEqual(0);
+      expect(initialResult.stdout).toContain("No metadata to update");
 
       // Change Python dep (requirements.in)
-      await Deno.writeTextFile(`${tempDir}/dependencies/requirements.in`, "requests==2.32.0");
+      await writeFile(`${tempDir}/dependencies/requirements.in`, "requests==2.32.0", "utf-8");
 
       // Run dry-run
       const afterPythonChangeResult = await backend.runCLICommand(
@@ -394,48 +357,38 @@ lock: ""
         tempDir,
         "workspace_deps_cross_lang_test"
       );
-      assertEquals(afterPythonChangeResult.code, 0, `Dry-run should succeed: ${afterPythonChangeResult.stderr}`);
+      expect(afterPythonChangeResult.code).toEqual(0);
 
       // python_script should be stale
-      assertStringIncludes(afterPythonChangeResult.stdout, "python_script",
-        `python_script should be marked stale after Python dep change. Output: ${afterPythonChangeResult.stdout}`);
+      expect(afterPythonChangeResult.stdout).toContain("python_script");
 
       // bun_script should NOT be stale (different language)
-      assert(!afterPythonChangeResult.stdout.includes("bun_script"),
-        `bun_script should NOT be marked stale after Python dep change. Output: ${afterPythonChangeResult.stdout}`);
+      expect(!afterPythonChangeResult.stdout.includes("bun_script")).toBeTruthy();
 
       // Reset and test the reverse
-      await Deno.writeTextFile(`${tempDir}/dependencies/requirements.in`, pythonDep);
-      await Deno.writeTextFile(`${tempDir}/dependencies/package.json`, `{"dependencies": {"lodash": "4.17.22"}}`);
+      await writeFile(`${tempDir}/dependencies/requirements.in`, pythonDep, "utf-8");
+      await writeFile(`${tempDir}/dependencies/package.json`, `{"dependencies": {"lodash": "4.17.22"}}`, "utf-8");
 
       const afterBunChangeResult = await backend.runCLICommand(
         ["script", "generate-metadata", "-i", "f/test/python_script*,f/test/bun_script*", "--yes", "--dry-run"],
         tempDir,
         "workspace_deps_cross_lang_test"
       );
-      assertEquals(afterBunChangeResult.code, 0, `Dry-run should succeed: ${afterBunChangeResult.stderr}`);
+      expect(afterBunChangeResult.code).toEqual(0);
 
       // bun_script should be stale
-      assertStringIncludes(afterBunChangeResult.stdout, "bun_script",
-        `bun_script should be marked stale after Bun dep change. Output: ${afterBunChangeResult.stdout}`);
+      expect(afterBunChangeResult.stdout).toContain("bun_script");
 
       // python_script should NOT be stale (different language)
-      assert(!afterBunChangeResult.stdout.includes("python_script"),
-        `python_script should NOT be marked stale after Bun dep change. Output: ${afterBunChangeResult.stdout}`);
+      expect(!afterBunChangeResult.stdout.includes("python_script")).toBeTruthy();
     });
-  },
-});
+  });
 
 // =============================================================================
 // Test 4: Apps - Create app via API and test filterWorkspaceDependenciesForApp
 // =============================================================================
 
-Deno.test({
-  name: "Workspace deps: Apps - filterWorkspaceDependenciesForApp with real app via API",
-  ignore: false,
-  sanitizeResources: false,
-  sanitizeOps: false,
-  fn: async () => {
+test("Workspace deps: Apps - filterWorkspaceDependenciesForApp with real app via API", async () => {
     await withTestBackend(async (backend, tempDir) => {
       // Set up workspace
       const testWorkspace = {
@@ -447,10 +400,10 @@ Deno.test({
       await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
 
       // Create wmill.yaml
-      await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+      await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
 includes:
   - "**"
-excludes: []`);
+excludes: []`, "utf-8");
 
       // Create app with multiple inline scripts via backend API
       const appPath = "f/test/multi_script_app";
@@ -530,7 +483,7 @@ excludes: []`);
           }),
         }
       );
-      assertEquals(createResponse.ok, true, `Failed to create app: ${await createResponse.text()}`);
+      expect(createResponse.ok).toEqual(true);
 
       // Pull the app to disk
       const pullResult = await backend.runCLICommand(
@@ -538,19 +491,19 @@ excludes: []`);
         tempDir,
         "workspace_deps_app_test"
       );
-      assertEquals(pullResult.code, 0, `Sync pull should succeed: ${pullResult.stderr}`);
+      expect(pullResult.code).toEqual(0);
 
       // Setup workspace dependencies
-      await ensureDir(`${tempDir}/dependencies`);
+      await mkdir(`${tempDir}/dependencies`, { recursive: true });
       const defaultBunDep = `{"dependencies": {"lodash": "4.17.21"}}`;
       const explicitBunDep = `{"dependencies": {"axios": "1.6.0"}}`;
       const pythonDep = "requests==2.31.0";
-      await Deno.writeTextFile(`${tempDir}/dependencies/package.json`, defaultBunDep);
-      await Deno.writeTextFile(`${tempDir}/dependencies/explicit.package.json`, explicitBunDep);
-      await Deno.writeTextFile(`${tempDir}/dependencies/requirements.in`, pythonDep);
+      await writeFile(`${tempDir}/dependencies/package.json`, defaultBunDep, "utf-8");
+      await writeFile(`${tempDir}/dependencies/explicit.package.json`, explicitBunDep, "utf-8");
+      await writeFile(`${tempDir}/dependencies/requirements.in`, pythonDep, "utf-8");
 
       // Read the pulled app.yaml
-      const { yamlParseFile } = await import("../deps.ts");
+      const { yamlParseFile } = await import("../src/utils/yaml.ts");
       const appFilePath = `${tempDir}/${appPath}.app/app.yaml`;
       const appFile = await yamlParseFile(appFilePath);
 
@@ -568,14 +521,10 @@ excludes: []`);
       );
 
       // Verify all 3 dep types are included
-      assertEquals(Object.keys(filteredDeps).length, 3,
-        `App with bun (default), bun (explicit), and python should have 3 filtered deps, got: ${JSON.stringify(filteredDeps)}`);
-      assert("dependencies/package.json" in filteredDeps,
-        `Should include default package.json for default bun script`);
-      assert("dependencies/explicit.package.json" in filteredDeps,
-        `Should include explicit.package.json for annotated bun script`);
-      assert("dependencies/requirements.in" in filteredDeps,
-        `Should include requirements.in for python script`);
+      expect(Object.keys(filteredDeps).length).toEqual(3);
+      expect("dependencies/package.json" in filteredDeps).toBeTruthy();
+      expect("dependencies/explicit.package.json" in filteredDeps).toBeTruthy();
+      expect("dependencies/requirements.in" in filteredDeps).toBeTruthy();
 
       // Verify hash changes when deps change
       const hash1 = await generateHash(JSON.stringify(filteredDeps));
@@ -594,7 +543,6 @@ excludes: []`);
       );
 
       const hash2 = await generateHash(JSON.stringify(filteredDeps2));
-      assert(hash1 !== hash2, `Hash should change when filtered deps change`);
+      expect(hash1 !== hash2).toBeTruthy();
     });
-  },
-});
+  });

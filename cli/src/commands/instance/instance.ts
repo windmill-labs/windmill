@@ -1,16 +1,17 @@
-import {
-  Command,
-  Confirm,
-  path,
-  Select,
-  setClient,
-  Table,
-  yamlParseFile,
-  yamlStringify,
-} from "../../../deps.ts";
+import { readFile, writeFile, readdir, mkdir, rm, stat } from "node:fs/promises";
+import { appendFile } from "node:fs/promises";
+import { colors } from "@cliffy/ansi/colors";
+import { Command } from "@cliffy/command";
+import { Confirm } from "@cliffy/prompt/confirm";
+import { Input } from "@cliffy/prompt/input";
+import { Select } from "@cliffy/prompt/select";
+import { Table } from "@cliffy/table";
+import * as log from "@std/log";
+import * as path from "@std/path";
+import { stringify as yamlStringify } from "@std/yaml";
+import { setClient } from "../../core/client.ts";
+import { yamlParseFile } from "../../utils/yaml.ts";
 import * as wmill from "../../../gen/services.gen.ts";
-
-import { colors, Input, log } from "../../../deps.ts";
 import { loginInteractive } from "../../core/login.ts";
 import {
   getActiveInstanceFilePath,
@@ -51,7 +52,7 @@ export interface Instance {
 export async function allInstances(): Promise<Instance[]> {
   try {
     const file = await getInstancesConfigFilePath();
-    const txt = await Deno.readTextFile(file);
+    const txt = await readFile(file, "utf-8");
     return txt
       .split("\n")
       .map((line) => {
@@ -118,26 +119,19 @@ export async function addInstance(
 async function appendInstance(instance: Instance) {
   instance.remote = new URL(instance.remote).toString(); // add trailing slash in all cases!
   await removeInstance(instance.name);
-  const file = await Deno.open(await getInstancesConfigFilePath(), {
-    append: true,
-    write: true,
-    read: true,
-    create: true,
-  });
-  await file.write(new TextEncoder().encode(JSON.stringify(instance) + "\n"));
-
-  file.close();
+  const filePath = await getInstancesConfigFilePath();
+  await appendFile(filePath, JSON.stringify(instance) + "\n", "utf-8");
 }
 
 async function removeInstance(name: string) {
   const orgWorkspaces = await allInstances();
 
-  await Deno.writeTextFile(
+  await writeFile(
     await getInstancesConfigFilePath(),
     orgWorkspaces
       .filter((x) => x.name !== name)
       .map((x) => JSON.stringify(x))
-      .join("\n") + "\n",
+      .join("\n") + "\n", "utf-8",
   );
 }
 
@@ -289,7 +283,7 @@ async function instancePull(opts: InstanceSyncOptions) {
 
   const totalChanges = uChanges + sChanges + cChanges + gChanges;
 
-  const rootDir = Deno.cwd();
+  const rootDir = process.cwd();
 
   if (totalChanges > 0) {
     let confirm = true;
@@ -308,7 +302,7 @@ async function instancePull(opts: InstanceSyncOptions) {
     if (confirm) {
       if (uChanges > 0) {
         if (opts.folderPerInstance && opts.prefixSettings) {
-          await Deno.mkdir(path.join(rootDir, opts.prefix), {
+          await mkdir(path.join(rootDir, opts.prefix), {
             recursive: true,
           });
         }
@@ -348,10 +342,10 @@ async function instancePull(opts: InstanceSyncOptions) {
       const workspaceName = opts?.folderPerInstance
         ? instance.prefix + "/" + remoteWorkspace.id
         : instance.prefix + "_" + remoteWorkspace.id;
-      await Deno.mkdir(path.join(rootDir, workspaceName), {
+      await mkdir(path.join(rootDir, workspaceName), {
         recursive: true,
       });
-      await Deno.chdir(path.join(rootDir, workspaceName));
+      process.chdir(path.join(rootDir, workspaceName));
       await addWorkspace(
         {
           remote: instance.remote,
@@ -397,7 +391,7 @@ async function instancePull(opts: InstanceSyncOptions) {
       if (confirmDelete) {
         for (const workspace of localWorkspacesToDelete) {
           await removeWorkspace(workspace.id, false, {});
-          await Deno.remove(path.join(rootDir, workspace.dir), {
+          await rm(path.join(rootDir, workspace.dir), {
             recursive: true,
           });
         }
@@ -467,7 +461,7 @@ async function instancePush(opts: InstanceSyncOptions) {
 
   if (opts.includeWorkspaces) {
     instances = await allInstances();
-    const rootDir = Deno.cwd();
+    const rootDir = process.cwd();
 
     let localPrefix;
     if (opts.prefix) {
@@ -506,7 +500,7 @@ async function instancePush(opts: InstanceSyncOptions) {
     for (const localWorkspace of localWorkspaces) {
       log.info("\nPushing workspace " + localWorkspace.id);
       try {
-        await Deno.chdir(path.join(rootDir, localWorkspace.dir));
+        process.chdir(path.join(rootDir, localWorkspace.dir));
       } catch (_) {
         throw new Error(
           "Workspace folder not found, are you in the right directory?",
@@ -515,7 +509,7 @@ async function instancePush(opts: InstanceSyncOptions) {
 
       try {
         const workspaceSettings = (await yamlParseFile(
-          path.join(Deno.cwd(), "settings.yaml"),
+          path.join(process.cwd(), "settings.yaml"),
         )) as SimplifiedSettings;
         await workspaceSetup(
           {
@@ -586,12 +580,13 @@ async function getLocalWorkspaces(
 ) {
   const localWorkspaces: { dir: string; id: string }[] = [];
 
-  if (!(await Deno.stat(localPrefix).catch(() => null))) {
-    await Deno.mkdir(localPrefix);
+  if (!(await stat(localPrefix).catch(() => null))) {
+    await mkdir(localPrefix);
   }
   if (folderPerInstance) {
-    for await (const dir of Deno.readDir(rootDir + "/" + localPrefix)) {
-      if (dir.isDirectory) {
+    const prefixEntries = await readdir(rootDir + "/" + localPrefix, { withFileTypes: true });
+    for (const dir of prefixEntries) {
+      if (dir.isDirectory()) {
         const dirName = dir.name;
         localWorkspaces.push({
           dir: localPrefix + "/" + dirName,
@@ -600,7 +595,8 @@ async function getLocalWorkspaces(
       }
     }
   } else {
-    for await (const dir of Deno.readDir(rootDir)) {
+    const rootEntries = await readdir(rootDir, { withFileTypes: true });
+    for (const dir of rootEntries) {
       const dirName = dir.name;
       if (dirName.startsWith(localPrefix + "_")) {
         localWorkspaces.push({
@@ -631,9 +627,9 @@ async function switchI(opts: {}, instanceName: string) {
     return;
   }
 
-  await Deno.writeTextFile(
+  await writeFile(
     await getActiveInstanceFilePath(),
-    instanceName,
+    instanceName, "utf-8",
   );
 
   log.info(colors.green.underline(`Switched to instance ${instanceName}`));
@@ -646,7 +642,7 @@ export async function getActiveInstance(opts: {
     return opts.instance;
   }
   try {
-    return await Deno.readTextFile(await getActiveInstanceFilePath());
+    return await readFile(await getActiveInstanceFilePath(), "utf-8");
   } catch {
     return undefined;
   }
@@ -657,7 +653,7 @@ async function getConfig(opts: InstanceSyncOptions & { outputFile?: string }) {
   const config = await wmill.getInstanceConfig();
   const yaml = yamlStringify(config as Record<string, unknown>);
   if (opts.outputFile) {
-    await Deno.writeTextFile(opts.outputFile, yaml);
+    await writeFile(opts.outputFile, yaml, "utf-8");
     log.info(colors.green(`Instance config written to ${opts.outputFile}`));
   } else {
     console.log(yaml);

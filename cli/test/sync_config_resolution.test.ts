@@ -1,4 +1,5 @@
-import { assertEquals, assertStringIncludes, assert } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { expect, test } from "bun:test";
+import { writeFile } from "node:fs/promises";
 import { readConfigFile, getEffectiveSettings } from "../src/core/conf.ts";
 import { withTestBackend } from "./test_backend.ts";
 import { addWorkspace } from "../workspace.ts";
@@ -26,17 +27,13 @@ async function setupWorkspaceProfile(backend: any): Promise<void> {
 // INTEGRATION TESTS WITH REAL BACKEND
 // =============================================================================
 
-Deno.test({
-  name: "Integration: wmill.yaml configuration produces expected results",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  fn: async () => {
+test("Integration: wmill.yaml configuration produces expected results", async () => {
   await withTestBackend(async (backend, tempDir) => {
     // Set up workspace profile with name "localhost_test"
     await setupWorkspaceProfile(backend);
 
     // Create wmill.yaml with settings
-    await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+    await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
 includes:
   - f/**
   - settings.yaml
@@ -46,7 +43,7 @@ skipVariables: true
 skipResources: true
 includeSettings: true
 includeSchedules: true
-includeTriggers: true`);
+includeTriggers: true`, "utf-8");
 
     // Test pull with wmill.yaml configuration
     const yamlResult = await backend.runCLICommand(['sync', 'pull', '--dry-run', '--json-output'], tempDir);
@@ -56,7 +53,7 @@ includeTriggers: true`);
       console.log("Stdout:", yamlResult.stdout);
       console.log("Stderr:", yamlResult.stderr);
     }
-    assertEquals(yamlResult.code, 0);
+    expect(yamlResult.code).toEqual(0);
 
     // Extract JSON from CLI output (skip log messages)
     const yamlData = parseJsonFromCLIOutput(yamlResult.stdout);
@@ -65,7 +62,7 @@ includeTriggers: true`);
     const hasSettings = (yamlData.changes || []).some((change: any) =>
       change.type === 'added' && change.path === 'settings.yaml'
     );
-    assertEquals(hasSettings, true);
+    expect(hasSettings).toEqual(true);
 
     // Should NOT include resources or variables (due to skip flags)
     const hasResources = (yamlData.changes || []).some((change: any) =>
@@ -74,72 +71,64 @@ includeTriggers: true`);
     const hasVariables = (yamlData.changes || []).some((change: any) =>
       change.type === 'added' && change.path?.includes('.variable.yaml')
     );
-    assertEquals(hasResources, false);
-    assertEquals(hasVariables, false);
+    expect(hasResources).toEqual(false);
+    expect(hasVariables).toEqual(false);
   });
-}});
+});
 
-Deno.test({
-  name: "Integration: settings.yaml inclusion respects includeSettings flag",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  fn: async () => {
+test("Integration: settings.yaml inclusion respects includeSettings flag", async () => {
   await withTestBackend(async (backend, tempDir) => {
     // Set up workspace profile with name "localhost_test"
     await setupWorkspaceProfile(backend);
 
     // Test 1: includeSettings: true should include settings.yaml
-    await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+    await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
 includes:
   - "**"
-includeSettings: true`);
+includeSettings: true`, "utf-8");
 
     const includeResult = await backend.runCLICommand(['sync', 'pull', '--dry-run', '--json-output'], tempDir);
-    assertEquals(includeResult.code, 0);
+    expect(includeResult.code).toEqual(0);
 
     // Extract JSON from CLI output (skip log messages)
     const includeData = parseJsonFromCLIOutput(includeResult.stdout);
     const hasSettingsInclude = (includeData.changes || []).some((change: any) =>
       change.type === 'added' && change.path === 'settings.yaml'
     );
-    assertEquals(hasSettingsInclude, true);
+    expect(hasSettingsInclude).toEqual(true);
 
     // Test 2: includeSettings: false should NOT include settings.yaml
-    await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+    await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
 includes:
   - "**"
-includeSettings: false`);
+includeSettings: false`, "utf-8");
 
     const excludeResult = await backend.runCLICommand(['sync', 'pull', '--dry-run', '--json-output'], tempDir);
-    assertEquals(excludeResult.code, 0);
+    expect(excludeResult.code).toEqual(0);
 
     // Extract JSON from CLI output (skip log messages)
     const excludeData = parseJsonFromCLIOutput(excludeResult.stdout);
     const hasSettingsExclude = (excludeData.changes || []).some((change: any) =>
       change.type === 'added' && change.path === 'settings.yaml'
     );
-    assertEquals(hasSettingsExclude, false);
+    expect(hasSettingsExclude).toEqual(false);
   });
-}});
+});
 
-Deno.test({
-  name: "Integration: resource/variable filtering respects skip flags",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  fn: async () => {
+test("Integration: resource/variable filtering respects skip flags", async () => {
   await withTestBackend(async (backend, tempDir) => {
     // Set up workspace profile with name "localhost_test"
     await setupWorkspaceProfile(backend);
 
     // Test skipResources: true
-    await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+    await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
 includes:
   - "**"
 skipResources: true
-skipVariables: false`);
+skipVariables: false`, "utf-8");
 
     const result = await backend.runCLICommand(['sync', 'pull', '--dry-run', '--json-output'], tempDir);
-    assertEquals(result.code, 0);
+    expect(result.code).toEqual(0);
 
     // Extract JSON from CLI output (skip log messages)
     const data = parseJsonFromCLIOutput(result.stdout);
@@ -148,42 +137,38 @@ skipVariables: false`);
     const hasResources = (data.changes || []).some((change: any) =>
       change.type === 'added' && change.path?.includes('.resource.yaml')
     );
-    assertEquals(hasResources, false);
+    expect(hasResources).toEqual(false);
 
     // Should include variables (not skipped)
     const hasVariables = (data.changes || []).some((change: any) =>
       change.type === 'added' && change.path?.includes('.variable.yaml')
     );
-    assertEquals(hasVariables, true);
+    expect(hasVariables).toEqual(true);
   });
-}});
+});
 
 // =============================================================================
 // CLI FLAG OVERRIDE TESTS
 // Tests for CLI flags overriding configuration file settings
 // =============================================================================
 
-Deno.test({
-  name: "CLI skip flags override wmill.yaml configuration",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  fn: async () => {
+test("CLI skip flags override wmill.yaml configuration", async () => {
   await withTestBackend(async (backend, tempDir) => {
     // Set up workspace profile with name "localhost_test"
     await setupWorkspaceProfile(backend);
 
     // Create wmill.yaml that INCLUDES resources by default (skipResources: false)
-    await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+    await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
 includes:
   - f/**
   - u/**
 skipResources: false
 skipResourceTypes: false
-includeSettings: true`);
+includeSettings: true`, "utf-8");
 
     // Test 1: Without CLI flags - should respect wmill.yaml (include resources)
     const configResult = await backend.runCLICommand(['sync', 'pull', '--dry-run', '--json-output'], tempDir);
-    assertEquals(configResult.code, 0);
+    expect(configResult.code).toEqual(0);
 
     const configData = parseJsonFromCLIOutput(configResult.stdout);
 
@@ -192,7 +177,7 @@ includeSettings: true`);
     const hasResources = (configData.changes || []).some((change: any) =>
       change.type === 'added' && change.path?.includes('.resource.yaml')
     );
-    assertEquals(hasResources, true, "Resources should be included by wmill.yaml config");
+    expect(hasResources).toEqual(true);
 
     // Test 2: With CLI --skip-resources flag - should override wmill.yaml to skip resources
     const overrideResult = await backend.runCLICommand([
@@ -200,7 +185,7 @@ includeSettings: true`);
       '--skip-resources',  // CLI flag should override config to skip resources
       '--skip-resource-types'  // CLI flag should override config to skip resource types
     ], tempDir);
-    assertEquals(overrideResult.code, 0);
+    expect(overrideResult.code).toEqual(0);
 
     const overrideData = parseJsonFromCLIOutput(overrideResult.stdout);
 
@@ -208,12 +193,12 @@ includeSettings: true`);
     const hasResourcesOverride = (overrideData.changes || []).some((change: any) =>
       change.type === 'added' && change.path?.includes('.resource.yaml')
     );
-    assertEquals(hasResourcesOverride, false, "CLI --skip-resources flag should override wmill.yaml to exclude resources");
+    expect(hasResourcesOverride).toEqual(false);
 
     // Should NOT include resource types (CLI flag overrides config)
     const hasResourceTypesOverride = (overrideData.changes || []).some((change: any) =>
       change.type === 'added' && change.path?.includes('.resource-type.yaml')
     );
-    assertEquals(hasResourceTypesOverride, false, "CLI --skip-resource-types flag should override wmill.yaml to exclude resource types");
+    expect(hasResourceTypesOverride).toEqual(false);
   });
-}});
+});

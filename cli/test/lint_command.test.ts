@@ -1,8 +1,7 @@
-import {
-  assert,
-  assertEquals,
-  assertStringIncludes,
-} from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { expect, test } from "bun:test";
+import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
+import os from "node:os";
+import * as path from "@std/path";
 import {
   formatValidationError,
   runLint,
@@ -11,30 +10,31 @@ import {
 async function withTempDir(
   fn: (tempDir: string) => Promise<void>,
 ): Promise<void> {
-  const tempDir = await Deno.makeTempDir({ prefix: "wmill_lint_test_" });
-  const originalCwd = Deno.cwd();
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "wmill_lint_test_"));
+  const originalCwd = process.cwd();
   try {
-    Deno.chdir(tempDir);
+    process.chdir(tempDir);
     await fn(tempDir);
   } finally {
-    Deno.chdir(originalCwd);
-    await Deno.remove(tempDir, { recursive: true });
+    process.chdir(originalCwd);
+    await rm(tempDir, { recursive: true });
   }
 }
 
-Deno.test("lint: validates flow, schedule, and trigger yaml files", async () => {
+test("lint: validates flow, schedule, and trigger yaml files", async () => {
   await withTempDir(async (tempDir) => {
-    await Deno.mkdir(`${tempDir}/f/my_flow.flow`, { recursive: true });
-    await Deno.writeTextFile(
+    await mkdir(`${tempDir}/f/my_flow.flow`, { recursive: true });
+    await writeFile(
       `${tempDir}/f/my_flow.flow/flow.yaml`,
       `summary: My flow
 value:
   modules: []
 `,
+      "utf-8"
     );
 
-    await Deno.mkdir(`${tempDir}/f/jobs`, { recursive: true });
-    await Deno.writeTextFile(
+    await mkdir(`${tempDir}/f/jobs`, { recursive: true });
+    await writeFile(
       `${tempDir}/f/jobs/daily.schedule.yaml`,
       `schedule: "0 0 12 * * *"
 timezone: "UTC"
@@ -42,10 +42,11 @@ enabled: true
 script_path: "f/jobs/daily_sync"
 is_flow: false
 `,
+      "utf-8"
     );
 
-    await Deno.mkdir(`${tempDir}/f/triggers`, { recursive: true });
-    await Deno.writeTextFile(
+    await mkdir(`${tempDir}/f/triggers`, { recursive: true });
+    await writeFile(
       `${tempDir}/f/triggers/hook.http_trigger.yaml`,
       `script_path: "f/triggers/http_handler"
 is_flow: false
@@ -58,93 +59,97 @@ workspaced_route: false
 wrap_body: false
 raw_string: false
 `,
+      "utf-8"
     );
 
-    await Deno.writeTextFile(
+    await writeFile(
       `${tempDir}/f/triggers/inbox.email_trigger.yaml`,
       `script_path: "f/triggers/email_handler"
 is_flow: false
 local_part: "inbox"
 `,
+      "utf-8"
     );
 
     const report = await runLint({} as any, tempDir);
 
-    assertEquals(report.exitCode, 0);
-    assertEquals(report.validatedFiles, 4);
-    assertEquals(report.validFiles, 4);
-    assertEquals(report.invalidFiles, 0);
-    assertEquals(report.warnings.length, 0);
+    expect(report.exitCode).toEqual(0);
+    expect(report.validatedFiles).toEqual(4);
+    expect(report.validFiles).toEqual(4);
+    expect(report.invalidFiles).toEqual(0);
+    expect(report.warnings.length).toEqual(0);
   });
 });
 
-Deno.test("lint: returns errors for invalid schedule documents", async () => {
+test("lint: returns errors for invalid schedule documents", async () => {
   await withTempDir(async (tempDir) => {
-    await Deno.mkdir(`${tempDir}/f/jobs`, { recursive: true });
-    await Deno.writeTextFile(
+    await mkdir(`${tempDir}/f/jobs`, { recursive: true });
+    await writeFile(
       `${tempDir}/f/jobs/broken.schedule.yaml`,
       `timezone: "UTC"
 enabled: true
 script_path: "f/jobs/broken"
 is_flow: false
 `,
+      "utf-8"
     );
 
     const report = await runLint({} as any, tempDir);
 
-    assertEquals(report.exitCode, 1);
-    assertEquals(report.validatedFiles, 1);
-    assertEquals(report.invalidFiles, 1);
-    assertEquals(report.issues[0].path, "f/jobs/broken.schedule.yaml");
-    assert(
+    expect(report.exitCode).toEqual(1);
+    expect(report.validatedFiles).toEqual(1);
+    expect(report.invalidFiles).toEqual(1);
+    expect(report.issues[0].path).toEqual("f/jobs/broken.schedule.yaml");
+    expect(
       report.issues[0].errors.some((message) =>
         message.includes("missing required property 'schedule'")
       ),
-    );
+    ).toBeTruthy();
   });
 });
 
-Deno.test("lint: warns and skips unsupported native trigger schemas", async () => {
+test("lint: warns and skips unsupported native trigger schemas", async () => {
   await withTempDir(async (tempDir) => {
-    await Deno.mkdir(`${tempDir}/f/triggers`, { recursive: true });
-    await Deno.writeTextFile(
+    await mkdir(`${tempDir}/f/triggers`, { recursive: true });
+    await writeFile(
       `${tempDir}/f/triggers/webhook.script.123.nextcloud_native_trigger.yaml`,
       `path: "f/triggers/native"
 `,
+      "utf-8"
     );
 
     const report = await runLint({} as any, tempDir);
 
-    assertEquals(report.exitCode, 0);
-    assertEquals(report.validatedFiles, 0);
-    assertEquals(report.skippedUnsupportedFiles, 1);
-    assertEquals(report.warnings.length, 1);
-    assertStringIncludes(
+    expect(report.exitCode).toEqual(0);
+    expect(report.validatedFiles).toEqual(0);
+    expect(report.skippedUnsupportedFiles).toEqual(1);
+    expect(report.warnings.length).toEqual(1);
+    expect(
       report.warnings[0].message,
-      "Unsupported trigger schema",
-    );
+    ).toContain("Unsupported trigger schema");
 
     const failOnWarnReport = await runLint(
       { failOnWarn: true } as any,
       tempDir,
     );
-    assertEquals(failOnWarnReport.exitCode, 1);
+    expect(failOnWarnReport.exitCode).toEqual(1);
   });
 });
 
-Deno.test("lint: uses wmill.yaml include filters for file discovery", async () => {
+test("lint: uses wmill.yaml include filters for file discovery", async () => {
   await withTempDir(async (tempDir) => {
-    await Deno.writeTextFile(
+    await writeFile(
       `${tempDir}/wmill.yaml`,
       `defaultTs: bun
 includes:
   - "f/allowed/**"
 excludes: []
 `,
+      "utf-8"
     );
 
-    await Deno.mkdir(`${tempDir}/f/allowed`, { recursive: true });
-    await Deno.writeTextFile(
+    await mkdir(`${tempDir}/f/allowed`, { recursive: true });
+    await writeFile(
       `${tempDir}/f/allowed/ok.schedule.yaml`,
       `schedule: "0 0 12 * * *"
 timezone: "UTC"
@@ -152,113 +157,109 @@ enabled: true
 script_path: "f/jobs/ok"
 is_flow: false
 `,
+      "utf-8"
     );
 
-    await Deno.mkdir(`${tempDir}/f/blocked`, { recursive: true });
-    await Deno.writeTextFile(
+    await mkdir(`${tempDir}/f/blocked`, { recursive: true });
+    await writeFile(
       `${tempDir}/f/blocked/bad.schedule.yaml`,
       `timezone: "UTC"
 enabled: true
 script_path: "f/jobs/bad"
 is_flow: false
 `,
+      "utf-8"
     );
 
     const report = await runLint({} as any, tempDir);
 
-    assertEquals(report.exitCode, 0);
-    assertEquals(report.validatedFiles, 1);
-    assertEquals(report.validFiles, 1);
-    assertEquals(report.invalidFiles, 0);
-    assertEquals(report.issues.length, 0);
+    expect(report.exitCode).toEqual(0);
+    expect(report.validatedFiles).toEqual(1);
+    expect(report.validFiles).toEqual(1);
+    expect(report.invalidFiles).toEqual(0);
+    expect(report.issues.length).toEqual(0);
   });
 });
 
 // --- formatValidationError unit tests ---
 
-Deno.test("formatValidationError: required keyword", () => {
-  assertEquals(
+test("formatValidationError: required keyword", () => {
+  expect(
     formatValidationError({
       instancePath: "/value",
       keyword: "required",
       message: "must have required property 'modules'",
       params: { missingProperty: "modules" },
     }),
-    "/value missing required property 'modules'",
-  );
+  ).toEqual("/value missing required property 'modules'");
 });
 
-Deno.test("formatValidationError: additionalProperties keyword", () => {
-  assertEquals(
+test("formatValidationError: additionalProperties keyword", () => {
+  expect(
     formatValidationError({
       instancePath: "/value",
       keyword: "additionalProperties",
       message: "must NOT have additional properties",
       params: { additionalProperty: "typo_field" },
     }),
-    "/value has unknown property 'typo_field'",
-  );
+  ).toEqual("/value has unknown property 'typo_field'");
 });
 
-Deno.test("formatValidationError: enum keyword filters null values", () => {
-  assertEquals(
+test("formatValidationError: enum keyword filters null values", () => {
+  expect(
     formatValidationError({
       instancePath: "/http_method",
       keyword: "enum",
       message: "must be equal to one of the allowed values",
       params: { allowedValues: [null, "get", "post", "put"] },
     }),
-    "/http_method must be one of: 'get', 'post', 'put'",
-  );
+  ).toEqual("/http_method must be one of: 'get', 'post', 'put'");
 });
 
-Deno.test("formatValidationError: falls back to message", () => {
-  assertEquals(
+test("formatValidationError: falls back to message", () => {
+  expect(
     formatValidationError({
       instancePath: "/timeout",
       keyword: "type",
       message: "must be integer",
     }),
-    "/timeout must be integer",
-  );
+  ).toEqual("/timeout must be integer");
 });
 
-Deno.test("formatValidationError: uses / for empty instancePath", () => {
-  assertEquals(
+test("formatValidationError: uses / for empty instancePath", () => {
+  expect(
     formatValidationError({
       instancePath: "",
       keyword: "required",
       message: "must have required property 'summary'",
       params: { missingProperty: "summary" },
     }),
-    "/ missing required property 'summary'",
-  );
+  ).toEqual("/ missing required property 'summary'");
 });
 
-Deno.test("formatValidationError: generic fallback when no message", () => {
-  assertEquals(
+test("formatValidationError: generic fallback when no message", () => {
+  expect(
     formatValidationError({ instancePath: "/field", keyword: "custom" }),
-    "/field validation error",
-  );
+  ).toEqual("/field validation error");
 });
 
 // --- runLint integration tests ---
 
-Deno.test("lint: throws for non-existent directory", async () => {
+test("lint: throws for non-existent directory", async () => {
   let threw = false;
   try {
     await runLint({} as any, "/tmp/wmill_lint_nonexistent_" + Date.now());
   } catch (e) {
     threw = true;
-    assertStringIncludes((e as Error).message, "Directory not found");
+    expect((e as Error).message).toContain("Directory not found");
   }
-  assert(threw, "Expected runLint to throw for non-existent directory");
+  expect(threw).toBeTruthy();
 });
 
-Deno.test("lint: json-shaped report contains all fields", async () => {
+test("lint: json-shaped report contains all fields", async () => {
   await withTempDir(async (tempDir) => {
-    await Deno.mkdir(`${tempDir}/f/jobs`, { recursive: true });
-    await Deno.writeTextFile(
+    await mkdir(`${tempDir}/f/jobs`, { recursive: true });
+    await writeFile(
       `${tempDir}/f/jobs/ok.schedule.yaml`,
       `schedule: "0 0 * * *"
 timezone: "UTC"
@@ -266,33 +267,34 @@ enabled: true
 script_path: "f/jobs/ok"
 is_flow: false
 `,
+      "utf-8"
     );
 
     const report = await runLint({ json: true } as any, tempDir);
 
     // Verify the report object has the shape expected by --json output
-    assertEquals(typeof report.scannedFiles, "number");
-    assertEquals(typeof report.validatedFiles, "number");
-    assertEquals(typeof report.validFiles, "number");
-    assertEquals(typeof report.invalidFiles, "number");
-    assertEquals(typeof report.skippedUnsupportedFiles, "number");
-    assert(Array.isArray(report.warnings));
-    assert(Array.isArray(report.issues));
-    assertEquals(typeof report.success, "boolean");
-    assertEquals(typeof report.exitCode, "number");
+    expect(typeof report.scannedFiles).toEqual("number");
+    expect(typeof report.validatedFiles).toEqual("number");
+    expect(typeof report.validFiles).toEqual("number");
+    expect(typeof report.invalidFiles).toEqual("number");
+    expect(typeof report.skippedUnsupportedFiles).toEqual("number");
+    expect(Array.isArray(report.warnings)).toBeTruthy();
+    expect(Array.isArray(report.issues)).toBeTruthy();
+    expect(typeof report.success).toEqual("boolean");
+    expect(typeof report.exitCode).toEqual("number");
 
     // JSON.stringify should round-trip cleanly
     const json = JSON.parse(JSON.stringify(report));
-    assertEquals(json.success, true);
-    assertEquals(json.exitCode, 0);
+    expect(json.success).toEqual(true);
+    expect(json.exitCode).toEqual(0);
   });
 });
 
-Deno.test("lint: --fail-on-warn with mixed valid and warning files", async () => {
+test("lint: --fail-on-warn with mixed valid and warning files", async () => {
   await withTempDir(async (tempDir) => {
     // A valid schedule
-    await Deno.mkdir(`${tempDir}/f/jobs`, { recursive: true });
-    await Deno.writeTextFile(
+    await mkdir(`${tempDir}/f/jobs`, { recursive: true });
+    await writeFile(
       `${tempDir}/f/jobs/ok.schedule.yaml`,
       `schedule: "0 0 * * *"
 timezone: "UTC"
@@ -300,36 +302,38 @@ enabled: true
 script_path: "f/jobs/ok"
 is_flow: false
 `,
+      "utf-8"
     );
 
     // An unsupported native trigger that produces a warning
-    await Deno.mkdir(`${tempDir}/f/triggers`, { recursive: true });
-    await Deno.writeTextFile(
+    await mkdir(`${tempDir}/f/triggers`, { recursive: true });
+    await writeFile(
       `${tempDir}/f/triggers/webhook.script.123.nextcloud_native_trigger.yaml`,
       `path: "f/triggers/native"
 `,
+      "utf-8"
     );
 
     // Without --fail-on-warn: passes
     const normalReport = await runLint({} as any, tempDir);
-    assertEquals(normalReport.exitCode, 0);
-    assertEquals(normalReport.success, true);
-    assertEquals(normalReport.validFiles, 1);
-    assertEquals(normalReport.warnings.length, 1);
+    expect(normalReport.exitCode).toEqual(0);
+    expect(normalReport.success).toEqual(true);
+    expect(normalReport.validFiles).toEqual(1);
+    expect(normalReport.warnings.length).toEqual(1);
 
     // With --fail-on-warn: fails due to warning
     const strictReport = await runLint({ failOnWarn: true } as any, tempDir);
-    assertEquals(strictReport.exitCode, 1);
-    assertEquals(strictReport.success, false);
-    assertEquals(strictReport.validFiles, 1);
-    assertEquals(strictReport.warnings.length, 1);
+    expect(strictReport.exitCode).toEqual(1);
+    expect(strictReport.success).toEqual(false);
+    expect(strictReport.validFiles).toEqual(1);
+    expect(strictReport.warnings.length).toEqual(1);
   });
 });
 
-Deno.test("lint: reports enum errors with allowed values for invalid trigger", async () => {
+test("lint: reports enum errors with allowed values for invalid trigger", async () => {
   await withTempDir(async (tempDir) => {
-    await Deno.mkdir(`${tempDir}/f/triggers`, { recursive: true });
-    await Deno.writeTextFile(
+    await mkdir(`${tempDir}/f/triggers`, { recursive: true });
+    await writeFile(
       `${tempDir}/f/triggers/hook.http_trigger.yaml`,
       `script_path: "f/triggers/http_handler"
 is_flow: false
@@ -341,14 +345,14 @@ workspaced_route: false
 wrap_body: false
 raw_string: false
 `,
+      "utf-8"
     );
 
     const report = await runLint({} as any, tempDir);
 
-    assertEquals(report.invalidFiles, 1);
-    assert(
+    expect(report.invalidFiles).toEqual(1);
+    expect(
       report.issues[0].errors.some((msg) => msg.includes("must be one of:")),
-      `Expected 'must be one of' error but got: ${report.issues[0].errors}`,
-    );
+    ).toBeTruthy();
   });
 });

@@ -1,12 +1,10 @@
-// deno-lint-ignore-file no-explicit-any
 import path from "node:path";
-import {
-  SEP,
-  colors,
-  log,
-  yamlParseFile,
-  yamlStringify,
-} from "../../../deps.ts";
+import { readFile, mkdir } from "node:fs/promises";
+import { colors } from "@cliffy/ansi/colors";
+import * as log from "@std/log";
+import { SEPARATOR as SEP } from "@std/path";
+import { yamlParseFile } from "../../utils/yaml.ts";
+import { stringify as yamlStringify } from "@std/yaml";
 import { GlobalOptions } from "../../types.ts";
 import {
   checkifMetadataUptodate,
@@ -86,7 +84,7 @@ async function generateAppHash(
     }
   } catch (error: any) {
     // If runnables folder doesn't exist, that's okay
-    if (error.name !== "NotFound") {
+    if (error.code !== "ENOENT") {
       throw error;
     }
   }
@@ -351,7 +349,7 @@ async function updateRawAppRunnables(
 
   // Ensure runnables folder exists
   try {
-    await Deno.mkdir(runnablesFolder, { recursive: true });
+    await mkdir(runnablesFolder, { recursive: true });
   } catch {
     // Folder may already exist
   }
@@ -736,7 +734,7 @@ export async function inferRunnableSchemaFromFile(
   );
   let content: string;
   try {
-    content = await Deno.readTextFile(fullFilePath);
+    content = await readFile(fullFilePath, "utf-8");
   } catch {
     log.warn(colors.yellow(`Could not read file: ${fullFilePath}`));
     return undefined;
@@ -786,7 +784,7 @@ export async function generateLocksCommand(
   const { generateAppLocksInternal } = await import("./app_metadata.ts");
   const { elementsToMap, FSFSElement } = await import("../sync/sync.ts");
   const { ignoreF } = await import("../sync/sync.ts");
-  const { Confirm } = await import("../../../deps.ts");
+  const { Confirm } = await import("@cliffy/prompt/confirm");
 
   if (appPath == "") {
     appPath = undefined;
@@ -813,7 +811,7 @@ export async function generateLocksCommand(
     // Generate metadata for all apps
     const ignore = await ignoreF(opts);
     const elems = await elementsToMap(
-      await FSFSElement(Deno.cwd(), [], true),
+      await FSFSElement(process.cwd(), [], true),
       (p, isD) => {
         return (
           ignore(p, isD) ||

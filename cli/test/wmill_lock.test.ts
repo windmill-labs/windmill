@@ -6,9 +6,10 @@
  * looked up on both Windows and Linux systems.
  */
 
-import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import * as path from "https://deno.land/std@0.224.0/path/mod.ts";
-import { ensureDir } from "https://deno.land/std@0.224.0/fs/mod.ts";
+import { expect, test } from "bun:test";
+import * as path from "@std/path";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import {
   normalizeLockPath,
   readLockfile,
@@ -17,30 +18,31 @@ import {
   clearGlobalLock,
 } from "../src/utils/metadata.ts";
 import { generateHash } from "../src/utils/utils.ts";
-import { yamlStringify, yamlParseFile } from "../deps.ts";
+import { stringify as yamlStringify } from "@std/yaml";
+import { yamlParseFile } from "../src/utils/yaml.ts";
 
 // =============================================================================
 // UNIT TESTS - Path Normalization
 // =============================================================================
 
-Deno.test("normalizeLockPath: converts Windows backslashes to forward slashes", () => {
-  assertEquals(normalizeLockPath("f\\test\\script"), "f/test/script");
-  assertEquals(normalizeLockPath("f\\deeply\\nested\\path\\script"), "f/deeply/nested/path/script");
+test("normalizeLockPath: converts Windows backslashes to forward slashes", () => {
+  expect(normalizeLockPath("f\\test\\script")).toEqual("f/test/script");
+  expect(normalizeLockPath("f\\deeply\\nested\\path\\script")).toEqual("f/deeply/nested/path/script");
 });
 
-Deno.test("normalizeLockPath: preserves already-normalized paths", () => {
-  assertEquals(normalizeLockPath("f/test/script"), "f/test/script");
-  assertEquals(normalizeLockPath("f/deeply/nested/path/script"), "f/deeply/nested/path/script");
+test("normalizeLockPath: preserves already-normalized paths", () => {
+  expect(normalizeLockPath("f/test/script")).toEqual("f/test/script");
+  expect(normalizeLockPath("f/deeply/nested/path/script")).toEqual("f/deeply/nested/path/script");
 });
 
-Deno.test("normalizeLockPath: handles paths without separators", () => {
-  assertEquals(normalizeLockPath("script"), "script");
-  assertEquals(normalizeLockPath(""), "");
+test("normalizeLockPath: handles paths without separators", () => {
+  expect(normalizeLockPath("script")).toEqual("script");
+  expect(normalizeLockPath("")).toEqual("");
 });
 
-Deno.test("normalizeLockPath: handles mixed separators", () => {
-  assertEquals(normalizeLockPath("f/test\\nested/script"), "f/test/nested/script");
-  assertEquals(normalizeLockPath("f\\test/nested\\script"), "f/test/nested/script");
+test("normalizeLockPath: handles mixed separators", () => {
+  expect(normalizeLockPath("f/test\\nested/script")).toEqual("f/test/nested/script");
+  expect(normalizeLockPath("f\\test/nested\\script")).toEqual("f/test/nested/script");
 });
 
 // =============================================================================
@@ -48,18 +50,18 @@ Deno.test("normalizeLockPath: handles mixed separators", () => {
 // =============================================================================
 
 async function withTempDir(fn: (tempDir: string) => Promise<void>): Promise<void> {
-  const tempDir = await Deno.makeTempDir({ prefix: "wmill_lock_test_" });
-  const originalCwd = Deno.cwd();
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "wmill_lock_test_"));
+  const originalCwd = process.cwd();
   try {
-    Deno.chdir(tempDir);
+    process.chdir(tempDir);
     await fn(tempDir);
   } finally {
-    Deno.chdir(originalCwd);
-    await Deno.remove(tempDir, { recursive: true });
+    process.chdir(originalCwd);
+    await rm(tempDir, { recursive: true });
   }
 }
 
-Deno.test("wmill-lock: stores paths with Linux separators even when given Windows paths", async () => {
+test("wmill-lock: stores paths with Linux separators even when given Windows paths", async () => {
   await withTempDir(async (tempDir) => {
     // Simulate a Windows-style path
     const windowsPath = "f\\flows\\my-flow.flow";
@@ -71,12 +73,12 @@ Deno.test("wmill-lock: stores paths with Linux separators even when given Window
     const lockfile = await yamlParseFile("wmill-lock.yaml") as { version: string; locks: Record<string, string> };
 
     // Path should be stored with forward slashes
-    assertEquals(lockfile.locks["f/flows/my-flow.flow"], hash);
-    assertEquals(lockfile.locks["f\\flows\\my-flow.flow"], undefined);
+    expect(lockfile.locks["f/flows/my-flow.flow"]).toEqual(hash);
+    expect(lockfile.locks["f\\flows\\my-flow.flow"]).toEqual(undefined);
   });
 });
 
-Deno.test("wmill-lock: checkifMetadataUptodate finds paths regardless of separator style", async () => {
+test("wmill-lock: checkifMetadataUptodate finds paths regardless of separator style", async () => {
   await withTempDir(async (tempDir) => {
     const linuxPath = "f/scripts/my-script";
     const windowsPath = "f\\scripts\\my-script";
@@ -87,18 +89,18 @@ Deno.test("wmill-lock: checkifMetadataUptodate finds paths regardless of separat
 
     // Should find with Linux-style lookup
     const conf = await readLockfile();
-    assertEquals(await checkifMetadataUptodate(linuxPath, hash, conf), true);
+    expect(await checkifMetadataUptodate(linuxPath, hash, conf)).toEqual(true);
 
     // Should also find with Windows-style lookup (simulating Windows usage)
-    assertEquals(await checkifMetadataUptodate(windowsPath, hash, conf), true);
+    expect(await checkifMetadataUptodate(windowsPath, hash, conf)).toEqual(true);
 
     // Should not find with wrong hash
-    assertEquals(await checkifMetadataUptodate(linuxPath, "wrong", conf), false);
-    assertEquals(await checkifMetadataUptodate(windowsPath, "wrong", conf), false);
+    expect(await checkifMetadataUptodate(linuxPath, "wrong", conf)).toEqual(false);
+    expect(await checkifMetadataUptodate(windowsPath, "wrong", conf)).toEqual(false);
   });
 });
 
-Deno.test("wmill-lock: updateMetadataGlobalLock with subpath normalizes both path and subpath", async () => {
+test("wmill-lock: updateMetadataGlobalLock with subpath normalizes both path and subpath", async () => {
   await withTempDir(async (tempDir) => {
     const windowsPath = "f\\flows\\my-flow.flow";
     const windowsSubpath = "inline\\script.ts";
@@ -110,11 +112,11 @@ Deno.test("wmill-lock: updateMetadataGlobalLock with subpath normalizes both pat
     const lockfile = await yamlParseFile("wmill-lock.yaml") as { version: string; locks: Record<string, string> };
 
     // Both path and subpath should use forward slashes
-    assertEquals(lockfile.locks["f/flows/my-flow.flow+inline/script.ts"], hash);
+    expect(lockfile.locks["f/flows/my-flow.flow+inline/script.ts"]).toEqual(hash);
   });
 });
 
-Deno.test("wmill-lock: checkifMetadataUptodate with subpath handles Windows separators", async () => {
+test("wmill-lock: checkifMetadataUptodate with subpath handles Windows separators", async () => {
   await withTempDir(async (tempDir) => {
     const linuxPath = "f/apps/my-app.app";
     const linuxSubpath = "scripts/button.ts";
@@ -128,18 +130,18 @@ Deno.test("wmill-lock: checkifMetadataUptodate with subpath handles Windows sepa
     const conf = await readLockfile();
 
     // Should find with Linux-style lookup
-    assertEquals(await checkifMetadataUptodate(linuxPath, hash, conf, linuxSubpath), true);
+    expect(await checkifMetadataUptodate(linuxPath, hash, conf, linuxSubpath)).toEqual(true);
 
     // Should find with Windows-style lookup
-    assertEquals(await checkifMetadataUptodate(windowsPath, hash, conf, windowsSubpath), true);
+    expect(await checkifMetadataUptodate(windowsPath, hash, conf, windowsSubpath)).toEqual(true);
 
     // Should find with mixed-style lookup
-    assertEquals(await checkifMetadataUptodate(windowsPath, hash, conf, linuxSubpath), true);
-    assertEquals(await checkifMetadataUptodate(linuxPath, hash, conf, windowsSubpath), true);
+    expect(await checkifMetadataUptodate(windowsPath, hash, conf, linuxSubpath)).toEqual(true);
+    expect(await checkifMetadataUptodate(linuxPath, hash, conf, windowsSubpath)).toEqual(true);
   });
 });
 
-Deno.test("wmill-lock: clearGlobalLock clears paths regardless of separator style", async () => {
+test("wmill-lock: clearGlobalLock clears paths regardless of separator style", async () => {
   await withTempDir(async (tempDir) => {
     const basePath = "f/flows/my-flow.flow";
     const subpath1 = "scripts/a.ts";
@@ -152,21 +154,21 @@ Deno.test("wmill-lock: clearGlobalLock clears paths regardless of separator styl
 
     // Verify they exist
     let conf = await readLockfile();
-    assertEquals(await checkifMetadataUptodate(basePath, "hash1", conf, subpath1), true);
-    assertEquals(await checkifMetadataUptodate(basePath, "hash2", conf, subpath2), true);
+    expect(await checkifMetadataUptodate(basePath, "hash1", conf, subpath1)).toEqual(true);
+    expect(await checkifMetadataUptodate(basePath, "hash2", conf, subpath2)).toEqual(true);
 
     // Clear using Windows-style path
     await clearGlobalLock("f\\flows\\my-flow.flow");
 
     // All entries should be cleared
     conf = await readLockfile();
-    assertEquals(await checkifMetadataUptodate(basePath, "hash1", conf, subpath1), false);
-    assertEquals(await checkifMetadataUptodate(basePath, "hash2", conf, subpath2), false);
-    assertEquals(await checkifMetadataUptodate(basePath, "topHash", conf, "__flow_hash"), false);
+    expect(await checkifMetadataUptodate(basePath, "hash1", conf, subpath1)).toEqual(false);
+    expect(await checkifMetadataUptodate(basePath, "hash2", conf, subpath2)).toEqual(false);
+    expect(await checkifMetadataUptodate(basePath, "topHash", conf, "__flow_hash")).toEqual(false);
   });
 });
 
-Deno.test("wmill-lock: lock file created on Linux can be used on Windows (simulated)", async () => {
+test("wmill-lock: lock file created on Linux can be used on Windows (simulated)", async () => {
   await withTempDir(async (tempDir) => {
     // Simulate a lock file created on Linux
     const linuxLockContent = {
@@ -178,21 +180,22 @@ Deno.test("wmill-lock: lock file created on Linux can be used on Windows (simula
       },
     };
 
-    await Deno.writeTextFile(
+    await writeFile(
       "wmill-lock.yaml",
-      yamlStringify(linuxLockContent as Record<string, unknown>)
+      yamlStringify(linuxLockContent as Record<string, unknown>),
+      "utf-8"
     );
 
     const conf = await readLockfile();
 
     // Simulate Windows lookups (using backslashes)
-    assertEquals(await checkifMetadataUptodate("f\\scripts\\utility", "hash1", conf), true);
-    assertEquals(await checkifMetadataUptodate("f\\flows\\main.flow", "hash2", conf, "scripts\\step1.ts"), true);
-    assertEquals(await checkifMetadataUptodate("f\\apps\\dashboard.app", "hash3", conf, "components\\chart.ts"), true);
+    expect(await checkifMetadataUptodate("f\\scripts\\utility", "hash1", conf)).toEqual(true);
+    expect(await checkifMetadataUptodate("f\\flows\\main.flow", "hash2", conf, "scripts\\step1.ts")).toEqual(true);
+    expect(await checkifMetadataUptodate("f\\apps\\dashboard.app", "hash3", conf, "components\\chart.ts")).toEqual(true);
   });
 });
 
-Deno.test("wmill-lock: multiple updates with different separator styles result in single entry", async () => {
+test("wmill-lock: multiple updates with different separator styles result in single entry", async () => {
   await withTempDir(async (tempDir) => {
     const linuxPath = "f/scripts/shared";
     const windowsPath = "f\\scripts\\shared";
@@ -207,9 +210,9 @@ Deno.test("wmill-lock: multiple updates with different separator styles result i
 
     // Should only have one entry with the latest hash
     const lockKeys = Object.keys(lockfile.locks);
-    assertEquals(lockKeys.length, 1);
-    assertEquals(lockKeys[0], "f/scripts/shared");
-    assertEquals(lockfile.locks["f/scripts/shared"], "hash2");
+    expect(lockKeys.length).toEqual(1);
+    expect(lockKeys[0]).toEqual("f/scripts/shared");
+    expect(lockfile.locks["f/scripts/shared"]).toEqual("hash2");
   });
 });
 
@@ -217,7 +220,7 @@ Deno.test("wmill-lock: multiple updates with different separator styles result i
 // HASH COMPUTATION TESTS - OS-Independent Hash Generation
 // =============================================================================
 
-Deno.test("hash computation: normalized paths produce same hash on Windows and Linux", async () => {
+test("hash computation: normalized paths produce same hash on Windows and Linux", async () => {
   // Simulate how generateFlowHash/generateAppHash compute hashes
   // by using paths as keys in an object that gets stringified
 
@@ -246,13 +249,13 @@ Deno.test("hash computation: normalized paths produce same hash on Windows and L
   const linuxTopHash = await generateHash(JSON.stringify(linuxHashes));
 
   // Both should produce the same top hash
-  assertEquals(windowsTopHash, linuxTopHash);
+  expect(windowsTopHash).toEqual(linuxTopHash);
 
   // And the individual hashes should have the same keys
-  assertEquals(Object.keys(windowsHashes).sort(), Object.keys(linuxHashes).sort());
+  expect(Object.keys(windowsHashes).sort()).toEqual(Object.keys(linuxHashes).sort());
 });
 
-Deno.test("hash computation: without normalization, Windows and Linux would produce different hashes", async () => {
+test("hash computation: without normalization, Windows and Linux would produce different hashes", async () => {
   // This test demonstrates the problem that normalization fixes
   const fileContents = {
     "script1.ts": "export function main() { return 1; }",
@@ -282,13 +285,13 @@ Deno.test("hash computation: without normalization, Windows and Linux would prod
   const linuxKeys = Object.keys(linuxHashesNoNormalize).sort();
 
   // Keys should be different without normalization
-  assertEquals(windowsKeys.includes("nested\\script2.ts"), true);
-  assertEquals(linuxKeys.includes("nested/script2.ts"), true);
-  assertEquals(windowsKeys.includes("nested/script2.ts"), false);
-  assertEquals(linuxKeys.includes("nested\\script2.ts"), false);
+  expect(windowsKeys.includes("nested\\script2.ts")).toEqual(true);
+  expect(linuxKeys.includes("nested/script2.ts")).toEqual(true);
+  expect(windowsKeys.includes("nested/script2.ts")).toEqual(false);
+  expect(linuxKeys.includes("nested\\script2.ts")).toEqual(false);
 });
 
-Deno.test("hash computation: deeply nested paths are normalized correctly", async () => {
+test("hash computation: deeply nested paths are normalized correctly", async () => {
   const deepWindowsPath = "f\\flows\\my-flow.flow\\inline\\scripts\\deeply\\nested\\handler.ts";
   const deepLinuxPath = "f/flows/my-flow.flow/inline/scripts/deeply/nested/handler.ts";
 
@@ -304,12 +307,12 @@ Deno.test("hash computation: deeply nested paths are normalized correctly", asyn
   linuxHashes[normalizeLockPath(deepLinuxPath)] = await generateHash(content);
   const linuxTopHash = await generateHash(JSON.stringify(linuxHashes));
 
-  assertEquals(windowsTopHash, linuxTopHash);
-  assertEquals(Object.keys(windowsHashes)[0], Object.keys(linuxHashes)[0]);
-  assertEquals(Object.keys(windowsHashes)[0], deepLinuxPath);
+  expect(windowsTopHash).toEqual(linuxTopHash);
+  expect(Object.keys(windowsHashes)[0]).toEqual(Object.keys(linuxHashes)[0]);
+  expect(Object.keys(windowsHashes)[0]).toEqual(deepLinuxPath);
 });
 
-Deno.test("hash computation: changedScripts comparison works with inline module paths", () => {
+test("hash computation: changedScripts comparison works with inline module paths", () => {
   // This test simulates the comparison done in replaceInlineScripts
   // where changedScripts (from hashes keys) is compared with paths from flow module content
 
@@ -329,10 +332,8 @@ Deno.test("hash computation: changedScripts comparison works with inline module 
 
   // All inline module paths should be found in changedScripts
   for (const inlinePath of inlineModulePaths) {
-    assertEquals(
-      changedScripts.includes(inlinePath),
-      true,
-      `Expected changedScripts to include "${inlinePath}"`
-    );
+    expect(
+      changedScripts.includes(inlinePath)
+    ).toEqual(true);
   }
 });

@@ -1,8 +1,10 @@
-// deno-lint-ignore-file no-explicit-any
 import * as fs from "node:fs";
 import * as path from "node:path";
 import process from "node:process";
-import { colors, Command, log, yamlParseFile } from "../../../deps.ts";
+import { Command } from "@cliffy/command";
+import { colors } from "@cliffy/ansi/colors";
+import * as log from "@std/log";
+import { yamlParseFile } from "../../utils/yaml.ts";
 import { GlobalOptions } from "../../types.ts";
 import { createBundle } from "./bundle.ts";
 import { APP_BACKEND_FOLDER } from "./app_metadata.ts";
@@ -224,7 +226,7 @@ async function lint(opts: LintOptions, appFolder?: string) {
       log.info(colors.red(`  - ${error}`));
     });
     log.info(colors.red("\n❌ Lint failed\n"));
-    Deno.exit(1);
+    process.exit(1);
   }
 
   log.info(colors.green("\n✅ All checks passed\n"));

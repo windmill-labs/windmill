@@ -1,12 +1,18 @@
-import { colors, Command, log, yamlParseFile } from "../../../deps.ts";
+import * as fs from "node:fs";
+import { writeFile } from "node:fs/promises";
+import path from "node:path";
+import process from "node:process";
+
+import { Command } from "@cliffy/command";
+import { colors } from "@cliffy/ansi/colors";
+import * as log from "@std/log";
+import { yamlParseFile } from "../../utils/yaml.ts";
 import { GlobalOptions } from "../../types.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import { requireLogin } from "../../core/auth.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { DataTableSchema } from "../../../gen/types.gen.ts";
 import { generateAgentsDocumentation } from "../sync/sync.ts";
-import path from "node:path";
-import * as fs from "node:fs";
 import {
   getFolderSuffix,
   hasFolderSuffix,
@@ -192,14 +198,14 @@ export async function regenerateAgentDocs(
 
   // Generate and write AGENTS.md
   const agentsContent = generateAgentsDocumentation(localData);
-  await Deno.writeTextFile(path.join(targetDir, "AGENTS.md"), agentsContent);
+  await writeFile(path.join(targetDir, "AGENTS.md"), agentsContent, "utf-8");
 
   // Generate and write CLAUDE.md referencing AGENTS.md
-  await Deno.writeTextFile(path.join(targetDir, "CLAUDE.md"), `Instructions are in @AGENTS.md\n`);
+  await writeFile(path.join(targetDir, "CLAUDE.md"), `Instructions are in @AGENTS.md\n`, "utf-8");
 
   // Generate and write DATATABLES.md
   const datatablesContent = generateDatatablesMarkdown(schemas, localData);
-  await Deno.writeTextFile(path.join(targetDir, "DATATABLES.md"), datatablesContent);
+  await writeFile(path.join(targetDir, "DATATABLES.md"), datatablesContent, "utf-8");
 
   if (!silent) {
     log.info(colors.green(`✓ Generated AGENTS.md, CLAUDE.md, and DATATABLES.md`));
@@ -229,7 +235,7 @@ async function generateAgents(
   appFolder?: string
 ) {
   // Resolve the app folder
-  const cwd = Deno.cwd();
+  const cwd = process.cwd();
   let targetDir = cwd;
 
   if (appFolder) {
@@ -252,7 +258,7 @@ async function generateAgents(
         )
       );
       log.info(colors.gray("Usage: wmill app generate-agents [app_folder]"));
-      Deno.exit(1);
+      process.exit(1);
     }
   }
 
@@ -262,7 +268,7 @@ async function generateAgents(
     log.error(
       colors.red(`Error: raw_app.yaml not found in ${targetDir}`)
     );
-    Deno.exit(1);
+    process.exit(1);
   }
 
   // Resolve workspace and authenticate
@@ -272,7 +278,6 @@ async function generateAgents(
   await regenerateAgentDocs(workspace.workspaceId, targetDir);
 }
 
-// deno-lint-ignore no-explicit-any
 const command = new Command()
   .description("regenerate AGENTS.md and DATATABLES.md from remote workspace")
   .arguments("[app_folder:string]")

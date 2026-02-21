@@ -3,6 +3,25 @@
  * Manages real Windmill EE backend containers for CLI testing
  */
 
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+async function runCommand(cmd: string, args: string[], opts?: { cwd?: string, env?: Record<string, string> }): Promise<{ code: number, stdout: string, stderr: string }> {
+  const proc = Bun.spawn([cmd, ...args], {
+    stdout: 'pipe',
+    stderr: 'pipe',
+    cwd: opts?.cwd,
+    env: { ...process.env, ...opts?.env },
+  });
+  const [code, stdout, stderr] = await Promise.all([
+    proc.exited,
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+  return { code, stdout, stderr };
+}
+
 export interface ContainerConfig {
   composeFile?: string;
   baseUrl?: string;
@@ -71,25 +90,19 @@ export class ContainerizedBackend {
     
     // Create isolated test config directory if not provided
     if (!this.config.testConfigDir) {
-      this.config.testConfigDir = await Deno.makeTempDir({ prefix: 'wmill_test_config_' });
+      this.config.testConfigDir = await mkdtemp(join(tmpdir(), 'wmill_test_config_'));
       console.log(`📁 Created test config directory: ${this.config.testConfigDir}`);
     }
     
     // Start containers with EE license key
-    const startCmd = new Deno.Command('docker', {
-      args: ['compose', '-f', this.config.composeFile, 'up', '-d'],
-      stdout: 'piped',
-      stderr: 'piped',
+    const startResult = await runCommand('docker', ['compose', '-f', this.config.composeFile, 'up', '-d'], {
       env: {
-        ...Deno.env.toObject(),
-        ...(Deno.env.get('EE_LICENSE_KEY') && { EE_LICENSE_KEY: Deno.env.get('EE_LICENSE_KEY')! })
+        ...(process.env.EE_LICENSE_KEY && { EE_LICENSE_KEY: process.env.EE_LICENSE_KEY })
       }
     });
 
-    const startResult = await startCmd.output();
     if (startResult.code !== 0) {
-      const stderr = new TextDecoder().decode(startResult.stderr);
-      throw new Error(`Failed to start containers: ${stderr}`);
+      throw new Error(`Failed to start containers: ${startResult.stderr}`);
     }
 
     // Wait for services to be healthy
@@ -117,22 +130,16 @@ export class ContainerizedBackend {
 
     console.log('🛑 Stopping containerized backend...');
     
-    const stopCmd = new Deno.Command('docker', {
-      args: ['compose', '-f', this.config.composeFile, 'down', '-v'],
-      stdout: 'piped',
-      stderr: 'piped',
+    await runCommand('docker', ['compose', '-f', this.config.composeFile, 'down', '-v'], {
       env: {
-        ...Deno.env.toObject(),
-        ...(Deno.env.get('EE_LICENSE_KEY') && { EE_LICENSE_KEY: Deno.env.get('EE_LICENSE_KEY')! })
+        ...(process.env.EE_LICENSE_KEY && { EE_LICENSE_KEY: process.env.EE_LICENSE_KEY })
       }
     });
-
-    await stopCmd.output();
     
     // Clean up test config directory if we created it
     if (this.config.testConfigDir && this.config.testConfigDir.includes('wmill_test_config_')) {
       try {
-        await Deno.remove(this.config.testConfigDir, { recursive: true });
+        await rm(this.config.testConfigDir, { recursive: true });
         console.log(`🗑️  Cleaned up test config directory: ${this.config.testConfigDir}`);
       } catch (error) {
         console.warn(`⚠️  Failed to clean up test config directory: ${error}`);
@@ -1013,7 +1020,7 @@ export async function main(
   /**
    * Create CLI command with proper authentication
    */
-  createCLICommand(args: string[], workingDir: string, workspaceName?: string): Deno.Command {
+  createCLICommand(args: string[], workingDir: string, workspaceName?: string): { cmd: string[], cwd: string } {
     const workspace = workspaceName || this.config.workspace;
     const fullArgs = [
       '--base-url', this.config.baseUrl,
@@ -1022,21 +1029,21 @@ export async function main(
       '--config-dir', this.config.testConfigDir,
       ...args
     ];
-    
-    const denoPath = Deno.execPath();
-    const cliMainPath = new URL('../src/main.ts', import.meta.url).pathname;
 
-    console.log('🔧 CLI Command:', [denoPath, 'run', '-A', cliMainPath, ...fullArgs].join(' '));
+    const useNode = process.env["TEST_CLI_RUNTIME"] === "node";
+    const cliDir = new URL('..', import.meta.url).pathname;
+    const entrypoint = useNode
+      ? new URL('../npm/esm/main.js', import.meta.url).pathname
+      : new URL('../src/main.ts', import.meta.url).pathname;
+    const runtime = useNode ? 'node' : 'bun';
+    const runtimeArgs = useNode ? [entrypoint] : ['run', entrypoint];
 
-    return new Deno.Command(denoPath, {
-      args: ['run', '-A', cliMainPath, ...fullArgs],
+    console.log('CLI Command:', [runtime, ...runtimeArgs, ...fullArgs].join(' '));
+
+    return {
+      cmd: [runtime, ...runtimeArgs, ...fullArgs],
       cwd: workingDir,
-      stdout: 'piped',
-      stderr: 'piped',
-      env: {
-        'SKIP_DENO_DEPRECATION_WARNING': 'true'
-      }
-    });
+    };
   }
 
   /**
@@ -1047,14 +1054,18 @@ export async function main(
     stderr: string;
     code: number;
   }> {
-    const cmd = this.createCLICommand(args, workingDir, workspaceName);
-    const result = await cmd.output();
-    
-    return {
-      stdout: new TextDecoder().decode(result.stdout),
-      stderr: new TextDecoder().decode(result.stderr),
-      code: result.code
-    };
+    const { cmd, cwd } = this.createCLICommand(args, workingDir, workspaceName);
+    const proc = Bun.spawn(cmd, {
+      stdout: 'pipe',
+      stderr: 'pipe',
+      cwd,
+    });
+    const [code, stdout, stderr] = await Promise.all([
+      proc.exited,
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    return { stdout, stderr, code };
   }
 
   /**
@@ -1192,42 +1203,30 @@ export async function main(
       ON CONFLICT (workspace_id, kind) DO UPDATE SET key = EXCLUDED.key;
     `;
 
-    const execCmd = new Deno.Command('docker', {
-      args: ['compose', '-f', this.config.composeFile, 'exec', '-T', 'test_db', 
-             'psql', '-U', 'postgres', '-d', 'windmill_test', '-c', initSQL],
-      stdout: 'piped',
-      stderr: 'piped',
+    const result = await runCommand('docker', ['compose', '-f', this.config.composeFile, 'exec', '-T', 'test_db',
+             'psql', '-U', 'postgres', '-d', 'windmill_test', '-c', initSQL], {
       env: {
-        ...Deno.env.toObject(),
-        ...(Deno.env.get('EE_LICENSE_KEY') && { EE_LICENSE_KEY: Deno.env.get('EE_LICENSE_KEY')! })
+        ...(process.env.EE_LICENSE_KEY && { EE_LICENSE_KEY: process.env.EE_LICENSE_KEY })
       }
     });
 
-    const result = await execCmd.output();
     if (result.code !== 0) {
-      const stderr = new TextDecoder().decode(result.stderr);
-      throw new Error(`Failed to initialize test data: ${stderr}`);
+      throw new Error(`Failed to initialize test data: ${result.stderr}`);
     }
     
     console.log('✅ Test workspace initialized');
     
     // Verify license key was stored
-    const checkLicenseCmd = new Deno.Command('docker', {
-      args: ['compose', '-f', this.config.composeFile, 'exec', '-T', 'test_db', 
-             'psql', '-U', 'postgres', '-d', 'windmill_test', '-c', 
-             "SELECT name, value FROM global_settings WHERE name = 'license_key';"],
-      stdout: 'piped',
-      stderr: 'piped',
+    const checkResult = await runCommand('docker', ['compose', '-f', this.config.composeFile, 'exec', '-T', 'test_db',
+             'psql', '-U', 'postgres', '-d', 'windmill_test', '-c',
+             "SELECT name, value FROM global_settings WHERE name = 'license_key';"], {
       env: {
-        ...Deno.env.toObject(),
-        EE_LICENSE_KEY: Deno.env.get('EE_LICENSE_KEY') || 'REMOVED_HARDCODED_LICENSE'
+        EE_LICENSE_KEY: process.env.EE_LICENSE_KEY || 'REMOVED_HARDCODED_LICENSE'
       }
     });
-    
-    const checkResult = await checkLicenseCmd.output();
+
     if (checkResult.code === 0) {
-      const output = new TextDecoder().decode(checkResult.stdout);
-      console.log('🔍 License key in database:', output.trim());
+      console.log('License key in database:', checkResult.stdout.trim());
     }
   }
 
@@ -1240,19 +1239,14 @@ export async function main(
     let attempts = 0;
     
     while (attempts < maxAttempts) {
-      const healthCmd = new Deno.Command('docker', {
-        args: ['compose', '-f', this.config.composeFile, 'ps', '--format', 'json'],
-        stdout: 'piped',
-        stderr: 'piped',
+      const result = await runCommand('docker', ['compose', '-f', this.config.composeFile, 'ps', '--format', 'json'], {
         env: {
-          ...Deno.env.toObject(),
-          ...(Deno.env.get('EE_LICENSE_KEY') && { EE_LICENSE_KEY: Deno.env.get('EE_LICENSE_KEY')! })
+          ...(process.env.EE_LICENSE_KEY && { EE_LICENSE_KEY: process.env.EE_LICENSE_KEY })
         }
       });
-      
-      const result = await healthCmd.output();
+
       if (result.code === 0) {
-        const output = new TextDecoder().decode(result.stdout);
+        const output = result.stdout;
         if (output.trim()) {
           const containers = output.trim().split('\n').map(line => JSON.parse(line));
           
@@ -1345,15 +1339,15 @@ export async function withContainerizedBackend<T>(
     }
   }
   
-  const tempDir = await Deno.makeTempDir({ prefix: 'windmill_cli_test_' });
-  
+  const tempDir = await mkdtemp(join(tmpdir(), 'windmill_cli_test_'));
+
   try {
     await globalBackend.reset();
     await globalBackend.seedTestData();
-    
+
     return await testFn(globalBackend, tempDir);
   } finally {
-    await Deno.remove(tempDir, { recursive: true });
+    await rm(tempDir, { recursive: true });
   }
 }
 

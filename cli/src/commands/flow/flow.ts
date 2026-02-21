@@ -1,8 +1,15 @@
-// deno-lint-ignore-file no-explicit-any
 import { GlobalOptions, isSuperset } from "../../types.ts";
-import { Confirm, SEP, log, yamlStringify } from "../../../deps.ts";
-import { colors, Command, Table, yamlParseFile } from "../../../deps.ts";
+import { colors } from "@cliffy/ansi/colors";
+import { Command } from "@cliffy/command";
+import { Confirm } from "@cliffy/prompt/confirm";
+import { Table } from "@cliffy/table";
+import * as log from "@std/log";
+import { SEPARATOR as SEP } from "@std/path";
+import { stringify as yamlStringify } from "@std/yaml";
+import { yamlParseFile } from "../../utils/yaml.ts";
 import * as wmill from "../../../gen/services.gen.ts";
+import { readFile } from "node:fs/promises";
+import { mkdirSync, writeFileSync } from "node:fs";
 
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
@@ -51,7 +58,7 @@ export async function pushFlow(
 
   await replaceInlineScripts(
     localFlow.value.modules,
-    async (path: string) => await Deno.readTextFile(localPath + path),
+    async (path: string) => await readFile(localPath + path, "utf-8"),
     log,
     localPath,
     SEP
@@ -225,7 +232,7 @@ async function preview(
   // Replace inline scripts with their actual content
   await replaceInlineScripts(
     localFlow.value.modules,
-    async (path: string) => await Deno.readTextFile(flowPath + path),
+    async (path: string) => await readFile(flowPath + path, "utf-8"),
     log,
     flowPath,
     SEP
@@ -286,7 +293,7 @@ async function generateLocks(
     const ignore = await ignoreF(opts);
     const elems = Object.keys(
       await elementsToMap(
-        await FSFSElement(Deno.cwd(), [], true),
+        await FSFSElement(process.cwd(), [], true),
         (p, isD) => {
           return (
             ignore(p, isD) ||
@@ -348,7 +355,7 @@ export function bootstrap(
   }
 
   const flowDirFullPath = `${flowPath}.flow`;
-  Deno.mkdirSync(flowDirFullPath, { recursive: false });
+  mkdirSync(flowDirFullPath, { recursive: false });
 
   const newFlowDefinition = defaultFlowDefinition();
   if (opts.summary !== undefined) {
@@ -363,7 +370,7 @@ export function bootstrap(
   );
 
   const flowYamlPath = `${flowDirFullPath}/flow.yaml`;
-  Deno.writeTextFile(flowYamlPath, newFlowDefinitionYaml, { createNew: true });
+  writeFileSync(flowYamlPath, newFlowDefinitionYaml, { flag: "wx", encoding: "utf-8" });
 }
 
 const command = new Command()

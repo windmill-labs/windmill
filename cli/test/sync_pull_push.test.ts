@@ -5,11 +5,13 @@
  * containing every kind of Windmill resource type.
  */
 
-import { assertEquals, assertStringIncludes, assert } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { ensureDir } from "https://deno.land/std@0.224.0/fs/mod.ts";
-import * as path from "https://deno.land/std@0.224.0/path/mod.ts";
-import { SEPARATOR as SEP } from "https://deno.land/std@0.224.0/path/mod.ts";
-import { JSZip } from "../deps.ts";
+import { expect, test, describe } from "bun:test";
+import * as path from "@std/path";
+import { SEPARATOR as SEP } from "@std/path";
+import { writeFile, readFile, readdir, rm, mkdir, mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import JSZip from "jszip";
 import {
   getFolderSuffix,
   getMetadataFileName,
@@ -334,7 +336,7 @@ async function createLocalFilesystem(baseDir: string): Promise<void> {
   // Create folder structure
   const folders = ["f/scripts", "f/flows", "f/apps", "f/resources"];
   for (const folder of folders) {
-    await ensureDir(path.join(baseDir, folder));
+    await mkdir(path.join(baseDir, folder), { recursive: true });
   }
 
   // Create scripts
@@ -347,35 +349,37 @@ async function createLocalFilesystem(baseDir: string): Promise<void> {
   ];
 
   for (const script of scripts) {
-    await Deno.writeTextFile(
+    await writeFile(
       path.join(baseDir, script.contentFile.path),
       script.contentFile.content,
+    "utf-8",
     );
-    await Deno.writeTextFile(
+    await writeFile(
       path.join(baseDir, script.metadataFile.path),
       script.metadataFile.content,
+    "utf-8",
     );
   }
 
   // Create flows
   const flowFixture = createFlowFixture("f/flows/test_flow");
-  await ensureDir(path.join(baseDir, `f/flows/test_flow${getFolderSuffix("flow")}`));
+  await mkdir(path.join(baseDir, `f/flows/test_flow${getFolderSuffix("flow")}`), { recursive: true });
   for (const file of Object.values(flowFixture)) {
-    await Deno.writeTextFile(path.join(baseDir, file.path), file.content);
+    await writeFile(path.join(baseDir, file.path), file.content, "utf-8");
   }
 
   // Create apps
   const appFixture = createAppFixture("f/apps/test_app");
-  await ensureDir(path.join(baseDir, `f/apps/test_app${getFolderSuffix("app")}`));
+  await mkdir(path.join(baseDir, `f/apps/test_app${getFolderSuffix("app")}`), { recursive: true });
   for (const file of Object.values(appFixture)) {
-    await Deno.writeTextFile(path.join(baseDir, file.path), file.content);
+    await writeFile(path.join(baseDir, file.path), file.content, "utf-8");
   }
 
   // Create raw apps
   const rawAppFixture = createRawAppFixture("f/apps/test_raw_app");
-  await ensureDir(path.join(baseDir, `f/apps/test_raw_app${getFolderSuffix("raw_app")}`));
+  await mkdir(path.join(baseDir, `f/apps/test_raw_app${getFolderSuffix("raw_app")}`), { recursive: true });
   for (const file of Object.values(rawAppFixture)) {
-    await Deno.writeTextFile(path.join(baseDir, file.path), file.content);
+    await writeFile(path.join(baseDir, file.path), file.content, "utf-8");
   }
 
   // Create resources
@@ -393,7 +397,7 @@ async function createLocalFilesystem(baseDir: string): Promise<void> {
   ];
 
   for (const resource of resources) {
-    await Deno.writeTextFile(path.join(baseDir, resource.path), resource.content);
+    await writeFile(path.join(baseDir, resource.path), resource.content, "utf-8");
   }
 
   // Create variables
@@ -403,13 +407,13 @@ async function createLocalFilesystem(baseDir: string): Promise<void> {
   ];
 
   for (const variable of variables) {
-    await Deno.writeTextFile(path.join(baseDir, variable.path), variable.content);
+    await writeFile(path.join(baseDir, variable.path), variable.content, "utf-8");
   }
 
   // Create folder metadata
-  await ensureDir(path.join(baseDir, "f"));
+  await mkdir(path.join(baseDir, "f"), { recursive: true });
   const folderMeta = createFolderFixture("f");
-  await Deno.writeTextFile(path.join(baseDir, folderMeta.path), folderMeta.content);
+  await writeFile(path.join(baseDir, folderMeta.path), folderMeta.content, "utf-8");
 }
 
 /**
@@ -435,16 +439,17 @@ async function readDirRecursive(
 ): Promise<Record<string, string>> {
   const files: Record<string, string> = {};
 
-  for await (const entry of Deno.readDir(dir)) {
+  const entries = await readdir(dir, { withFileTypes: true });
+  for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
     // Normalize path separators to forward slashes for cross-platform compatibility
     const relativePath = fullPath.substring(baseDir.length + 1).replaceAll("\\", "/");
 
-    if (entry.isDirectory) {
+    if (entry.isDirectory()) {
       const subFiles = await readDirRecursive(fullPath, baseDir);
       Object.assign(files, subFiles);
     } else {
-      files[relativePath] = await Deno.readTextFile(fullPath);
+      files[relativePath] = await readFile(fullPath, "utf-8");
     }
   }
 
@@ -455,7 +460,7 @@ async function readDirRecursive(
  * Creates a temporary directory for testing
  */
 async function createTempDir(): Promise<string> {
-  return await Deno.makeTempDir({ prefix: "wmill_sync_test_" });
+  return await mkdtemp(join(tmpdir(), "wmill_sync_test_"));
 }
 
 /**
@@ -463,7 +468,7 @@ async function createTempDir(): Promise<string> {
  */
 async function cleanupTempDir(dir: string): Promise<void> {
   try {
-    await Deno.remove(dir, { recursive: true });
+    await rm(dir, { recursive: true });
   } catch {
     // Ignore cleanup errors
   }
@@ -473,47 +478,47 @@ async function cleanupTempDir(dir: string): Promise<void> {
 // Tests
 // =============================================================================
 
-Deno.test("Resource folder suffixes are correct", () => {
-  assertEquals(getFolderSuffix("flow"), ".flow");
-  assertEquals(getFolderSuffix("app"), ".app");
-  assertEquals(getFolderSuffix("raw_app"), ".raw_app");
+test("Resource folder suffixes are correct", () => {
+  expect(getFolderSuffix("flow")).toEqual(".flow");
+  expect(getFolderSuffix("app")).toEqual(".app");
+  expect(getFolderSuffix("raw_app")).toEqual(".raw_app");
 });
 
-Deno.test("Metadata file names are correct", () => {
-  assertEquals(getMetadataFileName("flow", "yaml"), "flow.yaml");
-  assertEquals(getMetadataFileName("flow", "json"), "flow.json");
-  assertEquals(getMetadataFileName("app", "yaml"), "app.yaml");
-  assertEquals(getMetadataFileName("raw_app", "yaml"), "raw_app.yaml");
+test("Metadata file names are correct", () => {
+  expect(getMetadataFileName("flow", "yaml")).toEqual("flow.yaml");
+  expect(getMetadataFileName("flow", "json")).toEqual("flow.json");
+  expect(getMetadataFileName("app", "yaml")).toEqual("app.yaml");
+  expect(getMetadataFileName("raw_app", "yaml")).toEqual("raw_app.yaml");
 });
 
-Deno.test("buildFolderPath creates correct paths", () => {
-  assertEquals(buildFolderPath("my_flow", "flow"), "my_flow.flow");
-  assertEquals(buildFolderPath("f/test/my_app", "app"), "f/test/my_app.app");
-  assertEquals(buildFolderPath("u/admin/raw_app", "raw_app"), "u/admin/raw_app.raw_app");
+test("buildFolderPath creates correct paths", () => {
+  expect(buildFolderPath("my_flow", "flow")).toEqual("my_flow.flow");
+  expect(buildFolderPath("f/test/my_app", "app")).toEqual("f/test/my_app.app");
+  expect(buildFolderPath("u/admin/raw_app", "raw_app")).toEqual("u/admin/raw_app.raw_app");
 });
 
 // =============================================================================
 // nonDottedPaths Tests - API format detection and transformation
 // =============================================================================
 
-Deno.test("Metadata file detection works with dotted format (default)", () => {
+test("Metadata file detection works with dotted format (default)", () => {
   // Ensure we're in default mode
   setNonDottedPaths(false);
 
   // API always returns dotted format
-  assert(isFlowMetadataFile("f/my_flow.flow.json"), "Should detect .flow.json");
-  assert(isFlowMetadataFile("f/my_flow.flow.yaml"), "Should detect .flow.yaml");
-  assert(isAppMetadataFile("f/my_app.app.json"), "Should detect .app.json");
-  assert(isAppMetadataFile("f/my_app.app.yaml"), "Should detect .app.yaml");
-  assert(isRawAppMetadataFile("f/my_raw.raw_app.json"), "Should detect .raw_app.json");
-  assert(isRawAppMetadataFile("f/my_raw.raw_app.yaml"), "Should detect .raw_app.yaml");
+  expect(isFlowMetadataFile("f/my_flow.flow.json")).toBeTruthy();
+  expect(isFlowMetadataFile("f/my_flow.flow.yaml")).toBeTruthy();
+  expect(isAppMetadataFile("f/my_app.app.json")).toBeTruthy();
+  expect(isAppMetadataFile("f/my_app.app.yaml")).toBeTruthy();
+  expect(isRawAppMetadataFile("f/my_raw.raw_app.json")).toBeTruthy();
+  expect(isRawAppMetadataFile("f/my_raw.raw_app.yaml")).toBeTruthy();
 
   // Non-matching should return false
-  assert(!isFlowMetadataFile("f/my_script.ts"), "Should not detect script file");
-  assert(!isAppMetadataFile("f/my_script.ts"), "Should not detect script file");
+  expect(!isFlowMetadataFile("f/my_script.ts")).toBeTruthy();
+  expect(!isAppMetadataFile("f/my_script.ts")).toBeTruthy();
 });
 
-Deno.test("Metadata file detection works with nonDottedPaths=true", () => {
+test("Metadata file detection works with nonDottedPaths=true", () => {
   // Store original value
   const wasNonDotted = getNonDottedPaths();
 
@@ -521,309 +526,281 @@ Deno.test("Metadata file detection works with nonDottedPaths=true", () => {
     setNonDottedPaths(true);
 
     // API format (dotted) should still be detected
-    assert(isFlowMetadataFile("f/my_flow.flow.json"), "Should detect API format .flow.json");
-    assert(isAppMetadataFile("f/my_app.app.json"), "Should detect API format .app.json");
-    assert(isRawAppMetadataFile("f/my_raw.raw_app.json"), "Should detect API format .raw_app.json");
+    expect(isFlowMetadataFile("f/my_flow.flow.json")).toBeTruthy();
+    expect(isAppMetadataFile("f/my_app.app.json")).toBeTruthy();
+    expect(isRawAppMetadataFile("f/my_raw.raw_app.json")).toBeTruthy();
 
     // Local format (non-dotted) should also be detected
-    assert(isFlowMetadataFile("f/my_flow__flow.json"), "Should detect local format __flow.json");
-    assert(isFlowMetadataFile("f/my_flow__flow.yaml"), "Should detect local format __flow.yaml");
-    assert(isAppMetadataFile("f/my_app__app.json"), "Should detect local format __app.json");
-    assert(isRawAppMetadataFile("f/my_raw__raw_app.json"), "Should detect local format __raw_app.json");
+    expect(isFlowMetadataFile("f/my_flow__flow.json")).toBeTruthy();
+    expect(isFlowMetadataFile("f/my_flow__flow.yaml")).toBeTruthy();
+    expect(isAppMetadataFile("f/my_app__app.json")).toBeTruthy();
+    expect(isRawAppMetadataFile("f/my_raw__raw_app.json")).toBeTruthy();
   } finally {
     // Restore original value
     setNonDottedPaths(wasNonDotted);
   }
 });
 
-Deno.test("transformJsonPathToDir transforms API format to local format", () => {
+test("transformJsonPathToDir transforms API format to local format", () => {
   // Store original value
   const wasNonDotted = getNonDottedPaths();
 
   try {
     // Test with dotted paths (default)
     setNonDottedPaths(false);
-    assertEquals(
-      transformJsonPathToDir("f/my_flow.flow.json", "flow"),
-      "f/my_flow.flow",
-      "Should transform dotted API format to dotted local format"
-    );
-    assertEquals(
-      transformJsonPathToDir("f/my_app.app.json", "app"),
-      "f/my_app.app",
-      "Should transform app correctly"
-    );
-    assertEquals(
-      transformJsonPathToDir("f/my_raw.raw_app.json", "raw_app"),
-      "f/my_raw.raw_app",
-      "Should transform raw_app correctly"
-    );
+    expect(transformJsonPathToDir("f/my_flow.flow.json", "flow")).toEqual("f/my_flow.flow");
+    expect(transformJsonPathToDir("f/my_app.app.json", "app")).toEqual("f/my_app.app");
+    expect(transformJsonPathToDir("f/my_raw.raw_app.json", "raw_app")).toEqual("f/my_raw.raw_app");
 
     // Test with non-dotted paths
     setNonDottedPaths(true);
-    assertEquals(
-      transformJsonPathToDir("f/my_flow.flow.json", "flow"),
-      "f/my_flow__flow",
-      "Should transform dotted API format to non-dotted local format"
-    );
-    assertEquals(
-      transformJsonPathToDir("f/my_app.app.json", "app"),
-      "f/my_app__app",
-      "Should transform app to non-dotted format"
-    );
-    assertEquals(
-      transformJsonPathToDir("f/my_raw.raw_app.json", "raw_app"),
-      "f/my_raw__raw_app",
-      "Should transform raw_app to non-dotted format"
-    );
+    expect(transformJsonPathToDir("f/my_flow.flow.json", "flow")).toEqual("f/my_flow__flow");
+    expect(transformJsonPathToDir("f/my_app.app.json", "app")).toEqual("f/my_app__app");
+    expect(transformJsonPathToDir("f/my_raw.raw_app.json", "raw_app")).toEqual("f/my_raw__raw_app");
 
     // Non-matching paths should be returned unchanged
-    assertEquals(
-      transformJsonPathToDir("f/my_script.ts", "flow"),
-      "f/my_script.ts",
-      "Should return non-matching path unchanged"
-    );
+    expect(transformJsonPathToDir("f/my_script.ts", "flow")).toEqual("f/my_script.ts");
   } finally {
     // Restore original value
     setNonDottedPaths(wasNonDotted);
   }
 });
 
-Deno.test("getFolderSuffix returns correct suffix based on nonDottedPaths setting", () => {
+test("getFolderSuffix returns correct suffix based on nonDottedPaths setting", () => {
   // Store original value
   const wasNonDotted = getNonDottedPaths();
 
   try {
     setNonDottedPaths(false);
-    assertEquals(getFolderSuffix("flow"), ".flow");
-    assertEquals(getFolderSuffix("app"), ".app");
-    assertEquals(getFolderSuffix("raw_app"), ".raw_app");
+    expect(getFolderSuffix("flow")).toEqual(".flow");
+    expect(getFolderSuffix("app")).toEqual(".app");
+    expect(getFolderSuffix("raw_app")).toEqual(".raw_app");
 
     setNonDottedPaths(true);
-    assertEquals(getFolderSuffix("flow"), "__flow");
-    assertEquals(getFolderSuffix("app"), "__app");
-    assertEquals(getFolderSuffix("raw_app"), "__raw_app");
+    expect(getFolderSuffix("flow")).toEqual("__flow");
+    expect(getFolderSuffix("app")).toEqual("__app");
+    expect(getFolderSuffix("raw_app")).toEqual("__raw_app");
   } finally {
     // Restore original value
     setNonDottedPaths(wasNonDotted);
   }
 });
 
-Deno.test("newPathAssigner with skipInlineScriptSuffix removes .inline_script. from paths", () => {
+test("newPathAssigner with skipInlineScriptSuffix removes .inline_script. from paths", () => {
   // Test default behavior (with .inline_script. suffix)
   const defaultAssigner = newPathAssigner("bun");
   const [defaultPath, defaultExt] = defaultAssigner.assignPath("my_script", "bun");
-  assertEquals(defaultPath, "my_script.inline_script.");
-  assertEquals(defaultExt, "ts");
+  expect(defaultPath).toEqual("my_script.inline_script.");
+  expect(defaultExt).toEqual("ts");
 
   // Test with skipInlineScriptSuffix = false (explicit)
   const withSuffixAssigner = newPathAssigner("bun", { skipInlineScriptSuffix: false });
   const [withSuffixPath, withSuffixExt] = withSuffixAssigner.assignPath("another_script", "python3");
-  assertEquals(withSuffixPath, "another_script.inline_script.");
-  assertEquals(withSuffixExt, "py");
+  expect(withSuffixPath).toEqual("another_script.inline_script.");
+  expect(withSuffixExt).toEqual("py");
 
   // Test with skipInlineScriptSuffix = true (no .inline_script. suffix)
   const noSuffixAssigner = newPathAssigner("bun", { skipInlineScriptSuffix: true });
   const [noSuffixPath, noSuffixExt] = noSuffixAssigner.assignPath("clean_script", "bun");
-  assertEquals(noSuffixPath, "clean_script.");
-  assertEquals(noSuffixExt, "ts");
+  expect(noSuffixPath).toEqual("clean_script.");
+  expect(noSuffixExt).toEqual("ts");
 
   // Test with skipInlineScriptSuffix = true and different language
   const noSuffixPyAssigner = newPathAssigner("bun", { skipInlineScriptSuffix: true });
   const [noSuffixPyPath, noSuffixPyExt] = noSuffixPyAssigner.assignPath("python_script", "python3");
-  assertEquals(noSuffixPyPath, "python_script.");
-  assertEquals(noSuffixPyExt, "py");
+  expect(noSuffixPyPath).toEqual("python_script.");
+  expect(noSuffixPyExt).toEqual("py");
 });
 
-Deno.test("newPathAssigner generates unique paths for duplicate names", () => {
+test("newPathAssigner generates unique paths for duplicate names", () => {
   const assigner = newPathAssigner("bun", { skipInlineScriptSuffix: true });
 
   // First script
   const [path1, ext1] = assigner.assignPath("my_script", "bun");
-  assertEquals(path1, "my_script.");
-  assertEquals(ext1, "ts");
+  expect(path1).toEqual("my_script.");
+  expect(ext1).toEqual("ts");
 
   // Second script with same name should get counter
   const [path2, ext2] = assigner.assignPath("my_script", "bun");
-  assertEquals(path2, "my_script_1.");
-  assertEquals(ext2, "ts");
+  expect(path2).toEqual("my_script_1.");
+  expect(ext2).toEqual("ts");
 
   // Third script with same name should get incremented counter
   const [path3, ext3] = assigner.assignPath("my_script", "python3");
-  assertEquals(path3, "my_script_2.");
-  assertEquals(ext3, "py");
+  expect(path3).toEqual("my_script_2.");
+  expect(ext3).toEqual("py");
 });
 
-Deno.test("isAppInlineScriptPath detects app inline scripts correctly", () => {
+test("isAppInlineScriptPath detects app inline scripts correctly", () => {
   // Store original value
   const wasNonDotted = getNonDottedPaths();
 
   try {
     // Test with dotted paths (default)
     setNonDottedPaths(false);
-    assert(isAppInlineScriptPath("f/my_app.app/my_script.ts"), "Should detect script in .app folder");
-    assert(isAppInlineScriptPath("f/my_app.app/app.yaml"), "Should detect metadata in .app folder");
-    assert(!isAppInlineScriptPath("f/my_script.ts"), "Should not detect standalone script");
-    assert(!isAppInlineScriptPath("f/my_flow.flow/flow.yaml"), "Should not detect flow files");
+    expect(isAppInlineScriptPath("f/my_app.app/my_script.ts")).toBeTruthy();
+    expect(isAppInlineScriptPath("f/my_app.app/app.yaml")).toBeTruthy();
+    expect(!isAppInlineScriptPath("f/my_script.ts")).toBeTruthy();
+    expect(!isAppInlineScriptPath("f/my_flow.flow/flow.yaml")).toBeTruthy();
 
     // Test with non-dotted paths
     setNonDottedPaths(true);
-    assert(isAppInlineScriptPath("f/my_app__app/my_script.ts"), "Should detect script in __app folder");
-    assert(isAppInlineScriptPath("f/my_app__app/app.yaml"), "Should detect metadata in __app folder");
-    assert(!isAppInlineScriptPath("f/my_script.ts"), "Should not detect standalone script");
-    assert(!isAppInlineScriptPath("f/my_flow__flow/flow.yaml"), "Should not detect flow files");
+    expect(isAppInlineScriptPath("f/my_app__app/my_script.ts")).toBeTruthy();
+    expect(isAppInlineScriptPath("f/my_app__app/app.yaml")).toBeTruthy();
+    expect(!isAppInlineScriptPath("f/my_script.ts")).toBeTruthy();
+    expect(!isAppInlineScriptPath("f/my_flow__flow/flow.yaml")).toBeTruthy();
   } finally {
     // Restore original value
     setNonDottedPaths(wasNonDotted);
   }
 });
 
-Deno.test("isFlowInlineScriptPath detects flow inline scripts correctly", () => {
+test("isFlowInlineScriptPath detects flow inline scripts correctly", () => {
   // Store original value
   const wasNonDotted = getNonDottedPaths();
 
   try {
     // Test with dotted paths (default)
     setNonDottedPaths(false);
-    assert(isFlowInlineScriptPath("f/my_flow.flow/my_script.ts"), "Should detect script in .flow folder");
-    assert(isFlowInlineScriptPath("f/my_flow.flow/flow.yaml"), "Should detect metadata in .flow folder");
-    assert(!isFlowInlineScriptPath("f/my_script.ts"), "Should not detect standalone script");
-    assert(!isFlowInlineScriptPath("f/my_app.app/app.yaml"), "Should not detect app files");
+    expect(isFlowInlineScriptPath("f/my_flow.flow/my_script.ts")).toBeTruthy();
+    expect(isFlowInlineScriptPath("f/my_flow.flow/flow.yaml")).toBeTruthy();
+    expect(!isFlowInlineScriptPath("f/my_script.ts")).toBeTruthy();
+    expect(!isFlowInlineScriptPath("f/my_app.app/app.yaml")).toBeTruthy();
 
     // Test with non-dotted paths
     setNonDottedPaths(true);
-    assert(isFlowInlineScriptPath("f/my_flow__flow/my_script.ts"), "Should detect script in __flow folder");
-    assert(isFlowInlineScriptPath("f/my_flow__flow/flow.yaml"), "Should detect metadata in __flow folder");
-    assert(!isFlowInlineScriptPath("f/my_script.ts"), "Should not detect standalone script");
-    assert(!isFlowInlineScriptPath("f/my_app__app/app.yaml"), "Should not detect app files");
+    expect(isFlowInlineScriptPath("f/my_flow__flow/my_script.ts")).toBeTruthy();
+    expect(isFlowInlineScriptPath("f/my_flow__flow/flow.yaml")).toBeTruthy();
+    expect(!isFlowInlineScriptPath("f/my_script.ts")).toBeTruthy();
+    expect(!isFlowInlineScriptPath("f/my_app__app/app.yaml")).toBeTruthy();
   } finally {
     // Restore original value
     setNonDottedPaths(wasNonDotted);
   }
 });
 
-Deno.test("isRawAppBackendPath detects raw app backend paths correctly", () => {
+test("isRawAppBackendPath detects raw app backend paths correctly", () => {
   // Store original value
   const wasNonDotted = getNonDottedPaths();
 
   try {
     // Test with dotted paths (default)
     setNonDottedPaths(false);
-    assert(isRawAppBackendPath("f/my_app.raw_app/backend/script.ts"), "Should detect script in .raw_app/backend");
-    assert(!isRawAppBackendPath("f/my_app.raw_app/index.html"), "Should not detect root files in raw_app");
-    assert(!isRawAppBackendPath("f/my_script.ts"), "Should not detect standalone script");
+    expect(isRawAppBackendPath("f/my_app.raw_app/backend/script.ts")).toBeTruthy();
+    expect(!isRawAppBackendPath("f/my_app.raw_app/index.html")).toBeTruthy();
+    expect(!isRawAppBackendPath("f/my_script.ts")).toBeTruthy();
 
     // Test with non-dotted paths
     setNonDottedPaths(true);
-    assert(isRawAppBackendPath("f/my_app__raw_app/backend/script.ts"), "Should detect script in __raw_app/backend");
-    assert(!isRawAppBackendPath("f/my_app__raw_app/index.html"), "Should not detect root files in raw_app");
-    assert(!isRawAppBackendPath("f/my_script.ts"), "Should not detect standalone script");
+    expect(isRawAppBackendPath("f/my_app__raw_app/backend/script.ts")).toBeTruthy();
+    expect(!isRawAppBackendPath("f/my_app__raw_app/index.html")).toBeTruthy();
+    expect(!isRawAppBackendPath("f/my_script.ts")).toBeTruthy();
   } finally {
     // Restore original value
     setNonDottedPaths(wasNonDotted);
   }
 });
 
-Deno.test("Script fixture creates valid structure", () => {
+test("Script fixture creates valid structure", () => {
   const pythonScript = createScriptFixture("test_script", "python3");
 
-  assertEquals(pythonScript.contentFile.path, "test_script.py");
-  assertEquals(pythonScript.metadataFile.path, "test_script.script.yaml");
-  assertStringIncludes(pythonScript.contentFile.content, "def main()");
-  assertStringIncludes(pythonScript.metadataFile.content, "summary:");
-  assertStringIncludes(pythonScript.metadataFile.content, "kind: script");
+  expect(pythonScript.contentFile.path).toEqual("test_script.py");
+  expect(pythonScript.metadataFile.path).toEqual("test_script.script.yaml");
+  expect(pythonScript.contentFile.content).toContain("def main()");
+  expect(pythonScript.metadataFile.content).toContain("summary:");
+  expect(pythonScript.metadataFile.content).toContain("kind: script");
 });
 
-Deno.test("Flow fixture creates valid structure", () => {
+test("Flow fixture creates valid structure", () => {
   const flow = createFlowFixture("test_flow");
 
-  assertEquals(flow.metadata.path, "test_flow.flow/flow.yaml");
-  assertEquals(flow.inlineScript.path, "test_flow.flow/a.ts");
-  assertStringIncludes(flow.metadata.content, "summary:");
-  assertStringIncludes(flow.metadata.content, "modules:");
-  assertStringIncludes(flow.inlineScript.content, "export async function main");
+  expect(flow.metadata.path).toEqual("test_flow.flow/flow.yaml");
+  expect(flow.inlineScript.path).toEqual("test_flow.flow/a.ts");
+  expect(flow.metadata.content).toContain("summary:");
+  expect(flow.metadata.content).toContain("modules:");
+  expect(flow.inlineScript.content).toContain("export async function main");
 });
 
-Deno.test("App fixture creates valid structure", () => {
+test("App fixture creates valid structure", () => {
   const app = createAppFixture("test_app");
 
-  assertEquals(app.metadata.path, "test_app.app/app.yaml");
-  assertStringIncludes(app.metadata.content, "summary:");
-  assertStringIncludes(app.metadata.content, "grid:");
-  assertStringIncludes(app.metadata.content, "policy:");
+  expect(app.metadata.path).toEqual("test_app.app/app.yaml");
+  expect(app.metadata.content).toContain("summary:");
+  expect(app.metadata.content).toContain("grid:");
+  expect(app.metadata.content).toContain("policy:");
 });
 
-Deno.test("Raw app fixture creates valid structure", () => {
+test("Raw app fixture creates valid structure", () => {
   const rawApp = createRawAppFixture("test_raw_app");
 
-  assertEquals(rawApp.metadata.path, "test_raw_app.raw_app/raw_app.yaml");
-  assertEquals(rawApp.indexHtml.path, "test_raw_app.raw_app/index.html");
-  assertEquals(rawApp.indexJs.path, "test_raw_app.raw_app/index.js");
-  assertStringIncludes(rawApp.metadata.content, "summary:");
-  assertStringIncludes(rawApp.metadata.content, "runnables:");
+  expect(rawApp.metadata.path).toEqual("test_raw_app.raw_app/raw_app.yaml");
+  expect(rawApp.indexHtml.path).toEqual("test_raw_app.raw_app/index.html");
+  expect(rawApp.indexJs.path).toEqual("test_raw_app.raw_app/index.js");
+  expect(rawApp.metadata.content).toContain("summary:");
+  expect(rawApp.metadata.content).toContain("runnables:");
 });
 
-Deno.test("Resource fixture creates valid YAML", () => {
+test("Resource fixture creates valid YAML", () => {
   const resource = createResourceFixture("postgres", "postgresql", {
     host: "localhost",
     port: 5432,
   });
 
-  assertEquals(resource.path, "postgres.resource.yaml");
-  assertStringIncludes(resource.content, 'resource_type: "postgresql"');
-  assertStringIncludes(resource.content, "value:");
+  expect(resource.path).toEqual("postgres.resource.yaml");
+  expect(resource.content).toContain('resource_type: "postgresql"');
+  expect(resource.content).toContain("value:");
 });
 
-Deno.test("Variable fixture creates valid YAML", () => {
+test("Variable fixture creates valid YAML", () => {
   const variable = createVariableFixture("my_var", "test_value", false);
 
-  assertEquals(variable.path, "my_var.variable.yaml");
-  assertStringIncludes(variable.content, 'value: "test_value"');
-  assertStringIncludes(variable.content, "is_secret: false");
+  expect(variable.path).toEqual("my_var.variable.yaml");
+  expect(variable.content).toContain('value: "test_value"');
+  expect(variable.content).toContain("is_secret: false");
 });
 
-Deno.test("Schedule fixture creates valid YAML", () => {
+test("Schedule fixture creates valid YAML", () => {
   const schedule = createScheduleFixture("hourly_job", "u/admin/my_script", "0 * * * *");
 
-  assertEquals(schedule.path, "hourly_job.schedule.yaml");
-  assertStringIncludes(schedule.content, 'schedule: "0 * * * *"');
-  assertStringIncludes(schedule.content, 'script_path: "u/admin/my_script"');
+  expect(schedule.path).toEqual("hourly_job.schedule.yaml");
+  expect(schedule.content).toContain('schedule: "0 * * * *"');
+  expect(schedule.content).toContain('script_path: "u/admin/my_script"');
 });
 
-Deno.test("HTTP trigger fixture creates valid YAML", () => {
+test("HTTP trigger fixture creates valid YAML", () => {
   const trigger = createHttpTriggerFixture("webhook", "/api/webhook", "u/admin/handler");
 
-  assertEquals(trigger.path, "webhook.http_trigger.yaml");
-  assertStringIncludes(trigger.content, 'route_path: "/api/webhook"');
-  assertStringIncludes(trigger.content, "http_method: post");
+  expect(trigger.path).toEqual("webhook.http_trigger.yaml");
+  expect(trigger.content).toContain('route_path: "/api/webhook"');
+  expect(trigger.content).toContain("http_method: post");
 });
 
-Deno.test("Folder fixture creates valid YAML", () => {
+test("Folder fixture creates valid YAML", () => {
   const folder = createFolderFixture("my_folder");
 
-  assertEquals(folder.path, "my_folder/folder.meta.yaml");
-  assertStringIncludes(folder.content, 'display_name: "my_folder"');
+  expect(folder.path).toEqual("my_folder/folder.meta.yaml");
+  expect(folder.content).toContain('display_name: "my_folder"');
 });
 
-Deno.test("User fixture creates valid YAML", () => {
+test("User fixture creates valid YAML", () => {
   const user = createUserFixture("test_user", "test@example.com", true);
 
-  assertEquals(user.path, "test_user.user.yaml");
-  assertStringIncludes(user.content, 'username: "test_user"');
-  assertStringIncludes(user.content, 'email: "test@example.com"');
-  assertStringIncludes(user.content, "is_admin: true");
+  expect(user.path).toEqual("test_user.user.yaml");
+  expect(user.content).toContain('username: "test_user"');
+  expect(user.content).toContain('email: "test@example.com"');
+  expect(user.content).toContain("is_admin: true");
 });
 
-Deno.test("Group fixture creates valid YAML", () => {
+test("Group fixture creates valid YAML", () => {
   const group = createGroupFixture("developers", ["user1", "user2"]);
 
-  assertEquals(group.path, "developers.group.yaml");
-  assertStringIncludes(group.content, 'name: "developers"');
-  assertStringIncludes(group.content, "- user1");
-  assertStringIncludes(group.content, "- user2");
+  expect(group.path).toEqual("developers.group.yaml");
+  expect(group.content).toContain('name: "developers"');
+  expect(group.content).toContain("- user1");
+  expect(group.content).toContain("- user2");
 });
 
-Deno.test("Local filesystem creation creates all expected files", async () => {
+test("Local filesystem creation creates all expected files", async () => {
   const tempDir = await createTempDir();
 
   try {
@@ -831,41 +808,41 @@ Deno.test("Local filesystem creation creates all expected files", async () => {
     const files = await readDirRecursive(tempDir);
 
     // Check scripts exist
-    assert("f/scripts/python_script.py" in files, "Python script content should exist");
-    assert("f/scripts/python_script.script.yaml" in files, "Python script metadata should exist");
-    assert("f/scripts/deno_script.ts" in files, "Deno script content should exist");
-    assert("f/scripts/bash_script.sh" in files, "Bash script content should exist");
-    assert("f/scripts/go_script.go" in files, "Go script content should exist");
-    assert("f/scripts/sql_script.sql" in files, "SQL script content should exist");
+    expect("f/scripts/python_script.py" in files).toBeTruthy();
+    expect("f/scripts/python_script.script.yaml" in files).toBeTruthy();
+    expect("f/scripts/deno_script.ts" in files).toBeTruthy();
+    expect("f/scripts/bash_script.sh" in files).toBeTruthy();
+    expect("f/scripts/go_script.go" in files).toBeTruthy();
+    expect("f/scripts/sql_script.sql" in files).toBeTruthy();
 
     // Check flows exist
-    assert("f/flows/test_flow.flow/flow.yaml" in files, "Flow metadata should exist");
-    assert("f/flows/test_flow.flow/a.ts" in files, "Flow inline script should exist");
+    expect("f/flows/test_flow.flow/flow.yaml" in files).toBeTruthy();
+    expect("f/flows/test_flow.flow/a.ts" in files).toBeTruthy();
 
     // Check apps exist
-    assert("f/apps/test_app.app/app.yaml" in files, "App metadata should exist");
+    expect("f/apps/test_app.app/app.yaml" in files).toBeTruthy();
 
     // Check raw apps exist
-    assert("f/apps/test_raw_app.raw_app/raw_app.yaml" in files, "Raw app metadata should exist");
-    assert("f/apps/test_raw_app.raw_app/index.html" in files, "Raw app HTML should exist");
-    assert("f/apps/test_raw_app.raw_app/index.js" in files, "Raw app JS should exist");
+    expect("f/apps/test_raw_app.raw_app/raw_app.yaml" in files).toBeTruthy();
+    expect("f/apps/test_raw_app.raw_app/index.html" in files).toBeTruthy();
+    expect("f/apps/test_raw_app.raw_app/index.js" in files).toBeTruthy();
 
     // Check resources exist
-    assert("f/resources/postgres_db.resource.yaml" in files, "PostgreSQL resource should exist");
-    assert("f/resources/api_config.resource.yaml" in files, "API config resource should exist");
+    expect("f/resources/postgres_db.resource.yaml" in files).toBeTruthy();
+    expect("f/resources/api_config.resource.yaml" in files).toBeTruthy();
 
     // Check variables exist
-    assert("f/resources/config_value.variable.yaml" in files, "Config variable should exist");
-    assert("f/resources/secret_key.variable.yaml" in files, "Secret variable should exist");
+    expect("f/resources/config_value.variable.yaml" in files).toBeTruthy();
+    expect("f/resources/secret_key.variable.yaml" in files).toBeTruthy();
 
     // Check folder metadata
-    assert("f/folder.meta.yaml" in files, "Folder metadata should exist");
+    expect("f/folder.meta.yaml" in files).toBeTruthy();
   } finally {
     await cleanupTempDir(tempDir);
   }
 });
 
-Deno.test("Mock remote zip can be created and read", async () => {
+test("Mock remote zip can be created and read", async () => {
   const items = {
     "test_script.py": 'def main():\n    return "hello"',
     "test_script.script.json": '{"summary":"test","schema":{}}',
@@ -877,26 +854,26 @@ Deno.test("Mock remote zip can be created and read", async () => {
 
   // Verify files exist in zip
   const scriptContent = await zip.file("test_script.py")?.async("text");
-  assertEquals(scriptContent, 'def main():\n    return "hello"');
+  expect(scriptContent).toEqual('def main():\n    return "hello"');
 
   const flowContent = await zip.file("test_flow.flow.json")?.async("text");
-  assertStringIncludes(flowContent!, '"summary":"flow"');
+  expect(flowContent!).toContain('"summary":"flow"');
 });
 
-Deno.test("readDirRecursive reads all files correctly", async () => {
+test("readDirRecursive reads all files correctly", async () => {
   const tempDir = await createTempDir();
 
   try {
     // Create a simple structure
-    await ensureDir(path.join(tempDir, "subdir"));
-    await Deno.writeTextFile(path.join(tempDir, "file1.txt"), "content1");
-    await Deno.writeTextFile(path.join(tempDir, "subdir", "file2.txt"), "content2");
+    await mkdir(path.join(tempDir, "subdir"), { recursive: true });
+    await writeFile(path.join(tempDir, "file1.txt"), "content1", "utf-8");
+    await writeFile(path.join(tempDir, "subdir", "file2.txt"), "content2", "utf-8");
 
     const files = await readDirRecursive(tempDir);
 
-    assertEquals(files["file1.txt"], "content1");
-    assertEquals(files["subdir/file2.txt"], "content2");
-    assertEquals(Object.keys(files).length, 2);
+    expect(files["file1.txt"]).toEqual("content1");
+    expect(files["subdir/file2.txt"]).toEqual("content2");
+    expect(Object.keys(files).length).toEqual(2);
   } finally {
     await cleanupTempDir(tempDir);
   }
@@ -906,67 +883,56 @@ Deno.test("readDirRecursive reads all files correctly", async () => {
 // Integration Tests (use withTestBackend for automated backend setup)
 // =============================================================================
 
-import { yamlParseFile } from "../deps.ts";
+import { yamlParseFile } from "../src/utils/yaml.ts";
 import { withTestBackend } from "./test_backend.ts";
 import { shouldSkipOnCI } from "./cargo_backend.ts";
 
-Deno.test({
-  name: "Integration: Pull creates correct local structure",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  async fn() {
+test("Integration: Pull creates correct local structure", async () => {
     await withTestBackend(async (backend, tempDir) => {
       // Create wmill.yaml
-      await Deno.writeTextFile(
+      await writeFile(
         `${tempDir}/wmill.yaml`,
         `defaultTs: bun
 includes:
   - "**"
 excludes: []
 `,
+      "utf-8",
       );
 
       // Run sync pull
       const result = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
 
-      assertEquals(
-        result.code,
-        0,
-        `Pull should succeed.\nstdout: ${result.stdout}\nstderr: ${result.stderr}`,
-      );
+      expect(result.code).toEqual(0);
 
       // Verify files were created
       const files = await readDirRecursive(tempDir);
       const hasYamlFiles = Object.keys(files).some((f) => f.endsWith(".yaml") && f !== "wmill.yaml");
 
-      assert(hasYamlFiles || Object.keys(files).length > 1, "Should have pulled files from server");
+      expect(hasYamlFiles || Object.keys(files).length > 1).toBeTruthy();
     });
-  },
-});
+  });
 
-Deno.test({
-  name: "Integration: Push uploads local changes correctly",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  async fn() {
+test("Integration: Push uploads local changes correctly", async () => {
     await withTestBackend(async (backend, tempDir) => {
       // Create wmill.yaml
-      await Deno.writeTextFile(
+      await writeFile(
         `${tempDir}/wmill.yaml`,
         `defaultTs: bun
 includes:
   - "**"
 excludes: []
 `,
+      "utf-8",
       );
 
       // Create a test script locally with a unique name
       // Path must have at least 2 segments after prefix (e.g., f/folder/name)
       const uniqueId = Date.now();
-      await ensureDir(`${tempDir}/f/test`);
+      await mkdir(`${tempDir}/f/test`, { recursive: true });
       const script = createScriptFixture(`f/test/push_script_${uniqueId}`, "deno");
-      await Deno.writeTextFile(`${tempDir}/${script.contentFile.path}`, script.contentFile.content);
-      await Deno.writeTextFile(`${tempDir}/${script.metadataFile.path}`, script.metadataFile.content);
+      await writeFile(`${tempDir}/${script.contentFile.path}`, script.contentFile.content, "utf-8");
+      await writeFile(`${tempDir}/${script.metadataFile.path}`, script.metadataFile.content, "utf-8");
 
       // Run sync push with dry-run first (only push our test script, not everything)
       const dryRunResult = await backend.runCLICommand(
@@ -974,16 +940,8 @@ excludes: []
         tempDir,
       );
 
-      assertEquals(
-        dryRunResult.code,
-        0,
-        `Dry run should succeed.\nstdout: ${dryRunResult.stdout}\nstderr: ${dryRunResult.stderr}`,
-      );
-      assertStringIncludes(
-        dryRunResult.stdout + dryRunResult.stderr,
-        `push_script_${uniqueId}`,
-        "Should detect the new script",
-      );
+      expect(dryRunResult.code).toEqual(0);
+      expect(dryRunResult.stdout + dryRunResult.stderr).toContain(`push_script_${uniqueId}`);
 
       // Run actual push (only push our test script)
       const pushResult = await backend.runCLICommand(
@@ -991,61 +949,41 @@ excludes: []
         tempDir,
       );
 
-      assertEquals(
-        pushResult.code,
-        0,
-        `Push should succeed.\nstdout: ${pushResult.stdout}\nstderr: ${pushResult.stderr}`,
-      );
+      expect(pushResult.code).toEqual(0);
     });
-  },
-});
+  });
 
-Deno.test({
-  name: "Integration: Pull then Push is idempotent",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  async fn() {
+test("Integration: Pull then Push is idempotent", async () => {
     await withTestBackend(async (backend, tempDir) => {
       // Create wmill.yaml
-      await Deno.writeTextFile(
+      await writeFile(
         `${tempDir}/wmill.yaml`,
         `defaultTs: bun
 includes:
   - "**"
 excludes: []
 `,
+      "utf-8",
       );
 
       // Pull from remote
       const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
-      assertEquals(
-        pullResult.code,
-        0,
-        `Pull should succeed.\nstdout: ${pullResult.stdout}\nstderr: ${pullResult.stderr}`,
-      );
+      expect(pullResult.code).toEqual(0);
 
       // Push back without changes (should be no-op)
       const pushResult = await backend.runCLICommand(["sync", "push", "--dry-run"], tempDir);
-      assertEquals(pushResult.code, 0, `Push dry-run should succeed: ${pushResult.stderr}`);
+      expect(pushResult.code).toEqual(0);
 
       // Should report 0 changes (check both stdout and stderr)
       const output = (pushResult.stdout + pushResult.stderr).toLowerCase();
-      assert(
-        output.includes("0 change") || output.includes("no change") || output.includes("nothing"),
-        `Should have no changes after pull without modifications. Output: ${output}`,
-      );
+      expect(output.includes("0 change") || output.includes("no change") || output.includes("nothing")).toBeTruthy();
     });
-  },
-});
+  });
 
-Deno.test({
-  name: "Integration: Include/exclude filters work correctly",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  async fn() {
+test("Integration: Include/exclude filters work correctly", async () => {
     await withTestBackend(async (backend, tempDir) => {
       // Create wmill.yaml with restrictive filters
-      await Deno.writeTextFile(
+      await writeFile(
         `${tempDir}/wmill.yaml`,
         `defaultTs: bun
 includes:
@@ -1055,16 +993,13 @@ excludes:
 skipVariables: true
 skipResources: true
 `,
+      "utf-8",
       );
 
       // Run sync pull
       const result = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
 
-      assertEquals(
-        result.code,
-        0,
-        `Pull should succeed.\nstdout: ${result.stdout}\nstderr: ${result.stderr}`,
-      );
+      expect(result.code).toEqual(0);
 
       // Verify only scripts in f/scripts/ were pulled (if any exist)
       const files = await readDirRecursive(tempDir);
@@ -1073,26 +1008,22 @@ skipResources: true
       const hasVariables = Object.keys(files).some((f) => f.includes(".variable."));
       const hasResources = Object.keys(files).some((f) => f.includes(".resource."));
 
-      assert(!hasVariables, "Should not have pulled variables (skipVariables: true)");
-      assert(!hasResources, "Should not have pulled resources (skipResources: true)");
+      expect(!hasVariables).toBeTruthy();
+      expect(!hasResources).toBeTruthy();
     });
-  },
-});
+  });
 
-Deno.test({
-  name: "Integration: Flow folder structure is created correctly",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  async fn() {
+test("Integration: Flow folder structure is created correctly", async () => {
     await withTestBackend(async (backend, tempDir) => {
       // Create wmill.yaml
-      await Deno.writeTextFile(
+      await writeFile(
         `${tempDir}/wmill.yaml`,
         `defaultTs: bun
 includes:
   - "**"
 excludes: []
 `,
+      "utf-8",
       );
 
       // Create a local flow with unique name
@@ -1100,9 +1031,9 @@ excludes: []
       const uniqueId = Date.now();
       const flowName = `f/test/flow_${uniqueId}`;
       const flowFixture = createFlowFixture(flowName);
-      await ensureDir(`${tempDir}/f/test/flow_${uniqueId}${getFolderSuffix("flow")}`);
+      await mkdir(`${tempDir}/f/test/flow_${uniqueId}${getFolderSuffix("flow")}`, { recursive: true });
       for (const file of Object.values(flowFixture)) {
-        await Deno.writeTextFile(`${tempDir}/${file.path}`, file.content);
+        await writeFile(`${tempDir}/${file.path}`, file.content, "utf-8");
       }
 
       // Push the flow (only push our test flow, not everything)
@@ -1112,14 +1043,10 @@ excludes: []
         tempDir,
       );
 
-      assertEquals(
-        pushResult.code,
-        0,
-        `Push should succeed.\nstdout: ${pushResult.stdout}\nstderr: ${pushResult.stderr}`,
-      );
+      expect(pushResult.code).toEqual(0);
 
       // Pull back and verify structure is preserved
-      const tempDir2 = await Deno.makeTempDir({ prefix: "wmill_flow_verify_" });
+      const tempDir2 = await mkdtemp(join(tmpdir(), "wmill_flow_verify_"));
       try {
         // Use template literal properly for the includes pattern
         const wmillConfig = `defaultTs: bun
@@ -1127,56 +1054,45 @@ includes:
   - "f/test/flow_${uniqueId}*/**"
 excludes: []
 `;
-        await Deno.writeTextFile(`${tempDir2}/wmill.yaml`, wmillConfig);
+        await writeFile(`${tempDir2}/wmill.yaml`, wmillConfig, "utf-8");
 
         const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir2);
 
-        assertEquals(
-          pullResult.code,
-          0,
-          `Pull should succeed.\nstdout: ${pullResult.stdout}\nstderr: ${pullResult.stderr}`,
-        );
+        expect(pullResult.code).toEqual(0);
 
         // Verify flow folder structure
         const files = await readDirRecursive(tempDir2);
         const allFiles = Object.keys(files);
         const flowFiles = allFiles.filter((f) => f.includes(`flow_${uniqueId}`));
 
-        assert(flowFiles.length > 0, `Should have pulled the flow. Files found: ${allFiles.join(", ")}`);
-        assert(
-          flowFiles.some((f) => f.includes(".flow/")),
-          "Flow should be in a .flow folder",
-        );
+        expect(flowFiles.length > 0).toBeTruthy();
+        expect(flowFiles.some((f) => f.includes(".flow/"))).toBeTruthy();
       } finally {
         await cleanupTempDir(tempDir2);
       }
     });
-  },
-});
+  });
 
-Deno.test({
-  name: "Integration: Raw app folder structure is handled correctly",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  async fn() {
+test("Integration: Raw app folder structure is handled correctly", async () => {
     await withTestBackend(async (backend, tempDir) => {
       // Create wmill.yaml
-      await Deno.writeTextFile(
+      await writeFile(
         `${tempDir}/wmill.yaml`,
         `defaultTs: bun
 includes:
   - "**"
 excludes: []
 `,
+      "utf-8",
       );
 
       // Create a local raw app with unique name
       // Path must have at least 2 segments after prefix (e.g., f/folder/name)
       const uniqueId = Date.now();
       const rawAppFixture = createRawAppFixture(`f/test/raw_app_${uniqueId}`);
-      await ensureDir(`${tempDir}/f/test/raw_app_${uniqueId}${getFolderSuffix("raw_app")}`);
+      await mkdir(`${tempDir}/f/test/raw_app_${uniqueId}${getFolderSuffix("raw_app")}`, { recursive: true });
       for (const file of Object.values(rawAppFixture)) {
-        await Deno.writeTextFile(`${tempDir}/${file.path}`, file.content);
+        await writeFile(`${tempDir}/${file.path}`, file.content, "utf-8");
       }
 
       // Push the raw app (only push our test raw app, not everything)
@@ -1188,140 +1104,125 @@ excludes: []
       // Note: This may fail if raw apps require specific validation
       // The test verifies the CLI handles the folder structure correctly
       if (pushResult.code === 0) {
-        assertStringIncludes(
-          pushResult.stdout + pushResult.stderr,
-          "",
-          "Push completed",
-        );
+        expect(pushResult.stdout + pushResult.stderr).toContain("");
       }
     });
-  },
-});
+  });
 
 // =============================================================================
 // nonDottedPaths Unit Tests
 // =============================================================================
 
-Deno.test("getFolderSuffixes returns correct suffixes for dotted paths (default)", () => {
+test("getFolderSuffixes returns correct suffixes for dotted paths (default)", () => {
   setNonDottedPaths(false);
   const suffixes = getFolderSuffixes();
-  assertEquals(suffixes.flow, ".flow");
-  assertEquals(suffixes.app, ".app");
-  assertEquals(suffixes.raw_app, ".raw_app");
+  expect(suffixes.flow).toEqual(".flow");
+  expect(suffixes.app).toEqual(".app");
+  expect(suffixes.raw_app).toEqual(".raw_app");
 });
 
-Deno.test("getFolderSuffixes returns correct suffixes for non-dotted paths", () => {
+test("getFolderSuffixes returns correct suffixes for non-dotted paths", () => {
   setNonDottedPaths(true);
   const suffixes = getFolderSuffixes();
-  assertEquals(suffixes.flow, "__flow");
-  assertEquals(suffixes.app, "__app");
-  assertEquals(suffixes.raw_app, "__raw_app");
+  expect(suffixes.flow).toEqual("__flow");
+  expect(suffixes.app).toEqual("__app");
+  expect(suffixes.raw_app).toEqual("__raw_app");
   setNonDottedPaths(false); // Reset
 });
 
-Deno.test("getFolderSuffix with nonDottedPaths returns dunder suffixes", () => {
+test("getFolderSuffix with nonDottedPaths returns dunder suffixes", () => {
   setNonDottedPaths(true);
-  assertEquals(getFolderSuffix("flow"), "__flow");
-  assertEquals(getFolderSuffix("app"), "__app");
-  assertEquals(getFolderSuffix("raw_app"), "__raw_app");
+  expect(getFolderSuffix("flow")).toEqual("__flow");
+  expect(getFolderSuffix("app")).toEqual("__app");
+  expect(getFolderSuffix("raw_app")).toEqual("__raw_app");
   setNonDottedPaths(false); // Reset
 });
 
-Deno.test("buildFolderPath with nonDottedPaths creates correct paths", () => {
+test("buildFolderPath with nonDottedPaths creates correct paths", () => {
   setNonDottedPaths(true);
-  assertEquals(buildFolderPath("my_flow", "flow"), "my_flow__flow");
-  assertEquals(buildFolderPath("f/test/my_app", "app"), "f/test/my_app__app");
-  assertEquals(buildFolderPath("u/admin/raw_app", "raw_app"), "u/admin/raw_app__raw_app");
+  expect(buildFolderPath("my_flow", "flow")).toEqual("my_flow__flow");
+  expect(buildFolderPath("f/test/my_app", "app")).toEqual("f/test/my_app__app");
+  expect(buildFolderPath("u/admin/raw_app", "raw_app")).toEqual("u/admin/raw_app__raw_app");
   setNonDottedPaths(false); // Reset
 });
 
-Deno.test("buildMetadataPath with nonDottedPaths creates correct paths", () => {
+test("buildMetadataPath with nonDottedPaths creates correct paths", () => {
   setNonDottedPaths(true);
-  assertEquals(
-    buildMetadataPath("my_flow", "flow", "yaml"),
-    `my_flow__flow${SEP}flow.yaml`
-  );
-  assertEquals(
-    buildMetadataPath(`f${SEP}test${SEP}my_app`, "app", "yaml"),
-    `f${SEP}test${SEP}my_app__app${SEP}app.yaml`
-  );
+  // buildMetadataPath always uses forward slashes internally
+  expect(buildMetadataPath("my_flow", "flow", "yaml")).toEqual("my_flow__flow/flow.yaml");
+  expect(buildMetadataPath("f/test/my_app", "app", "yaml")).toEqual("f/test/my_app__app/app.yaml");
   setNonDottedPaths(false); // Reset
 });
 
-Deno.test("isFlowPath detects non-dotted paths when configured", () => {
+test("isFlowPath detects non-dotted paths when configured", () => {
   // Default (dotted) paths
   setNonDottedPaths(false);
-  assert(isFlowPath(`f${SEP}test${SEP}my_flow.flow${SEP}flow.yaml`));
-  assert(!isFlowPath(`f${SEP}test${SEP}my_flow__flow${SEP}flow.yaml`));
+  expect(isFlowPath(`f${SEP}test${SEP}my_flow.flow${SEP}flow.yaml`)).toBeTruthy();
+  expect(!isFlowPath(`f${SEP}test${SEP}my_flow__flow${SEP}flow.yaml`)).toBeTruthy();
 
   // Non-dotted paths
   setNonDottedPaths(true);
-  assert(isFlowPath(`f${SEP}test${SEP}my_flow__flow${SEP}flow.yaml`));
-  assert(!isFlowPath(`f${SEP}test${SEP}my_flow.flow${SEP}flow.yaml`));
+  expect(isFlowPath(`f${SEP}test${SEP}my_flow__flow${SEP}flow.yaml`)).toBeTruthy();
+  expect(!isFlowPath(`f${SEP}test${SEP}my_flow.flow${SEP}flow.yaml`)).toBeTruthy();
   setNonDottedPaths(false); // Reset
 });
 
-Deno.test("isAppPath detects non-dotted paths when configured", () => {
+test("isAppPath detects non-dotted paths when configured", () => {
   // Default (dotted) paths
   setNonDottedPaths(false);
-  assert(isAppPath(`f${SEP}test${SEP}my_app.app${SEP}app.yaml`));
-  assert(!isAppPath(`f${SEP}test${SEP}my_app__app${SEP}app.yaml`));
+  expect(isAppPath(`f${SEP}test${SEP}my_app.app${SEP}app.yaml`)).toBeTruthy();
+  expect(!isAppPath(`f${SEP}test${SEP}my_app__app${SEP}app.yaml`)).toBeTruthy();
 
   // Non-dotted paths
   setNonDottedPaths(true);
-  assert(isAppPath(`f${SEP}test${SEP}my_app__app${SEP}app.yaml`));
-  assert(!isAppPath(`f${SEP}test${SEP}my_app.app${SEP}app.yaml`));
+  expect(isAppPath(`f${SEP}test${SEP}my_app__app${SEP}app.yaml`)).toBeTruthy();
+  expect(!isAppPath(`f${SEP}test${SEP}my_app.app${SEP}app.yaml`)).toBeTruthy();
   setNonDottedPaths(false); // Reset
 });
 
-Deno.test("isRawAppPath detects non-dotted paths when configured", () => {
+test("isRawAppPath detects non-dotted paths when configured", () => {
   // Default (dotted) paths
   setNonDottedPaths(false);
-  assert(isRawAppPath(`f${SEP}test${SEP}my_raw_app.raw_app${SEP}raw_app.yaml`));
-  assert(!isRawAppPath(`f${SEP}test${SEP}my_raw_app__raw_app${SEP}raw_app.yaml`));
+  expect(isRawAppPath(`f${SEP}test${SEP}my_raw_app.raw_app${SEP}raw_app.yaml`)).toBeTruthy();
+  expect(!isRawAppPath(`f${SEP}test${SEP}my_raw_app__raw_app${SEP}raw_app.yaml`)).toBeTruthy();
 
   // Non-dotted paths
   setNonDottedPaths(true);
-  assert(isRawAppPath(`f${SEP}test${SEP}my_raw_app__raw_app${SEP}raw_app.yaml`));
-  assert(!isRawAppPath(`f${SEP}test${SEP}my_raw_app.raw_app${SEP}raw_app.yaml`));
+  expect(isRawAppPath(`f${SEP}test${SEP}my_raw_app__raw_app${SEP}raw_app.yaml`)).toBeTruthy();
+  expect(!isRawAppPath(`f${SEP}test${SEP}my_raw_app.raw_app${SEP}raw_app.yaml`)).toBeTruthy();
   setNonDottedPaths(false); // Reset
 });
 
-Deno.test("extractResourceName works with non-dotted paths", () => {
+test("extractResourceName works with non-dotted paths", () => {
   setNonDottedPaths(true);
-  assertEquals(
-    extractResourceName(`f${SEP}test${SEP}my_flow__flow${SEP}flow.yaml`, "flow"),
-    `f${SEP}test${SEP}my_flow`
-  );
-  assertEquals(
-    extractResourceName(`f${SEP}test${SEP}my_app__app${SEP}app.yaml`, "app"),
-    `f${SEP}test${SEP}my_app`
-  );
+  // extractResourceName normalizes separators to forward slashes
+  expect(extractResourceName(`f${SEP}test${SEP}my_flow__flow${SEP}flow.yaml`, "flow")).toEqual("f/test/my_flow");
+  expect(extractResourceName(`f${SEP}test${SEP}my_app__app${SEP}app.yaml`, "app")).toEqual("f/test/my_app");
   setNonDottedPaths(false); // Reset
 });
 
-Deno.test("hasFolderSuffix works with non-dotted paths", () => {
+test("hasFolderSuffix works with non-dotted paths", () => {
   setNonDottedPaths(true);
-  assert(hasFolderSuffix("my_flow__flow", "flow"));
-  assert(!hasFolderSuffix("my_flow.flow", "flow"));
+  expect(hasFolderSuffix("my_flow__flow", "flow")).toBeTruthy();
+  expect(!hasFolderSuffix("my_flow.flow", "flow")).toBeTruthy();
 
-  assert(hasFolderSuffix("my_app__app", "app"));
-  assert(!hasFolderSuffix("my_app.app", "app"));
+  expect(hasFolderSuffix("my_app__app", "app")).toBeTruthy();
+  expect(!hasFolderSuffix("my_app.app", "app")).toBeTruthy();
   setNonDottedPaths(false); // Reset
 });
 
-Deno.test("setNonDottedPaths and getNonDottedPaths work correctly", () => {
+test("setNonDottedPaths and getNonDottedPaths work correctly", () => {
   // Default should be false
   setNonDottedPaths(false);
-  assertEquals(getNonDottedPaths(), false);
+  expect(getNonDottedPaths()).toEqual(false);
 
   // Set to true
   setNonDottedPaths(true);
-  assertEquals(getNonDottedPaths(), true);
+  expect(getNonDottedPaths()).toEqual(true);
 
   // Set back to false
   setNonDottedPaths(false);
-  assertEquals(getNonDottedPaths(), false);
+  expect(getNonDottedPaths()).toEqual(false);
 });
 
 // =============================================================================
@@ -1390,62 +1291,62 @@ policy:
   };
 }
 
-Deno.test("Flow fixture with nonDottedPaths creates __flow structure", () => {
+test("Flow fixture with nonDottedPaths creates __flow structure", () => {
   setNonDottedPaths(true);
   const flow = createFlowFixtureWithCurrentConfig("test_flow");
 
-  assertEquals(flow.metadata.path, "test_flow__flow/flow.yaml");
-  assertEquals(flow.inlineScript.path, "test_flow__flow/a.ts");
-  assertStringIncludes(flow.metadata.content, "summary:");
-  assertStringIncludes(flow.metadata.content, "modules:");
+  expect(flow.metadata.path).toEqual("test_flow__flow/flow.yaml");
+  expect(flow.inlineScript.path).toEqual("test_flow__flow/a.ts");
+  expect(flow.metadata.content).toContain("summary:");
+  expect(flow.metadata.content).toContain("modules:");
   setNonDottedPaths(false); // Reset
 });
 
-Deno.test("App fixture with nonDottedPaths creates __app structure", () => {
+test("App fixture with nonDottedPaths creates __app structure", () => {
   setNonDottedPaths(true);
   const app = createAppFixtureWithCurrentConfig("test_app");
 
-  assertEquals(app.metadata.path, "test_app__app/app.yaml");
-  assertStringIncludes(app.metadata.content, "summary:");
-  assertStringIncludes(app.metadata.content, "grid:");
+  expect(app.metadata.path).toEqual("test_app__app/app.yaml");
+  expect(app.metadata.content).toContain("summary:");
+  expect(app.metadata.content).toContain("grid:");
   setNonDottedPaths(false); // Reset
 });
 
-Deno.test("Local filesystem with nonDottedPaths creates correct folder structure", async () => {
+test("Local filesystem with nonDottedPaths creates correct folder structure", async () => {
   setNonDottedPaths(true);
   const tempDir = await createTempDir();
 
   try {
     // Create folder structure
-    await ensureDir(path.join(tempDir, "f/flows"));
-    await ensureDir(path.join(tempDir, "f/apps"));
+    await mkdir(path.join(tempDir, "f/flows"), { recursive: true });
+    await mkdir(path.join(tempDir, "f/apps"), { recursive: true });
 
     // Create flows with non-dotted paths
     const flowFixture = createFlowFixtureWithCurrentConfig("f/flows/test_flow");
-    await ensureDir(path.join(tempDir, `f/flows/test_flow${getFolderSuffix("flow")}`));
+    await mkdir(path.join(tempDir, `f/flows/test_flow${getFolderSuffix("flow")}`), { recursive: true });
     for (const file of Object.values(flowFixture)) {
-      await Deno.writeTextFile(path.join(tempDir, file.path), file.content);
+      await writeFile(path.join(tempDir, file.path), file.content, "utf-8");
     }
 
     // Create apps with non-dotted paths
     const appFixture = createAppFixtureWithCurrentConfig("f/apps/test_app");
-    await ensureDir(path.join(tempDir, `f/apps/test_app${getFolderSuffix("app")}`));
+    await mkdir(path.join(tempDir, `f/apps/test_app${getFolderSuffix("app")}`), { recursive: true });
     for (const file of Object.values(appFixture)) {
-      await Deno.writeTextFile(path.join(tempDir, file.path), file.content);
+      await writeFile(path.join(tempDir, file.path), file.content, "utf-8");
     }
 
     const files = await readDirRecursive(tempDir);
 
     // Check flows exist with __flow suffix
-    assert("f/flows/test_flow__flow/flow.yaml" in files, "Flow metadata should exist with __flow suffix");
-    assert("f/flows/test_flow__flow/a.ts" in files, "Flow inline script should exist with __flow suffix");
+    expect("f/flows/test_flow__flow/flow.yaml" in files).toBeTruthy();
+    expect("f/flows/test_flow__flow/a.ts" in files).toBeTruthy();
 
     // Check apps exist with __app suffix
-    assert("f/apps/test_app__app/app.yaml" in files, "App metadata should exist with __app suffix");
+    expect("f/apps/test_app__app/app.yaml" in files).toBeTruthy();
 
     // Verify old-style paths don't exist
-    assert(!("f/flows/test_flow.flow/flow.yaml" in files), "Old .flow suffix should not exist");
-    assert(!("f/apps/test_app.app/app.yaml" in files), "Old .app suffix should not exist");
+    expect(!("f/flows/test_flow.flow/flow.yaml" in files)).toBeTruthy();
+    expect(!("f/apps/test_app.app/app.yaml" in files)).toBeTruthy();
   } finally {
     await cleanupTempDir(tempDir);
     setNonDottedPaths(false); // Reset
@@ -1456,14 +1357,10 @@ Deno.test("Local filesystem with nonDottedPaths creates correct folder structure
 // nonDottedPaths Integration Tests
 // =============================================================================
 
-Deno.test({
-  name: "Integration: wmill.yaml with nonDottedPaths is read correctly",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  async fn() {
+test("Integration: wmill.yaml with nonDottedPaths is read correctly", async () => {
     await withTestBackend(async (backend, tempDir) => {
       // Create wmill.yaml with nonDottedPaths option
-      await Deno.writeTextFile(
+      await writeFile(
         `${tempDir}/wmill.yaml`,
         `defaultTs: bun
 nonDottedPaths: true
@@ -1471,6 +1368,7 @@ includes:
   - "f/**"
 excludes: []
 `,
+      "utf-8",
       );
 
       // Create a test script with non-dotted flow folder
@@ -1478,9 +1376,9 @@ excludes: []
       const uniqueId = Date.now();
       const flowName = `f/test/nondot_flow_${uniqueId}`;
       const flowFixture = createFlowFixtureWithCurrentConfig(flowName);
-      await ensureDir(`${tempDir}/f/test/nondot_flow_${uniqueId}${getFolderSuffix("flow")}`);
+      await mkdir(`${tempDir}/f/test/nondot_flow_${uniqueId}${getFolderSuffix("flow")}`, { recursive: true });
       for (const file of Object.values(flowFixture)) {
-        await Deno.writeTextFile(`${tempDir}/${file.path}`, file.content);
+        await writeFile(`${tempDir}/${file.path}`, file.content, "utf-8");
       }
       setNonDottedPaths(false); // Reset
 
@@ -1490,23 +1388,14 @@ excludes: []
         tempDir,
       );
 
-      assertEquals(
-        dryRunResult.code,
-        0,
-        `Dry run should succeed with nonDottedPaths config.\nstdout: ${dryRunResult.stdout}\nstderr: ${dryRunResult.stderr}`,
-      );
+      expect(dryRunResult.code).toEqual(0);
     });
-  },
-});
+  });
 
-Deno.test({
-  name: "Integration: Pull then Push with nonDottedPaths is idempotent",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  async fn() {
+test("Integration: Pull then Push with nonDottedPaths is idempotent", async () => {
     await withTestBackend(async (backend, tempDir) => {
       // Create wmill.yaml with nonDottedPaths enabled
-      await Deno.writeTextFile(
+      await writeFile(
         `${tempDir}/wmill.yaml`,
         `defaultTs: bun
 nonDottedPaths: true
@@ -1514,15 +1403,12 @@ includes:
   - "**"
 excludes: []
 `,
+      "utf-8",
       );
 
       // Pull from remote with nonDottedPaths enabled
       const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
-      assertEquals(
-        pullResult.code,
-        0,
-        `Pull should succeed with nonDottedPaths.\nstdout: ${pullResult.stdout}\nstderr: ${pullResult.stderr}`,
-      );
+      expect(pullResult.code).toEqual(0);
 
       // Verify that pulled files use __flow/__app/__raw_app suffixes
       const filesAfterPull = await readDirRecursive(tempDir);
@@ -1536,40 +1422,26 @@ excludes: []
       // Only check if there are actually flows/apps in the workspace
       // If there are flows, they should use __flow not .flow
       if (flowFiles.length > 0 || dottedFlowFiles.length > 0) {
-        assert(
-          dottedFlowFiles.length === 0,
-          `Flows should use __flow suffix with nonDottedPaths, found .flow files: ${dottedFlowFiles.join(", ")}`,
-        );
+        expect(dottedFlowFiles.length === 0).toBeTruthy();
       }
       if (appFiles.length > 0 || dottedAppFiles.length > 0) {
-        assert(
-          dottedAppFiles.length === 0,
-          `Apps should use __app suffix with nonDottedPaths, found .app files: ${dottedAppFiles.join(", ")}`,
-        );
+        expect(dottedAppFiles.length === 0).toBeTruthy();
       }
 
       // Push back without changes (should be no-op / idempotent)
       const pushResult = await backend.runCLICommand(["sync", "push", "--dry-run"], tempDir);
-      assertEquals(pushResult.code, 0, `Push dry-run should succeed: ${pushResult.stderr}`);
+      expect(pushResult.code).toEqual(0);
 
       // Should report 0 changes (check both stdout and stderr)
       const output = (pushResult.stdout + pushResult.stderr).toLowerCase();
-      assert(
-        output.includes("0 change") || output.includes("no change") || output.includes("nothing"),
-        `Should have no changes after pull with nonDottedPaths without modifications. Output: ${output}`,
-      );
+      expect(output.includes("0 change") || output.includes("no change") || output.includes("nothing")).toBeTruthy();
     });
-  },
-});
+  });
 
-Deno.test({
-  name: "Integration: Push flow with nonDottedPaths creates __flow structure on server",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  async fn() {
+test("Integration: Push flow with nonDottedPaths creates __flow structure on server", async () => {
     await withTestBackend(async (backend, tempDir) => {
       // Create wmill.yaml with nonDottedPaths enabled
-      await Deno.writeTextFile(
+      await writeFile(
         `${tempDir}/wmill.yaml`,
         `defaultTs: bun
 nonDottedPaths: true
@@ -1577,6 +1449,7 @@ includes:
   - "**"
 excludes: []
 `,
+      "utf-8",
       );
 
       // Create a local flow with __flow suffix
@@ -1584,9 +1457,9 @@ excludes: []
       const uniqueId = Date.now();
       const flowName = `f/test/nondot_idem_flow_${uniqueId}`;
       const flowFixture = createFlowFixtureWithCurrentConfig(flowName);
-      await ensureDir(`${tempDir}/f/test/nondot_idem_flow_${uniqueId}${getFolderSuffix("flow")}`);
+      await mkdir(`${tempDir}/f/test/nondot_idem_flow_${uniqueId}${getFolderSuffix("flow")}`, { recursive: true });
       for (const file of Object.values(flowFixture)) {
-        await Deno.writeTextFile(`${tempDir}/${file.path}`, file.content);
+        await writeFile(`${tempDir}/${file.path}`, file.content, "utf-8");
       }
       setNonDottedPaths(false); // Reset global state
 
@@ -1596,11 +1469,7 @@ excludes: []
         tempDir,
       );
 
-      assertEquals(
-        pushResult.code,
-        0,
-        `Push should succeed.\nstdout: ${pushResult.stdout}\nstderr: ${pushResult.stderr}`,
-      );
+      expect(pushResult.code).toEqual(0);
 
       // Pull back to same directory to verify round-trip (idempotency)
       const pullResult = await backend.runCLICommand(
@@ -1608,26 +1477,16 @@ excludes: []
         tempDir,
       );
 
-      assertEquals(
-        pullResult.code,
-        0,
-        `Pull should succeed.\nstdout: ${pullResult.stdout}\nstderr: ${pullResult.stderr}`,
-      );
+      expect(pullResult.code).toEqual(0);
 
       // Verify flow still has __flow suffix after round-trip
       const filesAfterPull = await readDirRecursive(tempDir);
       const allFiles = Object.keys(filesAfterPull);
       const flowFiles = allFiles.filter((f) => f.includes(`nondot_idem_flow_${uniqueId}`));
 
-      assert(flowFiles.length > 0, `Should have the flow files after pull. Files found: ${allFiles.join(", ")}`);
-      assert(
-        flowFiles.some((f) => f.includes("__flow/")),
-        `Flow should be in a __flow folder with nonDottedPaths. Found: ${flowFiles.join(", ")}`,
-      );
-      assert(
-        !flowFiles.some((f) => f.includes(".flow/")),
-        `Flow should NOT use .flow suffix with nonDottedPaths. Found: ${flowFiles.join(", ")}`,
-      );
+      expect(flowFiles.length > 0).toBeTruthy();
+      expect(flowFiles.some((f) => f.includes("__flow/"))).toBeTruthy();
+      expect(!flowFiles.some((f) => f.includes(".flow/"))).toBeTruthy();
 
       // Push again (should be idempotent - no changes)
       const push2 = await backend.runCLICommand(
@@ -1635,25 +1494,17 @@ excludes: []
         tempDir,
       );
 
-      assertEquals(push2.code, 0, `Second push dry-run should succeed: ${push2.stderr}`);
+      expect(push2.code).toEqual(0);
 
       const output = (push2.stdout + push2.stderr).toLowerCase();
-      assert(
-        output.includes("0 change") || output.includes("no change") || output.includes("nothing"),
-        `Should have no changes after push-pull cycle for flow. Output: ${output}`,
-      );
+      expect(output.includes("0 change") || output.includes("no change") || output.includes("nothing")).toBeTruthy();
     });
-  },
-});
+  });
 
-Deno.test({
-  name: "Integration: Multiple pull/push cycles with nonDottedPaths remain idempotent",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  async fn() {
+test("Integration: Multiple pull/push cycles with nonDottedPaths remain idempotent", async () => {
     await withTestBackend(async (backend, tempDir) => {
       // Create wmill.yaml with nonDottedPaths enabled
-      await Deno.writeTextFile(
+      await writeFile(
         `${tempDir}/wmill.yaml`,
         `defaultTs: bun
 nonDottedPaths: true
@@ -1661,56 +1512,46 @@ includes:
   - "**"
 excludes: []
 `,
+      "utf-8",
       );
 
       // First pull
       const pull1 = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
-      assertEquals(pull1.code, 0, `First pull should succeed: ${pull1.stderr}`);
+      expect(pull1.code).toEqual(0);
 
       // First push (should be no-op)
       const push1 = await backend.runCLICommand(["sync", "push", "--dry-run"], tempDir);
-      assertEquals(push1.code, 0, `First push dry-run should succeed: ${push1.stderr}`);
+      expect(push1.code).toEqual(0);
 
       // Second pull (should have no changes)
       const pull2 = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
-      assertEquals(pull2.code, 0, `Second pull should succeed: ${pull2.stderr}`);
+      expect(pull2.code).toEqual(0);
 
       // Second push (should still be no-op)
       const push2 = await backend.runCLICommand(["sync", "push", "--dry-run"], tempDir);
-      assertEquals(push2.code, 0, `Second push dry-run should succeed: ${push2.stderr}`);
+      expect(push2.code).toEqual(0);
 
       // Verify no changes after multiple cycles
       const output = (push2.stdout + push2.stderr).toLowerCase();
-      assert(
-        output.includes("0 change") || output.includes("no change") || output.includes("nothing"),
-        `Should have no changes after multiple pull/push cycles with nonDottedPaths. Output: ${output}`,
-      );
+      expect(output.includes("0 change") || output.includes("no change") || output.includes("nothing")).toBeTruthy();
 
       // Third pull to verify consistency
       const pull3 = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
-      assertEquals(pull3.code, 0, `Third pull should succeed: ${pull3.stderr}`);
+      expect(pull3.code).toEqual(0);
 
       // Final push check
       const push3 = await backend.runCLICommand(["sync", "push", "--dry-run"], tempDir);
-      assertEquals(push3.code, 0, `Final push dry-run should succeed: ${push3.stderr}`);
+      expect(push3.code).toEqual(0);
 
       const finalOutput = (push3.stdout + push3.stderr).toLowerCase();
-      assert(
-        finalOutput.includes("0 change") || finalOutput.includes("no change") || finalOutput.includes("nothing"),
-        `Should still have no changes after 3 cycles. Output: ${finalOutput}`,
-      );
+      expect(finalOutput.includes("0 change") || finalOutput.includes("no change") || finalOutput.includes("nothing")).toBeTruthy();
     });
-  },
-});
+  });
 
-Deno.test({
-  name: "Integration: App with nonDottedPaths creates __app structure and is idempotent",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  async fn() {
+test("Integration: App with nonDottedPaths creates __app structure and is idempotent", async () => {
     await withTestBackend(async (backend, tempDir) => {
       // Create wmill.yaml with nonDottedPaths enabled
-      await Deno.writeTextFile(
+      await writeFile(
         `${tempDir}/wmill.yaml`,
         `defaultTs: bun
 nonDottedPaths: true
@@ -1718,6 +1559,7 @@ includes:
   - "**"
 excludes: []
 `,
+      "utf-8",
       );
 
       // Create a local app with __app suffix
@@ -1725,9 +1567,9 @@ excludes: []
       const uniqueId = Date.now();
       const appName = `f/test/nondot_app_${uniqueId}`;
       const appFixture = createAppFixtureWithCurrentConfig(appName);
-      await ensureDir(`${tempDir}/f/test/nondot_app_${uniqueId}${getFolderSuffix("app")}`);
+      await mkdir(`${tempDir}/f/test/nondot_app_${uniqueId}${getFolderSuffix("app")}`, { recursive: true });
       for (const file of Object.values(appFixture)) {
-        await Deno.writeTextFile(`${tempDir}/${file.path}`, file.content);
+        await writeFile(`${tempDir}/${file.path}`, file.content, "utf-8");
       }
       setNonDottedPaths(false); // Reset global state
 
@@ -1737,11 +1579,7 @@ excludes: []
         tempDir,
       );
 
-      assertEquals(
-        pushResult.code,
-        0,
-        `Push should succeed.\nstdout: ${pushResult.stdout}\nstderr: ${pushResult.stderr}`,
-      );
+      expect(pushResult.code).toEqual(0);
 
       // Pull back to same directory
       const pullResult = await backend.runCLICommand(
@@ -1749,21 +1587,14 @@ excludes: []
         tempDir,
       );
 
-      assertEquals(
-        pullResult.code,
-        0,
-        `Pull should succeed.\nstdout: ${pullResult.stdout}\nstderr: ${pullResult.stderr}`,
-      );
+      expect(pullResult.code).toEqual(0);
 
       // Verify app structure uses __app
       const files = await readDirRecursive(tempDir);
       const appFiles = Object.keys(files).filter((f) => f.includes(`nondot_app_${uniqueId}`));
 
-      assert(appFiles.length > 0, `Should have the app files. Found: ${Object.keys(files).join(", ")}`);
-      assert(
-        appFiles.some((f) => f.includes("__app/")),
-        `App should be in a __app folder with nonDottedPaths. Found: ${appFiles.join(", ")}`,
-      );
+      expect(appFiles.length > 0).toBeTruthy();
+      expect(appFiles.some((f) => f.includes("__app/"))).toBeTruthy();
 
       // Push again (should be idempotent)
       const push2 = await backend.runCLICommand(
@@ -1771,16 +1602,12 @@ excludes: []
         tempDir,
       );
 
-      assertEquals(push2.code, 0, `Second push dry-run should succeed: ${push2.stderr}`);
+      expect(push2.code).toEqual(0);
 
       const output = (push2.stdout + push2.stderr).toLowerCase();
-      assert(
-        output.includes("0 change") || output.includes("no change") || output.includes("nothing"),
-        `Should have no changes after push-pull cycle for app. Output: ${output}`,
-      );
+      expect(output.includes("0 change") || output.includes("no change") || output.includes("nothing")).toBeTruthy();
     });
-  },
-});
+  });
 
 /**
  * Creates a mock raw_app file structure using the current global nonDottedPaths setting
@@ -1814,14 +1641,10 @@ runnables:
   };
 }
 
-Deno.test({
-  name: "Integration: Raw app with nonDottedPaths creates __raw_app structure",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  async fn() {
+test("Integration: Raw app with nonDottedPaths creates __raw_app structure", async () => {
     await withTestBackend(async (backend, tempDir) => {
       // Create wmill.yaml with nonDottedPaths enabled
-      await Deno.writeTextFile(
+      await writeFile(
         `${tempDir}/wmill.yaml`,
         `defaultTs: bun
 nonDottedPaths: true
@@ -1829,6 +1652,7 @@ includes:
   - "**"
 excludes: []
 `,
+      "utf-8",
       );
 
       // Create a local raw app with __raw_app suffix
@@ -1836,9 +1660,9 @@ excludes: []
       const uniqueId = Date.now();
       const rawAppName = `f/test/nondot_rawapp_${uniqueId}`;
       const rawAppFixture = createRawAppFixtureWithCurrentConfig(rawAppName);
-      await ensureDir(`${tempDir}/f/test/nondot_rawapp_${uniqueId}${getFolderSuffix("raw_app")}`);
+      await mkdir(`${tempDir}/f/test/nondot_rawapp_${uniqueId}${getFolderSuffix("raw_app")}`, { recursive: true });
       for (const file of Object.values(rawAppFixture)) {
-        await Deno.writeTextFile(`${tempDir}/${file.path}`, file.content);
+        await writeFile(`${tempDir}/${file.path}`, file.content, "utf-8");
       }
       setNonDottedPaths(false); // Reset global state
 
@@ -1846,15 +1670,9 @@ excludes: []
       const files = await readDirRecursive(tempDir);
       const rawAppFiles = Object.keys(files).filter((f) => f.includes(`nondot_rawapp_${uniqueId}`));
 
-      assert(rawAppFiles.length > 0, `Should have created raw app files. Found: ${Object.keys(files).join(", ")}`);
-      assert(
-        rawAppFiles.some((f) => f.includes("__raw_app/")),
-        `Raw app should be in a __raw_app folder with nonDottedPaths. Found: ${rawAppFiles.join(", ")}`,
-      );
-      assert(
-        !rawAppFiles.some((f) => f.includes(".raw_app/")),
-        `Raw app should NOT use .raw_app suffix with nonDottedPaths. Found: ${rawAppFiles.join(", ")}`,
-      );
+      expect(rawAppFiles.length > 0).toBeTruthy();
+      expect(rawAppFiles.some((f) => f.includes("__raw_app/"))).toBeTruthy();
+      expect(!rawAppFiles.some((f) => f.includes(".raw_app/"))).toBeTruthy();
 
       // Push the raw app (may fail if raw apps require specific validation)
       const pushResult = await backend.runCLICommand(
@@ -1871,20 +1689,15 @@ excludes: []
           tempDir,
         );
 
-        assertEquals(push2.code, 0, `Second push dry-run should succeed: ${push2.stderr}`);
+        expect(push2.code).toEqual(0);
       }
     });
-  },
-});
+  });
 
-Deno.test({
-  name: "Integration: Mixed scripts and flows with nonDottedPaths are idempotent",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  async fn() {
+test("Integration: Mixed scripts and flows with nonDottedPaths are idempotent", async () => {
     await withTestBackend(async (backend, tempDir) => {
       // Create wmill.yaml with nonDottedPaths enabled
-      await Deno.writeTextFile(
+      await writeFile(
         `${tempDir}/wmill.yaml`,
         `defaultTs: bun
 nonDottedPaths: true
@@ -1892,23 +1705,24 @@ includes:
   - "**"
 excludes: []
 `,
+      "utf-8",
       );
 
       const uniqueId = Date.now();
-      await ensureDir(`${tempDir}/f/test`);
+      await mkdir(`${tempDir}/f/test`, { recursive: true });
 
       // Create a script (scripts don't use folder suffixes, so they're unaffected)
       const script = createScriptFixture(`f/test/mixed_script_${uniqueId}`, "deno");
-      await Deno.writeTextFile(`${tempDir}/${script.contentFile.path}`, script.contentFile.content);
-      await Deno.writeTextFile(`${tempDir}/${script.metadataFile.path}`, script.metadataFile.content);
+      await writeFile(`${tempDir}/${script.contentFile.path}`, script.contentFile.content, "utf-8");
+      await writeFile(`${tempDir}/${script.metadataFile.path}`, script.metadataFile.content, "utf-8");
 
       // Create a flow with __flow suffix
       setNonDottedPaths(true);
       const flowName = `f/test/mixed_flow_${uniqueId}`;
       const flowFixture = createFlowFixtureWithCurrentConfig(flowName);
-      await ensureDir(`${tempDir}/f/test/mixed_flow_${uniqueId}${getFolderSuffix("flow")}`);
+      await mkdir(`${tempDir}/f/test/mixed_flow_${uniqueId}${getFolderSuffix("flow")}`, { recursive: true });
       for (const file of Object.values(flowFixture)) {
-        await Deno.writeTextFile(`${tempDir}/${file.path}`, file.content);
+        await writeFile(`${tempDir}/${file.path}`, file.content, "utf-8");
       }
       setNonDottedPaths(false); // Reset global state
 
@@ -1918,11 +1732,7 @@ excludes: []
         tempDir,
       );
 
-      assertEquals(
-        pushResult.code,
-        0,
-        `Push should succeed.\nstdout: ${pushResult.stdout}\nstderr: ${pushResult.stderr}`,
-      );
+      expect(pushResult.code).toEqual(0);
 
       // Pull back
       const pullResult = await backend.runCLICommand(
@@ -1930,11 +1740,7 @@ excludes: []
         tempDir,
       );
 
-      assertEquals(
-        pullResult.code,
-        0,
-        `Pull should succeed.\nstdout: ${pullResult.stdout}\nstderr: ${pullResult.stderr}`,
-      );
+      expect(pullResult.code).toEqual(0);
 
       // Verify idempotency
       const push2 = await backend.runCLICommand(
@@ -1942,130 +1748,99 @@ excludes: []
         tempDir,
       );
 
-      assertEquals(push2.code, 0, `Second push dry-run should succeed: ${push2.stderr}`);
+      expect(push2.code).toEqual(0);
 
       const output = (push2.stdout + push2.stderr).toLowerCase();
-      assert(
-        output.includes("0 change") || output.includes("no change") || output.includes("nothing"),
-        `Should have no changes after push-pull cycle for mixed content. Output: ${output}`,
-      );
+      expect(output.includes("0 change") || output.includes("no change") || output.includes("nothing")).toBeTruthy();
     });
-  },
-});
+  });
 
 // =============================================================================
 // ws_error_handler_muted Persistence Tests
 // =============================================================================
 
-Deno.test({
-  name: "Integration: Script ws_error_handler_muted is persisted through push/pull",
-  ignore: shouldSkipOnCI(), // Requires EE features
-  sanitizeResources: false,
-  sanitizeOps: false,
-  async fn() {
+test.skipIf(shouldSkipOnCI())("Integration: Script ws_error_handler_muted is persisted through push/pull", async () => {
     await withTestBackend(async (backend, tempDir) => {
-      await Deno.writeTextFile(
+      await writeFile(
         `${tempDir}/wmill.yaml`,
         `defaultTs: bun
 includes:
   - "**"
 excludes: []
 `,
+      "utf-8",
       );
 
       const uniqueId = Date.now();
-      await ensureDir(`${tempDir}/f/test`);
+      await mkdir(`${tempDir}/f/test`, { recursive: true });
 
       // Create a script with ws_error_handler_muted: true
       const scriptName = `f/test/muted_script_${uniqueId}`;
       const script = createScriptFixture(scriptName, "deno");
-      await Deno.writeTextFile(`${tempDir}/${script.contentFile.path}`, script.contentFile.content);
+      await writeFile(`${tempDir}/${script.contentFile.path}`, script.contentFile.content, "utf-8");
       // Add ws_error_handler_muted to the metadata
       const metadataWithMuted = script.metadataFile.content + `ws_error_handler_muted: true\n`;
-      await Deno.writeTextFile(`${tempDir}/${script.metadataFile.path}`, metadataWithMuted);
+      await writeFile(`${tempDir}/${script.metadataFile.path}`, metadataWithMuted, "utf-8");
 
       // Push
       const pushResult = await backend.runCLICommand(
         ["sync", "push", "--yes", "--includes", `f/test/muted_script_${uniqueId}**`],
         tempDir,
       );
-      assertEquals(
-        pushResult.code,
-        0,
-        `Push should succeed.\nstdout: ${pushResult.stdout}\nstderr: ${pushResult.stderr}`,
-      );
+      expect(pushResult.code).toEqual(0);
 
       // Verify via API that ws_error_handler_muted was persisted
       const apiResp = await backend.apiRequest!(
         `/api/w/${backend.workspace}/scripts/get/p/${scriptName}`,
       );
-      assertEquals(apiResp.status, 200, "API should return the script");
+      expect(apiResp.status).toEqual(200);
       const scriptData = await apiResp.json();
-      assertEquals(
-        scriptData.ws_error_handler_muted,
-        true,
-        "API should return ws_error_handler_muted: true for the pushed script",
-      );
+      expect(scriptData.ws_error_handler_muted).toEqual(true);
 
       // Pull into a fresh directory and verify the field round-trips
-      const pullDir = await Deno.makeTempDir({ prefix: "wmill_muted_script_pull_" });
+      const pullDir = await mkdtemp(join(tmpdir(), "wmill_muted_script_pull_"));
       try {
-        await Deno.writeTextFile(
+        await writeFile(
           `${pullDir}/wmill.yaml`,
           `defaultTs: bun
 includes:
   - "f/test/muted_script_${uniqueId}**"
 excludes: []
 `,
+        "utf-8",
         );
 
         const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], pullDir);
-        assertEquals(
-          pullResult.code,
-          0,
-          `Pull should succeed.\nstdout: ${pullResult.stdout}\nstderr: ${pullResult.stderr}`,
-        );
+        expect(pullResult.code).toEqual(0);
 
         // Verify ws_error_handler_muted is in the pulled metadata
-        const pulledMetadata = await Deno.readTextFile(`${pullDir}/${script.metadataFile.path}`);
-        assertStringIncludes(
-          pulledMetadata,
-          "ws_error_handler_muted: true",
-          "Pulled script metadata should contain ws_error_handler_muted: true",
-        );
+        const pulledMetadata = await readFile(`${pullDir}/${script.metadataFile.path}`, "utf-8");
+        expect(pulledMetadata).toContain("ws_error_handler_muted: true");
 
         // Verify push from pulled dir is idempotent (no changes)
         const push2 = await backend.runCLICommand(
           ["sync", "push", "--dry-run", "--includes", `f/test/muted_script_${uniqueId}**`],
           pullDir,
         );
-        assertEquals(push2.code, 0, `Second push dry-run should succeed: ${push2.stderr}`);
+        expect(push2.code).toEqual(0);
         const output = (push2.stdout + push2.stderr).toLowerCase();
-        assert(
-          output.includes("0 change") || output.includes("no change") || output.includes("nothing"),
-          `Should have no changes after push-pull cycle for script with ws_error_handler_muted. Output: ${output}`,
-        );
+        expect(output.includes("0 change") || output.includes("no change") || output.includes("nothing")).toBeTruthy();
       } finally {
-        await Deno.remove(pullDir, { recursive: true }).catch(() => {});
+        await rm(pullDir, { recursive: true }).catch(() => {});
       }
     });
-  },
-});
+  });
 
-Deno.test({
-  name: "Integration: Flow ws_error_handler_muted is persisted through push/pull",
-  ignore: shouldSkipOnCI(), // Requires EE features
-  sanitizeResources: false,
-  sanitizeOps: false,
-  async fn() {
+test.skipIf(shouldSkipOnCI())("Integration: Flow ws_error_handler_muted is persisted through push/pull", async () => {
     await withTestBackend(async (backend, tempDir) => {
-      await Deno.writeTextFile(
+      await writeFile(
         `${tempDir}/wmill.yaml`,
         `defaultTs: bun
 includes:
   - "**"
 excludes: []
 `,
+      "utf-8",
       );
 
       const uniqueId = Date.now();
@@ -2073,14 +1848,14 @@ excludes: []
       const flowFixture = createFlowFixture(flowName);
 
       // Create flow directory and files
-      await ensureDir(`${tempDir}/f/test/muted_flow_${uniqueId}${getFolderSuffix("flow")}`);
+      await mkdir(`${tempDir}/f/test/muted_flow_${uniqueId}${getFolderSuffix("flow")}`, { recursive: true });
       for (const [key, file] of Object.entries(flowFixture)) {
         if (key === "metadata") {
           // Add ws_error_handler_muted to flow metadata
           const contentWithMuted = file.content + `ws_error_handler_muted: true\n`;
-          await Deno.writeTextFile(`${tempDir}/${file.path}`, contentWithMuted);
+          await writeFile(`${tempDir}/${file.path}`, contentWithMuted, "utf-8");
         } else {
-          await Deno.writeTextFile(`${tempDir}/${file.path}`, file.content);
+          await writeFile(`${tempDir}/${file.path}`, file.content, "utf-8");
         }
       }
 
@@ -2089,75 +1864,467 @@ excludes: []
         ["sync", "push", "--yes", "--includes", `f/test/muted_flow_${uniqueId}*/**`],
         tempDir,
       );
-      assertEquals(
-        pushResult.code,
-        0,
-        `Push should succeed.\nstdout: ${pushResult.stdout}\nstderr: ${pushResult.stderr}`,
-      );
+      expect(pushResult.code).toEqual(0);
 
       // Verify via API that ws_error_handler_muted was persisted
       const apiResp = await backend.apiRequest!(
         `/api/w/${backend.workspace}/flows/get/${flowName}`,
       );
-      assertEquals(apiResp.status, 200, "API should return the flow");
+      expect(apiResp.status).toEqual(200);
       const flowData = await apiResp.json();
-      assertEquals(
-        flowData.ws_error_handler_muted,
-        true,
-        "API should return ws_error_handler_muted: true for the pushed flow",
-      );
+      expect(flowData.ws_error_handler_muted).toEqual(true);
 
       // Pull into a fresh directory and verify the field round-trips
-      const pullDir = await Deno.makeTempDir({ prefix: "wmill_muted_flow_pull_" });
+      const pullDir = await mkdtemp(join(tmpdir(), "wmill_muted_flow_pull_"));
       try {
-        await Deno.writeTextFile(
+        await writeFile(
           `${pullDir}/wmill.yaml`,
           `defaultTs: bun
 includes:
   - "f/test/muted_flow_${uniqueId}*/**"
 excludes: []
 `,
+        "utf-8",
         );
 
         const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], pullDir);
-        assertEquals(
-          pullResult.code,
-          0,
-          `Pull should succeed.\nstdout: ${pullResult.stdout}\nstderr: ${pullResult.stderr}`,
-        );
+        expect(pullResult.code).toEqual(0);
 
         // Verify ws_error_handler_muted is in the pulled flow.yaml
         const flowYamlPath = `${pullDir}/${flowFixture.metadata.path}`;
-        const pulledFlowYaml = await Deno.readTextFile(flowYamlPath);
-        assertStringIncludes(
-          pulledFlowYaml,
-          "ws_error_handler_muted: true",
-          "Pulled flow.yaml should contain ws_error_handler_muted: true",
-        );
+        const pulledFlowYaml = await readFile(flowYamlPath, "utf-8");
+        expect(pulledFlowYaml).toContain("ws_error_handler_muted: true");
 
         // Parse the YAML to confirm it's a proper boolean value
         // deno-lint-ignore no-explicit-any
         const parsed = await yamlParseFile(flowYamlPath) as any;
-        assertEquals(
-          parsed.ws_error_handler_muted,
-          true,
-          "ws_error_handler_muted should be boolean true in parsed flow YAML",
-        );
+        expect(parsed.ws_error_handler_muted).toEqual(true);
 
         // Verify push from pulled dir is idempotent (no changes)
         const push2 = await backend.runCLICommand(
           ["sync", "push", "--dry-run", "--includes", `f/test/muted_flow_${uniqueId}*/**`],
           pullDir,
         );
-        assertEquals(push2.code, 0, `Second push dry-run should succeed: ${push2.stderr}`);
+        expect(push2.code).toEqual(0);
         const output = (push2.stdout + push2.stderr).toLowerCase();
-        assert(
-          output.includes("0 change") || output.includes("no change") || output.includes("nothing"),
-          `Should have no changes after push-pull cycle for flow with ws_error_handler_muted. Output: ${output}`,
-        );
+        expect(output.includes("0 change") || output.includes("no change") || output.includes("nothing")).toBeTruthy();
       } finally {
-        await Deno.remove(pullDir, { recursive: true }).catch(() => {});
+        await rm(pullDir, { recursive: true }).catch(() => {});
       }
     });
-  },
+  });
+
+// =============================================================================
+// Sync tests for groups, settings, resource types, schedules, and HTTP triggers
+// =============================================================================
+
+import type { TestBackend } from "./test_backend.ts";
+
+/** Create a script on the remote via API */
+async function createRemoteScript(
+  backend: TestBackend,
+  scriptPath: string,
+  content: string = 'export async function main() { return "hello"; }'
+): Promise<void> {
+  const resp = await backend.apiRequest!(
+    `/api/w/${backend.workspace}/scripts/create`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        path: scriptPath,
+        content,
+        language: "bun",
+        summary: "Test script",
+        description: "Created by integration test",
+        schema: {
+          $schema: "https://json-schema.org/draft/2020-12/schema",
+          type: "object",
+          properties: {},
+          required: [],
+        },
+      }),
+    }
+  );
+  expect(resp.status).toBeLessThan(300);
+  await resp.text();
+}
+
+/** Write a standard wmill.yaml with the given extra flags */
+async function writeWmillYaml(
+  tempDir: string,
+  extraFlags: string = ""
+): Promise<void> {
+  await writeFile(
+    `${tempDir}/wmill.yaml`,
+    `defaultTs: bun
+includes:
+  - "**"
+excludes: []
+${extraFlags}`,
+    "utf-8"
+  );
+}
+
+/** Recursively list all files relative to baseDir, returning forward-slash paths */
+async function listFilesRecursive(
+  dir: string,
+  baseDir: string = dir
+): Promise<string[]> {
+  const entries = await readdir(dir, { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    const relativePath = fullPath
+      .substring(baseDir.length + 1)
+      .replaceAll("\\", "/");
+    if (entry.isDirectory()) {
+      files.push(...(await listFilesRecursive(fullPath, baseDir)));
+    } else {
+      files.push(relativePath);
+    }
+  }
+  return files;
+}
+
+describe("group sync", () => {
+  test("Integration: Group pull/push round-trip", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await writeWmillYaml(tempDir, "includeGroups: true");
+
+      // Pull with --include-groups
+      const pullResult = await backend.runCLICommand(
+        ["sync", "pull", "--yes", "--include-groups"],
+        tempDir
+      );
+      expect(pullResult.code).toEqual(0);
+
+      // Verify group file was created (seedTestData creates test_group)
+      const files = await listFilesRecursive(tempDir);
+      const groupFiles = files.filter((f) => f.endsWith(".group.yaml"));
+      expect(groupFiles.length).toBeGreaterThan(0);
+
+      const testGroupFile = groupFiles.find((f) => f.includes("test_group"));
+      expect(testGroupFile).toBeDefined();
+
+      // Read the group file and modify
+      const groupContent = await readFile(`${tempDir}/${testGroupFile!}`, "utf-8");
+      expect(groupContent).toContain("summary");
+
+      const modifiedContent = groupContent.replace(
+        /summary:.*/,
+        'summary: "Modified group summary from test"'
+      );
+      await writeFile(`${tempDir}/${testGroupFile!}`, modifiedContent, "utf-8");
+
+      // Push the modification
+      const pushResult = await backend.runCLICommand(
+        ["sync", "push", "--yes", "--include-groups"],
+        tempDir
+      );
+      expect(pushResult.code).toEqual(0);
+
+      // Verify via API
+      const apiResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/groups/get/test_group`
+      );
+      expect(apiResp.status).toEqual(200);
+      const groupData = await apiResp.json();
+      expect(groupData.summary).toEqual("Modified group summary from test");
+    });
+  });
+});
+
+describe("settings sync", () => {
+  test("Integration: Settings pull/push round-trip", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await writeWmillYaml(tempDir, "includeSettings: true");
+
+      // Pull with --include-settings
+      const pullResult = await backend.runCLICommand(
+        ["sync", "pull", "--yes", "--include-settings"],
+        tempDir
+      );
+      expect(pullResult.code).toEqual(0);
+
+      // Verify settings.yaml exists
+      const files = await listFilesRecursive(tempDir);
+      expect(files).toContain("settings.yaml");
+
+      // Read and modify a safe setting (webhook URL)
+      const settingsContent = await readFile(`${tempDir}/settings.yaml`, "utf-8");
+
+      let modifiedSettings: string;
+      if (settingsContent.includes("webhook:")) {
+        modifiedSettings = settingsContent.replace(
+          /webhook:.*/,
+          'webhook: "https://test-webhook.example.com/hook"'
+        );
+      } else {
+        modifiedSettings =
+          settingsContent + '\nwebhook: "https://test-webhook.example.com/hook"\n';
+      }
+      await writeFile(`${tempDir}/settings.yaml`, modifiedSettings, "utf-8");
+
+      // Push the modification
+      const pushResult = await backend.runCLICommand(
+        ["sync", "push", "--yes", "--include-settings"],
+        tempDir
+      );
+      expect(pushResult.code).toEqual(0);
+
+      // Verify via API
+      const apiResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/workspaces/get_settings`
+      );
+      expect(apiResp.status).toEqual(200);
+      const settingsData = await apiResp.json();
+      expect(settingsData.webhook).toEqual("https://test-webhook.example.com/hook");
+    });
+  });
+});
+
+describe("resource type sync", () => {
+  test("Integration: Resource type pull/push round-trip", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      const uniqueId = Date.now();
+      const rtName = `test_sync_rt_${uniqueId}`;
+
+      // Create a resource type via API
+      const createResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/resources/type/create`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: rtName,
+            schema: {
+              type: "object",
+              properties: {
+                host: { type: "string", description: "Hostname" },
+                port: { type: "integer", description: "Port number" },
+              },
+            },
+            description: "Test resource type for sync",
+          }),
+        }
+      );
+      expect(createResp.status).toBeLessThan(300);
+      await createResp.text();
+
+      // Resource types are included by default (not skipped)
+      await writeWmillYaml(tempDir);
+
+      // Pull
+      const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
+      expect(pullResult.code).toEqual(0);
+
+      // Verify resource type file exists
+      const files = await listFilesRecursive(tempDir);
+      const rtFile = files.find((f) => f.includes(`${rtName}.resource-type.yaml`));
+      expect(rtFile).toBeDefined();
+
+      // Read and modify the description
+      const rtContent = await readFile(`${tempDir}/${rtFile!}`, "utf-8");
+      expect(rtContent).toContain("host");
+
+      const modifiedContent = rtContent.replace(
+        "Test resource type for sync",
+        "Updated resource type description"
+      );
+      await writeFile(`${tempDir}/${rtFile!}`, modifiedContent, "utf-8");
+
+      // Push
+      const pushResult = await backend.runCLICommand(["sync", "push", "--yes"], tempDir);
+      expect(pushResult.code).toEqual(0);
+
+      // Verify via API
+      const apiResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/resources/type/get/${rtName}`
+      );
+      expect(apiResp.status).toEqual(200);
+      const rtData = await apiResp.json();
+      expect(rtData.description).toEqual("Updated resource type description");
+    });
+  });
+});
+
+describe("schedule sync", () => {
+  test("Integration: Schedule pull/push round-trip", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      const uniqueId = Date.now();
+      const scriptPath = `f/test/sched_sync_target_${uniqueId}`;
+      const schedulePath = `f/test/sched_sync_${uniqueId}`;
+
+      // Create target script via API
+      await createRemoteScript(backend, scriptPath);
+
+      // Create schedule via API
+      const createResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/schedules/create`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            path: schedulePath,
+            schedule: "0 0 */6 * * *",
+            script_path: scriptPath,
+            is_flow: false,
+            args: {},
+            enabled: false,
+            timezone: "UTC",
+          }),
+        }
+      );
+      expect(createResp.status).toBeLessThan(300);
+      await createResp.text();
+
+      await writeWmillYaml(tempDir, "includeSchedules: true");
+
+      // Pull with --include-schedules
+      const pullResult = await backend.runCLICommand(
+        ["sync", "pull", "--yes", "--include-schedules"],
+        tempDir
+      );
+      expect(pullResult.code).toEqual(0);
+
+      // Verify schedule file exists
+      const files = await listFilesRecursive(tempDir);
+      const scheduleFile = files.find(
+        (f) => f.includes(`sched_sync_${uniqueId}`) && f.endsWith(".schedule.yaml")
+      );
+      expect(scheduleFile).toBeDefined();
+
+      // Read and verify content
+      const schedContent = await readFile(`${tempDir}/${scheduleFile!}`, "utf-8");
+      expect(schedContent).toContain("0 0 */6 * * *");
+
+      // Modify the cron expression
+      const modifiedContent = schedContent.replace("0 0 */6 * * *", "0 0 */12 * * *");
+      await writeFile(`${tempDir}/${scheduleFile!}`, modifiedContent, "utf-8");
+
+      // Push
+      const pushResult = await backend.runCLICommand(
+        ["sync", "push", "--yes", "--include-schedules"],
+        tempDir
+      );
+      expect(pushResult.code).toEqual(0);
+
+      // Verify via API
+      const apiResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/schedules/get/${schedulePath}`
+      );
+      expect(apiResp.status).toEqual(200);
+      const schedData = await apiResp.json();
+      expect(schedData.schedule).toEqual("0 0 */12 * * *");
+    });
+  });
+
+  test("Integration: Schedule push-only creates from local file", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      const uniqueId = Date.now();
+      const scriptPath = `f/test/sched_pushonly_target_${uniqueId}`;
+      const schedulePath = `f/test/sched_pushonly_${uniqueId}`;
+
+      // Create target script via API
+      await createRemoteScript(backend, scriptPath);
+
+      await writeWmillYaml(tempDir, "includeSchedules: true");
+
+      // Create schedule YAML locally
+      await mkdir(`${tempDir}/f/test`, { recursive: true });
+      await writeFile(
+        `${tempDir}/${schedulePath}.schedule.yaml`,
+        `path: "${schedulePath}"
+schedule: "0 30 2 * * 1"
+script_path: "${scriptPath}"
+is_flow: false
+args: {}
+enabled: false
+timezone: "UTC"
+`,
+        "utf-8"
+      );
+
+      // Push
+      const pushResult = await backend.runCLICommand(
+        ["sync", "push", "--yes", "--include-schedules", "--includes", `f/test/sched_pushonly_${uniqueId}**`],
+        tempDir
+      );
+      expect(pushResult.code).toEqual(0);
+
+      // Verify schedule was created via API
+      const apiResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/schedules/get/${schedulePath}`
+      );
+      expect(apiResp.status).toEqual(200);
+      const schedData = await apiResp.json();
+      expect(schedData.schedule).toEqual("0 30 2 * * 1");
+      expect(schedData.script_path).toEqual(scriptPath);
+    });
+  });
+});
+
+describe("http trigger sync", () => {
+  test.skipIf(shouldSkipOnCI())("Integration: HTTP trigger pull/push is idempotent", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      const uniqueId = Date.now();
+      const scriptPath = `f/test/http_trig_target_${uniqueId}`;
+
+      // Create target script via API
+      await createRemoteScript(backend, scriptPath);
+
+      // Create HTTP trigger via API
+      const createResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/http_triggers/create`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            path: `f/test/http_trig_${uniqueId}`,
+            script_path: scriptPath,
+            route_path: `/test/hook_${uniqueId}`,
+            is_flow: false,
+            http_method: "post",
+            is_async: false,
+            requires_auth: false,
+          }),
+        }
+      );
+      // If the feature is not enabled, the create will fail - skip gracefully
+      if (createResp.status >= 400) {
+        console.log("HTTP trigger creation failed (feature may not be enabled), skipping");
+        return;
+      }
+      await createResp.text();
+
+      await writeWmillYaml(tempDir, "includeTriggers: true");
+
+      // Pull with --include-triggers
+      const pullResult = await backend.runCLICommand(
+        ["sync", "pull", "--yes", "--include-triggers"],
+        tempDir
+      );
+      expect(pullResult.code).toEqual(0);
+
+      // Verify http_trigger file exists
+      const files = await listFilesRecursive(tempDir);
+      const triggerFile = files.find(
+        (f) => f.includes(`http_trig_${uniqueId}`) && f.endsWith(".http_trigger.yaml")
+      );
+      expect(triggerFile).toBeDefined();
+
+      // Push back (verify idempotent)
+      const pushResult = await backend.runCLICommand(
+        ["sync", "push", "--dry-run", "--include-triggers"],
+        tempDir
+      );
+      expect(pushResult.code).toEqual(0);
+
+      const output = (pushResult.stdout + pushResult.stderr).toLowerCase();
+      expect(
+        output.includes("0 change") || output.includes("no change") || output.includes("nothing")
+      ).toBeTruthy();
+    });
+  });
 });

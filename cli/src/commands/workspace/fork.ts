@@ -1,6 +1,8 @@
-// deno-lint-ignore-file no-explicit-any
 import { GlobalOptions } from "../../types.ts";
-import { colors, Input, log, setClient } from "../../../deps.ts";
+import { colors } from "@cliffy/ansi/colors";
+import { Input } from "@cliffy/prompt/input";
+import * as log from "@std/log";
+import { setClient } from "../../core/client.ts";
 import {   allWorkspaces, list, removeWorkspace } from "./workspace.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { getCurrentGitBranch, getOriginalBranchForWorkspaceForks, isGitRepository } from "../../utils/git.ts";
@@ -159,7 +161,7 @@ async function deleteWorkspaceFork(
   }
 
   if (!opts.yes) {
-        const { Select } = await import("../../../deps.ts");
+        const { Select } = await import("@cliffy/prompt/select");
         const choice = await Select.prompt({
           message: `Are you sure you want to delete the forked workspace with id: \`${workspace.workspaceId}\`? This action will delete the workspace `,
           options: [
