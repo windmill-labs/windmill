@@ -95,6 +95,11 @@ export async function addWorktree(
     args.push("-C"); // --no-pane-cmds
   }
 
+  // Enable sandbox for yolo profile (safe to skip permissions inside container)
+  if (profile === "agent-yolo") {
+    args.push("-S"); // --sandbox
+  }
+
   if (opts?.prompt) args.push("-p", opts.prompt);
   args.push(branch);
 

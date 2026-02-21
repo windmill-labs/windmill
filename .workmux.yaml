@@ -45,3 +45,4 @@ files:
 sandbox:
   enabled: false
   toolchain: off
+  host_commands: ["cargo", "npm", "npx", "node", "git"]
