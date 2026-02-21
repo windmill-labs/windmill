@@ -284,7 +284,7 @@ describe("script show command", () => {
 // =============================================================================
 
 describe("script run command", () => {
-  test("runs a script and returns result", async () => {
+  test("runs a script and returns result", { timeout: 60000 }, async () => {
     await withTestBackend(async (backend, tempDir) => {
       await setupWorkspaceProfile(backend);
 

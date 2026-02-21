@@ -76,7 +76,7 @@ async function dev(opts: GlobalOptions & SyncOptions) {
     if (paths.length == 0) {
       return;
     }
-    const cpath = (await realpath(paths[0])).replace(base + SEP, "");
+    const cpath = (await realpath(paths[0])).replace(base + SEP, "").replaceAll("\\", "/");
     if (!ignore(cpath, false)) {
       const typ = getTypeStrFromPath(cpath);
       log.info("Detected change in " + cpath + " (" + typ + ")");
