@@ -17,9 +17,9 @@
   let worktrees = $state<WorktreeInfo[]>([]);
   let selectedBranch = $state<string | null>(null);
   let removeBranch = $state<string | null>(null);
+  let removingBranches = $state<Set<string>>(new Set());
   let showCreateDialog = $state(false);
   let creating = $state(false);
-  let removing = $state(false);
   let createProfile = $state<Profile>("agent-only");
 
   let visibleWorktrees = $derived(
@@ -63,17 +63,26 @@
   }
 
   async function handleRemove() {
-    if (!removeBranch) return;
-    removing = true;
+    const branch = removeBranch;
+    if (!branch) return;
+    removeBranch = null;
+
+    // Select neighbor before starting the async removal
+    if (selectedBranch === branch) {
+      const idx = visibleWorktrees.findIndex((w) => w.branch === branch);
+      const neighbor = visibleWorktrees[idx - 1] ?? visibleWorktrees[idx + 1];
+      const isNeighborMain = neighbor && (neighbor.path === "(here)" || neighbor.branch === "main");
+      selectedBranch = neighbor && !isNeighborMain ? neighbor.branch : null;
+    }
+
+    removingBranches = new Set([...removingBranches, branch]);
     try {
-      await api.removeWorktree(removeBranch);
-      if (selectedBranch === removeBranch) selectedBranch = null;
-      removeBranch = null;
+      await api.removeWorktree(branch);
       await refresh();
     } catch (err) {
       alert(`Failed to remove: ${err instanceof Error ? err.message : err}`);
     } finally {
-      removing = false;
+      removingBranches = new Set([...removingBranches].filter((b) => b !== branch));
     }
   }
 
@@ -95,7 +104,7 @@
         title="New Worktree"
       ><span class="text-lg leading-none">+</span> New</button>
     </div>
-    <WorktreeList worktrees={visibleWorktrees} selected={selectedBranch} onselect={(b) => (selectedBranch = b)} onremove={(b) => (removeBranch = b)} />
+    <WorktreeList worktrees={visibleWorktrees} selected={selectedBranch} removing={removingBranches} onselect={(b) => (selectedBranch = b)} onremove={(b) => (removeBranch = b)} />
   </aside>
 
   <main class="flex-1 min-w-0 flex flex-col overflow-hidden">
@@ -164,7 +173,6 @@
 {#if removeBranch}
   <ConfirmDialog
     message={`Remove worktree "${removeBranch}"? This action cannot be undone.`}
-    loading={removing}
     onconfirm={handleRemove}
     oncancel={() => (removeBranch = null)}
   />

@@ -1,9 +1,10 @@
 <script lang="ts">
   import type { WorktreeInfo } from "./types";
 
-  let { worktrees, selected, onselect, onremove }: {
+  let { worktrees, selected, removing, onselect, onremove }: {
     worktrees: WorktreeInfo[];
     selected: string | null;
+    removing: Set<string>;
     onselect: (branch: string) => void;
     onremove: (branch: string) => void;
   } = $props();
@@ -20,7 +21,8 @@
   {#each worktrees as wt (wt.branch)}
     {@const isMain = wt.path === "(here)" || wt.branch === "main"}
     {@const isActive = wt.branch === selected}
-    <li class="mb-0.5 group relative">
+    {@const isRemoving = removing.has(wt.branch)}
+    <li class="mb-0.5 group relative {isRemoving ? 'opacity-40 pointer-events-none' : ''}">
       <button
         type="button"
         class="w-full py-2.5 px-3 rounded-md border cursor-pointer flex flex-col gap-1 text-left text-inherit text-sm bg-transparent hover:bg-hover {isActive ? 'bg-active border-accent' : 'border-transparent'}"
