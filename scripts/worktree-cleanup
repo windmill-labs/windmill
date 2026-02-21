@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Remove the matching windmill-ee-private worktree if one exists
+wt_basename=$(basename "$(pwd)")
+
+# Check parent directory first (sibling to worktree root), then fall back to home
+parent_dir="$(cd "$(pwd)/.." && pwd)"
+if [ -d "${parent_dir}/windmill-ee-private" ]; then
+  ee_repo="${parent_dir}/windmill-ee-private"
+else
+  ee_repo="${HOME}/windmill-ee-private"
+fi
+
+ee_worktree_dir="${ee_repo}__worktrees/${wt_basename}"
+if [ -d "$ee_worktree_dir" ]; then
+  git -C "$ee_repo" worktree remove "$ee_worktree_dir" --force 2>/dev/null \
+    && echo "Removed EE worktree at $ee_worktree_dir" \
+    || echo "Warning: Could not remove EE worktree at $ee_worktree_dir"
+fi

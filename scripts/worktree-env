@@ -49,3 +49,35 @@ REMOTE=http://localhost:$backend_port
 EOF
 
 echo "Created .env.local with ports: backend=$backend_port, frontend=$frontend_port"
+
+# --- Create matching windmill-ee-private worktree ---
+# Check parent directory first (sibling to worktree root), then fall back to home
+parent_dir="$(cd "$(pwd)/.." && pwd)"
+if [ -d "${parent_dir}/windmill-ee-private" ]; then
+  ee_repo="${parent_dir}/windmill-ee-private"
+else
+  ee_repo="${HOME}/windmill-ee-private"
+fi
+if [ -d "$ee_repo" ]; then
+  branch=$(git branch --show-current 2>/dev/null || true)
+  wt_basename=$(basename "$(pwd)")
+  ee_worktree_dir="${ee_repo}__worktrees/${wt_basename}"
+
+  if [ -n "$branch" ] && [ ! -d "$ee_worktree_dir" ]; then
+    mkdir -p "$(dirname "$ee_worktree_dir")"
+
+    # Fetch latest so we can check out remote branches
+    git -C "$ee_repo" fetch --quiet 2>/dev/null || true
+
+    # Try: existing branch, then new branch from main
+    if git -C "$ee_repo" worktree add "$ee_worktree_dir" "$branch" 2>/dev/null; then
+      echo "Created EE worktree at $ee_worktree_dir (branch: $branch)"
+    elif git -C "$ee_repo" worktree add -b "$branch" "$ee_worktree_dir" main 2>/dev/null; then
+      echo "Created EE worktree at $ee_worktree_dir (new branch: $branch from main)"
+    else
+      echo "Warning: Could not create EE worktree for branch $branch"
+    fi
+  elif [ -d "$ee_worktree_dir" ]; then
+    echo "EE worktree already exists at $ee_worktree_dir"
+  fi
+fi

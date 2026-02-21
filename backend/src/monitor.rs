@@ -2349,7 +2349,7 @@ pub async fn reload_base_url_setting(conn: &Connection) -> error::Result<()> {
 async fn stale_job_cancellation(db: &Pool<Postgres>) {
     if let Some(threshold) = *STALE_JOB_THRESHOLD_MINUTES {
         let stale_jobs = sqlx::query!(
-            "SELECT v2_job_queue.id, v2_job.tag, v2_job_queue.scheduled_for, v2_job_queue.workspace_id FROM v2_job_queue LEFT JOIN v2_job ON v2_job_queue.id = v2_job.id WHERE running = false AND scheduled_for < now() - ($1 || ' minutes')::interval",
+            "SELECT v2_job_queue.id, v2_job.tag, v2_job_queue.scheduled_for, v2_job_queue.workspace_id FROM v2_job_queue LEFT JOIN v2_job ON v2_job_queue.id = v2_job.id WHERE running = false AND scheduled_for < now() - ($1 || ' minutes')::interval AND v2_job.trigger_kind IS DISTINCT FROM 'schedule'::job_trigger_kind",
             threshold.to_string()
         )
         .fetch_all(db)

@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.640.0](https://github.com/windmill-labs/windmill/compare/v1.639.0...v1.640.0) (2026-02-20)
+
+
+### Features
+
+* add windmill-ee-private worktree support to workmux ([#8034](https://github.com/windmill-labs/windmill/issues/8034)) ([9f3dd0b](https://github.com/windmill-labs/windmill/commit/9f3dd0bf2b2ba7c622093c54b7b6b5e7ebb26b74))
+* **cli:** add --locks-required flag to wmill lint and sync push ([#8026](https://github.com/windmill-labs/windmill/issues/8026)) ([4abe589](https://github.com/windmill-labs/windmill/commit/4abe58939787f375ccfef5b2dbcfbd7e86cff076))
+* dedicated nativets ([#8021](https://github.com/windmill-labs/windmill/issues/8021)) ([37c9acb](https://github.com/windmill-labs/windmill/commit/37c9acb232c64c98ecfb64754f5b69b31047c625))
+* Support column detection on S3 objects in DuckDB ([#8018](https://github.com/windmill-labs/windmill/issues/8018)) ([87f3de9](https://github.com/windmill-labs/windmill/commit/87f3de9ae5975c88b6748e297f84a539aec4c0ca))
+
+
+### Bug Fixes
+
+* Fix DuckDB incorrect pg password encoding ([#8028](https://github.com/windmill-labs/windmill/issues/8028)) ([90b1a7a](https://github.com/windmill-labs/windmill/commit/90b1a7a531bce5621ea4de4792a8c9d3d3beec3d))
+* **frontend:** use completed_at instead of created_at for job history ([#8022](https://github.com/windmill-labs/windmill/issues/8022)) ([24d7921](https://github.com/windmill-labs/windmill/commit/24d7921bcf23543759719ffd2463959c627b61b8))
+
+
+### Performance Improvements
+
+* lazy-load JSZip in RawAppEditorHeader ([#8012](https://github.com/windmill-labs/windmill/issues/8012)) ([a1ba10a](https://github.com/windmill-labs/windmill/commit/a1ba10a29e12ab5f553bd9aad74067cc5b3ead9e))
+
 ## [1.639.0](https://github.com/windmill-labs/windmill/compare/v1.638.4...v1.639.0) (2026-02-18)
 
 

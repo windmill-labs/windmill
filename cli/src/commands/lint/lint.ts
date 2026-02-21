@@ -1,4 +1,11 @@
-import { colors, Command, log, path, SEP } from "../../../deps.ts";
+import {
+  colors,
+  Command,
+  log,
+  path,
+  SEP,
+  yamlParseFile,
+} from "../../../deps.ts";
 import { GlobalOptions } from "../../types.ts";
 import { mergeConfigWithConfigFile } from "../../core/conf.ts";
 import {
@@ -11,10 +18,23 @@ import {
   type ValidationTarget,
   WindmillYamlValidator,
 } from "npm:windmill-yaml-validator@1.1.1";
+import {
+  inferContentTypeFromFilePath,
+  languageNeedsLock,
+  ScriptLanguage,
+} from "../../utils/script_common.ts";
+import {
+  isFlowInlineScriptPath,
+  isAppInlineScriptPath,
+  isRawAppPath,
+  getFolderSuffix,
+} from "../../utils/resource_folders.ts";
+import { exts } from "../script/script.ts";
 
 interface LintOptions extends GlobalOptions {
   json?: boolean;
   failOnWarn?: boolean;
+  locksRequired?: boolean;
 }
 
 interface FileIssue {
@@ -101,6 +121,487 @@ function formatYamlDiagnostics(parsed: { diagnostics?: Array<{ message?: string 
   return diagnostics.map((d) => d?.message || "Invalid YAML document");
 }
 
+/**
+ * Check if a lock value represents an actually resolved lock.
+ * Returns true if the lock is present and valid, false if missing.
+ * For `!inline` references, checks that the referenced file exists and is non-empty.
+ */
+async function isLockResolved(
+  lockValue: string | string[] | undefined,
+  baseDir: string,
+): Promise<boolean> {
+  if (lockValue === undefined) return false;
+
+  // Array lock (v2 format) - if non-empty, locks are present
+  if (Array.isArray(lockValue)) {
+    const joined = lockValue.join("\n");
+    if (joined === "") return false;
+    if (joined.startsWith("!inline ")) {
+      return await checkInlineFile(joined.substring("!inline ".length), baseDir);
+    }
+    return true;
+  }
+
+  if (lockValue === "") return false;
+
+  // Inline file reference
+  if (lockValue.startsWith("!inline ")) {
+    return await checkInlineFile(lockValue.substring("!inline ".length), baseDir);
+  }
+
+  // Embedded lock content
+  return true;
+}
+
+async function checkInlineFile(
+  relativePath: string,
+  baseDir: string,
+): Promise<boolean> {
+  const fullPath = path.join(baseDir, relativePath.trim());
+  try {
+    const stat = await Deno.stat(fullPath);
+    return stat.size > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Recursively find rawscript modules in a flow's module tree.
+ */
+function findRawScriptsInModules(
+  modules: any[],
+): { language: string; lock: any; id: string }[] {
+  const results: { language: string; lock: any; id: string }[] = [];
+  if (!modules || !Array.isArray(modules)) return results;
+
+  for (const m of modules) {
+    if (!m?.value?.type) continue;
+
+    if (m.value.type === "rawscript") {
+      results.push({
+        language: m.value.language,
+        lock: m.value.lock,
+        id: m.id ?? "unknown",
+      });
+    } else if (
+      m.value.type === "forloopflow" ||
+      m.value.type === "whileloopflow"
+    ) {
+      results.push(...findRawScriptsInModules(m.value.modules));
+    } else if (m.value.type === "branchall") {
+      for (const b of m.value.branches ?? []) {
+        results.push(...findRawScriptsInModules(b.modules));
+      }
+    } else if (m.value.type === "branchone") {
+      for (const b of m.value.branches ?? []) {
+        results.push(...findRawScriptsInModules(b.modules));
+      }
+      if (m.value.default) {
+        results.push(...findRawScriptsInModules(m.value.default));
+      }
+    } else if (m.value.type === "aiagent") {
+      for (const tool of m.value.tools ?? []) {
+        const toolValue = tool.value;
+        if (
+          toolValue?.tool_type === "flowmodule" &&
+          toolValue?.type === "rawscript"
+        ) {
+          results.push({
+            language: toolValue.language,
+            lock: toolValue.lock,
+            id: tool.id ?? "unknown",
+          });
+        }
+      }
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Recursively find inlineScript objects in a normal app's value structure.
+ * Follows the same traversal as traverseAndProcessInlineScripts in app_metadata.ts.
+ */
+function findInlineScriptsInApp(
+  obj: any,
+  currentPath: string[] = [],
+): { language: string; lock: any; path: string }[] {
+  const results: { language: string; lock: any; path: string }[] = [];
+  if (!obj || typeof obj !== "object") return results;
+
+  if (Array.isArray(obj)) {
+    for (let i = 0; i < obj.length; i++) {
+      results.push(
+        ...findInlineScriptsInApp(obj[i], [...currentPath, `[${i}]`]),
+      );
+    }
+    return results;
+  }
+
+  for (const [key, value] of Object.entries(obj)) {
+    if (key === "inlineScript" && typeof value === "object" && value !== null) {
+      const script = value as Record<string, any>;
+      if (script.language) {
+        results.push({
+          language: script.language,
+          lock: script.lock,
+          path: [...currentPath, key].join("."),
+        });
+      }
+    } else {
+      results.push(
+        ...findInlineScriptsInApp(value, [...currentPath, key]),
+      );
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Check raw app backend runnables for missing locks.
+ * Reads YAML config files and code files from the backend/ folder.
+ */
+async function checkRawAppRunnables(
+  backendDir: string,
+  rawAppYamlPath: string,
+  defaultTs: "bun" | "deno" | undefined,
+): Promise<FileIssue[]> {
+  const issues: FileIssue[] = [];
+
+  const allFiles: string[] = [];
+  for await (const entry of Deno.readDir(backendDir)) {
+    if (entry.isFile) {
+      allFiles.push(entry.name);
+    }
+  }
+
+  // Track processed IDs to avoid duplicates
+  const processedIds = new Set<string>();
+
+  // Process YAML files (explicit config)
+  for (const fileName of allFiles) {
+    if (!fileName.endsWith(".yaml")) continue;
+
+    const runnableId = fileName.replace(".yaml", "");
+    processedIds.add(runnableId);
+
+    const filePath = path.join(backendDir, fileName);
+    let runnable: Record<string, any>;
+    try {
+      runnable = (await yamlParseFile(filePath)) as Record<string, any>;
+    } catch {
+      continue;
+    }
+
+    // Only inline runnables need lock checking
+    if (runnable?.type !== "inline") continue;
+
+    // Find the content file to determine language
+    let language: string | null = null;
+    for (const codeFile of allFiles) {
+      if (
+        codeFile.endsWith(".yaml") || codeFile.endsWith(".lock") ||
+        !codeFile.startsWith(runnableId + ".")
+      ) continue;
+      language = inferContentTypeFromFilePath(codeFile, defaultTs);
+      break;
+    }
+
+    if (!language || !languageNeedsLock(language)) continue;
+
+    // Check for lock file
+    const lockFile = path.join(backendDir, `${runnableId}.lock`);
+    let hasLock = false;
+    try {
+      const stat = await Deno.stat(lockFile);
+      hasLock = stat.size > 0;
+    } catch {
+      // No lock file
+    }
+
+    // Also check if the runnable YAML has inlineScript.lock
+    if (!hasLock && runnable.inlineScript?.lock) {
+      hasLock = await isLockResolved(runnable.inlineScript.lock, backendDir);
+    }
+
+    if (!hasLock) {
+      issues.push({
+        path: rawAppYamlPath,
+        target: "raw_app_inline_script",
+        errors: [
+          `Missing lock for ${language} runnable '${runnableId}'. Run 'wmill app generate-locks' to generate locks.`,
+        ],
+      });
+    }
+  }
+
+  // Auto-detect code files without YAML config
+  for (const fileName of allFiles) {
+    if (fileName.endsWith(".yaml") || fileName.endsWith(".lock")) continue;
+
+    // Extract runnableId from code file
+    let runnableId: string | null = null;
+    try {
+      const lang = inferContentTypeFromFilePath(fileName, defaultTs);
+      if (lang) {
+        // The runnableId is the filename without the extension portion
+        // We need to find which extension matches
+        for (const ext of exts) {
+          if (fileName.endsWith(ext)) {
+            runnableId = fileName.slice(0, -ext.length);
+            break;
+          }
+        }
+      }
+    } catch {
+      continue;
+    }
+
+    if (!runnableId || processedIds.has(runnableId)) continue;
+    processedIds.add(runnableId);
+
+    let language: string;
+    try {
+      language = inferContentTypeFromFilePath(fileName, defaultTs);
+    } catch {
+      continue;
+    }
+
+    if (!languageNeedsLock(language)) continue;
+
+    const lockFile = path.join(backendDir, `${runnableId}.lock`);
+    let hasLock = false;
+    try {
+      const stat = await Deno.stat(lockFile);
+      hasLock = stat.size > 0;
+    } catch {
+      // No lock file
+    }
+
+    if (!hasLock) {
+      issues.push({
+        path: rawAppYamlPath,
+        target: "raw_app_inline_script",
+        errors: [
+          `Missing lock for ${language} runnable '${runnableId}'. Run 'wmill app generate-locks' to generate locks.`,
+        ],
+      });
+    }
+  }
+
+  return issues;
+}
+
+/**
+ * Check for missing lock files across scripts, flow inline scripts,
+ * app inline scripts, and raw app backend scripts.
+ * Returns a list of issues for scripts/inline scripts that should have locks but don't.
+ */
+export async function checkMissingLocks(
+  opts: GlobalOptions & { defaultTs?: "bun" | "deno" },
+  directory?: string,
+): Promise<FileIssue[]> {
+  const initialCwd = Deno.cwd();
+  const targetDirectory = directory
+    ? path.resolve(initialCwd, directory)
+    : Deno.cwd();
+
+  const { ...syncOpts } = opts;
+  const mergedOpts = await mergeConfigWithConfigFile(syncOpts);
+
+  const ignore = await ignoreF(mergedOpts);
+  const root = await FSFSElement(targetDirectory, [], false);
+
+  const issues: FileIssue[] = [];
+  const defaultTs = mergedOpts.defaultTs;
+  const flowSuffix = getFolderSuffix("flow");
+  const appSuffix = getFolderSuffix("app");
+  const rawAppSuffix = getFolderSuffix("raw_app");
+
+  // Collect all file paths and categorize them
+  const scriptYamls: string[] = [];
+  const flowYamls: { normalizedPath: string; fullPath: string }[] = [];
+  const appYamls: { normalizedPath: string; fullPath: string }[] = [];
+  const rawAppYamls: { normalizedPath: string; fullPath: string }[] = [];
+
+  for await (const entry of readDirRecursiveWithIgnore(ignore, root)) {
+    if (entry.isDirectory || entry.ignored) continue;
+
+    const normalizedPath = normalizePath(entry.path);
+
+    // Standalone script metadata files (not inside flow/app folders)
+    if (
+      normalizedPath.endsWith(".script.yaml") &&
+      !isFlowInlineScriptPath(normalizedPath) &&
+      !isAppInlineScriptPath(normalizedPath)
+    ) {
+      scriptYamls.push(normalizedPath);
+    }
+
+    // Flow definition files
+    if (
+      normalizedPath.endsWith("/flow.yaml") &&
+      normalizedPath.includes(flowSuffix + "/")
+    ) {
+      flowYamls.push({
+        normalizedPath,
+        fullPath: path.join(targetDirectory, entry.path),
+      });
+    }
+
+    // Normal app definition files
+    if (
+      normalizedPath.endsWith("/app.yaml") &&
+      normalizedPath.includes(appSuffix + "/")
+    ) {
+      appYamls.push({
+        normalizedPath,
+        fullPath: path.join(targetDirectory, entry.path),
+      });
+    }
+
+    // Raw app definition files
+    if (
+      normalizedPath.endsWith("/raw_app.yaml") &&
+      normalizedPath.includes(rawAppSuffix + "/")
+    ) {
+      rawAppYamls.push({
+        normalizedPath,
+        fullPath: path.join(targetDirectory, entry.path),
+      });
+    }
+  }
+
+  // Check standalone scripts
+  for (const yamlPath of scriptYamls) {
+    const basePath = yamlPath.replace(/\.script\.yaml$/, "");
+
+    // Find the content file to determine language
+    let language: ScriptLanguage | null = null;
+    for (const ext of exts) {
+      try {
+        await Deno.stat(path.join(targetDirectory, basePath + ext));
+        language = inferContentTypeFromFilePath(basePath + ext, defaultTs);
+        break;
+      } catch {
+        // Content file with this extension doesn't exist, try next
+      }
+    }
+
+    if (language && languageNeedsLock(language)) {
+      // Read the metadata to check the lock field
+      try {
+        const metadata = (await yamlParseFile(
+          path.join(targetDirectory, yamlPath),
+        )) as { lock?: string | string[] };
+
+        const lockResolved = await isLockResolved(
+          metadata?.lock,
+          targetDirectory,
+        );
+        if (!lockResolved) {
+          issues.push({
+            path: yamlPath,
+            target: "script",
+            errors: [
+              `Missing lock for ${language} script. Run 'wmill script generate-metadata' to generate locks.`,
+            ],
+          });
+        }
+      } catch (e) {
+        log.debug(`Failed to parse ${yamlPath}: ${e}`);
+      }
+    }
+  }
+
+  // Check flow inline scripts
+  for (const { normalizedPath: flowYamlPath, fullPath } of flowYamls) {
+    const flowDir = path.dirname(fullPath);
+
+    try {
+      const flowFile = (await yamlParseFile(fullPath)) as {
+        value?: { modules?: any[] };
+      };
+      if (!flowFile?.value?.modules) continue;
+
+      const rawScripts = findRawScriptsInModules(flowFile.value.modules);
+
+      for (const script of rawScripts) {
+        if (!languageNeedsLock(script.language as ScriptLanguage)) continue;
+
+        const lockResolved = await isLockResolved(script.lock, flowDir);
+        if (!lockResolved) {
+          issues.push({
+            path: flowYamlPath,
+            target: "flow_inline_script",
+            errors: [
+              `Missing lock for ${script.language} inline script '${script.id}'. Run 'wmill flow generate-locks' to generate locks.`,
+            ],
+          });
+        }
+      }
+    } catch (e) {
+      log.debug(`Failed to parse flow ${flowYamlPath}: ${e}`);
+    }
+  }
+
+  // Check normal app inline scripts
+  for (const { normalizedPath: appYamlPath, fullPath } of appYamls) {
+    const appDir = path.dirname(fullPath);
+
+    try {
+      const appFile = (await yamlParseFile(fullPath)) as { value?: any };
+      if (!appFile?.value) continue;
+
+      const inlineScripts = findInlineScriptsInApp(appFile.value);
+      for (const script of inlineScripts) {
+        if (!languageNeedsLock(script.language)) continue;
+
+        const lockResolved = await isLockResolved(script.lock, appDir);
+        if (!lockResolved) {
+          issues.push({
+            path: appYamlPath,
+            target: "app_inline_script",
+            errors: [
+              `Missing lock for ${script.language} inline script at '${script.path}'. Run 'wmill app generate-locks' to generate locks.`,
+            ],
+          });
+        }
+      }
+    } catch (e) {
+      log.debug(`Failed to parse app ${appYamlPath}: ${e}`);
+    }
+  }
+
+  // Check raw app backend scripts
+  for (const { normalizedPath: rawAppYamlPath, fullPath } of rawAppYamls) {
+    const rawAppDir = path.dirname(fullPath);
+    const backendDir = path.join(rawAppDir, "backend");
+
+    try {
+      await Deno.stat(backendDir);
+    } catch {
+      continue; // No backend folder
+    }
+
+    try {
+      const runnableIssues = await checkRawAppRunnables(
+        backendDir,
+        rawAppYamlPath,
+        defaultTs,
+      );
+      issues.push(...runnableIssues);
+    } catch (e) {
+      log.debug(`Failed to check raw app runnables ${rawAppYamlPath}: ${e}`);
+    }
+  }
+
+  return issues;
+}
+
 export async function runLint(
   opts: LintOptions,
   directory?: string,
@@ -176,6 +677,12 @@ export async function runLint(
     } else {
       validFiles += 1;
     }
+  }
+
+  // Check for missing locks if --locks-required is set
+  if (opts.locksRequired) {
+    const lockIssues = await checkMissingLocks(opts, explicitTargetDirectory);
+    issues.push(...lockIssues);
   }
 
   const invalidFiles = issues.length;
@@ -268,6 +775,10 @@ const command = new Command()
   .arguments("[directory:string]")
   .option("--json", "Output results in JSON format")
   .option("--fail-on-warn", "Exit with code 1 when warnings are emitted")
+  .option(
+    "--locks-required",
+    "Fail if scripts or flow inline scripts that need locks have no locks",
+  )
   .action(lint as any);
 
 export default command;
