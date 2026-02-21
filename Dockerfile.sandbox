@@ -7,10 +7,43 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     iptables \
     gosu \
     sudo \
+    # Rust native build deps (for cargo check)
+    pkg-config \
+    cmake \
+    clang \
+    mold \
+    libtool \
+    libssl-dev \
+    libxml2-dev \
+    libxmlsec1-dev \
+    libxslt1-dev \
+    libffi-dev \
+    zlib1g-dev \
+    libcurl4-openssl-dev \
+    libclang-dev \
+    libkrb5-dev \
+    libsasl2-dev \
+    # PostgreSQL (for local DB during development)
+    postgresql \
+    postgresql-client \
+    # Node.js (for npm run check)
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/* \
     && echo "ALL ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/sandbox \
     && chmod 0440 /etc/sudoers.d/sandbox \
     && chmod 666 /etc/passwd /etc/group /etc/shadow
+
+# Install Rust via rustup (stable, minimal profile)
+ENV RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+    sh -s -- -y --default-toolchain stable --profile minimal && \
+    chmod -R a+rX /opt/rustup /opt/cargo && \
+    ln -s /opt/cargo/bin/* /usr/local/bin/
+
+# Install sqlx-cli (for database migrations)
+RUN cargo install sqlx-cli --no-default-features --features native-tls,postgres && \
+    ln -sf /opt/cargo/bin/sqlx /usr/local/bin/sqlx
 
 # Embed network init script (sets up iptables firewall, then drops privileges)
 RUN cat <<'SCRIPT' > /usr/local/bin/network-init.sh
@@ -121,6 +154,16 @@ fi
 if ! grep -q "^sandbox:" /etc/shadow 2>/dev/null; then
     echo "sandbox:*:19000:0:99999:7:::" >> /etc/shadow
 fi
+
+# Start PostgreSQL (unix socket in /tmp, owned by postgres user)
+mkdir -p /tmp/pgdata && sudo chown postgres:postgres /tmp/pgdata
+if [ ! -f /tmp/pgdata/PG_VERSION ]; then
+    sudo -u postgres /usr/lib/postgresql/15/bin/initdb -D /tmp/pgdata --auth=trust
+fi
+sudo -u postgres /usr/lib/postgresql/15/bin/pg_ctl -D /tmp/pgdata -l /tmp/pg.log start -o "-k /tmp"
+sudo -u postgres psql -h /tmp -c "CREATE ROLE sandbox SUPERUSER LOGIN" 2>/dev/null || true
+sudo -u postgres createdb -h /tmp windmill 2>/dev/null || true
+
 exec "$@"
 ENTRY
 RUN chmod +x /usr/local/bin/entrypoint.sh
