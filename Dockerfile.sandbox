@@ -26,9 +26,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # PostgreSQL (for local DB during development)
     postgresql \
     postgresql-client \
-    # Node.js (for npm run check)
-    nodejs \
-    npm \
+    # Node.js 22 (for npm run check / frontend dev)
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/* \
     && echo "ALL ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/sandbox \
     && chmod 0440 /etc/sudoers.d/sandbox \
@@ -168,6 +168,11 @@ sudo -u postgres createdb -h /tmp windmill 2>/dev/null || true
 if [ -d "$PWD/backend/migrations" ]; then
     DATABASE_URL="postgres://sandbox@localhost/windmill?host=/tmp" \
         sqlx migrate run --source "$PWD/backend/migrations" 2>/dev/null || true
+fi
+
+# Install frontend dependencies and generate backend client
+if [ -d "$PWD/frontend" ]; then
+    (cd "$PWD/frontend" && npm install && npm run generate-backend-client) 2>/dev/null || true
 fi
 
 exec "$@"
