@@ -1,20 +1,36 @@
 import { VERSION } from "./src/main.ts";
-import { mkdirSync, cpSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, rmSync, cpSync } from "node:fs";
 import { join } from "node:path";
 
 const outDir = "./npm";
 
+// Parser npm packages — used as externals and added to generated package.json
+const parserPackages = [
+  "windmill-parser-wasm-py", "windmill-parser-wasm-ts",
+  "windmill-parser-wasm-regex", "windmill-parser-wasm-go",
+  "windmill-parser-wasm-php", "windmill-parser-wasm-rust",
+  "windmill-parser-wasm-yaml", "windmill-parser-wasm-csharp",
+  "windmill-parser-wasm-nu", "windmill-parser-wasm-java",
+  "windmill-parser-wasm-ruby",
+];
+const parserExternals = parserPackages.flatMap(p => ["--external", p]);
+
 // Clean output directory
 rmSync(outDir, { recursive: true, force: true });
 
-// Build with bun
+// Build with bun — bundle everything except esbuild (platform-specific binary),
+// svelte (optional, only needed for `wmill app bundle/dev`), and parser packages
+// (loaded at runtime via init() with readFileSync for the .wasm binary).
 console.log("Bundling with bun build...");
 const buildResult = Bun.spawnSync([
   "bun", "build", "src/main.ts",
   "--outdir", join(outDir, "esm"),
   "--target", "node",
   "--format", "esm",
-  "--packages", "external",
+  "--external", "esbuild",
+  "--external", "svelte",
+  "--external", "svelte/compiler",
+  ...parserExternals,
 ], { cwd: import.meta.dir, stdout: "inherit", stderr: "inherit" });
 
 if (buildResult.exitCode !== 0) {
@@ -26,26 +42,6 @@ if (buildResult.exitCode !== 0) {
 const mainJsPath = join(outDir, "esm", "main.js");
 const mainJs = readFileSync(mainJsPath, "utf-8");
 writeFileSync(mainJsPath, "#!/usr/bin/env node\n" + mainJs, "utf-8");
-
-// Copy WASM files
-const wasmDirs = [
-  "nu", "ts", "regex", "py", "go", "php", "rust", "yaml",
-  "csharp", "java", "ruby",
-  // for related places search: ADD_NEW_LANG
-];
-
-for (const lang of wasmDirs) {
-  const destDir = join(outDir, "esm", "wasm", lang);
-  mkdirSync(destDir, { recursive: true });
-  cpSync(
-    join("wasm", lang, "windmill_parser_wasm_bg.wasm"),
-    join(destDir, "windmill_parser_wasm_bg.wasm")
-  );
-  cpSync(
-    join("wasm", lang, "windmill_parser_wasm.js"),
-    join(destDir, "windmill_parser_wasm.js")
-  );
-}
 
 // Copy LICENSE and README
 cpSync("../LICENSE", join(outDir, "LICENSE"));
@@ -70,11 +66,8 @@ const packageJson = {
     url: "https://github.com/windmill-labs/windmill/issues",
   },
   dependencies: {
-    ws: "8.18.0",
     esbuild: "^0.24.2",
-    "get-port": "^7.1.0",
-    open: "^10.0.0",
-    "es-main": "^1.3.0",
+    ...Object.fromEntries(parserPackages.map(p => [p, "*"])),
   },
   optionalDependencies: {
     svelte: "^5.0.0",

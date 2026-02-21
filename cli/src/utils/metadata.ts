@@ -5,6 +5,8 @@ import * as log from "@std/log";
 import { stringify as yamlStringify } from "@std/yaml";
 import { yamlParseFile } from "./yaml.ts";
 import { readFile, writeFile, stat, rm, readdir } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import {
   ScriptMetadata,
   defaultScriptMetadata,
@@ -21,6 +23,25 @@ import { generateHash, readInlinePathSync, getHeaders } from "./utils.ts";
 import { SyncCodebase } from "./codebase.ts";
 import { argSigToJsonSchemaType } from "../../windmill-utils-internal/src/parse/parse-schema.ts";
 import { getIsWin } from "./utils.ts";
+
+const _require = createRequire(import.meta.url);
+const _parserCache = new Map<string, Promise<any>>();
+
+function loadParser(pkgName: string): Promise<any> {
+  let p = _parserCache.get(pkgName);
+  if (!p) {
+    p = (async () => {
+      const mod = await import(pkgName);
+      const wasmPath = _require.resolve(
+        `${pkgName}/windmill_parser_wasm_bg.wasm`
+      );
+      await mod.default(readFileSync(wasmPath));
+      return mod;
+    })();
+    _parserCache.set(pkgName, p);
+  }
+  return p;
+}
 
 export class LockfileGenerationError extends Error {
   constructor(message: string) {
@@ -524,139 +545,98 @@ export async function inferSchema(
 }> {
   let inferedSchema: any;
   if (language === "python3") {
-    const { parse_python } = await import(
-      "../../wasm/py/windmill_parser_wasm.js"
-    );
+    const { parse_python } = await loadParser("windmill-parser-wasm-py");
     inferedSchema = JSON.parse(parse_python(content));
   } else if (language === "nativets") {
-    const { parse_deno } = await import(
-      "../../wasm/ts/windmill_parser_wasm.js"
-    );
+    const { parse_deno } = await loadParser("windmill-parser-wasm-ts");
     inferedSchema = JSON.parse(parse_deno(content));
   } else if (language === "bun") {
-    const { parse_deno } = await import(
-      "../../wasm/ts/windmill_parser_wasm.js"
-    );
+    const { parse_deno } = await loadParser("windmill-parser-wasm-ts");
     inferedSchema = JSON.parse(parse_deno(content));
   } else if (language === "deno") {
-    const { parse_deno } = await import(
-      "../../wasm/ts/windmill_parser_wasm.js"
-    );
+    const { parse_deno } = await loadParser("windmill-parser-wasm-ts");
     inferedSchema = JSON.parse(parse_deno(content));
   } else if (language === "go") {
-    const { parse_go } = await import("../../wasm/go/windmill_parser_wasm.js");
+    const { parse_go } = await loadParser("windmill-parser-wasm-go");
     inferedSchema = JSON.parse(parse_go(content));
   } else if (language === "mysql") {
-    const { parse_mysql } = await import(
-      "../../wasm/regex/windmill_parser_wasm.js"
-    );
-
+    const { parse_mysql } = await loadParser("windmill-parser-wasm-regex");
     inferedSchema = JSON.parse(parse_mysql(content));
     inferedSchema.args = [
       { name: "database", typ: { resource: "mysql" } },
       ...inferedSchema.args,
     ];
   } else if (language === "bigquery") {
-    const { parse_bigquery } = await import(
-      "../../wasm/regex/windmill_parser_wasm.js"
-    );
+    const { parse_bigquery } = await loadParser("windmill-parser-wasm-regex");
     inferedSchema = JSON.parse(parse_bigquery(content));
     inferedSchema.args = [
       { name: "database", typ: { resource: "bigquery" } },
       ...inferedSchema.args,
     ];
   } else if (language === "oracledb") {
-    const { parse_oracledb } = await import(
-      "../../wasm/regex/windmill_parser_wasm.js"
-    );
+    const { parse_oracledb } = await loadParser("windmill-parser-wasm-regex");
     inferedSchema = JSON.parse(parse_oracledb(content));
     inferedSchema.args = [
       { name: "database", typ: { resource: "oracledb" } },
       ...inferedSchema.args,
     ];
   } else if (language === "snowflake") {
-    const { parse_snowflake } = await import(
-      "../../wasm/regex/windmill_parser_wasm.js"
-    );
+    const { parse_snowflake } = await loadParser("windmill-parser-wasm-regex");
     inferedSchema = JSON.parse(parse_snowflake(content));
     inferedSchema.args = [
       { name: "database", typ: { resource: "snowflake" } },
       ...inferedSchema.args,
     ];
   } else if (language === "mssql") {
-    const { parse_mssql } = await import(
-      "../../wasm/regex/windmill_parser_wasm.js"
-    );
+    const { parse_mssql } = await loadParser("windmill-parser-wasm-regex");
     inferedSchema = JSON.parse(parse_mssql(content));
     inferedSchema.args = [
       { name: "database", typ: { resource: "ms_sql_server" } },
       ...inferedSchema.args,
     ];
   } else if (language === "postgresql") {
-    const { parse_sql } = await import(
-      "../../wasm/regex/windmill_parser_wasm.js"
-    );
+    const { parse_sql } = await loadParser("windmill-parser-wasm-regex");
     inferedSchema = JSON.parse(parse_sql(content));
     inferedSchema.args = [
       { name: "database", typ: { resource: "postgresql" } },
       ...inferedSchema.args,
     ];
   } else if (language === "duckdb") {
-    const { parse_duckdb } = await import(
-      "../../wasm/regex/windmill_parser_wasm.js"
-    );
+    const { parse_duckdb } = await loadParser("windmill-parser-wasm-regex");
     inferedSchema = JSON.parse(parse_duckdb(content));
   } else if (language === "graphql") {
-    const { parse_graphql } = await import(
-      "../../wasm/regex/windmill_parser_wasm.js"
-    );
+    const { parse_graphql } = await loadParser("windmill-parser-wasm-regex");
     inferedSchema = JSON.parse(parse_graphql(content));
     inferedSchema.args = [
       { name: "api", typ: { resource: "graphql" } },
       ...inferedSchema.args,
     ];
   } else if (language === "bash") {
-    const { parse_bash } = await import(
-      "../../wasm/regex/windmill_parser_wasm.js"
-    );
+    const { parse_bash } = await loadParser("windmill-parser-wasm-regex");
     inferedSchema = JSON.parse(parse_bash(content));
   } else if (language === "powershell") {
-    const { parse_powershell } = await import(
-      "../../wasm/regex/windmill_parser_wasm.js"
-    );
+    const { parse_powershell } = await loadParser("windmill-parser-wasm-regex");
     inferedSchema = JSON.parse(parse_powershell(content));
   } else if (language === "php") {
-    const { parse_php } = await import(
-      "../../wasm/php/windmill_parser_wasm.js"
-    );
+    const { parse_php } = await loadParser("windmill-parser-wasm-php");
     inferedSchema = JSON.parse(parse_php(content));
   } else if (language === "rust") {
-    const { parse_rust } = await import(
-      "../../wasm/rust/windmill_parser_wasm.js"
-    );
+    const { parse_rust } = await loadParser("windmill-parser-wasm-rust");
     inferedSchema = JSON.parse(parse_rust(content));
   } else if (language === "csharp") {
-    const { parse_csharp } = await import(
-      "../../wasm/csharp/windmill_parser_wasm.js"
-    );
+    const { parse_csharp } = await loadParser("windmill-parser-wasm-csharp");
     inferedSchema = JSON.parse(parse_csharp(content));
   } else if (language === "nu") {
-    const { parse_nu } = await import("../../wasm/nu/windmill_parser_wasm.js");
+    const { parse_nu } = await loadParser("windmill-parser-wasm-nu");
     inferedSchema = JSON.parse(parse_nu(content));
   } else if (language === "ansible") {
-    const { parse_ansible } = await import(
-      "../../wasm/yaml/windmill_parser_wasm.js"
-    );
+    const { parse_ansible } = await loadParser("windmill-parser-wasm-yaml");
     inferedSchema = JSON.parse(parse_ansible(content));
   } else if (language === "java") {
-    const { parse_java } = await import(
-      "../../wasm/java/windmill_parser_wasm.js"
-    );
+    const { parse_java } = await loadParser("windmill-parser-wasm-java");
     inferedSchema = JSON.parse(parse_java(content));
   } else if (language === "ruby") {
-    const { parse_ruby } = await import(
-      "../../wasm/ruby/windmill_parser_wasm.js"
-    );
+    const { parse_ruby } = await loadParser("windmill-parser-wasm-ruby");
     inferedSchema = JSON.parse(parse_ruby(content));
     // for related places search: ADD_NEW_LANG
   } else {
