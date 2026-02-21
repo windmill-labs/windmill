@@ -70,7 +70,9 @@ async function runChecked(args: string[]): Promise<string> {
   const exitCode = await proc.exited;
 
   if (exitCode !== 0) {
-    throw new Error(`${args.join(" ")} failed: ${stderr || stdout}`);
+    const msg = `${args.join(" ")} failed (exit ${exitCode}): ${stderr || stdout}`;
+    console.error(`[workmux:exec] ${msg}`);
+    throw new Error(msg);
   }
   return stdout.trim();
 }
@@ -141,11 +143,23 @@ export async function addWorktree(
   if (opts?.prompt) args.push("-p", opts.prompt);
   args.push(branch);
 
+  console.log(`[workmux:add] running: ${args.join(" ")}`);
   const result = await runChecked(args);
+  console.log(`[workmux:add] result: ${result}`);
+
+  const windowTarget = `wm-${branch}`;
+
+  // Read worktree dir and log assigned ports
+  const wtDirResult = Bun.spawnSync(
+    ["tmux", "display-message", "-t", `${windowTarget}.0`, "-p", "#{pane_current_path}"],
+    { stdout: "pipe" }
+  );
+  const wtDir = new TextDecoder().decode(wtDirResult.stdout).trim();
+  const env = readEnvLocal(wtDir);
+  console.log(`[workmux:add] branch=${branch} dir=${wtDir} ports: backend=${env.BACKEND_PORT || "8000"} frontend=${env.FRONTEND_PORT || "3000"}`);
 
   // For non-full profiles, kill extra panes and send commands
   if (profile !== "full") {
-    const windowTarget = `wm-${branch}`;
     // Kill extra panes (highest index first to avoid shifting)
     const paneCountResult = Bun.spawnSync(
       ["tmux", "list-panes", "-t", windowTarget, "-F", "#{pane_index}"],
@@ -156,14 +170,7 @@ export async function addWorktree(
     for (let i = paneIds.length - 1; i >= 1; i--) {
       Bun.spawnSync(["tmux", "kill-pane", "-t", `${windowTarget}.${paneIds[i]}`]);
     }
-    // Get the worktree directory from pane 0
-    const cwdResult = Bun.spawnSync(
-      ["tmux", "display-message", "-t", `${windowTarget}.0`, "-p", "#{pane_current_path}"],
-      { stdout: "pipe" }
-    );
-    const wtDir = new TextDecoder().decode(cwdResult.stdout).trim();
     // Build and send claude command with environment-aware system prompt
-    const env = readEnvLocal(wtDir);
     const claudeCmd = buildClaudeCmd(profile, env);
     console.log(`[workmux] sending command to ${windowTarget}.0:\n${claudeCmd}`);
     Bun.spawnSync(["tmux", "send-keys", "-t", `${windowTarget}.0`, claudeCmd, "Enter"]);
@@ -177,7 +184,10 @@ export async function addWorktree(
 }
 
 export async function removeWorktree(name: string): Promise<string> {
-  return runChecked(["workmux", "rm", "--force", name]);
+  console.log(`[workmux:rm] running: workmux rm --force ${name}`);
+  const result = await runChecked(["workmux", "rm", "--force", name]);
+  console.log(`[workmux:rm] result: ${result}`);
+  return result;
 }
 
 export async function openWorktree(name: string): Promise<string> {

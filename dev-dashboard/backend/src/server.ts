@@ -146,25 +146,32 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
       }
       const validProfiles = ["full", "agent-only", "agent-yolo"] as const;
       const profile = validProfiles.includes(body.profile as any) ? body.profile as Profile : "agent-only";
+      console.log(`[worktree:add] branch=${body.branch} profile=${profile}${body.prompt ? ` prompt="${body.prompt.slice(0, 80)}"` : ""}`);
       const result = await addWorktree(body.branch, { prompt: body.prompt, profile });
+      console.log(`[worktree:add] done branch=${body.branch}: ${result}`);
       return jsonResponse({ message: result }, 201);
     }
 
     // DELETE /api/worktrees/:name
     if (parts[0] === "worktrees" && parts.length === 2 && method === "DELETE") {
       const name = decodeURIComponent(parts[1]);
-      return jsonResponse({ message: await removeWorktree(name) });
+      console.log(`[worktree:rm] name=${name}`);
+      const result = await removeWorktree(name);
+      console.log(`[worktree:rm] done name=${name}: ${result}`);
+      return jsonResponse({ message: result });
     }
 
     // POST /api/worktrees/:name/open
     if (parts[0] === "worktrees" && parts.length === 3 && parts[2] === "open" && method === "POST") {
       const name = decodeURIComponent(parts[1]);
+      console.log(`[worktree:open] name=${name}`);
       return jsonResponse({ message: await openWorktree(name) });
     }
 
     // POST /api/worktrees/:name/close
     if (parts[0] === "worktrees" && parts.length === 3 && parts[2] === "close" && method === "POST") {
       const name = decodeURIComponent(parts[1]);
+      console.log(`[worktree:close] name=${name}`);
       return jsonResponse({ message: await closeWorktree(name) });
     }
 
@@ -175,6 +182,7 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
       if (!body.prompt) {
         return errorResponse("prompt is required", 400);
       }
+      console.log(`[worktree:send] name=${name} prompt="${body.prompt.slice(0, 80)}"`);
       return jsonResponse({ message: await sendPrompt(name, body.prompt) });
     }
 
@@ -189,6 +197,7 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
     return errorResponse("Not Found", 404);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
+    console.error(`[api:error] ${method} ${url.pathname}: ${message}`);
     return errorResponse(message);
   }
 }
