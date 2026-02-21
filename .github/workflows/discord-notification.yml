@@ -44,6 +44,8 @@ jobs:
     if: >
       github.event_name == 'issue_comment'
       && github.event.issue.pull_request
+      && github.event.comment.user.login != 'cloudflare-workers-and-pages[bot]'
+      && github.event.comment.user.login != 'ellipsis-dev[bot]'
     uses: ./.github/workflows/shareable-discord-notification.yml
     with:
       PR_STATUS: "comment"
@@ -57,7 +59,10 @@ jobs:
       DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_AI_BOT_TOKEN }}
 
   notify_discord_on_review_comment:
-    if: github.event_name == 'pull_request_review_comment'
+    if: >
+      github.event_name == 'pull_request_review_comment'
+      && github.event.comment.user.login != 'cloudflare-workers-and-pages[bot]'
+      && github.event.comment.user.login != 'ellipsis-dev[bot]'
     uses: ./.github/workflows/shareable-discord-notification.yml
     with:
       PR_STATUS: "comment"
