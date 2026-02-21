@@ -1592,6 +1592,66 @@ export async function main(a: Date) {
     Ok(())
 }
 
+/// Test that full .npmrc content works for deno jobs with private registries.
+/// Requires:
+/// - `TEST_NPMRC` environment variable set to the full .npmrc content
+#[cfg(feature = "private_registry_test")]
+#[sqlx::test(fixtures("base"))]
+async fn test_deno_job_private_npmrc(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use windmill_worker::NPMRC;
+
+    let npmrc_content = std::env::var("TEST_NPMRC")
+        .expect("TEST_NPMRC must be set when running private_registry_test");
+
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    {
+        let mut npmrc = NPMRC.write().await;
+        *npmrc = Some(npmrc_content.clone());
+    }
+
+    let content = r#"
+import { greet } from "npm:@windmill-test/private-pkg";
+
+export function main(name: string) {
+    return greet(name);
+}
+"#
+    .to_owned();
+
+    let result = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        language: ScriptLang::Deno,
+        lock: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+    }))
+    .arg("name", json!("World"))
+    .run_until_complete(&db, false, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    {
+        let mut npmrc = NPMRC.write().await;
+        *npmrc = None;
+    }
+
+    assert_eq!(
+        result,
+        serde_json::json!("Hello from private package, World!")
+    );
+    Ok(())
+}
+
 #[cfg(feature = "python")]
 #[sqlx::test(fixtures("base"))]
 async fn test_python_job_datetime_and_bytes(db: Pool<Postgres>) -> anyhow::Result<()> {

@@ -165,6 +165,12 @@ jobs:
           fi
 
           echo "NPM_TOKEN=${NPM_TOKEN}" >> $GITHUB_ENV
+          {
+            echo "TEST_NPMRC<<NPMRC_EOF"
+            echo "@windmill-test:registry=http://localhost:4873/"
+            echo "//localhost:4873/:_authToken=${NPM_TOKEN}"
+            echo "NPMRC_EOF"
+          } >> $GITHUB_ENV
           echo "Got NPM token successfully: ${NPM_TOKEN:0:10}..."
 
           # Configure npm globally with the auth token

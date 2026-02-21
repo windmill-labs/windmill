@@ -22,8 +22,8 @@ use crate::{
     handle_child::handle_child,
     is_sandboxing_enabled, read_ee_registry, BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR,
     BUN_CACHE_DIR, BUN_NO_CACHE, BUN_PATH, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH,
-    NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TRACING_PROXY_CA_CERT_PATH,
-    TZ_ENV,
+    NPMRC, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 use windmill_common::{
     client::AuthedClient,
@@ -299,6 +299,20 @@ async fn gen_bunfig(
     w_id: &str,
     db: Option<&Connection>,
 ) -> Result<()> {
+    let npmrc = if let Some(conn) = db {
+        read_ee_registry(NPMRC.read().await.clone(), "npmrc", job_id, w_id, conn).await
+    } else {
+        NPMRC.read().await.clone()
+    };
+
+    if let Some(ref npmrc_content) = npmrc {
+        if !npmrc_content.trim().is_empty() {
+            tracing::debug!("Writing .npmrc for bun from npmrc setting");
+            write_file(job_dir, ".npmrc", npmrc_content)?;
+            return Ok(());
+        }
+    }
+
     let (registry, bunfig_install_scopes) = if let Some(conn) = db {
         (
             read_ee_registry(
@@ -402,39 +416,55 @@ pub async fn install_bun_lockfile(
     };
 
     let has_file = if npm_mode {
-        let registry = if let Some(conn) = db {
-            read_ee_registry(
-                NPM_CONFIG_REGISTRY.read().await.clone(),
-                "npm registry",
-                job_id,
-                w_id,
-                conn,
-            )
-            .await
+        let npmrc = if let Some(conn) = db {
+            read_ee_registry(NPMRC.read().await.clone(), "npmrc", job_id, w_id, conn).await
         } else {
-            NPM_CONFIG_REGISTRY.read().await.clone()
+            NPMRC.read().await.clone()
         };
-        if let Some(registry) = registry {
-            let content = registry
-                .trim_start_matches("https:")
-                .trim_start_matches("http:");
 
-            let mut splitted = registry.split(":_authToken=");
-            let custom_registry = splitted.next().unwrap_or_default();
-            npm_logs.push_str(&format!(
-                "Using custom npm registry: {custom_registry} {}\n",
-                if splitted.next().is_some() {
-                    "with authToken"
-                } else {
-                    "without authToken"
-                }
-            ));
-
-            child_cmd.env("NPM_CONFIG_REGISTRY", custom_registry);
-            write_file(job_dir, ".npmrc", content)?;
-            true
+        if let Some(ref npmrc_content) = npmrc {
+            if !npmrc_content.trim().is_empty() {
+                npm_logs.push_str("Using .npmrc from instance settings\n");
+                write_file(job_dir, ".npmrc", npmrc_content)?;
+                true
+            } else {
+                false
+            }
         } else {
-            false
+            let registry = if let Some(conn) = db {
+                read_ee_registry(
+                    NPM_CONFIG_REGISTRY.read().await.clone(),
+                    "npm registry",
+                    job_id,
+                    w_id,
+                    conn,
+                )
+                .await
+            } else {
+                NPM_CONFIG_REGISTRY.read().await.clone()
+            };
+            if let Some(registry) = registry {
+                let content = registry
+                    .trim_start_matches("https:")
+                    .trim_start_matches("http:");
+
+                let mut splitted = registry.split(":_authToken=");
+                let custom_registry = splitted.next().unwrap_or_default();
+                npm_logs.push_str(&format!(
+                    "Using custom npm registry: {custom_registry} {}\n",
+                    if splitted.next().is_some() {
+                        "with authToken"
+                    } else {
+                        "without authToken"
+                    }
+                ));
+
+                child_cmd.env("NPM_CONFIG_REGISTRY", custom_registry);
+                write_file(job_dir, ".npmrc", content)?;
+                true
+            } else {
+                false
+            }
         }
     } else {
         false
@@ -446,9 +476,11 @@ pub async fn install_bun_lockfile(
         }
     }
 
-    let mut child_process = start_child_process(child_cmd, &*BUN_PATH, false).await?;
+    if !has_file {
+        gen_bunfig(job_dir, job_id, w_id, db).await?;
+    }
 
-    gen_bunfig(job_dir, job_id, w_id, db).await?;
+    let mut child_process = start_child_process(child_cmd, &*BUN_PATH, false).await?;
     if let Some(db) = db {
         handle_child(
             job_id,
