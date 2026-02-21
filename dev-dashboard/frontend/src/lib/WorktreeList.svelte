@@ -40,13 +40,17 @@
           {#if isMain}
             <span>main</span>
           {/if}
-          {#if wt.backendPort}
-            <span class="font-mono {wt.backendRunning ? 'text-success' : ''}">BE:{wt.backendPort}</span>
-          {/if}
-          {#if wt.frontendPort}
-            <span class="font-mono {wt.frontendRunning ? 'text-success' : ''}">FE:{wt.frontendPort}</span>
-          {/if}
         </span>
+        {#if wt.backendPort || wt.frontendPort}
+          <span class="flex gap-2 text-[11px] text-muted font-mono">
+            {#if wt.backendPort}
+              <span class={wt.backendRunning ? 'text-success' : ''}>BE:{wt.backendPort}</span>
+            {/if}
+            {#if wt.frontendPort}
+              <span class={wt.frontendRunning ? 'text-success' : ''}>FE:{wt.frontendPort}</span>
+            {/if}
+          </span>
+        {/if}
       </button>
       {#if !isMain}
         <button
