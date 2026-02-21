@@ -1,4 +1,9 @@
-import { colors, Command, log, yamlStringify, Confirm } from "../../../deps.ts";
+import { stat, writeFile, rm, mkdir } from "node:fs/promises";
+import { colors } from "@cliffy/ansi/colors";
+import { Command } from "@cliffy/command";
+import { Confirm } from "@cliffy/prompt/confirm";
+import * as log from "@std/log";
+import { stringify as yamlStringify } from "@std/yaml";
 import { GlobalOptions } from "../../types.ts";
 import { readLockfile } from "../../utils/metadata.ts";
 import { getActiveWorkspaceOrFallback } from "../workspace/workspace.ts";
@@ -36,7 +41,7 @@ export interface InitOptions {
  * Bootstrap a windmill project with a wmill.yaml file
  */
 async function initAction(opts: InitOptions) {
-  if (await Deno.stat("wmill.yaml").catch(() => null)) {
+  if (await stat("wmill.yaml").catch(() => null)) {
     log.error(colors.red("wmill.yaml already exists"));
   } else {
     // Import DEFAULT_SYNC_OPTIONS from conf.ts
@@ -63,7 +68,7 @@ async function initAction(opts: InitOptions) {
     }
 
     initialConfig.nonDottedPaths = true;
-    await Deno.writeTextFile("wmill.yaml", yamlStringify(initialConfig));
+    await writeFile("wmill.yaml", yamlStringify(initialConfig), "utf-8");
     log.info(colors.green("wmill.yaml created with default settings"));
 
     // Create lock file
@@ -80,12 +85,12 @@ async function initAction(opts: InitOptions) {
         const shouldBind = opts.bindProfile === true;
         const shouldPrompt =
           opts.bindProfile === undefined &&
-          Deno.stdin.isTerminal() &&
+          !!process.stdin.isTTY &&
           !opts.useDefault;
 
         const shouldSkip =
           opts.bindProfile != true &&
-          (opts.useDefault || !Deno.stdin.isTerminal());
+          (opts.useDefault || !!!process.stdin.isTTY);
 
         if (!shouldSkip) {
           // Show workspace info if we're binding or prompting
@@ -132,7 +137,7 @@ async function initAction(opts: InitOptions) {
             currentConfig.gitBranches[currentBranch].workspaceId =
               activeWorkspace.workspaceId;
 
-            await Deno.writeTextFile("wmill.yaml", yamlStringify(currentConfig));
+            await writeFile("wmill.yaml", yamlStringify(currentConfig), "utf-8");
 
             log.info(
               colors.green(
@@ -183,7 +188,7 @@ async function initAction(opts: InitOptions) {
 
             if (useBackendSettings === undefined) {
               // Interactive prompt
-              const { Select } = await import("../../../deps.ts");
+              const { Select } = await import("@cliffy/prompt/select");
               const choice = await Select.prompt({
                 message:
                   "Git-sync settings found on backend. What would you like to do?",
@@ -206,13 +211,13 @@ async function initAction(opts: InitOptions) {
               if (choice === "cancel") {
                 // Clean up the created files
                 try {
-                  await Deno.remove("wmill.yaml");
-                  await Deno.remove("wmill-lock.yaml");
+                  await rm("wmill.yaml");
+                  await rm("wmill-lock.yaml");
                 } catch (e) {
                   // Ignore cleanup errors
                 }
                 log.info("Init cancelled");
-                Deno.exit(0);
+                process.exit(0);
               }
 
               useBackendSettings = choice === "backend";
@@ -256,32 +261,32 @@ async function initAction(opts: InitOptions) {
     ).join("\n");
 
     // Create AGENTS.md file with minimal instructions
-    if (!(await Deno.stat("AGENTS.md").catch(() => null))) {
-      await Deno.writeTextFile(
+    if (!(await stat("AGENTS.md").catch(() => null))) {
+      await writeFile(
         "AGENTS.md",
-        generateAgentsMdContent(skillsReference)
+        generateAgentsMdContent(skillsReference), "utf-8"
       );
       log.info(colors.green("Created AGENTS.md"));
     }
 
     // Create CLAUDE.md file, referencing AGENTS.md
-    if (!(await Deno.stat("CLAUDE.md").catch(() => null))) {
-      await Deno.writeTextFile(
+    if (!(await stat("CLAUDE.md").catch(() => null))) {
+      await writeFile(
         "CLAUDE.md",
         `Instructions are in @AGENTS.md
-`
+`, "utf-8"
       );
       log.info(colors.green("Created CLAUDE.md"));
     }
 
     // Create .claude/skills/ directory and skill files
     try {
-      await Deno.mkdir(".claude/skills", { recursive: true });
+      await mkdir(".claude/skills", { recursive: true });
 
       await Promise.all(
         SKILLS.map(async (skill) => {
           const skillDir = `.claude/skills/${skill.name}`;
-          await Deno.mkdir(skillDir, { recursive: true });
+          await mkdir(skillDir, { recursive: true });
 
           let skillContent = SKILL_CONTENT[skill.name];
           if (skillContent) {
@@ -304,7 +309,7 @@ async function initAction(opts: InitOptions) {
               }
             }
 
-            await Deno.writeTextFile(`${skillDir}/SKILL.md`, skillContent);
+            await writeFile(`${skillDir}/SKILL.md`, skillContent, "utf-8");
           }
         })
       );

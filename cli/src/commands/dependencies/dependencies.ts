@@ -1,8 +1,9 @@
-// deno-lint-ignore-file no-explicit-any
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import { GlobalOptions } from "../../types.ts";
-import { colors, Command, log } from "../../../deps.ts";
+import { colors } from "@cliffy/ansi/colors";
+import { Command } from "@cliffy/command";
+import * as log from "@std/log";
 import * as wmill from "../../../gen/services.gen.ts";
 import fs from "node:fs";
 import { workspaceDependenciesPathToLanguageAndFilename } from "../../utils/metadata.ts";

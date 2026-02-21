@@ -1,5 +1,10 @@
-// deno-lint-ignore-file no-explicit-any
-import { colors, Command, log, SEP, Table } from "../../../deps.ts";
+import { stat } from "node:fs/promises";
+
+import { Command } from "@cliffy/command";
+import { Table } from "@cliffy/table";
+import { colors } from "@cliffy/ansi/colors";
+import * as log from "@std/log";
+import { SEPARATOR as SEP } from "@std/path";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
 import * as wmill from "../../../gen/services.gen.ts";
@@ -114,8 +119,8 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
     return;
   }
 
-  const fstat = await Deno.stat(filePath);
-  if (!fstat.isFile) {
+  const fstat = await stat(filePath);
+  if (!fstat.isFile()) {
     throw new Error("file path must refer to a file.");
   }
 

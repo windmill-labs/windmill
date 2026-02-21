@@ -1,5 +1,8 @@
-// deno-lint-ignore-file no-explicit-any
-import { colors, log, Select, Confirm, Input } from "../../deps.ts";
+import { colors } from "@cliffy/ansi/colors";
+import * as log from "@std/log";
+import { Select } from "@cliffy/prompt/select";
+import { Confirm } from "@cliffy/prompt/confirm";
+import { Input } from "@cliffy/prompt/input";
 
 import { loginInteractive } from "./login.ts";
 import { GlobalOptions } from "../types.ts";
@@ -56,7 +59,7 @@ async function selectFromMultipleProfiles(
   }
 
   // No last used or it no longer exists - prompt for selection
-  if (!Deno.stdin.isTerminal() || !Deno.stdout.isTerminal()) {
+  if (!!!process.stdin.isTTY || !!!process.stdout.isTTY) {
     const selectedProfile = profiles[0];
     log.info(
       colors.yellow(
@@ -129,7 +132,7 @@ async function createWorkspaceProfileInteractively(
     );
   }
 
-  if (!Deno.stdin.isTerminal() || !Deno.stdout.isTerminal()) {
+  if (!!!process.stdin.isTTY || !!!process.stdout.isTTY) {
     log.info(
       "Not a TTY, cannot create profile interactively. Use 'wmill workspace add' first."
     );
@@ -382,7 +385,7 @@ export async function resolveWorkspace(
         normalizedBaseUrl = new URL(opts.baseUrl).toString(); // add trailing slash if not present
       } catch (error) {
         log.info(colors.red(`Invalid base URL: ${opts.baseUrl}`));
-        return Deno.exit(-1);
+        return process.exit(-1);
       }
 
       // Try to find existing workspace profile by name, then by workspaceId + remote
@@ -423,7 +426,7 @@ export async function resolveWorkspace(
                 `Base URL mismatch: --base-url is ${normalizedBaseUrl} but workspace profile "${opts.workspace}" uses ${existingWorkspace.remote}`
               )
             );
-            return Deno.exit(-1);
+            return process.exit(-1);
           }
           // Use the existing workspace profile (preserves workspace name)
           return {
@@ -446,7 +449,7 @@ export async function resolveWorkspace(
           "If you specify a base URL with --base-url, you must also specify a workspace (--workspace) and token (--token)."
         )
       );
-      return Deno.exit(-1);
+      return process.exit(-1);
     }
   }
 
@@ -479,7 +482,7 @@ export async function resolveWorkspace(
           `Failed to resolve workspace profile for workspace fork. This most likely means that the original branch \`${originalBranch}\` where \`${branch}\` is originally forked from, is not setup in the wmill.yaml. You need to update the \`gitBranches\` section for \`${originalBranch}\` to include workspaceId and baseUrl.`
         )
       );
-      return Deno.exit(-1);
+      return process.exit(-1);
     }
   }
 
@@ -492,7 +495,7 @@ export async function resolveWorkspace(
 
   // If everything failed, show error
   log.info(colors.red.bold("No workspace given and no default set."));
-  return Deno.exit(-1);
+  return process.exit(-1);
 }
 
 export async function fetchVersion(baseUrl: string): Promise<string> {

@@ -1,11 +1,12 @@
-import {
-  colors,
-  Command,
-  log,
-  path,
-  SEP,
-  yamlParseFile,
-} from "../../../deps.ts";
+import { stat, readdir } from "node:fs/promises";
+import process from "node:process";
+
+import { colors } from "@cliffy/ansi/colors";
+import { Command } from "@cliffy/command";
+import * as log from "@std/log";
+import * as path from "@std/path";
+import { SEPARATOR as SEP } from "@std/path";
+import { yamlParseFile } from "../../utils/yaml.ts";
 import { GlobalOptions } from "../../types.ts";
 import { mergeConfigWithConfigFile } from "../../core/conf.ts";
 import {
@@ -17,7 +18,7 @@ import {
   getValidationTargetFromFilename,
   type ValidationTarget,
   WindmillYamlValidator,
-} from "npm:windmill-yaml-validator@1.1.1";
+} from "windmill-yaml-validator";
 import {
   inferContentTypeFromFilePath,
   languageNeedsLock,
@@ -159,8 +160,8 @@ async function checkInlineFile(
 ): Promise<boolean> {
   const fullPath = path.join(baseDir, relativePath.trim());
   try {
-    const stat = await Deno.stat(fullPath);
-    return stat.size > 0;
+    const s = await stat(fullPath);
+    return s.size > 0;
   } catch {
     return false;
   }
@@ -272,8 +273,9 @@ async function checkRawAppRunnables(
   const issues: FileIssue[] = [];
 
   const allFiles: string[] = [];
-  for await (const entry of Deno.readDir(backendDir)) {
-    if (entry.isFile) {
+  const entries = await readdir(backendDir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (entry.isFile()) {
       allFiles.push(entry.name);
     }
   }
@@ -316,8 +318,8 @@ async function checkRawAppRunnables(
     const lockFile = path.join(backendDir, `${runnableId}.lock`);
     let hasLock = false;
     try {
-      const stat = await Deno.stat(lockFile);
-      hasLock = stat.size > 0;
+      const s = await stat(lockFile);
+      hasLock = s.size > 0;
     } catch {
       // No lock file
     }
@@ -375,8 +377,8 @@ async function checkRawAppRunnables(
     const lockFile = path.join(backendDir, `${runnableId}.lock`);
     let hasLock = false;
     try {
-      const stat = await Deno.stat(lockFile);
-      hasLock = stat.size > 0;
+      const s = await stat(lockFile);
+      hasLock = s.size > 0;
     } catch {
       // No lock file
     }
@@ -404,10 +406,10 @@ export async function checkMissingLocks(
   opts: GlobalOptions & { defaultTs?: "bun" | "deno" },
   directory?: string,
 ): Promise<FileIssue[]> {
-  const initialCwd = Deno.cwd();
+  const initialCwd = process.cwd();
   const targetDirectory = directory
     ? path.resolve(initialCwd, directory)
-    : Deno.cwd();
+    : process.cwd();
 
   const { ...syncOpts } = opts;
   const mergedOpts = await mergeConfigWithConfigFile(syncOpts);
@@ -483,7 +485,7 @@ export async function checkMissingLocks(
     let language: ScriptLanguage | null = null;
     for (const ext of exts) {
       try {
-        await Deno.stat(path.join(targetDirectory, basePath + ext));
+        await stat(path.join(targetDirectory, basePath + ext));
         language = inferContentTypeFromFilePath(basePath + ext, defaultTs);
         break;
       } catch {
@@ -582,7 +584,7 @@ export async function checkMissingLocks(
     const backendDir = path.join(rawAppDir, "backend");
 
     try {
-      await Deno.stat(backendDir);
+      await stat(backendDir);
     } catch {
       continue; // No backend folder
     }
@@ -606,20 +608,20 @@ export async function runLint(
   opts: LintOptions,
   directory?: string,
 ): Promise<LintReport> {
-  const initialCwd = Deno.cwd();
+  const initialCwd = process.cwd();
   const explicitTargetDirectory = directory
     ? path.resolve(initialCwd, directory)
     : undefined;
 
   const { json: _json, ...syncOpts } = opts;
   const mergedOpts = await mergeConfigWithConfigFile(syncOpts);
-  const targetDirectory = explicitTargetDirectory ?? Deno.cwd();
+  const targetDirectory = explicitTargetDirectory ?? process.cwd();
 
-  const stats = await Deno.stat(targetDirectory).catch(() => null);
+  const stats = await stat(targetDirectory).catch(() => null);
   if (!stats) {
     throw new Error(`Directory not found: ${targetDirectory}`);
   }
-  if (!stats.isDirectory) {
+  if (!stats.isDirectory()) {
     throw new Error(`Path is not a directory: ${targetDirectory}`);
   }
 
@@ -745,7 +747,7 @@ async function lint(opts: LintOptions, directory?: string) {
     const report = await runLint(opts, directory);
     printReport(report, !!opts.json);
     if (report.exitCode !== 0) {
-      Deno.exit(report.exitCode);
+      process.exit(report.exitCode);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -764,7 +766,7 @@ async function lint(opts: LintOptions, directory?: string) {
     } else {
       log.error(colors.red(`❌ ${message}`));
     }
-    Deno.exit(1);
+    process.exit(1);
   }
 }
 

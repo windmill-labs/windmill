@@ -1,4 +1,7 @@
-import { log, yamlParseFile, Confirm, yamlStringify } from "../../deps.ts";
+import * as log from "@std/log";
+import { yamlParseFile } from "../utils/yaml.ts";
+import { Confirm } from "@cliffy/prompt/confirm";
+import { stringify as yamlStringify } from "@std/yaml";
 import {
   getCurrentGitBranch,
   getOriginalBranchForWorkspaceForks,
@@ -6,6 +9,7 @@ import {
 } from "../utils/git.ts";
 import { join, dirname, resolve, relative } from "node:path";
 import { existsSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { execSync } from "node:child_process";
 import { setNonDottedPaths } from "../utils/resource_folders.ts";
 
@@ -133,7 +137,7 @@ function getGitRepoRoot(): string | null {
 
 export const GLOBAL_CONFIG_OPT = { noCdToRoot: false };
 function findWmillYaml(): string | null {
-  const startDir = resolve(Deno.cwd());
+  const startDir = resolve(process.cwd());
   const isInGitRepo = isGitRepository();
   const gitRoot = isInGitRepo ? getGitRepoRoot() : null;
 
@@ -174,7 +178,7 @@ function findWmillYaml(): string | null {
     log.warn(`⚠️  wmill.yaml found in parent directory: ${relativePath}`);
 
     // Change working directory to where wmill.yaml was found
-    Deno.chdir(configDir);
+    process.chdir(configDir);
     log.info(`📁 Changed working directory to: ${configDir}`);
   }
 
@@ -251,7 +255,7 @@ export async function readConfigFile(): Promise<SyncOptions> {
     // Perform single atomic write if any migrations are needed
     if (needsConfigWrite) {
       try {
-        await Deno.writeTextFile(wmillYamlPath, yamlStringify(conf));
+        await writeFile(wmillYamlPath, yamlStringify(conf), "utf-8");
         // Log all migration messages after successful write
         migrationMessages.forEach((msg) => {
           if (msg.startsWith("⚠️")) {
@@ -418,7 +422,7 @@ export async function validateBranchConfiguration(
   // Current branch must be defined in gitBranches config
   if (currentBranch && !gitBranches[currentBranch]) {
     // In interactive mode, offer to create the branch
-    if (Deno.stdin.isTerminal()) {
+    if (!!process.stdin.isTTY) {
       const availableBranches = Object.keys(gitBranches).join(", ");
       log.info(
         `Current Git branch '${currentBranch}' is not defined in the gitBranches configuration.\n` +
@@ -458,7 +462,7 @@ export async function validateBranchConfiguration(
         }
         currentConfig.gitBranches[currentBranch] = { overrides: {} };
 
-        await Deno.writeTextFile("wmill.yaml", yamlStringify(currentConfig));
+        await writeFile("wmill.yaml", yamlStringify(currentConfig), "utf-8");
 
         log.info(
           `✅ Created empty branch configuration for '${currentBranch}'`

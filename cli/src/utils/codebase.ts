@@ -1,5 +1,5 @@
 import { Codebase, SyncOptions } from "../core/conf.ts";
-import { log } from "../../deps.ts";
+import * as log from "@std/log";
 import { digestDir } from "./utils.ts";
 
 export type SyncCodebase = Codebase & {

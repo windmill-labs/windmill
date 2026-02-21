@@ -1,15 +1,12 @@
-// deno-lint-ignore-file no-explicit-any
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
-import {
-  colors,
-  Command,
-  log,
-  SEP,
-  Table,
-  windmillUtils,
-  yamlParseFile,
-} from "../../../deps.ts";
+import { Command } from "@cliffy/command";
+import { Table } from "@cliffy/table";
+import { colors } from "@cliffy/ansi/colors";
+import * as log from "@std/log";
+import { SEPARATOR as SEP } from "@std/path";
+import * as windmillUtils from "@windmill-labs/shared-utils";
+import { yamlParseFile } from "../../utils/yaml.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { ListableApp, Policy } from "../../../gen/types.gen.ts";
 

@@ -8,7 +8,9 @@
  * (.flow, .app, .raw_app) or dunder-prefixed names (__flow, __app, __raw_app).
  */
 
-import { log, SEP, yamlParseFile } from "../../deps.ts";
+import * as log from "@std/log";
+import { SEPARATOR as SEP } from "@std/path";
+import { yamlParseFile } from "./yaml.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import process from "node:process";
@@ -154,25 +156,30 @@ export function getMetadataPathSuffix(
 // Path Detection Functions
 // ============================================================================
 
+/** Normalize path separators to forward slash for cross-platform matching */
+function normalizeSep(p: string): string {
+  return p.replaceAll("\\", "/");
+}
+
 /**
  * Check if a path is inside a flow folder
  */
 export function isFlowPath(p: string): boolean {
-  return p.includes(getFolderSuffixes().flow + SEP);
+  return normalizeSep(p).includes(getFolderSuffixes().flow + "/");
 }
 
 /**
  * Check if a path is inside an app folder
  */
 export function isAppPath(p: string): boolean {
-  return p.includes(getFolderSuffixes().app + SEP);
+  return normalizeSep(p).includes(getFolderSuffixes().app + "/");
 }
 
 /**
  * Check if a path is inside a raw_app folder
  */
 export function isRawAppPath(p: string): boolean {
-  return p.includes(getFolderSuffixes().raw_app + SEP);
+  return normalizeSep(p).includes(getFolderSuffixes().raw_app + "/");
 }
 
 /**
@@ -248,10 +255,11 @@ export function extractResourceName(
   p: string,
   type: FolderResourceType
 ): string | null {
-  const suffix = getFolderSuffixes()[type] + SEP;
-  const index = p.indexOf(suffix);
+  const normalized = normalizeSep(p);
+  const suffix = getFolderSuffixes()[type] + "/";
+  const index = normalized.indexOf(suffix);
   if (index === -1) return null;
-  return p.substring(0, index);
+  return normalized.substring(0, index);
 }
 
 /**
@@ -262,10 +270,11 @@ export function extractFolderPath(
   p: string,
   type: FolderResourceType
 ): string | null {
-  const suffix = getFolderSuffixes()[type] + SEP;
-  const index = p.indexOf(suffix);
+  const normalized = normalizeSep(p);
+  const suffix = getFolderSuffixes()[type] + "/";
+  const index = normalized.indexOf(suffix);
   if (index === -1) return null;
-  return p.substring(0, index) + suffix;
+  return normalized.substring(0, index) + suffix;
 }
 
 /**
@@ -291,7 +300,7 @@ export function buildMetadataPath(
   return (
     resourceName +
     getFolderSuffixes()[type] +
-    SEP +
+    "/" +
     METADATA_FILES[type][format]
   );
 }

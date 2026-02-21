@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { getWorkspaceConfigFilePath } from "../windmill-utils-internal/src/config/config.ts";
 
 /**
@@ -5,14 +8,14 @@ import { getWorkspaceConfigFilePath } from "../windmill-utils-internal/src/confi
  */
 export async function withTestConfig<T>(callback: (testConfigDir: string) => Promise<T>): Promise<T> {
   // Create a unique temporary directory for this test
-  const testDir = await Deno.makeTempDir({ prefix: "wmill_test_config_" });
-  
+  const testDir = await mkdtemp(join(tmpdir(), "wmill_test_config_"));
+
   try {
     return await callback(testDir);
   } finally {
     // Clean up the temporary directory
     try {
-      await Deno.remove(testDir, { recursive: true });
+      await rm(testDir, { recursive: true });
     } catch (error) {
       console.warn(`Failed to clean up test config directory ${testDir}:`, error);
     }
@@ -24,7 +27,7 @@ export async function withTestConfig<T>(callback: (testConfigDir: string) => Pro
  */
 export async function clearTestRemotes(testConfigDir: string): Promise<void> {
   const remoteFile = await getWorkspaceConfigFilePath(testConfigDir);
-  await Deno.writeTextFile(remoteFile, "");
+  await writeFile(remoteFile, "", "utf-8");
 }
 
 /**

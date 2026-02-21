@@ -1,11 +1,10 @@
-import {
-  SEP,
-  colors,
-  log,
-  path,
-  yamlParseFile,
-  yamlStringify,
-} from "../../../deps.ts";
+import { colors } from "@cliffy/ansi/colors";
+import * as log from "@std/log";
+import * as path from "@std/path";
+import { SEPARATOR as SEP } from "@std/path";
+import { stringify as yamlStringify } from "@std/yaml";
+import { yamlParseFile } from "../../utils/yaml.ts";
+import { readFile } from "node:fs/promises";
 import { GlobalOptions } from "../../types.ts";
 import {
   readLockfile,
@@ -37,7 +36,7 @@ async function generateFlowHash(
   folder: string,
   defaultTs: "bun" | "deno" | undefined
 ) {
-  const elems = await FSFSElement(path.join(Deno.cwd(), folder), [], true);
+  const elems = await FSFSElement(path.join(process.cwd(), folder), [], true);
   const hashes: Record<string, string> = {};
   for await (const f of elems.getChildren()) {
     if (exts.some((e) => f.path.endsWith(e))) {
@@ -124,13 +123,11 @@ export async function generateFlowLockInternal(
     log.info(`Recomputing locks of ${changedScripts.join(", ")} in ${folder}`);
     await replaceInlineScripts(
       flowValue.value.modules,
-      async (path: string) => await Deno.readTextFile(folder + SEP + path),
+      async (path: string) => await readFile(folder + SEP + path, "utf-8"),
       log,
       folder + SEP!,
       SEP,
       changedScripts
-      // (path: string, newPath: string) => Deno.renameSync(path, newPath),
-      // (path: string) => Deno.removeSync(path)
     );
 
     //removeChangedLocks
@@ -148,12 +145,12 @@ export async function generateFlowLockInternal(
       opts.defaultTs
     );
     inlineScripts.forEach((s) => {
-      writeIfChanged(Deno.cwd() + SEP + folder + SEP + s.path, s.content);
+      writeIfChanged(process.cwd() + SEP + folder + SEP + s.path, s.content);
     });
 
     // Overwrite `flow.yaml` with the new lockfile references
     writeIfChanged(
-      Deno.cwd() + SEP + folder + SEP + "flow.yaml",
+      process.cwd() + SEP + folder + SEP + "flow.yaml",
       yamlStringify(flowValue as Record<string, any>)
     );
   }

@@ -1,5 +1,6 @@
-// deno-lint-ignore-file no-explicit-any
-import { colors, Command, log } from "../../../deps.ts";
+import { colors } from "@cliffy/ansi/colors";
+import { Command } from "@cliffy/command";
+import * as log from "@std/log";
 import { GlobalOptions } from "../../types.ts";
 
 function stub(_opts: GlobalOptions, _dir?: string) {

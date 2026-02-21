@@ -1,4 +1,4 @@
-import { log } from "../../deps.ts";
+import * as log from "@std/log";
 import { execSync } from "node:child_process";
 import { WM_FORK_PREFIX } from "../core/constants.ts";
 

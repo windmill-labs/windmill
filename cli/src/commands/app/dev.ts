@@ -1,14 +1,11 @@
-// deno-lint-ignore-file no-explicit-any
-import {
-  colors,
-  Command,
-  getPort,
-  log,
-  open,
-  SEP,
-  windmillUtils,
-  yamlParseFile,
-} from "../../../deps.ts";
+import { Command } from "@cliffy/command";
+import { colors } from "@cliffy/ansi/colors";
+import * as log from "@std/log";
+import { SEPARATOR as SEP } from "@std/path";
+import * as windmillUtils from "@windmill-labs/shared-utils";
+import { yamlParseFile } from "../../utils/yaml.ts";
+import * as getPort from "get-port";
+import * as open from "open";
 import { GlobalOptions } from "../../types.ts";
 import * as http from "node:http";
 import * as fs from "node:fs";
@@ -16,7 +13,8 @@ import * as path from "node:path";
 import process from "node:process";
 import { Buffer } from "node:buffer";
 import { writeFileSync } from "node:fs";
-import { WebSocket, WebSocketServer } from "npm:ws";
+import { readFile } from "node:fs/promises";
+import { WebSocket, WebSocketServer } from "ws";
 import {
   createFrameworkPlugins,
   detectFrameworks,
@@ -336,7 +334,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
 
     if (!fs.existsSync(targetDir)) {
       log.error(colors.red(`Error: Directory not found: ${targetDir}`));
-      Deno.exit(1);
+      process.exit(1);
     }
   }
 
@@ -355,7 +353,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
           }' or specify one as argument.`,
       ),
     );
-    Deno.exit(1);
+    process.exit(1);
   }
 
   // Check for raw_app.yaml in target directory
@@ -369,7 +367,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
           } folder containing a raw_app.yaml file.`,
       ),
     );
-    Deno.exit(1);
+    process.exit(1);
   }
 
   // Resolve workspace and authenticate (from original cwd to find wmill.yaml)
@@ -387,7 +385,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
   const appPath = rawApp?.custom_path ?? "u/unknown/newapp";
 
   // Dynamically import esbuild only when the dev command is called
-  const esbuild = await import("npm:esbuild@0.24.2");
+  const esbuild = await import("esbuild");
 
   const port = opts.port ??
     (await getPort.default({
@@ -410,7 +408,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
         `Entry point "${entryPoint}" not found. Please specify a valid entry point with --entry.`,
       ),
     );
-    Deno.exit(1);
+    process.exit(1);
   }
 
   // Ensure node_modules exists
@@ -525,99 +523,85 @@ async function dev(opts: DevOptions, appFolder?: string) {
 
   // Watch runnables folder for changes
   const runnablesPath = path.join(process.cwd(), APP_BACKEND_FOLDER);
-  let runnablesWatcher: Deno.FsWatcher | undefined;
+  let runnablesWatcher: fs.FSWatcher | undefined;
 
   if (fs.existsSync(runnablesPath)) {
     log.info(
       colors.blue(`👁️  Watching runnables folder at: ${runnablesPath}\n`),
     );
-    runnablesWatcher = Deno.watchFs(runnablesPath);
+    runnablesWatcher = fs.watch(runnablesPath, { recursive: true });
 
     // Per-file debounce timeouts for schema inference (longer debounce for typing)
     const schemaInferenceTimeouts: Record<string, ReturnType<typeof setTimeout>> = {};
     const SCHEMA_DEBOUNCE_MS = 500; // Wait 500ms after last change before inferring schema
 
-    // Handle runnables file changes in the background
-    (async () => {
-      try {
-        for await (const event of runnablesWatcher!) {
-          // Process each changed path with individual debouncing
-          for (const changedPath of event.paths) {
-            const relativePath = path.relative(process.cwd(), changedPath);
-            const relativeToRunnables = path.relative(
-              runnablesPath,
-              changedPath,
-            );
+    // Handle runnables file changes via callback
+    runnablesWatcher.on("change", (_eventType, filename) => {
+      if (!filename) return;
+      const fileStr = typeof filename === "string" ? filename : filename.toString();
+      const changedPath = path.join(runnablesPath, fileStr);
+      const relativePath = path.relative(process.cwd(), changedPath);
+      const relativeToRunnables = fileStr;
 
-            // Skip non-modify events for schema inference
-            if (event.kind !== "modify" && event.kind !== "create") {
-              continue;
-            }
+      // Skip lock files
+      if (changedPath.endsWith(".lock")) {
+        return;
+      }
 
-            // Skip lock files
-            if (changedPath.endsWith(".lock")) {
-              continue;
-            }
+      // Log the change event
+      log.info(
+        colors.cyan(
+          `📝 Runnable changed [${_eventType}]: ${relativePath}`,
+        ),
+      );
 
-            // Log the change event
+      // Debounce schema inference per file (wait for typing to finish)
+      if (schemaInferenceTimeouts[changedPath]) {
+        clearTimeout(schemaInferenceTimeouts[changedPath]);
+      }
+
+      schemaInferenceTimeouts[changedPath] = setTimeout(async () => {
+        delete schemaInferenceTimeouts[changedPath];
+
+        try {
+          log.info(
+            colors.cyan(
+              `📝 Inferring schema for: ${relativeToRunnables}`,
+            ),
+          );
+          // Infer schema for this runnable (returns schema in memory, doesn't write to file)
+          const result = await inferRunnableSchemaFromFile(
+            process.cwd(),
+            relativeToRunnables,
+          );
+          if (result) {
+            // Store inferred schema in memory
+            inferredSchemas[result.runnableId] = result.schema;
             log.info(
-              colors.cyan(
-                `📝 Runnable changed [${event.kind}]: ${relativePath}`,
+              colors.green(
+                `  Inferred Schemas: ${
+                  JSON.stringify(
+                    inferredSchemas,
+                    null,
+                    2,
+                  )
+                }`,
               ),
             );
-
-            // Debounce schema inference per file (wait for typing to finish)
-            if (schemaInferenceTimeouts[changedPath]) {
-              clearTimeout(schemaInferenceTimeouts[changedPath]);
-            }
-
-            schemaInferenceTimeouts[changedPath] = setTimeout(async () => {
-              delete schemaInferenceTimeouts[changedPath];
-
-              try {
-                log.info(
-                  colors.cyan(
-                    `📝 Inferring schema for: ${relativeToRunnables}`,
-                  ),
-                );
-                // Infer schema for this runnable (returns schema in memory, doesn't write to file)
-                const result = await inferRunnableSchemaFromFile(
-                  process.cwd(),
-                  relativeToRunnables,
-                );
-                if (result) {
-                  // log.info(colors.green(`  Schema: ${JSON.stringify(result.schema, null, 2)}`));
-                  // log.info(colors.green(`  Runnable ID: ${result.runnableId}`));
-                  // Store inferred schema in memory
-                  inferredSchemas[result.runnableId] = result.schema;
-                  log.info(
-                    colors.green(
-                      `  Inferred Schemas: ${
-                        JSON.stringify(
-                          inferredSchemas,
-                          null,
-                          2,
-                        )
-                      }`,
-                    ),
-                  );
-                  // Regenerate wmill.d.ts with updated schema from memory
-                  await genRunnablesTs(inferredSchemas);
-                }
-              } catch (error: any) {
-                log.error(
-                  colors.red(`Error inferring schema: ${error.message}`),
-                );
-              }
-            }, SCHEMA_DEBOUNCE_MS);
+            // Regenerate wmill.d.ts with updated schema from memory
+            await genRunnablesTs(inferredSchemas);
           }
+        } catch (error: any) {
+          log.error(
+            colors.red(`Error inferring schema: ${error.message}`),
+          );
         }
-      } catch (error: any) {
-        if (error.name !== "Interrupted") {
-          log.error(colors.red(`Error watching runnables: ${error.message}`));
-        }
-      }
-    })();
+      }, SCHEMA_DEBOUNCE_MS);
+    });
+
+    runnablesWatcher.on("error", (error: Error) => {
+      log.error(colors.red(`Error watching runnables: ${error.message}`));
+    });
   } else {
     log.info(
       colors.gray(
@@ -781,7 +765,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
     const fileName = path.basename(filePath);
 
     try {
-      const sqlContent = await Deno.readTextFile(filePath);
+      const sqlContent = await readFile(filePath, "utf-8");
 
       if (!sqlContent.trim()) {
         log.info(colors.gray(`Skipping empty file: ${fileName}`));
@@ -837,7 +821,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
     // If there's a current SQL file being shown, send it to the new client
     if (currentSqlFile && fs.existsSync(currentSqlFile)) {
       try {
-        const sqlContent = await Deno.readTextFile(currentSqlFile);
+        const sqlContent = await readFile(currentSqlFile, "utf-8");
         const datatable = await getDatatableConfig();
         const fileName = path.basename(currentSqlFile);
 
@@ -1164,7 +1148,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
   });
 
   // Watch sql_to_apply folder for SQL migration files
-  let sqlWatcher: Deno.FsWatcher | undefined;
+  let sqlWatcher: fs.FSWatcher | undefined;
 
   // Helper to scan for existing SQL files and add them to the queue
   async function scanExistingSqlFiles(): Promise<void> {
@@ -1207,53 +1191,46 @@ async function dev(opts: DevOptions, appFolder?: string) {
     log.info(
       colors.blue(`🗃️  Watching sql_to_apply folder at: ${sqlToApplyPath}\n`),
     );
-    sqlWatcher = Deno.watchFs(sqlToApplyPath);
+    sqlWatcher = fs.watch(sqlToApplyPath, { recursive: true });
 
     // Debounce timeout for SQL file changes
     const sqlDebounceTimeouts: Record<string, ReturnType<typeof setTimeout>> = {};
     const SQL_DEBOUNCE_MS = 300;
 
-    // Handle SQL file changes in the background
-    (async () => {
-      try {
-        for await (const event of sqlWatcher!) {
-          for (const changedPath of event.paths) {
-            // Only handle .sql files
-            if (!changedPath.endsWith(".sql")) {
-              continue;
-            }
+    // Handle SQL file changes via callback
+    sqlWatcher.on("change", (_eventType, filename) => {
+      if (!filename) return;
+      const fileStr = typeof filename === "string" ? filename : filename.toString();
+      const changedPath = path.join(sqlToApplyPath, fileStr);
 
-            // Only handle modify and create events
-            if (event.kind !== "modify" && event.kind !== "create") {
-              continue;
-            }
-
-            const fileName = path.basename(changedPath);
-
-            // Debounce per file
-            if (sqlDebounceTimeouts[changedPath]) {
-              clearTimeout(sqlDebounceTimeouts[changedPath]);
-            }
-
-            sqlDebounceTimeouts[changedPath] = setTimeout(async () => {
-              delete sqlDebounceTimeouts[changedPath];
-
-              log.info(colors.cyan(`📋 SQL file detected: ${fileName}`));
-
-              // Add to queue and process
-              queueSqlFile(changedPath);
-              await processNextSqlFile();
-            }, SQL_DEBOUNCE_MS);
-          }
-        }
-      } catch (error: any) {
-        if (error.name !== "Interrupted") {
-          log.error(
-            colors.red(`Error watching sql_to_apply: ${error.message}`),
-          );
-        }
+      // Only handle .sql files
+      if (!changedPath.endsWith(".sql")) {
+        return;
       }
-    })();
+
+      const fileName = path.basename(changedPath);
+
+      // Debounce per file
+      if (sqlDebounceTimeouts[changedPath]) {
+        clearTimeout(sqlDebounceTimeouts[changedPath]);
+      }
+
+      sqlDebounceTimeouts[changedPath] = setTimeout(async () => {
+        delete sqlDebounceTimeouts[changedPath];
+
+        log.info(colors.cyan(`📋 SQL file detected: ${fileName}`));
+
+        // Add to queue and process
+        queueSqlFile(changedPath);
+        await processNextSqlFile();
+      }, SQL_DEBOUNCE_MS);
+    });
+
+    sqlWatcher.on("error", (error: Error) => {
+      log.error(
+        colors.red(`Error watching sql_to_apply: ${error.message}`),
+      );
+    });
 
     // Scan for existing SQL files after a delay (to let WebSocket clients connect)
     setTimeout(() => {
