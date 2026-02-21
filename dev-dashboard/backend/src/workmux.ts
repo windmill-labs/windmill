@@ -123,6 +123,16 @@ export async function addWorktree(
     for (const cmd of cmds) {
       Bun.spawnSync(["tmux", "send-keys", "-t", `${windowTarget}.0`, cmd, "Enter"]);
     }
+    // Get the worktree directory from pane 0
+    const cwdResult = Bun.spawnSync(
+      ["tmux", "display-message", "-t", `${windowTarget}.0`, "-p", "#{pane_current_path}"],
+      { stdout: "pipe" }
+    );
+    const wtDir = new TextDecoder().decode(cwdResult.stdout).trim();
+    // Open a shell pane on the right (1/3 width) in the worktree dir
+    Bun.spawnSync(["tmux", "split-window", "-h", "-t", `${windowTarget}.0`, "-l", "33%", "-c", wtDir]);
+    // Keep focus on the agent pane (left)
+    Bun.spawnSync(["tmux", "select-pane", "-t", `${windowTarget}.0`]);
   }
 
   return result;
