@@ -30,7 +30,9 @@ docker build -f Dockerfile.sandbox -t windmill-sandbox .
 cd dev-dashboard/frontend && bun install && cd ..
 
 # 5. Start the dashboard
-./dev.sh                       # API on :5111, UI on :5112
+./dev.sh                       # dev mode (hot reload), UI on :5112
+# or
+./run.sh                       # production mode (build + serve), UI on :4173
 
 # 6. Open http://localhost:5112
 ```

@@ -164,7 +164,7 @@ export async function addWorktree(
     const envPath = `${wtDir}/.env.local`;
     const existing = await Bun.file(envPath).text().catch(() => "");
     if (!existing.includes("PROFILE=")) {
-      await Bun.write(envPath, existing.trimEnd() + `\nPROFILE=${profile}\n`);
+      await Bun.write(envPath, existing.trimEnd() + `\nPROFILE=${profile}\nAGENT=${agent}\n`);
     }
   }
 

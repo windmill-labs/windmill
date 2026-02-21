@@ -182,6 +182,7 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
           elapsed: st?.elapsed ?? "",
           title: st?.title ?? "",
           profile: env.PROFILE || null,
+          agentName: env.AGENT || null,
           backendPort,
           frontendPort,
           backendRunning,

@@ -14,4 +14,14 @@ export default defineConfig({
       },
     },
   },
+  preview: {
+    port: 4173,
+    proxy: {
+      "/api": "http://localhost:5111",
+      "/ws": {
+        target: "ws://localhost:5111",
+        ws: true,
+      },
+    },
+  },
 });

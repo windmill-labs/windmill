@@ -7,6 +7,7 @@ export interface WorktreeInfo {
   elapsed: string;
   title: string;
   profile: string | null;
+  agentName: string | null;
   backendPort: number | null;
   frontendPort: number | null;
   backendRunning: boolean;
