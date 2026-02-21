@@ -173,11 +173,13 @@ export async function addWorktree(
     // so we poll in the background rather than blocking the API response.
     if (profile === "agent-yolo" && wtDir) {
       (async () => {
-        for (let i = 0; i < 15; i++) {
+        console.log(`[socat] waiting for container to start for ${branch}...`);
+        for (let i = 1; i <= 15; i++) {
           await new Promise(r => setTimeout(r, 2000));
           if (await startForwarding(branch, wtDir)) return;
+          console.log(`[socat] container not ready for ${branch}, retrying (${i}/15)...`);
         }
-        console.error(`[socat] gave up waiting for container for ${branch}`);
+        console.error(`[socat] gave up waiting for container for ${branch} after 30s`);
       })();
     }
   }

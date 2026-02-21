@@ -38,7 +38,6 @@ export async function startForwarding(branch: string, wtDir: string): Promise<bo
 
   const containerIp = await getContainerIp(branch);
   if (!containerIp) {
-    console.log(`[socat] no sandbox container found for ${branch}, skipping`);
     return false;
   }
 
@@ -55,6 +54,8 @@ export async function startForwarding(branch: string, wtDir: string): Promise<bo
       `TCP-LISTEN:${port},fork,reuseaddr`,
       `TCP:${containerIp}:${port}`,
     ], { stdout: "ignore", stderr: "pipe" });
+    // Consume the exit promise so Bun reaps the child (prevents zombies)
+    proc.exited.then(() => {});
     entry.ports.push({ host: port, proc });
     console.log(`[socat] forwarding :${port} → ${containerIp}:${port} (branch=${branch}, pid=${proc.pid})`);
   }
@@ -96,7 +97,7 @@ export async function reconcileForwarding(getWorktreeDir: (branch: string) => st
       // No orphans found (pkill exits non-zero when no match)
     }
 
-    const ps = await $`docker ps --filter ancestor=windmill-sandbox --format {{.Names}}`.text();
+    const ps = await $`docker ps --filter name=wm- --format {{.Names}}`.text();
     const names = ps.trim().split("\n").filter(Boolean);
 
     for (const name of names) {
