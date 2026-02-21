@@ -30,8 +30,7 @@ docker build -f Dockerfile.sandbox -t windmill-sandbox .
 cd dev-dashboard/frontend && bun install && cd ..
 
 # 5. Start the dashboard
-cd backend  && bun run dev &   # API on :5111
-cd frontend && bun run dev &   # UI  on :5112
+./dev.sh                       # API on :5111, UI on :5112
 
 # 6. Open http://localhost:5112
 ```
@@ -119,7 +118,15 @@ The repo-level `.workmux.yaml` at the Windmill root configures how worktrees are
 
 ## Running
 
-Start both backend and frontend (from the `dev-dashboard/` directory):
+From the `dev-dashboard/` directory:
+
+```bash
+./dev.sh
+```
+
+This starts both backend and frontend, with logs prefixed `[BE]` / `[FE]`. `Ctrl+C` stops both.
+
+You can also start them separately:
 
 ```bash
 # Terminal 1: backend (auto-reloads on save)
@@ -130,6 +137,14 @@ cd frontend && bun run dev
 ```
 
 Open http://localhost:5112 in your browser.
+
+### Keyboard shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Cmd+Up/Down` | Navigate between worktrees |
+| `Cmd+K` | Create new worktree |
+| `Cmd+D` | Remove selected worktree |
 
 ### Environment variables
 
