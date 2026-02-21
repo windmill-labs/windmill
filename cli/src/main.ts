@@ -151,7 +151,9 @@ const command = new Command()
         const backendVersion = await fetchVersion(workspace.remote);
         console.log("Backend Version: " + backendVersion);
       } catch (e) {
-        console.warn("Cannot fetch backend version: " + e);
+        console.warn(
+          `Cannot fetch backend version from ${workspace.remote} (workspace: ${workspace.name}): ${e}`
+        );
       }
     } else {
       console.warn(

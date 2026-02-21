@@ -624,7 +624,7 @@ export class CargoBackend {
    */
   createCLICommand(args: string[], workingDir: string, workspaceName?: string): { command: string, args: string[], cwd: string, env: Record<string, string> } {
     const workspace = workspaceName || this.config.workspace;
-    const cliMainPath = join(dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts");
+    const cliDir = join(dirname(fileURLToPath(import.meta.url)), "..");
     const fullArgs = [
       "--base-url", this.baseUrl,
       "--workspace", workspace,
@@ -633,11 +633,18 @@ export class CargoBackend {
       ...args,
     ];
 
-    console.log("CLI Command:", ["bun", "run", cliMainPath, ...fullArgs].join(" "));
+    const useNode = process.env["TEST_CLI_RUNTIME"] === "node";
+    const runtime = useNode ? "node" : "bun";
+    const entrypoint = useNode
+      ? join(cliDir, "npm", "esm", "main.js")
+      : join(cliDir, "src", "main.ts");
+    const runtimeArgs = useNode ? [entrypoint] : ["run", entrypoint];
+
+    console.log("CLI Command:", [runtime, ...runtimeArgs, ...fullArgs].join(" "));
 
     return {
-      command: "bun",
-      args: ["run", cliMainPath, ...fullArgs],
+      command: runtime,
+      args: [...runtimeArgs, ...fullArgs],
       cwd: workingDir,
       env: { ...process.env as Record<string, string> },
     };

@@ -447,6 +447,7 @@ export function createTestBackend(type?: "cargo" | "docker"): TestBackend {
 export async function getTestBackend(): Promise<TestBackend> {
   if (!globalBackend) {
     globalBackend = createTestBackend();
+    registerCleanup();
     await globalBackend.start();
   }
   return globalBackend;
@@ -479,6 +480,30 @@ export async function cleanupTestBackend(): Promise<void> {
   if (globalBackend) {
     await globalBackend.stop();
     globalBackend = null;
+  }
+}
+
+// Auto-cleanup on process exit
+let cleanupRegistered = false;
+function registerCleanup() {
+  if (cleanupRegistered) return;
+  cleanupRegistered = true;
+  process.on("exit", () => {
+    if (globalBackend) {
+      // Synchronous kill — can't await in exit handler
+      try {
+        (globalBackend as any).backend?.process?.kill();
+      } catch {
+        // Best effort
+      }
+    }
+  });
+  // Handle graceful shutdown
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    process.on(signal, async () => {
+      await cleanupTestBackend();
+      process.exit(0);
+    });
   }
 }
 

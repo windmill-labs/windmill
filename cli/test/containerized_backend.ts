@@ -1030,12 +1030,18 @@ export async function main(
       ...args
     ];
 
-    const cliMainPath = new URL('../src/main.ts', import.meta.url).pathname;
+    const useNode = process.env["TEST_CLI_RUNTIME"] === "node";
+    const cliDir = new URL('..', import.meta.url).pathname;
+    const entrypoint = useNode
+      ? new URL('../npm/esm/main.js', import.meta.url).pathname
+      : new URL('../src/main.ts', import.meta.url).pathname;
+    const runtime = useNode ? 'node' : 'bun';
+    const runtimeArgs = useNode ? [entrypoint] : ['run', entrypoint];
 
-    console.log('CLI Command:', ['bun', 'run', cliMainPath, ...fullArgs].join(' '));
+    console.log('CLI Command:', [runtime, ...runtimeArgs, ...fullArgs].join(' '));
 
     return {
-      cmd: ['bun', 'run', cliMainPath, ...fullArgs],
+      cmd: [runtime, ...runtimeArgs, ...fullArgs],
       cwd: workingDir,
     };
   }

@@ -218,10 +218,10 @@ describe("schedule", () => {
       expect(scriptResp.status).toBeLessThan(300);
       await scriptResp.text();
 
-      // Create wmill.yaml
+      // Create wmill.yaml with includeSchedules
       await writeFile(
         join(tempDir, "wmill.yaml"),
-        `defaultTs: bun\nincludes:\n  - "**"\nexcludes: []\n`,
+        `defaultTs: bun\nincludes:\n  - "**"\nexcludes: []\nincludeSchedules: true\n`,
         "utf-8"
       );
 
@@ -229,7 +229,7 @@ describe("schedule", () => {
       await mkdir(join(tempDir, "f", "test"), { recursive: true });
       await writeFile(
         join(tempDir, `f/test/cron_${uniqueId}.schedule.yaml`),
-        `path: "f/test/cron_${uniqueId}"\nschedule: "0 */6 * * *"\nscript_path: "f/test/sched_target_${uniqueId}"\nis_flow: false\nargs: {}\nenabled: false\ntimezone: "UTC"\n`,
+        `path: "f/test/cron_${uniqueId}"\nschedule: "0 0 */6 * * *"\nscript_path: "f/test/sched_target_${uniqueId}"\nis_flow: false\nargs: {}\nenabled: false\ntimezone: "UTC"\n`,
         "utf-8"
       );
 
@@ -247,7 +247,7 @@ describe("schedule", () => {
       );
       expect(apiResp.status).toEqual(200);
       const schedData = await apiResp.json();
-      expect(schedData.schedule).toBe("0 */6 * * *");
+      expect(schedData.schedule).toBe("0 0 */6 * * *");
       expect(schedData.script_path).toBe(`f/test/sched_target_${uniqueId}`);
       expect(schedData.enabled).toBe(false);
     });
@@ -291,7 +291,7 @@ describe("schedule", () => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             path: `f/test/upd_cron_${uniqueId}`,
-            schedule: "0 * * * *",
+            schedule: "0 0 * * * *",
             script_path: `f/test/upd_sched_target_${uniqueId}`,
             is_flow: false,
             args: {},
@@ -303,16 +303,16 @@ describe("schedule", () => {
       expect(createResp.status).toBeLessThan(300);
       await createResp.text();
 
-      // Create wmill.yaml and updated schedule
+      // Create wmill.yaml with includeSchedules and updated schedule
       await writeFile(
         join(tempDir, "wmill.yaml"),
-        `defaultTs: bun\nincludes:\n  - "**"\nexcludes: []\n`,
+        `defaultTs: bun\nincludes:\n  - "**"\nexcludes: []\nincludeSchedules: true\n`,
         "utf-8"
       );
       await mkdir(join(tempDir, "f", "test"), { recursive: true });
       await writeFile(
         join(tempDir, `f/test/upd_cron_${uniqueId}.schedule.yaml`),
-        `path: "f/test/upd_cron_${uniqueId}"\nschedule: "30 2 * * *"\nscript_path: "f/test/upd_sched_target_${uniqueId}"\nis_flow: false\nargs: {}\nenabled: false\ntimezone: "UTC"\n`,
+        `path: "f/test/upd_cron_${uniqueId}"\nschedule: "0 30 2 * * *"\nscript_path: "f/test/upd_sched_target_${uniqueId}"\nis_flow: false\nargs: {}\nenabled: false\ntimezone: "UTC"\n`,
         "utf-8"
       );
 
@@ -330,7 +330,7 @@ describe("schedule", () => {
       );
       expect(apiResp.status).toEqual(200);
       const schedData = await apiResp.json();
-      expect(schedData.schedule).toBe("30 2 * * *");
+      expect(schedData.schedule).toBe("0 30 2 * * *");
     });
   });
 
@@ -372,7 +372,7 @@ describe("schedule", () => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             path: `f/test/pull_cron_${uniqueId}`,
-            schedule: "15 3 * * 1",
+            schedule: "0 15 3 * * 1",
             script_path: `f/test/pull_sched_target_${uniqueId}`,
             is_flow: false,
             args: {},
@@ -387,7 +387,7 @@ describe("schedule", () => {
       // Create wmill.yaml
       await writeFile(
         join(tempDir, "wmill.yaml"),
-        `defaultTs: bun\nincludes:\n  - "f/test/pull_cron_${uniqueId}**"\nexcludes: []\nskipVariables: true\nskipResources: true\nskipScripts: true\n`,
+        `defaultTs: bun\nincludes:\n  - "f/test/pull_cron_${uniqueId}**"\nexcludes: []\nincludeSchedules: true\nskipVariables: true\nskipResources: true\nskipScripts: true\n`,
         "utf-8"
       );
 
@@ -402,7 +402,7 @@ describe("schedule", () => {
       const content = await readFile(
         join(tempDir, `f/test/pull_cron_${uniqueId}.schedule.yaml`), "utf-8"
       );
-      expect(content).toContain("15 3 * * 1");
+      expect(content).toContain("0 15 3 * * 1");
       expect(content).toContain(`f/test/pull_sched_target_${uniqueId}`);
     });
   });

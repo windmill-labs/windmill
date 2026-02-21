@@ -14,6 +14,10 @@ import {
 } from "../src/types.ts";
 import { validatePath } from "../src/core/context.ts";
 import { inferContentTypeFromFilePath } from "../src/utils/script_common.ts";
+import {
+  filePathExtensionFromContentType,
+  removeExtensionToPath,
+} from "../src/commands/script/script.ts";
 
 // =============================================================================
 // deepEqual
@@ -376,5 +380,188 @@ describe("isSuperset", () => {
 
   test("empty subset is always a superset match", () => {
     expect(isSuperset({}, { a: 1, b: 2 })).toBe(true);
+  });
+});
+
+// =============================================================================
+// filePathExtensionFromContentType
+// =============================================================================
+
+describe("filePathExtensionFromContentType", () => {
+  test("returns .py for python3", () => {
+    expect(filePathExtensionFromContentType("python3", undefined)).toBe(".py");
+  });
+
+  test("returns .fetch.ts for nativets", () => {
+    expect(filePathExtensionFromContentType("nativets", undefined)).toBe(".fetch.ts");
+  });
+
+  test("returns .ts for bun when defaultTs is bun or undefined", () => {
+    expect(filePathExtensionFromContentType("bun", "bun")).toBe(".ts");
+    expect(filePathExtensionFromContentType("bun", undefined)).toBe(".ts");
+  });
+
+  test("returns .bun.ts for bun when defaultTs is deno", () => {
+    expect(filePathExtensionFromContentType("bun", "deno")).toBe(".bun.ts");
+  });
+
+  test("returns .ts for deno when defaultTs is deno", () => {
+    expect(filePathExtensionFromContentType("deno", "deno")).toBe(".ts");
+  });
+
+  test("returns .deno.ts for deno when defaultTs is bun or undefined", () => {
+    expect(filePathExtensionFromContentType("deno", "bun")).toBe(".deno.ts");
+    expect(filePathExtensionFromContentType("deno", undefined)).toBe(".deno.ts");
+  });
+
+  test("returns .go for go", () => {
+    expect(filePathExtensionFromContentType("go", undefined)).toBe(".go");
+  });
+
+  test("returns .sh for bash", () => {
+    expect(filePathExtensionFromContentType("bash", undefined)).toBe(".sh");
+  });
+
+  test("returns .ps1 for powershell", () => {
+    expect(filePathExtensionFromContentType("powershell", undefined)).toBe(".ps1");
+  });
+
+  test("returns .gql for graphql", () => {
+    expect(filePathExtensionFromContentType("graphql", undefined)).toBe(".gql");
+  });
+
+  test("returns .php for php", () => {
+    expect(filePathExtensionFromContentType("php", undefined)).toBe(".php");
+  });
+
+  test("returns .rs for rust", () => {
+    expect(filePathExtensionFromContentType("rust", undefined)).toBe(".rs");
+  });
+
+  test("returns .cs for csharp", () => {
+    expect(filePathExtensionFromContentType("csharp", undefined)).toBe(".cs");
+  });
+
+  test("returns .nu for nu", () => {
+    expect(filePathExtensionFromContentType("nu", undefined)).toBe(".nu");
+  });
+
+  test("returns .java for java", () => {
+    expect(filePathExtensionFromContentType("java", undefined)).toBe(".java");
+  });
+
+  test("returns .rb for ruby", () => {
+    expect(filePathExtensionFromContentType("ruby", undefined)).toBe(".rb");
+  });
+
+  test("returns .playbook.yml for ansible", () => {
+    expect(filePathExtensionFromContentType("ansible", undefined)).toBe(".playbook.yml");
+  });
+
+  test("returns correct SQL extensions", () => {
+    expect(filePathExtensionFromContentType("postgresql", undefined)).toBe(".pg.sql");
+    expect(filePathExtensionFromContentType("mysql", undefined)).toBe(".my.sql");
+    expect(filePathExtensionFromContentType("bigquery", undefined)).toBe(".bq.sql");
+    expect(filePathExtensionFromContentType("duckdb", undefined)).toBe(".duckdb.sql");
+    expect(filePathExtensionFromContentType("oracledb", undefined)).toBe(".odb.sql");
+    expect(filePathExtensionFromContentType("snowflake", undefined)).toBe(".sf.sql");
+    expect(filePathExtensionFromContentType("mssql", undefined)).toBe(".ms.sql");
+  });
+
+  test("throws for invalid language", () => {
+    expect(() =>
+      filePathExtensionFromContentType("invalid" as any, undefined)
+    ).toThrow();
+  });
+});
+
+// =============================================================================
+// removeExtensionToPath
+// =============================================================================
+
+describe("removeExtensionToPath", () => {
+  test("removes .ts extension", () => {
+    expect(removeExtensionToPath("f/test/script.ts")).toBe("f/test/script");
+  });
+
+  test("removes .py extension", () => {
+    expect(removeExtensionToPath("f/test/script.py")).toBe("f/test/script");
+  });
+
+  test("removes .go extension", () => {
+    expect(removeExtensionToPath("f/test/script.go")).toBe("f/test/script");
+  });
+
+  test("removes .sh extension", () => {
+    expect(removeExtensionToPath("f/test/script.sh")).toBe("f/test/script");
+  });
+
+  test("removes .pg.sql extension", () => {
+    expect(removeExtensionToPath("f/test/query.pg.sql")).toBe("f/test/query");
+  });
+
+  test("removes .my.sql extension", () => {
+    expect(removeExtensionToPath("f/test/query.my.sql")).toBe("f/test/query");
+  });
+
+  test("removes .duckdb.sql extension", () => {
+    expect(removeExtensionToPath("f/test/query.duckdb.sql")).toBe("f/test/query");
+  });
+
+  test("removes .fetch.ts extension", () => {
+    expect(removeExtensionToPath("f/test/script.fetch.ts")).toBe("f/test/script");
+  });
+
+  test("removes .bun.ts extension", () => {
+    expect(removeExtensionToPath("f/test/script.bun.ts")).toBe("f/test/script");
+  });
+
+  test("removes .deno.ts extension", () => {
+    expect(removeExtensionToPath("f/test/script.deno.ts")).toBe("f/test/script");
+  });
+
+  test("removes .gql extension", () => {
+    expect(removeExtensionToPath("f/test/query.gql")).toBe("f/test/query");
+  });
+
+  test("removes .ps1 extension", () => {
+    expect(removeExtensionToPath("f/test/script.ps1")).toBe("f/test/script");
+  });
+
+  test("removes .php extension", () => {
+    expect(removeExtensionToPath("f/test/script.php")).toBe("f/test/script");
+  });
+
+  test("removes .rs extension", () => {
+    expect(removeExtensionToPath("f/test/script.rs")).toBe("f/test/script");
+  });
+
+  test("removes .cs extension", () => {
+    expect(removeExtensionToPath("f/test/script.cs")).toBe("f/test/script");
+  });
+
+  test("removes .nu extension", () => {
+    expect(removeExtensionToPath("f/test/script.nu")).toBe("f/test/script");
+  });
+
+  test("removes .playbook.yml extension", () => {
+    expect(removeExtensionToPath("f/test/play.playbook.yml")).toBe("f/test/play");
+  });
+
+  test("removes .java extension", () => {
+    expect(removeExtensionToPath("f/test/Script.java")).toBe("f/test/Script");
+  });
+
+  test("removes .rb extension", () => {
+    expect(removeExtensionToPath("f/test/script.rb")).toBe("f/test/script");
+  });
+
+  test("throws for unknown extension", () => {
+    expect(() => removeExtensionToPath("f/test/file.xyz")).toThrow();
+  });
+
+  test("prioritizes longer extensions (fetch.ts over .ts)", () => {
+    // fetch.ts should be recognized as nativets, not as bun .ts
+    expect(removeExtensionToPath("f/test/api.fetch.ts")).toBe("f/test/api");
   });
 });
