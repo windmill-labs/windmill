@@ -226,7 +226,8 @@
 	export async function runFlowPreview(
 		args: Record<string, any>,
 		flow: OpenFlow & { tag?: string },
-		callbacks?: Callbacks
+		callbacks?: Callbacks,
+		path?: string
 	): Promise<string> {
 		return abstractRun(
 			() =>
@@ -235,7 +236,8 @@
 					requestBody: {
 						args,
 						value: flow.value,
-						tag: flow.tag
+						tag: flow.tag,
+						path
 					}
 				}),
 			callbacks

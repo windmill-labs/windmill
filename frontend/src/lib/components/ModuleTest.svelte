@@ -125,7 +125,8 @@
 					summary: '',
 					schema
 				},
-				callbacks
+				callbacks,
+				$pathStore
 			)
 		} else {
 			throw Error('Not supported module type')
