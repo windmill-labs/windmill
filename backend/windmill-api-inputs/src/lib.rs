@@ -6,7 +6,6 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use windmill_api_auth::ApiAuthed;
 use axum::{
     extract::{Path, Query},
     routing::{get, post},
@@ -20,6 +19,7 @@ use std::{
     fmt::{Display, Formatter},
     vec,
 };
+use windmill_api_auth::ApiAuthed;
 use windmill_common::{
     db::UserDB,
     error::JsonResult,
@@ -352,11 +352,12 @@ async fn update_input(
 ) -> JsonResult<String> {
     let mut tx = user_db.begin(&authed).await?;
 
-    sqlx::query("UPDATE input SET name = $1, is_public = $2 WHERE id = $3 and workspace_id = $4")
+    sqlx::query("UPDATE input SET name = $1, is_public = $2 WHERE id = $3 and workspace_id = $4 AND created_by = $5")
         .bind(&input.name)
         .bind(&input.is_public)
         .bind(&input.id)
         .bind(&w_id)
+        .bind(&authed.username)
         .execute(&mut *tx)
         .await?;
 
@@ -372,9 +373,10 @@ async fn delete_input(
 ) -> JsonResult<String> {
     let mut tx = user_db.begin(&authed).await?;
 
-    sqlx::query("DELETE FROM input WHERE id = $1 and workspace_id = $2")
+    sqlx::query("DELETE FROM input WHERE id = $1 and workspace_id = $2 AND created_by = $3")
         .bind(&i_id)
         .bind(&w_id)
+        .bind(&authed.username)
         .execute(&mut *tx)
         .await?;
 
