@@ -21,6 +21,7 @@
   let showCreateDialog = $state(false);
   let creating = $state(false);
   let createProfile = $state<Profile>("agent-only");
+  let createName = $state("");
 
   let visibleWorktrees = $derived(
     worktrees.filter((w) => w.path === "(here)" || w.branch === "main" || w.mux === "✓")
@@ -47,12 +48,13 @@
   }
 
   async function handleCreate() {
-    const branch = randomName(8);
+    const branch = createName.trim() || randomName(8);
     creating = true;
     try {
       await api.createWorktree(branch, createProfile);
       await api.openWorktree(branch);
       showCreateDialog = false;
+      createName = "";
       await refresh();
       selectedBranch = branch;
     } catch (err) {
@@ -139,6 +141,16 @@
     class="fixed inset-0 z-50 bg-sidebar text-primary border border-edge rounded-xl p-6 max-w-[380px] w-[90%] m-auto"
   >
     <h2 class="text-base mb-4">New Worktree</h2>
+    <div class="mb-4">
+      <label class="block text-xs text-muted mb-1.5" for="wt-name">Name <span class="opacity-60">(optional)</span></label>
+      <input
+        id="wt-name"
+        type="text"
+        class="w-full px-2.5 py-1.5 rounded-md border border-edge bg-surface text-primary text-[13px] placeholder:text-muted/50 outline-none focus:border-accent"
+        placeholder="auto-generated if empty"
+        bind:value={createName}
+      />
+    </div>
     <div class="flex flex-col gap-2 mb-6">
       {#each PROFILES as profile}
         <label
