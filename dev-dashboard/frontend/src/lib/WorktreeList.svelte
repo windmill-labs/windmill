@@ -29,7 +29,7 @@
         onclick={() => onselect(wt.branch)}
       >
         <span class="font-medium truncate pr-5">{wt.branch}</span>
-        <span class="flex gap-2 text-[11px] text-muted">
+        <span class="flex gap-2 text-[11px] text-muted items-center flex-wrap">
           <span><span class="inline-block w-2 h-2 rounded-full mr-1 align-middle {dotColor(wt.agent)}"></span>{wt.agent || "none"}</span>
           {#if wt.agentName}
             <span>{wt.agentName}</span>
@@ -39,6 +39,12 @@
           {/if}
           {#if isMain}
             <span>main</span>
+          {/if}
+          {#if wt.backendPort}
+            <span class="font-mono {wt.backendRunning ? 'text-success' : ''}">BE:{wt.backendPort}</span>
+          {/if}
+          {#if wt.frontendPort}
+            <span class="font-mono {wt.frontendRunning ? 'text-success' : ''}">FE:{wt.frontendPort}</span>
           {/if}
         </span>
       </button>
