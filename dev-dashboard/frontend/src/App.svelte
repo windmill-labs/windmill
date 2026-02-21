@@ -13,7 +13,9 @@
   let creating = $state(false);
 
   let selectedWorktree = $derived(worktrees.find((w) => w.branch === selectedBranch));
+  let hasMux = $derived(selectedWorktree?.mux === "✓");
   let isMain = $derived(selectedWorktree?.path === "(here)" || selectedBranch === "main");
+  let canConnect = $derived(!!selectedBranch && !isMain && hasMux);
 
   async function refresh() {
     try {
@@ -119,7 +121,7 @@
       onremove={handleRemove}
     />
 
-    {#if selectedBranch && !isMain}
+    {#if canConnect}
       {#key selectedBranch}
         <Terminal worktree={selectedBranch} />
       {/key}
@@ -128,6 +130,8 @@
         <p>
           {#if isMain}
             Main worktree — use workmux to manage
+          {:else if selectedBranch && !hasMux}
+            No tmux window for this worktree
           {:else}
             Select a worktree from the sidebar to connect
           {/if}
