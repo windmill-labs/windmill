@@ -105,7 +105,7 @@ function buildAgentCmd(profile: Profile, env: Record<string, string>, agent: Age
 
   if (agent === "codex") {
     if (profile === "agent-yolo") {
-      return `workmux sandbox agent -- codex --full-auto`;
+      return `workmux sandbox agent -- codex --yolo`;
     }
     return "codex";
   }
