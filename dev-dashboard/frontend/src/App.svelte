@@ -80,10 +80,52 @@
     }
   }
 
+  function selectNeighborWorktree(direction: -1 | 1) {
+    const selectable = visibleWorktrees.filter(
+      (w) => w.path !== "(here)" && w.branch !== "main" && !removingBranches.has(w.branch)
+    );
+    if (selectable.length === 0) return;
+    if (!selectedBranch) {
+      selectedBranch = selectable[direction === 1 ? 0 : selectable.length - 1].branch;
+      return;
+    }
+    const idx = selectable.findIndex((w) => w.branch === selectedBranch);
+    const next = idx + direction;
+    if (next >= 0 && next < selectable.length) {
+      selectedBranch = selectable[next].branch;
+    }
+  }
+
+  function handleKeydown(e: KeyboardEvent) {
+    // Ignore shortcuts when a dialog is open (let dialog handle its own keys)
+    if (showCreateDialog || removeBranch) return;
+
+    const mod = e.metaKey || e.ctrlKey;
+    if (!mod) return;
+
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      selectNeighborWorktree(-1);
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      selectNeighborWorktree(1);
+    } else if (e.key === "k" || e.key === "K") {
+      e.preventDefault();
+      if (!creating) showCreateDialog = true;
+    } else if (e.key === "d" || e.key === "D") {
+      e.preventDefault();
+      if (selectedBranch && !isMain) removeBranch = selectedBranch;
+    }
+  }
+
   onMount(() => {
     refresh();
     const interval = setInterval(refresh, 5000);
-    return () => clearInterval(interval);
+    window.addEventListener("keydown", handleKeydown);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("keydown", handleKeydown);
+    };
   });
 </script>
 
@@ -95,10 +137,15 @@
         class="h-8 px-2 gap-1.5 rounded-md border border-edge bg-surface text-accent text-xs flex items-center justify-center cursor-pointer hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed"
         onclick={() => (showCreateDialog = true)}
         disabled={creating}
-        title="New Worktree"
+        title="New Worktree (Cmd+K)"
       ><span class="text-lg leading-none">+</span> New</button>
     </div>
     <WorktreeList worktrees={visibleWorktrees} selected={selectedBranch} removing={removingBranches} onselect={(b) => (selectedBranch = b)} onremove={(b) => (removeBranch = b)} />
+    <div class="shrink-0 border-t border-edge px-4 py-3 text-[11px] text-muted flex flex-col gap-1">
+      <div class="flex justify-between"><span>Navigate</span><kbd class="opacity-60">Cmd+Up/Down</kbd></div>
+      <div class="flex justify-between"><span>New worktree</span><kbd class="opacity-60">Cmd+K</kbd></div>
+      <div class="flex justify-between"><span>Remove</span><kbd class="opacity-60">Cmd+D</kbd></div>
+    </div>
   </aside>
 
   <main class="flex-1 min-w-0 flex flex-col overflow-hidden">
