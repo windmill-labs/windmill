@@ -8,11 +8,15 @@
 
   const PROFILES: { value: Profile; label: string }[] = [
     { value: "agent-only", label: "Agent only" },
-    { value: "agent-yolo", label: "Agent (skip permissions)" },
+    { value: "agent-yolo", label: "Agent (sandboxed, yolo mode)" },
     { value: "full", label: "Full (agent + backend + frontend)" },
   ];
 
-  let { loading = false, oncreate, oncancel }: {
+  let {
+    loading = false,
+    oncreate,
+    oncancel,
+  }: {
     loading?: boolean;
     oncreate: (name: string, profile: Profile, agent: Agent) => void;
     oncancel: () => void;
@@ -34,24 +38,34 @@
     dialogEl?.showModal();
   });
 
-  const btn = "px-3 py-1.5 rounded-md border border-edge bg-surface text-primary text-xs cursor-pointer hover:bg-hover";
+  const btn =
+    "px-3 py-1.5 rounded-md border border-edge bg-surface text-primary text-xs cursor-pointer hover:bg-hover";
 </script>
 
-<dialog bind:this={dialogEl} onclose={oncancel} class="bg-sidebar text-primary border border-edge rounded-xl p-6 max-w-[380px] w-[90%]">
-  <form method="dialog" onsubmit={(e) => {
-    e.preventDefault();
-    if (saveDefault) {
-      localStorage.setItem(STORAGE_KEY, profile);
-      localStorage.setItem(AGENT_STORAGE_KEY, agent);
-    } else {
-      localStorage.removeItem(STORAGE_KEY);
-      localStorage.removeItem(AGENT_STORAGE_KEY);
-    }
-    oncreate(name.trim(), profile, agent);
-  }}>
+<dialog
+  bind:this={dialogEl}
+  onclose={oncancel}
+  class="bg-sidebar text-primary border border-edge rounded-xl p-6 max-w-[380px] w-[90%]"
+>
+  <form
+    method="dialog"
+    onsubmit={(e) => {
+      e.preventDefault();
+      if (saveDefault) {
+        localStorage.setItem(STORAGE_KEY, profile);
+        localStorage.setItem(AGENT_STORAGE_KEY, agent);
+      } else {
+        localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem(AGENT_STORAGE_KEY);
+      }
+      oncreate(name.trim(), profile, agent);
+    }}
+  >
     <h2 class="text-base mb-4">New Worktree</h2>
     <div class="mb-4">
-      <label class="block text-xs text-muted mb-1.5" for="wt-name">Name <span class="opacity-60">(optional)</span></label>
+      <label class="block text-xs text-muted mb-1.5" for="wt-name"
+        >Name <span class="opacity-60">(optional)</span></label
+      >
       <input
         id="wt-name"
         type="text"
@@ -64,7 +78,9 @@
       {#each AGENTS as a}
         <label
           class="flex-1 flex items-center justify-center gap-2 p-2.5 rounded-lg border cursor-pointer text-[13px] transition-colors
-            {agent === a.value ? 'border-accent bg-accent/10' : 'border-edge hover:bg-hover'}"
+            {agent === a.value
+            ? 'border-accent bg-accent/10'
+            : 'border-edge hover:bg-hover'}"
         >
           <input
             type="radio"
@@ -82,7 +98,9 @@
       {#each PROFILES as p}
         <label
           class="flex items-center gap-2.5 p-2.5 rounded-lg border cursor-pointer text-[13px] transition-colors
-            {profile === p.value ? 'border-accent bg-accent/10' : 'border-edge hover:bg-hover'}"
+            {profile === p.value
+            ? 'border-accent bg-accent/10'
+            : 'border-edge hover:bg-hover'}"
         >
           <input
             type="radio"
@@ -96,17 +114,26 @@
         </label>
       {/each}
     </div>
-    <label class="flex items-center gap-2 mb-4 text-[13px] text-muted cursor-pointer">
-      <input type="checkbox" bind:checked={saveDefault} class="accent-[var(--accent)]" />
+    <label
+      class="flex items-center gap-2 mb-4 text-[13px] text-muted cursor-pointer"
+    >
+      <input
+        type="checkbox"
+        bind:checked={saveDefault}
+        class="accent-[var(--accent)]"
+      />
       Save as default
     </label>
     <div class="flex justify-end gap-2">
-      <button type="button" class={btn} onclick={oncancel} disabled={loading}>Cancel</button>
+      <button type="button" class={btn} onclick={oncancel} disabled={loading}
+        >Cancel</button
+      >
       <button
         type="submit"
         class="{btn} !bg-accent !text-white !border-accent hover:!opacity-90 disabled:!opacity-50 disabled:!cursor-not-allowed flex items-center gap-1.5"
         disabled={loading}
-      >{#if loading}<span class="spinner"></span>{/if} Create</button>
+        >{#if loading}<span class="spinner"></span>{/if} Create</button
+      >
     </div>
   </form>
 </dialog>
