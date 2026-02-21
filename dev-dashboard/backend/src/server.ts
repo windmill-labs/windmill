@@ -33,6 +33,7 @@ function errorResponse(message: string, status = 500): Response {
 
 interface WsData {
   worktree: string;
+  attached: boolean;
 }
 
 function makeCallbacks(ws: { send: (data: string) => void; readyState: number }) {
@@ -59,7 +60,7 @@ Bun.serve<WsData>({
     const wsMatch = url.pathname.match(/^\/ws\/(.+)$/);
     if (wsMatch) {
       const worktree = decodeURIComponent(wsMatch[1]);
-      const upgraded = server.upgrade(req, { data: { worktree } });
+      const upgraded = server.upgrade(req, { data: { worktree, attached: false } });
       if (upgraded) return undefined as unknown as Response;
       return new Response("WebSocket upgrade failed", { status: 400 });
     }
@@ -72,29 +73,11 @@ Bun.serve<WsData>({
   },
 
   websocket: {
-    async open(ws) {
-      const { worktree } = ws.data;
-      const cols = 120;
-      const rows = 30;
-
-      try {
-        await attach(worktree, cols, rows);
-
-        const { onData, onExit } = makeCallbacks(ws);
-        setCallbacks(worktree, onData, onExit);
-
-        const scrollback = getScrollback(worktree);
-        if (scrollback) {
-          ws.send(JSON.stringify({ type: "scrollback", data: scrollback }));
-        }
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        ws.send(JSON.stringify({ type: "error", message }));
-        ws.close();
-      }
+    open(_ws) {
+      // Wait for the client to send its actual dimensions before spawning
     },
 
-    message(ws, message) {
+    async message(ws, message) {
       try {
         const msg = JSON.parse(typeof message === "string" ? message : new TextDecoder().decode(message));
         const { worktree } = ws.data;
@@ -104,7 +87,25 @@ Bun.serve<WsData>({
             write(worktree, msg.data);
             break;
           case "resize":
-            resize(worktree, msg.cols, msg.rows);
+            if (!ws.data.attached) {
+              // First resize = client reporting actual dimensions. Spawn now.
+              ws.data.attached = true;
+              try {
+                await attach(worktree, msg.cols, msg.rows);
+                const { onData, onExit } = makeCallbacks(ws);
+                setCallbacks(worktree, onData, onExit);
+                const scrollback = getScrollback(worktree);
+                if (scrollback) {
+                  ws.send(JSON.stringify({ type: "scrollback", data: scrollback }));
+                }
+              } catch (err: unknown) {
+                const errMsg = err instanceof Error ? err.message : String(err);
+                ws.send(JSON.stringify({ type: "error", message: errMsg }));
+                ws.close();
+              }
+            } else {
+              resize(worktree, msg.cols, msg.rows);
+            }
             break;
         }
       } catch {
