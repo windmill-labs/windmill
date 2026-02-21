@@ -183,6 +183,8 @@ When using sandbox mode, the container needs explicit mounts to access the EE re
 ```yaml
 sandbox:
   extra_mounts:
+    - host_path: ~/windmill-ee-private
+      writable: true
     - host_path: ~/windmill-ee-private__worktrees
       writable: true
 ```

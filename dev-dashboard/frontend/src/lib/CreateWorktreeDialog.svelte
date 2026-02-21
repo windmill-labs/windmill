@@ -45,13 +45,6 @@
         ? (idx + 1) % PROFILES.length
         : (idx - 1 + PROFILES.length) % PROFILES.length;
       profile = PROFILES[next].value;
-    } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-      e.preventDefault();
-      const idx = AGENTS.findIndex((a) => a.value === agent);
-      const next = e.key === "ArrowRight"
-        ? (idx + 1) % AGENTS.length
-        : (idx - 1 + AGENTS.length) % AGENTS.length;
-      agent = AGENTS[next].value;
     }
   }
 
