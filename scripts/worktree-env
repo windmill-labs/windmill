@@ -5,28 +5,24 @@ port_in_use() {
   lsof -nP -iTCP:"$1" -sTCP:LISTEN &>/dev/null
 }
 
-find_port() {
-  local port=$1
-  while port_in_use "$port"; do
-    ((port++))
-  done
-  echo "$port"
-}
-
 if [[ -z "${WM_SLOT:-}" ]]; then
-  # Auto-assign: find the first slot (1-99) where both ports are free
+  # Auto-assign slot based on worktree index (position among non-main worktrees)
   # Slot 0 (8000/3000) is reserved for the main worktree
-  for slot in $(seq 1 99); do
-    bp=$((8000 + slot * 10))
-    fp=$((3000 + slot * 10))
-    if ! port_in_use "$bp" && ! port_in_use "$fp"; then
+  current_dir="$(basename "$(pwd)")"
+  slot=1
+  while IFS= read -r line; do
+    branch=$(echo "$line" | awk '{print $1}')
+    [[ -z "$branch" ]] && continue
+    if [[ "$branch" == "$current_dir" ]]; then
       WM_SLOT=$slot
       break
     fi
-  done
+    ((slot++))
+  done < <(workmux list 2>/dev/null | tail -n +2 | grep -v '(here)')
+
   if [[ -z "${WM_SLOT:-}" ]]; then
-    echo "ERROR: No available slot found (tried 1-99)" >&2
-    exit 1
+    # Fallback: count existing non-main worktrees
+    WM_SLOT=$(workmux list 2>/dev/null | tail -n +2 | grep -cv '(here)' || echo 1)
   fi
   echo "Auto-assigned slot $WM_SLOT"
 fi
