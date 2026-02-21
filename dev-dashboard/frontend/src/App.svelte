@@ -6,7 +6,7 @@
   import ConfirmDialog from "./lib/ConfirmDialog.svelte";
   import CreateWorktreeDialog from "./lib/CreateWorktreeDialog.svelte";
   import type { WorktreeInfo } from "./lib/types";
-  import type { Profile } from "./lib/api";
+  import type { Profile, Agent } from "./lib/api";
   import * as api from "./lib/api";
 
   let worktrees = $state<WorktreeInfo[]>([]);
@@ -40,11 +40,11 @@
     return result;
   }
 
-  async function handleCreate(name: string, profile: Profile) {
+  async function handleCreate(name: string, profile: Profile, agent: Agent) {
     const branch = name || randomName(8);
     creating = true;
     try {
-      await api.createWorktree(branch, profile);
+      await api.createWorktree(branch, profile, agent);
       await api.openWorktree(branch);
       showCreateDialog = false;
       await refresh();

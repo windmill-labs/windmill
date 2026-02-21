@@ -1,5 +1,10 @@
 <script lang="ts">
-  import type { Profile } from "./api";
+  import type { Profile, Agent } from "./api";
+
+  const AGENTS: { value: Agent; label: string }[] = [
+    { value: "claude", label: "Claude" },
+    { value: "codex", label: "Codex" },
+  ];
 
   const PROFILES: { value: Profile; label: string }[] = [
     { value: "agent-only", label: "Agent only" },
@@ -9,14 +14,17 @@
 
   let { loading = false, oncreate, oncancel }: {
     loading?: boolean;
-    oncreate: (name: string, profile: Profile) => void;
+    oncreate: (name: string, profile: Profile, agent: Agent) => void;
     oncancel: () => void;
   } = $props();
 
   const STORAGE_KEY = "wt-default-profile";
+  const AGENT_STORAGE_KEY = "wt-default-agent";
   const savedProfile = localStorage.getItem(STORAGE_KEY) as Profile | null;
+  const savedAgent = localStorage.getItem(AGENT_STORAGE_KEY) as Agent | null;
 
   let name = $state("");
+  let agent = $state<Agent>(savedAgent ?? "claude");
   let profile = $state<Profile>(savedProfile ?? "agent-only");
   let saveDefault = $state(false);
 
@@ -32,9 +40,14 @@
 <dialog bind:this={dialogEl} onclose={oncancel} class="bg-sidebar text-primary border border-edge rounded-xl p-6 max-w-[380px] w-[90%]">
   <form method="dialog" onsubmit={(e) => {
     e.preventDefault();
-    if (saveDefault) localStorage.setItem(STORAGE_KEY, profile);
-    else localStorage.removeItem(STORAGE_KEY);
-    oncreate(name.trim(), profile);
+    if (saveDefault) {
+      localStorage.setItem(STORAGE_KEY, profile);
+      localStorage.setItem(AGENT_STORAGE_KEY, agent);
+    } else {
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(AGENT_STORAGE_KEY);
+    }
+    oncreate(name.trim(), profile, agent);
   }}>
     <h2 class="text-base mb-4">New Worktree</h2>
     <div class="mb-4">
@@ -46,6 +59,24 @@
         placeholder="auto-generated if empty"
         bind:value={name}
       />
+    </div>
+    <div class="flex gap-2 mb-4">
+      {#each AGENTS as a}
+        <label
+          class="flex-1 flex items-center justify-center gap-2 p-2.5 rounded-lg border cursor-pointer text-[13px] transition-colors
+            {agent === a.value ? 'border-accent bg-accent/10' : 'border-edge hover:bg-hover'}"
+        >
+          <input
+            type="radio"
+            name="agent"
+            value={a.value}
+            checked={agent === a.value}
+            onchange={() => (agent = a.value)}
+            class="accent-[var(--accent)]"
+          />
+          {a.label}
+        </label>
+      {/each}
     </div>
     <div class="flex flex-col gap-2 mb-6">
       {#each PROFILES as p}

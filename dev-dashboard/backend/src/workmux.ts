@@ -80,6 +80,7 @@ async function runChecked(args: string[]): Promise<string> {
 }
 
 export type Profile = "full" | "agent-only" | "agent-yolo";
+export type Agent = "claude" | "codex";
 
 export { readEnvLocal } from "./env";
 
@@ -99,9 +100,17 @@ function buildSystemPrompt(profile: Profile, env: Record<string, string>): strin
   return lines.join(" ");
 }
 
-function buildClaudeCmd(profile: Profile, env: Record<string, string>): string {
+function buildAgentCmd(profile: Profile, env: Record<string, string>, agent: Agent): string {
   const prompt = buildSystemPrompt(profile, env);
 
+  if (agent === "codex") {
+    if (profile === "agent-yolo") {
+      return `workmux sandbox agent -- codex --full-auto`;
+    }
+    return "codex";
+  }
+
+  // Claude
   if (profile === "agent-yolo") {
     // Double-escape: outer single quotes for the host shell,
     // inner double quotes to survive workmux sandbox's sh -c
@@ -114,9 +123,10 @@ function buildClaudeCmd(profile: Profile, env: Record<string, string>): string {
 
 export async function addWorktree(
   branch: string,
-  opts?: { prompt?: string; profile?: Profile }
+  opts?: { prompt?: string; profile?: Profile; agent?: Agent }
 ): Promise<string> {
   const profile = opts?.profile ?? "full";
+  const agent = opts?.agent ?? "claude";
   const args: string[] = ["workmux", "add", "-b"]; // -b = background (don't switch tmux)
 
   // Skip default pane commands for non-full profiles
@@ -160,9 +170,9 @@ export async function addWorktree(
       Bun.spawnSync(["tmux", "kill-pane", "-t", `${windowTarget}.${paneIds[i]}`]);
     }
     // Build and send claude command with environment-aware system prompt
-    const claudeCmd = buildClaudeCmd(profile, env);
-    console.log(`[workmux] sending command to ${windowTarget}.0:\n${claudeCmd}`);
-    Bun.spawnSync(["tmux", "send-keys", "-t", `${windowTarget}.0`, claudeCmd, "Enter"]);
+    const agentCmd = buildAgentCmd(profile, env, agent);
+    console.log(`[workmux] sending command to ${windowTarget}.0:\n${agentCmd}`);
+    Bun.spawnSync(["tmux", "send-keys", "-t", `${windowTarget}.0`, agentCmd, "Enter"]);
     // Open a shell pane on the right (1/3 width) in the worktree dir
     Bun.spawnSync(["tmux", "split-window", "-h", "-t", `${windowTarget}.0`, "-l", "33%", "-c", wtDir]);
     // Keep focus on the agent pane (left)

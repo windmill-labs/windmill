@@ -8,6 +8,7 @@ import {
   sendPrompt,
   readEnvLocal,
   type Profile,
+  type Agent,
 } from "./workmux";
 import { reconcileForwarding, stopAll } from "./socat";
 import {
@@ -191,14 +192,16 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
 
     // POST /api/worktrees
     if (parts[0] === "worktrees" && parts.length === 1 && method === "POST") {
-      const body = await req.json() as { branch?: string; prompt?: string; profile?: string };
+      const body = await req.json() as { branch?: string; prompt?: string; profile?: string; agent?: string };
       if (!body.branch) {
         return errorResponse("branch is required", 400);
       }
       const validProfiles = ["full", "agent-only", "agent-yolo"] as const;
+      const validAgents = ["claude", "codex"] as const;
       const profile = validProfiles.includes(body.profile as any) ? body.profile as Profile : "agent-only";
-      console.log(`[worktree:add] branch=${body.branch} profile=${profile}${body.prompt ? ` prompt="${body.prompt.slice(0, 80)}"` : ""}`);
-      const result = await addWorktree(body.branch, { prompt: body.prompt, profile });
+      const agent = validAgents.includes(body.agent as any) ? body.agent as Agent : "claude";
+      console.log(`[worktree:add] branch=${body.branch} agent=${agent} profile=${profile}${body.prompt ? ` prompt="${body.prompt.slice(0, 80)}"` : ""}`);
+      const result = await addWorktree(body.branch, { prompt: body.prompt, profile, agent });
       console.log(`[worktree:add] done branch=${body.branch}: ${result}`);
       return jsonResponse({ message: result }, 201);
     }
