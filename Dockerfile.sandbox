@@ -38,7 +38,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
     sh -s -- -y --default-toolchain stable --profile minimal && \
-    chmod -R a+rX /opt/rustup /opt/cargo && \
+    chmod -R a+rwX /opt/rustup /opt/cargo && \
     ln -s /opt/cargo/bin/* /usr/local/bin/
 
 # Install sqlx-cli (for database migrations)
@@ -163,6 +163,12 @@ fi
 sudo -u postgres /usr/lib/postgresql/15/bin/pg_ctl -D /tmp/pgdata -l /tmp/pg.log start -o "-k /tmp"
 sudo -u postgres psql -h /tmp -c "CREATE ROLE sandbox SUPERUSER LOGIN" 2>/dev/null || true
 sudo -u postgres createdb -h /tmp windmill 2>/dev/null || true
+
+# Run database migrations so sqlx compile-time checks work
+if [ -d "$PWD/backend/migrations" ]; then
+    DATABASE_URL="postgres://sandbox@localhost/windmill?host=/tmp" \
+        sqlx migrate run --source "$PWD/backend/migrations" 2>/dev/null || true
+fi
 
 exec "$@"
 ENTRY
