@@ -14,7 +14,7 @@ export function fetchWorktrees(): Promise<WorktreeInfo[]> {
   return api<WorktreeInfo[]>("worktrees");
 }
 
-export type Profile = "full" | "agent-only";
+export type Profile = "full" | "agent-only" | "agent-yolo";
 
 export function createWorktree(
   branch: string,

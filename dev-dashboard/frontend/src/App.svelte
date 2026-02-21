@@ -10,6 +10,7 @@
 
   const PROFILES: { value: Profile; label: string }[] = [
     { value: "agent-only", label: "Agent only" },
+    { value: "agent-yolo", label: "Agent (skip permissions)" },
     { value: "full", label: "Full (agent + backend + frontend)" },
   ];
 
@@ -21,10 +22,12 @@
   let removing = $state(false);
   let createProfile = $state<Profile>("agent-only");
 
-  let selectedWorktree = $derived(worktrees.find((w) => w.branch === selectedBranch));
-  let hasMux = $derived(selectedWorktree?.mux === "✓");
+  let visibleWorktrees = $derived(
+    worktrees.filter((w) => w.path === "(here)" || w.branch === "main" || w.mux === "✓")
+  );
+  let selectedWorktree = $derived(visibleWorktrees.find((w) => w.branch === selectedBranch));
   let isMain = $derived(selectedWorktree?.path === "(here)" || selectedBranch === "main");
-  let canConnect = $derived(!!selectedBranch && !isMain && hasMux);
+  let canConnect = $derived(!!selectedBranch && !isMain);
 
   async function refresh() {
     try {
@@ -92,7 +95,7 @@
         title="New Worktree"
       ><span class="text-lg leading-none">+</span> New</button>
     </div>
-    <WorktreeList {worktrees} selected={selectedBranch} onselect={(b) => (selectedBranch = b)} />
+    <WorktreeList worktrees={visibleWorktrees} selected={selectedBranch} onselect={(b) => (selectedBranch = b)} />
   </aside>
 
   <main class="flex-1 min-w-0 flex flex-col overflow-hidden">
@@ -111,8 +114,6 @@
         <p>
           {#if isMain}
             Main worktree — use workmux to manage
-          {:else if selectedBranch && !hasMux}
-            No tmux window for this worktree
           {:else}
             Select a worktree from the sidebar to connect
           {/if}

@@ -6,6 +6,7 @@ import {
   openWorktree,
   closeWorktree,
   sendPrompt,
+  type Profile,
 } from "./workmux";
 import {
   attach,
@@ -143,7 +144,8 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
       if (!body.branch) {
         return errorResponse("branch is required", 400);
       }
-      const profile = (body.profile === "full" || body.profile === "agent-only") ? body.profile : "agent-only";
+      const validProfiles = ["full", "agent-only", "agent-yolo"] as const;
+      const profile = validProfiles.includes(body.profile as any) ? body.profile as Profile : "agent-only";
       const result = await addWorktree(body.branch, { prompt: body.prompt, profile });
       return jsonResponse({ message: result }, 201);
     }

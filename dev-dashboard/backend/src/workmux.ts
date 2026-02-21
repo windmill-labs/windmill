@@ -75,11 +75,12 @@ async function runChecked(args: string[]): Promise<string> {
   return stdout.trim();
 }
 
-export type Profile = "full" | "agent-only";
+export type Profile = "full" | "agent-only" | "agent-yolo";
 
 const PROFILE_PANE_CMDS: Record<Profile, string[]> = {
   "full": [], // Use default workmux pane commands from .workmux.yaml
   "agent-only": ["claude"], // Only start agent in pane 0
+  "agent-yolo": ["claude --dangerously-skip-permissions"],
 };
 
 export async function addWorktree(
