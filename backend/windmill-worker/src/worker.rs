@@ -571,6 +571,7 @@ lazy_static::lazy_static! {
 
     pub static ref NPM_CONFIG_REGISTRY: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref BUNFIG_INSTALL_SCOPES: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+    pub static ref NPMRC: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref BUN_NO_CACHE: bool = std::env::var("BUN_NO_CACHE")
         .ok()
         .and_then(|x| x.parse::<bool>().ok())
