@@ -62,6 +62,7 @@ export async function attach(
   const cmd = [
     `tmux new-session -d -s "${gName}" -t "${tmuxSession}"`,
     `tmux set-option -t "${gName}" mouse on`,
+    `tmux set-option -t "${gName}" set-clipboard on`,
     `tmux select-window -t "${gName}:${windowTarget}"`,
     `stty rows ${rows} cols ${cols}`,
     `exec tmux attach-session -t "${gName}"`,

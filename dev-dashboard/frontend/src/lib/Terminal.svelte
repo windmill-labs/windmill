@@ -32,6 +32,30 @@
     term.loadAddon(new WebLinksAddon());
     term.open(containerEl);
 
+    // Prevent browser context menu so tmux right-click works unobstructed
+    containerEl.addEventListener("contextmenu", (e) => e.preventDefault());
+
+    // Handle OSC 52 sequences from tmux → write to system clipboard
+    term.parser.registerOscHandler(52, (data) => {
+      const idx = data.indexOf(";");
+      if (idx !== -1) {
+        const b64 = data.slice(idx + 1);
+        try {
+          const text = atob(b64);
+          navigator.clipboard.writeText(text);
+        } catch {}
+      }
+      return true;
+    });
+
+    // Auto-copy on xterm.js selection (e.g. when user Shift+drags to bypass tmux mouse)
+    term.onSelectionChange(() => {
+      const sel = term.getSelection();
+      if (sel) {
+        navigator.clipboard.writeText(sel);
+      }
+    });
+
     requestAnimationFrame(() => fitAddon.fit());
 
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
