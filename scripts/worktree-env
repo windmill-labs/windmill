@@ -84,4 +84,20 @@ if [ -d "$ee_repo" ]; then
   elif [ -d "$ee_worktree_dir" ]; then
     echo "EE worktree already exists at $ee_worktree_dir"
   fi
+
+  # Point Claude Code additionalDirectories at the EE worktree
+  if [ -d "$ee_worktree_dir" ]; then
+    ee_rel=$(python3 -c "import os; print(os.path.relpath('$ee_worktree_dir', '$(pwd)'))" 2>/dev/null || echo "$ee_worktree_dir")
+    mkdir -p .claude
+    cat > .claude/settings.local.json <<EOFCLAUDE
+{
+  "permissions": {
+    "additionalDirectories": [
+      "$ee_rel"
+    ]
+  }
+}
+EOFCLAUDE
+    echo "Created .claude/settings.local.json with EE path: $ee_rel"
+  fi
 fi
