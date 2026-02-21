@@ -13,8 +13,12 @@
     oncancel: () => void;
   } = $props();
 
+  const STORAGE_KEY = "wt-default-profile";
+  const savedProfile = localStorage.getItem(STORAGE_KEY) as Profile | null;
+
   let name = $state("");
-  let profile = $state<Profile>("agent-only");
+  let profile = $state<Profile>(savedProfile ?? "agent-only");
+  let saveDefault = $state(false);
 
   let dialogEl: HTMLDialogElement;
 
@@ -26,7 +30,12 @@
 </script>
 
 <dialog bind:this={dialogEl} onclose={oncancel} class="bg-sidebar text-primary border border-edge rounded-xl p-6 max-w-[380px] w-[90%]">
-  <form method="dialog" onsubmit={(e) => { e.preventDefault(); oncreate(name.trim(), profile); }}>
+  <form method="dialog" onsubmit={(e) => {
+    e.preventDefault();
+    if (saveDefault) localStorage.setItem(STORAGE_KEY, profile);
+    else localStorage.removeItem(STORAGE_KEY);
+    oncreate(name.trim(), profile);
+  }}>
     <h2 class="text-base mb-4">New Worktree</h2>
     <div class="mb-4">
       <label class="block text-xs text-muted mb-1.5" for="wt-name">Name <span class="opacity-60">(optional)</span></label>
@@ -56,6 +65,10 @@
         </label>
       {/each}
     </div>
+    <label class="flex items-center gap-2 mb-4 text-[13px] text-muted cursor-pointer">
+      <input type="checkbox" bind:checked={saveDefault} class="accent-[var(--accent)]" />
+      Save as default
+    </label>
     <div class="flex justify-end gap-2">
       <button type="button" class={btn} onclick={oncancel} disabled={loading}>Cancel</button>
       <button
