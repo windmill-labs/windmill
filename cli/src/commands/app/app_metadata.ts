@@ -1,5 +1,5 @@
-// deno-lint-ignore-file no-explicit-any
 import path from "node:path";
+import { readFile, mkdir } from "node:fs/promises";
 import {
   SEP,
   colors,
@@ -351,7 +351,7 @@ async function updateRawAppRunnables(
 
   // Ensure runnables folder exists
   try {
-    await Deno.mkdir(runnablesFolder, { recursive: true });
+    await mkdir(runnablesFolder, { recursive: true });
   } catch {
     // Folder may already exist
   }
@@ -736,7 +736,7 @@ export async function inferRunnableSchemaFromFile(
   );
   let content: string;
   try {
-    content = await Deno.readTextFile(fullFilePath);
+    content = await readFile(fullFilePath, "utf-8");
   } catch {
     log.warn(colors.yellow(`Could not read file: ${fullFilePath}`));
     return undefined;
@@ -813,7 +813,7 @@ export async function generateLocksCommand(
     // Generate metadata for all apps
     const ignore = await ignoreF(opts);
     const elems = await elementsToMap(
-      await FSFSElement(Deno.cwd(), [], true),
+      await FSFSElement(process.cwd(), [], true),
       (p, isD) => {
         return (
           ignore(p, isD) ||

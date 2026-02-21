@@ -1,16 +1,15 @@
-// deno-lint-ignore-file no-explicit-any
 import { GlobalOptions } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
+import { readFile, writeFile, stat } from "node:fs/promises";
+import { Buffer } from "node:buffer";
 import {
   colors,
   Command,
   Confirm,
   log,
-  readAll,
   SEP,
   Table,
-  writeAllSync,
   yamlStringify,
 } from "../../../deps.ts";
 import { deepEqual } from "../../utils/utils.ts";
@@ -51,7 +50,7 @@ import {
 } from "../../core/conf.ts";
 import { SyncCodebase, listSyncCodebases } from "../../utils/codebase.ts";
 import fs from "node:fs";
-import { type Tarball } from "npm:@ayonli/jsext/archive";
+import { type Tarball } from "@ayonli/jsext/archive";
 
 import { execSync } from "node:child_process";
 import { NewScript, Script } from "../../../gen/types.gen.ts";
@@ -106,8 +105,8 @@ async function push(opts: PushOptions, filePath: string) {
     return;
   }
 
-  const fstat = await Deno.stat(filePath);
-  if (!fstat.isFile) {
+  const fstat = await stat(filePath);
+  if (!fstat.isFile()) {
     throw new Error("file path must refer to a file.");
   }
 
@@ -159,9 +158,9 @@ export async function findResourceFile(path: string) {
   const validCandidates = (
     await Promise.all(
       candidates.map((x) => {
-        return Deno.stat(x)
+        return stat(x)
           .catch(() => undefined)
-          .then((x) => x?.isFile)
+          .then((x) => x?.isFile())
           .then((e) => {
             return { path: x, file: e };
           });
@@ -314,7 +313,7 @@ export async function handleFile(
             continue;
           }
           log.info(`Adding file: ${file.path.substring(1)}`);
-          // deno-lint-ignore no-explicit-any
+        
           const fil = new File([file.contents as any], file.path.substring(1));
           tarball.append(fil);
         }
@@ -384,7 +383,7 @@ export async function handleFile(
     } catch {
       log.debug(`Script ${remotePath} does not exist on remote`);
     }
-    const content = await Deno.readTextFile(path);
+    const content = await readFile(path, "utf-8");
 
     if (opts?.skipScriptsMetadata) {
       // if (codebase) {
@@ -544,7 +543,7 @@ async function streamToBlob(stream: ReadableStream<Uint8Array>): Promise<Blob> {
     chunks.push(value);
   }
 
-  // deno-lint-ignore no-explicit-any
+
   const blob = new Blob(chunks as any);
   return blob;
 }
@@ -611,9 +610,9 @@ export async function findContentFile(filePath: string) {
   const validCandidates = (
     await Promise.all(
       candidates.map((x) => {
-        return Deno.stat(x)
+        return stat(x)
           .catch(() => undefined)
-          .then((x) => x?.isFile)
+          .then((x) => x?.isFile())
           .then((e) => {
             return { path: x, file: e };
           });
@@ -778,10 +777,12 @@ export async function resolve(input: string): Promise<Record<string, any>> {
   }
 
   if (input == "@-") {
-    input = new TextDecoder().decode(await readAll(Deno.stdin));
+    const chunks: Buffer[] = [];
+    for await (const chunk of process.stdin) chunks.push(chunk);
+    input = new TextDecoder().decode(Buffer.concat(chunks));
   }
   if (input[0] == "@") {
-    input = await Deno.readTextFile(input.substring(1));
+    input = await readFile(input.substring(1), "utf-8");
   }
   try {
     return JSON.parse(input);
@@ -881,7 +882,7 @@ export async function track_job(workspace: string, id: string) {
     }
 
     if (updates.new_logs) {
-      writeAllSync(Deno.stdout, new TextEncoder().encode(updates.new_logs));
+      process.stdout.write(updates.new_logs);
       logOffset += updates.new_logs.length;
     }
 
@@ -951,8 +952,8 @@ async function bootstrap(
   const scriptMetadataFileFullPath = scriptPath + ".script.yaml";
 
   try {
-    await Deno.stat(scriptCodeFileFullPath);
-    await Deno.stat(scriptMetadataFileFullPath);
+    await stat(scriptCodeFileFullPath);
+    await stat(scriptMetadataFileFullPath);
     throw new Error("File already exists in repository");
   } catch {
     // file does not exist, we can continue
@@ -971,14 +972,14 @@ async function bootstrap(
     yamlOptions
   );
 
-  await Deno.writeTextFile(scriptCodeFileFullPath, scriptInitialCode, {
-    createNew: true,
+  await writeFile(scriptCodeFileFullPath, scriptInitialCode, {
+    flag: 'wx', encoding: 'utf-8',
   });
-  await Deno.writeTextFile(
+  await writeFile(
     scriptMetadataFileFullPath,
     scriptInitialMetadataYaml,
     {
-      createNew: true,
+      flag: 'wx', encoding: 'utf-8',
     }
   );
 }
@@ -1028,7 +1029,7 @@ async function generateMetadata(
     // TODO: test this as well.
     const ignore = await ignoreF(opts);
     const elems = await elementsToMap(
-      await FSFSElement(Deno.cwd(), codebases, false),
+      await FSFSElement(process.cwd(), codebases, false),
       (p, isD) => {
         return (
           (!isD && !exts.some((ext) => p.endsWith(ext))) ||
@@ -1107,8 +1108,8 @@ async function preview(
     return;
   }
 
-  const fstat = await Deno.stat(filePath);
-  if (!fstat.isFile) {
+  const fstat = await stat(filePath);
+  if (!fstat.isFile()) {
     throw new Error("file path must refer to a file.");
   }
 
@@ -1120,7 +1121,7 @@ async function preview(
 
   const codebases = await listSyncCodebases(opts);
   const language = inferContentTypeFromFilePath(filePath, opts?.defaultTs);
-  const content = await Deno.readTextFile(filePath);
+  const content = await readFile(filePath, "utf-8");
   const input = opts.data ? await resolve(opts.data) : {};
 
   // Check if this is a codebase script
@@ -1177,7 +1178,7 @@ async function preview(
         tarball.append(new File([mainContent], "main.js", { type: "text/plain" }));
         for (const file of out.outputFiles) {
           if (file.path == "/" + mainPath) continue;
-          // deno-lint-ignore no-explicit-any
+        
           const fil = new File([file.contents as any], file.path.substring(1));
           tarball.append(fil);
         }

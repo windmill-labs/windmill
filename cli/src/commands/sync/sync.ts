@@ -1,5 +1,6 @@
 import { requireLogin } from "../../core/auth.ts";
 import { fetchVersion, resolveWorkspace } from "../../core/context.ts";
+import { readFile, writeFile, readdir, stat, rm, copyFile } from "node:fs/promises";
 import {
   colors,
   Command,
@@ -178,7 +179,7 @@ async function addCodebaseDigestIfRelevant(
   let isTs = true;
   const replacedPath = path.replace(".script.yaml", ".ts");
   try {
-    await Deno.stat(replacedPath);
+    await stat(replacedPath);
   } catch {
     isTs = false;
   }
@@ -231,10 +232,11 @@ export async function FSFSElement(
       async *getChildren(): AsyncIterable<DynFSElement> {
         if (!isDir) return [];
         try {
-          for await (const e of Deno.readDir(localP)) {
+          const entries = await readdir(localP, { withFileTypes: true });
+          for (const e of entries) {
             yield _internal_element(
               path.join(localP, e.name),
-              e.isDirectory,
+              e.isDirectory(),
               codebases,
             );
           }
@@ -246,7 +248,7 @@ export async function FSFSElement(
       //   return await Deno.readFile(localP);
       // },
       async getContentText(): Promise<string> {
-        const content = await Deno.readTextFile(localP);
+        const content = await readFile(localP, "utf-8");
         const itemPath = localP.substring(p.length + 1);
         const r = await addCodebaseDigestIfRelevant(
           itemPath,
@@ -258,7 +260,7 @@ export async function FSFSElement(
       },
     };
   }
-  return _internal_element(p, (await Deno.stat(p)).isDirectory, codebases);
+  return _internal_element(p, (await stat(p)).isDirectory(), codebases);
 }
 
 function prioritizeName(name: string): string {
@@ -1580,7 +1582,7 @@ export async function ignoreF(wmillconf: {
   }
 
   try {
-    await Deno.stat(".wmillignore");
+    await stat(".wmillignore");
     throw Error(".wmillignore is not supported anymore, switch to wmill.yaml");
   } catch {
     //expected

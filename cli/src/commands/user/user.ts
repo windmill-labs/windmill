@@ -1,4 +1,5 @@
-// deno-lint-ignore-file no-explicit-any
+import { writeFile } from "node:fs/promises";
+
 import { requireLogin } from "../../core/auth.ts";
 import {
   GlobalOptions,
@@ -417,9 +418,10 @@ export async function pullInstanceUsers(
     return compareInstanceObjects(remoteUsers, localUsers, "email", "user");
   } else {
     log.info("Pulling users from instance...");
-    await Deno.writeTextFile(
+    await writeFile(
       instanceUsersPath,
-      yamlStringify(remoteUsers as any)
+      yamlStringify(remoteUsers as any),
+      "utf-8"
     );
     log.info(colors.green(`Users written to ${instanceUsersPath}`));
   }
@@ -486,9 +488,10 @@ export async function pullInstanceGroups(
   } else {
     log.info("Pulling groups from instance...");
 
-    await Deno.writeTextFile(
+    await writeFile(
       instanceGroupsPath,
-      yamlStringify(remoteGroups as any)
+      yamlStringify(remoteGroups as any),
+      "utf-8"
     );
 
     log.info(colors.green(`Groups written to ${instanceGroupsPath}`));

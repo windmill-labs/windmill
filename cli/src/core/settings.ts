@@ -1,4 +1,5 @@
 import process from "node:process";
+import { writeFile } from "node:fs/promises";
 import { colors, Confirm, log, yamlParseFile, yamlStringify } from "../../deps.ts";
 import * as wmill from "../../gen/services.gen.ts";
 import { AIConfig, Config, GlobalSetting } from "../../gen/types.gen.ts";
@@ -493,9 +494,10 @@ export async function pullInstanceSettings(
       remoteSettings,
       "encode"
     );
-    await Deno.writeTextFile(
+    await writeFile(
       instanceSettingsPath,
-      yamlStringify(processedSettings)
+      yamlStringify(processedSettings),
+      "utf-8"
     );
 
     log.info(colors.green(`Settings written to ${instanceSettingsPath}`));
@@ -602,9 +604,10 @@ export async function pullInstanceConfigs(
   } else {
     log.info("Pulling configs from instance");
 
-    await Deno.writeTextFile(
+    await writeFile(
       instanceConfigsPath,
-      yamlStringify(remoteConfigs as any)
+      yamlStringify(remoteConfigs as any),
+      "utf-8"
     );
 
     log.info(colors.green(`Configs written to ${instanceConfigsPath}`));

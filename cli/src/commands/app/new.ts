@@ -1,3 +1,4 @@
+import { stat, writeFile } from "node:fs/promises";
 import {
   colors,
   Command,
@@ -480,11 +481,11 @@ CREATE SCHEMA IF NOT EXISTS ${schemaName};
 
   // Create the directory structure - preserve full path (e.g., f/foobar/x/y becomes f/foobar/x/y.raw_app)
   const folderName = buildFolderPath(appPath, "raw_app");
-  const appDir = path.join(Deno.cwd(), folderName);
+  const appDir = path.join(process.cwd(), folderName);
 
   // Check if directory already exists
   try {
-    await Deno.stat(appDir);
+    await stat(appDir);
     const overwrite = await Confirm.prompt({
       message: `Directory '${folderName}' already exists. Overwrite?`,
       default: false,
@@ -511,15 +512,15 @@ CREATE SCHEMA IF NOT EXISTS ${schemaName};
     rawAppConfig.data = dataConfig;
   }
 
-  await Deno.writeTextFile(
+  await writeFile(
     path.join(appDir, "raw_app.yaml"),
-    yamlStringify(rawAppConfig, yamlOptions)
+    yamlStringify(rawAppConfig, yamlOptions), "utf-8"
   );
 
   // Create template files
   for (const [filePath, content] of Object.entries(template.files)) {
     const fullPath = path.join(appDir, filePath.slice(1)); // Remove leading slash
-    await Deno.writeTextFile(fullPath, content.trim() + "\n");
+    await writeFile(fullPath, content.trim() + "\n", "utf-8");
   }
 
   // Create AGENTS.md - main documentation for AI agents
@@ -532,22 +533,22 @@ CREATE SCHEMA IF NOT EXISTS ${schemaName};
     : undefined;
 
   const agentsContent = generateAgentsDocumentation(dataForDocs);
-  await Deno.writeTextFile(
+  await writeFile(
     path.join(appDir, "AGENTS.md"),
-    agentsContent
+    agentsContent, "utf-8"
   );
 
   // Create CLAUDE.md referencing AGENTS.md
-  await Deno.writeTextFile(
+  await writeFile(
     path.join(appDir, "CLAUDE.md"),
-    `Instructions are in @AGENTS.md\n`
+    `Instructions are in @AGENTS.md\n`, "utf-8"
   );
 
   // Create DATATABLES.md with the configured data
   const datatablesContent = generateDatatablesDocumentation(dataForDocs);
-  await Deno.writeTextFile(
+  await writeFile(
     path.join(appDir, "DATATABLES.md"),
-    datatablesContent
+    datatablesContent, "utf-8"
   );
 
   // Create example backend runnable
@@ -555,20 +556,20 @@ CREATE SCHEMA IF NOT EXISTS ${schemaName};
     type: "inline",
     path: undefined,
   };
-  await Deno.writeTextFile(
+  await writeFile(
     path.join(appDir, "backend", "a.yaml"),
-    yamlStringify(exampleRunnable, yamlOptions)
+    yamlStringify(exampleRunnable, yamlOptions), "utf-8"
   );
-  await Deno.writeTextFile(
+  await writeFile(
     path.join(appDir, "backend", "a.ts"),
     `export async function main(x: number): Promise<string> {
   return \`Hello from backend! x = \${x}\`;
 }
-`
+`, "utf-8"
   );
 
   // Create sql_to_apply README
-  await Deno.writeTextFile(
+  await writeFile(
     path.join(appDir, "sql_to_apply", "README.md"),
     `# SQL Migrations Folder
 
@@ -601,9 +602,9 @@ This folder is for SQL migration files that will be applied to datatables during
 
   // Create schema creation SQL file if a new schema was requested
   if (createSchemaSQL && schemaName) {
-    await Deno.writeTextFile(
+    await writeFile(
       path.join(appDir, "sql_to_apply", `000_create_schema_${schemaName}.sql`),
-      createSchemaSQL
+      createSchemaSQL, "utf-8"
     );
   }
 
@@ -666,7 +667,6 @@ This folder is for SQL migration files that will be applied to datatables during
   log.info(colors.gray("  4. wmill sync push (to deploy when ready)"));
 }
 
-// deno-lint-ignore no-explicit-any
 const command = new Command()
   .description("create a new raw app from a template")
   .action(newApp as any);

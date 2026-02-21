@@ -1,3 +1,6 @@
+import { stat } from "node:fs/promises";
+import process from "node:process";
+
 import { colors, Command, log, path, SEP } from "../../../deps.ts";
 import { GlobalOptions } from "../../types.ts";
 import { mergeConfigWithConfigFile } from "../../core/conf.ts";
@@ -10,7 +13,7 @@ import {
   getValidationTargetFromFilename,
   type ValidationTarget,
   WindmillYamlValidator,
-} from "npm:windmill-yaml-validator@1.1.1";
+} from "windmill-yaml-validator";
 
 interface LintOptions extends GlobalOptions {
   json?: boolean;
@@ -105,20 +108,20 @@ export async function runLint(
   opts: LintOptions,
   directory?: string,
 ): Promise<LintReport> {
-  const initialCwd = Deno.cwd();
+  const initialCwd = process.cwd();
   const explicitTargetDirectory = directory
     ? path.resolve(initialCwd, directory)
     : undefined;
 
   const { json: _json, ...syncOpts } = opts;
   const mergedOpts = await mergeConfigWithConfigFile(syncOpts);
-  const targetDirectory = explicitTargetDirectory ?? Deno.cwd();
+  const targetDirectory = explicitTargetDirectory ?? process.cwd();
 
-  const stats = await Deno.stat(targetDirectory).catch(() => null);
+  const stats = await stat(targetDirectory).catch(() => null);
   if (!stats) {
     throw new Error(`Directory not found: ${targetDirectory}`);
   }
-  if (!stats.isDirectory) {
+  if (!stats.isDirectory()) {
     throw new Error(`Path is not a directory: ${targetDirectory}`);
   }
 
@@ -238,7 +241,7 @@ async function lint(opts: LintOptions, directory?: string) {
     const report = await runLint(opts, directory);
     printReport(report, !!opts.json);
     if (report.exitCode !== 0) {
-      Deno.exit(report.exitCode);
+      process.exit(report.exitCode);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -257,7 +260,7 @@ async function lint(opts: LintOptions, directory?: string) {
     } else {
       log.error(colors.red(`❌ ${message}`));
     }
-    Deno.exit(1);
+    process.exit(1);
   }
 }
 

@@ -1,3 +1,5 @@
+import process from "node:process";
+
 import { colors, log, Confirm } from "../../../deps.ts";
 import { GlobalOptions } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
@@ -34,7 +36,7 @@ export async function pushGitSyncSettings(
   } catch (error) {
     if (error instanceof Error && error.message.includes("overrides")) {
       log.error(error.message);
-      Deno.exit(1);
+      process.exit(1);
     }
     throw error;
   }
@@ -51,7 +53,7 @@ export async function pushGitSyncSettings(
           "No wmill.yaml file found. Please run 'wmill init' first to create the configuration file.",
         ),
       );
-      Deno.exit(1);
+      process.exit(1);
     }
 
     // Read local configuration
@@ -247,7 +249,7 @@ export async function pushGitSyncSettings(
       }
 
       // Ask for confirmation unless --yes is passed or not in TTY
-      if (!opts.yes && Deno.stdin.isTerminal()) {
+      if (!opts.yes && !!process.stdin.isTTY) {
         const confirmed = await Confirm.prompt({
           message: `Do you want to apply these changes to the remote?`,
           default: true,

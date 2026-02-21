@@ -188,15 +188,16 @@ const command = new Command()
 
 async function main() {
   try {
-    if (Deno.args.length === 0) {
+    const args = process.argv.slice(2);
+    if (args.length === 0) {
       command.showHelp();
     }
     const LOG_LEVEL =
-      Deno.args.includes("--verbose") || Deno.args.includes("--debug")
+      args.includes("--verbose") || args.includes("--debug")
         ? "DEBUG"
         : "INFO";
-    // const NO_COLORS = Deno.args.includes("--no-colors");
-    setShowDiffs(Deno.args.includes("--show-diffs"));
+    // const NO_COLORS = args.includes("--no-colors");
+    setShowDiffs(args.includes("--show-diffs"));
 
     const isWin = await getIsWin();
     log.setup({
@@ -219,7 +220,7 @@ async function main() {
     if (extraHeaders) {
       OpenAPI.HEADERS = extraHeaders;
     }
-    await command.parse(Deno.args);
+    await command.parse(args);
   } catch (e) {
     if (e && typeof e === "object" && "name" in e && e.name === "ApiError") {
       console.log(
@@ -231,41 +232,20 @@ async function main() {
 }
 
 function isMain() {
-  // dnt-shim-ignore
-  const { Deno } = globalThis as any;
+  // Handle symlinks properly: resolve symlinks when comparing process.argv[1]
+  // with import.meta.url, so `wmill` symlink matches the real file path.
+  try {
+    const scriptPath = process.argv[1];
+    if (!scriptPath) return false;
 
-  const isDeno = Deno != undefined;
+    const realScriptPath = realpathSync(scriptPath);
+    const modulePath = fileURLToPath(import.meta.url);
 
-  if (isDeno) {
-    const isMain = import.meta.main;
-    if (isMain) {
-      if (!Deno.args.includes("completions")) {
-        if (Deno.env.get("SKIP_DENO_DEPRECATION_WARNING") !== "true") {
-          log.warn(
-            "Using the deno runtime for the Windmill CLI is deprecated, you can now use node: deno uninstall wmill && npm install -g windmill-cli. To skip this warning set SKIP_DENO_DEPRECATION_WARNING=true"
-          );
-        }
-      }
-    }
-    return isMain;
-  } else {
-    // For Node.js, we need to handle symlinks properly.
-    // The dnt polyfill doesn't resolve symlinks when comparing process.argv[1]
-    // with import.meta.url, so `wmill` symlink doesn't match the real file path.
-    // We resolve symlinks manually to get accurate comparison.
-    try {
-      const scriptPath = process.argv[1];
-      if (!scriptPath) return false;
-
-      const realScriptPath = realpathSync(scriptPath);
-      const modulePath = fileURLToPath(import.meta.url);
-
-      return realScriptPath === modulePath;
-    } catch {
-      // Fallback to esMain if something fails
-      //@ts-ignore
-      return esMain.default(import.meta);
-    }
+    return realScriptPath === modulePath;
+  } catch {
+    // Fallback to esMain if something fails
+    //@ts-ignore
+    return esMain.default(import.meta);
   }
 }
 if (isMain()) {

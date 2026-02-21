@@ -1,6 +1,5 @@
-// deno-lint-ignore-file no-explicit-any
-
 import { writeFileSync } from "node:fs";
+import { stat } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
@@ -65,8 +64,8 @@ export async function pushResourceType(
 
 type PushOptions = GlobalOptions;
 async function push(opts: PushOptions, filePath: string, name: string) {
-  const fstat = await Deno.stat(filePath);
-  if (!fstat.isFile) {
+  const fstat = await stat(filePath);
+  if (!fstat.isFile()) {
     throw new Error("file path must refer to a file.");
   }
   const workspace = await resolveWorkspace(opts);

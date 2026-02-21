@@ -1,4 +1,3 @@
-// deno-lint-ignore-file no-explicit-any
 import * as fs from "node:fs";
 import * as path from "node:path";
 import process from "node:process";
@@ -224,7 +223,7 @@ async function lint(opts: LintOptions, appFolder?: string) {
       log.info(colors.red(`  - ${error}`));
     });
     log.info(colors.red("\n❌ Lint failed\n"));
-    Deno.exit(1);
+    process.exit(1);
   }
 
   log.info(colors.green("\n✅ All checks passed\n"));

@@ -1,6 +1,6 @@
-// deno-lint-ignore-file no-explicit-any
 import { GlobalOptions } from "../types.ts";
 import { SEP, colors, log, yamlParseFile, yamlStringify } from "../../deps.ts";
+import { readFile, writeFile, stat, rm, readdir } from "node:fs/promises";
 import {
   ScriptMetadata,
   defaultScriptMetadata,
@@ -31,11 +31,12 @@ export async function getRawWorkspaceDependencies(): Promise<Record<string, stri
   const rawWorkspaceDeps: Record<string, string> = {};
   
   try {
-    for await (const entry of Deno.readDir("dependencies")) {
-      if (entry.isDirectory) continue;
+    const entries = await readdir("dependencies", { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory()) continue;
       
       const filePath = `dependencies/${entry.name}`;
-      const content = await Deno.readTextFile(filePath);
+      const content = await readFile(filePath, "utf-8");
       
       // Find matching language
       for (const lang of workspaceDependenciesLanguages) {
@@ -120,7 +121,7 @@ export async function filterWorkspaceDependenciesForScripts(
     if (content.startsWith("!inline ")) {
       const filePath = folder + sep + content.replace("!inline ", "");
       try {
-        content = await Deno.readTextFile(filePath);
+        content = await readFile(filePath, "utf-8");
       } catch {
         continue;
       }
@@ -173,8 +174,8 @@ export async function generateScriptMetadataInternal(
   );
 
   // read script content
-  const scriptContent = await Deno.readTextFile(scriptPath);
-  const metadataContent = await Deno.readTextFile(metadataWithType.path);
+  const scriptContent = await readFile(scriptPath, "utf-8");
+  const metadataContent = await readFile(metadataWithType.path, "utf-8");
 
   const filteredRawWorkspaceDependencies = filterWorkspaceDependencies(
     rawWorkspaceDependencies,
@@ -250,7 +251,7 @@ export async function generateScriptMetadataInternal(
   );
   await updateMetadataGlobalLock(remotePath, hash);
   if (!justUpdateMetadataLock) {
-    await Deno.writeTextFile(metaPath, newMetadataContent);
+    await writeFile(metaPath, newMetadataContent, "utf-8");
   }
   return `${remotePath} (${language})`;
 }
@@ -490,12 +491,12 @@ async function updateScriptLock(
 
   const lockPath = remotePath + ".script.lock";
   if (lock != "") {
-    await Deno.writeTextFile(lockPath, lock);
+    await writeFile(lockPath, lock, "utf-8");
     metadataContent.lock = "!inline " + lockPath.replaceAll(SEP, "/");
   } else {
     try {
-      if (await Deno.stat(lockPath)) {
-        await Deno.remove(lockPath);
+      if (await stat(lockPath)) {
+        await rm(lockPath);
       }
     } catch (e) {
       log.info(colors.yellow(`Error removing lock file ${lockPath}: ${e}`));
@@ -751,16 +752,16 @@ export async function parseMetadataFile(
 ): Promise<{ isJson: boolean; payload: any; path: string }> {
   let metadataFilePath = scriptPath + ".script.json";
   try {
-    await Deno.stat(metadataFilePath);
+    await stat(metadataFilePath);
     return {
       path: metadataFilePath,
-      payload: JSON.parse(await Deno.readTextFile(metadataFilePath)),
+      payload: JSON.parse(await readFile(metadataFilePath, "utf-8")),
       isJson: true,
     };
   } catch {
     try {
       metadataFilePath = scriptPath + ".script.yaml";
-      await Deno.stat(metadataFilePath);
+      await stat(metadataFilePath);
       const payload: any = await yamlParseFile(metadataFilePath);
       replaceLock(payload);
 
@@ -785,12 +786,8 @@ export async function parseMetadataFile(
         yamlOptions
       );
 
-      await Deno.writeTextFile(metadataFilePath, scriptInitialMetadataYaml, {
-        createNew: true,
-      });
-      await Deno.writeTextFile(lockPath, "", {
-        createNew: true,
-      });
+      await writeFile(metadataFilePath, scriptInitialMetadataYaml, { flag: "wx", encoding: "utf-8" });
+      await writeFile(lockPath, "", { flag: "wx", encoding: "utf-8" });
 
       if (generateMetadataIfMissing) {
         log.info(
@@ -857,7 +854,7 @@ export async function readLockfile(): Promise<Lock> {
     }
   } catch {
     const lock = { locks: {}, version: "v2" as const };
-    await Deno.writeTextFile(WMILL_LOCKFILE, yamlStringify(lock, yamlOptions));
+    await writeFile(WMILL_LOCKFILE, yamlStringify(lock, yamlOptions), "utf-8");
     log.info(colors.green("wmill-lock.yaml created"));
 
     return lock;
@@ -925,9 +922,10 @@ export async function clearGlobalLock(path: string): Promise<void> {
         }
       });
     }
-    await Deno.writeTextFile(
+    await writeFile(
       WMILL_LOCKFILE,
-      yamlStringify(conf as Record<string, any>, yamlOptions)
+      yamlStringify(conf as Record<string, any>, yamlOptions),
+      "utf-8"
     );
   }
 }
@@ -957,8 +955,9 @@ export async function updateMetadataGlobalLock(
       conf.locks[path] = hash;
     }
   }
-  await Deno.writeTextFile(
+  await writeFile(
     WMILL_LOCKFILE,
-    yamlStringify(conf as Record<string, any>, yamlOptions)
+    yamlStringify(conf as Record<string, any>, yamlOptions),
+    "utf-8"
   );
 }

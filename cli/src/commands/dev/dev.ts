@@ -10,6 +10,8 @@ import {
   WebSocket,
   yamlParseFile,
 } from "../../../deps.ts";
+import { readFile, realpath } from "node:fs/promises";
+import { watch } from "node:fs";
 import { getTypeStrFromPath, GlobalOptions } from "../../types.ts";
 import { ignoreF } from "../sync/sync.ts";
 import { requireLogin } from "../../core/auth.ts";
@@ -40,25 +42,30 @@ async function dev(opts: GlobalOptions & SyncOptions) {
   const conf = await readConfigFile();
   let currentLastEdit: LastEditScript | LastEditFlow | undefined = undefined;
 
-  const watcher = Deno.watchFs(".");
-  const base = await Deno.realPath(".");
+  const fsWatcher = watch(".", { recursive: true });
+  const base = await realpath(".");
   opts = await mergeConfigWithConfigFile(opts);
   const ignore = await ignoreF(opts);
 
-  const changesTimeouts: Record<string, number> = {};
-  async function watchChanges() {
-    for await (const event of watcher) {
-      // console.log(">>>> event", event);
-      const key = event.paths.join(",");
-      if (changesTimeouts[key]) {
-        clearTimeout(changesTimeouts[key]);
-      }
-      // @ts-ignore
-      changesTimeouts[key] = setTimeout(async () => {
-        delete changesTimeouts[key];
-        await loadPaths(event.paths);
-      }, 100);
-    }
+  const changesTimeouts: Record<string, ReturnType<typeof setTimeout>> = {};
+  function watchChanges() {
+    return new Promise<void>((_resolve, _reject) => {
+      fsWatcher.on("change", (_eventType, filename) => {
+        if (!filename) return;
+        const filePath = typeof filename === "string" ? filename : filename.toString();
+        const key = filePath;
+        if (changesTimeouts[key]) {
+          clearTimeout(changesTimeouts[key]);
+        }
+        changesTimeouts[key] = setTimeout(async () => {
+          delete changesTimeouts[key];
+          await loadPaths([filePath]);
+        }, 100);
+      });
+      fsWatcher.on("error", (err) => {
+        _reject(err);
+      });
+    });
   }
 
   const flowFolderSuffix = getFolderSuffixWithSep("flow");
@@ -72,7 +79,7 @@ async function dev(opts: GlobalOptions & SyncOptions) {
     if (paths.length == 0) {
       return;
     }
-    const cpath = (await Deno.realPath(paths[0])).replace(base + SEP, "");
+    const cpath = (await realpath(paths[0])).replace(base + SEP, "");
     if (!ignore(cpath, false)) {
       const typ = getTypeStrFromPath(cpath);
       log.info("Detected change in " + cpath + " (" + typ + ")");
@@ -83,13 +90,11 @@ async function dev(opts: GlobalOptions & SyncOptions) {
         )) as FlowFile;
         await replaceInlineScripts(
           localFlow.value.modules,
-          async (path: string) => await Deno.readTextFile(localPath + path),
+          async (path: string) => await readFile(localPath + path, "utf-8"),
           log,
           localPath,
           SEP,
           undefined,
-          // (path: string, newPath: string) => Deno.renameSync(path, newPath),
-          // (path: string) => Deno.removeSync(path),
         );
         currentLastEdit = {
           type: "flow",
@@ -99,7 +104,7 @@ async function dev(opts: GlobalOptions & SyncOptions) {
         log.info("Updated " + localPath);
         broadcastChanges(currentLastEdit);
       } else if (typ == "script") {
-        const content = await Deno.readTextFile(cpath);
+        const content = await readFile(cpath, "utf-8");
         const splitted = cpath.split(".");
         const wmPath = splitted[0];
         const lang = inferContentTypeFromFilePath(cpath, conf.defaultTs);
@@ -224,7 +229,6 @@ const command = new Command()
     "--includes <pattern...:string>",
     "Filter paths givena glob pattern or path"
   )
-  // deno-lint-ignore no-explicit-any
   .action(dev as any);
 
 export default command;

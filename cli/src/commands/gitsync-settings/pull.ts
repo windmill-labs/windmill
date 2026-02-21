@@ -1,3 +1,4 @@
+import { writeFile } from "node:fs/promises";
 import { colors, log, yamlStringify } from "../../../deps.ts";
 import { GlobalOptions } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
@@ -173,7 +174,7 @@ export async function pullGitSyncSettings(
       }
 
       // Write the new configuration
-      await Deno.writeTextFile("wmill.yaml", yamlStringify(updatedConfig));
+      await writeFile("wmill.yaml", yamlStringify(updatedConfig), "utf-8");
 
       if (opts.jsonOutput) {
         console.log(
@@ -286,7 +287,7 @@ export async function pullGitSyncSettings(
       );
       const hasConflict = !deepEqual(gitSyncBackend, gitSyncCurrent);
 
-      if (hasConflict && !opts.yes && Deno.stdin.isTerminal()) {
+      if (hasConflict && !opts.yes && !!process.stdin.isTTY) {
         // Show the diff first
         log.info("Changes that would be applied locally:");
         const changes = generateChanges(effectiveCurrentSettings, backendSyncOptions);
@@ -369,7 +370,7 @@ export async function pullGitSyncSettings(
           }
 
           // Write updated configuration
-          await Deno.writeTextFile("wmill.yaml", yamlStringify(updatedConfig));
+          await writeFile("wmill.yaml", yamlStringify(updatedConfig), "utf-8");
 
           if (opts.jsonOutput) {
             console.log(
@@ -446,7 +447,7 @@ export async function pullGitSyncSettings(
     }
 
     // Write updated configuration
-    await Deno.writeTextFile("wmill.yaml", yamlStringify(updatedConfig));
+    await writeFile("wmill.yaml", yamlStringify(updatedConfig), "utf-8");
 
     if (opts.jsonOutput) {
       console.log(

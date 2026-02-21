@@ -1,5 +1,3 @@
-// deno-lint-ignore-file no-explicit-any
-
 import {
   colors,
   Diff,
@@ -9,6 +7,7 @@ import {
   yamlParseContent,
   yamlStringify,
 } from "../deps.ts";
+import { readFileSync } from "node:fs";
 import { pushApp } from "./commands/app/app.ts";
 import { pushFolder } from "./commands/folder/folder.ts";
 import { pushFlow } from "./commands/flow/flow.ts";
@@ -228,9 +227,9 @@ export function parseFromPath(p: string, content: string): any {
 }
 export function parseFromFile(p: string): any {
   if (p.endsWith(".json")) {
-    return JSON.parse(Deno.readTextFileSync(p));
+    return JSON.parse(readFileSync(p, "utf-8"));
   } else if (p.endsWith(".yaml") || p.endsWith(".yml")) {
-    return yamlParseContent(p, Deno.readTextFileSync(p));
+    return yamlParseContent(p, readFileSync(p, "utf-8"));
   } else {
     throw new Error("Could not read file " + p);
   }

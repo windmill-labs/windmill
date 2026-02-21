@@ -12,9 +12,8 @@ set -e
 # Add .ts extensions to windmill-utils-internal
 ./windmill-utils-internal/remove-ts-ext.sh -r
 
-# Run dnt
-echo "Running dnt..."
-deno run -A dnt.ts
+# Build npm package with bun
+echo "Building npm package..."
+bun run build-npm.ts
 
 echo "Build complete!"
-

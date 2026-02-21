@@ -1,4 +1,5 @@
-// deno-lint-ignore-file no-explicit-any
+import { stat } from "node:fs/promises";
+
 import { colors, Command, log, SEP, Table } from "../../../deps.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 
@@ -103,8 +104,8 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
     return;
   }
 
-  const fstat = await Deno.stat(filePath);
-  if (!fstat.isFile) {
+  const fstat = await stat(filePath);
+  if (!fstat.isFile()) {
     throw new Error("file path must refer to a file.");
   }
 

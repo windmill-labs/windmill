@@ -14,7 +14,7 @@ import { assertEquals, assertStringIncludes, assert } from "https://deno.land/st
 import { withTestBackend } from "./test_backend.ts";
 import { addWorkspace } from "../workspace.ts";
 import { ensureDir } from "https://deno.land/std@0.224.0/fs/mod.ts";
-import { stringify as stringifyYaml } from "jsr:@std/yaml";
+import { stringify as stringifyYaml } from "@std/yaml";
 
 // Import hash generation utilities from CLI
 import { generateHash } from "../src/utils/utils.ts";

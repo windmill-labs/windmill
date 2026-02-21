@@ -1,4 +1,3 @@
-// deno-lint-ignore-file no-explicit-any
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
 import {
@@ -12,6 +11,7 @@ import {
 import * as wmill from "../../../gen/services.gen.ts";
 import { Policy } from "../../../gen/types.gen.ts";
 import path from "node:path";
+import { readFile, readdir } from "node:fs/promises";
 
 import { GlobalOptions, isSuperset } from "../../types.ts";
 import { deepEqual } from "../../utils/utils.ts";
@@ -67,8 +67,8 @@ async function findRunnableContentFile(
     // Check if this is a recognized extension
     if (EXTENSION_TO_LANGUAGE[ext]) {
       try {
-        const content = await Deno.readTextFile(
-          path.join(backendPath, fileName),
+        const content = await readFile(
+          path.join(backendPath, fileName), "utf-8",
         );
         return { ext, content };
       } catch {
@@ -130,8 +130,9 @@ export async function loadRunnablesFromBackend(
   try {
     // First, collect all files in the backend folder
     const allFiles: string[] = [];
-    for await (const entry of Deno.readDir(backendPath)) {
-      if (entry.isFile) {
+    const _entries = await readdir(backendPath, { withFileTypes: true });
+    for (const entry of _entries) {
+      if (entry.isFile()) {
         allFiles.push(entry.name);
       }
     }
@@ -226,8 +227,8 @@ export async function loadRunnablesFromBackend(
         // Try to load lock file
         let lock: string | undefined;
         try {
-          lock = await Deno.readTextFile(
-            path.join(backendPath, `${runnableId}.lock`),
+          lock = await readFile(
+            path.join(backendPath, `${runnableId}.lock`), "utf-8",
           );
         } catch {
           // No lock file, that's fine
@@ -291,11 +292,12 @@ async function collectAppFiles(
   const files: Record<string, string> = {};
 
   async function readDirRecursive(dir: string, basePath: string = "/") {
-    for await (const entry of Deno.readDir(dir)) {
+    const dirEntries = await readdir(dir, { withFileTypes: true });
+    for (const entry of dirEntries) {
       const fullPath = dir + entry.name;
       const relativePath = basePath + entry.name;
 
-      if (entry.isDirectory) {
+      if (entry.isDirectory()) {
         // Skip the runnables, node_modules, and sql_to_apply subfolders
         if (
           entry.name === APP_BACKEND_FOLDER ||
@@ -307,7 +309,7 @@ async function collectAppFiles(
           continue;
         }
         await readDirRecursive(fullPath + SEP, relativePath + "/");
-      } else if (entry.isFile) {
+      } else if (entry.isFile()) {
         // Skip generated/metadata files that shouldn't be part of the app
         if (
           entry.name === "raw_app.yaml" ||
@@ -318,7 +320,7 @@ async function collectAppFiles(
         ) {
           continue;
         }
-        const content = await Deno.readTextFile(fullPath);
+        const content = await readFile(fullPath, "utf-8");
         files[relativePath] = content;
       }
     }

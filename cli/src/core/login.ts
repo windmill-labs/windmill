@@ -4,7 +4,7 @@ import * as http from "node:http";
 
 export async function loginInteractive(remote: string) {
   let token: string | undefined;
-  if (Deno.stdin.isTerminal && !Deno.stdin.isTerminal()) {
+  if (!process.stdin.isTTY) {
     log.info("Not a TTY, can't login interactively.");
     return undefined;
   }
@@ -30,7 +30,6 @@ export async function loginInteractive(remote: string) {
   return token;
 }
 
-// deno-lint-ignore require-await
 export async function tryGetLoginInfo(
   opts: GlobalOptions
 ): Promise<string | undefined> {
@@ -45,8 +44,8 @@ export async function browserLogin(
   baseUrl: string
 ): Promise<string | undefined> {
   const env =
-    Deno.env.get("TOKEN_PORT") != undefined
-      ? parseInt(Deno.env.get("TOKEN_PORT")!)
+    process.env["TOKEN_PORT"] != undefined
+      ? parseInt(process.env["TOKEN_PORT"]!)
       : undefined;
   const port = await getPort.default({ port: env });
 

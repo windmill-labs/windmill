@@ -1,4 +1,5 @@
-// deno-lint-ignore-file no-explicit-any
+import { stat } from "node:fs/promises";
+
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
 import {
@@ -108,8 +109,8 @@ async function push(
     return;
   }
 
-  const fstat = await Deno.stat(filePath);
-  if (!fstat.isFile) {
+  const fstat = await stat(filePath);
+  if (!fstat.isFile()) {
     throw new Error("file path must refer to a file.");
   }
 
