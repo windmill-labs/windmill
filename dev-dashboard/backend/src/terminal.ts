@@ -29,10 +29,12 @@ export async function attach(
   const gName = groupedName();
   const windowTarget = `wm-${worktreeName}`;
 
-  // Create a grouped tmux session (independent sizing) and attach to the worktree's window
+  // Use `script` to create a proper PTY (Bun's terminal option data callback
+  // doesn't fire inside Bun.serve). Pipes carry data, script provides the PTY.
   const cmd = [
     `tmux new-session -d -s "${gName}" -t "${tmuxSession}"`,
     `tmux select-window -t "${gName}:${windowTarget}"`,
+    `stty rows ${rows} cols ${cols}`,
     `exec tmux attach-session -t "${gName}"`,
   ].join(" && ");
 
@@ -46,24 +48,33 @@ export async function attach(
 
   sessions.set(worktreeName, session);
 
-  const proc = Bun.spawn(["bash", "-c", cmd], {
-    terminal: {
-      cols,
-      rows,
-      name: "xterm-256color",
-      data(_terminal, data) {
-        const str = typeof data === "string" ? data : new TextDecoder().decode(data);
+  const proc = Bun.spawn(["script", "-q", "-c", cmd, "/dev/null"], {
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "pipe",
+    env: { ...process.env, TERM: "xterm-256color" },
+  });
+
+  session.proc = proc;
+
+  // Read stdout → push to scrollback + callback
+  (async () => {
+    const reader = proc.stdout.getReader();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const str = new TextDecoder().decode(value);
         session.scrollback.push(str);
         if (session.scrollback.length > MAX_SCROLLBACK) {
           session.scrollback.shift();
         }
         session.onData?.(str);
-      },
-      exit() {},
-    },
-  });
-
-  session.proc = proc;
+      }
+    } catch {
+      // Stream closed
+    }
+  })();
 
   proc.exited.then((exitCode) => {
     session.onExit?.(exitCode);
@@ -93,11 +104,17 @@ export async function detach(worktreeName: string): Promise<void> {
 }
 
 export function write(worktreeName: string, data: string): void {
-  sessions.get(worktreeName)?.proc.terminal?.write(data);
+  const session = sessions.get(worktreeName);
+  if (session) {
+    session.proc.stdin.write(new TextEncoder().encode(data));
+  }
 }
 
 export function resize(worktreeName: string, cols: number, rows: number): void {
-  sessions.get(worktreeName)?.proc.terminal?.resize(cols, rows);
+  const session = sessions.get(worktreeName);
+  if (!session) return;
+  // Resize via tmux directly (we don't have access to script's internal PTY)
+  Bun.spawnSync(["tmux", "resize-window", "-t", session.groupedSessionName, "-x", String(cols), "-y", String(rows)]);
 }
 
 export function getScrollback(worktreeName: string): string {

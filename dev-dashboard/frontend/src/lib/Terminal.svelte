@@ -88,4 +88,4 @@
   });
 </script>
 
-<div class="flex-1 p-1 overflow-hidden" bind:this={containerEl}></div>
+<div class="flex-1 min-h-0 w-full p-1 overflow-hidden" bind:this={containerEl}></div>

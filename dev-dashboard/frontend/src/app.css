@@ -37,4 +37,5 @@ dialog textarea:focus {
 /* xterm overrides */
 .xterm {
   height: 100%;
+  width: 100%;
 }

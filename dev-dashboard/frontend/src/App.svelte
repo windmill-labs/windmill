@@ -109,7 +109,7 @@
     <WorktreeList {worktrees} selected={selectedBranch} onselect={(b) => (selectedBranch = b)} />
   </aside>
 
-  <main class="flex-1 flex flex-col overflow-hidden">
+  <main class="flex-1 min-w-0 flex flex-col overflow-hidden">
     <TopBar
       name={selectedBranch}
       worktree={selectedWorktree}
