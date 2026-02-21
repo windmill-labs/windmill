@@ -4,15 +4,10 @@
   import TopBar from "./lib/TopBar.svelte";
   import Terminal from "./lib/Terminal.svelte";
   import ConfirmDialog from "./lib/ConfirmDialog.svelte";
+  import CreateWorktreeDialog from "./lib/CreateWorktreeDialog.svelte";
   import type { WorktreeInfo } from "./lib/types";
   import type { Profile } from "./lib/api";
   import * as api from "./lib/api";
-
-  const PROFILES: { value: Profile; label: string }[] = [
-    { value: "agent-only", label: "Agent only" },
-    { value: "agent-yolo", label: "Agent (skip permissions)" },
-    { value: "full", label: "Full (agent + backend + frontend)" },
-  ];
 
   let worktrees = $state<WorktreeInfo[]>([]);
   let selectedBranch = $state<string | null>(null);
@@ -20,8 +15,6 @@
   let removingBranches = $state<Set<string>>(new Set());
   let showCreateDialog = $state(false);
   let creating = $state(false);
-  let createProfile = $state<Profile>("agent-only");
-  let createName = $state("");
 
   let visibleWorktrees = $derived(
     worktrees.filter((w) => w.path === "(here)" || w.branch === "main" || w.mux === "✓")
@@ -47,14 +40,13 @@
     return result;
   }
 
-  async function handleCreate() {
-    const branch = createName.trim() || randomName(8);
+  async function handleCreate(name: string, profile: Profile) {
+    const branch = name || randomName(8);
     creating = true;
     try {
-      await api.createWorktree(branch, createProfile);
+      await api.createWorktree(branch, profile);
       await api.openWorktree(branch);
       showCreateDialog = false;
-      createName = "";
       await refresh();
       selectedBranch = branch;
     } catch (err) {
@@ -135,51 +127,11 @@
 </div>
 
 {#if showCreateDialog}
-  {@const btn = "px-3 py-1.5 rounded-md border border-edge bg-surface text-primary text-xs cursor-pointer hover:bg-hover"}
-  <dialog
-    open
-    class="fixed inset-0 z-50 bg-sidebar text-primary border border-edge rounded-xl p-6 max-w-[380px] w-[90%] m-auto"
-  >
-    <h2 class="text-base mb-4">New Worktree</h2>
-    <div class="mb-4">
-      <label class="block text-xs text-muted mb-1.5" for="wt-name">Name <span class="opacity-60">(optional)</span></label>
-      <input
-        id="wt-name"
-        type="text"
-        class="w-full px-2.5 py-1.5 rounded-md border border-edge bg-surface text-primary text-[13px] placeholder:text-muted/50 outline-none focus:border-accent"
-        placeholder="auto-generated if empty"
-        bind:value={createName}
-      />
-    </div>
-    <div class="flex flex-col gap-2 mb-6">
-      {#each PROFILES as profile}
-        <label
-          class="flex items-center gap-2.5 p-2.5 rounded-lg border cursor-pointer text-[13px] transition-colors
-            {createProfile === profile.value ? 'border-accent bg-accent/10' : 'border-edge hover:bg-hover'}"
-        >
-          <input
-            type="radio"
-            name="profile"
-            value={profile.value}
-            checked={createProfile === profile.value}
-            onchange={() => (createProfile = profile.value)}
-            class="accent-[var(--accent)]"
-          />
-          {profile.label}
-        </label>
-      {/each}
-    </div>
-    <div class="flex justify-end gap-2">
-      <button type="button" class={btn} onclick={() => (showCreateDialog = false)} disabled={creating}>Cancel</button>
-      <button
-        type="button"
-        class="{btn} !bg-accent !text-white !border-accent hover:!opacity-90 disabled:!opacity-50 disabled:!cursor-not-allowed flex items-center gap-1.5"
-        onclick={handleCreate}
-        disabled={creating}
-      >{#if creating}<span class="spinner"></span>{/if} Create</button>
-    </div>
-  </dialog>
-  <div class="fixed inset-0 bg-black/50 z-40" onclick={() => (showCreateDialog = false)}></div>
+  <CreateWorktreeDialog
+    loading={creating}
+    oncreate={handleCreate}
+    oncancel={() => (showCreateDialog = false)}
+  />
 {/if}
 
 {#if removeBranch}
