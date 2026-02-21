@@ -14,10 +14,15 @@ export function fetchWorktrees(): Promise<WorktreeInfo[]> {
   return api<WorktreeInfo[]>("worktrees");
 }
 
-export function createWorktree(branch: string): Promise<unknown> {
+export type Profile = "full" | "agent-only";
+
+export function createWorktree(
+  branch: string,
+  profile: Profile = "agent-only",
+): Promise<unknown> {
   return api("worktrees", {
     method: "POST",
-    body: JSON.stringify({ branch }),
+    body: JSON.stringify({ branch, profile }),
   });
 }
 

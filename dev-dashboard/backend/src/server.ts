@@ -139,11 +139,12 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
 
     // POST /api/worktrees
     if (parts[0] === "worktrees" && parts.length === 1 && method === "POST") {
-      const body = await req.json() as { branch?: string; prompt?: string };
+      const body = await req.json() as { branch?: string; prompt?: string; profile?: string };
       if (!body.branch) {
         return errorResponse("branch is required", 400);
       }
-      const result = await addWorktree(body.branch, { prompt: body.prompt });
+      const profile = (body.profile === "full" || body.profile === "agent-only") ? body.profile : "agent-only";
+      const result = await addWorktree(body.branch, { prompt: body.prompt, profile });
       return jsonResponse({ message: result }, 201);
     }
 

@@ -75,14 +75,51 @@ async function runChecked(args: string[]): Promise<string> {
   return stdout.trim();
 }
 
+export type Profile = "full" | "agent-only";
+
+const PROFILE_PANE_CMDS: Record<Profile, string[]> = {
+  "full": [], // Use default workmux pane commands from .workmux.yaml
+  "agent-only": ["claude"], // Only start agent in pane 0
+};
+
 export async function addWorktree(
   branch: string,
-  opts?: { prompt?: string }
+  opts?: { prompt?: string; profile?: Profile }
 ): Promise<string> {
-  const args: string[] = ["workmux", "add"];
+  const profile = opts?.profile ?? "full";
+  const args: string[] = ["workmux", "add", "-b"]; // -b = background (don't switch tmux)
+
+  // Skip default pane commands for non-full profiles
+  if (profile !== "full") {
+    args.push("-C"); // --no-pane-cmds
+  }
+
   if (opts?.prompt) args.push("-p", opts.prompt);
   args.push(branch);
-  return runChecked(args);
+
+  const result = await runChecked(args);
+
+  // For non-full profiles, kill extra panes and send commands
+  if (profile !== "full") {
+    const windowTarget = `wm-${branch}`;
+    // Kill extra panes (highest index first to avoid shifting)
+    const paneCountResult = Bun.spawnSync(
+      ["tmux", "list-panes", "-t", windowTarget, "-F", "#{pane_index}"],
+      { stdout: "pipe" }
+    );
+    const paneIds = new TextDecoder().decode(paneCountResult.stdout).trim().split("\n");
+    // Kill all panes except pane 0
+    for (let i = paneIds.length - 1; i >= 1; i--) {
+      Bun.spawnSync(["tmux", "kill-pane", "-t", `${windowTarget}.${paneIds[i]}`]);
+    }
+    // Send commands to remaining pane
+    const cmds = PROFILE_PANE_CMDS[profile];
+    for (const cmd of cmds) {
+      Bun.spawnSync(["tmux", "send-keys", "-t", `${windowTarget}.0`, cmd, "Enter"]);
+    }
+  }
+
+  return result;
 }
 
 export async function removeWorktree(name: string): Promise<string> {
