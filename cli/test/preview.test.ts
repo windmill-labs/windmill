@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
-import { withTestBackend, cleanupTestBackend } from "./test_backend.ts";
+import { withTestBackend } from "./test_backend.ts";
 
 // =============================================================================
 // PREVIEW COMMAND INTEGRATION TESTS
@@ -381,10 +381,3 @@ test("flow preview: simple flow", async () => {
   });
 });
 
-// =============================================================================
-// CLEANUP
-// =============================================================================
-
-test("cleanup test backend", async () => {
-  await cleanupTestBackend();
-});

@@ -100,7 +100,7 @@ jobs:
         env:
           DATABASE_URL: postgres://postgres:changeme@localhost:5432
           CI_MINIMAL_FEATURES: "true"
-        run: bun test test/
+        run: bun test --timeout 120000 test/
 
   test-windows:
     runs-on: windows-latest
@@ -161,7 +161,7 @@ jobs:
           CI_MINIMAL_FEATURES: "true"
           BUN_PATH: ${{ steps.runtime-paths.outputs.BUN_PATH }}
           NODE_BIN_PATH: ${{ steps.runtime-paths.outputs.NODE_BIN_PATH }}
-        run: bun test test/
+        run: bun test --timeout 120000 test/
 
   # Combined summary job for branch protection
   test-summary:

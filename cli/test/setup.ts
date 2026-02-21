@@ -1,9 +1,9 @@
 /**
  * Global test setup — preloaded before all test files.
  *
- * Ensures the backend binary is compiled so individual tests
- * don't time out waiting for cargo build. Each test file
- * starts its own backend instance with its own database.
+ * 1. Builds the backend binary so `cargo run` starts instantly.
+ * 2. Starts a shared backend instance so integration tests don't
+ *    bear the startup cost inside their per-test timeout window.
  */
 
 import { resolve } from "node:path";
@@ -64,6 +64,16 @@ if (exitCode !== 0) {
   throw new Error(`cargo build failed with exit code ${exitCode}`);
 }
 console.log("Backend build complete.");
+
+// Start the shared backend instance so it's ready before any test runs.
+// This avoids the first integration test timing out while the backend
+// creates its database, starts the process, and waits for the health check.
+if (process.env["DATABASE_URL"]) {
+  const { getTestBackend } = await import("./test_backend.ts");
+  console.log("Pre-starting test backend...");
+  await getTestBackend();
+  console.log("Test backend is ready for all tests.");
+}
 
 // When TEST_CLI_RUNTIME=node, also build the npm package so tests
 // can invoke `node npm/esm/main.js` instead of `bun run src/main.ts`
