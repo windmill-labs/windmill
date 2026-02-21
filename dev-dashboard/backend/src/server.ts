@@ -15,6 +15,7 @@ import {
   getScrollback,
   setCallbacks,
   clearCallbacks,
+  cleanupStaleSessions,
 } from "./terminal";
 
 const PORT = parseInt(process.env.DASHBOARD_PORT || "5111");
@@ -188,4 +189,5 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
   }
 }
 
+cleanupStaleSessions();
 console.log(`Dev Dashboard API running at http://localhost:${PORT}`);

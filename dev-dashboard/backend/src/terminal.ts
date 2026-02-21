@@ -8,12 +8,39 @@ interface TerminalSession {
   onExit: ((exitCode: number) => void) | null;
 }
 
+const SESSION_PREFIX = "wm-dash-";
 const MAX_SCROLLBACK = 5000;
 const sessions = new Map<string, TerminalSession>();
 let sessionCounter = 0;
 
 function groupedName(): string {
-  return `wm-dash-${++sessionCounter}`;
+  return `${SESSION_PREFIX}${++sessionCounter}`;
+}
+
+/** Kill any orphaned wm-dash-* tmux sessions left from previous server runs. */
+export function cleanupStaleSessions(): void {
+  try {
+    const result = Bun.spawnSync(
+      ["tmux", "list-sessions", "-F", "#{session_name}"],
+      { stdout: "pipe", stderr: "pipe" }
+    );
+    if (result.exitCode !== 0) return;
+    const lines = new TextDecoder().decode(result.stdout).trim().split("\n");
+    for (const name of lines) {
+      if (name.startsWith(SESSION_PREFIX)) {
+        Bun.spawnSync(["tmux", "kill-session", "-t", name]);
+      }
+    }
+  } catch {
+    // No tmux server running
+  }
+}
+
+/** Kill a tmux session by name, ignoring errors. */
+function killTmuxSession(name: string): void {
+  try {
+    Bun.spawnSync(["tmux", "kill-session", "-t", name]);
+  } catch {}
 }
 
 export async function attach(
@@ -29,8 +56,9 @@ export async function attach(
   const gName = groupedName();
   const windowTarget = `wm-${worktreeName}`;
 
-  // Use `script` to create a proper PTY (Bun's terminal option data callback
-  // doesn't fire inside Bun.serve). Pipes carry data, script provides the PTY.
+  // Kill stale session with same name if it exists (leftover from previous server run)
+  killTmuxSession(gName);
+
   const cmd = [
     `tmux new-session -d -s "${gName}" -t "${tmuxSession}"`,
     `tmux select-window -t "${gName}:${windowTarget}"`,
@@ -79,11 +107,7 @@ export async function attach(
   proc.exited.then((exitCode) => {
     session.onExit?.(exitCode);
     sessions.delete(worktreeName);
-    try {
-      Bun.spawnSync(["tmux", "kill-session", "-t", gName]);
-    } catch {
-      // Session may already be gone
-    }
+    killTmuxSession(gName);
   });
 
   return worktreeName;
@@ -96,11 +120,7 @@ export async function detach(worktreeName: string): Promise<void> {
   session.proc.kill();
   sessions.delete(worktreeName);
 
-  try {
-    Bun.spawnSync(["tmux", "kill-session", "-t", session.groupedSessionName]);
-  } catch {
-    // Already gone
-  }
+  killTmuxSession(session.groupedSessionName);
 }
 
 export function write(worktreeName: string, data: string): void {
