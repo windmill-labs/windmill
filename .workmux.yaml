@@ -12,8 +12,24 @@ window_prefix: "wm-"
 
 auto_name:
   model: "claude-sonnet-4.6"
-  system_prompt: "Generate a kebab-case git branch name."
-  background: true  # Always run in background when using --auto-name
+  system_prompt: |
+    Generate a concise git branch name based on the task description.
+
+    Rules:
+    - Use kebab-case (lowercase with hyphens)
+    - Keep it short: 1-3 words, max 4 if necessary
+    - Focus on the core task/feature, not implementation details
+    - No prefixes like feat/, fix/, chore/
+
+    Examples of good branch names:
+    - "Add dark mode toggle" → dark-mode
+    - "Fix the search results not showing" → fix-search
+    - "Refactor the authentication module" → auth-refactor
+    - "Add CSV export to reports" → export-csv
+    - "Shell completion is broken" → shell-completion
+
+    Output ONLY the branch name, nothing else.
+  background: true
 
 
 # Commands to run in new worktree before tmux window opens.
