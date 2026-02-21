@@ -5058,7 +5058,7 @@ async fn push_inner<'c, 'd>(
             let cache_ttl = value.cache_ttl.map(|x| x as i32);
             let cache_ignore_s3_path = value.cache_ignore_s3_path;
             let mut concurrency_settings = value.concurrency_settings.clone();
-            let mut debouncing_settings = value.debouncing_settings.clone();
+            let debouncing_settings = value.debouncing_settings.clone();
 
             if !apply_preprocessor {
                 value.preprocessor_module = None;
@@ -5066,8 +5066,6 @@ async fn push_inner<'c, 'd>(
                 tag = None;
 
                 concurrency_settings.concurrent_limit = None;
-                // TODO: May be re-enable?
-                debouncing_settings.debounce_delay_s = None;
 
                 preprocessed = Some(false);
             }
