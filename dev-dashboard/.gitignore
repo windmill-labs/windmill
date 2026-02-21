@@ -1,3 +1,9 @@
 node_modules/
-public/dist/
 bun.lock
+backend/node_modules/
+backend/bun.lock
+frontend/node_modules/
+frontend/bun.lock
+frontend/dist/
+frontend/.vite/
+public/
