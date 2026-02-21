@@ -5,7 +5,7 @@
  * containing every kind of Windmill resource type.
  */
 
-import { expect, test } from "bun:test";
+import { expect, test, describe } from "bun:test";
 import * as path from "@std/path";
 import { SEPARATOR as SEP } from "@std/path";
 import { writeFile, readFile, readdir, rm, mkdir, mkdtemp } from "node:fs/promises";
@@ -1911,3 +1911,418 @@ excludes: []
       }
     });
   });
+
+// =============================================================================
+// Sync tests for groups, settings, resource types, schedules, and HTTP triggers
+// =============================================================================
+
+import type { TestBackend } from "./test_backend.ts";
+
+/** Create a script on the remote via API */
+async function createRemoteScript(
+  backend: TestBackend,
+  scriptPath: string,
+  content: string = 'export async function main() { return "hello"; }'
+): Promise<void> {
+  const resp = await backend.apiRequest!(
+    `/api/w/${backend.workspace}/scripts/create`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        path: scriptPath,
+        content,
+        language: "bun",
+        summary: "Test script",
+        description: "Created by integration test",
+        schema: {
+          $schema: "https://json-schema.org/draft/2020-12/schema",
+          type: "object",
+          properties: {},
+          required: [],
+        },
+      }),
+    }
+  );
+  expect(resp.status).toBeLessThan(300);
+  await resp.text();
+}
+
+/** Write a standard wmill.yaml with the given extra flags */
+async function writeWmillYaml(
+  tempDir: string,
+  extraFlags: string = ""
+): Promise<void> {
+  await writeFile(
+    `${tempDir}/wmill.yaml`,
+    `defaultTs: bun
+includes:
+  - "**"
+excludes: []
+${extraFlags}`,
+    "utf-8"
+  );
+}
+
+/** Recursively list all files relative to baseDir, returning forward-slash paths */
+async function listFilesRecursive(
+  dir: string,
+  baseDir: string = dir
+): Promise<string[]> {
+  const entries = await readdir(dir, { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    const relativePath = fullPath
+      .substring(baseDir.length + 1)
+      .replaceAll("\\", "/");
+    if (entry.isDirectory()) {
+      files.push(...(await listFilesRecursive(fullPath, baseDir)));
+    } else {
+      files.push(relativePath);
+    }
+  }
+  return files;
+}
+
+describe("group sync", () => {
+  test("Integration: Group pull/push round-trip", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await writeWmillYaml(tempDir, "includeGroups: true");
+
+      // Pull with --include-groups
+      const pullResult = await backend.runCLICommand(
+        ["sync", "pull", "--yes", "--include-groups"],
+        tempDir
+      );
+      expect(pullResult.code).toEqual(0);
+
+      // Verify group file was created (seedTestData creates test_group)
+      const files = await listFilesRecursive(tempDir);
+      const groupFiles = files.filter((f) => f.endsWith(".group.yaml"));
+      expect(groupFiles.length).toBeGreaterThan(0);
+
+      const testGroupFile = groupFiles.find((f) => f.includes("test_group"));
+      expect(testGroupFile).toBeDefined();
+
+      // Read the group file and modify
+      const groupContent = await readFile(`${tempDir}/${testGroupFile!}`, "utf-8");
+      expect(groupContent).toContain("summary");
+
+      const modifiedContent = groupContent.replace(
+        /summary:.*/,
+        'summary: "Modified group summary from test"'
+      );
+      await writeFile(`${tempDir}/${testGroupFile!}`, modifiedContent, "utf-8");
+
+      // Push the modification
+      const pushResult = await backend.runCLICommand(
+        ["sync", "push", "--yes", "--include-groups"],
+        tempDir
+      );
+      expect(pushResult.code).toEqual(0);
+
+      // Verify via API
+      const apiResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/groups/get/test_group`
+      );
+      expect(apiResp.status).toEqual(200);
+      const groupData = await apiResp.json();
+      expect(groupData.summary).toEqual("Modified group summary from test");
+    });
+  });
+});
+
+describe("settings sync", () => {
+  test("Integration: Settings pull/push round-trip", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await writeWmillYaml(tempDir, "includeSettings: true");
+
+      // Pull with --include-settings
+      const pullResult = await backend.runCLICommand(
+        ["sync", "pull", "--yes", "--include-settings"],
+        tempDir
+      );
+      expect(pullResult.code).toEqual(0);
+
+      // Verify settings.yaml exists
+      const files = await listFilesRecursive(tempDir);
+      expect(files).toContain("settings.yaml");
+
+      // Read and modify a safe setting (webhook URL)
+      const settingsContent = await readFile(`${tempDir}/settings.yaml`, "utf-8");
+
+      let modifiedSettings: string;
+      if (settingsContent.includes("webhook:")) {
+        modifiedSettings = settingsContent.replace(
+          /webhook:.*/,
+          'webhook: "https://test-webhook.example.com/hook"'
+        );
+      } else {
+        modifiedSettings =
+          settingsContent + '\nwebhook: "https://test-webhook.example.com/hook"\n';
+      }
+      await writeFile(`${tempDir}/settings.yaml`, modifiedSettings, "utf-8");
+
+      // Push the modification
+      const pushResult = await backend.runCLICommand(
+        ["sync", "push", "--yes", "--include-settings"],
+        tempDir
+      );
+      expect(pushResult.code).toEqual(0);
+
+      // Verify via API
+      const apiResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/workspaces/get_settings`
+      );
+      expect(apiResp.status).toEqual(200);
+      const settingsData = await apiResp.json();
+      expect(settingsData.webhook).toEqual("https://test-webhook.example.com/hook");
+    });
+  });
+});
+
+describe("resource type sync", () => {
+  test("Integration: Resource type pull/push round-trip", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      const uniqueId = Date.now();
+      const rtName = `test_sync_rt_${uniqueId}`;
+
+      // Create a resource type via API
+      const createResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/resources/type/create`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: rtName,
+            schema: {
+              type: "object",
+              properties: {
+                host: { type: "string", description: "Hostname" },
+                port: { type: "integer", description: "Port number" },
+              },
+            },
+            description: "Test resource type for sync",
+          }),
+        }
+      );
+      expect(createResp.status).toBeLessThan(300);
+      await createResp.text();
+
+      // Resource types are included by default (not skipped)
+      await writeWmillYaml(tempDir);
+
+      // Pull
+      const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
+      expect(pullResult.code).toEqual(0);
+
+      // Verify resource type file exists
+      const files = await listFilesRecursive(tempDir);
+      const rtFile = files.find((f) => f.includes(`${rtName}.resource-type.yaml`));
+      expect(rtFile).toBeDefined();
+
+      // Read and modify the description
+      const rtContent = await readFile(`${tempDir}/${rtFile!}`, "utf-8");
+      expect(rtContent).toContain("host");
+
+      const modifiedContent = rtContent.replace(
+        "Test resource type for sync",
+        "Updated resource type description"
+      );
+      await writeFile(`${tempDir}/${rtFile!}`, modifiedContent, "utf-8");
+
+      // Push
+      const pushResult = await backend.runCLICommand(["sync", "push", "--yes"], tempDir);
+      expect(pushResult.code).toEqual(0);
+
+      // Verify via API
+      const apiResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/resources/type/get/${rtName}`
+      );
+      expect(apiResp.status).toEqual(200);
+      const rtData = await apiResp.json();
+      expect(rtData.description).toEqual("Updated resource type description");
+    });
+  });
+});
+
+describe("schedule sync", () => {
+  test("Integration: Schedule pull/push round-trip", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      const uniqueId = Date.now();
+      const scriptPath = `f/test/sched_sync_target_${uniqueId}`;
+      const schedulePath = `f/test/sched_sync_${uniqueId}`;
+
+      // Create target script via API
+      await createRemoteScript(backend, scriptPath);
+
+      // Create schedule via API
+      const createResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/schedules/create`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            path: schedulePath,
+            schedule: "0 0 */6 * * *",
+            script_path: scriptPath,
+            is_flow: false,
+            args: {},
+            enabled: false,
+            timezone: "UTC",
+          }),
+        }
+      );
+      expect(createResp.status).toBeLessThan(300);
+      await createResp.text();
+
+      await writeWmillYaml(tempDir, "includeSchedules: true");
+
+      // Pull with --include-schedules
+      const pullResult = await backend.runCLICommand(
+        ["sync", "pull", "--yes", "--include-schedules"],
+        tempDir
+      );
+      expect(pullResult.code).toEqual(0);
+
+      // Verify schedule file exists
+      const files = await listFilesRecursive(tempDir);
+      const scheduleFile = files.find(
+        (f) => f.includes(`sched_sync_${uniqueId}`) && f.endsWith(".schedule.yaml")
+      );
+      expect(scheduleFile).toBeDefined();
+
+      // Read and verify content
+      const schedContent = await readFile(`${tempDir}/${scheduleFile!}`, "utf-8");
+      expect(schedContent).toContain("0 0 */6 * * *");
+
+      // Modify the cron expression
+      const modifiedContent = schedContent.replace("0 0 */6 * * *", "0 0 */12 * * *");
+      await writeFile(`${tempDir}/${scheduleFile!}`, modifiedContent, "utf-8");
+
+      // Push
+      const pushResult = await backend.runCLICommand(
+        ["sync", "push", "--yes", "--include-schedules"],
+        tempDir
+      );
+      expect(pushResult.code).toEqual(0);
+
+      // Verify via API
+      const apiResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/schedules/get/${schedulePath}`
+      );
+      expect(apiResp.status).toEqual(200);
+      const schedData = await apiResp.json();
+      expect(schedData.schedule).toEqual("0 0 */12 * * *");
+    });
+  });
+
+  test("Integration: Schedule push-only creates from local file", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      const uniqueId = Date.now();
+      const scriptPath = `f/test/sched_pushonly_target_${uniqueId}`;
+      const schedulePath = `f/test/sched_pushonly_${uniqueId}`;
+
+      // Create target script via API
+      await createRemoteScript(backend, scriptPath);
+
+      await writeWmillYaml(tempDir, "includeSchedules: true");
+
+      // Create schedule YAML locally
+      await mkdir(`${tempDir}/f/test`, { recursive: true });
+      await writeFile(
+        `${tempDir}/${schedulePath}.schedule.yaml`,
+        `path: "${schedulePath}"
+schedule: "0 30 2 * * 1"
+script_path: "${scriptPath}"
+is_flow: false
+args: {}
+enabled: false
+timezone: "UTC"
+`,
+        "utf-8"
+      );
+
+      // Push
+      const pushResult = await backend.runCLICommand(
+        ["sync", "push", "--yes", "--include-schedules", "--includes", `f/test/sched_pushonly_${uniqueId}**`],
+        tempDir
+      );
+      expect(pushResult.code).toEqual(0);
+
+      // Verify schedule was created via API
+      const apiResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/schedules/get/${schedulePath}`
+      );
+      expect(apiResp.status).toEqual(200);
+      const schedData = await apiResp.json();
+      expect(schedData.schedule).toEqual("0 30 2 * * 1");
+      expect(schedData.script_path).toEqual(scriptPath);
+    });
+  });
+});
+
+describe("http trigger sync", () => {
+  test.skipIf(shouldSkipOnCI())("Integration: HTTP trigger pull/push is idempotent", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      const uniqueId = Date.now();
+      const scriptPath = `f/test/http_trig_target_${uniqueId}`;
+
+      // Create target script via API
+      await createRemoteScript(backend, scriptPath);
+
+      // Create HTTP trigger via API
+      const createResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/http_triggers/create`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            path: `f/test/http_trig_${uniqueId}`,
+            script_path: scriptPath,
+            route_path: `/test/hook_${uniqueId}`,
+            is_flow: false,
+            http_method: "post",
+            is_async: false,
+            requires_auth: false,
+          }),
+        }
+      );
+      // If the feature is not enabled, the create will fail - skip gracefully
+      if (createResp.status >= 400) {
+        console.log("HTTP trigger creation failed (feature may not be enabled), skipping");
+        return;
+      }
+      await createResp.text();
+
+      await writeWmillYaml(tempDir, "includeTriggers: true");
+
+      // Pull with --include-triggers
+      const pullResult = await backend.runCLICommand(
+        ["sync", "pull", "--yes", "--include-triggers"],
+        tempDir
+      );
+      expect(pullResult.code).toEqual(0);
+
+      // Verify http_trigger file exists
+      const files = await listFilesRecursive(tempDir);
+      const triggerFile = files.find(
+        (f) => f.includes(`http_trig_${uniqueId}`) && f.endsWith(".http_trigger.yaml")
+      );
+      expect(triggerFile).toBeDefined();
+
+      // Push back (verify idempotent)
+      const pushResult = await backend.runCLICommand(
+        ["sync", "push", "--dry-run", "--include-triggers"],
+        tempDir
+      );
+      expect(pushResult.code).toEqual(0);
+
+      const output = (pushResult.stdout + pushResult.stderr).toLowerCase();
+      expect(
+        output.includes("0 change") || output.includes("no change") || output.includes("nothing")
+      ).toBeTruthy();
+    });
+  });
+});
