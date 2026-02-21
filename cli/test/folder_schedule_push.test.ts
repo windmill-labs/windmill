@@ -106,7 +106,7 @@ describe("folder", () => {
       await mkdir(join(tempDir, "f", folderName), { recursive: true });
       await writeFile(
         join(tempDir, "f", folderName, "folder.meta.yaml"),
-        `display_name: "Updated Display Name"\nowners:\n  - "admin@windmill.dev"\nextra_perms: {}\n`,
+        `display_name: "Updated Display Name"\nowners:\n  - "u/admin"\nextra_perms:\n  u/admin: true\n`,
         "utf-8"
       );
 

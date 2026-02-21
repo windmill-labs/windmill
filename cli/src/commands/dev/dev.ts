@@ -1,15 +1,12 @@
-import {
-  Command,
-  SEP,
-  WebSocketServer,
-  express,
-  getPort,
-  http,
-  log,
-  open,
-  WebSocket,
-  yamlParseFile,
-} from "../../../deps.ts";
+import { Command } from "@cliffy/command";
+import * as log from "@std/log";
+import { SEPARATOR as SEP } from "@std/path";
+import { yamlParseFile } from "../../utils/yaml.ts";
+import { WebSocket, WebSocketServer } from "ws";
+
+import * as getPort from "get-port";
+import * as http from "node:http";
+import * as open from "open";
 import { readFile, realpath } from "node:fs/promises";
 import { watch } from "node:fs";
 import { getTypeStrFromPath, GlobalOptions } from "../../types.ts";
@@ -155,8 +152,10 @@ async function dev(opts: GlobalOptions & SyncOptions) {
   }
 
   async function startApp() {
-    const app = express.default();
-    const server = http.createServer(app);
+    const server = http.createServer((_req, res) => {
+      res.writeHead(200);
+      res.end();
+    });
     const wss = new WebSocketServer({ server });
 
     // WebSocket server event listeners

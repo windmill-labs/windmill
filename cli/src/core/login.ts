@@ -1,5 +1,10 @@
 import { GlobalOptions } from "../types.ts";
-import { colors, getPort, log, open, Secret, Select } from "../../deps.ts";
+import { colors } from "@cliffy/ansi/colors";
+import * as getPort from "get-port";
+import * as log from "@std/log";
+import * as open from "open";
+import { Secret } from "@cliffy/prompt/secret";
+import { Select } from "@cliffy/prompt/select";
 import * as http from "node:http";
 
 export async function loginInteractive(remote: string) {
@@ -53,32 +58,6 @@ export async function browserLogin(
     log.info(colors.red.underline("failed to aquire port"));
     return undefined;
   }
-
-  // const server = Deno.listen({ transport: "tcp", port });
-  // const url = `${baseUrl}user/cli?port=${port}`;
-  // log.info(`Login by going to ${url}`);
-  // try {
-  //   await open.openApp(open.apps.browser, { arguments: [url] });
-
-  //   log.info("Opened browser for you");
-  // } catch {
-  //   console.error(`Failed to open browser, please navigate to ${url}`);
-  // }
-  // const firstConnection = await server.accept();
-  // const httpFirstConnection = Deno.serveHttp(firstConnection);
-  // const firstRequest = (await httpFirstConnection.nextRequest())!;
-  // const params = new URL(firstRequest.request.url!).searchParams;
-  // const token = params.get("token");
-  // // const _workspace = params.get("workspace");
-  // await firstRequest?.respondWith(
-  //   Response.redirect(baseUrl + "user/cli-success", 302)
-  // );
-
-  // setTimeout(() => {
-  //   httpFirstConnection.close();
-  //   server.close();
-  // }, 10);
-  // return token ?? undefined;
 
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {

@@ -1,16 +1,9 @@
-import {
-  Command,
-  CompletionsCommand,
-  UpgradeCommand,
-  esMain,
-  log,
-} from "../deps.ts";
+import { Command } from "@cliffy/command";
+import { CompletionsCommand } from "@cliffy/command/completions";
+import { UpgradeCommand } from "@cliffy/command/upgrade";
+import * as log from "@std/log";
 
-// Node.js-specific imports for symlink resolution in isMain()
-// These are only used in Node.js, not Deno
-// dnt-shim-ignore
 import { realpathSync } from "node:fs";
-// dnt-shim-ignore
 import { fileURLToPath } from "node:url";
 import flow from "./commands/flow/flow.ts";
 import app from "./commands/app/app.ts";
@@ -71,13 +64,6 @@ export {
   push,
   workspaceAdd,
 };
-
-// addEventListener("error", (event) => {
-//   if (event.error) {
-//     console.error("Error details of: " + event.error.message);
-//     console.error(JSON.stringify(event.error, null, 4));
-//   }
-// });
 
 export const VERSION = "1.639.0";
 
@@ -243,9 +229,7 @@ function isMain() {
 
     return realScriptPath === modulePath;
   } catch {
-    // Fallback to esMain if something fails
-    //@ts-ignore
-    return esMain.default(import.meta);
+    return false;
   }
 }
 if (isMain()) {

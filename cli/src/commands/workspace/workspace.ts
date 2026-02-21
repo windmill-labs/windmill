@@ -6,15 +6,13 @@ import {
   getWorkspaceConfigFilePath,
 } from "../../../windmill-utils-internal/src/config/config.ts";
 import { loginInteractive, tryGetLoginInfo } from "../../core/login.ts";
-import {
-  colors,
-  Command,
-  Confirm,
-  Input,
-  log,
-  setClient,
-  Table,
-} from "../../../deps.ts";
+import { colors } from "@cliffy/ansi/colors";
+import { Command } from "@cliffy/command";
+import { Confirm } from "@cliffy/prompt/confirm";
+import { Input } from "@cliffy/prompt/input";
+import { Table } from "@cliffy/table";
+import * as log from "@std/log";
+import { setClient } from "../../core/client.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { createWorkspaceFork, deleteWorkspaceFork } from "./fork.ts";
 
@@ -520,7 +518,7 @@ async function bind(
   }
 
   // Write back the updated config
-  const { yamlStringify } = await import("../../../deps.ts");
+  const { stringify: yamlStringify } = await import("@std/yaml");
   try {
     await writeFile("wmill.yaml", yamlStringify(config), "utf-8");
   } catch (error) {

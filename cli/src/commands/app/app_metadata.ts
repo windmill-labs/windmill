@@ -1,12 +1,10 @@
 import path from "node:path";
 import { readFile, mkdir } from "node:fs/promises";
-import {
-  SEP,
-  colors,
-  log,
-  yamlParseFile,
-  yamlStringify,
-} from "../../../deps.ts";
+import { colors } from "@cliffy/ansi/colors";
+import * as log from "@std/log";
+import { SEPARATOR as SEP } from "@std/path";
+import { yamlParseFile } from "../../utils/yaml.ts";
+import { stringify as yamlStringify } from "@std/yaml";
 import { GlobalOptions } from "../../types.ts";
 import {
   checkifMetadataUptodate,
@@ -86,7 +84,7 @@ async function generateAppHash(
     }
   } catch (error: any) {
     // If runnables folder doesn't exist, that's okay
-    if (error.name !== "NotFound") {
+    if (error.code !== "ENOENT") {
       throw error;
     }
   }
@@ -786,7 +784,7 @@ export async function generateLocksCommand(
   const { generateAppLocksInternal } = await import("./app_metadata.ts");
   const { elementsToMap, FSFSElement } = await import("../sync/sync.ts");
   const { ignoreF } = await import("../sync/sync.ts");
-  const { Confirm } = await import("../../../deps.ts");
+  const { Confirm } = await import("@cliffy/prompt/confirm");
 
   if (appPath == "") {
     appPath = undefined;

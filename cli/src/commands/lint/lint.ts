@@ -1,7 +1,11 @@
 import { stat } from "node:fs/promises";
 import process from "node:process";
 
-import { colors, Command, log, path, SEP } from "../../../deps.ts";
+import { colors } from "@cliffy/ansi/colors";
+import { Command } from "@cliffy/command";
+import * as log from "@std/log";
+import * as path from "@std/path";
+import { SEPARATOR as SEP } from "@std/path";
 import { GlobalOptions } from "../../types.ts";
 import { mergeConfigWithConfigFile } from "../../core/conf.ts";
 import {

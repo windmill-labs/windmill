@@ -1,6 +1,12 @@
 import { GlobalOptions, isSuperset } from "../../types.ts";
-import { Confirm, SEP, log, yamlStringify } from "../../../deps.ts";
-import { colors, Command, Table, yamlParseFile } from "../../../deps.ts";
+import { colors } from "@cliffy/ansi/colors";
+import { Command } from "@cliffy/command";
+import { Confirm } from "@cliffy/prompt/confirm";
+import { Table } from "@cliffy/table";
+import * as log from "@std/log";
+import { SEPARATOR as SEP } from "@std/path";
+import { stringify as yamlStringify } from "@std/yaml";
+import { yamlParseFile } from "../../utils/yaml.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { readFile } from "node:fs/promises";
 import { mkdirSync, writeFileSync } from "node:fs";

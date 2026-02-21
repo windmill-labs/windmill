@@ -1,6 +1,8 @@
 import process from "node:process";
 
-import { colors, log, Confirm } from "../../../deps.ts";
+import { colors } from "@cliffy/ansi/colors";
+import * as log from "@std/log";
+import { Confirm } from "@cliffy/prompt/confirm";
 import { GlobalOptions } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace } from "../../core/context.ts";

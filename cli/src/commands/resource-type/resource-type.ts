@@ -11,7 +11,10 @@ import {
 } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace } from "../../core/context.ts";
-import { colors, Command, log, Table } from "../../../deps.ts";
+import { colors } from "@cliffy/ansi/colors";
+import { Command } from "@cliffy/command";
+import { Table } from "@cliffy/table";
+import * as log from "@std/log";
 import * as wmill from "../../../gen/services.gen.ts";
 import { ResourceType } from "../../../gen/types.gen.ts";
 import { compileResourceTypeToTsType } from "../../utils/resource_types.ts";

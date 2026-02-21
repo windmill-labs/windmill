@@ -8,7 +8,11 @@ import {
 } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
-import { colors, Command, log, SEP, Table } from "../../../deps.ts";
+import { Command } from "@cliffy/command";
+import { Table } from "@cliffy/table";
+import { colors } from "@cliffy/ansi/colors";
+import * as log from "@std/log";
+import { SEPARATOR as SEP } from "@std/path";
 import * as wmill from "../../../gen/services.gen.ts";
 import { Resource } from "../../../gen/types.gen.ts";
 import { readInlinePathSync } from "../../utils/utils.ts";

@@ -1,4 +1,8 @@
-import { colors, log, Select, Confirm, Input } from "../../deps.ts";
+import { colors } from "@cliffy/ansi/colors";
+import * as log from "@std/log";
+import { Select } from "@cliffy/prompt/select";
+import { Confirm } from "@cliffy/prompt/confirm";
+import { Input } from "@cliffy/prompt/input";
 
 import { loginInteractive } from "./login.ts";
 import { GlobalOptions } from "../types.ts";

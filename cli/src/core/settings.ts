@@ -1,6 +1,10 @@
 import process from "node:process";
 import { writeFile } from "node:fs/promises";
-import { colors, Confirm, log, yamlParseFile, yamlStringify } from "../../deps.ts";
+import { colors } from "@cliffy/ansi/colors";
+import { Confirm } from "@cliffy/prompt/confirm";
+import * as log from "@std/log";
+import { yamlParseFile } from "../utils/yaml.ts";
+import { stringify as yamlStringify } from "@std/yaml";
 import * as wmill from "../../gen/services.gen.ts";
 import { AIConfig, Config, GlobalSetting } from "../../gen/types.gen.ts";
 import { compareInstanceObjects, InstanceSyncOptions } from "../commands/instance/instance.ts";

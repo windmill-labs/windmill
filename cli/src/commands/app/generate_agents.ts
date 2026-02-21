@@ -3,7 +3,10 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
-import { colors, Command, log, yamlParseFile } from "../../../deps.ts";
+import { Command } from "@cliffy/command";
+import { colors } from "@cliffy/ansi/colors";
+import * as log from "@std/log";
+import { yamlParseFile } from "../../utils/yaml.ts";
 import { GlobalOptions } from "../../types.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import { requireLogin } from "../../core/auth.ts";

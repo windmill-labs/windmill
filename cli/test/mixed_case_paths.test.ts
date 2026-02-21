@@ -12,9 +12,9 @@
  * 3. The modifications are correctly applied on the server
  */
 
-import { assertEquals, assert } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { ensureDir } from "https://deno.land/std@0.224.0/fs/mod.ts";
-import * as path from "https://deno.land/std@0.224.0/path/mod.ts";
+import { expect, test } from "bun:test";
+import * as path from "@std/path";
+import { writeFile, readFile, stat } from "node:fs/promises";
 import { withTestBackend } from "./test_backend.ts";
 import { addWorkspace } from "../workspace.ts";
 import { parseJsonFromCLIOutput } from "./test_config_helpers.ts";
@@ -250,27 +250,19 @@ async function verifyNoDiffOnPull(backend: any, tempDir: string): Promise<void> 
     ["sync", "pull", "--yes", "--dry-run", "--json-output"],
     tempDir
   );
-  assertEquals(pullResult.code, 0, `Pull for diff check should succeed: ${pullResult.stderr}`);
+  expect(pullResult.code).toEqual(0);
 
   const output = parseJsonFromCLIOutput(pullResult.stdout);
   const changes = output.changes || [];
 
-  assertEquals(
-    changes.length,
-    0,
-    `Should have no changes after push, but found: ${JSON.stringify(changes.map((c: any) => c.path))}`
-  );
+  expect(changes.length).toEqual(0);
 }
 
 // =============================================================================
 // TESTS
 // =============================================================================
 
-Deno.test({
-  name: "Mixed Case Paths: pull and push script with capitalized folder",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  fn: async () => {
+test("Mixed Case Paths: pull and push script with capitalized folder", async () => {
     await withTestBackend(async (backend, tempDir) => {
       await setupWorkspaceProfile(backend);
 
@@ -285,56 +277,51 @@ Deno.test({
       await createScript(backend, scriptPath, originalContent, "My Test Script");
 
       // Create wmill.yaml
-      await Deno.writeTextFile(
+      await writeFile(
         path.join(tempDir, "wmill.yaml"),
         `defaultTs: bun
 includes:
   - "**"
 excludes: []
-`
+`,
+        "utf-8"
       );
 
       // Pull
       const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
-      assertEquals(pullResult.code, 0, `Pull should succeed: ${pullResult.stderr}`);
+      expect(pullResult.code).toEqual(0);
 
       // Verify file exists with correct path (normalized for comparison)
       const expectedScriptPath = path.join(tempDir, "f", "MyFolder", "MyScript.ts");
-      const scriptExists = await Deno.stat(expectedScriptPath).then(() => true).catch(() => false);
-      assert(scriptExists, `Script file should exist at ${expectedScriptPath}`);
+      const scriptExists = await stat(expectedScriptPath).then(() => true).catch(() => false);
+      expect(scriptExists).toBeTruthy();
 
       // Read and verify content
-      const pulledContent = await Deno.readTextFile(expectedScriptPath);
-      assert(pulledContent.includes("original content"), "Pulled content should match original");
+      const pulledContent = await readFile(expectedScriptPath, "utf-8");
+      expect(pulledContent.includes("original content")).toBeTruthy();
 
       // Modify the script
       const modifiedContent = `export async function main() {
   return "modified content from test";
 }`;
-      await Deno.writeTextFile(expectedScriptPath, modifiedContent);
+      await writeFile(expectedScriptPath, modifiedContent, "utf-8");
 
       // Push
       const pushResult = await backend.runCLICommand(["sync", "push", "--yes"], tempDir);
-      assertEquals(pushResult.code, 0, `Push should succeed: ${pushResult.stderr}`);
+      expect(pushResult.code).toEqual(0);
 
       // Verify modification on server
       const updatedScript = await getScript(backend, scriptPath);
-      assert(
-        updatedScript.content.includes("modified content from test"),
-        `Server should have modified content. Got: ${updatedScript.content}`
-      );
+      expect(
+        updatedScript.content.includes("modified content from test")
+      ).toBeTruthy();
 
       // Verify no diff on subsequent pull (idempotency)
       await verifyNoDiffOnPull(backend, tempDir);
     });
-  },
 });
 
-Deno.test({
-  name: "Mixed Case Paths: pull and push flow with capitalized folder",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  fn: async () => {
+test("Mixed Case Paths: pull and push flow with capitalized folder", async () => {
     await withTestBackend(async (backend, tempDir) => {
       await setupWorkspaceProfile(backend);
 
@@ -349,59 +336,51 @@ Deno.test({
       await createFlow(backend, flowPath, originalContent, "Data Processor Flow");
 
       // Create wmill.yaml
-      await Deno.writeTextFile(
+      await writeFile(
         path.join(tempDir, "wmill.yaml"),
         `defaultTs: bun
 includes:
   - "**"
 excludes: []
-`
+`,
+        "utf-8"
       );
 
       // Pull
       const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
-      assertEquals(pullResult.code, 0, `Pull should succeed: ${pullResult.stderr}`);
+      expect(pullResult.code).toEqual(0);
 
       // Verify flow directory exists
       const flowDir = path.join(tempDir, "f", "MyFlows", "DataProcessor.flow");
-      const flowDirExists = await Deno.stat(flowDir).then(s => s.isDirectory).catch(() => false);
-      assert(flowDirExists, `Flow directory should exist at ${flowDir}`);
+      const flowDirExists = await stat(flowDir).then(s => s.isDirectory()).catch(() => false);
+      expect(flowDirExists).toBeTruthy();
 
       // Modify the flow metadata (summary) instead of inline script
       const flowMetadataPath = path.join(flowDir, "flow.yaml");
-      const flowMetadataExists = await Deno.stat(flowMetadataPath).then(() => true).catch(() => false);
-      assert(flowMetadataExists, `Flow metadata should exist at ${flowMetadataPath}`);
+      const flowMetadataExists = await stat(flowMetadataPath).then(() => true).catch(() => false);
+      expect(flowMetadataExists).toBeTruthy();
 
-      const flowMetadata = await Deno.readTextFile(flowMetadataPath);
+      const flowMetadata = await readFile(flowMetadataPath, "utf-8");
       const modifiedMetadata = flowMetadata.replace(
         /summary:.*$/m,
         'summary: "Modified Data Processor Flow from test"'
       );
-      await Deno.writeTextFile(flowMetadataPath, modifiedMetadata);
+      await writeFile(flowMetadataPath, modifiedMetadata, "utf-8");
 
       // Push
       const pushResult = await backend.runCLICommand(["sync", "push", "--yes"], tempDir);
-      assertEquals(pushResult.code, 0, `Push should succeed: ${pushResult.stderr}`);
+      expect(pushResult.code).toEqual(0);
 
       // Verify modification on server
       const updatedFlow = await getFlow(backend, flowPath);
-      assertEquals(
-        updatedFlow.summary,
-        "Modified Data Processor Flow from test",
-        `Server should have modified flow summary. Got: ${updatedFlow.summary}`
-      );
+      expect(updatedFlow.summary).toEqual("Modified Data Processor Flow from test");
 
       // Verify no diff on subsequent pull (idempotency)
       await verifyNoDiffOnPull(backend, tempDir);
     });
-  },
 });
 
-Deno.test({
-  name: "Mixed Case Paths: pull and push app with capitalized folder",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  fn: async () => {
+test("Mixed Case Paths: pull and push app with capitalized folder", async () => {
     await withTestBackend(async (backend, tempDir) => {
       await setupWorkspaceProfile(backend);
 
@@ -413,56 +392,48 @@ Deno.test({
       await createApp(backend, appPath, "My Dashboard App");
 
       // Create wmill.yaml
-      await Deno.writeTextFile(
+      await writeFile(
         path.join(tempDir, "wmill.yaml"),
         `defaultTs: bun
 includes:
   - "**"
 excludes: []
-`
+`,
+        "utf-8"
       );
 
       // Pull
       const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
-      assertEquals(pullResult.code, 0, `Pull should succeed: ${pullResult.stderr}`);
+      expect(pullResult.code).toEqual(0);
 
       // Verify app directory exists
       const appDir = path.join(tempDir, "f", "MyApps", "Dashboard.app");
-      const appDirExists = await Deno.stat(appDir).then(s => s.isDirectory).catch(() => false);
-      assert(appDirExists, `App directory should exist at ${appDir}`);
+      const appDirExists = await stat(appDir).then(s => s.isDirectory()).catch(() => false);
+      expect(appDirExists).toBeTruthy();
 
       // Modify the app metadata
       const appMetadataPath = path.join(appDir, "app.yaml");
-      const appMetadata = await Deno.readTextFile(appMetadataPath);
+      const appMetadata = await readFile(appMetadataPath, "utf-8");
       const modifiedMetadata = appMetadata.replace(
         /summary:.*$/m,
         'summary: "Modified Dashboard App from test"'
       );
-      await Deno.writeTextFile(appMetadataPath, modifiedMetadata);
+      await writeFile(appMetadataPath, modifiedMetadata, "utf-8");
 
       // Push
       const pushResult = await backend.runCLICommand(["sync", "push", "--yes"], tempDir);
-      assertEquals(pushResult.code, 0, `Push should succeed: ${pushResult.stderr}`);
+      expect(pushResult.code).toEqual(0);
 
       // Verify modification on server
       const updatedApp = await getApp(backend, appPath);
-      assertEquals(
-        updatedApp.summary,
-        "Modified Dashboard App from test",
-        `Server should have modified app summary. Got: ${updatedApp.summary}`
-      );
+      expect(updatedApp.summary).toEqual("Modified Dashboard App from test");
 
       // Verify no diff on subsequent pull (idempotency)
       await verifyNoDiffOnPull(backend, tempDir);
     });
-  },
 });
 
-Deno.test({
-  name: "Mixed Case Paths: pull and push variable with capitalized folder",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  fn: async () => {
+test("Mixed Case Paths: pull and push variable with capitalized folder", async () => {
     await withTestBackend(async (backend, tempDir) => {
       await setupWorkspaceProfile(backend);
 
@@ -474,55 +445,47 @@ Deno.test({
       await createVariable(backend, varPath, "original-api-key-value", "API Key Variable");
 
       // Create wmill.yaml
-      await Deno.writeTextFile(
+      await writeFile(
         path.join(tempDir, "wmill.yaml"),
         `defaultTs: bun
 includes:
   - "**"
 excludes: []
-`
+`,
+        "utf-8"
       );
 
       // Pull
       const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
-      assertEquals(pullResult.code, 0, `Pull should succeed: ${pullResult.stderr}`);
+      expect(pullResult.code).toEqual(0);
 
       // Verify variable file exists
       const varFilePath = path.join(tempDir, "f", "MyVars", "ApiKey.variable.yaml");
-      const varExists = await Deno.stat(varFilePath).then(() => true).catch(() => false);
-      assert(varExists, `Variable file should exist at ${varFilePath}`);
+      const varExists = await stat(varFilePath).then(() => true).catch(() => false);
+      expect(varExists).toBeTruthy();
 
       // Modify the variable
-      const varContent = await Deno.readTextFile(varFilePath);
+      const varContent = await readFile(varFilePath, "utf-8");
       const modifiedVarContent = varContent.replace(
         /value:.*$/m,
         'value: "modified-api-key-from-test"'
       );
-      await Deno.writeTextFile(varFilePath, modifiedVarContent);
+      await writeFile(varFilePath, modifiedVarContent, "utf-8");
 
       // Push
       const pushResult = await backend.runCLICommand(["sync", "push", "--yes"], tempDir);
-      assertEquals(pushResult.code, 0, `Push should succeed: ${pushResult.stderr}`);
+      expect(pushResult.code).toEqual(0);
 
       // Verify modification on server
       const updatedVar = await getVariable(backend, varPath);
-      assertEquals(
-        updatedVar.value,
-        "modified-api-key-from-test",
-        `Server should have modified variable value. Got: ${updatedVar.value}`
-      );
+      expect(updatedVar.value).toEqual("modified-api-key-from-test");
 
       // Verify no diff on subsequent pull (idempotency)
       await verifyNoDiffOnPull(backend, tempDir);
     });
-  },
 });
 
-Deno.test({
-  name: "Mixed Case Paths: deeply nested capitalized folders",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  fn: async () => {
+test("Mixed Case Paths: deeply nested capitalized folders", async () => {
     await withTestBackend(async (backend, tempDir) => {
       await setupWorkspaceProfile(backend);
 
@@ -539,52 +502,47 @@ Deno.test({
       await createScript(backend, scriptPath, originalContent, "Nested Script");
 
       // Create wmill.yaml
-      await Deno.writeTextFile(
+      await writeFile(
         path.join(tempDir, "wmill.yaml"),
         `defaultTs: bun
 includes:
   - "**"
 excludes: []
-`
+`,
+        "utf-8"
       );
 
       // Pull
       const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
-      assertEquals(pullResult.code, 0, `Pull should succeed: ${pullResult.stderr}`);
+      expect(pullResult.code).toEqual(0);
 
       // Verify file exists
       const scriptFilePath = path.join(tempDir, "f", "MyProject", "SubFolder_A.ts");
-      const scriptExists = await Deno.stat(scriptFilePath).then(() => true).catch(() => false);
-      assert(scriptExists, `Nested script should exist at ${scriptFilePath}`);
+      const scriptExists = await stat(scriptFilePath).then(() => true).catch(() => false);
+      expect(scriptExists).toBeTruthy();
 
       // Modify
       const modifiedContent = `export async function main() {
   return "deeply nested modified from test";
 }`;
-      await Deno.writeTextFile(scriptFilePath, modifiedContent);
+      await writeFile(scriptFilePath, modifiedContent, "utf-8");
 
       // Push
       const pushResult = await backend.runCLICommand(["sync", "push", "--yes"], tempDir);
-      assertEquals(pushResult.code, 0, `Push should succeed: ${pushResult.stderr}`);
+      expect(pushResult.code).toEqual(0);
 
       // Verify on server
       const updatedScript = await getScript(backend, scriptPath);
-      assert(
-        updatedScript.content.includes("deeply nested modified from test"),
-        `Server should have modified nested content`
-      );
+      expect(
+        updatedScript.content.includes("deeply nested modified from test")
+      ).toBeTruthy();
 
       // Verify no diff on subsequent pull (idempotency)
       await verifyNoDiffOnPull(backend, tempDir);
     });
-  },
 });
 
-Deno.test({
-  name: "Mixed Case Paths: multiple resources in same capitalized folder",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  fn: async () => {
+test("Mixed Case Paths: multiple resources in same capitalized folder", async () => {
     await withTestBackend(async (backend, tempDir) => {
       await setupWorkspaceProfile(backend);
 
@@ -608,65 +566,63 @@ Deno.test({
       await createResource(backend, "f/SharedFolder/ResourceOne", "any", { key: "original" });
 
       // Create wmill.yaml
-      await Deno.writeTextFile(
+      await writeFile(
         path.join(tempDir, "wmill.yaml"),
         `defaultTs: bun
 includes:
   - "**"
 excludes: []
-`
+`,
+        "utf-8"
       );
 
       // Pull
       const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
-      assertEquals(pullResult.code, 0, `Pull should succeed: ${pullResult.stderr}`);
+      expect(pullResult.code).toEqual(0);
 
       // Verify all files exist
       const folderPath = path.join(tempDir, "f", "SharedFolder");
-      const script1Exists = await Deno.stat(path.join(folderPath, "ScriptOne.ts")).then(() => true).catch(() => false);
-      const script2Exists = await Deno.stat(path.join(folderPath, "ScriptTwo.ts")).then(() => true).catch(() => false);
-      const var1Exists = await Deno.stat(path.join(folderPath, "VarOne.variable.yaml")).then(() => true).catch(() => false);
-      const res1Exists = await Deno.stat(path.join(folderPath, "ResourceOne.resource.yaml")).then(() => true).catch(() => false);
+      const script1Exists = await stat(path.join(folderPath, "ScriptOne.ts")).then(() => true).catch(() => false);
+      const script2Exists = await stat(path.join(folderPath, "ScriptTwo.ts")).then(() => true).catch(() => false);
+      const var1Exists = await stat(path.join(folderPath, "VarOne.variable.yaml")).then(() => true).catch(() => false);
+      const res1Exists = await stat(path.join(folderPath, "ResourceOne.resource.yaml")).then(() => true).catch(() => false);
 
-      assert(script1Exists, "ScriptOne should exist");
-      assert(script2Exists, "ScriptTwo should exist");
-      assert(var1Exists, "VarOne should exist");
-      assert(res1Exists, "ResourceOne should exist");
+      expect(script1Exists).toBeTruthy();
+      expect(script2Exists).toBeTruthy();
+      expect(var1Exists).toBeTruthy();
+      expect(res1Exists).toBeTruthy();
 
       // Modify script one
-      await Deno.writeTextFile(
+      await writeFile(
         path.join(folderPath, "ScriptOne.ts"),
-        'export async function main() { return "script one MODIFIED"; }'
+        'export async function main() { return "script one MODIFIED"; }',
+        "utf-8"
       );
 
       // Modify script two
-      await Deno.writeTextFile(
+      await writeFile(
         path.join(folderPath, "ScriptTwo.ts"),
-        'export async function main() { return "script two MODIFIED"; }'
+        'export async function main() { return "script two MODIFIED"; }',
+        "utf-8"
       );
 
       // Push
       const pushResult = await backend.runCLICommand(["sync", "push", "--yes"], tempDir);
-      assertEquals(pushResult.code, 0, `Push should succeed: ${pushResult.stderr}`);
+      expect(pushResult.code).toEqual(0);
 
       // Verify modifications on server
       const script1 = await getScript(backend, "f/SharedFolder/ScriptOne");
       const script2 = await getScript(backend, "f/SharedFolder/ScriptTwo");
 
-      assert(script1.content.includes("script one MODIFIED"), "Script one should be modified on server");
-      assert(script2.content.includes("script two MODIFIED"), "Script two should be modified on server");
+      expect(script1.content.includes("script one MODIFIED")).toBeTruthy();
+      expect(script2.content.includes("script two MODIFIED")).toBeTruthy();
 
       // Verify no diff on subsequent pull (idempotency)
       await verifyNoDiffOnPull(backend, tempDir);
     });
-  },
 });
 
-Deno.test({
-  name: "Mixed Case Paths: CamelCase folder names with numbers",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  fn: async () => {
+test("Mixed Case Paths: CamelCase folder names with numbers", async () => {
     await withTestBackend(async (backend, tempDir) => {
       await setupWorkspaceProfile(backend);
 
@@ -683,40 +639,41 @@ Deno.test({
       );
 
       // Create wmill.yaml
-      await Deno.writeTextFile(
+      await writeFile(
         path.join(tempDir, "wmill.yaml"),
         `defaultTs: bun
 includes:
   - "**"
 excludes: []
-`
+`,
+        "utf-8"
       );
 
       // Pull
       const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
-      assertEquals(pullResult.code, 0, `Pull should succeed: ${pullResult.stderr}`);
+      expect(pullResult.code).toEqual(0);
 
       // Verify file exists
       const scriptFilePath = path.join(tempDir, "f", "Project2024", "DataHandler_V2.ts");
-      const scriptExists = await Deno.stat(scriptFilePath).then(() => true).catch(() => false);
-      assert(scriptExists, `Script should exist at ${scriptFilePath}`);
+      const scriptExists = await stat(scriptFilePath).then(() => true).catch(() => false);
+      expect(scriptExists).toBeTruthy();
 
       // Modify
-      await Deno.writeTextFile(
+      await writeFile(
         scriptFilePath,
-        'export async function main() { return "handler v2 MODIFIED"; }'
+        'export async function main() { return "handler v2 MODIFIED"; }',
+        "utf-8"
       );
 
       // Push
       const pushResult = await backend.runCLICommand(["sync", "push", "--yes"], tempDir);
-      assertEquals(pushResult.code, 0, `Push should succeed: ${pushResult.stderr}`);
+      expect(pushResult.code).toEqual(0);
 
       // Verify on server
       const updatedScript = await getScript(backend, scriptPath);
-      assert(updatedScript.content.includes("handler v2 MODIFIED"), "Server should have modified content");
+      expect(updatedScript.content.includes("handler v2 MODIFIED")).toBeTruthy();
 
       // Verify no diff on subsequent pull (idempotency)
       await verifyNoDiffOnPull(backend, tempDir);
     });
-  },
 });

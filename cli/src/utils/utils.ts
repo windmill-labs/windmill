@@ -2,7 +2,10 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck This file is copied from a JS project, so it's not type-safe.
 
-import { colors, encodeHex, log, SEP } from "../../deps.ts";
+import { colors } from "@cliffy/ansi/colors";
+import { encodeHex } from "@std/encoding";
+import * as log from "@std/log";
+import { SEPARATOR as SEP } from "@std/path";
 import crypto from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
@@ -128,10 +131,6 @@ export async function generateHashFromBuffer(
   return encodeHex(hashBuffer);
 }
 
-// export async function readInlinePath(path: string): Promise<string> {
-//   return await Deno.readTextFile(path.replaceAll("/", SEP));
-// }
-
 export function readInlinePathSync(path: string): string {
   try {
     return readFileSync(path.replaceAll("/", SEP), "utf-8");
@@ -208,7 +207,7 @@ export async function selectRepository<T extends Repository>(
   }
 
   // Import Select dynamically to avoid dependency issues
-  const { Select } = await import("../../deps.ts");
+  const { Select } = await import("@cliffy/prompt/select");
 
   console.log(
     `\nMultiple repositories found. Please select which repository to ${

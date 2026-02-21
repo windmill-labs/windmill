@@ -1,6 +1,7 @@
 import process from "node:process";
 
-import { colors, Confirm } from "../../../deps.ts";
+import { colors } from "@cliffy/ansi/colors";
+import { Confirm } from "@cliffy/prompt/confirm";
 import * as wmill from "../../../gen/services.gen.ts";
 import { GitSyncRepository } from "./types.ts";
 

@@ -1,13 +1,11 @@
-import {
-  colors,
-  Command,
-  getPort,
-  log,
-  open,
-  SEP,
-  windmillUtils,
-  yamlParseFile,
-} from "../../../deps.ts";
+import { Command } from "@cliffy/command";
+import { colors } from "@cliffy/ansi/colors";
+import * as log from "@std/log";
+import { SEPARATOR as SEP } from "@std/path";
+import * as windmillUtils from "@windmill-labs/shared-utils";
+import { yamlParseFile } from "../../utils/yaml.ts";
+import * as getPort from "get-port";
+import * as open from "open";
 import { GlobalOptions } from "../../types.ts";
 import * as http from "node:http";
 import * as fs from "node:fs";
@@ -387,7 +385,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
   const appPath = rawApp?.custom_path ?? "u/unknown/newapp";
 
   // Dynamically import esbuild only when the dev command is called
-  const esbuild = await import("npm:esbuild@0.24.2");
+  const esbuild = await import("esbuild");
 
   const port = opts.port ??
     (await getPort.default({

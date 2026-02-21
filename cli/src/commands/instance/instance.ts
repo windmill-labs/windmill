@@ -1,18 +1,17 @@
 import { readFile, writeFile, readdir, mkdir, rm, stat } from "node:fs/promises";
 import { appendFile } from "node:fs/promises";
-import {
-  Command,
-  Confirm,
-  path,
-  Select,
-  setClient,
-  Table,
-  yamlParseFile,
-  yamlStringify,
-} from "../../../deps.ts";
+import { colors } from "@cliffy/ansi/colors";
+import { Command } from "@cliffy/command";
+import { Confirm } from "@cliffy/prompt/confirm";
+import { Input } from "@cliffy/prompt/input";
+import { Select } from "@cliffy/prompt/select";
+import { Table } from "@cliffy/table";
+import * as log from "@std/log";
+import * as path from "@std/path";
+import { stringify as yamlStringify } from "@std/yaml";
+import { setClient } from "../../core/client.ts";
+import { yamlParseFile } from "../../utils/yaml.ts";
 import * as wmill from "../../../gen/services.gen.ts";
-
-import { colors, Input, log } from "../../../deps.ts";
 import { loginInteractive } from "../../core/login.ts";
 import {
   getActiveInstanceFilePath,

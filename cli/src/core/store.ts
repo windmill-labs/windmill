@@ -1,4 +1,4 @@
-import { ensureDir } from "../../deps.ts";
+import { mkdir } from "node:fs/promises";
 import { getConfigDirPath } from "../../windmill-utils-internal/src/config/config.ts";
 
 function hash_string(str: string): number {
@@ -17,6 +17,6 @@ function hash_string(str: string): number {
 export async function getStore(baseUrl: string, configDirOverride?: string): Promise<string> {
   const baseHash = Math.abs(hash_string(baseUrl)).toString(16);
   const baseStore = (await getConfigDirPath(configDirOverride)) + baseHash + "/";
-  await ensureDir(baseStore);
+  await mkdir(baseStore, { recursive: true });
   return baseStore;
 }

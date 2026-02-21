@@ -10,6 +10,6 @@
     "allowImportingTsExtensions": true,
     "noEmit": true
   },
-  "include": ["src/**/*", "deps.ts", "gen/**/*"],
+  "include": ["src/**/*", "gen/**/*"],
   "exclude": ["node_modules", "dist", "npm", "test"]
 }

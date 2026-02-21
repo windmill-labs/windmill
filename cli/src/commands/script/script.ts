@@ -3,15 +3,13 @@ import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
 import { readFile, writeFile, stat } from "node:fs/promises";
 import { Buffer } from "node:buffer";
-import {
-  colors,
-  Command,
-  Confirm,
-  log,
-  SEP,
-  Table,
-  yamlStringify,
-} from "../../../deps.ts";
+import { colors } from "@cliffy/ansi/colors";
+import { Command } from "@cliffy/command";
+import { Confirm } from "@cliffy/prompt/confirm";
+import { Table } from "@cliffy/table";
+import * as log from "@std/log";
+import { SEPARATOR as SEP } from "@std/path";
+import { stringify as yamlStringify } from "@std/yaml";
 import { deepEqual } from "../../utils/utils.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import * as specificItems from "../../core/specific_items.ts";
@@ -260,7 +258,7 @@ export async function handleFile(
         }).toString();
         log.info("Custom bundler executed for " + path);
       } else {
-        const esbuild = await import("npm:esbuild@0.24.2");
+        const esbuild = await import("esbuild");
 
         log.info(`Started bundling ${path} ...`);
         const startTime = performance.now();
@@ -294,7 +292,7 @@ export async function handleFile(
         );
       }
       if (outputFiles.length > 1) {
-        const archiveNpm = await import("npm:@ayonli/jsext/archive");
+        const archiveNpm = await import("@ayonli/jsext/archive");
         log.info(
           `Found multiple output files for ${path}, creating a tarball... ${outputFiles
             .map((file) => file.path)
@@ -326,7 +324,7 @@ export async function handleFile(
         bundleContent = tarball;
       } else {
         if (Array.isArray(codebase.assets) && codebase.assets.length > 0) {
-          const archiveNpm = await import("npm:@ayonli/jsext/archive");
+          const archiveNpm = await import("@ayonli/jsext/archive");
           log.info(
             `Using the following asset configuration for ${path}: ${JSON.stringify(
               codebase.assets
@@ -391,17 +389,6 @@ export async function handleFile(
       //   await updateScriptSchema(content, language, typed, path);
       //   if (typedBefore != typed.schema) {
       //     log.info(`Updated metadata for bundle ${path}`);
-      //     showDiff(
-      //       yamlStringify(typedBefore, yamlOptions),
-      //       yamlStringify(typed.schema, yamlOptions)
-      //     );
-      //     await Deno.writeTextFile(
-      //       remotePath + ".script.yaml",
-      //       yamlStringify(typed as Record<string, any>, yamlOptions)
-      //     );
-      //   }
-      // }
-      // else {
       typed = structuredClone(remote);
       // }
     }
@@ -831,7 +818,7 @@ async function run(
 
       break;
     } catch {
-      new Promise((resolve, _) => setTimeout(() => resolve(undefined), 100));
+      await new Promise((resolve) => setTimeout(resolve, 100));
     }
   }
 }
@@ -873,6 +860,7 @@ export async function track_job(workspace: string, id: string) {
         log.info("failed to get job updated. skipping log streaming.");
         break;
       }
+      await new Promise((resolve) => setTimeout(resolve, 500));
       continue;
     }
 
@@ -1140,7 +1128,7 @@ async function preview(
         maxBuffer: 1024 * 1024 * 50,
       }).toString();
     } else {
-      const esbuild = await import("npm:esbuild@0.24.2");
+      const esbuild = await import("esbuild");
 
       if (!opts.silent) {
         log.info(`Bundling ${filePath} for preview...`);
@@ -1167,7 +1155,7 @@ async function preview(
 
       // Handle multiple output files (create tarball)
       if (out.outputFiles.length > 1) {
-        const archiveNpm = await import("npm:@ayonli/jsext/archive");
+        const archiveNpm = await import("@ayonli/jsext/archive");
         if (!opts.silent) {
           log.info(`Creating tarball for multiple output files...`);
         }
@@ -1186,7 +1174,7 @@ async function preview(
         isTar = true;
       } else if (Array.isArray(codebase.assets) && codebase.assets.length > 0) {
         // Handle assets
-        const archiveNpm = await import("npm:@ayonli/jsext/archive");
+        const archiveNpm = await import("@ayonli/jsext/archive");
         if (!opts.silent) {
           log.info(`Adding assets to tarball...`);
         }

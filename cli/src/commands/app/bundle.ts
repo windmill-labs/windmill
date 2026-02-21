@@ -1,10 +1,10 @@
-// deno-lint-ignore-file no-explicit-any
 import * as fs from "node:fs";
 import * as path from "node:path";
 import process from "node:process";
 import { spawn } from "node:child_process";
-import { log, colors } from "../../../deps.ts";
-import { windmillUtils } from "../../../deps.ts";
+import * as log from "@std/log";
+import { colors } from "@cliffy/ansi/colors";
+import * as windmillUtils from "@windmill-labs/shared-utils";
 export interface BundleOptions {
   entryPoint?: string;
   outDir?: string;
@@ -66,7 +66,7 @@ function createSveltePlugin(appDir: string): any {
     setup(build: any) {
       build.onLoad({ filter: /\.svelte$/ }, async (args: any) => {
         // Import svelte compiler from the project's node_modules
-        const svelte = await import("npm:svelte@5.45.2/compiler");
+        const svelte = await import("svelte/compiler");
 
         // Load the file from the file system
         const source = await fs.promises.readFile(args.path, "utf8");
@@ -118,7 +118,7 @@ export async function createFrameworkPlugins(appDir: string): Promise<any[]> {
     log.info(colors.blue("🔧 Vue detected, adding vue plugin..."));
     throw new Error("Vue plugin not supported yet");
     // try {
-    //   const esbuildPluginVue = await import("npm:esbuild-plugin-vue3@0.5.1");
+    //   const esbuildPluginVue = await import("esbuild-plugin-vue3");
     //   plugins.push(esbuildPluginVue.default());
     // } catch (error: any) {
     //   log.warn(colors.yellow(`Failed to load vue plugin: ${error.message}`));
@@ -164,7 +164,7 @@ export async function createBundle(
   options: BundleOptions = {}
 ): Promise<BundleResult> {
   // Dynamically import esbuild
-  const esbuild = await import("npm:esbuild@0.24.2");
+  const esbuild = await import("esbuild");
 
   // Detect frameworks to determine default entry point
   const frameworks = detectFrameworks(process.cwd());

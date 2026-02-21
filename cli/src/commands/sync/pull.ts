@@ -1,6 +1,8 @@
-// deno-lint-ignore-file no-explicit-any
 import { GlobalOptions } from "../../types.ts";
-import { colors, Command, JSZip, log } from "../../../deps.ts";
+import { colors } from "@cliffy/ansi/colors";
+import { Command } from "@cliffy/command";
+import * as log from "@std/log";
+import JSZip from "jszip";
 import { Workspace } from "../workspace/workspace.ts";
 import { getHeaders } from "../../utils/utils.ts";
 

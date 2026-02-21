@@ -1,5 +1,6 @@
-// deno-lint-ignore-file no-explicit-any
-import { colors, log, setClient } from "../../deps.ts";
+import { colors } from "@cliffy/ansi/colors";
+import * as log from "@std/log";
+import { setClient } from "./client.ts";
 import * as wmill from "../../gen/services.gen.ts";
 import { GlobalUserInfo } from "../../gen/types.gen.ts";
 

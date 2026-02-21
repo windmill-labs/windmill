@@ -10,11 +10,8 @@
  *         vs new logic (caches by key, skips duplicate fetches).
  */
 
-import {
-  assertEquals,
-  assertNotEquals,
-} from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { encodeHex } from "https://deno.land/std@0.224.0/encoding/hex.ts";
+import { expect, test } from "bun:test";
+import { encodeHex } from "@std/encoding";
 
 // ---------------------------------------------------------------------------
 // Mirrors extractWorkspaceDepsAnnotation + computeLockCacheKey from
@@ -163,7 +160,7 @@ async function fetchScriptLockNew(
 // Part 1 — Annotation parsing
 // =============================================================================
 
-Deno.test("python: manual requirements with external refs + inline deps", () => {
+test("python: manual requirements with external refs + inline deps", () => {
   const code = `# requirements:  default,   base
 #requests==2.31.0
 #pandas>=1.5.0
@@ -171,40 +168,40 @@ Deno.test("python: manual requirements with external refs + inline deps", () => 
 def main():
     pass`;
   const r = extractWorkspaceDepsAnnotation(code, "python3")!;
-  assertEquals(r.mode, "manual");
-  assertEquals(r.external, ["default", "base"]);
-  assertEquals(r.inline, "requests==2.31.0\npandas>=1.5.0");
+  expect(r.mode).toEqual("manual");
+  expect(r.external).toEqual(["default", "base"]);
+  expect(r.inline).toEqual("requests==2.31.0\npandas>=1.5.0");
 });
 
-Deno.test("python: extra_requirements mode", () => {
+test("python: extra_requirements mode", () => {
   const code = `# extra_requirements: utils
 #numpy>=1.24.0
 
 def main():
     pass`;
   const r = extractWorkspaceDepsAnnotation(code, "python3")!;
-  assertEquals(r.mode, "extra");
-  assertEquals(r.external, ["utils"]);
-  assertEquals(r.inline, "numpy>=1.24.0");
+  expect(r.mode).toEqual("extra");
+  expect(r.external).toEqual(["utils"]);
+  expect(r.inline).toEqual("numpy>=1.24.0");
 });
 
-Deno.test("python: empty requirements (opt-out)", () => {
+test("python: empty requirements (opt-out)", () => {
   const code = `# requirements:
 def main():
     pass`;
   const r = extractWorkspaceDepsAnnotation(code, "python3")!;
-  assertEquals(r.mode, "manual");
-  assertEquals(r.external, []);
-  assertEquals(r.inline, null);
+  expect(r.mode).toEqual("manual");
+  expect(r.external).toEqual([]);
+  expect(r.inline).toEqual(null);
 });
 
-Deno.test("python: no annotation → null", () => {
+test("python: no annotation → null", () => {
   const code = `def main():
     print("hello")`;
-  assertEquals(extractWorkspaceDepsAnnotation(code, "python3"), null);
+  expect(extractWorkspaceDepsAnnotation(code, "python3")).toEqual(null);
 });
 
-Deno.test("bun: package_json annotation with inline", () => {
+test("bun: package_json annotation with inline", () => {
   const code = `// package_json: utils, base
 //{
 //  "dependencies": {
@@ -214,47 +211,47 @@ Deno.test("bun: package_json annotation with inline", () => {
 
 export function main() {}`;
   const r = extractWorkspaceDepsAnnotation(code, "bun")!;
-  assertEquals(r.mode, "manual");
-  assertEquals(r.external, ["utils", "base"]);
-  assertEquals(r.inline, `{
+  expect(r.mode).toEqual("manual");
+  expect(r.external).toEqual(["utils", "base"]);
+  expect(r.inline).toEqual(`{
   "dependencies": {
     "axios": "^1.6.0"
   }
 }`);
 });
 
-Deno.test("go: go_mod annotation", () => {
+test("go: go_mod annotation", () => {
   const code = `// go_mod:   base,
 //github.com/gin-gonic/gin v1.9.1
 
 package main
 func main() {}`;
   const r = extractWorkspaceDepsAnnotation(code, "go")!;
-  assertEquals(r.mode, "manual");
-  assertEquals(r.external, ["base"]);
-  assertEquals(r.inline, "github.com/gin-gonic/gin v1.9.1");
+  expect(r.mode).toEqual("manual");
+  expect(r.external).toEqual(["base"]);
+  expect(r.inline).toEqual("github.com/gin-gonic/gin v1.9.1");
 });
 
-Deno.test("unsupported language → null", () => {
-  assertEquals(extractWorkspaceDepsAnnotation("print(1)", "deno"), null);
-  assertEquals(extractWorkspaceDepsAnnotation("print(1)", "bash"), null);
+test("unsupported language → null", () => {
+  expect(extractWorkspaceDepsAnnotation("print(1)", "deno")).toEqual(null);
+  expect(extractWorkspaceDepsAnnotation("print(1)", "bash")).toEqual(null);
 });
 
 // =============================================================================
 // Part 2 — Cache key computation
 // =============================================================================
 
-Deno.test("same annotation + language + deps → same key", async () => {
+test("same annotation + language + deps → same key", async () => {
   const code = `# requirements: default
 #requests==2.31.0
 print("hello")`;
   const deps = { "dependencies/requirements.in": "requests==2.31.0" };
   const a = await computeLockCacheKey(code, "python3", deps);
   const b = await computeLockCacheKey(code, "python3", deps);
-  assertEquals(a, b);
+  expect(a).toEqual(b);
 });
 
-Deno.test("different code, same annotation → same key", async () => {
+test("different code, same annotation → same key", async () => {
   const codeA = `# requirements: default
 #requests==2.31.0
 print("hello")`;
@@ -262,13 +259,10 @@ print("hello")`;
 #requests==2.31.0
 print("world")`;
   const deps = { "dependencies/requirements.in": "requests==2.31.0" };
-  assertEquals(
-    await computeLockCacheKey(codeA, "python3", deps),
-    await computeLockCacheKey(codeB, "python3", deps),
-  );
+  expect(await computeLockCacheKey(codeA, "python3", deps)).toEqual(await computeLockCacheKey(codeB, "python3", deps));
 });
 
-Deno.test("different annotation inline → different key", async () => {
+test("different annotation inline → different key", async () => {
   const codeA = `# requirements: default
 #requests==2.31.0
 print("hello")`;
@@ -276,67 +270,46 @@ print("hello")`;
 #flask==3.0.0
 print("hello")`;
   const deps = { "dependencies/requirements.in": "requests==2.31.0" };
-  assertNotEquals(
-    await computeLockCacheKey(codeA, "python3", deps),
-    await computeLockCacheKey(codeB, "python3", deps),
-  );
+  expect(await computeLockCacheKey(codeA, "python3", deps)).not.toEqual(await computeLockCacheKey(codeB, "python3", deps));
 });
 
-Deno.test("different annotation external refs → different key", async () => {
+test("different annotation external refs → different key", async () => {
   const codeA = `# requirements: default
 print("hello")`;
   const codeB = `# requirements: base
 print("hello")`;
   const deps = { "dependencies/requirements.in": "requests==2.31.0" };
-  assertNotEquals(
-    await computeLockCacheKey(codeA, "python3", deps),
-    await computeLockCacheKey(codeB, "python3", deps),
-  );
+  expect(await computeLockCacheKey(codeA, "python3", deps)).not.toEqual(await computeLockCacheKey(codeB, "python3", deps));
 });
 
-Deno.test("manual vs extra mode → different key", async () => {
+test("manual vs extra mode → different key", async () => {
   const codeA = `# requirements: default
 print("hello")`;
   const codeB = `# extra_requirements: default
 print("hello")`;
   const deps = { "dependencies/requirements.in": "requests==2.31.0" };
-  assertNotEquals(
-    await computeLockCacheKey(codeA, "python3", deps),
-    await computeLockCacheKey(codeB, "python3", deps),
-  );
+  expect(await computeLockCacheKey(codeA, "python3", deps)).not.toEqual(await computeLockCacheKey(codeB, "python3", deps));
 });
 
-Deno.test("no annotation, same code → same key", async () => {
+test("no annotation, same code → same key", async () => {
   const deps = { "dependencies/requirements.in": "requests==2.31.0" };
-  assertEquals(
-    await computeLockCacheKey("print('a')", "python3", deps),
-    await computeLockCacheKey("print('b')", "python3", deps),
-  );
+  expect(await computeLockCacheKey("print('a')", "python3", deps)).toEqual(await computeLockCacheKey("print('b')", "python3", deps));
 });
 
-Deno.test("different deps → different key", async () => {
+test("different deps → different key", async () => {
   const code = `# requirements: default
 print("hello")`;
-  assertNotEquals(
-    await computeLockCacheKey(code, "python3", { d: "a" }),
-    await computeLockCacheKey(code, "python3", { d: "b" }),
-  );
+  expect(await computeLockCacheKey(code, "python3", { d: "a" })).not.toEqual(await computeLockCacheKey(code, "python3", { d: "b" }));
 });
 
-Deno.test("different language → different key", async () => {
+test("different language → different key", async () => {
   const deps = { d: "v" };
-  assertNotEquals(
-    await computeLockCacheKey("x", "bun", deps),
-    await computeLockCacheKey("x", "python3", deps),
-  );
+  expect(await computeLockCacheKey("x", "bun", deps)).not.toEqual(await computeLockCacheKey("x", "python3", deps));
 });
 
-Deno.test("dep key order does not matter", async () => {
+test("dep key order does not matter", async () => {
   const code = "print('hello')";
-  assertEquals(
-    await computeLockCacheKey(code, "python3", { a: "1", b: "2" }),
-    await computeLockCacheKey(code, "python3", { b: "2", a: "1" }),
-  );
+  expect(await computeLockCacheKey(code, "python3", { a: "1", b: "2" })).toEqual(await computeLockCacheKey(code, "python3", { b: "2", a: "1" }));
 });
 
 // =============================================================================
@@ -360,7 +333,7 @@ function makeRemoteFn(): {
 
 // -- Two scripts, same annotation + language + deps -------------------------
 
-Deno.test("old logic: two scripts same annotation → 2 remote calls", async () => {
+test("old logic: two scripts same annotation → 2 remote calls", async () => {
   const { remoteFn, callCount } = makeRemoteFn();
   const deps = { "dependencies/requirements.in": "requests==2.31.0" };
 
@@ -370,10 +343,10 @@ Deno.test("old logic: two scripts same annotation → 2 remote calls", async () 
   ];
 
   for (const s of scripts) await fetchScriptLockOld(s, remoteFn);
-  assertEquals(callCount(), 2);
+  expect(callCount()).toEqual(2);
 });
 
-Deno.test("new logic: two scripts same annotation → 1 remote call (cache shared)", async () => {
+test("new logic: two scripts same annotation → 1 remote call (cache shared)", async () => {
   const { remoteFn, callCount } = makeRemoteFn();
   const cache = new Map<string, string>();
   const deps = { "dependencies/requirements.in": "requests==2.31.0" };
@@ -385,13 +358,13 @@ Deno.test("new logic: two scripts same annotation → 1 remote call (cache share
 
   const results: string[] = [];
   for (const s of scripts) results.push(await fetchScriptLockNew(s, remoteFn, cache));
-  assertEquals(callCount(), 1);
-  assertEquals(results[0], results[1]);
+  expect(callCount()).toEqual(1);
+  expect(results[0]).toEqual(results[1]);
 });
 
 // -- Two scripts, different annotations + same deps -------------------------
 
-Deno.test("new logic: different annotations same deps → 2 remote calls", async () => {
+test("new logic: different annotations same deps → 2 remote calls", async () => {
   const { remoteFn, callCount } = makeRemoteFn();
   const cache = new Map<string, string>();
   const deps = { "dependencies/requirements.in": "requests==2.31.0" };
@@ -403,13 +376,13 @@ Deno.test("new logic: different annotations same deps → 2 remote calls", async
 
   const results: string[] = [];
   for (const s of scripts) results.push(await fetchScriptLockNew(s, remoteFn, cache));
-  assertEquals(callCount(), 2);
-  assertNotEquals(results[0], results[1]);
+  expect(callCount()).toEqual(2);
+  expect(results[0]).not.toEqual(results[1]);
 });
 
 // -- Two scripts, same annotation + different deps --------------------------
 
-Deno.test("new logic: same annotation different deps → 2 remote calls", async () => {
+test("new logic: same annotation different deps → 2 remote calls", async () => {
   const { remoteFn, callCount } = makeRemoteFn();
   const cache = new Map<string, string>();
 
@@ -422,13 +395,13 @@ Deno.test("new logic: same annotation different deps → 2 remote calls", async 
 
   const results: string[] = [];
   for (const s of scripts) results.push(await fetchScriptLockNew(s, remoteFn, cache));
-  assertEquals(callCount(), 2);
-  assertNotEquals(results[0], results[1]);
+  expect(callCount()).toEqual(2);
+  expect(results[0]).not.toEqual(results[1]);
 });
 
 // -- Many scripts, same annotation + deps -----------------------------------
 
-Deno.test("old logic: 5 scripts same annotation+deps → 5 remote calls", async () => {
+test("old logic: 5 scripts same annotation+deps → 5 remote calls", async () => {
   const { remoteFn, callCount } = makeRemoteFn();
   const deps = { "dependencies/requirements.in": "requests==2.31.0" };
   const ann = "# requirements: default\n";
@@ -442,10 +415,10 @@ Deno.test("old logic: 5 scripts same annotation+deps → 5 remote calls", async 
   ];
 
   for (const s of scripts) await fetchScriptLockOld(s, remoteFn);
-  assertEquals(callCount(), 5);
+  expect(callCount()).toEqual(5);
 });
 
-Deno.test("new logic: 5 scripts same annotation+deps → 1 remote call", async () => {
+test("new logic: 5 scripts same annotation+deps → 1 remote call", async () => {
   const { remoteFn, callCount } = makeRemoteFn();
   const cache = new Map<string, string>();
   const deps = { "dependencies/requirements.in": "requests==2.31.0" };
@@ -461,15 +434,15 @@ Deno.test("new logic: 5 scripts same annotation+deps → 1 remote call", async (
 
   const results: string[] = [];
   for (const s of scripts) results.push(await fetchScriptLockNew(s, remoteFn, cache));
-  assertEquals(callCount(), 1);
+  expect(callCount()).toEqual(1);
   for (let i = 1; i < results.length; i++) {
-    assertEquals(results[0], results[i]);
+    expect(results[0]).toEqual(results[i]);
   }
 });
 
 // -- Many scripts, 2 annotation groups + same deps -------------------------
 
-Deno.test("new logic: 4 scripts with 2 annotation groups → 2 remote calls", async () => {
+test("new logic: 4 scripts with 2 annotation groups → 2 remote calls", async () => {
   const { remoteFn, callCount } = makeRemoteFn();
   const cache = new Map<string, string>();
   const deps = { "dependencies/requirements.in": "requests==2.31.0" };
@@ -483,15 +456,15 @@ Deno.test("new logic: 4 scripts with 2 annotation groups → 2 remote calls", as
 
   const results: string[] = [];
   for (const s of scripts) results.push(await fetchScriptLockNew(s, remoteFn, cache));
-  assertEquals(callCount(), 2);
-  assertEquals(results[0], results[2]); // same annotation "default"
-  assertEquals(results[1], results[3]); // same annotation "base"
-  assertNotEquals(results[0], results[1]);
+  expect(callCount()).toEqual(2);
+  expect(results[0]).toEqual(results[2]); // same annotation "default"
+  expect(results[1]).toEqual(results[3]); // same annotation "base"
+  expect(results[0]).not.toEqual(results[1]);
 });
 
 // -- Scripts with no workspace deps (empty) ---------------------------------
 
-Deno.test("new logic: empty deps → no caching", async () => {
+test("new logic: empty deps → no caching", async () => {
   const { remoteFn, callCount } = makeRemoteFn();
   const cache = new Map<string, string>();
 
@@ -501,13 +474,13 @@ Deno.test("new logic: empty deps → no caching", async () => {
   ];
 
   for (const s of scripts) await fetchScriptLockNew(s, remoteFn, cache);
-  assertEquals(callCount(), 2);
-  assertEquals(cache.size, 0);
+  expect(callCount()).toEqual(2);
+  expect(cache.size).toEqual(0);
 });
 
 // -- No annotation scripts with raw deps → share cache ---------------------
 
-Deno.test("new logic: no annotation + same deps → 1 remote call", async () => {
+test("new logic: no annotation + same deps → 1 remote call", async () => {
   const { remoteFn, callCount } = makeRemoteFn();
   const cache = new Map<string, string>();
   const deps = { "dependencies/requirements.in": "requests==2.31.0" };
@@ -519,13 +492,13 @@ Deno.test("new logic: no annotation + same deps → 1 remote call", async () => 
 
   const results: string[] = [];
   for (const s of scripts) results.push(await fetchScriptLockNew(s, remoteFn, cache));
-  assertEquals(callCount(), 1);
-  assertEquals(results[0], results[1]);
+  expect(callCount()).toEqual(1);
+  expect(results[0]).toEqual(results[1]);
 });
 
 // -- Mix of annotated and non-annotated scripts -----------------------------
 
-Deno.test("new logic: mix of annotated and non-annotated → separate cache groups", async () => {
+test("new logic: mix of annotated and non-annotated → separate cache groups", async () => {
   const { remoteFn, callCount } = makeRemoteFn();
   const cache = new Map<string, string>();
   const deps = { "dependencies/requirements.in": "requests==2.31.0" };
@@ -539,15 +512,15 @@ Deno.test("new logic: mix of annotated and non-annotated → separate cache grou
 
   const results: string[] = [];
   for (const s of scripts) results.push(await fetchScriptLockNew(s, remoteFn, cache));
-  assertEquals(callCount(), 2); // one for annotated group, one for no-annotation group
-  assertEquals(results[0], results[2]); // both annotated "default"
-  assertEquals(results[1], results[3]); // both no annotation
-  assertNotEquals(results[0], results[1]); // annotated ≠ non-annotated
+  expect(callCount()).toEqual(2); // one for annotated group, one for no-annotation group
+  expect(results[0]).toEqual(results[2]); // both annotated "default"
+  expect(results[1]).toEqual(results[3]); // both no annotation
+  expect(results[0]).not.toEqual(results[1]); // annotated ≠ non-annotated
 });
 
 // -- Cache returns correct lock value ---------------------------------------
 
-Deno.test("new logic: cached value matches original remote response", async () => {
+test("new logic: cached value matches original remote response", async () => {
   const cache = new Map<string, string>();
   const deps = { "dependencies/requirements.in": "requests==2.31.0" };
 
@@ -566,7 +539,7 @@ Deno.test("new logic: cached value matches original remote response", async () =
     remoteFn, cache,
   );
 
-  assertEquals(callIdx, 1);
-  assertEquals(r1, "resolved-lock-content-abc123");
-  assertEquals(r2, "resolved-lock-content-abc123");
+  expect(callIdx).toEqual(1);
+  expect(r1).toEqual("resolved-lock-content-abc123");
+  expect(r2).toEqual("resolved-lock-content-abc123");
 });

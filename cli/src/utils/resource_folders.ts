@@ -8,7 +8,9 @@
  * (.flow, .app, .raw_app) or dunder-prefixed names (__flow, __app, __raw_app).
  */
 
-import { log, SEP, yamlParseFile } from "../../deps.ts";
+import * as log from "@std/log";
+import { SEPARATOR as SEP } from "@std/path";
+import { yamlParseFile } from "./yaml.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import process from "node:process";

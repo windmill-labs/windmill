@@ -8,14 +8,12 @@ import {
   removePathPrefix,
 } from "../../types.ts";
 import { compareInstanceObjects, InstanceSyncOptions } from "../instance/instance.ts";
-import {
-  colors,
-  Command,
-  log,
-  Table,
-  yamlStringify,
-  yamlParseFile,
-} from "../../../deps.ts";
+import { colors } from "@cliffy/ansi/colors";
+import { Command } from "@cliffy/command";
+import { Table } from "@cliffy/table";
+import * as log from "@std/log";
+import { stringify as yamlStringify } from "@std/yaml";
+import { yamlParseFile } from "../../utils/yaml.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import {
   ExportedInstanceGroup,

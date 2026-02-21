@@ -1,8 +1,8 @@
-import { assertEquals, assert, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { expect, test } from "bun:test";
 import { withTestBackend } from "./test_backend.ts";
 import { addWorkspace } from "../workspace.ts";
-import * as path from "https://deno.land/std@0.224.0/path/mod.ts";
-import { ensureDir } from "https://deno.land/std@0.224.0/fs/mod.ts";
+import * as path from "@std/path";
+import { writeFile, readFile, stat, rm, mkdir } from "node:fs/promises";
 
 // =============================================================================
 // RAW APP SYNC TESTS
@@ -92,7 +92,7 @@ policy:
 
 async function fileExists(filePath: string): Promise<boolean> {
   try {
-    await Deno.stat(filePath);
+    await stat(filePath);
     return true;
   } catch {
     return false;
@@ -100,7 +100,7 @@ async function fileExists(filePath: string): Promise<boolean> {
 }
 
 async function readFileContent(filePath: string): Promise<string> {
-  return await Deno.readTextFile(filePath);
+  return await readFile(filePath, "utf-8");
 }
 
 /**
@@ -108,35 +108,32 @@ async function readFileContent(filePath: string): Promise<string> {
  * Uses .raw_app folder suffix with raw_app.yaml metadata
  */
 async function createRawAppOnDisk(appDir: string): Promise<void> {
-  await ensureDir(appDir);
-  await ensureDir(path.join(appDir, "inline_scripts"));
+  await mkdir(appDir, { recursive: true });
+  await mkdir(path.join(appDir, "inline_scripts"), { recursive: true });
 
   // Create raw_app.yaml metadata file
-  await Deno.writeTextFile(path.join(appDir, "raw_app.yaml"), RAW_APP_YAML);
+  await writeFile(path.join(appDir, "raw_app.yaml"), RAW_APP_YAML, "utf-8");
 
   // Create app source files
-  await Deno.writeTextFile(path.join(appDir, "App.tsx"), APP_TSX);
-  await Deno.writeTextFile(path.join(appDir, "index.css"), INDEX_CSS);
-  await Deno.writeTextFile(path.join(appDir, "index.tsx"), INDEX_TSX);
-  await Deno.writeTextFile(path.join(appDir, "package.json"), PACKAGE_JSON);
+  await writeFile(path.join(appDir, "App.tsx"), APP_TSX, "utf-8");
+  await writeFile(path.join(appDir, "index.css"), INDEX_CSS, "utf-8");
+  await writeFile(path.join(appDir, "index.tsx"), INDEX_TSX, "utf-8");
+  await writeFile(path.join(appDir, "package.json"), PACKAGE_JSON, "utf-8");
 
   // Create inline script in inline_scripts folder
-  await Deno.writeTextFile(
+  await writeFile(
     path.join(appDir, "inline_scripts", "a.inline_script.ts"),
-    INLINE_SCRIPT_A
+    INLINE_SCRIPT_A,
+    "utf-8"
   );
-  await Deno.writeTextFile(
+  await writeFile(
     path.join(appDir, "inline_scripts", "a.inline_script.lock"),
-    INLINE_SCRIPT_A_LOCK
+    INLINE_SCRIPT_A_LOCK,
+    "utf-8"
   );
 }
 
-Deno.test({
-  name: "Raw App: full sync workflow - push, pull, modify, push, clear, pull",
-  ignore: false,
-  sanitizeResources: false,
-  sanitizeOps: false,
-  fn: async () => {
+test("Raw App: full sync workflow - push, pull, modify, push, clear, pull", async () => {
     await withTestBackend(async (backend, tempDir) => {
       // Set up workspace
       const testWorkspace = {
@@ -148,14 +145,14 @@ Deno.test({
       await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
 
       // Create wmill.yaml
-      await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+      await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
 includes:
   - "**"
-excludes: []`);
+excludes: []`, "utf-8");
 
       // Create folder structure
       const appDir = path.join(tempDir, "f", "test", "my_raw_app.raw_app");
-      await ensureDir(path.join(tempDir, "f", "test"));
+      await mkdir(path.join(tempDir, "f", "test"), { recursive: true });
       await createRawAppOnDisk(appDir);
 
       // =========================================================================
@@ -166,23 +163,23 @@ excludes: []`);
         '--yes'
       ], tempDir, "raw_app_test");
 
-      assertEquals(pushResult1.code, 0, `Initial sync push should succeed: ${pushResult1.stderr}`);
+      expect(pushResult1.code).toEqual(0);
 
       // =========================================================================
       // STEP 2: Clear disk and pull - verify raw app is pulled correctly
       // =========================================================================
-      await Deno.remove(appDir, { recursive: true });
-      assert(!(await fileExists(appDir)), "App directory should be deleted before pull");
+      await rm(appDir, { recursive: true });
+      expect(!(await fileExists(appDir))).toBeTruthy();
 
       const pullResult1 = await backend.runCLICommand([
         'sync', 'pull',
         '--yes'
       ], tempDir, "raw_app_test");
 
-      assertEquals(pullResult1.code, 0, `Sync pull should succeed: ${pullResult1.stderr}`);
+      expect(pullResult1.code).toEqual(0);
 
       // Verify raw app directory structure was created
-      assert(await fileExists(appDir), `Raw app directory should exist at ${appDir}`);
+      expect(await fileExists(appDir)).toBeTruthy();
 
       // Verify files were pulled
       const appTsxPath = path.join(appDir, "App.tsx");
@@ -191,22 +188,22 @@ excludes: []`);
       const packageJsonPath = path.join(appDir, "package.json");
       const inlineScriptPath = path.join(appDir, "inline_scripts", "a.inline_script.ts");
 
-      assert(await fileExists(appTsxPath), "App.tsx should exist");
-      assert(await fileExists(indexCssPath), "index.css should exist");
-      assert(await fileExists(indexTsxPath), "index.tsx should exist");
-      assert(await fileExists(packageJsonPath), "package.json should exist");
-      assert(await fileExists(inlineScriptPath), "Inline script a.inline_script.ts should exist");
+      expect(await fileExists(appTsxPath)).toBeTruthy();
+      expect(await fileExists(indexCssPath)).toBeTruthy();
+      expect(await fileExists(indexTsxPath)).toBeTruthy();
+      expect(await fileExists(packageJsonPath)).toBeTruthy();
+      expect(await fileExists(inlineScriptPath)).toBeTruthy();
 
       // Verify file contents
       const appTsxContent = await readFileContent(appTsxPath);
-      assertStringIncludes(appTsxContent, "hello world", "App.tsx should contain 'hello world'");
-      assertStringIncludes(appTsxContent, "backend.a", "App.tsx should reference backend.a");
+      expect(appTsxContent).toContain("hello world");
+      expect(appTsxContent).toContain("backend.a");
 
       const indexCssContent = await readFileContent(indexCssPath);
-      assertStringIncludes(indexCssContent, ".myclass", "index.css should contain .myclass");
+      expect(indexCssContent).toContain(".myclass");
 
       const inlineScriptContent = await readFileContent(inlineScriptPath);
-      assertStringIncludes(inlineScriptContent, "export async function main", "Inline script should have main function");
+      expect(inlineScriptContent).toContain("export async function main");
 
       // =========================================================================
       // STEP 3: Modify files locally
@@ -214,15 +211,15 @@ excludes: []`);
 
       // Modify App.tsx - change the heading
       const modifiedAppTsx = appTsxContent.replace("hello world", "hello modified world");
-      await Deno.writeTextFile(appTsxPath, modifiedAppTsx);
+      await writeFile(appTsxPath, modifiedAppTsx, "utf-8");
 
       // Modify index.css - change the border color
       const modifiedIndexCss = indexCssContent.replace("gray", "blue");
-      await Deno.writeTextFile(indexCssPath, modifiedIndexCss);
+      await writeFile(indexCssPath, modifiedIndexCss, "utf-8");
 
       // Modify inline script - change the return value
       const modifiedInlineScript = inlineScriptContent.replace("return x", "return `modified: ${x}`");
-      await Deno.writeTextFile(inlineScriptPath, modifiedInlineScript);
+      await writeFile(inlineScriptPath, modifiedInlineScript, "utf-8");
 
       // =========================================================================
       // STEP 4: Push changes
@@ -232,13 +229,13 @@ excludes: []`);
         '--yes'
       ], tempDir, "raw_app_test");
 
-      assertEquals(pushResult2.code, 0, `Sync push should succeed: ${pushResult2.stderr}`);
+      expect(pushResult2.code).toEqual(0);
 
       // =========================================================================
       // STEP 5: Clear disk (delete the app directory)
       // =========================================================================
-      await Deno.remove(appDir, { recursive: true });
-      assert(!(await fileExists(appDir)), "App directory should be deleted");
+      await rm(appDir, { recursive: true });
+      expect(!(await fileExists(appDir))).toBeTruthy();
 
       // =========================================================================
       // STEP 6: Pull again and verify modifications persisted
@@ -248,37 +245,31 @@ excludes: []`);
         '--yes'
       ], tempDir, "raw_app_test");
 
-      assertEquals(pullResult2.code, 0, `Second sync pull should succeed: ${pullResult2.stderr}`);
+      expect(pullResult2.code).toEqual(0);
 
       // Verify app directory exists again
-      assert(await fileExists(appDir), "Raw app directory should exist after second pull");
+      expect(await fileExists(appDir)).toBeTruthy();
 
       // Verify all files were pulled again
-      assert(await fileExists(appTsxPath), "App.tsx should exist after second pull");
-      assert(await fileExists(indexCssPath), "index.css should exist after second pull");
-      assert(await fileExists(indexTsxPath), "index.tsx should exist after second pull");
-      assert(await fileExists(packageJsonPath), "package.json should exist after second pull");
-      assert(await fileExists(inlineScriptPath), "Inline script should exist after second pull");
+      expect(await fileExists(appTsxPath)).toBeTruthy();
+      expect(await fileExists(indexCssPath)).toBeTruthy();
+      expect(await fileExists(indexTsxPath)).toBeTruthy();
+      expect(await fileExists(packageJsonPath)).toBeTruthy();
+      expect(await fileExists(inlineScriptPath)).toBeTruthy();
 
       // Verify modifications were persisted
       const pulledAppTsx = await readFileContent(appTsxPath);
-      assertStringIncludes(pulledAppTsx, "hello modified world", "Modifications to App.tsx should persist");
+      expect(pulledAppTsx).toContain("hello modified world");
 
       const pulledIndexCss = await readFileContent(indexCssPath);
-      assertStringIncludes(pulledIndexCss, "blue", "Modifications to index.css should persist");
+      expect(pulledIndexCss).toContain("blue");
 
       const pulledInlineScript = await readFileContent(inlineScriptPath);
-      assertStringIncludes(pulledInlineScript, "modified:", "Modifications to inline script should persist");
+      expect(pulledInlineScript).toContain("modified:");
     });
-  }
 });
 
-Deno.test({
-  name: "Raw App: add new file and push",
-  ignore: false,
-  sanitizeResources: false,
-  sanitizeOps: false,
-  fn: async () => {
+test("Raw App: add new file and push", async () => {
     await withTestBackend(async (backend, tempDir) => {
       // Set up workspace
       const testWorkspace = {
@@ -290,14 +281,14 @@ Deno.test({
       await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
 
       // Create wmill.yaml
-      await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+      await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
 includes:
   - "**"
-excludes: []`);
+excludes: []`, "utf-8");
 
       // Create initial raw app
       const appDir = path.join(tempDir, "f", "test", "new_file_app.raw_app");
-      await ensureDir(path.join(tempDir, "f", "test"));
+      await mkdir(path.join(tempDir, "f", "test"), { recursive: true });
       await createRawAppOnDisk(appDir);
 
       // Initial push
@@ -306,14 +297,14 @@ excludes: []`);
         '--yes'
       ], tempDir, "raw_app_new_file_test");
 
-      assertEquals(pushResult1.code, 0, `Initial sync push should succeed: ${pushResult1.stderr}`);
+      expect(pushResult1.code).toEqual(0);
 
       // Add a new file
       const newFilePath = path.join(appDir, "utils.ts");
-      await Deno.writeTextFile(newFilePath, `export function formatValue(val: string): string {
+      await writeFile(newFilePath, `export function formatValue(val: string): string {
   return \`Formatted: \${val}\`;
 }
-`);
+`, "utf-8");
 
       // Push changes
       const pushResult2 = await backend.runCLICommand([
@@ -321,32 +312,26 @@ excludes: []`);
         '--yes'
       ], tempDir, "raw_app_new_file_test");
 
-      assertEquals(pushResult2.code, 0, `Sync push with new file should succeed: ${pushResult2.stderr}`);
+      expect(pushResult2.code).toEqual(0);
 
       // Clear and pull again
-      await Deno.remove(appDir, { recursive: true });
+      await rm(appDir, { recursive: true });
 
       const pullResult = await backend.runCLICommand([
         'sync', 'pull',
         '--yes'
       ], tempDir, "raw_app_new_file_test");
 
-      assertEquals(pullResult.code, 0, `Sync pull should succeed: ${pullResult.stderr}`);
+      expect(pullResult.code).toEqual(0);
 
       // Verify new file was persisted
-      assert(await fileExists(newFilePath), "New file utils.ts should exist after pull");
+      expect(await fileExists(newFilePath)).toBeTruthy();
       const newFileContent = await readFileContent(newFilePath);
-      assertStringIncludes(newFileContent, "formatValue", "New file content should persist");
+      expect(newFileContent).toContain("formatValue");
     });
-  }
 });
 
-Deno.test({
-  name: "Raw App: delete file and push",
-  ignore: false,
-  sanitizeResources: false,
-  sanitizeOps: false,
-  fn: async () => {
+test("Raw App: delete file and push", async () => {
     await withTestBackend(async (backend, tempDir) => {
       // Set up workspace
       const testWorkspace = {
@@ -358,14 +343,14 @@ Deno.test({
       await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
 
       // Create wmill.yaml
-      await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+      await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
 includes:
   - "**"
-excludes: []`);
+excludes: []`, "utf-8");
 
       // Create initial raw app
       const appDir = path.join(tempDir, "f", "test", "delete_file_app.raw_app");
-      await ensureDir(path.join(tempDir, "f", "test"));
+      await mkdir(path.join(tempDir, "f", "test"), { recursive: true });
       await createRawAppOnDisk(appDir);
 
       // Initial push
@@ -374,20 +359,20 @@ excludes: []`);
         '--yes'
       ], tempDir, "raw_app_delete_file_test");
 
-      assertEquals(pushResult1.code, 0, `Initial sync push should succeed: ${pushResult1.stderr}`);
+      expect(pushResult1.code).toEqual(0);
 
       const indexCssPath = path.join(appDir, "index.css");
       const appTsxPath = path.join(appDir, "App.tsx");
-      assert(await fileExists(indexCssPath), "index.css should exist after initial push");
+      expect(await fileExists(indexCssPath)).toBeTruthy();
 
       // First, update App.tsx to remove the CSS import (otherwise bundle will fail)
       const appTsxContent = await readFileContent(appTsxPath);
       const updatedAppTsx = appTsxContent.replace("import './index.css'\n", "");
-      await Deno.writeTextFile(appTsxPath, updatedAppTsx);
+      await writeFile(appTsxPath, updatedAppTsx, "utf-8");
 
       // Delete the CSS file
-      await Deno.remove(indexCssPath);
-      assert(!(await fileExists(indexCssPath)), "index.css should be deleted locally");
+      await rm(indexCssPath);
+      expect(!(await fileExists(indexCssPath))).toBeTruthy();
 
       // Push changes
       const pushResult2 = await backend.runCLICommand([
@@ -395,33 +380,27 @@ excludes: []`);
         '--yes'
       ], tempDir, "raw_app_delete_file_test");
 
-      assertEquals(pushResult2.code, 0, `Sync push after delete should succeed: ${pushResult2.stderr}`);
+      expect(pushResult2.code).toEqual(0);
 
       // Clear and pull again
-      await Deno.remove(appDir, { recursive: true });
+      await rm(appDir, { recursive: true });
 
       const pullResult = await backend.runCLICommand([
         'sync', 'pull',
         '--yes'
       ], tempDir, "raw_app_delete_file_test");
 
-      assertEquals(pullResult.code, 0, `Sync pull should succeed: ${pullResult.stderr}`);
+      expect(pullResult.code).toEqual(0);
 
       // Verify the deleted file is NOT pulled (it was deleted from backend)
-      assert(!(await fileExists(indexCssPath)), "Deleted index.css should not exist after pull");
+      expect(!(await fileExists(indexCssPath))).toBeTruthy();
 
       // But other files should still exist
-      assert(await fileExists(appTsxPath), "App.tsx should still exist after pull");
+      expect(await fileExists(appTsxPath)).toBeTruthy();
     });
-  }
 });
 
-Deno.test({
-  name: "Raw App: dry-run push shows expected changes",
-  ignore: false,
-  sanitizeResources: false,
-  sanitizeOps: false,
-  fn: async () => {
+test("Raw App: dry-run push shows expected changes", async () => {
     await withTestBackend(async (backend, tempDir) => {
       // Set up workspace
       const testWorkspace = {
@@ -433,14 +412,14 @@ Deno.test({
       await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
 
       // Create wmill.yaml
-      await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+      await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
 includes:
   - "**"
-excludes: []`);
+excludes: []`, "utf-8");
 
       // Create raw app
       const appDir = path.join(tempDir, "f", "test", "dry_run_app.raw_app");
-      await ensureDir(path.join(tempDir, "f", "test"));
+      await mkdir(path.join(tempDir, "f", "test"), { recursive: true });
       await createRawAppOnDisk(appDir);
 
       // Dry-run push
@@ -450,7 +429,7 @@ excludes: []`);
         '--json-output'
       ], tempDir, "raw_app_dry_run_test");
 
-      assertEquals(dryRunResult.code, 0, `Dry-run push should succeed: ${dryRunResult.stderr}`);
+      expect(dryRunResult.code).toEqual(0);
 
       // Parse JSON output (may be pretty-printed across multiple lines)
       let jsonOutput = null;
@@ -469,13 +448,12 @@ excludes: []`);
         }
       }
 
-      assert(jsonOutput !== null, `Should have JSON output. Got: ${dryRunResult.stdout}`);
-      assert(Array.isArray(jsonOutput.changes), `Should have changes array. Got: ${JSON.stringify(jsonOutput)}`);
+      expect(jsonOutput !== null).toBeTruthy();
+      expect(Array.isArray(jsonOutput.changes)).toBeTruthy();
 
       // Should include raw app in changes
       const changePaths = jsonOutput.changes.map((c: any) => c.path);
       const hasRawApp = changePaths.some((p: string) => p.includes("dry_run_app"));
-      assert(hasRawApp, `Dry-run should show raw app. Found: ${changePaths.join(', ')}`);
+      expect(hasRawApp).toBeTruthy();
     });
-  }
 });

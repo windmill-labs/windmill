@@ -1,19 +1,16 @@
 import { requireLogin } from "../../core/auth.ts";
 import { fetchVersion, resolveWorkspace } from "../../core/context.ts";
-import { readFile, writeFile, readdir, stat, rm, copyFile } from "node:fs/promises";
-import {
-  colors,
-  Command,
-  Confirm,
-  ensureDir,
-  JSZip,
-  log,
-  minimatch,
-  path,
-  SEP,
-  yamlParseContent,
-  yamlStringify,
-} from "../../../deps.ts";
+import { readFile, writeFile, readdir, stat, rm, copyFile, mkdir } from "node:fs/promises";
+import { colors } from "@cliffy/ansi/colors";
+import { Command } from "@cliffy/command";
+import { Confirm } from "@cliffy/prompt/confirm";
+import * as log from "@std/log";
+import * as path from "@std/path";
+import { SEPARATOR as SEP } from "@std/path";
+import { stringify as yamlStringify } from "@std/yaml";
+import JSZip from "jszip";
+import { minimatch } from "minimatch";
+import { yamlParseContent } from "../../utils/yaml.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 
 import {
@@ -244,9 +241,6 @@ export async function FSFSElement(
           log.warn(`Error reading dir: ${localP}, ${e}`);
         }
       },
-      // async getContentBytes(): Promise<Uint8Array> {
-      //   return await Deno.readFile(localP);
-      // },
       async getContentText(): Promise<string> {
         const content = await readFile(localP, "utf-8");
         const itemPath = localP.substring(p.length + 1);
@@ -575,7 +569,6 @@ function ZipFSElement(
                 isDirectory: false,
                 path: path.join(finalPath, s.path),
                 async *getChildren() {},
-                // deno-lint-ignore require-await
                 async getContentText() {
                   return s.content;
                 },
@@ -586,7 +579,6 @@ function ZipFSElement(
               isDirectory: false,
               path: path.join(finalPath, "flow.yaml"),
               async *getChildren() {},
-              // deno-lint-ignore require-await
               async getContentText() {
                 return yamlStringify(flow, yamlOptions);
               },
@@ -620,7 +612,6 @@ function ZipFSElement(
                 isDirectory: false,
                 path: path.join(finalPath, s.path),
                 async *getChildren() {},
-                // deno-lint-ignore require-await
                 async getContentText() {
                   return s.content;
                 },
@@ -635,7 +626,6 @@ function ZipFSElement(
               isDirectory: false,
               path: path.join(finalPath, "app.yaml"),
               async *getChildren() {},
-              // deno-lint-ignore require-await
               async getContentText() {
                 return yamlStringify(app, yamlOptions);
               },
@@ -692,8 +682,7 @@ function ZipFSElement(
                   isDirectory: false,
                   path: path.join(finalPath, filePath.substring(1)),
                   async *getChildren() {},
-                  // deno-lint-ignore require-await
-                  async getContentText() {
+                    async getContentText() {
                     if (typeof content !== "string") {
                       throw new Error(
                         `Content of raw app file ${filePath} is not a string`,
@@ -714,7 +703,6 @@ function ZipFSElement(
                 isDirectory: false,
                 path: path.join(finalPath, APP_BACKEND_FOLDER, s.path),
                 async *getChildren() {},
-                // deno-lint-ignore require-await
                 async getContentText() {
                   return s.content;
                 },
@@ -794,7 +782,6 @@ function ZipFSElement(
                   `${runnableId}.yaml`,
                 ),
                 async *getChildren() {},
-                // deno-lint-ignore require-await
                 async getContentText() {
                   return yamlStringify(simplifiedRunnable, yamlOptions);
                 },
@@ -815,7 +802,6 @@ function ZipFSElement(
               isDirectory: false,
               path: path.join(finalPath, "raw_app.yaml"),
               async *getChildren() {},
-              // deno-lint-ignore require-await
               async getContentText() {
                 return yamlStringify(rawApp, yamlOptions);
               },
@@ -826,7 +812,6 @@ function ZipFSElement(
               isDirectory: false,
               path: path.join(finalPath, "DATATABLES.md"),
               async *getChildren() {},
-              // deno-lint-ignore require-await
               async getContentText() {
                 return generateDatatablesDocumentation(data);
               },
@@ -919,7 +904,6 @@ function ZipFSElement(
           isDirectory: false,
           path: removeSuffix(finalPath, ".json") + ".lock",
           async *getChildren() {},
-          // deno-lint-ignore require-await
           async getContentText() {
             return lock;
           },
@@ -948,7 +932,6 @@ function ZipFSElement(
               ".resource.file." +
               formatExtension,
             async *getChildren() {},
-            // deno-lint-ignore require-await
             async getContentText() {
               return fileContent;
             },
@@ -977,11 +960,6 @@ function ZipFSElement(
           }
         }
       },
-      // // deno-lint-ignore require-await
-      // async getContentBytes(): Promise<Uint8Array> {
-      //   throw new Error("Cannot get content of folder");
-      // },
-      // deno-lint-ignore require-await
       async getContentText(): Promise<string> {
         throw new Error("Cannot get content of folder");
       },
@@ -1638,7 +1616,6 @@ interface ChangeTracker {
   rawApps: string[];
 }
 
-// deno-lint-ignore no-inner-declarations
 async function addToChangedIfNotExists(p: string, tracker: ChangeTracker) {
   const isScript = exts.some((e) => p.endsWith(e));
   if (isScript) {
@@ -1702,13 +1679,13 @@ export async function pull(
   } catch (error) {
     if (error instanceof Error && error.message.includes("overrides")) {
       log.error(error.message);
-      Deno.exit(1);
+      process.exit(1);
     }
     throw error;
   }
 
   if (opts.stateful) {
-    await ensureDir(path.join(Deno.cwd(), ".wmill"));
+    await mkdir(path.join(process.cwd(), ".wmill"), { recursive: true });
   }
 
   const workspace = await resolveWorkspace(opts, opts.branch);
@@ -1771,8 +1748,8 @@ export async function pull(
   );
 
   const local = !opts.stateful
-    ? await FSFSElement(Deno.cwd(), codebases, true)
-    : await FSFSElement(path.join(Deno.cwd(), ".wmill"), [], true);
+    ? await FSFSElement(process.cwd(), codebases, true)
+    : await FSFSElement(path.join(process.cwd(), ".wmill"), [], true);
 
   const changes = await compareDynFSElement(
     remote,
@@ -1854,12 +1831,12 @@ export async function pull(
         }
       }
 
-      const target = path.join(Deno.cwd(), targetPath);
-      const stateTarget = path.join(Deno.cwd(), ".wmill", targetPath);
+      const target = path.join(process.cwd(), targetPath);
+      const stateTarget = path.join(process.cwd(), ".wmill", targetPath);
       if (change.name === "edited") {
         if (opts.stateful) {
           try {
-            const currentLocal = await Deno.readTextFile(target);
+            const currentLocal = await readFile(target, "utf-8");
             if (
               currentLocal !== change.before &&
               currentLocal !== change.after
@@ -1917,16 +1894,16 @@ export async function pull(
             }`,
           );
         }
-        await Deno.writeTextFile(target, change.after);
+        await writeFile(target, change.after, "utf-8");
 
         if (opts.stateful) {
-          await ensureDir(path.dirname(stateTarget));
-          await Deno.copyFile(target, stateTarget);
+          await mkdir(path.dirname(stateTarget), { recursive: true });
+          await copyFile(target, stateTarget);
         }
       } else if (change.name === "added") {
-        await ensureDir(path.dirname(target));
+        await mkdir(path.dirname(target), { recursive: true });
         if (opts.stateful) {
-          await ensureDir(path.dirname(stateTarget));
+          await mkdir(path.dirname(stateTarget), { recursive: true });
           log.info(
             `Adding ${getTypeStrFromPath(change.path)} ${targetPath}${
               targetPath !== change.path
@@ -1935,7 +1912,7 @@ export async function pull(
             }`,
           );
         }
-        await Deno.writeTextFile(target, change.content);
+        await writeFile(target, change.content, "utf-8");
         log.info(
           `Writing ${getTypeStrFromPath(change.path)} ${targetPath}${
             targetPath !== change.path
@@ -1944,20 +1921,20 @@ export async function pull(
           }`,
         );
         if (opts.stateful) {
-          await Deno.copyFile(target, stateTarget);
+          await copyFile(target, stateTarget);
         }
       } else if (change.name === "deleted") {
         try {
           log.info(
             `Deleting ${getTypeStrFromPath(change.path)} ${change.path}`,
           );
-          await Deno.remove(target);
+          await rm(target);
           if (opts.stateful) {
-            await Deno.remove(stateTarget);
+            await rm(stateTarget);
           }
         } catch {
           if (opts.stateful) {
-            await Deno.remove(stateTarget);
+            await rm(stateTarget);
           }
         }
       }
@@ -1975,7 +1952,7 @@ export async function pull(
   - pushing the changes with \`wmill push --skip-pull\` to override wmill with all your local changes
 `),
         );
-        Deno.exit(1);
+        process.exit(1);
       }
     }
     log.info("All local changes pulled, now updating wmill-lock.yaml");
@@ -2191,7 +2168,7 @@ export async function push(
   } catch (error) {
     if (error instanceof Error && error.message.includes("overrides")) {
       log.error(error.message);
-      Deno.exit(1);
+      process.exit(1);
     }
     throw error;
   }
@@ -2219,7 +2196,7 @@ export async function push(
     printReport(lintReport, !!opts.jsonOutput);
     if (!lintReport.success) {
       log.error(colors.red("Push aborted due to lint failures."));
-      Deno.exit(1);
+      process.exit(1);
     }
   }
 
@@ -2275,7 +2252,7 @@ export async function push(
     false,
   );
 
-  const local = await FSFSElement(path.join(Deno.cwd(), ""), codebases, false);
+  const local = await FSFSElement(path.join(process.cwd(), ""), codebases, false);
   const changes = await compareDynFSElement(
     local,
     remote,
@@ -2446,7 +2423,7 @@ export async function push(
     let stateful = opts.stateful;
     if (stateful) {
       try {
-        await Deno.stat(path.join(Deno.cwd(), ".wmill"));
+        await stat(path.join(process.cwd(), ".wmill"));
       } catch {
         stateful = false;
       }
@@ -2509,8 +2486,8 @@ export async function push(
             let stateTarget = undefined;
             if (stateful) {
               try {
-                stateTarget = path.join(Deno.cwd(), ".wmill", change.path);
-                await Deno.stat(stateTarget);
+                stateTarget = path.join(process.cwd(), ".wmill", change.path);
+                await stat(stateTarget);
               } catch {
                 stateTarget = undefined;
               }
@@ -2529,7 +2506,7 @@ export async function push(
                 )
               ) {
                 if (stateTarget) {
-                  await Deno.writeTextFile(stateTarget, change.after);
+                  await writeFile(stateTarget, change.after, "utf-8");
                 }
                 continue;
               } else if (
@@ -2544,12 +2521,12 @@ export async function push(
                 )
               ) {
                 if (stateTarget) {
-                  await Deno.writeTextFile(stateTarget, change.after);
+                  await writeFile(stateTarget, change.after, "utf-8");
                 }
                 continue;
               }
               if (stateTarget) {
-                await ensureDir(path.dirname(stateTarget));
+                await mkdir(path.dirname(stateTarget), { recursive: true });
                 log.info(
                   `Editing ${getTypeStrFromPath(change.path)} ${change.path}`,
                 );
@@ -2562,7 +2539,7 @@ export async function push(
 
                   const newObj = parseFromPath(
                     resourceFilePath,
-                    await Deno.readTextFile(resourceFilePath),
+                    await readFile(resourceFilePath, "utf-8"),
                   );
 
                   // For branch-specific resources, push to the base path on the workspace server
@@ -2585,7 +2562,7 @@ export async function push(
                     resourceFilePath,
                   );
                   if (stateTarget) {
-                    await Deno.writeTextFile(stateTarget, change.after);
+                    await writeFile(stateTarget, change.after, "utf-8");
                   }
                   continue;
                 }
@@ -2615,7 +2592,7 @@ export async function push(
               );
 
               if (stateTarget) {
-                await Deno.writeTextFile(stateTarget, change.after);
+                await writeFile(stateTarget, change.after, "utf-8");
               }
             } else if (change.name === "added") {
               if (
@@ -2639,7 +2616,7 @@ export async function push(
                 continue;
               }
               if (stateTarget) {
-                await ensureDir(path.dirname(stateTarget));
+                await mkdir(path.dirname(stateTarget), { recursive: true });
                 log.info(
                   `Adding ${getTypeStrFromPath(change.path)} ${change.path}`,
                 );
@@ -2672,7 +2649,7 @@ export async function push(
               );
 
               if (stateTarget) {
-                await Deno.writeTextFile(stateTarget, change.content);
+                await writeFile(stateTarget, change.content, "utf-8");
               }
             } else if (change.name === "deleted") {
               if (change.path.endsWith(".lock")) {
@@ -2737,7 +2714,7 @@ export async function push(
                     let folderExists = false;
                     if (rawAppFolder) {
                       try {
-                        await Deno.stat(rawAppFolder);
+                        await stat(rawAppFolder);
                         folderExists = true;
                       } catch {
                         // folder doesn't exist
@@ -2905,7 +2882,7 @@ export async function push(
               }
               if (stateTarget) {
                 try {
-                  await Deno.remove(stateTarget);
+                  await rm(stateTarget);
                 } catch {
                   // state target may not exist already
                 }
@@ -3034,7 +3011,6 @@ const command = new Command()
     "--branch <branch:string>",
     "Override the current git branch (works even outside a git repository)",
   )
-  // deno-lint-ignore no-explicit-any
   .action(pull as any)
   .command("push")
   .description("Push any local changes and apply them remotely.")
@@ -3092,7 +3068,6 @@ const command = new Command()
     "Override the current git branch (works even outside a git repository)",
   )
   .option("--lint", "Run lint validation before pushing")
-  // deno-lint-ignore no-explicit-any
   .action(push as any);
 
 export default command;

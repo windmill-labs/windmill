@@ -13,7 +13,7 @@
  * Usage:
  *   import { withTestBackend, cleanupTestBackend } from "./test_backend.ts";
  *
- *   Deno.test("my test", async () => {
+ *   test("my test", async () => {
  *     await withTestBackend(async (backend, tempDir) => {
  *       const result = await backend.runCLICommand(["sync", "pull"], tempDir);
  *       // ...

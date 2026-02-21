@@ -1,14 +1,11 @@
-import { stat, writeFile } from "node:fs/promises";
-import {
-  colors,
-  Command,
-  Confirm,
-  ensureDir,
-  Input,
-  log,
-  Select,
-  yamlStringify,
-} from "../../../deps.ts";
+import { stat, writeFile, mkdir } from "node:fs/promises";
+import { Command } from "@cliffy/command";
+import { colors } from "@cliffy/ansi/colors";
+import { Confirm } from "@cliffy/prompt/confirm";
+import { Input } from "@cliffy/prompt/input";
+import { Select } from "@cliffy/prompt/select";
+import * as log from "@std/log";
+import { stringify as yamlStringify } from "@std/yaml";
 import { GlobalOptions } from "../../types.ts";
 import { generateAgentsDocumentation, generateDatatablesDocumentation, yamlOptions } from "../sync/sync.ts";
 import { resolveWorkspace } from "../../core/context.ts";
@@ -498,9 +495,9 @@ CREATE SCHEMA IF NOT EXISTS ${schemaName};
     // Directory doesn't exist, which is good
   }
 
-  await ensureDir(appDir);
-  await ensureDir(path.join(appDir, "backend"));
-  await ensureDir(path.join(appDir, "sql_to_apply"));
+  await mkdir(appDir, { recursive: true });
+  await mkdir(path.join(appDir, "backend"), { recursive: true });
+  await mkdir(path.join(appDir, "sql_to_apply"), { recursive: true });
 
   // Create raw_app.yaml with data configuration
   const rawAppConfig: Record<string, unknown> = {

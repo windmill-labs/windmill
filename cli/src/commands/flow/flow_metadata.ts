@@ -1,11 +1,9 @@
-import {
-  SEP,
-  colors,
-  log,
-  path,
-  yamlParseFile,
-  yamlStringify,
-} from "../../../deps.ts";
+import { colors } from "@cliffy/ansi/colors";
+import * as log from "@std/log";
+import * as path from "@std/path";
+import { SEPARATOR as SEP } from "@std/path";
+import { stringify as yamlStringify } from "@std/yaml";
+import { yamlParseFile } from "../../utils/yaml.ts";
 import { readFile } from "node:fs/promises";
 import { GlobalOptions } from "../../types.ts";
 import {

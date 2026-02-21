@@ -1,4 +1,4 @@
-import { Provider } from "../../deps.ts";
+import { Provider } from "@cliffy/command/upgrade";
 
 export type NpmProviderOptions = { main?: string; logger?: any } & (
   | {

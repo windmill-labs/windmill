@@ -1,4 +1,4 @@
-import { Command } from "../../../deps.ts";
+import { Command } from "@cliffy/command";
 import { pullGitSyncSettings } from "./pull.ts";
 import { pushGitSyncSettings } from "./push.ts";
 

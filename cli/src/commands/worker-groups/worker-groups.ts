@@ -1,6 +1,8 @@
-import { Command, Confirm, setClient, Table } from "../../../deps.ts";
-
-import { log } from "../../../deps.ts";
+import { Command } from "@cliffy/command";
+import { Table } from "@cliffy/table";
+import { Confirm } from "@cliffy/prompt/confirm";
+import * as log from "@std/log";
+import { setClient } from "../../core/client.ts";
 import { allInstances, getActiveInstance, InstanceSyncOptions, pickInstance } from "../instance/instance.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { pullInstanceConfigs, pushInstanceConfigs } from "../../core/settings.ts";

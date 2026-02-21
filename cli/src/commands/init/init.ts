@@ -1,5 +1,9 @@
 import { stat, writeFile, rm, mkdir } from "node:fs/promises";
-import { colors, Command, log, yamlStringify, Confirm } from "../../../deps.ts";
+import { colors } from "@cliffy/ansi/colors";
+import { Command } from "@cliffy/command";
+import { Confirm } from "@cliffy/prompt/confirm";
+import * as log from "@std/log";
+import { stringify as yamlStringify } from "@std/yaml";
 import { GlobalOptions } from "../../types.ts";
 import { readLockfile } from "../../utils/metadata.ts";
 import { getActiveWorkspaceOrFallback } from "../workspace/workspace.ts";
@@ -184,7 +188,7 @@ async function initAction(opts: InitOptions) {
 
             if (useBackendSettings === undefined) {
               // Interactive prompt
-              const { Select } = await import("../../../deps.ts");
+              const { Select } = await import("@cliffy/prompt/select");
               const choice = await Select.prompt({
                 message:
                   "Git-sync settings found on backend. What would you like to do?",
