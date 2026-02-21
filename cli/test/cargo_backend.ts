@@ -333,6 +333,13 @@ export class CargoBackend {
       SUPERADMIN_PASSWORD: this.config.password,
     };
 
+    // On Windows, ensure BUN_PATH and NODE_BIN_PATH are set for the worker.
+    // The Rust defaults (/usr/bin/bun, /usr/bin/node) don't exist on Windows.
+    if (process.platform === "win32") {
+      env.BUN_PATH = env.BUN_PATH || Bun.which("bun") || process.execPath;
+      env.NODE_BIN_PATH = env.NODE_BIN_PATH || Bun.which("node") || "node";
+    }
+
     // Add license key if available
     const licenseKey = process.env["EE_LICENSE_KEY"];
     if (licenseKey) {
