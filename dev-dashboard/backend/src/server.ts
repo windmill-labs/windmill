@@ -6,6 +6,7 @@ import {
   openWorktree,
   closeWorktree,
   sendPrompt,
+  readEnvLocal,
   type Profile,
 } from "./workmux";
 import {
@@ -20,6 +21,42 @@ import {
 } from "./terminal";
 
 const PORT = parseInt(process.env.DASHBOARD_PORT || "5111");
+
+/** Map branch name → worktree directory using git worktree list. */
+function getWorktreePaths(): Map<string, string> {
+  const result = Bun.spawnSync(["git", "worktree", "list", "--porcelain"], { stdout: "pipe" });
+  const output = new TextDecoder().decode(result.stdout);
+  const paths = new Map<string, string>();
+  let currentPath = "";
+  for (const line of output.split("\n")) {
+    if (line.startsWith("worktree ")) {
+      currentPath = line.slice("worktree ".length);
+    } else if (line.startsWith("branch ")) {
+      // branch refs/heads/foo → "foo"
+      const branch = line.slice("branch ".length).replace("refs/heads/", "");
+      // Also map by directory basename (workmux uses basename as branch key)
+      const basename = currentPath.split("/").pop() ?? "";
+      paths.set(branch, currentPath);
+      if (basename !== branch) paths.set(basename, currentPath);
+    }
+  }
+  return paths;
+}
+
+/** Check if a TCP port is listening by attempting a connection. */
+function isPortListening(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = Bun.connect({
+      hostname: "127.0.0.1",
+      port,
+      socket: {
+        open(s) { s.end(); resolve(true); },
+        error() { resolve(false); },
+        data() {},
+      },
+    }).catch(() => resolve(false));
+  });
+}
 
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -129,12 +166,30 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
     // GET /api/worktrees
     if (parts[0] === "worktrees" && parts.length === 1 && method === "GET") {
       const [worktrees, status] = await Promise.all([listWorktrees(), getStatus()]);
-      const merged = worktrees.map(wt => {
+      const wtPaths = getWorktreePaths();
+      const merged = await Promise.all(worktrees.map(async (wt) => {
         const st = status.find(s =>
           s.worktree.includes(wt.branch) || s.worktree.startsWith(wt.branch)
         );
-        return { ...wt, status: st?.status ?? "", elapsed: st?.elapsed ?? "", title: st?.title ?? "" };
-      });
+        const wtDir = wtPaths.get(wt.branch);
+        const env = wtDir ? readEnvLocal(wtDir) : {};
+        const backendPort = env.BACKEND_PORT ? parseInt(env.BACKEND_PORT) : null;
+        const frontendPort = env.FRONTEND_PORT ? parseInt(env.FRONTEND_PORT) : null;
+        const [backendRunning, frontendRunning] = await Promise.all([
+          backendPort ? isPortListening(backendPort) : false,
+          frontendPort ? isPortListening(frontendPort) : false,
+        ]);
+        return {
+          ...wt,
+          status: st?.status ?? "",
+          elapsed: st?.elapsed ?? "",
+          title: st?.title ?? "",
+          backendPort,
+          frontendPort,
+          backendRunning,
+          frontendRunning,
+        };
+      }));
       return jsonResponse(merged);
     }
 

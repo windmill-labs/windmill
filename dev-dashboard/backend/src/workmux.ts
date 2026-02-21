@@ -79,7 +79,7 @@ async function runChecked(args: string[]): Promise<string> {
 
 export type Profile = "full" | "agent-only" | "agent-yolo";
 
-function readEnvLocal(wtDir: string): Record<string, string> {
+export function readEnvLocal(wtDir: string): Record<string, string> {
   try {
     const content = Bun.spawnSync(["cat", `${wtDir}/.env.local`], { stdout: "pipe" });
     const text = new TextDecoder().decode(content.stdout).trim();

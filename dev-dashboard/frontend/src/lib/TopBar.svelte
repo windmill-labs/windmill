@@ -11,7 +11,25 @@
 </script>
 
 <div class="flex items-center justify-between px-4 py-2 bg-topbar border-b border-edge min-h-12">
-  <span class="text-sm font-semibold">{name ?? "Select a worktree"}</span>
+  <div class="flex items-center gap-3">
+    <span class="text-sm font-semibold">{name ?? "Select a worktree"}</span>
+    {#if worktree?.backendPort}
+      <a
+        href="{window.location.protocol}//{window.location.hostname}:{worktree.backendPort}"
+        target="_blank"
+        rel="noopener"
+        class="text-[11px] px-1.5 py-0.5 rounded border font-mono no-underline hover:opacity-80 {worktree.backendRunning ? 'text-success border-success/40' : 'text-muted border-edge pointer-events-none'}"
+      >BE :{worktree.backendPort}</a>
+    {/if}
+    {#if worktree?.frontendPort}
+      <a
+        href="{window.location.protocol}//{window.location.hostname}:{worktree.frontendPort}"
+        target="_blank"
+        rel="noopener"
+        class="text-[11px] px-1.5 py-0.5 rounded border font-mono no-underline hover:opacity-80 {worktree.frontendRunning ? 'text-success border-success/40' : 'text-muted border-edge pointer-events-none'}"
+      >FE :{worktree.frontendPort}</a>
+    {/if}
+  </div>
   {#if name}
     <div class="flex gap-2 items-center">
       <span class="text-xs px-2 py-0.5 rounded-xl bg-hover">{worktree?.status || worktree?.agent || ""}</span>
