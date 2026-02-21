@@ -6,25 +6,28 @@ port_in_use() {
 }
 
 if [[ -z "${WM_SLOT:-}" ]]; then
-  # Auto-assign slot based on worktree index (position among non-main worktrees)
-  # Slot 0 (8000/3000) is reserved for the main worktree
-  current_dir="$(basename "$(pwd)")"
-  slot=1
-  while IFS= read -r line; do
-    branch=$(echo "$line" | awk '{print $1}')
-    [[ -z "$branch" ]] && continue
-    if [[ "$branch" == "$current_dir" ]]; then
-      WM_SLOT=$slot
-      break
+  # Scan .env.local files of existing worktrees to find which slots are claimed,
+  # then pick the lowest free slot. This avoids collisions when worktrees are
+  # removed and new ones created (position-based indexing would re-use slots
+  # still held by surviving worktrees).
+  used_slots=()
+  current_dir="$(pwd)"
+  while IFS= read -r wt_path; do
+    [[ "$wt_path" == "$current_dir" ]] && continue
+    if [[ -f "$wt_path/.env.local" ]]; then
+      bp=$(grep '^BACKEND_PORT=' "$wt_path/.env.local" | cut -d= -f2 || true)
+      if [[ -n "$bp" && "$bp" -gt 8000 ]]; then
+        used_slots+=("$(( (bp - 8000) / 10 ))")
+      fi
     fi
-    ((slot++))
-  done < <(workmux list 2>/dev/null | tail -n +2 | grep -v '(here)')
+  done < <(git worktree list --porcelain | sed -n 's/^worktree //p')
 
-  if [[ -z "${WM_SLOT:-}" ]]; then
-    # Fallback: count existing non-main worktrees
-    WM_SLOT=$(workmux list 2>/dev/null | tail -n +2 | grep -cv '(here)' || echo 1)
-  fi
-  echo "Auto-assigned slot $WM_SLOT"
+  # Find lowest available slot (slot 0 = 8000/3000 is reserved for main)
+  WM_SLOT=1
+  while [[ " ${used_slots[*]:-} " == *" $WM_SLOT "* ]]; do
+    ((WM_SLOT++))
+  done
+  echo "Auto-assigned slot $WM_SLOT (used: ${used_slots[*]:-none})"
 fi
 
 # Slot-based: predictable ports for SSH forwarding
@@ -33,8 +36,7 @@ backend_port=$((8000 + WM_SLOT * 10))
 frontend_port=$((3000 + WM_SLOT * 10))
 
 if port_in_use "$backend_port" || port_in_use "$frontend_port"; then
-  echo "ERROR: Slot $WM_SLOT ports ($backend_port/$frontend_port) already in use" >&2
-  exit 1
+  echo "WARNING: Slot $WM_SLOT ports ($backend_port/$frontend_port) already in use" >&2
 fi
 
 # Generate .env.local with port overrides
