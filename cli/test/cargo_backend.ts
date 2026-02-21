@@ -758,15 +758,15 @@ export async function cleanupCargoBackend(): Promise<void> {
 }
 
 /**
- * Check if running in CI minimal mode (skip EE-dependent tests)
+ * Check if EE-dependent tests should be skipped
  *
- * When CI_MINIMAL_FEATURES=true:
- * - Backend runs with only "zip" feature (no private/enterprise)
- * - Tests requiring EE features should be skipped
+ * Returns true when:
+ * - CI_MINIMAL_FEATURES=true (CI mode with zip-only features)
+ * - EE_LICENSE_KEY is not set (EE features reject API calls without valid license)
  *
  * Use this in test definitions:
- *   ignore: shouldSkipOnCI()
+ *   test.skipIf(shouldSkipOnCI())("my EE test", ...)
  */
 export function shouldSkipOnCI(): boolean {
-  return process.env["CI_MINIMAL_FEATURES"] === "true";
+  return process.env["CI_MINIMAL_FEATURES"] === "true" || !process.env["EE_LICENSE_KEY"];
 }
