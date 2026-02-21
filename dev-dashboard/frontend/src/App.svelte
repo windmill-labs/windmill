@@ -16,7 +16,7 @@
 
   let worktrees = $state<WorktreeInfo[]>([]);
   let selectedBranch = $state<string | null>(null);
-  let showConfirmRemove = $state(false);
+  let removeBranch = $state<string | null>(null);
   let showCreateDialog = $state(false);
   let creating = $state(false);
   let removing = $state(false);
@@ -63,12 +63,12 @@
   }
 
   async function handleRemove() {
-    if (!selectedBranch) return;
+    if (!removeBranch) return;
     removing = true;
     try {
-      await api.removeWorktree(selectedBranch);
-      showConfirmRemove = false;
-      selectedBranch = null;
+      await api.removeWorktree(removeBranch);
+      if (selectedBranch === removeBranch) selectedBranch = null;
+      removeBranch = null;
       await refresh();
     } catch (err) {
       alert(`Failed to remove: ${err instanceof Error ? err.message : err}`);
@@ -95,14 +95,14 @@
         title="New Worktree"
       ><span class="text-lg leading-none">+</span> New</button>
     </div>
-    <WorktreeList worktrees={visibleWorktrees} selected={selectedBranch} onselect={(b) => (selectedBranch = b)} />
+    <WorktreeList worktrees={visibleWorktrees} selected={selectedBranch} onselect={(b) => (selectedBranch = b)} onremove={(b) => (removeBranch = b)} />
   </aside>
 
   <main class="flex-1 min-w-0 flex flex-col overflow-hidden">
     <TopBar
       name={selectedBranch}
       worktree={selectedWorktree}
-      onremove={() => (showConfirmRemove = true)}
+      onremove={() => { if (selectedBranch) removeBranch = selectedBranch; }}
     />
 
     {#if canConnect}
@@ -161,11 +161,11 @@
   <div class="fixed inset-0 bg-black/50 z-40" onclick={() => (showCreateDialog = false)}></div>
 {/if}
 
-{#if showConfirmRemove}
+{#if removeBranch}
   <ConfirmDialog
-    message={`Remove worktree "${selectedBranch}"? This action cannot be undone.`}
+    message={`Remove worktree "${removeBranch}"? This action cannot be undone.`}
     loading={removing}
     onconfirm={handleRemove}
-    oncancel={() => (showConfirmRemove = false)}
+    oncancel={() => (removeBranch = null)}
   />
 {/if}
