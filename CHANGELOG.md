@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.641.0](https://github.com/windmill-labs/windmill/compare/v1.640.0...v1.641.0) (2026-02-21)
+
+
+### Features
+
+* add .npmrc support for private npm registries ([#8039](https://github.com/windmill-labs/windmill/issues/8039)) ([9eb1531](https://github.com/windmill-labs/windmill/commit/9eb15312f663aa6d700e8ac562d7b5c75c2221f7))
+
+
+### Bug Fixes
+
+* add created_by ownership check to update/delete saved inputs ([#8038](https://github.com/windmill-labs/windmill/issues/8038)) ([e8a13ed](https://github.com/windmill-labs/windmill/commit/e8a13edde7c0ba2ef80344ab7c7288e7bb2eb6b5))
+* run substitute_ee_code.sh after creating EE worktree ([b330f38](https://github.com/windmill-labs/windmill/commit/b330f388894ecd9cc6b64297420ac6f032d32f72))
+* tag bunnative dependency jobs as bun instead of nativets ([#8045](https://github.com/windmill-labs/windmill/issues/8045)) ([fd5ebc2](https://github.com/windmill-labs/windmill/commit/fd5ebc2fda589c022074c3bb4dcdb447c7f86cf0))
+
 ## [1.640.0](https://github.com/windmill-labs/windmill/compare/v1.639.0...v1.640.0) (2026-02-20)
 
 

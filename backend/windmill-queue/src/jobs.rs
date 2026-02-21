@@ -5321,7 +5321,11 @@ async fn push_inner<'c, 'd>(
                 .as_ref()
                 .map(|x| {
                     let tag_lang = if x == &ScriptLang::Bunnative {
-                        ScriptLang::Nativets.as_str()
+                        if job_kind == JobKind::Dependencies {
+                            ScriptLang::Bun.as_str()
+                        } else {
+                            ScriptLang::Nativets.as_str()
+                        }
                     } else {
                         x.as_str()
                     };
