@@ -21,6 +21,9 @@ body {
 }
 
 /* dialog styling (no tailwind equivalents for ::backdrop) */
+dialog[open] {
+  margin: auto;
+}
 dialog::backdrop {
   background: rgba(0, 0, 0, 0.6);
 }
@@ -32,6 +35,22 @@ dialog textarea {
 dialog textarea:focus {
   outline: none;
   border-color: var(--color-accent);
+}
+
+/* spinner */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
 }
 
 /* xterm overrides */

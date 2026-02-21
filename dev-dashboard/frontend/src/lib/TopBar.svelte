@@ -1,12 +1,9 @@
 <script lang="ts">
   import type { WorktreeInfo } from "./types";
 
-  let { name, worktree, onopen, onclose, onsend, onremove }: {
+  let { name, worktree, onremove }: {
     name: string | null;
     worktree: WorktreeInfo | undefined;
-    onopen: () => void;
-    onclose: () => void;
-    onsend: () => void;
     onremove: () => void;
   } = $props();
 
@@ -18,9 +15,6 @@
   {#if name}
     <div class="flex gap-2 items-center">
       <span class="text-xs px-2 py-0.5 rounded-xl bg-hover">{worktree?.status || worktree?.agent || ""}</span>
-      <button class={btn} onclick={onopen} title="Open tmux window">Open</button>
-      <button class={btn} onclick={onclose} title="Close tmux window">Close</button>
-      <button class={btn} onclick={onsend} title="Send prompt to agent">Send</button>
       <button class="{btn} !text-danger !border-danger hover:!bg-danger/10" onclick={onremove} title="Remove worktree">Remove</button>
     </div>
   {/if}
