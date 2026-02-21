@@ -16199,6 +16199,7 @@ version = "1.639.0"
 dependencies = [
  "axum 0.7.9",
  "flate2",
+ "reqwest 0.13.1",
  "serde",
  "serde_json",
  "sqlx",
