@@ -1328,29 +1328,30 @@ pub async fn update_flow_status_after_job_completion_internal(
 
         if module_step.is_preprocessor_step() && success {
             let tag_and_concurrency_key = get_tag_and_concurrency(&flow, db).await;
-            let require_args = tag_and_concurrency_key.as_ref().is_some_and(|x| {
+            let has_debouncing = flow_value
+                .debouncing_settings
+                .debounce_delay_s
+                .filter(|x| *x > 0)
+                .is_some();
+            let concurrency_requires_args = tag_and_concurrency_key.as_ref().is_some_and(|x| {
                 x.tag.as_ref().is_some_and(|t| t.contains("$args"))
                     || x.concurrency_key
                         .as_ref()
                         .is_some_and(|ck| ck.contains("$args"))
             });
-            let mut tag = tag_and_concurrency_key
-                .as_ref()
-                .map(|x| x.tag.clone())
-                .flatten();
+            let require_args = concurrency_requires_args || has_debouncing;
+            let mut tag = tag_and_concurrency_key.as_ref().and_then(|x| x.tag.clone());
             let concurrency_key = tag_and_concurrency_key
                 .as_ref()
-                .map(|x| x.concurrency_key.clone())
-                .flatten();
+                .and_then(|x| x.concurrency_key.clone());
             let concurrent_limit = tag_and_concurrency_key
                 .as_ref()
-                .map(|x| x.concurrent_limit)
-                .flatten();
+                .and_then(|x| x.concurrent_limit);
             let concurrency_time_window_s = tag_and_concurrency_key
                 .as_ref()
-                .map(|x| x.concurrency_time_window_s)
-                .flatten();
-            if require_args {
+                .and_then(|x| x.concurrency_time_window_s);
+
+            let fetched_args = if require_args {
                 let args = sqlx::query_scalar!(
                     "SELECT result  as \"result: Json<HashMap<String, Box<RawValue>>>\"
                  FROM v2_job_completed
@@ -1362,8 +1363,13 @@ pub async fn update_flow_status_after_job_completion_internal(
                 .map_err(|e| {
                     Error::internal_err(format!("error while fetching preprocessing args: {e:#}"))
                 })?;
-                let args_hm = args.unwrap_or_default().0;
-                let args = PushArgs::from(&args_hm);
+                Some(args.unwrap_or_default().0)
+            } else {
+                None
+            };
+
+            if concurrency_requires_args {
+                let args = PushArgs::from(fetched_args.as_ref().unwrap());
                 if let Some(ck) = concurrency_key {
                     insert_concurrency_key(
                         &flow_job.workspace_id,
@@ -1392,8 +1398,31 @@ pub async fn update_flow_status_after_job_completion_internal(
                 .await?;
             }
 
-            // let tag = tag_and_concurrency_key.and_then(|tc| tc.tag.map(|t| interpolate_args(t.clone(), &args, &workspace_id)));
-            // let concurrency_key = tag_and_concurrency_key.and_then(|tc| tc.concurrency_key.map(|ck| interpolate_args(&ck, &args, &workspace_id)));
+            let scheduled_for: Option<chrono::DateTime<chrono::Utc>> = {
+                #[cfg(feature = "private")]
+                {
+                    if has_debouncing {
+                        let empty_hm = HashMap::new();
+                        let args = PushArgs::from(fetched_args.as_ref().unwrap_or(&empty_hm));
+                        windmill_queue::jobs_ee::maybe_debounce_post_preprocessing(
+                            &flow_value.debouncing_settings,
+                            &flow_job.runnable_path,
+                            &flow_job.workspace_id,
+                            flow,
+                            &args,
+                            db,
+                        )
+                        .await?
+                    } else {
+                        None
+                    }
+                }
+                #[cfg(not(feature = "private"))]
+                {
+                    None
+                }
+            };
+
             sqlx::query!(
                 "WITH job_result AS (
                  SELECT result
@@ -1403,7 +1432,8 @@ pub async fn update_flow_status_after_job_completion_internal(
              updated_queue AS (
                 UPDATE v2_job_queue
                 SET running = false,
-                tag = COALESCE($3, tag)
+                tag = COALESCE($3, tag),
+                scheduled_for = COALESCE($6, scheduled_for)
                 WHERE id = $2
              )
              UPDATE v2_job
@@ -1431,6 +1461,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 tag,
                 concurrent_limit,
                 concurrency_time_window_s,
+                scheduled_for,
             )
             .execute(db)
             .await
