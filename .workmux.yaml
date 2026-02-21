@@ -30,7 +30,14 @@ pre_remove:
   - ./scripts/worktree-cleanup
 
 panes:
-  - command: <agent>
+  - command: >-
+      claude --append-system-prompt
+      "You are running inside a tmux session with other panes running services.\n
+      Pane layout (current window):\n
+      - Pane 0: this pane (claude agent)\n
+      - Pane 1: backend (cargo watch -x run)\n
+      - Pane 2: frontend (npm run dev)\n\n
+      To check logs, use: \`tmux capture-pane -t .1 -p -S -50\` (backend) or \`tmux capture-pane -t .2 -p -S -50\` (frontend)."
     focus: true
   - command: "[ -f .env.local ] && source .env.local; cd backend && PORT=${BACKEND_PORT:-8000} cargo watch -x run"
     split: horizontal
