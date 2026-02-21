@@ -4514,7 +4514,7 @@ async fn run_preview_script(
     let preview_args = preview.args.unwrap_or_default();
     let flow_path_extra = preview.flow_path.map(|fp| {
         let mut extra = HashMap::new();
-        extra.insert("_flow_path".to_string(), to_raw_value(&fp));
+        extra.insert("_FLOW_PATH".to_string(), to_raw_value(&fp));
         extra
     });
     let push_args = PushArgs { extra: flow_path_extra, args: &preview_args };
