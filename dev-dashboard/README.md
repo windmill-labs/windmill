@@ -67,7 +67,6 @@ When creating a worktree, you pick a profile that determines what runs inside it
 | Profile | What it does |
 |---------|-------------|
 | `full` | Agent + Cargo backend + Vite frontend (uses pane layout from `.workmux.yaml`) |
-| `agent-only` | Agent in one pane + a shell in a second pane. No backend/frontend auto-started. |
 | `agent-yolo` | Agent runs inside a Docker sandbox container with `--dangerously-skip-permissions`. Socat forwards the container's ports to the host so they're reachable from your browser. |
 
 ## Prerequisites

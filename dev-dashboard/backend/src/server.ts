@@ -198,9 +198,9 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
       if (!body.branch) {
         return errorResponse("branch is required", 400);
       }
-      const validProfiles = ["full", "agent-only", "agent-yolo"] as const;
+      const validProfiles = ["full", "agent-yolo"] as const;
       const validAgents = ["claude", "codex"] as const;
-      const profile = validProfiles.includes(body.profile as any) ? body.profile as Profile : "agent-only";
+      const profile = validProfiles.includes(body.profile as any) ? body.profile as Profile : "full";
       const agent = validAgents.includes(body.agent as any) ? body.agent as Agent : "claude";
       console.log(`[worktree:add] branch=${body.branch} agent=${agent} profile=${profile}${body.prompt ? ` prompt="${body.prompt.slice(0, 80)}"` : ""}`);
       const result = await addWorktree(body.branch, { prompt: body.prompt, profile, agent });

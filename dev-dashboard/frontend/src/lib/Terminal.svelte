@@ -67,7 +67,10 @@
       return true;
     });
 
-    requestAnimationFrame(() => fitAddon.fit());
+    requestAnimationFrame(() => {
+      fitAddon.fit();
+      term.focus();
+    });
 
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
     ws = new WebSocket(`${protocol}//${location.host}/ws/${encodeURIComponent(worktree)}`);

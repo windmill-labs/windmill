@@ -79,48 +79,31 @@ async function runChecked(args: string[]): Promise<string> {
   return stdout.trim();
 }
 
-export type Profile = "full" | "agent-only" | "agent-yolo";
+export type Profile = "full" | "agent-yolo";
 export type Agent = "claude" | "codex";
 
 export { readEnvLocal } from "./env";
 
-function buildSystemPrompt(profile: Profile, env: Record<string, string>): string {
+function buildSandboxSystemPrompt(env: Record<string, string>): string {
   const backendPort = env.BACKEND_PORT || "8000";
   const frontendPort = env.FRONTEND_PORT || "3000";
-  const lines: string[] = [];
-
-  if (profile === "agent-yolo") {
-    lines.push("You are running inside a sandboxed container with full permissions.");
-  }
-
-  lines.push(`This worktree is configured with the following ports:`);
-  lines.push(`- Backend: port ${backendPort}. Start with: cd backend && PORT=${backendPort} DATABASE_URL=postgres://postgres:changeme@localhost:5432/windmill cargo watch -x run`);
-  lines.push(`- Frontend: port ${frontendPort}. Start with: cd frontend && REMOTE=http://localhost:${backendPort} npm run dev -- --port ${frontendPort} --host 0.0.0.0`);
-
+  const lines: string[] = [
+    "You are running inside a sandboxed container with full permissions.",
+    `This worktree is configured with the following ports:`,
+    `- Backend: port ${backendPort}. Start with: cd backend && PORT=${backendPort} DATABASE_URL=postgres://postgres:changeme@localhost:5432/windmill cargo watch -x run`,
+    `- Frontend: port ${frontendPort}. Start with: cd frontend && REMOTE=http://localhost:${backendPort} npm run dev -- --port ${frontendPort} --host 0.0.0.0`,
+  ];
   return lines.join(" ");
 }
 
-function buildAgentCmd(profile: Profile, env: Record<string, string>, agent: Agent): string {
-  const prompt = buildSystemPrompt(profile, env);
+function buildSandboxAgentCmd(env: Record<string, string>, agent: Agent): string {
+  const prompt = buildSandboxSystemPrompt(env);
+  const innerEscaped = prompt.replace(/["\\$`]/g, "\\$&");
 
   if (agent === "codex") {
-    if (profile === "agent-yolo") {
-      const innerEscaped = prompt.replace(/["\\$`]/g, "\\$&");
-      return `workmux sandbox agent -- codex --yolo -c '"developer_instructions=${innerEscaped}"'`;
-    }
-    const escapedPrompt = prompt.replace(/'/g, "'\\''");
-    return `codex -c 'developer_instructions=${escapedPrompt}'`;
+    return `workmux sandbox agent -- codex --yolo -c '"developer_instructions=${innerEscaped}"'`;
   }
-
-  // Claude
-  if (profile === "agent-yolo") {
-    // Double-escape: outer single quotes for the host shell,
-    // inner double quotes to survive workmux sandbox's sh -c
-    const innerEscaped = prompt.replace(/["\\$`]/g, "\\$&");
-    return `workmux sandbox agent -- claude --dangerously-skip-permissions --append-system-prompt '"${innerEscaped}"'`;
-  }
-  const escapedPrompt = prompt.replace(/'/g, "'\\''");
-  return `claude --append-system-prompt '${escapedPrompt}'`;
+  return `workmux sandbox agent -- claude --dangerously-skip-permissions --append-system-prompt '"${innerEscaped}"'`;
 }
 
 export async function addWorktree(
@@ -180,8 +163,8 @@ export async function addWorktree(
     for (let i = paneIds.length - 1; i >= 1; i--) {
       Bun.spawnSync(["tmux", "kill-pane", "-t", `${windowTarget}.${paneIds[i]}`]);
     }
-    // Build and send claude command with environment-aware system prompt
-    const agentCmd = buildAgentCmd(profile, env, agent);
+    // Build and send agent command for sandbox
+    const agentCmd = buildSandboxAgentCmd(env, agent);
     console.log(`[workmux] sending command to ${windowTarget}.0:\n${agentCmd}`);
     Bun.spawnSync(["tmux", "send-keys", "-t", `${windowTarget}.0`, agentCmd, "Enter"]);
     // Open a shell pane on the right (1/3 width) in the worktree dir

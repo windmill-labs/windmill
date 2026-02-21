@@ -14,12 +14,12 @@ export function fetchWorktrees(): Promise<WorktreeInfo[]> {
   return api<WorktreeInfo[]>("worktrees");
 }
 
-export type Profile = "full" | "agent-only" | "agent-yolo";
+export type Profile = "full" | "agent-yolo";
 export type Agent = "claude" | "codex";
 
 export function createWorktree(
   branch: string,
-  profile: Profile = "agent-only",
+  profile: Profile = "full",
   agent: Agent = "claude",
 ): Promise<unknown> {
   return api("worktrees", {

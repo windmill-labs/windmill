@@ -7,9 +7,8 @@
   ];
 
   const PROFILES: { value: Profile; label: string }[] = [
-    { value: "agent-only", label: "Agent only" },
-    { value: "agent-yolo", label: "Agent (sandboxed, yolo mode)" },
     { value: "full", label: "Full (agent + backend + frontend)" },
+    { value: "agent-yolo", label: "Agent (sandboxed, yolo mode)" },
   ];
 
   let {
@@ -29,7 +28,7 @@
 
   let name = $state("");
   let agent = $state<Agent>(savedAgent ?? "claude");
-  let profile = $state<Profile>(savedProfile ?? "agent-only");
+  let profile = $state<Profile>(savedProfile ?? "full");
   let saveDefault = $state(false);
 
   let dialogEl: HTMLDialogElement;
@@ -38,6 +37,24 @@
     dialogEl?.showModal();
   });
 
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      e.preventDefault();
+      const idx = PROFILES.findIndex((p) => p.value === profile);
+      const next = e.key === "ArrowDown"
+        ? (idx + 1) % PROFILES.length
+        : (idx - 1 + PROFILES.length) % PROFILES.length;
+      profile = PROFILES[next].value;
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      e.preventDefault();
+      const idx = AGENTS.findIndex((a) => a.value === agent);
+      const next = e.key === "ArrowRight"
+        ? (idx + 1) % AGENTS.length
+        : (idx - 1 + AGENTS.length) % AGENTS.length;
+      agent = AGENTS[next].value;
+    }
+  }
+
   const btn =
     "px-3 py-1.5 rounded-md border border-edge bg-surface text-primary text-xs cursor-pointer hover:bg-hover";
 </script>
@@ -45,6 +62,7 @@
 <dialog
   bind:this={dialogEl}
   onclose={oncancel}
+  onkeydown={handleKeydown}
   class="bg-sidebar text-primary border border-edge rounded-xl p-6 max-w-[380px] w-[90%]"
 >
   <form
