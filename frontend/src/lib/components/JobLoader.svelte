@@ -290,7 +290,8 @@
 		tag: string | undefined,
 		lock?: string,
 		hash?: string,
-		callbacks?: Callbacks
+		callbacks?: Callbacks,
+		flowPath?: string
 	): Promise<string> {
 		return abstractRun(
 			() =>
@@ -303,7 +304,8 @@
 						language: lang as Preview['language'],
 						tag,
 						lock,
-						script_hash: hash
+						script_hash: hash,
+						flow_path: flowPath
 					}
 				}),
 			callbacks

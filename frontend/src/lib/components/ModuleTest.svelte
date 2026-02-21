@@ -76,7 +76,8 @@
 				flowStore?.val?.tag ?? val.tag,
 				undefined,
 				undefined,
-				callbacks
+				callbacks,
+				$pathStore
 			)
 		} else if (val.type == 'script') {
 			const script = val.hash
@@ -90,7 +91,8 @@
 				flowStore?.val?.tag ?? (val.tag_override ? val.tag_override : script.tag),
 				script.lock,
 				val.hash ?? script.hash,
-				callbacks
+				callbacks,
+				$pathStore
 			)
 		} else if (val.type == 'flow') {
 			await jobLoader?.runFlowByPath(val.path, args, callbacks)
