@@ -93,7 +93,7 @@ function buildSystemPrompt(profile: Profile, env: Record<string, string>): strin
   }
 
   lines.push(`This worktree is configured with the following ports:`);
-  lines.push(`- Backend: port ${backendPort}. Start with: cd backend && DATABASE_URL=postgres://postgres:changeme@localhost:5432/windmill cargo run -- --port ${backendPort}`);
+  lines.push(`- Backend: port ${backendPort}. Start with: cd backend && PORT=${backendPort} DATABASE_URL=postgres://postgres:changeme@localhost:5432/windmill cargo watch -x run`);
   lines.push(`- Frontend: port ${frontendPort}. Start with: cd frontend && REMOTE=http://localhost:${backendPort} npm run dev -- --port ${frontendPort} --host 0.0.0.0`);
 
   return lines.join(" ");

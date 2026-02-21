@@ -41,9 +41,11 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
     chmod -R a+rwX /opt/rustup /opt/cargo && \
     ln -s /opt/cargo/bin/* /usr/local/bin/
 
-# Install sqlx-cli (for database migrations)
+# Install sqlx-cli (for database migrations) and cargo-watch (for auto-reload)
 RUN cargo install sqlx-cli --no-default-features --features native-tls,postgres && \
+    cargo install cargo-watch && \
     ln -sf /opt/cargo/bin/sqlx /usr/local/bin/sqlx && \
+    ln -sf /opt/cargo/bin/cargo-watch /usr/local/bin/cargo-watch && \
     chmod -R a+rwX /opt/cargo
 
 # Embed network init script (sets up iptables firewall, then drops privileges)
