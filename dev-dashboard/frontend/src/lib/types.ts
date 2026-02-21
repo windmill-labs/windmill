@@ -6,6 +6,7 @@ export interface WorktreeInfo {
   status: string;
   elapsed: string;
   title: string;
+  profile: string | null;
   backendPort: number | null;
   frontendPort: number | null;
   backendRunning: boolean;

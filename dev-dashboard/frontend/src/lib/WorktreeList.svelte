@@ -31,8 +31,8 @@
         <span class="font-medium truncate pr-5">{wt.branch}</span>
         <span class="flex gap-2 text-[11px] text-muted">
           <span><span class="inline-block w-2 h-2 rounded-full mr-1 align-middle {dotColor(wt.agent)}"></span>{wt.agent || "none"}</span>
-          {#if wt.mux && wt.mux !== "-"}
-            <span>mux: {wt.mux}</span>
+          {#if wt.profile}
+            <span>{wt.profile}</span>
           {/if}
           {#if isMain}
             <span>main</span>

@@ -159,6 +159,15 @@ export async function addWorktree(
   const env = readEnvLocal(wtDir);
   console.log(`[workmux:add] branch=${branch} dir=${wtDir} ports: backend=${env.BACKEND_PORT || "8000"} frontend=${env.FRONTEND_PORT || "3000"}`);
 
+  // Append profile to .env.local (worktree-env creates it, we just add to it)
+  if (wtDir) {
+    const envPath = `${wtDir}/.env.local`;
+    const existing = await Bun.file(envPath).text().catch(() => "");
+    if (!existing.includes("PROFILE=")) {
+      await Bun.write(envPath, existing.trimEnd() + `\nPROFILE=${profile}\n`);
+    }
+  }
+
   // For non-full profiles, kill extra panes and send commands
   if (profile !== "full") {
     // Kill extra panes (highest index first to avoid shifting)
