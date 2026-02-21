@@ -1,4 +1,6 @@
 import { $ } from "bun";
+import { startForwarding, stopForwarding } from "./socat";
+import { readEnvLocal } from "./env";
 
 export interface Worktree {
   branch: string;
@@ -79,20 +81,7 @@ async function runChecked(args: string[]): Promise<string> {
 
 export type Profile = "full" | "agent-only" | "agent-yolo";
 
-export function readEnvLocal(wtDir: string): Record<string, string> {
-  try {
-    const content = Bun.spawnSync(["cat", `${wtDir}/.env.local`], { stdout: "pipe" });
-    const text = new TextDecoder().decode(content.stdout).trim();
-    const env: Record<string, string> = {};
-    for (const line of text.split("\n")) {
-      const match = line.match(/^(\w+)=(.*)$/);
-      if (match) env[match[1]] = match[2];
-    }
-    return env;
-  } catch {
-    return {};
-  }
-}
+export { readEnvLocal } from "./env";
 
 function buildSystemPrompt(profile: Profile, env: Record<string, string>): string {
   const backendPort = env.BACKEND_PORT || "8000";
@@ -178,6 +167,19 @@ export async function addWorktree(
     Bun.spawnSync(["tmux", "split-window", "-h", "-t", `${windowTarget}.0`, "-l", "33%", "-c", wtDir]);
     // Keep focus on the agent pane (left)
     Bun.spawnSync(["tmux", "select-pane", "-t", `${windowTarget}.0`]);
+
+    // Start socat port forwarding for sandbox containers (non-blocking).
+    // The container takes a few seconds to start after the tmux command is sent,
+    // so we poll in the background rather than blocking the API response.
+    if (profile === "agent-yolo" && wtDir) {
+      (async () => {
+        for (let i = 0; i < 15; i++) {
+          await new Promise(r => setTimeout(r, 2000));
+          if (await startForwarding(branch, wtDir)) return;
+        }
+        console.error(`[socat] gave up waiting for container for ${branch}`);
+      })();
+    }
   }
 
   return result;
@@ -185,6 +187,7 @@ export async function addWorktree(
 
 export async function removeWorktree(name: string): Promise<string> {
   console.log(`[workmux:rm] running: workmux rm --force ${name}`);
+  stopForwarding(name);
   const result = await runChecked(["workmux", "rm", "--force", name]);
   console.log(`[workmux:rm] result: ${result}`);
   return result;

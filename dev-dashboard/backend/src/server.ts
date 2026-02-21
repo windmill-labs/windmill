@@ -9,6 +9,7 @@ import {
   readEnvLocal,
   type Profile,
 } from "./workmux";
+import { reconcileForwarding, stopAll } from "./socat";
 import {
   attach,
   detach,
@@ -43,18 +44,13 @@ function getWorktreePaths(): Map<string, string> {
   return paths;
 }
 
-/** Check if a TCP port is listening by attempting a connection. */
+/** Check if a port has a service responding (not just a TCP handshake). */
 function isPortListening(port: number): Promise<boolean> {
   return new Promise((resolve) => {
-    const socket = Bun.connect({
-      hostname: "127.0.0.1",
-      port,
-      socket: {
-        open(s) { s.end(); resolve(true); },
-        error() { resolve(false); },
-        data() {},
-      },
-    }).catch(() => resolve(false));
+    const timeout = setTimeout(() => { resolve(false); }, 1000);
+    fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(1000) })
+      .then((res) => { clearTimeout(timeout); resolve(true); })
+      .catch(() => { clearTimeout(timeout); resolve(false); });
   });
 }
 
@@ -265,4 +261,13 @@ if (tmuxCheck.exitCode !== 0) {
 }
 
 cleanupStaleSessions();
+
+// Re-establish socat forwarding for any sandbox containers still running
+const wtPathsForReconcile = getWorktreePaths();
+reconcileForwarding((branch) => wtPathsForReconcile.get(branch));
+
+// Clean shutdown: kill socat processes
+process.on("SIGINT", () => { stopAll(); process.exit(0); });
+process.on("SIGTERM", () => { stopAll(); process.exit(0); });
+
 console.log(`Dev Dashboard API running at http://localhost:${PORT}`);
