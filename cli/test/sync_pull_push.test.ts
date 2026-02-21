@@ -1148,8 +1148,9 @@ test("buildFolderPath with nonDottedPaths creates correct paths", () => {
 
 test("buildMetadataPath with nonDottedPaths creates correct paths", () => {
   setNonDottedPaths(true);
-  expect(buildMetadataPath("my_flow", "flow", "yaml")).toEqual(`my_flow__flow${SEP}flow.yaml`);
-  expect(buildMetadataPath(`f${SEP}test${SEP}my_app`, "app", "yaml")).toEqual(`f${SEP}test${SEP}my_app__app${SEP}app.yaml`);
+  // buildMetadataPath always uses forward slashes internally
+  expect(buildMetadataPath("my_flow", "flow", "yaml")).toEqual("my_flow__flow/flow.yaml");
+  expect(buildMetadataPath("f/test/my_app", "app", "yaml")).toEqual("f/test/my_app__app/app.yaml");
   setNonDottedPaths(false); // Reset
 });
 
@@ -1194,8 +1195,9 @@ test("isRawAppPath detects non-dotted paths when configured", () => {
 
 test("extractResourceName works with non-dotted paths", () => {
   setNonDottedPaths(true);
-  expect(extractResourceName(`f${SEP}test${SEP}my_flow__flow${SEP}flow.yaml`, "flow")).toEqual(`f${SEP}test${SEP}my_flow`);
-  expect(extractResourceName(`f${SEP}test${SEP}my_app__app${SEP}app.yaml`, "app")).toEqual(`f${SEP}test${SEP}my_app`);
+  // extractResourceName normalizes separators to forward slashes
+  expect(extractResourceName(`f${SEP}test${SEP}my_flow__flow${SEP}flow.yaml`, "flow")).toEqual("f/test/my_flow");
+  expect(extractResourceName(`f${SEP}test${SEP}my_app__app${SEP}app.yaml`, "app")).toEqual("f/test/my_app");
   setNonDottedPaths(false); // Reset
 });
 
