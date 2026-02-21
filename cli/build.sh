@@ -9,6 +9,9 @@ set -e
 # Generate utils client files
 ./windmill-utils-internal/gen_wm_client.sh
 
+# Install dependencies
+bun install
+
 # Build npm package with bun
 echo "Building npm package..."
 bun run build-npm.ts
