@@ -70,6 +70,11 @@ jobs:
         with:
           ruby-version: "3.3"
           bundler-cache: false
+      - name: Install windmill CLI
+        run: |
+          bun install -g windmill-cli
+          echo "$(bun pm bin -g)" >> $GITHUB_PATH
+        working-directory: /
       - name: Install PowerShell, mold and clang
         run: |
           sudo apt-get update && sudo apt-get install -y powershell mold clang libcurl4-openssl-dev
