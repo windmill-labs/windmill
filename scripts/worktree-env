@@ -80,4 +80,9 @@ if [ -d "$ee_repo" ]; then
   elif [ -d "$ee_worktree_dir" ]; then
     echo "EE worktree already exists at $ee_worktree_dir"
   fi
+
+  # Create symlinks from backend crates to the EE worktree
+  if [ -d "$ee_worktree_dir" ] && [ -x "./backend/substitute_ee_code.sh" ]; then
+    ./backend/substitute_ee_code.sh -d "$ee_worktree_dir"
+  fi
 fi
