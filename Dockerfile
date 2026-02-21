@@ -258,6 +258,10 @@ COPY --from=denoland/deno:2.2.1 --chmod=755 /usr/bin/deno /usr/bin/deno
 
 COPY --from=oven/bun:1.3.8 /usr/local/bin/bun /usr/bin/bun
 
+# Install windmill CLI
+RUN bun install -g windmill-cli \
+    && ln -s $(bun pm bin -g)/wmill /usr/bin/wmill
+
 COPY --from=php:8.3.7-cli /usr/local/bin/php /usr/bin/php
 COPY --from=composer:2.7.6 /usr/bin/composer /usr/bin/composer
 

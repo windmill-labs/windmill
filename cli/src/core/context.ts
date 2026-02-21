@@ -486,11 +486,39 @@ export async function resolveWorkspace(
     }
   }
 
-  // Fall back to active workspace (lowest priority)
+  // Fall back to active workspace
   const activeWorkspace = await getActiveWorkspace(opts);
   if (activeWorkspace) {
     (opts as any).__secret_workspace = activeWorkspace;
     return activeWorkspace;
+  }
+
+  // Last resort: auto-configure from Windmill environment variables
+  // (set by the worker for bash/script execution)
+  const envWorkspace = process.env["WM_WORKSPACE"];
+  const envToken = process.env["WM_TOKEN"];
+  const envBaseUrl =
+    process.env["BASE_INTERNAL_URL"] ?? process.env["BASE_URL"];
+
+  if (envWorkspace && envToken && envBaseUrl) {
+    let normalizedBaseUrl: string;
+    try {
+      normalizedBaseUrl = new URL(envBaseUrl).toString();
+    } catch {
+      log.info(colors.red(`Invalid BASE_INTERNAL_URL: ${envBaseUrl}`));
+      return process.exit(-1);
+    }
+    log.debug(
+      `Using workspace from environment variables: ${envWorkspace} on ${normalizedBaseUrl}`
+    );
+    const ws: Workspace = {
+      name: envWorkspace,
+      workspaceId: envWorkspace,
+      remote: normalizedBaseUrl,
+      token: envToken,
+    };
+    (opts as any).__secret_workspace = ws;
+    return ws;
   }
 
   // If everything failed, show error
