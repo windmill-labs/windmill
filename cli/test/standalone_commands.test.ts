@@ -284,7 +284,8 @@ describe("script show command", () => {
 // =============================================================================
 
 describe("script run command", () => {
-  test("runs a script and returns result", { timeout: 60000 }, async () => {
+  // Skip on Windows: the backend worker can't reliably find/execute bun on Windows CI
+  test.skipIf(process.platform === "win32")("runs a script and returns result", { timeout: 60000 }, async () => {
     await withTestBackend(async (backend, tempDir) => {
       await setupWorkspaceProfile(backend);
 

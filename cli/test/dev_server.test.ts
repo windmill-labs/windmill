@@ -178,10 +178,11 @@ test(
         expect(ws.readyState).toEqual(WebSocket.OPEN);
 
         // Set up a promise to receive the next WebSocket message
+        const isWindows = process.platform === "win32";
         const messagePromise = new Promise<any>((resolve, reject) => {
           const timeout = setTimeout(
             () => reject(new Error("WebSocket message timeout")),
-            10000,
+            isWindows ? 30000 : 10000,
           );
           ws!.on("message", (data) => {
             clearTimeout(timeout);
@@ -194,7 +195,8 @@ test(
         });
 
         // Modify the script file on disk
-        await new Promise((r) => setTimeout(r, 300)); // let fs watcher settle
+        // Windows fs.watch() needs more time to initialize with recursive: true
+        await new Promise((r) => setTimeout(r, isWindows ? 2000 : 300));
         await writeFile(
           join(scriptDir, "hello.ts"),
           'export function main() { return "modified"; }\n',
