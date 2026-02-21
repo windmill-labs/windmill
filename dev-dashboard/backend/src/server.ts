@@ -193,5 +193,12 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
   }
 }
 
+// Ensure tmux server is running (needs at least one session to persist)
+const tmuxCheck = Bun.spawnSync(["tmux", "list-sessions"], { stdout: "pipe", stderr: "pipe" });
+if (tmuxCheck.exitCode !== 0) {
+  Bun.spawnSync(["tmux", "new-session", "-d", "-s", "0"]);
+  console.log("Started tmux session");
+}
+
 cleanupStaleSessions();
 console.log(`Dev Dashboard API running at http://localhost:${PORT}`);
