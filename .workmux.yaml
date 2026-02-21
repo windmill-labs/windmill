@@ -53,4 +53,6 @@ files:
 sandbox:
   enabled: false
   toolchain: off
-  # image and host_commands configured in global ~/.config/workmux/config.yaml
+  # image, host_commands, and extra_mounts configured in global
+  # ~/.config/workmux/config.yaml — see README_WORKMUX_DEV.md for required
+  # extra_mounts (windmill-ee-private access in sandbox)

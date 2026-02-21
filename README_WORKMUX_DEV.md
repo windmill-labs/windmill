@@ -172,6 +172,25 @@ The setup is defined in `.workmux.yaml` at the repo root. Key sections:
 - **`files.copy`**: Copies `backend/.env` and `scripts/` into each worktree
 - **`files.symlink`**: Symlinks `node_modules` and `.svelte-kit` to avoid reinstalling per worktree
 
+## Enterprise (EE) Code Access
+
+The enterprise source code lives in the `windmill-ee-private` repository (sibling to this repo). When you create a worktree, `scripts/worktree-env` automatically creates a matching EE worktree on the same branch and configures Claude Code's `additionalDirectories` to grant access.
+
+### Sandbox setup
+
+When using sandbox mode, the container needs explicit mounts to access the EE repo. Add the following to your global workmux config (`~/.config/workmux/config.yaml`):
+
+```yaml
+sandbox:
+  extra_mounts:
+    - host_path: ~/windmill-ee-private
+      writable: true
+    - host_path: ~/windmill-ee-private__worktrees
+      writable: true
+```
+
+This mounts both the main EE repo (used by the main worktree) and the EE worktrees directory (used by feature worktrees) into every sandbox container.
+
 ## Login
 
 Default credentials: `admin@windmill.dev` / `changeme`
