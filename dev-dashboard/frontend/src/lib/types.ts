@@ -3,6 +3,7 @@ export interface WorktreeInfo {
   agent: string;
   mux: string;
   path: string;
+  dir: string | null;
   status: string;
   elapsed: string;
   title: string;

@@ -178,6 +178,7 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
         ]);
         return {
           ...wt,
+          dir: wtDir ?? null,
           status: st?.status ?? "",
           elapsed: st?.elapsed ?? "",
           title: st?.title ?? "",

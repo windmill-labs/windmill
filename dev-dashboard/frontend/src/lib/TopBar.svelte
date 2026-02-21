@@ -1,11 +1,21 @@
 <script lang="ts">
   import type { WorktreeInfo } from "./types";
 
-  let { name, worktree, onremove }: {
+  let { name, worktree, sshHost, onremove }: {
     name: string | null;
     worktree: WorktreeInfo | undefined;
+    sshHost: string;
     onremove: () => void;
   } = $props();
+
+  let cursorUrl = $derived.by(() => {
+    const dir = worktree?.dir;
+    if (!dir) return null;
+    if (sshHost) {
+      return `cursor://vscode-remote/ssh-remote+${sshHost}${dir}`;
+    }
+    return `cursor://file${dir}`;
+  });
 
   const btn = "px-3 py-1.5 rounded-md border border-edge bg-surface text-primary text-xs cursor-pointer hover:bg-hover";
 </script>
@@ -28,6 +38,13 @@
         rel="noopener"
         class="text-[11px] px-1.5 py-0.5 rounded border font-mono no-underline hover:opacity-80 {worktree.frontendRunning ? 'text-success border-success/40' : 'text-muted border-edge pointer-events-none'}"
       >FE :{worktree.frontendPort}</a>
+    {/if}
+    {#if cursorUrl}
+      <a
+        href={cursorUrl}
+        class="text-[11px] px-1.5 py-0.5 rounded border border-accent/40 text-accent font-mono no-underline hover:opacity-80"
+        title="Open in Cursor"
+      >Cursor</a>
     {/if}
   </div>
   {#if name}

@@ -5,6 +5,7 @@
   import Terminal from "./lib/Terminal.svelte";
   import ConfirmDialog from "./lib/ConfirmDialog.svelte";
   import CreateWorktreeDialog from "./lib/CreateWorktreeDialog.svelte";
+  import SettingsDialog from "./lib/SettingsDialog.svelte";
   import type { WorktreeInfo } from "./lib/types";
   import type { Profile, Agent } from "./lib/api";
   import * as api from "./lib/api";
@@ -13,8 +14,11 @@
   let selectedBranch = $state<string | null>(null);
   let removeBranch = $state<string | null>(null);
   let removingBranches = $state<Set<string>>(new Set());
+  const SSH_STORAGE_KEY = "wt-ssh-host";
   let showCreateDialog = $state(false);
+  let showSettingsDialog = $state(false);
   let creating = $state(false);
+  let sshHost = $state(localStorage.getItem(SSH_STORAGE_KEY) ?? "");
 
   let visibleWorktrees = $derived(
     worktrees.filter((w) => w.path === "(here)" || w.branch === "main" || w.mux === "✓")
@@ -145,6 +149,10 @@
       <div class="flex justify-between"><span>Navigate</span><kbd class="opacity-60">Cmd+Up/Down</kbd></div>
       <div class="flex justify-between"><span>New worktree</span><kbd class="opacity-60">Cmd+K</kbd></div>
       <div class="flex justify-between"><span>Remove</span><kbd class="opacity-60">Cmd+D</kbd></div>
+      <button
+        class="mt-1 text-[11px] text-muted hover:text-accent cursor-pointer text-left bg-transparent border-none p-0"
+        onclick={() => (showSettingsDialog = true)}
+      >Settings</button>
     </div>
   </aside>
 
@@ -152,6 +160,7 @@
     <TopBar
       name={selectedBranch}
       worktree={selectedWorktree}
+      {sshHost}
       onremove={() => { if (selectedBranch) removeBranch = selectedBranch; }}
     />
 
@@ -186,5 +195,12 @@
     message={`Remove worktree "${removeBranch}"? This action cannot be undone.`}
     onconfirm={handleRemove}
     oncancel={() => (removeBranch = null)}
+  />
+{/if}
+
+{#if showSettingsDialog}
+  <SettingsDialog
+    onsave={(host) => { sshHost = host; showSettingsDialog = false; }}
+    onclose={() => (showSettingsDialog = false)}
   />
 {/if}
