@@ -1,4 +1,5 @@
-import { stat } from "node:fs/promises";
+import { stat, writeFile } from "node:fs/promises";
+import { stringify as yamlStringify } from "@std/yaml";
 
 import * as wmill from "../../../gen/services.gen.ts";
 import {
@@ -295,7 +296,158 @@ export async function pushNativeTrigger(
   }
 }
 
-async function list(opts: GlobalOptions) {
+const triggerTemplates: Record<TriggerType, Record<string, any>> = {
+  http: {
+    script_path: "",
+    is_flow: false,
+    route_path: "",
+    http_method: "get",
+    is_async: false,
+    requires_auth: true,
+  },
+  websocket: {
+    script_path: "",
+    is_flow: false,
+    url: "",
+    enabled: false,
+  },
+  kafka: {
+    script_path: "",
+    is_flow: false,
+    kafka_resource_path: "",
+    group_id: "",
+    topics: [],
+    enabled: false,
+  },
+  nats: {
+    script_path: "",
+    is_flow: false,
+    nats_resource_path: "",
+    subjects: [],
+    enabled: false,
+  },
+  postgres: {
+    script_path: "",
+    is_flow: false,
+    postgres_resource_path: "",
+    publication_name: "",
+    replication_slot_name: "",
+    enabled: false,
+  },
+  mqtt: {
+    script_path: "",
+    is_flow: false,
+    mqtt_resource_path: "",
+    topics: [],
+    subscribe_qos: 0,
+    enabled: false,
+  },
+  sqs: {
+    script_path: "",
+    is_flow: false,
+    sqs_resource_path: "",
+    queue_url: "",
+    enabled: false,
+  },
+  gcp: {
+    script_path: "",
+    is_flow: false,
+    gcp_resource_path: "",
+    subscription_id: "",
+    topic_id: "",
+    enabled: false,
+  },
+  email: {
+    script_path: "",
+    is_flow: false,
+    enabled: false,
+  },
+};
+
+async function newTrigger(opts: GlobalOptions & { kind: string }, path: string) {
+  if (!validatePath(path)) {
+    return;
+  }
+  if (!opts.kind) {
+    throw new Error("--kind is required. Valid kinds: " + TRIGGER_TYPES.join(", "));
+  }
+  if (!checkIfValidTrigger(opts.kind)) {
+    throw new Error("Invalid trigger kind: " + opts.kind + ". Valid kinds: " + TRIGGER_TYPES.join(", "));
+  }
+  const filePath = `${path}.${opts.kind}_trigger.yaml`;
+  try {
+    await stat(filePath);
+    throw new Error("File already exists: " + filePath);
+  } catch (e: any) {
+    if (e.message?.startsWith("File already exists")) throw e;
+  }
+  const template = triggerTemplates[opts.kind];
+  await writeFile(filePath, yamlStringify(template), {
+    flag: "wx",
+    encoding: "utf-8",
+  });
+  log.info(colors.green(`Created ${filePath}`));
+}
+
+async function get(opts: GlobalOptions & { json?: boolean; kind?: string }, path: string) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  if (opts.kind) {
+    if (!checkIfValidTrigger(opts.kind)) {
+      throw new Error("Invalid trigger kind: " + opts.kind + ". Valid kinds: " + TRIGGER_TYPES.join(", "));
+    }
+    const trigger = await getTrigger(opts.kind, workspace.workspaceId, path);
+    if (opts.json) {
+      console.log(JSON.stringify(trigger));
+    } else {
+      console.log(colors.bold("Path:") + " " + (trigger as any).path);
+      console.log(colors.bold("Kind:") + " " + opts.kind);
+      console.log(colors.bold("Enabled:") + " " + ((trigger as any).enabled ?? "-"));
+      console.log(colors.bold("Script Path:") + " " + ((trigger as any).script_path ?? ""));
+      console.log(colors.bold("Is Flow:") + " " + ((trigger as any).is_flow ? "true" : "false"));
+    }
+    return;
+  }
+
+  // Try all trigger types and collect matches
+  const matches: { kind: string; trigger: any }[] = [];
+  for (const kind of TRIGGER_TYPES) {
+    try {
+      const trigger = await getTrigger(kind, workspace.workspaceId, path);
+      matches.push({ kind, trigger });
+    } catch {
+      // not found for this kind
+    }
+  }
+
+  if (matches.length === 0) {
+    throw new Error("No trigger found at path: " + path);
+  }
+
+  if (matches.length === 1) {
+    const { kind, trigger } = matches[0];
+    if (opts.json) {
+      console.log(JSON.stringify(trigger));
+    } else {
+      console.log(colors.bold("Path:") + " " + trigger.path);
+      console.log(colors.bold("Kind:") + " " + kind);
+      console.log(colors.bold("Enabled:") + " " + (trigger.enabled ?? "-"));
+      console.log(colors.bold("Script Path:") + " " + (trigger.script_path ?? ""));
+      console.log(colors.bold("Is Flow:") + " " + (trigger.is_flow ? "true" : "false"));
+    }
+    return;
+  }
+
+  // Multiple matches — ask user to specify --kind
+  console.log("Multiple triggers found at path " + path + ":");
+  for (const m of matches) {
+    console.log("  - " + m.kind);
+  }
+  console.log("Please specify --kind <type> to select one.");
+}
+
+async function list(opts: GlobalOptions & { json?: boolean }) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
@@ -338,12 +490,16 @@ async function list(opts: GlobalOptions) {
     ...emailTriggers.map((x) => ({ path: x.path, kind: "email" })),
   ];
 
-  new Table()
-    .header(["Path", "Kind"])
-    .padding(2)
-    .border(true)
-    .body(triggers.map((x) => [x.path, x.kind]))
-    .render();
+  if (opts.json) {
+    console.log(JSON.stringify(triggers));
+  } else {
+    new Table()
+      .header(["Path", "Kind"])
+      .padding(2)
+      .border(true)
+      .body(triggers.map((x) => [x.path, x.kind]))
+      .render();
+  }
 }
 
 function checkIfValidTrigger(kind: string | undefined): kind is TriggerType {
@@ -401,7 +557,20 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
 
 const command = new Command()
   .description("trigger related commands")
+  .option("--json", "Output as JSON (for piping to jq)")
   .action(list as any)
+  .command("list", "list all triggers")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(list as any)
+  .command("get", "get a trigger's details")
+  .arguments("<path:string>")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .option("--kind <kind:string>", "Trigger kind (http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, email)")
+  .action(get as any)
+  .command("new", "create a new trigger locally")
+  .arguments("<path:string>")
+  .option("--kind <kind:string>", "Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, email)")
+  .action(newTrigger as any)
   .command(
     "push",
     "push a local trigger spec. This overrides any remote versions."

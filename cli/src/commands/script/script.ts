@@ -726,6 +726,7 @@ async function list(
     showArchived?: boolean;
     includeWithoutMain?: boolean;
     includeDraftOnly?: boolean;
+    json?: boolean;
   }
 ) {
   const workspace = await resolveWorkspace(opts);
@@ -750,12 +751,16 @@ async function list(
     }
   }
 
-  new Table()
-    .header(["path", "summary", "language", "created by"])
-    .padding(2)
-    .border(true)
-    .body(total.map((x) => [x.path, x.summary, x.language, x.created_by]))
-    .render();
+  if (opts.json) {
+    console.log(JSON.stringify(total));
+  } else {
+    new Table()
+      .header(["path", "summary", "language", "created by"])
+      .padding(2)
+      .border(true)
+      .body(total.map((x) => [x.path, x.summary, x.language, x.created_by]))
+      .render();
+  }
 }
 
 export async function resolve(input: string): Promise<Record<string, any>> {
@@ -914,6 +919,26 @@ async function show(opts: GlobalOptions, path: string) {
   if (s.description) log.info(s.description);
   log.info("");
   log.info(s.content);
+}
+
+async function get(opts: GlobalOptions & { json?: boolean }, path: string) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  const s = await wmill.getScriptByPath({
+    workspace: workspace.workspaceId,
+    path,
+  });
+  if (opts.json) {
+    console.log(JSON.stringify(s));
+  } else {
+    console.log(colors.bold("Path:") + " " + s.path);
+    console.log(colors.bold("Summary:") + " " + (s.summary ?? ""));
+    console.log(colors.bold("Description:") + " " + (s.description ?? ""));
+    console.log(colors.bold("Language:") + " " + s.language);
+    console.log(colors.bold("Kind:") + " " + (s.kind ?? "script"));
+    console.log(colors.bold("Created by:") + " " + (s.created_by ?? ""));
+    console.log(colors.bold("Created at:") + " " + (s.created_at ?? ""));
+  }
 }
 
 async function bootstrap(
@@ -1290,6 +1315,11 @@ async function preview(
 const command = new Command()
   .description("script related commands")
   .option("--show-archived", "Enable archived scripts in output")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(list as any)
+  .command("list", "list all scripts")
+  .option("--show-archived", "Enable archived scripts in output")
+  .option("--json", "Output as JSON (for piping to jq)")
   .action(list as any)
   .command(
     "push",
@@ -1297,7 +1327,11 @@ const command = new Command()
   )
   .arguments("<path:file>")
   .action(push as any)
-  .command("show", "show a scripts content")
+  .command("get", "get a script's details")
+  .arguments("<path:file>")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(get as any)
+  .command("show", "show a script's content (alias for get)")
   .arguments("<path:file>")
   .action(show as any)
   .command("run", "run a script by path")
@@ -1325,7 +1359,12 @@ const command = new Command()
     "Do not output anything other than the final output. Useful for scripting."
   )
   .action(preview as any)
-  .command("bootstrap", "create a new script")
+  .command("new", "create a new script")
+  .arguments("<path:file> <language:string>")
+  .option("--summary <summary:string>", "script summary")
+  .option("--description <description:string>", "script description")
+  .action(bootstrap as any)
+  .command("bootstrap", "create a new script (alias for new)")
   .arguments("<path:file> <language:string>")
   .option("--summary <summary:string>", "script summary")
   .option("--description <description:string>", "script description")
