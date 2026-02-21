@@ -105,9 +105,11 @@ function buildAgentCmd(profile: Profile, env: Record<string, string>, agent: Age
 
   if (agent === "codex") {
     if (profile === "agent-yolo") {
-      return `workmux sandbox agent -- codex --yolo`;
+      const innerEscaped = prompt.replace(/["\\$`]/g, "\\$&");
+      return `workmux sandbox agent -- codex --yolo -c '"developer_instructions=${innerEscaped}"'`;
     }
-    return "codex";
+    const escapedPrompt = prompt.replace(/'/g, "'\\''");
+    return `codex -c 'developer_instructions=${escapedPrompt}'`;
   }
 
   // Claude

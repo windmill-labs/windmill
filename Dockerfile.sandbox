@@ -144,6 +144,9 @@ RUN curl -fsSL https://claude.ai/install.sh | bash && \
     ln -s /usr/local/bin/claude /tmp/.local/bin/claude && \
     chmod 777 /tmp/.local
 
+# --- codex agent ---
+RUN npm i -g @openai/codex
+
 # Entrypoint that registers the dynamic UID in /etc/passwd so sudo works.
 # workmux passes --user UID:GID directly, bypassing network-init.sh.
 RUN cat <<'ENTRY' > /usr/local/bin/entrypoint.sh
