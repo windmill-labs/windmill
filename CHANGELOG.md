@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.642.0](https://github.com/windmill-labs/windmill/compare/v1.641.0...v1.642.0) (2026-02-22)
+
+
+### Features
+
+* **cli:** add consistent get/list/new subcommands for all item types ([#8047](https://github.com/windmill-labs/windmill/issues/8047)) ([4fedfdf](https://github.com/windmill-labs/windmill/commit/4fedfdfd11aa8ca7fff6f7aed5ae2b313888f878))
+
+
+### Bug Fixes
+
+* make WM_FLOW_PATH available in flow step previews ([#8042](https://github.com/windmill-labs/windmill/issues/8042)) ([a91c532](https://github.com/windmill-labs/windmill/commit/a91c532ecadce63cea965c497351fa1a6f39697a))
+* preserve debouncing settings for flows with preprocessors ([#8043](https://github.com/windmill-labs/windmill/issues/8043)) ([a00927b](https://github.com/windmill-labs/windmill/commit/a00927b3008a2d953fde1d461723a3c92f375eb4))
+
 ## [1.641.0](https://github.com/windmill-labs/windmill/compare/v1.640.0...v1.641.0) (2026-02-21)
 
 
