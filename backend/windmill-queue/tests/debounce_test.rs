@@ -2898,4 +2898,182 @@ mod debounce {
 
         Ok(())
     }
+
+    /// Test: maybe_apply_debouncing actually merges accumulated args into the surviving job's args.
+    /// This is an end-to-end test that sets up runnable_settings in the DB, constructs a
+    /// PulledJobResult, and verifies the accumulated arg is written into the job.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_maybe_apply_debouncing_merges_accumulated_args(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        use windmill_common::runnable_settings::RunnableSettings;
+        use windmill_common::runnable_settings::{
+            insert_rs, ConcurrencySettings, RunnableSettingsTrait,
+        };
+        use windmill_queue::{MiniPulledJob, PulledJob, PulledJobResult};
+
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: None,
+            debounce_args_to_accumulate: Some(vec!["items".to_string()]),
+            ..Default::default()
+        };
+
+        // Insert debouncing_settings and concurrency_settings into the DB
+        let debouncing_hash = settings.insert_cached(&db).await?;
+        let concurrency_hash = ConcurrencySettings::default().insert_cached(&db).await?;
+
+        let rs = RunnableSettings {
+            debouncing_settings: debouncing_hash,
+            concurrency_settings: concurrency_hash,
+        };
+        let rs_handle = insert_rs(rs, &db).await?;
+
+        // Create 3 jobs with different "items" values
+        let jobs: Vec<(Uuid, serde_json::Value)> = vec![
+            (
+                Uuid::new_v4(),
+                serde_json::json!({"items": [1, 2], "other": "x"}),
+            ),
+            (
+                Uuid::new_v4(),
+                serde_json::json!({"items": [3], "other": "x"}),
+            ),
+            (
+                Uuid::new_v4(),
+                serde_json::json!({"items": [4, 5, 6], "other": "x"}),
+            ),
+        ];
+
+        for (id, args) in &jobs {
+            insert_flow_job_with_args(&db, *id, "test-workspace", "f/test/flow", args).await;
+            // Set runnable_settings_handle on the job
+            sqlx::query!(
+                "UPDATE v2_job_queue SET runnable_settings_handle = $1 WHERE id = $2",
+                rs_handle,
+                id,
+            )
+            .execute(&db)
+            .await?;
+        }
+
+        // Debounce all 3 jobs via post-preprocessing
+        for (id, args) in &jobs {
+            let args_hm: HashMap<String, Box<RawValue>> =
+                serde_json::from_value(args.clone()).unwrap();
+            let push_args = PushArgs::from(&args_hm);
+            windmill_queue::jobs_ee::maybe_debounce_post_preprocessing(
+                &settings,
+                &Some("f/test/flow".to_string()),
+                "test-workspace",
+                *id,
+                &push_args,
+                &db,
+            )
+            .await?;
+        }
+
+        let survivor_id = jobs[2].0;
+        assert!(
+            is_queued(&db, &survivor_id).await,
+            "last job should survive"
+        );
+
+        // Build a PulledJobResult for the surviving job (mimicking what the worker does)
+        let survivor_args: HashMap<String, Box<RawValue>> =
+            serde_json::from_value(jobs[2].1.clone()).unwrap();
+
+        let mini = MiniPulledJob {
+            workspace_id: "test-workspace".to_string(),
+            id: survivor_id,
+            args: Some(sqlx::types::Json(survivor_args)),
+            parent_job: None,
+            created_by: "test-user".to_string(),
+            scheduled_for: Utc::now(),
+            started_at: None,
+            runnable_path: Some("f/test/flow".to_string()),
+            kind: JobKind::Flow,
+            runnable_id: None,
+            canceled_reason: None,
+            canceled_by: None,
+            permissioned_as: "u/test-user".to_string(),
+            permissioned_as_email: "test@windmill.dev".to_string(),
+            flow_status: None,
+            tag: "flow".to_string(),
+            script_lang: None,
+            same_worker: false,
+            pre_run_error: None,
+            concurrent_limit: None,
+            concurrency_time_window_s: None,
+            flow_innermost_root_job: None,
+            root_job: None,
+            timeout: None,
+            flow_step_id: None,
+            cache_ttl: None,
+            cache_ignore_s3_path: None,
+            priority: None,
+            preprocessed: None,
+            script_entrypoint_override: None,
+            trigger: None,
+            trigger_kind: None,
+            visible_to_owner: false,
+            permissioned_as_end_user_email: None,
+            runnable_settings_handle: rs_handle,
+        };
+
+        let pulled = PulledJob {
+            job: mini,
+            raw_code: None,
+            raw_lock: None,
+            raw_flow: None,
+            parent_runnable_path: None,
+            permissioned_as_email: None,
+            permissioned_as_username: None,
+            permissioned_as_is_admin: None,
+            permissioned_as_is_operator: None,
+            permissioned_as_groups: None,
+            permissioned_as_folders: None,
+        };
+
+        let mut result = PulledJobResult {
+            job: Some(pulled),
+            suspended: false,
+            missing_concurrency_key: false,
+            error_while_preprocessing: None,
+        };
+
+        // Call the real maybe_apply_debouncing
+        result.maybe_apply_debouncing(&db).await?;
+
+        // The job should still be present (not debounced itself)
+        assert!(
+            result.job.is_some(),
+            "survivor job should not be nulled out"
+        );
+
+        let job = result.job.unwrap();
+        let args = job.job.args.expect("args should be present");
+        let items_raw = args.get("items").expect("items arg should exist");
+        let items: Vec<serde_json::Value> = serde_json::from_str(items_raw.get())?;
+
+        // Should have all 6 items accumulated from all 3 debounced jobs
+        let mut item_nums: Vec<i64> = items
+            .iter()
+            .map(|v| v.as_i64().expect("item should be a number"))
+            .collect();
+        item_nums.sort();
+
+        assert_eq!(
+            item_nums,
+            vec![1, 2, 3, 4, 5, 6],
+            "accumulated items should contain all values from all debounced jobs"
+        );
+
+        // "other" arg should be unchanged
+        let other_raw = args.get("other").expect("other arg should exist");
+        let other: String = serde_json::from_str(other_raw.get())?;
+        assert_eq!(other, "x", "non-accumulated arg should be unchanged");
+
+        Ok(())
+    }
 }
