@@ -144,6 +144,9 @@
     } else if (e.key === "k" || e.key === "K") {
       e.preventDefault();
       if (!creating) showCreateDialog = true;
+    } else if (e.key === "m" || e.key === "M") {
+      e.preventDefault();
+      if (selectedBranch && !isMain) mergeBranch = selectedBranch;
     } else if (e.key === "d" || e.key === "D") {
       e.preventDefault();
       if (selectedBranch && !isMain) removeBranch = selectedBranch;
@@ -176,6 +179,7 @@
     <div class="shrink-0 border-t border-edge px-4 py-3 text-[11px] text-muted flex flex-col gap-1">
       <div class="flex justify-between"><span>Navigate</span><kbd class="opacity-60">Cmd+Up/Down</kbd></div>
       <div class="flex justify-between"><span>New worktree</span><kbd class="opacity-60">Cmd+K</kbd></div>
+      <div class="flex justify-between"><span>Merge</span><kbd class="opacity-60">Cmd+M</kbd></div>
       <div class="flex justify-between"><span>Remove</span><kbd class="opacity-60">Cmd+D</kbd></div>
     </div>
   </aside>
