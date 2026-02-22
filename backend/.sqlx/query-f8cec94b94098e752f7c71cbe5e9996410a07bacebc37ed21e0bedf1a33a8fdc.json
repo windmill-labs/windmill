@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO v2_job (id, kind, tag, created_by, permissioned_as, permissioned_as_email, workspace_id, runnable_path, args)\n             VALUES ($1, 'flow', 'flow', 'test-user', 'u/test-user', 'test@windmill.dev', $2, $3, $4)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar",
+        "Varchar",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f8cec94b94098e752f7c71cbe5e9996410a07bacebc37ed21e0bedf1a33a8fdc"
+}

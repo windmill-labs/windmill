@@ -5368,7 +5368,6 @@ async fn push_inner<'c, 'd>(
             job_id,
             &args,
             &mut tx,
-            _db,
         )
         .await?
     }
