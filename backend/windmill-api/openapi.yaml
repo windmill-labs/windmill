@@ -19671,6 +19671,8 @@ components:
           type: boolean
         lock:
           type: string
+        flow_path:
+          type: string
       required:
         - args
 
