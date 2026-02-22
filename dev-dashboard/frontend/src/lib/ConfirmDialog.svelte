@@ -10,9 +10,11 @@
   } = $props();
 
   let dialogEl: HTMLDialogElement;
+  let confirmBtn: HTMLButtonElement;
 
   $effect(() => {
     dialogEl?.showModal();
+    confirmBtn?.focus();
   });
 
   const btn = "px-3 py-1.5 rounded-md border border-edge bg-surface text-primary text-xs cursor-pointer hover:bg-hover";
@@ -26,6 +28,7 @@
     <div class="flex justify-end gap-2">
       <button type="button" class={btn} onclick={oncancel} disabled={loading}>Cancel</button>
       <button
+        bind:this={confirmBtn}
         type="submit"
         class="{btn} !text-white hover:!opacity-90 disabled:!opacity-50 disabled:!cursor-not-allowed flex items-center gap-1.5 {variant === 'accent' ? '!bg-accent !border-accent' : '!bg-danger !border-danger'}"
         disabled={loading}

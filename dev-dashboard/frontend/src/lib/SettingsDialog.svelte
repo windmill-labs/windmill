@@ -8,9 +8,11 @@
 
   let sshHost = $state(localStorage.getItem(STORAGE_KEY) ?? "");
   let dialogEl: HTMLDialogElement;
+  let inputEl: HTMLInputElement;
 
   $effect(() => {
     dialogEl?.showModal();
+    inputEl?.focus();
   });
 
   function handleSave() {
@@ -34,6 +36,7 @@
         SSH Host <span class="opacity-60">(for "Open in Cursor")</span>
       </label>
       <input
+        bind:this={inputEl}
         id="ssh-host"
         type="text"
         class="w-full px-2.5 py-1.5 rounded-md border border-edge bg-surface text-primary text-[13px] placeholder:text-muted/50 outline-none focus:border-accent"
