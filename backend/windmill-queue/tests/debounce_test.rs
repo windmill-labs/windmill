@@ -1385,4 +1385,166 @@ mod debounce {
 
         Ok(())
     }
+
+    /// Stress test for push-time maybe_debounce: 20,000 operations across 100 keys,
+    /// each holding a caller transaction open (simulating push_inner) while debouncing.
+    /// This exercises the connection pool under realistic concurrent push load.
+    ///
+    /// Run with:
+    ///   cargo test -p windmill-queue --test debounce_test --features private,enterprise \
+    ///     -- --ignored test_push_debounce_contention_stress --nocapture
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    #[ignore]
+    async fn test_push_debounce_contention_stress(db: Pool<Postgres>) -> anyhow::Result<()> {
+        use std::sync::Arc;
+        use tokio::sync::Semaphore;
+
+        let num_keys: usize = 100;
+        let jobs_per_key: usize = 200;
+        let total = num_keys * jobs_per_key;
+        let max_concurrent: usize = 64;
+
+        // Batch-insert all jobs upfront
+        let all_ids: Vec<Uuid> = (0..total).map(|_| Uuid::new_v4()).collect();
+        for chunk in all_ids.chunks(500) {
+            let chunk_vec: Vec<Uuid> = chunk.to_vec();
+            sqlx::query!(
+                "INSERT INTO v2_job (id, kind, tag, created_by, permissioned_as, permissioned_as_email, workspace_id)
+                 SELECT unnest($1::uuid[]), 'noop', 'deno', 'test-user', 'u/test-user', 'test@windmill.dev', 'test-workspace'",
+                &chunk_vec,
+            )
+            .execute(&db)
+            .await?;
+            sqlx::query!(
+                "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, tag)
+                 SELECT unnest($1::uuid[]), 'test-workspace', now(), 'deno'",
+                &chunk_vec,
+            )
+            .execute(&db)
+            .await?;
+            sqlx::query!(
+                "INSERT INTO v2_job_runtime (id) SELECT unnest($1::uuid[])",
+                &chunk_vec,
+            )
+            .execute(&db)
+            .await?;
+        }
+
+        eprintln!("=== PUSH-TIME DEBOUNCE CONTENTION STRESS TEST ===");
+        eprintln!("  keys:            {num_keys}");
+        eprintln!("  jobs per key:    {jobs_per_key}");
+        eprintln!("  total jobs:      {total}");
+        eprintln!("  max concurrent:  {max_concurrent}");
+
+        let semaphore = Arc::new(Semaphore::new(max_concurrent));
+        let start = std::time::Instant::now();
+
+        let mut handles = Vec::with_capacity(total);
+        for (i, &job_id) in all_ids.iter().enumerate() {
+            let db = db.clone();
+            let sem = semaphore.clone();
+            let key_index = i % num_keys;
+            let handle = tokio::spawn(async move {
+                let _permit = sem.acquire().await.unwrap();
+                let settings = DebouncingSettings {
+                    debounce_delay_s: Some(60),
+                    debounce_key: Some(format!("push_stress_key_{key_index}")),
+                    ..Default::default()
+                };
+                let args_hm: HashMap<String, Box<RawValue>> = HashMap::new();
+                let args = PushArgs::from(&args_hm);
+
+                let op_start = std::time::Instant::now();
+
+                // Simulate push_inner: open a caller tx, call maybe_debounce,
+                // then commit (mirroring the real push flow).
+                let mut tx = db.begin().await?;
+                let mut scheduled_for = None;
+                windmill_queue::jobs_ee::maybe_debounce(
+                    &settings,
+                    &mut scheduled_for,
+                    &None,
+                    "test-workspace",
+                    JobKind::Script,
+                    job_id,
+                    &args,
+                    &mut tx,
+                    &db,
+                )
+                .await?;
+                tx.commit().await?;
+
+                let op_duration = op_start.elapsed();
+                Ok::<_, windmill_common::error::Error>((scheduled_for, op_duration))
+            });
+            handles.push(handle);
+        }
+
+        let mut error_count = 0;
+        let mut op_durations = Vec::with_capacity(total);
+        for handle in handles {
+            match handle.await? {
+                Ok((_scheduled_for, duration)) => {
+                    op_durations.push(duration);
+                }
+                Err(e) => {
+                    eprintln!("  error: {e:#}");
+                    error_count += 1;
+                    op_durations.push(std::time::Duration::ZERO);
+                }
+            }
+        }
+
+        let wall_time = start.elapsed();
+
+        // Compute stats
+        op_durations.sort();
+        let p50 = op_durations[total / 2];
+        let p95 = op_durations[total * 95 / 100];
+        let p99 = op_durations[total * 99 / 100];
+        let max = op_durations[total - 1];
+        let ops_per_sec = total as f64 / wall_time.as_secs_f64();
+
+        let queued_count: i64 = sqlx::query_scalar!(
+            "SELECT COUNT(*) as \"count!\" FROM v2_job_queue WHERE id = ANY($1)",
+            &all_ids,
+        )
+        .fetch_one(&db)
+        .await?;
+
+        let completed_count: i64 = sqlx::query_scalar!(
+            "SELECT COUNT(*) as \"count!\" FROM v2_job_completed WHERE id = ANY($1)",
+            &all_ids,
+        )
+        .fetch_one(&db)
+        .await?;
+
+        eprintln!("  wall time:       {wall_time:?}");
+        eprintln!("  ops/sec:         {ops_per_sec:.0}");
+        eprintln!("  p50 latency:     {p50:?}");
+        eprintln!("  p95 latency:     {p95:?}");
+        eprintln!("  p99 latency:     {p99:?}");
+        eprintln!("  max latency:     {max:?}");
+        eprintln!("  errors:          {error_count}");
+        eprintln!("  queued:          {queued_count} (expected {num_keys})");
+        eprintln!(
+            "  completed:       {completed_count} (expected {})",
+            total - num_keys
+        );
+        eprintln!("=================================================");
+
+        assert_eq!(error_count, 0, "no errors expected, got {error_count}");
+        assert_eq!(
+            queued_count, num_keys as i64,
+            "expected {num_keys} survivors (1 per key), got {queued_count}"
+        );
+        assert_eq!(
+            completed_count,
+            (total - num_keys) as i64,
+            "expected {} debounced, got {completed_count}",
+            total - num_keys
+        );
+
+        Ok(())
+    }
 }
