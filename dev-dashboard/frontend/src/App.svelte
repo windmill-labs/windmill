@@ -13,6 +13,9 @@
   let worktrees = $state<WorktreeInfo[]>([]);
   let selectedBranch = $state<string | null>(null);
   let removeBranch = $state<string | null>(null);
+  let mergeBranch = $state<string | null>(null);
+  let merging = $state(false);
+  let mergeError = $state("");
   let removingBranches = $state<Set<string>>(new Set());
   const SSH_STORAGE_KEY = "wt-ssh-host";
   let showCreateDialog = $state(false);
@@ -84,6 +87,31 @@
     }
   }
 
+  async function handleMerge() {
+    const branch = mergeBranch;
+    if (!branch) return;
+
+    merging = true;
+    mergeError = "";
+    try {
+      await api.mergeWorktree(branch);
+      mergeBranch = null;
+
+      if (selectedBranch === branch) {
+        const idx = visibleWorktrees.findIndex((w) => w.branch === branch);
+        const neighbor = visibleWorktrees[idx - 1] ?? visibleWorktrees[idx + 1];
+        const isNeighborMain = neighbor && (neighbor.path === "(here)" || neighbor.branch === "main");
+        selectedBranch = neighbor && !isNeighborMain ? neighbor.branch : null;
+      }
+
+      await refresh();
+    } catch (err) {
+      mergeError = err instanceof Error ? err.message : String(err);
+    } finally {
+      merging = false;
+    }
+  }
+
   function selectNeighborWorktree(direction: -1 | 1) {
     const selectable = visibleWorktrees.filter(
       (w) => w.path !== "(here)" && w.branch !== "main" && !removingBranches.has(w.branch)
@@ -102,7 +130,7 @@
 
   function handleKeydown(e: KeyboardEvent) {
     // Ignore shortcuts when a dialog is open (let dialog handle its own keys)
-    if (showCreateDialog || removeBranch) return;
+    if (showCreateDialog || removeBranch || mergeBranch) return;
 
     const mod = e.metaKey || e.ctrlKey;
     if (!mod) return;
@@ -157,13 +185,14 @@
       name={selectedBranch}
       worktree={selectedWorktree}
       {sshHost}
+      onmerge={() => { if (selectedBranch) mergeBranch = selectedBranch; }}
       onremove={() => { if (selectedBranch) removeBranch = selectedBranch; }}
       onsettings={() => (showSettingsDialog = true)}
     />
 
     {#if canConnect}
       {#key selectedBranch}
-        <Terminal worktree={selectedBranch} />
+        <Terminal worktree={selectedBranch!} />
       {/key}
     {:else}
       <div class="flex-1 flex items-center justify-center text-muted text-sm">
@@ -192,6 +221,18 @@
     message={`Remove worktree "${removeBranch}"? This action cannot be undone.`}
     onconfirm={handleRemove}
     oncancel={() => (removeBranch = null)}
+  />
+{/if}
+
+{#if mergeBranch}
+  <ConfirmDialog
+    message={`Merge worktree "${mergeBranch}" into main? The worktree will be removed after merging.`}
+    confirmLabel="Merge"
+    variant="accent"
+    loading={merging}
+    error={mergeError}
+    onconfirm={handleMerge}
+    oncancel={() => { mergeBranch = null; mergeError = ""; }}
   />
 {/if}
 

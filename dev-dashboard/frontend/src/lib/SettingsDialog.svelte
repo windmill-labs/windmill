@@ -39,7 +39,6 @@
         class="w-full px-2.5 py-1.5 rounded-md border border-edge bg-surface text-primary text-[13px] placeholder:text-muted/50 outline-none focus:border-accent"
         placeholder="e.g. devbox or 10.0.0.5"
         bind:value={sshHost}
-        autofocus
       />
       <p class="text-[11px] text-muted mt-1.5">
         Must match an entry in your local <code class="text-accent/80">~/.ssh/config</code>. Leave empty for local mode.

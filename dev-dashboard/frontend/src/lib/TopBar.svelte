@@ -1,10 +1,11 @@
 <script lang="ts">
   import type { WorktreeInfo } from "./types";
 
-  let { name, worktree, sshHost, onremove, onsettings }: {
+  let { name, worktree, sshHost, onmerge, onremove, onsettings }: {
     name: string | null;
     worktree: WorktreeInfo | undefined;
     sshHost: string;
+    onmerge: () => void;
     onremove: () => void;
     onsettings: () => void;
   } = $props();
@@ -58,6 +59,7 @@
   {#if name}
     <div class="flex gap-2 items-center">
       <span class="text-xs px-2 py-0.5 rounded-xl bg-hover">{worktree?.status || worktree?.agent || ""}</span>
+      <button class="{btn} !text-accent !border-accent hover:!bg-accent/10" onclick={onmerge} title="Merge worktree">Merge</button>
       <button class="{btn} !text-danger !border-danger hover:!bg-danger/10" onclick={onremove} title="Remove worktree">Remove</button>
     </div>
   {/if}

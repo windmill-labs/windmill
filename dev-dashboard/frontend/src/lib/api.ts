@@ -36,13 +36,6 @@ export function openWorktree(name: string): Promise<unknown> {
   return api(`worktrees/${encodeURIComponent(name)}/open`, { method: "POST" });
 }
 
-export function closeWorktree(name: string): Promise<unknown> {
-  return api(`worktrees/${encodeURIComponent(name)}/close`, { method: "POST" });
-}
-
-export function sendPrompt(name: string, prompt: string): Promise<unknown> {
-  return api(`worktrees/${encodeURIComponent(name)}/send`, {
-    method: "POST",
-    body: JSON.stringify({ prompt }),
-  });
+export function mergeWorktree(name: string): Promise<unknown> {
+  return api(`worktrees/${encodeURIComponent(name)}/merge`, { method: "POST" });
 }

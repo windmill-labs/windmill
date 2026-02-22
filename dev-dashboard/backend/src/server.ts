@@ -4,8 +4,7 @@ import {
   addWorktree,
   removeWorktree,
   openWorktree,
-  closeWorktree,
-  sendPrompt,
+  mergeWorktree,
   readEnvLocal,
   type Profile,
   type Agent,
@@ -226,22 +225,13 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
       return jsonResponse({ message: await openWorktree(name) });
     }
 
-    // POST /api/worktrees/:name/close
-    if (parts[0] === "worktrees" && parts.length === 3 && parts[2] === "close" && method === "POST") {
+    // POST /api/worktrees/:name/merge
+    if (parts[0] === "worktrees" && parts.length === 3 && parts[2] === "merge" && method === "POST") {
       const name = decodeURIComponent(parts[1]);
-      console.log(`[worktree:close] name=${name}`);
-      return jsonResponse({ message: await closeWorktree(name) });
-    }
-
-    // POST /api/worktrees/:name/send
-    if (parts[0] === "worktrees" && parts.length === 3 && parts[2] === "send" && method === "POST") {
-      const name = decodeURIComponent(parts[1]);
-      const body = await req.json() as { prompt?: string };
-      if (!body.prompt) {
-        return errorResponse("prompt is required", 400);
-      }
-      console.log(`[worktree:send] name=${name} prompt="${body.prompt.slice(0, 80)}"`);
-      return jsonResponse({ message: await sendPrompt(name, body.prompt) });
+      console.log(`[worktree:merge] name=${name}`);
+      const result = await mergeWorktree(name);
+      console.log(`[worktree:merge] done name=${name}: ${result}`);
+      return jsonResponse({ message: result });
     }
 
     // GET /api/worktrees/:name/status

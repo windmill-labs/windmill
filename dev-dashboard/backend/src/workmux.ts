@@ -239,12 +239,12 @@ export async function openWorktree(name: string): Promise<string> {
   return runChecked(["workmux", "open", name]);
 }
 
-export async function closeWorktree(name: string): Promise<string> {
-  return runChecked(["workmux", "close", name]);
-}
-
-export async function sendPrompt(name: string, prompt: string): Promise<string> {
-  return runChecked(["workmux", "send", name, prompt]);
+export async function mergeWorktree(name: string): Promise<string> {
+  console.log(`[workmux:merge] running: workmux merge ${name}`);
+  stopForwarding(name);
+  const result = await runChecked(["workmux", "merge", name]);
+  console.log(`[workmux:merge] result: ${result}`);
+  return result;
 }
 
 export async function getTmuxSession(): Promise<string> {
