@@ -99,10 +99,10 @@ function buildSandboxSystemPrompt(env: Record<string, string>): string {
     lines.push(
       `--- Screenshots ---`,
       `You can take screenshots of the frontend UI and upload them to R2 for use in PR descriptions.`,
-      `1) Take a screenshot: PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers bunx playwright screenshot --browser chromium http://localhost:${frontendPort}/path/to/page /tmp/screenshot.png`,
-      `2) Upload to R2: aws s3 cp /tmp/screenshot.png "s3://$R2_BUCKET/$(git rev-parse --abbrev-ref HEAD)/screenshot.png" --endpoint-url "$R2_ENDPOINT"`,
-      `3) The public URL will be: $R2_PUBLIC_URL/<branch>/screenshot.png`,
-      `4) Include screenshots in PR descriptions as markdown images: ![description]($R2_PUBLIC_URL/<branch>/screenshot.png)`,
+      `1) Take a screenshot: bunx playwright screenshot --browser chromium http://localhost:${frontendPort}/path/to/page /tmp/screenshot.png`,
+      `2) Upload to R2: aws s3 cp /tmp/screenshot.png "s3://$(printenv R2_BUCKET)/$(git rev-parse --abbrev-ref HEAD)/screenshot.png" --endpoint-url "$(printenv R2_ENDPOINT)"`,
+      `3) The public URL will be: $(printenv R2_PUBLIC_URL)/<branch>/screenshot.png`,
+      `4) Include screenshots in PR descriptions as markdown images: ![description]($(printenv R2_PUBLIC_URL)/<branch>/screenshot.png)`,
     );
   }
   return lines.join(" ");
@@ -204,7 +204,7 @@ export async function addWorktree(
     console.log(`[workmux] sending command to ${windowTarget}.0:\n${agentCmd}`);
     Bun.spawnSync(["tmux", "send-keys", "-t", `${windowTarget}.0`, agentCmd, "Enter"]);
     // Open a shell pane on the right (1/3 width) in the worktree dir
-    Bun.spawnSync(["tmux", "split-window", "-h", "-t", `${windowTarget}.0`, "-l", "33%", "-c", wtDir]);
+    Bun.spawnSync(["tmux", "split-window", "-h", "-t", `${windowTarget}.0`, "-l", "25%", "-c", wtDir]);
     // Keep focus on the agent pane (left)
     Bun.spawnSync(["tmux", "select-pane", "-t", `${windowTarget}.0`]);
 
