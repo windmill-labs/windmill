@@ -166,6 +166,16 @@ cd frontend && bun run dev
 
 Open http://localhost:5112 in your browser.
 
+### Cursor IDE integration
+
+The top bar has a **Cursor** button that opens the selected worktree's directory in Cursor IDE via the `cursor://` protocol. Click the gear icon next to it to configure SSH remote host.
+
+By default, clicking the button reuses an existing Cursor window. To always open in a **new window**, add this to your Cursor `settings.json` (`Cmd+Shift+P` → "Preferences: Open Settings (JSON)"):
+
+```json
+"window.openFoldersInNewWindow": "on"
+```
+
 ### Keyboard shortcuts
 
 | Shortcut | Action |
