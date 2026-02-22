@@ -374,14 +374,15 @@ async function newTrigger(opts: GlobalOptions & { kind: string }, path: string) 
   if (!checkIfValidTrigger(opts.kind)) {
     throw new Error("Invalid trigger kind: " + opts.kind + ". Valid kinds: " + TRIGGER_TYPES.join(", "));
   }
-  const filePath = `${path}.${opts.kind}_trigger.yaml`;
+  const kind: TriggerType = opts.kind;
+  const filePath = `${path}.${kind}_trigger.yaml`;
   try {
     await stat(filePath);
     throw new Error("File already exists: " + filePath);
   } catch (e: any) {
     if (e.message?.startsWith("File already exists")) throw e;
   }
-  const template = triggerTemplates[opts.kind];
+  const template = triggerTemplates[kind];
   await writeFile(filePath, yamlStringify(template), {
     flag: "wx",
     encoding: "utf-8",
@@ -568,7 +569,7 @@ const command = new Command()
   .command("get", "get a trigger's details")
   .arguments("<path:string>")
   .option("--json", "Output as JSON (for piping to jq)")
-  .option("--kind <kind:string>", "Trigger kind (http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, email)")
+  .option("--kind <kind:string>", "Trigger kind (http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, email). Recommended for faster lookup")
   .action(get as any)
   .command("new", "create a new trigger locally")
   .arguments("<path:string>")

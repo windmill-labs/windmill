@@ -937,10 +937,15 @@ async function bootstrap(
 
   try {
     await stat(scriptCodeFileFullPath);
+    throw new Error("File already exists: " + scriptCodeFileFullPath);
+  } catch (e: any) {
+    if (e.message?.startsWith("File already exists")) throw e;
+  }
+  try {
     await stat(scriptMetadataFileFullPath);
-    throw new Error("File already exists in repository");
-  } catch {
-    // file does not exist, we can continue
+    throw new Error("File already exists: " + scriptMetadataFileFullPath);
+  } catch (e: any) {
+    if (e.message?.startsWith("File already exists")) throw e;
   }
 
   const scriptMetadata = defaultScriptMetadata();

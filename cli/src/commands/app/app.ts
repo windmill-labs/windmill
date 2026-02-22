@@ -230,7 +230,7 @@ async function get(opts: GlobalOptions & { json?: boolean }, path: string) {
   } else {
     console.log(colors.bold("Path:") + " " + a.path);
     console.log(colors.bold("Summary:") + " " + (a.summary ?? ""));
-    console.log(colors.bold("Edited by:") + " " + (a.policy?.on_behalf_of ?? ""));
+    console.log(colors.bold("Created by:") + " " + (a.created_by ?? ""));
   }
 }
 

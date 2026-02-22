@@ -70,10 +70,12 @@ jobs:
         with:
           ruby-version: "3.3"
           bundler-cache: false
-      - name: Install windmill CLI
+      - name: Install windmill CLI from source
         run: |
-          bun install -g windmill-cli
-          echo "$(bun pm bin -g)" >> $GITHUB_PATH
+          cd $GITHUB_WORKSPACE/cli
+          bun install
+          printf '#!/bin/sh\nexec bun run "%s/cli/src/main.ts" "$@"\n' "$GITHUB_WORKSPACE" > /usr/local/bin/wmill
+          chmod +x /usr/local/bin/wmill
         working-directory: /
       - name: Install PowerShell, mold and clang
         run: |
