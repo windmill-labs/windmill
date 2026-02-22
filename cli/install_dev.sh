@@ -2,10 +2,19 @@
 
 set -e
 
-if [ -z "$1" ]; then
+# Parse options
+USE_NODE=false
+name=""
+for arg in "$@"; do
+    case "$arg" in
+        --node|-node|---node) USE_NODE=true ;;
+        -*) echo "Unknown option: $arg"; echo "Usage: $0 [name] [--node]"; exit 1 ;;
+        *) [ -z "$name" ] && name="$arg" ;;
+    esac
+done
+
+if [ -z "$name" ]; then
     name="wmill-dev"
-else
-    name="$1"
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -18,10 +27,25 @@ bun install
 INSTALL_DIR="$HOME/.local/bin"
 mkdir -p "$INSTALL_DIR"
 
-cat > "$INSTALL_DIR/$name" <<EOF
+if [ "$USE_NODE" = true ]; then
+    echo "Building npm bundle..."
+    bun run build-npm.ts
+
+    NPM_DIR="$SCRIPT_DIR/npm"
+    cd "$NPM_DIR" && npm install
+    cd "$SCRIPT_DIR"
+
+    cat > "$INSTALL_DIR/$name" <<EOF
+#!/bin/sh
+exec node "$NPM_DIR/esm/main.js" "\$@"
+EOF
+else
+    cat > "$INSTALL_DIR/$name" <<EOF
 #!/bin/sh
 exec bun run "$SCRIPT_DIR/src/main.ts" "\$@"
 EOF
+fi
+
 chmod +x "$INSTALL_DIR/$name"
 
 echo "Installed dev cli as '$name' at $INSTALL_DIR/$name"

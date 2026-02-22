@@ -1,7 +1,7 @@
 import { GlobalOptions } from "../../types.ts";
 import { colors } from "@cliffy/ansi/colors";
 import { Input } from "@cliffy/prompt/input";
-import * as log from "@std/log";
+import * as log from "../../core/log.ts";
 import { setClient } from "../../core/client.ts";
 import {   allWorkspaces, list, removeWorkspace } from "./workspace.ts";
 import * as wmill from "../../../gen/services.gen.ts";

@@ -1,9 +1,9 @@
 import { colors } from "@cliffy/ansi/colors";
 import * as Diff from "diff";
-import * as log from "@std/log";
-import * as path from "@std/path";
-import { SEPARATOR as SEP } from "@std/path";
-import { stringify as yamlStringify } from "@std/yaml";
+import * as log from "./core/log.ts";
+import * as path from "node:path";
+import { sep as SEP } from "node:path";
+import { stringify as yamlStringify } from "yaml";
 import { yamlParseContent } from "./utils/yaml.ts";
 import { readFileSync } from "node:fs";
 import { pushApp } from "./commands/app/app.ts";

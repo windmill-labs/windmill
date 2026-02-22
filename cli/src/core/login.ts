@@ -1,7 +1,7 @@
 import { GlobalOptions } from "../types.ts";
 import { colors } from "@cliffy/ansi/colors";
 import * as getPort from "get-port";
-import * as log from "@std/log";
+import * as log from "./log.ts";
 import * as open from "open";
 import { Secret } from "@cliffy/prompt/secret";
 import { Select } from "@cliffy/prompt/select";

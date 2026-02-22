@@ -1,4 +1,4 @@
-import { parse as yamlParse, type ParseOptions } from "@std/yaml";
+import { parse as yamlParse, type ParseOptions } from "yaml";
 import { readFile } from "node:fs/promises";
 
 export async function yamlParseFile(path: string, options: ParseOptions = {}) {

@@ -5,7 +5,7 @@ import process from "node:process";
 
 import { Command } from "@cliffy/command";
 import { colors } from "@cliffy/ansi/colors";
-import * as log from "@std/log";
+import * as log from "../../core/log.ts";
 import { yamlParseFile } from "../../utils/yaml.ts";
 import { GlobalOptions } from "../../types.ts";
 import { resolveWorkspace } from "../../core/context.ts";

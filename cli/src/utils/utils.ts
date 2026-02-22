@@ -4,8 +4,8 @@
 
 import { colors } from "@cliffy/ansi/colors";
 import { encodeHex } from "@std/encoding";
-import * as log from "@std/log";
-import { SEPARATOR as SEP } from "@std/path";
+import * as log from "../core/log.ts";
+import { sep as SEP } from "node:path";
 import crypto from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";

@@ -4,7 +4,7 @@ import { resolveWorkspace } from "../../core/context.ts";
 import { Command } from "@cliffy/command";
 import { colors } from "@cliffy/ansi/colors";
 import { Confirm } from "@cliffy/prompt/confirm";
-import * as log from "@std/log";
+import * as log from "../../core/log.ts";
 import { mergeConfigWithConfigFile } from "../../core/conf.ts";
 import * as fs from "node:fs/promises";
 import * as wmill from "../../../gen/services.gen.ts";

@@ -1,11 +1,11 @@
 import { stat, writeFile, mkdir } from "node:fs/promises";
-import { stringify as yamlStringify } from "@std/yaml";
+import { stringify as yamlStringify } from "yaml";
 
 import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
 import { Table } from "@cliffy/table";
-import * as log from "@std/log";
-import { SEPARATOR as SEP } from "@std/path";
+import * as log from "../../core/log.ts";
+import { sep as SEP } from "node:path";
 import * as wmill from "../../../gen/services.gen.ts";
 
 import { requireLogin } from "../../core/auth.ts";
@@ -54,10 +54,9 @@ async function newFolder(opts: GlobalOptions, name: string) {
   } catch (e: any) {
     if (e.message?.startsWith("File already exists")) throw e;
   }
-  const template: FolderFile = {
+  const template: Omit<FolderFile, "display_name"> = {
     owners: [],
     extra_perms: {},
-    display_name: undefined,
   };
   await mkdir(dirPath, { recursive: true });
   await writeFile(filePath, yamlStringify(template as Record<string, any>), {

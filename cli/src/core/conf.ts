@@ -1,7 +1,7 @@
-import * as log from "@std/log";
+import * as log from "./log.ts";
 import { yamlParseFile } from "../utils/yaml.ts";
 import { Confirm } from "@cliffy/prompt/confirm";
-import { stringify as yamlStringify } from "@std/yaml";
+import { stringify as yamlStringify } from "yaml";
 import {
   getCurrentGitBranch,
   getOriginalBranchForWorkspaceForks,

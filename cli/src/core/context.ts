@@ -1,5 +1,5 @@
 import { colors } from "@cliffy/ansi/colors";
-import * as log from "@std/log";
+import * as log from "./log.ts";
 import { Select } from "@cliffy/prompt/select";
 import { Confirm } from "@cliffy/prompt/confirm";
 import { Input } from "@cliffy/prompt/input";

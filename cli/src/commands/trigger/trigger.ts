@@ -1,5 +1,5 @@
 import { stat, writeFile } from "node:fs/promises";
-import { stringify as yamlStringify } from "@std/yaml";
+import { stringify as yamlStringify } from "yaml";
 
 import * as wmill from "../../../gen/services.gen.ts";
 import {
@@ -19,8 +19,8 @@ import {
 import { Command } from "@cliffy/command";
 import { Table } from "@cliffy/table";
 import { colors } from "@cliffy/ansi/colors";
-import * as log from "@std/log";
-import { SEPARATOR as SEP } from "@std/path";
+import * as log from "../../core/log.ts";
+import { sep as SEP } from "node:path";
 import {
   GlobalOptions,
   isSuperset,
@@ -447,37 +447,40 @@ async function get(opts: GlobalOptions & { json?: boolean; kind?: string }, path
   console.log("Please specify --kind <type> to select one.");
 }
 
+async function listOrEmpty<T>(fn: () => Promise<T[]>): Promise<T[]> {
+  try {
+    return await fn();
+  } catch {
+    return [];
+  }
+}
+
 async function list(opts: GlobalOptions & { json?: boolean }) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  const httpTriggers = await wmill.listHttpTriggers({
-    workspace: workspace.workspaceId,
-  });
-  const websocketTriggers = await wmill.listWebsocketTriggers({
-    workspace: workspace.workspaceId,
-  });
-  const kafkaTriggers = await wmill.listKafkaTriggers({
-    workspace: workspace.workspaceId,
-  });
-  const natsTriggers = await wmill.listNatsTriggers({
-    workspace: workspace.workspaceId,
-  });
-  const postgresTriggers = await wmill.listPostgresTriggers({
-    workspace: workspace.workspaceId,
-  });
-  const mqttTriggers = await wmill.listMqttTriggers({
-    workspace: workspace.workspaceId,
-  });
-  const sqsTriggers = await wmill.listSqsTriggers({
-    workspace: workspace.workspaceId,
-  });
-  const gcpTriggers = await wmill.listGcpTriggers({
-    workspace: workspace.workspaceId,
-  });
-  const emailTriggers = await wmill.listEmailTriggers({
-    workspace: workspace.workspaceId,
-  });
+  const ws = workspace.workspaceId;
+  const [
+    httpTriggers,
+    websocketTriggers,
+    kafkaTriggers,
+    natsTriggers,
+    postgresTriggers,
+    mqttTriggers,
+    sqsTriggers,
+    gcpTriggers,
+    emailTriggers,
+  ] = await Promise.all([
+    listOrEmpty(() => wmill.listHttpTriggers({ workspace: ws })),
+    listOrEmpty(() => wmill.listWebsocketTriggers({ workspace: ws })),
+    listOrEmpty(() => wmill.listKafkaTriggers({ workspace: ws })),
+    listOrEmpty(() => wmill.listNatsTriggers({ workspace: ws })),
+    listOrEmpty(() => wmill.listPostgresTriggers({ workspace: ws })),
+    listOrEmpty(() => wmill.listMqttTriggers({ workspace: ws })),
+    listOrEmpty(() => wmill.listSqsTriggers({ workspace: ws })),
+    listOrEmpty(() => wmill.listGcpTriggers({ workspace: ws })),
+    listOrEmpty(() => wmill.listEmailTriggers({ workspace: ws })),
+  ]);
   const triggers = [
     ...httpTriggers.map((x) => ({ path: x.path, kind: "http" })),
     ...websocketTriggers.map((x) => ({ path: x.path, kind: "websocket" })),

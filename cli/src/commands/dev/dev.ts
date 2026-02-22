@@ -1,6 +1,6 @@
 import { Command } from "@cliffy/command";
-import * as log from "@std/log";
-import { SEPARATOR as SEP } from "@std/path";
+import * as log from "../../core/log.ts";
+import { sep as SEP } from "node:path";
 import { yamlParseFile } from "../../utils/yaml.ts";
 import { WebSocket, WebSocketServer } from "ws";
 

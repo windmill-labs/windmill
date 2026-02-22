@@ -11,7 +11,7 @@ import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
 import { Input } from "@cliffy/prompt/input";
 import { Table } from "@cliffy/table";
-import * as log from "@std/log";
+import * as log from "../../core/log.ts";
 import { setClient } from "../../core/client.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { createWorkspaceFork, deleteWorkspaceFork } from "./fork.ts";
@@ -518,7 +518,7 @@ async function bind(
   }
 
   // Write back the updated config
-  const { stringify: yamlStringify } = await import("@std/yaml");
+  const { stringify: yamlStringify } = await import("yaml");
   try {
     await writeFile("wmill.yaml", yamlStringify(config), "utf-8");
   } catch (error) {

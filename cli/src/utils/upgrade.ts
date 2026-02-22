@@ -53,6 +53,10 @@ export class NpmProvider extends Provider {
   getRegistryUrl(name: string, version: string): string {
     return `npm:${this.packageName ?? name}@${version}`;
   }
+
+  async hasRequiredPermissions(): Promise<boolean> {
+    return true;
+  }
 }
 
 type NpmApiPackageMetadata = {

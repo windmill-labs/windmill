@@ -2,7 +2,7 @@ import { writeFileSync } from "node:fs";
 import { stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
-import { stringify as yamlStringify } from "@std/yaml";
+import { stringify as yamlStringify } from "yaml";
 
 import {
   GlobalOptions,
@@ -15,7 +15,7 @@ import { resolveWorkspace } from "../../core/context.ts";
 import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
 import { Table } from "@cliffy/table";
-import * as log from "@std/log";
+import * as log from "../../core/log.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { ResourceType } from "../../../gen/types.gen.ts";
 import { compileResourceTypeToTsType } from "../../utils/resource_types.ts";

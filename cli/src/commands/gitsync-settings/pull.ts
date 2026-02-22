@@ -1,7 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { colors } from "@cliffy/ansi/colors";
-import * as log from "@std/log";
-import { stringify as yamlStringify } from "@std/yaml";
+import * as log from "../../core/log.ts";
+import { stringify as yamlStringify } from "yaml";
 import { GlobalOptions } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace } from "../../core/context.ts";

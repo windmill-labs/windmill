@@ -1,5 +1,5 @@
 import { colors } from "@cliffy/ansi/colors";
-import * as log from "@std/log";
+import * as log from "../../core/log.ts";
 import { deepEqual, selectRepository } from "../../utils/utils.ts";
 import { SyncOptions, getEffectiveSettings, DEFAULT_SYNC_OPTIONS } from "../../core/conf.ts";
 import { GitSyncRepository, GIT_SYNC_FIELDS } from "./types.ts";
