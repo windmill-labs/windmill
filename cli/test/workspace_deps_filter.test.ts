@@ -14,7 +14,7 @@ import { expect, test } from "bun:test";
 import { withTestBackend } from "./test_backend.ts";
 import { addWorkspace } from "../workspace.ts";
 import { writeFile, mkdir } from "node:fs/promises";
-import { stringify as stringifyYaml } from "@std/yaml";
+import { stringify as stringifyYaml } from "yaml";
 
 // Import hash generation utilities from CLI
 import { generateHash } from "../src/utils/utils.ts";

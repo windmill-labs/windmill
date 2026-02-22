@@ -6,8 +6,8 @@
  */
 
 import { expect, test, describe } from "bun:test";
-import * as path from "@std/path";
-import { SEPARATOR as SEP } from "@std/path";
+import * as path from "node:path";
+import { sep as SEP } from "node:path";
 import { writeFile, readFile, readdir, rm, mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

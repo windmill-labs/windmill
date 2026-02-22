@@ -13,7 +13,7 @@
  */
 
 import { expect, test } from "bun:test";
-import * as path from "@std/path";
+import * as path from "node:path";
 import { writeFile, readFile, stat } from "node:fs/promises";
 import { withTestBackend } from "./test_backend.ts";
 import { addWorkspace } from "../workspace.ts";

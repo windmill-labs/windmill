@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
-import * as path from "@std/path";
+import * as path from "node:path";
 import {
   formatValidationError,
   runLint,
