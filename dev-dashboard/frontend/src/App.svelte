@@ -134,7 +134,7 @@
 </script>
 
 <div class="flex h-screen bg-surface text-primary">
-  <aside class="w-[260px] min-w-[260px] bg-sidebar border-r border-edge flex flex-col overflow-hidden">
+  <aside class="w-[220px] min-w-[220px] bg-sidebar border-r border-edge flex flex-col overflow-hidden">
     <div class="flex items-center justify-between p-4 border-b border-edge">
       <h1 class="text-base font-semibold">Windmill</h1>
       <button
