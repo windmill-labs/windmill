@@ -88,6 +88,7 @@ function makeCallbacks(ws: { send: (data: string) => void; readyState: number })
 
 Bun.serve<WsData>({
   port: PORT,
+  idleTimeout: 255, // seconds; worktree removal can take >10s
 
   async fetch(req, server) {
     const url = new URL(req.url);
