@@ -1,3 +1,4 @@
+import { FileSink } from "bun";
 import { getTmuxSession } from "./workmux";
 
 interface TerminalSession {
@@ -127,8 +128,8 @@ export async function detach(worktreeName: string): Promise<void> {
 
 export function write(worktreeName: string, data: string): void {
   const session = sessions.get(worktreeName);
-  if (session) {
-    session.proc.stdin.write(new TextEncoder().encode(data));
+  if (session && session.proc.stdin) {
+    (session.proc.stdin as FileSink).write(new TextEncoder().encode(data));
   }
 }
 
