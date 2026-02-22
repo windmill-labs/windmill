@@ -2645,4 +2645,257 @@ mod debounce {
 
         Ok(())
     }
+
+    /// Helper: insert a flow job with args into v2_job + v2_job_queue + v2_job_runtime.
+    async fn insert_flow_job_with_args(
+        db: &Pool<Postgres>,
+        job_id: Uuid,
+        workspace_id: &str,
+        runnable_path: &str,
+        args: &serde_json::Value,
+    ) {
+        sqlx::query!(
+            "INSERT INTO v2_job (id, kind, tag, created_by, permissioned_as, permissioned_as_email, workspace_id, runnable_path, args)
+             VALUES ($1, 'flow', 'flow', 'test-user', 'u/test-user', 'test@windmill.dev', $2, $3, $4)",
+            job_id,
+            workspace_id,
+            runnable_path,
+            args,
+        )
+        .execute(db)
+        .await
+        .expect("insert v2_job with args");
+
+        sqlx::query!(
+            "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, tag)
+             VALUES ($1, $2, now(), 'flow')",
+            job_id,
+            workspace_id,
+        )
+        .execute(db)
+        .await
+        .expect("insert v2_job_queue");
+
+        sqlx::query!("INSERT INTO v2_job_runtime (id) VALUES ($1)", job_id)
+            .execute(db)
+            .await
+            .expect("insert v2_job_runtime");
+    }
+
+    /// Test: debounce_args_to_accumulate excludes the named arg from the debounce key,
+    /// so jobs with different values for that arg still debounce each other.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_post_preprocessing_args_to_accumulate_same_key(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: None, // default key (includes args minus accumulated ones)
+            debounce_args_to_accumulate: Some(vec!["items".to_string()]),
+            ..Default::default()
+        };
+
+        // Job 1: items = ["a", "b"]
+        let job1 = Uuid::new_v4();
+        let args1 = serde_json::json!({"items": ["a", "b"], "other": "same"});
+        insert_flow_job_with_args(&db, job1, "test-workspace", "f/test/flow", &args1).await;
+
+        // Job 2: items = ["c", "d"] (different items, same "other")
+        let job2 = Uuid::new_v4();
+        let args2 = serde_json::json!({"items": ["c", "d"], "other": "same"});
+        insert_flow_job_with_args(&db, job2, "test-workspace", "f/test/flow", &args2).await;
+
+        let args_hm1: HashMap<String, Box<RawValue>> = serde_json::from_value(args1).unwrap();
+        let args = PushArgs::from(&args_hm1);
+        windmill_queue::jobs_ee::maybe_debounce_post_preprocessing(
+            &settings,
+            &Some("f/test/flow".to_string()),
+            "test-workspace",
+            job1,
+            &args,
+            &db,
+        )
+        .await?;
+
+        let args_hm2: HashMap<String, Box<RawValue>> = serde_json::from_value(args2).unwrap();
+        let args = PushArgs::from(&args_hm2);
+        windmill_queue::jobs_ee::maybe_debounce_post_preprocessing(
+            &settings,
+            &Some("f/test/flow".to_string()),
+            "test-workspace",
+            job2,
+            &args,
+            &db,
+        )
+        .await?;
+
+        // Job 1 should be debounced (completed) because "items" is excluded from key
+        assert!(
+            is_completed(&db, &job1).await,
+            "job1 should be debounced despite different 'items' values"
+        );
+        assert!(
+            is_queued(&db, &job2).await,
+            "job2 should still be queued (survivor)"
+        );
+
+        Ok(())
+    }
+
+    /// Test: debounce_args_to_accumulate does NOT cause debouncing when non-accumulated
+    /// args differ — only the accumulated arg is excluded from the key.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_post_preprocessing_args_to_accumulate_different_non_accumulated(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: None,
+            debounce_args_to_accumulate: Some(vec!["items".to_string()]),
+            ..Default::default()
+        };
+
+        // Job 1: other = "foo"
+        let job1 = Uuid::new_v4();
+        let args1 = serde_json::json!({"items": ["a"], "other": "foo"});
+        insert_flow_job_with_args(&db, job1, "test-workspace", "f/test/flow", &args1).await;
+
+        // Job 2: other = "bar" (different non-accumulated arg)
+        let job2 = Uuid::new_v4();
+        let args2 = serde_json::json!({"items": ["b"], "other": "bar"});
+        insert_flow_job_with_args(&db, job2, "test-workspace", "f/test/flow", &args2).await;
+
+        let args_hm1: HashMap<String, Box<RawValue>> = serde_json::from_value(args1).unwrap();
+        let args = PushArgs::from(&args_hm1);
+        windmill_queue::jobs_ee::maybe_debounce_post_preprocessing(
+            &settings,
+            &Some("f/test/flow".to_string()),
+            "test-workspace",
+            job1,
+            &args,
+            &db,
+        )
+        .await?;
+
+        let args_hm2: HashMap<String, Box<RawValue>> = serde_json::from_value(args2).unwrap();
+        let args = PushArgs::from(&args_hm2);
+        windmill_queue::jobs_ee::maybe_debounce_post_preprocessing(
+            &settings,
+            &Some("f/test/flow".to_string()),
+            "test-workspace",
+            job2,
+            &args,
+            &db,
+        )
+        .await?;
+
+        // Both should still be queued — different "other" arg means different keys
+        assert!(
+            is_queued(&db, &job1).await,
+            "job1 should still be queued (different key due to 'other' arg)"
+        );
+        assert!(
+            is_queued(&db, &job2).await,
+            "job2 should still be queued (different key due to 'other' arg)"
+        );
+
+        Ok(())
+    }
+
+    /// Test: batch tracking correctly groups debounced jobs so that accumulated args
+    /// can be collected at execution time via v2_job_debounce_batch.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_post_preprocessing_args_to_accumulate_batch_collection(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: None,
+            debounce_args_to_accumulate: Some(vec!["items".to_string()]),
+            ..Default::default()
+        };
+
+        // Create 3 jobs with different "items" but same "other"
+        let jobs: Vec<(Uuid, serde_json::Value)> = vec![
+            (
+                Uuid::new_v4(),
+                serde_json::json!({"items": ["a", "b"], "other": "x"}),
+            ),
+            (
+                Uuid::new_v4(),
+                serde_json::json!({"items": ["c"], "other": "x"}),
+            ),
+            (
+                Uuid::new_v4(),
+                serde_json::json!({"items": ["d", "e", "f"], "other": "x"}),
+            ),
+        ];
+
+        for (id, args) in &jobs {
+            insert_flow_job_with_args(&db, *id, "test-workspace", "f/test/flow", args).await;
+        }
+
+        for (id, args) in &jobs {
+            let args_hm: HashMap<String, Box<RawValue>> =
+                serde_json::from_value(args.clone()).unwrap();
+            let push_args = PushArgs::from(&args_hm);
+            windmill_queue::jobs_ee::maybe_debounce_post_preprocessing(
+                &settings,
+                &Some("f/test/flow".to_string()),
+                "test-workspace",
+                *id,
+                &push_args,
+                &db,
+            )
+            .await?;
+        }
+
+        let survivor = jobs[2].0; // last job survives
+        assert!(
+            is_queued(&db, &survivor).await,
+            "last job should be the survivor"
+        );
+
+        // All 3 jobs should be in the same debounce batch
+        let batch_ids: Vec<i64> = sqlx::query_scalar!(
+            "SELECT debounce_batch FROM v2_job_debounce_batch WHERE id = ANY($1)",
+            &jobs.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+        )
+        .fetch_all(&db)
+        .await?;
+
+        assert_eq!(batch_ids.len(), 3, "all 3 jobs should have batch entries");
+        assert!(
+            batch_ids.iter().all(|b| *b == batch_ids[0]),
+            "all jobs should share the same batch ID"
+        );
+
+        // Simulate what maybe_apply_debouncing does: collect accumulated args from batch
+        let accumulated: Vec<Option<String>> = sqlx::query_scalar!(
+            "WITH ids AS (
+                SELECT id as job_id FROM v2_job_debounce_batch WHERE debounce_batch = (
+                    SELECT debounce_batch FROM v2_job_debounce_batch WHERE id = $1
+                )
+            ) SELECT args->>'items' FROM ids LEFT JOIN v2_job ON v2_job.id = ids.job_id",
+            survivor,
+        )
+        .fetch_all(&db)
+        .await?;
+
+        // Merge all items arrays (same logic as maybe_apply_debouncing)
+        let mut all_items: Vec<serde_json::Value> = vec![];
+        for s in accumulated.iter().flatten() {
+            let items: Vec<serde_json::Value> = serde_json::from_str(s).unwrap();
+            all_items.extend(items);
+        }
+        all_items.sort_by(|a, b| a.as_str().unwrap().cmp(b.as_str().unwrap()));
+
+        assert_eq!(
+            all_items,
+            vec!["a", "b", "c", "d", "e", "f"],
+            "accumulated items should contain all items from all debounced jobs"
+        );
+
+        Ok(())
+    }
 }
