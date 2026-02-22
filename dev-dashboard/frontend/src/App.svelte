@@ -149,10 +149,6 @@
       <div class="flex justify-between"><span>Navigate</span><kbd class="opacity-60">Cmd+Up/Down</kbd></div>
       <div class="flex justify-between"><span>New worktree</span><kbd class="opacity-60">Cmd+K</kbd></div>
       <div class="flex justify-between"><span>Remove</span><kbd class="opacity-60">Cmd+D</kbd></div>
-      <button
-        class="mt-1 text-[11px] text-muted hover:text-accent cursor-pointer text-left bg-transparent border-none p-0"
-        onclick={() => (showSettingsDialog = true)}
-      >Settings</button>
     </div>
   </aside>
 
@@ -162,6 +158,7 @@
       worktree={selectedWorktree}
       {sshHost}
       onremove={() => { if (selectedBranch) removeBranch = selectedBranch; }}
+      onsettings={() => (showSettingsDialog = true)}
     />
 
     {#if canConnect}
