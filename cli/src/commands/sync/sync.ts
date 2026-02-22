@@ -1337,16 +1337,18 @@ async function compareDynFSElement(
           continue;
         }
         if (!ignoreCodebaseChanges) {
+          const beforeCodebase = before?.codebase;
+          const afterCodebase = after?.codebase;
           if (before?.codebase != undefined) {
             delete before.codebase;
             m2[k] = yamlStringify(before, yamlOptions);
           }
           if (after?.codebase != undefined) {
-            if (before.codebase != after.codebase) {
-              codebaseChanges[k] = after.codebase;
-            }
             delete after.codebase;
             v = yamlStringify(after, yamlOptions);
+          }
+          if (beforeCodebase != afterCodebase) {
+            codebaseChanges[k] = afterCodebase ?? beforeCodebase ?? "";
           }
         }
         if (skipMetadata) {
