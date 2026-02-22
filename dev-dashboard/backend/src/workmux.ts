@@ -142,10 +142,19 @@ function buildSandboxAgentCmd(env: Record<string, string>, agent: Agent): string
   return `${envPrefix}workmux sandbox agent -- claude --dangerously-skip-permissions --append-system-prompt '"${innerEscaped}"'`;
 }
 
+function ensureTmux(): void {
+  const check = Bun.spawnSync(["tmux", "list-sessions"], { stdout: "pipe", stderr: "pipe" });
+  if (check.exitCode !== 0) {
+    Bun.spawnSync(["tmux", "new-session", "-d", "-s", "0"]);
+    console.log("[workmux] restarted tmux session");
+  }
+}
+
 export async function addWorktree(
   branch: string,
   opts?: { prompt?: string; profile?: Profile; agent?: Agent }
 ): Promise<string> {
+  ensureTmux();
   const profile = opts?.profile ?? "full";
   const agent = opts?.agent ?? "claude";
   const args: string[] = ["workmux", "add", "-b"]; // -b = background (don't switch tmux)

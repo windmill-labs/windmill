@@ -65,6 +65,7 @@ export async function attach(
     `tmux set-option -t "${gName}" mouse on`,
     `tmux set-option -t "${gName}" set-clipboard on`,
     `tmux select-window -t "${gName}:${windowTarget}"`,
+    `tmux select-pane -t "${gName}:${windowTarget}.0"`,
     `stty rows ${rows} cols ${cols}`,
     `exec tmux attach-session -t "${gName}"`,
   ].join(" && ");
