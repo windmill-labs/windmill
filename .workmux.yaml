@@ -48,9 +48,9 @@ pre_remove:
 panes:
   - command: <agent>
     focus: true
-  - command: "[ -f .env.local ] && source .env.local; cd backend && PORT=${BACKEND_PORT:-8000} cargo watch -x run"
+  - command: 'ROOT="$(git rev-parse --show-toplevel)"; [ -f "$ROOT/.env.local" ] && source "$ROOT/.env.local"; cd "$ROOT/backend" && PORT=${BACKEND_PORT:-8000} cargo watch -x run'
     split: horizontal
-  - command: "[ -f .env.local ] && source .env.local; cd frontend && npm install && npm run generate-backend-client && REMOTE=${REMOTE:-http://localhost:${BACKEND_PORT:-8000}} npm run dev -- --port ${FRONTEND_PORT:-3000}"
+  - command: 'ROOT="$(git rev-parse --show-toplevel)"; [ -f "$ROOT/.env.local" ] && source "$ROOT/.env.local"; cd "$ROOT/frontend" && npm install && npm run generate-backend-client && REMOTE=${REMOTE:-http://localhost:${BACKEND_PORT:-8000}} npm run dev -- --port ${FRONTEND_PORT:-3000}'
     split: vertical
 
 files:
