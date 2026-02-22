@@ -74,8 +74,8 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/cli
           bun install
-          printf '#!/bin/sh\nexec bun run "%s/cli/src/main.ts" "$@"\n' "$GITHUB_WORKSPACE" > /usr/local/bin/wmill
-          chmod +x /usr/local/bin/wmill
+          printf '#!/bin/sh\nexec bun run "%s/cli/src/main.ts" "$@"\n' "$GITHUB_WORKSPACE" > /usr/bin/wmill
+          chmod +x /usr/bin/wmill
         working-directory: /
       - name: Install PowerShell, mold and clang
         run: |
