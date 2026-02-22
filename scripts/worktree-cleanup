@@ -1,6 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Kill backend/frontend processes using this worktree's ports
+if [ -f .env.local ]; then
+  source .env.local
+  for port in "${BACKEND_PORT:-}" "${FRONTEND_PORT:-}"; do
+    [ -z "$port" ] && continue
+    pid=$(lsof -ti "TCP:${port}" -sTCP:LISTEN 2>/dev/null || true)
+    if [ -n "$pid" ]; then
+      kill "$pid" 2>/dev/null && echo "Killed process $pid on port $port" \
+        || echo "Warning: Could not kill process $pid on port $port"
+    fi
+  done
+fi
+
 # Remove the matching windmill-ee-private worktree if one exists
 wt_basename=$(basename "$(pwd)")
 
