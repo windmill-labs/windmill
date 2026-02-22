@@ -73,6 +73,7 @@ jobs:
       - name: Install windmill CLI from source
         run: |
           cd $GITHUB_WORKSPACE/cli
+          bash gen_wm_client.sh
           bun install
           mkdir -p "$HOME/.local/bin"
           printf '#!/bin/sh\nexec bun run "%s/cli/src/main.ts" "$@"\n' "$GITHUB_WORKSPACE" > "$HOME/.local/bin/wmill"
