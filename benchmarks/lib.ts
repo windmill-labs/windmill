@@ -2,7 +2,7 @@ import { sleep } from "https://deno.land/x/sleep@v1.2.1/mod.ts";
 import * as windmill from "https://deno.land/x/windmill@v1.174.0/mod.ts";
 import * as api from "https://deno.land/x/windmill@v1.174.0/windmill-api/index.ts";
 
-export const VERSION = "v1.641.0";
+export const VERSION = "v1.642.0";
 
 export async function login(email: string, password: string): Promise<string> {
   return await windmill.UserService.login({
