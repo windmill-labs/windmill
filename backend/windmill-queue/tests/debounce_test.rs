@@ -143,7 +143,6 @@ mod debounce {
             job_id,
             &args,
             &mut tx,
-            &db,
         )
         .await?;
 
@@ -208,7 +207,6 @@ mod debounce {
                 job1,
                 &args,
                 &mut tx,
-                &db,
             )
             .await?;
             tx.commit().await?;
@@ -228,7 +226,6 @@ mod debounce {
                 job2,
                 &args,
                 &mut tx,
-                &db,
             )
             .await?;
             tx.commit().await?;
@@ -302,7 +299,6 @@ mod debounce {
                 j,
                 &args,
                 &mut tx,
-                &db,
             )
             .await?;
             tx.commit().await?;
@@ -376,7 +372,6 @@ mod debounce {
                 job_a,
                 &args,
                 &mut tx,
-                &db,
             )
             .await?;
             tx.commit().await?;
@@ -401,7 +396,6 @@ mod debounce {
                 job_b,
                 &args,
                 &mut tx,
-                &db,
             )
             .await?;
             tx.commit().await?;
@@ -449,7 +443,6 @@ mod debounce {
                 job1,
                 &args,
                 &mut tx,
-                &db,
             )
             .await?;
             tx.commit().await?;
@@ -474,7 +467,6 @@ mod debounce {
                 job2,
                 &args,
                 &mut tx,
-                &db,
             )
             .await?;
             tx.commit().await?;
@@ -499,7 +491,6 @@ mod debounce {
                 job3,
                 &args,
                 &mut tx,
-                &db,
             )
             .await?;
             tx.commit().await?;
@@ -550,7 +541,6 @@ mod debounce {
                 job1,
                 &args,
                 &mut tx,
-                &db,
             )
             .await?;
             tx.commit().await?;
@@ -579,7 +569,6 @@ mod debounce {
                 job2,
                 &args,
                 &mut tx,
-                &db,
             )
             .await?;
             tx.commit().await?;
@@ -628,7 +617,6 @@ mod debounce {
                 j,
                 &args,
                 &mut tx,
-                &db,
             )
             .await?;
             tx.commit().await?;
@@ -1262,7 +1250,6 @@ mod debounce {
             job_id,
             &args,
             &mut tx,
-            &db,
         )
         .await?;
         tx.commit().await?;
@@ -1342,7 +1329,6 @@ mod debounce {
             job_id,
             &args,
             &mut tx,
-            &db,
         )
         .await?;
         tx.commit().await?;
@@ -1449,7 +1435,6 @@ mod debounce {
             job1,
             &args,
             &mut tx,
-            &db,
         )
         .await?;
         tx.commit().await?;
@@ -1478,7 +1463,6 @@ mod debounce {
             job2,
             &args,
             &mut tx,
-            &db,
         )
         .await?;
         tx.commit().await?;
@@ -2198,7 +2182,6 @@ mod debounce {
             job_alice1,
             &args,
             &mut tx,
-            &db,
         )
         .await?;
         tx.commit().await?;
@@ -2223,7 +2206,6 @@ mod debounce {
             job_bob,
             &args,
             &mut tx,
-            &db,
         )
         .await?;
         tx.commit().await?;
@@ -2258,7 +2240,6 @@ mod debounce {
             job_alice2,
             &args,
             &mut tx,
-            &db,
         )
         .await?;
         tx.commit().await?;
@@ -2587,7 +2568,6 @@ mod debounce {
                     job_id,
                     &args,
                     &mut tx,
-                    &db,
                 )
                 .await?;
                 tx.commit().await?;
