@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     iptables \
     gosu \
     sudo \
+    unzip \
     # Rust native build deps (for cargo check)
     pkg-config \
     cmake \
@@ -146,6 +147,32 @@ RUN curl -fsSL https://claude.ai/install.sh | bash && \
 
 # --- codex agent ---
 RUN npm i -g @openai/codex
+
+# ── Install bun (globally accessible) ─────────────────────────────────────────
+ENV BUN_INSTALL=/opt/bun
+RUN curl -fsSL https://bun.sh/install | bash \
+    && ln -s /opt/bun/bin/bun /usr/local/bin/bun \
+    && ln -s /opt/bun/bin/bunx /usr/local/bin/bunx \
+    && chmod -R a+rX /opt/bun
+
+# ── Playwright + Chromium (for screenshots) ──────────────────────────────────
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
+RUN bun add -g @playwright/test \
+    && bunx playwright install chromium --with-deps \
+    && chmod -R a+rwX /opt/bun/install/ \
+    && rm -rf /tmp/bunx-* \
+    && chmod -R a+rX /opt/playwright-browsers \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── AWS CLI (for S3-compatible uploads to R2) ─────────────────────────────────
+RUN curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip \
+    && unzip -q /tmp/awscliv2.zip -d /tmp \
+    && /tmp/aws/install \
+    && rm -rf /tmp/aws /tmp/awscliv2.zip
+
+# Pre-configure AWS CLI for R2: credentials come from env vars automatically
+# (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY), just set the defaults.
+ENV AWS_DEFAULT_REGION=auto
 
 # Entrypoint that registers the dynamic UID in /etc/passwd so sudo works.
 # workmux passes --user UID:GID directly, bypassing network-init.sh.

@@ -7,3 +7,4 @@ frontend/bun.lock
 frontend/dist/
 frontend/.vite/
 public/
+.env

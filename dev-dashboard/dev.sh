@@ -2,6 +2,11 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# Load env vars (R2 credentials, etc.) if present
+if [ -f .env ]; then
+  set -a; source .env; set +a
+fi
+
 cleanup() {
   kill $BE_PID $FE_PID 2>/dev/null || true
 }

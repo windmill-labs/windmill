@@ -87,23 +87,59 @@ export { readEnvLocal } from "./env";
 function buildSandboxSystemPrompt(env: Record<string, string>): string {
   const backendPort = env.BACKEND_PORT || "8000";
   const frontendPort = env.FRONTEND_PORT || "3000";
+  const hasR2 = !!(process.env.R2_ENDPOINT && process.env.R2_BUCKET && process.env.R2_PUBLIC_URL);
+  console.log(`[workmux:buildSandboxSystemPrompt] hasR2=${hasR2}`);
   const lines: string[] = [
     "You are running inside a sandboxed container with full permissions.",
     `This worktree is configured with the following ports:`,
     `- Backend: port ${backendPort}. Start with: cd backend && PORT=${backendPort} DATABASE_URL=postgres://postgres:changeme@localhost:5432/windmill cargo watch -x run`,
     `- Frontend: port ${frontendPort}. Start with: cd frontend && REMOTE=http://localhost:${backendPort} npm run dev -- --port ${frontendPort} --host 0.0.0.0`,
   ];
+  if (hasR2) {
+    lines.push(
+      `--- Screenshots ---`,
+      `You can take screenshots of the frontend UI and upload them to R2 for use in PR descriptions.`,
+      `1) Take a screenshot: PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers bunx playwright screenshot --browser chromium http://localhost:${frontendPort}/path/to/page /tmp/screenshot.png`,
+      `2) Upload to R2: aws s3 cp /tmp/screenshot.png "s3://$R2_BUCKET/$(git rev-parse --abbrev-ref HEAD)/screenshot.png" --endpoint-url "$R2_ENDPOINT"`,
+      `3) The public URL will be: $R2_PUBLIC_URL/<branch>/screenshot.png`,
+      `4) Include screenshots in PR descriptions as markdown images: ![description]($R2_PUBLIC_URL/<branch>/screenshot.png)`,
+    );
+  }
   return lines.join(" ");
+}
+
+/** Env vars to forward into the sandbox container (via workmux env_passthrough). */
+const SANDBOX_ENV_PASSTHROUGH = [
+  "AWS_ACCESS_KEY_ID",
+  "AWS_SECRET_ACCESS_KEY",
+  "R2_ENDPOINT",
+  "R2_BUCKET",
+  "R2_PUBLIC_URL",
+];
+
+/** Build an inline env prefix (e.g. "KEY=val KEY2=val2 ") from process.env. */
+function buildEnvPrefix(): string {
+  const parts: string[] = [];
+  for (const key of SANDBOX_ENV_PASSTHROUGH) {
+    const val = process.env[key];
+    if (val) {
+      // Shell-escape the value (single quotes, escaping inner single quotes)
+      const escaped = val.replace(/'/g, "'\\''");
+      parts.push(`${key}='${escaped}'`);
+    }
+  }
+  return parts.length > 0 ? parts.join(" ") + " " : "";
 }
 
 function buildSandboxAgentCmd(env: Record<string, string>, agent: Agent): string {
   const prompt = buildSandboxSystemPrompt(env);
   const innerEscaped = prompt.replace(/["\\$`]/g, "\\$&");
+  const envPrefix = buildEnvPrefix();
 
   if (agent === "codex") {
-    return `workmux sandbox agent -- codex --yolo -c '"developer_instructions=${innerEscaped}"'`;
+    return `${envPrefix}workmux sandbox agent -- codex --yolo -c '"developer_instructions=${innerEscaped}"'`;
   }
-  return `workmux sandbox agent -- claude --dangerously-skip-permissions --append-system-prompt '"${innerEscaped}"'`;
+  return `${envPrefix}workmux sandbox agent -- claude --dangerously-skip-permissions --append-system-prompt '"${innerEscaped}"'`;
 }
 
 export async function addWorktree(
@@ -163,7 +199,7 @@ export async function addWorktree(
     for (let i = paneIds.length - 1; i >= 1; i--) {
       Bun.spawnSync(["tmux", "kill-pane", "-t", `${windowTarget}.${paneIds[i]}`]);
     }
-    // Build and send agent command for sandbox
+    // Build and send agent command for sandbox (env vars are inlined as a prefix)
     const agentCmd = buildSandboxAgentCmd(env, agent);
     console.log(`[workmux] sending command to ${windowTarget}.0:\n${agentCmd}`);
     Bun.spawnSync(["tmux", "send-keys", "-t", `${windowTarget}.0`, agentCmd, "Enter"]);

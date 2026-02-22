@@ -2,6 +2,11 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# Load env vars (R2 credentials, etc.) if present
+if [ -f .env ]; then
+  set -a; source .env; set +a
+fi
+
 # Build frontend
 cd frontend
 bun run build

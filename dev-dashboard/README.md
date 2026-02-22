@@ -17,9 +17,25 @@ nerdfont: false
 
 sandbox:
   image: windmill-sandbox
+
+  # Forward R2/AWS credentials into sandbox containers (for screenshot uploads).
+  # The actual values come from dev-dashboard/.env, sourced by dev.sh/run.sh.
+  env_passthrough:
+    - AWS_ACCESS_KEY_ID
+    - AWS_SECRET_ACCESS_KEY
+    - R2_ENDPOINT
+    - R2_BUCKET
+    - R2_PUBLIC_URL
+
   extra_mounts:
+    # Codex agent credentials
     - host_path: ~/.codex
       guest_path: /tmp/.codex
+      writable: true
+    # EE repo access (optional — only needed for enterprise features)
+    - host_path: ~/windmill-ee-private
+      writable: true
+    - host_path: ~/windmill-ee-private__worktrees
       writable: true
 EOF
 
@@ -91,9 +107,19 @@ nerdfont: false
 
 sandbox:
   image: windmill-sandbox
+  env_passthrough:
+    - AWS_ACCESS_KEY_ID
+    - AWS_SECRET_ACCESS_KEY
+    - R2_ENDPOINT
+    - R2_BUCKET
+    - R2_PUBLIC_URL
   extra_mounts:
     - host_path: ~/.codex
       guest_path: /tmp/.codex
+      writable: true
+    - host_path: ~/windmill-ee-private
+      writable: true
+    - host_path: ~/windmill-ee-private__worktrees
       writable: true
 ```
 
@@ -101,7 +127,8 @@ sandbox:
 
 - **`nerdfont`** — Set to `true` if your terminal uses a Nerd Font (adds icons to `workmux list` output). Default `false`.
 - **`sandbox.image`** — Docker image used for `agent-yolo` sandboxed worktrees. Must be pre-built with `workmux sandbox build` or pulled with `workmux sandbox pull`.
-- **`sandbox.extra_mounts`** — Additional bind mounts into sandbox containers. The example above mounts Codex credentials so the Codex agent can authenticate from inside the container.
+- **`sandbox.env_passthrough`** — Host env vars to forward into sandbox containers (global config only). Used here for R2 screenshot upload credentials.
+- **`sandbox.extra_mounts`** — Additional bind mounts into sandbox containers. Mounts Codex credentials and the EE repo for enterprise features.
 
 To build the sandbox image (from the Windmill repo root):
 
@@ -154,6 +181,26 @@ Open http://localhost:5112 in your browser.
 | `DASHBOARD_PORT` | `5111` | Backend API port |
 
 The frontend dev server is hardcoded to port `5112` and proxies `/api/*` and `/ws/*` to the backend.
+
+### Screenshot uploads (optional)
+
+Sandbox agents can take screenshots of the frontend UI with Playwright and upload them to a Cloudflare R2 bucket for use in PR descriptions. To enable this, create a `dev-dashboard/.env` file (already gitignored):
+
+```bash
+# Cloudflare R2 credentials — get from:
+# Dashboard → R2 → Manage R2 API Tokens → Create API Token (Object Read & Write, scoped to your bucket)
+AWS_ACCESS_KEY_ID=<your-r2-access-key>
+AWS_SECRET_ACCESS_KEY=<your-r2-secret-key>
+
+# Account ID is on the R2 overview page (right sidebar)
+R2_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+R2_BUCKET=windmill-screenshots
+
+# Enable public access on the bucket (Settings → Public access → r2.dev subdomain)
+R2_PUBLIC_URL=https://pub-<hash>.r2.dev
+```
+
+When these are set, `dev.sh`/`run.sh` source the file and the env vars are inlined onto the `workmux sandbox agent` command. The workmux global config's `env_passthrough` (see [above](#workmux-global-config)) forwards them into the container. The agent's system prompt automatically includes screenshot instructions when R2 is configured.
 
 ## API
 
