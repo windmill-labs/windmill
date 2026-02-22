@@ -47,8 +47,20 @@
     return result;
   }
 
+  /** Sanitize user input into a valid git branch name */
+  function sanitizeBranchName(raw: string): string {
+    return raw
+      .replace(/\s+/g, "-")              // spaces → dashes
+      .replace(/[~^:?*\[\]\\]+/g, "")    // remove git-invalid chars
+      .replace(/\.{2,}/g, ".")            // collapse ".." → "."
+      .replace(/\/{2,}/g, "/")            // collapse consecutive slashes
+      .replace(/-{2,}/g, "-")             // collapse consecutive dashes
+      .replace(/^[.\-/]+|[.\-/]+$/g, "") // no leading/trailing . - /
+      .replace(/\.lock$/i, "");           // no trailing .lock
+  }
+
   async function handleCreate(name: string, profile: Profile, agent: Agent) {
-    const branch = name || randomName(8);
+    const branch = (name && sanitizeBranchName(name)) || randomName(8);
     creating = true;
     try {
       await api.createWorktree(branch, profile, agent);
