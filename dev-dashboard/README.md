@@ -72,9 +72,30 @@ Browser (localhost:5112)
            lifecycle)      access)        for sandboxes)
 ```
 
-**Backend** — Bun/TypeScript HTTP + WebSocket server (`backend/src/server.ts`). Wraps the `workmux` CLI to create/remove worktrees, manages tmux terminal sessions streamed to the browser via WebSocket, and runs `socat` port forwarding for Docker sandbox containers.
+**Backend** — Bun/TypeScript HTTP + WebSocket server (`backend/src/server.ts`). Exposes two interfaces:
 
-**Frontend** — Svelte 5 SPA with Tailwind CSS and xterm.js (`frontend/src/`). Provides a two-panel UI: worktree list sidebar + embedded terminal. Polls the backend every 5 seconds for status updates.
+- **REST API** (`/api/*`) — CRUD for worktrees. Wraps the `workmux` CLI to create/remove/merge worktrees and runs `socat` port forwarding for Docker sandbox containers. The `GET /api/worktrees` endpoint enriches each worktree with its directory, assigned ports (from `.env.local`), and whether the backend/frontend services are actually responding.
+- **WebSocket** (`/ws/*`) — Live terminal connection. This is what makes the in-browser terminal work. See [Terminal streaming](#terminal-streaming) below.
+
+**Frontend** — Svelte 5 SPA with Tailwind CSS and xterm.js (`frontend/src/`). Provides a two-panel UI: worktree list sidebar + embedded terminal. Polls the REST API every 5 seconds for status updates. The terminal is rendered by [xterm.js](https://xtermjs.org/), which handles all terminal emulation (escape sequences, colors, cursor, scrollback) in a `<canvas>`/DOM element.
+
+### Terminal streaming
+
+The WebSocket provides a bidirectional bridge between xterm.js in the browser and a tmux session on the server. The data flow:
+
+```
+Browser (xterm.js)  ←— WebSocket —→  Backend  ←— stdin/stdout pipes —→  script (PTY)  ←— tmux attach —→  tmux grouped session
+```
+
+When a worktree is selected, the frontend opens a WebSocket to `/ws/<worktree>` and sends an initial `resize` message with the terminal dimensions. The backend then:
+
+1. Spawns `script -q -c "... tmux attach-session ..." /dev/null` — `script` allocates a real PTY (pseudo-terminal), which is necessary for tmux to produce proper terminal escape sequences, colors, and cursor movement.
+2. The tmux command creates a **grouped session** (`tmux new-session -t <main-session>`), which is a separate "view" into the same tmux windows. This allows the dashboard and a real terminal to view the same worktree simultaneously without fighting over window/pane focus.
+3. An async reader loop reads the PTY's stdout and forwards the data over the WebSocket as `{ type: "output" }` messages, which xterm.js renders.
+4. Keystrokes arrive as `{ type: "input" }` messages and are written to the PTY's stdin pipe.
+5. Resize events trigger `tmux resize-window` to keep dimensions in sync.
+
+Output is also buffered in a scrollback array (up to 5000 chunks) so that reconnecting clients receive recent history immediately.
 
 ### Worktree Profiles
 
