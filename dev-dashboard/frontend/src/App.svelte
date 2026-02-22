@@ -75,18 +75,19 @@
     }
   }
 
+  function selectNeighborOf(branch: string) {
+    if (selectedBranch !== branch) return;
+    const idx = visibleWorktrees.findIndex((w) => w.branch === branch);
+    const neighbor = visibleWorktrees[idx - 1] ?? visibleWorktrees[idx + 1];
+    const isNeighborMain = neighbor && (neighbor.path === "(here)" || neighbor.branch === "main");
+    selectedBranch = neighbor && !isNeighborMain ? neighbor.branch : null;
+  }
+
   async function handleRemove() {
     const branch = removeBranch;
     if (!branch) return;
     removeBranch = null;
-
-    // Select neighbor before starting the async removal
-    if (selectedBranch === branch) {
-      const idx = visibleWorktrees.findIndex((w) => w.branch === branch);
-      const neighbor = visibleWorktrees[idx - 1] ?? visibleWorktrees[idx + 1];
-      const isNeighborMain = neighbor && (neighbor.path === "(here)" || neighbor.branch === "main");
-      selectedBranch = neighbor && !isNeighborMain ? neighbor.branch : null;
-    }
+    selectNeighborOf(branch);
 
     removingBranches = new Set([...removingBranches, branch]);
     try {
@@ -108,14 +109,7 @@
     try {
       await api.mergeWorktree(branch);
       mergeBranch = null;
-
-      if (selectedBranch === branch) {
-        const idx = visibleWorktrees.findIndex((w) => w.branch === branch);
-        const neighbor = visibleWorktrees[idx - 1] ?? visibleWorktrees[idx + 1];
-        const isNeighborMain = neighbor && (neighbor.path === "(here)" || neighbor.branch === "main");
-        selectedBranch = neighbor && !isNeighborMain ? neighbor.branch : null;
-      }
-
+      selectNeighborOf(branch);
       await refresh();
     } catch (err) {
       mergeError = err instanceof Error ? err.message : String(err);
