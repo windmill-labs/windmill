@@ -281,6 +281,8 @@ struct SimplifiedSettings {
     color: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     operator_settings: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    datatable: Option<Value>,
 }
 
 // V1 format: Legacy flat format for backward compatibility (matches main branch exactly)
@@ -315,6 +317,8 @@ struct SimplifiedSettingsLegacy {
     color: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     operator_settings: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    datatable: Option<Value>,
 }
 
 // Internal struct for querying database
@@ -334,6 +338,7 @@ struct SettingsRow {
     mute_critical_alerts: Option<bool>,
     color: Option<String>,
     operator_settings: Option<serde_json::Value>,
+    datatable: Option<Value>,
 }
 
 pub(crate) async fn tarball_workspace(
@@ -938,7 +943,8 @@ pub(crate) async fn tarball_workspace(
                  workspace.name as name,
                  mute_critical_alerts,
                  color,
-                 operator_settings
+                 operator_settings,
+                 datatable
              FROM workspace_settings
              LEFT JOIN workspace ON workspace.id = workspace_settings.workspace_id
              WHERE workspace_id = $1"#,
@@ -964,6 +970,7 @@ pub(crate) async fn tarball_workspace(
                 mute_critical_alerts: row.mute_critical_alerts,
                 color: row.color.clone(),
                 operator_settings: row.operator_settings.clone(),
+                datatable: row.datatable.clone(),
             };
             serde_json::to_value(settings)
                 .map(|v| serde_json::to_string_pretty(&v).ok())
@@ -1023,6 +1030,7 @@ pub(crate) async fn tarball_workspace(
                 mute_critical_alerts: row.mute_critical_alerts,
                 color: row.color,
                 operator_settings: row.operator_settings,
+                datatable: row.datatable,
             };
             serde_json::to_value(settings)
                 .map(|v| serde_json::to_string_pretty(&v).ok())
