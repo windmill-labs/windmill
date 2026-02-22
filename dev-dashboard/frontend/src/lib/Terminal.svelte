@@ -23,7 +23,7 @@
         selectionBackground: "#264f78",
       },
       fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace",
-      fontSize: 13,
+      fontSize: 11,
       scrollback: 10000,
     });
 
