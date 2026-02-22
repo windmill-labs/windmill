@@ -33,6 +33,7 @@ import {
   removeExtensionToPath,
 } from "../script/script.ts";
 
+<<<<<<< Updated upstream:cli/src/commands/sync/sync.ts
 import { handleFile } from "../script/script.ts";
 import {
   deepEqual,
@@ -61,10 +62,29 @@ import { getCurrentGitBranch, isGitRepository } from "../../utils/git.ts";
 import { Workspace } from "../workspace/workspace.ts";
 import { removePathPrefix } from "../../types.ts";
 import { listSyncCodebases, SyncCodebase } from "../../utils/codebase.ts";
+=======
+import { handleFile } from "./script.ts";
+import {
+  deepEqual,
+  isFileResource,
+  Repository,
+  selectRepository,
+} from "./utils.ts";
+import {
+  SyncOptions,
+  mergeConfigWithConfigFile,
+  readConfigFile,
+  getEffectiveSettings,
+} from "./conf.ts";
+import { Workspace } from "./workspace.ts";
+import { removePathPrefix } from "./types.ts";
+import { SyncCodebase, listSyncCodebases } from "./codebase.ts";
+>>>>>>> Stashed changes:cli/sync.ts
 import {
   generateScriptMetadataInternal,
   getRawWorkspaceDependencies,
   readLockfile,
+<<<<<<< Updated upstream:cli/src/commands/sync/sync.ts
   workspaceDependenciesPathToLanguageAndFilename,
 } from "../../utils/metadata.ts";
 import { OpenFlow, NativeServiceName } from "../../../gen/types.gen.ts";
@@ -101,6 +121,15 @@ import {
 // Merge CLI options with effective settings, preserving CLI flags as overrides
 function mergeCliWithEffectiveOptions<
   T extends GlobalOptions & SyncOptions & { repository?: string },
+=======
+} from "./metadata.ts";
+import { FlowModule, OpenFlow, RawScript } from "./gen/types.gen.ts";
+import { pushResource } from "./resource.ts";
+
+// Merge CLI options with effective settings, preserving CLI flags as overrides
+function mergeCliWithEffectiveOptions<
+  T extends GlobalOptions & SyncOptions & { repository?: string }
+>>>>>>> Stashed changes:cli/sync.ts
 >(cliOpts: T, effectiveOpts: SyncOptions): T {
   // overlay CLI options on top (undefined cliOpts won't override effectiveOpts)
   return Object.assign({}, effectiveOpts, cliOpts) as T;
@@ -113,7 +142,97 @@ async function resolveEffectiveSyncOptions(
   promotion?: string,
   branchOverride?: string,
 ): Promise<SyncOptions> {
+<<<<<<< Updated upstream:cli/src/commands/sync/sync.ts
   return await getEffectiveSettings(localConfig, promotion, false, false, branchOverride);
+=======
+  const localConfig = await readConfigFile();
+
+  // If repository path is already specified, use it directly
+  if (repositoryPath) {
+    return getEffectiveSettings(
+      localConfig,
+      workspace.remote,
+      workspace.workspaceId,
+      repositoryPath
+    );
+  }
+
+  // Auto-detect repository from overrides if not specified
+  if (localConfig.overrides) {
+    const prefix = `${workspace.remote}:${workspace.workspaceId}:`;
+    const applicableRepos: string[] = [];
+
+    // Find all repository-specific overrides for this workspace
+    for (const key of Object.keys(localConfig.overrides)) {
+      if (key.startsWith(prefix) && !key.endsWith(":*")) {
+        const repo = key.substring(prefix.length);
+        if (repo) {
+          applicableRepos.push(repo);
+        }
+      }
+    }
+
+    if (applicableRepos.length === 1) {
+      // Single repository found - auto-select it
+      log.info(`Auto-selected repository: ${applicableRepos[0]}`);
+      return getEffectiveSettings(
+        localConfig,
+        workspace.remote,
+        workspace.workspaceId,
+        applicableRepos[0]
+      );
+    } else if (applicableRepos.length > 1) {
+      // Multiple repositories found - prompt for selection
+      const isInteractive = Deno.stdin.isTerminal() && Deno.stdout.isTerminal();
+
+      if (isInteractive) {
+        const choices = [
+          {
+            name: "Use top-level settings (no repository-specific override)",
+            value: "",
+          },
+          ...applicableRepos.map((repo) => ({ name: repo, value: repo })),
+        ];
+
+        const selectedRepo = await Select.prompt({
+          message: "Multiple repository overrides found. Select which to use:",
+          options: choices,
+        });
+
+        if (selectedRepo) {
+          log.info(`Selected repository: ${selectedRepo}`);
+        }
+
+        return getEffectiveSettings(
+          localConfig,
+          workspace.remote,
+          workspace.workspaceId,
+          selectedRepo
+        );
+      } else {
+        // Non-interactive mode - list options and use top-level
+        log.warn(
+          `Multiple repository overrides found: ${applicableRepos.join(", ")}`
+        );
+        log.warn(
+          `Running in non-interactive mode. Use --repository flag to specify which one to use.`
+        );
+        log.info(
+          `Falling back to top-level settings (no repository-specific overrides applied)`
+        );
+      }
+    }
+  }
+
+  // No repository overrides found or selected - use top-level settings
+  log.info(`No repository overrides found, using top-level settings`);
+  return getEffectiveSettings(
+    localConfig,
+    workspace.remote,
+    workspace.workspaceId,
+    ""
+  );
+>>>>>>> Stashed changes:cli/sync.ts
 }
 
 type DynFSElement = {
@@ -1665,6 +1784,7 @@ async function buildTracker(changes: Change[]) {
 }
 
 export async function pull(
+<<<<<<< Updated upstream:cli/src/commands/sync/sync.ts
   opts: GlobalOptions &
     SyncOptions & { repository?: string; promotion?: string; branch?: string },
 ) {
@@ -1680,6 +1800,12 @@ export async function pull(
       process.exit(1);
     }
     throw error;
+=======
+  opts: GlobalOptions & SyncOptions & { repository?: string }
+) {
+  if (opts.stateful) {
+    await ensureDir(path.join(Deno.cwd(), ".wmill"));
+>>>>>>> Stashed changes:cli/sync.ts
   }
 
   if (opts.stateful) {
@@ -1689,6 +1815,7 @@ export async function pull(
   const workspace = await resolveWorkspace(opts, opts.branch);
   await requireLogin(opts);
 
+<<<<<<< Updated upstream:cli/src/commands/sync/sync.ts
   // Resolve effective sync options with branch awareness
   const effectiveOpts = await resolveEffectiveSyncOptions(
     workspace,
@@ -1699,6 +1826,13 @@ export async function pull(
 
   // Extract specific items configuration before merging overwrites gitBranches
   const specificItems = getSpecificItemsForCurrentBranch(opts, opts.branch);
+=======
+  // Resolve effective sync options with repository awareness
+  const effectiveOpts = await resolveEffectiveSyncOptions(
+    workspace,
+    opts.repository
+  );
+>>>>>>> Stashed changes:cli/sync.ts
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
@@ -1777,6 +1911,7 @@ export async function pull(
         ...(change.name === "edited" && change.codebase
           ? { codebase_changed: true }
           : {}),
+<<<<<<< Updated upstream:cli/src/commands/sync/sync.ts
         ...(specificItems && isSpecificItem(change.path, specificItems)
           ? {
               branch_specific: true,
@@ -1787,6 +1922,8 @@ export async function pull(
               ),
             }
           : {}),
+=======
+>>>>>>> Stashed changes:cli/sync.ts
       })),
       total: changes.length,
     };
@@ -2026,6 +2163,7 @@ export async function pull(
           ...(change.name === "edited" && change.codebase
             ? { codebase_changed: true }
             : {}),
+<<<<<<< Updated upstream:cli/src/commands/sync/sync.ts
           ...(specificItems && isSpecificItem(change.path, specificItems)
             ? {
                 branch_specific: true,
@@ -2036,6 +2174,8 @@ export async function pull(
                 ),
               }
             : {}),
+=======
+>>>>>>> Stashed changes:cli/sync.ts
         })),
         total: changes.length,
       };
@@ -2052,8 +2192,13 @@ export async function pull(
       JSON.stringify(
         { success: true, message: "No changes to apply", total: 0 },
         null,
+<<<<<<< Updated upstream:cli/src/commands/sync/sync.ts
         2,
       ),
+=======
+        2
+      )
+>>>>>>> Stashed changes:cli/sync.ts
     );
   }
 }
@@ -2152,6 +2297,7 @@ function removeSuffix(str: string, suffix: string) {
 }
 
 export async function push(
+<<<<<<< Updated upstream:cli/src/commands/sync/sync.ts
   opts: GlobalOptions & SyncOptions & { repository?: string; branch?: string },
 ) {
   // Save original CLI options before merging with config file
@@ -2184,6 +2330,18 @@ export async function push(
 
   // Extract specific items configuration BEFORE merging overwrites gitBranches
   const specificItems = getSpecificItemsForCurrentBranch(opts, opts.branch);
+=======
+  opts: GlobalOptions & SyncOptions & { repository?: string }
+) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  // Resolve effective sync options with repository awareness
+  const effectiveOpts = await resolveEffectiveSyncOptions(
+    workspace,
+    opts.repository
+  );
+>>>>>>> Stashed changes:cli/sync.ts
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
@@ -2399,6 +2557,7 @@ export async function push(
         ...(change.name === "edited" && change.codebase
           ? { codebase_changed: true }
           : {}),
+<<<<<<< Updated upstream:cli/src/commands/sync/sync.ts
         ...(specificItems && isSpecificItem(change.path, specificItems)
           ? {
               branch_specific: true,
@@ -2409,6 +2568,8 @@ export async function push(
               ),
             }
           : {}),
+=======
+>>>>>>> Stashed changes:cli/sync.ts
       })),
       total: changes.length,
     };
@@ -2928,6 +3089,7 @@ export async function push(
           ...(change.name === "edited" && change.codebase
             ? { codebase_changed: true }
             : {}),
+<<<<<<< Updated upstream:cli/src/commands/sync/sync.ts
           ...(specificItems && isSpecificItem(change.path, specificItems)
             ? {
                 branch_specific: true,
@@ -2938,6 +3100,8 @@ export async function push(
                 ),
               }
             : {}),
+=======
+>>>>>>> Stashed changes:cli/sync.ts
         })),
         total: changes.length,
         duration_ms: Math.round(performance.now() - start),
@@ -2951,9 +3115,15 @@ export async function push(
           } changes pushed to the remote workspace ${
             workspace.workspaceId
           } named ${workspace.name} (${(performance.now() - start).toFixed(
+<<<<<<< Updated upstream:cli/src/commands/sync/sync.ts
             0,
           )}ms)`,
         ),
+=======
+            0
+          )}ms)`
+        )
+>>>>>>> Stashed changes:cli/sync.ts
       );
     }
   } else if (opts.jsonOutput) {
@@ -2961,8 +3131,13 @@ export async function push(
       JSON.stringify(
         { success: true, message: "No changes to push", total: 0 },
         null,
+<<<<<<< Updated upstream:cli/src/commands/sync/sync.ts
         2,
       ),
+=======
+        2
+      )
+>>>>>>> Stashed changes:cli/sync.ts
     );
   }
 }
