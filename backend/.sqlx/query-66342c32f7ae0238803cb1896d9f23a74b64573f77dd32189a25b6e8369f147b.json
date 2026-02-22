@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE debounce_key SET first_started_at = now() - interval '20 seconds' WHERE key = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "66342c32f7ae0238803cb1896d9f23a74b64573f77dd32189a25b6e8369f147b"
+}
