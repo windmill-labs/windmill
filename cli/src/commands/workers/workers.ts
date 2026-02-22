@@ -1,6 +1,6 @@
 import { Command } from "@cliffy/command";
 import { Table } from "@cliffy/table";
-import * as log from "@std/log";
+import * as log from "../../core/log.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { pickInstance } from "../instance/instance.ts";
 

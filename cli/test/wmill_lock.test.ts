@@ -7,7 +7,7 @@
  */
 
 import { expect, test } from "bun:test";
-import * as path from "@std/path";
+import * as path from "node:path";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import {
@@ -18,7 +18,7 @@ import {
   clearGlobalLock,
 } from "../src/utils/metadata.ts";
 import { generateHash } from "../src/utils/utils.ts";
-import { stringify as yamlStringify } from "@std/yaml";
+import { stringify as yamlStringify } from "yaml";
 import { yamlParseFile } from "../src/utils/yaml.ts";
 
 // =============================================================================

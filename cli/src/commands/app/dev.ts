@@ -1,7 +1,7 @@
 import { Command } from "@cliffy/command";
 import { colors } from "@cliffy/ansi/colors";
-import * as log from "@std/log";
-import { SEPARATOR as SEP } from "@std/path";
+import * as log from "../../core/log.ts";
+import { sep as SEP } from "node:path";
 import * as windmillUtils from "@windmill-labs/shared-utils";
 import { yamlParseFile } from "../../utils/yaml.ts";
 import * as getPort from "get-port";

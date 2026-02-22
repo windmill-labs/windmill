@@ -1,4 +1,4 @@
-import * as log from "@std/log";
+import * as log from "./log.ts";
 import { readFile, writeFile } from "node:fs/promises";
 import { getStore } from "./store.ts";
 

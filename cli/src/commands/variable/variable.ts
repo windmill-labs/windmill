@@ -1,4 +1,5 @@
-import { stat } from "node:fs/promises";
+import { stat, writeFile } from "node:fs/promises";
+import { stringify as yamlStringify } from "yaml";
 
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
@@ -12,13 +13,13 @@ import { Command } from "@cliffy/command";
 import { Table } from "@cliffy/table";
 import { colors } from "@cliffy/ansi/colors";
 import { Confirm } from "@cliffy/prompt/confirm";
-import * as log from "@std/log";
-import { SEPARATOR as SEP } from "@std/path";
+import * as log from "../../core/log.ts";
+import { sep as SEP } from "node:path";
 
 import * as wmill from "../../../gen/services.gen.ts";
 import { ListableVariable } from "../../../gen/types.gen.ts";
 
-async function list(opts: GlobalOptions) {
+async function list(opts: GlobalOptions & { json?: boolean }) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
@@ -26,19 +27,64 @@ async function list(opts: GlobalOptions) {
     workspace: workspace.workspaceId,
   });
 
-  new Table()
-    .header(["Path", "Is Secret", "Account", "Value"])
-    .padding(2)
-    .border(true)
-    .body(
-      variables.map((x) => [
-        x.path,
-        x.is_secret ? "true" : "false",
-        x.account ?? "-",
-        x.value ?? "-",
-      ])
-    )
-    .render();
+  if (opts.json) {
+    console.log(JSON.stringify(variables));
+  } else {
+    new Table()
+      .header(["Path", "Is Secret", "Account", "Value"])
+      .padding(2)
+      .border(true)
+      .body(
+        variables.map((x) => [
+          x.path,
+          x.is_secret ? "true" : "false",
+          x.account ?? "-",
+          x.value ?? "-",
+        ])
+      )
+      .render();
+  }
+}
+
+async function newVariable(opts: GlobalOptions, path: string) {
+  if (!validatePath(path)) {
+    return;
+  }
+  const filePath = path + ".variable.yaml";
+  try {
+    await stat(filePath);
+    throw new Error("File already exists: " + filePath);
+  } catch (e: any) {
+    if (e.message?.startsWith("File already exists")) throw e;
+  }
+  const template: VariableFile = {
+    value: "",
+    is_secret: false,
+    description: "",
+  };
+  await writeFile(filePath, yamlStringify(template as Record<string, any>), {
+    flag: "wx",
+    encoding: "utf-8",
+  });
+  log.info(colors.green(`Created ${filePath}`));
+}
+
+async function get(opts: GlobalOptions & { json?: boolean }, path: string) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  const v = await wmill.getVariable({
+    workspace: workspace.workspaceId,
+    path,
+  });
+  if (opts.json) {
+    console.log(JSON.stringify(v));
+  } else {
+    console.log(colors.bold("Path:") + " " + v.path);
+    console.log(colors.bold("Value:") + " " + (v.value ?? "-"));
+    console.log(colors.bold("Is Secret:") + " " + (v.is_secret ? "true" : "false"));
+    console.log(colors.bold("Description:") + " " + (v.description ?? ""));
+    console.log(colors.bold("Account:") + " " + (v.account ?? "-"));
+  }
 }
 
 export interface VariableFile {
@@ -178,7 +224,18 @@ async function add(
 
 const command = new Command()
   .description("variable related commands")
+  .option("--json", "Output as JSON (for piping to jq)")
   .action(list as any)
+  .command("list", "list all variables")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(list as any)
+  .command("get", "get a variable's details")
+  .arguments("<path:string>")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(get as any)
+  .command("new", "create a new variable locally")
+  .arguments("<path:string>")
+  .action(newVariable as any)
   .command(
     "push",
     "Push a local variable spec. This overrides any remote versions."

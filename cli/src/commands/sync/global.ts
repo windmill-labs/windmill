@@ -1,5 +1,5 @@
 import { colors } from "@cliffy/ansi/colors";
-import * as log from "@std/log";
+import * as log from "../../core/log.ts";
 
 let GLOBAL_VERSIONS: {
   remoteMajor: number | undefined;

@@ -1,5 +1,5 @@
 import { Command } from "@cliffy/command";
-import * as log from "@std/log";
+import * as log from "../../core/log.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 
 import { requireLogin } from "../../core/auth.ts";

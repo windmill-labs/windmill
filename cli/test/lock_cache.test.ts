@@ -11,7 +11,7 @@
  */
 
 import { expect, test } from "bun:test";
-import { encodeHex } from "@std/encoding";
+import { Buffer } from "node:buffer";
 
 // ---------------------------------------------------------------------------
 // Mirrors extractWorkspaceDepsAnnotation + computeLockCacheKey from
@@ -110,7 +110,7 @@ async function computeLockCacheKey(
     .join(";");
   const content = `${language}|${annotationStr}|${depsStr}`;
   const buf = new TextEncoder().encode(content);
-  return encodeHex(await crypto.subtle.digest("SHA-256", buf));
+  return Buffer.from(await crypto.subtle.digest("SHA-256", buf)).toString("hex");
 }
 
 // ---------------------------------------------------------------------------

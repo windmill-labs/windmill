@@ -4,10 +4,10 @@ import { readFile, writeFile, readdir, stat, rm, copyFile, mkdir } from "node:fs
 import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
-import * as log from "@std/log";
-import * as path from "@std/path";
-import { SEPARATOR as SEP } from "@std/path";
-import { stringify as yamlStringify } from "@std/yaml";
+import * as log from "../../core/log.ts";
+import * as path from "node:path";
+import { sep as SEP } from "node:path";
+import { stringify as yamlStringify, type DocumentOptions, type SchemaOptions, type CreateNodeOptions, type ToStringOptions } from "yaml";
 import JSZip from "jszip";
 import { minimatch } from "minimatch";
 import { yamlParseContent } from "../../utils/yaml.ts";
@@ -276,13 +276,12 @@ function prioritizeName(name: string): string {
   return name;
 }
 
-export const yamlOptions = {
-  sortKeys: (a: any, b: any) => {
-    return prioritizeName(a).localeCompare(prioritizeName(b));
+export const yamlOptions: DocumentOptions & SchemaOptions & CreateNodeOptions & ToStringOptions = {
+  sortMapEntries: (a, b) => {
+    return prioritizeName(String(a.key)).localeCompare(prioritizeName(String(b.key)));
   },
-  noCompatMode: true,
-  noRefs: true,
-  skipInvalid: true,
+  aliasDuplicateObjects: false,
+  singleQuote: true,
 };
 
 export interface InlineScript {
@@ -1338,16 +1337,18 @@ async function compareDynFSElement(
           continue;
         }
         if (!ignoreCodebaseChanges) {
+          const beforeCodebase = before?.codebase;
+          const afterCodebase = after?.codebase;
           if (before?.codebase != undefined) {
             delete before.codebase;
             m2[k] = yamlStringify(before, yamlOptions);
           }
           if (after?.codebase != undefined) {
-            if (before.codebase != after.codebase) {
-              codebaseChanges[k] = after.codebase;
-            }
             delete after.codebase;
             v = yamlStringify(after, yamlOptions);
+          }
+          if (beforeCodebase != afterCodebase) {
+            codebaseChanges[k] = afterCodebase ?? beforeCodebase ?? "";
           }
         }
         if (skipMetadata) {
@@ -2214,7 +2215,7 @@ export async function push(
           `\nPush aborted: ${lockIssues.length} script(s) missing locks.`,
         ),
       );
-      Deno.exit(1);
+      process.exit(1);
     }
     log.info(colors.green("All scripts have valid locks."));
   }

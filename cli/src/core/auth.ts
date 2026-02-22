@@ -1,5 +1,5 @@
 import { colors } from "@cliffy/ansi/colors";
-import * as log from "@std/log";
+import * as log from "./log.ts";
 import { setClient } from "./client.ts";
 import * as wmill from "../../gen/services.gen.ts";
 import { GlobalUserInfo } from "../../gen/types.gen.ts";

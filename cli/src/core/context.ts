@@ -1,5 +1,5 @@
 import { colors } from "@cliffy/ansi/colors";
-import * as log from "@std/log";
+import * as log from "./log.ts";
 import { Select } from "@cliffy/prompt/select";
 import { Confirm } from "@cliffy/prompt/confirm";
 import { Input } from "@cliffy/prompt/input";
@@ -459,11 +459,12 @@ export async function resolveWorkspace(
   // forked workspace, that we detect through the branch name (only when not using branchOverride)
   const res = await tryResolveWorkspace(opts);
   if (!res.isError) {
+    const workspace = (res as { isError: false; value: Workspace }).value;
     if (branchOverride || !branch || !branch.startsWith(WM_FORK_PREFIX)) {
-      return res.value;
+      return workspace;
     } else {
       log.info(
-        `Found an active workspace \`${res.value.name}\` but the branch name indicates this is a forked workspace. Ignoring active workspace and trying to resolve the correct workspace from the branch name \`${branch}\``
+        `Found an active workspace \`${workspace.name}\` but the branch name indicates this is a forked workspace. Ignoring active workspace and trying to resolve the correct workspace from the branch name \`${branch}\``
       );
     }
   }
@@ -486,11 +487,39 @@ export async function resolveWorkspace(
     }
   }
 
-  // Fall back to active workspace (lowest priority)
+  // Fall back to active workspace
   const activeWorkspace = await getActiveWorkspace(opts);
   if (activeWorkspace) {
     (opts as any).__secret_workspace = activeWorkspace;
     return activeWorkspace;
+  }
+
+  // Last resort: auto-configure from Windmill environment variables
+  // (set by the worker for bash/script execution)
+  const envWorkspace = process.env["WM_WORKSPACE"];
+  const envToken = process.env["WM_TOKEN"];
+  const envBaseUrl =
+    process.env["BASE_INTERNAL_URL"] ?? process.env["BASE_URL"];
+
+  if (envWorkspace && envToken && envBaseUrl) {
+    let normalizedBaseUrl: string;
+    try {
+      normalizedBaseUrl = new URL(envBaseUrl).toString();
+    } catch {
+      log.info(colors.red(`Invalid BASE_INTERNAL_URL: ${envBaseUrl}`));
+      return process.exit(-1);
+    }
+    log.debug(
+      `Using workspace from environment variables: ${envWorkspace} on ${normalizedBaseUrl}`
+    );
+    const ws: Workspace = {
+      name: envWorkspace,
+      workspaceId: envWorkspace,
+      remote: normalizedBaseUrl,
+      token: envToken,
+    };
+    (opts as any).__secret_workspace = ws;
+    return ws;
   }
 
   // If everything failed, show error
@@ -532,7 +561,8 @@ export async function tryResolveVersion(
 
   const workspaceRes = await tryResolveWorkspace(opts);
   if (workspaceRes.isError) return undefined;
-  const version = await fetchVersion(workspaceRes.value.remote);
+  const workspace = (workspaceRes as { isError: false; value: Workspace }).value;
+  const version = await fetchVersion(workspace.remote);
 
   try {
     return Number.parseInt(

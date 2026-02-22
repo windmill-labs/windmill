@@ -1,6 +1,6 @@
 import { Command } from "@cliffy/command";
 import { Table } from "@cliffy/table";
-import * as log from "@std/log";
+import * as log from "../../core/log.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { pickInstance } from "../instance/instance.ts";
 
@@ -124,7 +124,7 @@ async function displayQueues(opts: GlobalOptions, workspace?: string) {
       table.body(body).render();
 
     } catch (error) {
-      log.error("Failed to fetch queue metrics:", error);
+      log.error(`Failed to fetch queue metrics: ${error}`);
     }
   } else {
     log.info("No active instance found");

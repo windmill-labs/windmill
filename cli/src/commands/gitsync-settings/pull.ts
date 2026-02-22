@@ -1,12 +1,13 @@
 import { writeFile } from "node:fs/promises";
 import { colors } from "@cliffy/ansi/colors";
-import * as log from "@std/log";
-import { stringify as yamlStringify } from "@std/yaml";
+import * as log from "../../core/log.ts";
+import { stringify as yamlStringify } from "yaml";
 import { GlobalOptions } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { SyncOptions, readConfigFile, getEffectiveSettings, DEFAULT_SYNC_OPTIONS, getWmillYamlPath } from "../../core/conf.ts";
+import { yamlOptions } from "../sync/sync.ts";
 import { deepEqual } from "../../utils/utils.ts";
 import { getCurrentGitBranch, isGitRepository } from "../../utils/git.ts";
 
@@ -176,7 +177,7 @@ export async function pullGitSyncSettings(
       }
 
       // Write the new configuration
-      await writeFile("wmill.yaml", yamlStringify(updatedConfig), "utf-8");
+      await writeFile("wmill.yaml", yamlStringify(updatedConfig, yamlOptions), "utf-8");
 
       if (opts.jsonOutput) {
         console.log(
@@ -372,7 +373,7 @@ export async function pullGitSyncSettings(
           }
 
           // Write updated configuration
-          await writeFile("wmill.yaml", yamlStringify(updatedConfig), "utf-8");
+          await writeFile("wmill.yaml", yamlStringify(updatedConfig, yamlOptions), "utf-8");
 
           if (opts.jsonOutput) {
             console.log(
@@ -449,7 +450,7 @@ export async function pullGitSyncSettings(
     }
 
     // Write updated configuration
-    await writeFile("wmill.yaml", yamlStringify(updatedConfig), "utf-8");
+    await writeFile("wmill.yaml", yamlStringify(updatedConfig, yamlOptions), "utf-8");
 
     if (opts.jsonOutput) {
       console.log(

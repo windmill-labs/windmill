@@ -1,10 +1,11 @@
-import { stat } from "node:fs/promises";
+import { stat, writeFile, mkdir } from "node:fs/promises";
+import { stringify as yamlStringify } from "yaml";
 
 import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
 import { Table } from "@cliffy/table";
-import * as log from "@std/log";
-import { SEPARATOR as SEP } from "@std/path";
+import * as log from "../../core/log.ts";
+import { sep as SEP } from "node:path";
 import * as wmill from "../../../gen/services.gen.ts";
 
 import { requireLogin } from "../../core/auth.ts";
@@ -18,7 +19,7 @@ export interface FolderFile {
   display_name: string | undefined;
 }
 
-async function list(opts: GlobalOptions) {
+async function list(opts: GlobalOptions & { json?: boolean }) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
@@ -26,18 +27,60 @@ async function list(opts: GlobalOptions) {
     workspace: workspace.workspaceId,
   });
 
-  new Table()
-    .header(["Name", "Owners", "Extra Perms"])
-    .padding(2)
-    .border(true)
-    .body(
-      folders.map((x) => [
-        x.name,
-        x.owners?.join(",") ?? "-",
-        JSON.stringify(x.extra_perms ?? {}),
-      ])
-    )
-    .render();
+  if (opts.json) {
+    console.log(JSON.stringify(folders));
+  } else {
+    new Table()
+      .header(["Name", "Owners", "Extra Perms"])
+      .padding(2)
+      .border(true)
+      .body(
+        folders.map((x) => [
+          x.name,
+          x.owners?.join(",") ?? "-",
+          JSON.stringify(x.extra_perms ?? {}),
+        ])
+      )
+      .render();
+  }
+}
+
+async function newFolder(opts: GlobalOptions, name: string) {
+  const dirPath = `f${SEP}${name}`;
+  const filePath = `${dirPath}${SEP}folder.meta.yaml`;
+  try {
+    await stat(filePath);
+    throw new Error("File already exists: " + filePath);
+  } catch (e: any) {
+    if (e.message?.startsWith("File already exists")) throw e;
+  }
+  const template: Omit<FolderFile, "display_name"> = {
+    owners: [],
+    extra_perms: {},
+  };
+  await mkdir(dirPath, { recursive: true });
+  await writeFile(filePath, yamlStringify(template as Record<string, any>), {
+    flag: "wx",
+    encoding: "utf-8",
+  });
+  log.info(colors.green(`Created ${filePath}`));
+}
+
+async function get(opts: GlobalOptions & { json?: boolean }, name: string) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  const f = await wmill.getFolder({
+    workspace: workspace.workspaceId,
+    name,
+  });
+  if (opts.json) {
+    console.log(JSON.stringify(f));
+  } else {
+    console.log(colors.bold("Name:") + " " + f.name);
+    console.log(colors.bold("Summary:") + " " + (f.summary ?? ""));
+    console.log(colors.bold("Owners:") + " " + (f.owners?.join(", ") ?? "-"));
+    console.log(colors.bold("Extra Perms:") + " " + JSON.stringify(f.extra_perms ?? {}));
+  }
 }
 
 export async function pushFolder(
@@ -126,7 +169,18 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
 
 const command = new Command()
   .description("folder related commands")
+  .option("--json", "Output as JSON (for piping to jq)")
   .action(list as any)
+  .command("list", "list all folders")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(list as any)
+  .command("get", "get a folder's details")
+  .arguments("<name:string>")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(get as any)
+  .command("new", "create a new folder locally")
+  .arguments("<name:string>")
+  .action(newFolder as any)
   .command(
     "push",
     "push a local folder spec. This overrides any remote versions."

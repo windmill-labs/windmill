@@ -3,9 +3,9 @@ import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
 import { Table } from "@cliffy/table";
-import * as log from "@std/log";
-import { SEPARATOR as SEP } from "@std/path";
-import { stringify as yamlStringify } from "@std/yaml";
+import * as log from "../../core/log.ts";
+import { sep as SEP } from "node:path";
+import { stringify as yamlStringify } from "yaml";
 import { yamlParseFile } from "../../utils/yaml.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { readFile } from "node:fs/promises";
@@ -113,7 +113,7 @@ async function push(opts: Options, filePath: string, remotePath: string) {
 }
 
 async function list(
-  opts: GlobalOptions & { showArchived?: boolean; includeDraftOnly?: boolean }
+  opts: GlobalOptions & { showArchived?: boolean; includeDraftOnly?: boolean; json?: boolean }
 ) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
@@ -136,13 +136,35 @@ async function list(
     }
   }
 
-  new Table()
-    .header(["path", "summary", "edited by"])
-    .padding(2)
-    .border(true)
-    .body(total.map((x) => [x.path, x.summary, x.edited_by]))
-    .render();
+  if (opts.json) {
+    console.log(JSON.stringify(total));
+  } else {
+    new Table()
+      .header(["path", "summary", "edited by"])
+      .padding(2)
+      .border(true)
+      .body(total.map((x) => [x.path, x.summary, x.edited_by]))
+      .render();
+  }
 }
+async function get(opts: GlobalOptions & { json?: boolean }, path: string) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  const f = await wmill.getFlowByPath({
+    workspace: workspace.workspaceId,
+    path,
+  });
+  if (opts.json) {
+    console.log(JSON.stringify(f));
+  } else {
+    console.log(colors.bold("Path:") + " " + f.path);
+    console.log(colors.bold("Summary:") + " " + (f.summary ?? ""));
+    console.log(colors.bold("Description:") + " " + (f.description ?? ""));
+    console.log(colors.bold("Edited by:") + " " + (f.edited_by ?? ""));
+    console.log(colors.bold("Edited at:") + " " + (f.edited_at ?? ""));
+  }
+}
+
 async function run(
   opts: GlobalOptions & {
     data?: string;
@@ -375,8 +397,17 @@ export function bootstrap(
 
 const command = new Command()
   .description("flow related commands")
-  .option("--show-archived", "Enable archived scripts in output")
+  .option("--show-archived", "Enable archived flows in output")
+  .option("--json", "Output as JSON (for piping to jq)")
   .action(list as any)
+  .command("list", "list all flows")
+  .option("--show-archived", "Enable archived flows in output")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(list as any)
+  .command("get", "get a flow's details")
+  .arguments("<path:string>")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(get as any)
   .command(
     "push",
     "push a local flow spec. This overrides any remote versions."
@@ -423,10 +454,15 @@ const command = new Command()
     "Comma separated patterns to specify which file to NOT take into account."
   )
   .action(generateLocks as any)
-  .command("bootstrap", "create a new empty flow")
+  .command("new", "create a new empty flow")
   .arguments("<flow_path:string>")
-  .option("--summary <summary:string>", "script summary")
-  .option("--description <description:string>", "script description")
+  .option("--summary <summary:string>", "flow summary")
+  .option("--description <description:string>", "flow description")
+  .action(bootstrap as any)
+  .command("bootstrap", "create a new empty flow (alias for new)")
+  .arguments("<flow_path:string>")
+  .option("--summary <summary:string>", "flow summary")
+  .option("--description <description:string>", "flow description")
   .action(bootstrap as any);
 
 export default command;

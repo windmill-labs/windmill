@@ -1,11 +1,11 @@
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
 import { colors } from "@cliffy/ansi/colors";
-import * as log from "@std/log";
-import { SEPARATOR as SEP } from "@std/path";
+import * as log from "../../core/log.ts";
+import { sep as SEP } from "node:path";
 import * as windmillUtils from "@windmill-labs/shared-utils";
 import { yamlParseFile } from "../../utils/yaml.ts";
-import { stringify as yamlStringify } from "@std/yaml";
+import { stringify as yamlStringify } from "yaml";
 import * as wmill from "../../../gen/services.gen.ts";
 import { Policy } from "../../../gen/types.gen.ts";
 import path from "node:path";

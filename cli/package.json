@@ -13,23 +13,19 @@
     "gen-client": "./gen_wm_client.sh && ./windmill-utils-internal/gen_wm_client.sh"
   },
   "dependencies": {
-    "@ayonli/jsext": "^1.9.0",
     "@cliffy/ansi": "npm:@jsr/cliffy__ansi@1.0.0",
     "@cliffy/command": "npm:@jsr/cliffy__command@1.0.0",
     "@cliffy/prompt": "npm:@jsr/cliffy__prompt@1.0.0",
     "@cliffy/table": "npm:@jsr/cliffy__table@1.0.0",
-    "@std/encoding": "npm:@jsr/std__encoding@1.0.10",
-    "@std/log": "npm:@jsr/std__log@0.224.14",
-    "@std/path": "npm:@jsr/std__path@1.1.4",
-    "@std/yaml": "npm:@jsr/std__yaml@1.0.10",
-    "@windmill-labs/shared-utils": "npm:@jsr/windmill-labs__shared-utils@1.0.12",
+    "@windmill-labs/shared-utils": "^1.0.12",
     "diff": "^5.2.0",
     "esbuild": "0.24.2",
-    "svelte": "^5.45.2",
     "get-port": "7.1.0",
     "jszip": "3.8.0",
     "minimatch": "^10.0.0",
     "open": "^10.0.0",
+    "svelte": "^5.45.2",
+    "tar-stream": "^3.1.7",
     "windmill-parser-wasm-csharp": "*",
     "windmill-parser-wasm-go": "*",
     "windmill-parser-wasm-java": "*",
@@ -47,8 +43,9 @@
   },
   "devDependencies": {
     "@types/diff": "^5.2.3",
-    "@types/ws": "^8.5.0",
     "@types/node": "^22.0.0",
+    "@types/tar-stream": "^3.1.4",
+    "@types/ws": "^8.5.0",
     "typescript": "^5.7.0"
   }
 }

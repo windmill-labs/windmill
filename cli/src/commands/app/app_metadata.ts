@@ -1,10 +1,10 @@
 import path from "node:path";
 import { readFile, mkdir } from "node:fs/promises";
 import { colors } from "@cliffy/ansi/colors";
-import * as log from "@std/log";
-import { SEPARATOR as SEP } from "@std/path";
+import * as log from "../../core/log.ts";
+import { sep as SEP } from "node:path";
 import { yamlParseFile } from "../../utils/yaml.ts";
-import { stringify as yamlStringify } from "@std/yaml";
+import { stringify as yamlStringify } from "yaml";
 import { GlobalOptions } from "../../types.ts";
 import {
   checkifMetadataUptodate,

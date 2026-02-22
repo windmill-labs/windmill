@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { withTestBackend } from "./test_backend.ts";
 import { addWorkspace } from "../workspace.ts";
-import * as path from "@std/path";
+import * as path from "node:path";
 import { writeFile, readFile, stat, rm, mkdir } from "node:fs/promises";
 
 // =============================================================================

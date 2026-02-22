@@ -1,7 +1,7 @@
 import { GlobalOptions } from "../../types.ts";
 import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
-import * as log from "@std/log";
+import * as log from "../../core/log.ts";
 import JSZip from "jszip";
 import { Workspace } from "../workspace/workspace.ts";
 import { getHeaders } from "../../utils/utils.ts";

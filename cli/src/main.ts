@@ -1,7 +1,7 @@
 import { Command } from "@cliffy/command";
 import { CompletionsCommand } from "@cliffy/command/completions";
 import { UpgradeCommand } from "@cliffy/command/upgrade";
-import * as log from "@std/log";
+import * as log from "./core/log.ts";
 
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -28,7 +28,7 @@ import lint from "./commands/lint/lint.ts";
 import dev from "./commands/dev/dev.ts";
 import { GlobalOptions } from "./types.ts";
 import { OpenAPI } from "../gen/index.ts";
-import { getHeaders, getIsWin } from "./utils/utils.ts";
+import { getHeaders } from "./utils/utils.ts";
 import { setShowDiffs } from "./core/conf.ts";
 import { NpmProvider } from "./utils/upgrade.ts";
 import { pull as hubPull } from "./commands/hub/hub.ts";
@@ -187,21 +187,7 @@ async function main() {
     // const NO_COLORS = args.includes("--no-colors");
     setShowDiffs(args.includes("--show-diffs"));
 
-    const isWin = await getIsWin();
-    log.setup({
-      handlers: {
-        console: new log.ConsoleHandler(LOG_LEVEL, {
-          formatter: ({ msg }) => msg,
-          useColors: isWin ? false : true,
-        }),
-      },
-      loggers: {
-        default: {
-          level: LOG_LEVEL,
-          handlers: ["console"],
-        },
-      },
-    });
+    log.setup(LOG_LEVEL);
     log.debug("Debug logging enabled. CLI build against " + VERSION);
 
     const extraHeaders = getHeaders();
@@ -235,7 +221,10 @@ function isMain() {
   }
 }
 if (isMain()) {
-  main();
+  main().then(() => {
+    // Destroy stdin so interactive prompts (Cliffy) don't keep the event loop alive
+    process.stdin.destroy();
+  });
 }
 
 export default command;

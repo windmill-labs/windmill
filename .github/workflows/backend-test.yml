@@ -19,7 +19,7 @@ defaults:
 
 jobs:
   cargo_test:
-    runs-on: ubicloud-standard-16
+    runs-on: blacksmith-16vcpu-ubuntu-2404
     services:
       postgres:
         image: postgres
@@ -70,6 +70,16 @@ jobs:
         with:
           ruby-version: "3.3"
           bundler-cache: false
+      - name: Install windmill CLI from source
+        run: |
+          cd $GITHUB_WORKSPACE/cli
+          bash gen_wm_client.sh
+          bun install
+          mkdir -p "$HOME/.local/bin"
+          printf '#!/bin/sh\nexec bun run "%s/cli/src/main.ts" "$@"\n' "$GITHUB_WORKSPACE" > "$HOME/.local/bin/wmill"
+          chmod +x "$HOME/.local/bin/wmill"
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+        working-directory: /
       - name: Install PowerShell, mold and clang
         run: |
           sudo apt-get update && sudo apt-get install -y powershell mold clang libcurl4-openssl-dev
@@ -78,6 +88,20 @@ jobs:
         with:
           cache: false
           toolchain: 1.93.0
+      - name: Cache cargo target directory
+        uses: useblacksmith/stickydisk@v1
+        with:
+          key: cargo-target
+          path: ./backend/target
+      - name: Cache cargo registry
+        uses: useblacksmith/cache@v1
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-registry-${{ hashFiles('backend/Cargo.lock') }}
+          restore-keys: |
+            cargo-registry-
       - name: Read EE repo commit hash
         run: |
           echo "ee_repo_ref=$(cat ./ee-repo-ref.txt)" >> "$GITHUB_ENV"
@@ -205,7 +229,7 @@ jobs:
           fi
           echo "Verified: Package requires authentication for @windmill-test/private-pkg"
       - name: Cache DuckDB FFI module build
-        uses: actions/cache@v3
+        uses: useblacksmith/cache@v1
         with:
           path: ./backend/windmill-duckdb-ffi-internal/target
           key: ${{ runner.os }}-duckdb-ffi-${{ hashFiles('./backend/windmill-duckdb-ffi-internal/src/**/*.rs', './backend/windmill-duckdb-ffi-internal/Cargo.toml', './backend/windmill-duckdb-ffi-internal/Cargo.lock') }}
@@ -221,6 +245,7 @@ jobs:
           RUST_LOG_STYLE: never
           CARGO_NET_GIT_FETCH_WITH_CLI: true
           CARGO_BUILD_JOBS: 12
+          CARGO_INCREMENTAL: 1
           WMDEBUG_FORCE_V0_WORKSPACE_DEPENDENCIES: 1
           WMDEBUG_FORCE_RUNNABLE_SETTINGS_V0: 1
           WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT: 1

@@ -3,8 +3,8 @@ import { resolveWorkspace, validatePath } from "../../core/context.ts";
 import { Command } from "@cliffy/command";
 import { Table } from "@cliffy/table";
 import { colors } from "@cliffy/ansi/colors";
-import * as log from "@std/log";
-import { SEPARATOR as SEP } from "@std/path";
+import * as log from "../../core/log.ts";
+import { sep as SEP } from "node:path";
 import * as windmillUtils from "@windmill-labs/shared-utils";
 import { yamlParseFile } from "../../utils/yaml.ts";
 import * as wmill from "../../../gen/services.gen.ts";
@@ -185,7 +185,7 @@ export async function generatingPolicy(
   }
 }
 
-async function list(opts: GlobalOptions & { includeDraftOnly?: boolean }) {
+async function list(opts: GlobalOptions & { includeDraftOnly?: boolean; json?: boolean }) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
@@ -206,12 +206,32 @@ async function list(opts: GlobalOptions & { includeDraftOnly?: boolean }) {
     }
   }
 
-  new Table()
-    .header(["path", "summary"])
-    .padding(2)
-    .border(true)
-    .body(total.map((x) => [x.path, x.summary]))
-    .render();
+  if (opts.json) {
+    console.log(JSON.stringify(total));
+  } else {
+    new Table()
+      .header(["path", "summary"])
+      .padding(2)
+      .border(true)
+      .body(total.map((x) => [x.path, x.summary]))
+      .render();
+  }
+}
+
+async function get(opts: GlobalOptions & { json?: boolean }, path: string) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  const a = await wmill.getAppByPath({
+    workspace: workspace.workspaceId,
+    path,
+  });
+  if (opts.json) {
+    console.log(JSON.stringify(a));
+  } else {
+    console.log(colors.bold("Path:") + " " + a.path);
+    console.log(colors.bold("Summary:") + " " + (a.summary ?? ""));
+    console.log(colors.bold("Created by:") + " " + (a.created_by ?? ""));
+  }
 }
 
 async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
@@ -227,7 +247,15 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
 
 const command = new Command()
   .description("app related commands")
+  .option("--json", "Output as JSON (for piping to jq)")
   .action(list as any)
+  .command("list", "list all apps")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(list as any)
+  .command("get", "get an app's details")
+  .arguments("<path:string>")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(get as any)
   .command("push", "push a local app ")
   .arguments("<file_path:string> <remote_path:string>")
   .action(push as any)

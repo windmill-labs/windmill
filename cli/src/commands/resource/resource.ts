@@ -1,4 +1,5 @@
-import { stat } from "node:fs/promises";
+import { stat, writeFile } from "node:fs/promises";
+import { stringify as yamlStringify } from "yaml";
 
 import {
   GlobalOptions,
@@ -11,8 +12,8 @@ import { resolveWorkspace, validatePath } from "../../core/context.ts";
 import { Command } from "@cliffy/command";
 import { Table } from "@cliffy/table";
 import { colors } from "@cliffy/ansi/colors";
-import * as log from "@std/log";
-import { SEPARATOR as SEP } from "@std/path";
+import * as log from "../../core/log.ts";
+import { sep as SEP } from "node:path";
 import * as wmill from "../../../gen/services.gen.ts";
 import { Resource } from "../../../gen/types.gen.ts";
 import { readInlinePathSync } from "../../utils/utils.ts";
@@ -131,7 +132,7 @@ async function push(opts: PushOptions, filePath: string, remotePath: string) {
   log.info(colors.bold.underline.green(`Resource ${remotePath} pushed`));
 }
 
-async function list(opts: GlobalOptions) {
+async function list(opts: GlobalOptions & { json?: boolean }) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   let page = 0;
@@ -150,17 +151,73 @@ async function list(opts: GlobalOptions) {
     }
   }
 
-  new Table()
-    .header(["Path", "Resource Type"])
-    .padding(2)
-    .border(true)
-    .body(total.map((x) => [x.path, x.resource_type]))
-    .render();
+  if (opts.json) {
+    console.log(JSON.stringify(total));
+  } else {
+    new Table()
+      .header(["Path", "Resource Type"])
+      .padding(2)
+      .border(true)
+      .body(total.map((x) => [x.path, x.resource_type]))
+      .render();
+  }
+}
+
+async function newResource(opts: GlobalOptions, path: string) {
+  if (!validatePath(path)) {
+    return;
+  }
+  const filePath = path + ".resource.yaml";
+  try {
+    await stat(filePath);
+    throw new Error("File already exists: " + filePath);
+  } catch (e: any) {
+    if (e.message?.startsWith("File already exists")) throw e;
+    // file doesn't exist, proceed
+  }
+  const template: ResourceFile = {
+    value: {},
+    resource_type: "",
+    description: "",
+  };
+  await writeFile(filePath, yamlStringify(template as Record<string, any>), {
+    flag: "wx",
+    encoding: "utf-8",
+  });
+  log.info(colors.green(`Created ${filePath}`));
+}
+
+async function get(opts: GlobalOptions & { json?: boolean }, path: string) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  const r = await wmill.getResource({
+    workspace: workspace.workspaceId,
+    path,
+  });
+  if (opts.json) {
+    console.log(JSON.stringify(r));
+  } else {
+    console.log(colors.bold("Path:") + " " + r.path);
+    console.log(colors.bold("Resource Type:") + " " + (r.resource_type ?? ""));
+    console.log(colors.bold("Description:") + " " + (r.description ?? ""));
+    console.log(colors.bold("Value:") + " " + JSON.stringify(r.value, null, 2));
+  }
 }
 
 const command = new Command()
   .description("resource related commands")
+  .option("--json", "Output as JSON (for piping to jq)")
   .action(list as any)
+  .command("list", "list all resources")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(list as any)
+  .command("get", "get a resource's details")
+  .arguments("<path:string>")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(get as any)
+  .command("new", "create a new resource locally")
+  .arguments("<path:string>")
+  .action(newResource as any)
   .command(
     "push",
     "push a local resource spec. This overrides any remote versions."

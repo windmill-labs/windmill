@@ -3,9 +3,9 @@ import process from "node:process";
 
 import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
-import * as log from "@std/log";
-import * as path from "@std/path";
-import { SEPARATOR as SEP } from "@std/path";
+import * as log from "../../core/log.ts";
+import * as path from "node:path";
+import { sep as SEP } from "node:path";
 import { yamlParseFile } from "../../utils/yaml.ts";
 import { GlobalOptions } from "../../types.ts";
 import { mergeConfigWithConfigFile } from "../../core/conf.ts";
