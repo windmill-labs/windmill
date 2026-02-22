@@ -93,7 +93,7 @@ function buildSandboxSystemPrompt(env: Record<string, string>): string {
     "You are running inside a sandboxed container with full permissions.",
     `This worktree is configured with the following ports:`,
     `- Backend: port ${backendPort}. Start with: cd backend && PORT=${backendPort} DATABASE_URL=postgres://postgres:changeme@localhost:5432/windmill cargo watch -x run`,
-    `- Frontend: port ${frontendPort}. Start with: cd frontend && REMOTE=http://localhost:${backendPort} npm run dev -- --port ${frontendPort}`,
+    `- Frontend: port ${frontendPort}. Start with: cd frontend && REMOTE=http://localhost:${backendPort} npm run dev -- --port ${frontendPort} --host 0.0.0.0`,
   ];
   if (hasR2) {
     lines.push(
