@@ -3,7 +3,6 @@
 // @ts-nocheck This file is copied from a JS project, so it's not type-safe.
 
 import { colors } from "@cliffy/ansi/colors";
-import { encodeHex } from "@std/encoding";
 import * as log from "../core/log.ts";
 import { sep as SEP } from "node:path";
 import crypto from "node:crypto";
@@ -128,7 +127,7 @@ export async function generateHashFromBuffer(
   content: BufferSource
 ): Promise<string> {
   const hashBuffer = await crypto.subtle.digest("SHA-256", content);
-  return encodeHex(hashBuffer);
+  return Buffer.from(hashBuffer).toString("hex");
 }
 
 export function readInlinePathSync(path: string): string {

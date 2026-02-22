@@ -196,7 +196,7 @@ export async function readConfigFile(): Promise<SyncOptions> {
 
     if (!wmillYamlPath) {
       log.warn(
-        "No wmill.yaml found. Use 'wmill init' to bootstrap it. Using 'bun' as default typescript runtime."
+        "No wmill.yaml found. Use 'wmill init' to bootstrap it."
       );
       return {};
     }

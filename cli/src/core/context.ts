@@ -459,11 +459,12 @@ export async function resolveWorkspace(
   // forked workspace, that we detect through the branch name (only when not using branchOverride)
   const res = await tryResolveWorkspace(opts);
   if (!res.isError) {
+    const workspace = (res as { isError: false; value: Workspace }).value;
     if (branchOverride || !branch || !branch.startsWith(WM_FORK_PREFIX)) {
-      return res.value;
+      return workspace;
     } else {
       log.info(
-        `Found an active workspace \`${res.value.name}\` but the branch name indicates this is a forked workspace. Ignoring active workspace and trying to resolve the correct workspace from the branch name \`${branch}\``
+        `Found an active workspace \`${workspace.name}\` but the branch name indicates this is a forked workspace. Ignoring active workspace and trying to resolve the correct workspace from the branch name \`${branch}\``
       );
     }
   }
@@ -560,7 +561,8 @@ export async function tryResolveVersion(
 
   const workspaceRes = await tryResolveWorkspace(opts);
   if (workspaceRes.isError) return undefined;
-  const version = await fetchVersion(workspaceRes.value.remote);
+  const workspace = (workspaceRes as { isError: false; value: Workspace }).value;
+  const version = await fetchVersion(workspace.remote);
 
   try {
     return Number.parseInt(

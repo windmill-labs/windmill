@@ -48,7 +48,7 @@ import {
 } from "../../core/conf.ts";
 import { SyncCodebase, listSyncCodebases } from "../../utils/codebase.ts";
 import fs from "node:fs";
-import { type Tarball } from "@ayonli/jsext/archive";
+import { createTarBlob, type TarEntry } from "../../utils/tar.ts";
 
 import { execSync } from "node:child_process";
 import { NewScript, Script } from "../../../gen/types.gen.ts";
@@ -246,7 +246,7 @@ export async function handleFile(
     const codebase =
       language == "bun" ? findCodebase(path, codebases) : undefined;
 
-    let bundleContent: string | Tarball | undefined = undefined;
+    let bundleContent: string | Blob | undefined = undefined;
 
     let forceTar = false;
     if (codebase) {
@@ -292,7 +292,6 @@ export async function handleFile(
         );
       }
       if (outputFiles.length > 1) {
-        const archiveNpm = await import("@ayonli/jsext/archive");
         log.info(
           `Found multiple output files for ${path}, creating a tarball... ${outputFiles
             .map((file) => file.path)
@@ -300,54 +299,49 @@ export async function handleFile(
         );
         forceTar = true;
         const startTime = performance.now();
-        const tarball = new archiveNpm.Tarball();
         const mainPath = path.split(SEP).pop()?.split(".")[0] + ".js";
-        const content =
+        const mainContent =
           outputFiles.find((file) => file.path == "/" + mainPath)?.text ?? "";
-        log.info(`Main content: ${content.length}chars`);
-        tarball.append(new File([content], "main.js", { type: "text/plain" }));
+        log.info(`Main content: ${mainContent.length}chars`);
+        const entries: TarEntry[] = [
+          { name: "main.js", content: mainContent },
+        ];
         for (const file of outputFiles) {
           if (file.path == "/" + mainPath) {
             continue;
           }
           log.info(`Adding file: ${file.path.substring(1)}`);
-        
-          const fil = new File([file.contents as any], file.path.substring(1));
-          tarball.append(fil);
+          entries.push({ name: file.path.substring(1), content: file.contents });
         }
+        bundleContent = await createTarBlob(entries);
         const endTime = performance.now();
         log.info(
           `Finished creating tarball for ${path}: ${(
-            tarball.size / 1024
+            bundleContent.size / 1024
           ).toFixed(0)}kB (${(endTime - startTime).toFixed(0)}ms)`
         );
-        bundleContent = tarball;
       } else {
         if (Array.isArray(codebase.assets) && codebase.assets.length > 0) {
-          const archiveNpm = await import("@ayonli/jsext/archive");
           log.info(
             `Using the following asset configuration for ${path}: ${JSON.stringify(
               codebase.assets
             )}`
           );
           const startTime = performance.now();
-          const tarball = new archiveNpm.Tarball();
-          tarball.append(
-            new File([bundleContent], "main.js", { type: "text/plain" })
-          );
+          const entries: TarEntry[] = [
+            { name: "main.js", content: bundleContent },
+          ];
           for (const asset of codebase.assets) {
             const data = fs.readFileSync(asset.from);
-            const blob = new Blob([data], { type: "text/plain" });
-            const file = new File([blob], asset.to);
-            tarball.append(file);
+            entries.push({ name: asset.to, content: data });
           }
+          bundleContent = await createTarBlob(entries);
           const endTime = performance.now();
           log.info(
             `Finished creating tarball for ${path}: ${(
-              tarball.size / 1024
+              bundleContent.size / 1024
             ).toFixed(0)}kB (${(endTime - startTime).toFixed(0)}ms)`
           );
-          bundleContent = tarball;
         }
       }
     }
@@ -512,31 +506,8 @@ export async function handleFile(
   return false;
 }
 
-async function streamToBlob(stream: ReadableStream<Uint8Array>): Promise<Blob> {
-  // Create a reader from the stream
-  const reader = stream.getReader();
-  const chunks = [];
-
-  // Read the data from the stream
-  while (true) {
-    const { done, value } = await reader.read();
-
-    if (done) {
-      // If stream is finished, break the loop
-      break;
-    }
-
-    // Push the chunk to the array
-    chunks.push(value);
-  }
-
-
-  const blob = new Blob(chunks as any);
-  return blob;
-}
-
 async function createScript(
-  bundleContent: string | Tarball | undefined,
+  bundleContent: string | Blob | undefined,
   workspaceId: string,
   body: NewScript,
   workspace: Workspace
@@ -563,7 +534,7 @@ async function createScript(
       "file",
       typeof bundleContent == "string"
         ? bundleContent
-        : await streamToBlob(bundleContent.stream())
+        : bundleContent
     );
 
     const url =
@@ -1180,38 +1151,34 @@ async function preview(
 
       // Handle multiple output files (create tarball)
       if (out.outputFiles.length > 1) {
-        const archiveNpm = await import("@ayonli/jsext/archive");
         if (!opts.silent) {
           log.info(`Creating tarball for multiple output files...`);
         }
-        const tarball = new archiveNpm.Tarball();
         const mainPath = filePath.split(SEP).pop()?.split(".")[0] + ".js";
         const mainContent =
           out.outputFiles.find((file: OutputFile) => file.path == "/" + mainPath)?.text ?? "";
-        tarball.append(new File([mainContent], "main.js", { type: "text/plain" }));
+        const entries: TarEntry[] = [
+          { name: "main.js", content: mainContent },
+        ];
         for (const file of out.outputFiles) {
           if (file.path == "/" + mainPath) continue;
-        
-          const fil = new File([file.contents as any], file.path.substring(1));
-          tarball.append(fil);
+          entries.push({ name: file.path.substring(1), content: file.contents });
         }
-        bundledContent = await streamToBlob(tarball.stream());
+        bundledContent = await createTarBlob(entries);
         isTar = true;
       } else if (Array.isArray(codebase.assets) && codebase.assets.length > 0) {
         // Handle assets
-        const archiveNpm = await import("@ayonli/jsext/archive");
         if (!opts.silent) {
           log.info(`Adding assets to tarball...`);
         }
-        const tarball = new archiveNpm.Tarball();
-        tarball.append(new File([bundledContent], "main.js", { type: "text/plain" }));
+        const entries: TarEntry[] = [
+          { name: "main.js", content: bundledContent },
+        ];
         for (const asset of codebase.assets) {
           const data = fs.readFileSync(asset.from);
-          const blob = new Blob([data], { type: "text/plain" });
-          const file = new File([blob], asset.to);
-          tarball.append(file);
+          entries.push({ name: asset.to, content: data });
         }
-        bundledContent = await streamToBlob(tarball.stream());
+        bundledContent = await createTarBlob(entries);
         isTar = true;
       }
 
