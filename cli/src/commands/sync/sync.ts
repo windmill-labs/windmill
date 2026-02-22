@@ -281,6 +281,7 @@ export const yamlOptions: DocumentOptions & SchemaOptions & CreateNodeOptions & 
     return prioritizeName(String(a.key)).localeCompare(prioritizeName(String(b.key)));
   },
   aliasDuplicateObjects: false,
+  singleQuote: true,
 };
 
 export interface InlineScript {
