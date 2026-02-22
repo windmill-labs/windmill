@@ -188,7 +188,7 @@ RUN curl -fsSL https://bun.sh/install | bash && \
 ENV PLAYWRIGHT_BROWSERS_PATH=/usr/local/lib/playwright-browsers
 RUN bun add -g @playwright/test \
     && bunx playwright install chromium --with-deps \
-    && chmod -R a+rX /usr/local/lib/playwright-browsers \
+    && chmod -R a+rwX /usr/local/lib/playwright-browsers \
     && rm -rf /var/lib/apt/lists/* /tmp/bunx-*
 
 # ── AWS CLI (for S3-compatible uploads to R2) ─────────────────────────────────
