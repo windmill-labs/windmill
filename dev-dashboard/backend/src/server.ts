@@ -23,6 +23,10 @@ import {
 
 const PORT = parseInt(process.env.DASHBOARD_PORT || "5111");
 
+function ts(): string {
+  return new Date().toISOString().slice(11, 23);
+}
+
 /** Map branch name → worktree directory using git worktree list. */
 function getWorktreePaths(): Map<string, string> {
   const result = Bun.spawnSync(["git", "worktree", "list", "--porcelain"], { stdout: "pipe" });
@@ -108,8 +112,8 @@ Bun.serve<WsData>({
   },
 
   websocket: {
-    open(_ws) {
-      // Wait for the client to send its actual dimensions before spawning
+    open(ws) {
+      console.log(`[ws:${ts()}] open worktree=${ws.data.worktree}`);
     },
 
     async message(ws, message) {
@@ -125,16 +129,19 @@ Bun.serve<WsData>({
             if (!ws.data.attached) {
               // First resize = client reporting actual dimensions. Spawn now.
               ws.data.attached = true;
+              console.log(`[ws:${ts()}] first resize (attaching) worktree=${worktree} cols=${msg.cols} rows=${msg.rows}`);
               try {
                 await attach(worktree, msg.cols, msg.rows);
                 const { onData, onExit } = makeCallbacks(ws);
                 setCallbacks(worktree, onData, onExit);
                 const scrollback = getScrollback(worktree);
+                console.log(`[ws:${ts()}] attached worktree=${worktree} scrollback=${scrollback.length} bytes`);
                 if (scrollback) {
                   ws.send(JSON.stringify({ type: "scrollback", data: scrollback }));
                 }
               } catch (err: unknown) {
                 const errMsg = err instanceof Error ? err.message : String(err);
+                console.log(`[ws:${ts()}] attach failed worktree=${worktree}: ${errMsg}`);
                 ws.send(JSON.stringify({ type: "error", message: errMsg }));
                 ws.close();
               }
@@ -149,8 +156,10 @@ Bun.serve<WsData>({
     },
 
     async close(ws) {
+      console.log(`[ws:${ts()}] close worktree=${ws.data.worktree} attached=${ws.data.attached}`);
       clearCallbacks(ws.data.worktree);
       await detach(ws.data.worktree);
+      console.log(`[ws:${ts()}] close complete worktree=${ws.data.worktree}`);
     },
   },
 });

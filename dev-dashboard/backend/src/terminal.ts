@@ -14,6 +14,10 @@ const MAX_SCROLLBACK = 5000;
 const sessions = new Map<string, TerminalSession>();
 let sessionCounter = 0;
 
+function ts(): string {
+  return new Date().toISOString().slice(11, 23);
+}
+
 function groupedName(): string {
   return `${SESSION_PREFIX}${++sessionCounter}`;
 }
@@ -49,13 +53,17 @@ export async function attach(
   cols: number,
   rows: number
 ): Promise<string> {
+  console.log(`[term:${ts()}] attach(${worktreeName}) cols=${cols} rows=${rows} existing=${sessions.has(worktreeName)}`);
   if (sessions.has(worktreeName)) {
+    console.log(`[term:${ts()}] attach(${worktreeName}) detaching existing session first`);
     await detach(worktreeName);
+    console.log(`[term:${ts()}] attach(${worktreeName}) detach complete`);
   }
 
   const tmuxSession = await getTmuxSession();
   const gName = groupedName();
   const windowTarget = `wm-${worktreeName}`;
+  console.log(`[term:${ts()}] attach(${worktreeName}) tmuxSession=${tmuxSession} gName=${gName} window=${windowTarget}`);
 
   // Kill stale session with same name if it exists (leftover from previous server run)
   killTmuxSession(gName);
@@ -88,6 +96,7 @@ export async function attach(
   });
 
   session.proc = proc;
+  console.log(`[term:${ts()}] attach(${worktreeName}) spawned pid=${proc.pid}`);
 
   // Read stdout → push to scrollback + callback
   (async () => {
@@ -109,8 +118,14 @@ export async function attach(
   })();
 
   proc.exited.then((exitCode) => {
-    session.onExit?.(exitCode);
-    sessions.delete(worktreeName);
+    console.log(`[term:${ts()}] proc exited(${worktreeName}) pid=${proc.pid} code=${exitCode}`);
+    // Only clean up if this session is still the active one (not replaced by a new attach)
+    if (sessions.get(worktreeName) === session) {
+      session.onExit?.(exitCode);
+      sessions.delete(worktreeName);
+    } else {
+      console.log(`[term:${ts()}] proc exited(${worktreeName}) stale session, skipping cleanup`);
+    }
     killTmuxSession(gName);
   });
 
@@ -119,19 +134,30 @@ export async function attach(
 
 export async function detach(worktreeName: string): Promise<void> {
   const session = sessions.get(worktreeName);
-  if (!session) return;
+  if (!session) {
+    console.log(`[term:${ts()}] detach(${worktreeName}) no session found`);
+    return;
+  }
 
+  console.log(`[term:${ts()}] detach(${worktreeName}) killing pid=${session.proc.pid} tmux=${session.groupedSessionName}`);
   session.proc.kill();
   sessions.delete(worktreeName);
 
   killTmuxSession(session.groupedSessionName);
+  console.log(`[term:${ts()}] detach(${worktreeName}) done`);
 }
 
 export function write(worktreeName: string, data: string): void {
   const session = sessions.get(worktreeName);
-  if (session && session.proc.stdin) {
-    (session.proc.stdin as FileSink).write(new TextEncoder().encode(data));
+  if (!session) {
+    console.log(`[term:${ts()}] write(${worktreeName}) NO SESSION - input dropped (${data.length} bytes)`);
+    return;
   }
+  if (!session.proc.stdin) {
+    console.log(`[term:${ts()}] write(${worktreeName}) NO STDIN - input dropped (${data.length} bytes)`);
+    return;
+  }
+  (session.proc.stdin as FileSink).write(new TextEncoder().encode(data));
 }
 
 export function resize(worktreeName: string, cols: number, rows: number): void {
