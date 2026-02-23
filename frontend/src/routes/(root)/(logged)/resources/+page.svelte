@@ -477,15 +477,16 @@
 		}
 	}
 
-	async function resourceNameToFileExt(resourceName: string) {
-		await loadResourceNameToFileExtMap()
+	function resourceNameToFileExt(resourceName: string): string | undefined {
 		return resourceNameToFileExtMap?.[resourceName]
 	}
 
-	async function resourceNameIsFileset(resourceName: string) {
-		await loadResourceNameToFileExtMap()
+	function resourceNameIsFileset(resourceName: string): boolean {
 		return resourceNameToIsFilesetMap?.[resourceName] ?? false
 	}
+
+	// Eagerly load the map
+	loadResourceNameToFileExtMap()
 
 	// Current resources based on tab
 	let currentResources = $derived(

@@ -8,18 +8,16 @@
 
 	let { args = $bindable({}) }: Props = $props()
 
-	// Internal files map uses /-prefixed keys (matching tree node paths)
-	let files: Record<string, string> = $state(
-		Object.fromEntries(
-			Object.entries(args ?? {}).map(([k, v]) => ['/' + k, String(v ?? '')])
-		)
+	// Internal files map uses /-prefixed keys (matching tree node paths).
+	// Compute initial files + selection together to avoid referencing $state outside reactive context.
+	const initialFiles = Object.fromEntries(
+		Object.entries(args ?? {}).map(([k, v]) => ['/' + k, String(v ?? '')])
 	)
+	const initialFile = Object.keys(initialFiles).find((k) => !k.endsWith('/'))
 
-	// Initialize selection synchronously so SimpleEditor mounts with correct content
-	const initialKeys = Object.keys(files)
-	const initialFile = initialKeys.find((k) => !k.endsWith('/'))
-	let selectedPath: string | undefined = $state(initialFile ?? (initialKeys.length > 0 ? '/' : '/'))
-	let editContent: string = $state(initialFile ? (files[initialFile] ?? '') : '')
+	let files: Record<string, string> = $state(initialFiles)
+	let selectedPath: string | undefined = $state(initialFile ?? '/')
+	let editContent: string = $state(initialFile ? (initialFiles[initialFile] ?? '') : '')
 
 	// The selected file path (/-prefixed, not a folder)
 	const selectedFileKey: string | undefined = $derived.by(() => {
