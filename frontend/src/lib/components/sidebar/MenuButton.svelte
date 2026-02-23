@@ -1,10 +1,9 @@
 <script module lang="ts">
 	export const sidebarClasses = {
-		text: 'text-primary-inverse dark:text-primary data-[light-mode=true]:text-primary text-xs font-normal',
-		selectedText: 'text-emphasis-inverse dark:text-emphasis text-xs font-normal',
-		sublabelText: 'text-secondary-inverse dark:text-secondary text-2xs font-normal',
-		hoverBg:
-			'transition-colors hover:bg-surface-hover-inverse dark:hover:bg-surface-hover data-[light-mode=true]:hover:bg-surface-hover'
+		text: 'text-secondary text-xs font-normal',
+		selectedText: 'text-emphasis text-xs font-semibold',
+		sublabelText: 'text-tertiary text-2xs font-normal',
+		hoverBg: 'transition-colors hover:bg-surface-hover'
 	}
 </script>
 
@@ -140,7 +139,7 @@
 					>
 						{label}
 						<span
-							class="pl-2 text-xs dark:text-secondary light:text-secondary-inverse font-semibold"
+							class="pl-2 text-xs text-hint font-semibold"
 						>
 							{shortcut}
 						</span>
