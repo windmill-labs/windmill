@@ -6,7 +6,7 @@
 import { expect, test, describe } from "bun:test";
 import { writeFile, mkdir, readFile, stat, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { withTestBackend, createNonAdminUser, runCLIWithToken } from "./test_backend.ts";
+import { withTestBackend, createNonAdminUser } from "./test_backend.ts";
 import { addWorkspace } from "../workspace.ts";
 
 async function setupWorkspaceProfile(backend: any): Promise<void> {
@@ -324,11 +324,10 @@ describe("sync push missing folder detection", () => {
         "utf-8"
       );
 
-      const result = await runCLIWithToken(
-        backend,
+      const result = await backend.runCLICommand(
         ["sync", "push", "--yes", "--includes", `f/${folderName}/**`],
         tempDir,
-        nonAdminToken
+        { token: nonAdminToken }
       );
 
       // Non-admin should get exit code 1

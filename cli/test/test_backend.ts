@@ -24,8 +24,7 @@
 import { CargoBackend, CargoBackendConfig } from "./cargo_backend.ts";
 import { ContainerizedBackend, ContainerConfig } from "./containerized_backend.ts";
 import { mkdtemp, rm } from "node:fs/promises";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 /**
@@ -41,8 +40,8 @@ export interface TestBackend {
   stop(): Promise<void>;
   reset(): Promise<void>;
 
-  createCLICommand(args: string[], workingDir: string, workspaceName?: string): any;
-  runCLICommand(args: string[], workingDir: string, workspaceName?: string): Promise<{
+  createCLICommand(args: string[], workingDir: string, opts?: { workspace?: string; token?: string }): any;
+  runCLICommand(args: string[], workingDir: string, opts?: { workspace?: string; token?: string }): Promise<{
     stdout: string;
     stderr: string;
     code: number;
@@ -98,12 +97,12 @@ class CargoBackendAdapter implements TestBackend {
     await this.backend.reset();
   }
 
-  createCLICommand(args: string[], workingDir: string, workspaceName?: string): any {
-    return this.backend.createCLICommand(args, workingDir, workspaceName);
+  createCLICommand(args: string[], workingDir: string, opts?: { workspace?: string; token?: string }): any {
+    return this.backend.createCLICommand(args, workingDir, opts);
   }
 
-  async runCLICommand(args: string[], workingDir: string, workspaceName?: string) {
-    return this.backend.runCLICommand(args, workingDir, workspaceName);
+  async runCLICommand(args: string[], workingDir: string, opts?: { workspace?: string; token?: string }) {
+    return this.backend.runCLICommand(args, workingDir, opts);
   }
 
   async apiRequest(path: string, options?: RequestInit): Promise<Response> {
@@ -370,12 +369,12 @@ class ContainerizedBackendAdapter implements TestBackend {
     await this.backend.reset();
   }
 
-  createCLICommand(args: string[], workingDir: string, workspaceName?: string): any {
-    return this.backend.createCLICommand(args, workingDir, workspaceName);
+  createCLICommand(args: string[], workingDir: string, opts?: { workspace?: string; token?: string }): any {
+    return this.backend.createCLICommand(args, workingDir, opts);
   }
 
-  async runCLICommand(args: string[], workingDir: string, workspaceName?: string) {
-    return this.backend.runCLICommand(args, workingDir, workspaceName);
+  async runCLICommand(args: string[], workingDir: string, opts?: { workspace?: string; token?: string }) {
+    return this.backend.runCLICommand(args, workingDir, opts);
   }
 
   async seedTestData(): Promise<void> {
@@ -563,47 +562,6 @@ export async function createNonAdminUser(backend: TestBackend): Promise<string> 
     throw new Error(`Failed to login as non-admin: ${await loginResp.text()}`);
   }
   return await loginResp.text();
-}
-
-/**
- * Run a CLI command with a custom token (e.g. for a non-admin user).
- */
-export async function runCLIWithToken(
-  backend: TestBackend,
-  args: string[],
-  workingDir: string,
-  token: string
-): Promise<{ stdout: string; stderr: string; code: number }> {
-  const cliDir = join(dirname(fileURLToPath(import.meta.url)), "..");
-  const fullArgs = [
-    "--base-url", backend.baseUrl,
-    "--workspace", backend.workspace,
-    "--token", token,
-    "--config-dir", backend.testConfigDir,
-    ...args,
-  ];
-
-  const useNode = process.env["TEST_CLI_RUNTIME"] === "node";
-  const runtime = useNode ? "node" : "bun";
-  const entrypoint = useNode
-    ? join(cliDir, "npm", "esm", "main.js")
-    : join(cliDir, "src", "main.ts");
-  const runtimeArgs = useNode ? [entrypoint] : ["run", entrypoint];
-
-  const proc = Bun.spawn([runtime, ...runtimeArgs, ...fullArgs], {
-    cwd: workingDir,
-    env: { ...process.env as Record<string, string> },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  const [stdout, stderr] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-  ]);
-  const code = await proc.exited;
-
-  return { stdout, stderr, code };
 }
 
 // Re-export for convenience
