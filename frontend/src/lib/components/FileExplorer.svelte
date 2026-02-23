@@ -245,7 +245,7 @@
 		</div>
 	</div>
 {/if}
-<div class="flex-1 overflow-y-auto py-1">
+<div class="flex-1 overflow-y-auto py-1 w-full">
 	{#if showRoot}
 		<button
 			onclick={() => onSelectPath?.('/')}
