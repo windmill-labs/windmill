@@ -290,7 +290,7 @@
 		Object.entries(schema).map(([key, filterSchema]) => ({
 			regex: new RegExp(`\\b${key}:(?:\\\\.|[^\\s])*`, 'g'),
 			id: key,
-			onClear: () => (delete value[key], reparseTextFromValue())
+			onClear: () => (delete value[key], asText.reparse())
 		}))
 	)
 
@@ -431,14 +431,10 @@
 		parseFromText
 	)
 
-	function reparseTextFromValue() {
-		asText.val = parseToText(value)
-	}
-
 	function setValueForCurrentTag(val: any) {
 		if (!currentTag) return
 		value[currentTag!] = val
-		reparseTextFromValue()
+		asText.reparse()
 	}
 
 	/**
@@ -460,7 +456,7 @@
 		} else {
 			value[currentTag!] = val
 		}
-		reparseTextFromValue()
+		asText.reparse()
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {
@@ -475,8 +471,12 @@
 		} else if (menuItems.length && e.key === 'ArrowUp') {
 			highlightedIndex = (highlightedIndex - 1 + menuItems.length) % menuItems.length
 		} else if (e.key === 'Enter') {
-			if (menuItems[highlightedIndex]) menuItems[highlightedIndex].onClick()
-			else setValueForCurrentTag(value[currentTag!])
+			if (menuItems[highlightedIndex]) {
+				menuItems[highlightedIndex].onClick()
+			} else {
+				setValueForCurrentTag(value[currentTag!])
+				taggedTextInput?.focusAtEnd()
+			}
 			const currTagSchema = currentTag ? schema[currentTag] : undefined
 			if (currTagSchema && 'format' in currTagSchema && currTagSchema.format === 'json') {
 				return
@@ -508,13 +508,14 @@
 <div
 	class={twMerge(
 		'flex items-center rounded-md bg-surface-input overflow-clip',
-		inputBorderClass({ error: errors.length > 0 }),
+		inputBorderClass({ error: errors.length > 0, forceFocus: open }),
 		ButtonType.UnifiedHeightClasses.md,
 		className
 	)}
 	onmousedown={(e) => {
 		if (!open) {
 			e.preventDefault()
+			if (!asText.val.endsWith('\u00A0') && !asText.val.endsWith(' ')) asText.val += '\u00A0'
 			taggedTextInput?.focusAtEnd()
 		}
 		open = true
@@ -559,7 +560,7 @@
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<div class="py-1 p-2 overflow-y-auto" onmousedown={(e) => e.stopPropagation()}>
-		{#if !currentTag}
+		{#if !currentTag || !schema[currentTag]}
 			{#if presets.length}
 				<div class="text-xs px-2 my-2 font-bold">Presets</div>
 				<div class="mb-3 px-2 flex gap-2 flex-wrap">

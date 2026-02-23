@@ -491,6 +491,9 @@ export function useTransformedSyncedValue<T, U>(
 			setTimeout(() => {
 				skipUpdate = false
 			})
+		},
+		reparse() {
+			st = transform(source[0]())
 		}
 	}
 }
