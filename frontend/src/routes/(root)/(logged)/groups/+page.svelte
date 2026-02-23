@@ -93,7 +93,7 @@
 				<div>
 					<Popover
 						floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-						containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
+						contentClasses="border rounded-lg shadow-lg p-4 bg-surface"
 					>
 						{#snippet trigger()}
 							<Button unifiedSize="md" variant="accent" startIcon={{ icon: Plus }} nonCaptureEvent

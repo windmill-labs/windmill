@@ -7,14 +7,14 @@
 </script>
 
 <Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}>
-	<svelte:fragment slot="trigger">
+	{#snippet trigger()}
 		<Button variant="accent" size="xs" nonCaptureEvent={true} startIcon={{ icon: Filter }}>
 			Filters
 		</Button>
-	</svelte:fragment>
-	<svelte:fragment slot="content">
+	{/snippet}
+	{#snippet content()}
 		<div class="flex flex-col w-80 p-4">
 			<slot name="filters" />
 		</div>
-	</svelte:fragment>
+	{/snippet}
 </Popover>

@@ -43,7 +43,7 @@
 	{/if}
 	{#if (asset.kind === 'resource' && resourceDataCacheValue === undefined) || ducklakeNotFound || datatableNotFound}
 		<Popover contentClasses="px-3 py-2">
-			<svelte:fragment slot="trigger">
+			{#snippet trigger()}
 				<Button
 					startIcon={{ icon: AlertTriangle }}
 					variant="default"
@@ -51,8 +51,8 @@
 					btnClasses="text-red-500"
 					iconOnly
 				/>
-			</svelte:fragment>
-			<svelte:fragment slot="content">
+			{/snippet}
+			{#snippet content()}
 				<span class="text-sm">Not found</span>
 				{#if ducklakeNotFound}
 					<Button wrapperClasses="mt-1" href="/workspace_settings?tab=windmill_lfs">
@@ -65,7 +65,7 @@
 				{:else if asset.kind === 'resource' && resourceDataCacheValue === undefined}
 					<Button wrapperClasses="mt-1" href="/resources">Go to Resources</Button>
 				{/if}
-			</svelte:fragment>
+			{/snippet}
 		</Popover>
 	{:else if assetCanBeExplored(asset, { resource_type: resourceDataCacheValue })}
 		<ExploreAssetButton

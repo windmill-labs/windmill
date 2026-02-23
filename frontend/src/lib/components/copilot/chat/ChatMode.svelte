@@ -12,7 +12,7 @@
 		).length < 2}
 		class="max-w-full"
 	>
-		<svelte:fragment slot="trigger">
+		{#snippet trigger()}
 			<div
 				class="text-primary text-xs flex flex-row items-center font-normal gap-0.5 border px-1 rounded-lg"
 			>
@@ -25,8 +25,8 @@
 					</div>
 				{/if}
 			</div>
-		</svelte:fragment>
-		<svelte:fragment slot="content" let:close>
+		{/snippet}
+		{#snippet content({ close })}
 			<div class="flex flex-col gap-1 p-1 min-w-24">
 				{#each Object.values(AIMode) as possibleMode}
 					{#if aiChatManager.allowedModes[possibleMode]}
@@ -45,6 +45,6 @@
 					{/if}
 				{/each}
 			</div>
-		</svelte:fragment>
+		{/snippet}
 	</Popover>
 </div>

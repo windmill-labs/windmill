@@ -1169,7 +1169,7 @@
 					<Tooltip
 						placement="bottom"
 						closeButton
-						containerClasses="border rounded-lg shadow-lg bg-surface"
+						contentClasses="border rounded-lg shadow-lg bg-surface"
 					>
 						<TriangleAlert size={14} class="text-yellow-600" />
 

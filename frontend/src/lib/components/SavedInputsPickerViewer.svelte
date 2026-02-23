@@ -38,8 +38,7 @@
 	let objectViewerLoaded = false
 	let popoverFullyOpened = false
 
-	function handlePopoverChange(event: CustomEvent<boolean>) {
-		const isOpen = event.detail
+	function handlePopoverChange(isOpen: boolean) {
 		popoverOpen = isOpen
 
 		if (!isOpen) {
@@ -80,15 +79,15 @@
 <Popover
 	bind:this={popover}
 	{floatingConfig}
-	on:openChange={handlePopoverChange}
-	on:click={(e) => {
+	onOpenChange={handlePopoverChange}
+	onclick={(e) => {
 		e.stopPropagation()
 	}}
 	closeOnOtherPopoverOpen
-	closeOnClickOutside={false}
+	closeOnOutsideClick={false}
 	usePointerDownOutside
 >
-	<svelte:fragment slot="trigger" let:isOpen>
+	{#snippet trigger({ isOpen })}
 		<Button
 			variant="subtle"
 			unifiedSize="sm"
@@ -98,8 +97,8 @@
 			nonCaptureEvent
 			startIcon={{ icon: Eye }}
 		/>
-	</svelte:fragment>
-	<svelte:fragment slot="content">
+	{/snippet}
+	{#snippet content()}
 		<div
 			class="p-2 overflow-auto"
 			style="width: {ajustedWidth ? ajustedWidth + 'px' : '50vh'}; max-height: 50vh"
@@ -158,5 +157,5 @@
 				</div>
 			{/if}
 		</div>
-	</svelte:fragment>
+	{/snippet}
 </Popover>

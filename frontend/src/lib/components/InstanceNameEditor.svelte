@@ -46,12 +46,12 @@
 	}}
 	closeButton
 >
-	<svelte:fragment slot="trigger">
+	{#snippet trigger()}
 		<Button unifiedSize="sm" nonCaptureEvent={true} variant="subtle" startIcon={{ icon: Pencil }}
 			>Edit</Button
 		>
-	</svelte:fragment>
-	<svelte:fragment slot="content">
+	{/snippet}
+	{#snippet content()}
 		<div class="flex flex-col gap-8 max-w-sm p-4">
 			{#if automateUsernameCreation && username}
 				<ChangeInstanceUsernameInner {email} {username} on:renamed noPadding />
@@ -153,5 +153,5 @@
 				</Button>
 			</label>
 		</div>
-	</svelte:fragment>
+	{/snippet}
 </Popover>

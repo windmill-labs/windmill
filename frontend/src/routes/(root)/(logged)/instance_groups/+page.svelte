@@ -51,12 +51,12 @@
 			<div>
 				<Popover
 					floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-					containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
+					contentClasses="border rounded-lg shadow-lg p-4 bg-surface"
 				>
-					<svelte:fragment slot="trigger">
+					{#snippet trigger()}
 						<Button size="md" startIcon={{ icon: Plus }} nonCaptureEvent>New&nbsp;group</Button>
-					</svelte:fragment>
-					<svelte:fragment slot="content" let:close>
+					{/snippet}
+					{#snippet content({ close })}
 						<div class="flex-col flex gap-2 p-4">
 							<input class="mr-2" placeholder="New instance group name" bind:value={newGroupName} />
 							<Button
@@ -71,7 +71,7 @@
 								Create
 							</Button>
 						</div>
-					</svelte:fragment>
+					{/snippet}
 				</Popover>
 			</div>
 		</div>

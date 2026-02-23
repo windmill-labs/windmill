@@ -189,7 +189,7 @@
 					portal="#mute-settings-button"
 					contentClasses="p-4"
 				>
-					<svelte:fragment slot="trigger">
+					{#snippet trigger()}
 						<div id="mute-settings-button">
 							<Button variant="default" nonCaptureEvent>
 								{#if muteSettings.global || muteSettings.workspace}
@@ -199,8 +199,8 @@
 								{/if}
 							</Button>
 						</div>
-					</svelte:fragment>
-					<svelte:fragment slot="content">
+					{/snippet}
+					{#snippet content()}
 						<List justify="start">
 							<div class="w-full">
 								{#if $superadmin}
@@ -226,7 +226,7 @@
 								/>
 							</div>
 						</List>
-					</svelte:fragment>
+					{/snippet}
 				</Popover>
 			{/if}
 
@@ -236,14 +236,14 @@
 					portal="#settings-button"
 					contentClasses="p-4"
 				>
-					<svelte:fragment slot="trigger">
+					{#snippet trigger()}
 						<div id="settings-button">
 							<Button variant="default" nonCaptureEvent>
 								<Settings size="16" />
 							</Button>
 						</div>
-					</svelte:fragment>
-					<svelte:fragment slot="content">
+					{/snippet}
+					{#snippet content()}
 						<List justify="start" gap="none">
 							<div class="w-full">
 								<Button
@@ -271,7 +271,7 @@
 								</Button>
 							</div>
 						</List>
-					</svelte:fragment>
+					{/snippet}
 				</Popover>
 			{:else}
 				<Button

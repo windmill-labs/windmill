@@ -121,7 +121,7 @@
 		</div>
 		<div class="flex flex-row items-center gap-2">
 			<Popover>
-				<svelte:fragment slot="trigger">
+					{#snippet trigger()}
 					<Button
 						on:click={() => {}}
 						title="History"
@@ -133,8 +133,8 @@
 						color="light"
 						propagateEvent
 					/>
-				</svelte:fragment>
-				<svelte:fragment slot="content" let:close>
+					{/snippet}
+				{#snippet content({ close })}
 					<div class="p-1 overflow-y-auto max-h-[300px]">
 						{#if pastChats.length === 0}
 							<div class="text-center text-primary text-xs">No history</div>
@@ -169,7 +169,7 @@
 							</div>
 						{/if}
 					</div>
-				</svelte:fragment>
+				{/snippet}
 			</Popover>
 			<Button
 				title="New chat"

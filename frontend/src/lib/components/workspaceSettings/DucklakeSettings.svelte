@@ -334,7 +334,7 @@
 				<Cell class="w-12">
 					<div class="flex gap-2">
 						<Popover contentClasses="p-4" enableFlyTransition closeOnOtherPopoverOpen>
-							<svelte:fragment slot="trigger">
+							{#snippet trigger()}
 								<div class="relative">
 									<Button variant="default" iconOnly size="sm" endIcon={{ icon: SettingsIcon }} />
 									{#if ducklake.extra_args}
@@ -343,8 +343,8 @@
 										></div>
 									{/if}
 								</div>
-							</svelte:fragment>
-							<svelte:fragment slot="content">
+							{/snippet}
+							{#snippet content()}
 								<Label
 									label="Extra args"
 									tooltip="Additional arguments to pass in the ATTACH command. The argument list is substituted as-is. Separate them with commas."
@@ -356,7 +356,7 @@
 										inputProps={{ placeholder: "METADATA_SCHEMA 'schema', ENCRYPTED true" }}
 									/>
 								</Label>
-							</svelte:fragment>
+							{/snippet}
 						</Popover>
 						{#if ducklakeIsDirty[ducklake.name]}
 							<Popover
@@ -364,10 +364,10 @@
 								contentClasses="p-2 text-sm text-secondary italic"
 								class="cursor-not-allowed"
 							>
-								<svelte:fragment slot="trigger">
+								{#snippet trigger()}
 									<ExploreAssetButton asset={{ kind: 'ducklake', path: '' }} disabled />
-								</svelte:fragment>
-								<svelte:fragment slot="content">Please save settings first</svelte:fragment>
+								{/snippet}
+								{#snippet content()}Please save settings first{/snippet}
 							</Popover>
 						{:else}
 							<ExploreAssetButton

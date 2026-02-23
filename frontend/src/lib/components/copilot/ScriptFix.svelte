@@ -28,7 +28,7 @@
 		}}
 		displayArrow={true}
 	>
-		<svelte:fragment slot="trigger">
+		{#snippet trigger()}
 			<div class="flex flex-row">
 				<Button
 					title="Fix code"
@@ -47,8 +47,8 @@
 					AI Fix
 				</Button>
 			</div>
-		</svelte:fragment>
-		<svelte:fragment slot="content">
+		{/snippet}
+		{#snippet content()}
 			<div class="p-4">
 				<div class="w-80">
 					<p class="text-sm"
@@ -60,6 +60,6 @@
 					></div
 				>
 			</div>
-		</svelte:fragment>
+		{/snippet}
 	</Popover>
 {/if}

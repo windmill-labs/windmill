@@ -23,7 +23,7 @@
 	portal={target}
 	contentClasses="p-4"
 >
-	<svelte:fragment slot="trigger">
+	{#snippet trigger()}
 		<button
 			title="Open calendar picker"
 			class={twMerge(
@@ -37,8 +37,8 @@
 		>
 			<Calendar size={14} />
 		</button>
-	</svelte:fragment>
-	<svelte:fragment slot="content">
+	{/snippet}
+	{#snippet content()}
 		<!-- svelte-ignore a11y-label-has-associated-control -->
 		<!-- svelte-ignore a11y-click-events-have-key-events -->
 		<label class="block text-primary">
@@ -60,5 +60,5 @@
 				/>
 			</div>
 		</label>
-	</svelte:fragment>
+	{/snippet}
 </Popover>

@@ -768,7 +768,7 @@
 						>
 						<Popover
 							floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}
-							containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
+							contentClasses="border rounded-lg shadow-lg p-4 bg-surface"
 							onKeyDown={(e) => {
 								if (
 									e.key === 'Enter' &&

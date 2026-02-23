@@ -98,7 +98,7 @@
 		]
 	}}
 >
-	<svelte:fragment slot="trigger">
+	{#snippet trigger()}
 		<Button
 			title="Generate regexes from prompt"
 			btnClasses="text-ai bg-violet-100 dark:bg-gray-700"
@@ -111,8 +111,8 @@
 			clickableWhileLoading
 			on:click={genLoading ? () => abortController?.abort() : () => {}}
 		/>
-	</svelte:fragment>
-	<svelte:fragment slot="content" let:close>
+	{/snippet}
+	{#snippet content({ close })}
 		<div class="block text-primary p-4">
 			{#if $copilotInfo.enabled}
 				<div class="flex flex-col gap-4">
@@ -176,5 +176,5 @@
 				</p>
 			{/if}
 		</div>
-	</svelte:fragment>
+	{/snippet}
 </Popover>

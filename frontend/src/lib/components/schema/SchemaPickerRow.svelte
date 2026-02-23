@@ -55,8 +55,7 @@
 		fitViewport: true
 	}
 
-	function handlePopoverChange(event: CustomEvent<boolean>) {
-		const isOpen = event.detail
+	function handlePopoverChange(isOpen: boolean) {
 		popoverOpen = isOpen
 
 		if (!isOpen) {
@@ -123,11 +122,11 @@
 			contentClasses="overflow-auto"
 			usePointerDownOutside
 			closeOnOtherPopoverOpen
-			on:click={(e) => {
+			onclick={(e) => {
 				e.stopPropagation()
 			}}
 			{floatingConfig}
-			on:openChange={handlePopoverChange}
+			onOpenChange={handlePopoverChange}
 		>
 			{#snippet trigger()}
 				<Button

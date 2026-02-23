@@ -48,7 +48,7 @@
 </script>
 
 <Popover>
-	<svelte:fragment slot="trigger">
+	{#snippet trigger()}
 		<Button
 			title="Configure default datatable & schema"
 			unifiedSize="xs"
@@ -58,8 +58,8 @@
 		>
 			<Settings size={12} />
 		</Button>
-	</svelte:fragment>
-	<svelte:fragment slot="content">
+	{/snippet}
+	{#snippet content()}
 		<div class="flex flex-col gap-3 p-4 min-w-64 max-w-80">
 			<div class="text-xs font-medium text-primary">Default Datatable & Schema</div>
 
@@ -87,5 +87,5 @@
 				/>
 			</div>
 		</div>
-	</svelte:fragment>
+	{/snippet}
 </Popover>

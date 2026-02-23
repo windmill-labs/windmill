@@ -89,7 +89,7 @@
 							class="w-fit"
 							usePointerDownOutside
 							closeOnOtherPopoverOpen
-							on:click={(e) => {
+							onclick={(e) => {
 								e.stopPropagation()
 							}}
 							floatingConfig={{ placement: 'top-end' }}

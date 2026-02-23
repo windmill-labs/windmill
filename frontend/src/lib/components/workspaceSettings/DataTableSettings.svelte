@@ -261,15 +261,15 @@
 							contentClasses="p-2 text-sm text-secondary italic"
 							class="cursor-not-allowed"
 						>
-							<svelte:fragment slot="trigger">
+							{#snippet trigger()}
 								<ExploreAssetButton
 									class="h-9"
 									asset={{ kind: 'datatable', path: dataTable.name }}
 									{dbManagerDrawer}
 									disabled
 								/>
-							</svelte:fragment>
-							<svelte:fragment slot="content">Please save settings first</svelte:fragment>
+							{/snippet}
+							{#snippet content()}Please save settings first{/snippet}
 						</Popover>
 					{:else}
 						<ExploreAssetButton
