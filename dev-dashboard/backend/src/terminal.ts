@@ -51,7 +51,8 @@ function killTmuxSession(name: string): void {
 export async function attach(
   worktreeName: string,
   cols: number,
-  rows: number
+  rows: number,
+  initialPane?: number
 ): Promise<string> {
   console.log(`[term:${ts()}] attach(${worktreeName}) cols=${cols} rows=${rows} existing=${sessions.has(worktreeName)}`);
   if (sessions.has(worktreeName)) {
@@ -68,14 +69,17 @@ export async function attach(
   // Kill stale session with same name if it exists (leftover from previous server run)
   killTmuxSession(gName);
 
+  const paneTarget = `${gName}:${windowTarget}.${initialPane ?? 0}`;
   const cmd = [
     `tmux new-session -d -s "${gName}" -t "${tmuxSession}"`,
     `tmux set-option -t "${gName}" mouse on`,
     `tmux set-option -t "${gName}" set-clipboard on`,
     `tmux select-window -t "${gName}:${windowTarget}"`,
-    // Unzoom if a previous session left a pane zoomed (zoom state is shared)
-    `tmux if-shell -t "${gName}:${windowTarget}" "#{window_zoomed_flag}" "resize-pane -Z -t ${gName}:${windowTarget}"`,
-    `tmux select-pane -t "${gName}:${windowTarget}.0"`,
+    // Unzoom if a previous session left a pane zoomed (zoom state is shared across grouped sessions)
+    `if [ "$(tmux display-message -t '${gName}:${windowTarget}' -p '#{window_zoomed_flag}')" = "1" ]; then tmux resize-pane -Z -t '${gName}:${windowTarget}'; fi`,
+    `tmux select-pane -t "${paneTarget}"`,
+    // On mobile, zoom the selected pane to fill the window
+    ...(initialPane !== undefined ? [`tmux resize-pane -Z -t "${paneTarget}"`] : []),
     `stty rows ${rows} cols ${cols}`,
     `exec tmux attach-session -t "${gName}"`,
   ].join(" && ");

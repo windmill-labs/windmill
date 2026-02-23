@@ -73,7 +73,6 @@ function errorResponse(message: string, status = 500): Response {
 interface WsData {
   worktree: string;
   attached: boolean;
-  pendingPane: number | null;
 }
 
 function makeCallbacks(ws: { send: (data: string) => void; readyState: number }) {
@@ -101,7 +100,7 @@ Bun.serve<WsData>({
     const wsMatch = url.pathname.match(/^\/ws\/(.+)$/);
     if (wsMatch) {
       const worktree = decodeURIComponent(wsMatch[1]);
-      const upgraded = server.upgrade(req, { data: { worktree, attached: false, pendingPane: null } });
+      const upgraded = server.upgrade(req, { data: { worktree, attached: false } });
       if (upgraded) return undefined as unknown as Response;
       return new Response("WebSocket upgrade failed", { status: 400 });
     }
@@ -128,16 +127,9 @@ Bun.serve<WsData>({
             write(worktree, msg.data);
             break;
           case "selectPane":
-            if (typeof msg.pane === "number") {
-              if (ws.data.attached) {
-                // Attach already completed — apply directly
-                console.log(`[ws:${ts()}] selectPane direct pane=${msg.pane} worktree=${worktree}`);
-                selectPane(worktree, msg.pane);
-              } else {
-                // Attach still in progress — queue for post-attach
-                ws.data.pendingPane = msg.pane;
-                console.log(`[ws:${ts()}] selectPane queued pane=${msg.pane} worktree=${worktree}`);
-              }
+            if (ws.data.attached && typeof msg.pane === "number") {
+              console.log(`[ws:${ts()}] selectPane pane=${msg.pane} worktree=${worktree}`);
+              selectPane(worktree, msg.pane);
             }
             break;
           case "resize":
@@ -146,19 +138,17 @@ Bun.serve<WsData>({
               ws.data.attached = true;
               console.log(`[ws:${ts()}] first resize (attaching) worktree=${worktree} cols=${msg.cols} rows=${msg.rows}`);
               try {
-                await attach(worktree, msg.cols, msg.rows);
+                const initialPane = typeof msg.initialPane === "number" ? msg.initialPane : undefined;
+                if (initialPane !== undefined) {
+                  console.log(`[ws:${ts()}] initialPane=${initialPane} worktree=${worktree}`);
+                }
+                await attach(worktree, msg.cols, msg.rows, initialPane);
                 const { onData, onExit } = makeCallbacks(ws);
                 setCallbacks(worktree, onData, onExit);
                 const scrollback = getScrollback(worktree);
                 console.log(`[ws:${ts()}] attached worktree=${worktree} scrollback=${scrollback.length} bytes`);
                 if (scrollback) {
                   ws.send(JSON.stringify({ type: "scrollback", data: scrollback }));
-                }
-                // Apply any pane zoom queued while attach was in progress
-                if (ws.data.pendingPane !== null) {
-                  console.log(`[ws:${ts()}] applying pendingPane=${ws.data.pendingPane} worktree=${worktree}`);
-                  selectPane(worktree, ws.data.pendingPane);
-                  ws.data.pendingPane = null;
                 }
               } catch (err: unknown) {
                 const errMsg = err instanceof Error ? err.message : String(err);

@@ -107,10 +107,11 @@
 
     ws.onopen = () => {
       fitAddon.fit();
-      ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+      const msg: Record<string, unknown> = { type: "resize", cols: term.cols, rows: term.rows };
       if (isMobile && initialPane !== undefined) {
-        sendSelectPane(initialPane);
+        msg.initialPane = initialPane;
       }
+      ws.send(JSON.stringify(msg));
     };
 
     ws.onclose = () => {
