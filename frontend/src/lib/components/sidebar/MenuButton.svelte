@@ -3,7 +3,8 @@
 		text: 'text-secondary text-xs font-normal',
 		selectedText: 'text-emphasis text-xs font-semibold',
 		sublabelText: 'text-tertiary text-2xs font-normal',
-		hoverBg: 'transition-colors hover:bg-surface-hover'
+		hoverBg: 'transition-colors hover:bg-surface-hover',
+		selectedBg: 'bg-[#D5D8E0] dark:bg-[#505A70]'
 	}
 </script>
 

@@ -63,7 +63,7 @@
 			class={twMerge(
 				'group flex items-center px-2 py-2 text-sm font-light rounded-md h-8 gap-3',
 				isSelected
-					? 'bg-surface-hover'
+					? sidebarClasses.selectedBg
 					: sidebarClasses.hoverBg,
 				isSelected ? sidebarClasses.selectedText : sidebarClasses.text,
 				classNames
