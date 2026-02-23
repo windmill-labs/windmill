@@ -24,7 +24,8 @@
 import { CargoBackend, CargoBackendConfig } from "./cargo_backend.ts";
 import { ContainerizedBackend, ContainerConfig } from "./containerized_backend.ts";
 import { mkdtemp, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 
 /**
@@ -505,6 +506,104 @@ function registerCleanup() {
       process.exit(0);
     });
   }
+}
+
+/**
+ * Create a non-admin user, add them to the workspace, and return their token.
+ */
+export async function createNonAdminUser(backend: TestBackend): Promise<string> {
+  if (!backend.apiRequest) {
+    throw new Error("Backend does not support apiRequest");
+  }
+
+  const email = `nonadmin_${Date.now()}@test.dev`;
+  const password = "testpass123";
+
+  // Create user globally (as admin)
+  const createResp = await backend.apiRequest("/api/users/create", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      email,
+      password,
+      super_admin: false,
+      name: "Non-Admin Test User",
+    }),
+  });
+  if (!createResp.ok) {
+    throw new Error(`Failed to create user: ${await createResp.text()}`);
+  }
+  await createResp.text();
+
+  // Add user to workspace as non-admin
+  const addResp = await backend.apiRequest(
+    `/api/w/${backend.workspace}/workspaces/add_user`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email,
+        is_admin: false,
+        operator: false,
+      }),
+    }
+  );
+  if (!addResp.ok) {
+    throw new Error(`Failed to add user to workspace: ${await addResp.text()}`);
+  }
+  await addResp.text();
+
+  // Login as the non-admin user to get a token
+  const loginResp = await fetch(`${backend.baseUrl}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!loginResp.ok) {
+    throw new Error(`Failed to login as non-admin: ${await loginResp.text()}`);
+  }
+  return await loginResp.text();
+}
+
+/**
+ * Run a CLI command with a custom token (e.g. for a non-admin user).
+ */
+export async function runCLIWithToken(
+  backend: TestBackend,
+  args: string[],
+  workingDir: string,
+  token: string
+): Promise<{ stdout: string; stderr: string; code: number }> {
+  const cliDir = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const fullArgs = [
+    "--base-url", backend.baseUrl,
+    "--workspace", backend.workspace,
+    "--token", token,
+    "--config-dir", backend.testConfigDir,
+    ...args,
+  ];
+
+  const useNode = process.env["TEST_CLI_RUNTIME"] === "node";
+  const runtime = useNode ? "node" : "bun";
+  const entrypoint = useNode
+    ? join(cliDir, "npm", "esm", "main.js")
+    : join(cliDir, "src", "main.ts");
+  const runtimeArgs = useNode ? [entrypoint] : ["run", entrypoint];
+
+  const proc = Bun.spawn([runtime, ...runtimeArgs, ...fullArgs], {
+    cwd: workingDir,
+    env: { ...process.env as Record<string, string> },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  const [stdout, stderr] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+  const code = await proc.exited;
+
+  return { stdout, stderr, code };
 }
 
 // Re-export for convenience

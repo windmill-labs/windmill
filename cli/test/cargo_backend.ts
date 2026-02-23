@@ -232,8 +232,9 @@ export class CargoBackend {
    */
   private getBasePostgresUrl(): string {
     const url = new URL(this.config.postgresUrl);
-    // Remove any existing database path
+    // Remove any existing database path and query params (e.g. ?sslmode=disable)
     url.pathname = "";
+    url.search = "";
     return url.toString().replace(/\/$/, ""); // Remove trailing slash
   }
 
