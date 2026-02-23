@@ -1,11 +1,12 @@
 <script lang="ts">
 	import { ViewportPortal, type Node } from '@xyflow/svelte'
-	import { calculateNodesBoundsWithOffset } from './util'
-	import { ChevronDown, Pen, X } from 'lucide-svelte'
+	import { calculateNodesBoundsWithOffset, NODE } from './util'
+	import { ChevronDown, X } from 'lucide-svelte'
 	import { getGroupEditorContext, type FlowGroup } from './groupEditor.svelte'
-	import { NoteColor, NOTE_COLORS } from './noteColors'
+	import { NoteColor } from './noteColors'
 	import NoteColorPicker from './NoteColorPicker.svelte'
 	import Button from '../common/button/Button.svelte'
+	import GroupNodeCard from './GroupNodeCard.svelte'
 
 	interface Props {
 		hoveredNodeId: string | null
@@ -41,7 +42,7 @@
 				hideTimeout = undefined
 			}
 			visibleGroup = activeGroup
-		} else if (!colorPickerOpen && !actionBarHovered && !editingSummary) {
+		} else if (!colorPickerOpen && !actionBarHovered) {
 			hideTimeout = setTimeout(() => {
 				visibleGroup = undefined
 			}, 150)
@@ -51,7 +52,7 @@
 	// All groups for always-visible labels
 	let allGroups = $derived(groupEditorContext?.groupEditor.getGroups() ?? [])
 
-	// Compute bounds for each group (for labels)
+	// Compute bounds for each group (with extra top padding for header card)
 	function computeGroupBounds(group: FlowGroup) {
 		if (group.module_ids.length === 0) return null
 		const { minX, minY, maxX, maxY } = calculateNodesBoundsWithOffset(
@@ -59,11 +60,12 @@
 			allNodes
 		)
 		const padding = 16
+		const topPadding = padding + 42 + NODE.gap.vertical / 2 // 34px header + 8px gap + insertion button
 		return {
 			x: minX - padding,
-			y: minY - padding,
+			y: minY - topPadding,
 			width: maxX - minX + 2 * padding,
-			height: maxY - minY + 2 * padding
+			height: maxY - minY + padding + topPadding
 		}
 	}
 
@@ -88,38 +90,12 @@
 		)
 	}
 
-	function getTextColorClass(color?: string): string {
-		return (
-			NOTE_COLORS[(color as NoteColor) ?? NoteColor.BLUE]?.text ??
-			NOTE_COLORS[NoteColor.BLUE].text
-		)
-	}
-
 	function toggleCollapse(groupId: string) {
 		const current =
 			groupEditorContext?.groupEditor
 				.getGroups()
 				.find((g) => g.id === groupId)?.collapsed ?? false
 		groupEditorContext?.groupEditor.updateCollapsedDefault(groupId, !current)
-	}
-
-	// Label hover state (for showing pen button)
-	let hoveredLabelGroupId = $state<string | null>(null)
-
-	// Inline summary editing (tracks which group is being edited)
-	let editingGroupId = $state<string | null>(null)
-	let summaryInput = $state('')
-
-	let editingSummary = $derived(editingGroupId !== null)
-
-	function startEditSummary(group: FlowGroup) {
-		editingGroupId = group.id
-		summaryInput = group.summary ?? ''
-	}
-
-	function commitSummary(groupId: string) {
-		editingGroupId = null
-		groupEditorContext?.groupEditor.updateSummary(groupId, summaryInput)
 	}
 </script>
 
@@ -136,60 +112,15 @@
 					style:height="{bounds.height}px"
 					style:z-index="4"
 				>
-					<!-- Label (top-left, above the border) -->
-					<div
-						class="absolute -top-6 left-0 flex items-center gap-1 h-5"
-						style="pointer-events: auto; cursor: default;"
-						onpointerenter={() => {
-							if (hideTimeout) {
-								clearTimeout(hideTimeout)
-								hideTimeout = undefined
-							}
-							hoveredLabelGroupId = group.id
-							visibleGroup = group
-						}}
-						onpointerleave={() => {
-							hoveredLabelGroupId = null
-							if (!colorPickerOpen && !actionBarHovered && !editingSummary) {
-								hideTimeout = setTimeout(() => {
-									visibleGroup = undefined
-								}, 150)
-							}
-						}}
-					>
-						{#if editingGroupId === group.id}
-							<input
-								class="text-xs font-medium bg-transparent border-none outline-none {getTextColorClass(group.color)} w-24"
-								bind:value={summaryInput}
-								onblur={() => commitSummary(group.id)}
-								onkeydown={(e) => {
-									if (e.key === 'Enter') commitSummary(group.id)
-									if (e.key === 'Escape') {
-										editingGroupId = null
-									}
-								}}
-								autofocus
-							/>
-						{:else}
-							<span class="text-xs font-medium {getTextColorClass(group.color)}">
-								{group.summary || 'Group'}
-							</span>
-							{#if editMode && hoveredLabelGroupId === group.id}
-								<button
-									class="flex items-center justify-center w-4 h-4 rounded hover:bg-surface-hover {getTextColorClass(group.color)} opacity-60 hover:opacity-100"
-									onclick={() => startEditSummary(group)}
-									title="Edit group name"
-								>
-									<Pen size={10} />
-								</button>
-							{/if}
-						{/if}
+					<!-- Header card (top-left, inside the border) -->
+					<div class="absolute top-2 left-2" style="pointer-events: auto;">
+						<GroupNodeCard summary={group.summary} />
 					</div>
 
-					<!-- Action bar (top-right, hover only) — matches group note style -->
+					<!-- Action bar (top-right, inside the border, hover only) -->
 					{#if editMode && visibleGroup?.id === group.id}
 						<div
-							class="absolute -top-7 right-0 p-1 h-7 group flex justify-end"
+							class="absolute top-2 right-2 p-1 h-7 group flex justify-end"
 							style="pointer-events: auto;"
 							onpointerenter={() => {
 								actionBarHovered = true
