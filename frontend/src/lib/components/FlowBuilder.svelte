@@ -1115,7 +1115,7 @@
 			<div
 				class="justify-between flex flex-row items-center pl-2 pr-4 space-x-4 scrollbar-hidden overflow-x-auto max-h-12 h-full relative"
 			>
-				<div class="flex w-full max-w-md gap-8 items-center">
+				<div class="flex w-full gap-8 items-center min-w-0">
 					<SummaryPathDisplay
 						bind:summary={flowStore.val.summary}
 						bind:path={$pathStore}
@@ -1124,7 +1124,7 @@
 					/>
 				</div>
 
-				<div class="gap-4 flex-row hidden md:flex w-full whitespace-nowrap max-w-md">
+				<div class="gap-4 flex-row hidden md:flex whitespace-nowrap">
 					{#if triggersState.triggers?.some((t) => t.type === 'schedule')}
 						{@const primaryScheduleIndex = triggersState.triggers.findIndex((t) => t.isPrimary)}
 						{@const scheduleIndex = triggersState.triggers.findIndex((t) => t.type === 'schedule')}

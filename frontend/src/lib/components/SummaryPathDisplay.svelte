@@ -80,7 +80,7 @@
 	>
 		{#snippet trigger()}
 			<div
-				class={'min-w-0 max-w-2xl truncate flex flex-col items-start px-2 py-1 rounded-md transition-colors cursor-pointer hover:bg-surface-hover'}
+				class={'min-w-0 truncate flex flex-col items-start px-2 py-1 rounded-md transition-colors cursor-pointer hover:bg-surface-hover'}
 			>
 				<span class="text-2xs leading-tight text-tertiary font-mono font-normal truncate max-w-full"
 					>{path}</span
@@ -178,7 +178,7 @@
 		{/snippet}
 	</Popover>
 {:else}
-	<div class="min-w-0 max-w-2xl truncate flex flex-col px-2">
+	<div class="min-w-0 truncate flex flex-col px-2">
 		{#if !emptyString(summary)}
 			<span class="text-[10px] leading-tight text-tertiary font-mono truncate">{path}</span>
 		{/if}
