@@ -6,8 +6,8 @@ rm -rf "${script_dirpath}/gen"
 
 npx --yes @hey-api/openapi-ts@0.53.1  --input "${script_dirpath}/../backend/windmill-api/openapi.yaml" --output "${script_dirpath}/gen" --useOptions --client legacy/fetch  --schemas false 
 cat <<EOF - gen/core/OpenAPI.ts > temp_file && mv temp_file gen/core/OpenAPI.ts
-const getEnv = (key: string) => {
-  return Deno.env.get(key)
+const getEnv = (key: string): string | undefined => {
+  return process.env[key]
 };
 
 const baseUrl = getEnv("BASE_INTERNAL_URL") ?? getEnv("BASE_URL") ?? "http://localhost:8000";

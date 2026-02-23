@@ -31,6 +31,7 @@
 	let popoverOpen = $state(false)
 	let own = $state(false)
 	let onBehalfOfEmail = $state<string | undefined>(undefined)
+	let summaryInput: ReturnType<typeof TextInput> | undefined = $state()
 	let hasChanges = $derived(editSummary !== (summary ?? '') || (own && dirtyPath))
 
 	$effect(() => {
@@ -75,6 +76,10 @@
 		usePointerDownOutside
 		excludeSelectors=".drawer"
 		disableFocusTrap
+		openFocus={() => {
+			summaryInput?.focus()
+			return null
+		}}
 		bind:isOpen={popoverOpen}
 	>
 		{#snippet trigger()}
@@ -98,6 +103,7 @@
 				{#if onSaved}
 					<Label label="Summary">
 						<TextInput
+							bind:this={summaryInput}
 							inputProps={{
 								type: 'text',
 								placeholder: 'Short summary',
@@ -146,6 +152,7 @@
 					<label class="block text-primary">
 						<div class="pb-1 text-xs font-semibold text-emphasis">Summary</div>
 						<TextInput
+							bind:this={summaryInput}
 							inputProps={{
 								type: 'text',
 								placeholder: 'Short summary',
