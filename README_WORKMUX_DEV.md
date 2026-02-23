@@ -172,6 +172,61 @@ The setup is defined in `.workmux.yaml` at the repo root. Key sections:
 - **`files.copy`**: Copies `backend/.env` and `scripts/` into each worktree
 - **`files.symlink`**: Symlinks `node_modules` and `.svelte-kit` to avoid reinstalling per worktree
 
+## Cursor SSH Integration (`wmc`)
+
+`wm-cursor` (aliased as `wmc`) gives each worktree its own Cursor SSH remote window with an independently-focused tmux session. All windows are visible in the status bar across all Cursor terminals, but each one is focused on its own worktree.
+
+This uses **grouped tmux sessions** — multiple sessions that share the same window list but track focus independently:
+
+```
+tmux session: main          <-- your main Cursor terminal
+tmux session: cursor-feat-a <-- Cursor window for feat-a (focused on wm-feat-a)
+tmux session: cursor-feat-b <-- Cursor window for feat-b (focused on wm-feat-b)
+    \__ all three share the same windows in the status bar
+```
+
+### Setup
+
+Run once from inside tmux on the remote:
+
+```bash
+./scripts/wm-cursor setup /home/hugo/projects/windmill
+```
+
+This:
+
+1. **Merges `.vscode/settings.json`** — adds the `wm-tmux` terminal profile (auto-attaches to the `main` tmux session), disables auto port forwarding, configures forwarding for ports 8000/3000/5432, and stops rust-analyzer from auto-starting. Existing settings are preserved.
+2. **Creates `.vscode/tasks.json`** — auto-starts the dev database (`start-dev-db.sh`) when the folder opens.
+3. **Adds `wmc` alias to `~/.zshrc`** — so you can use `wmc` from any tmux window.
+
+After setup, reopen Cursor's terminal to pick up the new profile.
+
+### Usage
+
+All commands run from inside a tmux session (i.e., from Cursor's integrated terminal after setup).
+
+**Create a new worktree + open Cursor:**
+
+```bash
+wmc add -A -p "implement feature X"
+```
+
+This runs `workmux add`, creates a grouped tmux session, writes `.vscode/settings.json` in the worktree (with port forwarding matching the worktree's assigned ports), and opens a new Cursor window.
+
+**Open Cursor for an existing worktree:**
+
+```bash
+wmc open my-feature
+```
+
+**Close a worktree's Cursor window and tmux window (keeps the worktree):**
+
+```bash
+wmc close my-feature
+```
+
+This kills the grouped tmux session and calls `workmux close` to close the tmux window. The worktree and branch are preserved. Grouped sessions are also automatically cleaned up when you `workmux rm` a worktree (via `scripts/worktree-cleanup`).
+
 ## Login
 
 Default credentials: `admin@windmill.dev` / `changeme`
