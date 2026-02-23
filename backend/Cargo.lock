@@ -16166,6 +16166,7 @@ dependencies = [
  "windmill-common",
  "windmill-native-triggers",
  "windmill-test-utils",
+ "windmill-worker",
 ]
 
 [[package]]
