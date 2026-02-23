@@ -4632,7 +4632,7 @@ async fn run_inline_preview_script() -> error::Result<Response> {
 
 #[cfg(feature = "run_inline")]
 async fn run_inline_script_by_path(
-    OptJobAuthed { authed, job_id, .. }: OptJobAuthed,
+    OptJobAuthed { authed, .. }: OptJobAuthed,
     Tokened { token }: Tokened,
     Extension(db): Extension<DB>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
@@ -4660,7 +4660,7 @@ async fn run_inline_script_by_path() -> error::Result<Response> {
 
 #[cfg(feature = "run_inline")]
 async fn run_inline_script_by_hash(
-    OptJobAuthed { authed, job_id, .. }: OptJobAuthed,
+    OptJobAuthed { authed, .. }: OptJobAuthed,
     Tokened { token }: Tokened,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
