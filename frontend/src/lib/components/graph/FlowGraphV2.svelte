@@ -63,6 +63,7 @@
 	import NoteNode from './renderers/nodes/NoteNode.svelte'
 	import NoteTool from './NoteTool.svelte'
 	import SelectionBoundingBox from './SelectionBoundingBox.svelte'
+	import GroupOverlay from './GroupOverlay.svelte'
 	import SelectionTool from './SelectionTool.svelte'
 	import PaneContextMenu from './PaneContextMenu.svelte'
 	import { SelectionManager } from './selectionUtils.svelte'
@@ -247,6 +248,9 @@
 	// Reference to pane context menu component
 	let paneContextMenu: PaneContextMenu | undefined = $state(undefined)
 	let flowContainer: HTMLDivElement | undefined = $state(undefined)
+
+	// Hover tracking for group overlay
+	let hoveredNodeId = $state<string | null>(null)
 
 	// Selection manager - create one if not provided
 	let selectionManager = selectionManagerProp || new SelectionManager()
@@ -941,6 +945,12 @@
 				onmove={(event, viewport) => {
 					viewportSynchronizer?.handleLocalViewportChange(event, viewport)
 				}}
+				onnodepointerenter={({ node }) => {
+					hoveredNodeId = node.id
+				}}
+				onnodepointerleave={() => {
+					hoveredNodeId = null
+				}}
 				nodes={nodesWithOffset}
 				{edges}
 				{edgeTypes}
@@ -977,6 +987,12 @@
 						allNodes={nodesWithOffset as (Node & { type: string })[]}
 					/>
 				{/if}
+
+				<GroupOverlay
+					{hoveredNodeId}
+					allNodes={nodesWithOffset as (Node & { type: string })[]}
+					{editMode}
+				/>
 
 				<!-- SelectionTool for handling selection changes and filtering -->
 				<SelectionTool {selectionManager} clearGraphSelection={clearFlowSelection} />
