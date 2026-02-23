@@ -15,6 +15,7 @@ import {
   detach,
   write,
   resize,
+  selectPane,
   getScrollback,
   setCallbacks,
   clearCallbacks,
@@ -124,6 +125,11 @@ Bun.serve<WsData>({
         switch (msg.type) {
           case "input":
             write(worktree, msg.data);
+            break;
+          case "selectPane":
+            if (ws.data.attached && typeof msg.pane === "number") {
+              selectPane(worktree, msg.pane);
+            }
             break;
           case "resize":
             if (!ws.data.attached) {

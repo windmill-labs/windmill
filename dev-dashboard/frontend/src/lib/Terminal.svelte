@@ -5,13 +5,23 @@
   import { WebLinksAddon } from "@xterm/addon-web-links";
   import "@xterm/xterm/css/xterm.css";
 
-  let { worktree }: { worktree: string } = $props();
+  let { worktree, isMobile = false, initialPane }: {
+    worktree: string;
+    isMobile?: boolean;
+    initialPane?: number;
+  } = $props();
 
   let containerEl: HTMLDivElement;
   let term: Terminal;
   let fitAddon: FitAddon;
   let ws: WebSocket;
   let resizeObs: ResizeObserver;
+
+  export function sendSelectPane(pane: number) {
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "selectPane", pane }));
+    }
+  }
 
   onMount(() => {
     term = new Terminal({
@@ -23,7 +33,7 @@
         selectionBackground: "#264f78",
       },
       fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace",
-      fontSize: 11,
+      fontSize: isMobile ? 13 : 11,
       scrollback: 10000,
     });
 
@@ -98,6 +108,11 @@
     ws.onopen = () => {
       fitAddon.fit();
       ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+      // On mobile, auto-zoom into the initial pane after a short delay
+      // (allow the attach to complete on the server side first)
+      if (isMobile && initialPane !== undefined) {
+        setTimeout(() => sendSelectPane(initialPane), 300);
+      }
     };
 
     ws.onclose = () => {

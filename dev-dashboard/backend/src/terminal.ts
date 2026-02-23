@@ -183,6 +183,16 @@ export function setCallbacks(
   }
 }
 
+export function selectPane(worktreeName: string, paneIndex: number): void {
+  const session = sessions.get(worktreeName);
+  if (!session) return;
+  const windowTarget = `wm-${worktreeName}`;
+  const target = `${session.groupedSessionName}:${windowTarget}.${paneIndex}`;
+  // Select the pane, then zoom it to fill the window
+  Bun.spawnSync(["tmux", "select-pane", "-t", target]);
+  Bun.spawnSync(["tmux", "resize-pane", "-Z", "-t", target]);
+}
+
 export function clearCallbacks(worktreeName: string): void {
   const session = sessions.get(worktreeName);
   if (session) {
