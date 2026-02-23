@@ -26,7 +26,8 @@ async function createWorkspace(backend: any, workspaceId: string): Promise<void>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       id: workspaceId,
-      name: `Test Workspace ${workspaceId}`,
+      // Workspace name has a 50-char DB limit; keep it identical to the short ID.
+      name: workspaceId,
     }),
   });
 
@@ -45,9 +46,9 @@ async function withIsolatedWorkspace(
 ): Promise<void> {
   const backend = await getTestBackend();
   const tempDir = await mkdtemp(join(tmpdir(), "windmill_cli_test_"));
-  const workspaceId = `folder_meta_test_${Date.now()}_${Math.random()
+  const workspaceId = `fmeta_${Date.now().toString(36)}_${Math.random()
     .toString(36)
-    .slice(2, 8)}`;
+    .slice(2, 6)}`;
 
   try {
     await createWorkspace(backend, workspaceId);
