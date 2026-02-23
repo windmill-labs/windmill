@@ -554,10 +554,7 @@ async fn list_schedule(
         sqlb.and_where_eq("path", "?".bind(schedule_path));
     }
     if let Some(description) = &lsq.description {
-        sqlb.and_where(&format!(
-            "description ILIKE '%{}%'",
-            description.replace("'", "''")
-        ));
+        sqlb.and_where("description ILIKE ?".bind(&format!("%{}%", description)));
     }
     if let Some(summary) = &lsq.summary {
         sqlb.and_where(&format!("summary ILIKE '%{}%'", summary.replace("'", "''")));
