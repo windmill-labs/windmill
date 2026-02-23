@@ -37,6 +37,7 @@
 	export let disabled: boolean = false
 	export let documentationLink: string | undefined = undefined
 	export let disableFocusTrap: boolean = false
+	export let openFocus: string | HTMLElement | (() => HTMLElement | null) | null | undefined = undefined
 	export let escapeBehavior: EscapeBehaviorType = 'close'
 	export let enableFlyTransition: boolean = false
 	export let onKeyDown: (e: KeyboardEvent) => void = () => {}
@@ -75,6 +76,7 @@
 		portal: dynamicPortal,
 		disableFocusTrap,
 		escapeBehavior,
+		openFocus,
 		onOpenChange: ({ curr, next }) => {
 			if (curr != next) {
 				dispatch('openChange', next)
