@@ -80,6 +80,7 @@
 
 	let cacheResources: ResourceW[] | undefined = $state()
 	let stateResources: ResourceW[] | undefined = $state()
+	let themeResources: ResourceW[] | undefined = $state()
 	let resources: ResourceW[] | undefined = $state()
 	let resourceTypes: ResourceTypeW[] | undefined = $state()
 
@@ -149,7 +150,7 @@
 	let filters = useUrlSyncedFilterInstance(untrack(() => resourcesFilterSchema))
 
 	async function loadResources(): Promise<void> {
-		resources = await loadResourceInternal(undefined, 'cache,state')
+		resources = await loadResourceInternal(undefined, 'cache,state,app_theme')
 		loading.resources = false
 	}
 
@@ -160,6 +161,11 @@
 
 	async function loadState(): Promise<void> {
 		stateResources = await loadResourceInternal('state', undefined)
+		loading.resources = false
+	}
+
+	async function loadTheme(): Promise<void> {
+		themeResources = await loadResourceInternal('app_theme', undefined)
 		loading.resources = false
 	}
 
@@ -490,7 +496,13 @@
 
 	// Current resources based on tab
 	let currentResources = $derived(
-		tab == 'cache' ? cacheResources : tab == 'states' ? stateResources : resources
+		tab == 'cache'
+			? cacheResources
+			: tab == 'states'
+				? stateResources
+				: tab == 'theme'
+					? themeResources
+					: resources
 	)
 
 	// Filter resources client-side for user folder filtering (admin feature)
@@ -512,8 +524,10 @@
 		filters.val
 		if ($workspaceStore) {
 			untrack(() => {
-				if (tab === 'workspace' || tab === 'theme') {
+				if (tab === 'workspace') {
 					loadResources()
+				} else if (tab === 'theme') {
+					loadTheme()
 				} else if (tab === 'cache') {
 					loadCache()
 				} else if (tab === 'states') {
