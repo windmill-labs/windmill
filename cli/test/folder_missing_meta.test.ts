@@ -14,7 +14,7 @@ async function setupWorkspaceProfile(backend: any): Promise<void> {
     {
       remote: backend.baseUrl,
       workspaceId: backend.workspace,
-      name: "localhost_test",
+      name: "localhost_test_folder",
       token: backend.token,
     },
     { force: true, configDir: backend.testConfigDir }
