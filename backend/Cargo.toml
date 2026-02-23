@@ -351,7 +351,7 @@ tower-cookies = "^0.10"
 serde = "=1.0.219"
 serde_json = { version = "^1", features = ["preserve_order", "raw_value"] }
 serde_yml = "0.0.12"
-uuid = { version = "^1", features = ["serde", "v4"] }
+uuid = { version = "^1", features = ["serde", "v4", "js"] }
 thiserror = "^2"
 anyhow = "^1"
 chrono = { version = "^0.4", features = ["serde"] }
