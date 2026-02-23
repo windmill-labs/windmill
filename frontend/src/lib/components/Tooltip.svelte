@@ -19,6 +19,7 @@
 		markdownTooltip?: string | undefined
 		customSize?: string
 		class?: string
+		Icon?: typeof InfoIcon
 		children?: import('svelte').Snippet
 	}
 
@@ -31,6 +32,7 @@
 		markdownTooltip = undefined,
 		customSize = '100%',
 		class: classNames = '',
+		Icon = InfoIcon,
 		children
 	}: Props = $props()
 	const plugins = [gfmPlugin()]
@@ -53,7 +55,7 @@
 				? 'text-primary-inverse'
 				: 'text-primary'} {classNames} relative"
 		>
-			<InfoIcon class="{small ? 'bottom-0' : '-bottom-0.5'} absolute" size={small ? 12 : 14} />
+			<Icon class="{small ? 'bottom-0' : '-bottom-0.5'} absolute" size={small ? 12 : 14} />
 		</div>
 		{#snippet text()}
 			{#if markdownTooltip}

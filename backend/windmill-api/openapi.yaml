@@ -4091,6 +4091,21 @@ paths:
           in: query
           schema:
             type: string
+        - name: path
+          description: exact path match filter
+          in: query
+          schema:
+            type: string
+        - name: description
+          description: pattern match filter for description field (case-insensitive)
+          in: query
+          schema:
+            type: string
+        - name: value
+          description: pattern match filter for non-secret variable values (case-insensitive)
+          in: query
+          schema:
+            type: string
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
       responses:
@@ -5087,6 +5102,21 @@ paths:
             type: string
         - name: path_start
           description: filter resources by path prefix
+          in: query
+          schema:
+            type: string
+        - name: path
+          description: exact path match filter
+          in: query
+          schema:
+            type: string
+        - name: description
+          description: pattern match filter for description field (case-insensitive)
+          in: query
+          schema:
+            type: string
+        - name: value
+          description: JSONB subset match filter using base64 encoded JSON
           in: query
           schema:
             type: string
@@ -11120,7 +11150,7 @@ paths:
         - $ref: "#/components/parameters/PerPage"
         - $ref: "#/components/parameters/ArgsFilter"
         - name: path
-          description: filter by path
+          description: filter by path (script path)
           in: query
           schema:
             type: string
@@ -11131,6 +11161,21 @@ paths:
             type: boolean
         - name: path_start
           description: filter schedules by path prefix
+          in: query
+          schema:
+            type: string
+        - name: schedule_path
+          description: exact match on the schedule's path
+          in: query
+          schema:
+            type: string
+        - name: description
+          description: pattern match filter for description field (case-insensitive)
+          in: query
+          schema:
+            type: string
+        - name: summary
+          description: pattern match filter for summary field (case-insensitive)
           in: query
           schema:
             type: string
@@ -16885,6 +16930,16 @@ paths:
           description: Filter by asset kinds (multiple values allowed)
           schema:
             type: string
+        - name: path
+          in: query
+          description: exact path match filter
+          schema:
+            type: string
+        - name: columns
+          in: query
+          description: JSONB subset match filter for columns using base64 encoded JSON
+          schema:
+            type: string
       responses:
         "200":
           description: paginated assets in the workspace
@@ -17258,10 +17313,10 @@ components:
         type: integer
     JobTriggerKind:
       name: trigger_kind
-      description: trigger kind (schedule, http, websocket...)
+      description: "filter by trigger kind. Supports comma-separated list (e.g. 'schedule,webhook') and negation by prefixing all values with '!' (e.g. '!schedule,!webhook')"
       in: query
       schema:
-        $ref: "#/components/schemas/JobTriggerKind"
+        type: string
     OrderDesc:
       name: order_desc
       description: order by desc order (default true)
@@ -17270,19 +17325,19 @@ components:
         type: boolean
     CreatedBy:
       name: created_by
-      description: mask to filter exact matching user creator
+      description: "filter by exact matching user creator. Supports comma-separated list (e.g. 'alice,bob') and negation by prefixing all values with '!' (e.g. '!alice,!bob')"
       in: query
       schema:
         type: string
     Label:
       name: label
-      description: mask to filter exact matching job's label (job labels are completed jobs with as a result an object containing a string in the array at key 'wm_labels')
+      description: "filter by exact matching job label. Supports comma-separated list (e.g. 'deploy,release') and negation by prefixing all values with '!' (e.g. '!deploy,!release')"
       in: query
       schema:
         type: string
     Worker:
       name: worker
-      description: worker this job was ran on
+      description: "filter by worker this job ran on. Supports comma-separated list (e.g. 'worker-1,worker-2') and negation by prefixing all values with '!' (e.g. '!worker-1,!worker-2')"
       in: query
       schema:
         type: string
@@ -17348,7 +17403,7 @@ components:
         type: string
     ScriptStartPath:
       name: script_path_start
-      description: mask to filter matching starting path
+      description: "filter by script path prefix. Supports comma-separated list (e.g. 'f/folder1,f/folder2') and negation by prefixing all values with '!' (e.g. '!f/folder1,!f/folder2')"
       in: query
       schema:
         type: string
@@ -17360,13 +17415,13 @@ components:
         type: string
     TriggerPath:
       name: trigger_path
-      description: mask to filter by trigger path
+      description: "filter by trigger path. Supports comma-separated list (e.g. 'f/trigger1,f/trigger2') and negation by prefixing all values with '!' (e.g. '!f/trigger1,!f/trigger2')"
       in: query
       schema:
         type: string
     ScriptExactPath:
       name: script_path_exact
-      description: mask to filter exact matching path
+      description: "filter by exact matching script path. Supports comma-separated list (e.g. 'f/script1,f/script2') and negation by prefixing all values with '!' (e.g. '!f/script1,!f/script2')"
       in: query
       schema:
         type: string
@@ -17481,7 +17536,7 @@ components:
         type: string
     Tag:
       name: tag
-      description: filter on jobs with a given tag/worker group
+      description: "filter by tag/worker group. Supports comma-separated list (e.g. 'gpu,highmem') and negation by prefixing all values with '!' (e.g. '!gpu,!highmem')"
       in: query
       schema:
         type: string
@@ -17525,9 +17580,7 @@ components:
         enum: [Create, Update, Delete, Execute]
     JobKinds:
       name: job_kinds
-      description:
-        filter on job kind (values 'preview', 'script', 'dependencies', 'flow')
-        separated by,
+      description: "filter by job kind. Supports comma-separated list of values ('preview', 'script', 'dependencies', 'flow') and negation by prefixing all values with '!' (e.g. '!preview,!dependencies')"
       in: query
       schema:
         type: string
