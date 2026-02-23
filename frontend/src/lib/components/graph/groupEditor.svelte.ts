@@ -27,7 +27,7 @@ export class GroupEditor {
 		this.flowStore = flowStore
 	}
 
-	private getGroups(): FlowGroup[] {
+	getGroups(): FlowGroup[] {
 		return this.flowStore.val.value?.groups || []
 	}
 
