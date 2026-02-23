@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ViewportPortal, type Node } from '@xyflow/svelte'
 	import { calculateNodesBoundsWithOffset } from './util'
-	import { ChevronDown, ChevronRight, Ellipsis, Trash2 } from 'lucide-svelte'
+	import { ChevronDown, ChevronRight, Ellipsis, Pen, Trash2 } from 'lucide-svelte'
 	import { getGroupEditorContext, type FlowGroup } from './groupEditor.svelte'
 	import { NoteColor, NOTE_COLORS } from './noteColors'
 	import NoteColorPicker from './NoteColorPicker.svelte'
@@ -139,17 +139,22 @@
 		collapsedState[groupId] = !isCollapsed(groupId)
 	}
 
-	// Inline summary editing
-	let editingSummary = $state(false)
+	// Label hover state (for showing pen button)
+	let hoveredLabelGroupId = $state<string | null>(null)
+
+	// Inline summary editing (tracks which group is being edited)
+	let editingGroupId = $state<string | null>(null)
 	let summaryInput = $state('')
 
+	let editingSummary = $derived(editingGroupId !== null)
+
 	function startEditSummary(group: FlowGroup) {
-		editingSummary = true
+		editingGroupId = group.id
 		summaryInput = group.summary ?? ''
 	}
 
 	function commitSummary(groupId: string) {
-		editingSummary = false
+		editingGroupId = null
 		groupEditorContext?.groupEditor.updateSummary(groupId, summaryInput)
 	}
 </script>
@@ -160,7 +165,7 @@
 	{#if labelBounds}
 		<ViewportPortal target="front">
 			<div
-				class="absolute"
+				class="absolute flex items-center gap-1"
 				style:transform="translate({labelBounds.x}px, {labelBounds.y - 20}px)"
 				style:z-index="4"
 				style="pointer-events: auto; cursor: default;"
@@ -169,12 +174,14 @@
 						clearTimeout(hideTimeout)
 						hideTimeout = undefined
 					}
+					hoveredLabelGroupId = group.id
 					visibleGroup = group
 					if (group.id && !(group.id in collapsedState)) {
 						collapsedState[group.id] = group.collapsed ?? false
 					}
 				}}
 				onpointerleave={() => {
+					hoveredLabelGroupId = null
 					if (!popoverOpen && !actionBarHovered && !editingSummary) {
 						hideTimeout = setTimeout(() => {
 							visibleGroup = undefined
@@ -182,9 +189,33 @@
 					}
 				}}
 			>
-				<span class="text-xs font-medium {getTextColorClass(group.color)}">
-					{group.summary || 'Group'}
-				</span>
+				{#if editingGroupId === group.id}
+					<input
+						class="text-xs font-medium bg-transparent border-none outline-none {getTextColorClass(group.color)} w-24"
+						bind:value={summaryInput}
+						onblur={() => commitSummary(group.id)}
+						onkeydown={(e) => {
+							if (e.key === 'Enter') commitSummary(group.id)
+							if (e.key === 'Escape') {
+								editingGroupId = null
+							}
+						}}
+						autofocus
+					/>
+				{:else}
+					<span class="text-xs font-medium {getTextColorClass(group.color)}">
+						{group.summary || 'Group'}
+					</span>
+					{#if editMode && hoveredLabelGroupId === group.id}
+						<button
+							class="flex items-center justify-center w-4 h-4 rounded hover:bg-surface-hover {getTextColorClass(group.color)} opacity-60 hover:opacity-100"
+							onclick={() => startEditSummary(group)}
+							title="Edit group name"
+						>
+							<Pen size={10} />
+						</button>
+					{/if}
+				{/if}
 			</div>
 		</ViewportPortal>
 	{/if}
@@ -222,29 +253,6 @@
 						actionBarHovered = false
 					}}
 				>
-					<!-- Summary inline edit -->
-					{#if editingSummary}
-						<input
-							class="text-xs bg-transparent border-none outline-none text-primary px-1 w-24"
-							bind:value={summaryInput}
-							onblur={() => commitSummary(group.id)}
-							onkeydown={(e) => {
-								if (e.key === 'Enter') commitSummary(group.id)
-								if (e.key === 'Escape') {
-									editingSummary = false
-								}
-							}}
-						/>
-					{:else}
-						<button
-							class="text-xs text-secondary hover:text-primary px-1 truncate max-w-32"
-							onclick={() => startEditSummary(group)}
-							title="Click to edit group name"
-						>
-							{group.summary || 'Group'}
-						</button>
-					{/if}
-
 					<!-- Collapse toggle button -->
 					<Button
 						variant="subtle"
