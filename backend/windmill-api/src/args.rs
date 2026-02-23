@@ -91,8 +91,8 @@ impl RawWebhookArgs {
             get_random_file_name, get_workspace_s3_resource, upload_file_internal,
         };
         use futures::TryStreamExt;
-        use windmill_object_store::object_store_reexports::{Attribute, Attributes};
         use windmill_object_store::build_object_store_client;
+        use windmill_object_store::object_store_reexports::{Attribute, Attributes};
 
         let (_, s3_resource) = get_workspace_s3_resource(authed, db, None, w_id, None).await?;
 
@@ -106,20 +106,24 @@ impl RawWebhookArgs {
                 Error::BadRequest(format!("Error reading multipart field: {}", e.body_text()))
             })? {
                 if let Some(name) = field.name().map(|x| x.to_string()) {
-                    if let Some(content_type) = field.content_type() {
+                    if field.file_name().is_some() {
+                        let content_type = field
+                            .content_type()
+                            .unwrap_or("application/octet-stream")
+                            .to_string();
                         let ext = field
                             .file_name()
-                            .map(|x| x.split('.').last())
-                            .flatten()
+                            .and_then(|x| x.split('.').last())
                             .map(|x| x.to_string());
+                        let filename = field.file_name().map(|x| x.to_string());
 
                         let file_key = get_random_file_name(ext);
 
                         let options = Attributes::from_iter(vec![
-                            (Attribute::ContentType, content_type.to_string()),
+                            (Attribute::ContentType, content_type),
                             (
                                 Attribute::ContentDisposition,
-                                if let Some(filename) = field.file_name() {
+                                if let Some(filename) = filename {
                                     format!("inline; filename=\"{}\"", filename)
                                 } else {
                                     "inline".to_string()

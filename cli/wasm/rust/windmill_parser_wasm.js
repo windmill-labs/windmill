@@ -100,7 +100,13 @@ const imports = {
 };
 
 const wasmUrl = new URL('windmill_parser_wasm_bg.wasm', import.meta.url);
-const wasm = (await WebAssembly.instantiateStreaming(fetch(wasmUrl), imports)).instance.exports;
+let wasmCode;
+if (wasmUrl.protocol === 'file:') {
+    wasmCode = (await import('node:fs')).readFileSync(wasmUrl);
+} else {
+    wasmCode = await (await fetch(wasmUrl)).arrayBuffer();
+}
+const wasm = (await WebAssembly.instantiate(wasmCode, imports)).instance.exports;
 export { wasm as __wasm };
 
 wasm.__wbindgen_start();

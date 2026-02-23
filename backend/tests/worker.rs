@@ -993,6 +993,80 @@ echo "hello $msg"
     Ok(())
 }
 
+#[sqlx::test(fixtures("base", "wmill_cli_test"))]
+async fn test_bash_wmill_variable_get(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // The bash script uses wmill CLI to get the variable value.
+    // The worker sets WM_TOKEN, WM_WORKSPACE, and BASE_INTERNAL_URL as env vars,
+    // and the CLI auto-configures from them when no workspace is explicitly set.
+    // We point WMILL_CONFIG_DIR to a clean temp dir so no local active workspace interferes.
+    let content = r#"
+export WMILL_CONFIG_DIR=$(mktemp -d)
+result=$(wmill variable get "u/test-user/test_var" --json | jq -r .value)
+echo "$result"
+"#
+    .to_owned();
+
+    let job = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Bash,
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+    }))
+    .run_until_complete(&db, false, port)
+    .await;
+    assert_eq!(job.json_result(), Some(json!("hello from variable")));
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base", "wmill_cli_test"))]
+async fn test_bash_wmill_resource_get(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // The bash script uses wmill CLI to get the resource value.
+    // We point WMILL_CONFIG_DIR to a clean temp dir so no local active workspace interferes.
+    let content = r#"
+export WMILL_CONFIG_DIR=$(mktemp -d)
+result=$(wmill resource get "u/test-user/test_res" --json | jq -c .value)
+echo "$result"
+"#
+    .to_owned();
+
+    let job = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Bash,
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+    }))
+    .run_until_complete(&db, false, port)
+    .await;
+    // Bash echo outputs are returned as strings, so the JSON is a string value
+    assert_eq!(
+        job.json_result(),
+        Some(json!("{\"host\":\"localhost\",\"port\":5432}"))
+    );
+    Ok(())
+}
+
 #[cfg(feature = "nu")]
 #[sqlx::test(fixtures("base"))]
 async fn test_nu_job(db: Pool<Postgres>) -> anyhow::Result<()> {
@@ -1589,6 +1663,66 @@ export async function main(a: Date) {
     .unwrap();
 
     assert_eq!(result, serde_json::json!("object"));
+    Ok(())
+}
+
+/// Test that full .npmrc content works for deno jobs with private registries.
+/// Requires:
+/// - `TEST_NPMRC` environment variable set to the full .npmrc content
+#[cfg(feature = "private_registry_test")]
+#[sqlx::test(fixtures("base"))]
+async fn test_deno_job_private_npmrc(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use windmill_worker::NPMRC;
+
+    let npmrc_content = std::env::var("TEST_NPMRC")
+        .expect("TEST_NPMRC must be set when running private_registry_test");
+
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    {
+        let mut npmrc = NPMRC.write().await;
+        *npmrc = Some(npmrc_content.clone());
+    }
+
+    let content = r#"
+import { greet } from "npm:@windmill-test/private-pkg";
+
+export function main(name: string) {
+    return greet(name);
+}
+"#
+    .to_owned();
+
+    let result = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        language: ScriptLang::Deno,
+        lock: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+    }))
+    .arg("name", json!("World"))
+    .run_until_complete(&db, false, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    {
+        let mut npmrc = NPMRC.write().await;
+        *npmrc = None;
+    }
+
+    assert_eq!(
+        result,
+        serde_json::json!("Hello from private package, World!")
+    );
     Ok(())
 }
 

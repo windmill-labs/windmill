@@ -3,7 +3,8 @@
  * This creates a unit test that directly tests the logic without needing a backend
  */
 
-import { assertEquals, assertStringIncludes, assert } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
 import { DEFAULT_SYNC_OPTIONS } from "../src/core/conf.ts";
 import { withTestBackend } from "./test_backend.ts";
 import { shouldSkipOnCI } from "./cargo_backend.ts";
@@ -36,55 +37,50 @@ function createWorkspaceProfileNoRepos(workspace: any): any {
   return workspaceProfile;
 }
 
-Deno.test("Init: createWorkspaceProfile includes defaults when no repositories exist", () => {
-  console.log('🧪 Testing init logic for workspace with no git-sync repositories...');
-  
+test("Init: createWorkspaceProfile includes defaults when no repositories exist", () => {
+  console.log('Testing init logic for workspace with no git-sync repositories...');
+
   const workspaceProfile = createWorkspaceProfileNoRepos(mockWorkspace);
-  
+
   console.log('Generated workspace profile:', JSON.stringify(workspaceProfile, null, 2));
-  
+
   // Verify basic workspace info
-  assertEquals(workspaceProfile.baseUrl, 'https://app.windmill.dev/');
-  assertEquals(workspaceProfile.workspaceId, 'test-workspace');
-  
+  expect(workspaceProfile.baseUrl).toEqual('https://app.windmill.dev/');
+  expect(workspaceProfile.workspaceId).toEqual('test-workspace');
+
   // Verify default sync settings are included
-  assert(Array.isArray(workspaceProfile.includes), 'Should have includes array');
-  assertEquals(workspaceProfile.includes.length, 1, 'Should have one include pattern');
-  assertEquals(workspaceProfile.includes[0], 'f/**', 'Should include f/** pattern');
-  
-  assert(Array.isArray(workspaceProfile.excludes), 'Should have excludes array');
-  assertEquals(workspaceProfile.excludes.length, 0, 'Should have empty excludes array');
-  
-  assertEquals(workspaceProfile.defaultTs, 'bun', 'Should have bun as default TypeScript runtime');
-  
-  console.log('✅ Workspace profile correctly includes default sync settings when no repositories exist');
+  expect(Array.isArray(workspaceProfile.includes)).toBeTruthy();
+  expect(workspaceProfile.includes.length).toEqual(1);
+  expect(workspaceProfile.includes[0]).toEqual('f/**');
+
+  expect(Array.isArray(workspaceProfile.excludes)).toBeTruthy();
+  expect(workspaceProfile.excludes.length).toEqual(0);
+
+  expect(workspaceProfile.defaultTs).toEqual('bun');
+
+  console.log('Workspace profile correctly includes default sync settings when no repositories exist');
 });
 
-Deno.test("Init: verify DEFAULT_SYNC_OPTIONS has expected values", () => {
-  console.log('🔍 Verifying DEFAULT_SYNC_OPTIONS contains expected values...');
-  
+test("Init: verify DEFAULT_SYNC_OPTIONS has expected values", () => {
+  console.log('Verifying DEFAULT_SYNC_OPTIONS contains expected values...');
+
   console.log('DEFAULT_SYNC_OPTIONS:', JSON.stringify(DEFAULT_SYNC_OPTIONS, null, 2));
-  
+
   // Verify the default options include the expected f/** pattern
-  assert(Array.isArray(DEFAULT_SYNC_OPTIONS.includes), 'DEFAULT_SYNC_OPTIONS should have includes array');
-  assertEquals(DEFAULT_SYNC_OPTIONS.includes.length, 1, 'Should have one include pattern');
-  assertEquals(DEFAULT_SYNC_OPTIONS.includes[0], 'f/**', 'Should default to f/** pattern');
-  
-  assert(Array.isArray(DEFAULT_SYNC_OPTIONS.excludes), 'DEFAULT_SYNC_OPTIONS should have excludes array');
-  assertEquals(DEFAULT_SYNC_OPTIONS.excludes.length, 0, 'Should have empty excludes array by default');
-  
-  assertEquals(DEFAULT_SYNC_OPTIONS.defaultTs, 'bun', 'Should default to bun runtime');
-  
-  console.log('✅ DEFAULT_SYNC_OPTIONS has expected values');
+  expect(Array.isArray(DEFAULT_SYNC_OPTIONS.includes)).toBeTruthy();
+  expect(DEFAULT_SYNC_OPTIONS.includes.length).toEqual(1);
+  expect(DEFAULT_SYNC_OPTIONS.includes[0]).toEqual('f/**');
+
+  expect(Array.isArray(DEFAULT_SYNC_OPTIONS.excludes)).toBeTruthy();
+  expect(DEFAULT_SYNC_OPTIONS.excludes.length).toEqual(0);
+
+  expect(DEFAULT_SYNC_OPTIONS.defaultTs).toEqual('bun');
+
+  console.log('DEFAULT_SYNC_OPTIONS has expected values');
 });
 
-Deno.test({
-  name: "Init: --use-backend flag applies git-sync settings",
-  ignore: shouldSkipOnCI(), // Requires EE features
-  sanitizeResources: false,
-  sanitizeOps: false,
-  fn: async () => {
-    await withTestBackend(async (backend, tempDir) => {
+test.skipIf(shouldSkipOnCI())("Init: --use-backend flag applies git-sync settings", async () => {
+  await withTestBackend(async (backend, tempDir) => {
     // Set up workspace
     const testWorkspace = {
       remote: backend.baseUrl,
@@ -122,29 +118,23 @@ Deno.test({
       '--repository', 'u/test/init_repo'
     ], tempDir);
 
-    assertEquals(result.code, 0, `Init with --use-backend should succeed: ${result.stderr}`);
+    expect(result.code).toEqual(0);
 
     // Verify wmill.yaml was created with backend settings
-    const wmillYaml = await Deno.readTextFile(`${tempDir}/wmill.yaml`);
-    
+    const wmillYaml = await readFile(`${tempDir}/wmill.yaml`, "utf-8");
+
     // Should have backend-applied settings written to top-level (not overrides)
-    assertStringIncludes(wmillYaml, "f/backend/**", "Should include backend's include_path");
-    assertStringIncludes(wmillYaml, "*.test.ts", "Should include backend's exclude_path");
-    assertStringIncludes(wmillYaml, "g/**", "Should include backend's extra_include_path");
-    
+    expect(wmillYaml).toContain("f/backend/**");
+    expect(wmillYaml).toContain("*.test.ts");
+    expect(wmillYaml).toContain("g/**");
+
     // Should have empty overrides section for consistency
-    assertStringIncludes(wmillYaml, "gitBranches: {}");
-    });
-  }
+    expect(wmillYaml).toContain("gitBranches: {}");
+  });
 });
 
-Deno.test({
-  name: "Init: --use-default bypasses backend settings check",
-  ignore: shouldSkipOnCI(), // Requires EE features
-  sanitizeResources: false,
-  sanitizeOps: false,
-  fn: async () => {
-    await withTestBackend(async (backend, tempDir) => {
+test.skipIf(shouldSkipOnCI())("Init: --use-default bypasses backend settings check", async () => {
+  await withTestBackend(async (backend, tempDir) => {
     // Set up workspace
     const testWorkspace = {
       remote: backend.baseUrl,
@@ -181,18 +171,17 @@ Deno.test({
       '--use-default'
     ], tempDir);
 
-    assertEquals(result.code, 0, `Init with --use-default should succeed: ${result.stderr}`);
+    expect(result.code).toEqual(0);
 
     // Verify wmill.yaml was created with default settings only
-    const wmillYaml = await Deno.readTextFile(`${tempDir}/wmill.yaml`);
-    
+    const wmillYaml = await readFile(`${tempDir}/wmill.yaml`, "utf-8");
+
     // Should have default settings, not backend settings
-    assertStringIncludes(wmillYaml, "includes:\n  - f/**", "Should use default includes");
-    assertStringIncludes(wmillYaml, "defaultTs: bun", "Should use default TypeScript runtime");
-    
+    expect(wmillYaml).toContain("includes:\n  - f/**");
+    expect(wmillYaml).toContain("defaultTs: bun");
+
     // Should NOT have backend-specific settings
-    assertEquals(wmillYaml.includes("f/should-be-ignored/**"), false, "Should not include backend settings");
-    assertStringIncludes(wmillYaml, "gitBranches: {}", "Should have empty overrides section for consistency");
-    });
-  }
+    expect(wmillYaml.includes("f/should-be-ignored/**")).toEqual(false);
+    expect(wmillYaml).toContain("gitBranches: {}");
+  });
 });

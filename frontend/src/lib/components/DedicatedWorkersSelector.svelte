@@ -61,7 +61,7 @@
 	let selectedTagsInfo: SvelteMap<string, SelectedTagInfo> = $state(new SvelteMap())
 
 	// Languages that support dedicated workers
-	const DEDICATED_WORKER_LANGUAGES = ['python3', 'bun', 'deno']
+	const DEDICATED_WORKER_LANGUAGES = ['python3', 'bun', 'bunnative', 'deno']
 
 	// Resolve workspace script languages and filter to supported languages
 	async function resolveAndFilterRunners(
@@ -603,7 +603,7 @@
 											<div class="bg-surface-secondary border-t">
 												{#if runnable.runners.length === 0}
 													<div class="px-9 py-1.5 text-xs text-tertiary italic">
-														No eligible steps (python3/bun/deno)
+														No eligible steps (python3/bun/bunnative/deno)
 													</div>
 												{:else}
 													{#each runnable.runners as runner (runner.stepId)}

@@ -6,7 +6,6 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use windmill_api_auth::ApiAuthed;
 use axum::{
     extract::{Path, Query},
     routing::{get, post},
@@ -20,6 +19,7 @@ use std::{
     fmt::{Display, Formatter},
     vec,
 };
+use windmill_api_auth::ApiAuthed;
 use windmill_common::{
     db::UserDB,
     error::JsonResult,
@@ -109,7 +109,7 @@ pub struct Input {
 #[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct CompletedJobMini {
     id: Uuid,
-    created_at: chrono::DateTime<chrono::Utc>,
+    completed_at: chrono::DateTime<chrono::Utc>,
     args: Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
     created_by: String,
     success: bool,
@@ -147,9 +147,9 @@ async fn get_input_history(
     };
 
     let sql = &format!(
-        "select id, v2_job.created_at, created_by, 'null'::jsonb as args, status = 'success' as success from v2_job JOIN v2_job_completed USING (id) \
+        "select id, v2_job_completed.completed_at, created_by, 'null'::jsonb as args, status = 'success' as success from v2_job JOIN v2_job_completed USING (id) \
         where v2_job.workspace_id = $3 and {} = $1 and kind = any($2) {args_query} AND v2_job_completed.status != 'skipped' {include_non_root} \
-        order by v2_job.created_at desc limit $4 offset $5",
+        order by v2_job_completed.completed_at desc limit $4 offset $5",
         r.runnable_type.column_name(),
 
     );
@@ -189,10 +189,10 @@ async fn get_input_history(
             id: row.id,
             name: format!(
                 "{} {}",
-                row.created_at.format("%H:%M %-d/%-m"),
+                row.completed_at.format("%H:%M %-d/%-m"),
                 row.created_by
             ),
-            created_at: row.created_at,
+            created_at: row.completed_at,
             args: sqlx::types::Json(
                 serde_json::value::RawValue::from_string("null".to_string()).unwrap(),
             ),
@@ -352,11 +352,12 @@ async fn update_input(
 ) -> JsonResult<String> {
     let mut tx = user_db.begin(&authed).await?;
 
-    sqlx::query("UPDATE input SET name = $1, is_public = $2 WHERE id = $3 and workspace_id = $4")
+    sqlx::query("UPDATE input SET name = $1, is_public = $2 WHERE id = $3 and workspace_id = $4 AND created_by = $5")
         .bind(&input.name)
         .bind(&input.is_public)
         .bind(&input.id)
         .bind(&w_id)
+        .bind(&authed.username)
         .execute(&mut *tx)
         .await?;
 
@@ -372,9 +373,10 @@ async fn delete_input(
 ) -> JsonResult<String> {
     let mut tx = user_db.begin(&authed).await?;
 
-    sqlx::query("DELETE FROM input WHERE id = $1 and workspace_id = $2")
+    sqlx::query("DELETE FROM input WHERE id = $1 and workspace_id = $2 AND created_by = $3")
         .bind(&i_id)
         .bind(&w_id)
+        .bind(&authed.username)
         .execute(&mut *tx)
         .await?;
 

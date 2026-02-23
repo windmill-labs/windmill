@@ -33,20 +33,35 @@
 
 	const wizardStepLabels = [...settingsSteps.map((s) => s.label), 'Root login & Resource Types']
 
+	const fullStepLabels = ['Settings', 'Root login & Resource Types']
+
 	const initialMode = $page.url.searchParams.get('mode') === 'full' ? 'full' : 'wizard'
 	const initialStep = Math.max(
 		0,
 		Math.min(parseInt($page.url.searchParams.get('step') ?? '0') || 0, wizardStepLabels.length - 1)
 	)
+	const initialFullStep =
+		initialMode === 'full'
+			? Math.max(
+					0,
+					Math.min(
+						parseInt($page.url.searchParams.get('step') ?? '0') || 0,
+						fullStepLabels.length - 1
+					)
+				)
+			: 0
 	let mode: 'wizard' | 'full' = $state(initialMode)
 	let wizardStep = $state(initialStep)
+	let fullStep = $state(initialFullStep)
 
 	$effect(() => {
 		const url = new URL(window.location.href)
 		if (mode === 'wizard') {
 			url.searchParams.set('step', String(wizardStep))
+			url.searchParams.delete('mode')
 		} else {
-			url.searchParams.delete('step')
+			url.searchParams.set('step', String(fullStep))
+			url.searchParams.set('mode', 'full')
 		}
 		history.replaceState(history.state, '', url)
 	})
@@ -92,7 +107,10 @@
 	}
 
 	$effect(() => {
-		if (!isSettingsStep(wizardStep) && rtSyncStatus === 'idle') {
+		if (
+			rtSyncStatus === 'idle' &&
+			((mode === 'wizard' && !isSettingsStep(wizardStep)) || (mode === 'full' && fullStep === 1))
+		) {
 			syncCachedResourceTypes()
 		}
 	})
@@ -183,7 +201,9 @@
 
 	/** Check if we need to warn about missing EE license key before proceeding */
 	function proceedFromCore(callback: () => void) {
-		if (wizardStep === 0 && isEeImage() && isLicenseKeyEmpty()) {
+		const leavingSettings =
+			(mode === 'wizard' && wizardStep === 0) || (mode === 'full' && fullStep === 0)
+		if (leavingSettings && isEeImage() && isLicenseKeyEmpty()) {
 			pendingNextCallback = callback
 			showLicenseKeyWarning = true
 			return
@@ -215,6 +235,7 @@
 
 	function switchToWizardMode() {
 		yamlMode = false
+		fullStep = 0
 		mode = 'wizard'
 	}
 
@@ -302,6 +323,100 @@
 	}
 </script>
 
+{#snippet accountSetupContent()}
+	<SettingsPageHeader title="Root login & Resource Types" />
+
+	<div class="flex flex-col gap-6 pb-6">
+		<SettingCard
+			label="Superadmin login"
+			description="Replace the default superadmin account with a secure email and password."
+		>
+			<div class="flex flex-col gap-4">
+				<div class="flex flex-col gap-1">
+					<span class="text-xs font-semibold text-secondary">Email</span>
+					<TextInput
+						bind:value={newEmail}
+						inputProps={{ type: 'email', placeholder: 'admin@company.com' }}
+						error={newEmail.length > 0 && !emailValid ? 'Must be a valid email' : undefined}
+						size="md"
+					/>
+					{#if $superadmin}
+						<p class="text-tertiary text-2xs mt-1">Current email: {$superadmin}</p>
+					{/if}
+				</div>
+				<div class="flex flex-col gap-1">
+					<span class="text-xs font-semibold text-secondary">Password</span>
+					<TextInput
+						bind:value={newPassword}
+						inputProps={{ type: 'password', placeholder: 'Enter password' }}
+						error={newPassword.length > 0 && !passwordValid
+							? 'Must be at least 2 characters'
+							: undefined}
+						size="md"
+					/>
+				</div>
+			</div>
+		</SettingCard>
+
+		<SettingCard
+			label="Resource Types"
+			description="Resource types bundled with the Docker image are synced automatically. You can also fetch the latest from the hub."
+		>
+			<div class="flex flex-col gap-3 mt-1">
+				{#if rtSyncStatus === 'loading'}
+					<Alert type="info" title="Syncing cached resource types..." />
+				{:else if rtSyncStatus === 'success'}
+					<Alert type="success" title="Cached resource types synced">
+						{rtSyncMessage}
+					</Alert>
+				{:else if rtSyncStatus === 'error'}
+					<Alert type="error" title="Cached resource types sync failed">
+						{rtSyncMessage}
+					</Alert>
+				{/if}
+
+				<div class="flex items-center gap-2">
+					<Button
+						variant="accent"
+						unifiedSize="sm"
+						loading={hubSyncStatus === 'loading'}
+						onClick={syncFromHub}
+					>
+						Sync latest from hub
+					</Button>
+					<p class="text-tertiary text-2xs">
+						Fetches the latest resource types directly from the Windmill Hub (requires internet
+						access).
+					</p>
+				</div>
+				{#if hubSyncStatus === 'success'}
+					<Alert type="success" title="Hub sync complete">
+						{hubSyncMessage}
+					</Alert>
+				{:else if hubSyncStatus === 'error'}
+					<Alert type="error" title="Hub sync failed">
+						{hubSyncMessage}
+					</Alert>
+				{/if}
+				<Toggle
+					bind:checked={enableHubSync}
+					options={{ right: 'Sync resource types every day' }}
+					size="xs"
+				/>
+				<p class="text-tertiary text-2xs">
+					The daily schedule synchronizes resource types from the Hub every day at midnight UTC.
+				</p>
+			</div>
+		</SettingCard>
+
+		{#if accountError}
+			<Alert type="error" title="Setup error">
+				{accountError}
+			</Alert>
+		{/if}
+	</div>
+{/snippet}
+
 <CenteredModal large title="Instance settings" centerVertically={false} containOverflow>
 	<div class="flex flex-col flex-1 min-h-0 overflow-hidden">
 		{#if mode === 'wizard'}
@@ -339,136 +454,69 @@
 						/>
 					{/key}
 				{:else}
-					<!-- Account setup step -->
-					<SettingsPageHeader title="Root login & Resource Types" />
-
-					<div class="flex flex-col gap-6 pb-6">
-						<SettingCard
-							label="Superadmin login"
-							description="Replace the default superadmin account with a secure email and password."
-						>
-							<div class="flex flex-col gap-4">
-								<div class="flex flex-col gap-1">
-									<span class="text-xs font-semibold text-secondary">Email</span>
-									<TextInput
-										bind:value={newEmail}
-										inputProps={{ type: 'email', placeholder: 'admin@company.com' }}
-										error={newEmail.length > 0 && !emailValid ? 'Must be a valid email' : undefined}
-										size="md"
-									/>
-									{#if $superadmin}
-										<p class="text-tertiary text-2xs mt-1">Current email: {$superadmin}</p>
-									{/if}
-								</div>
-								<div class="flex flex-col gap-1">
-									<span class="text-xs font-semibold text-secondary">Password</span>
-									<TextInput
-										bind:value={newPassword}
-										inputProps={{ type: 'password', placeholder: 'Enter password' }}
-										error={newPassword.length > 0 && !passwordValid
-											? 'Must be at least 2 characters'
-											: undefined}
-										size="md"
-									/>
-								</div>
-							</div>
-						</SettingCard>
-
-						<SettingCard
-							label="Resource Types"
-							description="Resource types bundled with the Docker image are synced automatically. You can also fetch the latest from the hub."
-						>
-							<div class="flex flex-col gap-3 mt-1">
-								{#if rtSyncStatus === 'loading'}
-									<Alert type="info" title="Syncing cached resource types..." />
-								{:else if rtSyncStatus === 'success'}
-									<Alert type="success" title="Cached resource types synced">
-										{rtSyncMessage}
-									</Alert>
-								{:else if rtSyncStatus === 'error'}
-									<Alert type="error" title="Cached resource types sync failed">
-										{rtSyncMessage}
-									</Alert>
-								{/if}
-
-								<div class="flex items-center gap-2">
-									<Button
-										variant="accent"
-										unifiedSize="sm"
-										loading={hubSyncStatus === 'loading'}
-										onClick={syncFromHub}
-									>
-										Sync latest from hub
-									</Button>
-									<p class="text-tertiary text-2xs">
-										Fetches the latest resource types directly from the Windmill Hub (requires
-										internet access).
-									</p>
-								</div>
-								{#if hubSyncStatus === 'success'}
-									<Alert type="success" title="Hub sync complete">
-										{hubSyncMessage}
-									</Alert>
-								{:else if hubSyncStatus === 'error'}
-									<Alert type="error" title="Hub sync failed">
-										{hubSyncMessage}
-									</Alert>
-								{/if}
-								<Toggle
-									bind:checked={enableHubSync}
-									options={{ right: 'Sync resource types every day' }}
-									size="xs"
-								/>
-								<p class="text-tertiary text-2xs">
-									The daily schedule synchronizes resource types from the Hub every day at midnight
-									UTC.
-								</p>
-							</div>
-						</SettingCard>
-
-						{#if accountError}
-							<Alert type="error" title="Setup error">
-								{accountError}
-							</Alert>
-						{/if}
-					</div>
+					{@render accountSetupContent()}
 				{/if}
 			</div>
 		{:else}
-			<!-- Action bar (full mode) -->
-			<div class="flex items-center justify-end gap-2 pb-2 border-b shrink-0">
-				<Toggle bind:checked={yamlMode} options={{ right: 'YAML' }} size="sm" />
+			<!-- Breadcrumb (full mode) -->
+			<div class="pb-2 border-b shrink-0 flex items-center justify-between">
+				<Breadcrumb
+					items={fullStepLabels}
+					selectedIndex={fullStep + 1}
+					numbered
+					onselect={(i) => {
+						if (i < fullStep) {
+							saveAndProceed(() => {
+								yamlMode = false
+								fullStep = i
+							})
+						}
+					}}
+				>
+					{#snippet separator()}
+						<ChevronRight size={16} class="text-tertiary shrink-0" />
+					{/snippet}
+				</Breadcrumb>
+				{#if fullStep === 0}
+					<Toggle bind:checked={yamlMode} options={{ right: 'YAML' }} size="sm" />
+				{/if}
 			</div>
 
-			<!-- Sidebar + Content -->
-			<div class="flex flex-1 min-h-0 pt-2">
-				{#if !yamlMode}
-					<div class="w-44 shrink-0 overflow-auto pb-4 pr-4">
-						<SettingsSearchInput {searchableItems} onSelect={handleSearchSelect} class="mb-3" />
-						<SidebarNavigation
-							groups={setupNavigationGroups}
-							selectedId={fullTab}
-							onNavigate={handleNavigate}
+			<!-- Full mode content -->
+			{#if fullStep === 0}
+				<div class="flex flex-1 min-h-0 pt-4">
+					{#if !yamlMode}
+						<div class="w-44 shrink-0 h-full overflow-auto pb-4 pr-4">
+							<SettingsSearchInput {searchableItems} onSelect={handleSearchSelect} class="mb-3" />
+							<SidebarNavigation
+								groups={setupNavigationGroups}
+								selectedId={fullTab}
+								onNavigate={handleNavigate}
+							/>
+						</div>
+					{/if}
+
+					<div class="flex-1 min-w-0 h-full overflow-auto px-4">
+						<InstanceSettings
+							bind:this={instanceSettings}
+							hideTabs
+							tab={instanceSettingsCategory}
+							{authSubTab}
+							bind:yamlMode
+							onNavigateToTab={(category) => {
+								const targetTab = categoryToTabMap[category]
+								if (targetTab) {
+									handleNavigate(targetTab)
+								}
+							}}
 						/>
 					</div>
-				{/if}
-
-				<div class="flex-1 min-w-0 overflow-auto px-4">
-					<InstanceSettings
-						bind:this={instanceSettings}
-						hideTabs
-						tab={instanceSettingsCategory}
-						{authSubTab}
-						bind:yamlMode
-						onNavigateToTab={(category) => {
-							const targetTab = categoryToTabMap[category]
-							if (targetTab) {
-								handleNavigate(targetTab)
-							}
-						}}
-					/>
 				</div>
-			</div>
+			{:else}
+				<div class="flex-1 overflow-auto min-h-0 pt-4">
+					{@render accountSetupContent()}
+				</div>
+			{/if}
 		{/if}
 
 		<!-- Navigation (pinned bottom) -->
@@ -517,7 +565,7 @@
 						</Button>
 					{/if}
 				</div>
-			{:else}
+			{:else if fullStep === 0}
 				<Button
 					variant="default"
 					unifiedSize="md"
@@ -530,12 +578,31 @@
 					variant="accent"
 					unifiedSize="md"
 					onClick={() =>
-						saveAndProceed(() => {
+						proceedFromCore(() => {
 							yamlMode = false
-							wizardStep = wizardStepLabels.length - 1
-							mode = 'wizard'
-						})}>Continue</Button
+							fullStep = 1
+						})}
 				>
+					Continue
+				</Button>
+			{:else}
+				<Button
+					variant="default"
+					unifiedSize="md"
+					startIcon={{ icon: ArrowLeft }}
+					onClick={() => saveAndProceed(() => (fullStep = 0))}
+				>
+					Back
+				</Button>
+				<Button
+					variant="accent"
+					unifiedSize="md"
+					disabled={!accountFormValid}
+					loading={accountSubmitting}
+					onClick={submitAccount}
+				>
+					Set account & finish
+				</Button>
 			{/if}
 		</div>
 

@@ -44,10 +44,21 @@ Windmill uses a workspace-based architecture with multiple crates:
 ## Enterprise Features
 
 - Enterprise files use the `*_ee.rs` suffix
-- Enterprise source is in `windmill-ee-private` folder (sibling directory at `../../windmill-ee-private`), symlinked into each crate's `src/`
+- Enterprise source is in `windmill-ee-private` folder (sibling directory at `../../windmill-ee-private` or `~/windmill-ee-private`), symlinked into each crate's `src/`
+- The `_ee.rs` files are gitignored in the main repo — they are tracked only in the `windmill-ee-private` repo
 - You can and should modify `windmill-ee-private` directly when needed (e.g., when creating new crates that need EE code, mirror the package structure there)
 - Use feature flags: `#[cfg(feature = "enterprise")]`
 - Isolate enterprise code in separate modules
+
+### EE PR Workflow (MUST DO when modifying `*_ee.rs` files)
+
+When you modify any `*_ee.rs` file and create a PR on the windmill repo, you **MUST** also:
+
+1. **Create a matching branch** in the `windmill-ee-private` repo (use the same branch name). If using worktrees, the EE worktree is at `~/windmill-ee-private__worktrees/<branch-name>/`
+2. **Commit and push** the `_ee.rs` changes in that branch
+3. **Create a PR** on `windmill-ee-private` with a link to the companion windmill PR
+4. **Update `ee-repo-ref.txt`**: Run `bash write_latest_ee_ref.sh` from `backend/` to write the latest EE commit hash. **Important**: the script may fall back to `~/windmill-ee-private` (main branch) instead of the worktree — verify it wrote the correct commit hash from your branch, not from main. If wrong, manually write the correct hash.
+5. **Commit `ee-repo-ref.txt`** in the windmill repo so CI picks up the correct EE ref
 
 ## Code Validation (MUST DO)
 

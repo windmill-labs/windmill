@@ -22,8 +22,8 @@ use crate::{
     handle_child::handle_child,
     is_sandboxing_enabled, read_ee_registry, BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR,
     BUN_CACHE_DIR, BUN_NO_CACHE, BUN_PATH, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH,
-    NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TRACING_PROXY_CA_CERT_PATH,
-    TZ_ENV,
+    NPMRC, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 use windmill_common::{
     client::AuthedClient,
@@ -47,9 +47,9 @@ use windmill_common::{
     DB,
 };
 
+use crate::global_cache::{exists_in_cache, save_cache};
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 use windmill_object_store::attempt_fetch_bytes;
-use crate::global_cache::{exists_in_cache, save_cache};
 
 use windmill_parser::Typ;
 
@@ -299,6 +299,20 @@ async fn gen_bunfig(
     w_id: &str,
     db: Option<&Connection>,
 ) -> Result<()> {
+    let npmrc = if let Some(conn) = db {
+        read_ee_registry(NPMRC.read().await.clone(), "npmrc", job_id, w_id, conn).await
+    } else {
+        NPMRC.read().await.clone()
+    };
+
+    if let Some(ref npmrc_content) = npmrc {
+        if !npmrc_content.trim().is_empty() {
+            tracing::debug!("Writing .npmrc for bun from npmrc setting");
+            write_file(job_dir, ".npmrc", npmrc_content)?;
+            return Ok(());
+        }
+    }
+
     let (registry, bunfig_install_scopes) = if let Some(conn) = db {
         (
             read_ee_registry(
@@ -402,39 +416,55 @@ pub async fn install_bun_lockfile(
     };
 
     let has_file = if npm_mode {
-        let registry = if let Some(conn) = db {
-            read_ee_registry(
-                NPM_CONFIG_REGISTRY.read().await.clone(),
-                "npm registry",
-                job_id,
-                w_id,
-                conn,
-            )
-            .await
+        let npmrc = if let Some(conn) = db {
+            read_ee_registry(NPMRC.read().await.clone(), "npmrc", job_id, w_id, conn).await
         } else {
-            NPM_CONFIG_REGISTRY.read().await.clone()
+            NPMRC.read().await.clone()
         };
-        if let Some(registry) = registry {
-            let content = registry
-                .trim_start_matches("https:")
-                .trim_start_matches("http:");
 
-            let mut splitted = registry.split(":_authToken=");
-            let custom_registry = splitted.next().unwrap_or_default();
-            npm_logs.push_str(&format!(
-                "Using custom npm registry: {custom_registry} {}\n",
-                if splitted.next().is_some() {
-                    "with authToken"
-                } else {
-                    "without authToken"
-                }
-            ));
-
-            child_cmd.env("NPM_CONFIG_REGISTRY", custom_registry);
-            write_file(job_dir, ".npmrc", content)?;
-            true
+        if let Some(ref npmrc_content) = npmrc {
+            if !npmrc_content.trim().is_empty() {
+                npm_logs.push_str("Using .npmrc from instance settings\n");
+                write_file(job_dir, ".npmrc", npmrc_content)?;
+                true
+            } else {
+                false
+            }
         } else {
-            false
+            let registry = if let Some(conn) = db {
+                read_ee_registry(
+                    NPM_CONFIG_REGISTRY.read().await.clone(),
+                    "npm registry",
+                    job_id,
+                    w_id,
+                    conn,
+                )
+                .await
+            } else {
+                NPM_CONFIG_REGISTRY.read().await.clone()
+            };
+            if let Some(registry) = registry {
+                let content = registry
+                    .trim_start_matches("https:")
+                    .trim_start_matches("http:");
+
+                let mut splitted = registry.split(":_authToken=");
+                let custom_registry = splitted.next().unwrap_or_default();
+                npm_logs.push_str(&format!(
+                    "Using custom npm registry: {custom_registry} {}\n",
+                    if splitted.next().is_some() {
+                        "with authToken"
+                    } else {
+                        "without authToken"
+                    }
+                ));
+
+                child_cmd.env("NPM_CONFIG_REGISTRY", custom_registry);
+                write_file(job_dir, ".npmrc", content)?;
+                true
+            } else {
+                false
+            }
         }
     } else {
         false
@@ -446,9 +476,11 @@ pub async fn install_bun_lockfile(
         }
     }
 
-    let mut child_process = start_child_process(child_cmd, &*BUN_PATH, false).await?;
+    if !has_file {
+        gen_bunfig(job_dir, job_id, w_id, db).await?;
+    }
 
-    gen_bunfig(job_dir, job_id, w_id, db).await?;
+    let mut child_process = start_child_process(child_cmd, &*BUN_PATH, false).await?;
     if let Some(db) = db {
         handle_child(
             job_id,
@@ -977,8 +1009,7 @@ pub async fn handle_bun_job(
             }
         };
 
-        let (cache, logs) =
-            crate::global_cache::load_cache(&local_path, &remote_path, false).await;
+        let (cache, logs) = crate::global_cache::load_cache(&local_path, &remote_path, false).await;
         (cache, logs, local_path, remote_path)
     } else {
         (false, "".to_string(), "".to_string(), "".to_string())
@@ -1400,13 +1431,7 @@ try {{
 
         #[cfg(feature = "deno_core")]
         {
-            let env_code = format!(
-            "const process = {{ env: {{}} }};\nconst BASE_URL = '{base_internal_url}';\nconst BASE_INTERNAL_URL = '{base_internal_url}';\nprocess.env['BASE_URL'] = BASE_URL;process.env['BASE_INTERNAL_URL'] = BASE_INTERNAL_URL;\n{}",
-            reserved_variables
-                .iter()
-                .map(|(k, v)| format!("process.env['{}'] = '{}';\n", k, v))
-                .collect::<Vec<String>>()
-                .join("\n"));
+            let env_code = build_nativets_env_code(base_internal_url, &reserved_variables);
             let js_code = read_file_content(&format!("{job_dir}/main.js")).await?;
             let started_at = Instant::now();
             let args = crate::common::build_args_map(job, client, conn)
@@ -1661,6 +1686,21 @@ pub async fn get_common_bun_proc_envs(base_internal_url: Option<&str>) -> HashMa
     return bun_envs;
 }
 
+#[cfg(any(feature = "deno_core", feature = "private"))]
+pub fn build_nativets_env_code(
+    base_internal_url: &str,
+    reserved_variables: &HashMap<String, String>,
+) -> String {
+    format!(
+        "const process = {{ env: {{}} }};\nconst BASE_URL = '{base_internal_url}';\nconst BASE_INTERNAL_URL = '{base_internal_url}';\nprocess.env['BASE_URL'] = BASE_URL;process.env['BASE_INTERNAL_URL'] = BASE_INTERNAL_URL;\n{}",
+        reserved_variables
+            .iter()
+            .map(|(k, v)| format!("process.env['{}'] = '{}';", k, v))
+            .collect::<Vec<String>>()
+            .join("\n")
+    )
+}
+
 #[cfg(feature = "private")]
 use crate::{
     common::build_envs_map, dedicated_worker_oss::handle_dedicated_process, JobCompletedSender,
@@ -1671,6 +1711,212 @@ use tokio::sync::mpsc::Receiver;
 use windmill_common::variables;
 #[cfg(feature = "private")]
 use windmill_queue::DedicatedWorkerJob;
+
+#[cfg(feature = "private")]
+async fn handle_dedicated_bunnative(
+    inner_content: &str,
+    js_code: &str,
+    env_code: &str,
+    token: &str,
+    worker_name: &str,
+    _w_id: &str,
+    script_path: &str,
+    db: &DB,
+    jobs_rx: Receiver<DedicatedWorkerJob>,
+    killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    job_completed_tx: JobCompletedSender,
+    client: &windmill_common::client::AuthedClient,
+) -> Result<()> {
+    #[cfg(not(feature = "deno_core"))]
+    {
+        let _ = (
+            inner_content,
+            js_code,
+            env_code,
+            token,
+            worker_name,
+            script_path,
+            db,
+            jobs_rx,
+            killpill_rx,
+            job_completed_tx,
+            client,
+        );
+        return Err(error::Error::internal_err(
+            "deno_core feature is not activated but native dedicated worker was started"
+                .to_string(),
+        ));
+    }
+
+    #[cfg(feature = "deno_core")]
+    {
+        use std::sync::Arc;
+
+        use crate::common::transform_json;
+        use windmill_common::worker::to_raw_value;
+        use windmill_queue::{append_logs, JobCompleted, MiniCompletedJob};
+        use windmill_runtime_nativets::PrewarmedIsolate;
+
+        let ann = windmill_runtime_nativets::get_annotation(inner_content);
+        let parsed_args =
+            windmill_parser_ts::parse_deno_signature(inner_content, true, false, None)?.args;
+        let arg_names: Vec<String> = parsed_args.into_iter().map(|x| x.name).collect();
+
+        let env_code = env_code.to_string();
+        let js_code = js_code.to_string();
+
+        let mut warm = PrewarmedIsolate::spawn(
+            env_code.clone(),
+            js_code.clone(),
+            ann.clone(),
+            arg_names.clone(),
+        );
+
+        let init_log = format!("dedicated worker nativets: {worker_name}\n\n");
+        let alive = true;
+        let mut killpill_rx = killpill_rx;
+        let mut jobs_rx = jobs_rx;
+        loop {
+            tokio::select! {
+                biased;
+                _ = killpill_rx.recv(), if alive => {
+                    tracing::info!("received killpill for nativets dedicated worker");
+                    break;
+                },
+                job = jobs_rx.recv(), if alive => {
+                    if let Some(DedicatedWorkerJob { job, flow_runners, done_tx }) = job {
+                        let id = job.id;
+                        tracing::info!(
+                            "received job on nativets dedicated worker for {script_path}: {id}"
+                        );
+
+                        let args = if let Some(args) = job.args.as_ref() {
+                            if let Some(x) = transform_json(
+                                client, &job.workspace_id, &args.0, &job, &db.into(),
+                            ).await? {
+                                serde_json::to_string(&x)
+                                    .unwrap_or_else(|_| "{}".to_string())
+                            } else {
+                                serde_json::to_string(&args)
+                                    .unwrap_or_else(|_| "{}".to_string())
+                            }
+                        } else {
+                            "{}".to_string()
+                        };
+
+                        if let Err(e) = warm.wait_ready().await {
+                            tracing::error!("pre-warmed isolate failed during init: {e}");
+                            let result = Arc::new(to_raw_value(&serde_json::json!({
+                                "message": format!("isolate init failed: {e}"),
+                                "name": "Error",
+                            })));
+                            append_logs(&id, &job.workspace_id, init_log.clone(), &db.into()).await;
+                            job_completed_tx.send_job(JobCompleted {
+                                job: MiniCompletedJob::from(job),
+                                result,
+                                result_columns: None,
+                                mem_peak: 0,
+                                canceled_by: None,
+                                success: false,
+                                cached_res_path: None,
+                                token: token.to_string(),
+                                duration: None,
+                                preprocessed_args: None,
+                                has_stream: Some(false),
+                                from_cache: None,
+                                flow_runners,
+                                done_tx,
+                            }, true).await?;
+                            warm = PrewarmedIsolate::spawn(
+                                env_code.clone(),
+                                js_code.clone(),
+                                ann.clone(),
+                                arg_names.clone(),
+                            );
+                            continue;
+                        }
+
+                        let executing = warm.start_execution(args);
+
+                        warm = PrewarmedIsolate::spawn(
+                            env_code.clone(),
+                            js_code.clone(),
+                            ann.clone(),
+                            arg_names.clone(),
+                        );
+
+                        match executing.wait().await {
+                            Ok(prewarmed_result) => {
+                                let mut logs = init_log.clone();
+                                if !prewarmed_result.logs.is_empty() {
+                                    logs.push_str(&prewarmed_result.logs);
+                                }
+                                append_logs(&id, &job.workspace_id, logs, &db.into()).await;
+
+                                let (result, success) = match prewarmed_result.result {
+                                    Ok(raw) => (Arc::new(raw), true),
+                                    Err(e) => (
+                                        Arc::new(to_raw_value(&serde_json::json!({
+                                            "message": e,
+                                            "name": "Error",
+                                        }))),
+                                        false,
+                                    ),
+                                };
+
+                                job_completed_tx.send_job(JobCompleted {
+                                    job: MiniCompletedJob::from(job),
+                                    result,
+                                    result_columns: None,
+                                    mem_peak: 0,
+                                    canceled_by: None,
+                                    success,
+                                    cached_res_path: None,
+                                    token: token.to_string(),
+                                    duration: None,
+                                    preprocessed_args: None,
+                                    has_stream: Some(false),
+                                    from_cache: None,
+                                    flow_runners,
+                                    done_tx,
+                                }, true).await?;
+                            }
+                            Err(e) => {
+                                tracing::error!("isolate execution failed: {e}");
+                                append_logs(&id, &job.workspace_id, init_log.clone(), &db.into()).await;
+                                let result = Arc::new(to_raw_value(&serde_json::json!({
+                                    "message": format!("{e}"),
+                                    "name": "Error",
+                                })));
+                                job_completed_tx.send_job(JobCompleted {
+                                    job: MiniCompletedJob::from(job),
+                                    result,
+                                    result_columns: None,
+                                    mem_peak: 0,
+                                    canceled_by: None,
+                                    success: false,
+                                    cached_res_path: None,
+                                    token: token.to_string(),
+                                    duration: None,
+                                    preprocessed_args: None,
+                                    has_stream: Some(false),
+                                    from_cache: None,
+                                    flow_runners: None,
+                                    done_tx: None,
+                                }, true).await?;
+                            }
+                        }
+                    } else {
+                        tracing::debug!("job channel closed for nativets dedicated worker");
+                        break;
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
 
 #[cfg(feature = "private")]
 pub async fn start_worker(
@@ -1704,7 +1950,9 @@ pub async fn start_worker(
     let mut annotation = windmill_common::worker::TypeScriptAnnotations::parse(inner_content);
 
     //TODO: remove this when bun dedicated workers work without issues
-    annotation.nodejs = true;
+    if !annotation.native {
+        annotation.nodejs = true;
+    }
 
     let context = variables::get_reserved_variables(
         &Connection::from(db.clone()),
@@ -1727,6 +1975,81 @@ pub async fn start_worker(
     )
     .await;
     let context_envs = build_envs_map(context.to_vec()).await;
+
+    if annotation.native {
+        // Native (V8) dedicated worker: bundle the code and dispatch to V8 instead of a subprocess.
+        let main_code = remove_pinned_imports(inner_content)?;
+        write_file(job_dir, "main.ts", &main_code)?;
+
+        if let Some(reqs) = requirements_o.as_ref() {
+            let (pkg, lock, empty, is_binary) = split_lockfile(reqs);
+            write_file(job_dir, "package.json", pkg)?;
+            if let Some(lock) = lock {
+                if !empty {
+                    write_lock(lock, job_dir, is_binary).await?;
+                    install_bun_lockfile(
+                        &mut mem_peak,
+                        &mut canceled_by,
+                        &Uuid::nil(),
+                        w_id,
+                        Some(&Connection::from(db.clone())),
+                        job_dir,
+                        worker_name,
+                        common_bun_proc_envs.clone(),
+                        annotation.npm,
+                        &mut None,
+                    )
+                    .await?;
+                }
+            }
+        }
+
+        build_loader(
+            job_dir,
+            base_internal_url,
+            token,
+            w_id,
+            script_path,
+            LoaderMode::BrowserBundle,
+        )
+        .await?;
+        generate_bun_bundle(
+            job_dir,
+            w_id,
+            &Uuid::nil(),
+            worker_name,
+            Some(&Connection::from(db.clone())),
+            None,
+            &mut mem_peak,
+            &mut canceled_by,
+            &common_bun_proc_envs,
+            &mut None,
+        )
+        .await?;
+        let js_code = read_file_content(&format!("{job_dir}/main.js")).await?;
+
+        let reserved_variables: HashMap<String, String> = context
+            .iter()
+            .map(|x| (x.name.clone(), x.value.clone()))
+            .collect();
+        let env_code = build_nativets_env_code(base_internal_url, &reserved_variables);
+
+        return handle_dedicated_bunnative(
+            inner_content,
+            &js_code,
+            &env_code,
+            token,
+            worker_name,
+            w_id,
+            script_path,
+            db,
+            jobs_rx,
+            killpill_rx,
+            job_completed_tx,
+            &client,
+        )
+        .await;
+    }
 
     let mut format = BundleFormat::Cjs;
     if let Some(codebase) = codebase.as_ref() {

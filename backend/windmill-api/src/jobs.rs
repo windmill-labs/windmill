@@ -2857,6 +2857,7 @@ struct Preview {
     dedicated_worker: Option<bool>,
     lock: Option<String>,
     format: Option<String>,
+    flow_path: Option<String>,
 }
 
 #[cfg(feature = "run_inline")]
@@ -4523,6 +4524,14 @@ async fn run_preview_script(
     check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
 
+    let preview_args = preview.args.unwrap_or_default();
+    let flow_path_extra = preview.flow_path.map(|fp| {
+        let mut extra = HashMap::new();
+        extra.insert("_FLOW_PATH".to_string(), to_raw_value(&fp));
+        extra
+    });
+    let push_args = PushArgs { extra: flow_path_extra, args: &preview_args };
+
     let (uuid, tx) = push(
         &db,
         tx,
@@ -4546,7 +4555,7 @@ async fn run_preview_script(
                 dedicated_worker: preview.dedicated_worker,
             }),
         },
-        PushArgs::from(&preview.args.unwrap_or_default()),
+        push_args,
         authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),

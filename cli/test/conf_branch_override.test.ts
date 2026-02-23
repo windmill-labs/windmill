@@ -1,4 +1,4 @@
-import { assertEquals, assertExists } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { expect, test } from "bun:test";
 import { getEffectiveSettings, type SyncOptions } from "../src/core/conf.ts";
 
 // =============================================================================
@@ -6,7 +6,7 @@ import { getEffectiveSettings, type SyncOptions } from "../src/core/conf.ts";
 // Tests for getEffectiveSettings with branchOverride parameter
 // =============================================================================
 
-Deno.test("getEffectiveSettings: applies branch overrides when branchOverride is provided", async () => {
+test("getEffectiveSettings: applies branch overrides when branchOverride is provided", async () => {
   const config: SyncOptions = {
     defaultTs: "bun",
     includes: ["f/**"],
@@ -28,18 +28,18 @@ Deno.test("getEffectiveSettings: applies branch overrides when branchOverride is
 
   // Test with staging branch override
   const stagingSettings = await getEffectiveSettings(config, undefined, true, true, "staging");
-  assertEquals(stagingSettings.includes, ["staging/**"]);
-  assertEquals(stagingSettings.skipVariables, true);
-  assertEquals(stagingSettings.skipSecrets, undefined);
+  expect(stagingSettings.includes).toEqual(["staging/**"]);
+  expect(stagingSettings.skipVariables).toEqual(true);
+  expect(stagingSettings.skipSecrets).toEqual(undefined);
 
   // Test with production branch override
   const prodSettings = await getEffectiveSettings(config, undefined, true, true, "production");
-  assertEquals(prodSettings.includes, ["prod/**"]);
-  assertEquals(prodSettings.skipSecrets, true);
-  assertEquals(prodSettings.skipVariables, undefined);
+  expect(prodSettings.includes).toEqual(["prod/**"]);
+  expect(prodSettings.skipSecrets).toEqual(true);
+  expect(prodSettings.skipVariables).toEqual(undefined);
 });
 
-Deno.test("getEffectiveSettings: uses top-level settings when branchOverride has no overrides", async () => {
+test("getEffectiveSettings: uses top-level settings when branchOverride has no overrides", async () => {
   const config: SyncOptions = {
     defaultTs: "bun",
     includes: ["f/**"],
@@ -52,12 +52,12 @@ Deno.test("getEffectiveSettings: uses top-level settings when branchOverride has
   };
 
   const settings = await getEffectiveSettings(config, undefined, true, true, "staging");
-  assertEquals(settings.includes, ["f/**"]);
-  assertEquals(settings.skipVariables, true);
-  assertEquals(settings.defaultTs, "bun");
+  expect(settings.includes).toEqual(["f/**"]);
+  expect(settings.skipVariables).toEqual(true);
+  expect(settings.defaultTs).toEqual("bun");
 });
 
-Deno.test("getEffectiveSettings: uses top-level settings for unknown branch", async () => {
+test("getEffectiveSettings: uses top-level settings for unknown branch", async () => {
   const config: SyncOptions = {
     defaultTs: "bun",
     includes: ["f/**"],
@@ -71,11 +71,11 @@ Deno.test("getEffectiveSettings: uses top-level settings for unknown branch", as
   };
 
   const settings = await getEffectiveSettings(config, undefined, true, true, "nonexistent");
-  assertEquals(settings.includes, ["f/**"]);
-  assertEquals(settings.defaultTs, "bun");
+  expect(settings.includes).toEqual(["f/**"]);
+  expect(settings.defaultTs).toEqual("bun");
 });
 
-Deno.test("getEffectiveSettings: promotionOverrides take precedence when promotion specified", async () => {
+test("getEffectiveSettings: promotionOverrides take precedence when promotion specified", async () => {
   const config: SyncOptions = {
     defaultTs: "bun",
     includes: ["f/**"],
@@ -94,16 +94,16 @@ Deno.test("getEffectiveSettings: promotionOverrides take precedence when promoti
 
   // Test without promotion flag - should use regular overrides
   const normalSettings = await getEffectiveSettings(config, undefined, true, true, "production");
-  assertEquals(normalSettings.includes, ["prod/**"]);
-  assertEquals(normalSettings.skipVariables, undefined);
+  expect(normalSettings.includes).toEqual(["prod/**"]);
+  expect(normalSettings.skipVariables).toEqual(undefined);
 
   // Test with promotion flag - should use promotionOverrides
   const promoSettings = await getEffectiveSettings(config, "production", true, true);
-  assertEquals(promoSettings.includes, ["promoted/**"]);
-  assertEquals(promoSettings.skipVariables, true);
+  expect(promoSettings.includes).toEqual(["promoted/**"]);
+  expect(promoSettings.skipVariables).toEqual(true);
 });
 
-Deno.test("getEffectiveSettings: branchOverride works without gitBranches config", async () => {
+test("getEffectiveSettings: branchOverride works without gitBranches config", async () => {
   const config: SyncOptions = {
     defaultTs: "bun",
     includes: ["f/**"],
@@ -111,11 +111,11 @@ Deno.test("getEffectiveSettings: branchOverride works without gitBranches config
 
   // Should not throw even with branchOverride but no gitBranches
   const settings = await getEffectiveSettings(config, undefined, true, true, "staging");
-  assertEquals(settings.includes, ["f/**"]);
-  assertEquals(settings.defaultTs, "bun");
+  expect(settings.includes).toEqual(["f/**"]);
+  expect(settings.defaultTs).toEqual("bun");
 });
 
-Deno.test("getEffectiveSettings: preserves all top-level settings in merged result", async () => {
+test("getEffectiveSettings: preserves all top-level settings in merged result", async () => {
   const config: SyncOptions = {
     defaultTs: "bun",
     includes: ["f/**"],
@@ -134,11 +134,11 @@ Deno.test("getEffectiveSettings: preserves all top-level settings in merged resu
   };
 
   const settings = await getEffectiveSettings(config, undefined, true, true, "staging");
-  assertEquals(settings.defaultTs, "bun");
-  assertEquals(settings.includes, ["f/**"]);
-  assertEquals(settings.excludes, ["*.test.ts"]);
-  assertEquals(settings.skipVariables, true); // Overridden
-  assertEquals(settings.skipResources, false);
-  assertEquals(settings.skipFlows, false);
-  assertEquals(settings.parallel, 4);
+  expect(settings.defaultTs).toEqual("bun");
+  expect(settings.includes).toEqual(["f/**"]);
+  expect(settings.excludes).toEqual(["*.test.ts"]);
+  expect(settings.skipVariables).toEqual(true); // Overridden
+  expect(settings.skipResources).toEqual(false);
+  expect(settings.skipFlows).toEqual(false);
+  expect(settings.parallel).toEqual(4);
 });

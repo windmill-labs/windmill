@@ -39,6 +39,19 @@ export const workspaceDependenciesLanguages: WorkspaceDependenciesLanguage[] = [
   { language: "go", filename: "go.mod" },
 ] as const;
 
+/**
+ * Returns true if a script in the given language requires a lock file.
+ * Matches the condition in updateScriptLock (metadata.ts).
+ */
+export function languageNeedsLock(language: ScriptLanguage | string): boolean {
+  return (
+    workspaceDependenciesLanguages.some((l) => l.language === language) ||
+    language === "deno" ||
+    language === "rust" ||
+    language === "ansible"
+  );
+}
+
 export function inferContentTypeFromFilePath(
   contentPath: string,
   defaultTs: "bun" | "deno" | undefined

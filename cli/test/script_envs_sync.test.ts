@@ -7,21 +7,17 @@
  * the env variables aren't there anymore.
  */
 
-import { assertEquals, assert } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { ensureDir } from "https://deno.land/std@0.224.0/fs/mod.ts";
+import { expect, test } from "bun:test";
+import { writeFile, readFile, mkdir } from "node:fs/promises";
 import { withTestBackend } from "./test_backend.ts";
 
-Deno.test({
-  name: "Integration: Script envs field is preserved during sync pull/push cycle",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  async fn() {
+test("Integration: Script envs field is preserved during sync pull/push cycle", async () => {
     await withTestBackend(async (backend, tempDir) => {
       const uniqueId = Date.now();
       const scriptPath = `f/test/envs_script_${uniqueId}`;
 
       // Step 1: Create a script via API with envs set
-      await ensureDir(`${tempDir}/f/test`);
+      await mkdir(`${tempDir}/f/test`, { recursive: true });
 
       // Create folder first
       const folderResp = await backend.apiRequest!(`/api/w/${backend.workspace}/folders/create`, {
@@ -46,102 +42,77 @@ Deno.test({
         }),
       });
 
-      assertEquals(
-        createResp.ok,
-        true,
-        `Failed to create script: ${await createResp.text()}`,
-      );
+      expect(createResp.ok).toEqual(true);
 
       // Verify the script was created with envs
       const getResp = await backend.apiRequest!(
         `/api/w/${backend.workspace}/scripts/get/p/${scriptPath}`,
       );
       const createdScriptText = await getResp.text();
-      assertEquals(getResp.ok, true, `Failed to get script: ${createdScriptText}`);
+      expect(getResp.ok).toEqual(true);
       const createdScript = JSON.parse(createdScriptText);
-      assertEquals(
-        createdScript.envs,
-        ["MY_ENV_VAR", "ANOTHER_VAR"],
-        "Script should have envs after creation",
-      );
+      expect(createdScript.envs).toEqual(["MY_ENV_VAR", "ANOTHER_VAR"]);
 
       // Step 2: Create wmill.yaml and sync pull
-      await Deno.writeTextFile(
+      await writeFile(
         `${tempDir}/wmill.yaml`,
         `defaultTs: bun
 includes:
   - "f/test/envs_script_${uniqueId}**"
 excludes: []
 `,
+        "utf-8",
       );
 
       const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
-      assertEquals(
-        pullResult.code,
-        0,
-        `Pull should succeed.\nstdout: ${pullResult.stdout}\nstderr: ${pullResult.stderr}`,
-      );
+      expect(pullResult.code).toEqual(0);
 
       // Verify the pulled metadata contains envs
       const metadataPath = `${tempDir}/f/test/envs_script_${uniqueId}.script.yaml`;
-      const metadataContent = await Deno.readTextFile(metadataPath);
-      assert(
+      const metadataContent = await readFile(metadataPath, "utf-8");
+      expect(
         metadataContent.includes("envs:") ||
           metadataContent.includes("MY_ENV_VAR") ||
           metadataContent.includes("ANOTHER_VAR"),
-        `Pulled metadata should contain envs. Content:\n${metadataContent}`,
-      );
+      ).toBeTruthy();
 
       // Step 3: Modify the script locally (change content)
       const scriptFilePath = `${tempDir}/f/test/envs_script_${uniqueId}.ts`;
-      const originalContent = await Deno.readTextFile(scriptFilePath);
-      await Deno.writeTextFile(
+      const originalContent = await readFile(scriptFilePath, "utf-8");
+      await writeFile(
         scriptFilePath,
         originalContent.replace("Hello world", "Hello world modified"),
+        "utf-8",
       );
 
       // Step 4: Sync push
       const pushResult = await backend.runCLICommand(["sync", "push", "--yes"], tempDir);
-      assertEquals(
-        pushResult.code,
-        0,
-        `Push should succeed.\nstdout: ${pushResult.stdout}\nstderr: ${pushResult.stderr}`,
-      );
+      expect(pushResult.code).toEqual(0);
 
       // Step 5: Verify envs are still present on the remote
       const getResp2 = await backend.apiRequest!(
         `/api/w/${backend.workspace}/scripts/get/p/${scriptPath}`,
       );
       const updatedScriptText = await getResp2.text();
-      assertEquals(getResp2.ok, true, `Failed to get script after push: ${updatedScriptText}`);
+      expect(getResp2.ok).toEqual(true);
       const updatedScript = JSON.parse(updatedScriptText);
 
-      assertEquals(
-        updatedScript.envs,
-        ["MY_ENV_VAR", "ANOTHER_VAR"],
-        `Script envs should be preserved after push. Got: ${JSON.stringify(updatedScript.envs)}`,
-      );
+      expect(updatedScript.envs).toEqual(["MY_ENV_VAR", "ANOTHER_VAR"]);
 
       // Also verify the content was updated
-      assert(
+      expect(
         updatedScript.content.includes("Hello world modified"),
-        "Script content should be updated",
-      );
+      ).toBeTruthy();
     });
-  },
 });
 
-Deno.test({
-  name: "Integration: Script envs field changes are detected and pushed",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  async fn() {
+test("Integration: Script envs field changes are detected and pushed", async () => {
     await withTestBackend(async (backend, tempDir) => {
       const uniqueId = Date.now();
       const scriptPath = `f/test/envs_change_${uniqueId}`;
 
       // Create folder
-      await ensureDir(`${tempDir}/f/test`);
+      await mkdir(`${tempDir}/f/test`, { recursive: true });
       await backend.apiRequest!(`/api/w/${backend.workspace}/folders/create`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -162,25 +133,26 @@ Deno.test({
           kind: "script",
         }),
       });
-      assertEquals(createResp.ok, true, `Failed to create script: ${await createResp.text()}`);
+      expect(createResp.ok).toEqual(true);
 
       // Setup wmill.yaml
-      await Deno.writeTextFile(
+      await writeFile(
         `${tempDir}/wmill.yaml`,
         `defaultTs: bun
 includes:
   - "f/test/envs_change_${uniqueId}**"
 excludes: []
 `,
+        "utf-8",
       );
 
       // Pull
       const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
-      assertEquals(pullResult.code, 0, `Pull failed: ${pullResult.stderr}`);
+      expect(pullResult.code).toEqual(0);
 
       // Modify envs in the local metadata file
       const metadataPath = `${tempDir}/f/test/envs_change_${uniqueId}.script.yaml`;
-      let metadataContent = await Deno.readTextFile(metadataPath);
+      let metadataContent = await readFile(metadataPath, "utf-8");
 
       // Replace the envs line(s)
       if (metadataContent.includes("envs:")) {
@@ -193,40 +165,31 @@ excludes: []
         // Add envs if not present
         metadataContent += "\nenvs:\n  - NEW_VAR1\n  - NEW_VAR2\n";
       }
-      await Deno.writeTextFile(metadataPath, metadataContent);
+      await writeFile(metadataPath, metadataContent, "utf-8");
 
       // Push
       const pushResult = await backend.runCLICommand(["sync", "push", "--yes"], tempDir);
-      assertEquals(pushResult.code, 0, `Push failed: ${pushResult.stderr}`);
+      expect(pushResult.code).toEqual(0);
 
       // Verify envs were updated on remote
       const getResp = await backend.apiRequest!(
         `/api/w/${backend.workspace}/scripts/get/p/${scriptPath}`,
       );
       const scriptText = await getResp.text();
-      assertEquals(getResp.ok, true, `Failed to get script: ${scriptText}`);
+      expect(getResp.ok).toEqual(true);
       const script = JSON.parse(scriptText);
 
-      assertEquals(
-        script.envs,
-        ["NEW_VAR1", "NEW_VAR2"],
-        `Script envs should be updated to new values. Got: ${JSON.stringify(script.envs)}`,
-      );
+      expect(script.envs).toEqual(["NEW_VAR1", "NEW_VAR2"]);
     });
-  },
 });
 
-Deno.test({
-  name: "Integration: Script with empty envs is handled correctly",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  async fn() {
+test("Integration: Script with empty envs is handled correctly", async () => {
     await withTestBackend(async (backend, tempDir) => {
       const uniqueId = Date.now();
       const scriptPath = `f/test/empty_envs_${uniqueId}`;
 
       // Create folder
-      await ensureDir(`${tempDir}/f/test`);
+      await mkdir(`${tempDir}/f/test`, { recursive: true });
       await backend.apiRequest!(`/api/w/${backend.workspace}/folders/create`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -246,32 +209,34 @@ Deno.test({
           kind: "script",
         }),
       });
-      assertEquals(createResp.ok, true, `Failed to create script: ${await createResp.text()}`);
+      expect(createResp.ok).toEqual(true);
 
       // Setup wmill.yaml
-      await Deno.writeTextFile(
+      await writeFile(
         `${tempDir}/wmill.yaml`,
         `defaultTs: bun
 includes:
   - "f/test/empty_envs_${uniqueId}**"
 excludes: []
 `,
+        "utf-8",
       );
 
       // Pull
       const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
-      assertEquals(pullResult.code, 0, `Pull failed: ${pullResult.stderr}`);
+      expect(pullResult.code).toEqual(0);
 
       // Modify content
       const scriptFilePath = `${tempDir}/f/test/empty_envs_${uniqueId}.ts`;
-      await Deno.writeTextFile(
+      await writeFile(
         scriptFilePath,
         `export async function main() {\n  return "Modified no envs";\n}`,
+        "utf-8",
       );
 
       // Push
       const pushResult = await backend.runCLICommand(["sync", "push", "--yes"], tempDir);
-      assertEquals(pushResult.code, 0, `Push failed: ${pushResult.stderr}`);
+      expect(pushResult.code).toEqual(0);
 
       // Verify script was updated and envs is still null/empty
       const getResp = await backend.apiRequest!(
@@ -279,16 +244,13 @@ excludes: []
       );
       const script = await getResp.json();
 
-      assert(
+      expect(
         script.content.includes("Modified no envs"),
-        "Script content should be updated",
-      );
+      ).toBeTruthy();
 
       // envs should be null, empty, or undefined
-      assert(
+      expect(
         !script.envs || script.envs.length === 0,
-        `Script envs should remain empty. Got: ${JSON.stringify(script.envs)}`,
-      );
+      ).toBeTruthy();
     });
-  },
 });
