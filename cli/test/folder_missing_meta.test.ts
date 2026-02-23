@@ -49,9 +49,11 @@ async function withIsolatedWorkspace(
   const workspaceId = `fmeta_${Date.now().toString(36)}_${Math.random()
     .toString(36)
     .slice(2, 6)}`;
+  let workspaceCreated = false;
 
   try {
     await createWorkspace(backend, workspaceId);
+    workspaceCreated = true;
 
     await testFn({
       backend,
@@ -66,6 +68,17 @@ async function withIsolatedWorkspace(
         backend.apiRequest!(`/api/w/${workspaceId}${path}`, options),
     });
   } finally {
+    if (workspaceCreated) {
+      try {
+        const archiveResponse = await backend.apiRequest!(
+          `/api/w/${workspaceId}/workspaces/archive`,
+          { method: "POST" }
+        );
+        await archiveResponse.text();
+      } catch {
+        // Best-effort cleanup to avoid exceeding non-enterprise workspace limits.
+      }
+    }
     await rm(tempDir, { recursive: true, force: true });
   }
 }
