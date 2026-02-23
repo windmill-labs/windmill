@@ -5244,10 +5244,19 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
       responses:
         "200":
-          description: map from resource type to file ext
+          description: map from resource type to file resource info
           content:
             application/json:
-              schema: {}
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
+                  properties:
+                    format_extension:
+                      type: string
+                      nullable: true
+                    is_fileset:
+                      type: boolean
 
   /w/{workspace}/resources/type/delete/{path}:
     delete:

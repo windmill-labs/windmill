@@ -154,6 +154,7 @@ export function isFileResource(path: string): boolean {
   );
 }
 
+/** Matches children inside a .fileset/ directory, not the directory itself. */
 export function isFilesetResource(path: string): boolean {
   return path.includes(".fileset/") || path.includes(".fileset\\");
 }

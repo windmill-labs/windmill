@@ -1517,7 +1517,7 @@ async fn update_resource_type(
         sqlb.set_str("description", ndesc);
     }
     if let Some(is_fileset) = ns.is_fileset {
-        sqlb.set_str("is_fileset", if is_fileset { "TRUE" } else { "FALSE" });
+        sqlb.set("is_fileset", if is_fileset { "TRUE" } else { "FALSE" });
     }
     sqlb.set_str("edited_at", "now()");
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
