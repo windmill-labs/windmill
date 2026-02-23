@@ -27,7 +27,7 @@ use url::Url;
 #[cfg(all(feature = "enterprise", feature = "smtp"))]
 use windmill_common::auth::is_super_admin_email;
 use windmill_common::auth::TOKEN_PREFIX_LEN;
-#[cfg(feature = "inline_preview")]
+#[cfg(feature = "run_inline")]
 use windmill_common::client::AuthedClient;
 use windmill_common::db::UserDbWithAuthed;
 use windmill_common::error::JsonResult;
@@ -35,14 +35,14 @@ use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{
     format_completed_job_result, format_result, DynamicInput, ENTRYPOINT_OVERRIDE,
 };
-#[cfg(feature = "inline_preview")]
+#[cfg(feature = "run_inline")]
 use windmill_common::jobs::{
     InlineScriptTarget, RunInlinePreviewScriptFnParams, RunInlineScriptFnParams,
 };
 use windmill_common::runnable_settings::{
     ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings,
 };
-#[cfg(feature = "inline_preview")]
+#[cfg(feature = "run_inline")]
 use windmill_common::runtime_assets::{register_runtime_asset, InsertRuntimeAssetParams};
 use windmill_common::scripts::ScriptRunnableSettingsInline;
 use windmill_common::triggers::TriggerMetadata;
@@ -55,15 +55,15 @@ use windmill_common::DYNAMIC_INPUT_CACHE;
 #[cfg(all(feature = "enterprise", feature = "smtp"))]
 use windmill_common::{email_oss::send_email_html, server::load_smtp_config};
 use windmill_object_store::upload_artifact_to_store;
-#[cfg(feature = "inline_preview")]
+#[cfg(feature = "run_inline")]
 use windmill_parser::asset_parser::AssetKind;
 use windmill_types::s3::BundleFormat;
-#[cfg(feature = "inline_preview")]
+#[cfg(feature = "run_inline")]
 use windmill_worker::get_worker_internal_server_inline_utils;
 
 use windmill_common::variables::get_workspace_key;
 
-#[cfg(feature = "inline_preview")]
+#[cfg(feature = "run_inline")]
 use crate::db::OptJobAuthed;
 use crate::triggers::trigger_helpers::{FlowId, ScriptId};
 use crate::{
@@ -2859,7 +2859,7 @@ struct Preview {
     format: Option<String>,
 }
 
-#[cfg(feature = "inline_preview")]
+#[cfg(feature = "run_inline")]
 #[derive(Debug, Deserialize)]
 struct PreviewInline {
     content: String,
@@ -2867,7 +2867,7 @@ struct PreviewInline {
     language: ScriptLang,
 }
 
-#[cfg(feature = "inline_preview")]
+#[cfg(feature = "run_inline")]
 #[derive(Debug, Deserialize)]
 struct InlineScriptArgs {
     args: Option<HashMap<String, Box<JsonRawValue>>>,
@@ -4577,7 +4577,7 @@ async fn run_preview_script(
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
-#[cfg(feature = "inline_preview")]
+#[cfg(feature = "run_inline")]
 async fn run_inline_preview_script(
     OptJobAuthed { authed, job_id }: OptJobAuthed,
     Tokened { token }: Tokened,
@@ -4614,14 +4614,14 @@ async fn run_inline_preview_script(
     Ok(Json(to_raw_value(&result)).into_response())
 }
 
-#[cfg(not(feature = "inline_preview"))]
+#[cfg(not(feature = "run_inline"))]
 async fn run_inline_preview_script() -> error::Result<Response> {
     Err(error::Error::InternalErr(
         "inline preview requires the worker feature".to_string(),
     ))
 }
 
-#[cfg(feature = "inline_preview")]
+#[cfg(feature = "run_inline")]
 async fn run_inline_script_by_path(
     OptJobAuthed { authed, .. }: OptJobAuthed,
     Tokened { token }: Tokened,
@@ -4642,14 +4642,14 @@ async fn run_inline_script_by_path(
     .await
 }
 
-#[cfg(not(feature = "inline_preview"))]
+#[cfg(not(feature = "run_inline"))]
 async fn run_inline_script_by_path() -> error::Result<Response> {
     Err(error::Error::InternalErr(
         "inline script by path requires the worker feature".to_string(),
     ))
 }
 
-#[cfg(feature = "inline_preview")]
+#[cfg(feature = "run_inline")]
 async fn run_inline_script_by_hash(
     OptJobAuthed { authed, .. }: OptJobAuthed,
     Tokened { token }: Tokened,
@@ -4669,14 +4669,14 @@ async fn run_inline_script_by_hash(
     .await
 }
 
-#[cfg(not(feature = "inline_preview"))]
+#[cfg(not(feature = "run_inline"))]
 async fn run_inline_script_by_hash() -> error::Result<Response> {
     Err(error::Error::InternalErr(
         "inline script by hash requires the worker feature".to_string(),
     ))
 }
 
-#[cfg(feature = "inline_preview")]
+#[cfg(feature = "run_inline")]
 async fn run_inline_script_inner(
     authed: ApiAuthed,
     token: String,
@@ -4710,7 +4710,7 @@ async fn run_inline_script_inner(
     Ok(Json(to_raw_value(&result)).into_response())
 }
 
-#[cfg(feature = "inline_preview")]
+#[cfg(feature = "run_inline")]
 fn register_potential_assets_on_inline_execution(
     job_id: Uuid,
     w_id: &str,

@@ -4795,17 +4795,10 @@ pub fn init_worker_internal_server_inline_utils(
                                 )
                             })?
                             .clone();
-                        let script_hash_info = get_latest_deployed_hash_for_path(
-                            None,
-                            db,
-                            &params.workspace_id,
-                            path,
-                        )
-                        .await?;
-                        (
-                            ScriptHash(script_hash_info.hash),
-                            Some(path.clone()),
-                        )
+                        let script_hash_info =
+                            get_latest_deployed_hash_for_path(None, db, &params.workspace_id, path)
+                                .await?;
+                        (ScriptHash(script_hash_info.hash), Some(path.clone()))
                     }
                     InlineScriptTarget::Hash(hash) => (ScriptHash(hash), None),
                 };
@@ -4828,7 +4821,7 @@ pub fn init_worker_internal_server_inline_utils(
                     permissioned_as: params.permissioned_as,
                     permissioned_as_email: params.permissioned_as_email,
                     flow_status: None,
-                    tag: "inline".to_string(),
+                    tag: "inline_run".to_string(),
                     script_lang: content_info.language,
                     same_worker: true,
                     pre_run_error: None,
