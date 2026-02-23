@@ -510,7 +510,10 @@ function registerCleanup() {
 /**
  * Create a non-admin user, add them to the workspace, and return their token.
  */
-export async function createNonAdminUser(backend: TestBackend): Promise<string> {
+export async function createNonAdminUser(
+  backend: TestBackend,
+  workspaceId: string = backend.workspace
+): Promise<string> {
   if (!backend.apiRequest) {
     throw new Error("Backend does not support apiRequest");
   }
@@ -536,7 +539,7 @@ export async function createNonAdminUser(backend: TestBackend): Promise<string> 
 
   // Add user to workspace as non-admin
   const addResp = await backend.apiRequest(
-    `/api/w/${backend.workspace}/workspaces/add_user`,
+    `/api/w/${workspaceId}/workspaces/add_user`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },

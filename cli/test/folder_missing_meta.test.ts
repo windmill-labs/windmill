@@ -4,21 +4,69 @@
  */
 
 import { expect, test, describe } from "bun:test";
-import { writeFile, mkdir, readFile, stat, rm } from "node:fs/promises";
+import { writeFile, mkdir, readFile, rm, mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
-import { withTestBackend, createNonAdminUser } from "./test_backend.ts";
-import { addWorkspace } from "../workspace.ts";
+import { tmpdir } from "node:os";
+import { getTestBackend, createNonAdminUser } from "./test_backend.ts";
 
-async function setupWorkspaceProfile(backend: any): Promise<void> {
-  await addWorkspace(
-    {
-      remote: backend.baseUrl,
-      workspaceId: backend.workspace,
-      name: "localhost_test_folder",
-      token: backend.token,
-    },
-    { force: true, configDir: backend.testConfigDir }
-  );
+type IsolatedWorkspaceTestContext = {
+  backend: any;
+  tempDir: string;
+  workspaceId: string;
+  runCLICommand: (
+    args: string[],
+    opts?: { token?: string }
+  ) => Promise<{ stdout: string; stderr: string; code: number }>;
+  apiRequest: (path: string, options?: RequestInit) => Promise<Response>;
+};
+
+async function createWorkspace(backend: any, workspaceId: string): Promise<void> {
+  const response = await backend.apiRequest!("/api/workspaces/create", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      id: workspaceId,
+      name: `Test Workspace ${workspaceId}`,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    if (!error.includes("already exists") && !error.includes("duplicate")) {
+      throw new Error(`Failed to create workspace ${workspaceId}: ${error}`);
+    }
+    return;
+  }
+  await response.text();
+}
+
+async function withIsolatedWorkspace(
+  testFn: (ctx: IsolatedWorkspaceTestContext) => Promise<void>
+): Promise<void> {
+  const backend = await getTestBackend();
+  const tempDir = await mkdtemp(join(tmpdir(), "windmill_cli_test_"));
+  const workspaceId = `folder_meta_test_${Date.now()}_${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
+
+  try {
+    await createWorkspace(backend, workspaceId);
+
+    await testFn({
+      backend,
+      tempDir,
+      workspaceId,
+      runCLICommand: (args: string[], opts?: { token?: string }) =>
+        backend.runCLICommand(args, tempDir, {
+          workspace: workspaceId,
+          token: opts?.token,
+        }),
+      apiRequest: (path: string, options?: RequestInit) =>
+        backend.apiRequest!(`/api/w/${workspaceId}${path}`, options),
+    });
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
 }
 
 function wmillYaml(): string {
@@ -31,13 +79,10 @@ function wmillYaml(): string {
 
 describe("folder new", () => {
   test("creates folder.meta.yaml with summary and display_name", async () => {
-    await withTestBackend(async (backend, tempDir) => {
-      await setupWorkspaceProfile(backend);
-
+    await withIsolatedWorkspace(async ({ tempDir, runCLICommand }) => {
       const folderName = `newfolder${Date.now()}`;
-      const result = await backend.runCLICommand(
+      const result = await runCLICommand(
         ["folder", "new", folderName, "--summary", "My summary"],
-        tempDir
       );
 
       expect(result.code).toEqual(0);
@@ -52,13 +97,10 @@ describe("folder new", () => {
   });
 
   test("creates folder.meta.yaml with empty summary when none provided", async () => {
-    await withTestBackend(async (backend, tempDir) => {
-      await setupWorkspaceProfile(backend);
-
+    await withIsolatedWorkspace(async ({ tempDir, runCLICommand }) => {
       const folderName = `nosummary${Date.now()}`;
-      const result = await backend.runCLICommand(
+      const result = await runCLICommand(
         ["folder", "new", folderName],
-        tempDir
       );
 
       expect(result.code).toEqual(0);
@@ -73,17 +115,14 @@ describe("folder new", () => {
   });
 
   test("fails if folder.meta.yaml already exists", async () => {
-    await withTestBackend(async (backend, tempDir) => {
-      await setupWorkspaceProfile(backend);
-
+    await withIsolatedWorkspace(async ({ runCLICommand }) => {
       const folderName = `dupfolder${Date.now()}`;
       // Create first
-      await backend.runCLICommand(["folder", "new", folderName], tempDir);
+      await runCLICommand(["folder", "new", folderName]);
 
       // Try again — should fail
-      const result = await backend.runCLICommand(
+      const result = await runCLICommand(
         ["folder", "new", folderName],
-        tempDir
       );
       expect(result.code).not.toEqual(0);
     });
@@ -96,9 +135,7 @@ describe("folder new", () => {
 
 describe("folder add-missing", () => {
   test("creates folder.meta.yaml for directories missing one", async () => {
-    await withTestBackend(async (backend, tempDir) => {
-      await setupWorkspaceProfile(backend);
-
+    await withIsolatedWorkspace(async ({ tempDir, runCLICommand }) => {
       // Create two folders: one with meta, one without
       const withMeta = `withmeta${Date.now()}`;
       const withoutMeta = `withoutmeta${Date.now()}`;
@@ -113,9 +150,8 @@ describe("folder add-missing", () => {
       await mkdir(join(tempDir, "f", withoutMeta), { recursive: true });
       // No folder.meta.yaml for withoutMeta
 
-      const result = await backend.runCLICommand(
+      const result = await runCLICommand(
         ["folder", "add-missing", "-y"],
-        tempDir
       );
 
       expect(result.code).toEqual(0);
@@ -138,9 +174,7 @@ describe("folder add-missing", () => {
   });
 
   test("reports nothing to do when all folders have meta", async () => {
-    await withTestBackend(async (backend, tempDir) => {
-      await setupWorkspaceProfile(backend);
-
+    await withIsolatedWorkspace(async ({ tempDir, runCLICommand }) => {
       const folderName = `alldone${Date.now()}`;
       await mkdir(join(tempDir, "f", folderName), { recursive: true });
       await writeFile(
@@ -149,9 +183,8 @@ describe("folder add-missing", () => {
         "utf-8"
       );
 
-      const result = await backend.runCLICommand(
+      const result = await runCLICommand(
         ["folder", "add-missing", "-y"],
-        tempDir
       );
 
       expect(result.code).toEqual(0);
@@ -160,12 +193,9 @@ describe("folder add-missing", () => {
   });
 
   test("reports nothing to do when no f/ directory exists", async () => {
-    await withTestBackend(async (backend, tempDir) => {
-      await setupWorkspaceProfile(backend);
-
-      const result = await backend.runCLICommand(
+    await withIsolatedWorkspace(async ({ runCLICommand }) => {
+      const result = await runCLICommand(
         ["folder", "add-missing", "-y"],
-        tempDir
       );
 
       expect(result.code).toEqual(0);
@@ -180,9 +210,7 @@ describe("folder add-missing", () => {
 
 describe("folder push", () => {
   test("pushes a folder by name", async () => {
-    await withTestBackend(async (backend, tempDir) => {
-      await setupWorkspaceProfile(backend);
-
+    await withIsolatedWorkspace(async ({ tempDir, runCLICommand, apiRequest }) => {
       const folderName = `pushbyname${Date.now()}`;
 
       // Create local folder meta
@@ -193,29 +221,23 @@ describe("folder push", () => {
         "utf-8"
       );
 
-      const result = await backend.runCLICommand(
+      const result = await runCLICommand(
         ["folder", "push", folderName],
-        tempDir
       );
 
       expect(result.code).toEqual(0);
       expect(result.stdout + result.stderr).toContain("Folder pushed");
 
       // Verify via API
-      const apiResp = await backend.apiRequest!(
-        `/api/w/${backend.workspace}/folders/get/${folderName}`
-      );
+      const apiResp = await apiRequest(`/folders/get/${folderName}`);
       expect(apiResp.status).toEqual(200);
     });
   });
 
   test("fails when folder does not exist locally", async () => {
-    await withTestBackend(async (backend, tempDir) => {
-      await setupWorkspaceProfile(backend);
-
-      const result = await backend.runCLICommand(
+    await withIsolatedWorkspace(async ({ runCLICommand }) => {
+      const result = await runCLICommand(
         ["folder", "push", "nonexistent"],
-        tempDir
       );
 
       expect(result.code).not.toEqual(0);
@@ -229,9 +251,7 @@ describe("folder push", () => {
 
 describe("sync push missing folder detection", () => {
   test("admin user gets warning but push succeeds", async () => {
-    await withTestBackend(async (backend, tempDir) => {
-      await setupWorkspaceProfile(backend);
-
+    await withIsolatedWorkspace(async ({ tempDir, runCLICommand }) => {
       const uniqueId = Date.now();
       const folderName = `nometaadmin${uniqueId}`;
 
@@ -245,9 +265,8 @@ describe("sync push missing folder detection", () => {
         "utf-8"
       );
 
-      const result = await backend.runCLICommand(
+      const result = await runCLICommand(
         ["sync", "push", "--yes", "--includes", `f/${folderName}/**`],
-        tempDir
       );
 
       // Admin should get a warning but push succeeds (exit 0)
@@ -260,9 +279,7 @@ describe("sync push missing folder detection", () => {
   });
 
   test("no warning when folder.meta.yaml exists", async () => {
-    await withTestBackend(async (backend, tempDir) => {
-      await setupWorkspaceProfile(backend);
-
+    await withIsolatedWorkspace(async ({ tempDir, runCLICommand }) => {
       const uniqueId = Date.now();
       const folderName = `withmeta${uniqueId}`;
 
@@ -281,9 +298,8 @@ describe("sync push missing folder detection", () => {
         "utf-8"
       );
 
-      const result = await backend.runCLICommand(
+      const result = await runCLICommand(
         ["sync", "push", "--yes", "--includes", `f/${folderName}/**`],
-        tempDir
       );
 
       expect(result.code).toEqual(0);
@@ -293,10 +309,8 @@ describe("sync push missing folder detection", () => {
   });
 
   test.skipIf(!process.env["EE_LICENSE_KEY"])("non-admin user gets error and exit code 1", async () => {
-    await withTestBackend(async (backend, tempDir) => {
-      await setupWorkspaceProfile(backend);
-
-      const nonAdminToken = await createNonAdminUser(backend);
+    await withIsolatedWorkspace(async ({ backend, tempDir, workspaceId, runCLICommand, apiRequest }) => {
+      const nonAdminToken = await createNonAdminUser(backend, workspaceId);
 
       const uniqueId = Date.now();
       const folderName = `nometanonadmin${uniqueId}`;
@@ -305,8 +319,8 @@ describe("sync push missing folder detection", () => {
 
       // Create a script inside a folder WITHOUT folder.meta.yaml
       // First create the folder on remote so the non-admin has somewhere to push
-      await backend.apiRequest(
-        `/api/w/${backend.workspace}/folders/create`,
+      await apiRequest(
+        "/folders/create",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -324,9 +338,8 @@ describe("sync push missing folder detection", () => {
         "utf-8"
       );
 
-      const result = await backend.runCLICommand(
+      const result = await runCLICommand(
         ["sync", "push", "--yes", "--includes", `f/${folderName}/**`],
-        tempDir,
         { token: nonAdminToken }
       );
 
@@ -339,15 +352,13 @@ describe("sync push missing folder detection", () => {
   });
 
   test("no warning for deleted changes without folder.meta.yaml", async () => {
-    await withTestBackend(async (backend, tempDir) => {
-      await setupWorkspaceProfile(backend);
-
+    await withIsolatedWorkspace(async ({ tempDir, runCLICommand, apiRequest }) => {
       const uniqueId = Date.now();
       const folderName = `delfolder${uniqueId}`;
 
       // Create folder and script on remote via API
-      await backend.apiRequest!(
-        `/api/w/${backend.workspace}/folders/create`,
+      await apiRequest(
+        "/folders/create",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -358,14 +369,13 @@ describe("sync push missing folder detection", () => {
       await writeFile(join(tempDir, "wmill.yaml"), wmillYaml(), "utf-8");
 
       // Pull to get remote state, then delete the folder locally
-      await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
+      await runCLICommand(["sync", "pull", "--yes"]);
 
       // Remove the folder locally to trigger a "deleted" change
       await rm(join(tempDir, "f", folderName), { recursive: true, force: true });
 
-      const result = await backend.runCLICommand(
+      const result = await runCLICommand(
         ["sync", "push", "--yes", "--includes", `f/${folderName}/**`],
-        tempDir
       );
 
       // Should not warn about missing meta for deleted items
