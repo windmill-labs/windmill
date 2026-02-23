@@ -34,15 +34,15 @@ type McpClient = McpClientStub;
 use windmill_common::{
     client::AuthedClient,
     db::DB,
-    error::{to_anyhow, Error},
+    error::Error,
     flow_conversations::MessageType,
     flow_status::AgentAction,
     flows::FlowModuleValue,
     worker::{to_raw_value, Connection},
 };
 use windmill_queue::{
-    get_mini_pulled_job, push, JobCompleted, MiniCompletedJob, MiniPulledJob, PushArgs,
-    PushIsolationLevel,
+    add_completed_job, add_completed_job_error, get_mini_pulled_job, push, MiniCompletedJob,
+    MiniPulledJob, PushArgs, PushIsolationLevel,
 };
 
 /// Context for tool execution containing all required references and state
@@ -66,7 +66,6 @@ pub struct ToolExecutionContext<'a> {
 
     // Runtime state
     pub occupancy_metrics: &'a mut OccupancyMetrics,
-    pub job_completed_tx: &'a JobCompletedSender,
     pub killpill_rx: &'a mut tokio::sync::broadcast::Receiver<()>,
 
     // Optional streaming & chat
@@ -665,23 +664,50 @@ async fn handle_tool_execution_success(
     let send_result = inner_job_completed_rx.bounded_rx.try_recv().ok();
 
     let result = if let Some(SendResult {
-        result: SendResultPayload::JobCompleted(JobCompleted { result, .. }),
-        ..
-    }) = send_result.as_ref()
+        result: SendResultPayload::JobCompleted(ref jc), ..
+    }) = send_result
     {
-        let result = result.clone();
-        ctx.job_completed_tx
-            .send(send_result.unwrap().result, true)
+        let result = jc.result.clone();
+        // Write tool completion to the DB inline instead of forwarding through
+        // the parent channel. Forwarding would deadlock for nested agents: the
+        // sub-tool result would fill the parent's bounded(1) channel, leaving
+        // no room for the agent's own completion from process_result.
+        if jc.success {
+            add_completed_job(
+                ctx.db,
+                &jc.job,
+                true,
+                false,
+                sqlx::types::Json(&*jc.result),
+                jc.result_columns.clone(),
+                jc.mem_peak,
+                jc.canceled_by.clone(),
+                false,
+                jc.duration,
+                jc.from_cache.unwrap_or(false),
+            )
             .await
-            .map_err(to_anyhow)?;
+            .map_err(|e| Error::internal_err(format!("Failed to add completed job: {e}")))?;
+        } else {
+            let error_value: serde_json::Value =
+                serde_json::from_str(jc.result.get()).unwrap_or_else(|_| {
+                    serde_json::json!({ "message": format!("Non serializable error: {}", jc.result.get()) })
+                });
+            add_completed_job_error(
+                ctx.db,
+                &jc.job,
+                jc.mem_peak,
+                jc.canceled_by.clone(),
+                error_value,
+                ctx.worker_name,
+                false,
+                jc.duration,
+            )
+            .await
+            .map_err(|e| Error::internal_err(format!("Failed to add completed job error: {e}")))?;
+        }
         result
     } else {
-        if let Some(send_result) = send_result {
-            ctx.job_completed_tx
-                .send(send_result.result, true)
-                .await
-                .map_err(to_anyhow)?;
-        }
         return Err(Error::internal_err(
             "Tool job completed but no result".to_string(),
         ));

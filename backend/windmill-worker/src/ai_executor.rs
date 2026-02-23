@@ -47,7 +47,6 @@ use crate::{
     },
     common::{build_args_map, resolve_job_timeout, OccupancyMetrics, StreamNotifier},
     handle_child::run_future_with_polling_update_job_poller,
-    JobCompletedSender,
 };
 
 lazy_static::lazy_static! {
@@ -143,7 +142,6 @@ pub async fn handle_ai_agent_job(
     canceled_by: &mut Option<CanceledBy>,
     mem_peak: &mut i32,
     occupancy_metrics: &mut OccupancyMetrics,
-    job_completed_tx: &JobCompletedSender,
     worker_dir: &str,
     base_internal_url: &str,
     worker_name: &str,
@@ -459,7 +457,6 @@ pub async fn handle_ai_agent_job(
         summary.as_deref(),
         client,
         &mut inner_occupancy_metrics,
-        job_completed_tx,
         worker_dir,
         base_internal_url,
         worker_name,
@@ -507,7 +504,6 @@ pub async fn run_agent(
     // job execution context
     client: &AuthedClient,
     occupancy_metrics: &mut OccupancyMetrics,
-    job_completed_tx: &JobCompletedSender,
     worker_dir: &str,
     base_internal_url: &str,
     worker_name: &str,
@@ -1060,7 +1056,6 @@ pub async fn run_agent(
                     worker_name,
                     hostname,
                     occupancy_metrics,
-                    job_completed_tx,
                     killpill_rx,
                     stream_event_processor: stream_event_processor.as_ref(),
                     flow_context: &mut flow_context,
