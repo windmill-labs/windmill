@@ -4638,9 +4638,6 @@ async fn run_inline_script_by_path(
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Json(body): Json<InlineScriptArgs>,
 ) -> error::Result<Response> {
-    if let Some(job_id) = job_id {
-        register_potential_assets_on_inline_execution(job_id, &w_id, &preview);
-    }
     let script_path_str = script_path.to_path();
     check_scopes(&authed, || format!("jobs:run:scripts:{script_path_str}"))?;
     run_inline_script_inner(
@@ -4670,9 +4667,6 @@ async fn run_inline_script_by_hash(
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Json(body): Json<InlineScriptArgs>,
 ) -> error::Result<Response> {
-    if let Some(job_id) = job_id {
-        register_potential_assets_on_inline_execution(job_id, &w_id, &preview);
-    }
     // Resolve the script path from the hash and check scopes properly
     let hash = script_hash.0;
     let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
