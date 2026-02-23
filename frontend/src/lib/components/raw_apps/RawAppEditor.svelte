@@ -164,10 +164,13 @@
 			setFilesInIframe(files)
 		}
 	}
+	let ignoreSetActiveDocument = false
 	function setFilesInIframe(newFiles: Record<string, string>) {
 		const files = Object.fromEntries(
 			Object.entries(newFiles).filter(([path, _]) => !path.endsWith('/'))
 		)
+		ignoreSetActiveDocument = true
+		setTimeout(() => (ignoreSetActiveDocument = false), 500)
 		iframe?.contentWindow?.postMessage(
 			{
 				type: 'setFiles',
@@ -612,6 +615,7 @@
 		} else if (e.data.type === 'updateModules') {
 			modules = e.data.modules
 		} else if (e.data.type === 'setActiveDocument') {
+			if (ignoreSetActiveDocument) return
 			// Normalize Windows-style path separators to Linux-style
 			selectedDocument = e.data.path?.replace(/\\/g, '/')
 		} else if (e.data.type === 'inspectorSelect') {
