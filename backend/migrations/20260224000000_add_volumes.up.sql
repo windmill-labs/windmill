@@ -1,0 +1,18 @@
+-- Add 'volume' to the asset_kind enum
+ALTER TYPE asset_kind ADD VALUE IF NOT EXISTS 'volume';
+
+-- Volume metadata table
+CREATE TABLE volume (
+    workspace_id VARCHAR(50) NOT NULL REFERENCES workspace(id),
+    name VARCHAR(255) NOT NULL,
+    size_bytes BIGINT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_by VARCHAR(255) NOT NULL,
+    last_read_at TIMESTAMPTZ,
+    last_write_at TIMESTAMPTZ,
+    extra_perms JSONB NOT NULL DEFAULT '{}',
+    PRIMARY KEY (workspace_id, name)
+);
+
+-- Workspace volume settings
+ALTER TABLE workspace_settings ADD COLUMN IF NOT EXISTS volume_settings JSONB;

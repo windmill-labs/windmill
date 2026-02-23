@@ -15782,7 +15782,9 @@ dependencies = [
  "windmill-queue",
  "windmill-runtime-nativets",
  "windmill-test-utils",
+ "windmill-types",
  "windmill-worker",
+ "windmill-worker-volumes",
  "windows-service",
  "windows-sys 0.52.0",
 ]
@@ -17479,7 +17481,20 @@ dependencies = [
  "windmill-queue",
  "windmill-runtime-nativets",
  "windmill-types",
+ "windmill-worker-volumes",
  "yaml-rust",
+]
+
+[[package]]
+name = "windmill-worker-volumes"
+version = "1.642.0"
+dependencies = [
+ "bytes",
+ "futures",
+ "object_store",
+ "tokio",
+ "tracing",
+ "windmill-common",
 ]
 
 [[package]]

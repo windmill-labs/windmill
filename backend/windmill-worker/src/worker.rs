@@ -4148,7 +4148,8 @@ pub async fn run_language_executor(
         job.id
     );
 
-    let shared_mount = if job.same_worker && job.script_lang != Some(ScriptLang::Deno) {
+    #[allow(unused_mut)]
+    let mut shared_mount = if job.same_worker && job.script_lang != Some(ScriptLang::Deno) {
         let folder = if job.script_lang == Some(ScriptLang::Go) {
             "/go"
         } else {
@@ -4170,7 +4171,8 @@ mount {{
 
     // println!("handle lang job {:?}",  SystemTime::now());
 
-    let envs = build_envs(envs.as_ref())?;
+    #[allow(unused_mut)]
+    let mut envs = build_envs(envs.as_ref())?;
 
     let Some(language) = language else {
         return Err(Error::ExecutionErr(
@@ -4203,6 +4205,104 @@ mount {{
                 )
                 .await?,
             })
+        }
+    }
+
+    // Volume mount setup
+    #[cfg(feature = "parquet")]
+    let volume_mounts = {
+        let comment_prefix = match language {
+            ScriptLang::Python3
+            | ScriptLang::Bash
+            | ScriptLang::Powershell
+            | ScriptLang::Ansible
+            | ScriptLang::Ruby => "#",
+            ScriptLang::Deno
+            | ScriptLang::Bun
+            | ScriptLang::Bunnative
+            | ScriptLang::Nativets
+            | ScriptLang::Go => "//",
+            _ => "",
+        };
+        windmill_worker_volumes::parse_volume_annotations(&code, comment_prefix)
+    };
+
+    #[cfg(feature = "parquet")]
+    let mut volume_states: Vec<windmill_worker_volumes::VolumeState> = Vec::new();
+    #[cfg(feature = "parquet")]
+    let mut volume_client: Option<std::sync::Arc<dyn windmill_worker_volumes::DynObjectStore>> =
+        None;
+
+    #[cfg(feature = "parquet")]
+    if !volume_mounts.is_empty() {
+        if let Connection::Sql(db) = conn {
+            let s3_resource = crate::common::get_workspace_s3_resource_path(
+                db,
+                client,
+                &job.workspace_id,
+                None,
+                &job.id,
+            )
+            .await?;
+
+            if let Some(s3_resource) = s3_resource {
+                let client_arc =
+                    windmill_object_store::build_object_store_client(&s3_resource).await?;
+                volume_client = Some(client_arc.clone());
+
+                for volume in &volume_mounts {
+                    let _ = sqlx::query!(
+                        "UPDATE volume SET last_read_at = now() WHERE workspace_id = $1 AND name = $2",
+                        &job.workspace_id,
+                        &volume.name
+                    )
+                    .execute(db)
+                    .await;
+
+                    match windmill_worker_volumes::download_volume(
+                        client_arc.clone(),
+                        volume,
+                        job_dir,
+                    )
+                    .await
+                    {
+                        Ok(state) => {
+                            let nsjail_mount = windmill_worker_volumes::volume_nsjail_mount(
+                                &state.local_dir,
+                                &volume.target,
+                            );
+                            shared_mount.push_str(&nsjail_mount);
+
+                            if !is_sandboxing_enabled() {
+                                let env_name = format!(
+                                    "WM_VOLUME_{}",
+                                    volume.name.to_uppercase().replace('-', "_")
+                                );
+                                envs.insert(env_name, state.local_dir.display().to_string());
+                            }
+
+                            tracing::info!(
+                                workspace_id = %job.workspace_id,
+                                "mounted volume '{}' at '{}' for job {}",
+                                volume.name,
+                                volume.target,
+                                job.id
+                            );
+                            volume_states.push(state);
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                workspace_id = %job.workspace_id,
+                                "failed to download volume '{}' for job {}: {}",
+                                volume.name,
+                                job.id,
+                                e
+                            );
+                            return Err(e);
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -4617,6 +4717,51 @@ mount {{
         // for related places search: ADD_NEW_LANG
         _ => panic!("unreachable, language is not supported: {language:#?}"),
     };
+    // Volume sync-back
+    #[cfg(feature = "parquet")]
+    if !volume_states.is_empty() {
+        if let Some(ref vol_client) = volume_client {
+            if let Connection::Sql(db) = conn {
+                for state in &volume_states {
+                    match windmill_worker_volumes::sync_volume_back(vol_client.clone(), state).await
+                    {
+                        Ok(sync_stats) => {
+                            let _ = sqlx::query!(
+                                "INSERT INTO volume (workspace_id, name, size_bytes, created_by, last_write_at)
+                                 VALUES ($1, $2, $3, $4, now())
+                                 ON CONFLICT (workspace_id, name) DO UPDATE
+                                 SET size_bytes = $3, last_write_at = now()",
+                                &job.workspace_id,
+                                &state.mount.name,
+                                sync_stats.new_size_bytes as i64,
+                                &job.created_by
+                            )
+                            .execute(db)
+                            .await;
+
+                            tracing::info!(
+                                workspace_id = %job.workspace_id,
+                                "synced volume '{}' back ({} bytes) for job {}",
+                                state.mount.name,
+                                sync_stats.new_size_bytes,
+                                job.id
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                workspace_id = %job.workspace_id,
+                                "failed to sync volume '{}' back for job {}: {}",
+                                state.mount.name,
+                                job.id,
+                                e
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     tracing::info!(
         workspace_id = %job.workspace_id,
         is_ok = result.is_ok(),

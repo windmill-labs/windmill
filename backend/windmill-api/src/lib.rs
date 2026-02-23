@@ -164,6 +164,9 @@ mod teams_cache_oss;
 #[cfg(feature = "private")]
 pub mod teams_ee;
 mod teams_oss;
+#[cfg(feature = "private")]
+pub mod volumes_ee;
+mod volumes_oss;
 mod token;
 mod tracing_init;
 pub mod triggers;
@@ -516,6 +519,7 @@ pub async fn run_server(
                             users::workspaced_service().layer(Extension(argon2.clone())),
                         )
                         .nest("/variables", variables::workspaced_service())
+                        .nest("/volumes", volumes_oss::workspaced_service())
                         .nest("/workers", windmill_api_workers::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
                         .nest("/oidc", oidc_oss::workspaced_service())

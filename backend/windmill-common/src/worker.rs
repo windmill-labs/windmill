@@ -677,6 +677,7 @@ pub struct PythonAnnotations {
     pub py311: bool,
     pub py312: bool,
     pub py313: bool,
+    pub sandbox: bool,
 }
 
 #[annotations("//")]
@@ -690,6 +691,7 @@ pub struct TypeScriptAnnotations {
     pub nodejs: bool,
     pub native: bool,
     pub nobundling: bool,
+    pub sandbox: bool,
 }
 
 #[annotations("--")]
@@ -2147,5 +2149,63 @@ mod tests {
             "some/very/long/path/that/exceeds/the/fifty/char/limit/easily_b",
         );
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn test_python_sandbox_annotation() {
+        let content = "# sandbox\ndef main():\n    pass";
+        let annotations = PythonAnnotations::parse(content);
+        assert!(annotations.sandbox);
+    }
+
+    #[test]
+    fn test_python_sandbox_annotation_with_other_annotations() {
+        let content = "# no_cache\n# sandbox\ndef main():\n    pass";
+        let annotations = PythonAnnotations::parse(content);
+        assert!(annotations.sandbox);
+        assert!(annotations.no_cache);
+    }
+
+    #[test]
+    fn test_python_no_sandbox_annotation() {
+        let content = "# no_cache\ndef main():\n    pass";
+        let annotations = PythonAnnotations::parse(content);
+        assert!(!annotations.sandbox);
+    }
+
+    #[test]
+    fn test_typescript_sandbox_annotation() {
+        let content = "// sandbox\nexport function main() {}";
+        let annotations = TypeScriptAnnotations::parse(content);
+        assert!(annotations.sandbox);
+    }
+
+    #[test]
+    fn test_typescript_sandbox_annotation_with_other_annotations() {
+        let content = "// npm\n// sandbox\nexport function main() {}";
+        let annotations = TypeScriptAnnotations::parse(content);
+        assert!(annotations.sandbox);
+        assert!(annotations.npm);
+    }
+
+    #[test]
+    fn test_typescript_no_sandbox_annotation() {
+        let content = "// npm\nexport function main() {}";
+        let annotations = TypeScriptAnnotations::parse(content);
+        assert!(!annotations.sandbox);
+    }
+
+    #[test]
+    fn test_python_sandbox_no_space() {
+        let content = "#sandbox\ndef main():\n    pass";
+        let annotations = PythonAnnotations::parse(content);
+        assert!(annotations.sandbox);
+    }
+
+    #[test]
+    fn test_typescript_sandbox_no_space() {
+        let content = "//sandbox\nexport function main() {}";
+        let annotations = TypeScriptAnnotations::parse(content);
+        assert!(annotations.sandbox);
     }
 }

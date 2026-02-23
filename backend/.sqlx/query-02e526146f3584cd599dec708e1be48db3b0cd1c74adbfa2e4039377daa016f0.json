@@ -20,7 +20,8 @@
                       "resource",
                       "variable",
                       "ducklake",
-                      "datatable"
+                      "datatable",
+                      "volume"
                     ]
                   }
                 }

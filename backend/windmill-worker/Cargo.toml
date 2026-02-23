@@ -47,6 +47,7 @@ windmill-audit.workspace = true # there isn't really a reason for audit-worth ac
 windmill-common = { workspace = true, default-features = false }
 windmill-types.workspace = true
 windmill-object-store.workspace = true
+windmill-worker-volumes.workspace = true
 windmill-jseval.workspace = true
 windmill-runtime-nativets = { workspace = true, optional = true }
 windmill-mcp = { workspace = true, optional = true }
