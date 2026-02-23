@@ -131,3 +131,58 @@ export function setGroupEditorContext(groupEditor: GroupEditor): void {
 export function getGroupEditorContext(): GroupEditorContext | undefined {
 	return getContext<GroupEditorContext | undefined>(CONTEXT_KEY)
 }
+
+/** Extra vertical space pushed above the topmost node of each group for the label */
+export const GROUP_LABEL_HEIGHT = 24
+
+/**
+ * Compute adjusted node positions that account for group label spacing.
+ * Follows the same push-down pattern as computeNoteNodes in noteUtils.
+ */
+export function computeGroupSpacing(
+	groups: FlowGroup[],
+	nodes: Array<{ id: string; position: { x: number; y: number } }>
+): Record<string, { x: number; y: number }> {
+	if (groups.length === 0) {
+		return Object.fromEntries(nodes.map((n) => [n.id, { ...n.position }]))
+	}
+
+	// Build yPosMap: Y position → spacing needed
+	const yPosMap: Record<number, number> = {}
+
+	for (const group of groups) {
+		if (group.module_ids.length === 0) continue
+
+		// Find topmost node Y position in this group
+		let topY = Infinity
+		for (const node of nodes) {
+			if (group.module_ids.includes(node.id) && node.position.y < topY) {
+				topY = node.position.y
+			}
+		}
+
+		if (topY < Infinity) {
+			yPosMap[topY] = Math.max(yPosMap[topY] || 0, GROUP_LABEL_HEIGHT)
+		}
+	}
+
+	// Sort nodes by Y and apply cumulative offset
+	const sortedNodes = nodes
+		.map((n) => ({ id: n.id, position: { ...n.position } }))
+		.sort((a, b) => a.position.y - b.position.y)
+
+	let currentYOffset = 0
+	let prevYPos = NaN
+
+	for (const node of sortedNodes) {
+		if (node.position.y !== prevYPos) {
+			if (yPosMap[node.position.y]) {
+				currentYOffset += yPosMap[node.position.y]
+			}
+			prevYPos = node.position.y
+		}
+		node.position.y += currentYOffset
+	}
+
+	return Object.fromEntries(sortedNodes.map((n) => [n.id, n.position]))
+}
