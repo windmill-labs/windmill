@@ -469,7 +469,6 @@ pub async fn handle_ai_agent_job(
         job,
         flow_status_job.as_ref(),
         Some(flow_step_id.as_str()),
-        Some(&flow_job_id),
         &args,
         &tools,
         &mcp_clients,
@@ -516,7 +515,6 @@ pub async fn run_agent(
     job: &MiniPulledJob,
     parent_job: Option<&Uuid>,
     flow_step_id_override: Option<&str>,
-    flow_job_id_override: Option<&Uuid>,
     args: &AIAgentArgs,
     tools: &[Tool],
     mcp_clients: &HashMap<String, Arc<McpClient>>,
@@ -563,7 +561,7 @@ pub async fn run_agent(
         flow_step_id_override.or(job.flow_step_id.as_deref());
 
     // Fetch flow context for input transforms context, chat and memory
-    let mut flow_context = get_flow_context(db, job, flow_job_id_override).await;
+    let mut flow_context = get_flow_context(db, job).await;
 
     // Determine if we're using manual messages (which bypasses memory)
     let use_manual_messages = matches!(args.memory, Some(Memory::Manual { .. }));

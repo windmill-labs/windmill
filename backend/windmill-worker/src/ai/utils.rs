@@ -157,14 +157,9 @@ pub struct FlowContext {
 }
 
 /// Get flow context (chat settings + args + flow_status) from root flow's job data
-pub async fn get_flow_context(
-    db: &DB,
-    job: &MiniPulledJob,
-    flow_job_id_override: Option<&Uuid>,
-) -> FlowContext {
-    let root_job_id = flow_job_id_override
-        .copied()
-        .or(job.root_job)
+pub async fn get_flow_context(db: &DB, job: &MiniPulledJob) -> FlowContext {
+    let root_job_id = job
+        .root_job
         .or(job.flow_innermost_root_job)
         .or(job.parent_job);
 
