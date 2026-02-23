@@ -2392,41 +2392,21 @@ export async function push(
   log.info(
     `remote (${workspace.name}) <- local: ${changes.length} changes to apply`,
   );
-  // Detect missing folders for paths under f/ before confirmation.
-  // Skip folders that already have a folder.meta change in the changeset
-  // (those will be created/updated by pushFolder during normal processing).
+  // Check that every folder referenced in the changeset has a local folder.meta.yaml
   const missingFolders: string[] = [];
   if (changes.length > 0) {
     const folderNames = new Set<string>();
-    const foldersWithMetaChanges = new Set<string>();
     for (const change of changes) {
       const parts = change.path.split(SEP);
-      if (parts.length >= 3 && parts[0] === "f") {
-        if (change.name !== "deleted") {
-          folderNames.add(parts[1]);
-        }
-        if (getTypeStrFromPath(change.path) === "folder") {
-          foldersWithMetaChanges.add(parts[1]);
-        }
+      if (parts.length >= 3 && parts[0] === "f" && change.name !== "deleted") {
+        folderNames.add(parts[1]);
       }
     }
     for (const folderName of folderNames) {
-      if (foldersWithMetaChanges.has(folderName)) continue;
       try {
-        await wmill.getFolder({
-          workspace: workspace.workspaceId,
-          name: folderName,
-        });
-      } catch (e: any) {
-        if (e.status === 404) {
-          missingFolders.push(folderName);
-        } else {
-          log.warn(
-            `Could not check folder ${folderName}: ${
-              e.body ?? e.message
-            }`,
-          );
-        }
+        await stat(path.join("f", folderName, "folder.meta.yaml"));
+      } catch {
+        missingFolders.push(folderName);
       }
     }
   }
