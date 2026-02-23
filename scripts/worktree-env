@@ -99,5 +99,10 @@ if [ -d "$ee_repo" ]; then
 }
 EOFCLAUDE
     echo "Created .claude/settings.local.json with EE path: $ee_rel"
+
+    # Create symlinks from backend crates to the EE worktree
+    if [ -x "./backend/substitute_ee_code.sh" ]; then
+      ./backend/substitute_ee_code.sh -d "$ee_worktree_dir"
+    fi
   fi
 fi

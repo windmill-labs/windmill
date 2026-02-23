@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.640.0
+  version: 1.642.0
   title: Windmill API
 
   contact:
@@ -19670,6 +19670,8 @@ components:
         dedicated_worker:
           type: boolean
         lock:
+          type: string
+        flow_path:
           type: string
       required:
         - args

@@ -313,7 +313,7 @@ const wasm_url = new URL('windmill_parser_wasm_bg.wasm', import.meta.url);
 let wasmCode = '';
 switch (wasm_url.protocol) {
     case 'file:':
-    wasmCode = await Deno.readFile(wasm_url);
+    wasmCode = (await import('node:fs')).readFileSync(wasm_url);
     break
     case 'https:':
     case 'http:':

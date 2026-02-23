@@ -1,4 +1,4 @@
-import { Provider } from "../../deps.ts";
+import { Provider } from "@cliffy/command/upgrade";
 
 export type NpmProviderOptions = { main?: string; logger?: any } & (
   | {
@@ -52,6 +52,10 @@ export class NpmProvider extends Provider {
 
   getRegistryUrl(name: string, version: string): string {
     return `npm:${this.packageName ?? name}@${version}`;
+  }
+
+  async hasRequiredPermissions(): Promise<boolean> {
+    return true;
   }
 }
 

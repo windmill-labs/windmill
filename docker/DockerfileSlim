@@ -56,6 +56,11 @@ RUN mkdir -p /tmp/windmill/cache && \
 
 COPY --from=oven/bun:1.3.8 /usr/local/bin/bun /usr/bin/bun
 
+# Install windmill CLI (node symlink needed for bun install)
+RUN ln -s /usr/bin/bun /usr/bin/node \
+    && bun install -g windmill-cli \
+    && ln -s $(bun pm bin -g)/wmill /usr/bin/wmill
+
 # add the docker client to call docker from a worker if enabled
 COPY --from=docker:dind /usr/local/bin/docker /usr/local/bin/
 
