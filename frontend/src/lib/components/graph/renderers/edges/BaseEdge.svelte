@@ -13,7 +13,7 @@
 	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
 	import { getGraphContext } from '../../graphContext'
 
-	const { useDataflow, showAssets } = getGraphContext()
+	const { useDataflow, showAssets, dragManager } = getGraphContext()
 
 	let {
 		// id,
@@ -74,6 +74,26 @@
 	let suspendStatus: Record<string, { job: Job; nb: number }> | undefined = $derived(
 		data?.suspendStatus
 	)
+
+	let isDragging = $derived(!!dragManager?.dragging)
+	let draggedId = $derived(dragManager?.dragging?.moduleId)
+	let isValidDropTarget = $derived(
+		isDragging &&
+			data?.insertable &&
+			draggedId !== undefined &&
+			!data.disableMoveIds?.includes(draggedId) &&
+			data.sourceId !== draggedId &&
+			data.targetId !== draggedId
+	)
+	let isNearestDrop = $derived(
+		isValidDropTarget &&
+			dragManager?.nearestDropZone?.sourceId === data?.sourceId &&
+			dragManager?.nearestDropZone?.targetId === data?.targetId &&
+			dragManager?.nearestDropZone?.index === data?.index
+	)
+	let isAdjacentToDragged = $derived(
+		isDragging && (data?.sourceId === draggedId || data?.targetId === draggedId)
+	)
 </script>
 
 <EdgeLabel
@@ -117,6 +137,27 @@
 					{/each}
 				</div>
 			{/if}
+		</div>
+	{:else if isDragging && isValidDropTarget}
+		<div
+			class="edgeButtonContainer nodrag nopan"
+			style:transform="translate(-50%, -50%)"
+		>
+			<div
+				class={twMerge(
+					'w-7 h-7 rounded-full border-2 flex items-center justify-center transition-all duration-150',
+					isNearestDrop
+						? 'border-blue-500 bg-blue-100 dark:bg-blue-900 scale-125 shadow-md shadow-blue-200 dark:shadow-blue-800'
+						: 'border-gray-300 dark:border-gray-600 bg-surface opacity-60'
+				)}
+			>
+				<div
+					class={twMerge(
+						'w-2.5 h-2.5 rounded-full transition-all duration-150',
+						isNearestDrop ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'
+					)}
+				></div>
+			</div>
 		</div>
 	{:else if data?.insertable && !$useDataflow && !data?.moving}
 		<div
@@ -199,7 +240,7 @@
 <BaseEdge
 	path={completeEdge}
 	{markerEnd}
-	class={$useDataflow ? 'hidden' : ''}
+	class={$useDataflow ? 'hidden' : isAdjacentToDragged ? 'opacity-30' : ''}
 	interactionWidth={0}
 	style={undefined}
 	label={undefined}

@@ -72,7 +72,7 @@
 		maximizeSubflow
 	}: Props = $props()
 
-	const { selectionManager } = getGraphContext()
+	const { selectionManager, dragManager } = getGraphContext()
 
 	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')
 	const { flowStore } = flowEditorContext || {}
@@ -152,7 +152,7 @@
 			</div>
 		{/if}
 
-		<div class={moving == mod.id ? 'opacity-50' : ''}>
+		<div class={moving == mod.id ? 'opacity-50' : dragManager?.dragging?.moduleId === mod.id ? 'opacity-30' : ''}>
 			{#if mod.value.type === 'forloopflow' || mod.value.type === 'whileloopflow'}
 				<FlowModuleSchemaItem
 					deletable={insertable}

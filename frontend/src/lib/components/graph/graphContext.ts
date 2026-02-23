@@ -1,6 +1,7 @@
 import { getContext, setContext } from 'svelte'
 import type { SelectionManager } from './selectionUtils.svelte'
 import type { NoteManager } from './noteManager.svelte'
+import type { DragManager } from './dragManager.svelte'
 import type { Writable } from 'svelte/store'
 import type { FlowDiffManager } from '../flows/flowDiffManager.svelte'
 
@@ -9,6 +10,7 @@ export type GraphContext = {
 	useDataflow: Writable<boolean | undefined>
 	showAssets: Writable<boolean | undefined>
 	noteManager?: NoteManager
+	dragManager?: DragManager
 	clearFlowSelection?: () => void
 	yOffset?: number
 	diffManager: FlowDiffManager

@@ -136,6 +136,7 @@
 
 	const flowGraphContext = getGraphContext()
 	const diffManager = flowGraphContext?.diffManager
+	const dragManager = flowGraphContext?.dragManager
 
 	let pickableIds: Record<string, any> | undefined = $state(undefined)
 
@@ -491,9 +492,37 @@
 							'trash center-center p-1 text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary',
 							hover || selected ? 'block' : '!hidden',
 							'shadow-md rounded-md',
-							'group-hover:block'
+							'group-hover:block',
+							'touch-none'
 						)}
-						onclick={stopPropagation(preventDefault((event) => dispatch('move')))}
+						onpointerdown={stopPropagation(preventDefault((e) => {
+							const pe = e as PointerEvent
+							const startX = pe.clientX
+							const startY = pe.clientY
+							let didDrag = false
+
+							function onMovePointer(me) {
+								const dx = me.clientX - startX
+								const dy = me.clientY - startY
+								if (!didDrag && Math.sqrt(dx * dx + dy * dy) > 5) {
+									didDrag = true
+									if (dragManager && id) {
+										dragManager.startDrag(id, label, startX, startY)
+									}
+								}
+							}
+
+							function onUp() {
+								document.removeEventListener('pointermove', onMovePointer)
+								document.removeEventListener('pointerup', onUp)
+								if (!didDrag) {
+									dispatch('move')
+								}
+							}
+
+							document.addEventListener('pointermove', onMovePointer)
+							document.addEventListener('pointerup', onUp)
+						}))}
 						title="Move"
 					>
 						<Move size={12} />

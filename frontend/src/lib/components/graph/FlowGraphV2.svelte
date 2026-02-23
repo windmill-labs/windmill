@@ -68,6 +68,8 @@
 	import { SelectionManager } from './selectionUtils.svelte'
 	import { ChangeTracker } from '$lib/svelte5Utils.svelte'
 	import { NoteManager } from './noteManager.svelte'
+	import { DragManager } from './dragManager.svelte'
+	import DragCoordinator from './DragCoordinator.svelte'
 	import type { ModulesTestStates } from '../modulesTest.svelte'
 	import { deepEqual } from 'fast-equals'
 	import type { AssetWithAltAccessType } from '../assets/lib'
@@ -241,6 +243,9 @@
 		() => nodes
 	)
 
+	// Drag manager for drag-and-drop node movement
+	const dragManager = insertable ? new DragManager() : undefined
+
 	// Runtime text height tracking for notes (not stored in FlowNote)
 	let noteTextHeights = $state<Record<string, number>>({})
 
@@ -279,6 +284,7 @@
 		useDataflow,
 		showAssets,
 		noteManager,
+		dragManager,
 		clearFlowSelection,
 		yOffset,
 		diffManager
@@ -912,6 +918,9 @@
 	{:else}
 		<SvelteFlowProvider>
 			<ViewportResizer {height} {width} {nodes} bind:this={viewportResizer} />
+			{#if dragManager}
+				<DragCoordinator {dragManager} eventHandlers={eventHandler} {edges} nodes={nodesWithOffset} />
+			{/if}
 			{#if sharedViewport && onViewportChange}
 				<ViewportSynchronizer
 					{sharedViewport}
