@@ -43,9 +43,9 @@ export function buildAssetsFilterSchema({
 		},
 		columns: {
 			type: 'string' as const,
-			label: 'Columns subset',
+			label: 'Columns',
 			icon: Braces,
-			description: 'Filter by columns subset match'
+			description: 'Filter by comma-separated column names (e.g., col1,col2,col3)'
 		}
 	} satisfies FilterSchemaRec
 }

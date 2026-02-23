@@ -91,10 +91,10 @@ async fn list_assets(
         asset_summary_filters.push(format!("asset.path = ${}", param_count));
     }
 
-    // Columns filter (JSONB subset match)
+    // Columns filter (check if JSONB has all specified keys)
     if query.columns.is_some() {
         param_count += 1;
-        asset_summary_filters.push(format!("asset.columns @> ${}", param_count));
+        asset_summary_filters.push(format!("asset.columns ?& ${}", param_count));
     }
 
     // Usage path filter - for jobs, also check runnable_path
@@ -232,8 +232,13 @@ async fn list_assets(
     }
 
     if let Some(ref columns) = query.columns {
-        // Columns should be a JSON string (base64 encoded as per the pattern)
-        query_builder = query_builder.bind(columns.replace("'", "''"));
+        // Columns is a comma-separated string, split into array for ?& operator
+        let columns_array: Vec<String> = columns
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        query_builder = query_builder.bind(columns_array);
     }
 
     if let Some(ref usage_path) = query.usage_path {
