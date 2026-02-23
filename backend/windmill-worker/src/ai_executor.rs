@@ -92,7 +92,6 @@ lazy_static::lazy_static! {
 
 const DEFAULT_MAX_AGENT_ITERATIONS: usize = 10;
 const HARD_MAX_AGENT_ITERATIONS: usize = 1000;
-const MAX_AGENT_NESTING_DEPTH: usize = 2;
 
 fn find_module_by_id(
     modules: &Vec<FlowModule>,
@@ -185,34 +184,28 @@ pub async fn handle_ai_agent_job(
     let mut flow_job_id = *immediate_parent_job;
     let mut flow_job = get_flow_job_runnable_and_raw_flow(db, &flow_job_id).await?;
     let direct_parent_job_kind = flow_job.kind;
-    let direct_parent_job_flow_step_id = flow_job.flow_step_id;
+    let direct_parent_job_flow_step_id = flow_job.flow_step_id.clone();
 
-    let mut depth = 0;
-    while !matches!(
-        flow_job.kind,
-        JobKind::Flow | JobKind::FlowNode | JobKind::FlowPreview
-    ) {
-        depth += 1;
-        if depth > MAX_AGENT_NESTING_DEPTH {
-            return Err(Error::internal_err(
-                "AI agent nesting depth exceeded maximum".to_string(),
-            ));
-        }
-
-        if flow_job.kind != JobKind::AIAgent {
-            return Err(Error::internal_err(format!(
-                "expected parent chain to lead to flow, got {:?}",
-                flow_job.kind
-            )));
-        }
-
+    // If the direct parent is an AI agent (nested tool case), go one level up to the flow.
+    if flow_job.kind == JobKind::AIAgent {
         let Some(parent_job_id) = flow_job.parent_job else {
             return Err(Error::internal_err(
-                "AI agent parent chain does not contain a flow job".to_string(),
+                "AI agent parent has no parent job".to_string(),
             ));
         };
         flow_job_id = parent_job_id;
         flow_job = get_flow_job_runnable_and_raw_flow(db, &flow_job_id).await?;
+
+        if !matches!(
+            flow_job.kind,
+            JobKind::Flow | JobKind::FlowNode | JobKind::FlowPreview
+        ) {
+            return Err(Error::internal_err(
+                "AI agent nesting beyond 2 levels is not supported. \
+                 Only flow → agent → nested agent tool is allowed."
+                    .to_string(),
+            ));
+        }
     }
 
     let flow_data = match flow_job.kind {
@@ -232,23 +225,14 @@ pub async fn handle_ai_agent_job(
     let value = flow_data.value();
 
     let module = if direct_parent_job_kind == JobKind::AIAgent {
-        if let Some(parent_agent_step_id) = direct_parent_job_flow_step_id.as_deref() {
-            // Parent is a top-level AI agent (has flow_step_id from the flow executor).
-            // We support 2 levels: flow → agent → nested agent tool.
-            find_ai_agent_tool_module_in_parent_agent(
-                &value.modules,
-                parent_agent_step_id,
-                flow_step_id,
-            )?
-        } else {
-            // To support deeper nesting, we could parse full runnable_path (e.g.
-            // "f/ws/flow/a/tools/b/tools/c")
-            return Err(Error::internal_err(
-                "AI agent nesting beyond 2 levels is not supported. \
-                 Only flow → agent → nested agent tool is allowed."
-                    .to_string(),
-            ));
-        }
+        let parent_agent_step_id = direct_parent_job_flow_step_id.as_deref().ok_or_else(|| {
+            Error::internal_err("Parent AI agent job has no flow_step_id".to_string())
+        })?;
+        find_ai_agent_tool_module_in_parent_agent(
+            &value.modules,
+            parent_agent_step_id,
+            flow_step_id,
+        )?
     } else {
         find_module_by_id(&value.modules, flow_step_id)?
     };
