@@ -2411,25 +2411,24 @@ export async function push(
     }
   }
 
-  // Fail early if there are missing folders not covered by the changeset
   if (missingFolders.length > 0) {
     const folderList = missingFolders.map((f) => `  - ${f}`).join("\n");
+    const user = await wmill.whoami({ workspace: workspace.workspaceId });
+    const userIsAdmin = user.is_admin;
     const msg =
-      `The following folders are missing on the remote and have no folder.meta.yaml in the changeset:\n` +
-      `${folderList}\n` +
-      `Run 'wmill folder add-missing' to create the missing folder.meta.yaml files locally, then push again.`;
-    if (opts.jsonOutput) {
-      const result = {
-        success: false,
-        error: "missing_folders",
-        missing_folders: missingFolders,
-        message: msg,
-      };
-      console.log(JSON.stringify(result, null, 2));
-    } else {
-      log.error(msg);
+      `${userIsAdmin ? "Warning: " : ""}Missing folder.meta.yaml for:\n${folderList}\n` +
+      `Run 'wmill folder add-missing' to create them locally, then push again.`;
+    if (!user.is_admin) {
+      if (opts.jsonOutput) {
+        console.log(JSON.stringify({ success: false, error: "missing_folders", missing_folders: missingFolders, message: msg }, null, 2));
+      } else {
+        log.error(msg);
+      }
+      return;
     }
-    return;
+    if (!opts.jsonOutput) {
+      log.warn(msg);
+    }
   }
 
   // Handle JSON output for dry-run
