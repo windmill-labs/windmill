@@ -2424,7 +2424,7 @@ export async function push(
       } else {
         log.error(msg);
       }
-      return;
+      process.exit(1);
     }
     if (!opts.jsonOutput) {
       log.warn(msg);
