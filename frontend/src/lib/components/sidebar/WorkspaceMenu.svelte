@@ -158,7 +158,7 @@
 									<div
 										class={twMerge(
 											'font-mono text-2xs whitespace-nowrap truncate text-left font-normal',
-											isSelected ? 'text-accent/80' : 'text-hint'
+											isSelected ? 'text-accent/80' : 'text-secondary'
 										)}
 										title={workspace.id}
 									>

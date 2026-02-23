@@ -1,8 +1,16 @@
-import type { AiAgent, FlowModule, FlowModuleValue } from '$lib/gen'
+import type { AiAgent, FlowModule, FlowModuleValue, InputTransform } from '$lib/gen'
+import { loadStoredConfig } from '../aiProviderStorage'
+import { AI_AGENT_SCHEMA } from './flowInfers'
+
+export const SPECIAL_TOOL_KINDS = ['mcpTool', 'websearchTool', 'aiAgentTool'] as const
+export type SpecialToolKind = (typeof SPECIAL_TOOL_KINDS)[number]
 
 // Type aliases for better readability
 export type AgentTool = AiAgent['tools'][number]
 export type FlowModuleTool = AgentTool & { value: { tool_type: 'flowmodule' } & FlowModuleValue }
+export type AiAgentTool = AgentTool & {
+	value: { tool_type: 'flowmodule' } & { type: 'aiagent' } & FlowModuleValue
+}
 export type McpTool = AgentTool & {
 	value: {
 		tool_type: 'mcp'
@@ -39,6 +47,39 @@ export function isWebsearchTool(tool: AgentTool): tool is WebsearchTool {
 }
 
 /**
+ * Create an AI Agent tool (nested agent)
+ */
+export function createAiAgentTool(id: string): AiAgentTool {
+	const input_transforms: AiAgent['input_transforms'] = {
+		provider: {
+			type: 'static',
+			value: loadStoredConfig() ?? { kind: 'openai', resource: '', model: '' }
+		},
+		output_type: { type: 'static', value: 'text' },
+		user_message: { type: 'ai' }
+	}
+	for (const key of Object.keys(AI_AGENT_SCHEMA.properties ?? {})) {
+		if (!(key in input_transforms)) {
+			;(input_transforms as Record<string, InputTransform>)[key] = {
+				type: 'static',
+				value: undefined
+			}
+		}
+	}
+
+	return {
+		id,
+		summary: '',
+		value: {
+			tool_type: 'flowmodule',
+			type: 'aiagent',
+			tools: [],
+			input_transforms
+		}
+	} as AiAgentTool
+}
+
+/**
  * Create an MCP tool from resource path
  */
 export function createMcpTool(id: string): McpTool {
@@ -64,6 +105,19 @@ export function createWebsearchTool(id: string): WebsearchTool {
 		value: {
 			tool_type: 'websearch'
 		}
+	}
+}
+
+/**
+ * Convert a FlowModuleTool to a FlowModule for use with loadFlowModuleState etc.
+ * Strips the extra `tool_type` field and maps AgentTool fields to FlowModule fields.
+ */
+export function agentToolToFlowModule(tool: FlowModuleTool): FlowModule {
+	const { tool_type: _, ...value } = tool.value
+	return {
+		id: tool.id,
+		summary: tool.summary,
+		value: value as FlowModuleValue
 	}
 }
 

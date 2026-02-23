@@ -1,4 +1,7 @@
-import { colors, Confirm } from "../../../deps.ts";
+import process from "node:process";
+
+import { colors } from "@cliffy/ansi/colors";
+import { Confirm } from "@cliffy/prompt/confirm";
 import * as wmill from "../../../gen/services.gen.ts";
 import { GitSyncRepository } from "./types.ts";
 
@@ -24,7 +27,7 @@ export async function handleLegacyRepositoryMigration(
   const workspaceIncludePath = gitSyncSettings.include_path;
   const workspaceIncludeType = gitSyncSettings.include_type;
 
-  if (Deno.stdout.isTerminal() && !opts.yes) {
+  if (!!process.stdout.isTTY && !opts.yes) {
     // Interactive mode - show migration prompt
     console.log(colors.yellow('\n⚠️  Legacy git-sync settings detected!'));
     console.log(`\nRepository "${selectedRepo.git_repo_resource_path}" has legacy settings format.`);
@@ -139,6 +142,6 @@ export async function handleLegacyRepositoryMigration(
       console.error('3. Push local settings to override backend settings:');
       console.error('   wmill gitsync-settings push\n');
     }
-    Deno.exit(1);
+    process.exit(1);
   }
 }

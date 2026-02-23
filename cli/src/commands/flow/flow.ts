@@ -1,8 +1,15 @@
-// deno-lint-ignore-file no-explicit-any
 import { GlobalOptions, isSuperset } from "../../types.ts";
-import { Confirm, SEP, log, yamlStringify } from "../../../deps.ts";
-import { colors, Command, Table, yamlParseFile } from "../../../deps.ts";
+import { colors } from "@cliffy/ansi/colors";
+import { Command } from "@cliffy/command";
+import { Confirm } from "@cliffy/prompt/confirm";
+import { Table } from "@cliffy/table";
+import * as log from "../../core/log.ts";
+import { sep as SEP } from "node:path";
+import { stringify as yamlStringify } from "yaml";
+import { yamlParseFile } from "../../utils/yaml.ts";
 import * as wmill from "../../../gen/services.gen.ts";
+import { readFile } from "node:fs/promises";
+import { mkdirSync, writeFileSync } from "node:fs";
 
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
@@ -51,7 +58,7 @@ export async function pushFlow(
 
   await replaceInlineScripts(
     localFlow.value.modules,
-    async (path: string) => await Deno.readTextFile(localPath + path),
+    async (path: string) => await readFile(localPath + path, "utf-8"),
     log,
     localPath,
     SEP
@@ -106,7 +113,7 @@ async function push(opts: Options, filePath: string, remotePath: string) {
 }
 
 async function list(
-  opts: GlobalOptions & { showArchived?: boolean; includeDraftOnly?: boolean }
+  opts: GlobalOptions & { showArchived?: boolean; includeDraftOnly?: boolean; json?: boolean }
 ) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
@@ -129,13 +136,35 @@ async function list(
     }
   }
 
-  new Table()
-    .header(["path", "summary", "edited by"])
-    .padding(2)
-    .border(true)
-    .body(total.map((x) => [x.path, x.summary, x.edited_by]))
-    .render();
+  if (opts.json) {
+    console.log(JSON.stringify(total));
+  } else {
+    new Table()
+      .header(["path", "summary", "edited by"])
+      .padding(2)
+      .border(true)
+      .body(total.map((x) => [x.path, x.summary, x.edited_by]))
+      .render();
+  }
 }
+async function get(opts: GlobalOptions & { json?: boolean }, path: string) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  const f = await wmill.getFlowByPath({
+    workspace: workspace.workspaceId,
+    path,
+  });
+  if (opts.json) {
+    console.log(JSON.stringify(f));
+  } else {
+    console.log(colors.bold("Path:") + " " + f.path);
+    console.log(colors.bold("Summary:") + " " + (f.summary ?? ""));
+    console.log(colors.bold("Description:") + " " + (f.description ?? ""));
+    console.log(colors.bold("Edited by:") + " " + (f.edited_by ?? ""));
+    console.log(colors.bold("Edited at:") + " " + (f.edited_at ?? ""));
+  }
+}
+
 async function run(
   opts: GlobalOptions & {
     data?: string;
@@ -225,7 +254,7 @@ async function preview(
   // Replace inline scripts with their actual content
   await replaceInlineScripts(
     localFlow.value.modules,
-    async (path: string) => await Deno.readTextFile(flowPath + path),
+    async (path: string) => await readFile(flowPath + path, "utf-8"),
     log,
     flowPath,
     SEP
@@ -286,7 +315,7 @@ async function generateLocks(
     const ignore = await ignoreF(opts);
     const elems = Object.keys(
       await elementsToMap(
-        await FSFSElement(Deno.cwd(), [], true),
+        await FSFSElement(process.cwd(), [], true),
         (p, isD) => {
           return (
             ignore(p, isD) ||
@@ -348,7 +377,7 @@ export function bootstrap(
   }
 
   const flowDirFullPath = `${flowPath}.flow`;
-  Deno.mkdirSync(flowDirFullPath, { recursive: false });
+  mkdirSync(flowDirFullPath, { recursive: false });
 
   const newFlowDefinition = defaultFlowDefinition();
   if (opts.summary !== undefined) {
@@ -363,13 +392,22 @@ export function bootstrap(
   );
 
   const flowYamlPath = `${flowDirFullPath}/flow.yaml`;
-  Deno.writeTextFile(flowYamlPath, newFlowDefinitionYaml, { createNew: true });
+  writeFileSync(flowYamlPath, newFlowDefinitionYaml, { flag: "wx", encoding: "utf-8" });
 }
 
 const command = new Command()
   .description("flow related commands")
-  .option("--show-archived", "Enable archived scripts in output")
+  .option("--show-archived", "Enable archived flows in output")
+  .option("--json", "Output as JSON (for piping to jq)")
   .action(list as any)
+  .command("list", "list all flows")
+  .option("--show-archived", "Enable archived flows in output")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(list as any)
+  .command("get", "get a flow's details")
+  .arguments("<path:string>")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(get as any)
   .command(
     "push",
     "push a local flow spec. This overrides any remote versions."
@@ -416,10 +454,15 @@ const command = new Command()
     "Comma separated patterns to specify which file to NOT take into account."
   )
   .action(generateLocks as any)
-  .command("bootstrap", "create a new empty flow")
+  .command("new", "create a new empty flow")
   .arguments("<flow_path:string>")
-  .option("--summary <summary:string>", "script summary")
-  .option("--description <description:string>", "script description")
+  .option("--summary <summary:string>", "flow summary")
+  .option("--description <description:string>", "flow description")
+  .action(bootstrap as any)
+  .command("bootstrap", "create a new empty flow (alias for new)")
+  .arguments("<flow_path:string>")
+  .option("--summary <summary:string>", "flow summary")
+  .option("--description <description:string>", "flow description")
   .action(bootstrap as any);
 
 export default command;

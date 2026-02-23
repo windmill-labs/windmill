@@ -1,0 +1,51 @@
+{
+  "name": "wmill-dev",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "wmill": "src/main.ts"
+  },
+  "scripts": {
+    "dev": "bun run src/main.ts",
+    "build": "./build.sh",
+    "test": "bun test test/",
+    "check": "bunx tsc --noEmit",
+    "gen-client": "./gen_wm_client.sh && ./windmill-utils-internal/gen_wm_client.sh"
+  },
+  "dependencies": {
+    "@cliffy/ansi": "npm:@jsr/cliffy__ansi@1.0.0",
+    "@cliffy/command": "npm:@jsr/cliffy__command@1.0.0",
+    "@cliffy/prompt": "npm:@jsr/cliffy__prompt@1.0.0",
+    "@cliffy/table": "npm:@jsr/cliffy__table@1.0.0",
+    "@windmill-labs/shared-utils": "^1.0.12",
+    "diff": "^5.2.0",
+    "esbuild": "0.24.2",
+    "get-port": "7.1.0",
+    "jszip": "3.8.0",
+    "minimatch": "^10.0.0",
+    "open": "^10.0.0",
+    "svelte": "^5.45.2",
+    "tar-stream": "^3.1.7",
+    "windmill-parser-wasm-csharp": "*",
+    "windmill-parser-wasm-go": "*",
+    "windmill-parser-wasm-java": "*",
+    "windmill-parser-wasm-nu": "*",
+    "windmill-parser-wasm-php": "*",
+    "windmill-parser-wasm-py": "*",
+    "windmill-parser-wasm-regex": "*",
+    "windmill-parser-wasm-ruby": "*",
+    "windmill-parser-wasm-rust": "*",
+    "windmill-parser-wasm-ts": "*",
+    "windmill-parser-wasm-yaml": "*",
+    "windmill-yaml-validator": "1.1.1",
+    "ws": "8.18.0",
+    "yaml": "^2.7.0"
+  },
+  "devDependencies": {
+    "@types/diff": "^5.2.3",
+    "@types/node": "^22.0.0",
+    "@types/tar-stream": "^3.1.4",
+    "@types/ws": "^8.5.0",
+    "typescript": "^5.7.0"
+  }
+}

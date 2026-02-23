@@ -14,9 +14,13 @@ backend/.minio-data
 !.aiderignore
 rust-client/Cargo.toml
 
+# Worktree-generated port isolation
+.env.local
+
 # Symlinked cache directories (for git worktrees)
 backend/target
 frontend/node_modules
 typescript-client/node_modules
 frontend/.svelte-kit
 backend/chrome_profiler.json
+.fast-check/

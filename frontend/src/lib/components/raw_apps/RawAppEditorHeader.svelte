@@ -6,7 +6,6 @@
 	import { AppService, DraftService, type Policy } from '$lib/gen'
 	import { rawAppToHubUrl } from '$lib/hub'
 	import { enterpriseLicense, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
-	import JSZip from 'jszip'
 	import YAML from 'yaml'
 	import {
 		Bug,
@@ -155,6 +154,7 @@
 		if (!app) return
 		publishingToHub = true
 		try {
+			const { default: JSZip } = await import('jszip')
 			const { js, css } = await getBundle()
 			const zip = new JSZip()
 			zip.file('app.yaml', YAML.stringify(app))

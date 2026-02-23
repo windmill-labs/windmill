@@ -47,7 +47,6 @@
 <script lang="ts">
 	import { CornerDownLeft, Loader2 } from 'lucide-svelte'
 	import Button from './common/button/Button.svelte'
-	import type Editor from './Editor.svelte'
 	import { runScriptAndPollResult } from './jobs/utils'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -161,7 +160,7 @@
 			isRunning = false
 		}
 	}
-	let editor = $state<Editor | null>(null)
+	let editor = $state<any | null>(null)
 </script>
 
 <Splitpanes>

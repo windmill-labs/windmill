@@ -14,8 +14,10 @@ use std::collections::HashMap;
 use tower_http::cors::{Any, CorsLayer};
 use windmill_common::{
     error::{Error, JsonResult, Result},
-    global_settings::{load_value_from_global_settings, NPM_CONFIG_REGISTRY_SETTING},
-    utils::StripPath,
+    global_settings::{
+        load_value_from_global_settings, NPMRC_SETTING, NPM_CONFIG_REGISTRY_SETTING,
+    },
+    utils::{parse_npmrc_registry, StripPath},
 };
 
 use windmill_api_auth::ApiAuthed;
@@ -129,6 +131,14 @@ pub fn workspaced_service() -> Router {
         )
 }
 
+fn build_registry_request(url: &str, auth_token: &Option<String>) -> reqwest::RequestBuilder {
+    let mut req = HTTP_CLIENT.get(url);
+    if let Some(token) = auth_token {
+        req = req.bearer_auth(token);
+    }
+    req
+}
+
 /// Get package metadata (versions and tags) from the private registry
 async fn get_package_metadata(
     _authed: ApiAuthed,
@@ -136,21 +146,14 @@ async fn get_package_metadata(
     Extension(db): Extension<sqlx::Pool<sqlx::Postgres>>,
 ) -> JsonResult<PackageVersions> {
     let package = parse_package_name(package_path.to_path());
-    let npm_registry = get_npm_registry(&db).await?;
-
-    if npm_registry.is_none() {
-        return Err(Error::BadRequest(
-            "No private npm registry configured".to_string(),
-        ));
-    }
-
-    let registry_url = npm_registry.unwrap();
+    let (registry_url, auth_token) = get_npm_registry(&db)
+        .await?
+        .ok_or_else(|| Error::BadRequest("No private npm registry configured".to_string()))?;
     let package_url = format_registry_url(&registry_url, &package, None, None);
 
     tracing::info!("Fetching package metadata from: {}", package_url);
 
-    let response = HTTP_CLIENT
-        .get(&package_url)
+    let response = build_registry_request(&package_url, &auth_token)
         .send()
         .await
         .map_err(|e| Error::InternalErr(format!("Failed to fetch package metadata: {}", e)))?;
@@ -167,7 +170,6 @@ async fn get_package_metadata(
         .await
         .map_err(|e| Error::InternalErr(format!("Failed to parse package metadata: {}", e)))?;
 
-    // Extract versions and dist-tags from the package metadata
     let mut versions = Vec::new();
     let mut tags = HashMap::new();
 
@@ -194,22 +196,15 @@ async fn resolve_package_version(
     Extension(db): Extension<sqlx::Pool<sqlx::Postgres>>,
 ) -> JsonResult<PackageVersion> {
     let package = parse_package_name(package_path.to_path());
-    let npm_registry = get_npm_registry(&db).await?;
-
-    if npm_registry.is_none() {
-        return Err(Error::BadRequest(
-            "No private npm registry configured".to_string(),
-        ));
-    }
-
-    let registry_url = npm_registry.unwrap();
+    let (registry_url, auth_token) = get_npm_registry(&db)
+        .await?
+        .ok_or_else(|| Error::BadRequest("No private npm registry configured".to_string()))?;
     let reference = query.tag.unwrap_or_else(|| "latest".to_string());
     let package_url = format_registry_url(&registry_url, &package, None, None);
 
     tracing::info!("Resolving package version from: {}", package_url);
 
-    let response = HTTP_CLIENT
-        .get(&package_url)
+    let response = build_registry_request(&package_url, &auth_token)
         .send()
         .await
         .map_err(|e| Error::InternalErr(format!("Failed to fetch package metadata: {}", e)))?;
@@ -256,21 +251,14 @@ async fn get_package_filetree(
     Extension(db): Extension<sqlx::Pool<sqlx::Postgres>>,
 ) -> JsonResult<PackageFiletree> {
     let (package, version) = parse_package_and_version(package_version_path.to_path())?;
-    let npm_registry = get_npm_registry(&db).await?;
-
-    if npm_registry.is_none() {
-        return Err(Error::BadRequest(
-            "No private npm registry configured".to_string(),
-        ));
-    }
-
-    let registry_url = npm_registry.unwrap();
+    let (registry_url, auth_token) = get_npm_registry(&db)
+        .await?
+        .ok_or_else(|| Error::BadRequest("No private npm registry configured".to_string()))?;
     let package_url = format_registry_url(&registry_url, &package, None, None);
 
     tracing::info!("Fetching package filetree from: {}", package_url);
 
-    let response = HTTP_CLIENT
-        .get(&package_url)
+    let response = build_registry_request(&package_url, &auth_token)
         .send()
         .await
         .map_err(|e| Error::InternalErr(format!("Failed to fetch package metadata: {}", e)))?;
@@ -287,7 +275,6 @@ async fn get_package_filetree(
         .await
         .map_err(|e| Error::InternalErr(format!("Failed to parse package metadata: {}", e)))?;
 
-    // Get the tarball URL for this version
     let tarball_url = package_json
         .get("versions")
         .and_then(|v| v.get(&version))
@@ -296,9 +283,7 @@ async fn get_package_filetree(
         .and_then(|t| t.as_str())
         .ok_or_else(|| Error::NotFound(format!("Tarball not found for {}@{}", package, version)))?;
 
-    // Download and extract tarball to get file list
-    let tarball_response = HTTP_CLIENT
-        .get(tarball_url)
+    let tarball_response = build_registry_request(tarball_url, &auth_token)
         .send()
         .await
         .map_err(|e| Error::InternalErr(format!("Failed to download tarball: {}", e)))?;
@@ -337,21 +322,14 @@ async fn get_package_file(
     Extension(db): Extension<sqlx::Pool<sqlx::Postgres>>,
 ) -> Result<String> {
     let (package, version, filepath) = parse_package_version_and_file(full_path.to_path())?;
-    let npm_registry = get_npm_registry(&db).await?;
-
-    if npm_registry.is_none() {
-        return Err(Error::BadRequest(
-            "No private npm registry configured".to_string(),
-        ));
-    }
-
-    let registry_url = npm_registry.unwrap();
+    let (registry_url, auth_token) = get_npm_registry(&db)
+        .await?
+        .ok_or_else(|| Error::BadRequest("No private npm registry configured".to_string()))?;
     let package_url = format_registry_url(&registry_url, &package, None, None);
 
     tracing::info!("Fetching package file from: {}", package_url);
 
-    let response = HTTP_CLIENT
-        .get(&package_url)
+    let response = build_registry_request(&package_url, &auth_token)
         .send()
         .await
         .map_err(|e| Error::InternalErr(format!("Failed to fetch package metadata: {}", e)))?;
@@ -368,7 +346,6 @@ async fn get_package_file(
         .await
         .map_err(|e| Error::InternalErr(format!("Failed to parse package metadata: {}", e)))?;
 
-    // Get the tarball URL for this version
     let tarball_url = package_json
         .get("versions")
         .and_then(|v| v.get(&version))
@@ -377,9 +354,7 @@ async fn get_package_file(
         .and_then(|t| t.as_str())
         .ok_or_else(|| Error::NotFound(format!("Tarball not found for {}@{}", package, version)))?;
 
-    // Download tarball
-    let tarball_response = HTTP_CLIENT
-        .get(tarball_url)
+    let tarball_response = build_registry_request(tarball_url, &auth_token)
         .send()
         .await
         .map_err(|e| Error::InternalErr(format!("Failed to download tarball: {}", e)))?;
@@ -402,13 +377,38 @@ async fn get_package_file(
     Ok(file_content)
 }
 
-/// Get the npm registry URL from global settings
-async fn get_npm_registry(db: &sqlx::Pool<sqlx::Postgres>) -> Result<Option<String>> {
+/// Get the npm registry URL and optional auth token from global settings.
+/// Checks the `npmrc` setting first, then falls back to `npm_config_registry`.
+async fn get_npm_registry(
+    db: &sqlx::Pool<sqlx::Postgres>,
+) -> Result<Option<(String, Option<String>)>> {
+    let npmrc = load_value_from_global_settings(db, NPMRC_SETTING)
+        .await?
+        .and_then(|v| v.as_str().map(|s| s.to_string()));
+
+    if let Some(ref npmrc_content) = npmrc {
+        if let Some(parsed) = parse_npmrc_registry(npmrc_content) {
+            return Ok(Some(parsed));
+        }
+    }
+
     let registry = load_value_from_global_settings(db, NPM_CONFIG_REGISTRY_SETTING)
         .await?
         .and_then(|v| v.as_str().map(|s| s.to_string()));
 
-    Ok(registry)
+    if let Some(ref s) = registry {
+        let (url, token) = if s.contains(":_authToken=") {
+            let parts: Vec<&str> = s.split(":_authToken=").collect();
+            let url = parts[0].to_string();
+            let token = parts.get(1).map(|t| t.to_string());
+            (url, token)
+        } else {
+            (s.clone(), None)
+        };
+        return Ok(Some((url, token)));
+    }
+
+    Ok(None)
 }
 
 /// Format a registry URL for a package

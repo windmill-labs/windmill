@@ -13,7 +13,7 @@
  * Usage:
  *   import { withTestBackend, cleanupTestBackend } from "./test_backend.ts";
  *
- *   Deno.test("my test", async () => {
+ *   test("my test", async () => {
  *     await withTestBackend(async (backend, tempDir) => {
  *       const result = await backend.runCLICommand(["sync", "pull"], tempDir);
  *       // ...
@@ -23,6 +23,9 @@
 
 import { CargoBackend, CargoBackendConfig } from "./cargo_backend.ts";
 import { ContainerizedBackend, ContainerConfig } from "./containerized_backend.ts";
+import { mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 /**
  * Common interface for test backends
@@ -37,7 +40,7 @@ export interface TestBackend {
   stop(): Promise<void>;
   reset(): Promise<void>;
 
-  createCLICommand(args: string[], workingDir: string, workspaceName?: string): Deno.Command;
+  createCLICommand(args: string[], workingDir: string, workspaceName?: string): any;
   runCLICommand(args: string[], workingDir: string, workspaceName?: string): Promise<{
     stdout: string;
     stderr: string;
@@ -94,7 +97,7 @@ class CargoBackendAdapter implements TestBackend {
     await this.backend.reset();
   }
 
-  createCLICommand(args: string[], workingDir: string, workspaceName?: string): Deno.Command {
+  createCLICommand(args: string[], workingDir: string, workspaceName?: string): any {
     return this.backend.createCLICommand(args, workingDir, workspaceName);
   }
 
@@ -366,7 +369,7 @@ class ContainerizedBackendAdapter implements TestBackend {
     await this.backend.reset();
   }
 
-  createCLICommand(args: string[], workingDir: string, workspaceName?: string): Deno.Command {
+  createCLICommand(args: string[], workingDir: string, workspaceName?: string): any {
     return this.backend.createCLICommand(args, workingDir, workspaceName);
   }
 
@@ -414,7 +417,7 @@ let globalBackend: TestBackend | null = null;
  * Get the backend type from environment
  */
 function getBackendType(): "cargo" | "docker" {
-  const envType = Deno.env.get("TEST_BACKEND")?.toLowerCase();
+  const envType = process.env["TEST_BACKEND"]?.toLowerCase();
   if (envType === "docker") {
     return "docker";
   }
@@ -433,7 +436,7 @@ export function createTestBackend(type?: "cargo" | "docker"): TestBackend {
   } else {
     console.log("🦀 Using Cargo-based test backend");
     return new CargoBackendAdapter({
-      verbose: Deno.env.get("VERBOSE") === "1",
+      verbose: process.env["VERBOSE"] === "1",
     });
   }
 }
@@ -444,6 +447,7 @@ export function createTestBackend(type?: "cargo" | "docker"): TestBackend {
 export async function getTestBackend(): Promise<TestBackend> {
   if (!globalBackend) {
     globalBackend = createTestBackend();
+    registerCleanup();
     await globalBackend.start();
   }
   return globalBackend;
@@ -456,7 +460,7 @@ export async function withTestBackend<T>(
   testFn: (backend: TestBackend, tempDir: string) => Promise<T>
 ): Promise<T> {
   const backend = await getTestBackend();
-  const tempDir = await Deno.makeTempDir({ prefix: "windmill_cli_test_" });
+  const tempDir = await mkdtemp(join(tmpdir(), "windmill_cli_test_"));
 
   try {
     await backend.reset();
@@ -465,7 +469,7 @@ export async function withTestBackend<T>(
     }
     return await testFn(backend, tempDir);
   } finally {
-    await Deno.remove(tempDir, { recursive: true });
+    await rm(tempDir, { recursive: true });
   }
 }
 
@@ -476,6 +480,30 @@ export async function cleanupTestBackend(): Promise<void> {
   if (globalBackend) {
     await globalBackend.stop();
     globalBackend = null;
+  }
+}
+
+// Auto-cleanup on process exit
+let cleanupRegistered = false;
+function registerCleanup() {
+  if (cleanupRegistered) return;
+  cleanupRegistered = true;
+  process.on("exit", () => {
+    if (globalBackend) {
+      // Synchronous kill — can't await in exit handler
+      try {
+        (globalBackend as any).backend?.process?.kill();
+      } catch {
+        // Best effort
+      }
+    }
+  });
+  // Handle graceful shutdown
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    process.on(signal, async () => {
+      await cleanupTestBackend();
+      process.exit(0);
+    });
   }
 }
 

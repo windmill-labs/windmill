@@ -1,4 +1,5 @@
-import { assertEquals, assert } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { expect, test } from "bun:test";
+import { writeFile } from "node:fs/promises";
 import { getEffectiveSettings } from "../src/core/conf.ts";
 import { withTestBackend } from "./test_backend.ts";
 import { addWorkspace } from "../workspace.ts";
@@ -9,11 +10,7 @@ import { parseJsonFromCLIOutput } from "./test_config_helpers.ts";
 // Tests for gitBranches override inheritance and file filtering behavior
 // =============================================================================
 
-Deno.test({
-  name: "Override Settings: branch override inherits non-overridden settings from base config",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  fn: async () => {
+test("Override Settings: branch override inherits non-overridden settings from base config", async () => {
     const config = {
       includes: ["default/**"],
       skipVariables: true,      // Base has this as true
@@ -39,21 +36,16 @@ Deno.test({
     );
 
     // Override values should be used
-    assertEquals(effective.includes, ["override/**"], "Must use override includes");
-    assertEquals(effective.skipApps, true, "Must use override skipApps");
+    expect(effective.includes).toEqual(["override/**"]);
+    expect(effective.skipApps).toEqual(true);
 
     // Should inherit skip flags from base config
-    assertEquals(effective.skipVariables, true, "Must inherit skipVariables=true from base config");
-    assertEquals(effective.skipResources, true, "Must inherit skipResources=true from base config");
-    assertEquals(effective.defaultTs, "bun", "Must inherit defaultTs from base config");
-  }
+    expect(effective.skipVariables).toEqual(true);
+    expect(effective.skipResources).toEqual(true);
+    expect(effective.defaultTs).toEqual("bun");
 });
 
-Deno.test({
-  name: "Override Settings: branch-specific settings take precedence",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  fn: async () => {
+test("Override Settings: branch-specific settings take precedence", async () => {
     const config = {
       includes: ["default/**"],
       skipVariables: false,
@@ -81,8 +73,8 @@ Deno.test({
       true,
       "main"
     );
-    assertEquals(mainEffective.includes, ["main/**"], "Main branch must use its own includes");
-    assertEquals(mainEffective.skipVariables, true, "Main branch must use its own skipVariables");
+    expect(mainEffective.includes).toEqual(["main/**"]);
+    expect(mainEffective.skipVariables).toEqual(true);
 
     // Test dev branch
     const devEffective = await getEffectiveSettings(
@@ -92,20 +84,15 @@ Deno.test({
       true,
       "dev"
     );
-    assertEquals(devEffective.includes, ["dev/**"], "Dev branch must use its own includes");
-    assertEquals(devEffective.skipVariables, false, "Dev branch must use its own skipVariables");
-  }
+    expect(devEffective.includes).toEqual(["dev/**"]);
+    expect(devEffective.skipVariables).toEqual(false);
 });
 
 // =============================================================================
 // INTEGRATION TESTS - File Filtering Behavior with gitBranches
 // =============================================================================
 
-Deno.test({
-  name: "Integration: sync pull with skipVariables branch override excludes variable files",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  fn: async () => {
+test("Integration: sync pull with skipVariables branch override excludes variable files", async () => {
     await withTestBackend(async (backend, tempDir) => {
       // Set up workspace
       const testWorkspace = {
@@ -117,7 +104,7 @@ Deno.test({
       await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
 
       // Create wmill.yaml with gitBranches override that skips variables
-      await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+      await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
 includes:
   - "**"
 skipVariables: false
@@ -125,7 +112,7 @@ skipVariables: false
 gitBranches:
   test_branch:
     overrides:
-      skipVariables: true`);
+      skipVariables: true`, "utf-8");
 
       // Run sync pull with --branch to force using test_branch config
       const result = await backend.runCLICommand([
@@ -135,29 +122,24 @@ gitBranches:
         '--json-output'
       ], tempDir);
 
-      assertEquals(result.code, 0, `Sync pull should succeed: ${result.stderr}`);
+      expect(result.code).toEqual(0);
 
       // Parse output and verify variable files are NOT included
       const output = parseJsonFromCLIOutput(result.stdout);
       const changePaths = (output.changes || []).map((c: any) => c.path);
 
       const hasVariableFile = changePaths.some((path: string) => path.includes('.variable.yaml'));
-      assertEquals(hasVariableFile, false, "Variable files should NOT be included due to skipVariables override");
+      expect(hasVariableFile).toEqual(false);
 
       // Verify other files ARE included
       const hasOtherFiles = changePaths.some((path: string) =>
         !path.includes('.variable.yaml') && !path.includes('wmill.yaml')
       );
-      assert(hasOtherFiles, `Other files should be included. Found paths: ${changePaths.join(', ')}`);
+      expect(hasOtherFiles).toBeTruthy();
     });
-  }
 });
 
-Deno.test({
-  name: "Integration: sync pull respects includes branch override for file filtering",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  fn: async () => {
+test("Integration: sync pull respects includes branch override for file filtering", async () => {
     await withTestBackend(async (backend, tempDir) => {
       // Set up workspace
       const testWorkspace = {
@@ -169,7 +151,7 @@ Deno.test({
       await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
 
       // Create wmill.yaml with gitBranches override for includes
-      await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+      await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
 includes:
   - "**"
 
@@ -178,7 +160,7 @@ gitBranches:
     overrides:
       includes:
         - "users/**"
-        - "groups/**"`);
+        - "groups/**"`, "utf-8");
 
       // Run sync pull with --branch to use restricted includes
       const result = await backend.runCLICommand([
@@ -190,7 +172,7 @@ gitBranches:
         '--json-output'
       ], tempDir);
 
-      assertEquals(result.code, 0, `Sync pull should succeed: ${result.stderr}`);
+      expect(result.code).toEqual(0);
 
       // Parse output
       const output = parseJsonFromCLIOutput(result.stdout);
@@ -202,20 +184,15 @@ gitBranches:
       const hasUserFiles = normalizedPaths.some((path: string) => path.includes('users/'));
       const hasGroupFiles = normalizedPaths.some((path: string) => path.includes('groups/'));
 
-      assert(hasUserFiles || hasGroupFiles, `User or group files should be included. Found: ${normalizedPaths.join(', ')}`);
+      expect(hasUserFiles || hasGroupFiles).toBeTruthy();
 
       // Verify f/** files are NOT included (due to restrictive includes)
       const hasFolderFiles = normalizedPaths.some((path: string) => path.startsWith('f/'));
-      assertEquals(hasFolderFiles, false, `f/ files should NOT be included due to restrictive includes. Found: ${normalizedPaths.join(', ')}`);
+      expect(hasFolderFiles).toEqual(false);
     });
-  }
 });
 
-Deno.test({
-  name: "Integration: different branches have different settings",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  fn: async () => {
+test("Integration: different branches have different settings", async () => {
     await withTestBackend(async (backend, tempDir) => {
       // Set up workspace
       const testWorkspace = {
@@ -227,7 +204,7 @@ Deno.test({
       await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
 
       // Create wmill.yaml with different settings per branch
-      await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+      await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
 includes:
   - "**"
 skipVariables: false
@@ -241,7 +218,7 @@ gitBranches:
   dev:
     overrides:
       skipVariables: false
-      skipResources: false`);
+      skipResources: false`, "utf-8");
 
       // Test prod branch - should skip variables and resources
       const prodResult = await backend.runCLICommand([
@@ -251,7 +228,7 @@ gitBranches:
         '--json-output'
       ], tempDir);
 
-      assertEquals(prodResult.code, 0, `Prod sync pull should succeed: ${prodResult.stderr}`);
+      expect(prodResult.code).toEqual(0);
 
       const prodOutput = parseJsonFromCLIOutput(prodResult.stdout);
       const prodPaths = (prodOutput.changes || []).map((c: any) => c.path);
@@ -259,8 +236,8 @@ gitBranches:
       const prodHasVariables = prodPaths.some((path: string) => path.includes('.variable.yaml'));
       const prodHasResources = prodPaths.some((path: string) => path.includes('.resource.yaml'));
 
-      assertEquals(prodHasVariables, false, "Prod branch should skip variables");
-      assertEquals(prodHasResources, false, "Prod branch should skip resources");
+      expect(prodHasVariables).toEqual(false);
+      expect(prodHasResources).toEqual(false);
 
       // Test dev branch - should include variables and resources
       const devResult = await backend.runCLICommand([
@@ -270,7 +247,7 @@ gitBranches:
         '--json-output'
       ], tempDir);
 
-      assertEquals(devResult.code, 0, `Dev sync pull should succeed: ${devResult.stderr}`);
+      expect(devResult.code).toEqual(0);
 
       const devOutput = parseJsonFromCLIOutput(devResult.stdout);
       const devPaths = (devOutput.changes || []).map((c: any) => c.path);
@@ -278,8 +255,7 @@ gitBranches:
       const devHasVariables = devPaths.some((path: string) => path.includes('.variable.yaml'));
       const devHasResources = devPaths.some((path: string) => path.includes('.resource.yaml'));
 
-      assertEquals(devHasVariables, true, "Dev branch should include variables");
-      assertEquals(devHasResources, true, "Dev branch should include resources");
+      expect(devHasVariables).toEqual(true);
+      expect(devHasResources).toEqual(true);
     });
-  }
 });
