@@ -1,4 +1,4 @@
-import { stat, writeFile, mkdir } from "node:fs/promises";
+import { stat, readdir, writeFile, mkdir } from "node:fs/promises";
 import { stringify as yamlStringify } from "yaml";
 
 import { colors } from "@cliffy/ansi/colors";
@@ -167,6 +167,35 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
   console.log(colors.bold.underline.green("Folder pushed"));
 }
 
+async function addMissing(opts: GlobalOptions) {
+  const fDir = `f`;
+  try {
+    await stat(fDir);
+  } catch {
+    log.info("No 'f/' directory found. Nothing to do.");
+    return;
+  }
+  const entries = await readdir(fDir, { withFileTypes: true });
+  let created = 0;
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const metaPath = `${fDir}${SEP}${entry.name}${SEP}folder.meta.yaml`;
+    try {
+      await stat(metaPath);
+    } catch {
+      await newFolder(opts, entry.name);
+      created++;
+    }
+  }
+  if (created === 0) {
+    log.info("All folders already have a folder.meta.yaml. Nothing to do.");
+  } else {
+    log.info(
+      `\nCreated ${created} folder.meta.yaml file(s). You can now run 'wmill sync push' to push them.`,
+    );
+  }
+}
+
 const command = new Command()
   .description("folder related commands")
   .option("--json", "Output as JSON (for piping to jq)")
@@ -186,6 +215,11 @@ const command = new Command()
     "push a local folder spec. This overrides any remote versions."
   )
   .arguments("<file_path:string> <remote_path:string>")
-  .action(push as any);
+  .action(push as any)
+  .command(
+    "add-missing",
+    "create folder.meta.yaml for all subdirectories of f/ that are missing one"
+  )
+  .action(addMissing as any);
 
 export default command;

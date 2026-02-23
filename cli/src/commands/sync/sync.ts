@@ -2431,6 +2431,27 @@ export async function push(
     }
   }
 
+  // Fail early if there are missing folders not covered by the changeset
+  if (missingFolders.length > 0) {
+    const folderList = missingFolders.map((f) => `  - ${f}`).join("\n");
+    const msg =
+      `The following folders are missing on the remote and have no folder.meta.yaml in the changeset:\n` +
+      `${folderList}\n` +
+      `Run 'wmill folder add-missing' to create the missing folder.meta.yaml files locally, then push again.`;
+    if (opts.jsonOutput) {
+      const result = {
+        success: false,
+        error: "missing_folders",
+        missing_folders: missingFolders,
+        message: msg,
+      };
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      log.error(msg);
+    }
+    return;
+  }
+
   // Handle JSON output for dry-run
   if (opts.dryRun && opts.jsonOutput) {
     const result = {
@@ -2452,9 +2473,6 @@ export async function push(
             }
           : {}),
       })),
-      ...(missingFolders.length > 0
-        ? { auto_create_folders: missingFolders }
-        : {}),
       total: changes.length,
     };
     console.log(JSON.stringify(result, null, 2));
@@ -2464,18 +2482,6 @@ export async function push(
   if (changes.length > 0) {
     if (!opts.jsonOutput) {
       prettyChanges(changes, specificItems, opts.branch);
-    }
-    if (missingFolders.length > 0) {
-      if (!opts.jsonOutput) {
-        log.info("");
-        for (const folderName of missingFolders) {
-          log.info(
-            colors.yellow(
-              `+ folder ${folderName} (will be auto-created)`,
-            ),
-          );
-        }
-      }
     }
 
     if (opts.dryRun) {
@@ -2494,27 +2500,6 @@ export async function push(
 
     const start = performance.now();
     log.info(colors.gray(`Applying changes to files ...`));
-
-    // Auto-create missing folders before pushing resources
-    for (const folderName of missingFolders) {
-      log.info(
-        colors.yellow(`Auto-creating missing folder: ${folderName}`),
-      );
-      try {
-        await wmill.createFolder({
-          workspace: workspace.workspaceId,
-          requestBody: {
-            name: folderName,
-          },
-        });
-      } catch (e: any) {
-        log.warn(
-          `Could not create folder ${folderName}: ${
-            e.body ?? e.message
-          }. You may need to create it manually or have an admin create it.`,
-        );
-      }
-    }
 
     let stateful = opts.stateful;
     if (stateful) {
@@ -3018,9 +3003,6 @@ export async function push(
               }
             : {}),
         })),
-        ...(missingFolders.length > 0
-          ? { auto_created_folders: missingFolders }
-          : {}),
         total: changes.length,
         duration_ms: Math.round(performance.now() - start),
       };
