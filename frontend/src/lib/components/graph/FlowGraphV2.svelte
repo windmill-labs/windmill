@@ -61,6 +61,7 @@
 	import AiToolNode, { computeAIToolNodes } from './renderers/nodes/AIToolNode.svelte'
 	import NewAiToolNode from './renderers/nodes/NewAIToolNode.svelte'
 	import NoteNode from './renderers/nodes/NoteNode.svelte'
+	import CollapsedGroupNode from './renderers/nodes/CollapsedGroupNode.svelte'
 	import NoteTool from './NoteTool.svelte'
 	import SelectionBoundingBox from './SelectionBoundingBox.svelte'
 	import GroupOverlay from './GroupOverlay.svelte'
@@ -446,6 +447,9 @@
 			delete expandedSubflows[id]
 			expandedSubflows = expandedSubflows
 		},
+		expandGroup: (groupId: string) => {
+			groupEditorContext?.groupEditor.updateCollapsedDefault(groupId, false)
+		},
 		updateMock: (detail) => {
 			onUpdateMock?.(detail)
 		},
@@ -705,7 +709,8 @@
 		assetsOverflowed: AssetsOverflowedNode,
 		aiTool: AiToolNode,
 		newAiTool: NewAiToolNode,
-		note: NoteNode
+		note: NoteNode,
+		collapsedGroup: CollapsedGroupNode
 	} as any
 
 	const edgeTypes = {
@@ -741,6 +746,12 @@
 	let graph = $derived.by(() => {
 		moduleTracker.counter
 		effectiveModuleActions
+		currentGroups
+
+		const collapsedGroups = (groupEditorContext?.groupEditor.getGroups() ?? []).filter(
+			(g) => g.collapsed === true
+		)
+
 		return graphBuilder(
 			untrack(() => effectiveModules),
 			{
@@ -774,7 +785,8 @@
 			moving,
 			simplifiableFlow,
 			triggerNode ? path : undefined,
-			expandedSubflows
+			expandedSubflows,
+			collapsedGroups
 		)
 	})
 	let hideAssetsToggle = $derived(

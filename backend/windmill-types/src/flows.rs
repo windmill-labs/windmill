@@ -177,6 +177,8 @@ pub struct FlowValue {
     pub chat_input_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub flow_env: Option<HashMap<String, Box<RawValue>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub groups: Option<Vec<FlowGroup>>,
 }
 
 impl FlowValue {
@@ -401,6 +403,20 @@ pub struct Mock {
     pub enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub return_value: Option<serde_json::Value>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct FlowGroup {
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub collapsed: Option<bool>,
+    pub module_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]

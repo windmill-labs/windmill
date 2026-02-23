@@ -225,6 +225,9 @@ components:
         summary:
           type: string
           description: Display name for this group
+        description:
+          type: string
+          description: Markdown description shown when the group is collapsed
         collapsed:
           type: boolean
           default: false
