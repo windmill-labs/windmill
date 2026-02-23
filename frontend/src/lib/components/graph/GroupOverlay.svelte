@@ -1,12 +1,10 @@
 <script lang="ts">
 	import { ViewportPortal, type Node } from '@xyflow/svelte'
 	import { calculateNodesBoundsWithOffset } from './util'
-	import { ChevronDown, ChevronRight, Ellipsis, Pen, Trash2 } from 'lucide-svelte'
+	import { ChevronDown, ChevronRight, Pen, X } from 'lucide-svelte'
 	import { getGroupEditorContext, type FlowGroup } from './groupEditor.svelte'
 	import { NoteColor, NOTE_COLORS } from './noteColors'
 	import NoteColorPicker from './NoteColorPicker.svelte'
-	import Popover from '../meltComponents/Popover.svelte'
-	import Toggle from '../Toggle.svelte'
 	import Button from '../common/button/Button.svelte'
 
 	interface Props {
@@ -22,8 +20,8 @@
 	// Runtime collapse state, keyed by group ID
 	let collapsedState: Record<string, boolean> = $state({})
 
-	// Popover open state
-	let popoverOpen = $state(false)
+	// Color picker open state
+	let colorPickerOpen = $state(false)
 
 	// Action bar hover state to prevent flicker
 	let actionBarHovered = $state(false)
@@ -51,7 +49,7 @@
 			if (activeGroup.id && !(activeGroup.id in collapsedState)) {
 				collapsedState[activeGroup.id] = activeGroup.collapsed ?? false
 			}
-		} else if (!popoverOpen && !actionBarHovered && !editingSummary) {
+		} else if (!colorPickerOpen && !actionBarHovered && !editingSummary) {
 			hideTimeout = setTimeout(() => {
 				visibleGroup = undefined
 			}, 150)
@@ -77,12 +75,6 @@
 		}
 	}
 
-	// Compute bounds for the visible (hovered) group
-	let hoverBounds = $derived.by(() => {
-		if (!visibleGroup || visibleGroup.module_ids.length === 0) return null
-		return computeGroupBounds(visibleGroup)
-	})
-
 	// Border color mapping from NoteColor
 	const GROUP_BORDER_COLORS: Record<NoteColor, string> = {
 		[NoteColor.YELLOW]: 'border-yellow-400 dark:border-yellow-600',
@@ -97,30 +89,10 @@
 		[NoteColor.GRAY]: 'border-gray-400 dark:border-gray-600'
 	}
 
-	const GROUP_BG_COLORS: Record<NoteColor, string> = {
-		[NoteColor.YELLOW]: 'bg-yellow-200/10 dark:bg-yellow-800/10',
-		[NoteColor.BLUE]: 'bg-blue-200/10 dark:bg-blue-800/10',
-		[NoteColor.GREEN]: 'bg-green-200/10 dark:bg-green-800/10',
-		[NoteColor.PURPLE]: 'bg-purple-200/10 dark:bg-purple-800/10',
-		[NoteColor.PINK]: 'bg-pink-200/10 dark:bg-pink-800/10',
-		[NoteColor.ORANGE]: 'bg-orange-200/10 dark:bg-orange-800/10',
-		[NoteColor.RED]: 'bg-red-200/10 dark:bg-red-800/10',
-		[NoteColor.CYAN]: 'bg-cyan-200/10 dark:bg-cyan-800/10',
-		[NoteColor.LIME]: 'bg-lime-200/10 dark:bg-lime-800/10',
-		[NoteColor.GRAY]: 'bg-gray-200/10 dark:bg-gray-800/10'
-	}
-
 	function getBorderColorClass(color?: string): string {
 		return (
 			GROUP_BORDER_COLORS[(color as NoteColor) ?? NoteColor.BLUE] ??
 			GROUP_BORDER_COLORS[NoteColor.BLUE]
-		)
-	}
-
-	function getBgColorClass(color?: string): string {
-		return (
-			GROUP_BG_COLORS[(color as NoteColor) ?? NoteColor.BLUE] ??
-			GROUP_BG_COLORS[NoteColor.BLUE]
 		)
 	}
 
@@ -159,169 +131,119 @@
 	}
 </script>
 
-<!-- Layer 1: Always-visible group labels -->
 {#each allGroups as group (group.id)}
-	{@const labelBounds = computeGroupBounds(group)}
-	{#if labelBounds}
+	{@const bounds = computeGroupBounds(group)}
+	{#if bounds}
 		<ViewportPortal target="front">
+			<!-- Always-visible border (no bg, solid 1px) -->
 			<div
-				class="absolute flex items-center gap-1"
-				style:transform="translate({labelBounds.x}px, {labelBounds.y - 20}px)"
+				class="absolute rounded-lg border pointer-events-none {getBorderColorClass(group.color)}"
+				style:transform="translate({bounds.x}px, {bounds.y}px)"
+				style:width="{bounds.width}px"
+				style:height="{bounds.height}px"
 				style:z-index="4"
-				style="pointer-events: auto; cursor: default;"
-				onpointerenter={() => {
-					if (hideTimeout) {
-						clearTimeout(hideTimeout)
-						hideTimeout = undefined
-					}
-					hoveredLabelGroupId = group.id
-					visibleGroup = group
-					if (group.id && !(group.id in collapsedState)) {
-						collapsedState[group.id] = group.collapsed ?? false
-					}
-				}}
-				onpointerleave={() => {
-					hoveredLabelGroupId = null
-					if (!popoverOpen && !actionBarHovered && !editingSummary) {
-						hideTimeout = setTimeout(() => {
-							visibleGroup = undefined
-						}, 150)
-					}
-				}}
 			>
-				{#if editingGroupId === group.id}
-					<input
-						class="text-xs font-medium bg-transparent border-none outline-none {getTextColorClass(group.color)} w-24"
-						bind:value={summaryInput}
-						onblur={() => commitSummary(group.id)}
-						onkeydown={(e) => {
-							if (e.key === 'Enter') commitSummary(group.id)
-							if (e.key === 'Escape') {
-								editingGroupId = null
+				<!-- Label (top-left, above the border) -->
+				<div
+					class="absolute -top-6 left-0 flex items-center gap-1 h-5"
+					style="pointer-events: auto; cursor: default;"
+					onpointerenter={() => {
+						if (hideTimeout) {
+							clearTimeout(hideTimeout)
+							hideTimeout = undefined
+						}
+						hoveredLabelGroupId = group.id
+						visibleGroup = group
+						if (group.id && !(group.id in collapsedState)) {
+							collapsedState[group.id] = group.collapsed ?? false
+						}
+					}}
+					onpointerleave={() => {
+						hoveredLabelGroupId = null
+						if (!colorPickerOpen && !actionBarHovered && !editingSummary) {
+							hideTimeout = setTimeout(() => {
+								visibleGroup = undefined
+							}, 150)
+						}
+					}}
+				>
+					{#if editingGroupId === group.id}
+						<input
+							class="text-xs font-medium bg-transparent border-none outline-none {getTextColorClass(group.color)} w-24"
+							bind:value={summaryInput}
+							onblur={() => commitSummary(group.id)}
+							onkeydown={(e) => {
+								if (e.key === 'Enter') commitSummary(group.id)
+								if (e.key === 'Escape') {
+									editingGroupId = null
+								}
+							}}
+							autofocus
+						/>
+					{:else}
+						<span class="text-xs font-medium {getTextColorClass(group.color)}">
+							{group.summary || 'Group'}
+						</span>
+						{#if editMode && hoveredLabelGroupId === group.id}
+							<button
+								class="flex items-center justify-center w-4 h-4 rounded hover:bg-surface-hover {getTextColorClass(group.color)} opacity-60 hover:opacity-100"
+								onclick={() => startEditSummary(group)}
+								title="Edit group name"
+							>
+								<Pen size={10} />
+							</button>
+						{/if}
+					{/if}
+				</div>
+
+				<!-- Action bar (top-right, hover only) — matches group note style -->
+				{#if editMode && visibleGroup?.id === group.id}
+					<div
+						class="absolute -top-7 right-0 p-1 h-7 group flex justify-end"
+						style="pointer-events: auto;"
+						onpointerenter={() => {
+							actionBarHovered = true
+							if (hideTimeout) {
+								clearTimeout(hideTimeout)
+								hideTimeout = undefined
 							}
 						}}
-						autofocus
-					/>
-				{:else}
-					<span class="text-xs font-medium {getTextColorClass(group.color)}">
-						{group.summary || 'Group'}
-					</span>
-					{#if editMode && hoveredLabelGroupId === group.id}
-						<button
-							class="flex items-center justify-center w-4 h-4 rounded hover:bg-surface-hover {getTextColorClass(group.color)} opacity-60 hover:opacity-100"
-							onclick={() => startEditSummary(group)}
-							title="Edit group name"
-						>
-							<Pen size={10} />
-						</button>
-					{/if}
+						onpointerleave={() => {
+							actionBarHovered = false
+						}}
+					>
+						<div class="flex flex-row gap-2 h-fit">
+							<Button
+								variant="subtle"
+								unifiedSize="xs"
+								iconOnly
+								title={isCollapsed(group.id) ? 'Expand group' : 'Collapse group'}
+								startIcon={{ icon: isCollapsed(group.id) ? ChevronRight : ChevronDown }}
+								onclick={() => toggleCollapse(group.id)}
+							/>
+							<NoteColorPicker
+								selectedColor={(group.color as NoteColor) ?? NoteColor.BLUE}
+								onColorChange={(color) => {
+									groupEditorContext?.groupEditor.updateColor(group.id, color)
+								}}
+								bind:isOpen={colorPickerOpen}
+							/>
+							<Button
+								variant="subtle"
+								unifiedSize="xs"
+								title="Delete group"
+								startIcon={{ icon: X }}
+								onclick={() => {
+									groupEditorContext?.groupEditor.deleteGroup(group.id)
+									visibleGroup = undefined
+								}}
+								iconOnly
+								destructive
+							/>
+						</div>
+					</div>
 				{/if}
 			</div>
 		</ViewportPortal>
 	{/if}
 {/each}
-
-<!-- Layer 2: Hover bounding box + action bar -->
-{#if visibleGroup && hoverBounds}
-	{@const group = visibleGroup}
-	{@const currentBounds = hoverBounds}
-	<ViewportPortal target="front">
-		<div
-			class="absolute rounded-lg border-2 border-dashed pointer-events-none {getBorderColorClass(
-				group.color
-			)} {getBgColorClass(group.color)}"
-			style:transform="translate({currentBounds.x}px, {currentBounds.y}px)"
-			style:width="{currentBounds.width}px"
-			style:height="{currentBounds.height}px"
-			style:z-index="5"
-		>
-			<!-- Action bar at top-right -->
-			{#if editMode}
-				<div
-					class="absolute -top-8 right-0 flex items-center gap-1 bg-surface rounded-t-md px-1 py-0.5 shadow-sm border border-b-0 {getBorderColorClass(
-						group.color
-					)}"
-					style="pointer-events: auto;"
-					onpointerenter={() => {
-						actionBarHovered = true
-						if (hideTimeout) {
-							clearTimeout(hideTimeout)
-							hideTimeout = undefined
-						}
-					}}
-					onpointerleave={() => {
-						actionBarHovered = false
-					}}
-				>
-					<!-- Collapse toggle button -->
-					<Button
-						variant="subtle"
-						unifiedSize="xs"
-						iconOnly
-						title={isCollapsed(group.id) ? 'Expand group' : 'Collapse group'}
-						startIcon={{ icon: isCollapsed(group.id) ? ChevronRight : ChevronDown }}
-						onclick={() => toggleCollapse(group.id)}
-					/>
-
-					<!-- Settings popover -->
-					<Popover
-						placement="bottom-end"
-						contentClasses="p-3"
-						floatingConfig={{ strategy: 'absolute' }}
-						usePointerDownOutside
-						bind:isOpen={popoverOpen}
-					>
-						{#snippet trigger()}
-							<Button
-								variant="subtle"
-								unifiedSize="xs"
-								selected={popoverOpen}
-								nonCaptureEvent
-								title="Group settings"
-								startIcon={{ icon: Ellipsis }}
-								iconOnly
-							/>
-						{/snippet}
-						{#snippet content()}
-							<div class="flex flex-col gap-3 min-w-48">
-								<Toggle
-									checked={group.collapsed ?? false}
-									options={{ right: 'Collapse by default' }}
-									size="xs"
-									on:change={(e) => {
-										groupEditorContext?.groupEditor.updateCollapsedDefault(
-											group.id,
-											e.detail
-										)
-									}}
-								/>
-								<div class="flex items-center justify-between">
-									<span class="text-xs text-secondary">Color</span>
-									<NoteColorPicker
-										selectedColor={(group.color as NoteColor) ?? NoteColor.BLUE}
-										onColorChange={(color) => {
-											groupEditorContext?.groupEditor.updateColor(group.id, color)
-										}}
-									/>
-								</div>
-								<Button
-									variant="border"
-									color="red"
-									unifiedSize="xs"
-									startIcon={{ icon: Trash2 }}
-									onclick={() => {
-										groupEditorContext?.groupEditor.deleteGroup(group.id)
-										popoverOpen = false
-										visibleGroup = undefined
-									}}
-								>
-									Delete group
-								</Button>
-							</div>
-						{/snippet}
-					</Popover>
-				</div>
-			{/if}
-		</div>
-	</ViewportPortal>
-{/if}

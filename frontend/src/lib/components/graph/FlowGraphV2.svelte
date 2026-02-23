@@ -64,6 +64,7 @@
 	import NoteTool from './NoteTool.svelte'
 	import SelectionBoundingBox from './SelectionBoundingBox.svelte'
 	import GroupOverlay from './GroupOverlay.svelte'
+	import { getGroupEditorContext, computeGroupSpacing } from './groupEditor.svelte'
 	import SelectionTool from './SelectionTool.svelte'
 	import PaneContextMenu from './PaneContextMenu.svelte'
 	import { SelectionManager } from './selectionUtils.svelte'
@@ -257,6 +258,7 @@
 	const selectedId = $derived(selectionManager.getSelectedId())
 
 	const noteEditorContext = getNoteEditorContext()
+	const groupEditorContext = getGroupEditorContext()
 
 	// Function to calculate extra gap needed for notes below the lowest flow nodes
 	function calculateNoteGap(notes: FlowNote[] | undefined): number {
@@ -643,6 +645,19 @@
 			}))
 		}
 
+		// Apply group label spacing (pushes nodes down like group notes do)
+		const groups = groupEditorContext?.groupEditor.getGroups() ?? []
+		if (groups.length > 0) {
+			const groupPositions = computeGroupSpacing(
+				groups,
+				finalNodes.map((n) => ({ id: n.id, position: n.position }))
+			)
+			finalNodes = finalNodes.map((n) => ({
+				...n,
+				position: groupPositions[n.id] || n.position
+			}))
+		}
+
 		// update nodes
 		nodes = [...finalNodes, ...(noteNodesResult?.noteNodes ?? [])]
 
@@ -767,8 +782,11 @@
 	)
 	let hideNotesToggle = $derived(!notes || notes.length === 0)
 
+	// Track groups for re-layout when groups change
+	let currentGroups = $derived(groupEditorContext?.groupEditor.getGroups() ?? [])
+
 	$effect(() => {
-		;[graph, allowSimplifiedPoll, $showAssets, showNotes, noteManager.renderCount]
+		;[graph, allowSimplifiedPoll, $showAssets, showNotes, noteManager.renderCount, currentGroups]
 		untrack(async () => {
 			await updateStores()
 		})
