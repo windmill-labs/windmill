@@ -9127,7 +9127,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ScriptArgs"
+              $ref: "#/components/schemas/InlineScriptArgs"
 
       responses:
         "200":
@@ -9151,7 +9151,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ScriptArgs"
+              $ref: "#/components/schemas/InlineScriptArgs"
 
       responses:
         "200":
@@ -19735,6 +19735,12 @@ components:
         language:
           $ref: "#/components/schemas/ScriptLang"
       required: [content, args, language]
+
+    InlineScriptArgs:
+      type: object
+      properties:
+        args:
+          $ref: "#/components/schemas/ScriptArgs"
 
     WorkflowTask:
       type: object
