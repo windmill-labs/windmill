@@ -11,6 +11,7 @@ import { getContext, setContext } from 'svelte'
 export type FlowGroup = {
 	id: string
 	summary?: string
+	description?: string
 	collapsed?: boolean
 	module_ids: Array<string>
 	color?: string
@@ -70,6 +71,7 @@ export class GroupEditor {
 
 		const newGroup: FlowGroup = {
 			id: generateId(),
+			description: '',
 			module_ids: filteredIds,
 			color
 		}
@@ -90,6 +92,11 @@ export class GroupEditor {
 	updateSummary(groupId: string, summary: string): void {
 		const groups = this.getGroups()
 		this.setGroups(groups.map((g) => (g.id === groupId ? { ...g, summary } : g)))
+	}
+
+	updateDescription(groupId: string, description: string): void {
+		const groups = this.getGroups()
+		this.setGroups(groups.map((g) => (g.id === groupId ? { ...g, description } : g)))
 	}
 
 	updateCollapsedDefault(groupId: string, collapsed: boolean): void {
