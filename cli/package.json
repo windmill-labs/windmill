@@ -42,6 +42,7 @@
     "yaml": "^2.7.0"
   },
   "devDependencies": {
+    "@types/bun": "^1.3.9",
     "@types/diff": "^5.2.3",
     "@types/node": "^22.0.0",
     "@types/tar-stream": "^3.1.4",
