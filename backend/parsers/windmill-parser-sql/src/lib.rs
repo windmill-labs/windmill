@@ -216,7 +216,7 @@ lazy_static::lazy_static! {
     static ref RE_ARG_MYSQL: Regex = Regex::new(r#"(?m)^-- \? (\w+) \((\w+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
     pub static ref RE_ARG_MYSQL_NAMED: Regex = Regex::new(r#"(?m)^-- :([a-z_][a-z0-9_]*) \((\w+(?:\([\w, ]+\))?)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 
-    static ref RE_ARG_PGSQL: Regex = Regex::new(r#"(?m)^-- \$(\d+) (\w+)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
+    static ref RE_ARG_PGSQL: Regex = Regex::new(r#"(?m)^-- \$(\d+) (\w+)(?: \(([A-Za-z0-9_\[\]]+)\))?(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 
     // -- @name (type) = default
     static ref RE_ARG_BIGQUERY: Regex = Regex::new(r#"(?m)^-- @(\w+) \((\w+(?:\[\])?)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
@@ -480,19 +480,60 @@ pub fn parse_pg_statement_arg_indices(code: &str) -> HashSet<i32> {
 
 fn parse_pg_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
     let mut args = vec![];
+
+    // Track which args have explicit types in declaration comments
+    let mut explicitly_typed_args: HashSet<i32> = HashSet::new();
+
+    // First pass: collect args from declaration comments (-- $1 argName (type))
+    for cap in RE_ARG_PGSQL.captures_iter(code) {
+        let idx = cap
+            .get(1)
+            .and_then(|x| x.as_str().parse::<i32>().ok())
+            .ok_or_else(|| anyhow!("Impossible to parse arg digit"))?;
+
+        let name = cap.get(2).map(|x| x.as_str().to_string()).unwrap();
+        let explicit_type = cap.get(3).map(|x| x.as_str().to_string().to_lowercase());
+        let default = cap.get(4).map(|x| x.as_str().to_string());
+        let has_default = default.is_some();
+
+        if let Some(typ) = explicit_type {
+            // If explicitly typed, use that type and don't infer from usage
+            explicitly_typed_args.insert(idx);
+            let parsed_typ = parse_pg_typ(typ.as_str());
+            let parsed_default = default.and_then(|x| parsed_default(&parsed_typ, x));
+
+            args.push(Arg {
+                name,
+                typ: parsed_typ,
+                default: parsed_default,
+                otyp: Some(typ),
+                has_default,
+                oidx: Some(idx),
+            });
+        }
+    }
+
+    // Second pass: infer types from usage for non-explicitly-typed args
     let mut hm: HashMap<i32, String> = HashMap::new();
     for cap in RE_CODE_PGSQL.captures_iter(code) {
+        let idx = cap
+            .get(1)
+            .and_then(|x| x.as_str().parse::<i32>().ok())
+            .ok_or_else(|| anyhow!("Impossible to parse arg digit"))?;
+
+        // Skip if this arg was explicitly typed in declaration
+        if explicitly_typed_args.contains(&idx) {
+            continue;
+        }
+
         let typ = cap
             .get(2)
             .map(|cap| transform_types_with_spaces(&cap, &code))
             .unwrap_or("text");
-        hm.insert(
-            cap.get(1)
-                .and_then(|x| x.as_str().parse::<i32>().ok())
-                .ok_or_else(|| anyhow!("Impossible to parse arg digit"))?,
-            typ.to_string(),
-        );
+        hm.insert(idx, typ.to_string());
     }
+
+    // Add inferred args
     for (i, v) in hm.iter() {
         let typ = v.to_lowercase();
         args.push(Arg {
@@ -504,19 +545,28 @@ fn parse_pg_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
             oidx: Some(*i),
         });
     }
+
+    // Sort by index
     args.sort_by(|a, b| a.oidx.unwrap().cmp(&b.oidx.unwrap()));
+
+    // Third pass: update names and defaults for inferred args
     for cap in RE_ARG_PGSQL.captures_iter(code) {
         let i = cap
             .get(1)
             .and_then(|x| x.as_str().parse::<i32>().ok())
             .map(|x| x);
 
+        // Skip explicitly typed args (already handled)
+        if i.is_some_and(|idx| explicitly_typed_args.contains(&idx)) {
+            continue;
+        }
+
         if let Some(arg_pos) = args
             .iter()
             .position(|x| i.is_some_and(|i| x.oidx.unwrap() == i))
         {
             let name = cap.get(2).map(|x| x.as_str().to_string()).unwrap();
-            let default = cap.get(3).map(|x| x.as_str().to_string());
+            let default = cap.get(4).map(|x| x.as_str().to_string());
             let has_default = default.is_some();
             let oarg = args[arg_pos].clone();
             let parsed_default = default.and_then(|x| parsed_default(&oarg.typ, x));
@@ -1299,6 +1349,188 @@ SELECT * FROM table_name WHERE thing = :name4;
                         oidx: None,
                     },
                 ],
+                no_main_func: None,
+                has_preprocessor: None
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_pgsql_explicit_type_at_declaration() -> anyhow::Result<()> {
+        let code = r#"
+-- $1 user_id (bigint)
+-- $2 email
+SELECT * FROM users WHERE id = $1 AND email = $2::text;
+"#;
+        assert_eq!(
+            parse_pgsql_sig(code)?,
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![
+                    Arg {
+                        otyp: Some("bigint".to_string()),
+                        name: "user_id".to_string(),
+                        typ: Typ::Int,
+                        default: None,
+                        has_default: false,
+                        oidx: Some(1),
+                    },
+                    Arg {
+                        otyp: Some("text".to_string()),
+                        name: "email".to_string(),
+                        typ: Typ::Str(None),
+                        default: None,
+                        has_default: false,
+                        oidx: Some(2),
+                    },
+                ],
+                no_main_func: None,
+                has_preprocessor: None
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_pgsql_explicit_type_with_default() -> anyhow::Result<()> {
+        let code = r#"
+-- $1 limit (integer) = 10
+-- $2 offset (bigint) = 0
+SELECT * FROM users LIMIT $1 OFFSET $2;
+"#;
+        assert_eq!(
+            parse_pgsql_sig(code)?,
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![
+                    Arg {
+                        otyp: Some("integer".to_string()),
+                        name: "limit".to_string(),
+                        typ: Typ::Int,
+                        default: Some(json!(10)),
+                        has_default: true,
+                        oidx: Some(1),
+                    },
+                    Arg {
+                        otyp: Some("bigint".to_string()),
+                        name: "offset".to_string(),
+                        typ: Typ::Int,
+                        default: Some(json!(0)),
+                        has_default: true,
+                        oidx: Some(2),
+                    },
+                ],
+                no_main_func: None,
+                has_preprocessor: None
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_pgsql_mixed_explicit_and_inferred() -> anyhow::Result<()> {
+        let code = r#"
+-- $1 user_id (bigint)
+-- $2 status
+-- $3 created_at (timestamptz)
+SELECT * FROM users
+WHERE id = $1
+  AND status = $2::text
+  AND created_at > $3;
+"#;
+        assert_eq!(
+            parse_pgsql_sig(code)?,
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![
+                    Arg {
+                        otyp: Some("bigint".to_string()),
+                        name: "user_id".to_string(),
+                        typ: Typ::Int,
+                        default: None,
+                        has_default: false,
+                        oidx: Some(1),
+                    },
+                    Arg {
+                        otyp: Some("text".to_string()),
+                        name: "status".to_string(),
+                        typ: Typ::Str(None),
+                        default: None,
+                        has_default: false,
+                        oidx: Some(2),
+                    },
+                    Arg {
+                        otyp: Some("timestamptz".to_string()),
+                        name: "created_at".to_string(),
+                        typ: Typ::Datetime,
+                        default: None,
+                        has_default: false,
+                        oidx: Some(3),
+                    },
+                ],
+                no_main_func: None,
+                has_preprocessor: None
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_pgsql_explicit_type_array() -> anyhow::Result<()> {
+        let code = r#"
+-- $1 ids (bigint[])
+SELECT * FROM users WHERE id = ANY($1);
+"#;
+        assert_eq!(
+            parse_pgsql_sig(code)?,
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![Arg {
+                    otyp: Some("bigint[]".to_string()),
+                    name: "ids".to_string(),
+                    typ: Typ::List(Box::new(Typ::Int)),
+                    default: None,
+                    has_default: false,
+                    oidx: Some(1),
+                },],
+                no_main_func: None,
+                has_preprocessor: None
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_pgsql_explicit_type_does_not_infer_from_usage() -> anyhow::Result<()> {
+        // Even though $1 is used as ::integer in the query,
+        // the explicit type (text) should take precedence
+        let code = r#"
+-- $1 value (text)
+SELECT $1::integer;
+"#;
+        assert_eq!(
+            parse_pgsql_sig(code)?,
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![Arg {
+                    otyp: Some("text".to_string()),
+                    name: "value".to_string(),
+                    typ: Typ::Str(None),
+                    default: None,
+                    has_default: false,
+                    oidx: Some(1),
+                },],
                 no_main_func: None,
                 has_preprocessor: None
             }
