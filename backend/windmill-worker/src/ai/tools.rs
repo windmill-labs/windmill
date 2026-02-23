@@ -405,7 +405,19 @@ async fn execute_windmill_tool(
                 on_behalf_of: None,
             }
         }
-        FlowModuleValue::AIAgent { .. } => {
+        FlowModuleValue::AIAgent { tools: sub_tools, .. } => {
+            let has_nested_agent_tools = sub_tools.iter().any(|t| {
+                matches!(
+                    t.value,
+                    windmill_common::flows::ToolValue::FlowModule(FlowModuleValue::AIAgent { .. })
+                )
+            });
+            if has_nested_agent_tools {
+                return Err(Error::internal_err(
+                    "AI agent tools cannot be nested beyond 2 levels. The nested agent tool contains \
+                     AIAgent sub-tools, which would exceed the maximum nesting depth.".to_string()
+                ));
+            }
             let path = format!("{}/tools/{}", ctx.job.runnable_path(), tool_module.id);
             JobPayloadWithTag {
                 payload: JobPayload::AIAgent { path },
@@ -547,7 +559,6 @@ async fn execute_windmill_tool(
     ctx.occupancy_metrics.total_duration_of_running_jobs =
         updated_occupancy.total_duration_of_running_jobs;
 
-    // Continue with match on handle_result
     match handle_result {
         Err(err) => {
             handle_tool_execution_error(
