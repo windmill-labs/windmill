@@ -46,11 +46,20 @@ pre_remove:
   - ./scripts/worktree-cleanup
 
 panes:
-  - command: <agent>
+  - command: >-
+      claude --append-system-prompt
+      "You are running inside a tmux session with other panes running services.\n
+      Pane layout (current window):\n
+      - Pane 0: this pane (claude agent)\n
+      - Pane 1: backend (cargo watch -x run)\n
+      - Pane 2: frontend (npm run dev)\n\n
+      To check logs, use: \`tmux capture-pane -t .1 -p -S -50\` (backend) or \`tmux capture-pane -t .2 -p -S -50\` (frontend).\n
+      When restarting backend or frontend, make sure to use the ports listed in .env.local.\n
+      Because we are running backend with cargo watch, to verify your changes, just check the logs in the backend pane. No need for cargo check."
     focus: true
   - command: 'ROOT="$(git rev-parse --show-toplevel)"; [ -f "$ROOT/.env.local" ] && source "$ROOT/.env.local"; cd "$ROOT/backend" && PORT=${BACKEND_PORT:-8000} cargo watch -x run'
     split: horizontal
-  - command: 'ROOT="$(git rev-parse --show-toplevel)"; [ -f "$ROOT/.env.local" ] && source "$ROOT/.env.local"; cd "$ROOT/frontend" && npm install && npm run generate-backend-client && REMOTE=${REMOTE:-http://localhost:${BACKEND_PORT:-8000}} npm run dev -- --port ${FRONTEND_PORT:-3000}'
+  - command: 'ROOT="$(git rev-parse --show-toplevel)"; [ -f "$ROOT/.env.local" ] && source "$ROOT/.env.local"; cd "$ROOT/frontend" && npm install && npm run generate-backend-client && REMOTE=${REMOTE:-http://localhost:${BACKEND_PORT:-8000}} npm run dev -- --port ${FRONTEND_PORT:-3000} --host 0.0.0.0'
     split: vertical
 
 files:
@@ -61,3 +70,6 @@ files:
 sandbox:
   enabled: false
   toolchain: off
+  # image, host_commands, and extra_mounts configured in global
+  # ~/.config/workmux/config.yaml — see README_WORKMUX_DEV.md for required
+  # extra_mounts (windmill-ee-private access in sandbox)
