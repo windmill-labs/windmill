@@ -712,6 +712,11 @@
 						transformInputSelectedText={(_, v) => `${pluralize(v, 'day')} lookback`}
 						tooltip={'How far behind the min datetime to start considering jobs for the concurrency graph. Change this value to include jobs started before the set time window for the computation of the graph'}
 					/>
+				{:else if !lastFetchWentToEnd}
+					<Button wrapperClasses="ml-2" unifiedSize="md" onClick={() => jobsLoader.loadExtraJobs()}>
+						Load more
+						<Tooltip>There are more jobs to load</Tooltip>
+					</Button>
 				{/if}
 			</div>
 			{#if graph === 'RunChart'}
