@@ -36,7 +36,8 @@
 	import FlowModuleMockTransitionMessage from './FlowModuleMockTransitionMessage.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { SecondsInput } from '$lib/components/common'
-	import DiffEditor, { type ButtonProp } from '$lib/components/DiffEditor.svelte'
+	import DiffEditor from '$lib/components/DiffEditor.svelte'
+	import type { ButtonProp } from '$lib/components/diffEditorTypes'
 	import FlowModuleTimeout from './FlowModuleTimeout.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -140,7 +141,7 @@
 		}
 	])
 
-	let editor: Editor | undefined = $state()
+	let editor: any | undefined = $state()
 	let diffEditor: DiffEditor | undefined = $state()
 	let modulePreview: ModulePreview | undefined = $state()
 	let websocketAlive = $state({

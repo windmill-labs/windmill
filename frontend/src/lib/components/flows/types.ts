@@ -13,7 +13,7 @@ import type { Asset, AssetWithAccessType } from '../assets/lib'
 import type S3FilePicker from '../S3FilePicker.svelte'
 import type ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 import type { ModulesTestStates } from '../modulesTest.svelte'
-import type { ButtonProp } from '$lib/components/DiffEditor.svelte'
+import type { ButtonProp } from '$lib/components/diffEditorTypes'
 
 import type { SelectionManager } from '../graph/selectionUtils.svelte'
 import type { InferAssetsSqlQueryDetails } from '$lib/infer'

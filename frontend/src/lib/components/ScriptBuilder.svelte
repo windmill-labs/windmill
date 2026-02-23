@@ -773,15 +773,16 @@
 												triggersState.getDraftTriggersSnapshot()
 											)
 
+											const deployed = deployedValue ?? savedScript
+											const current = { ...script, draft_triggers: currentDraftTriggers }
+											if (current.assets && !current.assets.length) delete current.assets
+
 											diffDrawer?.openDrawer()
 											diffDrawer?.setDiff({
 												mode: 'normal',
-												deployed: deployedValue ?? savedScript,
+												deployed,
 												draft: savedScript['draft'],
-												current: {
-													...script,
-													draft_triggers: currentDraftTriggers
-												}
+												current
 											})
 										}
 									}
@@ -1425,6 +1426,7 @@
 											disabled={!$enterpriseLicense ||
 												isCloudHosted() ||
 												(script.language != 'bun' &&
+													script.language != 'bunnative' &&
 													script.language != 'python3' &&
 													script.language != 'deno')}
 											size="sm"
@@ -1443,8 +1445,8 @@
 										{#if script.dedicated_worker}
 											<div class="py-2">
 												<Alert type="info" title="Require dedicated workers">
-													A worker group needs to be configured to listen to this script. Select
-													it in the dedicated workers section of the worker group configuration.
+													A worker group needs to be configured to listen to this script. Select it
+													in the dedicated workers section of the worker group configuration.
 												</Alert>
 											</div>
 										{/if}
@@ -1454,8 +1456,8 @@
 											>
 												In this mode, the script is meant to be run on dedicated workers that run
 												the script at native speed. Can reach &gt;1500rps per dedicated worker. Only
-												available on enterprise edition and for Python3, Deno and Bun. For other
-												languages, the efficiency is already on par with deidcated workers since
+												available on enterprise edition and for Python3, Deno, Bun and Bunnative. For other
+												languages, the efficiency is already on par with dedicated workers since
 												they do not spawn a full runtime</Tooltip
 											>
 										{/snippet}

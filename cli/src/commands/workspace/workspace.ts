@@ -1,19 +1,18 @@
-// deno-lint-ignore-file no-explicit-any
+import { readFile, writeFile, open as fsOpen } from "node:fs/promises";
+import process from "node:process";
 import { GlobalOptions } from "../../types.ts";
 import {
   getActiveWorkspaceConfigFilePath,
   getWorkspaceConfigFilePath,
 } from "../../../windmill-utils-internal/src/config/config.ts";
 import { loginInteractive, tryGetLoginInfo } from "../../core/login.ts";
-import {
-  colors,
-  Command,
-  Confirm,
-  Input,
-  log,
-  setClient,
-  Table,
-} from "../../../deps.ts";
+import { colors } from "@cliffy/ansi/colors";
+import { Command } from "@cliffy/command";
+import { Confirm } from "@cliffy/prompt/confirm";
+import { Input } from "@cliffy/prompt/input";
+import { Table } from "@cliffy/table";
+import * as log from "../../core/log.ts";
+import { setClient } from "../../core/client.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { createWorkspaceFork, deleteWorkspaceFork } from "./fork.ts";
 
@@ -31,7 +30,7 @@ export async function allWorkspaces(
 ): Promise<Workspace[]> {
   try {
     const file = await getWorkspaceConfigFilePath(configDirOverride);
-    const txt = await Deno.readTextFile(file);
+    const txt = await readFile(file, "utf-8");
     return txt
       .split("\n")
       .map((line) => {
@@ -55,7 +54,7 @@ async function getActiveWorkspaceName(
   }
   try {
     const file = await getActiveWorkspaceConfigFilePath(opts?.configDir);
-    return await Deno.readTextFile(file);
+    return await readFile(file, "utf-8");
   } catch {
     return undefined;
   }
@@ -146,7 +145,7 @@ export async function setActiveWorkspace(
   configDirOverride?: string
 ) {
   const file = await getActiveWorkspaceConfigFilePath(configDirOverride);
-  await Deno.writeTextFile(file, workspaceName);
+  await writeFile(file, workspaceName, "utf-8");
 }
 
 export async function add(
@@ -202,7 +201,7 @@ export async function add(
   remote = new URL(remote).toString(); // add trailing slash in all cases!
 
   let token = await tryGetLoginInfo(opts);
-  if (!token && Deno.stdin.isTerminal && !Deno.stdin.isTerminal()) {
+  if (!token && !(process.stdin.isTTY ?? false)) {
     log.info("Not a TTY, can't login interactively. Pass the token in --token");
     return;
   }
@@ -257,10 +256,10 @@ export async function add(
     for (const workspace of workspaces) {
       log.info(`- ${workspace.id} (name: ${workspace.name})`);
     }
-    Deno.exit(1);
+    process.exit(1);
   }
 
-  await addWorkspace(
+  const added = await addWorkspace(
     {
       name: workspaceName,
       remote: remote,
@@ -269,6 +268,9 @@ export async function add(
     },
     opts
   );
+  if (!added) {
+    return;
+  }
   await setActiveWorkspace(workspaceName, opts.configDir);
 
   log.info(
@@ -278,13 +280,13 @@ export async function add(
   );
 }
 
-export async function addWorkspace(workspace: Workspace, opts: any) {
+export async function addWorkspace(workspace: Workspace, opts: any): Promise<boolean> {
   workspace.remote = new URL(workspace.remote).toString(); // add trailing slash in all cases!
 
   // Check for conflicts before adding
   const existingWorkspaces = await allWorkspaces(opts.configDir);
   const isInteractive =
-    Deno.stdin.isTerminal() && Deno.stdout.isTerminal() && !opts.force;
+    (process.stdin.isTTY ?? false) && (process.stdout.isTTY ?? false) && !opts.force;
 
   // Check 1: Workspace name already exists
   const nameConflict = existingWorkspaces.find(
@@ -330,9 +332,27 @@ export async function addWorkspace(workspace: Workspace, opts: any) {
 
         if (!overwrite) {
           log.info(colors.yellow("Operation cancelled."));
-          return;
+          return false;
         }
       }
+    }
+  }
+
+  // Check 2: Same (remote, workspaceId) already exists with a different name
+  const backendConflict = existingWorkspaces.find(
+    (w) =>
+      w.remote === workspace.remote &&
+      w.workspaceId === workspace.workspaceId &&
+      w.name !== workspace.name
+  );
+  if (backendConflict) {
+    if (opts.force) {
+      // Remove the conflicting workspace before adding the new one
+      await removeWorkspace(backendConflict.name, true, opts);
+    } else {
+      throw new Error(
+        `Backend constraint violation: (${workspace.remote}, ${workspace.workspaceId}) already exists as "${backendConflict.name}". Use --force to overwrite.`
+      );
     }
   }
 
@@ -341,15 +361,10 @@ export async function addWorkspace(workspace: Workspace, opts: any) {
 
   // Add the new workspace
   const filePath = await getWorkspaceConfigFilePath(opts.configDir);
-  const file = await Deno.open(filePath, {
-    append: true,
-    write: true,
-    read: true,
-    create: true,
-  });
-  await file.write(new TextEncoder().encode(JSON.stringify(workspace) + "\n"));
-
-  file.close();
+  const fh = await fsOpen(filePath, "a");
+  await fh.write(JSON.stringify(workspace) + "\n");
+  await fh.close();
+  return true;
 }
 
 export async function removeWorkspace(
@@ -373,12 +388,13 @@ export async function removeWorkspace(
   }
 
   const filePath = await getWorkspaceConfigFilePath(opts.configDir);
-  await Deno.writeTextFile(
+  await writeFile(
     filePath,
     orgWorkspaces
       .filter((x) => x.name !== name)
       .map((x) => JSON.stringify(x))
-      .join("\n") + "\n"
+      .join("\n") + "\n",
+    "utf-8"
   );
 
   if (!silent) {
@@ -502,9 +518,9 @@ async function bind(
   }
 
   // Write back the updated config
-  const { yamlStringify } = await import("../../../deps.ts");
+  const { stringify: yamlStringify } = await import("yaml");
   try {
-    await Deno.writeTextFile("wmill.yaml", yamlStringify(config));
+    await writeFile("wmill.yaml", yamlStringify(config), "utf-8");
   } catch (error) {
     log.error(colors.red(`Failed to save configuration: ${(error as Error).message}`));
     return;

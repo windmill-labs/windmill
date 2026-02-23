@@ -1,4 +1,4 @@
-import { minimatch } from "../../deps.ts";
+import { minimatch } from "minimatch";
 import { getCurrentGitBranch, isGitRepository } from "../utils/git.ts";
 import { isFileResource } from "../utils/utils.ts";
 import { SyncOptions } from "./conf.ts";

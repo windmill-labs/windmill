@@ -26,3 +26,5 @@ src/lib/components/copilot/chat/__tests__/app/results/
 /playwright/.auth/
 e2e/auth.json
 e2e/*.png
+
+.fast-check/

@@ -16,8 +16,6 @@ RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo install cargo-chef --version ^0.1
 WORKDIR /windmill
 
 ENV SQLX_OFFLINE=true
-ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=cc
-ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS=""
 # ENV CARGO_INCREMENTAL=1
 
 FROM node:20-alpine as frontend
@@ -25,6 +23,7 @@ FROM node:20-alpine as frontend
 # install dependencies
 WORKDIR /frontend
 COPY ./frontend/package.json ./frontend/package-lock.json ./
+COPY ./frontend/scripts/ ./scripts/
 RUN npm ci
 
 # Copy all local files into the image.
@@ -38,9 +37,10 @@ COPY /system_prompts/auto-generated /system_prompts/auto-generated
 RUN cd /backend/windmill-api && . ./build_openapi.sh
 COPY /backend/parsers/windmill-parser-wasm/pkg/ /backend/parsers/windmill-parser-wasm/pkg/
 COPY /typescript-client/docs/ /frontend/static/tsdocs/
+COPY /python-client/docs/ /frontend/static/pydocs/
 
 RUN npm run generate-backend-client
-ENV NODE_OPTIONS "--max-old-space-size=10240"
+ENV NODE_OPTIONS "--max-old-space-size=8192"
 RUN npm run build
 
 
@@ -48,6 +48,7 @@ FROM rust_base AS planner
 
 COPY ./openflow.openapi.yaml /openflow.openapi.yaml
 COPY ./backend ./
+RUN rm -f .cargo/config.toml
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     CARGO_NET_GIT_FETCH_WITH_CLI=true cargo chef prepare --recipe-path recipe.json
@@ -71,6 +72,9 @@ RUN yum update -y && \
 
 COPY ./openflow.openapi.yaml /openflow.openapi.yaml
 COPY ./backend ./
+
+# Remove .cargo/config.toml which configures the mold linker (not available on RHEL)
+RUN rm -f .cargo/config.toml
 
 COPY --from=frontend /frontend /frontend
 COPY --from=frontend /backend/windmill-api/openapi-deref.yaml ./windmill-api/openapi-deref.yaml

@@ -1,0 +1,63 @@
+main_branch: main
+
+merge_strategy: rebase
+# worktree_dir: .worktrees
+
+worktree_naming: basename
+
+worktree_prefix: ""
+
+# Default: "wm-"
+window_prefix: "wm-"
+
+auto_name:
+  model: "claude-sonnet-4.6"
+  system_prompt: |
+    Generate a concise git branch name based on the task description.
+
+    Rules:
+    - Use kebab-case (lowercase with hyphens)
+    - Keep it short: 1-3 words, max 4 if necessary
+    - Focus on the core task/feature, not implementation details
+    - No prefixes like feat/, fix/, chore/
+
+    Examples of good branch names:
+    - "Add dark mode toggle" → dark-mode
+    - "Fix the search results not showing" → fix-search
+    - "Refactor the authentication module" → auth-refactor
+    - "Add CSV export to reports" → export-csv
+    - "Shell completion is broken" → shell-completion
+
+    Output ONLY the branch name, nothing else.
+  background: true
+
+
+# Commands to run in new worktree before tmux window opens.
+# These block window creation - use for short tasks only.
+# Use "<global>" to inherit from global config.
+# Set to empty list to disable: `post_create: []`
+# post_create:
+#   - "<global>"
+#   - mise use
+post_create:
+  - ./scripts/worktree-env
+
+pre_remove:
+  - ./scripts/worktree-cleanup
+
+panes:
+  - command: <agent>
+    focus: true
+  - command: 'ROOT="$(git rev-parse --show-toplevel)"; [ -f "$ROOT/.env.local" ] && source "$ROOT/.env.local"; cd "$ROOT/backend" && PORT=${BACKEND_PORT:-8000} cargo watch -x run'
+    split: horizontal
+  - command: 'ROOT="$(git rev-parse --show-toplevel)"; [ -f "$ROOT/.env.local" ] && source "$ROOT/.env.local"; cd "$ROOT/frontend" && npm install && npm run generate-backend-client && REMOTE=${REMOTE:-http://localhost:${BACKEND_PORT:-8000}} npm run dev -- --port ${FRONTEND_PORT:-3000}'
+    split: vertical
+
+files:
+  copy:
+    - backend/.env
+    - scripts/
+
+sandbox:
+  enabled: false
+  toolchain: off

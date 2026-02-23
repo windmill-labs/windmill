@@ -42,8 +42,6 @@ use windmill_common::runnable_settings::{
 };
 #[cfg(feature = "inline_preview")]
 use windmill_common::runtime_assets::{register_runtime_asset, InsertRuntimeAssetParams};
-use windmill_types::s3::BundleFormat;
-use windmill_object_store::upload_artifact_to_store;
 use windmill_common::scripts::ScriptRunnableSettingsInline;
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{RunnableKind, WarnAfterExt};
@@ -54,8 +52,10 @@ use windmill_common::workspace_dependencies::{
 use windmill_common::DYNAMIC_INPUT_CACHE;
 #[cfg(all(feature = "enterprise", feature = "smtp"))]
 use windmill_common::{email_oss::send_email_html, server::load_smtp_config};
+use windmill_object_store::upload_artifact_to_store;
 #[cfg(feature = "inline_preview")]
 use windmill_parser::asset_parser::AssetKind;
+use windmill_types::s3::BundleFormat;
 #[cfg(feature = "inline_preview")]
 use windmill_worker::get_worker_internal_server_inline_utils;
 
@@ -1386,7 +1386,8 @@ async fn get_logs_from_store(
     log_file_index: &Option<Vec<String>>,
 ) -> Option<error::Result<Body>> {
     use futures::StreamExt;
-    let stream = windmill_object_store::get_logs_from_store(log_offset, logs, log_file_index).await?;
+    let stream =
+        windmill_object_store::get_logs_from_store(log_offset, logs, log_file_index).await?;
     let header = bytes::Bytes::from(
         r#"to remove ansi colors, use: | sed 's/\x1B\[[0-9;]\{1,\}[A-Za-z]//g'
 "#
@@ -2849,6 +2850,7 @@ struct Preview {
     dedicated_worker: Option<bool>,
     lock: Option<String>,
     format: Option<String>,
+    flow_path: Option<String>,
 }
 
 #[cfg(feature = "inline_preview")]
@@ -4509,6 +4511,14 @@ async fn run_preview_script(
     check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
 
+    let preview_args = preview.args.unwrap_or_default();
+    let flow_path_extra = preview.flow_path.map(|fp| {
+        let mut extra = HashMap::new();
+        extra.insert("_FLOW_PATH".to_string(), to_raw_value(&fp));
+        extra
+    });
+    let push_args = PushArgs { extra: flow_path_extra, args: &preview_args };
+
     let (uuid, tx) = push(
         &db,
         tx,
@@ -4532,7 +4542,7 @@ async fn run_preview_script(
                 dedicated_worker: preview.dedicated_worker,
             }),
         },
-        PushArgs::from(&preview.args.unwrap_or_default()),
+        push_args,
         authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
@@ -5772,7 +5782,9 @@ async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::R
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     if let Some(os) = windmill_object_store::get_object_store().await {
         let file = os
-            .get(&windmill_object_store::object_store_reexports::Path::from(format!("logs/{file_p}")))
+            .get(&windmill_object_store::object_store_reexports::Path::from(
+                format!("logs/{file_p}"),
+            ))
             .await;
         if let Ok(file) = file {
             if let Ok(bytes) = file.bytes().await {

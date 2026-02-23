@@ -138,11 +138,11 @@
 		resolvedConfig.type.selected === 'ducklake'
 			? {
 					type: 'ducklake',
-					ducklake: dbPath.split('ducklake://')[1]
+					ducklake: dbPath?.split('ducklake://')[1]
 				}
 			: {
 					type: 'database',
-					resourcePath: dbPath.split('$res:')[1] ?? dbPath,
+					resourcePath: dbPath?.split('$res:')[1] ?? dbPath,
 					resourceType:
 						resolvedConfig.type.selected === 'datatable'
 							? 'postgresql'
@@ -240,10 +240,10 @@
 			if (resolvedConfig?.type?.selected === 'ducklake') {
 				dbSchemas[dbPath] = await getDucklakeSchema({
 					workspace: $workspaceStore!,
-					ducklake: dbPath.split('ducklake://')[1]
+					ducklake: dbPath?.split('ducklake://')[1]
 				})
 			} else {
-				const resourcePath = dbPath.split('$res:')[1] ?? dbPath
+				const resourcePath = dbPath?.split('$res:')[1] ?? dbPath
 				dbSchemas[resourcePath] = await getDbSchemas(
 					resolvedConfig?.type?.selected === 'datatable'
 						? 'postgresql'
@@ -383,11 +383,11 @@
 			resolvedConfig.type.selected === 'ducklake'
 				? {
 						type: 'ducklake',
-						ducklake: dbPath.split('ducklake://')[1]
+						ducklake: dbPath?.split('ducklake://')[1]
 					}
 				: {
 						type: 'database',
-						resourcePath: dbPath.split('$res:')[1] ?? dbPath,
+						resourcePath: dbPath?.split('$res:')[1] ?? dbPath,
 						resourceType: dbtype
 					},
 			$workspaceStore,

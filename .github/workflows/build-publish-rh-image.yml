@@ -9,7 +9,7 @@ permissions: write-all
 
 jobs:
   build_ee:
-    runs-on: ubicloud
+    runs-on: ubicloud-standard-4
     steps:
       - uses: actions/checkout@v4
         with:

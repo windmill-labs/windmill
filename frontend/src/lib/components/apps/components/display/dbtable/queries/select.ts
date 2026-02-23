@@ -157,6 +157,19 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
       ${columnDefs
 				.map((column) => {
 					if (breakingFeatures?.fixPgIntTypes) {
+						// Array types (e.g. json[], text[]) and the json type have no ordering
+						// operator in PostgreSQL. PostgreSQL type-checks every THEN branch of a
+						// CASE expression at plan time -- even branches whose WHEN condition is
+						// never true -- so a bare column reference in ORDER BY fails with
+						// "could not identify an ordering operator for type json[]".
+						// Force a text cast for these types to avoid the error.
+						const forceTextCast =
+							column.datatype?.includes('[]') || column.datatype?.toLowerCase() === 'json'
+						if (forceTextCast) {
+							return `
+      ${buildOrderBy({ field: column.field, is_desc: false, text_cast: true })},
+      ${buildOrderBy({ field: column.field, is_desc: true, text_cast: true })}`
+						}
 						return `
       ${buildOrderBy({ field: column.field, is_desc: false, text_cast: true, check_is_number: false })},
       ${buildOrderBy({ field: column.field, is_desc: false, text_cast: false, check_is_number: true })},

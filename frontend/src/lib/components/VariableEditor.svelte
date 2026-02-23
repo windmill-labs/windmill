@@ -9,7 +9,6 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import Toggle from './Toggle.svelte'
-	import type SimpleEditor from './SimpleEditor.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { canWrite, isOwner } from '$lib/utils'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -129,7 +128,7 @@
 		}
 	}
 	let editorKind: 'plain' | 'json' | 'yaml' = $state('plain')
-	let editor: SimpleEditor | undefined = $state(undefined)
+	let editor: any | undefined = $state(undefined)
 </script>
 
 <Drawer bind:this={drawer} size="900px">

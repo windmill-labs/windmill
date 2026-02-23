@@ -1,8 +1,8 @@
-use windmill_test_utils::*;
 use sqlx::postgres::Postgres;
 use sqlx::Pool;
 use windmill_common::jobs::{JobPayload, RawCode};
 use windmill_common::scripts::ScriptLang;
+use windmill_test_utils::*;
 
 // ============================================================================
 // Basic Execution Tests
@@ -27,8 +27,8 @@ export function main() {
         path: None,
         language: ScriptLang::Bun,
         lock: None,
-        concurrency_settings:
-            windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         cache_ttl: None,
         cache_ignore_s3_path: None,
@@ -63,8 +63,8 @@ export function main(name: string, count: number) {
         path: None,
         language: ScriptLang::Bun,
         lock: None,
-        concurrency_settings:
-            windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         cache_ttl: None,
         cache_ignore_s3_path: None,
@@ -104,8 +104,9 @@ export function main() {
             path: None,
             language: ScriptLang::Bun,
             lock: None,
-            concurrency_settings:
-                windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
+            )
+            .into(),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
             cache_ttl: None,
             cache_ignore_s3_path: None,
@@ -135,8 +136,9 @@ export function main() {
             path: None,
             language: ScriptLang::Bun,
             lock: None,
-            concurrency_settings:
-                windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
+            )
+            .into(),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
             cache_ttl: None,
             cache_ignore_s3_path: None,
@@ -167,8 +169,9 @@ export function main() {
             path: None,
             language: ScriptLang::Bun,
             lock: None,
-            concurrency_settings:
-                windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
+            )
+            .into(),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
             cache_ttl: None,
             cache_ignore_s3_path: None,
@@ -207,8 +210,8 @@ export async function main() {
         path: None,
         language: ScriptLang::Bun,
         lock: None,
-        concurrency_settings:
-            windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         cache_ttl: None,
         cache_ignore_s3_path: None,
@@ -245,8 +248,9 @@ export function main() {
             path: None,
             language: ScriptLang::Bun,
             lock: None,
-            concurrency_settings:
-                windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
+            )
+            .into(),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
             cache_ttl: None,
             cache_ignore_s3_path: None,
@@ -276,8 +280,9 @@ export function main() {
             path: None,
             language: ScriptLang::Bun,
             lock: None,
-            concurrency_settings:
-                windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
+            )
+            .into(),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
             cache_ttl: None,
             cache_ignore_s3_path: None,
@@ -318,8 +323,8 @@ export function main() {
         path: None,
         language: ScriptLang::Bun,
         lock: None,
-        concurrency_settings:
-            windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         cache_ttl: None,
         cache_ignore_s3_path: None,
@@ -358,8 +363,8 @@ export function notMain() {
         path: None,
         language: ScriptLang::Bun,
         lock: None,
-        concurrency_settings:
-            windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         cache_ttl: None,
         cache_ignore_s3_path: None,
@@ -398,8 +403,8 @@ export function main() {
         path: None,
         language: ScriptLang::Bun,
         lock: None,
-        concurrency_settings:
-            windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         cache_ttl: None,
         cache_ignore_s3_path: None,
@@ -437,8 +442,8 @@ export function main() {
         path: None,
         language: ScriptLang::Bun,
         lock: None,
-        concurrency_settings:
-            windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         cache_ttl: None,
         cache_ignore_s3_path: None,
@@ -474,8 +479,8 @@ export function main() {
         path: None,
         language: ScriptLang::Bun,
         lock: None,
-        concurrency_settings:
-            windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         cache_ttl: None,
         cache_ignore_s3_path: None,
@@ -516,8 +521,8 @@ export function main() {
         path: None,
         language: ScriptLang::Bun,
         lock: None,
-        concurrency_settings:
-            windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         cache_ttl: None,
         cache_ignore_s3_path: None,
@@ -613,8 +618,9 @@ export function main() {
             path: Some("f/nested/test_deep".to_string()),
             language: ScriptLang::Bun,
             lock: None,
-            concurrency_settings:
-                windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
+            )
+            .into(),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
             cache_ttl: None,
             cache_ignore_s3_path: None,
@@ -647,8 +653,9 @@ export function main() {
             path: Some("f/nested/test_deep_relative".to_string()),
             language: ScriptLang::Bun,
             lock: None,
-            concurrency_settings:
-                windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
+            )
+            .into(),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
             cache_ttl: None,
             cache_ignore_s3_path: None,
@@ -693,8 +700,8 @@ export function main() {
         path: Some("f/circular/test_both".to_string()),
         language: ScriptLang::Bun,
         lock: None,
-        concurrency_settings:
-            windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         cache_ttl: None,
         cache_ignore_s3_path: None,
@@ -741,8 +748,8 @@ export function main(x: number) {
         path: None,
         language: ScriptLang::Bun,
         lock: None,
-        concurrency_settings:
-            windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         cache_ttl: None,
         cache_ignore_s3_path: None,
@@ -791,8 +798,8 @@ export function main() {
         path: None,
         language: ScriptLang::Bun,
         lock: None,
-        concurrency_settings:
-            windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         cache_ttl: None,
         cache_ignore_s3_path: None,
@@ -836,8 +843,8 @@ export function main() {
         path: None,
         language: ScriptLang::Bun,
         lock: None,
-        concurrency_settings:
-            windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         cache_ttl: None,
         cache_ignore_s3_path: None,
@@ -859,11 +866,11 @@ export function main() {
 // ============================================================================
 
 mod dedicated_worker_protocol {
-    use windmill_test_utils::{parse_dedicated_worker_line, DedicatedWorkerResult};
     use std::io::{BufRead, BufReader, Write};
     use std::process::{Command, Stdio};
+    use windmill_test_utils::{parse_dedicated_worker_line, DedicatedWorkerResult};
     use windmill_worker::{
-        build_loader, generate_dedicated_worker_wrapper, BUN_DEDICATED_WORKER_ARGS, LoaderMode,
+        build_loader, generate_dedicated_worker_wrapper, LoaderMode, BUN_DEDICATED_WORKER_ARGS,
         BUN_PATH, NODE_BIN_PATH,
     };
 
@@ -934,12 +941,8 @@ mod dedicated_worker_protocol {
         let temp_dir = tempfile::tempdir().unwrap();
 
         // Create files and get the wrapper path (bundled for node, raw for bun)
-        let wrapper_path = create_test_worker_files(
-            temp_dir.path(),
-            script,
-            arg_names,
-            runtime == "node",
-        );
+        let wrapper_path =
+            create_test_worker_files(temp_dir.path(), script, arg_names, runtime == "node");
         let wrapper_str = wrapper_path.to_str().unwrap();
 
         // Build args matching production behavior
@@ -992,7 +995,10 @@ mod dedicated_worker_protocol {
             match parse_dedicated_worker_line(response.trim()) {
                 DedicatedWorkerResult::Success(value) => results.push(Ok(value)),
                 DedicatedWorkerResult::Error(err) => {
-                    let msg = err["message"].as_str().unwrap_or("Unknown error").to_string();
+                    let msg = err["message"]
+                        .as_str()
+                        .unwrap_or("Unknown error")
+                        .to_string();
                     results.push(Err(msg));
                 }
                 other => panic!("Unexpected response: {:?}", other),
@@ -1162,8 +1168,8 @@ export function main(name: string) {
         path: None,
         language: ScriptLang::Bun,
         lock: None,
-        concurrency_settings:
-            windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         cache_ttl: None,
         cache_ignore_s3_path: None,
@@ -1181,6 +1187,68 @@ export function main(name: string) {
     {
         let mut registry = NPM_CONFIG_REGISTRY.write().await;
         *registry = None;
+    }
+
+    assert_eq!(
+        result,
+        serde_json::json!("Hello from private package, World!")
+    );
+    Ok(())
+}
+
+/// Test that full .npmrc content works for bun jobs with private registries.
+/// Requires:
+/// - `TEST_NPMRC` environment variable set to the full .npmrc content
+#[cfg(feature = "private_registry_test")]
+#[sqlx::test(fixtures("base"))]
+async fn test_bun_job_private_npmrc(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use windmill_worker::NPMRC;
+
+    let npmrc_content = std::env::var("TEST_NPMRC")
+        .expect("TEST_NPMRC must be set when running private_registry_test");
+
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    {
+        let mut npmrc = NPMRC.write().await;
+        *npmrc = Some(npmrc_content.clone());
+    }
+
+    let content = r#"
+import { greet } from "@windmill-test/private-pkg";
+
+export function main(name: string) {
+    return greet(name);
+}
+"#
+    .to_owned();
+
+    let job = JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        language: ScriptLang::Bun,
+        lock: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+    });
+
+    let result = RunJob::from(job)
+        .arg("name", serde_json::json!("World"))
+        .run_until_complete(&db, false, port)
+        .await
+        .json_result()
+        .unwrap();
+
+    {
+        let mut npmrc = NPMRC.write().await;
+        *npmrc = None;
     }
 
     assert_eq!(
@@ -1241,8 +1309,8 @@ mod bun_builder_tests {
         }
 
         // Read generated package.json
-        let package_json = std::fs::read_to_string(dir.join("package.json"))
-            .expect("package.json not generated");
+        let package_json =
+            std::fs::read_to_string(dir.join("package.json")).expect("package.json not generated");
 
         serde_json::from_str(&package_json).expect("Invalid JSON in package.json")
     }
@@ -1257,7 +1325,10 @@ export function main() { return lodash; }
         let pkg = run_builder(main_ts);
         let deps = pkg["dependencies"].as_object().unwrap();
 
-        assert!(deps.contains_key("lodash"), "lodash should be in dependencies");
+        assert!(
+            deps.contains_key("lodash"),
+            "lodash should be in dependencies"
+        );
         assert_eq!(deps["lodash"], "latest");
     }
 
@@ -1271,7 +1342,10 @@ export function main() { return _; }
         let pkg = run_builder(main_ts);
         let deps = pkg["dependencies"].as_object().unwrap();
 
-        assert!(deps.contains_key("lodash"), "lodash should be in dependencies");
+        assert!(
+            deps.contains_key("lodash"),
+            "lodash should be in dependencies"
+        );
         assert_eq!(deps["lodash"], "4.17.21");
     }
 
@@ -1304,9 +1378,18 @@ export function main() { return { lodash, axios, dayjs }; }
         let pkg = run_builder(main_ts);
         let deps = pkg["dependencies"].as_object().unwrap();
 
-        assert!(deps.contains_key("lodash"), "lodash should be in dependencies");
-        assert!(deps.contains_key("axios"), "axios should be in dependencies");
-        assert!(deps.contains_key("dayjs"), "dayjs should be in dependencies");
+        assert!(
+            deps.contains_key("lodash"),
+            "lodash should be in dependencies"
+        );
+        assert!(
+            deps.contains_key("axios"),
+            "axios should be in dependencies"
+        );
+        assert!(
+            deps.contains_key("dayjs"),
+            "dayjs should be in dependencies"
+        );
         assert_eq!(deps.len(), 3, "Should have exactly 3 dependencies");
     }
 
@@ -1330,8 +1413,15 @@ export function main() { return { fs, path, lodash }; }
             !deps.contains_key("path"),
             "path (builtin) should NOT be in dependencies"
         );
-        assert!(deps.contains_key("lodash"), "lodash should be in dependencies");
-        assert_eq!(deps.len(), 1, "Should have exactly 1 dependency (lodash only)");
+        assert!(
+            deps.contains_key("lodash"),
+            "lodash should be in dependencies"
+        );
+        assert_eq!(
+            deps.len(),
+            1,
+            "Should have exactly 1 dependency (lodash only)"
+        );
     }
 
     /// Test: semver.order() resolves version conflicts (picks lowest version)
@@ -1347,7 +1437,10 @@ export function main() { return { a, b }; }
         let pkg = run_builder(main_ts);
         let deps = pkg["dependencies"].as_object().unwrap();
 
-        assert!(deps.contains_key("lodash"), "lodash should be in dependencies");
+        assert!(
+            deps.contains_key("lodash"),
+            "lodash should be in dependencies"
+        );
         // The builder sorts by semver and picks the first (lowest) version
         assert_eq!(
             deps["lodash"], "4.17.10",

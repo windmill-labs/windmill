@@ -16,76 +16,54 @@
  *   VERBOSE=1 deno test --allow-all test/cargo_backend_example.test.ts
  */
 
-import {
-  assertEquals,
-  assertExists,
-} from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { CargoBackend } from "./cargo_backend.ts";
 
 // Single backend instance for all tests
 let backend: CargoBackend;
 
 // Setup before all tests
-Deno.test({
-  name: "setup: start cargo backend",
-  fn: async () => {
+test("setup: start cargo backend", async () => {
     backend = new CargoBackend({
-      verbose: Deno.env.get("VERBOSE") === "1",
+      verbose: process.env.VERBOSE === "1",
     });
     await backend.start();
-    assertExists(backend.baseUrl);
-    assertExists(backend.authToken);
-  },
-  sanitizeResources: false,
-  sanitizeOps: false,
+    expect(backend.baseUrl).toBeDefined();
+    expect(backend.authToken).toBeDefined();
 });
 
-Deno.test({
-  name: "API: version endpoint responds",
-  fn: async () => {
+test("API: version endpoint responds", async () => {
     const response = await fetch(`${backend.baseUrl}/api/version`);
-    assertEquals(response.ok, true);
+    expect(response.ok).toEqual(true);
     const version = await response.text();
-    assertExists(version);
+    expect(version).toBeDefined();
     console.log(`  Backend version: ${version.trim()}`);
-  },
-  sanitizeResources: false,
-  sanitizeOps: false,
 });
 
-Deno.test({
-  name: "API: workspace exists",
-  fn: async () => {
+test("API: workspace exists", async () => {
     const response = await backend.apiRequest(
       `/api/w/${backend.workspace}/workspaces/get_settings`,
     );
-    assertEquals(response.ok, true);
+    expect(response.ok).toEqual(true);
     await response.text();
-  },
-  sanitizeResources: false,
-  sanitizeOps: false,
 });
 
-Deno.test({
-  name: "CLI: wmill --version works",
-  fn: async () => {
-    const tempDir = await Deno.makeTempDir({ prefix: "wmill_test_" });
+test("CLI: wmill --version works", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "wmill_test_"));
     try {
       const result = await backend.runCLICommand(["--version"], tempDir);
-      assertEquals(result.code, 0);
+      expect(result.code).toEqual(0);
       console.log(`  CLI version: ${result.stdout.trim()}`);
     } finally {
-      await Deno.remove(tempDir, { recursive: true });
+      await rm(tempDir, { recursive: true });
     }
-  },
-  sanitizeResources: false,
-  sanitizeOps: false,
 });
 
-Deno.test({
-  name: "CLI: wmill sync pull works",
-  fn: async () => {
-    const tempDir = await Deno.makeTempDir({ prefix: "wmill_test_" });
+test("CLI: wmill sync pull works", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "wmill_test_"));
     try {
       const result = await backend.runCLICommand(
         ["sync", "pull", "--yes"],
@@ -97,19 +75,11 @@ Deno.test({
         console.log(`  stderr: ${result.stderr.slice(0, 200)}`);
       }
     } finally {
-      await Deno.remove(tempDir, { recursive: true });
+      await rm(tempDir, { recursive: true });
     }
-  },
-  sanitizeResources: false,
-  sanitizeOps: false,
 });
 
 // Cleanup after all tests
-Deno.test({
-  name: "cleanup: stop cargo backend",
-  fn: async () => {
+test("cleanup: stop cargo backend", async () => {
     await backend.stop();
-  },
-  sanitizeResources: false,
-  sanitizeOps: false,
 });

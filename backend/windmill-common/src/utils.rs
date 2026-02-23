@@ -1281,3 +1281,96 @@ mod tests {
         assert_eq!(parsed, serde_json::json!([[1], [2], [3], [4], [5]]));
     }
 }
+
+/// Parse .npmrc content to extract the default registry URL and its auth token.
+/// Returns `Some((registry_url, Option<auth_token>))` if a default registry is found.
+pub fn parse_npmrc_registry(npmrc_content: &str) -> Option<(String, Option<String>)> {
+    let mut registry_url: Option<String> = None;
+    let mut auth_tokens: Vec<(String, String)> = Vec::new();
+
+    for line in npmrc_content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
+            continue;
+        }
+
+        if let Some(url) = line.strip_prefix("registry=") {
+            registry_url = Some(url.trim().to_string());
+        }
+
+        if line.starts_with("//") {
+            if let Some((prefix, token)) = line.split_once(":_authToken=") {
+                auth_tokens.push((prefix.to_string(), token.to_string()));
+            }
+        }
+    }
+
+    let url = registry_url?;
+    let url_without_protocol = url.trim_start_matches("https:").trim_start_matches("http:");
+    let url_prefix = url_without_protocol.trim_end_matches('/');
+
+    let token = auth_tokens
+        .iter()
+        .find(|(prefix, _)| {
+            let p = prefix.trim_end_matches('/');
+            p == url_prefix
+        })
+        .map(|(_, token)| token.clone());
+
+    Some((url, token))
+}
+
+#[cfg(test)]
+mod npmrc_tests {
+    use super::parse_npmrc_registry;
+
+    #[test]
+    fn test_parse_simple_registry() {
+        let npmrc = "registry=https://registry.mycompany.com/\n//registry.mycompany.com/:_authToken=secret123\n";
+        let result = parse_npmrc_registry(npmrc);
+        assert_eq!(
+            result,
+            Some((
+                "https://registry.mycompany.com/".to_string(),
+                Some("secret123".to_string())
+            ))
+        );
+    }
+
+    #[test]
+    fn test_parse_registry_without_auth() {
+        let npmrc = "registry=https://registry.npmjs.org/\n";
+        let result = parse_npmrc_registry(npmrc);
+        assert_eq!(
+            result,
+            Some(("https://registry.npmjs.org/".to_string(), None))
+        );
+    }
+
+    #[test]
+    fn test_parse_scoped_only_no_default() {
+        let npmrc =
+            "@myorg:registry=https://registry.myorg.com/\n//registry.myorg.com/:_authToken=tok\n";
+        let result = parse_npmrc_registry(npmrc);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_parse_with_comments() {
+        let npmrc = "# My registry\nregistry=https://r.example.com/\n; auth\n//r.example.com/:_authToken=tok\n";
+        let result = parse_npmrc_registry(npmrc);
+        assert_eq!(
+            result,
+            Some((
+                "https://r.example.com/".to_string(),
+                Some("tok".to_string())
+            ))
+        );
+    }
+
+    #[test]
+    fn test_parse_empty_npmrc() {
+        assert_eq!(parse_npmrc_registry(""), None);
+        assert_eq!(parse_npmrc_registry("# just a comment"), None);
+    }
+}

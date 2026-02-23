@@ -481,7 +481,7 @@
 		}
 	})
 
-	let dbManagerDrawer = $derived(globalDbManagerDrawer.val)
+	let dbManagerDrawer = $derived(globalDbManagerDrawer.val) as any
 
 	let filterUserFolders = $state(false)
 	let filterUserFoldersType: 'only f/*' | 'u/username and f/*' | undefined = $derived(
@@ -755,7 +755,7 @@
 				</div>
 			{/if}
 		</PageHeader>
-		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => showCreateButtons = v} />
+		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showCreateButtons = v)} />
 		<div class="flex justify-between">
 			<Tabs
 				class="w-full"

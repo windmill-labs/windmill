@@ -13,7 +13,7 @@ use crate::{
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
-    is_sandboxing_enabled, read_ee_registry, DENO_CACHE_DIR, DENO_PATH, HOME_ENV,
+    is_sandboxing_enabled, read_ee_registry, DENO_CACHE_DIR, DENO_PATH, HOME_ENV, NPMRC,
     NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
@@ -79,21 +79,29 @@ async fn get_common_deno_proc_envs(
         ),
     ]);
 
-    let registry = if let Some(conn) = conn {
-        read_ee_registry(
-            NPM_CONFIG_REGISTRY.read().await.clone(),
-            "npm registry",
-            job_id,
-            w_id,
-            conn,
-        )
-        .await
+    let npmrc = if let Some(conn) = conn {
+        read_ee_registry(NPMRC.read().await.clone(), "npmrc", job_id, w_id, conn).await
     } else {
-        NPM_CONFIG_REGISTRY.read().await.clone()
+        NPMRC.read().await.clone()
     };
-    if let Some(ref s) = registry {
-        let (url, _token_opt) = parse_npm_config(s);
-        deno_envs.insert(String::from("NPM_CONFIG_REGISTRY"), url);
+
+    if npmrc.as_ref().map_or(true, |s| s.trim().is_empty()) {
+        let registry = if let Some(conn) = conn {
+            read_ee_registry(
+                NPM_CONFIG_REGISTRY.read().await.clone(),
+                "npm registry",
+                job_id,
+                w_id,
+                conn,
+            )
+            .await
+        } else {
+            NPM_CONFIG_REGISTRY.read().await.clone()
+        };
+        if let Some(ref s) = registry {
+            let (url, _token_opt) = parse_npm_config(s);
+            deno_envs.insert(String::from("NPM_CONFIG_REGISTRY"), url);
+        }
     }
     if DENO_CERT.len() > 0 {
         deno_envs.insert(String::from("DENO_CERT"), DENO_CERT.clone());
@@ -388,6 +396,21 @@ try {{
     .await;
     if is_sandboxing_enabled() {
         common_deno_proc_envs.insert("HOME".to_string(), job_dir.to_string());
+    }
+
+    let npmrc = read_ee_registry(
+        NPMRC.read().await.clone(),
+        "npmrc",
+        &job.id,
+        &job.workspace_id,
+        conn,
+    )
+    .await;
+    if let Some(ref npmrc_content) = npmrc {
+        if !npmrc_content.trim().is_empty() {
+            write_file(job_dir, ".npmrc", npmrc_content)?;
+            write_file(job_dir, "deno.json", "{}")?;
+        }
     }
 
     //do not cache local dependencies

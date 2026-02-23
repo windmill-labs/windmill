@@ -576,7 +576,18 @@ pub async fn exchange_token(
     Ok(token)
 }
 
-/// Refresh an OAuth token and update the database
+/// Pre-fetched account fields needed for token refresh.
+pub struct OAuthAccountInfo {
+    pub client: String,
+    pub refresh_token: String,
+    pub grant_type: String,
+    pub cc_client_id: Option<String>,
+    pub cc_client_secret: Option<String>,
+    pub cc_token_url: Option<String>,
+}
+
+/// Refresh an OAuth token and update the database.
+/// Fetches the account from DB, then delegates to `refresh_token_for_account`.
 pub async fn refresh_token<'c>(
     mut tx: Transaction<'c, Postgres>,
     path: &str,
@@ -587,7 +598,8 @@ pub async fn refresh_token<'c>(
     http_client: &reqwest::Client,
     connect_configs_json: &str,
 ) -> error::Result<String> {
-    let account = sqlx::query!(
+    let account = sqlx::query_as!(
+        OAuthAccountInfo,
         "SELECT client, refresh_token, grant_type, cc_client_id, cc_client_secret, cc_token_url FROM account WHERE workspace_id = $1 AND id = $2",
         w_id,
         id,
@@ -595,6 +607,22 @@ pub async fn refresh_token<'c>(
     .fetch_optional(&mut *tx)
     .await?;
     let account = windmill_common::utils::not_found_if_none(account, "Account", &id.to_string())?;
+
+    refresh_token_for_account(tx, path, w_id, id, db, account, oauth_clients, http_client, connect_configs_json).await
+}
+
+/// Refresh an OAuth token given pre-fetched account info (no additional SELECT).
+pub async fn refresh_token_for_account<'c>(
+    mut tx: Transaction<'c, Postgres>,
+    path: &str,
+    w_id: &str,
+    id: i32,
+    db: &DB,
+    account: OAuthAccountInfo,
+    oauth_clients: &AllClients,
+    http_client: &reqwest::Client,
+    connect_configs_json: &str,
+) -> error::Result<String> {
     let oauth_client_info = oauth_clients
         .connects
         .get(&account.client)

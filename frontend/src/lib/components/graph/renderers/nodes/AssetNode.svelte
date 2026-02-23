@@ -225,7 +225,6 @@
 		type AssetWithAltAccessType
 	} from '$lib/components/assets/lib'
 	import { twMerge } from 'tailwind-merge'
-	import type { FlowGraphAssetContext } from '$lib/components/flows/types'
 	import { getContext } from 'svelte'
 	import ExploreAssetButton, { assetCanBeExplored } from '../../../ExploreAssetButton.svelte'
 	import { Tooltip } from '$lib/components/meltComponents'
@@ -243,7 +242,7 @@
 		data: AssetN['data']
 	}
 
-	const flowGraphAssetsCtx = getContext<FlowGraphAssetContext | undefined>('FlowGraphAssetContext')
+	const flowGraphAssetsCtx = getContext<any | undefined>('FlowGraphAssetContext')
 
 	let { data }: Props = $props()
 

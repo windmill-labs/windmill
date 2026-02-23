@@ -15,7 +15,6 @@
 	import type { ResourceReturn } from 'runed'
 	import type { ConfirmationModalHandle } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import ExploreAssetButton from '../ExploreAssetButton.svelte'
-	import type DBManagerDrawer from '../DBManagerDrawer.svelte'
 	import { ArrowRight, InfoIcon } from 'lucide-svelte'
 	import type { Snippet } from 'svelte'
 	import { truncate } from '$lib/utils'
@@ -25,7 +24,7 @@
 	type Props = {
 		customInstanceDbs: ResourceReturn<ListCustomInstanceDbsResponse>
 		confirmationModal: ConfirmationModalHandle
-		dbManagerDrawer: DBManagerDrawer | undefined
+		dbManagerDrawer: any | undefined
 		bottomHint?: Snippet | undefined
 		opened: { status: CustomInstanceDb | undefined; dbname: string } | undefined
 		tag?: CustomInstanceDbTag

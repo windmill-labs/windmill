@@ -98,6 +98,11 @@ The `resource()` utility:
 After making frontend changes, you MUST run the following and fix all errors and warnings before considering the work done:
 
 ```bash
+npm run check:fast
+```
+
+At the end of a PR to do final validation, you can do the longer one (2s for fast vs 50s for the slow one):
+```bash
 npm run check
 ```
 

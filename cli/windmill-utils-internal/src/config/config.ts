@@ -1,8 +1,4 @@
-// Runtime detection
-// @ts-ignore - Cross-platform runtime detection
-const isDeno = typeof Deno !== "undefined";
-// @ts-ignore - Cross-platform runtime detection  
-const isNode = typeof process !== "undefined" && process.versions?.node;
+import { stat, mkdir } from "node:fs/promises";
 
 export const WINDMILL_CONFIG_DIR = "windmill";
 export const WINDMILL_ACTIVE_WORKSPACE_FILE = "activeWorkspace";
@@ -10,60 +6,22 @@ export const WINDMILL_WORKSPACE_CONFIG_FILE = "remotes.ndjson";
 export const INSTANCES_CONFIG_FILE = "instances.ndjson";
 export const WINDMILL_ACTIVE_INSTANCE_FILE = "activeInstance";
 
-// Cross-platform environment variable access
 function getEnv(key: string): string | undefined {
-  if (isDeno) {
-    // @ts-ignore - Deno API
-    return Deno.env.get(key);
-  } else {
-    // @ts-ignore - Node API
-    return process.env[key];
-  }
+  return process.env[key];
 }
 
-// Cross-platform OS detection with normalization
 function getOS(): "linux" | "darwin" | "windows" | null {
-  if (isDeno) {
-    // @ts-ignore - Deno API
-    return Deno.build.os as "linux" | "darwin" | "windows";
-  } else if (isNode) {
-    // @ts-ignore - Node API
-    const platform = process.platform;
-    switch (platform) {
-      case "linux": return "linux";
-      case "darwin": return "darwin";
-      case "win32": return "windows"; // Normalize win32 to windows
-      default: return null;
-    }
-  }
-  return null;
-}
-
-// Cross-platform file system operations
-async function stat(path: string | URL): Promise<any> {
-  if (isDeno) {
-    // @ts-ignore - Deno API
-    return await Deno.stat(path);
-  } else {
-    // @ts-ignore - Node API
-    const fs = await import('fs/promises');
-    return await fs.stat(path);
+  const platform = process.platform;
+  switch (platform) {
+    case "linux": return "linux";
+    case "darwin": return "darwin";
+    case "win32": return "windows";
+    default: return null;
   }
 }
 
-async function mkdir(path: string | URL, options?: { recursive?: boolean }): Promise<void> {
-  if (isDeno) {
-    // @ts-ignore - Deno API
-    await Deno.mkdir(path, options);
-  } else {
-    // @ts-ignore - Node API
-    const fs = await import('fs/promises');
-    await fs.mkdir(path, options);
-  }
-}
-
-function throwIfNotDirectory(fileInfo: any): void {
-  if (!fileInfo.isDirectory) {
+function throwIfNotDirectory(fileInfo: import("node:fs").Stats): void {
+  if (!fileInfo.isDirectory()) {
     throw new Error("Path is not a directory");
   }
 }
@@ -125,17 +83,8 @@ async function ensureDir(dir: string | URL) {
     throwIfNotDirectory(fileInfo);
     return;
   } catch (err: any) {
-    // Check for file not found error in cross-platform way
-    if (isDeno) {
-      // @ts-ignore - Deno API
-      if (!(err instanceof Deno.errors.NotFound)) {
-        throw err;
-      }
-    } else {
-      // Node.js error codes
-      if (err.code !== 'ENOENT') {
-        throw err;
-      }
+    if (err.code !== 'ENOENT') {
+      throw err;
     }
   }
 
@@ -144,17 +93,8 @@ async function ensureDir(dir: string | URL) {
   try {
     await mkdir(dir, { recursive: true });
   } catch (err: any) {
-    // Check for already exists error in cross-platform way
-    if (isDeno) {
-      // @ts-ignore - Deno API
-      if (!(err instanceof Deno.errors.AlreadyExists)) {
-        throw err;
-      }
-    } else {
-      // Node.js error codes
-      if (err.code !== 'EEXIST') {
-        throw err;
-      }
+    if (err.code !== 'EEXIST') {
+      throw err;
     }
 
     const fileInfo = await stat(dir);
@@ -163,10 +103,10 @@ async function ensureDir(dir: string | URL) {
 }
 
 export async function getBaseConfigDir(configDirOverride?: string): Promise<string> {
-  const baseDir = configDirOverride ?? 
-                  getEnv("WMILL_CONFIG_DIR") ?? 
-                  config_dir() ?? 
-                  tmp_dir() ?? 
+  const baseDir = configDirOverride ??
+                  getEnv("WMILL_CONFIG_DIR") ??
+                  config_dir() ??
+                  tmp_dir() ??
                   "/tmp/";
   return baseDir;
 }

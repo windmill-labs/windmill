@@ -47,7 +47,7 @@
 		loading = true
 		try {
 			const automateUsernameCreation =
-				(await SettingService.getGlobal({ key: 'automate_username_creation' })) ?? false
+				(await SettingService.getGlobal({ key: 'automate_username_creation' })) ?? true
 
 			if (!automateUsernameCreation) {
 				sendUserToast(

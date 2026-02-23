@@ -11,7 +11,6 @@ use tiberius::{
 use tokio::net::TcpStream;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 use uuid::Uuid;
-use windmill_object_store::convert_json_line_stream;
 use windmill_common::utils::merge_raw_values_to_object;
 use windmill_common::worker::SqlResultCollectionStrategy;
 use windmill_common::{
@@ -19,6 +18,7 @@ use windmill_common::{
     utils::empty_as_none,
     worker::{to_raw_value, Connection},
 };
+use windmill_object_store::convert_json_line_stream;
 use windmill_parser_sql::{parse_db_resource, parse_mssql_sig, parse_s3_mode};
 use windmill_queue::MiniPulledJob;
 use windmill_queue::{append_logs, CanceledBy};
@@ -428,9 +428,7 @@ fn sql_to_json_value(val: ColumnData) -> Result<Box<RawValue>, Error> {
 }
 
 fn numeric_to_raw_value(numeric: &tiberius::numeric::Numeric) -> Result<Box<RawValue>, Error> {
-    // tiberius::Numeric::to_string is broken, don't use it
-
-    let sign = if numeric.int_part().is_negative() {
+    let sign = if numeric.value().is_negative() {
         "-"
     } else {
         ""
@@ -468,6 +466,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tiberius::numeric::Numeric;
 
     #[test]
     fn test_sql_to_json_value_numeric_null() {
@@ -477,7 +476,6 @@ mod tests {
 
     #[test]
     fn test_sql_to_json_value_numeric_integer() {
-        use tiberius::numeric::Numeric;
         let numeric = Numeric::new_with_scale(12345, 0);
         let result = sql_to_json_value(ColumnData::Numeric(Some(numeric))).unwrap();
         assert_eq!(result.get(), "12345");
@@ -485,7 +483,6 @@ mod tests {
 
     #[test]
     fn test_sql_to_json_value_numeric_decimal() {
-        use tiberius::numeric::Numeric;
         let numeric = Numeric::new_with_scale(123456, 2); // Represents 1234.56
         let result = sql_to_json_value(ColumnData::Numeric(Some(numeric))).unwrap();
         assert_eq!(result.get(), "1234.56");
@@ -493,7 +490,6 @@ mod tests {
 
     #[test]
     fn test_sql_to_json_value_numeric_negative() {
-        use tiberius::numeric::Numeric;
         let numeric = Numeric::new_with_scale(-98765, 2); // Represents -987.65
         let result = sql_to_json_value(ColumnData::Numeric(Some(numeric))).unwrap();
         assert_eq!(result.get(), "-987.65");
@@ -501,7 +497,6 @@ mod tests {
 
     #[test]
     fn test_sql_to_json_value_numeric_negative_integer() {
-        use tiberius::numeric::Numeric;
         let numeric = Numeric::new_with_scale(-98765, 0);
         let result = sql_to_json_value(ColumnData::Numeric(Some(numeric))).unwrap();
         assert_eq!(result.get(), "-98765");
@@ -509,15 +504,21 @@ mod tests {
 
     #[test]
     fn test_sql_to_json_value_numeric_high_precision() {
-        use tiberius::numeric::Numeric;
         let numeric = Numeric::new_with_scale(123456789012345, 10); // High precision
         let result = sql_to_json_value(ColumnData::Numeric(Some(numeric))).unwrap();
         assert_eq!(result.get(), "12345.6789012345");
     }
 
     #[test]
+    fn test_sql_to_json_value_numeric_negative_fractional_only() {
+        // -0.4: int_part() is 0, so old code lost the negative sign
+        let numeric = Numeric::new_with_scale(-4, 1);
+        let result = sql_to_json_value(ColumnData::Numeric(Some(numeric))).unwrap();
+        assert_eq!(result.get(), "-0.4");
+    }
+
+    #[test]
     fn test_sql_to_json_value_numeric_7_69() {
-        use tiberius::numeric::Numeric;
         let numeric = Numeric::new_with_scale(769, 2);
         let result = sql_to_json_value(ColumnData::Numeric(Some(numeric))).unwrap();
         assert_eq!(result.get(), "7.69");
