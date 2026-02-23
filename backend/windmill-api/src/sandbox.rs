@@ -12,9 +12,10 @@ use windmill_common::{
     error::{self, JsonResult},
     users::username_to_permissioned_as,
     utils::require_admin,
+    worker::CLOUD_HOSTED,
 };
 use windmill_queue::{push, PushArgs, PushIsolationLevel};
-use windmill_sandbox::{SandboxSnapshot, SandboxVolume};
+use windmill_sandbox::{SandboxSnapshot, SandboxVolume, VALID_AGENT_BINARIES};
 use windmill_types::jobs::JobPayload;
 
 use crate::db::ApiAuthed;
@@ -50,7 +51,7 @@ async fn list_snapshots(
             SandboxSnapshot,
             "SELECT workspace_id, name, tag, s3_key, content_hash, docker_image, setup_script, \
              size_bytes, status, build_error, build_job_id, created_by, created_at, updated_at, \
-             extra_perms \
+             extra_perms, include_wmill, agent_binary \
              FROM sandbox_snapshot WHERE workspace_id = $1 AND name = $2 ORDER BY created_at DESC",
             &w_id,
             &name,
@@ -62,7 +63,7 @@ async fn list_snapshots(
             SandboxSnapshot,
             "SELECT workspace_id, name, tag, s3_key, content_hash, docker_image, setup_script, \
              size_bytes, status, build_error, build_job_id, created_by, created_at, updated_at, \
-             extra_perms \
+             extra_perms, include_wmill, agent_binary \
              FROM sandbox_snapshot WHERE workspace_id = $1 ORDER BY created_at DESC",
             &w_id,
         )
@@ -79,11 +80,16 @@ struct CreateSnapshot {
     tag: String,
     docker_image: String,
     setup_script: Option<String>,
+    #[serde(default)]
+    include_wmill: bool,
+    agent_binary: Option<String>,
 }
 
 fn default_tag() -> String {
     "latest".to_string()
 }
+
+const CLOUD_SNAPSHOT_LIMIT: i64 = 20;
 
 async fn create_snapshot(
     authed: ApiAuthed,
@@ -92,23 +98,54 @@ async fn create_snapshot(
     Json(body): Json<CreateSnapshot>,
 ) -> error::Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
+
+    if *CLOUD_HOSTED {
+        let count = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM sandbox_snapshot WHERE workspace_id = $1",
+            &w_id,
+        )
+        .fetch_one(&db)
+        .await?
+        .unwrap_or(0);
+        if count >= CLOUD_SNAPSHOT_LIMIT {
+            return Err(error::Error::BadRequest(format!(
+                "Workspace has reached the maximum of {} snapshots on Windmill Cloud. \
+                 Delete unused snapshots before creating new ones.",
+                CLOUD_SNAPSHOT_LIMIT
+            )));
+        }
+    }
+
+    if let Some(ref agent) = body.agent_binary {
+        if !VALID_AGENT_BINARIES.contains(&agent.as_str()) {
+            return Err(error::Error::BadRequest(format!(
+                "Invalid agent_binary '{}'. Valid options: {}",
+                agent,
+                VALID_AGENT_BINARIES.join(", ")
+            )));
+        }
+    }
+
     let s3_key = format!(
         "sandbox/snapshots/{}/{}/{}.tar.gz",
         w_id, body.name, body.tag
     );
     sqlx::query!(
         "INSERT INTO sandbox_snapshot \
-         (workspace_id, name, tag, s3_key, docker_image, setup_script, created_by, status) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending') \
+         (workspace_id, name, tag, s3_key, docker_image, setup_script, \
+          include_wmill, agent_binary, created_by, status) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending') \
          ON CONFLICT (workspace_id, name, tag) DO UPDATE SET \
-         docker_image = $5, setup_script = $6, status = 'pending', \
-         build_error = NULL, updated_at = now()",
+         docker_image = $5, setup_script = $6, include_wmill = $7, agent_binary = $8, \
+         status = 'pending', build_error = NULL, updated_at = now()",
         &w_id,
         &body.name,
         &body.tag,
         &s3_key,
         &body.docker_image,
         body.setup_script.as_deref(),
+        body.include_wmill,
+        body.agent_binary.as_deref(),
         &authed.username,
     )
     .execute(&db)
@@ -121,6 +158,8 @@ async fn create_snapshot(
         &body.tag,
         &body.docker_image,
         body.setup_script.as_deref(),
+        body.include_wmill,
+        body.agent_binary.as_deref(),
         &authed,
     )
     .await?;
@@ -152,7 +191,7 @@ async fn get_snapshot(
         SandboxSnapshot,
         "SELECT workspace_id, name, tag, s3_key, content_hash, docker_image, setup_script, \
          size_bytes, status, build_error, build_job_id, created_by, created_at, updated_at, \
-         extra_perms \
+         extra_perms, include_wmill, agent_binary \
          FROM sandbox_snapshot WHERE workspace_id = $1 AND name = $2 AND tag = $3",
         &w_id,
         &name,
@@ -222,7 +261,7 @@ async fn rebuild_snapshot(
     require_admin(authed.is_admin, &authed.username)?;
 
     let row = sqlx::query!(
-        "SELECT docker_image, setup_script FROM sandbox_snapshot \
+        "SELECT docker_image, setup_script, include_wmill, agent_binary FROM sandbox_snapshot \
          WHERE workspace_id = $1 AND name = $2 AND tag = $3",
         &w_id,
         &name,
@@ -250,6 +289,8 @@ async fn rebuild_snapshot(
         &tag,
         &row.docker_image,
         row.setup_script.as_deref(),
+        row.include_wmill,
+        row.agent_binary.as_deref(),
         &authed,
     )
     .await?;
@@ -279,6 +320,36 @@ async fn upload_snapshot(
 ) -> error::Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
 
+    if *CLOUD_HOSTED {
+        // Check count limit (only for new snapshots, not updates to existing ones)
+        let exists = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM sandbox_snapshot \
+             WHERE workspace_id = $1 AND name = $2 AND tag = $3)",
+            &w_id,
+            &name,
+            &tag,
+        )
+        .fetch_one(&db)
+        .await?
+        .unwrap_or(false);
+        if !exists {
+            let count = sqlx::query_scalar!(
+                "SELECT COUNT(*) FROM sandbox_snapshot WHERE workspace_id = $1",
+                &w_id,
+            )
+            .fetch_one(&db)
+            .await?
+            .unwrap_or(0);
+            if count >= CLOUD_SNAPSHOT_LIMIT {
+                return Err(error::Error::BadRequest(format!(
+                    "Workspace has reached the maximum of {} snapshots on Windmill Cloud. \
+                     Delete unused snapshots before creating new ones.",
+                    CLOUD_SNAPSHOT_LIMIT
+                )));
+            }
+        }
+    }
+
     windmill_sandbox::upload_snapshot_bytes(&db, &w_id, &name, &tag, body, &authed.username).await
 }
 
@@ -289,6 +360,8 @@ async fn push_snapshot_build_job(
     tag: &str,
     docker_image: &str,
     setup_script: Option<&str>,
+    include_wmill: bool,
+    agent_binary: Option<&str>,
     authed: &ApiAuthed,
 ) -> error::Result<uuid::Uuid> {
     let mut args = HashMap::new();
@@ -307,6 +380,14 @@ async fn push_snapshot_build_job(
     args.insert(
         "setup_script".to_string(),
         JsonRawValue::from_string(serde_json::to_string(&setup_script).unwrap()).unwrap(),
+    );
+    args.insert(
+        "include_wmill".to_string(),
+        JsonRawValue::from_string(serde_json::to_string(&include_wmill).unwrap()).unwrap(),
+    );
+    args.insert(
+        "agent_binary".to_string(),
+        JsonRawValue::from_string(serde_json::to_string(&agent_binary).unwrap()).unwrap(),
     );
 
     let tx = PushIsolationLevel::IsolatedRoot(db.clone());

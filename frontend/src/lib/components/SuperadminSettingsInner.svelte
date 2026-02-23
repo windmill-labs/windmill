@@ -26,16 +26,19 @@
 	import InstanceNameEditor from './InstanceNameEditor.svelte'
 	import Toggle from './Toggle.svelte'
 	import { instanceSettingsSelectedTab } from '$lib/stores'
-	import { onDestroy } from 'svelte'
+	import { onDestroy, tick } from 'svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
 	import {
 		instanceSettingsNavigationGroups,
 		tabToCategoryMap,
 		tabToAuthSubTab,
-		categoryToTabMap
+		categoryToTabMap,
+		buildSearchableSettingItems,
+		type SearchableSettingItem
 	} from './instanceSettings'
 	import TextInput from './text_input/TextInput.svelte'
 	import SettingsPageHeader from './settings/SettingsPageHeader.svelte'
+	import SettingsSearchInput from './instanceSettings/SettingsSearchInput.svelte'
 
 	let filter = $state('')
 
@@ -43,7 +46,6 @@
 		closeDrawer,
 		showHeaderInfo = true,
 		yamlMode = $bindable(false),
-		diffMode = $bindable(false),
 		hasUnsavedChanges = $bindable(false)
 	} = $props()
 
@@ -86,10 +88,10 @@
 
 	let instanceSettings: InstanceSettings | undefined = $state()
 
-	let automateUsernameCreation = $state(false)
+	let automateUsernameCreation = $state(true)
 	async function getAutomateUsernameCreationSetting() {
 		automateUsernameCreation =
-			((await SettingService.getGlobal({ key: 'automate_username_creation' })) as any) ?? false
+			((await SettingService.getGlobal({ key: 'automate_username_creation' })) as any) ?? true
 	}
 	getAutomateUsernameCreationSetting()
 	let automateUsernameModalOpen = $state(false)
@@ -138,6 +140,38 @@
 	export function syncBeforeDiff(): boolean {
 		return instanceSettings?.syncBeforeDiff() ?? true
 	}
+
+	export function buildFullDiff(): { original: string; modified: string } {
+		return instanceSettings?.buildFullDiff() ?? { original: '', modified: '' }
+	}
+	// --- Settings search ---
+	const searchableItems = buildSearchableSettingItems()
+
+	let scrollTimeout: ReturnType<typeof setTimeout> | undefined
+	let highlightTimeout: ReturnType<typeof setTimeout> | undefined
+
+	async function handleSearchSelect(item: SearchableSettingItem) {
+		handleNavigate(item.tabId)
+		if (item.settingKey) {
+			clearTimeout(scrollTimeout)
+			clearTimeout(highlightTimeout)
+			await tick()
+			// Wait for the tab content to render before scrolling
+			scrollTimeout = setTimeout(() => {
+				const el = document.querySelector(`[data-setting-key="${item.settingKey}"]`)
+				if (el) {
+					el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+					el.classList.add('setting-highlight')
+					highlightTimeout = setTimeout(() => el.classList.remove('setting-highlight'), 2500)
+				}
+			}, 100)
+		}
+	}
+
+	onDestroy(() => {
+		clearTimeout(scrollTimeout)
+		clearTimeout(highlightTimeout)
+	})
 </script>
 
 <SearchItems
@@ -171,16 +205,17 @@
 		{/if}
 	{/if}
 	<div class="{showHeaderInfo ? 'pt-4' : ''} flex grow min-h-0">
-		{#if !yamlMode && !diffMode}
+		{#if !yamlMode}
 			<!-- Sidebar Navigation -->
 			<div class="w-52 shrink-0 h-full overflow-auto p-4 bg-surface flex flex-col">
+				<SettingsSearchInput {searchableItems} onSelect={handleSearchSelect} class="mb-3" />
 				<SidebarNavigation
 					groups={instanceSettingsNavigationGroups}
 					selectedId={tab}
 					onNavigate={handleNavigate}
 				/>
 				{#if $workspaceStore !== 'admins'}
-					<div class="mt-auto pt-4 border-t border-surface-hover">
+					<div class="mt-4 pt-2 border-t border-surface-hover">
 						<a
 							href="{base}/?workspace=admins"
 							target="_blank"
@@ -198,7 +233,7 @@
 		<div class="flex-1 min-w-0 h-full">
 			<div class="h-full overflow-auto bg-surface">
 				<div class="h-fit px-8 py-4">
-					{#if tab === 'users' && !yamlMode && !diffMode}
+					{#if tab === 'users' && !yamlMode}
 						<div class="h-full">
 							{#if !automateUsernameCreation && !isCloudHosted()}
 								<div class="mb-4">
@@ -474,7 +509,6 @@
 							bind:this={instanceSettings}
 							hideTabs
 							bind:yamlMode
-							bind:diffMode
 							bind:hasUnsavedChanges
 							tab={instanceSettingsCategory}
 							{authSubTab}

@@ -571,6 +571,7 @@ lazy_static::lazy_static! {
 
     pub static ref NPM_CONFIG_REGISTRY: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref BUNFIG_INSTALL_SCOPES: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+    pub static ref NPMRC: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref BUN_NO_CACHE: bool = std::env::var("BUN_NO_CACHE")
         .ok()
         .and_then(|x| x.parse::<bool>().ok())
@@ -4220,11 +4221,20 @@ mount {{
             "# volume: annotations require a # sandbox: annotation to be present".to_string(),
         ));
     }
-    if !sandbox_config.allowed_domains.is_empty() && sandbox_config.snapshot.is_none() {
-        return Err(Error::ExecutionErr(
-            "# allowed_domains: annotation requires a # sandbox: annotation to be present"
-                .to_string(),
-        ));
+    if !sandbox_config.allowed_domains.is_empty() {
+        if sandbox_config.snapshot.is_none() {
+            return Err(Error::ExecutionErr(
+                "# allowed_domains: annotation requires a # sandbox: annotation to be present"
+                    .to_string(),
+            ));
+        }
+        #[cfg(not(all(feature = "private", feature = "enterprise")))]
+        {
+            return Err(Error::ExecutionErr(
+                "# allowed_domains: domain filtering requires Windmill Enterprise Edition"
+                    .to_string(),
+            ));
+        }
     }
     let sandbox_setup = if sandbox_config.snapshot.is_some() || !sandbox_config.volumes.is_empty() {
         let db = conn.as_sql().ok_or_else(|| {
@@ -4241,6 +4251,22 @@ mount {{
             )
             .await?;
             setup.overlay = Some(windmill_sandbox::mount_overlay(&snapshot_path, job_dir).await?);
+
+            let snap_row = sqlx::query!(
+                "SELECT include_wmill, agent_binary FROM sandbox_snapshot \
+                 WHERE workspace_id = $1 AND name = $2 AND tag = $3",
+                &job.workspace_id,
+                &snap.name,
+                &snap.tag,
+            )
+            .fetch_optional(db)
+            .await?;
+            if let Some(row) = snap_row {
+                setup.needs_host_bun = windmill_sandbox::snapshot_needs_host_bun(
+                    row.include_wmill,
+                    row.agent_binary.as_deref(),
+                );
+            }
         }
 
         for (vol_name, mount_path) in &sandbox_config.volumes {
@@ -4261,6 +4287,9 @@ mount {{
         }
 
         shared_mount.push_str(&windmill_sandbox::build_sandbox_mounts(&setup));
+        if setup.overlay.is_some() {
+            shared_mount.push_str(&windmill_sandbox::write_agent_files(job_dir));
+        }
         Some(setup)
     } else {
         None

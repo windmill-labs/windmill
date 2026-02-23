@@ -6,11 +6,9 @@ pub use crate::s3_ee::*;
 use std::path::{Path, PathBuf};
 
 #[cfg(all(not(feature = "private"), feature = "parquet"))]
-const CE_SNAPSHOT_SIZE_LIMIT: usize = 100 * 1024 * 1024;
-#[cfg(all(not(feature = "private"), feature = "parquet"))]
-const CE_VOLUME_SIZE_LIMIT: usize = 50 * 1024 * 1024;
-#[cfg(all(not(feature = "private"), feature = "parquet"))]
 const SNAPSHOT_CACHE_DIR: &str = "/tmp/windmill/snapshots";
+#[cfg(all(not(feature = "private"), feature = "parquet"))]
+const CLOUD_SNAPSHOT_SIZE_LIMIT: usize = 300 * 1024 * 1024; // 300MB
 
 #[cfg(all(not(feature = "private"), feature = "parquet"))]
 pub async fn ensure_snapshot_cached(
@@ -190,14 +188,6 @@ pub async fn upload_volume(
         .map_err(|e| Error::ExecutionErr(format!("Spawn blocking failed: {e}")))??;
 
     let size = bytes.len();
-    if size > CE_VOLUME_SIZE_LIMIT {
-        return Err(Error::ExecutionErr(format!(
-            "Volume size ({:.1} MB) exceeds the {} MB limit. \
-             Upgrade to Windmill EE for unlimited volume sizes.",
-            size as f64 / 1_048_576.0,
-            CE_VOLUME_SIZE_LIMIT / 1_048_576
-        )));
-    }
 
     windmill_object_store::put_bytes_to_store(os, &s3_key, bytes.into()).await?;
 
@@ -235,6 +225,8 @@ pub async fn build_snapshot(
     tag: &str,
     docker_image: &str,
     setup_script: Option<&str>,
+    include_wmill: bool,
+    agent_binary: Option<&str>,
     db: &windmill_common::DB,
 ) -> windmill_common::error::Result<()> {
     use tokio::process::Command;
@@ -339,6 +331,10 @@ pub async fn build_snapshot(
             }
         }
 
+        if include_wmill || agent_binary.is_some() {
+            crate::install_snapshot_tools(&rootfs_dir, include_wmill, agent_binary).await?;
+        }
+
         let rootfs_dir_clone = rootfs_dir.clone();
         let (bytes, content_hash) = tokio::task::spawn_blocking(
             move || -> windmill_common::error::Result<(Vec<u8>, String)> {
@@ -353,14 +349,11 @@ pub async fn build_snapshot(
         .map_err(|e| Error::ExecutionErr(format!("Spawn blocking failed: {e}")))??;
 
         let size = bytes.len();
-        if !*windmill_common::ee_oss::LICENSE_KEY_VALID.read().await
-            && size > CE_SNAPSHOT_SIZE_LIMIT
-        {
+        if *windmill_common::worker::CLOUD_HOSTED && size > CLOUD_SNAPSHOT_SIZE_LIMIT {
             return Err(Error::ExecutionErr(format!(
-                "Snapshot size ({:.1} MB) exceeds the {} MB limit. \
-                 Upgrade to Windmill EE for unlimited snapshot sizes.",
+                "Snapshot size ({:.1} MB) exceeds the {} MB limit on Windmill Cloud.",
                 size as f64 / 1_048_576.0,
-                CE_SNAPSHOT_SIZE_LIMIT / 1_048_576
+                CLOUD_SNAPSHOT_SIZE_LIMIT / 1_048_576
             )));
         }
 
@@ -416,6 +409,8 @@ pub async fn build_snapshot(
     _tag: &str,
     _docker_image: &str,
     _setup_script: Option<&str>,
+    _include_wmill: bool,
+    _agent_binary: Option<&str>,
     _db: &windmill_common::DB,
 ) -> windmill_common::error::Result<()> {
     Err(windmill_common::error::Error::ExecutionErr(
@@ -435,13 +430,11 @@ pub async fn upload_snapshot_bytes(
     use sha2::Digest;
     use windmill_common::error::Error;
 
-    let size = body.len();
-    if !*windmill_common::ee_oss::LICENSE_KEY_VALID.read().await && size > CE_SNAPSHOT_SIZE_LIMIT {
+    if *windmill_common::worker::CLOUD_HOSTED && body.len() > CLOUD_SNAPSHOT_SIZE_LIMIT {
         return Err(Error::ExecutionErr(format!(
-            "Snapshot size ({:.1} MB) exceeds the {} MB limit. \
-             Upgrade to Windmill EE for unlimited snapshot sizes.",
-            size as f64 / 1_048_576.0,
-            CE_SNAPSHOT_SIZE_LIMIT / 1_048_576
+            "Snapshot size ({:.1} MB) exceeds the {} MB limit on Windmill Cloud.",
+            body.len() as f64 / 1_048_576.0,
+            CLOUD_SNAPSHOT_SIZE_LIMIT / 1_048_576
         )));
     }
 

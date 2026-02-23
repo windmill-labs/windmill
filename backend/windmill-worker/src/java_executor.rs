@@ -16,6 +16,7 @@ use windmill_common::{
     utils::calculate_hash,
     worker::{copy_dir_recursively, write_file, Connection},
 };
+use crate::global_cache::save_cache;
 use windmill_parser::Arg;
 use windmill_parser_java::parse_java_sig_meta;
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};

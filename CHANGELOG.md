@@ -1,5 +1,58 @@
 # Changelog
 
+## [1.641.0](https://github.com/windmill-labs/windmill/compare/v1.640.0...v1.641.0) (2026-02-21)
+
+
+### Features
+
+* add .npmrc support for private npm registries ([#8039](https://github.com/windmill-labs/windmill/issues/8039)) ([9eb1531](https://github.com/windmill-labs/windmill/commit/9eb15312f663aa6d700e8ac562d7b5c75c2221f7))
+
+
+### Bug Fixes
+
+* add created_by ownership check to update/delete saved inputs ([#8038](https://github.com/windmill-labs/windmill/issues/8038)) ([e8a13ed](https://github.com/windmill-labs/windmill/commit/e8a13edde7c0ba2ef80344ab7c7288e7bb2eb6b5))
+* run substitute_ee_code.sh after creating EE worktree ([b330f38](https://github.com/windmill-labs/windmill/commit/b330f388894ecd9cc6b64297420ac6f032d32f72))
+* tag bunnative dependency jobs as bun instead of nativets ([#8045](https://github.com/windmill-labs/windmill/issues/8045)) ([fd5ebc2](https://github.com/windmill-labs/windmill/commit/fd5ebc2fda589c022074c3bb4dcdb447c7f86cf0))
+
+## [1.640.0](https://github.com/windmill-labs/windmill/compare/v1.639.0...v1.640.0) (2026-02-20)
+
+
+### Features
+
+* add windmill-ee-private worktree support to workmux ([#8034](https://github.com/windmill-labs/windmill/issues/8034)) ([9f3dd0b](https://github.com/windmill-labs/windmill/commit/9f3dd0bf2b2ba7c622093c54b7b6b5e7ebb26b74))
+* **cli:** add --locks-required flag to wmill lint and sync push ([#8026](https://github.com/windmill-labs/windmill/issues/8026)) ([4abe589](https://github.com/windmill-labs/windmill/commit/4abe58939787f375ccfef5b2dbcfbd7e86cff076))
+* dedicated nativets ([#8021](https://github.com/windmill-labs/windmill/issues/8021)) ([37c9acb](https://github.com/windmill-labs/windmill/commit/37c9acb232c64c98ecfb64754f5b69b31047c625))
+* Support column detection on S3 objects in DuckDB ([#8018](https://github.com/windmill-labs/windmill/issues/8018)) ([87f3de9](https://github.com/windmill-labs/windmill/commit/87f3de9ae5975c88b6748e297f84a539aec4c0ca))
+
+
+### Bug Fixes
+
+* Fix DuckDB incorrect pg password encoding ([#8028](https://github.com/windmill-labs/windmill/issues/8028)) ([90b1a7a](https://github.com/windmill-labs/windmill/commit/90b1a7a531bce5621ea4de4792a8c9d3d3beec3d))
+* **frontend:** use completed_at instead of created_at for job history ([#8022](https://github.com/windmill-labs/windmill/issues/8022)) ([24d7921](https://github.com/windmill-labs/windmill/commit/24d7921bcf23543759719ffd2463959c627b61b8))
+
+
+### Performance Improvements
+
+* lazy-load JSZip in RawAppEditorHeader ([#8012](https://github.com/windmill-labs/windmill/issues/8012)) ([a1ba10a](https://github.com/windmill-labs/windmill/commit/a1ba10a29e12ab5f553bd9aad74067cc5b3ead9e))
+
+## [1.639.0](https://github.com/windmill-labs/windmill/compare/v1.638.4...v1.639.0) (2026-02-18)
+
+
+### Features
+
+* improve FolderPicker with edit icon pattern ([#7995](https://github.com/windmill-labs/windmill/issues/7995)) ([db8aa8a](https://github.com/windmill-labs/windmill/commit/db8aa8a0839b5729f0bb847e7a71766c7883ff36))
+
+
+### Bug Fixes
+
+* default automate_username_creation to true when setting is missing ([#8006](https://github.com/windmill-labs/windmill/issues/8006)) ([d2d08f8](https://github.com/windmill-labs/windmill/commit/d2d08f8817e6e7818eb4b6f092e66ae039f0c756))
+* handle raw app folder deletion in sync push without yaml parse error ([#7994](https://github.com/windmill-labs/windmill/issues/7994)) ([f6d99dd](https://github.com/windmill-labs/windmill/commit/f6d99dd18c06a7f5aea93122276dd68c45772b43))
+
+
+### Performance Improvements
+
+* **cli:** skip relock more accurate ([#7993](https://github.com/windmill-labs/windmill/issues/7993)) ([cd4151a](https://github.com/windmill-labs/windmill/commit/cd4151a84b2c1e0f2e616079091d0429bf469f4e))
+
 ## [1.638.4](https://github.com/windmill-labs/windmill/compare/v1.638.3...v1.638.4) (2026-02-17)
 
 

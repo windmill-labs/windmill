@@ -10,8 +10,6 @@ use serde_json::value::RawValue;
 use serde_json::{json, Value};
 use uuid::Uuid;
 use windmill_common::error::{to_anyhow, Error, Result};
-use windmill_types::s3::S3Object;
-use windmill_object_store::S3_PROXY_LAST_ERRORS_CACHE;
 use windmill_common::utils::sanitize_string_from_password;
 use windmill_common::worker::{Connection, SqlResultCollectionStrategy};
 use windmill_common::workspaces::{
@@ -19,8 +17,10 @@ use windmill_common::workspaces::{
     DucklakeCatalogResourceType,
 };
 use windmill_common::PgDatabase;
+use windmill_object_store::S3_PROXY_LAST_ERRORS_CACHE;
 use windmill_parser_sql::{parse_duckdb_sig, parse_sql_blocks};
 use windmill_queue::{CanceledBy, MiniPulledJob};
+use windmill_types::s3::S3Object;
 
 use crate::agent_workers::{get_datatable_resource_from_agent_http, get_ducklake_from_agent_http};
 use crate::common::{build_args_values, get_reserved_variables, OccupancyMetrics};
@@ -419,7 +419,7 @@ fn format_attach_db_conn_str(db_resource: Value, db_type: &str) -> Result<String
     let s = match db_type.to_lowercase().as_str() {
         "postgres" | "postgresql" => {
             let res: PgDatabase = serde_json::from_value(db_resource)?;
-            res.to_conn_str()
+            res.to_uri()
         }
         #[cfg(feature = "mysql")]
         "mysql" => {
@@ -793,11 +793,9 @@ mod tests {
             "sslmode": "require"
         });
         let result = format_attach_db_conn_str(db_resource, "postgres").unwrap();
-        assert!(result.contains("dbname=mydb"));
-        assert!(result.contains("user=admin"));
-        assert!(result.contains("host=localhost"));
-        assert!(result.contains("password=secret123"));
-        assert!(result.contains("port=5432"));
+        // Should be in URI format: postgres://user:password@host:port/dbname?sslmode=require
+        assert!(result.starts_with("postgres://"));
+        assert!(result.contains("admin:secret123@localhost:5432/mydb"));
         assert!(result.contains("sslmode=require"));
     }
 
@@ -808,11 +806,10 @@ mod tests {
             "dbname": "production"
         });
         let result = format_attach_db_conn_str(db_resource, "postgres").unwrap();
-        assert!(result.contains("dbname=production"));
-        assert!(result.contains("host=db.example.com"));
-        // Optional fields should result in empty strings
-        assert!(!result.contains("user="));
-        assert!(!result.contains("password="));
+        // Should be in URI format with defaults: postgres://postgres:@host:5432/dbname?sslmode=prefer
+        assert!(result.starts_with("postgres://"));
+        assert!(result.contains("@db.example.com:5432/production"));
+        assert!(result.contains("sslmode=prefer"));
     }
 
     #[test]
@@ -822,8 +819,10 @@ mod tests {
             "dbname": "test"
         });
         let result = format_attach_db_conn_str(db_resource, "postgresql").unwrap();
-        assert!(result.contains("dbname=test"));
-        assert!(result.contains("host=localhost"));
+        // Should be in URI format (postgresql is treated the same as postgres)
+        assert!(result.starts_with("postgres://"));
+        assert!(result.contains("@localhost:5432/test"));
+        assert!(result.contains("sslmode=prefer"));
     }
 
     #[test]
@@ -863,7 +862,9 @@ mod tests {
             "dbname": "test"
         });
         let result = format_attach_db_conn_str(db_resource, "POSTGRES").unwrap();
-        assert!(result.contains("dbname=test"));
+        // Should be in URI format
+        assert!(result.starts_with("postgres://"));
+        assert!(result.contains("@localhost:5432/test"));
     }
 
     #[cfg(feature = "mysql")]

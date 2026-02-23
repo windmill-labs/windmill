@@ -26,6 +26,8 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import Select from '$lib/components/select/Select.svelte'
 
 	type Snapshot = {
 		workspace_id: string
@@ -43,6 +45,8 @@
 		created_at: string
 		updated_at: string
 		extra_perms: Record<string, any>
+		include_wmill: boolean
+		agent_binary: string | null
 	}
 
 	type Volume = {
@@ -69,7 +73,13 @@
 	let newTag = $state('latest')
 
 	// Builder state
-	let newDockerImage = $state('')
+	let dockerImageItems = $state([
+		{ label: 'Debian Slim (recommended)', value: 'debian:bookworm-slim' },
+		{ label: 'Ubuntu 24.04', value: 'ubuntu:24.04' },
+		{ label: 'Python 3.12 Slim', value: 'python:3.12-slim' },
+		{ label: 'Node 22 Slim', value: 'node:22-slim' }
+	])
+	let newDockerImage: string | undefined = $state('debian:bookworm-slim')
 	let newSetupScript = $state('')
 
 	// Dockerfile state
@@ -79,6 +89,10 @@
 		if (!dockerfileContent.trim()) return []
 		return parseDockerfile(dockerfileContent).warnings
 	})
+
+	// Tool options state
+	let includeWmill = $state(false)
+	let agentBinary: string = $state('none')
 
 	// Upload state
 	let uploadFile: File | null = $state(null)
@@ -171,10 +185,12 @@
 	function resetCreateForm() {
 		newName = ''
 		newTag = 'latest'
-		newDockerImage = ''
+		newDockerImage = 'debian:bookworm-slim'
 		newSetupScript = ''
 		dockerfileContent = ''
 		uploadFile = null
+		includeWmill = false
+		agentBinary = 'none'
 	}
 
 	async function apiFetch(path: string, options?: RequestInit) {
@@ -244,7 +260,9 @@
 						name: newName,
 						tag,
 						docker_image: dockerImage,
-						setup_script: setupScript || null
+						setup_script: setupScript || null,
+						include_wmill: includeWmill,
+						agent_binary: agentBinary === 'none' ? null : agentBinary
 					})
 				})
 				sendUserToast(`Snapshot ${newName}:${tag} created`)
@@ -382,14 +400,22 @@
 			</ToggleButtonGroup>
 
 			{#if snapshotMode === 'builder'}
-				<label class="block">
+				<div class="flex flex-col gap-1">
 					<span class="text-xs font-semibold">Docker image</span>
-					<input
-						class="w-full mt-1"
+					<Select
+						items={dockerImageItems}
 						bind:value={newDockerImage}
-						placeholder="e.g. python:3.11-slim"
+						placeholder="Type a custom image or select a preset"
+						clearable
+						createText="Use custom image"
+						onCreateItem={(v) => {
+							if (!dockerImageItems.some((i) => i.value === v)) {
+								dockerImageItems = [...dockerImageItems, { label: v, value: v }]
+							}
+							newDockerImage = v
+						}}
 					/>
-				</label>
+				</div>
 				<label class="block">
 					<span class="text-xs font-semibold">Setup script (optional)</span>
 					<textarea
@@ -462,6 +488,43 @@
 						File: {uploadFile.name} ({formatSize(uploadFile.size)})
 					</p>
 				{/if}
+			{/if}
+
+			{#if snapshotMode !== 'upload'}
+				<div class="flex flex-col gap-3 border-t pt-3">
+					<span class="text-xs font-semibold">Tools</span>
+					<div class="flex flex-col gap-1">
+						<span class="text-2xs text-secondary">AI Agent</span>
+						<ToggleButtonGroup
+							bind:selected={agentBinary}
+							onSelected={(v) => {
+								if (v !== 'none') {
+									includeWmill = true
+								}
+							}}
+						>
+							{#snippet children({ item })}
+								<ToggleButton value="none" label="None" {item} />
+								<ToggleButton value="claude" label="Claude Code" {item} />
+								<ToggleButton value="codex" label="Codex" {item} />
+								<ToggleButton value="opencode" label="OpenCode" {item} />
+							{/snippet}
+						</ToggleButtonGroup>
+					</div>
+					<Toggle
+						checked={includeWmill}
+						on:change={(e) => {
+							includeWmill = e.detail
+						}}
+						options={{ right: 'Include wmill CLI' }}
+						size="sm"
+					/>
+					{#if agentBinary !== 'none' && !includeWmill}
+						<span class="text-2xs text-tertiary"
+							>Including wmill CLI is highly recommended when using an AI agent</span
+						>
+					{/if}
+				</div>
 			{/if}
 
 			<Button
@@ -649,6 +712,24 @@ export async function main() &#123;
 						</div>
 					</div>
 				</section>
+
+				{#if selectedSnapshot.include_wmill || selectedSnapshot.agent_binary}
+					<section>
+						<h4 class="font-semibold text-xs mb-2">Installed Tools</h4>
+						<div class="flex flex-wrap gap-2">
+							{#if selectedSnapshot.include_wmill}
+								<Badge small>wmill CLI</Badge>
+							{/if}
+							{#if selectedSnapshot.agent_binary === 'claude'}
+								<Badge small>Claude Code</Badge>
+							{:else if selectedSnapshot.agent_binary === 'codex'}
+								<Badge small>Codex</Badge>
+							{:else if selectedSnapshot.agent_binary === 'opencode'}
+								<Badge small>OpenCode</Badge>
+							{/if}
+						</div>
+					</section>
+				{/if}
 
 				{#if selectedSnapshot.build_job_id || selectedSnapshot.build_error}
 					<section>

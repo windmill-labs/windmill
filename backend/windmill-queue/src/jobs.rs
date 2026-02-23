@@ -5370,7 +5370,11 @@ async fn push_inner<'c, 'd>(
                 .as_ref()
                 .map(|x| {
                     let tag_lang = if x == &ScriptLang::Bunnative {
-                        ScriptLang::Nativets.as_str()
+                        if job_kind == JobKind::Dependencies {
+                            ScriptLang::Bun.as_str()
+                        } else {
+                            ScriptLang::Nativets.as_str()
+                        }
                     } else {
                         x.as_str()
                     };
@@ -6254,7 +6258,7 @@ pub async fn get_same_worker_job(
                     v2_job.raw_code,
                     v2_job.raw_lock,
                     v2_job.raw_flow,
-                    pj.runnable_path as parent_runnable_path,
+                    COALESCE(pj.runnable_path, v2_job.args->>'_FLOW_PATH') as parent_runnable_path,
                     p.email as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
                     p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email
                     FROM v2_job_queue

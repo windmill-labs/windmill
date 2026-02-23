@@ -59,3 +59,6 @@ wasm-bindgen.workspace = true
 
 serde_json.workspace = true
 getrandom = { workspace = true, features = ["js"] }
+# getrandom 0.3 is pulled in transitively by rand 0.9 (via windmill-types).
+# It requires the "wasm_js" feature to work on wasm32-unknown-unknown.
+getrandom3 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }

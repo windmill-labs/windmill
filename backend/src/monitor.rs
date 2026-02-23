@@ -50,13 +50,13 @@ use windmill_common::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
         CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
         DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
-        DOCKER_REGISTRIES_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
-        EXTRA_PIP_INDEX_URL_SETTING, HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING,
-        INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING,
-        JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
-        MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING,
-        OTEL_SETTING, OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING,
-        POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
+        HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
+        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING, JWT_SECRET_SETTING,
+        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING,
+        NPMRC_SETTING, NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OTEL_SETTING,
+        OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
+        POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
         UV_INDEX_STRATEGY_SETTING,
@@ -89,9 +89,9 @@ use windmill_worker::{
     result_processor::handle_job_error, JobCompletedSender, JobIsolationLevel,
     OtelTracingProxySettings, SameWorkerSender, BUNFIG_INSTALL_SCOPES, CARGO_REGISTRIES,
     INSTANCE_PYTHON_VERSION, JAVA_HOME_DIR, JOB_DEFAULT_TIMEOUT, JOB_ISOLATION, KEEP_JOB_DIR,
-    MAVEN_REPOS, MAVEN_SETTINGS_XML, NO_DEFAULT_MAVEN, NPM_CONFIG_REGISTRY, NSJAIL_AVAILABLE,
-    NUGET_CONFIG, OTEL_TRACING_PROXY_SETTINGS, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL,
-    POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL, UV_INDEX_STRATEGY,
+    MAVEN_REPOS, MAVEN_SETTINGS_XML, NO_DEFAULT_MAVEN, NPMRC, NPM_CONFIG_REGISTRY,
+    NSJAIL_AVAILABLE, NUGET_CONFIG, OTEL_TRACING_PROXY_SETTINGS, PIP_EXTRA_INDEX_URL,
+    PIP_INDEX_URL, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL, UV_INDEX_STRATEGY,
 };
 
 #[cfg(feature = "parquet")]
@@ -330,6 +330,7 @@ pub async fn initial_load(
         reload_uv_index_strategy_setting(&conn).await;
         reload_npm_config_registry_setting(&conn).await;
         reload_bunfig_install_scopes_setting(&conn).await;
+        reload_npmrc_setting(&conn).await;
         reload_instance_python_version_setting(&conn).await;
         reload_nuget_config_setting(&conn).await;
         reload_powershell_repo_url_setting(&conn).await;
@@ -339,7 +340,6 @@ pub async fn initial_load(
         reload_no_default_maven_setting(&conn).await;
         reload_ruby_repos_setting(&conn).await;
         reload_cargo_registries_setting(&conn).await;
-        reload_docker_registries_setting(&conn).await;
     }
 }
 
@@ -1307,6 +1307,10 @@ pub async fn reload_bunfig_install_scopes_setting(conn: &Connection) {
     .await;
 }
 
+pub async fn reload_npmrc_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(conn, NPMRC_SETTING, "NPMRC", NPMRC.clone()).await;
+}
+
 pub async fn reload_nuget_config_setting(conn: &Connection) {
     reload_option_setting_with_tracing(
         conn,
@@ -1414,65 +1418,6 @@ pub async fn reload_cargo_registries_setting(conn: &Connection) {
         CARGO_REGISTRIES.clone(),
     )
     .await;
-}
-
-pub async fn reload_docker_registries_setting(conn: &Connection) {
-    use base64::Engine;
-
-    let value =
-        load_value_from_global_settings_with_conn(conn, DOCKER_REGISTRIES_SETTING, true).await;
-
-    let config_dir = "/tmp/windmill/docker";
-    let config_path = format!("{config_dir}/config.json");
-
-    match value {
-        Ok(Some(serde_json::Value::Array(entries))) if !entries.is_empty() => {
-            let mut auths = serde_json::Map::new();
-            for entry in &entries {
-                let registry = entry
-                    .get("registry")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or_default();
-                let username = entry
-                    .get("username")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or_default();
-                let password = entry
-                    .get("password")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or_default();
-                if registry.is_empty() || username.is_empty() {
-                    continue;
-                }
-                let auth_b64 = base64::engine::general_purpose::STANDARD
-                    .encode(format!("{username}:{password}"));
-                auths.insert(
-                    registry.to_string(),
-                    serde_json::json!({ "auth": auth_b64 }),
-                );
-            }
-            if auths.is_empty() {
-                let _ = tokio::fs::remove_file(&config_path).await;
-            } else {
-                let docker_config = serde_json::json!({ "auths": auths });
-                if let Err(e) = tokio::fs::create_dir_all(config_dir).await {
-                    tracing::error!("Failed to create docker config dir: {e}");
-                    return;
-                }
-                if let Err(e) =
-                    tokio::fs::write(&config_path, docker_config.to_string().as_bytes()).await
-                {
-                    tracing::error!("Failed to write docker config.json: {e}");
-                }
-            }
-        }
-        Ok(_) => {
-            let _ = tokio::fs::remove_file(&config_path).await;
-        }
-        Err(e) => {
-            tracing::error!("Error loading docker_registries setting: {e:#}");
-        }
-    }
 }
 
 pub async fn reload_hub_api_secret_setting(conn: &Connection) {
@@ -2404,7 +2349,7 @@ pub async fn reload_base_url_setting(conn: &Connection) -> error::Result<()> {
 async fn stale_job_cancellation(db: &Pool<Postgres>) {
     if let Some(threshold) = *STALE_JOB_THRESHOLD_MINUTES {
         let stale_jobs = sqlx::query!(
-            "SELECT v2_job_queue.id, v2_job.tag, v2_job_queue.scheduled_for, v2_job_queue.workspace_id FROM v2_job_queue LEFT JOIN v2_job ON v2_job_queue.id = v2_job.id WHERE running = false AND scheduled_for < now() - ($1 || ' minutes')::interval",
+            "SELECT v2_job_queue.id, v2_job.tag, v2_job_queue.scheduled_for, v2_job_queue.workspace_id FROM v2_job_queue LEFT JOIN v2_job ON v2_job_queue.id = v2_job.id WHERE running = false AND scheduled_for < now() - ($1 || ' minutes')::interval AND v2_job.trigger_kind IS DISTINCT FROM 'schedule'::job_trigger_kind",
             threshold.to_string()
         )
         .fetch_all(db)
@@ -2722,7 +2667,6 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
                 &job.id,
                 None,
                 Some(format!("handle_zombie_jobs")),
-                None,
             )
             .await
             .expect("could not create job token");

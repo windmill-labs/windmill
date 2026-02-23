@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use sqlparser::{
     ast::{
-        CopyTarget, Expr, ObjectName, ObjectNamePart, SelectItem, TableFactor, TableObject, Value,
-        ValueWithSpan, Visit, Visitor,
+        CopyTarget, Expr, FunctionArg, FunctionArgExpr, ObjectName, ObjectNamePart, SelectItem,
+        TableFactor, TableObject, Value, ValueWithSpan, Visit, Visitor,
     },
     dialect::DuckDbDialect,
     parser::Parser,
@@ -125,6 +125,72 @@ impl AssetCollector {
         Some(ParseAssetsResult { kind: *kind, access_type, path, columns: None })
     }
 
+    /// If `table_factor` is a string literal used directly as a table name (e.g. FROM 's3:///file.parquet'),
+    /// return a `ParseAssetsResult` for it.
+    fn get_s3_asset_from_str_literal_table(
+        &self,
+        table_factor: &TableFactor,
+    ) -> Option<ParseAssetsResult> {
+        let name = match table_factor {
+            TableFactor::Table { name, args: None, .. } => name,
+            _ => return None,
+        };
+
+        let s3_str = get_str_lit_from_obj_name(name)?;
+        let (kind, path) = parse_asset_syntax(s3_str, false)?;
+        if kind != AssetKind::S3Object {
+            return None;
+        }
+
+        Some(ParseAssetsResult {
+            kind,
+            path: path.to_string(),
+            access_type: Some(R),
+            columns: None,
+        })
+    }
+
+    /// If `table_factor` is a read function (read_parquet/read_csv/read_json) whose first
+    /// positional argument is an S3 string literal, return a `ParseAssetsResult` for it.
+    fn get_s3_asset_from_table_function(
+        &self,
+        table_factor: &TableFactor,
+    ) -> Option<ParseAssetsResult> {
+        let (name, args) = match table_factor {
+            TableFactor::Table { name, args: Some(args), .. } => (name, args),
+            _ => return None,
+        };
+
+        let fname = get_trivial_obj_name(name)?;
+        if !is_read_fn(fname) {
+            return None;
+        }
+
+        let s3_str = args.args.first().and_then(|arg| match arg {
+            FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(ValueWithSpan {
+                value: Value::SingleQuotedString(s),
+                ..
+            })))
+            | FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(ValueWithSpan {
+                value: Value::DoubleQuotedString(s),
+                ..
+            }))) => Some(s.as_str()),
+            _ => None,
+        })?;
+
+        let (kind, path) = parse_asset_syntax(s3_str, false)?;
+        if kind != AssetKind::S3Object {
+            return None;
+        }
+
+        Some(ParseAssetsResult {
+            kind,
+            path: path.to_string(),
+            access_type: Some(R),
+            columns: None,
+        })
+    }
+
     fn handle_string_literal(&mut self, s: &str) {
         // Check if the string matches our asset syntax patterns
         if let Some((kind, path)) = parse_asset_syntax(s, false) {
@@ -190,13 +256,19 @@ impl AssetCollector {
         projection: &[SelectItem],
         from_tables: &[sqlparser::ast::TableWithJoins],
     ) {
-        // Check if this is a single-table SELECT (to avoid ambiguity)
+        // Check if this is a single-table SELECT (to avoid ambiguity).
+        // For S3 table functions (read_parquet/read_csv/read_json), detect the asset even
+        // though args are present, since we know the file path from the string literal arg.
         let single_table = if from_tables.len() == 1 {
-            if let TableFactor::Table { name, args, .. } = &from_tables[0].relation {
-                if args.is_some() && args.as_ref().map_or(0, |a| a.args.len()) > 0 {
-                    return; // Skip table functions
+            let relation = &from_tables[0].relation;
+            if let TableFactor::Table { name, args, .. } = relation {
+                let has_args = args.as_ref().map_or(false, |a| !a.args.is_empty());
+                if has_args {
+                    self.get_s3_asset_from_table_function(relation)
+                } else {
+                    self.get_associated_asset_from_obj_name(name, Some(R))
+                        .or_else(|| self.get_s3_asset_from_str_literal_table(relation))
                 }
-                self.get_associated_asset_from_obj_name(name, Some(R))
             } else {
                 None
             }
@@ -204,26 +276,48 @@ impl AssetCollector {
             None
         };
 
-        // Build a map of table aliases/names to assets for multi-table queries
+        // Build a map of table aliases/names to assets for multi-table queries.
+        // For S3 table functions, only aliased references are unambiguous
+        // (e.g. SELECT t.col1 FROM read_parquet('s3://...') AS t).
         let mut table_to_asset: BTreeMap<String, ParseAssetsResult> = BTreeMap::new();
         for table_with_joins in from_tables {
             if let TableFactor::Table { name, alias, args, .. } = &table_with_joins.relation {
-                if args.is_some() && args.as_ref().map_or(0, |a| a.args.len()) > 0 {
-                    continue; // Skip table functions
-                }
-                if let Some(asset) = self.get_associated_asset_from_obj_name(name, Some(R)) {
-                    // Use alias if present, otherwise use the table name
-                    let table_key = if let Some(alias) = alias {
-                        alias.name.value.clone()
+                let has_args = args.as_ref().map_or(false, |a| !a.args.is_empty());
+                if has_args {
+                    // For table functions, only add to the alias map when an alias is present
+                    if let Some(alias) = alias {
+                        if let Some(asset) =
+                            self.get_s3_asset_from_table_function(&table_with_joins.relation)
+                        {
+                            table_to_asset.insert(alias.name.value.clone(), asset);
+                        }
+                    }
+                } else if let Some(asset) = self
+                    .get_associated_asset_from_obj_name(name, Some(R))
+                    .or_else(|| {
+                        self.get_s3_asset_from_str_literal_table(&table_with_joins.relation)
+                    })
+                {
+                    // For string literal S3 tables (e.g. FROM 's3:///file.parquet'), only add to
+                    // the alias map when an alias is present (to avoid false positives).
+                    // For regular named tables, use alias or table name as key.
+                    let is_str_literal = get_str_lit_from_obj_name(name).is_some();
+                    if is_str_literal {
+                        if let Some(alias) = alias {
+                            table_to_asset.insert(alias.name.value.clone(), asset);
+                        }
                     } else {
-                        // For qualified names like "dl.table1", use just the last part
-                        name.0
-                            .last()
-                            .and_then(|id| id.as_ident())
-                            .map(|id| id.value.clone())
-                            .unwrap_or_default()
-                    };
-                    table_to_asset.insert(table_key, asset);
+                        let table_key = if let Some(alias) = alias {
+                            alias.name.value.clone()
+                        } else {
+                            name.0
+                                .last()
+                                .and_then(|id| id.as_ident())
+                                .map(|id| id.value.clone())
+                                .unwrap_or_default()
+                        };
+                        table_to_asset.insert(table_key, asset);
+                    }
                 }
             }
         }
@@ -1270,5 +1364,164 @@ mod tests {
         assert_eq!(columns.get("name"), Some(&RW)); // Written in SET, read in RETURNING
         assert_eq!(columns.get("age"), Some(&W)); // Only written
         assert_eq!(columns.get("id"), Some(&R)); // Only read
+    }
+
+    #[test]
+    fn test_sql_asset_parser_s3_single_table_column_detection() {
+        let input = r#"
+            SELECT col1, col2 FROM read_parquet('s3:///example_file.parquet');
+        "#;
+        let result = parse_assets(input).unwrap().assets;
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].kind, AssetKind::S3Object);
+        assert_eq!(result[0].path, "/example_file.parquet");
+        assert_eq!(result[0].access_type, Some(R));
+
+        let columns = result[0].columns.as_ref().expect("Should have columns");
+        assert_eq!(columns.len(), 2);
+        assert_eq!(columns.get("col1"), Some(&R));
+        assert_eq!(columns.get("col2"), Some(&R));
+    }
+
+    #[test]
+    fn test_sql_asset_parser_s3_single_table_column_with_alias() {
+        let input = r#"
+            SELECT col1 AS c1, col2 AS c2 FROM read_parquet('s3:///example_file.parquet');
+        "#;
+        let result = parse_assets(input).unwrap().assets;
+
+        assert_eq!(result.len(), 1);
+        let columns = result[0].columns.as_ref().expect("Should have columns");
+        assert_eq!(columns.get("col1"), Some(&R));
+        assert_eq!(columns.get("col2"), Some(&R));
+    }
+
+    #[test]
+    fn test_sql_asset_parser_s3_wildcard_no_columns() {
+        let input = r#"
+            SELECT * FROM read_parquet('s3:///example_file.parquet');
+        "#;
+        let result = parse_assets(input).unwrap().assets;
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].kind, AssetKind::S3Object);
+        assert_eq!(result[0].path, "/example_file.parquet");
+        assert!(result[0].columns.is_none());
+    }
+
+    #[test]
+    fn test_sql_asset_parser_s3_table_alias_qualified_columns() {
+        let input = r#"
+            SELECT t.col1, t.col2 FROM read_parquet('s3:///example_file.parquet') AS t;
+        "#;
+        let result = parse_assets(input).unwrap().assets;
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].kind, AssetKind::S3Object);
+        assert_eq!(result[0].path, "/example_file.parquet");
+
+        let columns = result[0].columns.as_ref().expect("Should have columns");
+        assert_eq!(columns.get("col1"), Some(&R));
+        assert_eq!(columns.get("col2"), Some(&R));
+    }
+
+    #[test]
+    fn test_sql_asset_parser_s3_multi_table_aliased_columns() {
+        let input = r#"
+            SELECT t1.col1, t2.col2
+            FROM read_parquet('s3:///file1.parquet') AS t1,
+                 read_csv('s3://bucket/file2.csv') AS t2;
+        "#;
+        let result = parse_assets(input).unwrap().assets;
+
+        assert_eq!(result.len(), 2);
+
+        assert!(result.iter().any(|a| {
+            a.path == "/file1.parquet"
+                && a.columns.as_ref().map_or(false, |c| c.contains_key("col1"))
+        }));
+        assert!(result.iter().any(|a| {
+            a.path == "bucket/file2.csv"
+                && a.columns.as_ref().map_or(false, |c| c.contains_key("col2"))
+        }));
+    }
+
+    #[test]
+    fn test_sql_asset_parser_s3_multi_table_no_alias_no_columns() {
+        // Without aliases, unqualified columns in a multi-table query are ambiguous
+        let input = r#"
+            SELECT col1, col2
+            FROM read_parquet('s3:///file1.parquet'),
+                 read_parquet('s3:///file2.parquet');
+        "#;
+        let result = parse_assets(input).unwrap().assets;
+
+        // Table-level assets should still be detected, but no columns
+        assert_eq!(result.iter().filter(|a| a.columns.is_some()).count(), 0);
+    }
+
+    #[test]
+    fn test_sql_asset_parser_s3_str_literal_table_column_detection() {
+        // FROM 's3:///file.parquet' (string literal as table, no read_parquet wrapper)
+        let input = r#"
+            SELECT a,b,c FROM 's3:///test.parquet';
+        "#;
+        let result = parse_assets(input).unwrap().assets;
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].kind, AssetKind::S3Object);
+        assert_eq!(result[0].path, "/test.parquet");
+        assert_eq!(result[0].access_type, Some(R));
+
+        let columns = result[0].columns.as_ref().expect("Should have columns");
+        assert_eq!(columns.len(), 3);
+        assert_eq!(columns.get("a"), Some(&R));
+        assert_eq!(columns.get("b"), Some(&R));
+        assert_eq!(columns.get("c"), Some(&R));
+    }
+
+    #[test]
+    fn test_sql_asset_parser_s3_str_literal_table_with_alias_columns() {
+        let input = r#"
+            SELECT t.col1, t.col2 FROM 's3://bucket/file.parquet' AS t;
+        "#;
+        let result = parse_assets(input).unwrap().assets;
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].kind, AssetKind::S3Object);
+        assert_eq!(result[0].path, "bucket/file.parquet");
+
+        let columns = result[0].columns.as_ref().expect("Should have columns");
+        assert_eq!(columns.get("col1"), Some(&R));
+        assert_eq!(columns.get("col2"), Some(&R));
+    }
+
+    #[test]
+    fn test_sql_asset_parser_s3_str_literal_wildcard_no_columns() {
+        let input = r#"
+            SELECT * FROM 's3:///test.parquet';
+        "#;
+        let result = parse_assets(input).unwrap().assets;
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].kind, AssetKind::S3Object);
+        assert!(result[0].columns.is_none());
+    }
+
+    #[test]
+    fn test_sql_asset_parser_s3_read_csv_columns() {
+        let input = r#"
+            SELECT name, age FROM read_csv('s3://my-bucket/data.csv');
+        "#;
+        let result = parse_assets(input).unwrap().assets;
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].kind, AssetKind::S3Object);
+        assert_eq!(result[0].path, "my-bucket/data.csv");
+
+        let columns = result[0].columns.as_ref().expect("Should have columns");
+        assert_eq!(columns.get("name"), Some(&R));
+        assert_eq!(columns.get("age"), Some(&R));
     }
 }

@@ -62,9 +62,18 @@ mod tests {
         .unwrap();
 
         // Run the build
-        windmill_sandbox::build_snapshot(w_id, "integ-test", "latest", "busybox:latest", None, &db)
-            .await
-            .unwrap();
+        windmill_sandbox::build_snapshot(
+            w_id,
+            "integ-test",
+            "latest",
+            "busybox:latest",
+            None,
+            false,
+            None,
+            &db,
+        )
+        .await
+        .unwrap();
 
         // Verify snapshot is ready with valid metadata
         let row = sqlx::query!(
@@ -172,6 +181,8 @@ mod tests {
             "latest",
             "busybox:latest",
             Some("echo 'hello from setup' > /tmp/setup_marker"),
+            false,
+            None,
             &db,
         )
         .await
@@ -247,6 +258,8 @@ mod tests {
             "bad-image",
             "latest",
             "nonexistent-registry.invalid/no-such-image:v999",
+            None,
+            false,
             None,
             &db,
         )

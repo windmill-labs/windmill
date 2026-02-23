@@ -1,6 +1,7 @@
 use crate::SandboxSetupState;
 
 const OVERLAY_MARKER: &str = "# SANDBOX_OVERLAY_ACTIVE";
+pub const NEEDS_HOST_BUN_MARKER: &str = "# SNAPSHOT_NEEDS_HOST_BUN";
 
 /// Build additional nsjail mount blocks for sandbox config.
 /// Returns a string to be appended to the `shared_mount` variable.
@@ -24,6 +25,10 @@ pub fn build_sandbox_mounts(setup: &SandboxSetupState) -> String {
         ));
     }
 
+    if setup.needs_host_bun {
+        mounts.push_str(&format!("\n{NEEDS_HOST_BUN_MARKER}\n"));
+    }
+
     mounts
 }
 
@@ -42,6 +47,24 @@ pub fn finalize_nsjail_config(config: &str, runtime_bins: &[&str]) -> String {
         return config.to_string();
     }
 
+    // If the host-bun marker is present, auto-add bun to runtime_bins.
+    // We do NOT mount the host node binary — it has too many shared-lib
+    // dependencies (libuv, libssl, libicu…) that won't exist in minimal
+    // container images. Instead, a `node -> bun` symlink is baked into
+    // the snapshot rootfs during build so `#!/usr/bin/env node` shebangs
+    // resolve to bun (which is fully node-compatible and only needs glibc).
+    let needs_host_bun = config.contains(NEEDS_HOST_BUN_MARKER);
+    let bun_path = std::env::var("BUN_PATH").unwrap_or_else(|_| "/usr/bin/bun".to_string());
+    let mut effective_bins: Vec<&str> = runtime_bins.to_vec();
+    let bun_path_ref: &str;
+    if needs_host_bun {
+        bun_path_ref = &bun_path;
+        if !effective_bins.contains(&bun_path_ref) {
+            effective_bins.push(bun_path_ref);
+        }
+    }
+    let runtime_bins = &effective_bins;
+
     let system_dirs: &[&str] = &["/bin", "/lib", "/lib64", "/usr", "/etc"];
     let mut result_lines: Vec<&str> = Vec::new();
     let mut overlay_root_lines: Vec<&str> = Vec::new();
@@ -56,7 +79,7 @@ pub fn finalize_nsjail_config(config: &str, runtime_bins: &[&str]) -> String {
     while i < lines.len() {
         let trimmed = lines[i].trim();
 
-        if trimmed == OVERLAY_MARKER {
+        if trimmed == OVERLAY_MARKER || trimmed == NEEDS_HOST_BUN_MARKER {
             i += 1;
             continue;
         }
@@ -218,6 +241,7 @@ mod tests {
                 is_fuse: false,
             }),
             volume_mounts: HashMap::new(),
+            ..Default::default()
         };
         let mounts = build_sandbox_mounts(&setup);
         assert!(mounts.contains(OVERLAY_MARKER));
@@ -235,6 +259,7 @@ mod tests {
                 is_fuse: false,
             }),
             volume_mounts: HashMap::new(),
+            ..Default::default()
         };
         setup.volume_mounts.insert(
             "data".to_string(),
@@ -352,6 +377,7 @@ mod tests {
                 "vol".to_string(),
                 (PathBuf::from("/job/volumes/vol"), "/mnt/vol".to_string()),
             )]),
+            ..Default::default()
         };
         let mounts = build_sandbox_mounts(&setup);
 
@@ -361,5 +387,103 @@ mod tests {
             assert!(block.contains("is_bind: true"));
             assert!(block.contains("rw: true"));
         }
+    }
+
+    // =========================================================================
+    // Unit tests: NEEDS_HOST_BUN_MARKER
+    // =========================================================================
+
+    #[test]
+    fn test_build_sandbox_mounts_needs_host_bun_marker() {
+        let setup = SandboxSetupState {
+            overlay: Some(OverlayMount {
+                merged: PathBuf::from("/job/merged"),
+                upper: PathBuf::from("/job/upper"),
+                work: PathBuf::from("/job/work"),
+                is_fuse: false,
+            }),
+            volume_mounts: HashMap::new(),
+            needs_host_bun: true,
+        };
+        let mounts = build_sandbox_mounts(&setup);
+        assert!(mounts.contains(NEEDS_HOST_BUN_MARKER));
+        assert!(mounts.contains(OVERLAY_MARKER));
+    }
+
+    #[test]
+    fn test_build_sandbox_mounts_no_host_bun_marker_when_false() {
+        let setup = SandboxSetupState {
+            overlay: Some(OverlayMount {
+                merged: PathBuf::from("/job/merged"),
+                upper: PathBuf::from("/job/upper"),
+                work: PathBuf::from("/job/work"),
+                is_fuse: false,
+            }),
+            volume_mounts: HashMap::new(),
+            needs_host_bun: false,
+        };
+        let mounts = build_sandbox_mounts(&setup);
+        assert!(!mounts.contains(NEEDS_HOST_BUN_MARKER));
+        assert!(mounts.contains(OVERLAY_MARKER));
+    }
+
+    #[test]
+    fn test_finalize_strips_host_bun_marker_and_adds_bun() {
+        let config = "name: \"test\"\n\
+                       mount {\n    src: \"/usr\"\n    dst: \"/usr\"\n    is_bind: true\n}\n\
+                       # SANDBOX_OVERLAY_ACTIVE\n\
+                       # SNAPSHOT_NEEDS_HOST_BUN\n\
+                       mount {\n    src: \"/job/merged\"\n    dst: \"/\"\n    is_bind: true\n    rw: true\n}\n";
+
+        std::env::set_var("BUN_PATH", "/usr/bin/bun");
+
+        let result = finalize_nsjail_config(config, &[]);
+
+        assert!(!result.contains(NEEDS_HOST_BUN_MARKER));
+        assert!(!result.contains(OVERLAY_MARKER));
+        assert!(result.contains("dst: \"/\""), "overlay root preserved");
+        assert!(!result.contains("dst: \"/usr\""), "/usr stripped");
+        // Only bun should be auto-added (node is a symlink in the rootfs)
+        assert!(
+            result.contains("dst: \"/usr/bin/bun\""),
+            "bun should be auto-added"
+        );
+        assert!(
+            !result.contains("dst: \"/usr/bin/node\""),
+            "node should NOT be mounted (symlink in rootfs instead)"
+        );
+    }
+
+    #[test]
+    fn test_finalize_host_bun_marker_does_not_duplicate_existing_bins() {
+        let config = "name: \"test\"\n\
+                       mount {\n    src: \"/usr\"\n    dst: \"/usr\"\n    is_bind: true\n}\n\
+                       # SANDBOX_OVERLAY_ACTIVE\n\
+                       # SNAPSHOT_NEEDS_HOST_BUN\n\
+                       mount {\n    src: \"/job/merged\"\n    dst: \"/\"\n    is_bind: true\n    rw: true\n}\n";
+
+        std::env::set_var("BUN_PATH", "/usr/bin/bun");
+
+        // Pass bun as an explicit runtime bin too
+        let result = finalize_nsjail_config(config, &["/usr/bin/bun"]);
+
+        // bun should appear exactly once as a mount destination
+        let bun_count = result.matches("dst: \"/usr/bin/bun\"").count();
+        assert_eq!(bun_count, 1, "bun mount should not be duplicated");
+    }
+
+    #[test]
+    fn test_finalize_without_host_bun_marker_no_auto_bins() {
+        let config = "name: \"test\"\n\
+                       mount {\n    src: \"/usr\"\n    dst: \"/usr\"\n    is_bind: true\n}\n\
+                       # SANDBOX_OVERLAY_ACTIVE\n\
+                       mount {\n    src: \"/job/merged\"\n    dst: \"/\"\n    is_bind: true\n    rw: true\n}\n";
+
+        std::env::set_var("BUN_PATH", "/usr/bin/bun");
+
+        let result = finalize_nsjail_config(config, &[]);
+
+        // Without the host bun marker, bun should NOT be auto-added
+        assert!(!result.contains("dst: \"/usr/bin/bun\""));
     }
 }

@@ -52,6 +52,7 @@ mod tests {
                     ),
                 ),
             ]),
+            ..Default::default()
         };
 
         let sandbox_mounts = build_sandbox_mounts(&setup);
@@ -87,6 +88,7 @@ mod tests {
                 is_fuse: false,
             }),
             volume_mounts: HashMap::new(),
+            ..Default::default()
         };
 
         let sandbox_mounts = build_sandbox_mounts(&setup);
@@ -333,6 +335,7 @@ mod tests {
                     is_fuse: false,
                 }),
                 volume_mounts: HashMap::new(),
+                ..Default::default()
             };
             let sandbox_mounts = build_sandbox_mounts(&setup);
 
@@ -372,6 +375,7 @@ mod tests {
                     is_fuse: false,
                 }),
                 volume_mounts: HashMap::new(),
+                ..Default::default()
             };
             setup.volume_mounts.insert(
                 "shared".to_string(),
@@ -539,6 +543,7 @@ mod tests {
                     is_fuse: false,
                 }),
                 volume_mounts: HashMap::new(),
+                ..Default::default()
             };
             let sandbox_mounts = build_sandbox_mounts(&setup);
 
@@ -623,6 +628,7 @@ mod tests {
                     is_fuse: false,
                 }),
                 volume_mounts: HashMap::new(),
+                ..Default::default()
             };
             setup.volume_mounts.insert(
                 "shared".to_string(),
@@ -761,6 +767,7 @@ mod tests {
                     is_fuse: false,
                 }),
                 volume_mounts: HashMap::new(),
+                ..Default::default()
             };
             let sandbox_mounts = build_sandbox_mounts(&setup);
 
@@ -849,6 +856,7 @@ mod tests {
                     is_fuse: false,
                 }),
                 volume_mounts: HashMap::new(),
+                ..Default::default()
             };
             setup.volume_mounts.insert(
                 "shared".to_string(),
@@ -989,6 +997,7 @@ func main() {
                     is_fuse: false,
                 }),
                 volume_mounts: HashMap::new(),
+                ..Default::default()
             };
             let sandbox_mounts = build_sandbox_mounts(&setup);
 
@@ -1086,6 +1095,7 @@ func main() {
                     is_fuse: false,
                 }),
                 volume_mounts: HashMap::new(),
+                ..Default::default()
             };
             setup.volume_mounts.insert(
                 "shared".to_string(),
@@ -1190,6 +1200,29 @@ func main() {
     mod crane_integration {
         use super::*;
         use std::process::Command;
+
+        fn nsjail_available() -> bool {
+            Command::new("nsjail")
+                .arg("--help")
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+        }
+
+        fn bun_available() -> bool {
+            Command::new("bun")
+                .arg("--version")
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+        }
+
+        fn bun_binary_path() -> String {
+            String::from_utf8(Command::new("which").arg("bun").output().unwrap().stdout)
+                .unwrap()
+                .trim()
+                .to_string()
+        }
 
         fn crane_path() -> Option<String> {
             for path in &[
@@ -1317,6 +1350,7 @@ func main() {
                     is_fuse: false,
                 }),
                 volume_mounts: HashMap::new(),
+                ..Default::default()
             };
             let sandbox_mounts = build_sandbox_mounts(&setup);
 
@@ -1350,6 +1384,363 @@ func main() {
             let result = std::fs::read_to_string(job_dir.path().join("result.out")).unwrap();
             assert!(!result.trim().is_empty());
             assert!(result.trim().starts_with("3."));
+        }
+
+        /// Integration test: build an alpine rootfs with wmill CLI + Claude Code
+        /// installed via `install_snapshot_tools`, then verify from sandboxed bash
+        /// that both binaries are executable.
+        ///
+        /// Requires: crane, nsjail, bun, network access to npm registry.
+        /// Skips gracefully if any prerequisite is missing.
+        #[tokio::test]
+        async fn test_snapshot_with_wmill_and_claude_tools() {
+            if !nsjail_available() {
+                eprintln!("Skipping: nsjail not available");
+                return;
+            }
+            let Some(crane) = crane_path() else {
+                eprintln!("Skipping: crane not available");
+                return;
+            };
+            if !bun_available() {
+                eprintln!("Skipping: bun not available");
+                return;
+            }
+
+            // 1. Export alpine rootfs via crane
+            let rootfs_dir = tempfile::tempdir().unwrap();
+
+            let crane_output = Command::new(&crane)
+                .args(["export", "alpine:latest", "-"])
+                .output()
+                .expect("Failed to run crane");
+
+            if !crane_output.status.success() {
+                eprintln!(
+                    "crane export failed (network?): {}",
+                    String::from_utf8_lossy(&crane_output.stderr)
+                );
+                return;
+            }
+
+            {
+                use std::io::Cursor;
+                use tar::Archive;
+                let mut archive = Archive::new(Cursor::new(&crane_output.stdout));
+                archive.unpack(rootfs_dir.path()).unwrap();
+            }
+
+            // 2. Install wmill + claude via install_snapshot_tools
+            match windmill_sandbox::install_snapshot_tools(
+                rootfs_dir.path(),
+                true, // include_wmill
+                Some("claude"),
+            )
+            .await
+            {
+                Ok(()) => {}
+                Err(e) => {
+                    eprintln!("Skipping: install_snapshot_tools failed (expected in CI): {e}");
+                    return;
+                }
+            }
+
+            // 3. Run nsjail with overlay root + host bun marker to verify binaries
+            let bun = bun_binary_path();
+            let job_dir = tempfile::tempdir().unwrap();
+            std::fs::write(
+                job_dir.path().join("main.sh"),
+                "#!/bin/sh\n\
+                 # Find and test wmill binary\n\
+                 WMILL=$(find / -name wmill -type f 2>/dev/null | head -1)\n\
+                 CLAUDE=$(find / -name claude -type f 2>/dev/null | head -1)\n\
+                 RESULT=''\n\
+                 if [ -n \"$WMILL\" ] && [ -x \"$WMILL\" ]; then\n\
+                   RESULT=\"wmill:ok\"\n\
+                 else\n\
+                   RESULT=\"wmill:missing\"\n\
+                 fi\n\
+                 if [ -n \"$CLAUDE\" ] && [ -x \"$CLAUDE\" ]; then\n\
+                   RESULT=\"${RESULT},claude:ok\"\n\
+                 else\n\
+                   RESULT=\"${RESULT},claude:missing\"\n\
+                 fi\n\
+                 echo \"$RESULT\" > /tmp/result.out\n",
+            )
+            .unwrap();
+            std::fs::write(
+                job_dir.path().join("wrapper.sh"),
+                "#!/bin/sh\n/bin/sh /tmp/main.sh\n",
+            )
+            .unwrap();
+            std::fs::write(job_dir.path().join("result.json"), "").unwrap();
+            std::fs::write(job_dir.path().join("result.out"), "").unwrap();
+            std::fs::write(job_dir.path().join("result2.out"), "").unwrap();
+
+            let setup = SandboxSetupState {
+                overlay: Some(OverlayMount {
+                    merged: rootfs_dir.path().to_path_buf(),
+                    upper: PathBuf::from("/unused"),
+                    work: PathBuf::from("/unused"),
+                    is_fuse: false,
+                }),
+                volume_mounts: HashMap::new(),
+                needs_host_bun: true,
+            };
+            let sandbox_mounts = build_sandbox_mounts(&setup);
+
+            let raw_config = include_str!("../nsjail/run.bash.config.proto");
+            let config = raw_config
+                .replace("{JOB_DIR}", &job_dir.path().to_string_lossy())
+                .replace("{CLONE_NEWUSER}", "true")
+                .replace("{SHARED_MOUNT}", &sandbox_mounts)
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", "/dev/null")
+                .replace("#{DEV}", "");
+            let final_config = finalize_nsjail_config(&config, &[&bun]);
+            std::fs::write(job_dir.path().join("run.config.proto"), &final_config).unwrap();
+
+            let output = Command::new("nsjail")
+                .args([
+                    "--config",
+                    "run.config.proto",
+                    "--",
+                    "/bin/sh",
+                    "wrapper.sh",
+                ])
+                .current_dir(job_dir.path())
+                .output()
+                .expect("Failed to run nsjail");
+
+            if !output.status.success() {
+                eprintln!("nsjail stderr: {}", String::from_utf8_lossy(&output.stderr));
+            }
+            assert_eq!(
+                output.status.code().unwrap_or(-1),
+                0,
+                "nsjail should succeed"
+            );
+
+            let result = std::fs::read_to_string(job_dir.path().join("result.out")).unwrap();
+            let result = result.trim();
+            eprintln!("Tool check result: {result}");
+            assert!(
+                result.contains("wmill:ok"),
+                "wmill binary should be found and executable in the snapshot, got: {result}"
+            );
+            assert!(
+                result.contains("claude:ok"),
+                "claude binary should be found and executable in the snapshot, got: {result}"
+            );
+        }
+
+        /// End-to-end integration test: build a debian-slim rootfs with wmill CLI
+        /// and Claude Code installed, then actually execute `node --version`,
+        /// `wmill --version`, and `claude --version` inside an nsjail sandbox.
+        ///
+        /// This catches runtime issues like:
+        /// - `node` not in PATH (symlink placement)
+        /// - shared library errors (libuv.so.1 etc.) from mounting host binaries
+        /// - `#!/usr/bin/env node` shebangs not resolving
+        /// - bash/cat missing in minimal images
+        ///
+        /// Requires: crane, nsjail, bun, network access (npm registry + Docker Hub).
+        /// Skips gracefully if any prerequisite is missing.
+        #[tokio::test]
+        async fn test_snapshot_tools_run_in_sandbox() {
+            if !nsjail_available() {
+                eprintln!("Skipping: nsjail not available");
+                return;
+            }
+            let Some(crane) = crane_path() else {
+                eprintln!("Skipping: crane not available");
+                return;
+            };
+            if !bun_available() {
+                eprintln!("Skipping: bun not available");
+                return;
+            }
+
+            // 1. Export debian-slim rootfs via crane (the recommended base image)
+            let rootfs_dir = tempfile::tempdir().unwrap();
+
+            let crane_output = Command::new(&crane)
+                .args(["export", "debian:bookworm-slim", "-"])
+                .output()
+                .expect("Failed to run crane");
+
+            if !crane_output.status.success() {
+                eprintln!(
+                    "crane export failed (network?): {}",
+                    String::from_utf8_lossy(&crane_output.stderr)
+                );
+                return;
+            }
+
+            {
+                use std::io::Cursor;
+                use tar::Archive;
+                let mut archive = Archive::new(Cursor::new(&crane_output.stdout));
+                archive.unpack(rootfs_dir.path()).unwrap();
+            }
+
+            // Sanity: debian-slim should have bash
+            assert!(
+                rootfs_dir.path().join("bin/bash").exists(),
+                "debian-slim rootfs should have /bin/bash"
+            );
+
+            // 2. Install wmill + claude (creates node->bun symlink too)
+            match windmill_sandbox::install_snapshot_tools(
+                rootfs_dir.path(),
+                true,           // include_wmill
+                Some("claude"), // agent_binary
+            )
+            .await
+            {
+                Ok(()) => {}
+                Err(e) => {
+                    eprintln!("Skipping: install_snapshot_tools failed (expected in CI): {e}");
+                    return;
+                }
+            }
+
+            // Verify the node symlink was created in the rootfs
+            let node_symlink = rootfs_dir.path().join("usr/bin/node");
+            assert!(
+                node_symlink.exists() || node_symlink.symlink_metadata().is_ok(),
+                "node symlink should exist at usr/bin/node in rootfs"
+            );
+
+            // 3. Set up nsjail with overlay root + host bun
+            let bun = bun_binary_path();
+            let job_dir = tempfile::tempdir().unwrap();
+
+            // The test script runs each tool and captures output.
+            // Each check writes to result.out so we can verify from outside.
+            std::fs::write(
+                job_dir.path().join("main.sh"),
+                r#"#!/bin/bash
+set -e
+
+RESULTS=""
+
+# Check node resolves (symlink to bun)
+NODE_PATH=$(which node 2>&1) || true
+NODE_VER=$(node --version 2>&1) || true
+RESULTS="node_path=${NODE_PATH}\nnode_version=${NODE_VER}\n"
+
+# Check wmill
+WMILL_PATH=$(which wmill 2>&1) || true
+WMILL_VER=$(wmill --version 2>&1) || true
+RESULTS="${RESULTS}wmill_path=${WMILL_PATH}\nwmill_version=${WMILL_VER}\n"
+
+# Check claude
+CLAUDE_PATH=$(which claude 2>&1) || true
+CLAUDE_VER=$(claude --version 2>&1) || true
+RESULTS="${RESULTS}claude_path=${CLAUDE_PATH}\nclaude_version=${CLAUDE_VER}\n"
+
+printf "%b" "$RESULTS" > /tmp/result.out
+"#,
+            )
+            .unwrap();
+            std::fs::write(
+                job_dir.path().join("wrapper.sh"),
+                "#!/bin/bash\n/bin/bash /tmp/main.sh\n",
+            )
+            .unwrap();
+            std::fs::write(job_dir.path().join("result.json"), "").unwrap();
+            std::fs::write(job_dir.path().join("result.out"), "").unwrap();
+            std::fs::write(job_dir.path().join("result2.out"), "").unwrap();
+
+            let setup = SandboxSetupState {
+                overlay: Some(OverlayMount {
+                    merged: rootfs_dir.path().to_path_buf(),
+                    upper: PathBuf::from("/unused"),
+                    work: PathBuf::from("/unused"),
+                    is_fuse: false,
+                }),
+                volume_mounts: HashMap::new(),
+                needs_host_bun: true,
+            };
+            let sandbox_mounts = build_sandbox_mounts(&setup);
+
+            let raw_config = include_str!("../nsjail/run.bash.config.proto");
+            let config = raw_config
+                .replace("{JOB_DIR}", &job_dir.path().to_string_lossy())
+                .replace("{CLONE_NEWUSER}", "true")
+                .replace("{SHARED_MOUNT}", &sandbox_mounts)
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", "/dev/null")
+                .replace("#{DEV}", "");
+            let final_config = finalize_nsjail_config(&config, &[&bun]);
+            std::fs::write(job_dir.path().join("run.config.proto"), &final_config).unwrap();
+
+            let output = Command::new("nsjail")
+                .args([
+                    "--config",
+                    "run.config.proto",
+                    "--",
+                    "/bin/bash",
+                    "wrapper.sh",
+                ])
+                .current_dir(job_dir.path())
+                .env("PATH", std::env::var("PATH").unwrap_or_default())
+                .output()
+                .expect("Failed to run nsjail");
+
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if !output.status.success() {
+                eprintln!("nsjail stderr: {stderr}");
+            }
+            assert_eq!(
+                output.status.code().unwrap_or(-1),
+                0,
+                "nsjail should succeed, stderr: {stderr}"
+            );
+
+            // 4. Parse and verify results
+            let result = std::fs::read_to_string(job_dir.path().join("result.out")).unwrap();
+            eprintln!("=== Sandbox tool check results ===\n{result}");
+
+            // node should resolve to /usr/bin/node (symlink to bun)
+            assert!(
+                result.contains("node_path=/usr/bin/node"),
+                "node should be found at /usr/bin/node, got:\n{result}"
+            );
+            // node --version should produce output (bun reports its version)
+            assert!(
+                result
+                    .lines()
+                    .any(|l| l.starts_with("node_version=") && l.len() > "node_version=".len()),
+                "node --version should produce output, got:\n{result}"
+            );
+
+            // wmill should be found and produce version output
+            assert!(
+                result
+                    .lines()
+                    .any(|l| l.starts_with("wmill_path=") && l.contains("wmill")),
+                "wmill should be found in PATH, got:\n{result}"
+            );
+            assert!(
+                result
+                    .lines()
+                    .any(|l| l.starts_with("wmill_version=") && l.len() > "wmill_version=".len()),
+                "wmill --version should produce output, got:\n{result}"
+            );
+
+            // claude should be found and produce version output
+            assert!(
+                result
+                    .lines()
+                    .any(|l| l.starts_with("claude_path=") && l.contains("claude")),
+                "claude should be found in PATH, got:\n{result}"
+            );
+            assert!(
+                result
+                    .lines()
+                    .any(|l| l.starts_with("claude_version=") && l.len() > "claude_version=".len()),
+                "claude --version should produce output, got:\n{result}"
+            );
         }
     }
 

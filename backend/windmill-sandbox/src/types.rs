@@ -35,6 +35,8 @@ pub struct SandboxSnapshot {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub extra_perms: serde_json::Value,
+    pub include_wmill: bool,
+    pub agent_binary: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, sqlx::FromRow)]
@@ -54,6 +56,8 @@ pub struct SandboxSetupState {
     pub overlay: Option<OverlayMount>,
     /// name → (local_dir, mount_path)
     pub volume_mounts: HashMap<String, (PathBuf, String)>,
+    /// Whether the snapshot needs the host bun/node binaries bind-mounted at runtime.
+    pub needs_host_bun: bool,
 }
 
 pub struct OverlayMount {
@@ -62,6 +66,15 @@ pub struct OverlayMount {
     pub work: PathBuf,
     /// Whether fuse-overlayfs was used (affects unmount command).
     pub is_fuse: bool,
+}
+
+pub const VALID_AGENT_BINARIES: &[&str] = &["claude", "codex", "opencode"];
+
+/// Returns `true` when the snapshot needs the host bun/node binaries at runtime.
+/// `wmill` CLI and Claude Code / Codex are npm packages requiring a JS runtime.
+/// OpenCode is a standalone Go binary — no runtime needed.
+pub fn snapshot_needs_host_bun(include_wmill: bool, agent_binary: Option<&str>) -> bool {
+    include_wmill || matches!(agent_binary, Some("claude") | Some("codex"))
 }
 
 /// Parse sandbox annotations from script content.
@@ -326,5 +339,53 @@ mod tests {
         let config = parse_sandbox_config(code);
         assert!(config.snapshot.is_none());
         assert_eq!(config.volumes.len(), 1);
+    }
+
+    // =========================================================================
+    // Unit tests: snapshot_needs_host_bun
+    // =========================================================================
+
+    #[test]
+    fn test_needs_host_bun_wmill_only() {
+        assert!(snapshot_needs_host_bun(true, None));
+    }
+
+    #[test]
+    fn test_needs_host_bun_claude() {
+        assert!(snapshot_needs_host_bun(false, Some("claude")));
+    }
+
+    #[test]
+    fn test_needs_host_bun_codex() {
+        assert!(snapshot_needs_host_bun(false, Some("codex")));
+    }
+
+    #[test]
+    fn test_needs_host_bun_opencode_does_not() {
+        assert!(!snapshot_needs_host_bun(false, Some("opencode")));
+    }
+
+    #[test]
+    fn test_needs_host_bun_nothing() {
+        assert!(!snapshot_needs_host_bun(false, None));
+    }
+
+    #[test]
+    fn test_needs_host_bun_wmill_and_claude() {
+        assert!(snapshot_needs_host_bun(true, Some("claude")));
+    }
+
+    #[test]
+    fn test_needs_host_bun_wmill_and_opencode() {
+        // wmill alone requires bun, even though opencode doesn't
+        assert!(snapshot_needs_host_bun(true, Some("opencode")));
+    }
+
+    #[test]
+    fn test_valid_agent_binaries() {
+        assert!(VALID_AGENT_BINARIES.contains(&"claude"));
+        assert!(VALID_AGENT_BINARIES.contains(&"codex"));
+        assert!(VALID_AGENT_BINARIES.contains(&"opencode"));
+        assert!(!VALID_AGENT_BINARIES.contains(&"gemini"));
     }
 }

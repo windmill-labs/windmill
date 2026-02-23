@@ -10,16 +10,16 @@ path = "src/lib.rs"
 
 [features]
 default = []
-private = ["windmill-sandbox/private"]
+private = []
 mcp = ["dep:windmill-mcp"]
 prometheus = ["dep:prometheus", "windmill-common/prometheus"]
-enterprise = ["windmill-queue/enterprise", "windmill-sandbox/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "dep:pem", "dep:tokio-util", "dep:opentelemetry-proto", "dep:prost", "dep:hudsucker", "dep:rcgen", "dep:hyper-http-proxy", "dep:hyper-tls", "dep:hyper-util"]
+enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "dep:pem", "dep:tokio-util", "dep:opentelemetry-proto", "dep:prost", "dep:hudsucker", "dep:rcgen", "dep:hyper-http-proxy", "dep:hyper-tls", "dep:hyper-util"]
 mssql = ["dep:tiberius"]
 mssql-kerberos = ["mssql", "tiberius/integrated-auth-gssapi"]  # Linux/Unix integrated auth
 mssql-winauth = ["mssql", "tiberius/winauth"]  # Windows integrated auth
 bigquery = ["dep:gcp_auth"]
 benchmark = ["windmill-queue/benchmark", "windmill-common/benchmark"]
-parquet = ["windmill-common/parquet", "windmill-object-store/parquet", "windmill-sandbox/parquet"]
+parquet = ["windmill-common/parquet", "windmill-object-store/parquet"]
 flow_testing = []
 cloud = []
 sqlx = []
@@ -44,7 +44,6 @@ bedrock = ["dep:aws-sdk-bedrockruntime", "windmill-common/bedrock", "dep:aws-con
 windmill-queue.workspace = true
 windmill-dep-map.workspace = true
 windmill-audit.workspace = true # there isn't really a reason for audit-worth actions to happen in the worker.
-windmill-sandbox.workspace = true
 windmill-common = { workspace = true, default-features = false }
 windmill-types.workspace = true
 windmill-object-store.workspace = true
@@ -142,9 +141,6 @@ hyper-http-proxy = { workspace = true, optional = true }
 hyper-tls = { workspace = true, optional = true }
 hyper-util = { workspace = true, optional = true }
 rcgen = { workspace = true, optional = true }
-
-[dev-dependencies]
-tempfile.workspace = true
 
 [build-dependencies]
 libffi-sys = { workspace = true, optional = true }

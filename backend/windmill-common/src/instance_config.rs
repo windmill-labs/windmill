@@ -261,6 +261,8 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bunfig_install_scopes: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub npmrc: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub nuget_config: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub maven_repos: Option<String>,
@@ -794,6 +796,7 @@ const SENSITIVE_SETTINGS: &[&str] = &[
     "pip_extra_index_url",
     "npm_config_registry",
     "bunfig_install_scopes",
+    "npmrc",
     "maven_repos",
     "ruby_repos",
     "docker_registries",

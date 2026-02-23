@@ -1,18 +1,15 @@
-// deno-lint-ignore-file no-explicit-any
 import { GlobalOptions } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
-import {
-  colors,
-  Command,
-  Confirm,
-  log,
-  readAll,
-  SEP,
-  Table,
-  writeAllSync,
-  yamlStringify,
-} from "../../../deps.ts";
+import { readFile, writeFile, stat } from "node:fs/promises";
+import { Buffer } from "node:buffer";
+import { colors } from "@cliffy/ansi/colors";
+import { Command } from "@cliffy/command";
+import { Confirm } from "@cliffy/prompt/confirm";
+import { Table } from "@cliffy/table";
+import * as log from "../../core/log.ts";
+import { sep as SEP } from "node:path";
+import { stringify as yamlStringify } from "yaml";
 import { deepEqual } from "../../utils/utils.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import * as specificItems from "../../core/specific_items.ts";
@@ -51,7 +48,7 @@ import {
 } from "../../core/conf.ts";
 import { SyncCodebase, listSyncCodebases } from "../../utils/codebase.ts";
 import fs from "node:fs";
-import { type Tarball } from "npm:@ayonli/jsext/archive";
+import { createTarBlob, type TarEntry } from "../../utils/tar.ts";
 
 import { execSync } from "node:child_process";
 import { NewScript, Script } from "../../../gen/types.gen.ts";
@@ -106,8 +103,8 @@ async function push(opts: PushOptions, filePath: string) {
     return;
   }
 
-  const fstat = await Deno.stat(filePath);
-  if (!fstat.isFile) {
+  const fstat = await stat(filePath);
+  if (!fstat.isFile()) {
     throw new Error("file path must refer to a file.");
   }
 
@@ -159,9 +156,9 @@ export async function findResourceFile(path: string) {
   const validCandidates = (
     await Promise.all(
       candidates.map((x) => {
-        return Deno.stat(x)
+        return stat(x)
           .catch(() => undefined)
-          .then((x) => x?.isFile)
+          .then((x) => x?.isFile())
           .then((e) => {
             return { path: x, file: e };
           });
@@ -249,7 +246,7 @@ export async function handleFile(
     const codebase =
       language == "bun" ? findCodebase(path, codebases) : undefined;
 
-    let bundleContent: string | Tarball | undefined = undefined;
+    let bundleContent: string | Blob | undefined = undefined;
 
     let forceTar = false;
     if (codebase) {
@@ -261,7 +258,7 @@ export async function handleFile(
         }).toString();
         log.info("Custom bundler executed for " + path);
       } else {
-        const esbuild = await import("npm:esbuild@0.24.2");
+        const esbuild = await import("esbuild");
 
         log.info(`Started bundling ${path} ...`);
         const startTime = performance.now();
@@ -295,7 +292,6 @@ export async function handleFile(
         );
       }
       if (outputFiles.length > 1) {
-        const archiveNpm = await import("npm:@ayonli/jsext/archive");
         log.info(
           `Found multiple output files for ${path}, creating a tarball... ${outputFiles
             .map((file) => file.path)
@@ -303,54 +299,49 @@ export async function handleFile(
         );
         forceTar = true;
         const startTime = performance.now();
-        const tarball = new archiveNpm.Tarball();
         const mainPath = path.split(SEP).pop()?.split(".")[0] + ".js";
-        const content =
+        const mainContent =
           outputFiles.find((file) => file.path == "/" + mainPath)?.text ?? "";
-        log.info(`Main content: ${content.length}chars`);
-        tarball.append(new File([content], "main.js", { type: "text/plain" }));
+        log.info(`Main content: ${mainContent.length}chars`);
+        const entries: TarEntry[] = [
+          { name: "main.js", content: mainContent },
+        ];
         for (const file of outputFiles) {
           if (file.path == "/" + mainPath) {
             continue;
           }
           log.info(`Adding file: ${file.path.substring(1)}`);
-          // deno-lint-ignore no-explicit-any
-          const fil = new File([file.contents as any], file.path.substring(1));
-          tarball.append(fil);
+          entries.push({ name: file.path.substring(1), content: file.contents });
         }
+        bundleContent = await createTarBlob(entries);
         const endTime = performance.now();
         log.info(
           `Finished creating tarball for ${path}: ${(
-            tarball.size / 1024
+            bundleContent.size / 1024
           ).toFixed(0)}kB (${(endTime - startTime).toFixed(0)}ms)`
         );
-        bundleContent = tarball;
       } else {
         if (Array.isArray(codebase.assets) && codebase.assets.length > 0) {
-          const archiveNpm = await import("npm:@ayonli/jsext/archive");
           log.info(
             `Using the following asset configuration for ${path}: ${JSON.stringify(
               codebase.assets
             )}`
           );
           const startTime = performance.now();
-          const tarball = new archiveNpm.Tarball();
-          tarball.append(
-            new File([bundleContent], "main.js", { type: "text/plain" })
-          );
+          const entries: TarEntry[] = [
+            { name: "main.js", content: bundleContent },
+          ];
           for (const asset of codebase.assets) {
             const data = fs.readFileSync(asset.from);
-            const blob = new Blob([data], { type: "text/plain" });
-            const file = new File([blob], asset.to);
-            tarball.append(file);
+            entries.push({ name: asset.to, content: data });
           }
+          bundleContent = await createTarBlob(entries);
           const endTime = performance.now();
           log.info(
             `Finished creating tarball for ${path}: ${(
-              tarball.size / 1024
+              bundleContent.size / 1024
             ).toFixed(0)}kB (${(endTime - startTime).toFixed(0)}ms)`
           );
-          bundleContent = tarball;
         }
       }
     }
@@ -384,7 +375,7 @@ export async function handleFile(
     } catch {
       log.debug(`Script ${remotePath} does not exist on remote`);
     }
-    const content = await Deno.readTextFile(path);
+    const content = await readFile(path, "utf-8");
 
     if (opts?.skipScriptsMetadata) {
       // if (codebase) {
@@ -392,17 +383,6 @@ export async function handleFile(
       //   await updateScriptSchema(content, language, typed, path);
       //   if (typedBefore != typed.schema) {
       //     log.info(`Updated metadata for bundle ${path}`);
-      //     showDiff(
-      //       yamlStringify(typedBefore, yamlOptions),
-      //       yamlStringify(typed.schema, yamlOptions)
-      //     );
-      //     await Deno.writeTextFile(
-      //       remotePath + ".script.yaml",
-      //       yamlStringify(typed as Record<string, any>, yamlOptions)
-      //     );
-      //   }
-      // }
-      // else {
       typed = structuredClone(remote);
       // }
     }
@@ -526,31 +506,8 @@ export async function handleFile(
   return false;
 }
 
-async function streamToBlob(stream: ReadableStream<Uint8Array>): Promise<Blob> {
-  // Create a reader from the stream
-  const reader = stream.getReader();
-  const chunks = [];
-
-  // Read the data from the stream
-  while (true) {
-    const { done, value } = await reader.read();
-
-    if (done) {
-      // If stream is finished, break the loop
-      break;
-    }
-
-    // Push the chunk to the array
-    chunks.push(value);
-  }
-
-  // deno-lint-ignore no-explicit-any
-  const blob = new Blob(chunks as any);
-  return blob;
-}
-
 async function createScript(
-  bundleContent: string | Tarball | undefined,
+  bundleContent: string | Blob | undefined,
   workspaceId: string,
   body: NewScript,
   workspace: Workspace
@@ -577,7 +534,7 @@ async function createScript(
       "file",
       typeof bundleContent == "string"
         ? bundleContent
-        : await streamToBlob(bundleContent.stream())
+        : bundleContent
     );
 
     const url =
@@ -611,9 +568,9 @@ export async function findContentFile(filePath: string) {
   const validCandidates = (
     await Promise.all(
       candidates.map((x) => {
-        return Deno.stat(x)
+        return stat(x)
           .catch(() => undefined)
-          .then((x) => x?.isFile)
+          .then((x) => x?.isFile())
           .then((e) => {
             return { path: x, file: e };
           });
@@ -740,6 +697,7 @@ async function list(
     showArchived?: boolean;
     includeWithoutMain?: boolean;
     includeDraftOnly?: boolean;
+    json?: boolean;
   }
 ) {
   const workspace = await resolveWorkspace(opts);
@@ -764,12 +722,16 @@ async function list(
     }
   }
 
-  new Table()
-    .header(["path", "summary", "language", "created by"])
-    .padding(2)
-    .border(true)
-    .body(total.map((x) => [x.path, x.summary, x.language, x.created_by]))
-    .render();
+  if (opts.json) {
+    console.log(JSON.stringify(total));
+  } else {
+    new Table()
+      .header(["path", "summary", "language", "created by"])
+      .padding(2)
+      .border(true)
+      .body(total.map((x) => [x.path, x.summary, x.language, x.created_by]))
+      .render();
+  }
 }
 
 export async function resolve(input: string): Promise<Record<string, any>> {
@@ -778,10 +740,12 @@ export async function resolve(input: string): Promise<Record<string, any>> {
   }
 
   if (input == "@-") {
-    input = new TextDecoder().decode(await readAll(Deno.stdin));
+    const chunks: Buffer[] = [];
+    for await (const chunk of process.stdin) chunks.push(chunk);
+    input = new TextDecoder().decode(Buffer.concat(chunks));
   }
   if (input[0] == "@") {
-    input = await Deno.readTextFile(input.substring(1));
+    input = await readFile(input.substring(1), "utf-8");
   }
   try {
     return JSON.parse(input);
@@ -830,7 +794,7 @@ async function run(
 
       break;
     } catch {
-      new Promise((resolve, _) => setTimeout(() => resolve(undefined), 100));
+      await new Promise((resolve) => setTimeout(resolve, 100));
     }
   }
 }
@@ -872,6 +836,7 @@ export async function track_job(workspace: string, id: string) {
         log.info("failed to get job updated. skipping log streaming.");
         break;
       }
+      await new Promise((resolve) => setTimeout(resolve, 500));
       continue;
     }
 
@@ -881,7 +846,7 @@ export async function track_job(workspace: string, id: string) {
     }
 
     if (updates.new_logs) {
-      writeAllSync(Deno.stdout, new TextEncoder().encode(updates.new_logs));
+      process.stdout.write(updates.new_logs);
       logOffset += updates.new_logs.length;
     }
 
@@ -927,6 +892,26 @@ async function show(opts: GlobalOptions, path: string) {
   log.info(s.content);
 }
 
+async function get(opts: GlobalOptions & { json?: boolean }, path: string) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  const s = await wmill.getScriptByPath({
+    workspace: workspace.workspaceId,
+    path,
+  });
+  if (opts.json) {
+    console.log(JSON.stringify(s));
+  } else {
+    console.log(colors.bold("Path:") + " " + s.path);
+    console.log(colors.bold("Summary:") + " " + (s.summary ?? ""));
+    console.log(colors.bold("Description:") + " " + (s.description ?? ""));
+    console.log(colors.bold("Language:") + " " + s.language);
+    console.log(colors.bold("Kind:") + " " + (s.kind ?? "script"));
+    console.log(colors.bold("Created by:") + " " + (s.created_by ?? ""));
+    console.log(colors.bold("Created at:") + " " + (s.created_at ?? ""));
+  }
+}
+
 async function bootstrap(
   opts: GlobalOptions & { summary: string; description: string },
   scriptPath: string,
@@ -951,11 +936,16 @@ async function bootstrap(
   const scriptMetadataFileFullPath = scriptPath + ".script.yaml";
 
   try {
-    await Deno.stat(scriptCodeFileFullPath);
-    await Deno.stat(scriptMetadataFileFullPath);
-    throw new Error("File already exists in repository");
-  } catch {
-    // file does not exist, we can continue
+    await stat(scriptCodeFileFullPath);
+    throw new Error("File already exists: " + scriptCodeFileFullPath);
+  } catch (e: any) {
+    if (e.message?.startsWith("File already exists")) throw e;
+  }
+  try {
+    await stat(scriptMetadataFileFullPath);
+    throw new Error("File already exists: " + scriptMetadataFileFullPath);
+  } catch (e: any) {
+    if (e.message?.startsWith("File already exists")) throw e;
   }
 
   const scriptMetadata = defaultScriptMetadata();
@@ -971,14 +961,14 @@ async function bootstrap(
     yamlOptions
   );
 
-  await Deno.writeTextFile(scriptCodeFileFullPath, scriptInitialCode, {
-    createNew: true,
+  await writeFile(scriptCodeFileFullPath, scriptInitialCode, {
+    flag: 'wx', encoding: 'utf-8',
   });
-  await Deno.writeTextFile(
+  await writeFile(
     scriptMetadataFileFullPath,
     scriptInitialMetadataYaml,
     {
-      createNew: true,
+      flag: 'wx', encoding: 'utf-8',
     }
   );
 }
@@ -1028,7 +1018,7 @@ async function generateMetadata(
     // TODO: test this as well.
     const ignore = await ignoreF(opts);
     const elems = await elementsToMap(
-      await FSFSElement(Deno.cwd(), codebases, false),
+      await FSFSElement(process.cwd(), codebases, false),
       (p, isD) => {
         return (
           (!isD && !exts.some((ext) => p.endsWith(ext))) ||
@@ -1107,8 +1097,8 @@ async function preview(
     return;
   }
 
-  const fstat = await Deno.stat(filePath);
-  if (!fstat.isFile) {
+  const fstat = await stat(filePath);
+  if (!fstat.isFile()) {
     throw new Error("file path must refer to a file.");
   }
 
@@ -1120,7 +1110,7 @@ async function preview(
 
   const codebases = await listSyncCodebases(opts);
   const language = inferContentTypeFromFilePath(filePath, opts?.defaultTs);
-  const content = await Deno.readTextFile(filePath);
+  const content = await readFile(filePath, "utf-8");
   const input = opts.data ? await resolve(opts.data) : {};
 
   // Check if this is a codebase script
@@ -1139,7 +1129,7 @@ async function preview(
         maxBuffer: 1024 * 1024 * 50,
       }).toString();
     } else {
-      const esbuild = await import("npm:esbuild@0.24.2");
+      const esbuild = await import("esbuild");
 
       if (!opts.silent) {
         log.info(`Bundling ${filePath} for preview...`);
@@ -1166,38 +1156,34 @@ async function preview(
 
       // Handle multiple output files (create tarball)
       if (out.outputFiles.length > 1) {
-        const archiveNpm = await import("npm:@ayonli/jsext/archive");
         if (!opts.silent) {
           log.info(`Creating tarball for multiple output files...`);
         }
-        const tarball = new archiveNpm.Tarball();
         const mainPath = filePath.split(SEP).pop()?.split(".")[0] + ".js";
         const mainContent =
           out.outputFiles.find((file: OutputFile) => file.path == "/" + mainPath)?.text ?? "";
-        tarball.append(new File([mainContent], "main.js", { type: "text/plain" }));
+        const entries: TarEntry[] = [
+          { name: "main.js", content: mainContent },
+        ];
         for (const file of out.outputFiles) {
           if (file.path == "/" + mainPath) continue;
-          // deno-lint-ignore no-explicit-any
-          const fil = new File([file.contents as any], file.path.substring(1));
-          tarball.append(fil);
+          entries.push({ name: file.path.substring(1), content: file.contents });
         }
-        bundledContent = await streamToBlob(tarball.stream());
+        bundledContent = await createTarBlob(entries);
         isTar = true;
       } else if (Array.isArray(codebase.assets) && codebase.assets.length > 0) {
         // Handle assets
-        const archiveNpm = await import("npm:@ayonli/jsext/archive");
         if (!opts.silent) {
           log.info(`Adding assets to tarball...`);
         }
-        const tarball = new archiveNpm.Tarball();
-        tarball.append(new File([bundledContent], "main.js", { type: "text/plain" }));
+        const entries: TarEntry[] = [
+          { name: "main.js", content: bundledContent },
+        ];
         for (const asset of codebase.assets) {
           const data = fs.readFileSync(asset.from);
-          const blob = new Blob([data], { type: "text/plain" });
-          const file = new File([blob], asset.to);
-          tarball.append(file);
+          entries.push({ name: asset.to, content: data });
         }
-        bundledContent = await streamToBlob(tarball.stream());
+        bundledContent = await createTarBlob(entries);
         isTar = true;
       }
 
@@ -1301,6 +1287,11 @@ async function preview(
 const command = new Command()
   .description("script related commands")
   .option("--show-archived", "Enable archived scripts in output")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(list as any)
+  .command("list", "list all scripts")
+  .option("--show-archived", "Enable archived scripts in output")
+  .option("--json", "Output as JSON (for piping to jq)")
   .action(list as any)
   .command(
     "push",
@@ -1308,7 +1299,11 @@ const command = new Command()
   )
   .arguments("<path:file>")
   .action(push as any)
-  .command("show", "show a scripts content")
+  .command("get", "get a script's details")
+  .arguments("<path:file>")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(get as any)
+  .command("show", "show a script's content (alias for get)")
   .arguments("<path:file>")
   .action(show as any)
   .command("run", "run a script by path")
@@ -1336,7 +1331,12 @@ const command = new Command()
     "Do not output anything other than the final output. Useful for scripting."
   )
   .action(preview as any)
-  .command("bootstrap", "create a new script")
+  .command("new", "create a new script")
+  .arguments("<path:file> <language:string>")
+  .option("--summary <summary:string>", "script summary")
+  .option("--description <description:string>", "script description")
+  .action(bootstrap as any)
+  .command("bootstrap", "create a new script (alias for new)")
   .arguments("<path:file> <language:string>")
   .option("--summary <summary:string>", "script summary")
   .option("--description <description:string>", "script description")

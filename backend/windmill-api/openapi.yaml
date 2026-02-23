@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.638.4
+  version: 1.641.0
   title: Windmill API
 
   contact:
@@ -18606,7 +18606,6 @@ components:
               "unassigned_script",
               "unassigned_flow",
               "unassigned_singlestepflow",
-              "snapshotbuild",
             ]
         schedule_path:
           type: string
@@ -18723,7 +18722,6 @@ components:
               "unassigned_script",
               "unassigned_flow",
               "unassigned_singlestepflow",
-              "snapshotbuild",
             ]
         schedule_path:
           type: string
@@ -18848,7 +18846,6 @@ components:
               "unassigned_script",
               "unassigned_flow",
               "unassigned_singlestepflow",
-              "snapshotbuild",
             ]
         trigger:
           type: string
@@ -18997,7 +18994,6 @@ components:
               "unassigned_script",
               "unassigned_flow",
               "unassigned_singlestepflow",
-              "snapshotbuild",
             ]
         trigger:
           type: string
@@ -19674,6 +19670,8 @@ components:
         dedicated_worker:
           type: boolean
         lock:
+          type: string
+        flow_path:
           type: string
       required:
         - args

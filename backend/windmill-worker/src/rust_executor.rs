@@ -5,7 +5,6 @@ use std::{collections::HashMap, process::Stdio};
 use uuid::Uuid;
 use windmill_parser_rust::parse_rust_deps_into_manifest;
 
-use crate::global_cache::save_cache;
 use itertools::Itertools;
 use tokio::{
     fs::{create_dir_all, File},
@@ -17,6 +16,7 @@ use windmill_common::{
     utils::calculate_hash,
     worker::{write_file, Connection},
 };
+use crate::global_cache::save_cache;
 use windmill_queue::MiniPulledJob;
 use windmill_queue::{append_logs, CanceledBy};
 
@@ -611,7 +611,8 @@ pub async fn handle_rust_job(
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
 
-    let (cache, cache_logs) = crate::global_cache::load_cache(&bin_path, &remote_path, false).await;
+    let (cache, cache_logs) =
+        crate::global_cache::load_cache(&bin_path, &remote_path, false).await;
 
     let cache_logs = if cache {
         let target = format!("{job_dir}/main");
@@ -663,7 +664,9 @@ pub async fn handle_rust_job(
     append_logs(&job.id, &job.workspace_id, logs2, conn).await;
 
     let child = if is_sandboxing_enabled() {
-        let nsjail_config = windmill_sandbox::finalize_nsjail_config(
+        let _ = write_file(
+            job_dir,
+            "run.config.proto",
             &NSJAIL_CONFIG_RUN_RUST_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CACHE_DIR}", RUST_CACHE_DIR)
@@ -672,9 +675,7 @@ pub async fn handle_rust_job(
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
                 .replace("{SHARED_MOUNT}", shared_mount),
-            &[],
-        );
-        let _ = write_file(job_dir, "run.config.proto", &nsjail_config)?;
+        )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
             .current_dir(job_dir)

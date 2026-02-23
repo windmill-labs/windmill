@@ -44,6 +44,10 @@ RUN /usr/local/bin/python3 -m pip install pip-tools
 # Bun
 COPY --from=oven/bun:1.3.8 /usr/local/bin/bun /usr/bin/bun
 
+# Install windmill CLI
+RUN bun install -g windmill-cli \
+    && ln -s $(bun pm bin -g)/wmill /usr/bin/wmill
+
 ARG TARGETPLATFORM
 
 # Deno

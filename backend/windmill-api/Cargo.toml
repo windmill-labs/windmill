@@ -10,15 +10,15 @@ path = "src/lib.rs"
 
 [features]
 default = []
-private = ["windmill-audit/private", "windmill-common/private", "windmill-sandbox/private", "windmill-api-auth/private", "windmill-store/private", "windmill-api-users/private", "windmill-api-workspaces/private", "windmill-api-groups/private", "windmill-api-configs/private", "windmill-api-settings/private", "windmill-api-agent-workers?/private", "windmill-trigger-kafka?/private", "windmill-trigger-postgres?/private", "windmill-trigger-mqtt?/private", "windmill-trigger-websocket?/private", "windmill-trigger-nats?/private", "windmill-trigger-sqs?/private", "windmill-trigger-gcp?/private", "windmill-trigger-email?/private"]
-enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-sandbox/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker?/enterprise", "windmill-api-auth/enterprise", "windmill-store/enterprise", "windmill-api-jobs/enterprise", "windmill-api-scripts/enterprise", "windmill-api-flows/enterprise", "windmill-api-users/enterprise", "windmill-api-workspaces/enterprise", "windmill-api-groups/enterprise", "windmill-api-configs/enterprise", "windmill-api-settings/enterprise", "windmill-api-agent-workers?/enterprise", "windmill-trigger/enterprise", "windmill-trigger-kafka?/enterprise", "windmill-trigger-postgres?/enterprise", "windmill-trigger-mqtt?/enterprise", "windmill-trigger-websocket?/enterprise", "windmill-trigger-email?/enterprise", "windmill-trigger-nats?/enterprise", "windmill-trigger-sqs?/enterprise", "windmill-trigger-gcp?/enterprise", "windmill-trigger-http?/enterprise", "windmill-native-triggers?/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise"]
+private = ["windmill-audit/private", "windmill-common/private", "windmill-api-auth/private", "windmill-store/private", "windmill-api-users/private", "windmill-api-workspaces/private", "windmill-api-groups/private", "windmill-api-configs/private", "windmill-api-settings/private", "windmill-api-agent-workers?/private", "windmill-trigger-kafka?/private", "windmill-trigger-postgres?/private", "windmill-trigger-mqtt?/private", "windmill-trigger-websocket?/private", "windmill-trigger-nats?/private", "windmill-trigger-sqs?/private", "windmill-trigger-gcp?/private", "windmill-trigger-email?/private"]
+enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker?/enterprise", "windmill-api-auth/enterprise", "windmill-store/enterprise", "windmill-api-jobs/enterprise", "windmill-api-scripts/enterprise", "windmill-api-flows/enterprise", "windmill-api-users/enterprise", "windmill-api-workspaces/enterprise", "windmill-api-groups/enterprise", "windmill-api-configs/enterprise", "windmill-api-settings/enterprise", "windmill-api-agent-workers?/enterprise", "windmill-trigger/enterprise", "windmill-trigger-kafka?/enterprise", "windmill-trigger-postgres?/enterprise", "windmill-trigger-mqtt?/enterprise", "windmill-trigger-websocket?/enterprise", "windmill-trigger-email?/enterprise", "windmill-trigger-nats?/enterprise", "windmill-trigger-sqs?/enterprise", "windmill-trigger-gcp?/enterprise", "windmill-trigger-http?/enterprise", "windmill-native-triggers?/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise"]
 stripe = []
 inline_preview = ["dep:windmill-worker", "windmill-api-configs/inline_preview"]
 agent_worker_server = ["dep:windmill-worker", "dep:windmill-api-agent-workers"]
 enterprise_saml = ["dep:samael", "dep:libxml"]
 benchmark = []
 embedding = ["windmill-api-embeddings/embedding"]
-parquet = ["dep:datafusion", "windmill-common/parquet", "windmill-object-store/parquet", "windmill-sandbox/parquet", "windmill-worker?/parquet", "windmill-api-users/parquet", "windmill-api-settings/parquet", "dep:aws-sigv4", "dep:aws-sdk-config"]
+parquet = ["dep:datafusion", "windmill-common/parquet", "windmill-object-store/parquet", "windmill-worker?/parquet", "windmill-api-users/parquet", "windmill-api-settings/parquet", "dep:aws-sigv4", "dep:aws-sdk-config"]
 prometheus = ["windmill-common/prometheus", "windmill-queue/prometheus", "dep:prometheus", "windmill-worker?/prometheus"]
 openidconnect = ["dep:openidconnect", "windmill-common/openidconnect", "windmill-store/openidconnect"]
 tantivy = ["dep:windmill-indexer"]
@@ -61,7 +61,6 @@ windmill-common = { workspace = true, default-features = false }
 windmill-types.workspace = true
 windmill-object-store.workspace = true
 windmill-audit.workspace = true
-windmill-sandbox.workspace = true
 windmill-parser.workspace = true
 windmill-parser-sql.workspace = true
 windmill-parser-ts.workspace = true

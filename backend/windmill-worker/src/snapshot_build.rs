@@ -39,6 +39,15 @@ pub async fn handle_snapshot_build(
         .get("setup_script")
         .and_then(|v| serde_json::from_str(v.get()).ok());
 
+    let include_wmill: bool = args
+        .get("include_wmill")
+        .and_then(|v| serde_json::from_str(v.get()).ok())
+        .unwrap_or(false);
+
+    let agent_binary: Option<String> = args
+        .get("agent_binary")
+        .and_then(|v| serde_json::from_str(v.get()).ok());
+
     append_logs(
         &job.id,
         job.workspace_id.clone(),
@@ -55,6 +64,8 @@ pub async fn handle_snapshot_build(
         &snapshot_tag,
         &docker_image,
         setup_script.as_deref(),
+        include_wmill,
+        agent_binary.as_deref(),
         db,
     )
     .await;

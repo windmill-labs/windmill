@@ -21,12 +21,14 @@
 		ulClass = '',
 		itemLabelWrapperClasses = '',
 		itemButtonWrapperClasses = '',
+		maxHeight = 256,
 		header,
 		getInputRect,
 		onSelectValue,
 		startSnippet,
 		endSnippet,
-		bottomSnippet
+		bottomSnippet,
+		highlightFirstOnOpen = false
 	}: {
 		processedItems?: ProcessedItem<T>[]
 		value: T | undefined
@@ -40,12 +42,15 @@
 		ulClass?: string
 		itemLabelWrapperClasses?: string
 		itemButtonWrapperClasses?: string
+		maxHeight?: number
 		header?: Snippet
 		getInputRect?: () => DOMRect
 		onSelectValue: (item: ProcessedItem<T>) => void
 		startSnippet?: Snippet<[{ item: ProcessedItem<T>; close: () => void }]>
 		endSnippet?: Snippet<[{ item: ProcessedItem<T>; close: () => void }]>
 		bottomSnippet?: Snippet<[{ close: () => void }]>
+		/** When true, the first item is highlighted when the dropdown opens (even without filterText) */
+		highlightFirstOnOpen?: boolean
 	} = $props()
 
 	let processedItems = $derived(
@@ -92,7 +97,7 @@
 
 	$effect(() => {
 		;[open, processedItems]
-		untrack(() => (keyArrowPos = open && filterText ? 0 : undefined))
+		untrack(() => (keyArrowPos = open && (filterText || highlightFirstOnOpen) ? 0 : undefined))
 	})
 
 	// We do not want to render the dropdown when it is closed for performance reasons
@@ -185,7 +190,11 @@
 				)}
 				style="height: {uiState.visible ? dropdownPos.height : 0}px;"
 			>
-				<div bind:this={listEl} class="flex flex-col max-h-64 rounded-md bg-surface-input">
+				<div
+					bind:this={listEl}
+					class="flex flex-col rounded-md bg-surface-input"
+					style="max-height: {maxHeight}px;"
+				>
 					{@render header?.()}
 					{#if processedItems?.length === 0}
 						<div class="py-8 px-4 text-center text-primary text-xs">{noItemsMsg}</div>
