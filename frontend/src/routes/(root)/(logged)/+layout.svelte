@@ -89,8 +89,7 @@
 	let isDarkMode = useIsDarkMode()
 	let darkMode = $derived(isDarkMode.val)
 
-	const SIDEBAR_BG = '#EAEAF0'
-	const SIDEBAR_BORDER = '#D4D7DE'
+	const SIDEBAR_BG = '#F3F3F7'
 
 	if ($page.status == 404) {
 		goto('/user/login')
@@ -537,7 +536,7 @@
 											Windmill
 										{/if}
 									</div>
-									<div class="px-2 py-4 border-y border-[#DCDEE6] dark:border-gray-700">
+									<div class="px-2 py-4 border-y border-light dark:border-gray-700">
 										<Menubar>
 											{#snippet children({ createMenu })}
 												<WorkspaceMenu {createMenu} />
@@ -588,9 +587,8 @@
 						)}
 					>
 						<div
-							class="flex-1 flex flex-col min-h-0 h-screen border-r"
+							class="flex-1 flex flex-col min-h-0 h-screen border-r border-light dark:border-gray-700"
 							style:background-color={darkMode ? '#1e232e' : SIDEBAR_BG}
-							style:border-color={darkMode ? '#374151' : SIDEBAR_BORDER}
 						>
 							<button
 								onclick={() => {
@@ -613,7 +611,7 @@
 									{/if}
 								</div>
 							</button>
-							<div class="px-2 py-4 border-y border-[#DCDEE6] dark:border-gray-700 flex flex-col gap-1">
+							<div class="px-2 py-4 border-y border-light dark:border-gray-700 flex flex-col gap-1">
 								<Menubar class="flex flex-col gap-1">
 									{#snippet children({ createMenu })}
 										<WorkspaceMenu {createMenu} {isCollapsed} />
@@ -730,7 +728,7 @@
 										)}{:else}Windmill{/if}{/if}
 							</div>
 
-							<div class="px-2 py-4 space-y-2 border-y border-[#DCDEE6] dark:border-gray-700">
+							<div class="px-2 py-4 space-y-2 border-y border-light dark:border-gray-700">
 								<Menubar>
 									{#snippet children({ createMenu })}
 										<WorkspaceMenu {createMenu} />
