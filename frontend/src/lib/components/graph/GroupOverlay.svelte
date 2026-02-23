@@ -3,7 +3,7 @@
 	import { calculateNodesBoundsWithOffset } from './util'
 	import { ChevronDown, ChevronRight, Ellipsis, Trash2 } from 'lucide-svelte'
 	import { getGroupEditorContext, type FlowGroup } from './groupEditor.svelte'
-	import { NoteColor } from './noteColors'
+	import { NoteColor, NOTE_COLORS } from './noteColors'
 	import NoteColorPicker from './NoteColorPicker.svelte'
 	import Popover from '../meltComponents/Popover.svelte'
 	import Toggle from '../Toggle.svelte'
@@ -24,6 +24,9 @@
 
 	// Popover open state
 	let popoverOpen = $state(false)
+
+	// Action bar hover state to prevent flicker
+	let actionBarHovered = $state(false)
 
 	// Hide delay to prevent flickering
 	let hideTimeout: ReturnType<typeof setTimeout> | undefined = undefined
@@ -48,22 +51,23 @@
 			if (activeGroup.id && !(activeGroup.id in collapsedState)) {
 				collapsedState[activeGroup.id] = activeGroup.collapsed ?? false
 			}
-		} else if (!popoverOpen) {
+		} else if (!popoverOpen && !actionBarHovered && !editingSummary) {
 			hideTimeout = setTimeout(() => {
 				visibleGroup = undefined
 			}, 150)
 		}
 	})
 
-	// Compute bounds for the visible group
-	let bounds = $derived.by(() => {
-		if (!visibleGroup || visibleGroup.module_ids.length === 0) return null
+	// All groups for always-visible labels
+	let allGroups = $derived(groupEditorContext?.groupEditor.getGroups() ?? [])
 
+	// Compute bounds for each group (for labels)
+	function computeGroupBounds(group: FlowGroup) {
+		if (group.module_ids.length === 0) return null
 		const { minX, minY, maxX, maxY } = calculateNodesBoundsWithOffset(
-			visibleGroup.module_ids,
+			group.module_ids,
 			allNodes
 		)
-
 		const padding = 16
 		return {
 			x: minX - padding,
@@ -71,6 +75,12 @@
 			width: maxX - minX + 2 * padding,
 			height: maxY - minY + 2 * padding
 		}
+	}
+
+	// Compute bounds for the visible (hovered) group
+	let hoverBounds = $derived.by(() => {
+		if (!visibleGroup || visibleGroup.module_ids.length === 0) return null
+		return computeGroupBounds(visibleGroup)
 	})
 
 	// Border color mapping from NoteColor
@@ -101,11 +111,24 @@
 	}
 
 	function getBorderColorClass(color?: string): string {
-		return GROUP_BORDER_COLORS[(color as NoteColor) ?? NoteColor.BLUE] ?? GROUP_BORDER_COLORS[NoteColor.BLUE]
+		return (
+			GROUP_BORDER_COLORS[(color as NoteColor) ?? NoteColor.BLUE] ??
+			GROUP_BORDER_COLORS[NoteColor.BLUE]
+		)
 	}
 
 	function getBgColorClass(color?: string): string {
-		return GROUP_BG_COLORS[(color as NoteColor) ?? NoteColor.BLUE] ?? GROUP_BG_COLORS[NoteColor.BLUE]
+		return (
+			GROUP_BG_COLORS[(color as NoteColor) ?? NoteColor.BLUE] ??
+			GROUP_BG_COLORS[NoteColor.BLUE]
+		)
+	}
+
+	function getTextColorClass(color?: string): string {
+		return (
+			NOTE_COLORS[(color as NoteColor) ?? NoteColor.BLUE]?.text ??
+			NOTE_COLORS[NoteColor.BLUE].text
+		)
 	}
 
 	function isCollapsed(groupId: string): boolean {
@@ -131,9 +154,46 @@
 	}
 </script>
 
-{#if visibleGroup && bounds}
+<!-- Layer 1: Always-visible group labels -->
+{#each allGroups as group (group.id)}
+	{@const labelBounds = computeGroupBounds(group)}
+	{#if labelBounds}
+		<ViewportPortal target="front">
+			<div
+				class="absolute"
+				style:transform="translate({labelBounds.x}px, {labelBounds.y - 20}px)"
+				style:z-index="4"
+				style="pointer-events: auto; cursor: default;"
+				onpointerenter={() => {
+					if (hideTimeout) {
+						clearTimeout(hideTimeout)
+						hideTimeout = undefined
+					}
+					visibleGroup = group
+					if (group.id && !(group.id in collapsedState)) {
+						collapsedState[group.id] = group.collapsed ?? false
+					}
+				}}
+				onpointerleave={() => {
+					if (!popoverOpen && !actionBarHovered && !editingSummary) {
+						hideTimeout = setTimeout(() => {
+							visibleGroup = undefined
+						}, 150)
+					}
+				}}
+			>
+				<span class="text-xs font-medium {getTextColorClass(group.color)}">
+					{group.summary || 'Group'}
+				</span>
+			</div>
+		</ViewportPortal>
+	{/if}
+{/each}
+
+<!-- Layer 2: Hover bounding box + action bar -->
+{#if visibleGroup && hoverBounds}
 	{@const group = visibleGroup}
-	{@const currentBounds = bounds}
+	{@const currentBounds = hoverBounds}
 	<ViewportPortal target="front">
 		<div
 			class="absolute rounded-lg border-2 border-dashed pointer-events-none {getBorderColorClass(
@@ -151,8 +211,18 @@
 						group.color
 					)}"
 					style="pointer-events: auto;"
+					onpointerenter={() => {
+						actionBarHovered = true
+						if (hideTimeout) {
+							clearTimeout(hideTimeout)
+							hideTimeout = undefined
+						}
+					}}
+					onpointerleave={() => {
+						actionBarHovered = false
+					}}
 				>
-					<!-- Summary label -->
+					<!-- Summary inline edit -->
 					{#if editingSummary}
 						<input
 							class="text-xs bg-transparent border-none outline-none text-primary px-1 w-24"
