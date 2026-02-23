@@ -4632,12 +4632,15 @@ async fn run_inline_preview_script() -> error::Result<Response> {
 
 #[cfg(feature = "run_inline")]
 async fn run_inline_script_by_path(
-    OptJobAuthed { authed, .. }: OptJobAuthed,
+    OptJobAuthed { authed, job_id, .. }: OptJobAuthed,
     Tokened { token }: Tokened,
     Extension(db): Extension<DB>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Json(body): Json<InlineScriptArgs>,
 ) -> error::Result<Response> {
+    if let Some(job_id) = job_id {
+        register_potential_assets_on_inline_execution(job_id, &w_id, &preview);
+    }
     let script_path_str = script_path.to_path();
     check_scopes(&authed, || format!("jobs:run:scripts:{script_path_str}"))?;
     run_inline_script_inner(
@@ -4660,18 +4663,24 @@ async fn run_inline_script_by_path() -> error::Result<Response> {
 
 #[cfg(feature = "run_inline")]
 async fn run_inline_script_by_hash(
-    OptJobAuthed { authed, .. }: OptJobAuthed,
+    OptJobAuthed { authed, job_id, .. }: OptJobAuthed,
     Tokened { token }: Tokened,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Json(body): Json<InlineScriptArgs>,
 ) -> error::Result<Response> {
+    if let Some(job_id) = job_id {
+        register_potential_assets_on_inline_execution(job_id, &w_id, &preview);
+    }
     // Resolve the script path from the hash and check scopes properly
     let hash = script_hash.0;
-    let ScriptHashInfo { path, .. } = get_script_info_for_hash(None, &db, &w_id, hash)
-        .await?
-        .prefetch_cached(&db)
-        .await?;
+    let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
+    let ScriptHashInfo { path, .. } =
+        get_script_info_for_hash(Some(userdb_authed), &db, &w_id, hash)
+            .await?
+            .prefetch_cached(&db)
+            .await?;
 
     check_scopes(&authed, || format!("jobs:run:scripts:{path}"))?;
 
