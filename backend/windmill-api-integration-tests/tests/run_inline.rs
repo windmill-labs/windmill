@@ -66,8 +66,11 @@ async fn test_run_inline_by_path(db: Pool<Postgres>) -> anyhow::Result<()> {
     init_inline_utils(port).await?;
 
     // Create a DuckDB script (one of the languages that supports inline execution)
+    // DuckDB requires parameter declarations in comments: -- $param_name (type)
     let script_path = "u/test-user/inline_test";
-    let script_content = "SELECT ? + ? as result";
+    let script_content = "-- $x (integer)
+-- $y (integer)
+SELECT $x + $y as result";
 
     let resp = authed(client().post(format!("{base}/scripts/create")))
         .json(&new_script(
@@ -76,8 +79,8 @@ async fn test_run_inline_by_path(db: Pool<Postgres>) -> anyhow::Result<()> {
             script_content,
             "duckdb",
             json!({
-                "1": {"type": "integer"},
-                "2": {"type": "integer"}
+                "x": {"type": "integer"},
+                "y": {"type": "integer"}
             }),
         ))
         .send()
@@ -85,12 +88,12 @@ async fn test_run_inline_by_path(db: Pool<Postgres>) -> anyhow::Result<()> {
         .unwrap();
     assert_eq!(resp.status(), 201, "create script: {}", resp.text().await?);
 
-    // Test run_inline by path with args (DuckDB positional params are named "1", "2", etc.)
+    // Test run_inline by path with args
     let resp = authed(client().post(run_inline_url(port, &format!("p/{script_path}"))))
         .json(&json!({
             "args": {
-                "1": 5,
-                "2": 15
+                "x": 5,
+                "y": 15
             }
         }))
         .send()
@@ -127,7 +130,9 @@ async fn test_run_inline_by_hash(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     // Create a DuckDB script and get its hash
     let script_path = "u/test-user/inline_hash_test";
-    let script_content = "SELECT ? * ? as product";
+    let script_content = "-- $a (integer)
+-- $b (integer)
+SELECT $a * $b as product";
 
     let resp = authed(client().post(format!("{base}/scripts/create")))
         .json(&new_script(
@@ -136,8 +141,8 @@ async fn test_run_inline_by_hash(db: Pool<Postgres>) -> anyhow::Result<()> {
             script_content,
             "duckdb",
             json!({
-                "1": {"type": "integer"},
-                "2": {"type": "integer"}
+                "a": {"type": "integer"},
+                "b": {"type": "integer"}
             }),
         ))
         .send()
@@ -160,8 +165,8 @@ async fn test_run_inline_by_hash(db: Pool<Postgres>) -> anyhow::Result<()> {
     let resp = authed(client().post(run_inline_url(port, &format!("h/{hash}"))))
         .json(&json!({
             "args": {
-                "1": 7,
-                "2": 3
+                "a": 7,
+                "b": 3
             }
         }))
         .send()
@@ -197,10 +202,10 @@ async fn test_run_inline_preview(db: Pool<Postgres>) -> anyhow::Result<()> {
     // Test run_inline preview with direct DuckDB content
     let resp = authed(client().post(run_inline_url(port, "preview")))
         .json(&json!({
-            "content": "SELECT 'Hello, ' || ? || '!' as greeting",
+            "content": "-- $msg (text)\nSELECT 'Hello, ' || $msg || '!' as greeting",
             "language": "duckdb",
             "args": {
-                "1": "World"
+                "msg": "World"
             }
         }))
         .send()
