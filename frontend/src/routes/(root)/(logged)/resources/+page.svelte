@@ -247,7 +247,7 @@
 				schema: newResourceType.schema,
 				description: newResourceType.description,
 				format_extension: newResourceType.formatExtension,
-				is_fileset: newResourceType.isFileset ?? undefined
+				is_fileset: newResourceType.isFileset
 			}
 		})
 		resourceTypeDrawer?.closeDrawer?.()
@@ -658,7 +658,7 @@
 			>
 			<div>
 				{#if editResourceType.isFileset}
-					<Alert type="info" title="Fileset resource (.{editResourceType.formatExtension})">
+					<Alert type="info" title="Fileset resource type">
 						This resource type represents a collection of files. The schema cannot be edited.
 					</Alert>
 				{:else if editResourceType.formatExtension}

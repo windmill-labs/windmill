@@ -16,7 +16,7 @@
 	interface Props {
 		runnables: Record<string, Runnable>
 		selectedRunnable: string | undefined
-		files: Record<string, string> | undefined
+		files: Record<string, string>
 		modules?: Modules
 		onSelectFile?: (path: string) => void
 		selectedDocument: string | undefined
@@ -37,7 +37,7 @@
 	let {
 		runnables,
 		selectedRunnable = $bindable(),
-		files = $bindable(),
+		files = $bindable({}),
 		modules,
 		onSelectFile,
 		selectedDocument = $bindable(),
@@ -73,21 +73,6 @@
 			dataTableDrawer?.openDrawerWithRef(ref)
 		}
 	}
-
-	// Ensure files is always an object for FileExplorer binding
-	let explorerFiles: Record<string, string> = $state(files ?? {})
-
-	// Sync explorerFiles → files (parent binding)
-	$effect(() => {
-		files = explorerFiles
-	})
-
-	// Sync files → explorerFiles when files changes externally
-	$effect(() => {
-		if (files && files !== explorerFiles) {
-			explorerFiles = files
-		}
-	})
 
 	let fileExplorer: FileExplorer | undefined = $state()
 
@@ -126,7 +111,7 @@
 	{/snippet}
 	<FileExplorer
 		bind:this={fileExplorer}
-		bind:files={explorerFiles}
+		bind:files
 		selectedPath={selectedDocument}
 		onSelectPath={handleSelectPath}
 		extraNodes={[{ name: 'wmill.ts', path: '/wmill.ts', isFolder: false }]}

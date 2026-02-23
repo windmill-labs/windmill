@@ -32,28 +32,30 @@
 		selectedFileKey?.replace(/^\//, '')
 	)
 
+	function flushEditContent() {
+		if (selectedFileKey != null && selectedFileKey in files && files[selectedFileKey] !== editContent) {
+			files = { ...files, [selectedFileKey]: editContent }
+		}
+	}
+
 	function handleSelectPath(path: string) {
+		flushEditContent()
 		selectedPath = path
 		if (!path.endsWith('/') && path !== '') {
 			editContent = files[path] ?? ''
 		}
 	}
 
-	// Sync editContent → files → args reactively
+	// Sync files → args, overlaying current editContent for the active file.
+	// This avoids spreading a new files object on every keystroke.
 	$effect(() => {
-		const key = selectedFileKey
-		const content = editContent
-		if (key != null && key in files && files[key] !== content) {
-			files = { ...files, [key]: content }
-		}
-	})
-
-	// Sync files → args (strip / prefix, skip folder entries)
-	$effect(() => {
+		const currentKey = selectedFileKey
+		const currentContent = editContent
 		const newArgs: Record<string, any> = {}
 		for (const [key, value] of Object.entries(files)) {
 			if (!key.endsWith('/')) {
-				newArgs[key.replace(/^\//, '')] = value
+				const argKey = key.replace(/^\//, '')
+				newArgs[argKey] = key === currentKey ? currentContent : value
 			}
 		}
 		args = newArgs

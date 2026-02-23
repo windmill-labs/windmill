@@ -1345,6 +1345,12 @@ async fn create_resource_type(
 
     let is_fileset = resource_type.is_fileset.unwrap_or(false);
 
+    if is_fileset && resource_type.format_extension.is_some() {
+        return Err(Error::BadRequest(
+            "A fileset resource type cannot have a format_extension".to_string(),
+        ));
+    }
+
     sqlx::query!(
         "INSERT INTO resource_type
             (workspace_id, name, schema, description, created_by, format_extension, is_fileset, edited_at)
