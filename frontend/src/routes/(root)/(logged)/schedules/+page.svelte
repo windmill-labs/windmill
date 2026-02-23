@@ -38,8 +38,7 @@
 	import JobPreview from '$lib/components/jobs/JobPreview.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { setQuery } from '$lib/navigation'
-	import { onMount, untrack } from 'svelte'
+	import { untrack } from 'svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import { runScheduleNow } from '$lib/components/triggers/scheduled/utils'
@@ -159,10 +158,22 @@
 	let allScriptPaths: string[] = $state([])
 
 	// FilterSearchbar setup
+	let userFoldersFilterType = $derived(
+		$userStore?.is_super_admin && $userStore.username.includes('@')
+			? 'only f/*'
+			: $userStore?.is_admin || $userStore?.is_super_admin
+				? 'u/username and f/*'
+				: undefined
+	)
 	let schedulesFilterSchema = $derived(
 		buildSchedulesFilterSchema({
 			paths: allPaths,
-			scriptPaths: allScriptPaths
+			scriptPaths: allScriptPaths,
+			showUserFoldersFilter: userFoldersFilterType !== undefined,
+			userFoldersLabel:
+				userFoldersFilterType === 'only f/*'
+					? 'Only f/*'
+					: `Only u/${$userStore?.username} and f/*`
 		})
 	)
 	let filters = useUrlSyncedFilterInstance(untrack(() => schedulesFilterSchema))
@@ -171,26 +182,21 @@
 	let filterEnabledDisabled: 'all' | 'enabled' | 'disabled' = $state('all')
 
 	const SCHEDULE_PATH_KIND_FILTER_SETTING = 'schedulePathKindFilter'
-	const FILTER_USER_FOLDER_SETTING_NAME = 'user_and_folders_only'
 	let selectedFilterKind = $state(
 		(getLocalSetting(SCHEDULE_PATH_KIND_FILTER_SETTING) as 'schedule' | 'script_flow') ?? 'schedule'
 	)
-	let filterUserFolders = $state(getLocalSetting(FILTER_USER_FOLDER_SETTING_NAME) == 'true')
 
 	$effect(() => {
 		storeLocalSetting(SCHEDULE_PATH_KIND_FILTER_SETTING, selectedFilterKind)
-	})
-	$effect(() => {
-		storeLocalSetting(FILTER_USER_FOLDER_SETTING_NAME, filterUserFolders ? 'true' : undefined)
 	})
 
 	function filterItemsPathsBaseOnUserFilters(
 		item: ScheduleW,
 		selectedFilterKind: 'schedule' | 'script_flow',
-		filterUserFolders: boolean
+		userFoldersOnly: boolean
 	) {
 		if ($workspaceStore == 'admins') return true
-		if (filterUserFolders) {
+		if (userFoldersOnly) {
 			if (selectedFilterKind === 'schedule') {
 				return (
 					!item.path.startsWith('u/') || item.path.startsWith('u/' + $userStore?.username + '/')
@@ -219,48 +225,12 @@
 	let filteredItems = $derived.by(() => {
 		return schedules?.filter(
 			(x) =>
-				filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders) &&
+				filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, !!filters.val.user_folders_only) &&
 				filterItemsBasedOnEnabledDisabled(x, filterEnabledDisabled)
 		)
 	})
 
 	let items = $derived(filteredItems)
-
-	function updateQueryFilters(selectedFilterKind, filterUserFolders, filterEnabledDisabled) {
-		setQuery(new URL(window.location.href), 'filter_kind', selectedFilterKind).then(() => {
-			setQuery(
-				new URL(window.location.href),
-				'user_and_folders_only',
-				String(filterUserFolders)
-			).then(() => {
-				setQuery(new URL(window.location.href), 'status', filterEnabledDisabled)
-			})
-		})
-	}
-
-	function loadQueryFilters() {
-		let url = new URL(window.location.href)
-		let queryFilterKind = url.searchParams.get('filter_kind')
-		let queryFilterUserFolders = url.searchParams.get('user_and_folders_only')
-		let queryFilterEnabledDisabled = url.searchParams.get('status')
-		if (queryFilterKind) {
-			selectedFilterKind = queryFilterKind as 'schedule' | 'script_flow'
-		}
-		if (queryFilterUserFolders) {
-			filterUserFolders = queryFilterUserFolders == 'true'
-		}
-		if (queryFilterEnabledDisabled) {
-			filterEnabledDisabled = queryFilterEnabledDisabled as 'all' | 'enabled' | 'disabled'
-		}
-	}
-
-	onMount(() => {
-		loadQueryFilters()
-	})
-
-	$effect(() => {
-		updateQueryFilters(selectedFilterKind, filterUserFolders, filterEnabledDisabled)
-	})
 </script>
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
@@ -301,15 +271,6 @@
 							<ToggleButton small value="disabled" label="Disabled" {item} />
 						{/snippet}
 					</ToggleButtonGroup>
-					{#if $userStore?.is_super_admin && $userStore.username.includes('@')}
-						<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
-					{:else if $userStore?.is_admin || $userStore?.is_super_admin}
-						<Toggle
-							size="xs"
-							bind:checked={filterUserFolders}
-							options={{ right: `Only u/${$userStore.username} and f/*` }}
-						/>
-					{/if}
 				</div>
 			</div>
 			{#if loading}

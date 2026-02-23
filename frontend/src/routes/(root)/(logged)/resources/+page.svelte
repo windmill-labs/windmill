@@ -15,7 +15,9 @@
 	import Required from '$lib/components/Required.svelte'
 	import { resourceTypesStore } from '$lib/components/resourceTypesStore'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
-	import FilterSearchbar, { useUrlSyncedFilterInstance } from '$lib/components/FilterSearchbar.svelte'
+	import FilterSearchbar, {
+		useUrlSyncedFilterInstance
+	} from '$lib/components/FilterSearchbar.svelte'
 	import { buildResourcesFilterSchema } from '$lib/components/resources/resourcesFilter'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
@@ -124,11 +126,21 @@
 	let showCreateButtons = $state(false)
 
 	// FilterSearchbar setup
+	let userFoldersFilterType = $derived(
+		$userStore?.is_super_admin && $userStore.username.includes('@')
+			? 'only f/*'
+			: $userStore?.is_admin || $userStore?.is_super_admin
+				? 'u/username and f/*'
+				: undefined
+	)
 	let resourcesFilterSchema = $derived(
 		buildResourcesFilterSchema({
 			paths: allPaths,
 			resourceTypes: allResourceTypes,
-			owners: allOwners
+			owners: allOwners,
+			showUserFoldersFilter: userFoldersFilterType !== undefined,
+			userFoldersLabel:
+				userFoldersFilterType === 'only f/*' ? 'Only f/*' : `Only u/${$userStore?.username} and f/*`
 		})
 	)
 	let filters = useUrlSyncedFilterInstance(untrack(() => resourcesFilterSchema))
@@ -452,10 +464,10 @@
 	// Filter resources client-side for user folder filtering (admin feature)
 	let filteredItems = $derived.by(() => {
 		let items = currentResources
-		if (filterUserFolders && items) {
+		if (filters.val.user_folders_only && items) {
 			items = items.filter((item) => {
-				if (filterUserFoldersType === 'only f/*') return item.path.startsWith('f/')
-				if (filterUserFoldersType === 'u/username and f/*')
+				if (userFoldersFilterType === 'only f/*') return item.path.startsWith('f/')
+				if (userFoldersFilterType === 'u/username and f/*')
 					return item.path.startsWith('f/') || item.path.startsWith(`u/${$userStore?.username}/`)
 				return true
 			})
@@ -497,15 +509,6 @@
 	})
 
 	let dbManagerDrawer = $derived(globalDbManagerDrawer.val) as any
-
-	let filterUserFolders = $state(false)
-	let filterUserFoldersType: 'only f/*' | 'u/username and f/*' | undefined = $derived(
-		$userStore?.is_super_admin && $userStore.username.includes('@')
-			? 'only f/*'
-			: $userStore?.is_admin || $userStore?.is_super_admin
-				? 'u/username and f/*'
-				: undefined
-	)
 </script>
 
 <ConfirmationModal
@@ -828,22 +831,20 @@
 			</div>
 		</div>
 		{#if tab == 'workspace' || tab == 'states' || tab == 'cache' || tab == 'theme'}
-			<div class="pt-4">
-				<FilterSearchbar schema={resourcesFilterSchema} bind:value={filters.val} />
-			</div>
+			<FilterSearchbar
+				schema={resourcesFilterSchema}
+				bind:value={filters.val}
+				placeholder="Filter resources..."
+				class="mt-4"
+				presets={[
+					{
+						name: resourcesFilterSchema.user_folders_only?.label ?? '?',
+						value: 'user_folders_only:\\ true'
+					}
+				]}
+			/>
 
-			<div class="overflow-x-auto pb-40 mt-4"
-				><div class="flex flex-row items-center justify-end gap-4 pb-2">
-					{#if $userStore?.is_super_admin && $userStore.username.includes('@')}
-						<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
-					{:else if $userStore?.is_admin || $userStore?.is_super_admin}
-						<Toggle
-							size="xs"
-							bind:checked={filterUserFolders}
-							options={{ right: `Only u/${$userStore.username} and f/*` }}
-						/>
-					{/if}
-				</div>
+			<div class="overflow-x-auto pb-40 mt-4">
 				{#if loading.resources}
 					<Skeleton layout={[0.5, [2], 1]} />
 					{#each new Array(6) as _}

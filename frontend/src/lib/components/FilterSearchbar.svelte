@@ -261,6 +261,7 @@
 		value: Partial<FilterInstanceRec<SchemaT>>
 		presets?: { name: string; value: string }[]
 		class?: string
+		placeholder?: string
 	}
 
 	type SchemaT = FilterSchemaRec // TODO: Generic
@@ -268,7 +269,8 @@
 		schema,
 		value: valueInput = $bindable(),
 		presets: _presets = [],
-		class: className
+		class: className,
+		placeholder = 'Filter...'
 	}: Props<SchemaT> = $props()
 
 	let _value = new DebouncedTempValue(
@@ -540,7 +542,7 @@
 			inputBaseClass,
 			inputSizeClasses.md
 		)}
-		placeholder="Filter runs..."
+		{placeholder}
 	/>
 	{#if asText.val}
 		<CloseButton small class="mr-1.5" onClick={() => (_value.current = {})} />

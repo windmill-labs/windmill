@@ -681,6 +681,7 @@
 				schema={runsFilterSearchbarSchema}
 				presets={buildRunsFilterPresets({ isSuperadmin: !!$superadmin })}
 				bind:value={filters.val}
+				placeholder="Filter runs..."
 			/>
 		</div>
 

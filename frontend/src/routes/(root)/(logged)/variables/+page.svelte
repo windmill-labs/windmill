@@ -8,7 +8,9 @@
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Popover from '$lib/components/Popover.svelte'
-	import FilterSearchbar, { useUrlSyncedFilterInstance } from '$lib/components/FilterSearchbar.svelte'
+	import FilterSearchbar, {
+		useUrlSyncedFilterInstance
+	} from '$lib/components/FilterSearchbar.svelte'
 	import { buildVariablesFilterSchema } from '$lib/components/variables/variablesFilter'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
@@ -17,7 +19,6 @@
 	import Head from '$lib/components/table/Head.svelte'
 	import Row from '$lib/components/table/Row.svelte'
 	import TableSimple from '$lib/components/TableSimple.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
 	import type { ContextualVariable, ListableVariable, WorkspaceDeployUISettings } from '$lib/gen'
@@ -51,10 +52,20 @@
 	let allOwners: string[] = $state([])
 
 	// FilterSearchbar setup
+	let userFoldersFilterType = $derived(
+		$userStore?.is_super_admin && $userStore.username.includes('@')
+			? 'only f/*'
+			: $userStore?.is_admin || $userStore?.is_super_admin
+				? 'u/username and f/*'
+				: undefined
+	)
 	let variablesFilterSchema = $derived(
 		buildVariablesFilterSchema({
 			paths: allPaths,
-			owners: allOwners
+			owners: allOwners,
+			showUserFoldersFilter: userFoldersFilterType !== undefined,
+			userFoldersLabel:
+				userFoldersFilterType === 'only f/*' ? 'Only f/*' : `Only u/${$userStore?.username} and f/*`
 		})
 	)
 	let filters = useUrlSyncedFilterInstance(untrack(() => variablesFilterSchema))
@@ -72,10 +83,10 @@
 	// Filter variables client-side for user folder filtering (admin feature)
 	let filteredItems = $derived.by(() => {
 		let items = variables
-		if (filterUserFolders && items) {
+		if (filters.val.user_folders_only && items) {
 			items = items.filter((item) => {
-				if (filterUserFoldersType === 'only f/*') return item.path.startsWith('f/')
-				if (filterUserFoldersType === 'u/username and f/*')
+				if (userFoldersFilterType === 'only f/*') return item.path.startsWith('f/')
+				if (userFoldersFilterType === 'u/username and f/*')
 					return item.path.startsWith('f/') || item.path.startsWith(`u/${$userStore?.username}/`)
 				return true
 			})
@@ -188,15 +199,6 @@
 			loadContextualVariables()
 		}, 5000)
 	}
-
-	let filterUserFolders = $state(false)
-	let filterUserFoldersType: 'only f/*' | 'u/username and f/*' | undefined = $derived(
-		$userStore?.is_super_admin && $userStore.username.includes('@')
-			? 'only f/*'
-			: $userStore?.is_admin || $userStore?.is_super_admin
-				? 'u/username and f/*'
-				: undefined
-	)
 </script>
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
@@ -237,7 +239,7 @@
 				</div>
 			{/if}
 		</PageHeader>
-		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => showCreateButtons = v} />
+		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showCreateButtons = v)} />
 
 		<VariableEditor bind:this={variableEditor} on:create={loadVariables} />
 		<ContextualVariableEditor
@@ -265,21 +267,19 @@
 			</Tab>
 		</Tabs>
 		{#if tab == 'workspace'}
-			<div class="pt-4">
-				<FilterSearchbar schema={variablesFilterSchema} bind:value={filters.val} />
-			</div>
-			<div class="relative overflow-x-auto pb-40 pr-4">
-				<div class="flex flex-row items-center justify-end gap-4 pb-2">
-					{#if $userStore?.is_super_admin && $userStore.username.includes('@')}
-						<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
-					{:else if $userStore?.is_admin || $userStore?.is_super_admin}
-						<Toggle
-							size="xs"
-							bind:checked={filterUserFolders}
-							options={{ right: `Only u/${$userStore.username} and f/*` }}
-						/>
-					{/if}
-				</div>
+			<FilterSearchbar
+				class="my-4"
+				schema={variablesFilterSchema}
+				bind:value={filters.val}
+				placeholder="Filter variables..."
+				presets={[
+					{
+						name: variablesFilterSchema.user_folders_only?.label ?? '?',
+						value: 'user_folders_only:\\ true'
+					}
+				]}
+			/>
+			<div class="relative overflow-x-auto pb-40">
 				{#if !filteredItems}
 					<Skeleton layout={[0.5, [2], 1]} />
 					{#each new Array(3) as _}

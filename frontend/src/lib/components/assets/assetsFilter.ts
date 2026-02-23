@@ -15,22 +15,6 @@ export function buildAssetsFilterSchema({
 			icon: FolderIcon,
 			description: 'Filter by asset path pattern (case-insensitive)'
 		},
-		path: {
-			type: 'oneof' as const,
-			options: paths.map((s) => ({ label: s, value: s })),
-			allowCustomValue: true,
-			allowNegative: false,
-			allowMultiple: false,
-			label: 'Asset path',
-			icon: FileCode,
-			description: 'Filter by exact asset path'
-		},
-		usage_path: {
-			type: 'string' as const,
-			label: 'Usage path pattern',
-			icon: FileCode,
-			description: 'Filter by usage path pattern (case-insensitive)'
-		},
 		asset_kinds: {
 			type: 'oneof' as const,
 			options: assetKinds.map((s) => ({ label: s, value: s })),
@@ -41,12 +25,27 @@ export function buildAssetsFilterSchema({
 			icon: Box,
 			description: 'Filter by asset kind (s3object, resource, variable, etc.)'
 		},
+		usage_path: {
+			type: 'string' as const,
+			label: 'Usage path pattern',
+			icon: FileCode,
+			description: 'Filter by usage path pattern (case-insensitive)'
+		},
+		path: {
+			type: 'oneof' as const,
+			options: paths.map((s) => ({ label: s, value: s })),
+			allowCustomValue: true,
+			allowNegative: false,
+			allowMultiple: false,
+			label: 'Asset path',
+			icon: FileCode,
+			description: 'Filter by exact asset path'
+		},
 		columns: {
 			type: 'string' as const,
-			format: 'json' as const,
 			label: 'Columns subset',
 			icon: Braces,
-			description: 'Filter by JSON columns subset match'
+			description: 'Filter by columns subset match'
 		}
 	} satisfies FilterSchemaRec
 }

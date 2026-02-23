@@ -27,7 +27,9 @@
 	import Section from '$lib/components/Section.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { favoriteManager, parseFavoriteAsset } from '$lib/components/sidebar/FavoriteMenu.svelte'
-	import FilterSearchbar, { useUrlSyncedFilterInstance } from '$lib/components/FilterSearchbar.svelte'
+	import FilterSearchbar, {
+		useUrlSyncedFilterInstance
+	} from '$lib/components/FilterSearchbar.svelte'
 	import { buildAssetsFilterSchema } from '$lib/components/assets/assetsFilter'
 	import { untrack } from 'svelte'
 
@@ -38,7 +40,13 @@
 
 	// Collect unique values for filter autocomplete
 	let allPaths: string[] = $state([])
-	let allAssetKinds: string[] = $state(['s3object', 'resource', 'variable', 'ducklake', 'datatable'])
+	let allAssetKinds: string[] = $state([
+		's3object',
+		'resource',
+		'variable',
+		'ducklake',
+		'datatable'
+	])
 
 	// FilterSearchbar setup
 	let assetsFilterSchema = $derived(
@@ -263,12 +271,15 @@
 			</div>
 		</Section>
 		<Section label="Latest assets used">
-			<div class="flex gap-2 mb-4 items-end justify-between">
-				<div class="flex-1">
-					<FilterSearchbar schema={assetsFilterSchema} bind:value={filterValues.val} />
-				</div>
+			{#snippet action()}
 				<RefreshButton onClick={() => assetsQuery.reset()} loading={assetsQuery.isLoading} />
-			</div>
+			{/snippet}
+			<FilterSearchbar
+				schema={assetsFilterSchema}
+				bind:value={filterValues.val}
+				placeholder="Filter assets..."
+				class="mb-4"
+			/>
 			{@render table()}
 			{#if assetsQuery.isFetchingNextPage}
 				<Loader2 size={32} class="mx-auto my-4 text-primary animate-spin" />

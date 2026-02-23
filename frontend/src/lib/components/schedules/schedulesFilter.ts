@@ -1,12 +1,16 @@
-import { FileCode, FileText, Clock, Braces } from 'lucide-svelte'
+import { FileCode, FileText, Clock, Braces, Users } from 'lucide-svelte'
 import type { FilterSchemaRec } from '../FilterSearchbar.svelte'
 
 export function buildSchedulesFilterSchema({
 	paths,
-	scriptPaths
+	scriptPaths,
+	showUserFoldersFilter,
+	userFoldersLabel
 }: {
 	paths: string[]
 	scriptPaths: string[]
+	showUserFoldersFilter?: boolean
+	userFoldersLabel?: string
 }) {
 	return {
 		schedule_path: {
@@ -53,6 +57,16 @@ export function buildSchedulesFilterSchema({
 			label: 'Args subset',
 			icon: Braces,
 			description: 'Filter by JSON args subset match (e.g., {"param": "value"})'
-		}
+		},
+		...(showUserFoldersFilter
+			? {
+					user_folders_only: {
+						type: 'boolean' as const,
+						label: userFoldersLabel || 'User folders only',
+						icon: Users,
+						description: 'Show only schedules in user folders'
+					}
+				}
+			: {})
 	} satisfies FilterSchemaRec
 }
