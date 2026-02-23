@@ -1,5 +1,5 @@
 import { Command } from "@cliffy/command";
-import { CompletionsCommand } from "@cliffy/command/completions";
+import { generateShellCompletions } from "@cliffy/command/completions";
 import { UpgradeCommand } from "@cliffy/command/upgrade";
 import * as log from "./core/log.ts";
 
@@ -172,7 +172,20 @@ const command = new Command()
       );
     })
   )
-  .command("completions", new CompletionsCommand());
+  .command(
+    "completions",
+    new Command()
+      .description("Generate shell completions.")
+      .command("bash", new Command().description("Generate bash completions.").action(() => {
+        process.stdout.write(generateShellCompletions(command, "bash") + "\n");
+      }))
+      .command("zsh", new Command().description("Generate zsh completions.").action(() => {
+        process.stdout.write(generateShellCompletions(command, "zsh") + "\n");
+      }))
+      .command("fish", new Command().description("Generate fish completions.").action(() => {
+        process.stdout.write(generateShellCompletions(command, "fish") + "\n");
+      }))
+  );
 
 async function main() {
   try {
