@@ -69,7 +69,6 @@ fn do_postgresql_inner<'a>(
     s3: Option<S3ModeWorkerData>,
 ) -> error::Result<BoxFuture<'a, error::Result<Vec<Box<RawValue>>>>> {
     let mut query_params = vec![];
-    let mut param_types = vec![];
 
     let arg_indices = parse_pg_statement_arg_indices(&query);
 
@@ -87,17 +86,12 @@ fn do_postgresql_inner<'a>(
             let typ = &arg.typ;
             let param = convert_val(value, arg_t, typ)?;
             query_params.push(param);
-            param_types.push(otyp_to_pg_type(arg_t));
             i += 1;
         }
     }
 
     let result_f = async move {
-        // Prepare the statement with explicit parameter types
-        let statement = client
-            .prepare_typed(&query, &param_types)
-            .await
-            .map_err(to_anyhow)?;
+        // Now we can execute a simple statement that just returns its parameter.
 
         let mut res: Vec<Box<serde_json::value::RawValue>> = vec![];
 
@@ -108,12 +102,12 @@ fn do_postgresql_inner<'a>(
 
         if skip_collect {
             client
-                .execute_raw(&statement, query_params)
+                .execute_raw(&query, query_params)
                 .await
                 .map_err(to_anyhow)?;
         } else if let Some(ref s3) = s3 {
             let rows_stream = client
-                .query_raw(&statement, query_params)
+                .query_raw(&query, query_params)
                 .map_err(to_anyhow)
                 .await?
                 .map_err(to_anyhow)
@@ -127,7 +121,7 @@ fn do_postgresql_inner<'a>(
             return Ok(vec![to_raw_value(&s3.to_return_s3_obj())]);
         } else {
             let rows = client
-                .query_raw(&statement, query_params)
+                .query_raw(&query, query_params)
                 .await
                 .map_err(to_anyhow)?;
 
@@ -468,51 +462,6 @@ async fn is_most_used_conn(database_string: &str) -> bool {
 async fn increment_connection_counter(database_string: &str) {
     let mut counter_map = CONNECTION_COUNTER.write().await;
     *counter_map.entry(database_string.to_string()).or_insert(0) += 1;
-}
-
-fn otyp_to_pg_type(otyp: &str) -> Type {
-    match otyp {
-        "bool" | "boolean" => Type::BOOL,
-        "char" | "character" => Type::CHAR,
-        "smallint" | "smallserial" | "int2" | "serial2" => Type::INT2,
-        "int" | "integer" | "int4" | "serial" => Type::INT4,
-        "bigint" | "bigserial" | "int8" | "serial8" => Type::INT8,
-        "real" | "float4" => Type::FLOAT4,
-        "double" | "double precision" | "float8" => Type::FLOAT8,
-        "numeric" | "decimal" => Type::NUMERIC,
-        "oid" => Type::OID,
-        "uuid" => Type::UUID,
-        "date" => Type::DATE,
-        "time" | "time without time zone" => Type::TIME,
-        "timetz" | "time with time zone" => Type::TIMETZ,
-        "timestamp" | "timestamp without time zone" => Type::TIMESTAMP,
-        "timestamptz" | "timestamp with time zone" => Type::TIMESTAMPTZ,
-        "jsonb" => Type::JSONB,
-        "json" => Type::JSON,
-        "bytea" => Type::BYTEA,
-        "text" => Type::TEXT,
-        "varchar" | "character varying" => Type::VARCHAR,
-        // Array types
-        "bool[]" | "boolean[]" => Type::BOOL_ARRAY,
-        "smallint[]" | "smallserial[]" | "int2[]" | "serial2[]" => Type::INT2_ARRAY,
-        "int[]" | "integer[]" | "int4[]" | "serial[]" => Type::INT4_ARRAY,
-        "bigint[]" | "bigserial[]" | "int8[]" | "serial8[]" => Type::INT8_ARRAY,
-        "real[]" | "float4[]" => Type::FLOAT4_ARRAY,
-        "double[]" | "double precision[]" | "float8[]" => Type::FLOAT8_ARRAY,
-        "numeric[]" | "decimal[]" => Type::NUMERIC_ARRAY,
-        "text[]" => Type::TEXT_ARRAY,
-        "varchar[]" | "character varying[]" => Type::VARCHAR_ARRAY,
-        "date[]" => Type::DATE_ARRAY,
-        "time[]" | "time without time zone[]" => Type::TIME_ARRAY,
-        "timetz[]" | "time with time zone[]" => Type::TIMETZ_ARRAY,
-        "timestamp[]" | "timestamp without time zone[]" => Type::TIMESTAMP_ARRAY,
-        "timestamptz[]" | "timestamp with time zone[]" => Type::TIMESTAMPTZ_ARRAY,
-        "jsonb[]" => Type::JSONB_ARRAY,
-        "json[]" => Type::JSON_ARRAY,
-        "bytea[]" => Type::BYTEA_ARRAY,
-        // Default to TEXT for unknown types
-        _ => Type::TEXT,
-    }
 }
 
 fn map_as_single_type<T>(
