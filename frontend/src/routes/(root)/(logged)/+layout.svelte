@@ -90,6 +90,7 @@
 	let darkMode = $derived(isDarkMode.val)
 
 	const SIDEBAR_BG = '#F3F3F7'
+	const SIDEBAR_BG_DARK = '#1e232e'
 
 	if ($page.status == 404) {
 		goto('/user/login')
@@ -526,7 +527,7 @@
 								</div>
 								<div
 									class="h-full flex flex-col"
-									style:background-color={darkMode ? '#1e232e' : SIDEBAR_BG}
+									style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}
 								>
 									<div class="flex gap-x-2 flex-shrink-0 p-4 font-semibold text-emphasis w-40">
 										<WindmillIcon white={darkMode} height="20px" width="20px" />
@@ -588,7 +589,7 @@
 					>
 						<div
 							class="flex-1 flex flex-col min-h-0 h-screen border-r border-light dark:border-gray-700"
-							style:background-color={darkMode ? '#1e232e' : SIDEBAR_BG}
+							style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}
 						>
 							<button
 								onclick={() => {
@@ -717,7 +718,7 @@
 								</svg>
 							</button>
 						</div>
-						<div class="h-full" style:background-color={darkMode ? '#1e232e' : SIDEBAR_BG}>
+						<div class="h-full" style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}>
 							<div
 								class="flex gap-x-2 flex-shrink-0 p-4 font-semibold text-emphasis w-10"
 								class:w-40={!isCollapsed}
