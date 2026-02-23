@@ -19832,6 +19832,8 @@ components:
           format: date-time
         format_extension:
           type: string
+        is_fileset:
+          type: boolean
       required:
         - name
 
@@ -19841,6 +19843,8 @@ components:
         schema: {}
         description:
           type: string
+        is_fileset:
+          type: boolean
 
     Schedule:
       type: object

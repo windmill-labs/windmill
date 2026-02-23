@@ -154,6 +154,10 @@ export function isFileResource(path: string): boolean {
   );
 }
 
+export function isFilesetResource(path: string): boolean {
+  return path.includes(".fileset/") || path.includes(".fileset\\");
+}
+
 export function isRawAppFile(path: string): boolean {
   return isRawAppPath(path);
 }

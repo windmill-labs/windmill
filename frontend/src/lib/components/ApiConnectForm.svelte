@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { OauthService, type ResourceType } from '$lib/gen'
+	import FilesetEditor from './FilesetEditor.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { emptySchema, emptyString } from '$lib/utils'
 	import SchemaForm from './SchemaForm.svelte'
@@ -79,7 +80,7 @@
 			rawCode = JSON.stringify(args, null, 2)
 		} else {
 			parseJson()
-			if (resourceTypeInfo?.format_extension) {
+			if (resourceTypeInfo?.format_extension && !resourceTypeInfo?.is_fileset) {
 				textFileContent = args.content
 			}
 		}
@@ -237,6 +238,11 @@
 			/>
 		{/await}
 	</div>
+{:else if resourceTypeInfo?.is_fileset}
+	<h5 class="mt-1 inline-flex items-center gap-4">
+		Fileset
+	</h5>
+	<FilesetEditor bind:args />
 {:else if resourceTypeInfo?.format_extension}
 	<h5 class="mt-4 inline-flex items-center gap-4">
 		File content ({resourceTypeInfo.format_extension})

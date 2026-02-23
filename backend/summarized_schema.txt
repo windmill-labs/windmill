@@ -137,7 +137,7 @@ raw_app: path(char), version(int), workspace_id(char), summary(char), edited_at(
   FK: (workspace_id) -> workspace(id)
 resource: workspace_id(char), path(char), value(jsonb), description(text), resource_type(char), extra_perms(jsonb), edited_at(ts), created_by(char)
   FK: (workspace_id) -> workspace(id)
-resource_type: workspace_id(char), name(char), schema(jsonb), description(text), edited_at(ts), created_by(char), format_extension(char)
+resource_type: workspace_id(char), name(char), schema(jsonb), description(text), edited_at(ts), created_by(char), format_extension(char), is_fileset(bool)
   FK: (workspace_id) -> workspace(id)
 resume_job: id(uuid), job(uuid), flow(uuid), created_at(ts), value(jsonb), approver(char), resume_id(int), approved(bool)
   FK: (flow) -> v2_job_queue(id)

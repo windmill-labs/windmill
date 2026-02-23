@@ -98,6 +98,7 @@ pub struct ResourceType {
     pub created_by: Option<String>,
     pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
     pub format_extension: Option<String>,
+    pub is_fileset: bool,
 }
 
 #[derive(Deserialize)]
@@ -106,12 +107,14 @@ pub struct CreateResourceType {
     pub schema: Option<serde_json::Value>,
     pub description: Option<String>,
     pub format_extension: Option<String>,
+    pub is_fileset: Option<bool>,
 }
 
 #[derive(Deserialize)]
 pub struct EditResourceType {
     pub schema: Option<serde_json::Value>,
     pub description: Option<String>,
+    pub is_fileset: Option<bool>,
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -1193,29 +1196,38 @@ async fn update_resource_value(
     Ok(format!("value of resource {} updated", path))
 }
 
+#[derive(Serialize)]
+pub struct FileResourceTypeInfo {
+    pub format_extension: Option<String>,
+    pub is_fileset: bool,
+}
+
 async fn file_resource_ext_to_resource_type(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-) -> JsonResult<HashMap<String, String>> {
-    #[derive(Serialize, sqlx::FromRow)]
+) -> JsonResult<HashMap<String, FileResourceTypeInfo>> {
+    #[derive(sqlx::FromRow)]
     struct LocalFileResourceExtension {
         name: String,
         format_extension: Option<String>,
+        is_fileset: bool,
     }
 
     let r = sqlx::query_as!(LocalFileResourceExtension, "
-        SELECT name, format_extension FROM resource_type WHERE format_extension IS NOT NULL AND (workspace_id = $1 OR workspace_id = 'admins')", w_id)
+        SELECT name, format_extension, is_fileset FROM resource_type WHERE (format_extension IS NOT NULL OR is_fileset = true) AND (workspace_id = $1 OR workspace_id = 'admins')", w_id)
         .fetch_all(&db)
         .await?;
 
-    let hashmap: HashMap<String, String> = r
+    let hashmap: HashMap<String, FileResourceTypeInfo> = r
         .into_iter()
-        .filter_map(|entry| {
-            if let Some(format_extension) = entry.format_extension {
-                Some((entry.name, format_extension))
-            } else {
-                None
-            }
+        .map(|entry| {
+            (
+                entry.name,
+                FileResourceTypeInfo {
+                    format_extension: entry.format_extension,
+                    is_fileset: entry.is_fileset,
+                },
+            )
         })
         .collect();
 
@@ -1315,16 +1327,19 @@ async fn create_resource_type(
 
     check_rt_path_conflict(&mut tx, &w_id, &resource_type.name).await?;
 
+    let is_fileset = resource_type.is_fileset.unwrap_or(false);
+
     sqlx::query!(
         "INSERT INTO resource_type
-            (workspace_id, name, schema, description, created_by, format_extension, edited_at)
-            VALUES ($1, $2, $3, $4, $5, $6, now())",
+            (workspace_id, name, schema, description, created_by, format_extension, is_fileset, edited_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, now())",
         w_id,
         resource_type.name,
         resource_type.schema,
         resource_type.description,
         authed.username,
         resource_type.format_extension,
+        is_fileset,
     )
     .execute(&mut *tx)
     .await?;
@@ -1484,6 +1499,9 @@ async fn update_resource_type(
     }
     if let Some(ndesc) = ns.description {
         sqlb.set_str("description", ndesc);
+    }
+    if let Some(is_fileset) = ns.is_fileset {
+        sqlb.set_str("is_fileset", if is_fileset { "TRUE" } else { "FALSE" });
     }
     sqlb.set_str("edited_at", "now()");
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
