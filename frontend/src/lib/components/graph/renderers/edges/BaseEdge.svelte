@@ -1,7 +1,7 @@
 <script lang="ts">
 	import InsertModulePopover from '$lib/components/flows/map/InsertModulePopover.svelte'
 	import { getBezierPath, BaseEdge, type EdgeProps, EdgeLabel } from '@xyflow/svelte'
-	import { ClipboardCopy, Hourglass } from 'lucide-svelte'
+	import { Hourglass } from 'lucide-svelte'
 	import type { GraphEventHandlers } from '../../graphBuilder.svelte'
 	import { getStraightLinePath } from '../utils'
 	import { twMerge } from 'tailwind-merge'
@@ -145,18 +145,13 @@
 		>
 			<div
 				class={twMerge(
-					'w-7 h-7 rounded-full border-2 flex items-center justify-center transition-all duration-150',
+					'w-5 h-5 rounded-full border-2 border-current bg-surface flex items-center justify-center transition-all duration-150',
 					isNearestDrop
-						? 'border-blue-500 bg-blue-100 dark:bg-blue-900 scale-125 shadow-md shadow-blue-200 dark:shadow-blue-800'
-						: 'border-gray-300 dark:border-gray-600 bg-surface opacity-60'
+						? 'text-accent scale-110'
+						: 'text-gray-300 dark:text-gray-600 opacity-60'
 				)}
 			>
-				<div
-					class={twMerge(
-						'w-2.5 h-2.5 rounded-full transition-all duration-150',
-						isNearestDrop ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'
-					)}
-				></div>
+				<div class="w-2 h-2 rounded-full bg-current"></div>
 			</div>
 		</div>
 	{:else if data?.insertable && !$useDataflow && !data?.moving && !isDragging}
@@ -223,14 +218,9 @@
 						})
 					}}
 					type="button"
-					class={twMerge(
-						'w-6 h-6 flex items-center justify-center',
-						'border border-gray-300 dark:border-gray-500',
-						'text-primary text-sm',
-						'bg-surface focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-surface-selected rounded-full '
-					)}
+					class="group w-5 h-5 rounded-full border-2 border-gray-300 dark:border-gray-600 bg-surface flex items-center justify-center hover:border-accent dark:hover:border-accent hover:scale-110 transition-all duration-150"
 				>
-					<ClipboardCopy size={14} />
+					<div class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600 group-hover:bg-accent transition-all duration-150"></div>
 				</button>
 			{/if}
 		</div>
