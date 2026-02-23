@@ -14,9 +14,10 @@ import { GlobalOptions, isSuperset, parseFromFile } from "../../types.ts";
 import { Folder } from "../../../gen/types.gen.ts";
 
 export interface FolderFile {
+  summary: string | undefined;
+  display_name: string | undefined;
   owners: Array<string> | undefined;
   extra_perms: { [record: string]: boolean } | undefined;
-  display_name: string | undefined;
 }
 
 async function list(opts: GlobalOptions & { json?: boolean }) {
@@ -45,7 +46,7 @@ async function list(opts: GlobalOptions & { json?: boolean }) {
   }
 }
 
-async function newFolder(opts: GlobalOptions, name: string) {
+async function newFolder(opts: GlobalOptions & { summary?: string }, name: string) {
   const dirPath = `f${SEP}${name}`;
   const filePath = `${dirPath}${SEP}folder.meta.yaml`;
   try {
@@ -54,7 +55,9 @@ async function newFolder(opts: GlobalOptions, name: string) {
   } catch (e: any) {
     if (e.message?.startsWith("File already exists")) throw e;
   }
-  const template: Omit<FolderFile, "display_name"> = {
+  const template: FolderFile = {
+    summary: opts.summary ?? "",
+    display_name: name,
     owners: [],
     extra_perms: {},
   };
@@ -143,26 +146,24 @@ export async function pushFolder(
   }
 }
 
-async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
+async function push(opts: GlobalOptions, name: string) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  if (!validatePath(remotePath)) {
-    return;
-  }
-
-  const fstat = await stat(filePath);
-  if (!fstat.isFile()) {
-    throw new Error("file path must refer to a file.");
+  const metaPath = `f${SEP}${name}${SEP}folder.meta.yaml`;
+  try {
+    await stat(metaPath);
+  } catch {
+    throw new Error(`Could not find ${metaPath}. Does the folder exist locally?`);
   }
 
   console.log(colors.bold.yellow("Pushing folder..."));
 
   await pushFolder(
     workspace.workspaceId,
-    remotePath,
+    name,
     undefined,
-    parseFromFile(filePath)
+    parseFromFile(metaPath)
   );
   console.log(colors.bold.underline.green("Folder pushed"));
 }
@@ -209,16 +210,17 @@ const command = new Command()
   .action(get as any)
   .command("new", "create a new folder locally")
   .arguments("<name:string>")
+  .option("--summary <summary:string>", "folder summary")
   .action(newFolder as any)
   .command(
     "push",
-    "push a local folder spec. This overrides any remote versions."
+    "push a local folder to the remote by name.  This overrides any remote versions."
   )
-  .arguments("<file_path:string> <remote_path:string>")
+  .arguments("<name:string>")
   .action(push as any)
   .command(
     "add-missing",
-    "create folder.meta.yaml for all subdirectories of f/ that are missing one"
+    "create default folder.meta.yaml for all subdirectories of f/ that are missing one"
   )
   .action(addMissing as any);
 

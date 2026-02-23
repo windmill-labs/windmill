@@ -4645,7 +4645,8 @@ folder related commands
 - \`folder get <name:string>\` - get a folder's details
   - \`--json\` - Output as JSON (for piping to jq)
 - \`folder new <name:string>\` - create a new folder locally
-- \`folder push <file_path:string> <remote_path:string>\` - push a local folder spec. This overrides any remote versions.
+- \`folder push <name:string>\` - push a local folder to the remote by name
+- \`folder add-missing\` - create folder.meta.yaml for all subdirectories of f/ that are missing one
 
 ### gitsync-settings
 
