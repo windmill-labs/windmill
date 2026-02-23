@@ -537,7 +537,7 @@
 											Windmill
 										{/if}
 									</div>
-									<div class="px-2 py-4 border-y border-light dark:border-gray-700">
+									<div class="px-2 py-4 border-y border-[#DCDEE6] dark:border-gray-700">
 										<Menubar>
 											{#snippet children({ createMenu })}
 												<WorkspaceMenu {createMenu} />
@@ -613,7 +613,7 @@
 									{/if}
 								</div>
 							</button>
-							<div class="px-2 py-4 border-y border-light dark:border-gray-700 flex flex-col gap-1">
+							<div class="px-2 py-4 border-y border-[#DCDEE6] dark:border-gray-700 flex flex-col gap-1">
 								<Menubar class="flex flex-col gap-1">
 									{#snippet children({ createMenu })}
 										<WorkspaceMenu {createMenu} {isCollapsed} />
@@ -730,7 +730,7 @@
 										)}{:else}Windmill{/if}{/if}
 							</div>
 
-							<div class="px-2 py-4 space-y-2 border-y border-light dark:border-gray-700">
+							<div class="px-2 py-4 space-y-2 border-y border-[#DCDEE6] dark:border-gray-700">
 								<Menubar>
 									{#snippet children({ createMenu })}
 										<WorkspaceMenu {createMenu} />
