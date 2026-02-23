@@ -176,7 +176,7 @@
 			{/if}
 			{#if name == 'google'}
 				<CollapseLink text="Instructions">
-					<div class="helper">
+					<div class="text-xs text-primary rounded-md">
 						Create a new OAuth 2.0 Client <a
 							href="https://console.cloud.google.com/apis/credentials"
 							target="_blank">in Google console</a
@@ -187,7 +187,7 @@
 				</CollapseLink>
 			{:else if name == 'slack'}
 				<CollapseLink text="Set up slack">
-					<div class="helper">
+					<div class="text-xs text-primary rounded-md">
 						To use Slack OAuth, create a new Slack app <a
 							href="https://api.slack.com/apps?new_app=1"
 							target="_blank"
@@ -266,7 +266,7 @@
 				</CollapseLink>
 			{:else if name == 'teams'}
 				<CollapseLink text="Instructions">
-					<div class="helper">
+					<div class="text-xs text-primary rounded-md">
 						Follow this guide on <a
 							href="https://www.windmill.dev/docs/misc/setup_oauth#microsoft-teams"
 							target="_blank">Windmill Docs</a
@@ -278,9 +278,3 @@
 		</SettingCard>
 	{/if}
 </div>
-
-<style>
-	.helper {
-		@apply text-xs text-primary rounded-md;
-	}
-</style>

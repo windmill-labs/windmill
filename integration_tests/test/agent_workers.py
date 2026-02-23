@@ -166,15 +166,14 @@ class TestAgentWorkers(unittest.TestCase):
         print(f"Agent token tests for token: {token}")
         self.assertIsNotNone(token)
 
-        # JWT tokens have the format: jwt_agent_<prefix>_<token>
-        self.assertTrue(token.startswith("jwt_agent_"), "Token should start with jwt_agent_")
+        # JWT tokens have the format: jwt_agent_<HEADER.PAYLOAD.SIGNATURE>
+        prefix = "jwt_agent_"
+        self.assertTrue(token.startswith(prefix), "Token should start with jwt_agent_")
 
-        # Test that it's a valid JWT format (should contain 2 dots in the JWT part)
-        parts = token.split('_')
-        self.assertGreaterEqual(len(parts), 3, "Token should have at least 3 parts separated by underscores")
-
-        # The actual JWT is after the second underscore
-        jwt_part = parts[2]
+        # Extract the JWT by stripping the known prefix (don't split on '_'
+        # because base64url encoding uses '_' as a valid character)
+        jwt_part = token[len(prefix):]
+        self.assertGreater(len(jwt_part), 0, "JWT part should not be empty")
         self.assertEqual(jwt_part.count('.'), 2, "JWT should contain exactly 2 dots")
 
         # Check that the token contains three base64-encoded parts

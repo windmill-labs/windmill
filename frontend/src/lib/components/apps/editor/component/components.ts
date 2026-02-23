@@ -4276,7 +4276,8 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					fieldType: 'array',
 					subFieldType: 'db-explorer',
 					value: [],
-					loading: false
+					loading: false,
+					allowTypeChange: false
 				} as StaticAppInput,
 				rowIdCol: {
 					type: 'static',

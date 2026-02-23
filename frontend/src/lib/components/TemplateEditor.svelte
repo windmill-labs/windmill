@@ -622,7 +622,7 @@
 					resolveCompletionItem: async (item: languages.CompletionItem, token: any) => {
 						extraModel.setValue('`' + model.getValue() + '`')
 
-						const myItem = <any>item
+						const myItem = item as any
 						const position = myItem.position
 						const offset = myItem.offset
 
@@ -634,7 +634,7 @@
 						if (!details) {
 							return myItem
 						}
-						return <any>{
+						return {
 							uri: model.uri,
 							position: position,
 							label: details.name,
@@ -643,7 +643,7 @@
 							documentation: {
 								value: createDocumentationString(details)
 							}
-						}
+						} as any
 					}
 				})
 			} catch (e) {

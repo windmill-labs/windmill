@@ -242,7 +242,7 @@
 					{jobs ? jobCountString(jobs.length, lastFetchWentToEnd) : ''}
 				{/if}
 			</div>
-			<div class="text-xs font-semibold">Started</div>
+			<div class="text-xs font-semibold"></div>
 			<div class="text-xs font-semibold">Duration</div>
 			<div class="text-xs font-semibold">Path</div>
 			{#if containsLabel}

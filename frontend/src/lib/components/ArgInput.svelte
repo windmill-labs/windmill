@@ -20,7 +20,6 @@
 	import ObjectResourceInput from './ObjectResourceInput.svelte'
 	import Range from './Range.svelte'
 	import ResourcePicker from './ResourcePicker.svelte'
-	import type SimpleEditor from './SimpleEditor.svelte'
 	import Toggle from './Toggle.svelte'
 	import type VariableEditor from './VariableEditor.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -97,7 +96,7 @@
 		title?: string | undefined
 		placeholder?: string | undefined
 		order?: string[] | undefined
-		editor?: SimpleEditor | undefined
+		editor?: any | undefined
 		orderEditable?: boolean
 		shouldDispatchChanges?: boolean
 		noDefaultOnSelectFirst?: boolean
