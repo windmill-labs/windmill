@@ -2643,7 +2643,10 @@ impl PulledJob {
             _ => None,
         };
 
+        #[cfg(all(feature = "private", feature = "enterprise"))]
         let scopes = self.raw_code.as_deref().and_then(parse_wmill_scopes);
+        #[cfg(not(all(feature = "private", feature = "enterprise")))]
+        let scopes: Option<Vec<String>> = None;
         let token = create_token(&db, &self.job, job_perms, scopes).await;
         JobAndPerms {
             job: self.job,

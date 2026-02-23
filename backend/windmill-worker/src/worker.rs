@@ -4216,11 +4216,6 @@ mount {{
     };
 
     let sandbox_config = windmill_sandbox::parse_sandbox_config(&code);
-    if !sandbox_config.volumes.is_empty() && sandbox_config.snapshot.is_none() {
-        return Err(Error::ExecutionErr(
-            "# volume: annotations require a # sandbox: annotation to be present".to_string(),
-        ));
-    }
     if !sandbox_config.allowed_domains.is_empty() {
         if sandbox_config.snapshot.is_none() {
             return Err(Error::ExecutionErr(
@@ -4236,75 +4231,31 @@ mount {{
             ));
         }
     }
-    let sandbox_setup = if sandbox_config.snapshot.is_some() || !sandbox_config.volumes.is_empty() {
+    let sandbox_setup = if let Some(ref snap) = sandbox_config.snapshot {
         let db = conn.as_sql().ok_or_else(|| {
             Error::ExecutionErr("Sandbox features require SQL connection".to_string())
         })?;
         let mut setup = windmill_sandbox::SandboxSetupState::default();
 
-        if let Some(ref snap) = sandbox_config.snapshot {
-            let snapshot_path = windmill_sandbox::ensure_snapshot_cached(
-                &job.workspace_id,
-                &snap.name,
-                &snap.tag,
-                db,
-            )
-            .await?;
-            setup.overlay = Some(windmill_sandbox::mount_overlay(&snapshot_path, job_dir).await?);
+        let snapshot_path =
+            windmill_sandbox::ensure_snapshot_cached(&job.workspace_id, &snap.name, &snap.tag, db)
+                .await?;
+        setup.overlay = Some(windmill_sandbox::mount_overlay(&snapshot_path, job_dir).await?);
 
-            let snap_row = sqlx::query!(
-                "SELECT include_wmill, agent_binary FROM sandbox_snapshot \
-                 WHERE workspace_id = $1 AND name = $2 AND tag = $3",
-                &job.workspace_id,
-                &snap.name,
-                &snap.tag,
-            )
-            .fetch_optional(db)
-            .await?;
-            if let Some(row) = snap_row {
-                setup.needs_host_bun = windmill_sandbox::snapshot_needs_host_bun(
-                    row.include_wmill,
-                    row.agent_binary.as_deref(),
-                );
-            }
-        }
-
-        for (vol_name, mount_path) in &sandbox_config.volumes {
-            let local_dir = format!("{job_dir}/volumes/{vol_name}");
-            std::fs::create_dir_all(&local_dir)
-                .map_err(|e| Error::ExecutionErr(format!("Failed to create volume dir: {e}")))?;
-            windmill_sandbox::download_volume(
-                &job.workspace_id,
-                vol_name,
-                std::path::Path::new(&local_dir),
-                db,
-            )
-            .await?;
-            setup.volume_mounts.insert(
-                vol_name.clone(),
-                (std::path::PathBuf::from(&local_dir), mount_path.clone()),
-            );
-        }
+        // wmill CLI is always present in snapshots and requires the host bun binary
+        setup.needs_host_bun = windmill_sandbox::snapshot_needs_host_bun();
 
         shared_mount.push_str(&windmill_sandbox::build_sandbox_mounts(&setup));
-        if setup.overlay.is_some() {
-            shared_mount.push_str(&windmill_sandbox::write_agent_files(job_dir));
-        }
+        shared_mount.push_str(&windmill_sandbox::write_agent_files(job_dir));
         Some(setup)
     } else {
         None
     };
 
-    if sandbox_config.snapshot.is_some()
-        || !sandbox_config.volumes.is_empty()
-        || !sandbox_config.allowed_domains.is_empty()
-    {
+    if sandbox_config.snapshot.is_some() || !sandbox_config.allowed_domains.is_empty() {
         let mut sandbox_logs = "\n--- SANDBOX ---\n".to_string();
         if let Some(ref snap) = sandbox_config.snapshot {
             sandbox_logs.push_str(&format!("Snapshot: {}:{}\n", snap.name, snap.tag));
-        }
-        for (vol_name, mount_path) in &sandbox_config.volumes {
-            sandbox_logs.push_str(&format!("Volume: {} -> {}\n", vol_name, mount_path));
         }
         if !sandbox_config.allowed_domains.is_empty() {
             sandbox_logs.push_str(&format!(
@@ -4782,16 +4733,6 @@ mount {{
     );
 
     if let Some(ref setup) = sandbox_setup {
-        if let Some(db) = conn.as_sql() {
-            for (vol_name, (local_dir, _)) in &setup.volume_mounts {
-                if let Err(e) =
-                    windmill_sandbox::upload_volume(&job.workspace_id, vol_name, local_dir, db)
-                        .await
-                {
-                    tracing::error!("Failed to upload volume {vol_name}: {e}");
-                }
-            }
-        }
         if let Some(ref overlay) = setup.overlay {
             windmill_sandbox::unmount_overlay(overlay).await.ok();
         }

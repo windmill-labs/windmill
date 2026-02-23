@@ -8,10 +8,7 @@
 		Button,
 		Drawer,
 		DrawerContent,
-		Skeleton,
-		Tab,
-		TabContent,
-		Tabs
+		Skeleton
 	} from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
 	import DataTable from '$lib/components/table/DataTable.svelte'
@@ -25,8 +22,6 @@
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
 	import Select from '$lib/components/select/Select.svelte'
 
 	type Snapshot = {
@@ -45,24 +40,9 @@
 		created_at: string
 		updated_at: string
 		extra_perms: Record<string, any>
-		include_wmill: boolean
-		agent_binary: string | null
 	}
 
-	type Volume = {
-		workspace_id: string
-		name: string
-		s3_key: string
-		size_bytes: number | null
-		created_by: string
-		created_at: string
-		updated_at: string
-		extra_perms: Record<string, any>
-	}
-
-	let tab: string = $state('snapshots')
 	let snapshots: Snapshot[] | undefined = $state(undefined)
-	let volumes: Volume[] | undefined = $state(undefined)
 
 	// Create snapshot drawer
 	let createDrawer: Drawer | undefined = $state()
@@ -90,16 +70,9 @@
 		return parseDockerfile(dockerfileContent).warnings
 	})
 
-	// Tool options state
-	let includeWmill = $state(false)
-	let agentBinary: string = $state('none')
-
 	// Upload state
 	let uploadFile: File | null = $state(null)
 	let uploading = $state(false)
-
-	// Create volume form
-	let newVolumeName = $state('')
 
 	// Detail drawer
 	let detailDrawer: Drawer | undefined = $state()
@@ -189,8 +162,6 @@
 		newSetupScript = ''
 		dockerfileContent = ''
 		uploadFile = null
-		includeWmill = false
-		agentBinary = 'none'
 	}
 
 	async function apiFetch(path: string, options?: RequestInit) {
@@ -214,16 +185,6 @@
 		} catch (e: any) {
 			sendUserToast(`Failed to load snapshots: ${e.message}`, true)
 			snapshots = []
-		}
-	}
-
-	async function loadVolumes() {
-		try {
-			const resp = await apiFetch('/volumes')
-			volumes = await resp.json()
-		} catch (e: any) {
-			sendUserToast(`Failed to load volumes: ${e.message}`, true)
-			volumes = []
 		}
 	}
 
@@ -260,9 +221,7 @@
 						name: newName,
 						tag,
 						docker_image: dockerImage,
-						setup_script: setupScript || null,
-						include_wmill: includeWmill,
-						agent_binary: agentBinary === 'none' ? null : agentBinary
+						setup_script: setupScript || null
 					})
 				})
 				sendUserToast(`Snapshot ${newName}:${tag} created`)
@@ -304,32 +263,6 @@
 		}
 	}
 
-	async function createVolume(close: () => void) {
-		try {
-			await apiFetch('/volumes', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ name: newVolumeName })
-			})
-			sendUserToast(`Volume ${newVolumeName} created`)
-			newVolumeName = ''
-			close()
-			loadVolumes()
-		} catch (e: any) {
-			sendUserToast(`Failed to create volume: ${e.message}`, true)
-		}
-	}
-
-	async function deleteVolume(name: string) {
-		try {
-			await apiFetch(`/volumes/${encodeURIComponent(name)}`, { method: 'DELETE' })
-			sendUserToast(`Deleted volume ${name}`)
-			loadVolumes()
-		} catch (e: any) {
-			sendUserToast(`Failed to delete volume: ${e.message}`, true)
-		}
-	}
-
 	function formatSize(bytes: number | null): string {
 		if (bytes == null) return '-'
 		if (bytes < 1024) return `${bytes} B`
@@ -359,7 +292,6 @@
 		if ($workspaceStore && $userStore) {
 			untrack(() => {
 				loadSnapshots()
-				loadVolumes()
 			})
 		}
 	})
@@ -490,43 +422,6 @@
 				{/if}
 			{/if}
 
-			{#if snapshotMode !== 'upload'}
-				<div class="flex flex-col gap-3 border-t pt-3">
-					<span class="text-xs font-semibold">Tools</span>
-					<div class="flex flex-col gap-1">
-						<span class="text-2xs text-secondary">AI Agent</span>
-						<ToggleButtonGroup
-							bind:selected={agentBinary}
-							onSelected={(v) => {
-								if (v !== 'none') {
-									includeWmill = true
-								}
-							}}
-						>
-							{#snippet children({ item })}
-								<ToggleButton value="none" label="None" {item} />
-								<ToggleButton value="claude" label="Claude Code" {item} />
-								<ToggleButton value="codex" label="Codex" {item} />
-								<ToggleButton value="opencode" label="OpenCode" {item} />
-							{/snippet}
-						</ToggleButtonGroup>
-					</div>
-					<Toggle
-						checked={includeWmill}
-						on:change={(e) => {
-							includeWmill = e.detail
-						}}
-						options={{ right: 'Include wmill CLI' }}
-						size="sm"
-					/>
-					{#if agentBinary !== 'none' && !includeWmill}
-						<span class="text-2xs text-tertiary"
-							>Including wmill CLI is highly recommended when using an AI agent</span
-						>
-					{/if}
-				</div>
-			{/if}
-
 			<Button
 				variant="accent"
 				disabled={!newName ||
@@ -546,13 +441,12 @@
 </Drawer>
 
 <Drawer bind:this={instructionsDrawer}>
-	<DrawerContent title="How to use Sandbox Snapshots & Volumes" on:close={instructionsDrawer?.closeDrawer}>
+	<DrawerContent title="How to use Sandbox Snapshots" on:close={instructionsDrawer?.closeDrawer}>
 		<div class="flex flex-col gap-6 text-sm">
 			<section>
 				<h3 class="font-semibold text-base mb-2">Overview</h3>
 				<p class="text-secondary">
 					Sandbox snapshots provide custom rootfs environments for nsjail-sandboxed scripts.
-					Volumes provide persistent storage that syncs to/from S3 between job runs.
 				</p>
 			</section>
 
@@ -593,20 +487,17 @@
 			<section>
 				<h3 class="font-semibold text-base mb-2">2. Use in Scripts</h3>
 				<p class="text-secondary mb-2">
-					Reference snapshots and volumes using comment annotations in your script:
+					Reference snapshots using comment annotations in your script:
 				</p>
 				<p class="text-xs font-medium mb-1">Python / Bash</p>
 				<pre class="bg-surface-secondary rounded p-3 text-xs overflow-x-auto">
 # sandbox: python-env:latest
-# volume: data:/workspace/data
 
 def main():
-    import pandas as pd  # available from snapshot
-    # /workspace/data persists between runs</pre>
+    import pandas as pd  # available from snapshot</pre>
 				<p class="text-xs font-medium mb-1 mt-2">TypeScript / Go</p>
 				<pre class="bg-surface-secondary rounded p-3 text-xs overflow-x-auto">
 // sandbox: node-env:v2
-// volume: cache:/tmp/cache
 
 export async function main() &#123;
     // Custom Node.js environment from snapshot
@@ -628,10 +519,6 @@ export async function main() &#123;
 								<td class="p-2 font-mono"># sandbox: name:tag</td>
 								<td class="p-2">Use snapshot "name" with "tag" as rootfs (tag defaults to "latest")</td>
 							</tr>
-							<tr class="border-t">
-								<td class="p-2 font-mono"># volume: name:/mount/path</td>
-								<td class="p-2">Mount volume "name" at the given path (auto-created if new)</td>
-							</tr>
 						</tbody>
 					</table>
 				</div>
@@ -643,7 +530,6 @@ export async function main() &#123;
 					<li>S3 object store must be configured in Instance Settings</li>
 					<li>nsjail must be available on workers</li>
 					<li>Workers need overlayfs support (root or fuse-overlayfs) for snapshots</li>
-					<li>Volumes work without overlayfs — they are simple bind mounts</li>
 				</ul>
 			</section>
 		</div>
@@ -713,23 +599,6 @@ export async function main() &#123;
 					</div>
 				</section>
 
-				{#if selectedSnapshot.include_wmill || selectedSnapshot.agent_binary}
-					<section>
-						<h4 class="font-semibold text-xs mb-2">Installed Tools</h4>
-						<div class="flex flex-wrap gap-2">
-							{#if selectedSnapshot.include_wmill}
-								<Badge small>wmill CLI</Badge>
-							{/if}
-							{#if selectedSnapshot.agent_binary === 'claude'}
-								<Badge small>Claude Code</Badge>
-							{:else if selectedSnapshot.agent_binary === 'codex'}
-								<Badge small>Codex</Badge>
-							{:else if selectedSnapshot.agent_binary === 'opencode'}
-								<Badge small>OpenCode</Badge>
-							{/if}
-						</div>
-					</section>
-				{/if}
 
 				{#if selectedSnapshot.build_job_id || selectedSnapshot.build_error}
 					<section>
@@ -781,7 +650,7 @@ export async function main() &#123;
 	<CenteredPage>
 		<PageHeader
 			title="Sandboxes"
-			tooltip="Manage sandbox snapshots (custom rootfs environments) and volumes (persistent storage) for nsjail-sandboxed script execution."
+			tooltip="Manage sandbox snapshots (custom rootfs environments) for nsjail-sandboxed script execution."
 		>
 			<div class="flex flex-row gap-2">
 				<Button
@@ -792,231 +661,123 @@ export async function main() &#123;
 				>
 					How to use
 				</Button>
-				{#if tab === 'snapshots'}
-					<Button
-						variant="accent"
-						unifiedSize="md"
-						startIcon={{ icon: Plus }}
-						on:click={() => createDrawer?.openDrawer()}
-					>
-						New snapshot
-					</Button>
-				{:else}
-					<Popover
-						floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-						contentClasses="flex flex-col gap-2 p-4 w-72"
-					>
-						{#snippet trigger()}
-							<Button variant="accent" unifiedSize="md" startIcon={{ icon: Plus }} nonCaptureEvent>
-								New volume
-							</Button>
-						{/snippet}
-						{#snippet content({ close })}
-							<label class="block">
-								<span class="text-xs font-semibold">Volume name</span>
-								<input
-									class="w-full mt-1"
-									bind:value={newVolumeName}
-									placeholder="e.g. shared-data"
-									onkeyup={(e) => {
-										if (e.key === 'Enter') createVolume(close)
-									}}
-								/>
-							</label>
-							<Button
-								variant="accent"
-								startIcon={{ icon: Plus }}
-								disabled={!newVolumeName}
-								on:click={() => createVolume(close)}
-							>
-								Create
-							</Button>
-						{/snippet}
-					</Popover>
-				{/if}
+				<Button
+					variant="accent"
+					unifiedSize="md"
+					startIcon={{ icon: Plus }}
+					on:click={() => createDrawer?.openDrawer()}
+				>
+					New snapshot
+				</Button>
 			</div>
 		</PageHeader>
 
-		<Tabs bind:selected={tab}>
-			{#snippet children()}
-				<Tab value="snapshots" label="Snapshots" />
-				<Tab value="volumes" label="Volumes" />
-			{/snippet}
-			{#snippet content()}
-				<TabContent value="snapshots">
-					<div class="relative mb-20 pt-4">
-						<DataTable>
-							<Head>
-								<tr>
-									<Cell head first>Name</Cell>
-									<Cell head>Tag</Cell>
-									<Cell head>Status</Cell>
-									<Cell head>Docker Image</Cell>
-									<Cell head>Size</Cell>
-									<Cell head>Created by</Cell>
-									<Cell head>Updated</Cell>
-									<Cell head last />
-								</tr>
-							</Head>
-							<tbody class="divide-y">
-								{#if snapshots === undefined}
-									{#each new Array(3) as _}
-										<tr>
-											<td colspan="8"><Skeleton layout={[[2]]} /></td>
-										</tr>
-									{/each}
-								{:else if snapshots.length === 0}
-									<tr>
-										<td colspan="8" class="text-secondary text-sm p-4">
-											No snapshots yet. Create one from a Docker image or upload a tar.gz rootfs.
-										</td>
-									</tr>
-								{:else}
-									{#each snapshots as snapshot (snapshot.name + ':' + snapshot.tag)}
-										<Row hoverable on:click={() => openSnapshotDetail(snapshot)}>
-											<Cell first>
-												<span class="text-emphasis text-xs font-semibold">{snapshot.name}</span>
-											</Cell>
-											<Cell>
-												<span class="text-xs font-mono">{snapshot.tag}</span>
-											</Cell>
-											<Cell>
-												<div class="flex items-center gap-1.5">
-													{#if snapshot.build_job_id}
-														<a href="{base}/run/{snapshot.build_job_id}?workspace={$workspaceStore}">
-															<Badge color={statusColor(snapshot.status)} small>
-																{snapshot.status}
-															</Badge>
-														</a>
-													{:else}
-														<Badge color={statusColor(snapshot.status)} small>
-															{snapshot.status}
-														</Badge>
-													{/if}
-													{#if snapshot.build_error}
-														<Tooltip small>
-															{#snippet text()}
-																<pre class="whitespace-pre-wrap text-2xs max-w-md">{snapshot.build_error}</pre>
-															{/snippet}
-															<span class="text-red-500 text-2xs cursor-help underline decoration-dotted">
-																(error)
-															</span>
-														</Tooltip>
-													{/if}
-												</div>
-											</Cell>
-											<Cell>
-												<span class="text-xs font-mono">{snapshot.docker_image}</span>
-											</Cell>
-											<Cell>
-												<span class="text-xs">{formatSize(snapshot.size_bytes)}</span>
-											</Cell>
-											<Cell>
-												<span class="text-xs">{snapshot.created_by}</span>
-											</Cell>
-											<Cell>
-												<span class="text-xs">{displayDate(snapshot.updated_at)}</span>
-											</Cell>
-											<Cell shouldStopPropagation>
-												<Dropdown
-													items={[
-														...(snapshot.build_job_id
-															? [
-																	{
-																		displayName: 'View build job',
-																		icon: ExternalLink,
-																		href: `${base}/run/${snapshot.build_job_id}?workspace=${$workspaceStore}`
-																	}
-																]
-															: []),
+		<div class="relative mb-20 pt-4">
+			<DataTable>
+				<Head>
+					<tr>
+						<Cell head first>Name</Cell>
+						<Cell head>Tag</Cell>
+						<Cell head>Status</Cell>
+						<Cell head>Docker Image</Cell>
+						<Cell head>Size</Cell>
+						<Cell head>Created by</Cell>
+						<Cell head>Updated</Cell>
+						<Cell head last />
+					</tr>
+				</Head>
+				<tbody class="divide-y">
+					{#if snapshots === undefined}
+						{#each new Array(3) as _}
+							<tr>
+								<td colspan="8"><Skeleton layout={[[2]]} /></td>
+							</tr>
+						{/each}
+					{:else if snapshots.length === 0}
+						<tr>
+							<td colspan="8" class="text-secondary text-sm p-4">
+								No snapshots yet. Create one from a Docker image or upload a tar.gz rootfs.
+							</td>
+						</tr>
+					{:else}
+						{#each snapshots as snapshot (snapshot.name + ':' + snapshot.tag)}
+							<Row hoverable on:click={() => openSnapshotDetail(snapshot)}>
+								<Cell first>
+									<span class="text-emphasis text-xs font-semibold">{snapshot.name}</span>
+								</Cell>
+								<Cell>
+									<span class="text-xs font-mono">{snapshot.tag}</span>
+								</Cell>
+								<Cell>
+									<div class="flex items-center gap-1.5">
+										{#if snapshot.build_job_id}
+											<a href="{base}/run/{snapshot.build_job_id}?workspace={$workspaceStore}">
+												<Badge color={statusColor(snapshot.status)} small>
+													{snapshot.status}
+												</Badge>
+											</a>
+										{:else}
+											<Badge color={statusColor(snapshot.status)} small>
+												{snapshot.status}
+											</Badge>
+										{/if}
+										{#if snapshot.build_error}
+											<Tooltip small>
+												{#snippet text()}
+													<pre class="whitespace-pre-wrap text-2xs max-w-md">{snapshot.build_error}</pre>
+												{/snippet}
+												<span class="text-red-500 text-2xs cursor-help underline decoration-dotted">
+													(error)
+												</span>
+											</Tooltip>
+										{/if}
+									</div>
+								</Cell>
+								<Cell>
+									<span class="text-xs font-mono">{snapshot.docker_image}</span>
+								</Cell>
+								<Cell>
+									<span class="text-xs">{formatSize(snapshot.size_bytes)}</span>
+								</Cell>
+								<Cell>
+									<span class="text-xs">{snapshot.created_by}</span>
+								</Cell>
+								<Cell>
+									<span class="text-xs">{displayDate(snapshot.updated_at)}</span>
+								</Cell>
+								<Cell shouldStopPropagation>
+									<Dropdown
+										items={[
+											...(snapshot.build_job_id
+												? [
 														{
-															displayName: 'Rebuild',
-															icon: RefreshCw,
-															action: () =>
-																rebuildSnapshot(snapshot.name, snapshot.tag)
-														},
-														{
-															displayName: 'Delete',
-															icon: Trash,
-															type: 'delete',
-															action: () =>
-																deleteSnapshot(snapshot.name, snapshot.tag)
+															displayName: 'View build job',
+															icon: ExternalLink,
+															href: `${base}/run/${snapshot.build_job_id}?workspace=${$workspaceStore}`
 														}
-													]}
-												/>
-											</Cell>
-										</Row>
-									{/each}
-								{/if}
-							</tbody>
-						</DataTable>
-					</div>
-				</TabContent>
-				<TabContent value="volumes">
-					<div class="relative mb-20 pt-4">
-						<DataTable>
-							<Head>
-								<tr>
-									<Cell head first>Name</Cell>
-									<Cell head>Size</Cell>
-									<Cell head>S3 Key</Cell>
-									<Cell head>Created by</Cell>
-									<Cell head>Updated</Cell>
-									<Cell head last />
-								</tr>
-							</Head>
-							<tbody class="divide-y">
-								{#if volumes === undefined}
-									{#each new Array(3) as _}
-										<tr>
-											<td colspan="6"><Skeleton layout={[[2]]} /></td>
-										</tr>
-									{/each}
-								{:else if volumes.length === 0}
-									<tr>
-										<td colspan="6" class="text-secondary text-sm p-4">
-											No volumes yet. Volumes are auto-created when referenced in scripts, or you
-											can create one manually.
-										</td>
-									</tr>
-								{:else}
-									{#each volumes as volume (volume.name)}
-										<Row hoverable>
-											<Cell first>
-												<span class="text-emphasis text-xs font-semibold">{volume.name}</span>
-											</Cell>
-											<Cell>
-												<span class="text-xs">{formatSize(volume.size_bytes)}</span>
-											</Cell>
-											<Cell>
-												<span class="text-xs font-mono text-secondary">{volume.s3_key}</span>
-											</Cell>
-											<Cell>
-												<span class="text-xs">{volume.created_by}</span>
-											</Cell>
-											<Cell>
-												<span class="text-xs">{displayDate(volume.updated_at)}</span>
-											</Cell>
-											<Cell shouldStopPropagation>
-												<Dropdown
-													items={[
-														{
-															displayName: 'Delete',
-															icon: Trash,
-															type: 'delete',
-															action: () => deleteVolume(volume.name)
-														}
-													]}
-												/>
-											</Cell>
-										</Row>
-									{/each}
-								{/if}
-							</tbody>
-						</DataTable>
-					</div>
-				</TabContent>
-			{/snippet}
-		</Tabs>
+													]
+												: []),
+											{
+												displayName: 'Rebuild',
+												icon: RefreshCw,
+												action: () =>
+													rebuildSnapshot(snapshot.name, snapshot.tag)
+											},
+											{
+												displayName: 'Delete',
+												icon: Trash,
+												type: 'delete',
+												action: () =>
+													deleteSnapshot(snapshot.name, snapshot.tag)
+											}
+										]}
+									/>
+								</Cell>
+							</Row>
+						{/each}
+					{/if}
+				</tbody>
+			</DataTable>
+		</div>
 	</CenteredPage>
 {/if}

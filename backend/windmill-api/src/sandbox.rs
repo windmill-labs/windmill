@@ -15,7 +15,7 @@ use windmill_common::{
     worker::CLOUD_HOSTED,
 };
 use windmill_queue::{push, PushArgs, PushIsolationLevel};
-use windmill_sandbox::{SandboxSnapshot, SandboxVolume, VALID_AGENT_BINARIES};
+use windmill_sandbox::SandboxSnapshot;
 use windmill_types::jobs::JobPayload;
 
 use crate::db::ApiAuthed;
@@ -30,8 +30,6 @@ pub fn workspaced_service() -> Router {
         .route("/snapshots/:name", delete(delete_snapshot_all_tags))
         .route("/snapshots/:name/:tag/rebuild", post(rebuild_snapshot))
         .route("/snapshots/:name/:tag/upload", post(upload_snapshot))
-        .route("/volumes", get(list_volumes).post(create_volume))
-        .route("/volumes/:name", get(get_volume).delete(delete_volume))
 }
 
 #[derive(Deserialize)]
@@ -51,7 +49,7 @@ async fn list_snapshots(
             SandboxSnapshot,
             "SELECT workspace_id, name, tag, s3_key, content_hash, docker_image, setup_script, \
              size_bytes, status, build_error, build_job_id, created_by, created_at, updated_at, \
-             extra_perms, include_wmill, agent_binary \
+             extra_perms \
              FROM sandbox_snapshot WHERE workspace_id = $1 AND name = $2 ORDER BY created_at DESC",
             &w_id,
             &name,
@@ -63,7 +61,7 @@ async fn list_snapshots(
             SandboxSnapshot,
             "SELECT workspace_id, name, tag, s3_key, content_hash, docker_image, setup_script, \
              size_bytes, status, build_error, build_job_id, created_by, created_at, updated_at, \
-             extra_perms, include_wmill, agent_binary \
+             extra_perms \
              FROM sandbox_snapshot WHERE workspace_id = $1 ORDER BY created_at DESC",
             &w_id,
         )
@@ -80,9 +78,6 @@ struct CreateSnapshot {
     tag: String,
     docker_image: String,
     setup_script: Option<String>,
-    #[serde(default)]
-    include_wmill: bool,
-    agent_binary: Option<String>,
 }
 
 fn default_tag() -> String {
@@ -116,16 +111,6 @@ async fn create_snapshot(
         }
     }
 
-    if let Some(ref agent) = body.agent_binary {
-        if !VALID_AGENT_BINARIES.contains(&agent.as_str()) {
-            return Err(error::Error::BadRequest(format!(
-                "Invalid agent_binary '{}'. Valid options: {}",
-                agent,
-                VALID_AGENT_BINARIES.join(", ")
-            )));
-        }
-    }
-
     let s3_key = format!(
         "sandbox/snapshots/{}/{}/{}.tar.gz",
         w_id, body.name, body.tag
@@ -133,10 +118,10 @@ async fn create_snapshot(
     sqlx::query!(
         "INSERT INTO sandbox_snapshot \
          (workspace_id, name, tag, s3_key, docker_image, setup_script, \
-          include_wmill, agent_binary, created_by, status) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending') \
+          created_by, status) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending') \
          ON CONFLICT (workspace_id, name, tag) DO UPDATE SET \
-         docker_image = $5, setup_script = $6, include_wmill = $7, agent_binary = $8, \
+         docker_image = $5, setup_script = $6, \
          status = 'pending', build_error = NULL, updated_at = now()",
         &w_id,
         &body.name,
@@ -144,8 +129,6 @@ async fn create_snapshot(
         &s3_key,
         &body.docker_image,
         body.setup_script.as_deref(),
-        body.include_wmill,
-        body.agent_binary.as_deref(),
         &authed.username,
     )
     .execute(&db)
@@ -158,8 +141,6 @@ async fn create_snapshot(
         &body.tag,
         &body.docker_image,
         body.setup_script.as_deref(),
-        body.include_wmill,
-        body.agent_binary.as_deref(),
         &authed,
     )
     .await?;
@@ -191,7 +172,7 @@ async fn get_snapshot(
         SandboxSnapshot,
         "SELECT workspace_id, name, tag, s3_key, content_hash, docker_image, setup_script, \
          size_bytes, status, build_error, build_job_id, created_by, created_at, updated_at, \
-         extra_perms, include_wmill, agent_binary \
+         extra_perms \
          FROM sandbox_snapshot WHERE workspace_id = $1 AND name = $2 AND tag = $3",
         &w_id,
         &name,
@@ -261,7 +242,7 @@ async fn rebuild_snapshot(
     require_admin(authed.is_admin, &authed.username)?;
 
     let row = sqlx::query!(
-        "SELECT docker_image, setup_script, include_wmill, agent_binary FROM sandbox_snapshot \
+        "SELECT docker_image, setup_script FROM sandbox_snapshot \
          WHERE workspace_id = $1 AND name = $2 AND tag = $3",
         &w_id,
         &name,
@@ -289,8 +270,6 @@ async fn rebuild_snapshot(
         &tag,
         &row.docker_image,
         row.setup_script.as_deref(),
-        row.include_wmill,
-        row.agent_binary.as_deref(),
         &authed,
     )
     .await?;
@@ -360,8 +339,6 @@ async fn push_snapshot_build_job(
     tag: &str,
     docker_image: &str,
     setup_script: Option<&str>,
-    include_wmill: bool,
-    agent_binary: Option<&str>,
     authed: &ApiAuthed,
 ) -> error::Result<uuid::Uuid> {
     let mut args = HashMap::new();
@@ -380,14 +357,6 @@ async fn push_snapshot_build_job(
     args.insert(
         "setup_script".to_string(),
         JsonRawValue::from_string(serde_json::to_string(&setup_script).unwrap()).unwrap(),
-    );
-    args.insert(
-        "include_wmill".to_string(),
-        JsonRawValue::from_string(serde_json::to_string(&include_wmill).unwrap()).unwrap(),
-    );
-    args.insert(
-        "agent_binary".to_string(),
-        JsonRawValue::from_string(serde_json::to_string(&agent_binary).unwrap()).unwrap(),
     );
 
     let tx = PushIsolationLevel::IsolatedRoot(db.clone());
@@ -428,93 +397,4 @@ async fn push_snapshot_build_job(
     tx.commit().await?;
 
     Ok(job_uuid)
-}
-
-// --- Volumes ---
-
-async fn list_volumes(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path(w_id): Path<String>,
-) -> JsonResult<Vec<SandboxVolume>> {
-    require_admin(authed.is_admin, &authed.username)?;
-    let rows = sqlx::query_as!(
-        SandboxVolume,
-        "SELECT workspace_id, name, s3_key, size_bytes, created_by, created_at, updated_at, \
-         extra_perms \
-         FROM sandbox_volume WHERE workspace_id = $1 ORDER BY created_at DESC",
-        &w_id,
-    )
-    .fetch_all(&db)
-    .await?;
-    Ok(Json(rows))
-}
-
-#[derive(Deserialize)]
-struct CreateVolume {
-    name: String,
-}
-
-async fn create_volume(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path(w_id): Path<String>,
-    Json(body): Json<CreateVolume>,
-) -> error::Result<String> {
-    require_admin(authed.is_admin, &authed.username)?;
-    let s3_key = format!("sandbox/volumes/{}/{}.tar.gz", w_id, body.name);
-    sqlx::query!(
-        "INSERT INTO sandbox_volume (workspace_id, name, s3_key, created_by) \
-         VALUES ($1, $2, $3, $4) \
-         ON CONFLICT (workspace_id, name) DO NOTHING",
-        &w_id,
-        &body.name,
-        &s3_key,
-        &authed.username,
-    )
-    .execute(&db)
-    .await?;
-    Ok(format!("Volume {} created", body.name))
-}
-
-async fn get_volume(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path((w_id, name)): Path<(String, String)>,
-) -> JsonResult<SandboxVolume> {
-    require_admin(authed.is_admin, &authed.username)?;
-    let row = sqlx::query_as!(
-        SandboxVolume,
-        "SELECT workspace_id, name, s3_key, size_bytes, created_by, created_at, updated_at, \
-         extra_perms \
-         FROM sandbox_volume WHERE workspace_id = $1 AND name = $2",
-        &w_id,
-        &name,
-    )
-    .fetch_optional(&db)
-    .await?;
-    let row = windmill_common::utils::not_found_if_none(row, "sandbox_volume", &name)?;
-    Ok(Json(row))
-}
-
-async fn delete_volume(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path((w_id, name)): Path<(String, String)>,
-) -> error::Result<String> {
-    require_admin(authed.is_admin, &authed.username)?;
-
-    let row = sqlx::query!(
-        "DELETE FROM sandbox_volume WHERE workspace_id = $1 AND name = $2 RETURNING s3_key",
-        &w_id,
-        &name,
-    )
-    .fetch_optional(&db)
-    .await?;
-
-    if let Some(row) = row {
-        windmill_object_store::delete_s3_object(&db, &w_id, &row.s3_key).await;
-    }
-
-    Ok(format!("Deleted volume {}", name))
 }

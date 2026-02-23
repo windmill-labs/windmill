@@ -17,14 +17,6 @@ pub fn build_sandbox_mounts(setup: &SandboxSetupState) -> String {
         ));
     }
 
-    for (_name, (local_dir, mount_path)) in &setup.volume_mounts {
-        mounts.push_str(&format!(
-            "\nmount {{\n    src: \"{}\"\n    dst: \"{}\"\n    is_bind: true\n    rw: true\n}}\n",
-            local_dir.display(),
-            mount_path
-        ));
-    }
-
     if setup.needs_host_bun {
         mounts.push_str(&format!("\n{NEEDS_HOST_BUN_MARKER}\n"));
     }
@@ -47,7 +39,8 @@ pub fn finalize_nsjail_config(config: &str, runtime_bins: &[&str]) -> String {
         return config.to_string();
     }
 
-    // If the host-bun marker is present, auto-add bun to runtime_bins.
+    // If the host-bun marker is present, auto-add bun to runtime_bins
+    // and also discover wmill CLI paths for bind-mounting.
     // We do NOT mount the host node binary — it has too many shared-lib
     // dependencies (libuv, libssl, libicu…) that won't exist in minimal
     // container images. Instead, a `node -> bun` symlink is baked into
@@ -55,12 +48,25 @@ pub fn finalize_nsjail_config(config: &str, runtime_bins: &[&str]) -> String {
     // resolve to bun (which is fully node-compatible and only needs glibc).
     let needs_host_bun = config.contains(NEEDS_HOST_BUN_MARKER);
     let bun_path = std::env::var("BUN_PATH").unwrap_or_else(|_| "/usr/bin/bun".to_string());
+    let bun_install = std::env::var("BUN_INSTALL").unwrap_or_else(|_| "/usr/local".to_string());
+    let wmill_bin_path = format!("{}/bin/wmill", bun_install);
+    let wmill_globals_dir = format!("{}/install/global", bun_install);
     let mut effective_bins: Vec<&str> = runtime_bins.to_vec();
-    let bun_path_ref: &str;
+    // Directories to bind-mount (for wmill's node_modules tree)
+    let mut extra_dir_mounts: Vec<&str> = Vec::new();
     if needs_host_bun {
-        bun_path_ref = &bun_path;
-        if !effective_bins.contains(&bun_path_ref) {
-            effective_bins.push(bun_path_ref);
+        if !effective_bins.contains(&&*bun_path) {
+            effective_bins.push(&bun_path);
+        }
+        // Also mount wmill binary from the host bun global install
+        if std::path::Path::new(&wmill_bin_path).exists()
+            && !effective_bins.contains(&&*wmill_bin_path)
+        {
+            effective_bins.push(&wmill_bin_path);
+        }
+        // Mount the bun global install directory (contains wmill's node_modules)
+        if std::path::Path::new(&wmill_globals_dir).exists() {
+            extra_dir_mounts.push(&wmill_globals_dir);
         }
     }
     let runtime_bins = &effective_bins;
@@ -164,9 +170,19 @@ pub fn finalize_nsjail_config(config: &str, runtime_bins: &[&str]) -> String {
         })
         .collect();
 
+    // Directory bind mounts (e.g. wmill's node_modules from bun global install)
+    let dir_mounts: String = extra_dir_mounts
+        .iter()
+        .filter(|dir| system_dirs.iter().any(|d| dir.starts_with(d)))
+        .map(|dir| {
+            format!("\nmount {{\n    src: \"{dir}\"\n    dst: \"{dir}\"\n    is_bind: true\n}}")
+        })
+        .collect();
+
     let mut result = result_lines.join("\n");
-    if !runtime_mounts.is_empty() {
+    if !runtime_mounts.is_empty() || !dir_mounts.is_empty() {
         result.push_str(&runtime_mounts);
+        result.push_str(&dir_mounts);
         result.push('\n');
     }
     result
@@ -176,7 +192,6 @@ pub fn finalize_nsjail_config(config: &str, runtime_bins: &[&str]) -> String {
 mod tests {
     use super::*;
     use crate::OverlayMount;
-    use std::collections::HashMap;
     use std::path::PathBuf;
 
     // =========================================================================
@@ -191,47 +206,6 @@ mod tests {
     }
 
     #[test]
-    fn test_build_sandbox_mounts_volumes_only() {
-        let mut setup = SandboxSetupState::default();
-        setup.volume_mounts.insert(
-            "data".to_string(),
-            (
-                PathBuf::from("/job/volumes/data"),
-                "/workspace/data".to_string(),
-            ),
-        );
-        let mounts = build_sandbox_mounts(&setup);
-        assert!(mounts.contains("dst: \"/workspace/data\""));
-        assert!(mounts.contains("src: \"/job/volumes/data\""));
-        assert!(mounts.contains("is_bind: true"));
-        assert!(mounts.contains("rw: true"));
-        assert!(!mounts.contains(OVERLAY_MARKER));
-    }
-
-    #[test]
-    fn test_build_sandbox_mounts_multiple_volumes() {
-        let mut setup = SandboxSetupState::default();
-        setup.volume_mounts.insert(
-            "input".to_string(),
-            (
-                PathBuf::from("/job/volumes/input"),
-                "/mnt/input".to_string(),
-            ),
-        );
-        setup.volume_mounts.insert(
-            "output".to_string(),
-            (
-                PathBuf::from("/job/volumes/output"),
-                "/mnt/output".to_string(),
-            ),
-        );
-        let mounts = build_sandbox_mounts(&setup);
-        assert!(mounts.contains("/mnt/input"));
-        assert!(mounts.contains("/mnt/output"));
-        assert_eq!(mounts.matches("mount {").count(), 2);
-    }
-
-    #[test]
     fn test_build_sandbox_mounts_overlay_only() {
         let setup = SandboxSetupState {
             overlay: Some(OverlayMount {
@@ -240,39 +214,12 @@ mod tests {
                 work: PathBuf::from("/job/overlay_work"),
                 is_fuse: false,
             }),
-            volume_mounts: HashMap::new(),
             ..Default::default()
         };
         let mounts = build_sandbox_mounts(&setup);
         assert!(mounts.contains(OVERLAY_MARKER));
         assert!(mounts.contains("src: \"/job/overlay_merged\""));
         assert!(mounts.contains("dst: \"/\""));
-    }
-
-    #[test]
-    fn test_build_sandbox_mounts_overlay_and_volumes() {
-        let mut setup = SandboxSetupState {
-            overlay: Some(OverlayMount {
-                merged: PathBuf::from("/job/overlay_merged"),
-                upper: PathBuf::from("/job/overlay_upper"),
-                work: PathBuf::from("/job/overlay_work"),
-                is_fuse: false,
-            }),
-            volume_mounts: HashMap::new(),
-            ..Default::default()
-        };
-        setup.volume_mounts.insert(
-            "data".to_string(),
-            (
-                PathBuf::from("/job/volumes/data"),
-                "/workspace/data".to_string(),
-            ),
-        );
-        let mounts = build_sandbox_mounts(&setup);
-        assert!(mounts.contains(OVERLAY_MARKER));
-        assert!(mounts.contains("dst: \"/\""));
-        assert!(mounts.contains("dst: \"/workspace/data\""));
-        assert_eq!(mounts.matches("mount {").count(), 2);
     }
 
     // =========================================================================
@@ -364,31 +311,6 @@ mod tests {
         assert_eq!(result.matches("mount {").count(), 1);
     }
 
-    #[test]
-    fn test_mount_block_syntax() {
-        let setup = SandboxSetupState {
-            overlay: Some(OverlayMount {
-                merged: PathBuf::from("/job/merged"),
-                upper: PathBuf::from("/job/upper"),
-                work: PathBuf::from("/job/work"),
-                is_fuse: false,
-            }),
-            volume_mounts: HashMap::from([(
-                "vol".to_string(),
-                (PathBuf::from("/job/volumes/vol"), "/mnt/vol".to_string()),
-            )]),
-            ..Default::default()
-        };
-        let mounts = build_sandbox_mounts(&setup);
-
-        for block in mounts.split("mount {").skip(1) {
-            assert!(block.contains('}'));
-            assert!(block.contains("dst: \""));
-            assert!(block.contains("is_bind: true"));
-            assert!(block.contains("rw: true"));
-        }
-    }
-
     // =========================================================================
     // Unit tests: NEEDS_HOST_BUN_MARKER
     // =========================================================================
@@ -402,7 +324,6 @@ mod tests {
                 work: PathBuf::from("/job/work"),
                 is_fuse: false,
             }),
-            volume_mounts: HashMap::new(),
             needs_host_bun: true,
         };
         let mounts = build_sandbox_mounts(&setup);
@@ -419,7 +340,6 @@ mod tests {
                 work: PathBuf::from("/job/work"),
                 is_fuse: false,
             }),
-            volume_mounts: HashMap::new(),
             needs_host_bun: false,
         };
         let mounts = build_sandbox_mounts(&setup);

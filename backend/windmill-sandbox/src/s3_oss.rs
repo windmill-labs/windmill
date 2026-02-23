@@ -3,7 +3,7 @@
 pub use crate::s3_ee::*;
 
 #[cfg(all(not(feature = "private"), feature = "parquet"))]
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[cfg(all(not(feature = "private"), feature = "parquet"))]
 const SNAPSHOT_CACHE_DIR: &str = "/tmp/windmill/snapshots";
@@ -97,136 +97,12 @@ pub async fn ensure_snapshot_cached(
 }
 
 #[cfg(all(not(feature = "private"), feature = "parquet"))]
-pub async fn download_volume(
-    w_id: &str,
-    name: &str,
-    local_path: &Path,
-    db: &windmill_common::DB,
-) -> windmill_common::error::Result<()> {
-    use windmill_common::error::Error;
-
-    let row = sqlx::query!(
-        "SELECT s3_key FROM sandbox_volume WHERE workspace_id = $1 AND name = $2",
-        w_id,
-        name,
-    )
-    .fetch_optional(db)
-    .await?;
-
-    let s3_key = match row {
-        Some(r) => r.s3_key,
-        None => {
-            let s3_key = format!("sandbox/volumes/{w_id}/{name}.tar.gz");
-            sqlx::query!(
-                "INSERT INTO sandbox_volume (workspace_id, name, s3_key, created_by) \
-                 VALUES ($1, $2, $3, 'system') ON CONFLICT DO NOTHING",
-                w_id,
-                name,
-                &s3_key,
-            )
-            .execute(db)
-            .await?;
-            tracing::info!("Auto-created volume {name} in workspace {w_id}");
-            return Ok(());
-        }
-    };
-
-    let os = windmill_object_store::get_workspace_object_store(db, w_id).await?;
-
-    let bytes = match windmill_object_store::fetch_bytes_from_store(os, &s3_key).await? {
-        Some(b) => b,
-        None => {
-            tracing::info!("Volume has no S3 data yet, using empty dir");
-            return Ok(());
-        }
-    };
-
-    let local_path = local_path.to_path_buf();
-    let bytes_vec = bytes.to_vec();
-    tokio::task::spawn_blocking(move || crate::untar_gz(&bytes_vec, &local_path))
-        .await
-        .map_err(|e| Error::ExecutionErr(format!("Spawn blocking failed: {e}")))??;
-
-    Ok(())
-}
-
-#[cfg(all(not(feature = "private"), not(feature = "parquet")))]
-pub async fn download_volume(
-    _w_id: &str,
-    _name: &str,
-    _local_path: &std::path::Path,
-    _db: &windmill_common::DB,
-) -> windmill_common::error::Result<()> {
-    Err(windmill_common::error::Error::ExecutionErr(
-        "Sandbox volumes require the parquet feature (S3 object store)".to_string(),
-    ))
-}
-
-#[cfg(all(not(feature = "private"), feature = "parquet"))]
-pub async fn upload_volume(
-    w_id: &str,
-    name: &str,
-    local_path: &Path,
-    db: &windmill_common::DB,
-) -> windmill_common::error::Result<()> {
-    use windmill_common::error::Error;
-
-    let os = windmill_object_store::get_workspace_object_store(db, w_id).await?;
-
-    let s3_key = sqlx::query_scalar!(
-        "SELECT s3_key FROM sandbox_volume WHERE workspace_id = $1 AND name = $2",
-        w_id,
-        name,
-    )
-    .fetch_optional(db)
-    .await?
-    .ok_or_else(|| Error::NotFound(format!("sandbox volume {name} not found")))?;
-
-    let local_path = local_path.to_path_buf();
-    let bytes = tokio::task::spawn_blocking(move || crate::tar_gz(&local_path))
-        .await
-        .map_err(|e| Error::ExecutionErr(format!("Spawn blocking failed: {e}")))??;
-
-    let size = bytes.len();
-
-    windmill_object_store::put_bytes_to_store(os, &s3_key, bytes.into()).await?;
-
-    let size_i64 = size as i64;
-    sqlx::query!(
-        "UPDATE sandbox_volume SET size_bytes = $3, updated_at = now() \
-         WHERE workspace_id = $1 AND name = $2",
-        w_id,
-        name,
-        size_i64,
-    )
-    .execute(db)
-    .await?;
-
-    tracing::info!("Volume {name} uploaded to S3 ({size} bytes)");
-    Ok(())
-}
-
-#[cfg(all(not(feature = "private"), not(feature = "parquet")))]
-pub async fn upload_volume(
-    _w_id: &str,
-    _name: &str,
-    _local_path: &std::path::Path,
-    _db: &windmill_common::DB,
-) -> windmill_common::error::Result<()> {
-    Err(windmill_common::error::Error::ExecutionErr(
-        "Sandbox volumes require the parquet feature (S3 object store)".to_string(),
-    ))
-}
-
-#[cfg(all(not(feature = "private"), feature = "parquet"))]
 pub async fn build_snapshot(
     w_id: &str,
     name: &str,
     tag: &str,
     docker_image: &str,
     setup_script: Option<&str>,
-    include_wmill: bool,
-    agent_binary: Option<&str>,
     db: &windmill_common::DB,
 ) -> windmill_common::error::Result<()> {
     use tokio::process::Command;
@@ -331,10 +207,6 @@ pub async fn build_snapshot(
             }
         }
 
-        if include_wmill || agent_binary.is_some() {
-            crate::install_snapshot_tools(&rootfs_dir, include_wmill, agent_binary).await?;
-        }
-
         let rootfs_dir_clone = rootfs_dir.clone();
         let (bytes, content_hash) = tokio::task::spawn_blocking(
             move || -> windmill_common::error::Result<(Vec<u8>, String)> {
@@ -409,8 +281,6 @@ pub async fn build_snapshot(
     _tag: &str,
     _docker_image: &str,
     _setup_script: Option<&str>,
-    _include_wmill: bool,
-    _agent_binary: Option<&str>,
     _db: &windmill_common::DB,
 ) -> windmill_common::error::Result<()> {
     Err(windmill_common::error::Error::ExecutionErr(
