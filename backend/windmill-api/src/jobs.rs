@@ -4666,13 +4666,21 @@ async fn run_inline_script_by_hash(
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Json(body): Json<InlineScriptArgs>,
 ) -> error::Result<Response> {
-    check_scopes(&authed, || format!("jobs:run"))?;
+    // Resolve the script path from the hash and check scopes properly
+    let hash = script_hash.0;
+    let ScriptHashInfo { path, .. } = get_script_info_for_hash(None, &db, &w_id, hash)
+        .await?
+        .prefetch_cached(&db)
+        .await?;
+
+    check_scopes(&authed, || format!("jobs:run:scripts:{path}"))?;
+
     run_inline_script_inner(
         authed,
         token,
         db,
         w_id,
-        InlineScriptTarget::Hash(script_hash.0),
+        InlineScriptTarget::Hash(hash),
         body.args,
     )
     .await
