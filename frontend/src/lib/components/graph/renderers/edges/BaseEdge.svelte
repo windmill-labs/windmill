@@ -159,7 +159,7 @@
 				></div>
 			</div>
 		</div>
-	{:else if data?.insertable && !$useDataflow && !data?.moving}
+	{:else if data?.insertable && !$useDataflow && !data?.moving && !isDragging}
 		<div
 			class={twMerge('edgeButtonContainer nodrag nopan top-0')}
 			style:transform="translate(-50%, -50%)"
