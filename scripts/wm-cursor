@@ -1,0 +1,260 @@
+#!/usr/bin/env zsh
+emulate -L zsh
+setopt err_exit no_unset pipe_fail
+
+# wm-cursor: Manage Cursor SSH remote windows with grouped tmux sessions
+# Each worktree gets its own Cursor window with an independently-focused
+# grouped tmux session, sharing the same window list in the status bar.
+
+# --- Resolve script path (must be at top level, not inside a function) ---
+
+local script_path=${0:A}
+
+# --- Resolve Cursor remote CLI (most recently modified) ---
+
+local -a cursor_bins=(~/.cursor-server/cli/servers/*/server/bin/remote-cli/cursor(NOm))
+if (( ${#cursor_bins} == 0 )); then
+  print -u2 "Error: Cursor remote CLI not found in ~/.cursor-server/cli/servers/"
+  exit 1
+fi
+local cursor_bin=${cursor_bins[1]}
+
+# --- Refresh Cursor IPC socket (tmux may hold a stale one) ---
+# Multiple stale sockets may exist; probe to find a live one
+
+local sock
+for sock in /tmp/vscode-ipc-*.sock(NOm); do
+  if VSCODE_IPC_HOOK_CLI=$sock $cursor_bin --status &>/dev/null; then
+    export VSCODE_IPC_HOOK_CLI=$sock
+    break
+  fi
+done
+
+# --- Helper functions ---
+
+ensure_tmux() {
+  if [[ -z ${TMUX-} ]]; then
+    print -u2 "Error: Not inside a tmux session"
+    exit 1
+  fi
+}
+
+check_dev_db() {
+  if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^windmill-db-dev$'; then
+    print -u2 "Warning: windmill-db-dev container is not running"
+  fi
+}
+
+setup_grouped_session() {
+  local handle=$1 worktree_path=$2
+  local session_name=cursor-${handle}
+
+  # Detect the current main tmux session
+  local main_session=$(tmux display-message -p '#S')
+
+  # Create grouped session (shares windows with the main session)
+  if ! tmux has-session -t $session_name 2>/dev/null; then
+    tmux new-session -d -t $main_session -s $session_name
+  fi
+
+  # Focus on the worktree's window
+  tmux select-window -t ${session_name}:wm-${handle} 2>/dev/null || true
+
+  # Write .vscode/settings.json in the worktree if it doesn't already exist
+  local settings_file=${worktree_path}/.vscode/settings.json
+  if [[ ! -f $settings_file ]]; then
+    mkdir -p ${settings_file:h}
+
+    # Read ports from .env.local if available
+    local env_file=${worktree_path}/.env.local
+    local ports_config=""
+    if [[ -f $env_file ]]; then
+      local backend_port frontend_port
+      source $env_file
+      backend_port=${BACKEND_PORT-}
+      frontend_port=${FRONTEND_PORT-}
+      if [[ -n $backend_port && -n $frontend_port ]]; then
+        ports_config=',
+  "remote.autoForwardPorts": false,
+  "remote.portsAttributes": {
+    "'$backend_port'": { "label": "Backend", "onAutoForward": "silent" },
+    "'$frontend_port'": { "label": "Frontend", "onAutoForward": "openBrowser" }
+  }'
+      fi
+    fi
+
+    cat > $settings_file <<SETTINGS
+{
+  "rust-analyzer.initializeStopped": true,
+  "terminal.integrated.defaultProfile.linux": "wm-tmux",
+  "terminal.integrated.profiles.linux": {
+    "wm-tmux": {
+      "path": "tmux",
+      "args": ["attach-session", "-t", "${session_name}"]
+    }
+  }${ports_config}
+}
+SETTINGS
+    print "Created ${settings_file}"
+  fi
+}
+
+# --- Subcommands ---
+
+cmd_add() {
+  ensure_tmux
+  check_dev_db
+
+  # Snapshot worktree list before
+  local -a before=("${(@f)$(git worktree list --porcelain | grep '^worktree ')}")
+  local prev_window=$(tmux display-message -p '#I')
+
+  workmux add "$@"
+  tmux select-window -t $prev_window
+
+  # Diff to find the new entry
+  local -a after=("${(@f)$(git worktree list --porcelain | grep '^worktree ')}")
+  local -a new=(${after:|before})
+
+  if (( ${#new} == 0 )); then
+    print -u2 "Error: Could not detect new worktree path"
+    exit 1
+  fi
+
+  local new_path=${new[1]#worktree }
+  local handle=${new_path:t}
+
+  print "New worktree: ${handle} at ${new_path}"
+  setup_grouped_session $handle $new_path
+  $cursor_bin -n $new_path
+  print "Opened Cursor for ${handle}"
+}
+
+cmd_open() {
+  local name=${1:?Usage: wm-cursor open <name>}
+  shift
+
+  ensure_tmux
+  check_dev_db
+
+  local wt_path=$(workmux path $name)
+  local prev_window=$(tmux display-message -p '#I')
+
+  workmux open $name "$@"
+  tmux select-window -t $prev_window
+  setup_grouped_session $name $wt_path
+  $cursor_bin -n $wt_path
+  print "Opened Cursor for ${name}"
+}
+
+cmd_close() {
+  local name=${1:?Usage: wm-cursor close <name>}
+
+  tmux kill-session -t cursor-${name} 2>/dev/null || true
+  workmux close $name
+}
+
+cmd_setup() {
+  local repo_root=${1:?Usage: wm-cursor setup <repo-root>}
+  repo_root=${repo_root:A}
+  local vscode_dir=${repo_root}/.vscode
+
+  mkdir -p $vscode_dir
+
+  # --- tasks.json ---
+  local tasks_file=${vscode_dir}/tasks.json
+  local write_tasks=true
+  if [[ -f $tasks_file ]]; then
+    print -n "tasks.json already exists. Overwrite? [y/N] "
+    read -q || { print; write_tasks=false }
+    print
+  fi
+  if $write_tasks; then
+    cat > $tasks_file <<'TASKS'
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Start dev DB",
+      "type": "shell",
+      "command": "./start-dev-db.sh",
+      "options": { "shell": { "executable": "/bin/bash" } },
+      "runOptions": { "runOn": "folderOpen" },
+      "presentation": { "reveal": "silent", "close": true },
+      "problemMatcher": []
+    }
+  ]
+}
+TASKS
+    print "Wrote ${tasks_file}"
+  fi
+
+  # --- settings.json (merge wm-cursor keys, preserve existing) ---
+  local settings_file=${vscode_dir}/settings.json
+  local wmc_settings='
+  {
+    "rust-analyzer.initializeStopped": true,
+    "terminal.integrated.defaultProfile.linux": "wm-tmux",
+    "terminal.integrated.profiles.linux": {
+      "wm-tmux": {
+        "path": "tmux",
+        "args": ["new-session", "-A", "-s", "main"]
+      }
+    },
+    "remote.autoForwardPorts": false,
+    "remote.portsAttributes": {
+      "8000": { "label": "Backend", "onAutoForward": "silent" },
+      "3000": { "label": "Frontend", "onAutoForward": "openBrowser" },
+      "5432": { "label": "PostgreSQL", "onAutoForward": "silent" }
+    }
+  }'
+
+  if [[ -f $settings_file ]]; then
+    # Strip // comments so jq can parse, merge, then write back
+    local existing
+    existing=$(python3 -c '
+import json, re, sys
+text = sys.stdin.read()
+# Remove // comments only outside of strings
+text = re.sub(r'"'"'("(?:[^"\\]|\\.)*")|//[^\n]*'"'"', lambda m: m.group(1) or "", text)
+json.dump(json.loads(text), sys.stdout, indent=2)
+' < $settings_file)
+    jq --argjson wmc "$wmc_settings" '. * $wmc' <<< "$existing" > ${settings_file}.tmp \
+      && mv ${settings_file}.tmp $settings_file
+    print "Merged wm-cursor settings into ${settings_file}"
+  else
+    jq . <<< "$wmc_settings" > $settings_file
+    print "Created ${settings_file}"
+  fi
+
+  # --- zsh alias ---
+  local rc=${ZDOTDIR:-$HOME}/.zshrc
+  local alias_line="alias wmc=${(q)script_path}"
+
+  if [[ -f $rc ]] && grep -qF 'alias wmc=' $rc; then
+    sed -i "s|^alias wmc=.*|${alias_line}|" $rc
+    print "Updated wmc alias in ${rc}"
+  else
+    print "\n# wm-cursor alias\n${alias_line}" >> $rc
+    print "Added wmc alias to ${rc}"
+  fi
+}
+
+# --- Main ---
+
+case ${1-} in
+  add)            shift; cmd_add "$@" ;;
+  open)           shift; cmd_open "$@" ;;
+  close)          shift; cmd_close "$@" ;;
+  setup)          shift; cmd_setup "$@" ;;
+  *)
+    print -u2 "Usage: wm-cursor <add|open|close|setup> [args...]"
+    print -u2 ""
+    print -u2 "Subcommands:"
+    print -u2 "  add [workmux-add-args...]   Create worktree + open Cursor"
+    print -u2 "  open <name>                 Open Cursor for existing worktree"
+    print -u2 "  close <name>                Clean up grouped tmux session"
+    print -u2 "  setup <repo-root>           Set up .vscode settings, tasks + wmc alias"
+    exit 1
+    ;;
+esac
