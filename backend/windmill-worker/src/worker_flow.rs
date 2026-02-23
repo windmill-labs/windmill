@@ -4372,7 +4372,7 @@ async fn compute_next_flow_transform(
                 }
             }
         }
-        FlowModuleValue::BranchOne { branches, default, default_node } => {
+        FlowModuleValue::BranchOne { branches, default, default_node, .. } => {
             let branch = match status_module {
                 FlowStatusModule::WaitingForPriorSteps { .. }
                 | FlowStatusModule::WaitingForEvents { .. }

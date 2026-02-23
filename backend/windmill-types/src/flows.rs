@@ -852,6 +852,8 @@ pub enum FlowModuleValue {
         parallelism: Option<InputTransform>,
         #[serde(skip_serializing_if = "Option::is_none")]
         squash: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        collapsed: Option<bool>,
     },
     WhileloopFlow {
         modules: Vec<FlowModule>,
@@ -861,17 +863,23 @@ pub enum FlowModuleValue {
         skip_failures: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
         squash: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        collapsed: Option<bool>,
     },
     BranchOne {
         branches: Vec<Branch>,
         default: Vec<FlowModule>,
         #[serde(skip_serializing_if = "Option::is_none")]
         default_node: Option<FlowNodeId>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        collapsed: Option<bool>,
     },
     BranchAll {
         branches: Vec<Branch>,
         #[serde(default = "default_true")]
         parallel: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        collapsed: Option<bool>,
     },
     RawScript {
         #[serde(default)]
@@ -947,6 +955,7 @@ struct UntaggedFlowModuleValue {
     tools: Option<Vec<AgentTool>>,
     pass_flow_input_directly: Option<bool>,
     squash: Option<bool>,
+    collapsed: Option<bool>,
     #[serde(flatten)]
     concurrency_settings: ConcurrencySettingsWithCustom,
 }
@@ -988,6 +997,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 parallel: untagged.parallel.unwrap_or(false),
                 parallelism: untagged.parallelism,
                 squash: untagged.squash,
+                collapsed: untagged.collapsed,
             }),
             "whileloopflow" => Ok(FlowModuleValue::WhileloopFlow {
                 modules: untagged
@@ -996,6 +1006,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 modules_node: untagged.modules_node,
                 skip_failures: untagged.skip_failures.unwrap_or(false),
                 squash: untagged.squash,
+                collapsed: untagged.collapsed,
             }),
             "branchone" => Ok(FlowModuleValue::BranchOne {
                 branches: untagged
@@ -1005,12 +1016,14 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                     .default
                     .ok_or_else(|| serde::de::Error::missing_field("default"))?,
                 default_node: untagged.default_node,
+                collapsed: untagged.collapsed,
             }),
             "branchall" => Ok(FlowModuleValue::BranchAll {
                 branches: untagged
                     .branches
                     .ok_or_else(|| serde::de::Error::missing_field("branches"))?,
                 parallel: untagged.parallel.unwrap_or(true),
+                collapsed: untagged.collapsed,
             }),
             "rawscript" => Ok(FlowModuleValue::RawScript {
                 input_transforms: untagged.input_transforms.unwrap_or_default(),
