@@ -6,6 +6,7 @@ import { Command } from "@cliffy/command";
 import { Table } from "@cliffy/table";
 import * as log from "../../core/log.ts";
 import { sep as SEP } from "node:path";
+import { Confirm } from "@cliffy/prompt/confirm";
 import * as wmill from "../../../gen/services.gen.ts";
 
 import { requireLogin } from "../../core/auth.ts";
@@ -168,7 +169,7 @@ async function push(opts: GlobalOptions, name: string) {
   console.log(colors.bold.underline.green("Folder pushed"));
 }
 
-async function addMissing(opts: GlobalOptions) {
+async function addMissing(opts: GlobalOptions & { yes?: boolean }) {
   const fDir = `f`;
   try {
     await stat(fDir);
@@ -177,24 +178,39 @@ async function addMissing(opts: GlobalOptions) {
     return;
   }
   const entries = await readdir(fDir, { withFileTypes: true });
-  let created = 0;
+  const missing: string[] = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const metaPath = `${fDir}${SEP}${entry.name}${SEP}folder.meta.yaml`;
     try {
       await stat(metaPath);
     } catch {
-      await newFolder(opts, entry.name);
-      created++;
+      missing.push(entry.name);
     }
   }
-  if (created === 0) {
+  if (missing.length === 0) {
     log.info("All folders already have a folder.meta.yaml. Nothing to do.");
-  } else {
-    log.info(
-      `\nCreated ${created} folder.meta.yaml file(s). You can now run 'wmill sync push' to push them.`,
-    );
+    return;
   }
+  log.info(`Missing folder.meta.yaml for:`);
+  for (const name of missing) {
+    log.info(`  - ${name}`);
+  }
+  if (
+    !opts.yes &&
+    !(await Confirm.prompt({
+      message: `Create ${missing.length} folder.meta.yaml file(s)?`,
+      default: true,
+    }))
+  ) {
+    return;
+  }
+  for (const name of missing) {
+    await newFolder(opts, name);
+  }
+  log.info(
+    `\nCreated ${missing.length} folder.meta.yaml file(s). You can now run 'wmill sync push' to push them.`,
+  );
 }
 
 const command = new Command()
@@ -222,6 +238,7 @@ const command = new Command()
     "add-missing",
     "create default folder.meta.yaml for all subdirectories of f/ that are missing one"
   )
+  .option("-y, --yes", "skip confirmation prompt")
   .action(addMissing as any);
 
 export default command;
