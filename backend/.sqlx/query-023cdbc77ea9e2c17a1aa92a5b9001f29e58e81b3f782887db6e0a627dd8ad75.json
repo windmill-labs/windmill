@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO native_trigger (\n            external_id,\n            workspace_id,\n            service_name,\n            script_path,\n            is_flow,\n            webhook_token_prefix,\n            service_config\n        ) VALUES (\n            $1, $2, $3, $4, $5, $6, $7\n        )\n        ON CONFLICT (external_id, workspace_id, service_name)\n        DO UPDATE SET script_path = $4, is_flow = $5, webhook_token_prefix = $6, service_config = $7, error = NULL, updated_at = NOW()\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        {
+          "Custom": {
+            "name": "native_trigger_service",
+            "kind": {
+              "Enum": [
+                "nextcloud",
+                "google"
+              ]
+            }
+          }
+        },
+        "Varchar",
+        "Bool",
+        "Varchar",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "023cdbc77ea9e2c17a1aa92a5b9001f29e58e81b3f782887db6e0a627dd8ad75"
+}
