@@ -10,7 +10,7 @@ import { Confirm } from "@cliffy/prompt/confirm";
 import * as wmill from "../../../gen/services.gen.ts";
 
 import { requireLogin } from "../../core/auth.ts";
-import { resolveWorkspace, validatePath } from "../../core/context.ts";
+import { resolveWorkspace } from "../../core/context.ts";
 import { GlobalOptions, isSuperset, parseFromFile } from "../../types.ts";
 import { Folder } from "../../../gen/types.gen.ts";
 
@@ -230,7 +230,7 @@ const command = new Command()
   .action(newFolder as any)
   .command(
     "push",
-    "push a local folder to the remote by name.  This overrides any remote versions."
+    "push a local folder to the remote by name. This overrides any remote versions."
   )
   .arguments("<name:string>")
   .action(push as any)

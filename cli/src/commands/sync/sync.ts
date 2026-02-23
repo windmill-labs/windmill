@@ -2418,7 +2418,7 @@ export async function push(
     const msg =
       `${userIsAdmin ? "Warning: " : ""}Missing folder.meta.yaml for:\n${folderList}\n` +
       `Run 'wmill folder add-missing' to create them locally, then push again.`;
-    if (!user.is_admin) {
+    if (!userIsAdmin) {
       if (opts.jsonOutput) {
         console.log(JSON.stringify({ success: false, error: "missing_folders", missing_folders: missingFolders, message: msg }, null, 2));
       } else {
