@@ -108,10 +108,8 @@
     ws.onopen = () => {
       fitAddon.fit();
       ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
-      // On mobile, auto-zoom into the initial pane after a short delay
-      // (allow the attach to complete on the server side first)
       if (isMobile && initialPane !== undefined) {
-        setTimeout(() => sendSelectPane(initialPane), 300);
+        sendSelectPane(initialPane);
       }
     };
 

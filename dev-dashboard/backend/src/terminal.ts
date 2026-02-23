@@ -73,6 +73,8 @@ export async function attach(
     `tmux set-option -t "${gName}" mouse on`,
     `tmux set-option -t "${gName}" set-clipboard on`,
     `tmux select-window -t "${gName}:${windowTarget}"`,
+    // Unzoom if a previous session left a pane zoomed (zoom state is shared)
+    `tmux if-shell -t "${gName}:${windowTarget}" "#{window_zoomed_flag}" "resize-pane -Z -t ${gName}:${windowTarget}"`,
     `tmux select-pane -t "${gName}:${windowTarget}.0"`,
     `stty rows ${rows} cols ${cols}`,
     `exec tmux attach-session -t "${gName}"`,
@@ -185,12 +187,16 @@ export function setCallbacks(
 
 export function selectPane(worktreeName: string, paneIndex: number): void {
   const session = sessions.get(worktreeName);
-  if (!session) return;
+  if (!session) {
+    console.log(`[term:${ts()}] selectPane(${worktreeName}) no session found`);
+    return;
+  }
   const windowTarget = `wm-${worktreeName}`;
   const target = `${session.groupedSessionName}:${windowTarget}.${paneIndex}`;
-  // Select the pane, then zoom it to fill the window
-  Bun.spawnSync(["tmux", "select-pane", "-t", target]);
-  Bun.spawnSync(["tmux", "resize-pane", "-Z", "-t", target]);
+  console.log(`[term:${ts()}] selectPane(${worktreeName}) pane=${paneIndex} target=${target}`);
+  const r1 = Bun.spawnSync(["tmux", "select-pane", "-t", target]);
+  const r2 = Bun.spawnSync(["tmux", "resize-pane", "-Z", "-t", target]);
+  console.log(`[term:${ts()}] selectPane(${worktreeName}) select=${r1.exitCode} zoom=${r2.exitCode}`);
 }
 
 export function clearCallbacks(worktreeName: string): void {

@@ -73,6 +73,7 @@ function errorResponse(message: string, status = 500): Response {
 interface WsData {
   worktree: string;
   attached: boolean;
+  pendingPane: number | null;
 }
 
 function makeCallbacks(ws: { send: (data: string) => void; readyState: number }) {
@@ -100,7 +101,7 @@ Bun.serve<WsData>({
     const wsMatch = url.pathname.match(/^\/ws\/(.+)$/);
     if (wsMatch) {
       const worktree = decodeURIComponent(wsMatch[1]);
-      const upgraded = server.upgrade(req, { data: { worktree, attached: false } });
+      const upgraded = server.upgrade(req, { data: { worktree, attached: false, pendingPane: null } });
       if (upgraded) return undefined as unknown as Response;
       return new Response("WebSocket upgrade failed", { status: 400 });
     }
@@ -127,8 +128,16 @@ Bun.serve<WsData>({
             write(worktree, msg.data);
             break;
           case "selectPane":
-            if (ws.data.attached && typeof msg.pane === "number") {
-              selectPane(worktree, msg.pane);
+            if (typeof msg.pane === "number") {
+              if (ws.data.attached) {
+                // Attach already completed — apply directly
+                console.log(`[ws:${ts()}] selectPane direct pane=${msg.pane} worktree=${worktree}`);
+                selectPane(worktree, msg.pane);
+              } else {
+                // Attach still in progress — queue for post-attach
+                ws.data.pendingPane = msg.pane;
+                console.log(`[ws:${ts()}] selectPane queued pane=${msg.pane} worktree=${worktree}`);
+              }
             }
             break;
           case "resize":
@@ -144,6 +153,12 @@ Bun.serve<WsData>({
                 console.log(`[ws:${ts()}] attached worktree=${worktree} scrollback=${scrollback.length} bytes`);
                 if (scrollback) {
                   ws.send(JSON.stringify({ type: "scrollback", data: scrollback }));
+                }
+                // Apply any pane zoom queued while attach was in progress
+                if (ws.data.pendingPane !== null) {
+                  console.log(`[ws:${ts()}] applying pendingPane=${ws.data.pendingPane} worktree=${worktree}`);
+                  selectPane(worktree, ws.data.pendingPane);
+                  ws.data.pendingPane = null;
                 }
               } catch (err: unknown) {
                 const errMsg = err instanceof Error ? err.message : String(err);
