@@ -102,6 +102,13 @@
 							dispatch('close')
 						}}
 					/>
+					<TopLevelNode
+						label="AI Agent"
+						onSelect={() => {
+							dispatch('pickAiAgentTool')
+							dispatch('close')
+						}}
+					/>
 				{:else}
 					{#if customUi?.triggers != false && allowTrigger}
 						<TopLevelNode
