@@ -9,14 +9,16 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
-	import ListFilters from '$lib/components/home/ListFilters.svelte'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import { resourceTypesStore } from '$lib/components/resourceTypesStore'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
-	import SearchItems from '$lib/components/SearchItems.svelte'
+	import FilterSearchbar, {
+		useUrlSyncedFilterInstance
+	} from '$lib/components/FilterSearchbar.svelte'
+	import { buildResourcesFilterSchema } from '$lib/components/resources/resourcesFilter'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
@@ -81,9 +83,10 @@
 	let resources: ResourceW[] | undefined = $state()
 	let resourceTypes: ResourceTypeW[] | undefined = $state()
 
-	let filteredItems: (ResourceW & { marked?: string })[] | undefined = $state(undefined) as
-		| (ResourceW & { marked?: string })[]
-		| undefined
+	// Collect unique paths, types, owners for filter autocomplete
+	let allPaths: string[] = $state([])
+	let allResourceTypes: string[] = $state([])
+	let allOwners: string[] = $state([])
 
 	let resourceTypeViewer: Drawer | undefined = $state(undefined)
 	let resourceTypeViewerObj = $state({
@@ -123,12 +126,27 @@
 		types: true
 	})
 
-	let filter = $state('')
-	let ownerFilter: string | undefined = $state(undefined)
-
 	let showCreateButtons = $state(false)
 
-	let typeFilter: string | undefined = $state(undefined)
+	// FilterSearchbar setup
+	let userFoldersFilterType = $derived(
+		$userStore?.is_super_admin && $userStore.username.includes('@')
+			? 'only f/*'
+			: $userStore?.is_admin || $userStore?.is_super_admin
+				? 'u/username and f/*'
+				: undefined
+	)
+	let resourcesFilterSchema = $derived(
+		buildResourcesFilterSchema({
+			paths: allPaths,
+			resourceTypes: allResourceTypes,
+			owners: allOwners,
+			showUserFoldersFilter: userFoldersFilterType !== undefined,
+			userFoldersLabel:
+				userFoldersFilterType === 'only f/*' ? 'Only f/*' : `Only u/${$userStore?.username} and f/*`
+		})
+	)
+	let filters = useUrlSyncedFilterInstance(untrack(() => resourcesFilterSchema))
 
 	async function loadResources(): Promise<void> {
 		resources = await loadResourceInternal(undefined, 'cache,state')
@@ -149,19 +167,48 @@
 		resourceType: string | undefined,
 		resourceTypeExclude: string | undefined
 	): Promise<ResourceW[]> {
-		return (
-			await ResourceService.listResource({
-				workspace: $workspaceStore!,
-				resourceTypeExclude,
-				resourceType
-			})
-		).map((x) => {
+		const currentFilters = filters.val
+
+		// Build API parameters from filters
+		const apiParams: any = {
+			workspace: $workspaceStore!,
+			resourceTypeExclude,
+			resourceType: resourceType || (currentFilters.resource_type as string | undefined)
+		}
+
+		if (currentFilters.path) {
+			// path filter can be comma-separated for multiple values
+			apiParams.path = currentFilters.path
+		}
+		if (currentFilters.path_start) {
+			apiParams.pathStart = currentFilters.path_start
+		}
+		if (currentFilters.description) {
+			apiParams.description = currentFilters.description
+		}
+		if (currentFilters.value) {
+			apiParams.value = currentFilters.value
+		}
+		if (currentFilters.owner) {
+			apiParams.pathStart = currentFilters.owner
+		}
+
+		const result = (await ResourceService.listResource(apiParams)).map((x) => {
 			return {
 				canWrite:
 					canWrite(x.path, x.extra_perms!, $userStore) && $workspaceStore! == x.workspace_id,
 				...x
 			}
 		})
+
+		// Extract unique values for autocomplete
+		allPaths = Array.from(new Set(result.map((x) => x.path))).sort()
+		allResourceTypes = Array.from(new Set(result.map((x) => x.resource_type))).sort()
+		allOwners = Array.from(
+			new Set(result.map((x) => x.path.split('/').slice(0, 2).join('/')))
+		).sort()
+
+		return result
 	}
 
 	async function loadResourceTypes(): Promise<void> {
@@ -440,59 +487,39 @@
 		return resourceNameToIsFilesetMap?.[resourceName] ?? false
 	}
 
-	let owners = $derived(
-		Array.from(
-			new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
-		).sort()
-	)
-	let types = $derived(Array.from(new Set(filteredItems?.map((x) => x.resource_type))).sort())
-	$effect(() => {
-		if ($workspaceStore) {
-			ownerFilter = undefined
-		}
-	})
+	// Current resources based on tab
 	let currentResources = $derived(
 		tab == 'cache' ? cacheResources : tab == 'states' ? stateResources : resources
 	)
-	let preFilteredItemsOwners = $derived(
-		ownerFilter == undefined
-			? currentResources
-			: currentResources?.filter((x) => x.path.startsWith(ownerFilter ?? ''))
-	)
-	let preFilteredType = $derived.by(() => {
-		let l =
-			typeFilter == undefined
-				? preFilteredItemsOwners?.filter((x) => {
-						return tab === 'workspace'
-							? x.resource_type !== 'app_theme' &&
-									x.resource_type !== 'state' &&
-									x.resource_type !== 'cache'
-							: tab === 'states'
-								? x.resource_type === 'state'
-								: tab === 'cache'
-									? x.resource_type === 'cache'
-									: tab === 'theme'
-										? x.resource_type === 'app_theme'
-										: true
-					})
-				: preFilteredItemsOwners?.filter((x) => {
-						return (
-							x.resource_type === typeFilter &&
-							(tab === 'workspace'
-								? x.resource_type !== 'app_theme' &&
-									x.resource_type !== 'state' &&
-									x.resource_type !== 'cache'
-								: true)
-						)
-					})
-		if (filterUserFolders) {
-			l = l?.filter((item) => {
-				if (filterUserFoldersType === 'only f/*') return item.path.startsWith('f/')
-				if (filterUserFoldersType === 'u/username and f/*')
+
+	// Filter resources client-side for user folder filtering (admin feature)
+	let filteredItems = $derived.by(() => {
+		let items = currentResources
+		if (filters.val.user_folders_only && items) {
+			items = items.filter((item) => {
+				if (userFoldersFilterType === 'only f/*') return item.path.startsWith('f/')
+				if (userFoldersFilterType === 'u/username and f/*')
 					return item.path.startsWith('f/') || item.path.startsWith(`u/${$userStore?.username}/`)
+				return true
 			})
 		}
-		return l
+		return items
+	})
+
+	// Reload resources when filters change
+	$effect(() => {
+		filters.val
+		if ($workspaceStore) {
+			untrack(() => {
+				if (tab === 'workspace' || tab === 'theme') {
+					loadResources()
+				} else if (tab === 'cache') {
+					loadCache()
+				} else if (tab === 'states') {
+					loadState()
+				}
+			})
+		}
 	})
 	$effect(() => {
 		if ($workspaceStore && $userStore) {
@@ -513,15 +540,6 @@
 	})
 
 	let dbManagerDrawer = $derived(globalDbManagerDrawer.val) as any
-
-	let filterUserFolders = $state(false)
-	let filterUserFoldersType: 'only f/*' | 'u/username and f/*' | undefined = $derived(
-		$userStore?.is_super_admin && $userStore.username.includes('@')
-			? 'only f/*'
-			: $userStore?.is_admin || $userStore?.is_super_admin
-				? 'u/username and f/*'
-				: undefined
-	)
 </script>
 
 <ConfirmationModal
@@ -753,13 +771,6 @@
 	</DrawerContent>
 </Drawer>
 
-<SearchItems
-	{filter}
-	items={preFilteredType}
-	bind:filteredItems
-	f={(x) => x.path + ' ' + x.resource_type + ' ' + x.description + ' '}
-/>
-
 {#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.resources}
 	<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
 		<p class="font-bold">Unauthorized</p>
@@ -862,33 +873,20 @@
 			</div>
 		</div>
 		{#if tab == 'workspace' || tab == 'states' || tab == 'cache' || tab == 'theme'}
-			<div class="pt-2">
-				<input placeholder="Search Resource" bind:value={filter} class="input mt-1" />
-			</div>
-			<ListFilters bind:selectedFilter={ownerFilter} filters={owners} />
-			{#if tab != 'states' && tab != 'cache'}
-				<ListFilters
-					queryName="app_filter"
-					bind:selectedFilter={typeFilter}
-					filters={types}
-					resourceType
-				/>
-			{:else}
-				<div class="h-4"></div>
-			{/if}
+			<FilterSearchbar
+				schema={resourcesFilterSchema}
+				bind:value={filters.val}
+				placeholder="Filter resources..."
+				class="mt-4"
+				presets={[
+					{
+						name: resourcesFilterSchema.user_folders_only?.label ?? '?',
+						value: 'user_folders_only:\\ true'
+					}
+				]}
+			/>
 
-			<div class="overflow-x-auto pb-40 mt-4"
-				><div class="flex flex-row items-center justify-end gap-4 pb-2">
-					{#if $userStore?.is_super_admin && $userStore.username.includes('@')}
-						<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
-					{:else if $userStore?.is_admin || $userStore?.is_super_admin}
-						<Toggle
-							size="xs"
-							bind:checked={filterUserFolders}
-							options={{ right: `Only u/${$userStore.username} and f/*` }}
-						/>
-					{/if}
-				</div>
+			<div class="overflow-x-auto pb-40 mt-4">
 				{#if loading.resources}
 					<Skeleton layout={[0.5, [2], 1]} />
 					{#each new Array(6) as _}

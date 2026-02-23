@@ -75,7 +75,10 @@ setup_grouped_session() {
       frontend_port=${FRONTEND_PORT-}
       if [[ -n $backend_port && -n $frontend_port ]]; then
         ports_config=',
-  "remote.autoForwardPorts": false,
+  "remote.autoForwardPorts": true,
+  "remote.otherPortsAttributes": {
+    "onAutoForward": "ignore"
+  },
   "remote.portsAttributes": {
     "'$backend_port'": { "label": "Backend", "onAutoForward": "silent" },
     "'$frontend_port'": { "label": "Frontend", "onAutoForward": "openBrowser" }
@@ -201,7 +204,10 @@ TASKS
         "args": ["new-session", "-A", "-s", "main"]
       }
     },
-    "remote.autoForwardPorts": false,
+    "remote.autoForwardPorts": true,
+    "remote.otherPortsAttributes": {
+      "onAutoForward": "ignore"
+    },
     "remote.portsAttributes": {
       "8000": { "label": "Backend", "onAutoForward": "silent" },
       "3000": { "label": "Frontend", "onAutoForward": "openBrowser" },

@@ -3398,7 +3398,6 @@ pub async fn handle_queued_job(
                         &mut canceled_by,
                         &mut mem_peak,
                         &mut *occupancy_metrics,
-                        &job_completed_tx,
                         worker_dir,
                         base_internal_url,
                         worker_name,

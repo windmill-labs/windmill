@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT runnable_id as \"runnable_id: ScriptHash\", raw_flow as \"raw_flow: _\", kind as \"kind: _\" FROM v2_job WHERE id = $1",
+  "query": "SELECT runnable_id as \"runnable_id: ScriptHash\", raw_flow as \"raw_flow: _\", kind as \"kind: _\", parent_job, flow_step_id FROM v2_job WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -47,6 +47,16 @@
             }
           }
         }
+      },
+      {
+        "ordinal": 3,
+        "name": "parent_job",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "flow_step_id",
+        "type_info": "Varchar"
       }
     ],
     "parameters": {
@@ -57,8 +67,10 @@
     "nullable": [
       true,
       true,
-      false
+      false,
+      true,
+      true
     ]
   },
-  "hash": "805d633de90fee335f1726284eda0dbc200d45960fb8dea867492c8c7dd096d5"
+  "hash": "7aaa5b0bd873c2029e2201d287ea0aaae04678ac105374bbe387e534a6cb6333"
 }
