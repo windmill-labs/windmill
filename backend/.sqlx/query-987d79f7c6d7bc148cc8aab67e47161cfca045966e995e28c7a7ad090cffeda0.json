@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        UPDATE schedule SET\n            schedule                = $1,\n            timezone                = $2,\n            args                    = $3,\n            on_failure              = $4,\n            on_failure_times        = $5,\n            on_failure_exact        = $6,\n            on_failure_extra_args   = $7,\n            on_recovery             = $8,\n            on_recovery_times       = $9,\n            on_recovery_extra_args  = $10,\n            on_success              = $11,\n            on_success_extra_args   = $12,\n            ws_error_handler_muted  = $13,\n            retry                   = $14,\n            summary                 = $15,\n            no_flow_overlap         = $16,\n            tag                     = $17,\n            paused_until            = $18,\n            path                    = $19,\n            workspace_id            = $20,\n            cron_version            = COALESCE($21, cron_version),\n            description             = $22,\n            dynamic_skip        = $23\n        WHERE path = $19 AND workspace_id = $20\n        RETURNING\n            workspace_id,\n            path,\n            edited_by,\n            edited_at,\n            schedule,\n            timezone,\n            enabled,\n            script_path,\n            is_flow,\n            args AS \"args: _\",\n            extra_perms,\n            email,\n            error,\n            on_failure,\n            on_failure_times,\n            on_failure_exact,\n            on_failure_extra_args AS \"on_failure_extra_args: _\",\n            on_recovery,\n            on_recovery_times,\n            on_recovery_extra_args AS \"on_recovery_extra_args: _\",\n            on_success,\n            on_success_extra_args AS \"on_success_extra_args: _\",\n            ws_error_handler_muted,\n            retry,\n            no_flow_overlap,\n            summary,\n            description,\n            tag,\n            paused_until,\n            cron_version,\n            dynamic_skip\n        ",
+  "query": "\n        UPDATE schedule SET\n            schedule                = $1,\n            timezone                = $2,\n            args                    = $3,\n            on_failure              = $4,\n            on_failure_times        = $5,\n            on_failure_exact        = $6,\n            on_failure_extra_args   = $7,\n            on_recovery             = $8,\n            on_recovery_times       = $9,\n            on_recovery_extra_args  = $10,\n            on_success              = $11,\n            on_success_extra_args   = $12,\n            ws_error_handler_muted  = $13,\n            retry                   = $14,\n            summary                 = $15,\n            no_flow_overlap         = $16,\n            tag                     = $17,\n            paused_until            = $18,\n            path                    = $19,\n            workspace_id            = $20,\n            cron_version            = COALESCE($21, cron_version),\n            description             = $22,\n            dynamic_skip            = $23,\n            email                   = COALESCE($24, email),\n            edited_by               = $25\n        WHERE path = $19 AND workspace_id = $20\n        RETURNING\n            workspace_id,\n            path,\n            edited_by,\n            edited_at,\n            schedule,\n            timezone,\n            enabled,\n            script_path,\n            is_flow,\n            args AS \"args: _\",\n            extra_perms,\n            email,\n            error,\n            on_failure,\n            on_failure_times,\n            on_failure_exact,\n            on_failure_extra_args AS \"on_failure_extra_args: _\",\n            on_recovery,\n            on_recovery_times,\n            on_recovery_extra_args AS \"on_recovery_extra_args: _\",\n            on_success,\n            on_success_extra_args AS \"on_success_extra_args: _\",\n            ws_error_handler_muted,\n            retry,\n            no_flow_overlap,\n            summary,\n            description,\n            tag,\n            paused_until,\n            cron_version,\n            dynamic_skip\n        ",
   "describe": {
     "columns": [
       {
@@ -183,6 +183,8 @@
         "Text",
         "Text",
         "Text",
+        "Varchar",
+        "Varchar",
         "Varchar"
       ]
     },
@@ -220,5 +222,5 @@
       true
     ]
   },
-  "hash": "4144c87c25a939aafb2f57da189d94d038bcad7a36fbf87e0403c89a979c5b3f"
+  "hash": "987d79f7c6d7bc148cc8aab67e47161cfca045966e995e28c7a7ad090cffeda0"
 }
