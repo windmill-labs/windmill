@@ -1,5 +1,6 @@
 import type { Schema } from '$lib/common'
 import type { Flow, FlowModule } from '$lib/gen'
+import { isFlowModuleTool, agentToolToFlowModule } from './agentToolUtils'
 import { loadFlowModuleState } from './flowStateUtils.svelte'
 import { emptyFlowModuleState } from './utils.svelte'
 import type { StateStore } from '$lib/utils'
@@ -55,6 +56,14 @@ async function mapFlowModule(flowModule: FlowModule, modulesState: FlowState) {
 				(branchModule: { summary?: string; skip_failure?: boolean; modules: Array<FlowModule> }) =>
 					mapFlowModules(branchModule.modules, modulesState)
 			)
+		)
+	}
+
+	if (value.type === 'aiagent' && value.tools) {
+		await Promise.all(
+			value.tools.filter(isFlowModuleTool).map(async (tool) => {
+				modulesState[tool.id] = await loadFlowModuleState(agentToolToFlowModule(tool))
+			})
 		)
 	}
 

@@ -14,7 +14,7 @@ import { pushResourceType } from "./commands/resource-type/resource-type.ts";
 import { pushVariable } from "./commands/variable/variable.ts";
 import { yamlOptions } from "./commands/sync/sync.ts";
 import { showDiffs } from "./core/conf.ts";
-import { deepEqual, isFileResource, isWorkspaceDependencies } from "./utils/utils.ts";
+import { deepEqual, isFileResource, isFilesetResource, isWorkspaceDependencies } from "./utils/utils.ts";
 import { pushSchedule } from "./commands/schedule/schedule.ts";
 import { pushWorkspaceUser } from "./commands/user/user.ts";
 import { pushGroup } from "./commands/user/user.ts";
@@ -333,7 +333,7 @@ export function getTypeStrFromPath(
   ) {
     return typeEnding;
   } else {
-    if (isFileResource(p)) {
+    if (isFileResource(p) || isFilesetResource(p)) {
       return "resource";
     }
     throw new Error("Could not infer type of path " + JSON.stringify(parsed));
