@@ -89,8 +89,8 @@
 	}
 </script>
 
-<div class="flex border rounded-md overflow-hidden" style="min-height: 200px; max-height: 60vh;">
-	<div class="w-56 shrink-0 border-r flex flex-col bg-surface-secondary">
+<div class="flex border rounded-md overflow-hidden h-[60vh]">
+	<div class="w-56 shrink-0 border-r flex flex-col bg-surface-secondary overflow-y-auto">
 		<FileExplorer
 			bind:files
 			{selectedPath}
@@ -100,7 +100,7 @@
 	</div>
 	<div class="flex-1 min-w-0 overflow-y-auto">
 		{#if selectedDisplayKey != null}
-			<div class="px-3 py-1.5 border-b text-xs text-secondary bg-surface-secondary sticky top-0 z-10">
+			<div class="px-2 border-b text-xs text-secondary bg-surface-secondary sticky top-0 z-10 flex items-center h-[36.5px]">
 				{selectedDisplayKey}
 			</div>
 			{#key selectedFileKey}
