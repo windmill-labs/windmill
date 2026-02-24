@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { ViewportPortal, type Node } from '@xyflow/svelte'
-	import { calculateNodesBoundsWithOffset, NODE } from './util'
+	import { calculateNodesBoundsWithOffset } from './util'
 	import { ChevronDown, X } from 'lucide-svelte'
-	import { getGroupEditorContext, type FlowGroup } from './groupEditor.svelte'
+	import { getGroupEditorContext, GROUP_HEADER_HEIGHT, type FlowGroup } from './groupEditor.svelte'
 	import { NoteColor } from './noteColors'
 	import NoteColorPicker from './NoteColorPicker.svelte'
 	import Button from '../common/button/Button.svelte'
@@ -55,12 +55,9 @@
 	// Compute bounds for each group (with extra top padding for header card)
 	function computeGroupBounds(group: FlowGroup) {
 		if (group.module_ids.length === 0) return null
-		const { minX, minY, maxX, maxY } = calculateNodesBoundsWithOffset(
-			group.module_ids,
-			allNodes
-		)
+		const { minX, minY, maxX, maxY } = calculateNodesBoundsWithOffset(group.module_ids, allNodes)
 		const padding = 16
-		const topPadding = padding + 42 + NODE.gap.vertical / 2 // 34px header + 8px gap + insertion button
+		const topPadding = padding + GROUP_HEADER_HEIGHT
 		return {
 			x: minX - padding,
 			y: minY - topPadding,
@@ -92,9 +89,7 @@
 
 	function toggleCollapse(groupId: string) {
 		const current =
-			groupEditorContext?.groupEditor
-				.getGroups()
-				.find((g) => g.id === groupId)?.collapsed ?? false
+			groupEditorContext?.groupEditor.getGroups().find((g) => g.id === groupId)?.collapsed ?? false
 		groupEditorContext?.groupEditor.updateCollapsedDefault(groupId, !current)
 	}
 </script>
@@ -112,58 +107,56 @@
 					style:height="{bounds.height}px"
 					style:z-index="4"
 				>
-					<!-- Header card (top-left, inside the border) -->
-					<div class="absolute top-2 left-2" style="pointer-events: auto;">
-						<GroupNodeCard summary={group.summary} />
+					<!-- Full-width header card (inside the border) -->
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div
+						class="absolute top-0 left-0 right-0"
+						style="pointer-events: auto;"
+						onpointerenter={() => {
+							actionBarHovered = true
+							if (hideTimeout) {
+								clearTimeout(hideTimeout)
+								hideTimeout = undefined
+							}
+						}}
+						onpointerleave={() => {
+							actionBarHovered = false
+						}}
+					>
+						<GroupNodeCard summary={group.summary} stepCount={group.module_ids.length} fullWidth>
+							{#snippet actions()}
+								{#if editMode && visibleGroup?.id === group.id}
+									<Button
+										variant="subtle"
+										unifiedSize="xs"
+										iconOnly
+										title="Collapse group"
+										startIcon={{ icon: ChevronDown }}
+										onclick={() => toggleCollapse(group.id)}
+									/>
+									<NoteColorPicker
+										selectedColor={(group.color as NoteColor) ?? NoteColor.BLUE}
+										onColorChange={(color) => {
+											groupEditorContext?.groupEditor.updateColor(group.id, color)
+										}}
+										bind:isOpen={colorPickerOpen}
+									/>
+									<Button
+										variant="subtle"
+										unifiedSize="xs"
+										title="Delete group"
+										startIcon={{ icon: X }}
+										onclick={() => {
+											groupEditorContext?.groupEditor.deleteGroup(group.id)
+											visibleGroup = undefined
+										}}
+										iconOnly
+										destructive
+									/>
+								{/if}
+							{/snippet}
+						</GroupNodeCard>
 					</div>
-
-					<!-- Action bar (top-right, inside the border, hover only) -->
-					{#if editMode && visibleGroup?.id === group.id}
-						<div
-							class="absolute top-2 right-2 p-1 h-7 group flex justify-end"
-							style="pointer-events: auto;"
-							onpointerenter={() => {
-								actionBarHovered = true
-								if (hideTimeout) {
-									clearTimeout(hideTimeout)
-									hideTimeout = undefined
-								}
-							}}
-							onpointerleave={() => {
-								actionBarHovered = false
-							}}
-						>
-							<div class="flex flex-row gap-2 h-fit">
-								<Button
-									variant="subtle"
-									unifiedSize="xs"
-									iconOnly
-									title="Collapse group"
-									startIcon={{ icon: ChevronDown }}
-									onclick={() => toggleCollapse(group.id)}
-								/>
-								<NoteColorPicker
-									selectedColor={(group.color as NoteColor) ?? NoteColor.BLUE}
-									onColorChange={(color) => {
-										groupEditorContext?.groupEditor.updateColor(group.id, color)
-									}}
-									bind:isOpen={colorPickerOpen}
-								/>
-								<Button
-									variant="subtle"
-									unifiedSize="xs"
-									title="Delete group"
-									startIcon={{ icon: X }}
-									onclick={() => {
-										groupEditorContext?.groupEditor.deleteGroup(group.id)
-										visibleGroup = undefined
-									}}
-									iconOnly
-									destructive
-								/>
-							</div>
-						</div>
-					{/if}
 				</div>
 			</ViewportPortal>
 		{/if}
