@@ -232,8 +232,9 @@ export class CargoBackend {
    */
   private getBasePostgresUrl(): string {
     const url = new URL(this.config.postgresUrl);
-    // Remove any existing database path
+    // Remove any existing database path and query params (e.g. ?sslmode=disable)
     url.pathname = "";
+    url.search = "";
     return url.toString().replace(/\/$/, ""); // Remove trailing slash
   }
 
@@ -629,13 +630,13 @@ export class CargoBackend {
   /**
    * Create CLI command with proper authentication
    */
-  createCLICommand(args: string[], workingDir: string, workspaceName?: string): { command: string, args: string[], cwd: string, env: Record<string, string> } {
-    const workspace = workspaceName || this.config.workspace;
+  createCLICommand(args: string[], workingDir: string, opts?: { workspace?: string; token?: string }): { command: string, args: string[], cwd: string, env: Record<string, string> } {
+    const workspace = opts?.workspace || this.config.workspace;
     const cliDir = join(dirname(fileURLToPath(import.meta.url)), "..");
     const fullArgs = [
       "--base-url", this.baseUrl,
       "--workspace", workspace,
-      "--token", this.token,
+      "--token", opts?.token || this.token,
       "--config-dir", this.config.testConfigDir,
       ...args,
     ];
@@ -660,12 +661,12 @@ export class CargoBackend {
   /**
    * Run CLI command and return result
    */
-  async runCLICommand(args: string[], workingDir: string, workspaceName?: string): Promise<{
+  async runCLICommand(args: string[], workingDir: string, opts?: { workspace?: string; token?: string }): Promise<{
     stdout: string;
     stderr: string;
     code: number;
   }> {
-    const cmd = this.createCLICommand(args, workingDir, workspaceName);
+    const cmd = this.createCLICommand(args, workingDir, opts);
     const proc = Bun.spawn([cmd.command, ...cmd.args], {
       cwd: cmd.cwd,
       env: cmd.env,

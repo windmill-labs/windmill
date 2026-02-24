@@ -12,6 +12,7 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import SchemaForm from './SchemaForm.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
+	import FilesetEditor from './FilesetEditor.svelte'
 	import Toggle from './Toggle.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import TestConnection from './TestConnection.svelte'
@@ -128,7 +129,7 @@
 					resourceSchema.order =
 						resourceSchema.order ?? Object.keys(resourceSchema.properties).sort()
 				}
-				if (resourceTypeInfo?.format_extension) {
+				if (resourceTypeInfo?.format_extension && !resourceTypeInfo?.is_fileset) {
 					textFileContent = args.content
 				}
 			} catch (err) {
@@ -165,7 +166,7 @@
 			rawCode = JSON.stringify(args, null, 2)
 		} else {
 			parseJson()
-			if (resourceTypeInfo?.format_extension) {
+			if (resourceTypeInfo?.format_extension && !resourceTypeInfo?.is_fileset) {
 				textFileContent = args.content
 			}
 		}
@@ -294,9 +295,14 @@
 			<div>
 				{#if loadingSchema}
 					<Skeleton layout={[[4]]} />
+				{:else if !viewJsonSchema && resourceTypeInfo?.is_fileset}
+					<h5 class="mt-1 inline-flex items-center gap-4">
+						Fileset
+					</h5>
+					<FilesetEditor bind:args />
 				{:else if !viewJsonSchema && resourceSchema && resourceSchema?.properties}
 					{#if resourceTypeInfo?.format_extension}
-						<h5 class="mt-4 inline-flex items-center gap-4 pb-2">
+						<h5 class="mt-1 inline-flex items-center gap-4">
 							File content ({resourceTypeInfo.format_extension})
 						</h5>
 						<div class="">

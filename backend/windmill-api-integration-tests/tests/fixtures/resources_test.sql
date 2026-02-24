@@ -54,6 +54,21 @@ INSERT INTO resource (workspace_id, path, value, description, resource_type, ext
 VALUES ('test-workspace', 'u/test-user/scalar_var_resource', '"$var:u/test-user/db_password"',
         'Scalar var ref', 'string', '{}', 'test-user');
 
+-- === fileset resource type test data ===
+
+INSERT INTO resource_type (workspace_id, name, schema, description, created_by, is_fileset)
+VALUES ('test-workspace', 'test_fileset', '{}',
+        'Test fileset type', 'test-user', true);
+
+INSERT INTO resource_type (workspace_id, name, schema, description, created_by, format_extension)
+VALUES ('test-workspace', 'test_file', '{"type": "object", "properties": {"content": {"type": "string"}}}',
+        'Test file type', 'test-user', 'txt');
+
+INSERT INTO resource (workspace_id, path, value, description, resource_type, extra_perms, created_by)
+VALUES ('test-workspace', 'u/test-user/fileset_resource',
+        '{"config.yaml": "key: value", "data/input.json": "{\"items\": []}"}',
+        'A fileset resource', 'test_fileset', '{}', 'test-user');
+
 -- === mcp_tools test data ===
 
 INSERT INTO resource (workspace_id, path, value, description, resource_type, extra_perms, created_by)

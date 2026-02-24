@@ -1933,7 +1933,7 @@ async fn count_completed_jobs_detail(
 
     if let Some(after_s_ago) = query.completed_after_s_ago {
         let after = Utc::now() - chrono::Duration::seconds(after_s_ago);
-        sqlb.and_where_gt("ended_at", "?".bind(&after.to_rfc3339()));
+        sqlb.and_where_gt("completed_at", "?".bind(&after.to_rfc3339()));
     }
 
     if let Some(success) = query.success {

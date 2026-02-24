@@ -1,5 +1,6 @@
-import { stat, writeFile } from "node:fs/promises";
+import { stat, writeFile, readdir, readFile } from "node:fs/promises";
 import { stringify as yamlStringify } from "yaml";
+import nodePath from "node:path";
 
 import {
   GlobalOptions,
@@ -27,6 +28,24 @@ export interface ResourceFile {
   is_oauth?: boolean; // deprecated
 }
 
+async function readFilesetDirectory(dirPath: string): Promise<Record<string, string>> {
+  const result: Record<string, string> = {};
+  async function walk(currentPath: string, prefix: string) {
+    const entries = await readdir(currentPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const entryPath = nodePath.join(currentPath, entry.name);
+      const relPath = prefix ? prefix + "/" + entry.name : entry.name;
+      if (entry.isDirectory()) {
+        await walk(entryPath, relPath);
+      } else if (entry.isFile()) {
+        result[relPath] = await readFile(entryPath, "utf-8");
+      }
+    }
+  }
+  await walk(dirPath, "");
+  return result;
+}
+
 export async function pushResource(
   workspace: string,
   remotePath: string,
@@ -46,7 +65,10 @@ export async function pushResource(
 
   // Helper function to resolve inline content
   const resolveInlineContent = async () => {
-    if (localResource.value["content"]?.startsWith("!inline ")) {
+    if (typeof localResource.value === "string" && localResource.value.startsWith("!inline_fileset ")) {
+      const dirPath = localResource.value.split(" ")[1];
+      localResource.value = await readFilesetDirectory(dirPath.replaceAll("/", SEP));
+    } else if (localResource.value["content"]?.startsWith("!inline ")) {
       const basePath = localResource.value["content"].split(" ")[1];
 
       // If we're processing a branch-specific metadata file, read from branch-specific resource file

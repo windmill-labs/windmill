@@ -6,6 +6,7 @@ export type EditableSchemaWrapperProps = {
 	noPreview?: boolean
 	fullHeight?: boolean
 	formatExtension?: string | undefined
+	isFileset?: boolean | undefined
 	customUi?: {
 		noAddPopover?: boolean
 	}

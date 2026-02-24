@@ -1,5 +1,5 @@
 <script>
-	import { FileText } from 'lucide-svelte'
+	import { FileText, FolderOpen } from 'lucide-svelte'
 	import { APP_TO_ICON_COMPONENT } from './icons'
 	/**
 	 * @typedef {Object} Props
@@ -11,6 +11,7 @@
 	 * @property {boolean} [center]
 	 * @property {boolean} [isSelected]
 	 * @property {any} [formatExtension]
+	 * @property {boolean} [isFileset]
 	 */
 
 	/** @type {Props} */
@@ -22,7 +23,8 @@
 		width = '24px',
 		center = false,
 		isSelected = false,
-		formatExtension = undefined
+		formatExtension = undefined,
+		isFileset = false
 	} = $props()
 
 	let iconComponent = $derived(
@@ -44,6 +46,10 @@
 		{@const SvelteComponent = iconComponent}
 		<span class={isSelected ? 'text-secondary' : 'text-secondary'}>
 			<SvelteComponent {height} {width} size={widthInPixels} />
+		</span>
+	{:else if isFileset}
+		<span class={isSelected ? 'text-secondary' : 'text-secondary grayscale'}>
+			<FolderOpen {height} {width} />
 		</span>
 	{:else if formatExtension}
 		<span class={isSelected ? 'text-secondary' : 'text-secondary grayscale'}>

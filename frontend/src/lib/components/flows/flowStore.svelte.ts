@@ -34,9 +34,11 @@ export async function copyFirstStepSchema(
 			})
 			return
 		}
-		return sendUserToast('Only scripts can be used as a input schema', true)
+		sendUserToast('Only scripts can be used as a input schema', true)
+		return
 	}
-	return sendUserToast('No first step found', true)
+	sendUserToast('No first step found', true)
+	return
 }
 
 export async function getFirstStepSchema(flowState: FlowState, flow: OpenFlow) {

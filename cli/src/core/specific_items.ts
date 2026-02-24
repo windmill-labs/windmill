@@ -1,6 +1,6 @@
 import { minimatch } from "minimatch";
 import { getCurrentGitBranch, isGitRepository } from "../utils/git.ts";
-import { isFileResource } from "../utils/utils.ts";
+import { isFileResource, isFilesetResource } from "../utils/utils.ts";
 import { SyncOptions } from "./conf.ts";
 import { TRIGGER_TYPES } from "../types.ts";
 
@@ -165,7 +165,7 @@ export function isItemTypeConfigured(path: string, specificItems: SpecificItemsC
     return specificItems.settings !== undefined;
   }
 
-  if (isFileResource(path)) {
+  if (isFileResource(path) || isFilesetResource(path)) {
     return specificItems.resources !== undefined;
   }
 
@@ -213,6 +213,14 @@ export function isSpecificItem(path: string, specificItems: SpecificItemsConfig 
   if (isFileResource(path)) {
     // Extract the base path without the file extension to match against patterns
     const basePathMatch = path.match(/^(.+?)\.resource\.file\./);
+    if (basePathMatch && specificItems.resources) {
+      const basePath = basePathMatch[1] + '.resource.yaml';
+      return matchesPatterns(basePath, specificItems.resources);
+    }
+  }
+
+  if (isFilesetResource(path)) {
+    const basePathMatch = path.match(/^(.+?)\.fileset[/\\]/);
     if (basePathMatch && specificItems.resources) {
       const basePath = basePathMatch[1] + '.resource.yaml';
       return matchesPatterns(basePath, specificItems.resources);

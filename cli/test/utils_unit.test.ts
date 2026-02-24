@@ -4,7 +4,7 @@
  */
 
 import { expect, test, describe } from "bun:test";
-import { deepEqual, isFileResource, toCamel, capitalize } from "../src/utils/utils.ts";
+import { deepEqual, isFileResource, isFilesetResource, toCamel, capitalize } from "../src/utils/utils.ts";
 import {
   getTypeStrFromPath,
   removeType,
@@ -157,6 +157,32 @@ describe("isFileResource", () => {
 });
 
 // =============================================================================
+// isFilesetResource
+// =============================================================================
+
+describe("isFilesetResource", () => {
+  test("detects fileset resource paths (unix separator)", () => {
+    expect(isFilesetResource("f/test/my_config.fileset/config.yaml")).toBe(true);
+    expect(isFilesetResource("u/admin/templates.fileset/path/to/file.txt")).toBe(true);
+  });
+
+  test("detects fileset resource paths (windows separator)", () => {
+    expect(isFilesetResource("f\\test\\my_config.fileset\\config.yaml")).toBe(true);
+  });
+
+  test("rejects non-fileset paths", () => {
+    expect(isFilesetResource("f/test/my_resource.resource.yaml")).toBe(false);
+    expect(isFilesetResource("f/test/my_file.resource.file.txt")).toBe(false);
+    expect(isFilesetResource("f/test/my_script.ts")).toBe(false);
+  });
+
+  test("rejects paths ending with .fileset (no child file)", () => {
+    // The directory itself is not a fileset resource file - only children are
+    expect(isFilesetResource("f/test/my_config.fileset")).toBe(false);
+  });
+});
+
+// =============================================================================
 // removeType
 // =============================================================================
 
@@ -239,6 +265,11 @@ describe("getTypeStrFromPath", () => {
   test("detects user and group", () => {
     expect(getTypeStrFromPath("admin.user.yaml")).toBe("user");
     expect(getTypeStrFromPath("devs.group.yaml")).toBe("group");
+  });
+
+  test("detects fileset resource files as resource type", () => {
+    expect(getTypeStrFromPath("f/test/my_config.fileset/config.yaml")).toBe("resource");
+    expect(getTypeStrFromPath("u/admin/templates.fileset/path/to/file.txt")).toBe("resource");
   });
 
   test("throws for unknown type", () => {

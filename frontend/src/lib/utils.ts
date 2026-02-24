@@ -19,8 +19,6 @@ import type { TriggerKind } from './components/triggers'
 import { stateSnapshot } from './svelte5Utils.svelte'
 import { validate, dereference } from '@scalar/openapi-parser'
 
-export type RunsSelectionMode = 'cancel' | 're-run'
-
 export namespace OpenApi {
 	export enum OpenApiVersion {
 		V2,
@@ -87,14 +85,6 @@ export function isJobReRunnable(j: Job): boolean {
 }
 
 export const WORKER_NAME_PREFIX = 'wk'
-
-export function isJobSelectable(selectionType: RunsSelectionMode) {
-	const f: (j: Job) => boolean = {
-		cancel: isJobCancelable,
-		're-run': isJobReRunnable
-	}[selectionType]
-	return f
-}
 
 export function escapeHtml(unsafe: string) {
 	return unsafe
@@ -1590,6 +1580,44 @@ export function formatDateShort(dateString: string | undefined): string {
 	}).format(date)
 }
 
+export function formatDateRange(
+	start: string | Date | undefined,
+	end: string | Date | undefined
+): string {
+	if (typeof start === 'string') start = new Date(start)
+	if (typeof end === 'string') end = new Date(end)
+
+	if (start && end) {
+		const differentDays =
+			start.getFullYear() !== end.getFullYear() ||
+			start.getMonth() !== end.getMonth() ||
+			start.getDate() !== end.getDate()
+
+		const differentYears = start.getFullYear() !== end.getFullYear()
+
+		if (differentDays || differentYears) {
+			// Clone to avoid mutating originals
+			start = new Date(start)
+			end = new Date(end)
+			// Zero out time for display
+			start.setHours(0, 0, 0, 0)
+			end.setHours(0, 0, 0, 0)
+		}
+
+		if (differentYears) {
+			// Zero out month and day for display
+			start.setMonth(0, 1)
+			end.setMonth(0, 1)
+		}
+
+		return `${formatDatePretty(start)} to ${formatDatePretty(end)}`
+	}
+
+	if (!end && start) return `After ${formatDatePretty(start)}`
+	if (!start && end) return `Before ${formatDatePretty(end)}`
+	return 'No input'
+}
+
 export function toJsonStr(result: any) {
 	try {
 		// console.log(result)
@@ -2052,4 +2080,161 @@ export function formatMemory(
 	}
 
 	return display
+}
+
+export function assignObjInPlace(
+	target: Record<string, any>,
+	source: Record<string, any>,
+	options: { onDelete?: 'Delete' | 'SetNull' } = { onDelete: 'Delete' }
+) {
+	for (const key in target) {
+		if (!(key in source)) {
+			if (options?.onDelete === 'Delete') delete target[key]
+			else if (options?.onDelete === 'SetNull') target[key] = null
+		}
+	}
+	for (const key in source) target[key] = source[key]
+}
+
+export function isUSLocale(): boolean {
+	try {
+		const locale = Intl.DateTimeFormat().resolvedOptions().locale
+		return locale.startsWith('en-US')
+	} catch {
+		return false
+	}
+}
+
+export function formatDatePretty(date: Date): string {
+	if (!date || isNaN(date.getTime())) return ''
+
+	const now = new Date()
+	const year = date.getFullYear()
+	const month = date.getMonth() + 1
+	const day = date.getDate()
+	const hours = date.getHours()
+	const minutes = date.getMinutes()
+
+	const isCurrentYear = year === now.getFullYear()
+	const isToday = isCurrentYear && month === now.getMonth() + 1 && day === now.getDate()
+	const isOnlyYear = month === 1 && day === 1 && hours === 0 && minutes === 0
+	const hasTime = hours !== 0 || minutes !== 0
+
+	// If only year is defined (rest is 01/01 00:00)
+	if (isOnlyYear) {
+		return String(year)
+	}
+
+	// Format month/day depending on locale: MM/DD for US, DD/MM otherwise
+	const mm = String(month).padStart(2, '0')
+	const dd = String(day).padStart(2, '0')
+	const monthDay = isUSLocale() ? `${mm}/${dd}` : `${dd}/${mm}`
+	// Format time if present (12-hour format with AM/PM)
+	let timeStr = ''
+	if (hasTime) {
+		const isPM = hours >= 12
+		const displayHours = hours % 12 || 12
+		const displayMinutes = String(minutes).padStart(2, '0')
+		timeStr = ` ${displayHours}:${displayMinutes} ${isPM ? 'PM' : 'AM'}`
+	}
+
+	// If today and same year, only show time (if present)
+	if (isToday) {
+		return timeStr ? timeStr.trim() : monthDay
+	}
+
+	// If same year, show month/day and time (if present)
+	if (isCurrentYear) {
+		return `${monthDay}${timeStr}`
+	}
+
+	// Otherwise, show full date with year and time (if present)
+	return `${monthDay}/${year}${timeStr}`
+}
+
+export function parsePrettyDate(text: string): Date | null {
+	if (!text) return null
+
+	const now = new Date()
+	const currentYear = now.getFullYear()
+
+	// Try parsing as year-only (e.g., "2025")
+	if (/^\d{4}$/.test(text)) {
+		const year = parseInt(text)
+		return new Date(year, 0, 1, 0, 0, 0)
+	}
+
+	// Try parsing time-only (e.g., "11:02 AM") - assumes today
+	const timeOnlyMatch = text.match(/^(\d{1,2}):(\d{2})\s+(AM|PM)$/i)
+	if (timeOnlyMatch) {
+		const [, hourStr, minuteStr, meridiem] = timeOnlyMatch
+		let hours = parseInt(hourStr)
+		const minutes = parseInt(minuteStr)
+
+		if (meridiem.toUpperCase() === 'PM' && hours !== 12) hours += 12
+		if (meridiem.toUpperCase() === 'AM' && hours === 12) hours = 0
+
+		return new Date(currentYear, now.getMonth(), now.getDate(), hours, minutes, 0)
+	}
+
+	const usLocale = isUSLocale()
+
+	// Parse a "first/second" pair as month/day (US) or day/month (non-US)
+	function parseFirstSecond(firstStr: string, secondStr: string): { month: number; day: number } {
+		const first = parseInt(firstStr)
+		const second = parseInt(secondStr)
+		return usLocale ? { month: first - 1, day: second } : { month: second - 1, day: first }
+	}
+
+	// Try parsing NN/NN (e.g., "01/04") - assumes current year, no time
+	// US: MM/DD, non-US: DD/MM
+	const monthDayMatch = text.match(/^(\d{2})\/(\d{2})$/)
+	if (monthDayMatch) {
+		const { month, day } = parseFirstSecond(monthDayMatch[1], monthDayMatch[2])
+		return new Date(currentYear, month, day, 0, 0, 0)
+	}
+
+	// Try parsing NN/NN TIME (e.g., "01/04 11:02 AM") - assumes current year with time
+	// US: MM/DD TIME, non-US: DD/MM TIME
+	const monthDayTimeMatch = text.match(/^(\d{2})\/(\d{2})\s+(\d{1,2}):(\d{2})\s+(AM|PM)$/i)
+	if (monthDayTimeMatch) {
+		const { month, day } = parseFirstSecond(monthDayTimeMatch[1], monthDayTimeMatch[2])
+		let hours = parseInt(monthDayTimeMatch[3])
+		const minutes = parseInt(monthDayTimeMatch[4])
+		const meridiem = monthDayTimeMatch[5]
+
+		if (meridiem.toUpperCase() === 'PM' && hours !== 12) hours += 12
+		if (meridiem.toUpperCase() === 'AM' && hours === 12) hours = 0
+
+		return new Date(currentYear, month, day, hours, minutes, 0)
+	}
+
+	// Try parsing NN/NN/YYYY (e.g., "01/04/2025") - no time
+	// US: MM/DD/YYYY, non-US: DD/MM/YYYY
+	const fullDateMatch = text.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+	if (fullDateMatch) {
+		const { month, day } = parseFirstSecond(fullDateMatch[1], fullDateMatch[2])
+		const year = parseInt(fullDateMatch[3])
+		return new Date(year, month, day, 0, 0, 0)
+	}
+
+	// Try parsing NN/NN/YYYY TIME (e.g., "01/04/2025 3:00 PM")
+	// US: MM/DD/YYYY TIME, non-US: DD/MM/YYYY TIME
+	const fullDateTimeMatch = text.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}):(\d{2})\s+(AM|PM)$/i)
+	if (fullDateTimeMatch) {
+		const { month, day } = parseFirstSecond(fullDateTimeMatch[1], fullDateTimeMatch[2])
+		const year = parseInt(fullDateTimeMatch[3])
+		let hours = parseInt(fullDateTimeMatch[4])
+		const minutes = parseInt(fullDateTimeMatch[5])
+		const meridiem = fullDateTimeMatch[6]
+
+		if (meridiem.toUpperCase() === 'PM' && hours !== 12) hours += 12
+		if (meridiem.toUpperCase() === 'AM' && hours === 12) hours = 0
+
+		return new Date(year, month, day, hours, minutes, 0)
+	}
+
+	// Fallback to standard Date parsing (e.g., ISO strings)
+	const date = new Date(text)
+	return isNaN(date.getTime()) ? null : date
 }
