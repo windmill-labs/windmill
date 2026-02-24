@@ -383,7 +383,7 @@
 					{jobCount}
 				{/if}
 			</div>
-			<div class="text-xs font-semibold leading-3">Started</div>
+			<div></div>
 			<div class="text-xs font-semibold leading-3">Duration</div>
 			<div class="text-xs font-semibold leading-3">Path</div>
 			{#if containsLabel}
