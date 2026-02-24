@@ -465,6 +465,7 @@
 						{targetEmail}
 						selected={onBehalfOfChoice[statusPath]}
 						onSelect={(choice) => (onBehalfOfChoice[statusPath] = choice)}
+						kind={item.kind}
 					/>
 				{/if}
 
@@ -525,12 +526,21 @@
 					{/if}
 					{#if hasUnselectedOnBehalfOf}
 						<span class="text-xs text-yellow-600">
-							You must set the "on behalf of" for all items before deploying
-							<Tooltip class="text-yellow-600">
-								The "Run on behalf of" field defines a users permissions that will be applied during
-								execution instead of the user triggering the execution. Make sure that this is set
-								to an appropriate user before deploying
-							</Tooltip>
+							{#if kind === 'trigger'}
+								You must set the "edited by" user for all triggers before deploying
+								<Tooltip class="text-yellow-600">
+									The "edited by" field defines which user's permissions will be applied
+									when the trigger runs. Make sure this is set to an appropriate user
+									before deploying.
+								</Tooltip>
+							{:else}
+								You must set the "on behalf of" user for all items before deploying
+								<Tooltip class="text-yellow-600">
+									The "run on behalf of" field defines which user's permissions will be
+									applied during execution. Make sure this is set to an appropriate user
+									before deploying.
+								</Tooltip>
+							{/if}
 						</span>
 					{/if}
 				</div>

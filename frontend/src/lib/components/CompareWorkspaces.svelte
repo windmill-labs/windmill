@@ -611,6 +611,7 @@
 					{targetEmail}
 					selected={onBehalfOfChoice[key]}
 					onSelect={(choice) => (onBehalfOfChoice[key] = choice)}
+					kind={diff.kind}
 				/>
 			{/if}
 			<!-- Status badges -->
@@ -697,11 +698,11 @@
 							</Button>
 							{#if hasUnselectedOnBehalfOf}
 								<span class="text-xs text-yellow-600">
-									You must set the "on behalf of" for all items before deploying
+									You must set the "on behalf of" user for all items before deploying
 									<Tooltip class="text-yellow-600">
-										The "Run on behalf of" field defines a users permissions that will be applied
-										during execution instead of the user triggering the execution. Make sure that
-										this is set to an appropriate user before deploying
+										The "run on behalf of" field defines which user's permissions will be
+										applied during execution. Make sure this is set to an appropriate
+										user before deploying.
 									</Tooltip>
 								</span>
 							{/if}
