@@ -228,7 +228,7 @@ components:
         description:
           type: string
           description: Markdown description shown when the group is collapsed
-        collapsed:
+        collapsed_by_default:
           type: boolean
           default: false
           description: If true, this group is collapsed by default in the flow editor. UI hint only.

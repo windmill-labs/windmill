@@ -448,7 +448,7 @@
 			expandedSubflows = expandedSubflows
 		},
 		expandGroup: (groupId: string) => {
-			groupEditorContext?.groupEditor.updateCollapsedDefault(groupId, false)
+			groupEditorContext?.groupEditor.expandGroup(groupId)
 		},
 		updateMock: (detail) => {
 			onUpdateMock?.(detail)
@@ -748,9 +748,7 @@
 		effectiveModuleActions
 		currentGroups
 
-		const collapsedGroups = (groupEditorContext?.groupEditor.getGroups() ?? []).filter(
-			(g) => g.collapsed === true
-		)
+		const collapsedGroups = groupEditorContext?.groupEditor.getCollapsedGroups() ?? []
 
 		return graphBuilder(
 			untrack(() => effectiveModules),

@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { ViewportPortal, type Node } from '@xyflow/svelte'
 	import { calculateNodesBoundsWithOffset } from './util'
-	import { ChevronDown, X } from 'lucide-svelte'
+	import { preventDefault, stopPropagation } from 'svelte/legacy'
+	import { Minimize2, Settings, Ungroup } from 'lucide-svelte'
 	import { getGroupEditorContext, GROUP_HEADER_HEIGHT, type FlowGroup } from './groupEditor.svelte'
-	import { NoteColor } from './noteColors'
-	import NoteColorPicker from './NoteColorPicker.svelte'
-	import Button from '../common/button/Button.svelte'
+	import { NoteColor, NOTE_COLOR_SWATCHES } from './noteColors'
+	import Popover from '../meltComponents/Popover.svelte'
+	import { Tooltip } from '../meltComponents'
+	import Toggle from '../Toggle.svelte'
 	import GroupNodeCard from './GroupNodeCard.svelte'
 
 	interface Props {
@@ -18,8 +20,8 @@
 
 	const groupEditorContext = getGroupEditorContext()
 
-	// Color picker open state
-	let colorPickerOpen = $state(false)
+	// Settings popover open state
+	let settingsOpen = $state(false)
 
 	// Action bar hover state to prevent flicker
 	let actionBarHovered = $state(false)
@@ -42,7 +44,7 @@
 				hideTimeout = undefined
 			}
 			visibleGroup = activeGroup
-		} else if (!colorPickerOpen && !actionBarHovered) {
+		} else if (!settingsOpen && !actionBarHovered) {
 			hideTimeout = setTimeout(() => {
 				visibleGroup = undefined
 			}, 150)
@@ -99,20 +101,21 @@
 	}
 
 	function toggleCollapse(groupId: string) {
-		const current =
-			groupEditorContext?.groupEditor.getGroups().find((g) => g.id === groupId)?.collapsed ?? false
-		groupEditorContext?.groupEditor.updateCollapsedDefault(groupId, !current)
+		groupEditorContext?.groupEditor.toggleRuntimeCollapse(groupId)
 	}
 </script>
 
 {#each allGroups as group (group.id)}
-	{#if !group.collapsed}
+	{#if !groupEditorContext?.groupEditor.isRuntimeCollapsed(group.id)}
 		{@const bounds = computeGroupBounds(group)}
 		{#if bounds}
 			<ViewportPortal target="front">
 				<!-- Always-visible border (no bg, solid 1px) -->
 				<div
-					class="absolute rounded-lg border pointer-events-none transition-colors duration-150 {getBorderColorClass(group.color, visibleGroup?.id === group.id)}"
+					class="absolute rounded-lg border pointer-events-none transition-colors duration-150 {getBorderColorClass(
+						group.color,
+						visibleGroup?.id === group.id
+					)}"
 					style:transform="translate({bounds.x}px, {bounds.y}px)"
 					style:width="{bounds.width}px"
 					style:height="{bounds.height}px"
@@ -135,39 +138,85 @@
 							actionBarHovered = false
 						}}
 					>
-						<GroupNodeCard summary={group.summary} stepCount={group.module_ids.length} color={group.color} fullWidth>
-							{#snippet actions()}
-								{#if editMode && visibleGroup?.id === group.id}
-									<Button
-										variant="subtle"
-										unifiedSize="xs"
-										iconOnly
-										title="Collapse group"
-										startIcon={{ icon: ChevronDown }}
-										onclick={() => toggleCollapse(group.id)}
-									/>
-									<NoteColorPicker
-										selectedColor={(group.color as NoteColor) ?? NoteColor.BLUE}
-										onColorChange={(color) => {
-											groupEditorContext?.groupEditor.updateColor(group.id, color)
-										}}
-										bind:isOpen={colorPickerOpen}
-									/>
-									<Button
-										variant="subtle"
-										unifiedSize="xs"
-										title="Delete group"
-										startIcon={{ icon: X }}
-										onclick={() => {
-											groupEditorContext?.groupEditor.deleteGroup(group.id)
-											visibleGroup = undefined
-										}}
-										iconOnly
-										destructive
-									/>
-								{/if}
-							{/snippet}
-						</GroupNodeCard>
+						<GroupNodeCard
+							summary={group.summary}
+							stepCount={group.module_ids.length}
+							color={group.color}
+							fullWidth
+						/>
+						{#if editMode && visibleGroup?.id === group.id}
+							<div class="absolute -translate-y-[100%] top-2 right-0 h-7 p-1 flex flex-row gap-1">
+								<Tooltip>
+									<button
+										class="center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary p-1 rounded-md"
+										onclick={stopPropagation(preventDefault(() => toggleCollapse(group.id)))}
+										onpointerdown={stopPropagation(preventDefault(() => {}))}
+									>
+										<Minimize2 size={12} />
+									</button>
+									<svelte:fragment slot="text">Collapse group</svelte:fragment>
+								</Tooltip>
+								<Popover
+									placement="bottom"
+									contentClasses="p-4"
+									floatingConfig={{ strategy: 'absolute' }}
+									usePointerDownOutside
+									bind:isOpen={settingsOpen}
+								>
+									{#snippet trigger()}
+										<Tooltip>
+											<button
+												class="center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary p-1 rounded-md"
+											>
+												<Settings size={12} />
+											</button>
+											<svelte:fragment slot="text">Group settings</svelte:fragment>
+										</Tooltip>
+									{/snippet}
+									{#snippet content()}
+										<div class="grid grid-cols-5 gap-1" style="min-width: 140px">
+											{#each Object.values(NoteColor) as color (color)}
+												<button
+													class="w-6 h-6 rounded-full hover:scale-110 transition-transform duration-100
+														{NOTE_COLOR_SWATCHES[color]}
+														{(group.color ?? NoteColor.BLUE) === color ? 'ring-2 ring-accent' : 'dark:border-gray-600'}"
+													onclick={() =>
+														groupEditorContext?.groupEditor.updateColor(group.id, color)}
+													title={color.charAt(0).toUpperCase() + color.slice(1)}
+												></button>
+											{/each}
+										</div>
+										<div class="border-t mt-2 pt-2">
+											<Toggle
+												size="xs"
+												checked={group.collapsed_by_default ?? false}
+												options={{ right: 'Collapsed by default' }}
+												on:change={(e) =>
+													groupEditorContext?.groupEditor.updateCollapsedDefault(
+														group.id,
+														e.detail
+													)}
+											/>
+										</div>
+									{/snippet}
+								</Popover>
+								<Tooltip>
+									<button
+										class="center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-red-400 hover:text-white p-1 s rounded-md"
+										onclick={stopPropagation(
+											preventDefault(() => {
+												groupEditorContext?.groupEditor.deleteGroup(group.id)
+												visibleGroup = undefined
+											})
+										)}
+										onpointerdown={stopPropagation(preventDefault(() => {}))}
+									>
+										<Ungroup size={12} />
+									</button>
+									<svelte:fragment slot="text">Ungroup</svelte:fragment>
+								</Tooltip>
+							</div>
+						{/if}
 					</div>
 				</div>
 			</ViewportPortal>

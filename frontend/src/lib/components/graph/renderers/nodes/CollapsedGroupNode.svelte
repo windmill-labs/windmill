@@ -6,6 +6,7 @@
 	import { getGraphContext } from '../../graphContext'
 	import { twMerge } from 'tailwind-merge'
 	import GroupNodeCard from '../../GroupNodeCard.svelte'
+	import { Tooltip } from '$lib/components/meltComponents'
 
 	interface Props {
 		data: CollapsedGroupN['data']
@@ -31,22 +32,24 @@
 			<GroupNodeCard summary={data.summary} color={data.color} {selected} />
 
 			<div class="absolute -translate-y-[100%] top-2 right-10 h-7 p-1">
-				<button
-					title="Expand group"
-					class={twMerge(
-						'center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary p-1',
-						'shadow-md rounded-md',
-						hover || selected ? 'opacity-100' : 'opacity-50'
-					)}
-					onclick={stopPropagation(
-						preventDefault(() => {
-							data.eventHandlers.expandGroup(data.groupId)
-						})
-					)}
-					onpointerdown={stopPropagation(preventDefault(() => {}))}
-				>
-					<Maximize2 size={12} />
-				</button>
+				<Tooltip>
+					<button
+						class={twMerge(
+							'center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary p-1',
+							'shadow-md rounded-md',
+							hover || selected ? 'opacity-100' : 'opacity-50'
+						)}
+						onclick={stopPropagation(
+							preventDefault(() => {
+								data.eventHandlers.expandGroup(data.groupId)
+							})
+						)}
+						onpointerdown={stopPropagation(preventDefault(() => {}))}
+					>
+						<Maximize2 size={12} />
+					</button>
+					<svelte:fragment slot="text">Expand group</svelte:fragment>
+				</Tooltip>
 			</div>
 		</div>
 	{/snippet}

@@ -412,8 +412,8 @@ pub struct FlowGroup {
     pub summary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub collapsed: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none", alias = "collapsed")]
+    pub collapsed_by_default: Option<bool>,
     pub module_ids: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
