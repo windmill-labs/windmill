@@ -1,12 +1,9 @@
 <script lang="ts">
-	import { preventDefault, stopPropagation } from 'svelte/legacy'
 	import NodeWrapper from './NodeWrapper.svelte'
-	import { Maximize2 } from 'lucide-svelte'
 	import type { CollapsedGroupN } from '../../graphBuilder.svelte'
 	import { getGraphContext } from '../../graphContext'
-	import { twMerge } from 'tailwind-merge'
 	import GroupNodeCard from '../../GroupNodeCard.svelte'
-	import { Tooltip } from '$lib/components/meltComponents'
+	import GroupActionBar from '../../GroupActionBar.svelte'
 	import { getGroupEditorContext } from '../../groupEditor.svelte'
 
 	interface Props {
@@ -21,51 +18,46 @@
 
 	let selected = $derived(!!(selectionManager && selectionManager.isNodeSelected(id)))
 	let hover = $state(false)
+
+	let group = $derived(
+		groupEditorContext?.groupEditor.getGroups().find((g) => g.id === data.groupId)
+	)
 </script>
 
 <NodeWrapper offset={data.offset}>
 	{#snippet children({ darkMode })}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div
-			class="relative"
-			onmouseenter={() => (hover = true)}
-			onmouseleave={() => (hover = false)}
-		>
+		<div class="relative" onmouseenter={() => (hover = true)} onmouseleave={() => (hover = false)}>
 			<GroupNodeCard
 				summary={data.summary}
 				color={data.color}
 				{selected}
+				stepCount={data.stepCount}
 				note={data.note}
 				showNote={data.showNotes && data.note != null}
 				editMode={data.editMode}
+				modules={data.modules}
 				onSummaryUpdate={(text) =>
 					groupEditorContext?.groupEditor.updateSummary(data.groupId, text)}
-				onNoteUpdate={(text) =>
-					groupEditorContext?.groupEditor.updateNote(data.groupId, text)}
-				onHeightChange={(h) =>
-					groupEditorContext?.groupEditor.setNoteHeight(data.groupId, h)}
+				onNoteUpdate={(text) => groupEditorContext?.groupEditor.updateNote(data.groupId, text)}
+				onHeightChange={(h) => groupEditorContext?.groupEditor.setNoteHeight(data.groupId, h)}
 			/>
 
-			<div class="absolute -translate-y-[100%] top-2 right-10 h-7 p-1">
-				<Tooltip>
-					<button
-						class={twMerge(
-							'center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary p-1',
-							'shadow-md rounded-md',
-							hover || selected ? 'opacity-100' : 'opacity-50'
-						)}
-						onclick={stopPropagation(
-							preventDefault(() => {
-								data.eventHandlers.expandGroup(data.groupId)
-							})
-						)}
-						onpointerdown={stopPropagation(preventDefault(() => {}))}
-					>
-						<Maximize2 size={12} />
-					</button>
-					<svelte:fragment slot="text">Expand group</svelte:fragment>
-				</Tooltip>
-			</div>
+			{#if data.editMode && (hover || selected)}
+				<GroupActionBar
+					note={data.note}
+					color={data.color}
+					collapsedByDefault={group?.collapsed_by_default ?? false}
+					collapsed={true}
+					onAddNote={() => groupEditorContext?.groupEditor.addNote(data.groupId)}
+					onRemoveNote={() => groupEditorContext?.groupEditor.removeNote(data.groupId)}
+					onToggleCollapse={() => data.eventHandlers.expandGroup(data.groupId)}
+					onUpdateColor={(c) => groupEditorContext?.groupEditor.updateColor(data.groupId, c)}
+					onUpdateCollapsedDefault={(v) =>
+						groupEditorContext?.groupEditor.updateCollapsedDefault(data.groupId, v)}
+					onDeleteGroup={() => groupEditorContext?.groupEditor.deleteGroup(data.groupId)}
+				/>
+			{/if}
 		</div>
 	{/snippet}
 </NodeWrapper>

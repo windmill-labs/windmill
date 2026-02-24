@@ -6,6 +6,8 @@
 	import { preventDefault, stopPropagation } from 'svelte/legacy'
 	import GroupNoteArea from './GroupNoteArea.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import GroupModuleIcons from './GroupModuleIcons.svelte'
+	import type { FlowModule } from '$lib/gen'
 
 	interface Props {
 		summary?: string
@@ -16,6 +18,7 @@
 		note?: string
 		showNote?: boolean
 		editMode?: boolean
+		modules?: FlowModule[]
 		onSummaryUpdate?: (text: string) => void
 		onNoteUpdate?: (text: string) => void
 		onHeightChange?: (height: number) => void
@@ -30,6 +33,7 @@
 		note,
 		showNote = false,
 		editMode = false,
+		modules,
 		onSummaryUpdate,
 		onNoteUpdate,
 		onHeightChange
@@ -83,8 +87,8 @@
 <div
 	class={twMerge(
 		'w-full module cursor-pointer max-w-full',
-		fullWidth ? 'rounded-t-md' : 'rounded-md drop-shadow-base',
-		noteColorConfig ? noteColorConfig.background : defaultColorClasses.bg,
+		fullWidth ? 'rounded-t-md' : 'rounded-md drop-shadow-base overflow-clip',
+		'bg-surface',
 		noteColorConfig ? noteColorConfig.text : ''
 	)}
 	style={fullWidth ? '' : 'width: 275px;'}
@@ -97,26 +101,40 @@
 		)}
 	></div>
 	<div class="flex items-center w-full gap-1.5 px-2 h-[34px] relative z-1">
-		<Group size={14} />
+		{#if modules && modules.length > 0}
+			<GroupModuleIcons {modules} />
+		{:else}
+			<Group size={14} />
+		{/if}
 		{#if editingSummary}
 			<TextInput
 				bind:this={textInputComponent}
 				bind:value={summaryInput}
 				size="xs"
 				class="!bg-transparent !border-transparent !shadow-none !text-2xs !font-medium !p-0 !m-0 !min-w-0 flex-1 !min-h-0 !h-auto nodrag nowheel"
-				inputProps={{ placeholder: 'Group', onblur: saveSummary, onkeydown: handleSummaryKeydown, spellcheck: false }}
+				inputProps={{
+					placeholder: 'Group',
+					onblur: saveSummary,
+					onkeydown: handleSummaryKeydown,
+					spellcheck: false
+				}}
 			/>
 		{:else}
 			<!-- svelte-ignore a11y_click_events_have_key_events -->
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<span
-				class="text-2xs font-medium truncate {editMode ? 'cursor-text rounded px-0.5 -mx-0.5 hover:bg-black/10 dark:hover:bg-white/10' : ''}"
+				class="text-2xs font-medium truncate {editMode
+					? 'cursor-text rounded px-0.5 -mx-0.5 hover:bg-black/10 dark:hover:bg-white/10'
+					: ''}"
 				onclick={editMode ? stopPropagation(preventDefault(startEditingSummary)) : undefined}
 				onpointerdown={editMode ? stopPropagation(preventDefault(() => {})) : undefined}
-			>{summary || 'Group'}</span>
+				>{summary || 'Group'}</span
+			>
 		{/if}
 		{#if stepCount != null}
-			<span class="text-2xs opacity-60">{stepCount} node{stepCount !== 1 ? 's' : ''}</span>
+			<span class="text-3xs opacity-60 ml-auto shrink-0 whitespace-nowrap"
+				>{stepCount} node{stepCount !== 1 ? 's' : ''}</span
+			>
 		{/if}
 	</div>
 	{#if showNote}

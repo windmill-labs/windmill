@@ -340,6 +340,7 @@ export type CollapsedGroupN = {
 		note: string | undefined
 		color: string | undefined
 		stepCount: number
+		modules: FlowModule[]
 		showNotes: boolean
 		editMode: boolean
 		eventHandlers: GraphEventHandlers
@@ -689,6 +690,9 @@ export function graphBuilder(
 								note: collapsedGroup.note,
 								color: collapsedGroup.color,
 								stepCount: collapsedGroup.module_ids.length,
+								modules: collapsedGroup.module_ids
+									.map((id) => getAllModules(modules).find((m) => m.id === id))
+									.filter((m): m is FlowModule => m != null),
 								showNotes,
 								editMode: extra.editMode,
 								eventHandlers
