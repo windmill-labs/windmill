@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.644.0](https://github.com/windmill-labs/windmill/compare/v1.643.0...v1.644.0) (2026-02-24)
+
+
+### Features
+
+* **cli:** detect missing folders on sync push and add 'wmill folder add-missing' ([#8011](https://github.com/windmill-labs/windmill/issues/8011)) ([835db5d](https://github.com/windmill-labs/windmill/commit/835db5d290a151f38f4e879ed7ffbda5d1c4b24f))
+
+
+### Bug Fixes
+
+* prevent concurrent index migrations from re-running on every startup ([#8069](https://github.com/windmill-labs/windmill/issues/8069)) ([8ff2340](https://github.com/windmill-labs/windmill/commit/8ff2340c0c08ce49a809c8958a9862ffb1681642))
+
 ## [1.643.0](https://github.com/windmill-labs/windmill/compare/v1.642.0...v1.643.0) (2026-02-24)
 
 
