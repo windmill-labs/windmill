@@ -1027,6 +1027,29 @@ async fn create_script_internal<'c>(
             Some([("hash", hash.to_string().as_str())].into()),
         )
         .await?;
+        if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
+            ns.on_behalf_of_email.as_deref(),
+            ns.preserve_on_behalf_of.unwrap_or(false),
+            &authed,
+            &authed.email,
+        ) {
+            audit_log(
+                &mut *tx,
+                &authed,
+                "scripts.on_behalf_of",
+                ActionKind::Update,
+                &w_id,
+                Some(&ns.path),
+                Some(
+                    [
+                        ("on_behalf_of", on_behalf_of.as_str()),
+                        ("action", "update"),
+                    ]
+                    .into(),
+                ),
+            )
+            .await?;
+        }
         webhook.send_message(
             w_id.clone(),
             WebhookMessage::UpdateScript {
@@ -1052,6 +1075,29 @@ async fn create_script_internal<'c>(
             ),
         )
         .await?;
+        if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
+            ns.on_behalf_of_email.as_deref(),
+            ns.preserve_on_behalf_of.unwrap_or(false),
+            &authed,
+            &authed.email,
+        ) {
+            audit_log(
+                &mut *tx,
+                &authed,
+                "scripts.on_behalf_of",
+                ActionKind::Create,
+                &w_id,
+                Some(&ns.path),
+                Some(
+                    [
+                        ("on_behalf_of", on_behalf_of.as_str()),
+                        ("action", "create"),
+                    ]
+                    .into(),
+                ),
+            )
+            .await?;
+        }
         webhook.send_message(
             w_id.clone(),
             WebhookMessage::CreateScript {

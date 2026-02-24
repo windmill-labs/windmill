@@ -559,6 +559,29 @@ async fn create_flow(
         ),
     )
     .await?;
+    if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
+        nf.on_behalf_of_email.as_deref(),
+        nf.preserve_on_behalf_of.unwrap_or(false),
+        &authed,
+        &authed.email,
+    ) {
+        audit_log(
+            &mut *tx,
+            &authed,
+            "flows.on_behalf_of",
+            ActionKind::Create,
+            &w_id,
+            Some(&nf.path),
+            Some(
+                [
+                    ("on_behalf_of", on_behalf_of.as_str()),
+                    ("action", "create"),
+                ]
+                .into(),
+            ),
+        )
+        .await?;
+    }
 
     let mut args: HashMap<String, Box<serde_json::value::RawValue>> = HashMap::new();
     if let Some(dm) = nf.deployment_message {
@@ -1111,6 +1134,29 @@ async fn update_flow(
         ),
     )
     .await?;
+    if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
+        nf.on_behalf_of_email.as_deref(),
+        nf.preserve_on_behalf_of.unwrap_or(false),
+        &authed,
+        &authed.email,
+    ) {
+        audit_log(
+            &mut *tx,
+            &authed,
+            "flows.on_behalf_of",
+            ActionKind::Update,
+            &w_id,
+            Some(&nf.path),
+            Some(
+                [
+                    ("on_behalf_of", on_behalf_of.as_str()),
+                    ("action", "update"),
+                ]
+                .into(),
+            ),
+        )
+        .await?;
+    }
 
     webhook.send_message(
         w_id.clone(),

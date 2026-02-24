@@ -352,6 +352,29 @@ async fn create_schedule(
         ),
     )
     .await?;
+    if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
+        ns.email.as_deref(),
+        ns.preserve_email.unwrap_or(false),
+        &authed,
+        &authed.username,
+    ) {
+        audit_log(
+            &mut *tx,
+            &authed,
+            "schedule.on_behalf_of",
+            ActionKind::Create,
+            &w_id,
+            Some(&ns.path),
+            Some(
+                [
+                    ("on_behalf_of", on_behalf_of.as_str()),
+                    ("action", "create"),
+                ]
+                .into(),
+            ),
+        )
+        .await?;
+    }
 
     if ns.enabled.unwrap_or(true) {
         tx = push_scheduled_job(&db, tx, &schedule, Some(&authed.clone().into()), None).await?
@@ -510,6 +533,29 @@ async fn edit_schedule(
         ),
     )
     .await?;
+    if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
+        es.email.as_deref(),
+        es.preserve_email.unwrap_or(false),
+        &authed,
+        &authed.username,
+    ) {
+        audit_log(
+            &mut *tx,
+            &authed,
+            "schedule.on_behalf_of",
+            ActionKind::Update,
+            &w_id,
+            Some(path),
+            Some(
+                [
+                    ("on_behalf_of", on_behalf_of.as_str()),
+                    ("action", "update"),
+                ]
+                .into(),
+            ),
+        )
+        .await?;
+    }
 
     if schedule.enabled {
         tx = push_scheduled_job(&db, tx, &schedule, None, None).await?;

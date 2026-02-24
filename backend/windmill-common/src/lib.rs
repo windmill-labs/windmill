@@ -116,6 +116,24 @@ pub fn can_preserve_on_behalf_of(authed: &impl db::Authable) -> bool {
     authed.is_admin() || authed.groups().iter().any(|g| g == &WM_DEPLOYERS_GROUP)
 }
 
+/// Checks if on-behalf-of preservation actually happened (the target user differs from the acting user).
+/// Returns Some(target_identifier) if preservation occurred, None otherwise.
+pub fn check_on_behalf_of_preservation(
+    on_behalf_of_identifier: Option<&str>,
+    preserve: bool,
+    authed: &impl db::Authable,
+    authed_identifier: &str,
+) -> Option<String> {
+    if preserve && can_preserve_on_behalf_of(authed) {
+        if let Some(id) = on_behalf_of_identifier {
+            if id != authed_identifier {
+                return Some(id.to_string());
+            }
+        }
+    }
+    None
+}
+
 /// Determines the on_behalf_of_email value to use when creating/updating a flow or script.
 /// - If `on_behalf_of_email` is None, returns None
 /// - If `preserve` is true and the user is admin or in the deployers group, returns the original value

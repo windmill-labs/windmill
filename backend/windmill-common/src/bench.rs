@@ -179,13 +179,12 @@ pub async fn benchmark_verify(benchmark_jobs: i32, db: &DB) {
     let canceled = row.canceled.unwrap_or(0);
     let total = succeeded + failed + canceled;
 
-    let remaining_in_queue = sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM v2_job_queue WHERE workspace_id = 'admins'",
-    )
-    .fetch_one(db)
-    .await
-    .expect("benchmark verify queue query failed")
-    .unwrap_or(0);
+    let remaining_in_queue =
+        sqlx::query_scalar!("SELECT COUNT(*) FROM v2_job_queue WHERE workspace_id = 'admins'",)
+            .fetch_one(db)
+            .await
+            .expect("benchmark verify queue query failed")
+            .unwrap_or(0);
 
     println!("=== BENCHMARK VERIFICATION ===");
     println!("  kind:              {benchmark_kind}");
@@ -248,10 +247,12 @@ pub async fn benchmark_init(benchmark_jobs: i32, db: &DB) {
             .execute(db)
             .await
             .unwrap_or_else(|e| panic!("failed to clean up job_perms: {e:#}"));
-        sqlx::query!("DELETE FROM concurrency_key WHERE key LIKE 'bench_%' OR key LIKE 'u/admin/bench_%'")
-            .execute(db)
-            .await
-            .unwrap_or_else(|e| panic!("failed to clean up concurrency_key: {e:#}"));
+        sqlx::query!(
+            "DELETE FROM concurrency_key WHERE key LIKE 'bench_%' OR key LIKE 'u/admin/bench_%'"
+        )
+        .execute(db)
+        .await
+        .unwrap_or_else(|e| panic!("failed to clean up concurrency_key: {e:#}"));
         sqlx::query!("DELETE FROM concurrency_counter WHERE concurrency_id LIKE 'bench_%' OR concurrency_id LIKE 'u/admin/bench_%'")
             .execute(db)
             .await
@@ -637,9 +638,13 @@ pub async fn benchmark_init(benchmark_jobs: i32, db: &DB) {
                 sqlx::query!("INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, tag) SELECT unnest($1::uuid[]), $2, now(), $3", &noop_uuids, "admins", "deno")
                 .execute(&mut *tx)
                 .await.unwrap_or_else(|_e| panic!("failed to insert mixed noop queue"));
-                sqlx::query!("INSERT INTO v2_job_runtime (id) SELECT unnest($1::uuid[])", &noop_uuids)
+                sqlx::query!(
+                    "INSERT INTO v2_job_runtime (id) SELECT unnest($1::uuid[])",
+                    &noop_uuids
+                )
                 .execute(&mut *tx)
-                .await.unwrap_or_else(|_e| panic!("failed to insert mixed noop runtime"));
+                .await
+                .unwrap_or_else(|_e| panic!("failed to insert mixed noop runtime"));
 
                 // 2) sequentialflow jobs
                 if portion > 0 {
@@ -661,9 +666,13 @@ pub async fn benchmark_init(benchmark_jobs: i32, db: &DB) {
                     sqlx::query!("INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, tag) SELECT unnest($1::uuid[]), $2, now(), $3", &sf_uuids, "admins", "flow")
                     .execute(&mut *tx)
                     .await.unwrap_or_else(|_e| panic!("failed to insert mixed sequentialflow queue"));
-                    sqlx::query!("INSERT INTO v2_job_runtime (id) SELECT unnest($1::uuid[])", &sf_uuids)
+                    sqlx::query!(
+                        "INSERT INTO v2_job_runtime (id) SELECT unnest($1::uuid[])",
+                        &sf_uuids
+                    )
                     .execute(&mut *tx)
-                    .await.unwrap_or_else(|_e| panic!("failed to insert mixed sequentialflow runtime"));
+                    .await
+                    .unwrap_or_else(|_e| panic!("failed to insert mixed sequentialflow runtime"));
                     sqlx::query!(
                         "INSERT INTO v2_job_status (id, flow_status) SELECT unnest($1::uuid[]), $2",
                         &sf_uuids,
@@ -693,9 +702,13 @@ pub async fn benchmark_init(benchmark_jobs: i32, db: &DB) {
                     sqlx::query!("INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, tag) SELECT unnest($1::uuid[]), $2, now(), $3", &sl_uuids, "admins", "deno")
                     .execute(&mut *tx)
                     .await.unwrap_or_else(|_e| panic!("failed to insert mixed scriptlogs queue"));
-                    sqlx::query!("INSERT INTO v2_job_runtime (id) SELECT unnest($1::uuid[])", &sl_uuids)
+                    sqlx::query!(
+                        "INSERT INTO v2_job_runtime (id) SELECT unnest($1::uuid[])",
+                        &sl_uuids
+                    )
                     .execute(&mut *tx)
-                    .await.unwrap_or_else(|_e| panic!("failed to insert mixed scriptlogs runtime"));
+                    .await
+                    .unwrap_or_else(|_e| panic!("failed to insert mixed scriptlogs runtime"));
                 }
 
                 // 4) concurrencylimit jobs
@@ -720,9 +733,13 @@ pub async fn benchmark_init(benchmark_jobs: i32, db: &DB) {
                     sqlx::query!("INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, tag) SELECT unnest($1::uuid[]), $2, now(), $3", &cl_uuids, "admins", "deno")
                     .execute(&mut *tx)
                     .await.unwrap_or_else(|_e| panic!("failed to insert mixed concurrencylimit queue"));
-                    sqlx::query!("INSERT INTO v2_job_runtime (id) SELECT unnest($1::uuid[])", &cl_uuids)
+                    sqlx::query!(
+                        "INSERT INTO v2_job_runtime (id) SELECT unnest($1::uuid[])",
+                        &cl_uuids
+                    )
                     .execute(&mut *tx)
-                    .await.unwrap_or_else(|_e| panic!("failed to insert mixed concurrencylimit runtime"));
+                    .await
+                    .unwrap_or_else(|_e| panic!("failed to insert mixed concurrencylimit runtime"));
                     let cl_concurrency_id = "u/admin/bench_conclimit";
                     sqlx::query!(
                         "INSERT INTO concurrency_counter (concurrency_id, job_uuids) VALUES ($1, '{}'::jsonb) ON CONFLICT (concurrency_id) DO NOTHING",
@@ -763,9 +780,13 @@ pub async fn benchmark_init(benchmark_jobs: i32, db: &DB) {
                     sqlx::query!("INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, tag) SELECT unnest($1::uuid[]), $2, now(), $3", &ck_uuids, "admins", "deno")
                     .execute(&mut *tx)
                     .await.unwrap_or_else(|_e| panic!("failed to insert mixed concurrencykey queue"));
-                    sqlx::query!("INSERT INTO v2_job_runtime (id) SELECT unnest($1::uuid[])", &ck_uuids)
+                    sqlx::query!(
+                        "INSERT INTO v2_job_runtime (id) SELECT unnest($1::uuid[])",
+                        &ck_uuids
+                    )
                     .execute(&mut *tx)
-                    .await.unwrap_or_else(|_e| panic!("failed to insert mixed concurrencykey runtime"));
+                    .await
+                    .unwrap_or_else(|_e| panic!("failed to insert mixed concurrencykey runtime"));
                     let ck_concurrency_id = "bench_shared_concurrency_key";
                     sqlx::query!(
                         "INSERT INTO concurrency_counter (concurrency_id, job_uuids) VALUES ($1, '{}'::jsonb) ON CONFLICT (concurrency_id) DO NOTHING",
@@ -807,9 +828,13 @@ pub async fn benchmark_init(benchmark_jobs: i32, db: &DB) {
                 sqlx::query!("INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, tag) SELECT unnest($1::uuid[]), $2, now(), $3", &noop_uuids, "admins", "deno")
                 .execute(&mut *tx)
                 .await.unwrap_or_else(|_e| panic!("failed to insert mixed_no_cc noop queue"));
-                sqlx::query!("INSERT INTO v2_job_runtime (id) SELECT unnest($1::uuid[])", &noop_uuids)
+                sqlx::query!(
+                    "INSERT INTO v2_job_runtime (id) SELECT unnest($1::uuid[])",
+                    &noop_uuids
+                )
                 .execute(&mut *tx)
-                .await.unwrap_or_else(|_e| panic!("failed to insert mixed_no_cc noop runtime"));
+                .await
+                .unwrap_or_else(|_e| panic!("failed to insert mixed_no_cc noop runtime"));
 
                 // 2) sequentialflow jobs
                 if portion > 0 {
@@ -831,9 +856,15 @@ pub async fn benchmark_init(benchmark_jobs: i32, db: &DB) {
                     sqlx::query!("INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, tag) SELECT unnest($1::uuid[]), $2, now(), $3", &sf_uuids, "admins", "flow")
                     .execute(&mut *tx)
                     .await.unwrap_or_else(|_e| panic!("failed to insert mixed_no_cc sequentialflow queue"));
-                    sqlx::query!("INSERT INTO v2_job_runtime (id) SELECT unnest($1::uuid[])", &sf_uuids)
+                    sqlx::query!(
+                        "INSERT INTO v2_job_runtime (id) SELECT unnest($1::uuid[])",
+                        &sf_uuids
+                    )
                     .execute(&mut *tx)
-                    .await.unwrap_or_else(|_e| panic!("failed to insert mixed_no_cc sequentialflow runtime"));
+                    .await
+                    .unwrap_or_else(|_e| {
+                        panic!("failed to insert mixed_no_cc sequentialflow runtime")
+                    });
                     sqlx::query!(
                         "INSERT INTO v2_job_status (id, flow_status) SELECT unnest($1::uuid[]), $2",
                         &sf_uuids,
@@ -863,9 +894,13 @@ pub async fn benchmark_init(benchmark_jobs: i32, db: &DB) {
                     sqlx::query!("INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, tag) SELECT unnest($1::uuid[]), $2, now(), $3", &sl_uuids, "admins", "deno")
                     .execute(&mut *tx)
                     .await.unwrap_or_else(|_e| panic!("failed to insert mixed_no_cc scriptlogs queue"));
-                    sqlx::query!("INSERT INTO v2_job_runtime (id) SELECT unnest($1::uuid[])", &sl_uuids)
+                    sqlx::query!(
+                        "INSERT INTO v2_job_runtime (id) SELECT unnest($1::uuid[])",
+                        &sl_uuids
+                    )
                     .execute(&mut *tx)
-                    .await.unwrap_or_else(|_e| panic!("failed to insert mixed_no_cc scriptlogs runtime"));
+                    .await
+                    .unwrap_or_else(|_e| panic!("failed to insert mixed_no_cc scriptlogs runtime"));
                 }
             }
             "none" => {}
