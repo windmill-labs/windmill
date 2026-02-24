@@ -540,53 +540,48 @@ impl FlowModule {
     ) -> anyhow::Result<()> {
         for module in modules {
             cb(module)?;
-            match module
+            let module_value = module
                 .get_value()
-                .map_err(|e| anyhow::anyhow!("Module '{}': {}", module.id, e))?
-            {
-                FlowModuleValue::ForloopFlow { modules, .. }
-                | FlowModuleValue::WhileloopFlow { modules, .. } => {
-                    Self::traverse_modules(&modules, cb)?;
-                }
-                FlowModuleValue::BranchOne { branches, default, .. } => {
-                    for branch in branches {
-                        Self::traverse_modules(&branch.modules, cb)?;
-                    }
-                    Self::traverse_modules(&default, cb)?;
-                }
-                FlowModuleValue::BranchAll { branches, .. } => {
-                    for branch in branches {
-                        Self::traverse_modules(&branch.modules, cb)?;
-                    }
-                }
-                FlowModuleValue::AIAgent { tools, .. } => {
-                    for tool in tools {
-                        match &tool.value {
-                            ToolValue::FlowModule(module_value) => match module_value {
-                                FlowModuleValue::ForloopFlow { modules, .. }
-                                | FlowModuleValue::WhileloopFlow { modules, .. } => {
-                                    Self::traverse_modules(&modules, cb)?;
-                                }
-                                FlowModuleValue::BranchOne { branches, default, .. } => {
-                                    for branch in branches {
-                                        Self::traverse_modules(&branch.modules, cb)?;
-                                    }
-                                    Self::traverse_modules(&default, cb)?;
-                                }
-                                FlowModuleValue::BranchAll { branches, .. } => {
-                                    for branch in branches {
-                                        Self::traverse_modules(&branch.modules, cb)?;
-                                    }
-                                }
-                                _ => {}
-                            },
-                            ToolValue::Mcp(_) => {}
-                            ToolValue::Websearch(_) => {}
-                        }
-                    }
-                }
-                _ => {}
+                .map_err(|e| anyhow::anyhow!("Module '{}': {}", module.id, e))?;
+            Self::traverse_module_value(&module_value, cb)?;
+        }
+        Ok(())
+    }
+
+    fn traverse_module_value<C: FnMut(&FlowModule) -> anyhow::Result<()>>(
+        module_value: &FlowModuleValue,
+        cb: &mut C,
+    ) -> anyhow::Result<()> {
+        match module_value {
+            FlowModuleValue::ForloopFlow { modules, .. }
+            | FlowModuleValue::WhileloopFlow { modules, .. } => {
+                Self::traverse_modules(modules, cb)?;
             }
+            FlowModuleValue::BranchOne { branches, default, .. } => {
+                for branch in branches {
+                    Self::traverse_modules(&branch.modules, cb)?;
+                }
+                Self::traverse_modules(default, cb)?;
+            }
+            FlowModuleValue::BranchAll { branches, .. } => {
+                for branch in branches {
+                    Self::traverse_modules(&branch.modules, cb)?;
+                }
+            }
+            FlowModuleValue::AIAgent { tools, .. } => {
+                for tool in tools {
+                    let Some(tool_module) = Option::<FlowModule>::from(tool) else {
+                        continue;
+                    };
+
+                    cb(&tool_module)?;
+                    let tool_value = tool_module
+                        .get_value()
+                        .map_err(|e| anyhow::anyhow!("Tool module '{}': {}", tool_module.id, e))?;
+                    Self::traverse_module_value(&tool_value, cb)?;
+                }
+            }
+            _ => {}
         }
         Ok(())
     }
@@ -1071,7 +1066,10 @@ impl Into<Box<RawValue>> for FlowModuleValue {
     }
 }
 
-pub fn ordered_map<S>(value: &HashMap<String, InputTransform>, serializer: S) -> Result<S::Ok, S::Error>
+pub fn ordered_map<S>(
+    value: &HashMap<String, InputTransform>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {

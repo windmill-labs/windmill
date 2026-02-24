@@ -1020,12 +1020,12 @@ export async function main(
   /**
    * Create CLI command with proper authentication
    */
-  createCLICommand(args: string[], workingDir: string, workspaceName?: string): { cmd: string[], cwd: string } {
-    const workspace = workspaceName || this.config.workspace;
+  createCLICommand(args: string[], workingDir: string, opts?: { workspace?: string; token?: string }): { cmd: string[], cwd: string } {
+    const workspace = opts?.workspace || this.config.workspace;
     const fullArgs = [
       '--base-url', this.config.baseUrl,
       '--workspace', workspace,
-      '--token', this.config.token,
+      '--token', opts?.token || this.config.token,
       '--config-dir', this.config.testConfigDir,
       ...args
     ];
@@ -1049,12 +1049,12 @@ export async function main(
   /**
    * Run CLI command and return result
    */
-  async runCLICommand(args: string[], workingDir: string, workspaceName?: string): Promise<{
+  async runCLICommand(args: string[], workingDir: string, opts?: { workspace?: string; token?: string }): Promise<{
     stdout: string;
     stderr: string;
     code: number;
   }> {
-    const { cmd, cwd } = this.createCLICommand(args, workingDir, workspaceName);
+    const { cmd, cwd } = this.createCLICommand(args, workingDir, opts);
     const proc = Bun.spawn(cmd, {
       stdout: 'pipe',
       stderr: 'pipe',

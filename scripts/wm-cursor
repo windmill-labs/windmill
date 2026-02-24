@@ -81,7 +81,7 @@ setup_grouped_session() {
   },
   "remote.portsAttributes": {
     "'$backend_port'": { "label": "Backend", "onAutoForward": "silent" },
-    "'$frontend_port'": { "label": "Frontend", "onAutoForward": "openBrowser" }
+    "'$frontend_port'": { "label": "Frontend", "onAutoForward": "openBrowserOnce" }
   }'
       fi
     fi
@@ -102,18 +102,47 @@ SETTINGS
   fi
 }
 
+# --- Feature flag parsing ---
+# Extracts --features <value> from args, exports CARGO_FEATURES, returns remaining args.
+# Usage: parse_features_flag "$@"; set -- "${remaining_args[@]}"
+
+parse_features_flag() {
+  remaining_args=()
+  while (( $# )); do
+    case $1 in
+      --features)
+        if (( $# < 2 )); then
+          print -u2 "Error: --features requires a value"
+          exit 1
+        fi
+        export CARGO_FEATURES=$2
+        shift 2
+        ;;
+      --features=*)
+        export CARGO_FEATURES=${1#--features=}
+        shift
+        ;;
+      *)
+        remaining_args+=("$1")
+        shift
+        ;;
+    esac
+  done
+}
+
 # --- Subcommands ---
 
 cmd_add() {
   ensure_tmux
   check_dev_db
 
+  parse_features_flag "$@"
+  set -- "${remaining_args[@]}"
+
   # Snapshot worktree list before
   local -a before=("${(@f)$(git worktree list --porcelain | grep '^worktree ')}")
-  local prev_window=$(tmux display-message -p '#I')
 
-  workmux add "$@"
-  tmux select-window -t $prev_window
+  workmux add -b "$@"
 
   # Diff to find the new entry
   local -a after=("${(@f)$(git worktree list --porcelain | grep '^worktree ')}")
@@ -140,11 +169,24 @@ cmd_open() {
   ensure_tmux
   check_dev_db
 
+  parse_features_flag "$@"
+  set -- "${remaining_args[@]}"
+
+  # Write CARGO_FEATURES to .env.local if specified
+  if [[ -n ${CARGO_FEATURES-} ]]; then
+    local wt_env=$(workmux path $name)/.env.local
+    if [[ -f $wt_env ]]; then
+      # Remove existing CARGO_FEATURES line and append new one
+      sed -i '/^CARGO_FEATURES=/d' $wt_env
+      echo "CARGO_FEATURES=$CARGO_FEATURES" >> $wt_env
+    fi
+  fi
+
   local wt_path=$(workmux path $name)
-  local prev_window=$(tmux display-message -p '#I')
+  local prev_target=$(tmux display-message -p '#{session_name}:#{window_index}')
 
   workmux open $name "$@"
-  tmux select-window -t $prev_window
+  tmux select-window -t $prev_target
   setup_grouped_session $name $wt_path
   $cursor_bin -n $wt_path
   print "Opened Cursor for ${name}"
@@ -210,7 +252,7 @@ TASKS
     },
     "remote.portsAttributes": {
       "8000": { "label": "Backend", "onAutoForward": "silent" },
-      "3000": { "label": "Frontend", "onAutoForward": "openBrowser" },
+      "3000": { "label": "Frontend", "onAutoForward": "openBrowserOnce" },
       "5432": { "label": "PostgreSQL", "onAutoForward": "silent" }
     }
   }'
@@ -257,10 +299,13 @@ case ${1-} in
     print -u2 "Usage: wm-cursor <add|open|close|setup> [args...]"
     print -u2 ""
     print -u2 "Subcommands:"
-    print -u2 "  add [workmux-add-args...]   Create worktree + open Cursor"
-    print -u2 "  open <name>                 Open Cursor for existing worktree"
-    print -u2 "  close <name>                Clean up grouped tmux session"
-    print -u2 "  setup <repo-root>           Set up .vscode settings, tasks + wmc alias"
+    print -u2 "  add [--features <f>] [workmux-add-args...]   Create worktree + open Cursor"
+    print -u2 "  open <name> [--features <f>]                 Open Cursor for existing worktree"
+    print -u2 "  close <name>                                 Clean up grouped tmux session"
+    print -u2 "  setup <repo-root>                            Set up .vscode settings, tasks + wmc alias"
+    print -u2 ""
+    print -u2 "Options:"
+    print -u2 "  --features <features>   Cargo features for the backend (e.g. \"enterprise,parquet\")"
     exit 1
     ;;
 esac

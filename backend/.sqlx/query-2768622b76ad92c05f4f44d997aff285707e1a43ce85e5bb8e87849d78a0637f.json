@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT schema, description, format_extension\n         FROM resource_type\n         WHERE workspace_id = $1 AND name = $2",
+  "query": "SELECT schema, description, format_extension, is_fileset\n         FROM resource_type\n         WHERE workspace_id = $1 AND name = $2",
   "describe": {
     "columns": [
       {
@@ -17,6 +17,11 @@
         "ordinal": 2,
         "name": "format_extension",
         "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "is_fileset",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -28,8 +33,9 @@
     "nullable": [
       true,
       true,
-      true
+      true,
+      false
     ]
   },
-  "hash": "7bc9fc05dbd162866bef1fdd3e7faeb50429881ed1bc962903f06e4b3d5f8d44"
+  "hash": "2768622b76ad92c05f4f44d997aff285707e1a43ce85e5bb8e87849d78a0637f"
 }
