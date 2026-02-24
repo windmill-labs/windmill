@@ -16,6 +16,7 @@ interface HubResourceType {
   schema: string;
   app: string;
   description: string;
+  is_fileset?: boolean;
 }
 
 export async function pull(opts: GlobalOptions) {
@@ -114,7 +115,8 @@ export async function pull(opts: GlobalOptions) {
           y.name === x.name &&
           typeof y.schema !== "string" &&
           deepEqual(y.schema, x.schema) &&
-          y.description === x.description
+          y.description === x.description &&
+          (y.is_fileset ?? false) === (x.is_fileset ?? false)
       )
     ) {
       log.info("skipping " + x.name + " (same as current)");

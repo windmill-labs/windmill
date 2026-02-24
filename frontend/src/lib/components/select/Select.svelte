@@ -16,6 +16,7 @@
 		inputSizeClasses
 	} from '../text_input/TextInput.svelte'
 	import { ButtonType } from '../common/button/model'
+	import Tooltip from '../Tooltip.svelte'
 
 	type Value = Item['value']
 
@@ -37,6 +38,7 @@
 		RightIcon,
 		createText,
 		noItemsMsg,
+		tooltip,
 		open = $bindable(false),
 		id,
 		itemLabelWrapperClasses,
@@ -72,12 +74,13 @@
 		createText?: string
 		noItemsMsg?: string
 		open?: boolean
+		tooltip?: string
 		id?: string
 		itemLabelWrapperClasses?: string
 		itemButtonWrapperClasses?: string
 		size?: 'sm' | 'md' | 'lg'
 		showPlaceholderOnOpen?: boolean
-		transformInputSelectedText?: (text: string) => string
+		transformInputSelectedText?: (text: string, value: Value) => string
 		groupBy?: (item: Item) => string
 		sortBy?: (a: Item, b: Item) => number
 		onFocus?: () => void
@@ -106,7 +109,9 @@
 		if (!open) filterText = ''
 	})
 
-	let valueEntry = $derived(value && processedItems?.find((item) => deepEqual(item.value, value)))
+	let valueEntry = $derived(
+		value != null ? processedItems?.find((item) => deepEqual(item.value, value)) : undefined
+	)
 
 	function setValue(item: ProcessedItem<Value>) {
 		if (item.__is_create && onCreateItem) {
@@ -126,12 +131,12 @@
 
 	let inputText = $derived.by(() => {
 		let text = valueEntry?.label ?? getLabel({ value }) ?? ''
-		return transformInputSelectedText?.(text) ?? text
+		return transformInputSelectedText?.(text, value) ?? text
 	})
 </script>
 
 <div
-	class={`relative ${className}`}
+	class={`relative h-fit ${className}`}
 	use:clickOutside={{ onClickOutside: () => (open = false) }}
 	onpointerdown={() => onFocus?.()}
 	onfocus={() => onFocus?.()}
@@ -155,6 +160,13 @@
 			<RightIcon size={iconSize} class="text-secondary" />
 		</div>
 	{/if}
+
+	{#if tooltip}
+		<div class="absolute z-10 right-2 h-full flex items-center">
+			<Tooltip>{tooltip}</Tooltip>
+		</div>
+	{/if}
+
 	<!-- svelte-ignore a11y_autofocus -->
 	<input
 		{autofocus}

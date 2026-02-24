@@ -122,6 +122,7 @@
 		if (e.key === 'Enter') {
 			finishEdit()
 		} else if (e.key === 'Escape') {
+			e.stopPropagation()
 			editValue = node.name // Reset to original
 			onCancelEdit?.()
 		}

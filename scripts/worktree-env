@@ -5,30 +5,29 @@ port_in_use() {
   lsof -nP -iTCP:"$1" -sTCP:LISTEN &>/dev/null
 }
 
-find_port() {
-  local port=$1
-  while port_in_use "$port"; do
-    ((port++))
-  done
-  echo "$port"
-}
-
 if [[ -z "${WM_SLOT:-}" ]]; then
-  # Auto-assign: find the first slot (1-99) where both ports are free
-  # Slot 0 (8000/3000) is reserved for the main worktree
-  for slot in $(seq 1 99); do
-    bp=$((8000 + slot * 10))
-    fp=$((3000 + slot * 10))
-    if ! port_in_use "$bp" && ! port_in_use "$fp"; then
-      WM_SLOT=$slot
-      break
+  # Scan .env.local files of existing worktrees to find which slots are claimed,
+  # then pick the lowest free slot. This avoids collisions when worktrees are
+  # removed and new ones created (position-based indexing would re-use slots
+  # still held by surviving worktrees).
+  used_slots=()
+  current_dir="$(pwd)"
+  while IFS= read -r wt_path; do
+    [[ "$wt_path" == "$current_dir" ]] && continue
+    if [[ -f "$wt_path/.env.local" ]]; then
+      bp=$(grep '^BACKEND_PORT=' "$wt_path/.env.local" | cut -d= -f2 || true)
+      if [[ -n "$bp" && "$bp" -gt 8000 ]]; then
+        used_slots+=("$(( (bp - 8000) / 10 ))")
+      fi
     fi
+  done < <(git worktree list --porcelain | sed -n 's/^worktree //p')
+
+  # Find lowest available slot (slot 0 = 8000/3000 is reserved for main)
+  WM_SLOT=1
+  while [[ " ${used_slots[*]:-} " == *" $WM_SLOT "* ]]; do
+    ((WM_SLOT++))
   done
-  if [[ -z "${WM_SLOT:-}" ]]; then
-    echo "ERROR: No available slot found (tried 1-99)" >&2
-    exit 1
-  fi
-  echo "Auto-assigned slot $WM_SLOT"
+  echo "Auto-assigned slot $WM_SLOT (used: ${used_slots[*]:-none})"
 fi
 
 # Slot-based: predictable ports for SSH forwarding
@@ -37,8 +36,7 @@ backend_port=$((8000 + WM_SLOT * 10))
 frontend_port=$((3000 + WM_SLOT * 10))
 
 if port_in_use "$backend_port" || port_in_use "$frontend_port"; then
-  echo "ERROR: Slot $WM_SLOT ports ($backend_port/$frontend_port) already in use" >&2
-  exit 1
+  echo "WARNING: Slot $WM_SLOT ports ($backend_port/$frontend_port) already in use" >&2
 fi
 
 # Generate .env.local with port overrides
@@ -49,6 +47,12 @@ REMOTE=http://localhost:$backend_port
 EOF
 
 echo "Created .env.local with ports: backend=$backend_port, frontend=$frontend_port"
+
+# --- Allow direnv so the nix devshell activates in pane commands ---
+if command -v direnv &>/dev/null && [ -f .envrc ]; then
+  direnv allow
+  echo "direnv allowed"
+fi
 
 # --- Create matching windmill-ee-private worktree ---
 # Check parent directory first (sibling to worktree root), then fall back to home
@@ -81,8 +85,24 @@ if [ -d "$ee_repo" ]; then
     echo "EE worktree already exists at $ee_worktree_dir"
   fi
 
-  # Create symlinks from backend crates to the EE worktree
-  if [ -d "$ee_worktree_dir" ] && [ -x "./backend/substitute_ee_code.sh" ]; then
-    ./backend/substitute_ee_code.sh -d "$ee_worktree_dir"
+  # Point Claude Code additionalDirectories at the EE worktree
+  if [ -d "$ee_worktree_dir" ]; then
+    ee_rel=$(python3 -c "import os; print(os.path.relpath('$ee_worktree_dir', '$(pwd)'))" 2>/dev/null || echo "$ee_worktree_dir")
+    mkdir -p .claude
+    cat > .claude/settings.local.json <<EOFCLAUDE
+{
+  "permissions": {
+    "additionalDirectories": [
+      "$ee_rel"
+    ]
+  }
+}
+EOFCLAUDE
+    echo "Created .claude/settings.local.json with EE path: $ee_rel"
+
+    # Create symlinks from backend crates to the EE worktree
+    if [ -x "./backend/substitute_ee_code.sh" ]; then
+      ./backend/substitute_ee_code.sh -d "$ee_worktree_dir"
+    fi
   fi
 fi

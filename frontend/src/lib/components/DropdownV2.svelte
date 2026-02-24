@@ -157,7 +157,7 @@
 			variant="subtle"
 			startIcon={{ icon: EllipsisVertical }}
 			btnClasses="bg-transparent"
-			iconOnly
+			iconOnly={!btnText}
 		>
 			{btnText}
 		</Button>

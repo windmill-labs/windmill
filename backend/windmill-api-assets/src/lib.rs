@@ -27,9 +27,13 @@ struct ListAssetsQuery {
     per_page: i64,
     cursor_created_at: Option<chrono::DateTime<chrono::Utc>>,
     cursor_id: Option<i64>,
-    asset_path: Option<String>,
-    usage_path: Option<String>,
-    asset_kinds: Option<String>,
+    pub asset_path: Option<String>,
+    pub usage_path: Option<String>,
+    pub asset_kinds: Option<String>,
+    // Exact path match filter
+    pub path: Option<String>,
+    // Filter by matching a subset of the columns using base64 encoded json subset
+    pub columns: Option<String>,
 }
 
 fn default_per_page() -> i64 {
@@ -75,10 +79,22 @@ async fn list_assets(
 
     let mut param_count = 2; // $1 = workspace_id, $2 = limit
 
-    // Asset path filter
+    // Asset path filter (ILIKE pattern match)
     if query.asset_path.is_some() {
         param_count += 1;
         asset_summary_filters.push(format!("asset.path ILIKE ${}", param_count));
+    }
+
+    // Exact path filter
+    if query.path.is_some() {
+        param_count += 1;
+        asset_summary_filters.push(format!("asset.path = ${}", param_count));
+    }
+
+    // Columns filter (check if JSONB has all specified keys)
+    if query.columns.is_some() {
+        param_count += 1;
+        asset_summary_filters.push(format!("asset.columns ?& ${}", param_count));
     }
 
     // Usage path filter - for jobs, also check runnable_path
@@ -209,6 +225,20 @@ async fn list_assets(
 
     if let Some(ref asset_path) = query.asset_path {
         query_builder = query_builder.bind(format!("%{}%", asset_path));
+    }
+
+    if let Some(ref path) = query.path {
+        query_builder = query_builder.bind(path);
+    }
+
+    if let Some(ref columns) = query.columns {
+        // Columns is a comma-separated string, split into array for ?& operator
+        let columns_array: Vec<String> = columns
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        query_builder = query_builder.bind(columns_array);
     }
 
     if let Some(ref usage_path) = query.usage_path {

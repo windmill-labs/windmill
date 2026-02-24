@@ -15,7 +15,8 @@ import { sendUserToast } from '$lib/toast'
 import { tweened, type Tweened } from 'svelte/motion'
 import { subtractDaysFromDateString } from '$lib/utils'
 import { CancelablePromiseUtils } from '$lib/cancelable-promise-utils'
-import type { RunsFilters } from './RunsFilter.svelte'
+import type { Timeframe } from './TimeframeSelect.svelte'
+import { allowWildcards as _allowWildcards, type RunsFilterInstance } from './runsFilter'
 
 export function computeJobKinds(jobKindsCat: string | null): string {
 	if (jobKindsCat == 'all') {
@@ -46,7 +47,8 @@ export function computeJobKinds(jobKindsCat: string | null): string {
 
 export interface UseJobLoaderArgs {
 	currentWorkspace: string
-	filters?: Partial<RunsFilters>
+	filters?: Partial<RunsFilterInstance>
+	timeframe?: Timeframe
 	jobKinds?: string
 	autoRefresh?: boolean
 	argError?: string
@@ -54,9 +56,8 @@ export interface UseJobLoaderArgs {
 	refreshRate?: number
 	syncQueuedRunsCount?: boolean
 	skip?: boolean
-	computeMinAndMax?: (() => { minTs: string; maxTs: string | null } | undefined) | undefined
 	lookback?: number
-	onSetMinMaxTs?: (minTs: string | null, maxTs: string | null) => void
+	perPage?: number
 	onSetPerPage?: (perPage: number) => void
 }
 
@@ -71,32 +72,29 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let resultError = $derived(_args.resultError ?? '')
 	let refreshRate = $derived(_args.refreshRate ?? 5000)
 	let syncQueuedRunsCount = $derived(_args.syncQueuedRunsCount ?? true)
-	let computeMinAndMax = $derived(_args.computeMinAndMax)
 	let lookback = $derived(_args.lookback ?? 0)
-	let onSetMinMaxTs = $derived(_args.onSetMinMaxTs)
 	let onSetPerPage = $derived(_args.onSetPerPage)
+	let timeframe = $derived(_args?.timeframe)
+	let perPage = $derived(_args?.perPage ?? 1000)
 
 	let label = $derived(filters?.label ?? null)
 	let worker = $derived(filters?.worker ?? null)
-	let success = $derived(filters?.success ?? null)
+	let success = $derived(filters?.status ?? null)
 	let showSkipped = $derived(filters?.show_skipped ?? false)
-	let showSchedules = $derived(filters?.show_schedules ?? true)
+	let showSchedules = $derived(!filters?.job_trigger_kind?.includes('!schedule'))
 	let showFutureJobs = $derived(filters?.show_future_jobs ?? true)
 	let resultFilter = $derived(filters?.result)
 	let jobTriggerKind = $derived(filters?.job_trigger_kind ?? null)
 	let schedulePath = $derived(filters?.schedule_path ?? null)
 	let jobKindsCat = $derived(filters?.job_kinds ?? null)
 	let allWorkspaces = $derived(filters?.all_workspaces ?? false)
-	let allowWildcards = $derived(filters?.allow_wildcards ?? false)
+	let allowWildcards = $derived(_allowWildcards(filters))
 	let concurrencyKey = $derived(filters?.concurrency_key)
 	let tag = $derived(filters?.tag)
 	let user = $derived(filters?.user)
 	let folder = $derived(filters?.folder)
 	let path = $derived(filters?.path)
 	let argFilter = $derived(filters?.arg)
-	let minTs = $derived(filters?.min_ts ?? null)
-	let maxTs = $derived(filters?.max_ts ?? null)
-	let perPage = $derived(filters?.per_page ?? 100)
 
 	let queue_count: Tweened<number> | undefined = $state()
 	let suspended_count: Tweened<number> | undefined = $state()
@@ -162,6 +160,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 			// const minCreated = lastJob?.created_at
 			const minCreated = new Date(new Date(ts).getTime() - 1).toISOString()
 
+			const minTs = timeframe?.computeMinMax().minTs ?? null
 			let olderJobs = await fetchJobs(minCreated, minTs, undefined)
 			jobs = updateWithNewJobs(olderJobs ?? [], jobs ?? [])
 			computeCompletedJobs()
@@ -178,8 +177,8 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	): CancelablePromise<Job[]> {
 		if (_args.skip) return CancelablePromiseUtils.pure<Job[]>([])
 		loadingFetch = true
-		let scriptPathStart = folder === null || folder === '' ? undefined : `f/${folder}/`
-		let scriptPathExact = path === null || path === '' ? undefined : path
+		let scriptPathStart = folder == null || folder === '' ? undefined : `f/${folder}/`
+		let scriptPathExact = path == null || path === '' ? undefined : path
 		let promise = JobService.listJobs({
 			workspace: currentWorkspace,
 			completedBefore: completedBefore ?? undefined,
@@ -187,7 +186,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 			createdAfterQueue,
 			schedulePath: schedulePath ?? undefined,
 			scriptPathExact,
-			createdBy: user === null || user === '' ? undefined : user,
+			createdBy: user == null || user === '' ? undefined : user,
 			scriptPathStart: scriptPathStart,
 			jobKinds: jobKindsCat == 'all' || jobKinds == '' ? undefined : jobKinds,
 			success: success == 'success' ? true : success == 'failure' ? false : undefined,
@@ -200,9 +199,9 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 			isSkipped: showSkipped ? undefined : false,
 			// isFlowStep: jobKindsCat != 'all' ? false : undefined,
 			hasNullParent: jobKindsCat != 'all' ? true : undefined,
-			label: label === null || label === '' ? undefined : label,
-			tag: tag === null || tag === '' ? undefined : tag,
-			worker: worker === null || worker === '' ? undefined : worker,
+			label: label == null || label === '' ? undefined : label,
+			tag: tag == null || tag === '' ? undefined : tag,
+			worker: worker == null || worker === '' ? undefined : worker,
 			isNotSchedule: showSchedules == false ? true : undefined,
 			suspended: success == 'waiting' ? false : success == 'suspended' ? true : undefined,
 			scheduledForBeforeNow:
@@ -250,16 +249,16 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 			// createdOrStartedAfter: startedAfter,
 			// createdOrStartedAfterCompletedJobs: startedAfterCompletedJobs,
 			schedulePath: schedulePath ?? undefined,
-			scriptPathExact: path === null || path === '' ? undefined : path,
-			createdBy: user === null || user === '' ? undefined : user,
-			scriptPathStart: folder === null || folder === '' ? undefined : `f/${folder}/`,
+			scriptPathExact: path == null || path === '' ? undefined : path,
+			createdBy: user == null || user === '' ? undefined : user,
+			scriptPathStart: folder == null || folder === '' ? undefined : `f/${folder}/`,
 			jobKinds: jobKindsCat == 'all' || jobKinds == '' ? undefined : jobKinds,
 			success: success == 'success' ? true : success == 'failure' ? false : undefined,
 			running: success == 'running' ? true : undefined,
 			isSkipped: showSkipped ? undefined : false,
 			isFlowStep: jobKindsCat != 'all' ? false : undefined,
-			label: label === null || label === '' ? undefined : label,
-			tag: tag === null || tag === '' ? undefined : tag,
+			label: label == null || label === '' ? undefined : label,
+			tag: tag == null || tag === '' ? undefined : tag,
 			isNotSchedule: showSchedules == false ? true : undefined,
 			scheduledForBeforeNow: showFutureJobs == false ? true : undefined,
 			args:
@@ -299,6 +298,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		intervalId = setInterval(syncer, refreshRate)
 	}
 	function loadJobsIntern(shouldGetCount?: boolean): CancelablePromise<void> {
+		const { minTs, maxTs } = timeframe?.computeMinMax() ?? { minTs: null, maxTs: null }
 		if (shouldGetCount) {
 			getCount()
 		}
@@ -374,9 +374,6 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let lastQueueTs: string | undefined = undefined
 
 	async function syncer() {
-		if (success == 'waiting') {
-			onSetMinMaxTs?.(null, null)
-		}
 		if (loadingFetch) {
 			return
 		}
@@ -385,15 +382,8 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 				getCount()
 			}
 
-			const ts = computeMinAndMax?.()
-			if (ts) {
-				onSetMinMaxTs?.(ts.minTs, ts.maxTs)
-				if (maxTs != undefined) {
-					loadJobsIntern(false)
-				}
-			}
-
-			if (jobs && maxTs == undefined) {
+			const { minTs, maxTs } = timeframe?.computeMinMax() ?? { minTs: null, maxTs: null }
+			if (jobs) {
 				if (success == 'running') {
 					loadJobsIntern(false)
 				} else {
@@ -531,9 +521,13 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		}
 	})
 	$effect(() => {
-		Object.keys(filters ?? {}).map((k) => filters?.[k as keyof RunsFilters])
+		Object.keys(filters ?? {}).map((k) => filters?.[k as keyof RunsFilterInstance])
 		currentWorkspace
 		lookback
+		timeframe
+		perPage
+		showSchedules
+		showFutureJobs
 		let p = untrack(() => onParamChanges())
 		return () => p.cancel()
 	})

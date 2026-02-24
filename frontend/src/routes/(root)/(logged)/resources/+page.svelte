@@ -9,14 +9,16 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
-	import ListFilters from '$lib/components/home/ListFilters.svelte'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import { resourceTypesStore } from '$lib/components/resourceTypesStore'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
-	import SearchItems from '$lib/components/SearchItems.svelte'
+	import FilterSearchbar, {
+		useUrlSyncedFilterInstance
+	} from '$lib/components/FilterSearchbar.svelte'
+	import { buildResourcesFilterSchema } from '$lib/components/resources/resourcesFilter'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
@@ -78,19 +80,22 @@
 
 	let cacheResources: ResourceW[] | undefined = $state()
 	let stateResources: ResourceW[] | undefined = $state()
+	let themeResources: ResourceW[] | undefined = $state()
 	let resources: ResourceW[] | undefined = $state()
 	let resourceTypes: ResourceTypeW[] | undefined = $state()
 
-	let filteredItems: (ResourceW & { marked?: string })[] | undefined = $state(undefined) as
-		| (ResourceW & { marked?: string })[]
-		| undefined
+	// Collect unique paths, types, owners for filter autocomplete
+	let allPaths: string[] = $state([])
+	let allResourceTypes: string[] = $state([])
+	let allOwners: string[] = $state([])
 
 	let resourceTypeViewer: Drawer | undefined = $state(undefined)
 	let resourceTypeViewerObj = $state({
 		rt: '',
 		description: '',
 		schema: emptySchema(),
-		formatExtension: undefined as string | undefined
+		formatExtension: undefined as string | undefined,
+		isFileset: false
 	})
 
 	let resourceTypeDrawer: Drawer | undefined = $state(undefined)
@@ -99,7 +104,8 @@
 		name: '',
 		schema: emptySchema(),
 		description: '',
-		formatExtension: undefined
+		formatExtension: undefined as string | undefined,
+		isFileset: undefined as boolean | undefined
 	})
 	let isNewResourceTypeNameValid: boolean = $state(false)
 	let resourceTypeNameExists: boolean = $state(false)
@@ -108,7 +114,8 @@
 		name: '',
 		schema: emptySchema(),
 		description: '',
-		formatExtension: undefined as string | undefined
+		formatExtension: undefined as string | undefined,
+		isFileset: false
 	})
 	let resourceEditor: ResourceEditorDrawer | undefined = $state(undefined)
 	let shareModal: ShareModal | undefined = $state(undefined)
@@ -120,15 +127,30 @@
 		types: true
 	})
 
-	let filter = $state('')
-	let ownerFilter: string | undefined = $state(undefined)
-
 	let showCreateButtons = $state(false)
 
-	let typeFilter: string | undefined = $state(undefined)
+	// FilterSearchbar setup
+	let userFoldersFilterType = $derived(
+		$userStore?.is_super_admin && $userStore.username.includes('@')
+			? 'only f/*'
+			: $userStore?.is_admin || $userStore?.is_super_admin
+				? 'u/username and f/*'
+				: undefined
+	)
+	let resourcesFilterSchema = $derived(
+		buildResourcesFilterSchema({
+			paths: allPaths,
+			resourceTypes: allResourceTypes,
+			owners: allOwners,
+			showUserFoldersFilter: userFoldersFilterType !== undefined,
+			userFoldersLabel:
+				userFoldersFilterType === 'only f/*' ? 'Only f/*' : `Only u/${$userStore?.username} and f/*`
+		})
+	)
+	let filters = useUrlSyncedFilterInstance(untrack(() => resourcesFilterSchema))
 
 	async function loadResources(): Promise<void> {
-		resources = await loadResourceInternal(undefined, 'cache,state')
+		resources = await loadResourceInternal(undefined, 'cache,state,app_theme')
 		loading.resources = false
 	}
 
@@ -142,23 +164,57 @@
 		loading.resources = false
 	}
 
+	async function loadTheme(): Promise<void> {
+		themeResources = await loadResourceInternal('app_theme', undefined)
+		loading.resources = false
+	}
+
 	async function loadResourceInternal(
 		resourceType: string | undefined,
 		resourceTypeExclude: string | undefined
 	): Promise<ResourceW[]> {
-		return (
-			await ResourceService.listResource({
-				workspace: $workspaceStore!,
-				resourceTypeExclude,
-				resourceType
-			})
-		).map((x) => {
+		const currentFilters = filters.val
+
+		// Build API parameters from filters
+		const apiParams: any = {
+			workspace: $workspaceStore!,
+			resourceTypeExclude,
+			resourceType: resourceType || (currentFilters.resource_type as string | undefined)
+		}
+
+		if (currentFilters.path) {
+			// path filter can be comma-separated for multiple values
+			apiParams.path = currentFilters.path
+		}
+		if (currentFilters.path_start) {
+			apiParams.pathStart = currentFilters.path_start
+		}
+		if (currentFilters.description) {
+			apiParams.description = currentFilters.description
+		}
+		if (currentFilters.value) {
+			apiParams.value = currentFilters.value
+		}
+		if (currentFilters.owner) {
+			apiParams.pathStart = currentFilters.owner
+		}
+
+		const result = (await ResourceService.listResource(apiParams)).map((x) => {
 			return {
 				canWrite:
 					canWrite(x.path, x.extra_perms!, $userStore) && $workspaceStore! == x.workspace_id,
 				...x
 			}
 		})
+
+		// Extract unique values for autocomplete
+		allPaths = Array.from(new Set(result.map((x) => x.path))).sort()
+		allResourceTypes = Array.from(new Set(result.map((x) => x.resource_type))).sort()
+		allOwners = Array.from(
+			new Set(result.map((x) => x.path.split('/').slice(0, 2).join('/')))
+		).sort()
+
+		return result
 	}
 
 	async function loadResourceTypes(): Promise<void> {
@@ -182,11 +238,13 @@
 	}
 
 	async function addResourceType(): Promise<void> {
-		if (newResourceType.formatExtension === '') {
-			throw new Error('Invalid empty file extension (make sure it is selected)')
-		}
-		if (!validateFileExtension(newResourceType.formatExtension ?? 'txt')) {
-			throw new Error('Invalid file extension')
+		if (!newResourceType.isFileset) {
+			if (newResourceType.formatExtension === '') {
+				throw new Error('Invalid empty file extension (make sure it is selected)')
+			}
+			if (!validateFileExtension(newResourceType.formatExtension ?? 'txt')) {
+				throw new Error('Invalid file extension')
+			}
 		}
 		await ResourceService.createResourceType({
 			workspace: $workspaceStore!,
@@ -194,7 +252,8 @@
 				name: (disableCustomPrefix ? '' : 'c_') + newResourceType.name,
 				schema: newResourceType.schema,
 				description: newResourceType.description,
-				format_extension: newResourceType.formatExtension
+				format_extension: newResourceType.formatExtension,
+				is_fileset: newResourceType.isFileset
 			}
 		})
 		resourceTypeDrawer?.closeDrawer?.()
@@ -256,7 +315,8 @@
 			name: uniqueName,
 			schema: emptySchema(),
 			description: '',
-			formatExtension: undefined
+			formatExtension: undefined,
+			isFileset: undefined
 		}
 		validateResourceTypeName()
 
@@ -269,7 +329,8 @@
 			name: rt.name,
 			schema: rt.schema as any,
 			description: rt.description ?? '',
-			formatExtension: rt.format_extension
+			formatExtension: rt.format_extension,
+			isFileset: rt.is_fileset ?? false
 		}
 		editResourceTypeDrawer?.openDrawer?.()
 	}
@@ -384,84 +445,96 @@
 		validateResourceTypeName()
 	}
 
-	let resourceNameToFileExtMap: any = undefined
+	let resourceNameToFileExtMap: Record<string, string> | undefined = undefined
+	let resourceNameToIsFilesetMap: Record<string, boolean> | undefined = undefined
 
 	let loadingResourceNameToFileExt = false
-	async function resourceNameToFileExt(resourceName: string) {
-		if (resourceNameToFileExtMap == undefined && !loadingResourceNameToFileExt) {
-			loadingResourceNameToFileExt = true
-			try {
-				resourceNameToFileExtMap = await ResourceService.fileResourceTypeToFileExtMap({
-					workspace: $workspaceStore!
-				})
-			} catch (e) {
-				console.error('Error loading resourceNameToFileExtMap', e)
-			} finally {
-				loadingResourceNameToFileExt = false
-			}
-		} else {
+	async function loadResourceNameToFileExtMap() {
+		if (resourceNameToFileExtMap != undefined) return
+		if (loadingResourceNameToFileExt) {
 			while (resourceNameToFileExtMap == undefined) {
 				console.log('waiting for resourceNameToFileExtMap')
 				await new Promise((resolve) => setTimeout(resolve, 100))
 			}
+			return
 		}
-
-		return resourceNameToFileExtMap[resourceName]
+		loadingResourceNameToFileExt = true
+		try {
+			const raw = (await ResourceService.fileResourceTypeToFileExtMap({
+				workspace: $workspaceStore!
+			})) as Record<string, string | { format_extension: string | null; is_fileset: boolean }>
+			resourceNameToFileExtMap = {}
+			resourceNameToIsFilesetMap = {}
+			for (const [k, v] of Object.entries(raw)) {
+				if (typeof v === 'string') {
+					resourceNameToFileExtMap[k] = v
+					resourceNameToIsFilesetMap![k] = false
+				} else {
+					if (v.format_extension) {
+						resourceNameToFileExtMap[k] = v.format_extension
+					}
+					resourceNameToIsFilesetMap![k] = v.is_fileset ?? false
+				}
+			}
+		} catch (e) {
+			console.error('Error loading resourceNameToFileExtMap', e)
+		} finally {
+			loadingResourceNameToFileExt = false
+		}
 	}
 
-	let owners = $derived(
-		Array.from(
-			new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
-		).sort()
-	)
-	let types = $derived(Array.from(new Set(filteredItems?.map((x) => x.resource_type))).sort())
-	$effect(() => {
-		if ($workspaceStore) {
-			ownerFilter = undefined
-		}
-	})
+	function resourceNameToFileExt(resourceName: string): string | undefined {
+		return resourceNameToFileExtMap?.[resourceName]
+	}
+
+	function resourceNameIsFileset(resourceName: string): boolean {
+		return resourceNameToIsFilesetMap?.[resourceName] ?? false
+	}
+
+	// Eagerly load the map
+	loadResourceNameToFileExtMap()
+
+	// Current resources based on tab
 	let currentResources = $derived(
-		tab == 'cache' ? cacheResources : tab == 'states' ? stateResources : resources
+		tab == 'cache'
+			? cacheResources
+			: tab == 'states'
+				? stateResources
+				: tab == 'theme'
+					? themeResources
+					: resources
 	)
-	let preFilteredItemsOwners = $derived(
-		ownerFilter == undefined
-			? currentResources
-			: currentResources?.filter((x) => x.path.startsWith(ownerFilter ?? ''))
-	)
-	let preFilteredType = $derived.by(() => {
-		let l =
-			typeFilter == undefined
-				? preFilteredItemsOwners?.filter((x) => {
-						return tab === 'workspace'
-							? x.resource_type !== 'app_theme' &&
-									x.resource_type !== 'state' &&
-									x.resource_type !== 'cache'
-							: tab === 'states'
-								? x.resource_type === 'state'
-								: tab === 'cache'
-									? x.resource_type === 'cache'
-									: tab === 'theme'
-										? x.resource_type === 'app_theme'
-										: true
-					})
-				: preFilteredItemsOwners?.filter((x) => {
-						return (
-							x.resource_type === typeFilter &&
-							(tab === 'workspace'
-								? x.resource_type !== 'app_theme' &&
-									x.resource_type !== 'state' &&
-									x.resource_type !== 'cache'
-								: true)
-						)
-					})
-		if (filterUserFolders) {
-			l = l?.filter((item) => {
-				if (filterUserFoldersType === 'only f/*') return item.path.startsWith('f/')
-				if (filterUserFoldersType === 'u/username and f/*')
+
+	// Filter resources client-side for user folder filtering (admin feature)
+	let filteredItems = $derived.by(() => {
+		let items = currentResources
+		if (filters.val.user_folders_only && items) {
+			items = items.filter((item) => {
+				if (userFoldersFilterType === 'only f/*') return item.path.startsWith('f/')
+				if (userFoldersFilterType === 'u/username and f/*')
 					return item.path.startsWith('f/') || item.path.startsWith(`u/${$userStore?.username}/`)
+				return true
 			})
 		}
-		return l
+		return items
+	})
+
+	// Reload resources when filters change
+	$effect(() => {
+		filters.val
+		if ($workspaceStore) {
+			untrack(() => {
+				if (tab === 'workspace') {
+					loadResources()
+				} else if (tab === 'theme') {
+					loadTheme()
+				} else if (tab === 'cache') {
+					loadCache()
+				} else if (tab === 'states') {
+					loadState()
+				}
+			})
+		}
 	})
 	$effect(() => {
 		if ($workspaceStore && $userStore) {
@@ -482,15 +555,6 @@
 	})
 
 	let dbManagerDrawer = $derived(globalDbManagerDrawer.val) as any
-
-	let filterUserFolders = $state(false)
-	let filterUserFoldersType: 'only f/*' | 'u/username and f/*' | undefined = $derived(
-		$userStore?.is_super_admin && $userStore.username.includes('@')
-			? 'only f/*'
-			: $userStore?.is_admin || $userStore?.is_super_admin
-				? 'u/username and f/*'
-				: undefined
-	)
 </script>
 
 <ConfirmationModal
@@ -542,6 +606,7 @@
 				><IconedResourceType
 					name={resourceTypeViewerObj.rt}
 					formatExtension={resourceTypeViewerObj.formatExtension}
+					isFileset={resourceTypeViewerObj.isFileset}
 				/></h1
 			>
 			{#if resourceTypeViewerObj.description}
@@ -549,7 +614,12 @@
 					<GfmMarkdown md={resourceTypeViewerObj.description ?? ''} />
 				</div>
 			{/if}
-			{#if resourceTypeViewerObj.formatExtension}
+			{#if resourceTypeViewerObj.isFileset}
+				<Alert type="info" title="Fileset resource type">
+					This resource type represents a collection of files. Each file is identified by its
+					relative path and contains text content. In the CLI, filesets are stored as directories.
+				</Alert>
+			{:else if resourceTypeViewerObj.formatExtension}
 				<Alert
 					type="info"
 					title="Plain text file resource (.{resourceTypeViewerObj.formatExtension})"
@@ -601,7 +671,11 @@
 				></textarea></label
 			>
 			<div>
-				{#if editResourceType.formatExtension}
+				{#if editResourceType.isFileset}
+					<Alert type="info" title="Fileset resource type">
+						This resource type represents a collection of files. The schema cannot be edited.
+					</Alert>
+				{:else if editResourceType.formatExtension}
 					<Alert type="info" title="Plain text file resource (.{editResourceType.formatExtension})">
 						This resource type represents a plain text file with a <b
 							>.{editResourceType.formatExtension}</b
@@ -703,6 +777,7 @@
 					<EditableSchemaWrapper
 						bind:schema={newResourceType.schema}
 						bind:formatExtension={newResourceType.formatExtension}
+						bind:isFileset={newResourceType.isFileset}
 						fullHeight
 					/>
 				</div>
@@ -710,13 +785,6 @@
 		</div>
 	</DrawerContent>
 </Drawer>
-
-<SearchItems
-	{filter}
-	items={preFilteredType}
-	bind:filteredItems
-	f={(x) => x.path + ' ' + x.resource_type + ' ' + x.description + ' '}
-/>
 
 {#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.resources}
 	<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
@@ -820,33 +888,20 @@
 			</div>
 		</div>
 		{#if tab == 'workspace' || tab == 'states' || tab == 'cache' || tab == 'theme'}
-			<div class="pt-2">
-				<input placeholder="Search Resource" bind:value={filter} class="input mt-1" />
-			</div>
-			<ListFilters bind:selectedFilter={ownerFilter} filters={owners} />
-			{#if tab != 'states' && tab != 'cache'}
-				<ListFilters
-					queryName="app_filter"
-					bind:selectedFilter={typeFilter}
-					filters={types}
-					resourceType
-				/>
-			{:else}
-				<div class="h-4"></div>
-			{/if}
+			<FilterSearchbar
+				schema={resourcesFilterSchema}
+				bind:value={filters.val}
+				placeholder="Filter resources..."
+				class="mt-4"
+				presets={[
+					{
+						name: resourcesFilterSchema.user_folders_only?.label ?? '?',
+						value: 'user_folders_only:\\ true'
+					}
+				]}
+			/>
 
-			<div class="overflow-x-auto pb-40 mt-4"
-				><div class="flex flex-row items-center justify-end gap-4 pb-2">
-					{#if $userStore?.is_super_admin && $userStore.username.includes('@')}
-						<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
-					{:else if $userStore?.is_admin || $userStore?.is_super_admin}
-						<Toggle
-							size="xs"
-							bind:checked={filterUserFolders}
-							options={{ right: `Only u/${$userStore.username} and f/*` }}
-						/>
-					{/if}
-				</div>
+			<div class="overflow-x-auto pb-40 mt-4">
 				{#if loading.resources}
 					<Skeleton layout={[0.5, [2], 1]} />
 					{#each new Array(6) as _}
@@ -897,7 +952,8 @@
 															//@ts-ignore
 															schema: linkedRt.schema,
 															description: linkedRt.description ?? '',
-															formatExtension: linkedRt.format_extension
+															formatExtension: linkedRt.format_extension,
+															isFileset: linkedRt.is_fileset ?? false
 														}
 														resourceTypeViewer?.openDrawer?.()
 													} else {
@@ -912,6 +968,7 @@
 													name={resource_type}
 													after={true}
 													formatExtension={resourceNameToFileExt(resource_type)}
+													isFileset={resourceNameIsFileset(resource_type)}
 												/>
 											</a>
 										</Cell>
@@ -1098,7 +1155,7 @@
 						</Head>
 						<tbody class="divide-y bg-surface">
 							{#if resourceTypes}
-								{#each resourceTypes as { name, description, schema, canWrite, format_extension }}
+								{#each resourceTypes as { name, description, schema, canWrite, format_extension, is_fileset }}
 									<Row>
 										<Cell first>
 											<a
@@ -1109,7 +1166,8 @@
 														//@ts-ignore
 														schema: schema,
 														description: description ?? '',
-														formatExtension: format_extension
+														formatExtension: format_extension,
+														isFileset: is_fileset ?? false
 													}
 
 													resourceTypeViewer?.openDrawer?.()
@@ -1119,6 +1177,7 @@
 													after={true}
 													{name}
 													formatExtension={format_extension}
+													isFileset={is_fileset}
 												/>
 											</a>
 										</Cell>

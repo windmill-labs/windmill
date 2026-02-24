@@ -1061,6 +1061,9 @@
 														extraLib={stepPropPicker.extraLib}
 														{enableAi}
 														{isAgentTool}
+														allowedAiTransforms={isAgentTool && flowModule.value.type === 'aiagent'
+														? ['user_message']
+														: undefined}
 														helperScript={retrieveDynCodeAndLang(flowModule.value)}
 														chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
 													/>

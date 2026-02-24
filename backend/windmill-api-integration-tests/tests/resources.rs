@@ -69,8 +69,12 @@ async fn test_resource_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(resp.status(), 404);
 
     // --- get_value_interpolated ---
-    let resp =
-        authed_get(port, "get_value_interpolated", "u/test-user/simple_resource").await;
+    let resp = authed_get(
+        port,
+        "get_value_interpolated",
+        "u/test-user/simple_resource",
+    )
+    .await;
     assert_eq!(resp.status(), 200);
     assert_eq!(
         resp.json::<serde_json::Value>().await?,
@@ -78,8 +82,12 @@ async fn test_resource_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     // $var: interpolation
-    let resp =
-        authed_get(port, "get_value_interpolated", "u/test-user/resource_with_var").await;
+    let resp = authed_get(
+        port,
+        "get_value_interpolated",
+        "u/test-user/resource_with_var",
+    )
+    .await;
     assert_eq!(resp.status(), 200);
     assert_eq!(
         resp.json::<serde_json::Value>().await?,
@@ -87,8 +95,12 @@ async fn test_resource_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     // $res: interpolation
-    let resp =
-        authed_get(port, "get_value_interpolated", "u/test-user/resource_with_res").await;
+    let resp = authed_get(
+        port,
+        "get_value_interpolated",
+        "u/test-user/resource_with_res",
+    )
+    .await;
     assert_eq!(resp.status(), 200);
     assert_eq!(
         resp.json::<serde_json::Value>().await?,
@@ -96,8 +108,7 @@ async fn test_resource_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     // mixed $var: and $res: refs
-    let resp =
-        authed_get(port, "get_value_interpolated", "u/test-user/resource_mixed").await;
+    let resp = authed_get(port, "get_value_interpolated", "u/test-user/resource_mixed").await;
     assert_eq!(resp.status(), 200);
     assert_eq!(
         resp.json::<serde_json::Value>().await?,
@@ -105,8 +116,12 @@ async fn test_resource_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     // chained $res: -> $var:
-    let resp =
-        authed_get(port, "get_value_interpolated", "u/test-user/chained_resource").await;
+    let resp = authed_get(
+        port,
+        "get_value_interpolated",
+        "u/test-user/chained_resource",
+    )
+    .await;
     assert_eq!(resp.status(), 200);
     assert_eq!(
         resp.json::<serde_json::Value>().await?,
@@ -114,8 +129,7 @@ async fn test_resource_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     // null value
-    let resp =
-        authed_get(port, "get_value_interpolated", "u/test-user/null_resource").await;
+    let resp = authed_get(port, "get_value_interpolated", "u/test-user/null_resource").await;
     assert_eq!(resp.status(), 200);
     assert_eq!(
         resp.json::<serde_json::Value>().await?,
@@ -123,8 +137,7 @@ async fn test_resource_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     // not found
-    let resp =
-        authed_get(port, "get_value_interpolated", "u/test-user/nonexistent").await;
+    let resp = authed_get(port, "get_value_interpolated", "u/test-user/nonexistent").await;
     assert_eq!(resp.status(), 404);
 
     // array passthrough
@@ -162,7 +175,9 @@ async fn test_resource_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         "expected at least 10 resources from fixture, got {}",
         list.len()
     );
-    assert!(list.iter().any(|r| r["path"] == "u/test-user/simple_resource"));
+    assert!(list
+        .iter()
+        .any(|r| r["path"] == "u/test-user/simple_resource"));
 
     // list with resource_type filter
     let resp = authed(client().get(format!("{base}/list?resource_type=mcp_server")))
@@ -259,9 +274,11 @@ async fn test_resource_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(body["description"], "Updated description");
 
     // --- update_value ---
-    let resp = authed(
-        client().post(resource_url(port, "update_value", "u/test-user/new_resource")),
-    )
+    let resp = authed(client().post(resource_url(
+        port,
+        "update_value",
+        "u/test-user/new_resource",
+    )))
     .json(&json!({"value": {"url": "https://final.com"}}))
     .send()
     .await
@@ -275,35 +292,44 @@ async fn test_resource_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     // --- delete ---
-    let resp = authed(
-        client().delete(resource_url(port, "delete", "u/test-user/new_resource")),
-    )
-    .send()
-    .await
-    .unwrap();
+    let resp = authed(client().delete(resource_url(port, "delete", "u/test-user/new_resource")))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
 
     let resp = authed_get(port, "exists", "u/test-user/new_resource").await;
     assert_eq!(resp.json::<bool>().await?, false);
 
     // delete nonexistent -> 404
-    let resp = authed(
-        client().delete(resource_url(port, "delete", "u/test-user/new_resource")),
-    )
-    .send()
-    .await
-    .unwrap();
+    let resp = authed(client().delete(resource_url(port, "delete", "u/test-user/new_resource")))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 404);
 
     // --- file_resource_type_to_file_ext_map ---
-    let resp = authed(client().get(format!(
-        "{base}/file_resource_type_to_file_ext_map"
-    )))
-    .send()
-    .await
-    .unwrap();
+    let resp = authed(client().get(format!("{base}/file_resource_type_to_file_ext_map")))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
-    resp.json::<serde_json::Value>().await?;
+    let ext_map = resp.json::<serde_json::Value>().await?;
+    // Verify the map includes fileset type info with is_fileset flag (no format_extension)
+    let fileset_info = &ext_map["test_fileset"];
+    assert_eq!(fileset_info["format_extension"], serde_json::Value::Null);
+    assert_eq!(fileset_info["is_fileset"], true);
+    // Verify non-fileset file type
+    let file_info = &ext_map["test_file"];
+    assert_eq!(file_info["format_extension"], "txt");
+    assert_eq!(file_info["is_fileset"], false);
+
+    // --- fileset resource value ---
+    let resp = authed_get(port, "get_value", "u/test-user/fileset_resource").await;
+    assert_eq!(resp.status(), 200);
+    let fileset_val = resp.json::<serde_json::Value>().await?;
+    assert_eq!(fileset_val["config.yaml"], "key: value");
+    assert_eq!(fileset_val["data/input.json"], "{\"items\": []}");
 
     // --- resource types ---
 
@@ -384,16 +410,67 @@ async fn test_resource_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(body["description"], "Updated type desc");
 
     // type/delete
-    let resp = authed(
-        client().delete(resource_url(port, "type/delete", "new_test_type")),
-    )
-    .send()
-    .await
-    .unwrap();
+    let resp = authed(client().delete(resource_url(port, "type/delete", "new_test_type")))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
 
     let resp = authed_get(port, "type/exists", "new_test_type").await;
     assert_eq!(resp.json::<bool>().await?, false);
+
+    // --- fileset resource type CRUD ---
+
+    // type/get for fileset type - verify is_fileset is returned
+    let resp = authed_get(port, "type/get", "test_fileset").await;
+    assert_eq!(resp.status(), 200);
+    let body = resp.json::<serde_json::Value>().await?;
+    assert_eq!(body["name"], "test_fileset");
+    assert_eq!(body["is_fileset"], true);
+    assert_eq!(body["format_extension"], serde_json::Value::Null);
+
+    // type/get for non-fileset type - verify is_fileset is false
+    let resp = authed_get(port, "type/get", "test_db").await;
+    assert_eq!(resp.status(), 200);
+    let body = resp.json::<serde_json::Value>().await?;
+    assert_eq!(body["is_fileset"], false);
+
+    // type/create fileset type (no format_extension needed)
+    let resp = authed(client().post(format!("{base}/type/create")))
+        .json(&json!({
+            "name": "new_fileset_type",
+            "description": "A fileset type",
+            "schema": {},
+            "is_fileset": true
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+
+    let resp = authed_get(port, "type/get", "new_fileset_type").await;
+    let body = resp.json::<serde_json::Value>().await?;
+    assert_eq!(body["is_fileset"], true);
+    assert_eq!(body["format_extension"], serde_json::Value::Null);
+
+    // type/update - set is_fileset on existing type
+    let resp = authed(client().post(resource_url(port, "type/update", "new_fileset_type")))
+        .json(&json!({"is_fileset": false}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let resp = authed_get(port, "type/get", "new_fileset_type").await;
+    let body = resp.json::<serde_json::Value>().await?;
+    assert_eq!(body["is_fileset"], false);
+
+    // cleanup
+    let resp = authed(client().delete(resource_url(port, "type/delete", "new_fileset_type")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
 
     Ok(())
 }

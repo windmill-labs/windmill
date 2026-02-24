@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT name, format_extension, is_fileset FROM resource_type WHERE (format_extension IS NOT NULL OR is_fileset = true) AND (workspace_id = $1 OR workspace_id = 'admins')",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "format_extension",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "is_fileset",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "842775bcf91d747abb11ffe9c98fa1208595e012590606ef6667ea3a78105883"
+}

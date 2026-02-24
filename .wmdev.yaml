@@ -1,0 +1,66 @@
+services:
+  - name: BE
+    portEnv: BACKEND_PORT
+  - name: FE
+    portEnv: FRONTEND_PORT
+
+profiles:
+  default:
+    name: default
+
+  sandbox:
+    name: sandbox
+    systemPrompt: >
+      You are running inside a sandboxed container with full permissions.
+      This worktree is configured with the following ports:
+
+      - Backend: port ${BACKEND_PORT}.
+        Start with: cd backend && PORT=${BACKEND_PORT}
+        DATABASE_URL=postgres://postgres:changeme@localhost:5432/windmill
+        cargo watch -x run
+
+      - Frontend: port ${FRONTEND_PORT}.
+        Start with: cd frontend && REMOTE=http://localhost:${BACKEND_PORT}
+        npm run dev -- --port ${FRONTEND_PORT} --host 0.0.0.0
+
+      --- Screenshots ---
+      You can take screenshots of the frontend UI and upload them to R2
+      for use in PR descriptions.
+      1) Take a screenshot:
+         bunx playwright screenshot --browser chromium
+         http://localhost:${FRONTEND_PORT}/path/to/page /tmp/screenshot.png
+      2) Upload to R2:
+         aws s3 cp /tmp/screenshot.png
+         "s3://$(printenv R2_BUCKET)/$(git rev-parse --abbrev-ref HEAD)/screenshot.png"
+         --endpoint-url "$(printenv R2_ENDPOINT)"
+      3) The public URL will be:
+         $(printenv R2_PUBLIC_URL)/<branch>/screenshot.png
+      4) Include screenshots in PR descriptions as markdown images:
+         ![description]($(printenv R2_PUBLIC_URL)/<branch>/screenshot.png)
+
+      --- Terminal Recordings (asciinema) ---
+      You can record terminal sessions and upload them for sharing.
+      asciinema is pre-installed at /usr/local/bin/asciinema.
+
+      1) Write a shell script with the commands to demo. Add sleep
+          delays for readable pacing:
+          - 0.5s after printing a "$ command" line (lets viewer read it)
+          - 1.5-2s after command output (lets viewer absorb the result)
+          - Set GIT_PAGER=cat and PAGER=cat to prevent pager hangs
+
+      2) Record headlessly:
+          asciinema rec --headless --overwrite \
+            -c "bash /tmp/demo.sh" \
+            --window-size 120x50 \
+            --title "Description of demo" \
+            /tmp/demo.cast
+
+      3) Upload to asciinema.org:
+          XDG_DATA_HOME=/tmp/.local/share \
+            asciinema upload --server-url https://asciinema.org /tmp/demo.cast
+    envPassthrough:
+      - AWS_ACCESS_KEY_ID
+      - AWS_SECRET_ACCESS_KEY
+      - R2_ENDPOINT
+      - R2_BUCKET
+      - R2_PUBLIC_URL

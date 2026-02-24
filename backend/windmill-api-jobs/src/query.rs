@@ -14,6 +14,17 @@ use windmill_common::utils::{paginate_without_limits, Pagination};
 
 use crate::types::{ListCompletedQuery, ListQueueQuery};
 
+/// Build a `NOT IN (...)` clause that also includes `OR col IS NULL`, so that
+/// rows where the nullable column is NULL are not silently excluded.
+fn not_in_nullable(col: &str, quoted: &[String]) -> String {
+    format!(
+        "({} IS NULL OR {} NOT IN ({}))",
+        col,
+        col,
+        quoted.join(", ")
+    )
+}
+
 pub fn filter_list_queue_query(
     mut sqlb: SqlBuilder,
     lq: &ListQueueQuery,
@@ -33,18 +44,62 @@ pub fn filter_list_queue_query(
     }
 
     if let Some(w) = &lq.worker {
+        let quoted: Vec<_> = w.values.iter().map(|v| quote(v)).collect();
         if lq.allow_wildcards.unwrap_or(false) {
-            sqlb.and_where_like_left("v2_job_queue.worker", w.replace("*", "%"));
+            let clauses: Vec<_> = w
+                .values
+                .iter()
+                .map(|v| {
+                    let p = v.replace("*", "%").replace("'", "''");
+                    if w.negated {
+                        format!("v2_job_queue.worker NOT LIKE '{p}'")
+                    } else {
+                        format!("v2_job_queue.worker LIKE '{p}'")
+                    }
+                })
+                .collect();
+            let sep = if w.negated { " AND " } else { " OR " };
+            let inner = clauses.join(sep);
+            if w.negated {
+                sqlb.and_where(format!("(v2_job_queue.worker IS NULL OR ({inner}))"));
+            } else {
+                sqlb.and_where(format!("({inner})"));
+            }
+        } else if w.negated {
+            sqlb.and_where(not_in_nullable("v2_job_queue.worker", &quoted));
         } else {
-            sqlb.and_where_eq("v2_job_queue.worker", "?".bind(w));
+            sqlb.and_where_in("v2_job_queue.worker", &quoted);
         }
     }
 
     if let Some(ps) = &lq.script_path_start {
-        sqlb.and_where_like_left("runnable_path", ps);
+        let clauses: Vec<_> = ps
+            .values
+            .iter()
+            .map(|v| {
+                let e = v.replace("'", "''");
+                if ps.negated {
+                    format!("runnable_path NOT LIKE '{e}%'")
+                } else {
+                    format!("runnable_path LIKE '{e}%'")
+                }
+            })
+            .collect();
+        let sep = if ps.negated { " AND " } else { " OR " };
+        let inner = clauses.join(sep);
+        if ps.negated {
+            sqlb.and_where(format!("(runnable_path IS NULL OR ({inner}))"));
+        } else {
+            sqlb.and_where(format!("({inner})"));
+        }
     }
     if let Some(p) = &lq.script_path_exact {
-        sqlb.and_where_eq("runnable_path", "?".bind(p));
+        let quoted: Vec<_> = p.values.iter().map(|v| quote(v)).collect();
+        if p.negated {
+            sqlb.and_where(not_in_nullable("runnable_path", &quoted));
+        } else {
+            sqlb.and_where_in("runnable_path", &quoted);
+        }
     }
     if let Some(p) = &lq.schedule_path {
         sqlb.and_where_eq("trigger", "?".bind(p));
@@ -54,13 +109,34 @@ pub fn filter_list_queue_query(
         sqlb.and_where_eq("runnable_id", "?".bind(h));
     }
     if let Some(cb) = &lq.created_by {
-        sqlb.and_where_eq("created_by", "?".bind(cb));
+        let quoted: Vec<_> = cb.values.iter().map(|v| quote(v)).collect();
+        if cb.negated {
+            sqlb.and_where_not_in("created_by", &quoted);
+        } else {
+            sqlb.and_where_in("created_by", &quoted);
+        }
     }
     if let Some(t) = &lq.tag {
+        let quoted: Vec<_> = t.values.iter().map(|v| quote(v)).collect();
         if lq.allow_wildcards.unwrap_or(false) {
-            sqlb.and_where_like_left("v2_job.tag", t.replace("*", "%"));
+            let clauses: Vec<_> = t
+                .values
+                .iter()
+                .map(|v| {
+                    let p = v.replace("*", "%").replace("'", "''");
+                    if t.negated {
+                        format!("v2_job.tag NOT LIKE '{p}'")
+                    } else {
+                        format!("v2_job.tag LIKE '{p}'")
+                    }
+                })
+                .collect();
+            let sep = if t.negated { " AND " } else { " OR " };
+            sqlb.and_where(format!("({})", clauses.join(sep)));
+        } else if t.negated {
+            sqlb.and_where_not_in("v2_job.tag", &quoted);
         } else {
-            sqlb.and_where_eq("v2_job.tag", "?".bind(t));
+            sqlb.and_where_in("v2_job.tag", &quoted);
         }
     }
 
@@ -115,10 +191,12 @@ pub fn filter_list_queue_query(
     }
 
     if let Some(jk) = &lq.job_kinds {
-        sqlb.and_where_in(
-            "kind",
-            &jk.split(',').into_iter().map(quote).collect::<Vec<_>>(),
-        );
+        let quoted: Vec<_> = jk.values.iter().map(|v| quote(v)).collect();
+        if jk.negated {
+            sqlb.and_where_not_in("kind", &quoted);
+        } else {
+            sqlb.and_where_in("kind", &quoted);
+        }
     }
 
     if let Some(args) = &lq.args {
@@ -134,11 +212,21 @@ pub fn filter_list_queue_query(
     }
 
     if let Some(tk) = &lq.trigger_kind {
-        sqlb.and_where_eq("trigger_kind", "?".bind(&format!("{}", tk)));
+        let quoted: Vec<_> = tk.values.iter().map(|v| quote(&format!("{}", v))).collect();
+        if tk.negated {
+            sqlb.and_where(not_in_nullable("trigger_kind", &quoted));
+        } else {
+            sqlb.and_where_in("trigger_kind", &quoted);
+        }
     }
 
     if let Some(tp) = &lq.trigger_path {
-        sqlb.and_where_eq("trigger", "?".bind(tp));
+        let quoted: Vec<_> = tp.values.iter().map(|v| quote(v)).collect();
+        if tp.negated {
+            sqlb.and_where(not_in_nullable("trigger", &quoted));
+        } else {
+            sqlb.and_where_in("trigger", &quoted);
+        }
     }
 
     sqlb
@@ -187,25 +275,71 @@ pub fn filter_list_completed_query(
 
     if let Some(label) = &lq.label {
         if lq.allow_wildcards.unwrap_or(false) {
-            let wh = format!(
-                    "EXISTS (SELECT 1 FROM jsonb_array_elements_text(result->'wm_labels') label WHERE jsonb_typeof(result->'wm_labels') = 'array' AND label LIKE '{}')",
-                    &label.replace("*", "%").replace("'", "''")
-                );
-            sqlb.and_where("result ? 'wm_labels'");
-            sqlb.and_where(&wh);
+            let clauses: Vec<_> = label
+                .values
+                .iter()
+                .map(|v| {
+                    let p = v.replace("*", "%").replace("'", "''");
+                    if label.negated {
+                        format!(
+                            "NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text(result->'wm_labels') lbl WHERE jsonb_typeof(result->'wm_labels') = 'array' AND lbl LIKE '{p}')"
+                        )
+                    } else {
+                        format!(
+                            "EXISTS (SELECT 1 FROM jsonb_array_elements_text(result->'wm_labels') lbl WHERE jsonb_typeof(result->'wm_labels') = 'array' AND lbl LIKE '{p}')"
+                        )
+                    }
+                })
+                .collect();
+            let sep = if label.negated { " AND " } else { " OR " };
+            if !label.negated {
+                sqlb.and_where("result ? 'wm_labels'");
+            }
+            sqlb.and_where(format!("({})", clauses.join(sep)));
+        } else if label.negated {
+            let clauses: Vec<_> = label
+                .values
+                .iter()
+                .map(|v| format!("NOT (result->'wm_labels' ? '{}')", v.replace("'", "''")))
+                .collect();
+            sqlb.and_where(format!("({})", clauses.join(" AND ")));
         } else {
-            let mut wh = format!("result->'wm_labels' ? ");
-            wh.push_str(&format!("'{}'", &label.replace("'", "''")));
+            let clauses: Vec<_> = label
+                .values
+                .iter()
+                .map(|v| format!("result->'wm_labels' ? '{}'", v.replace("'", "''")))
+                .collect();
             sqlb.and_where("result ? 'wm_labels'");
-            sqlb.and_where(&wh);
+            sqlb.and_where(format!("({})", clauses.join(" OR ")));
         }
     }
 
     if let Some(worker) = &lq.worker {
+        let quoted: Vec<_> = worker.values.iter().map(|v| quote(v)).collect();
         if lq.allow_wildcards.unwrap_or(false) {
-            sqlb.and_where_like_left("v2_job_completed.worker", worker.replace("*", "%"));
+            let clauses: Vec<_> = worker
+                .values
+                .iter()
+                .map(|v| {
+                    let p = v.replace("*", "%").replace("'", "''");
+                    if worker.negated {
+                        format!("v2_job_completed.worker NOT LIKE '{p}'")
+                    } else {
+                        format!("v2_job_completed.worker LIKE '{p}'")
+                    }
+                })
+                .collect();
+            let sep = if worker.negated { " AND " } else { " OR " };
+            let inner = clauses.join(sep);
+            if worker.negated {
+                sqlb.and_where(format!("(v2_job_completed.worker IS NULL OR ({inner}))"));
+            } else {
+                sqlb.and_where(format!("({inner})"));
+            }
+        } else if worker.negated {
+            sqlb.and_where(not_in_nullable("v2_job_completed.worker", &quoted));
         } else {
-            sqlb.and_where_eq("v2_job_completed.worker", "?".bind(worker));
+            sqlb.and_where_in("v2_job_completed.worker", &quoted);
         }
     }
 
@@ -220,24 +354,68 @@ pub fn filter_list_completed_query(
     }
 
     if let Some(ps) = &lq.script_path_start {
-        sqlb.and_where_like_left("runnable_path", ps);
+        let clauses: Vec<_> = ps
+            .values
+            .iter()
+            .map(|v| {
+                let e = v.replace("'", "''");
+                if ps.negated {
+                    format!("runnable_path NOT LIKE '{e}%'")
+                } else {
+                    format!("runnable_path LIKE '{e}%'")
+                }
+            })
+            .collect();
+        let sep = if ps.negated { " AND " } else { " OR " };
+        let inner = clauses.join(sep);
+        if ps.negated {
+            sqlb.and_where(format!("(runnable_path IS NULL OR ({inner}))"));
+        } else {
+            sqlb.and_where(format!("({inner})"));
+        }
     }
     if let Some(p) = &lq.script_path_exact {
-        sqlb.and_where_eq("runnable_path", "?".bind(p));
+        let quoted: Vec<_> = p.values.iter().map(|v| quote(v)).collect();
+        if p.negated {
+            sqlb.and_where(not_in_nullable("runnable_path", &quoted));
+        } else {
+            sqlb.and_where_in("runnable_path", &quoted);
+        }
     }
     if let Some(h) = &lq.script_hash {
         sqlb.and_where_eq("runnable_id", "?".bind(h));
     }
     if let Some(t) = &lq.tag {
+        let quoted: Vec<_> = t.values.iter().map(|v| quote(v)).collect();
         if lq.allow_wildcards.unwrap_or(false) {
-            sqlb.and_where_like_left("v2_job.tag", t.replace("*", "%"));
+            let clauses: Vec<_> = t
+                .values
+                .iter()
+                .map(|v| {
+                    let p = v.replace("*", "%").replace("'", "''");
+                    if t.negated {
+                        format!("v2_job.tag NOT LIKE '{p}'")
+                    } else {
+                        format!("v2_job.tag LIKE '{p}'")
+                    }
+                })
+                .collect();
+            let sep = if t.negated { " AND " } else { " OR " };
+            sqlb.and_where(format!("({})", clauses.join(sep)));
+        } else if t.negated {
+            sqlb.and_where_not_in("v2_job.tag", &quoted);
         } else {
-            sqlb.and_where_eq("v2_job.tag", "?".bind(t));
+            sqlb.and_where_in("v2_job.tag", &quoted);
         }
     }
 
     if let Some(cb) = &lq.created_by {
-        sqlb.and_where_eq("created_by", "?".bind(cb));
+        let quoted: Vec<_> = cb.values.iter().map(|v| quote(v)).collect();
+        if cb.negated {
+            sqlb.and_where_not_in("created_by", &quoted);
+        } else {
+            sqlb.and_where_in("created_by", &quoted);
+        }
     }
     if let Some(r) = &lq.success {
         if *r {
@@ -308,10 +486,12 @@ pub fn filter_list_completed_query(
         }
     }
     if let Some(jk) = &lq.job_kinds {
-        sqlb.and_where_in(
-            "kind",
-            &jk.split(',').into_iter().map(quote).collect::<Vec<_>>(),
-        );
+        let quoted: Vec<_> = jk.values.iter().map(|v| quote(v)).collect();
+        if jk.negated {
+            sqlb.and_where_not_in("kind", &quoted);
+        } else {
+            sqlb.and_where_in("kind", &quoted);
+        }
     }
 
     if let Some(args) = &lq.args {
@@ -327,11 +507,21 @@ pub fn filter_list_completed_query(
     }
 
     if let Some(tk) = &lq.trigger_kind {
-        sqlb.and_where_eq("trigger_kind", "?".bind(&format!("{}", tk)));
+        let quoted: Vec<_> = tk.values.iter().map(|v| quote(&format!("{}", v))).collect();
+        if tk.negated {
+            sqlb.and_where(not_in_nullable("trigger_kind", &quoted));
+        } else {
+            sqlb.and_where_in("trigger_kind", &quoted);
+        }
     }
 
     if let Some(tp) = &lq.trigger_path {
-        sqlb.and_where_eq("trigger", "?".bind(tp));
+        let quoted: Vec<_> = tp.values.iter().map(|v| quote(v)).collect();
+        if tp.negated {
+            sqlb.and_where(not_in_nullable("trigger", &quoted));
+        } else {
+            sqlb.and_where_in("trigger", &quoted);
+        }
     }
 
     sqlb
@@ -375,6 +565,7 @@ pub fn list_completed_jobs_query(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::negated_filter::NegatedListFilter;
 
     fn empty_queue_query() -> ListQueueQuery {
         ListQueueQuery {
@@ -478,7 +669,7 @@ mod tests {
     #[test]
     fn test_queue_filter_script_path_start() {
         let lq = ListQueueQuery {
-            script_path_start: Some("f/test".to_string()),
+            script_path_start: Some(NegatedListFilter::positive(vec!["f/test".to_string()])),
             ..empty_queue_query()
         };
         let sqlb = filter_list_queue_query(
@@ -495,7 +686,9 @@ mod tests {
     #[test]
     fn test_queue_filter_script_path_exact() {
         let lq = ListQueueQuery {
-            script_path_exact: Some("f/test/script".to_string()),
+            script_path_exact: Some(NegatedListFilter::positive(vec![
+                "f/test/script".to_string()
+            ])),
             ..empty_queue_query()
         };
         let sqlb = filter_list_queue_query(
@@ -510,10 +703,7 @@ mod tests {
 
     #[test]
     fn test_queue_filter_running() {
-        let lq = ListQueueQuery {
-            running: Some(true),
-            ..empty_queue_query()
-        };
+        let lq = ListQueueQuery { running: Some(true), ..empty_queue_query() };
         let sqlb = filter_list_queue_query(
             SqlBuilder::select_from("v2_job_queue").clone(),
             &lq,
@@ -527,7 +717,10 @@ mod tests {
     #[test]
     fn test_queue_filter_job_kinds() {
         let lq = ListQueueQuery {
-            job_kinds: Some("script,flow".to_string()),
+            job_kinds: Some(NegatedListFilter::positive(vec![
+                "script".to_string(),
+                "flow".to_string(),
+            ])),
             ..empty_queue_query()
         };
         let sqlb = filter_list_queue_query(
@@ -543,10 +736,7 @@ mod tests {
 
     #[test]
     fn test_queue_filter_suspended() {
-        let lq = ListQueueQuery {
-            suspended: Some(true),
-            ..empty_queue_query()
-        };
+        let lq = ListQueueQuery { suspended: Some(true), ..empty_queue_query() };
         let sqlb = filter_list_queue_query(
             SqlBuilder::select_from("v2_job_queue").clone(),
             &lq,
@@ -559,10 +749,7 @@ mod tests {
 
     #[test]
     fn test_queue_filter_is_not_schedule() {
-        let lq = ListQueueQuery {
-            is_not_schedule: Some(true),
-            ..empty_queue_query()
-        };
+        let lq = ListQueueQuery { is_not_schedule: Some(true), ..empty_queue_query() };
         let sqlb = filter_list_queue_query(
             SqlBuilder::select_from("v2_job_queue").clone(),
             &lq,
@@ -575,10 +762,7 @@ mod tests {
 
     #[test]
     fn test_queue_filter_has_null_parent() {
-        let lq = ListQueueQuery {
-            has_null_parent: Some(true),
-            ..empty_queue_query()
-        };
+        let lq = ListQueueQuery { has_null_parent: Some(true), ..empty_queue_query() };
         let sqlb = filter_list_queue_query(
             SqlBuilder::select_from("v2_job_queue").clone(),
             &lq,
@@ -591,10 +775,7 @@ mod tests {
 
     #[test]
     fn test_queue_filter_is_flow_step_true() {
-        let lq = ListQueueQuery {
-            is_flow_step: Some(true),
-            ..empty_queue_query()
-        };
+        let lq = ListQueueQuery { is_flow_step: Some(true), ..empty_queue_query() };
         let sqlb = filter_list_queue_query(
             SqlBuilder::select_from("v2_job_queue").clone(),
             &lq,
@@ -607,10 +788,7 @@ mod tests {
 
     #[test]
     fn test_queue_filter_is_flow_step_false() {
-        let lq = ListQueueQuery {
-            is_flow_step: Some(false),
-            ..empty_queue_query()
-        };
+        let lq = ListQueueQuery { is_flow_step: Some(false), ..empty_queue_query() };
         let sqlb = filter_list_queue_query(
             SqlBuilder::select_from("v2_job_queue").clone(),
             &lq,
@@ -623,10 +801,7 @@ mod tests {
 
     #[test]
     fn test_queue_admins_all_workspaces() {
-        let lq = ListQueueQuery {
-            all_workspaces: Some(true),
-            ..empty_queue_query()
-        };
+        let lq = ListQueueQuery { all_workspaces: Some(true), ..empty_queue_query() };
         let sqlb = filter_list_queue_query(
             SqlBuilder::select_from("v2_job_queue").clone(),
             &lq,
@@ -639,10 +814,7 @@ mod tests {
 
     #[test]
     fn test_queue_non_admins_ignores_all_workspaces() {
-        let lq = ListQueueQuery {
-            all_workspaces: Some(true),
-            ..empty_queue_query()
-        };
+        let lq = ListQueueQuery { all_workspaces: Some(true), ..empty_queue_query() };
         let sqlb = filter_list_queue_query(
             SqlBuilder::select_from("v2_job_queue").clone(),
             &lq,
@@ -695,10 +867,7 @@ mod tests {
 
     #[test]
     fn test_completed_filter_success_true() {
-        let lq = ListCompletedQuery {
-            success: Some(true),
-            ..empty_completed_query()
-        };
+        let lq = ListCompletedQuery { success: Some(true), ..empty_completed_query() };
         let sqlb = filter_list_completed_query(
             SqlBuilder::select_from("v2_job_completed").clone(),
             &lq,
@@ -711,10 +880,7 @@ mod tests {
 
     #[test]
     fn test_completed_filter_success_false() {
-        let lq = ListCompletedQuery {
-            success: Some(false),
-            ..empty_completed_query()
-        };
+        let lq = ListCompletedQuery { success: Some(false), ..empty_completed_query() };
         let sqlb = filter_list_completed_query(
             SqlBuilder::select_from("v2_job_completed").clone(),
             &lq,
@@ -739,7 +905,7 @@ mod tests {
     #[test]
     fn test_completed_filter_label() {
         let lq = ListCompletedQuery {
-            label: Some("deploy".to_string()),
+            label: Some(NegatedListFilter::positive(vec!["deploy".to_string()])),
             ..empty_completed_query()
         };
         let sqlb = filter_list_completed_query(
@@ -754,10 +920,7 @@ mod tests {
 
     #[test]
     fn test_completed_filter_is_skipped() {
-        let lq = ListCompletedQuery {
-            is_skipped: Some(true),
-            ..empty_completed_query()
-        };
+        let lq = ListCompletedQuery { is_skipped: Some(true), ..empty_completed_query() };
         let sqlb = filter_list_completed_query(
             SqlBuilder::select_from("v2_job_completed").clone(),
             &lq,

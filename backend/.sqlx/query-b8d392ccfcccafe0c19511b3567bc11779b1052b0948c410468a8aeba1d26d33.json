@@ -37,6 +37,11 @@
         "ordinal": 6,
         "name": "format_extension",
         "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "is_fileset",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -51,7 +56,8 @@
       true,
       true,
       true,
-      true
+      true,
+      false
     ]
   },
   "hash": "b8d392ccfcccafe0c19511b3567bc11779b1052b0948c410468a8aeba1d26d33"
