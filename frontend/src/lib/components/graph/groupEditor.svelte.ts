@@ -12,7 +12,7 @@ export type FlowGroup = {
 	id: string
 	summary?: string
 	description?: string
-	collapsed?: boolean
+	collapsed_by_default?: boolean
 	module_ids: Array<string>
 	color?: string
 }
@@ -24,8 +24,55 @@ export type FlowGroup = {
 export class GroupEditor {
 	private flowStore: StateStore<ExtendedOpenFlow>
 
+	// Runtime collapsed state (not persisted in flow YAML)
+	private _runtimeCollapsedIds = $state<Set<string>>(new Set())
+	private _runtimeInitialized = $state(false)
+
 	constructor(flowStore: StateStore<ExtendedOpenFlow>) {
 		this.flowStore = flowStore
+	}
+
+	/** Initialize runtime state from collapsed_by_default. Safe to call from event handlers. */
+	private ensureRuntimeInitialized(): void {
+		if (this._runtimeInitialized) return
+		const groups = this.getGroups()
+		this._runtimeCollapsedIds = new Set(
+			groups.filter((g) => g.collapsed_by_default).map((g) => g.id)
+		)
+		this._runtimeInitialized = true
+	}
+
+	/** Check if a group is currently collapsed (runtime). Safe to call from $derived. */
+	isRuntimeCollapsed(groupId: string): boolean {
+		if (!this._runtimeInitialized) {
+			return this.getGroups().find((g) => g.id === groupId)?.collapsed_by_default ?? false
+		}
+		return this._runtimeCollapsedIds.has(groupId)
+	}
+
+	/** Toggle runtime collapse (Minimize2 button) */
+	toggleRuntimeCollapse(groupId: string): void {
+		this.ensureRuntimeInitialized()
+		const next = new Set(this._runtimeCollapsedIds)
+		if (next.has(groupId)) next.delete(groupId)
+		else next.add(groupId)
+		this._runtimeCollapsedIds = next
+	}
+
+	/** Expand a group at runtime (CollapsedGroupNode click) */
+	expandGroup(groupId: string): void {
+		this.ensureRuntimeInitialized()
+		const next = new Set(this._runtimeCollapsedIds)
+		next.delete(groupId)
+		this._runtimeCollapsedIds = next
+	}
+
+	/** Get currently collapsed groups for graph builder. Safe to call from $derived. */
+	getCollapsedGroups(): FlowGroup[] {
+		if (!this._runtimeInitialized) {
+			return this.getGroups().filter((g) => g.collapsed_by_default)
+		}
+		return this.getGroups().filter((g) => this._runtimeCollapsedIds.has(g.id))
 	}
 
 	getGroups(): FlowGroup[] {
@@ -98,9 +145,11 @@ export class GroupEditor {
 		this.setGroups(groups.map((g) => (g.id === groupId ? { ...g, description } : g)))
 	}
 
-	updateCollapsedDefault(groupId: string, collapsed: boolean): void {
+	updateCollapsedDefault(groupId: string, collapsed_by_default: boolean): void {
 		const groups = this.getGroups()
-		this.setGroups(groups.map((g) => (g.id === groupId ? { ...g, collapsed } : g)))
+		this.setGroups(
+			groups.map((g) => (g.id === groupId ? { ...g, collapsed_by_default } : g))
+		)
 	}
 
 	/**
