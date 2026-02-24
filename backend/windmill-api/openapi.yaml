@@ -17324,6 +17324,7 @@ components:
       name: trigger_kind
       description: "filter by trigger kind. Supports comma-separated list (e.g. 'schedule,webhook') and negation by prefixing all values with '!' (e.g. '!schedule,!webhook')"
       in: query
+      x-go-name: JobTriggerKindParam
       schema:
         type: string
     OrderDesc:
