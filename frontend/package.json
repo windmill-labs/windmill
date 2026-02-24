@@ -281,6 +281,11 @@
 			"svelte": "./package/components/FlowStatusViewer.svelte",
 			"default": "./package/components/FlowStatusViewer.svelte"
 		},
+		"./components/FlowRecordingReplay.svelte": {
+			"types": "./package/components/recording/FlowRecordingReplay.svelte.d.ts",
+			"svelte": "./package/components/recording/FlowRecordingReplay.svelte",
+			"default": "./package/components/recording/FlowRecordingReplay.svelte"
+		},
 		"./components/FlowWrapper.svelte": {
 			"types": "./package/components/FlowWrapper.svelte.d.ts",
 			"svelte": "./package/components/FlowWrapper.svelte",

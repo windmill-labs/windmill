@@ -57,7 +57,8 @@
 		Circle,
 		CheckCircle,
 		RefreshCw,
-		CheckCheck
+		CheckCheck,
+		Focus
 	} from 'lucide-svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
@@ -913,6 +914,11 @@
 						icon: CheckCheck
 					}
 				]
+			},
+			{
+				displayName: 'Test flow & record',
+				icon: Focus,
+				action: () => flowPreviewButtons?.openRecordingPreview()
 			}
 		]
 	}
