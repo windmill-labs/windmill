@@ -414,6 +414,7 @@ pub async fn create_token_for_owner(
     job_id: &Uuid,
     perms: Option<JobPerms>,
     audit_span: Option<String>,
+    scopes: Option<Vec<String>>,
 ) -> crate::error::Result<String> {
     let job_perms = if perms.is_some() {
         Ok(perms)
@@ -441,7 +442,7 @@ pub async fn create_token_for_owner(
         Some(*job_id),
         Some(label.to_string()),
         audit_span,
-        None,
+        scopes,
     )
     .await
 }

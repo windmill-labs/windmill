@@ -92,6 +92,7 @@ pub enum JobKind {
     #[serde(rename = "unassigned_singlestepflow")]
     #[sqlx(rename = "unassigned_singlestepflow")]
     UnassignedSinglestepFlow,
+    SnapshotBuild,
 }
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
@@ -445,6 +446,10 @@ pub enum JobPayload {
     AIAgent {
         path: String,
     },
+    SnapshotBuild {
+        snapshot_name: String,
+        snapshot_tag: String,
+    },
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -491,6 +496,7 @@ impl JobPayload {
             JobPayload::RawScriptDependencies { .. } => JobKind::Dependencies,
             JobPayload::RawFlowDependencies { .. } => JobKind::FlowDependencies,
             JobPayload::DeploymentCallback { .. } => JobKind::DeploymentCallback,
+            JobPayload::SnapshotBuild { .. } => JobKind::SnapshotBuild,
             JobPayload::Flow { .. } | JobPayload::RestartedFlow { .. } => JobKind::Flow,
         }
     }

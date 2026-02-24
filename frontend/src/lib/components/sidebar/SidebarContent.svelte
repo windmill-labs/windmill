@@ -16,6 +16,7 @@
 	import {
 		BookOpen,
 		ServerCog,
+		Box,
 		Boxes,
 		Calendar,
 		DollarSign,
@@ -459,6 +460,17 @@
 			aiId: 'sidebar-menu-link-workers',
 			aiDescription: 'Button to navigate to workers'
 		},
+		...($userStore?.is_admin || $superadmin
+			? [
+					{
+						label: 'Sandboxes',
+						href: `${base}/sandboxes`,
+						icon: Box,
+						aiId: 'sidebar-menu-link-sandboxes',
+						aiDescription: 'Button to navigate to sandbox snapshots and volumes management'
+					}
+				]
+			: []),
 		{
 			label: 'Folders & Groups',
 			icon: FolderOpen,

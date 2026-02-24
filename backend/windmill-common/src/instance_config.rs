@@ -269,6 +269,8 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ruby_repos: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub docker_registries: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub powershell_repo_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub powershell_repo_pat: Option<String>,
@@ -797,6 +799,7 @@ const SENSITIVE_SETTINGS: &[&str] = &[
     "npmrc",
     "maven_repos",
     "ruby_repos",
+    "docker_registries",
     "powershell_repo_pat",
 ];
 

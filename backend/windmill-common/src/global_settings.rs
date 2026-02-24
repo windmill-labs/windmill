@@ -19,6 +19,7 @@ pub const MAVEN_SETTINGS_XML_SETTING: &str = "maven_settings_xml";
 pub const NO_DEFAULT_MAVEN_SETTING: &str = "no_default_maven";
 pub const RUBY_REPOS_SETTING: &str = "ruby_repos";
 pub const CARGO_REGISTRIES_SETTING: &str = "cargo_registries";
+pub const DOCKER_REGISTRIES_SETTING: &str = "docker_registries";
 
 pub const EXTRA_PIP_INDEX_URL_SETTING: &str = "pip_extra_index_url";
 pub const PIP_INDEX_URL_SETTING: &str = "pip_index_url";

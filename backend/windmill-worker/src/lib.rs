@@ -66,7 +66,10 @@ mod python_versions;
 pub mod result_processor;
 #[cfg(feature = "rust")]
 mod rust_executor;
+#[cfg(test)]
+mod sandbox_setup;
 mod sanitized_sql_params;
+mod snapshot_build;
 mod schema;
 pub mod sql_utils;
 mod universal_pkg_installer;

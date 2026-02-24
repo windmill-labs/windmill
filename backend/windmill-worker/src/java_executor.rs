@@ -1,5 +1,6 @@
 use std::{collections::HashMap, path::PathBuf, process::Stdio};
 
+use crate::global_cache::save_cache;
 use anyhow::{anyhow, bail};
 use async_recursion::async_recursion;
 use itertools::Itertools;
@@ -599,16 +600,15 @@ async fn run<'a>(
         )
         .await;
 
-        write_file(
-            job_dir,
-            "run.config.proto",
+        let nsjail_config = windmill_sandbox::finalize_nsjail_config(
             &NSJAIL_CONFIG_RUN_JAVA_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CACHE_DIR}", JAVA_CACHE_DIR)
                 .replace("{SHARED_MOUNT}", &shared_mount)
-                // .replace("{CACHED_TARGET}", &shared_mount)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
-        )?;
+            &[],
+        );
+        write_file(job_dir, "run.config.proto", &nsjail_config)?;
         let mut cmd = Command::new(NSJAIL_PATH.as_str());
         cmd.env_clear()
             .current_dir(job_dir)

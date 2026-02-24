@@ -784,7 +784,7 @@ except BaseException as e:
     #[cfg(windows)]
     let additional_python_paths_folders = additional_python_paths_folders.replace(":", ";");
 
-    if is_sandboxing_enabled() {
+    if is_sandboxing_enabled() || !shared_mount.is_empty() {
         let shared_deps = additional_python_paths
             .into_iter()
             .map(|pp| {
@@ -800,9 +800,7 @@ mount {{
                 )
             })
             .join("\n");
-        let _ = write_file(
-            job_dir,
-            "run.config.proto",
+        let nsjail_config = windmill_sandbox::finalize_nsjail_config(
             &NSJAIL_CONFIG_RUN_PYTHON3_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{PY_INSTALL_DIR}", PY_INSTALL_DIR)
@@ -817,7 +815,9 @@ mount {{
                 )
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL),
-        )?;
+            &[],
+        );
+        let _ = write_file(job_dir, "run.config.proto", &nsjail_config)?;
     } else {
         reserved_variables.insert("PYTHONPATH".to_string(), additional_python_paths_folders);
     }
@@ -828,7 +828,7 @@ mount {{
         job.id
     );
 
-    let child = if is_sandboxing_enabled() {
+    let child = if is_sandboxing_enabled() || !shared_mount.is_empty() {
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
             .current_dir(job_dir)
@@ -893,7 +893,7 @@ mount {{
         mem_peak,
         canceled_by,
         child,
-        is_sandboxing_enabled(),
+        is_sandboxing_enabled() || !shared_mount.is_empty(),
         worker_name,
         &job.workspace_id,
         "python run",

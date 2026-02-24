@@ -70,6 +70,7 @@ members = [
     "./parsers/windmill-parser-py-imports",
     "./parsers/windmill-sql-datatype-parser-wasm",
     "./parsers/windmill-parser-yaml", "windmill-macros", "parsers/windmill-parser-nu",
+    "./windmill-sandbox",
     "./windmill-test-utils",
     "./windmill-api-integration-tests",
 ]
@@ -97,7 +98,7 @@ lto = "thin"
 
 [features]
 default = []
-private = ["windmill-api/private", "windmill-api-agent-workers?/private", "windmill-autoscaling/private", "windmill-common/private", "windmill-object-store/private", "windmill-git-sync/private", "windmill-indexer/private", "windmill-operator?/private", "windmill-queue/private", "windmill-worker/private", "windmill-test-utils/private"]
+private = ["windmill-api/private", "windmill-api-agent-workers?/private", "windmill-autoscaling/private", "windmill-common/private", "windmill-object-store/private", "windmill-sandbox/private", "windmill-git-sync/private", "windmill-indexer/private", "windmill-operator?/private", "windmill-queue/private", "windmill-worker/private", "windmill-test-utils/private"]
 agent_worker_server = ["windmill-api/agent_worker_server", "dep:windmill-api-agent-workers", "windmill-test-utils/agent_worker_server"]
 enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "windmill-api-agent-workers?/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise", "windmill-object-store/enterprise"]
 local_reports = ["windmill-common/local_reports"]
@@ -105,7 +106,7 @@ enterprise_saml = ["windmill-api/enterprise_saml", "oauth2"]
 stripe = ["windmill-api/stripe"]
 benchmark = ["windmill-api/benchmark", "windmill-worker/benchmark", "windmill-queue/benchmark", "windmill-common/benchmark", "windmill-api-agent-workers?/benchmark"]
 embedding = ["windmill-api/embedding"]
-parquet = ["windmill-api/parquet", "windmill-common/parquet", "windmill-object-store/parquet", "windmill-worker/parquet"]
+parquet = ["windmill-api/parquet", "windmill-common/parquet", "windmill-object-store/parquet", "windmill-sandbox/parquet", "windmill-worker/parquet"]
 prometheus = ["windmill-common/prometheus", "windmill-api/prometheus", "windmill-worker/prometheus", "windmill-queue/prometheus", "dep:prometheus"]
 flow_testing = ["windmill-worker/flow_testing"]
 quickjs = ["windmill-worker/quickjs", "windmill-api/quickjs"]
@@ -205,6 +206,7 @@ windmill-git-sync.workspace = true
 windmill-api = { workspace = true, default-features = false }
 windmill-api-agent-workers = { workspace = true, optional = true }
 windmill-api-settings.workspace = true
+windmill-sandbox.workspace = true
 windmill-worker.workspace = true
 windmill-indexer = { workspace = true, optional = true }
 windmill-autoscaling = { workspace = true, optional = true }
@@ -271,6 +273,7 @@ windmill-dep-map = { path = "./windmill-dep-map" }
 windmill-types = { path = "./windmill-types" }
 windmill-common = { path = "./windmill-common", default-features = false }
 windmill-object-store = { path = "./windmill-object-store" }
+windmill-sandbox = { path = "./windmill-sandbox" }
 windmill-audit = { path = "./windmill-audit" }
 windmill-git-sync = { path = "./windmill-git-sync" }
 windmill-autoscaling = { path = "./windmill-autoscaling" }

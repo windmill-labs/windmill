@@ -15781,6 +15781,7 @@ dependencies = [
  "windmill-parser-ts",
  "windmill-queue",
  "windmill-runtime-nativets",
+ "windmill-sandbox",
  "windmill-test-utils",
  "windmill-worker",
  "windows-service",
@@ -15923,6 +15924,7 @@ dependencies = [
  "windmill-parser-sql",
  "windmill-parser-ts",
  "windmill-queue",
+ "windmill-sandbox",
  "windmill-store",
  "windmill-trigger",
  "windmill-trigger-email",
@@ -17019,6 +17021,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "windmill-sandbox"
+version = "1.641.0"
+dependencies = [
+ "bytes",
+ "chrono",
+ "flate2",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "tar",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
+ "windmill-common",
+ "windmill-object-store",
+]
+
+[[package]]
 name = "windmill-sql-datatype-parser-wasm"
 version = "1.642.0"
 dependencies = [
@@ -17442,6 +17464,7 @@ dependencies = [
  "sha2 0.10.9",
  "sqlx",
  "tar",
+ "tempfile",
  "tiberius",
  "tokio",
  "tokio-postgres 0.7.13",
@@ -17478,6 +17501,7 @@ dependencies = [
  "windmill-parser-yaml",
  "windmill-queue",
  "windmill-runtime-nativets",
+ "windmill-sandbox",
  "windmill-types",
  "yaml-rust",
 ]

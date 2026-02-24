@@ -2586,6 +2586,42 @@ pub struct JobAndPerms {
     #[serde(skip)]
     pub flow_runners: Option<Arc<FlowRunners>>,
 }
+/// Parse `// wmill_scopes:` or `# wmill_scopes:` annotations from script source code.
+///
+/// Looks for a line matching `// wmill_scopes: scope1,scope2` (or `#` comment prefix)
+/// in the first 20 lines of the script. Returns the parsed scopes as a Vec.
+pub fn parse_wmill_scopes(code: &str) -> Option<Vec<String>> {
+    for line in code.lines().take(20) {
+        let trimmed = line.trim();
+        let after_comment = if let Some(rest) = trimmed.strip_prefix("//") {
+            Some(rest)
+        } else if let Some(rest) = trimmed.strip_prefix('#') {
+            // Skip shebangs like #!/bin/bash
+            if rest.starts_with('!') {
+                continue;
+            }
+            Some(rest)
+        } else if let Some(rest) = trimmed.strip_prefix("--") {
+            Some(rest)
+        } else {
+            None
+        };
+        if let Some(after_comment) = after_comment {
+            if let Some(scopes_str) = after_comment.trim().strip_prefix("wmill_scopes:") {
+                let scopes: Vec<String> = scopes_str
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                if !scopes.is_empty() {
+                    return Some(scopes);
+                }
+            }
+        }
+    }
+    None
+}
+
 impl PulledJob {
     pub async fn get_job_and_perms(self, db: &DB) -> JobAndPerms {
         let job_perms = match (
@@ -2607,7 +2643,11 @@ impl PulledJob {
             _ => None,
         };
 
-        let token = create_token(&db, &self.job, job_perms).await;
+        #[cfg(all(feature = "private", feature = "enterprise"))]
+        let scopes = self.raw_code.as_deref().and_then(parse_wmill_scopes);
+        #[cfg(not(all(feature = "private", feature = "enterprise")))]
+        let scopes: Option<Vec<String>> = None;
+        let token = create_token(&db, &self.job, job_perms, scopes).await;
         JobAndPerms {
             job: self.job,
             raw_code: self.raw_code,
@@ -2622,7 +2662,12 @@ impl PulledJob {
 }
 
 // struct Permission
-pub async fn create_token(db: &DB, job: &MiniPulledJob, perms: Option<JobPerms>) -> String {
+pub async fn create_token(
+    db: &DB,
+    job: &MiniPulledJob,
+    perms: Option<JobPerms>,
+    scopes: Option<Vec<String>>,
+) -> String {
     // skipping test runs
     if job.workspace_id != "" {
         let label = if job.permissioned_as != format!("u/{}", job.created_by)
@@ -2645,6 +2690,7 @@ pub async fn create_token(db: &DB, job: &MiniPulledJob, perms: Option<JobPerms>)
                 "job-span-{}",
                 job.flow_innermost_root_job.unwrap_or(job.id)
             )),
+            scopes,
         )
         .warn_after_seconds(5)
         .await
@@ -5202,6 +5248,11 @@ async fn push_inner<'c, 'd>(
             job_kind: JobKind::AIAgent,
             ..Default::default()
         },
+        JobPayload::SnapshotBuild { snapshot_name, snapshot_tag } => JobPayloadUntagged {
+            runnable_path: Some(format!("sandbox/snapshot/{snapshot_name}:{snapshot_tag}")),
+            job_kind: JobKind::SnapshotBuild,
+            ..Default::default()
+        },
     };
 
     // Enforce concurrency limit on all dependency jobs.
@@ -5303,6 +5354,7 @@ async fn push_inner<'c, 'd>(
                 || job_kind == JobKind::FlowDependencies
                 || job_kind == JobKind::DeploymentCallback
                 || job_kind == JobKind::AppDependencies
+                || job_kind == JobKind::SnapshotBuild
             {
                 // using the dependency tag for deployment callback for now. We can create a separate tag when we need
                 "dependency".to_string()
@@ -5665,6 +5717,7 @@ async fn push_inner<'c, 'd>(
             JobKind::UnassignedScript => "jobs.run.unassigned_script",
             JobKind::UnassignedFlow => "jobs.run.unassigned_flow",
             JobKind::UnassignedSinglestepFlow => "jobs.run.unassigned_singlestepflow",
+            JobKind::SnapshotBuild => "jobs.run.snapshot_build",
         };
 
         let audit_author = if format!("u/{user}") != permissioned_as && user != permissioned_as {
@@ -6227,4 +6280,97 @@ pub async fn get_same_worker_job(
             same_worker_job.job_id, e
         ))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_wmill_scopes;
+
+    #[test]
+    fn test_parse_wmill_scopes_double_slash() {
+        let code = "// wmill_scopes: read:resource,read:variable\nconst x = 1;";
+        let scopes = parse_wmill_scopes(code).unwrap();
+        assert_eq!(scopes, vec!["read:resource", "read:variable"]);
+    }
+
+    #[test]
+    fn test_parse_wmill_scopes_hash() {
+        let code = "# wmill_scopes: run:script,read:resource\nimport os";
+        let scopes = parse_wmill_scopes(code).unwrap();
+        assert_eq!(scopes, vec!["run:script", "read:resource"]);
+    }
+
+    #[test]
+    fn test_parse_wmill_scopes_double_dash() {
+        let code = "-- wmill_scopes: read:resource\nSELECT 1;";
+        let scopes = parse_wmill_scopes(code).unwrap();
+        assert_eq!(scopes, vec!["read:resource"]);
+    }
+
+    #[test]
+    fn test_parse_wmill_scopes_skips_shebang() {
+        let code = "#!/bin/bash\n# wmill_scopes: run:script\necho hello";
+        let scopes = parse_wmill_scopes(code).unwrap();
+        assert_eq!(scopes, vec!["run:script"]);
+    }
+
+    #[test]
+    fn test_parse_wmill_scopes_none_when_absent() {
+        let code = "import os\ndef main():\n    pass";
+        assert!(parse_wmill_scopes(code).is_none());
+    }
+
+    #[test]
+    fn test_parse_wmill_scopes_none_when_empty() {
+        let code = "// wmill_scopes:\nconst x = 1;";
+        assert!(parse_wmill_scopes(code).is_none());
+    }
+
+    #[test]
+    fn test_parse_wmill_scopes_trims_whitespace() {
+        let code = "//   wmill_scopes:   read:resource ,  write:variable  \n";
+        let scopes = parse_wmill_scopes(code).unwrap();
+        assert_eq!(scopes, vec!["read:resource", "write:variable"]);
+    }
+
+    #[test]
+    fn test_parse_wmill_scopes_not_in_first_20_lines() {
+        let mut code = String::new();
+        for _ in 0..25 {
+            code.push_str("// some comment\n");
+        }
+        code.push_str("// wmill_scopes: read:resource\n");
+        assert!(parse_wmill_scopes(&code).is_none());
+    }
+
+    #[test]
+    fn test_parse_wmill_scopes_within_first_20_lines() {
+        let mut code = String::new();
+        for _ in 0..18 {
+            code.push_str("// some comment\n");
+        }
+        code.push_str("// wmill_scopes: read:resource\n");
+        let scopes = parse_wmill_scopes(&code).unwrap();
+        assert_eq!(scopes, vec!["read:resource"]);
+    }
+
+    #[test]
+    fn test_parse_wmill_scopes_with_leading_whitespace() {
+        let code = "  // wmill_scopes: read:resource\n";
+        let scopes = parse_wmill_scopes(code).unwrap();
+        assert_eq!(scopes, vec!["read:resource"]);
+    }
+
+    #[test]
+    fn test_parse_wmill_scopes_single_scope() {
+        let code = "# wmill_scopes: read:resource\n";
+        let scopes = parse_wmill_scopes(code).unwrap();
+        assert_eq!(scopes, vec!["read:resource"]);
+    }
+
+    #[test]
+    fn test_parse_wmill_scopes_ignores_non_comment_lines() {
+        let code = "wmill_scopes: read:resource\ndef main(): pass";
+        assert!(parse_wmill_scopes(code).is_none());
+    }
 }

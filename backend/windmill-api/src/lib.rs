@@ -131,6 +131,7 @@ pub mod oidc_ee;
 mod oidc_oss;
 mod raw_apps;
 mod resources;
+mod sandbox;
 #[cfg(feature = "private")]
 pub mod saml_ee;
 mod saml_oss;
@@ -509,6 +510,7 @@ pub async fn run_server(
                         .nest("/npm_proxy", windmill_api_npm_proxy::workspaced_service())
                         .nest("/raw_apps", raw_apps::workspaced_service())
                         .nest("/resources", resources::workspaced_service())
+                        .nest("/sandbox", sandbox::workspaced_service())
                         .nest("/schedules", windmill_api_schedule::workspaced_service())
                         .nest("/scripts", scripts::workspaced_service())
                         .nest(

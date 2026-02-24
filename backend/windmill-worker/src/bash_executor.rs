@@ -140,7 +140,7 @@ wait $tail_pid 2>/dev/null || true
 
 # Clean up the named pipe and background processes
 rm -f bp
-pkill -P $$ || true
+pkill -P $$ 2>/dev/null || true
 
 # Exit with the captured status
 exit $exit_status
@@ -184,19 +184,21 @@ exit $exit_status
         })
         .unwrap_or(true);
 
-    // Use nsjail if globally enabled OR if script has #sandbox annotation
-    let nsjail = (is_sandboxing_enabled() || annotation.sandbox) && is_regular_job;
+    // Use nsjail if globally enabled, script has #sandbox annotation,
+    // or sandbox mounts are present (snapshot/volume annotations)
+    let nsjail = (is_sandboxing_enabled() || annotation.sandbox || !shared_mount.is_empty())
+        && is_regular_job;
     let child = if nsjail {
-        let _ = write_file(
-            job_dir,
-            "run.config.proto",
+        let nsjail_config = windmill_sandbox::finalize_nsjail_config(
             &NSJAIL_CONFIG_RUN_BASH_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL),
-        )?;
+            &[],
+        );
+        let _ = write_file(job_dir, "run.config.proto", &nsjail_config)?;
         let mut cmd_args = vec![
             "--config",
             "run.config.proto",

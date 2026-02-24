@@ -16,8 +16,8 @@ use crate::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
         read_result, start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
     },
-    get_proxy_envs_for_lang, handle_child, is_sandboxing_enabled, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV,
-    TRACING_PROXY_CA_CERT_PATH,
+    get_proxy_envs_for_lang, handle_child, is_sandboxing_enabled, DISABLE_NUSER, NSJAIL_PATH,
+    PATH_ENV, TRACING_PROXY_CA_CERT_PATH,
 };
 use windmill_common::client::AuthedClient;
 use windmill_common::scripts::ScriptLang;
@@ -245,9 +245,7 @@ async fn run<'a>(
         )
         .await;
 
-        write_file(
-            job_dir,
-            "run.config.proto",
+        let nsjail_config = windmill_sandbox::finalize_nsjail_config(
             &NSJAIL_CONFIG_RUN_NU_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{NU_PATH}", &NU_PATH)
@@ -255,7 +253,9 @@ async fn run<'a>(
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL),
-        )?;
+            &[],
+        );
+        write_file(job_dir, "run.config.proto", &nsjail_config)?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
             .env_clear()

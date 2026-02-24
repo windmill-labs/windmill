@@ -1476,10 +1476,13 @@ try {{
     append_logs(&job.id, &job.workspace_id, init_logs, conn).await;
 
     //do not cache local dependencies
-    let child = if is_sandboxing_enabled() {
-        let _ = write_file(
-            job_dir,
-            "run.config.proto",
+    let child = if is_sandboxing_enabled() || !shared_mount.is_empty() {
+        let runtime_bin = if annotation.nodejs {
+            &*NODE_BIN_PATH
+        } else {
+            &*BUN_PATH
+        };
+        let nsjail_config = windmill_sandbox::finalize_nsjail_config(
             &NSJAIL_CONFIG_RUN_BUN_CONTENT
                 .replace("{LANG}", if annotation.nodejs { "nodejs" } else { "bun" })
                 .replace("{JOB_DIR}", job_dir)
@@ -1497,7 +1500,9 @@ try {{
                 )
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL),
-        )?;
+            &[runtime_bin],
+        );
+        let _ = write_file(job_dir, "run.config.proto", &nsjail_config)?;
 
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         let args = if annotation.nodejs {
@@ -1614,7 +1619,7 @@ try {{
         mem_peak,
         canceled_by,
         child,
-        is_sandboxing_enabled(),
+        is_sandboxing_enabled() || !shared_mount.is_empty(),
         worker_name,
         &job.workspace_id,
         "bun run",

@@ -72,6 +72,7 @@ export function getJobCategory(job: Job): JobCategory {
 		case 'dependencies':
 		case 'flowdependencies':
 		case 'appdependencies':
+		case 'snapshotbuild':
 			return 'dependencies'
 
 		case 'flownode':

@@ -33,9 +33,9 @@ use crate::{
         read_and_check_result, start_child_process, transform_json, OccupancyMetrics,
     },
     handle_child::handle_child,
+    is_sandboxing_enabled,
     python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile},
-    is_sandboxing_enabled, DISABLE_NUSER, GIT_PATH, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
-    PY_INSTALL_DIR, TZ_ENV,
+    DISABLE_NUSER, GIT_PATH, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
 
@@ -1180,9 +1180,7 @@ mount {{
                 )
             })
             .join("\n");
-        let _ = write_file(
-            job_dir,
-            "run.config.proto",
+        let nsjail_config = windmill_sandbox::finalize_nsjail_config(
             &NSJAIL_CONFIG_RUN_ANSIBLE_CONTENT
                 .replace("{PY_INSTALL_DIR}", PY_INSTALL_DIR)
                 .replace("{JOB_DIR}", job_dir)
@@ -1194,7 +1192,9 @@ mount {{
                     "{ADDITIONAL_PYTHON_PATHS}",
                     additional_python_paths_folders.as_str(),
                 ),
-        )?;
+            &[],
+        );
+        let _ = write_file(job_dir, "run.config.proto", &nsjail_config)?;
     } else {
         reserved_variables.insert("PYTHONPATH".to_string(), additional_python_paths_folders);
     }

@@ -3231,6 +3231,7 @@ async fn test_result_format(db: Pool<Postgres>) -> anyhow::Result<()> {
         &Uuid::nil(),
         None,
         None,
+        None,
     )
     .await
     .unwrap();
