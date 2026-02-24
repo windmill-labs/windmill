@@ -25,6 +25,7 @@
 	import FlowLogRow from './FlowLogRow.svelte'
 	import { Tooltip } from './meltComponents'
 	import FlowTimelineBar from './FlowTimelineBar.svelte'
+	import { getActiveReplay } from './recording/flowRecording.svelte'
 
 	type RootJobData = Partial<Job>
 
@@ -92,6 +93,8 @@
 		timelinelWidth,
 		showTimeline = true
 	}: Props = $props()
+
+	let isReplay = $derived(!!getActiveReplay())
 
 	function getJobLink(jobId: string | undefined): string {
 		if (!jobId) return ''
@@ -595,7 +598,7 @@
 						{/if}
 					</div>
 
-					{#if flowInfo?.jobId}
+					{#if flowInfo?.jobId && !isReplay}
 						<a
 							href={getJobLink(flowInfo.jobId)}
 							class="text-xs text-gray-400 hover:text-primary pl-1"
@@ -615,7 +618,7 @@
 					{#if flowInfo?.logs}
 						<LogViewer
 							content={flowInfo.logs}
-							jobId={flowInfo.jobId}
+							jobId={isReplay ? undefined : flowInfo.jobId}
 							isLoading={false}
 							small={true}
 							download={false}
@@ -805,7 +808,7 @@
 												{/if}
 											</div>
 
-											{#if isLeafStep && jobId}
+											{#if isLeafStep && jobId && !isReplay}
 												<a
 													href={getJobLink(jobId ?? '')}
 													class="text-xs text-gray-400 hover:text-primary pl-1"
@@ -898,7 +901,7 @@
 													<div onclick={() => select(`${module.id}-logs`)}>
 														<LogViewer
 															content={logs}
-															jobId={jobId ?? ''}
+															jobId={isReplay ? undefined : (jobId ?? '')}
 															isLoading={false}
 															small={true}
 															download={false}

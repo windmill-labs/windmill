@@ -53,6 +53,7 @@
 	import { SelectionManager } from './graph/selectionUtils.svelte'
 	import { useThrottle } from 'runed'
 	import { Splitpanes, Pane } from 'svelte-splitpanes'
+	import { getActiveReplay } from './recording/flowRecording.svelte'
 
 	let {
 		flowState: flowStateStore,
@@ -175,6 +176,9 @@
 
 	let getTopModuleStates = $derived(topModuleStates ?? localModuleStates)
 
+	// Cache replay check to avoid repeated function calls in the template
+	let isReplay = $derived(!!getActiveReplay())
+
 	let resultStreams: Record<string, string | undefined> = $state({})
 
 	if (onResultStreamUpdate == undefined) {
@@ -213,12 +217,14 @@
 				for (const asset of inputAssets) {
 					if (asset.kind === 'resource' && !(asset.path in resourceMetadataCache)) {
 						resourceMetadataCache[asset.path] = undefined
-						ResourceService.getResource({
-							workspace: workspace ?? $workspaceStore!,
-							path: asset.path
-						})
-							.then((r) => (resourceMetadataCache[asset.path] = r))
-							.catch((err) => {})
+						if (!isReplay) {
+							ResourceService.getResource({
+								workspace: workspace ?? $workspaceStore!,
+								path: asset.path
+							})
+								.then((r) => (resourceMetadataCache[asset.path] = r))
+								.catch((err) => {})
+						}
 					}
 				}
 				extendedFlowGraphAssetsCtx.val = clone(_flowGraphAssetsCtx?.val)
@@ -534,28 +540,30 @@
 					mod.type === 'WaitingForExecutor' &&
 					localModuleStates[mod.id ?? '']?.scheduled_for == undefined
 				) {
-					JobService.getJob({
-						workspace: workspaceId ?? $workspaceStore ?? '',
-						id: mod.job ?? '',
-						noLogs: true,
-						noCode: true
-					})
-						.then((job) => {
-							const newState = {
-								type: mod.type,
-								scheduled_for: job?.['scheduled_for'],
-								job_id: job?.id,
-								parent_module: mod['parent_module'],
-								args: job?.args,
-								tag: job?.tag,
-								script_hash: job?.script_hash
-							}
+					if (!isReplay) {
+						JobService.getJob({
+							workspace: workspaceId ?? $workspaceStore ?? '',
+							id: mod.job ?? '',
+							noLogs: true,
+							noCode: true
+						})
+							.then((job) => {
+								const newState = {
+									type: mod.type,
+									scheduled_for: job?.['scheduled_for'],
+									job_id: job?.id,
+									parent_module: mod['parent_module'],
+									args: job?.args,
+									tag: job?.tag,
+									script_hash: job?.script_hash
+								}
 
-							setModuleState(mod.id ?? '', newState)
-						})
-						.catch((e) => {
-							console.error(`Could not load inner module for job ${mod.job}`, e)
-						})
+								setModuleState(mod.id ?? '', newState)
+							})
+							.catch((e) => {
+								console.error(`Could not load inner module for job ${mod.job}`, e)
+							})
+					}
 				} else if (
 					(mod.flow_jobs || mod.branch_chosen) &&
 					(mod.type == 'Success' || mod.type == 'Failure') &&
@@ -623,44 +631,50 @@
 					updateDurationStatuses(key, durationStatuses)
 
 					if (missingStartedAtIds.length > 0) {
+						// Mark as pending to prevent duplicate fetches
 						missingStartedAtIds.forEach((id) => {
 							jobMissingStartedAt[id] = 'P'
 						})
-						JobService.getStartedAtByIds({
-							workspace: workspaceId ?? $workspaceStore ?? '',
-							requestBody: missingStartedAtIds
-						})
-							.then((jobs) => {
-								let lastStarted: string | undefined = undefined
-								let anySet = false
-								let nDurationStatuses = localDurationStatuses[key]?.byJob
-								missingStartedAtIds.forEach((id, idx) => {
-									const startedAt = jobs[idx]
-									const time = startedAt ? new Date(startedAt).getTime() : undefined
-									if (time) {
-										jobMissingStartedAt[id] = time
-									} else {
-										delete jobMissingStartedAt[id]
-									}
-									if (nDurationStatuses && time) {
-										if (!nDurationStatuses[id]?.duration_ms) {
-											anySet = true
-											lastStarted = id
-											nDurationStatuses[id] = {
-												created_at: time,
-												started_at: time
+						if (!isReplay) {
+							JobService.getStartedAtByIds({
+								workspace: workspaceId ?? $workspaceStore ?? '',
+								requestBody: missingStartedAtIds
+							})
+								.then((jobs) => {
+									let lastStarted: string | undefined = undefined
+									let anySet = false
+									let nDurationStatuses = localDurationStatuses[key]?.byJob
+									missingStartedAtIds.forEach((id, idx) => {
+										const startedAt = jobs[idx]
+										const time = startedAt ? new Date(startedAt).getTime() : undefined
+										if (time) {
+											jobMissingStartedAt[id] = time
+										} else {
+											delete jobMissingStartedAt[id]
+										}
+										if (nDurationStatuses && time) {
+											if (!nDurationStatuses[id]?.duration_ms) {
+												anySet = true
+												lastStarted = id
+												nDurationStatuses[id] = {
+													created_at: time,
+													started_at: time
+												}
 											}
 										}
+									})
+									if (anySet) {
+										updateDurationStatuses(key, nDurationStatuses)
+										if (lastStarted) setSelectedLoopSwitch(lastStarted, mod)
 									}
 								})
-								if (anySet) {
-									updateDurationStatuses(key, nDurationStatuses)
-									if (lastStarted) setSelectedLoopSwitch(lastStarted, mod)
-								}
-							})
-							.catch((e) => {
-								console.error(`Could not load inner module duration status for job ${mod.job}`, e)
-							})
+								.catch((e) => {
+									console.error(
+										`Could not load inner module duration status for job ${mod.job}`,
+										e
+									)
+								})
+						}
 					} else {
 						setIteration(0, mod.flow_jobs?.[0] ?? '', false, mod.id ?? '', true)
 					}
@@ -1313,8 +1327,8 @@
 			{#if render}
 				<div class="w-full border rounded-sm bg-surface p-1 overflow-auto max-h-[90vh]">
 					<DisplayResult
-						workspaceId={job?.workspace_id}
-						{jobId}
+						workspaceId={isReplay ? undefined : job?.workspace_id}
+						jobId={isReplay ? undefined : jobId}
 						result_stream={job?.result_stream}
 						result={jobResults}
 						language={job?.language}
@@ -1337,9 +1351,9 @@
 							<div class="flex-1 min-h-0 overflow-auto rounded-md border bg-surface-tertiary p-4">
 								{#if job !== undefined && (job.result_stream || (job.type == 'CompletedJob' && 'result' in job && job.result !== undefined))}
 									<DisplayResult
-										workspaceId={job?.workspace_id}
+										workspaceId={isReplay ? undefined : job?.workspace_id}
 										result_stream={job.result_stream}
-										jobId={job?.id}
+										jobId={isReplay ? undefined : job?.id}
 										result={'result' in job ? job.result : undefined}
 										language={job?.language}
 										isTest={false}
@@ -1363,7 +1377,8 @@
 							<h3 class="shrink-0 text-xs font-semibold text-emphasis mb-1">Logs</h3>
 							<div class="flex-1 min-h-0 overflow-auto rounded-md border bg-surface-tertiary">
 								<LogViewer
-									jobId={job.id}
+									jobId={isReplay ? undefined : job.id}
+									download={!isReplay}
 									duration={job?.['duration_ms']}
 									mem={job?.['mem_peak']}
 									isLoading={job?.['running'] == false}
@@ -1379,9 +1394,9 @@
 					<div class="flex-1 overflow-auto rounded-md border bg-surface-tertiary p-4 max-h-screen">
 						{#if job !== undefined && (job.result_stream || (job.type == 'CompletedJob' && 'result' in job && job.result !== undefined))}
 							<DisplayResult
-								workspaceId={job?.workspace_id}
+								workspaceId={isReplay ? undefined : job?.workspace_id}
 								result_stream={job.result_stream}
-								jobId={job?.id}
+								jobId={isReplay ? undefined : job?.id}
 								result={'result' in job ? job.result : undefined}
 								language={job?.language}
 								isTest={false}
@@ -1445,7 +1460,7 @@
 								btnClasses="w-full flex justify-start"
 								on:click={async () => {
 									let storedJob = storedListJobs[j]
-									if (!storedJob) {
+									if (!storedJob && !isReplay) {
 										storedJob = await JobService.getJob({
 											workspace: workspaceId ?? $workspaceStore ?? '',
 											id: loopJobId,
@@ -1454,7 +1469,9 @@
 										})
 										storedListJobs[j] = storedJob
 									}
-									innerJobLoaded(storedJob, j, true, false)
+									if (storedJob) {
+										innerJobLoaded(storedJob, j, true, false)
+									}
 								}}
 								endIcon={{
 									icon: ChevronDown,
@@ -1947,21 +1964,21 @@
 											{#if selectedNode == 'end'}
 												<FlowJobResult
 													tagLabel={customUi?.tagLabel}
-													workspaceId={job?.workspace_id}
-													jobId={job?.id}
+													workspaceId={isReplay ? undefined : job?.workspace_id}
+													jobId={isReplay ? undefined : job?.id}
 													filename={job.id}
 													loading={job['running']}
 													tag={job?.tag}
 													col
 													result={job['result']}
 													logs={job.logs ?? ''}
-													downloadLogs={!hideDownloadLogs}
+													downloadLogs={!hideDownloadLogs && !isReplay}
 												/>
 											{:else if selectedNode == 'start'}
 												{#if job.args}
 													<JobArgs
-														id={job.id}
-														workspace={job.workspace_id ?? $workspaceStore ?? 'no_w'}
+														id={isReplay ? undefined : job.id}
+														workspace={isReplay ? undefined : (job.workspace_id ?? $workspaceStore ?? 'no_w')}
 														args={job.args}
 													/>
 												{:else}
@@ -1982,10 +1999,10 @@
 														>
 														<div class="overflow-auto max-h-[200px] p-2">
 															<DisplayResult
-																workspaceId={job?.workspace_id}
+																workspaceId={isReplay ? undefined : job?.workspace_id}
 																result={node.flow_jobs_results}
 																nodeId={selectedNode}
-																jobId={job?.id}
+																jobId={isReplay ? undefined : job?.id}
 																language={job?.language}
 															/>
 														</div>
@@ -2011,7 +2028,7 @@
 																		{msToSec(node.duration_ms)} s
 																	</Badge>
 																{/if}
-																{#if node.job_id}
+																{#if node.job_id && !isReplay}
 																	<div class="grow w-full flex flex-row-reverse">
 																		<a
 																			class="text-right text-xs"
@@ -2030,8 +2047,8 @@
 																<div>
 																	<div class="text-xs text-emphasis font-semibold mb-1">Inputs</div>
 																	<JobArgs
-																		id={node.job_id}
-																		workspace={job.workspace_id ?? $workspaceStore ?? 'no_w'}
+																		id={isReplay ? undefined : node.job_id}
+																		workspace={isReplay ? undefined : (job.workspace_id ?? $workspaceStore ?? 'no_w')}
 																		args={node.args}
 																	/>
 																</div>
@@ -2039,8 +2056,8 @@
 														</div>
 														<FlowJobResult
 															tagLabel={customUi?.tagLabel}
-															workspaceId={job?.workspace_id}
-															jobId={node.job_id}
+															workspaceId={isReplay ? undefined : job?.workspace_id}
+															jobId={isReplay ? undefined : node.job_id}
 															loading={node.type != 'Success' && node.type != 'Failure'}
 															waitingForExecutor={node.type == 'WaitingForExecutor'}
 															refreshLog={node.type == 'InProgress'}
@@ -2049,7 +2066,7 @@
 															result={node.result}
 															tag={node.tag}
 															logs={node.logs}
-															downloadLogs={!hideDownloadLogs}
+															downloadLogs={!hideDownloadLogs && !isReplay}
 															aiAgentStatus={agentTools &&
 															node?.job_id &&
 															(node.type === 'Success' || node.type === 'Failure')
