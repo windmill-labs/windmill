@@ -42,3 +42,6 @@ if [ -d "$ee_worktree_dir" ]; then
     && echo "[cleanup] Removed EE worktree at $ee_worktree_dir" \
     || echo "[cleanup] Warning: Could not remove EE worktree at $ee_worktree_dir"
 fi
+
+# Clean up Cursor grouped tmux session
+tmux kill-session -t "cursor-${wt_basename}" 2>/dev/null || true
