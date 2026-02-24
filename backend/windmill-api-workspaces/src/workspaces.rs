@@ -30,7 +30,6 @@ use uuid::Uuid;
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
-use windmill_types::s3::LargeFileStorage;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::{build_crypt, decrypt, encrypt, WORKSPACE_CRYPT_CACHE};
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
@@ -55,6 +54,7 @@ use windmill_dep_map::scoped_dependency_map::{
     DependencyDependent, DependencyMap, ScopedDependencyMap,
 };
 use windmill_git_sync::{handle_deployment_metadata, handle_fork_branch_creation, DeployedObject};
+use windmill_types::s3::LargeFileStorage;
 
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
@@ -2783,6 +2783,14 @@ async fn create_workspace(
     sqlx::query!(
         "INSERT INTO group_
             VALUES ($1, 'all', 'The group that always contains all users of this workspace')",
+        nw.id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO group_
+            VALUES ($1, 'wm_deployers', 'Members can preserve the original author when deploying to this workspace')",
         nw.id
     )
     .execute(&mut *tx)
