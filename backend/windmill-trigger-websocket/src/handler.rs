@@ -78,7 +78,7 @@ impl TriggerCrud for WebsocketTrigger {
         w_id: &str,
         trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
-        let resolved_edited_by = trigger.base.resolve_edited_by(authed, db, w_id).await?;
+        let resolved_edited_by = trigger.base.resolve_edited_by(authed);
         let filters = trigger
             .config
             .filters
@@ -150,7 +150,7 @@ impl TriggerCrud for WebsocketTrigger {
         path: &str,
         trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
-        let resolved_edited_by = trigger.base.resolve_edited_by(authed, db, w_id).await?;
+        let resolved_edited_by = trigger.base.resolve_edited_by(authed);
         let filters = trigger
             .config
             .filters

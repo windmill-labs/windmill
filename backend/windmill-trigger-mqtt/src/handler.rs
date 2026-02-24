@@ -72,7 +72,7 @@ impl TriggerCrud for MqttTrigger {
         w_id: &str,
         trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
-        let resolved_edited_by = trigger.base.resolve_edited_by(authed, db, w_id).await?;
+        let resolved_edited_by = trigger.base.resolve_edited_by(authed);
         let subscribe_topics = trigger
             .config
             .subscribe_topics
@@ -137,10 +137,7 @@ impl TriggerCrud for MqttTrigger {
         path: &str,
         trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
-        let resolved_edited_by = trigger
-            .base
-            .resolve_edited_by(authed, db, workspace_id)
-            .await?;
+        let resolved_edited_by = trigger.base.resolve_edited_by(authed);
         let subscribe_topics = trigger
             .config
             .subscribe_topics
