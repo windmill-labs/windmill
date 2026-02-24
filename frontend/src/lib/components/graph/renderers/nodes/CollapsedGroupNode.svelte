@@ -6,7 +6,9 @@
 	import { getGraphContext } from '../../graphContext'
 	import { twMerge } from 'tailwind-merge'
 	import GroupNodeCard from '../../GroupNodeCard.svelte'
+	import GroupDescriptionArea from '../../GroupDescriptionArea.svelte'
 	import { Tooltip } from '$lib/components/meltComponents'
+	import { getGroupEditorContext } from '../../groupEditor.svelte'
 
 	interface Props {
 		data: CollapsedGroupN['data']
@@ -16,9 +18,14 @@
 	let { data, id }: Props = $props()
 
 	const { selectionManager } = getGraphContext()
+	const groupEditorContext = getGroupEditorContext()
 
 	let selected = $derived(!!(selectionManager && selectionManager.isNodeSelected(id)))
 	let hover = $state(false)
+
+	let descriptionVisible = $derived(
+		!groupEditorContext?.groupEditor.isDescriptionHidden(data.groupId)
+	)
 </script>
 
 <NodeWrapper offset={data.offset}>
@@ -29,7 +36,28 @@
 			onmouseenter={() => (hover = true)}
 			onmouseleave={() => (hover = false)}
 		>
-			<GroupNodeCard summary={data.summary} color={data.color} {selected} />
+			<GroupNodeCard
+				summary={data.summary}
+				color={data.color}
+				{selected}
+				descriptionVisible={descriptionVisible}
+				onToggleDescription={() => {
+					groupEditorContext?.groupEditor.toggleDescriptionVisibility(data.groupId)
+				}}
+			/>
+
+			{#if descriptionVisible}
+				<div style="width: 275px;">
+					<GroupDescriptionArea
+						description={data.description ?? ''}
+						color={data.color}
+						editMode={data.editMode}
+						onHeightChange={() => {}}
+						onDescriptionUpdate={(text) =>
+							groupEditorContext?.groupEditor.updateDescription(data.groupId, text)}
+					/>
+				</div>
+			{/if}
 
 			<div class="absolute -translate-y-[100%] top-2 right-10 h-7 p-1">
 				<Tooltip>

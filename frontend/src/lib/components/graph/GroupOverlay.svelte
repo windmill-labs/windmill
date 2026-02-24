@@ -9,14 +9,17 @@
 	import { Tooltip } from '../meltComponents'
 	import Toggle from '../Toggle.svelte'
 	import GroupNodeCard from './GroupNodeCard.svelte'
+	import GroupDescriptionArea from './GroupDescriptionArea.svelte'
 
 	interface Props {
 		hoveredNodeId: string | null
 		allNodes: (Node & { type: string })[]
 		editMode: boolean
+		groupDescriptionHeights: Record<string, number>
+		onDescriptionHeightChange: (groupId: string, height: number) => void
 	}
 
-	let { hoveredNodeId, allNodes, editMode }: Props = $props()
+	let { hoveredNodeId, allNodes, editMode, groupDescriptionHeights, onDescriptionHeightChange }: Props = $props()
 
 	const groupEditorContext = getGroupEditorContext()
 
@@ -54,12 +57,13 @@
 	// All groups for always-visible labels
 	let allGroups = $derived(groupEditorContext?.groupEditor.getGroups() ?? [])
 
-	// Compute bounds for each group (with extra top padding for header card)
+	// Compute bounds for each group (with extra top padding for header card + description)
 	function computeGroupBounds(group: FlowGroup) {
 		if (group.module_ids.length === 0) return null
 		const { minX, minY, maxX, maxY } = calculateNodesBoundsWithOffset(group.module_ids, allNodes)
 		const padding = 16
-		const topPadding = padding + GROUP_HEADER_HEIGHT
+		const descHeight = groupDescriptionHeights[group.id] ?? 0
+		const topPadding = padding + GROUP_HEADER_HEIGHT + descHeight
 		return {
 			x: minX - padding,
 			y: minY - topPadding,
@@ -143,7 +147,26 @@
 							stepCount={group.module_ids.length}
 							color={group.color}
 							fullWidth
+							descriptionVisible={!groupEditorContext?.groupEditor.isDescriptionHidden(group.id)}
+							onToggleDescription={() => {
+								groupEditorContext?.groupEditor.toggleDescriptionVisibility(group.id)
+								// Reset height to 0 when now hidden
+								if (groupEditorContext?.groupEditor.isDescriptionHidden(group.id)) {
+									onDescriptionHeightChange(group.id, 0)
+								}
+							}}
 						/>
+						{#if !groupEditorContext?.groupEditor.isDescriptionHidden(group.id)}
+							<div class="absolute top-[34px] left-0 right-0" style="pointer-events: auto;">
+								<GroupDescriptionArea
+									description={group.description ?? ''}
+									color={group.color}
+									{editMode}
+									onHeightChange={(h) => onDescriptionHeightChange(group.id, h)}
+									onDescriptionUpdate={(text) => groupEditorContext?.groupEditor.updateDescription(group.id, text)}
+								/>
+							</div>
+						{/if}
 						{#if editMode && visibleGroup?.id === group.id}
 							<div class="absolute -translate-y-[100%] top-2 right-0 h-7 p-1 flex flex-row gap-1">
 								<Tooltip>
@@ -186,13 +209,23 @@
 												></button>
 											{/each}
 										</div>
-										<div class="border-t mt-2 pt-2">
+										<div class="border-t mt-2 pt-2 flex flex-col gap-2">
 											<Toggle
 												size="xs"
 												checked={group.collapsed_by_default ?? false}
 												options={{ right: 'Collapsed by default' }}
 												on:change={(e) =>
 													groupEditorContext?.groupEditor.updateCollapsedDefault(
+														group.id,
+														e.detail
+													)}
+											/>
+											<Toggle
+												size="xs"
+												checked={group.description_collapsed_by_default ?? true}
+												options={{ right: 'Description hidden by default' }}
+												on:change={(e) =>
+													groupEditorContext?.groupEditor.updateDescriptionCollapsedDefault(
 														group.id,
 														e.detail
 													)}

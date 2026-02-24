@@ -13,6 +13,7 @@ export type FlowGroup = {
 	summary?: string
 	description?: string
 	collapsed_by_default?: boolean
+	description_collapsed_by_default?: boolean
 	module_ids: Array<string>
 	color?: string
 }
@@ -27,6 +28,10 @@ export class GroupEditor {
 	// Runtime collapsed state (not persisted in flow YAML)
 	private _runtimeCollapsedIds = $state<Set<string>>(new Set())
 	private _runtimeInitialized = $state(false)
+
+	// Runtime description visibility state (not persisted in flow YAML)
+	private _runtimeDescHiddenIds = $state<Set<string>>(new Set())
+	private _runtimeDescInitialized = $state(false)
 
 	constructor(flowStore: StateStore<ExtendedOpenFlow>) {
 		this.flowStore = flowStore
@@ -65,6 +70,41 @@ export class GroupEditor {
 		const next = new Set(this._runtimeCollapsedIds)
 		next.delete(groupId)
 		this._runtimeCollapsedIds = next
+	}
+
+	/** Initialize runtime description visibility state from description_collapsed_by_default. */
+	private ensureRuntimeDescInitialized(): void {
+		if (this._runtimeDescInitialized) return
+		const groups = this.getGroups()
+		this._runtimeDescHiddenIds = new Set(
+			groups.filter((g) => g.description_collapsed_by_default ?? true).map((g) => g.id)
+		)
+		this._runtimeDescInitialized = true
+	}
+
+	/** Check if a group's description is currently hidden (runtime). */
+	isDescriptionHidden(groupId: string): boolean {
+		if (!this._runtimeDescInitialized) {
+			return this.getGroups().find((g) => g.id === groupId)?.description_collapsed_by_default ?? true
+		}
+		return this._runtimeDescHiddenIds.has(groupId)
+	}
+
+	/** Toggle runtime description visibility (chevron button) */
+	toggleDescriptionVisibility(groupId: string): void {
+		this.ensureRuntimeDescInitialized()
+		const next = new Set(this._runtimeDescHiddenIds)
+		if (next.has(groupId)) next.delete(groupId)
+		else next.add(groupId)
+		this._runtimeDescHiddenIds = next
+	}
+
+	/** Update the description_collapsed_by_default setting (persisted in flow YAML) */
+	updateDescriptionCollapsedDefault(groupId: string, description_collapsed_by_default: boolean): void {
+		const groups = this.getGroups()
+		this.setGroups(
+			groups.map((g) => (g.id === groupId ? { ...g, description_collapsed_by_default } : g))
+		)
 	}
 
 	/** Get currently collapsed groups for graph builder. Safe to call from $derived. */
@@ -198,7 +238,8 @@ const GROUP_TOP_MARGIN = 16
  */
 export function computeGroupSpacing(
 	groups: FlowGroup[],
-	nodes: Array<{ id: string; position: { x: number; y: number } }>
+	nodes: Array<{ id: string; position: { x: number; y: number } }>,
+	groupDescriptionHeights?: Record<string, number>
 ): Record<string, { x: number; y: number }> {
 	if (groups.length === 0) {
 		return Object.fromEntries(nodes.map((n) => [n.id, { ...n.position }]))
@@ -219,7 +260,9 @@ export function computeGroupSpacing(
 		}
 
 		if (topY < Infinity) {
-			yPosMap[topY] = Math.max(yPosMap[topY] || 0, GROUP_HEADER_HEIGHT) + GROUP_TOP_MARGIN
+			const descHeight = groupDescriptionHeights?.[group.id] ?? 0
+			const totalHeader = GROUP_HEADER_HEIGHT + descHeight
+			yPosMap[topY] = Math.max(yPosMap[topY] || 0, totalHeader) + GROUP_TOP_MARGIN
 		}
 	}
 

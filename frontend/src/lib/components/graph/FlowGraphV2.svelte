@@ -264,6 +264,11 @@
 	// Runtime text height tracking for notes (not stored in FlowNote)
 	let noteTextHeights = $state<Record<string, number>>({})
 
+	// Runtime description height tracking for groups
+	let groupDescriptionHeights = $state<Record<string, number>>({})
+	// Deep-read proxy to create a trackable dependency for $effect
+	let groupDescHeightsKey = $derived(JSON.stringify(groupDescriptionHeights))
+
 	// Reference to pane context menu component
 	let paneContextMenu: PaneContextMenu | undefined = $state(undefined)
 	let flowContainer: HTMLDivElement | undefined = $state(undefined)
@@ -709,7 +714,8 @@
 		if (groups.length > 0) {
 			const groupPositions = computeGroupSpacing(
 				groups,
-				finalNodes.map((n) => ({ id: n.id, position: n.position }))
+				finalNodes.map((n) => ({ id: n.id, position: n.position })),
+				groupDescriptionHeights
 			)
 			finalNodes = finalNodes.map((n) => ({
 				...n,
@@ -850,7 +856,7 @@
 	let currentGroups = $derived(groupEditorContext?.groupEditor.getGroups() ?? [])
 
 	$effect(() => {
-		;[graph, allowSimplifiedPoll, $showAssets, showNotes, noteManager.renderCount, currentGroups]
+		;[graph, allowSimplifiedPoll, $showAssets, showNotes, noteManager.renderCount, currentGroups, groupDescHeightsKey]
 		untrack(async () => {
 			await updateStores()
 		})
@@ -1087,6 +1093,10 @@
 					{hoveredNodeId}
 					allNodes={nodesWithOffset as (Node & { type: string })[]}
 					{editMode}
+					{groupDescriptionHeights}
+					onDescriptionHeightChange={(groupId, height) => {
+						groupDescriptionHeights[groupId] = height
+					}}
 				/>
 
 				<!-- SelectionTool for handling selection changes and filtering -->

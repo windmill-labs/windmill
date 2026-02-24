@@ -340,6 +340,7 @@ export type CollapsedGroupN = {
 		description: string | undefined
 		color: string | undefined
 		stepCount: number
+		editMode: boolean
 		eventHandlers: GraphEventHandlers
 	}
 }
@@ -686,6 +687,7 @@ export function graphBuilder(
 								description: collapsedGroup.description,
 								color: collapsedGroup.color,
 								stepCount: collapsedGroup.module_ids.length,
+								editMode: extra.editMode,
 								eventHandlers
 							}
 						} as NodeLayout)

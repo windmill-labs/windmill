@@ -231,6 +231,10 @@ components:
           type: boolean
           default: false
           description: If true, this group is collapsed by default in the flow editor. UI hint only.
+        description_collapsed_by_default:
+          type: boolean
+          default: true
+          description: If true, the description is hidden by default in the flow editor. UI hint only.
         module_ids:
           type: array
           description: IDs of the flow modules belonging to this group. Must reference valid FlowModule ids from the flow's modules array.
