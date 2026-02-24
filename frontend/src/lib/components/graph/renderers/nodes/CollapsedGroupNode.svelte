@@ -28,7 +28,7 @@
 			onmouseenter={() => (hover = true)}
 			onmouseleave={() => (hover = false)}
 		>
-			<GroupNodeCard summary={data.summary} {selected} />
+			<GroupNodeCard summary={data.summary} color={data.color} {selected} />
 
 			<div class="absolute -translate-y-[100%] top-2 right-10 h-7 p-1">
 				<button
