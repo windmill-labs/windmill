@@ -558,7 +558,7 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
         "script_path": "u/test-user/scheduled_script",
         "is_flow": false,
         "enabled": false,
-        "email": "original@windmill.dev",
+        "email": "original-user",
         "preserve_email": true
     }))
     .send()
@@ -620,7 +620,7 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
         "script_path": "u/deployer-user/scheduled_script",
         "is_flow": false,
         "enabled": false,
-        "email": "original@windmill.dev",
+        "email": "original-user",
         "preserve_email": true
     }))
     .send()
@@ -682,7 +682,7 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
         "script_path": "u/test-user-2/scheduled_script",
         "is_flow": false,
         "enabled": false,
-        "email": "original@windmill.dev",
+        "email": "original-user",
         "preserve_email": true
     }))
     .send()
@@ -1438,7 +1438,7 @@ async fn test_schedule_update_preserves_email(db: Pool<Postgres>) -> anyhow::Res
     .json(&json!({
         "schedule": "0 0 */12 * * *",
         "timezone": "UTC",
-        "email": "original@windmill.dev",
+        "email": "original-user",
         "preserve_email": true
     }))
     .send()
@@ -1501,7 +1501,7 @@ async fn test_schedule_update_preserves_email(db: Pool<Postgres>) -> anyhow::Res
         "script_path": "u/deployer-user/sched_deploy_script",
         "is_flow": false,
         "enabled": false,
-        "email": "original@windmill.dev",
+        "email": "original-user",
         "preserve_email": true
     }))
     .send()
@@ -1523,7 +1523,7 @@ async fn test_schedule_update_preserves_email(db: Pool<Postgres>) -> anyhow::Res
     .json(&json!({
         "schedule": "0 0 */8 * * *",
         "timezone": "UTC",
-        "email": "original@windmill.dev",
+        "email": "original-user",
         "preserve_email": true
     }))
     .send()
@@ -1586,7 +1586,7 @@ async fn test_schedule_update_preserves_email(db: Pool<Postgres>) -> anyhow::Res
         "script_path": "u/test-user-2/sched_nonadmin_script",
         "is_flow": false,
         "enabled": false,
-        "email": "original@windmill.dev",
+        "email": "original-user",
         "preserve_email": true
     }))
     .send()
@@ -1608,7 +1608,7 @@ async fn test_schedule_update_preserves_email(db: Pool<Postgres>) -> anyhow::Res
     .json(&json!({
         "schedule": "0 0 */4 * * *",
         "timezone": "UTC",
-        "email": "original@windmill.dev",
+        "email": "original-user",
         "preserve_email": true
     }))
     .send()
@@ -1627,10 +1627,10 @@ async fn test_schedule_update_preserves_email(db: Pool<Postgres>) -> anyhow::Res
     )
     .fetch_one(&db)
     .await?;
-    // Schedule updates use COALESCE — when preserve is denied, email stays unchanged
+    // When preserve is denied, resolve_email returns the authed user's email
     assert_eq!(
-        schedule.email, "original@windmill.dev",
-        "Non-admin update should not overwrite schedule email (COALESCE preserves existing)"
+        schedule.email, "test2@windmill.dev",
+        "Non-admin update should overwrite schedule email with their own"
     );
 
     Ok(())
@@ -1685,7 +1685,7 @@ async fn test_http_trigger_preserve_email(db: Pool<Postgres>) -> anyhow::Result<
         "u/test-user/http_admin_preserve",
         "u/test-user/trigger_script",
         "admin-preserve",
-        Some("original@windmill.dev"),
+        Some("original-user"),
         true,
     ))
     .send()
@@ -1725,7 +1725,7 @@ async fn test_http_trigger_preserve_email(db: Pool<Postgres>) -> anyhow::Result<
         "u/test-user/http_no_flag",
         "u/test-user/trigger_script",
         "no-flag",
-        Some("original@windmill.dev"),
+        Some("original-user"),
         false,
     ))
     .send()
@@ -1794,7 +1794,7 @@ async fn test_http_trigger_update_preserves_email(db: Pool<Postgres>) -> anyhow:
         "u/test-user/http_to_update",
         "u/test-user/http_update_script",
         "to-update",
-        Some("original@windmill.dev"),
+        Some("original-user"),
         true,
     ))
     .send()
@@ -1828,7 +1828,7 @@ async fn test_http_trigger_update_preserves_email(db: Pool<Postgres>) -> anyhow:
         "u/test-user/http_to_update",
         "u/test-user/http_update_script",
         "to-update",
-        Some("original@windmill.dev"),
+        Some("original-user"),
         true,
     ))
     .send()
@@ -1902,7 +1902,7 @@ async fn test_websocket_trigger_preserve_email(db: Pool<Postgres>) -> anyhow::Re
     .json(&new_websocket_trigger(
         "u/test-user/ws_admin_preserve",
         "u/test-user/ws_script",
-        Some("original@windmill.dev"),
+        Some("original-user"),
         true,
     ))
     .send()
@@ -1941,7 +1941,7 @@ async fn test_websocket_trigger_preserve_email(db: Pool<Postgres>) -> anyhow::Re
     .json(&new_websocket_trigger(
         "u/deployer-user/ws_deployer_preserve",
         "u/deployer-user/ws_script",
-        Some("original@windmill.dev"),
+        Some("original-user"),
         true,
     ))
     .send()
@@ -1980,7 +1980,7 @@ async fn test_websocket_trigger_preserve_email(db: Pool<Postgres>) -> anyhow::Re
     .json(&new_websocket_trigger(
         "u/test-user-2/ws_no_preserve",
         "u/test-user-2/ws_script",
-        Some("original@windmill.dev"),
+        Some("original-user"),
         true,
     ))
     .send()
@@ -2081,7 +2081,7 @@ async fn test_websocket_trigger_update_preserves_email(db: Pool<Postgres>) -> an
     .json(&new_websocket_trigger(
         "u/original-user/ws_to_update",
         "u/original-user/ws_script",
-        Some("original@windmill.dev"),
+        Some("original-user"),
         true,
     ))
     .send()
@@ -2140,7 +2140,7 @@ async fn test_websocket_trigger_update_preserves_email(db: Pool<Postgres>) -> an
     .json(&new_websocket_trigger(
         "u/deployer-user/ws_deploy_update",
         "u/deployer-user/ws_deploy_script",
-        Some("original@windmill.dev"),
+        Some("original-user"),
         true,
     ))
     .send()
@@ -2162,7 +2162,7 @@ async fn test_websocket_trigger_update_preserves_email(db: Pool<Postgres>) -> an
     .json(&new_websocket_trigger(
         "u/deployer-user/ws_deploy_update",
         "u/deployer-user/ws_deploy_script",
-        Some("original@windmill.dev"),
+        Some("original-user"),
         true,
     ))
     .send()
@@ -2221,7 +2221,7 @@ async fn test_websocket_trigger_update_preserves_email(db: Pool<Postgres>) -> an
     .json(&new_websocket_trigger(
         "u/test-user-2/ws_nonadmin_update",
         "u/test-user-2/ws_nonadmin_script",
-        Some("original@windmill.dev"),
+        Some("original-user"),
         true,
     ))
     .send()
@@ -2243,7 +2243,7 @@ async fn test_websocket_trigger_update_preserves_email(db: Pool<Postgres>) -> an
     .json(&new_websocket_trigger(
         "u/test-user-2/ws_nonadmin_update",
         "u/test-user-2/ws_nonadmin_script",
-        Some("original@windmill.dev"),
+        Some("original-user"),
         true,
     ))
     .send()

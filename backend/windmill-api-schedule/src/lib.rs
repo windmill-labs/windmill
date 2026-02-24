@@ -32,8 +32,29 @@ use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::schedule::push_scheduled_job;
 
 /// Resolves the email to use for a schedule based on preservation settings.
-fn resolve_email<'a>(authed: &'a ApiAuthed) -> &'a str {
-    &authed.email
+/// When preserving, looks up the email from the provided username.
+async fn resolve_email(
+    username: Option<&String>,
+    preserve_email: Option<bool>,
+    authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
+) -> Result<String> {
+    if let Some(username) = username {
+        if preserve_email.unwrap_or(false) && can_preserve_on_behalf_of(authed) {
+            let email = sqlx::query_scalar!(
+                "SELECT email FROM usr WHERE username = $1 AND workspace_id = $2",
+                username,
+                w_id
+            )
+            .fetch_optional(db)
+            .await?;
+            if let Some(email) = email {
+                return Ok(email);
+            }
+        }
+    }
+    Ok(authed.email.clone())
 }
 
 fn resolve_edited_by(
@@ -286,7 +307,7 @@ async fn create_schedule(
         to_json_raw_opt(ns.args.as_ref())
             as Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
         ns.enabled.unwrap_or(false),
-        resolve_email(&authed),
+        resolve_email(ns.email.as_ref(), ns.preserve_email, &authed, &db, &w_id).await?,
         ns.on_failure,
         ns.on_failure_times,
         ns.on_failure_exact,
@@ -467,7 +488,7 @@ async fn edit_schedule(
         es.cron_version,
         es.description,
         es.dynamic_skip,
-        Some(resolve_email(&authed)),
+        Some(resolve_email(es.email.as_ref(), es.preserve_email, &authed, &db, &w_id).await?),
         resolved_edited_by
     )
     .fetch_one(&mut *tx)

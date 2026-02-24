@@ -71,6 +71,7 @@ impl TriggerCrud for PostgresTrigger {
         trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
         let resolved_edited_by = trigger.base.resolve_edited_by(authed);
+        let resolved_email = trigger.base.resolve_email(authed, db, w_id).await?;
         let Self::TriggerConfigRequest {
             postgres_resource_path,
             publication_name,
@@ -139,7 +140,7 @@ impl TriggerCrud for PostgresTrigger {
             trigger.base.is_flow,
             trigger.base.mode() as _,
             &resolved_edited_by,
-            trigger.base.resolve_email(authed),
+            resolved_email,
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
             trigger.error_handling.retry as _
@@ -159,6 +160,7 @@ impl TriggerCrud for PostgresTrigger {
         trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
         let resolved_edited_by = trigger.base.resolve_edited_by(authed);
+        let resolved_email = trigger.base.resolve_email(authed, db, w_id).await?;
         let Self::TriggerConfigRequest {
             replication_slot_name,
             publication_name,
@@ -238,7 +240,7 @@ impl TriggerCrud for PostgresTrigger {
             trigger.base.path,
             trigger.base.is_flow,
             &resolved_edited_by,
-            trigger.base.resolve_email(authed),
+            resolved_email,
             w_id,
             path,
             trigger.error_handling.error_handler_path,

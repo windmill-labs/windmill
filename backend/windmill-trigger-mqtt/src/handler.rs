@@ -66,13 +66,14 @@ impl TriggerCrud for MqttTrigger {
 
     async fn create_trigger(
         &self,
-        _db: &DB,
+        db: &DB,
         tx: &mut PgConnection,
         authed: &ApiAuthed,
         w_id: &str,
         trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
         let resolved_edited_by = trigger.base.resolve_edited_by(authed);
+        let resolved_email = trigger.base.resolve_email(authed, db, w_id).await?;
         let subscribe_topics = trigger
             .config
             .subscribe_topics
@@ -115,7 +116,7 @@ impl TriggerCrud for MqttTrigger {
             trigger.base.path,
             trigger.base.script_path,
             trigger.base.is_flow,
-            trigger.base.resolve_email(authed),
+            resolved_email,
             trigger.base.mode() as _,
             &resolved_edited_by,
             trigger.error_handling.error_handler_path,
@@ -130,7 +131,7 @@ impl TriggerCrud for MqttTrigger {
 
     async fn update_trigger(
         &self,
-        _db: &DB,
+        db: &DB,
         tx: &mut PgConnection,
         authed: &ApiAuthed,
         workspace_id: &str,
@@ -138,6 +139,7 @@ impl TriggerCrud for MqttTrigger {
         trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
         let resolved_edited_by = trigger.base.resolve_edited_by(authed);
+        let resolved_email = trigger.base.resolve_email(authed, db, workspace_id).await?;
         let subscribe_topics = trigger
             .config
             .subscribe_topics
@@ -182,7 +184,7 @@ impl TriggerCrud for MqttTrigger {
             v5_config as Option<SqlxJson<MqttV5Config>>,
             trigger.base.is_flow,
             &resolved_edited_by,
-            trigger.base.resolve_email(authed),
+            resolved_email,
             trigger.base.script_path,
             trigger.base.path,
             workspace_id,

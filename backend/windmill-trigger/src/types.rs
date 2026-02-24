@@ -8,9 +8,9 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{types::Json as SqlxJson, FromRow};
+use sqlx::{types::Json as SqlxJson, FromRow, Pool, Postgres};
 use std::{collections::HashMap, fmt::Debug};
-use windmill_common::{db::Authable, jobs::JobTriggerKind};
+use windmill_common::{db::Authable, error::Result, jobs::JobTriggerKind};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -123,8 +123,29 @@ impl BaseTriggerData {
         )
     }
 
-    pub fn resolve_email<'a>(&'a self, authed: &'a impl Authable) -> &'a str {
-        authed.email()
+    pub async fn resolve_email(
+        &self,
+        authed: &impl Authable,
+        db: &Pool<Postgres>,
+        w_id: &str,
+    ) -> Result<String> {
+        if let Some(ref username) = self.email {
+            if self.preserve_email.unwrap_or(false)
+                && windmill_common::can_preserve_on_behalf_of(authed)
+            {
+                let email = sqlx::query_scalar!(
+                    "SELECT email FROM usr WHERE username = $1 AND workspace_id = $2",
+                    username,
+                    w_id
+                )
+                .fetch_optional(db)
+                .await?;
+                if let Some(email) = email {
+                    return Ok(email);
+                }
+            }
+        }
+        Ok(authed.email().to_string())
     }
 
     pub fn resolve_edited_by(&self, authed: &impl Authable) -> String {
