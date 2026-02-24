@@ -47,7 +47,7 @@ pre_remove:
 
 panes:
   - command: >-
-      claude --append-system-prompt
+      claude --append-system-prompt --dangerously-skip-permissions
       "You are running inside a tmux session with other panes running services.\n
       Pane layout (current window):\n
       - Pane 0: this pane (claude agent)\n
