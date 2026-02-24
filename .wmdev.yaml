@@ -4,6 +4,23 @@ services:
   - name: FE
     portEnv: FRONTEND_PORT
 
+sandbox:
+  image: windmill-sandbox
+  envPassthrough:
+    - AWS_ACCESS_KEY_ID
+    - AWS_SECRET_ACCESS_KEY
+    - R2_ENDPOINT
+    - R2_BUCKET
+    - R2_PUBLIC_URL
+  extraMounts:
+    - hostPath: ~/.codex
+      guestPath: /root/.codex
+      writable: true
+    - hostPath: ~/windmill-ee-private
+      writable: true
+    - hostPath: ~/windmill-ee-private__worktrees
+      writable: true
+
 profiles:
   default:
     name: default
