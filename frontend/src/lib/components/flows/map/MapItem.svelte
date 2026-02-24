@@ -108,6 +108,16 @@
 	/** Whether this module should be faded because it or its parent subflow is being moved/dragged */
 	let isPartOfMovingSubflow = $derived(moveManager?.draggedNodeIds?.has(mod.id) ?? false)
 
+	let fadedClass = $derived(
+		isPartOfMovingSubflow
+			? moveManager?.movingModuleId
+				? 'opacity-50'
+				: moveManager?.dragging
+					? 'opacity-30'
+					: ''
+			: ''
+	)
+
 </script>
 
 {#if mod}
@@ -155,7 +165,7 @@
 			</div>
 		{/if}
 
-		<div class={moveManager?.movingModuleId && isPartOfMovingSubflow ? 'opacity-50' : moveManager?.dragging && isPartOfMovingSubflow ? 'opacity-30' : ''}>
+		<div class={fadedClass}>
 			{#if mod.value.type === 'forloopflow' || mod.value.type === 'whileloopflow'}
 				<FlowModuleSchemaItem
 					deletable={insertable}
@@ -185,7 +195,6 @@
 					alwaysShowOutputPicker={!mod.id.startsWith('subflow:')}
 					loopStatus={{ type: 'self', flow: mod.value.type }}
 					{onTestUpTo}
-					isSubflow
 				>
 					{#snippet icon()}
 						<FlowModuleIcon module={mod} />
@@ -205,7 +214,6 @@
 					label={mod.summary || 'Run one branch'}
 					{nodeState}
 					{onTestUpTo}
-					isSubflow
 				>
 					{#snippet icon()}
 						<FlowModuleIcon module={mod} />
@@ -225,7 +233,6 @@
 					label={mod.summary || `Run all branches${mod.value.parallel ? ' (parallel)' : ''}`}
 					{nodeState}
 					{onTestUpTo}
-					isSubflow
 				>
 					{#snippet icon()}
 						<FlowModuleIcon module={mod} />

@@ -141,8 +141,6 @@ export type ModuleN = {
 		id: string
 		parentIds: string[]
 		eventHandlers: GraphEventHandlers
-		/** The ID of the enclosing subflow module (forloop, branchall, branchone), if any */
-		parentSubflowId: string | undefined
 		flowModuleState: GraphModuleState | undefined
 		testModuleState: ModuleTestState | undefined
 		insertable: boolean
@@ -416,7 +414,7 @@ export function graphBuilder(
 		const nodes: NodeLayout[] = []
 		const edges: Edge[] = []
 
-		function addNode(module: FlowModule, offset: number, parentSubflowId?: string) {
+		function addNode(module: FlowModule, offset: number) {
 			const duplicated = nodes.find((n) => n.id === module.id)
 			if (duplicated) {
 				console.log('Duplicated node detected: ', module, duplicated)
@@ -435,7 +433,6 @@ export function graphBuilder(
 					id: module.id,
 					parentIds: [],
 					eventHandlers: eventHandlers,
-					parentSubflowId,
 					flowModuleState: extra.flowModuleStates?.[module.id],
 					testModuleState: extra.testModuleStates?.states?.[module.id],
 					insertable: extra.insertable,
@@ -651,7 +648,7 @@ export function graphBuilder(
 
 					if (module.value.type === 'branchall') {
 						// Start
-						addNode(module, currentOffset, branch?.rootId)
+						addNode(module, currentOffset)
 
 						// "Collect result of each branch" node
 						const endNode: NodeLayout = {
@@ -739,7 +736,7 @@ export function graphBuilder(
 						previousId = endNode.id
 					} else if (module.value.type === 'forloopflow') {
 						if (!simplifiedTriggerView) {
-							addNode(module, currentOffset, branch?.rootId)
+							addNode(module, currentOffset)
 						}
 
 						const startNode: NodeLayout = {
@@ -800,7 +797,7 @@ export function graphBuilder(
 
 						previousId = endNode.id
 					} else if (module.value.type === 'whileloopflow') {
-						addNode(module, currentOffset, branch?.rootId)
+						addNode(module, currentOffset)
 
 						const startNode: NodeLayout = {
 							id: `${module.id}-start`,
@@ -841,7 +838,7 @@ export function graphBuilder(
 
 						previousId = endNode.id
 					} else if (module.value.type === 'branchone') {
-						addNode(module, currentOffset, branch?.rootId)
+						addNode(module, currentOffset)
 
 						const endNode: NodeLayout = {
 							id: `${module.id}-end`,
@@ -1007,7 +1004,7 @@ export function graphBuilder(
 
 							previousId = endNode.id
 						} else {
-							addNode(module, currentOffset, branch?.rootId)
+							addNode(module, currentOffset)
 							previousId = module.id
 						}
 					}

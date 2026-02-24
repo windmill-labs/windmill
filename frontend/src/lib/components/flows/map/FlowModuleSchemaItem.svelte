@@ -89,7 +89,6 @@
 		isOwner?: boolean
 		enableTestRun?: boolean
 		maximizeSubflow?: () => void
-		isSubflow?: boolean
 	}
 
 	let {
@@ -124,8 +123,7 @@
 		onEditInput,
 		flowJob,
 		enableTestRun = false,
-		maximizeSubflow = undefined,
-		isSubflow = false
+		maximizeSubflow = undefined
 	}: Props = $props()
 
 	// AI action colors take priority over execution state
@@ -505,13 +503,13 @@
 							const startY = pe.clientY
 							let didDrag = false
 
-							function onMovePointer(me) {
+							function onMovePointer(me: PointerEvent) {
 								const dx = me.clientX - startX
 								const dy = me.clientY - startY
 								if (!didDrag && Math.sqrt(dx * dx + dy * dy) > 5) {
 									didDrag = true
 									if (moveManager && id) {
-										moveManager.startDrag(id, label, startX, startY, isSubflow)
+										moveManager.startDrag(id, startX, startY)
 									}
 								}
 							}

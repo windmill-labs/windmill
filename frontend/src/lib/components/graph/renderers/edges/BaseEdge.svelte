@@ -74,6 +74,14 @@
 		data?.suspendStatus
 	)
 
+	let centerY = $derived(
+		sourceY +
+			32 +
+			(data.shouldOffsetInsertBtnDueToAssetNode && $showAssets
+				? NODE_WITH_WRITE_ASSET_Y_OFFSET
+				: 0)
+	)
+
 	let isDragging = $derived(!!moveManager?.dragging)
 	let draggedId = $derived(moveManager?.dragging?.moduleId)
 	let isValidDropTarget = $derived(
@@ -100,12 +108,6 @@
 		if (!data?.insertable || !moveManager) return
 
 		const centerX = sourceX
-		const centerY =
-			sourceY +
-			32 +
-			(data.shouldOffsetInsertBtnDueToAssetNode && $showAssets
-				? NODE_WITH_WRITE_ASSET_Y_OFFSET
-				: 0)
 
 		moveManager.registerDropZone(id, {
 			sourceId: data.sourceId,
@@ -123,9 +125,7 @@
 
 <EdgeLabel
 	x={sourceX}
-	y={sourceY +
-		32 +
-		(data.shouldOffsetInsertBtnDueToAssetNode && $showAssets ? NODE_WITH_WRITE_ASSET_Y_OFFSET : 0)}
+	y={centerY}
 	class="base-edge"
 	style=""
 >

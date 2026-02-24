@@ -9,9 +9,9 @@
 		$props()
 
 	const { getViewport } = useSvelteFlow()
-	const GHOST_ZOOM_FACTOR = 1
 	const PADDING = 10
-	/** Offset from the move button (drag handle) to the node center */
+	/** Offset from the move button (drag handle) to the ghost center.
+	 *  x: roughly half node width left of the handle; y: small downward nudge */
 	const MOVE_BTN_OFFSET = { x: -90, y: 10 }
 
 	function getSubflowNodesAndEdges(
@@ -52,7 +52,7 @@
 
 		const bbWidth = maxX - minX + PADDING * 2
 		const bbHeight = maxY - minY + PADDING * 2
-		const scale = getViewport().zoom * GHOST_ZOOM_FACTOR
+		const scale = getViewport().zoom
 		const containerWidth = Math.round(bbWidth * scale)
 		const containerHeight = Math.round(bbHeight * scale)
 

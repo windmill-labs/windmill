@@ -20,10 +20,6 @@ export type DropZoneRegistration = {
 
 type DragInfo = {
 	moduleId: string
-	label: string
-	startScreenX: number
-	startScreenY: number
-	isSubflow: boolean
 }
 
 /**
@@ -56,6 +52,8 @@ export function getSubflowNodeIds(
 	return nodeIds
 }
 
+import { NODE } from './util'
+
 export class MoveManager {
 	dragging = $state<DragInfo | undefined>(undefined)
 	ghostScreenX = $state(0)
@@ -73,6 +71,11 @@ export class MoveManager {
 		} else {
 			this.movingModuleId = id
 		}
+	}
+
+	/** Non-toggle setter — always sets movingModuleId (used by drag coordinator) */
+	forceSetMoving(id: string) {
+		this.movingModuleId = id
 	}
 
 	clearMoving() {
@@ -99,8 +102,8 @@ export class MoveManager {
 		this.#registeredDropZones.delete(edgeId)
 	}
 
-	startDrag(moduleId: string, label: string, screenX: number, screenY: number, isSubflow = false) {
-		this.dragging = { moduleId, label, startScreenX: screenX, startScreenY: screenY, isSubflow }
+	startDrag(moduleId: string, screenX: number, screenY: number) {
+		this.dragging = { moduleId }
 		this.ghostScreenX = screenX
 		this.ghostScreenY = screenY
 		this.nearestDropZone = undefined
@@ -141,8 +144,8 @@ export class MoveManager {
 		let bestDist = Infinity
 
 		// Box half-dimensions matching the visual drop zone
-		const halfW = 275 / 2 // NODE.width / 2
-		const halfH = 62 / 2 // NODE.gap.vertical / 2
+		const halfW = NODE.width / 2
+		const halfH = NODE.gap.vertical / 2
 
 		for (const [edgeId, zone] of this.#registeredDropZones) {
 			if (zone.disableMoveIds.includes(draggedId)) continue

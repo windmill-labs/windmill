@@ -43,8 +43,8 @@
 			const moduleId = moveManager.dragging?.moduleId
 			const zone = moveManager.endDrag()
 			if (zone && moduleId) {
-				// First set the move (sets movingModuleId on MoveManager)
-				eventHandlers.move({ id: moduleId })
+				// Set movingModuleId directly (non-toggle) so the insert handler knows which module to relocate
+				moveManager.forceSetMoving(moduleId)
 				// Then trigger the insert, which detects movingModuleId and performs the splice
 				eventHandlers.insert({
 					sourceId: zone.sourceId,

@@ -507,7 +507,6 @@
 					}
 
 					dfs(flowStore.val.value.modules, (mod, modules, branches) => {
-						// console.log('mod', mod.id, moveManager.movingModuleId, detail, branches)
 						if (mod.id == moveManager.movingModuleId) {
 							originalModules = modules
 						}
