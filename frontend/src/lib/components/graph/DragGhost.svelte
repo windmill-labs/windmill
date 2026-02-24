@@ -3,13 +3,13 @@
 	import type { DragManager } from './dragManager.svelte'
 	import { NODE } from './util'
 	import MiniFlowGraph from './MiniFlowGraph.svelte'
-	import { ArrowUpDown } from 'lucide-svelte'
+	import { Move } from 'lucide-svelte'
 
 	let { dragManager, nodes, edges }: { dragManager: DragManager; nodes: Node[]; edges: Edge[] } =
 		$props()
 
 	const { getViewport } = useSvelteFlow()
-	const GHOST_ZOOM_FACTOR = 0.8
+	const GHOST_ZOOM_FACTOR = 1
 	const PADDING = 10
 	/** Offset from the move button (drag handle) to the node center */
 	const MOVE_BTN_OFFSET = { x: -90, y: 10 }
@@ -105,14 +105,15 @@
 		class="fixed pointer-events-none z-[10001] flex items-center justify-center w-5 h-5 rounded-full shadow border border-border transition-colors duration-150 {isNearDrop
 			? 'bg-surface-accent-primary text-white'
 			: 'bg-surface text-secondary'}"
-		style="left: {dragManager.ghostScreenX + 12}px; top: {dragManager.ghostScreenY + 12}px;"
+		style="left: {dragManager.ghostScreenX + 8}px; top: {dragManager.ghostScreenY + 8}px;"
 	>
-		<ArrowUpDown size={12} />
+		<Move size={12} />
 	</div>
 	{#if ghost}
 		<div
 			class="fixed pointer-events-none z-[10000]"
-			style="left: {dragManager.ghostScreenX + MOVE_BTN_OFFSET.x}px; top: {dragManager.ghostScreenY +
+			style="left: {dragManager.ghostScreenX +
+				MOVE_BTN_OFFSET.x}px; top: {dragManager.ghostScreenY +
 				MOVE_BTN_OFFSET.y}px; transform: translate({-ghost.offsetX}px, {-ghost.offsetY}px);"
 		>
 			<div
