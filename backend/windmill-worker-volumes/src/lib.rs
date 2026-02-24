@@ -191,4 +191,24 @@ mod tests {
         let result = parse_volume_annotations(content, "//");
         assert!(result.is_empty());
     }
+
+    #[test]
+    fn parse_relative_path() {
+        let content = "// volume: agent-memory .claude\nexport function main() {}";
+        let result = parse_volume_annotations(content, "//");
+        assert_eq!(
+            result,
+            vec![VolumeMount { name: "agent-memory".to_string(), target: ".claude".to_string() }]
+        );
+    }
+
+    #[test]
+    fn parse_relative_nested_path() {
+        let content = "# volume: data data/models\ndef main():\n    pass";
+        let result = parse_volume_annotations(content, "#");
+        assert_eq!(
+            result,
+            vec![VolumeMount { name: "data".to_string(), target: "data/models".to_string() }]
+        );
+    }
 }

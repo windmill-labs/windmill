@@ -4266,9 +4266,21 @@ mount {{
                     .await
                     {
                         Ok(state) => {
+                            let nsjail_target = if volume.target.starts_with('/') {
+                                volume.target.clone()
+                            } else {
+                                let nsjail_cwd = match language {
+                                    ScriptLang::Bun
+                                    | ScriptLang::Bunnative
+                                    | ScriptLang::Nativets => "/tmp/bun",
+                                    ScriptLang::Deno => "/tmp/deno",
+                                    _ => "/tmp",
+                                };
+                                format!("{}/{}", nsjail_cwd, volume.target)
+                            };
                             let nsjail_mount = windmill_worker_volumes::volume_nsjail_mount(
                                 &state.local_dir,
-                                &volume.target,
+                                &nsjail_target,
                             );
                             shared_mount.push_str(&nsjail_mount);
 
@@ -4278,6 +4290,16 @@ mount {{
                                     volume.name.to_uppercase().replace('-', "_")
                                 );
                                 envs.insert(env_name, state.local_dir.display().to_string());
+
+                                if !volume.target.starts_with('/') {
+                                    let resolved =
+                                        std::path::Path::new(job_dir).join(&volume.target);
+                                    if let Some(parent) = resolved.parent() {
+                                        std::fs::create_dir_all(parent).ok();
+                                    }
+                                    #[cfg(unix)]
+                                    std::os::unix::fs::symlink(&state.local_dir, &resolved).ok();
+                                }
                             }
 
                             tracing::info!(

@@ -467,6 +467,28 @@ fn test_volume_mount_struct() {
 }
 
 #[test]
+fn test_parse_volume_relative_path() {
+    use windmill_worker_volumes::parse_volume_annotations;
+
+    let content = "// volume: agent-memory .claude\nexport function main() {}";
+    let volumes = parse_volume_annotations(content, "//");
+    assert_eq!(volumes.len(), 1);
+    assert_eq!(volumes[0].name, "agent-memory");
+    assert_eq!(volumes[0].target, ".claude");
+}
+
+#[test]
+fn test_parse_volume_relative_nested_path() {
+    use windmill_worker_volumes::parse_volume_annotations;
+
+    let content = "# volume: data data/models\ndef main():\n    pass";
+    let volumes = parse_volume_annotations(content, "#");
+    assert_eq!(volumes.len(), 1);
+    assert_eq!(volumes[0].name, "data");
+    assert_eq!(volumes[0].target, "data/models");
+}
+
+#[test]
 fn test_volume_nsjail_mount_oss() {
     use std::path::Path;
     use windmill_worker_volumes::volume_nsjail_mount;
