@@ -3,14 +3,14 @@
 	import { NOTE_COLORS, NoteColor } from './noteColors'
 
 	interface Props {
-		description: string
+		note: string
 		color?: string
 		editMode: boolean
 		onHeightChange: (height: number) => void
-		onDescriptionUpdate: (text: string) => void
+		onNoteUpdate: (text: string) => void
 	}
 
-	let { description, color, editMode, onHeightChange, onDescriptionUpdate }: Props =
+	let { note, color, editMode, onHeightChange, onNoteUpdate }: Props =
 		$props()
 
 	let editing = $state(false)
@@ -48,7 +48,7 @@
 	function handleDoubleClick() {
 		if (!editMode) return
 		editing = true
-		textContent = description
+		textContent = note
 		requestAnimationFrame(() => {
 			textareaElement?.focus()
 		})
@@ -56,15 +56,15 @@
 
 	function handleSave() {
 		editing = false
-		if (textContent !== description) {
-			onDescriptionUpdate(textContent)
+		if (textContent !== note) {
+			onNoteUpdate(textContent)
 		}
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape') {
 			editing = false
-			textContent = description
+			textContent = note
 		}
 	}
 </script>
@@ -80,19 +80,19 @@
 			bind:this={textareaElement}
 			bind:value={textContent}
 			class="w-full shadow-none resize-none text-2xs overflow-y-auto border-none bg-transparent p-2 nodrag nowheel focus:outline-none {noteColorConfig.text}"
-			placeholder="Write a description (markdown supported)"
+			placeholder="Write a note (markdown supported)"
 			onblur={handleSave}
 			onkeydown={handleKeydown}
 			spellcheck="false"
 			rows="3"
 		></textarea>
-	{:else if description}
+	{:else if note}
 		<div class="w-full text-2xs break-words overflow-hidden p-2 {noteColorConfig.text}">
-			<GfmMarkdown md={description} noPadding />
+			<GfmMarkdown md={note} noPadding />
 		</div>
 	{:else}
 		<div class="text-2xs italic opacity-60 p-2 {noteColorConfig.text}">
-			Double click to add a description
+			Double click to add a note
 		</div>
 	{/if}
 </div>

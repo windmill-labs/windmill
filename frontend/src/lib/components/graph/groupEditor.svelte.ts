@@ -11,9 +11,8 @@ import { getContext, setContext } from 'svelte'
 export type FlowGroup = {
 	id: string
 	summary?: string
-	description?: string
+	note?: string
 	collapsed_by_default?: boolean
-	description_collapsed_by_default?: boolean
 	module_ids: Array<string>
 	color?: string
 }
@@ -29,9 +28,8 @@ export class GroupEditor {
 	private _runtimeCollapsedIds = $state<Set<string>>(new Set())
 	private _runtimeInitialized = $state(false)
 
-	// Runtime description visibility state (not persisted in flow YAML)
-	private _runtimeDescHiddenIds = $state<Set<string>>(new Set())
-	private _runtimeDescInitialized = $state(false)
+	// Note height tracking (shared between GroupOverlay and CollapsedGroupNode)
+	private _noteHeights = $state<Record<string, number>>({})
 
 	constructor(flowStore: StateStore<ExtendedOpenFlow>) {
 		this.flowStore = flowStore
@@ -72,39 +70,16 @@ export class GroupEditor {
 		this._runtimeCollapsedIds = next
 	}
 
-	/** Initialize runtime description visibility state from description_collapsed_by_default. */
-	private ensureRuntimeDescInitialized(): void {
-		if (this._runtimeDescInitialized) return
-		const groups = this.getGroups()
-		this._runtimeDescHiddenIds = new Set(
-			groups.filter((g) => g.description_collapsed_by_default ?? true).map((g) => g.id)
-		)
-		this._runtimeDescInitialized = true
-	}
-
-	/** Check if a group's description is currently hidden (runtime). */
-	isDescriptionHidden(groupId: string): boolean {
-		if (!this._runtimeDescInitialized) {
-			return this.getGroups().find((g) => g.id === groupId)?.description_collapsed_by_default ?? true
+	/** Set note height for a group (used for layout spacing) */
+	setNoteHeight(groupId: string, height: number): void {
+		if (this._noteHeights[groupId] !== height) {
+			this._noteHeights[groupId] = height
 		}
-		return this._runtimeDescHiddenIds.has(groupId)
 	}
 
-	/** Toggle runtime description visibility (chevron button) */
-	toggleDescriptionVisibility(groupId: string): void {
-		this.ensureRuntimeDescInitialized()
-		const next = new Set(this._runtimeDescHiddenIds)
-		if (next.has(groupId)) next.delete(groupId)
-		else next.add(groupId)
-		this._runtimeDescHiddenIds = next
-	}
-
-	/** Update the description_collapsed_by_default setting (persisted in flow YAML) */
-	updateDescriptionCollapsedDefault(groupId: string, description_collapsed_by_default: boolean): void {
-		const groups = this.getGroups()
-		this.setGroups(
-			groups.map((g) => (g.id === groupId ? { ...g, description_collapsed_by_default } : g))
-		)
+	/** Get all note heights */
+	getNoteHeights(): Record<string, number> {
+		return this._noteHeights
 	}
 
 	/** Get currently collapsed groups for graph builder. Safe to call from $derived. */
@@ -157,7 +132,6 @@ export class GroupEditor {
 
 		const newGroup: FlowGroup = {
 			id: generateId(),
-			description: '',
 			module_ids: filteredIds,
 			color
 		}
@@ -180,9 +154,19 @@ export class GroupEditor {
 		this.setGroups(groups.map((g) => (g.id === groupId ? { ...g, summary } : g)))
 	}
 
-	updateDescription(groupId: string, description: string): void {
+	updateNote(groupId: string, note: string | undefined): void {
 		const groups = this.getGroups()
-		this.setGroups(groups.map((g) => (g.id === groupId ? { ...g, description } : g)))
+		this.setGroups(groups.map((g) => (g.id === groupId ? { ...g, note } : g)))
+	}
+
+	/** Add a note to a group (sets note to empty string to trigger the placeholder UI) */
+	addNote(groupId: string): void {
+		this.updateNote(groupId, '')
+	}
+
+	/** Remove a note from a group */
+	removeNote(groupId: string): void {
+		this.updateNote(groupId, undefined)
 	}
 
 	updateCollapsedDefault(groupId: string, collapsed_by_default: boolean): void {
@@ -233,13 +217,58 @@ export const GROUP_HEADER_HEIGHT = 40
 const GROUP_TOP_MARGIN = 16
 
 /**
+ * Compute adjusted node positions for collapsed groups whose note is visible.
+ * Pushes nodes below the collapsed group node down by the note height.
+ */
+export function computeCollapsedGroupNoteSpacing(
+	collapsedGroups: FlowGroup[],
+	nodes: Array<{ id: string; position: { x: number; y: number } }>,
+	noteHeights: Record<string, number>
+): Record<string, { x: number; y: number }> {
+	const collapsedNoteHeights: Record<string, number> = {}
+	for (const group of collapsedGroups) {
+		const h = noteHeights[group.id] ?? 0
+		if (h > 0) {
+			collapsedNoteHeights[`collapsed-group:${group.id}`] = h
+		}
+	}
+
+	if (Object.keys(collapsedNoteHeights).length === 0) {
+		return Object.fromEntries(nodes.map((n) => [n.id, { ...n.position }]))
+	}
+
+	const sortedNodes = nodes
+		.map((n) => ({ id: n.id, position: { ...n.position } }))
+		.sort((a, b) => a.position.y - b.position.y)
+
+	let cumulativeOffset = 0
+	let prevYPos = NaN
+	let pendingOffset = 0
+
+	for (const node of sortedNodes) {
+		if (node.position.y !== prevYPos) {
+			cumulativeOffset += pendingOffset
+			pendingOffset = 0
+			prevYPos = node.position.y
+		}
+		node.position.y += cumulativeOffset
+
+		if (collapsedNoteHeights[node.id]) {
+			pendingOffset = Math.max(pendingOffset, collapsedNoteHeights[node.id])
+		}
+	}
+
+	return Object.fromEntries(sortedNodes.map((n) => [n.id, n.position]))
+}
+
+/**
  * Compute adjusted node positions that account for group label spacing.
  * Follows the same push-down pattern as computeNoteNodes in noteUtils.
  */
 export function computeGroupSpacing(
 	groups: FlowGroup[],
 	nodes: Array<{ id: string; position: { x: number; y: number } }>,
-	groupDescriptionHeights?: Record<string, number>
+	groupNoteHeights?: Record<string, number>
 ): Record<string, { x: number; y: number }> {
 	if (groups.length === 0) {
 		return Object.fromEntries(nodes.map((n) => [n.id, { ...n.position }]))
@@ -260,8 +289,8 @@ export function computeGroupSpacing(
 		}
 
 		if (topY < Infinity) {
-			const descHeight = groupDescriptionHeights?.[group.id] ?? 0
-			const totalHeader = GROUP_HEADER_HEIGHT + descHeight
+			const noteHeight = groupNoteHeights?.[group.id] ?? 0
+			const totalHeader = GROUP_HEADER_HEIGHT + noteHeight
 			yPosMap[topY] = Math.max(yPosMap[topY] || 0, totalHeader) + GROUP_TOP_MARGIN
 		}
 	}

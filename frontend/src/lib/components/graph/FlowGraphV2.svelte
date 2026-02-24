@@ -65,7 +65,7 @@
 	import NoteTool from './NoteTool.svelte'
 	import SelectionBoundingBox from './SelectionBoundingBox.svelte'
 	import GroupOverlay from './GroupOverlay.svelte'
-	import { getGroupEditorContext, computeGroupSpacing } from './groupEditor.svelte'
+	import { getGroupEditorContext, computeGroupSpacing, computeCollapsedGroupNoteSpacing } from './groupEditor.svelte'
 	import SelectionTool from './SelectionTool.svelte'
 	import PaneContextMenu from './PaneContextMenu.svelte'
 	import { SelectionManager } from './selectionUtils.svelte'
@@ -264,11 +264,6 @@
 	// Runtime text height tracking for notes (not stored in FlowNote)
 	let noteTextHeights = $state<Record<string, number>>({})
 
-	// Runtime description height tracking for groups
-	let groupDescriptionHeights = $state<Record<string, number>>({})
-	// Deep-read proxy to create a trackable dependency for $effect
-	let groupDescHeightsKey = $derived(JSON.stringify(groupDescriptionHeights))
-
 	// Reference to pane context menu component
 	let paneContextMenu: PaneContextMenu | undefined = $state(undefined)
 	let flowContainer: HTMLDivElement | undefined = $state(undefined)
@@ -282,6 +277,9 @@
 
 	const noteEditorContext = getNoteEditorContext()
 	const groupEditorContext = getGroupEditorContext()
+
+	// Deep-read group note heights from GroupEditor for reactive layout
+	let groupNoteHeightsKey = $derived(JSON.stringify(groupEditorContext?.groupEditor.getNoteHeights() ?? {}))
 
 	// Function to calculate extra gap needed for notes below the lowest flow nodes
 	function calculateNoteGap(notes: FlowNote[] | undefined): number {
@@ -711,15 +709,30 @@
 
 		// Apply group label spacing (pushes nodes down like group notes do)
 		const groups = groupEditorContext?.groupEditor.getGroups() ?? []
+		const noteHeights = showNotes ? (groupEditorContext?.groupEditor.getNoteHeights() ?? {}) : {}
 		if (groups.length > 0) {
 			const groupPositions = computeGroupSpacing(
 				groups,
 				finalNodes.map((n) => ({ id: n.id, position: n.position })),
-				groupDescriptionHeights
+				noteHeights
 			)
 			finalNodes = finalNodes.map((n) => ({
 				...n,
 				position: groupPositions[n.id] || n.position
+			}))
+		}
+
+		// Apply collapsed group note spacing
+		const collapsedGroups = groupEditorContext?.groupEditor.getCollapsedGroups() ?? []
+		if (collapsedGroups.length > 0) {
+			const collapsedPositions = computeCollapsedGroupNoteSpacing(
+				collapsedGroups,
+				finalNodes.map((n) => ({ id: n.id, position: n.position })),
+				noteHeights
+			)
+			finalNodes = finalNodes.map((n) => ({
+				...n,
+				position: collapsedPositions[n.id] || n.position
 			}))
 		}
 
@@ -844,19 +857,23 @@
 			simplifiableFlow,
 			triggerNode ? path : undefined,
 			expandedSubflows,
-			collapsedGroups
+			collapsedGroups,
+			showNotes
 		)
 	})
 	let hideAssetsToggle = $derived(
 		$showAssets && Object.values(nodes).every((n) => n.type !== 'asset')
 	)
-	let hideNotesToggle = $derived(!notes || notes.length === 0)
+	let hideNotesToggle = $derived(
+		(!notes || notes.length === 0) &&
+		!(groupEditorContext?.groupEditor.getGroups().some((g) => g.note != null) ?? false)
+	)
 
 	// Track groups for re-layout when groups change
 	let currentGroups = $derived(groupEditorContext?.groupEditor.getGroups() ?? [])
 
 	$effect(() => {
-		;[graph, allowSimplifiedPoll, $showAssets, showNotes, noteManager.renderCount, currentGroups, groupDescHeightsKey]
+		;[graph, allowSimplifiedPoll, $showAssets, showNotes, noteManager.renderCount, currentGroups, groupNoteHeightsKey]
 		untrack(async () => {
 			await updateStores()
 		})
@@ -1093,10 +1110,7 @@
 					{hoveredNodeId}
 					allNodes={nodesWithOffset as (Node & { type: string })[]}
 					{editMode}
-					{groupDescriptionHeights}
-					onDescriptionHeightChange={(groupId, height) => {
-						groupDescriptionHeights[groupId] = height
-					}}
+					{showNotes}
 				/>
 
 				<!-- SelectionTool for handling selection changes and filtering -->

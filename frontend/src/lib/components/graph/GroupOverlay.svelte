@@ -2,24 +2,22 @@
 	import { ViewportPortal, type Node } from '@xyflow/svelte'
 	import { calculateNodesBoundsWithOffset } from './util'
 	import { preventDefault, stopPropagation } from 'svelte/legacy'
-	import { Minimize2, Settings, Ungroup } from 'lucide-svelte'
+	import { Minimize2, Settings, StickyNote, Ungroup } from 'lucide-svelte'
 	import { getGroupEditorContext, GROUP_HEADER_HEIGHT, type FlowGroup } from './groupEditor.svelte'
 	import { NoteColor, NOTE_COLOR_SWATCHES } from './noteColors'
 	import Popover from '../meltComponents/Popover.svelte'
 	import { Tooltip } from '../meltComponents'
 	import Toggle from '../Toggle.svelte'
 	import GroupNodeCard from './GroupNodeCard.svelte'
-	import GroupDescriptionArea from './GroupDescriptionArea.svelte'
 
 	interface Props {
 		hoveredNodeId: string | null
 		allNodes: (Node & { type: string })[]
 		editMode: boolean
-		groupDescriptionHeights: Record<string, number>
-		onDescriptionHeightChange: (groupId: string, height: number) => void
+		showNotes: boolean
 	}
 
-	let { hoveredNodeId, allNodes, editMode, groupDescriptionHeights, onDescriptionHeightChange }: Props = $props()
+	let { hoveredNodeId, allNodes, editMode, showNotes }: Props = $props()
 
 	const groupEditorContext = getGroupEditorContext()
 
@@ -57,13 +55,13 @@
 	// All groups for always-visible labels
 	let allGroups = $derived(groupEditorContext?.groupEditor.getGroups() ?? [])
 
-	// Compute bounds for each group (with extra top padding for header card + description)
+	// Compute bounds for each group (with extra top padding for header card + note)
 	function computeGroupBounds(group: FlowGroup) {
 		if (group.module_ids.length === 0) return null
 		const { minX, minY, maxX, maxY } = calculateNodesBoundsWithOffset(group.module_ids, allNodes)
 		const padding = 16
-		const descHeight = groupDescriptionHeights[group.id] ?? 0
-		const topPadding = padding + GROUP_HEADER_HEIGHT + descHeight
+		const noteHeight = groupEditorContext?.groupEditor.getNoteHeights()[group.id] ?? 0
+		const topPadding = padding + GROUP_HEADER_HEIGHT + noteHeight
 		return {
 			x: minX - padding,
 			y: minY - topPadding,
@@ -72,18 +70,18 @@
 		}
 	}
 
-	// Border color mapping from NoteColor (same shade as background)
+	// Border color mapping — default uses /60 opacity, hover uses full opacity
 	const GROUP_BORDER_COLORS: Record<NoteColor, string> = {
-		[NoteColor.YELLOW]: 'border-yellow-200 dark:border-yellow-900',
-		[NoteColor.BLUE]: 'border-blue-100 dark:border-blue-950',
-		[NoteColor.GREEN]: 'border-green-200 dark:border-green-900',
-		[NoteColor.PURPLE]: 'border-purple-200 dark:border-purple-900',
-		[NoteColor.PINK]: 'border-pink-200 dark:border-pink-900',
-		[NoteColor.ORANGE]: 'border-orange-200 dark:border-orange-900',
-		[NoteColor.RED]: 'border-red-200 dark:border-red-900',
-		[NoteColor.CYAN]: 'border-cyan-200 dark:border-cyan-900',
-		[NoteColor.LIME]: 'border-lime-200 dark:border-lime-900',
-		[NoteColor.GRAY]: 'border-gray-200 dark:border-gray-800'
+		[NoteColor.YELLOW]: 'border-yellow-400/60 dark:border-yellow-600/60',
+		[NoteColor.BLUE]: 'border-blue-400/60 dark:border-blue-600/60',
+		[NoteColor.GREEN]: 'border-green-400/60 dark:border-green-600/60',
+		[NoteColor.PURPLE]: 'border-purple-400/60 dark:border-purple-600/60',
+		[NoteColor.PINK]: 'border-pink-400/60 dark:border-pink-600/60',
+		[NoteColor.ORANGE]: 'border-orange-400/60 dark:border-orange-600/60',
+		[NoteColor.RED]: 'border-red-400/60 dark:border-red-600/60',
+		[NoteColor.CYAN]: 'border-cyan-400/60 dark:border-cyan-600/60',
+		[NoteColor.LIME]: 'border-lime-400/60 dark:border-lime-600/60',
+		[NoteColor.GRAY]: 'border-gray-400/60 dark:border-gray-600/60'
 	}
 
 	const GROUP_BORDER_COLORS_HOVER: Record<NoteColor, string> = {
@@ -147,28 +145,37 @@
 							stepCount={group.module_ids.length}
 							color={group.color}
 							fullWidth
-							descriptionVisible={!groupEditorContext?.groupEditor.isDescriptionHidden(group.id)}
-							onToggleDescription={() => {
-								groupEditorContext?.groupEditor.toggleDescriptionVisibility(group.id)
-								// Reset height to 0 when now hidden
-								if (groupEditorContext?.groupEditor.isDescriptionHidden(group.id)) {
-									onDescriptionHeightChange(group.id, 0)
-								}
-							}}
+							note={group.note}
+							showNote={showNotes && group.note != null}
+							{editMode}
+							onNoteUpdate={(text) => groupEditorContext?.groupEditor.updateNote(group.id, text)}
+							onHeightChange={(h) => groupEditorContext?.groupEditor.setNoteHeight(group.id, h)}
 						/>
-						{#if !groupEditorContext?.groupEditor.isDescriptionHidden(group.id)}
-							<div class="absolute top-[34px] left-0 right-0" style="pointer-events: auto;">
-								<GroupDescriptionArea
-									description={group.description ?? ''}
-									color={group.color}
-									{editMode}
-									onHeightChange={(h) => onDescriptionHeightChange(group.id, h)}
-									onDescriptionUpdate={(text) => groupEditorContext?.groupEditor.updateDescription(group.id, text)}
-								/>
-							</div>
-						{/if}
 						{#if editMode && visibleGroup?.id === group.id}
 							<div class="absolute -translate-y-[100%] top-2 right-0 h-7 p-1 flex flex-row gap-1">
+								{#if group.note == null}
+									<Tooltip>
+										<button
+											class="center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary p-1 rounded-md"
+											onclick={stopPropagation(preventDefault(() => groupEditorContext?.groupEditor.addNote(group.id)))}
+											onpointerdown={stopPropagation(preventDefault(() => {}))}
+										>
+											<StickyNote size={12} />
+										</button>
+										<svelte:fragment slot="text">Add note</svelte:fragment>
+									</Tooltip>
+								{:else}
+									<Tooltip>
+										<button
+											class="center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-red-400 hover:text-white p-1 rounded-md"
+											onclick={stopPropagation(preventDefault(() => groupEditorContext?.groupEditor.removeNote(group.id)))}
+											onpointerdown={stopPropagation(preventDefault(() => {}))}
+										>
+											<StickyNote size={12} />
+										</button>
+										<svelte:fragment slot="text">Remove note</svelte:fragment>
+									</Tooltip>
+								{/if}
 								<Tooltip>
 									<button
 										class="center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary p-1 rounded-md"
@@ -216,16 +223,6 @@
 												options={{ right: 'Collapsed by default' }}
 												on:change={(e) =>
 													groupEditorContext?.groupEditor.updateCollapsedDefault(
-														group.id,
-														e.detail
-													)}
-											/>
-											<Toggle
-												size="xs"
-												checked={group.description_collapsed_by_default ?? true}
-												options={{ right: 'Description hidden by default' }}
-												on:change={(e) =>
-													groupEditorContext?.groupEditor.updateDescriptionCollapsedDefault(
 														group.id,
 														e.detail
 													)}

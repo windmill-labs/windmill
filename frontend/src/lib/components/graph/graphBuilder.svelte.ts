@@ -337,9 +337,10 @@ export type CollapsedGroupN = {
 		offset: number
 		groupId: string
 		summary: string | undefined
-		description: string | undefined
+		note: string | undefined
 		color: string | undefined
 		stepCount: number
+		showNotes: boolean
 		editMode: boolean
 		eventHandlers: GraphEventHandlers
 	}
@@ -413,7 +414,8 @@ export function graphBuilder(
 	simplifiableFlow: SimplifiableFlow | undefined,
 	flowPathForTriggerNode: string | undefined,
 	expandedSubflows: Record<string, FlowModule[]>,
-	collapsedGroups: Array<{ id: string; summary?: string; description?: string; color?: string; collapsed?: boolean; module_ids: string[] }>
+	collapsedGroups: Array<{ id: string; summary?: string; note?: string; color?: string; collapsed?: boolean; module_ids: string[] }>,
+	showNotes: boolean
 	// triggerProps?: {
 	// 	path?: string
 	// 	flowIsSimplifiable?: boolean
@@ -684,9 +686,10 @@ export function graphBuilder(
 								offset: currentOffset,
 								groupId: collapsedGroup.id,
 								summary: collapsedGroup.summary,
-								description: collapsedGroup.description,
+								note: collapsedGroup.note,
 								color: collapsedGroup.color,
 								stepCount: collapsedGroup.module_ids.length,
+								showNotes,
 								editMode: extra.editMode,
 								eventHandlers
 							}
