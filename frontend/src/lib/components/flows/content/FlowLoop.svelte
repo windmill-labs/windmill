@@ -176,7 +176,8 @@
 								documentationLink="https://www.windmill.dev/docs/flows/flow_loops"
 								>If disabled, the flow will fail as soon as one of the iteration fail. Otherwise,
 								the error will be collected as the result of the iteration. Regardless of this
-								setting, if an error handler is defined, it will process the error.</Tooltip
+								setting, if a flow level error handler is defined, it will process the error.
+								(Workspace error handlers will NOT be used to process errors if enabled.)</Tooltip
 							></div
 						>
 						<Toggle
