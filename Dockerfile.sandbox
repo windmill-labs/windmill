@@ -58,8 +58,10 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
     ln -s /usr/local/lib/cargo/bin/* /usr/local/bin/
 RUN cargo install sqlx-cli --no-default-features --features native-tls,postgres && \
     cargo install cargo-watch && \
+    cargo install --locked --git https://github.com/asciinema/asciinema && \
     ln -sf /usr/local/lib/cargo/bin/sqlx /usr/local/bin/sqlx && \
-    ln -sf /usr/local/lib/cargo/bin/cargo-watch /usr/local/bin/cargo-watch
+    ln -sf /usr/local/lib/cargo/bin/cargo-watch /usr/local/bin/cargo-watch && \
+    ln -sf /usr/local/lib/cargo/bin/asciinema /usr/local/bin/asciinema
 
 # ── Register dynamic runtime users ───────────────────────────────────────────
 RUN cat <<'SCRIPT' > /usr/local/bin/register-dynamic-user.sh
@@ -173,7 +175,8 @@ RUN curl -fsSL https://claude.ai/install.sh | bash && \
     mv /root/.local/share/claude /usr/local/lib/claude && \
     ln -s "/usr/local/lib/claude/versions/$(basename "$target")" /usr/local/bin/claude && \
     mkdir -p /tmp/.local/bin && \
-    ln -s /usr/local/bin/claude /tmp/.local/bin/claude
+    ln -s /usr/local/bin/claude /tmp/.local/bin/claude && \
+    chmod -R a+rwX /tmp/.local
 
 # ── Codex ─────────────────────────────────────────────────────────────────────
 RUN npm i -g @openai/codex
@@ -189,6 +192,7 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/usr/local/lib/playwright-browsers
 RUN bun add -g @playwright/test \
     && bunx playwright install chromium --with-deps \
     && chmod -R a+rwX /usr/local/lib/playwright-browsers \
+    && chmod -R a+rwX /usr/local/lib/bun/install \
     && rm -rf /var/lib/apt/lists/* /tmp/bunx-*
 
 # ── AWS CLI (for S3-compatible uploads to R2) ─────────────────────────────────
