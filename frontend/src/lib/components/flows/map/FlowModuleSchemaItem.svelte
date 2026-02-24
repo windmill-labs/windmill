@@ -89,6 +89,7 @@
 		isOwner?: boolean
 		enableTestRun?: boolean
 		maximizeSubflow?: () => void
+		isSubflow?: boolean
 	}
 
 	let {
@@ -123,7 +124,8 @@
 		onEditInput,
 		flowJob,
 		enableTestRun = false,
-		maximizeSubflow = undefined
+		maximizeSubflow = undefined,
+		isSubflow = false
 	}: Props = $props()
 
 	// AI action colors take priority over execution state
@@ -489,7 +491,7 @@
 				>
 					<button
 						class={twMerge(
-							'trash center-center p-1 text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary',
+							'trash center-center p-1 text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary cursor-grab',
 							hover || selected ? 'block' : '!hidden',
 							'shadow-md rounded-md',
 							'group-hover:block',
@@ -507,7 +509,7 @@
 								if (!didDrag && Math.sqrt(dx * dx + dy * dy) > 5) {
 									didDrag = true
 									if (dragManager && id) {
-										dragManager.startDrag(id, label, startX, startY)
+										dragManager.startDrag(id, label, startX, startY, isSubflow)
 									}
 								}
 							}

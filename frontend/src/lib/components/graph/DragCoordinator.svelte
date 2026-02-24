@@ -64,4 +64,4 @@
 	})
 </script>
 
-<DragGhost {dragManager} />
+<DragGhost {dragManager} {nodes} {edges} />

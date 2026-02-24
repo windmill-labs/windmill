@@ -15,6 +15,7 @@ type DragInfo = {
 	label: string
 	startScreenX: number
 	startScreenY: number
+	isSubflow: boolean
 }
 
 const DROP_THRESHOLD_PX = 80
@@ -31,8 +32,8 @@ export class DragManager {
 		this.#screenToFlowPosition = fn
 	}
 
-	startDrag(moduleId: string, label: string, screenX: number, screenY: number) {
-		this.dragging = { moduleId, label, startScreenX: screenX, startScreenY: screenY }
+	startDrag(moduleId: string, label: string, screenX: number, screenY: number, isSubflow = false) {
+		this.dragging = { moduleId, label, startScreenX: screenX, startScreenY: screenY, isSubflow }
 		this.ghostScreenX = screenX
 		this.ghostScreenY = screenY
 		this.nearestDropZone = undefined

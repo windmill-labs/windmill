@@ -4,11 +4,8 @@
 	import { NODE } from './util'
 	import MiniFlowGraph from './MiniFlowGraph.svelte'
 
-	let {
-		dragManager,
-		nodes,
-		edges
-	}: { dragManager: DragManager; nodes: Node[]; edges: Edge[] } = $props()
+	let { dragManager, nodes, edges }: { dragManager: DragManager; nodes: Node[]; edges: Edge[] } =
+		$props()
 
 	const GHOST_MAX_WIDTH = 300
 	const PADDING = 10
@@ -103,7 +100,9 @@
 			class="fixed pointer-events-none z-[10000]"
 			style="left: {dragManager.ghostScreenX}px; top: {dragManager.ghostScreenY}px; transform: translate({-subflow.offsetX}px, {-subflow.offsetY}px);"
 		>
-			<div style="opacity: 0.4; width: {subflow.containerWidth}px; height: {subflow.containerHeight}px;">
+			<div
+				style="opacity: 0.4; width: {subflow.containerWidth}px; height: {subflow.containerHeight}px;"
+			>
 				<MiniFlowGraph
 					nodes={subflow.ghostNodes}
 					edges={subflow.ghostEdges}
@@ -118,7 +117,7 @@
 			style="left: {dragManager.ghostScreenX}px; top: {dragManager.ghostScreenY}px; transform: translate(-50%, -50%);"
 		>
 			<div
-				class="rounded-md bg-surface-tertiary shadow-lg border border-border-selected opacity-70 px-3 py-1.5 flex items-center gap-2 text-sm text-primary truncate"
+				class="rounded-md bg-surface shadow-lg border border-border-selected opacity-70 px-3 py-1.5 flex items-center gap-2 text-sm text-primary truncate"
 				style="width: {NODE.width}px;"
 			>
 				<span class="font-medium truncate">{dragManager.dragging.label}</span>

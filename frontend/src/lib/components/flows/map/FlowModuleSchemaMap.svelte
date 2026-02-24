@@ -116,6 +116,19 @@
 	// Get NoteEditor context for note position updates
 	const noteEditorContext = getNoteEditorContext()
 
+	$effect(() => {
+		if (!$moving) return
+
+		function onKeyDown(e: KeyboardEvent) {
+			if (e.key === 'Escape') {
+				$moving = undefined
+			}
+		}
+
+		document.addEventListener('keydown', onKeyDown, true)
+		return () => document.removeEventListener('keydown', onKeyDown, true)
+	})
+
 	export async function insertNewModuleAtIndex(
 		modules: FlowModule[] | AgentTool[],
 		index: number,

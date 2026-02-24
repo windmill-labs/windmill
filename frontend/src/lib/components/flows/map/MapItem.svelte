@@ -106,15 +106,18 @@
 			onSelect(mod.id)
 		}
 	}
+
+
 </script>
 
 {#if mod}
 	<div class="relative">
 		{#if moving == mod.id}
-			<div class="absolute z-10 right-20 top-0.5 center-center">
-				<Button variant="accent" on:click={() => dispatch('move')} size="xs" destructive
-					>Cancel move</Button
-				>
+			<div class="absolute z-10 -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap">
+				<Button variant="accent" on:click={() => dispatch('move')} size="xs" destructive>
+					Cancel move
+					<kbd class="ml-1 text-2xs opacity-60 font-mono">Esc</kbd>
+				</Button>
 			</div>
 		{/if}
 
@@ -182,6 +185,7 @@
 					alwaysShowOutputPicker={!mod.id.startsWith('subflow:')}
 					loopStatus={{ type: 'self', flow: mod.value.type }}
 					{onTestUpTo}
+					isSubflow
 				>
 					{#snippet icon()}
 						<FlowModuleIcon module={mod} />
@@ -201,6 +205,7 @@
 					label={mod.summary || 'Run one branch'}
 					{nodeState}
 					{onTestUpTo}
+					isSubflow
 				>
 					{#snippet icon()}
 						<FlowModuleIcon module={mod} />
@@ -220,6 +225,7 @@
 					label={mod.summary || `Run all branches${mod.value.parallel ? ' (parallel)' : ''}`}
 					{nodeState}
 					{onTestUpTo}
+					isSubflow
 				>
 					{#snippet icon()}
 						<FlowModuleIcon module={mod} />
