@@ -66,8 +66,7 @@ export class GroupEditor {
 				usedColors.add(group.color as NoteColor)
 			}
 		}
-		const color =
-			usedColors.size > 0 ? getNextAvailableColor(usedColors) : DEFAULT_GROUP_NOTE_COLOR
+		const color = usedColors.size > 0 ? getNextAvailableColor(usedColors) : DEFAULT_GROUP_NOTE_COLOR
 
 		const newGroup: FlowGroup = {
 			id: generateId(),
@@ -139,8 +138,10 @@ export function getGroupEditorContext(): GroupEditorContext | undefined {
 	return getContext<GroupEditorContext | undefined>(CONTEXT_KEY)
 }
 
-/** Extra vertical space pushed above the topmost node of each group for the label */
-export const GROUP_LABEL_HEIGHT = 24
+/** Extra vertical space pushed above the topmost node of each group for the header card */
+export const GROUP_HEADER_HEIGHT = 40
+
+const GROUP_TOP_MARGIN = 16
 
 /**
  * Compute adjusted node positions that account for group label spacing.
@@ -169,7 +170,7 @@ export function computeGroupSpacing(
 		}
 
 		if (topY < Infinity) {
-			yPosMap[topY] = Math.max(yPosMap[topY] || 0, GROUP_LABEL_HEIGHT)
+			yPosMap[topY] = Math.max(yPosMap[topY] || 0, GROUP_HEADER_HEIGHT) + GROUP_TOP_MARGIN
 		}
 	}
 
