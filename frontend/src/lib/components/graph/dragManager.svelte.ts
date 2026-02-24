@@ -31,6 +31,11 @@ export class DragManager {
 	ghostScreenX = $state(0)
 	ghostScreenY = $state(0)
 	nearestDropZone = $state<DropZone | undefined>(undefined)
+	draggedNodeIds = $state<Set<string>>(new Set())
+
+	setDraggedNodeIds(ids: Set<string>) {
+		this.draggedNodeIds = ids
+	}
 
 	#screenToFlowPosition: ((pos: { x: number; y: number }) => { x: number; y: number }) | undefined
 	#registeredDropZones = new Map<string, DropZoneRegistration>()
@@ -71,12 +76,14 @@ export class DragManager {
 		const zone = this.nearestDropZone
 		this.dragging = undefined
 		this.nearestDropZone = undefined
+		this.draggedNodeIds = new Set()
 		return zone
 	}
 
 	cancelDrag() {
 		this.dragging = undefined
 		this.nearestDropZone = undefined
+		this.draggedNodeIds = new Set()
 	}
 
 	#findNearestDropZone(flowPos: { x: number; y: number }): DropZone | undefined {

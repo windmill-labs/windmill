@@ -18,7 +18,7 @@
 		moduleId: string,
 		allNodes: Node[],
 		allEdges: Edge[]
-	): { sfNodes: Node[]; sfEdges: Edge[] } {
+	): { sfNodes: Node[]; sfEdges: Edge[]; nodeIds: Set<string> } {
 		const nodeIdPrefix = moduleId + '-'
 		const nodeIds = new Set<string>()
 
@@ -39,7 +39,7 @@
 		const sfNodes = allNodes.filter((n) => nodeIds.has(n.id))
 		const sfEdges = allEdges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
 
-		return { sfNodes, sfEdges }
+		return { sfNodes, sfEdges, nodeIds }
 	}
 
 	let isNearDrop = $derived(dragManager.nearestDropZone != null)
@@ -48,7 +48,7 @@
 		const dragging = dragManager.dragging
 		if (!dragging) return undefined
 
-		const { sfNodes, sfEdges } = getSubflowNodesAndEdges(dragging.moduleId, nodes, edges)
+		const { sfNodes, sfEdges, nodeIds } = getSubflowNodesAndEdges(dragging.moduleId, nodes, edges)
 		if (sfNodes.length === 0) return undefined
 
 		// Compute bounding box
@@ -96,7 +96,13 @@
 			data: { ...e.data, insertable: false, editMode: false }
 		}))
 
-		return { containerWidth, containerHeight, ghostNodes, ghostEdges, offsetX, offsetY }
+		return { containerWidth, containerHeight, ghostNodes, ghostEdges, offsetX, offsetY, nodeIds }
+	})
+
+	$effect(() => {
+		if (ghost) {
+			dragManager.setDraggedNodeIds(ghost.nodeIds)
+		}
 	})
 </script>
 

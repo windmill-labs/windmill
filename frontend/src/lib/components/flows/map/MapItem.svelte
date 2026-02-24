@@ -112,9 +112,11 @@
 
 	/** Whether this module should be faded because it or its parent subflow is being moved/dragged */
 	let isPartOfMovingSubflow = $derived.by(() => {
-		const movingId = moving ?? dragManager?.dragging?.moduleId
+		// Drag case: check set membership (covers all nesting levels)
+		if (dragManager?.draggedNodeIds?.has(mod.id)) return true
+		// Legacy move case: check immediate parent
+		const movingId = moving
 		if (!movingId) return false
-		// Fade if this module itself is being moved, or if its parent subflow is being moved
 		return movingId === mod.id || movingId === parentSubflowId
 	})
 

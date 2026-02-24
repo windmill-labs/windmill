@@ -33,7 +33,7 @@
 
 	let faded = $derived(
 		parentModuleId != null &&
-			((dragManager?.dragging != null && dragManager.dragging.moduleId === parentModuleId) ||
+			((dragManager?.draggedNodeIds?.has(parentModuleId) ?? false) ||
 				(moving != null && moving === parentModuleId))
 	)
 
