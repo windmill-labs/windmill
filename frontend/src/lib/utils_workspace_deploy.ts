@@ -120,7 +120,7 @@ export async function deployItem(params: DeployItemParams): Promise<DeployResult
 						workspace: workspaceTo,
 						path: path,
 						formData: {
-							app,
+							app: { ...app, preserve_on_behalf_of: preserveOnBehalfOf },
 							css,
 							js
 						}
@@ -130,7 +130,8 @@ export async function deployItem(params: DeployItemParams): Promise<DeployResult
 						workspace: workspaceTo,
 						path: path,
 						requestBody: {
-							...app
+							...app,
+							preserve_on_behalf_of: preserveOnBehalfOf
 						}
 					})
 				}
@@ -151,7 +152,7 @@ export async function deployItem(params: DeployItemParams): Promise<DeployResult
 					await AppService.createAppRaw({
 						workspace: workspaceTo,
 						formData: {
-							app,
+							app: { ...app, preserve_on_behalf_of: preserveOnBehalfOf },
 							css,
 							js
 						}
@@ -160,7 +161,8 @@ export async function deployItem(params: DeployItemParams): Promise<DeployResult
 					await AppService.createApp({
 						workspace: workspaceTo,
 						requestBody: {
-							...app
+							...app,
+							preserve_on_behalf_of: preserveOnBehalfOf
 						}
 					})
 				}

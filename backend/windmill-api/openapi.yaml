@@ -8263,6 +8263,9 @@ paths:
                       type: string
                     custom_path:
                       type: string
+                    preserve_on_behalf_of:
+                      type: boolean
+                      description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it."
                   required:
                     - path
                     - value
@@ -8616,6 +8619,9 @@ paths:
                       type: string
                     custom_path:
                       type: string
+                    preserve_on_behalf_of:
+                      type: boolean
+                      description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it."
                 js:
                   type: string
                 css:
