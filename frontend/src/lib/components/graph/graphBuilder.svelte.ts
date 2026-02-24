@@ -143,6 +143,8 @@ export type ModuleN = {
 		parentIds: string[]
 		eventHandlers: GraphEventHandlers
 		moving: string | undefined
+		/** The ID of the enclosing subflow module (forloop, branchall, branchone), if any */
+		parentSubflowId: string | undefined
 		flowModuleState: GraphModuleState | undefined
 		testModuleState: ModuleTestState | undefined
 		insertable: boolean
@@ -165,6 +167,7 @@ export type BranchAllStartN = {
 		flowModuleState: GraphModuleState | undefined
 		insertable: boolean
 		branchOne: boolean
+		moving: string | undefined
 	}
 }
 
@@ -175,6 +178,7 @@ export type BranchAllEndN = {
 		id: string
 		eventHandlers: GraphEventHandlers
 		flowModuleState: GraphModuleState | undefined
+		moving: string | undefined
 	}
 }
 
@@ -186,6 +190,7 @@ export type ForLoopEndN = {
 		eventHandlers: GraphEventHandlers
 		simplifiedTriggerView: boolean
 		flowModuleState: GraphModuleState | undefined
+		moving: string | undefined
 	}
 }
 
@@ -200,6 +205,7 @@ export type ForLoopStartN = {
 		editMode: boolean
 		simplifiedTriggerView: boolean
 		module: FlowModule
+		moving: string | undefined
 	}
 }
 
@@ -242,6 +248,7 @@ export type BranchOneStartN = {
 		preLabel: string | undefined
 		branchIndex: number
 		modules: FlowModule[]
+		moving: string | undefined
 	}
 }
 
@@ -252,6 +259,7 @@ export type BranchOneEndN = {
 		id: string
 		eventHandlers: GraphEventHandlers
 		flowModuleState: GraphModuleState | undefined
+		moving: string | undefined
 	}
 }
 
@@ -278,6 +286,7 @@ export type NoBranchN = {
 		branchOne: boolean
 		label: string
 		branchIndex: number
+		moving: string | undefined
 	}
 }
 
@@ -417,7 +426,7 @@ export function graphBuilder(
 		const nodes: NodeLayout[] = []
 		const edges: Edge[] = []
 
-		function addNode(module: FlowModule, offset: number) {
+		function addNode(module: FlowModule, offset: number, parentSubflowId?: string) {
 			const duplicated = nodes.find((n) => n.id === module.id)
 			if (duplicated) {
 				console.log('Duplicated node detected: ', module, duplicated)
@@ -437,6 +446,7 @@ export function graphBuilder(
 					parentIds: [],
 					eventHandlers: eventHandlers,
 					moving: moving,
+					parentSubflowId,
 					flowModuleState: extra.flowModuleStates?.[module.id],
 					testModuleState: extra.testModuleStates?.states?.[module.id],
 					insertable: extra.insertable,
@@ -654,7 +664,7 @@ export function graphBuilder(
 
 					if (module.value.type === 'branchall') {
 						// Start
-						addNode(module, currentOffset)
+						addNode(module, currentOffset, branch?.rootId)
 
 						// "Collect result of each branch" node
 						const endNode: NodeLayout = {
@@ -663,7 +673,8 @@ export function graphBuilder(
 								offset: currentOffset,
 								id: module.id,
 								eventHandlers: eventHandlers,
-								flowModuleState: extra.flowModuleStates?.[module.id]
+								flowModuleState: extra.flowModuleStates?.[module.id],
+								moving
 							},
 							type: 'branchAllEnd'
 						}
@@ -681,7 +692,8 @@ export function graphBuilder(
 									eventHandlers: eventHandlers,
 									flowModuleState: extra.flowModuleStates?.[module.id],
 									branchOne: false,
-									label: 'No branches'
+									label: 'No branches',
+									moving
 								},
 								type: 'noBranch'
 							}
@@ -708,7 +720,8 @@ export function graphBuilder(
 										eventHandlers: eventHandlers,
 										flowModuleState: extra.flowModuleStates?.[module.id],
 										insertable: extra.insertable,
-										branchOne: false
+										branchOne: false,
+										moving
 									},
 									type: 'branchAllStart'
 								}
@@ -742,7 +755,7 @@ export function graphBuilder(
 						previousId = endNode.id
 					} else if (module.value.type === 'forloopflow') {
 						if (!simplifiedTriggerView) {
-							addNode(module, currentOffset)
+							addNode(module, currentOffset, branch?.rootId)
 						}
 
 						const startNode: NodeLayout = {
@@ -755,7 +768,8 @@ export function graphBuilder(
 								eventHandlers: eventHandlers,
 								editMode: extra.editMode,
 								flowModuleState: extra.flowModuleStates?.[module.id],
-								selectedId: extra.selectedId
+								selectedId: extra.selectedId,
+								moving
 							},
 							type: 'forLoopStart'
 						}
@@ -777,7 +791,8 @@ export function graphBuilder(
 								id: module.id,
 								eventHandlers: eventHandlers,
 								simplifiedTriggerView,
-								flowModuleState: extra.flowModuleStates?.[module.id]
+								flowModuleState: extra.flowModuleStates?.[module.id],
+								moving
 							},
 							type: 'forLoopEnd'
 						}
@@ -803,7 +818,7 @@ export function graphBuilder(
 
 						previousId = endNode.id
 					} else if (module.value.type === 'whileloopflow') {
-						addNode(module, currentOffset)
+						addNode(module, currentOffset, branch?.rootId)
 
 						const startNode: NodeLayout = {
 							id: `${module.id}-start`,
@@ -844,7 +859,7 @@ export function graphBuilder(
 
 						previousId = endNode.id
 					} else if (module.value.type === 'branchone') {
-						addNode(module, currentOffset)
+						addNode(module, currentOffset, branch?.rootId)
 
 						const endNode: NodeLayout = {
 							id: `${module.id}-end`,
@@ -852,7 +867,8 @@ export function graphBuilder(
 								offset: currentOffset,
 								eventHandlers: eventHandlers,
 								flowModuleState: extra.flowModuleStates?.[module.id],
-								id: module.id
+								id: module.id,
+								moving
 							},
 							type: 'branchOneEnd'
 						}
@@ -885,7 +901,8 @@ export function graphBuilder(
 								preLabel: undefined,
 								flowModuleState: extra.flowModuleStates?.[module.id],
 								selected: false,
-								modules: module.value.default
+								modules: module.value.default,
+								moving
 							},
 							type: 'branchOneStart'
 						}
@@ -923,7 +940,8 @@ export function graphBuilder(
 									insertable: extra.insertable,
 									flowModuleState: extra.flowModuleStates?.[module.id],
 									selected: false,
-									modules: branch.modules
+									modules: branch.modules,
+									moving
 								},
 								type: 'branchOneStart'
 							}
@@ -1010,7 +1028,7 @@ export function graphBuilder(
 
 							previousId = endNode.id
 						} else {
-							addNode(module, currentOffset)
+							addNode(module, currentOffset, branch?.rootId)
 							previousId = module.id
 						}
 					}

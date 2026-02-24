@@ -16,7 +16,7 @@
 	const { selectionManager } = getGraphContext()
 </script>
 
-<NodeWrapper offset={data.offset}>
+<NodeWrapper offset={data.offset} parentModuleId={data.id} moving={data.moving}>
 	{#snippet children({ darkMode })}
 		<VirtualItem
 			label={data.label}

@@ -26,6 +26,8 @@
 		annotation?: string | undefined
 		nodeState?: FlowNodeState
 		moving?: string | undefined
+		/** The ID of the enclosing subflow module, if any */
+		parentSubflowId?: string | undefined
 		duration_ms?: number | undefined
 		retries?: number | undefined
 		flowJobs:
@@ -59,6 +61,7 @@
 		annotation = undefined,
 		nodeState,
 		moving = undefined,
+		parentSubflowId = undefined,
 		duration_ms = undefined,
 		retries = undefined,
 		flowJobs,
@@ -107,6 +110,13 @@
 		}
 	}
 
+	/** Whether this module should be faded because it or its parent subflow is being moved/dragged */
+	let isPartOfMovingSubflow = $derived.by(() => {
+		const movingId = moving ?? dragManager?.dragging?.moduleId
+		if (!movingId) return false
+		// Fade if this module itself is being moved, or if its parent subflow is being moved
+		return movingId === mod.id || movingId === parentSubflowId
+	})
 
 </script>
 
@@ -155,7 +165,7 @@
 			</div>
 		{/if}
 
-		<div class={moving == mod.id ? 'opacity-50' : dragManager?.dragging?.moduleId === mod.id ? 'opacity-30' : ''}>
+		<div class={moving && isPartOfMovingSubflow ? 'opacity-50' : dragManager?.dragging && isPartOfMovingSubflow ? 'opacity-30' : ''}>
 			{#if mod.value.type === 'forloopflow' || mod.value.type === 'whileloopflow'}
 				<FlowModuleSchemaItem
 					deletable={insertable}

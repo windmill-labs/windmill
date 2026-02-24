@@ -3,6 +3,7 @@
 	import { Handle, Position } from '@xyflow/svelte'
 	import { twMerge } from 'tailwind-merge'
 	import ContextMenu, { type ContextMenuItem } from '../../../common/contextmenu/ContextMenu.svelte'
+	import { getGraphContext } from '../../graphContext'
 
 	interface Props {
 		enableSourceHandle?: boolean
@@ -10,6 +11,10 @@
 		offset?: number
 		wrapperClass?: string
 		contextMenuItems?: ContextMenuItem[]
+		/** Parent module ID — used to fade the node when the parent subflow is being moved */
+		parentModuleId?: string
+		/** The module ID currently being moved (legacy move) */
+		moving?: string
 		children?: import('svelte').Snippet<[any]>
 	}
 
@@ -19,8 +24,18 @@
 		offset = 0,
 		wrapperClass = '',
 		contextMenuItems = undefined,
+		parentModuleId = undefined,
+		moving = undefined,
 		children
 	}: Props = $props()
+
+	const { dragManager } = getGraphContext()
+
+	let faded = $derived(
+		parentModuleId != null &&
+			((dragManager?.dragging != null && dragManager.dragging.moduleId === parentModuleId) ||
+				(moving != null && moving === parentModuleId))
+	)
 
 	let darkMode: boolean = $state(false)
 </script>
@@ -29,14 +44,14 @@
 
 {#if contextMenuItems && contextMenuItems.length > 0}
 	<ContextMenu items={contextMenuItems}>
-		<div class={twMerge('relative rounded-md', wrapperClass)} style={`margin-left: ${offset}px;`}>
+		<div class={twMerge('relative rounded-md', faded ? 'opacity-30' : '', wrapperClass)} style={`margin-left: ${offset}px;`}>
 			{@render children?.({ darkMode })}
 		</div>
 
 		{@render handles()}
 	</ContextMenu>
 {:else}
-	<div class={twMerge('relative rounded-md', wrapperClass)} style={`margin-left: ${offset}px;`}>
+	<div class={twMerge('relative rounded-md', faded ? 'opacity-30' : '', wrapperClass)} style={`margin-left: ${offset}px;`}>
 		{@render children?.({ darkMode })}
 	</div>
 
