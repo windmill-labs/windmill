@@ -357,7 +357,7 @@
 					/>
 				</div>
 			{/if}
-			<div class="text-2xs px-4 flex flex-row items-center gap-2 leading-3">
+			<div class="text-2xs px-4 flex flex-row items-center gap-2 leading-3 whitespace-nowrap">
 				{#if showExternalJobs && externalJobs.length > 0}
 					<div class="flex flex-row">
 						{jobs
