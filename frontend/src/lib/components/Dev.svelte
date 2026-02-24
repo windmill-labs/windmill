@@ -539,7 +539,9 @@
 		}),
 		currentEditor: writable(undefined),
 		modulesTestStates,
-		outputPickerOpenFns
+		outputPickerOpenFns,
+		preserveOnBehalfOf: writable(false),
+		savedOnBehalfOfEmail: writable<string | undefined>(undefined)
 	})
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),

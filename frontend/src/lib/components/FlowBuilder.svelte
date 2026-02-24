@@ -131,7 +131,6 @@
 	let initialPathStore = writable(initialPath)
 
 	// For preserve_on_behalf_of feature
-	const WM_DEPLOYERS_GROUP = 'wm_deployers'
 	let preserveOnBehalfOf = writable(false)
 	let savedOnBehalfOfEmail = writable<string | undefined>(savedFlow?.on_behalf_of_email)
 
