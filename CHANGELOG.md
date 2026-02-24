@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.643.0](https://github.com/windmill-labs/windmill/compare/v1.642.0...v1.643.0) (2026-02-24)
+
+
+### Features
+
+* add fileset resource type support ([32c4b47](https://github.com/windmill-labs/windmill/commit/32c4b474f92f3dbbd2077fab70bdf9e407581626))
+* add fileset resource type support ([#8063](https://github.com/windmill-labs/windmill/issues/8063)) ([c15b9ab](https://github.com/windmill-labs/windmill/commit/c15b9abe5eb2a1566a7ce4b18784c961d178a669))
+* add light mode for navigation sidebar ([#8057](https://github.com/windmill-labs/windmill/issues/8057)) ([0935bf9](https://github.com/windmill-labs/windmill/commit/0935bf9fc460c03c6d8469b93036e43714517ef2))
+* **aiagent:** handle ai agent as tool ([#8031](https://github.com/windmill-labs/windmill/issues/8031)) ([de6fd16](https://github.com/windmill-labs/windmill/commit/de6fd160d56c1037adbbe785f195483c25982e1c))
+* Unified filters and new runs page ([#8027](https://github.com/windmill-labs/windmill/issues/8027)) ([9b28c85](https://github.com/windmill-labs/windmill/commit/9b28c85469d6b2a8590810b313b030d9f00ee9e3))
+
+
+### Bug Fixes
+
+* address code review findings for fileset feature ([1b4489a](https://github.com/windmill-labs/windmill/commit/1b4489acac3b050f0a783548bacfc9bdf33ee593))
+* address second round of review findings ([753c05a](https://github.com/windmill-labs/windmill/commit/753c05a03089b95b4ade68d3bf61c8818de422ce))
+* **backend:** decimal between 0 and -1  in mssql ([#8051](https://github.com/windmill-labs/windmill/issues/8051)) ([9686608](https://github.com/windmill-labs/windmill/commit/9686608355615a50c8395f6e2fd51dcc25498226))
+* **backend:** use filename instead of content_type to detect file fields in multipart form data ([#8054](https://github.com/windmill-labs/windmill/issues/8054)) ([0aa885d](https://github.com/windmill-labs/windmill/commit/0aa885db67d77202205fc1609e841b8ffd9a8121))
+* exclude app_theme resources from workspace tab ([9c513b2](https://github.com/windmill-labs/windmill/commit/9c513b2c62acc369179fb9e404e1f4007cd854c6))
+* fileset editor takes full height with matching header ([9ac0789](https://github.com/windmill-labs/windmill/commit/9ac07897cf99f3af27801e435c7376a46ef760c9))
+* prevent iframe from overriding file selection after file creation ([7f3ddd7](https://github.com/windmill-labs/windmill/commit/7f3ddd7edd3ea993642aadd55cdba0ac2ea1eb9f))
+* resolve svelte warnings and type error in fileset components ([4c06d74](https://github.com/windmill-labs/windmill/commit/4c06d74bd01ca2dda848be421d70dd5268520992))
+* restore full-width file tree items in raw app sidebar ([5bac8b0](https://github.com/windmill-labs/windmill/commit/5bac8b093dbe913a563b02573959c64dd405ff61))
+* suppress iframe setActiveDocument during file population ([1abfeea](https://github.com/windmill-labs/windmill/commit/1abfeea81a645c59934d62257ad869ed7b475634))
+* update git sync init script to hub version 28158 ([#8061](https://github.com/windmill-labs/windmill/issues/8061)) ([705e186](https://github.com/windmill-labs/windmill/commit/705e186f3d4c7d8f8a88fc84b379ed9fe800a6b2))
+* use correct column name completed_at instead of ended_at in count_completed_jobs_detail ([#8066](https://github.com/windmill-labs/windmill/issues/8066)) ([3aba0ed](https://github.com/windmill-labs/windmill/commit/3aba0ed2508debdc78a6631e49b074a97635f21d))
+
 ## [1.642.0](https://github.com/windmill-labs/windmill/compare/v1.641.0...v1.642.0) (2026-02-22)
 
 

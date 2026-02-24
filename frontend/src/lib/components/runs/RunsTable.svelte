@@ -357,7 +357,7 @@
 					/>
 				</div>
 			{/if}
-			<div class="text-2xs px-4 flex flex-row items-center gap-2 leading-3">
+			<div class="text-2xs px-4 flex flex-row items-center gap-2 leading-3 whitespace-nowrap">
 				{#if showExternalJobs && externalJobs.length > 0}
 					<div class="flex flex-row">
 						{jobs
@@ -383,7 +383,7 @@
 					{jobCount}
 				{/if}
 			</div>
-			<div class="text-xs font-semibold leading-3">Started</div>
+			<div></div>
 			<div class="text-xs font-semibold leading-3">Duration</div>
 			<div class="text-xs font-semibold leading-3">Path</div>
 			{#if containsLabel}
