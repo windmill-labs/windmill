@@ -8,9 +8,15 @@
 		selectedColor: NoteColor
 		onColorChange: (color: NoteColor) => void
 		isOpen?: boolean
+		nodeStyle?: boolean
 	}
 
-	let { selectedColor, onColorChange, isOpen = $bindable(false) }: Props = $props()
+	let {
+		selectedColor,
+		onColorChange,
+		isOpen = $bindable(false),
+		nodeStyle = false
+	}: Props = $props()
 </script>
 
 <Popover
@@ -21,15 +27,24 @@
 	bind:isOpen
 >
 	{#snippet trigger()}
-		<Button
-			variant="subtle"
-			unifiedSize="xs"
-			selected={isOpen}
-			nonCaptureEvent
-			title={'Select color'}
-			startIcon={{ icon: Palette }}
-			iconOnly
-		/>
+		{#if nodeStyle}
+			<button
+				class="center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary p-1 rounded-md"
+				title="Select color"
+			>
+				<Palette size={12} />
+			</button>
+		{:else}
+			<Button
+				variant="subtle"
+				unifiedSize="xs"
+				selected={isOpen}
+				nonCaptureEvent
+				title={'Select color'}
+				startIcon={{ icon: Palette }}
+				iconOnly
+			/>
+		{/if}
 	{/snippet}
 	{#snippet content()}
 		<div class="grid grid-cols-5 gap-1" style="min-width: 140px">

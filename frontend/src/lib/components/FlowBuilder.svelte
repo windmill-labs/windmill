@@ -43,6 +43,7 @@
 	import { SelectionManager } from './graph/selectionUtils.svelte'
 	import { NoteEditor } from './graph/noteEditor.svelte'
 	import { setNoteEditorContext } from './graph/noteEditor.svelte'
+	import { GroupEditor, setGroupEditorContext } from './graph/groupEditor.svelte'
 	import { cleanFlow } from './flows/utils.svelte'
 	import {
 		Calendar,
@@ -649,6 +650,10 @@
 		flowEditor?.enableNotes?.()
 	})
 	setNoteEditorContext(noteEditor)
+
+	// Set up GroupEditor context for group editing capabilities
+	const groupEditor = new GroupEditor(flowStore)
+	setGroupEditorContext(groupEditor)
 
 	setContext(
 		'FlowGraphAssetContext',

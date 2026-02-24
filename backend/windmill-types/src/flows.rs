@@ -177,6 +177,8 @@ pub struct FlowValue {
     pub chat_input_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub flow_env: Option<HashMap<String, Box<RawValue>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub groups: Option<Vec<FlowGroup>>,
 }
 
 impl FlowValue {
@@ -401,6 +403,20 @@ pub struct Mock {
     pub enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub return_value: Option<serde_json::Value>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct FlowGroup {
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", alias = "collapsed")]
+    pub collapsed_by_default: Option<bool>,
+    pub module_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
@@ -847,6 +863,8 @@ pub enum FlowModuleValue {
         parallelism: Option<InputTransform>,
         #[serde(skip_serializing_if = "Option::is_none")]
         squash: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        collapsed: Option<bool>,
     },
     WhileloopFlow {
         modules: Vec<FlowModule>,
@@ -856,17 +874,23 @@ pub enum FlowModuleValue {
         skip_failures: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
         squash: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        collapsed: Option<bool>,
     },
     BranchOne {
         branches: Vec<Branch>,
         default: Vec<FlowModule>,
         #[serde(skip_serializing_if = "Option::is_none")]
         default_node: Option<FlowNodeId>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        collapsed: Option<bool>,
     },
     BranchAll {
         branches: Vec<Branch>,
         #[serde(default = "default_true")]
         parallel: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        collapsed: Option<bool>,
     },
     RawScript {
         #[serde(default)]
@@ -942,6 +966,7 @@ struct UntaggedFlowModuleValue {
     tools: Option<Vec<AgentTool>>,
     pass_flow_input_directly: Option<bool>,
     squash: Option<bool>,
+    collapsed: Option<bool>,
     #[serde(flatten)]
     concurrency_settings: ConcurrencySettingsWithCustom,
 }
@@ -983,6 +1008,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 parallel: untagged.parallel.unwrap_or(false),
                 parallelism: untagged.parallelism,
                 squash: untagged.squash,
+                collapsed: untagged.collapsed,
             }),
             "whileloopflow" => Ok(FlowModuleValue::WhileloopFlow {
                 modules: untagged
@@ -991,6 +1017,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 modules_node: untagged.modules_node,
                 skip_failures: untagged.skip_failures.unwrap_or(false),
                 squash: untagged.squash,
+                collapsed: untagged.collapsed,
             }),
             "branchone" => Ok(FlowModuleValue::BranchOne {
                 branches: untagged
@@ -1000,12 +1027,14 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                     .default
                     .ok_or_else(|| serde::de::Error::missing_field("default"))?,
                 default_node: untagged.default_node,
+                collapsed: untagged.collapsed,
             }),
             "branchall" => Ok(FlowModuleValue::BranchAll {
                 branches: untagged
                     .branches
                     .ok_or_else(|| serde::de::Error::missing_field("branches"))?,
                 parallel: untagged.parallel.unwrap_or(true),
+                collapsed: untagged.collapsed,
             }),
             "rawscript" => Ok(FlowModuleValue::RawScript {
                 input_transforms: untagged.input_transforms.unwrap_or_default(),

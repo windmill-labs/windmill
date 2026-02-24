@@ -113,6 +113,11 @@ components:
           description: Sticky notes attached to the flow
           items:
             $ref: '#/components/schemas/FlowNote'
+        groups:
+          type: array
+          description: Semantic groups of modules for organizational purposes
+          items:
+            $ref: '#/components/schemas/FlowGroup'
       required:
         - modules
 
@@ -209,6 +214,35 @@ components:
         - text
         - color
         - type
+
+    FlowGroup:
+      type: object
+      description: A semantic group of flow modules for organizational purposes. Does not affect execution — modules remain in their original position in the flow. Groups provide naming and collapsibility in the editor.
+      properties:
+        id:
+          type: string
+          description: Unique identifier for this group
+        summary:
+          type: string
+          description: Display name for this group
+        description:
+          type: string
+          description: Markdown description shown when the group is collapsed
+        collapsed_by_default:
+          type: boolean
+          default: false
+          description: If true, this group is collapsed by default in the flow editor. UI hint only.
+        module_ids:
+          type: array
+          description: IDs of the flow modules belonging to this group. Must reference valid FlowModule ids from the flow's modules array.
+          items:
+            type: string
+        color:
+          type: string
+          description: Color for the group in the flow editor
+      required:
+        - id
+        - module_ids
 
     RetryIf:
       type: object
@@ -749,6 +783,10 @@ components:
           $ref: '#/components/schemas/InputTransform'
         squash:
           type: boolean
+        collapsed:
+          type: boolean
+          default: false
+          description: If true, this container is collapsed by default in the flow editor
       required:
         - modules
         - iterator
@@ -779,6 +817,10 @@ components:
           $ref: '#/components/schemas/InputTransform'
         squash:
           type: boolean
+        collapsed:
+          type: boolean
+          default: false
+          description: If true, this container is collapsed by default in the flow editor
       required:
         - modules
         - skip_failures
@@ -817,6 +859,10 @@ components:
           type: string
           enum:
             - branchone
+        collapsed:
+          type: boolean
+          default: false
+          description: If true, this container is collapsed by default in the flow editor
       required:
         - branches
         - default
@@ -852,6 +898,10 @@ components:
         parallel:
           type: boolean
           description: If true, all branches execute concurrently. If false, they execute sequentially
+        collapsed:
+          type: boolean
+          default: false
+          description: If true, this container is collapsed by default in the flow editor
       required:
         - branches
         - type

@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { ViewportPortal, type Node } from '@xyflow/svelte'
 	import { calculateNodesBoundsWithOffset } from './util'
-	import { StickyNote } from 'lucide-svelte'
+	import { StickyNote, Group } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import { getNoteEditorContext } from './noteEditor.svelte'
+	import { getGroupEditorContext } from './groupEditor.svelte'
 	import { getGraphContext } from './graphContext'
 	import { tick } from 'svelte'
 
@@ -16,15 +17,26 @@
 
 	// Get NoteEditor context for group note creation
 	const noteEditorContext = getNoteEditorContext()
+	// Get GroupEditor context for group creation
+	const groupEditorContext = getGroupEditorContext()
 	// Get Graph context for clearFlowSelection function
 	const graphContext = getGraphContext()
 
 	function handleAddGroupNote() {
 		if (selectedNodes.length > 0 && noteEditorContext?.noteEditor && graphContext) {
-			// Create the group note first
 			noteEditorContext.noteEditor.createGroupNote(selectedNodes)
 
-			// Wait for next tick to ensure DOM updates
+			tick().then(() => {
+				graphContext?.clearFlowSelection?.()
+				graphContext?.selectionManager.clearSelection()
+			})
+		}
+	}
+
+	function handleAddGroup() {
+		if (selectedNodes.length > 0 && groupEditorContext?.groupEditor && graphContext) {
+			groupEditorContext.groupEditor.createGroup(selectedNodes)
+
 			tick().then(() => {
 				graphContext?.clearFlowSelection?.()
 				graphContext?.selectionManager.clearSelection()
@@ -37,13 +49,10 @@
 			return null
 		}
 
-		// Calculate flow coordinates bounds, accounting for CSS offset and expanded subflows
 		const { minX, minY, maxX, maxY } = calculateNodesBoundsWithOffset(selectedNodes, allNodes)
 
-		// Add padding in flow coordinates
 		const padding = 4
 
-		// Return flow coordinates directly - ViewportPortal handles transformation
 		return {
 			x: minX - padding,
 			y: minY - padding,
@@ -63,18 +72,30 @@
 			style:height="{currentBounds.height}px"
 			style:z-index="10"
 		>
-			<!-- Add Group Note Button positioned in top-right corner -->
-			{#if noteEditorContext?.noteEditor}
-				<div class="absolute -top-4 -right-1 z-20" style="pointer-events: auto;">
-					<Button
-						unifiedSize="sm"
-						variant="accent"
-						title="Create group note ({selectedNodes.length} nodes)"
-						onclick={handleAddGroupNote}
-						startIcon={{ icon: StickyNote }}
-					>
-						Create group note ({selectedNodes.length} nodes)
-					</Button>
+			{#if noteEditorContext?.noteEditor || groupEditorContext?.groupEditor}
+				<div class="absolute -top-4 -right-1 z-20 flex gap-1" style="pointer-events: auto;">
+					{#if groupEditorContext?.groupEditor}
+						<Button
+							unifiedSize="sm"
+							variant="accent"
+							title="Create group ({selectedNodes.length} nodes)"
+							onclick={handleAddGroup}
+							startIcon={{ icon: Group }}
+						>
+							Create group
+						</Button>
+					{/if}
+					{#if noteEditorContext?.noteEditor}
+						<Button
+							unifiedSize="sm"
+							variant="accent"
+							title="Create group note ({selectedNodes.length} nodes)"
+							onclick={handleAddGroupNote}
+							startIcon={{ icon: StickyNote }}
+						>
+							Create group note
+						</Button>
+					{/if}
 				</div>
 			{/if}
 		</div>

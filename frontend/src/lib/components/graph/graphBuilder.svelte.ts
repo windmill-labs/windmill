@@ -61,6 +61,7 @@ export type GraphEventHandlers = {
 	simplifyFlow: (b: boolean) => void
 	expandSubflow: (id: string, path: string) => void
 	minimizeSubflow: (id: string) => void
+	expandGroup: (groupId: string) => void
 	updateMock: (detail: { mock: FlowModule['mock']; id: string }) => void
 	testUpTo: (id: string) => void
 	editInput: (moduleId: string, key: string) => void
@@ -112,6 +113,7 @@ export type FlowNode =
 	| AssetsOverflowedN
 	| AiToolN
 	| NewAiToolN
+	| CollapsedGroupN
 
 export type InputN = {
 	type: 'input2'
@@ -330,6 +332,19 @@ export type NewAiToolN = {
 	}
 }
 
+export type CollapsedGroupN = {
+	type: 'collapsedGroup'
+	data: {
+		offset: number
+		groupId: string
+		summary: string | undefined
+		description: string | undefined
+		color: string | undefined
+		stepCount: number
+		eventHandlers: GraphEventHandlers
+	}
+}
+
 export function topologicalSort(
 	nodes: { id: string; parentIds?: string[] }[]
 ): { id: string; parentIds?: string[] }[] {
@@ -398,7 +413,8 @@ export function graphBuilder(
 	moving: string | undefined,
 	simplifiableFlow: SimplifiableFlow | undefined,
 	flowPathForTriggerNode: string | undefined,
-	expandedSubflows: Record<string, FlowModule[]>
+	expandedSubflows: Record<string, FlowModule[]>,
+	collapsedGroups: Array<{ id: string; summary?: string; description?: string; color?: string; collapsed?: boolean; module_ids: string[] }>
 	// triggerProps?: {
 	// 	path?: string
 	// 	flowIsSimplifiable?: boolean
@@ -414,6 +430,15 @@ export function graphBuilder(
 		if (!modules) {
 			return { nodes: {}, edges: [] }
 		}
+
+		// Build a map: module_id -> collapsed group (only for collapsed groups)
+		const moduleToCollapsedGroup = new Map<string, (typeof collapsedGroups)[number]>()
+		for (const group of collapsedGroups) {
+			for (const moduleId of group.module_ids) {
+				moduleToCollapsedGroup.set(moduleId, group)
+			}
+		}
+		const emittedCollapsedGroups = new Set<string>()
 
 		const nodes: NodeLayout[] = []
 		const edges: Edge[] = []
@@ -643,6 +668,63 @@ export function graphBuilder(
 				}
 			} else {
 				modules.forEach((module, index) => {
+					// --- Collapsed group handling ---
+					const collapsedGroup = moduleToCollapsedGroup.get(module.id)
+					if (collapsedGroup) {
+						if (emittedCollapsedGroups.has(collapsedGroup.id)) {
+							// Already emitted — skip entirely, but wire final edge if last module
+							if (index === modules.length - 1 && previousId && nextNode) {
+								addEdge(previousId, nextNode.id, branch, prefix, {
+									subModules: modules,
+									disableMoveIds
+								})
+							}
+							return
+						}
+
+						// First member — emit placeholder node
+						emittedCollapsedGroups.add(collapsedGroup.id)
+						const nodeId = `collapsed-group:${collapsedGroup.id}`
+						nodes.push({
+							id: nodeId,
+							type: 'collapsedGroup',
+							data: {
+								offset: currentOffset,
+								groupId: collapsedGroup.id,
+								summary: collapsedGroup.summary,
+								description: collapsedGroup.description,
+								color: collapsedGroup.color,
+								stepCount: collapsedGroup.module_ids.length,
+								eventHandlers
+							}
+						} as NodeLayout)
+
+						// Edge from previous → group node
+						if (index === 0) {
+							addEdge(beforeNode.id, nodeId, undefined, prefix, {
+								subModules: modules,
+								disableMoveIds,
+								disableInsert: simplifiedTriggerView
+							})
+						} else if (previousId) {
+							addEdge(previousId, nodeId, branch, prefix, {
+								subModules: modules,
+								disableMoveIds
+							})
+						}
+						previousId = nodeId
+
+						// Final edge if last module
+						if (index === modules.length - 1 && nextNode) {
+							addEdge(nodeId, nextNode.id, branch, prefix, {
+								subModules: modules,
+								disableMoveIds
+							})
+						}
+						return
+					}
+					// --- End collapsed group handling ---
+
 					const localDisableMoveIds = [...disableMoveIds, module.id]
 
 					// Add the edge between the previous node and the current one
