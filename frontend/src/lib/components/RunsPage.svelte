@@ -682,6 +682,7 @@
 					<div class="flex items-center gap-1" title="Show schedules">
 						<Toggle
 							size="xs"
+							color="nord"
 							id="show-schedules"
 							bind:checked={
 								() => filters.val.job_trigger_kind !== '!schedule',
@@ -697,6 +698,7 @@
 				<div class="flex items-center gap-1" title="Show future jobs">
 					<Toggle
 						size="xs"
+						color="nord"
 						id="show-future-jobs"
 						bind:checked={
 							() => filters.val.show_future_jobs !== false,
@@ -876,6 +878,7 @@
 								<div class="flex-1"></div>
 								<Toggle
 									size="xs"
+									color="nord"
 									bind:checked={autoRefresh.val}
 									options={{ right: 'Auto-refresh' }}
 									textClass="whitespace-nowrap"
