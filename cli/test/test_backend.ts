@@ -40,8 +40,8 @@ export interface TestBackend {
   stop(): Promise<void>;
   reset(): Promise<void>;
 
-  createCLICommand(args: string[], workingDir: string, workspaceName?: string): any;
-  runCLICommand(args: string[], workingDir: string, workspaceName?: string): Promise<{
+  createCLICommand(args: string[], workingDir: string, opts?: { workspace?: string; token?: string }): any;
+  runCLICommand(args: string[], workingDir: string, opts?: { workspace?: string; token?: string }): Promise<{
     stdout: string;
     stderr: string;
     code: number;
@@ -97,12 +97,12 @@ class CargoBackendAdapter implements TestBackend {
     await this.backend.reset();
   }
 
-  createCLICommand(args: string[], workingDir: string, workspaceName?: string): any {
-    return this.backend.createCLICommand(args, workingDir, workspaceName);
+  createCLICommand(args: string[], workingDir: string, opts?: { workspace?: string; token?: string }): any {
+    return this.backend.createCLICommand(args, workingDir, opts);
   }
 
-  async runCLICommand(args: string[], workingDir: string, workspaceName?: string) {
-    return this.backend.runCLICommand(args, workingDir, workspaceName);
+  async runCLICommand(args: string[], workingDir: string, opts?: { workspace?: string; token?: string }) {
+    return this.backend.runCLICommand(args, workingDir, opts);
   }
 
   async apiRequest(path: string, options?: RequestInit): Promise<Response> {
@@ -369,12 +369,12 @@ class ContainerizedBackendAdapter implements TestBackend {
     await this.backend.reset();
   }
 
-  createCLICommand(args: string[], workingDir: string, workspaceName?: string): any {
-    return this.backend.createCLICommand(args, workingDir, workspaceName);
+  createCLICommand(args: string[], workingDir: string, opts?: { workspace?: string; token?: string }): any {
+    return this.backend.createCLICommand(args, workingDir, opts);
   }
 
-  async runCLICommand(args: string[], workingDir: string, workspaceName?: string) {
-    return this.backend.runCLICommand(args, workingDir, workspaceName);
+  async runCLICommand(args: string[], workingDir: string, opts?: { workspace?: string; token?: string }) {
+    return this.backend.runCLICommand(args, workingDir, opts);
   }
 
   async seedTestData(): Promise<void> {
@@ -505,6 +505,66 @@ function registerCleanup() {
       process.exit(0);
     });
   }
+}
+
+/**
+ * Create a non-admin user, add them to the workspace, and return their token.
+ */
+export async function createNonAdminUser(
+  backend: TestBackend,
+  workspaceId: string = backend.workspace
+): Promise<string> {
+  if (!backend.apiRequest) {
+    throw new Error("Backend does not support apiRequest");
+  }
+
+  const email = `nonadmin_${Date.now()}@test.dev`;
+  const password = "testpass123";
+
+  // Create user globally (as admin)
+  const createResp = await backend.apiRequest("/api/users/create", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      email,
+      password,
+      super_admin: false,
+      name: "Non-Admin Test User",
+    }),
+  });
+  if (!createResp.ok) {
+    throw new Error(`Failed to create user: ${await createResp.text()}`);
+  }
+  await createResp.text();
+
+  // Add user to workspace as non-admin
+  const addResp = await backend.apiRequest(
+    `/api/w/${workspaceId}/workspaces/add_user`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email,
+        is_admin: false,
+        operator: false,
+      }),
+    }
+  );
+  if (!addResp.ok) {
+    throw new Error(`Failed to add user to workspace: ${await addResp.text()}`);
+  }
+  await addResp.text();
+
+  // Login as the non-admin user to get a token
+  const loginResp = await fetch(`${backend.baseUrl}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!loginResp.ok) {
+    throw new Error(`Failed to login as non-admin: ${await loginResp.text()}`);
+  }
+  return await loginResp.text();
 }
 
 // Re-export for convenience

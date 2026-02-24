@@ -2480,6 +2480,45 @@ export async function push(
   log.info(
     `remote (${workspace.name}) <- local: ${changes.length} changes to apply`,
   );
+  // Check that every folder referenced in the changeset has a local folder.meta.yaml
+  const missingFolders: string[] = [];
+  if (changes.length > 0) {
+    const folderNames = new Set<string>();
+    for (const change of changes) {
+      const parts = change.path.split(SEP);
+      if (parts.length >= 3 && parts[0] === "f" && change.name !== "deleted") {
+        folderNames.add(parts[1]);
+      }
+    }
+    for (const folderName of folderNames) {
+      try {
+        await stat(path.join("f", folderName, "folder.meta.yaml"));
+      } catch {
+        missingFolders.push(folderName);
+      }
+    }
+  }
+
+  if (missingFolders.length > 0) {
+    const folderList = missingFolders.map((f) => `  - ${f}`).join("\n");
+    const user = await wmill.whoami({ workspace: workspace.workspaceId });
+    const userIsAdmin = user.is_admin;
+    const msg =
+      `${userIsAdmin ? "Warning: " : ""}Missing folder.meta.yaml for:\n${folderList}\n` +
+      `Run 'wmill folder add-missing' to create them locally, then push again.`;
+    if (!userIsAdmin) {
+      if (opts.jsonOutput) {
+        console.log(JSON.stringify({ success: false, error: "missing_folders", missing_folders: missingFolders, message: msg }, null, 2));
+      } else {
+        log.error(msg);
+      }
+      process.exit(1);
+    }
+    if (!opts.jsonOutput) {
+      log.warn(msg);
+    }
+  }
+
   // Handle JSON output for dry-run
   if (opts.dryRun && opts.jsonOutput) {
     const result = {
@@ -2511,6 +2550,7 @@ export async function push(
     if (!opts.jsonOutput) {
       prettyChanges(changes, specificItems, opts.branch);
     }
+
     if (opts.dryRun) {
       log.info(colors.gray(`Dry run complete.`));
       return;
