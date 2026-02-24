@@ -70,6 +70,19 @@
 		const containerWidth = Math.round(bbWidth * scale)
 		const containerHeight = Math.round(bbHeight * scale)
 
+		// Compute the offset so the dragged node's center aligns with the cursor
+		const mainNode = sfNodes.find((n) => n.id === dragging.moduleId)
+		let offsetX = containerWidth / 2
+		let offsetY = containerHeight / 2
+		if (mainNode) {
+			const mx = mainNode.position.x + ((mainNode.data as any).offset ?? 0) - minX + PADDING
+			const my = mainNode.position.y - minY + PADDING
+			const mw = mainNode.measured?.width ?? NODE.width
+			const mh = mainNode.measured?.height ?? NODE.height
+			offsetX = (mx + mw / 2) * scale
+			offsetY = (my + mh / 2) * scale
+		}
+
 		// Clone nodes/edges with interactive features disabled
 		const ghostNodes = sfNodes.map((n) => ({
 			...n,
@@ -80,16 +93,16 @@
 			data: { ...e.data, insertable: false, editMode: false }
 		}))
 
-		return { containerWidth, containerHeight, ghostNodes, ghostEdges }
+		return { containerWidth, containerHeight, ghostNodes, ghostEdges, offsetX, offsetY }
 	})
 </script>
 
 {#if dragManager.dragging}
-	<div
-		class="fixed pointer-events-none z-[10000]"
-		style="left: {dragManager.ghostScreenX}px; top: {dragManager.ghostScreenY}px; transform: translate(-50%, -50%);"
-	>
-		{#if subflow}
+	{#if subflow}
+		<div
+			class="fixed pointer-events-none z-[10000]"
+			style="left: {dragManager.ghostScreenX}px; top: {dragManager.ghostScreenY}px; transform: translate({-subflow.offsetX}px, {-subflow.offsetY}px);"
+		>
 			<div style="opacity: 0.4; width: {subflow.containerWidth}px; height: {subflow.containerHeight}px;">
 				<MiniFlowGraph
 					nodes={subflow.ghostNodes}
@@ -98,7 +111,12 @@
 					height={subflow.containerHeight}
 				/>
 			</div>
-		{:else}
+		</div>
+	{:else}
+		<div
+			class="fixed pointer-events-none z-[10000]"
+			style="left: {dragManager.ghostScreenX}px; top: {dragManager.ghostScreenY}px; transform: translate(-50%, -50%);"
+		>
 			<div
 				class="rounded-md bg-surface-tertiary shadow-lg border border-border-selected opacity-70 px-3 py-1.5 flex items-center gap-2 text-sm text-primary truncate"
 				style="width: {NODE.width}px;"
@@ -110,6 +128,6 @@
 					{dragManager.dragging.moduleId}
 				</span>
 			</div>
-		{/if}
-	</div>
+		</div>
+	{/if}
 {/if}

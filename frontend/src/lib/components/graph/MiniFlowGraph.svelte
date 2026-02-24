@@ -77,7 +77,7 @@
 			zoomOnDoubleClick={false}
 			preventScrolling={false}
 			{proOptions}
-			style="width: {width}px; height: {height}px;"
+			style="width: {width}px; height: {height}px; background: transparent;"
 		/>
 	</SvelteFlowProvider>
 </div>
