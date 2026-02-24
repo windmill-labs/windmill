@@ -1,7 +1,7 @@
 <script lang="ts">
 	import InsertModulePopover from '$lib/components/flows/map/InsertModulePopover.svelte'
 	import { getBezierPath, BaseEdge, type EdgeProps, EdgeLabel } from '@xyflow/svelte'
-	import { Hourglass } from 'lucide-svelte'
+	import { CircleDot, Hourglass } from 'lucide-svelte'
 	import type { GraphEventHandlers } from '../../graphBuilder.svelte'
 	import { getStraightLinePath } from '../utils'
 	import { twMerge } from 'tailwind-merge'
@@ -16,7 +16,7 @@
 	const { useDataflow, showAssets, dragManager } = getGraphContext()
 
 	let {
-		// id,
+		id,
 		sourceX,
 		sourceY,
 		sourcePosition,
@@ -94,6 +94,32 @@
 	let isAdjacentToDragged = $derived(
 		isDragging && (data?.sourceId === draggedId || data?.targetId === draggedId)
 	)
+
+	// Register this edge's drop zone position with the drag manager so proximity
+	// detection uses the actual xyflow-computed position rather than re-deriving it.
+	$effect(() => {
+		if (!data?.insertable || !dragManager) return
+
+		const centerX = sourceX
+		const centerY =
+			sourceY +
+			32 +
+			(data.shouldOffsetInsertBtnDueToAssetNode && $showAssets
+				? NODE_WITH_WRITE_ASSET_Y_OFFSET
+				: 0)
+
+		dragManager.registerDropZone(id, {
+			sourceId: data.sourceId,
+			targetId: data.targetId,
+			branch: data.branch,
+			index: data.index,
+			disableMoveIds: data.disableMoveIds ?? [],
+			centerX,
+			centerY
+		})
+
+		return () => dragManager.unregisterDropZone(id)
+	})
 </script>
 
 <EdgeLabel
@@ -140,13 +166,13 @@
 		</div>
 	{:else if isDragging && isValidDropTarget}
 		<div class="edgeButtonContainer nodrag nopan" style:transform="translate(-50%, -50%)">
-			<div
-				class={twMerge(
-					'w-5 h-5 rounded-full border-2 border-current bg-surface flex items-center justify-center transition-all duration-150',
-					isNearestDrop ? 'text-accent scale-110' : 'text-secondary'
-				)}
-			>
-				<div class="w-2 h-2 rounded-full bg-current"></div>
+			<div class="relative flex items-center justify-center" style="width: 275px; height: 20px;">
+				{#if isNearestDrop}
+					<div
+						class="absolute inset-0 rounded-md bg-accent/5 transition-opacity duration-150"
+					></div>
+				{/if}
+				{@render dropTargetIndicator(isNearestDrop)}
 			</div>
 		</div>
 	{:else if data?.insertable && !$useDataflow && !data?.moving && !isDragging}
@@ -213,16 +239,29 @@
 						})
 					}}
 					type="button"
-					class="group w-5 h-5 rounded-full border-2 border-secondary bg-surface flex items-center justify-center hover:border-accent hover:scale-110 transition-all duration-150"
+					class="group relative flex items-center justify-center"
+					style="width: 275px; height: 20px;"
 				>
 					<div
-						class="w-2 h-2 rounded-full bg-secondary group-hover:bg-accent transition-all duration-150"
+						class="absolute inset-0 rounded-md bg-accent/5 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
 					></div>
+					{@render dropTargetIndicator(false)}
 				</button>
 			{/if}
 		</div>
 	{/if}
 </EdgeLabel>
+
+{#snippet dropTargetIndicator(highlighted: boolean)}
+	<div
+		class={twMerge(
+			'w-[20px] h-[20px] flex items-center justify-center rounded-md bg-surface-secondary transition-all duration-150 group-hover:text-accent',
+			highlighted ? 'text-accent' : 'text-primary'
+		)}
+	>
+		<CircleDot size={12} />
+	</div>
+{/snippet}
 
 <BaseEdge
 	path={completeEdge}

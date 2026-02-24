@@ -27,7 +27,7 @@
 		if (!dragManager.dragging) return
 
 		function onPointerMove(e: PointerEvent) {
-			dragManager.updateDrag(e.clientX, e.clientY, edges, nodes)
+			dragManager.updateDrag(e.clientX, e.clientY)
 		}
 
 		function onPointerUp(_e: PointerEvent) {

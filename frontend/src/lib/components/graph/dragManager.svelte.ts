@@ -1,5 +1,3 @@
-import type { Node, Edge } from '@xyflow/svelte'
-
 export type DropZone = {
 	edgeId: string
 	sourceId: string
@@ -8,6 +6,16 @@ export type DropZone = {
 	index: number
 	flowPosition: { x: number; y: number }
 	disableMoveIds: string[]
+}
+
+export type DropZoneRegistration = {
+	sourceId: string
+	targetId: string
+	branch: { rootId: string; branch: number } | undefined
+	index: number
+	disableMoveIds: string[]
+	centerX: number
+	centerY: number
 }
 
 type DragInfo = {
@@ -25,9 +33,18 @@ export class DragManager {
 	nearestDropZone = $state<DropZone | undefined>(undefined)
 
 	#screenToFlowPosition: ((pos: { x: number; y: number }) => { x: number; y: number }) | undefined
+	#registeredDropZones = new Map<string, DropZoneRegistration>()
 
 	setScreenToFlowPosition(fn: (pos: { x: number; y: number }) => { x: number; y: number }) {
 		this.#screenToFlowPosition = fn
+	}
+
+	registerDropZone(edgeId: string, zone: DropZoneRegistration) {
+		this.#registeredDropZones.set(edgeId, zone)
+	}
+
+	unregisterDropZone(edgeId: string) {
+		this.#registeredDropZones.delete(edgeId)
 	}
 
 	startDrag(moduleId: string, label: string, screenX: number, screenY: number, isSubflow = false) {
@@ -37,7 +54,7 @@ export class DragManager {
 		this.nearestDropZone = undefined
 	}
 
-	updateDrag(screenX: number, screenY: number, edges: Edge[], nodes: Node[]) {
+	updateDrag(screenX: number, screenY: number) {
 		if (!this.dragging) return
 
 		this.ghostScreenX = screenX
@@ -46,7 +63,7 @@ export class DragManager {
 		if (!this.#screenToFlowPosition) return
 
 		const flowPos = this.#screenToFlowPosition({ x: screenX, y: screenY })
-		this.nearestDropZone = this.#findNearestDropZone(flowPos, edges, nodes)
+		this.nearestDropZone = this.#findNearestDropZone(flowPos)
 	}
 
 	endDrag(): DropZone | undefined {
@@ -62,11 +79,7 @@ export class DragManager {
 		this.nearestDropZone = undefined
 	}
 
-	#findNearestDropZone(
-		flowPos: { x: number; y: number },
-		edges: Edge[],
-		nodes: Node[]
-	): DropZone | undefined {
+	#findNearestDropZone(flowPos: { x: number; y: number }): DropZone | undefined {
 		if (!this.dragging) return undefined
 
 		const draggedId = this.dragging.moduleId
@@ -77,30 +90,14 @@ export class DragManager {
 		const halfW = 275 / 2 // NODE.width / 2
 		const halfH = 62 / 2 // NODE.gap.vertical / 2
 
-		for (const edge of edges) {
-			if (edge.type !== 'edge') continue
-
-			const data = edge.data as any
-			if (!data?.insertable) continue
-
-			const disableMoveIds: string[] = data.disableMoveIds ?? []
-			if (disableMoveIds.includes(draggedId)) continue
+		for (const [edgeId, zone] of this.#registeredDropZones) {
+			if (zone.disableMoveIds.includes(draggedId)) continue
 
 			// Skip edges adjacent to the dragged node (no-op move)
-			if (data.sourceId === draggedId || data.targetId === draggedId) continue
+			if (zone.sourceId === draggedId || zone.targetId === draggedId) continue
 
-			const sourceNode = nodes.find((n) => n.id === data.sourceId)
-			if (!sourceNode) continue
-
-			// The insert point is at the center of the gap between source and target nodes.
-			// sourceX/sourceY are the edge source endpoint = bottom center of source node.
-			// NODE height = 34, so bottom of node = position.y + 34.
-			// EdgeLabel offset = +32 from sourceY.
-			const insertX = sourceNode.position.x + 275 / 2
-			const insertY = sourceNode.position.y + 34 + 32
-
-			const dx = Math.abs(flowPos.x - insertX)
-			const dy = Math.abs(flowPos.y - insertY)
+			const dx = Math.abs(flowPos.x - zone.centerX)
+			const dy = Math.abs(flowPos.y - zone.centerY)
 
 			// Axis-aligned bounding box test
 			if (dx <= halfW && dy <= halfH) {
@@ -109,13 +106,13 @@ export class DragManager {
 				if (dist < bestDist) {
 					bestDist = dist
 					best = {
-						edgeId: edge.id,
-						sourceId: data.sourceId,
-						targetId: data.targetId,
-						branch: data.branch,
-						index: data.index,
-						flowPosition: { x: insertX, y: insertY },
-						disableMoveIds
+						edgeId,
+						sourceId: zone.sourceId,
+						targetId: zone.targetId,
+						branch: zone.branch,
+						index: zone.index,
+						flowPosition: { x: zone.centerX, y: zone.centerY },
+						disableMoveIds: zone.disableMoveIds
 					}
 				}
 			}
