@@ -38,6 +38,8 @@
 				note={data.note}
 				showNote={data.showNotes && data.note != null}
 				editMode={data.editMode}
+				onSummaryUpdate={(text) =>
+					groupEditorContext?.groupEditor.updateSummary(data.groupId, text)}
 				onNoteUpdate={(text) =>
 					groupEditorContext?.groupEditor.updateNote(data.groupId, text)}
 				onHeightChange={(h) =>
