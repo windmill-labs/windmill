@@ -225,7 +225,7 @@
 			lockChanges = true
 			replaceFlow(event.data)
 			timeout && clearTimeout(timeout)
-			timeout = setTimeout(() => {
+			timeout = window.setTimeout(() => {
 				lockChanges = false
 			}, 500)
 		} else if (event.data.type == 'error') {

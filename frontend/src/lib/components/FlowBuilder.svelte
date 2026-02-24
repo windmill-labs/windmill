@@ -565,7 +565,7 @@
 
 	function saveSessionDraft() {
 		timeout && clearTimeout(timeout)
-		timeout = setTimeout(() => {
+		timeout = window.setTimeout(() => {
 			try {
 				localStorage.setItem(
 					initialPath && initialPath != '' ? `flow-${initialPath}` : 'flow',

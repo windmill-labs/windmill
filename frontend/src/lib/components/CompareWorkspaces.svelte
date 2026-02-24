@@ -421,15 +421,8 @@
 		allowBehindChangesOverride = false
 	})
 
-	// Transform diffs to DeployableItem format for the shared layout
-	interface DeployableItem {
-		key: string
-		path: string
-		kind: Kind
-		diff: WorkspaceItemDiff
-	}
-
-	let deployableItems = $derived<DeployableItem[]>(
+	// Transform diffs to deployable item format for the shared layout
+	let deployableItems = $derived(
 		(comparison?.diffs ?? [])
 			.filter((diff) => {
 				const key = getItemKey(diff)
@@ -606,7 +599,7 @@
 		{/snippet}
 
 		{#snippet itemSummary(item)}
-			{@const diff = item.diff}
+			{@const diff = item.diff as WorkspaceItemDiff}
 			{@const key = item.key}
 			{@const isSelectable = selectableDiffs.includes(diff)}
 			{@const oldSummary = mergeIntoParent ? summaryCache[key]?.parent : summaryCache[key]?.current}
@@ -626,7 +619,7 @@
 		{/snippet}
 
 		{#snippet itemActions(item)}
-			{@const diff = item.diff}
+			{@const diff = item.diff as WorkspaceItemDiff}
 			{@const key = item.key}
 			{@const sourceEmail = getSourceEmail(key)}
 			{@const targetEmail = getTargetEmail(key)}

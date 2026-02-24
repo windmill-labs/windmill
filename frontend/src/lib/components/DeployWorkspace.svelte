@@ -62,7 +62,8 @@
 	let canSeeTarget: 'yes' | 'cant-deploy-to-workspace' | 'cant-see-all-deps' | undefined =
 		$state(undefined)
 
-	let dependencies: { kind: Kind; path: string; include: boolean }[] | undefined = $state(undefined)
+	type Dependency = { kind: Kind; path: string; include: boolean }
+	let dependencies: Dependency[] | undefined = $state<Dependency[] | undefined>(undefined)
 
 	const allAlreadyExists: { [key: string]: boolean } = $state({})
 
@@ -88,18 +89,6 @@
 			myIdentity
 		)
 	}
-
-	// Check if all required on_behalf_of selections are made
-	let hasUnselectedOnBehalfOf = $derived(
-		selectedItems.some((statusPath) => {
-			const dep = dependencies?.find((d) => computeStatusPath(d.kind, d.path) === statusPath)
-			if (!dep) return false
-			return (
-				itemNeedsOnBehalfOfSelection(statusPath, dep.kind) &&
-				onBehalfOfChoice[statusPath] === undefined
-			)
-		})
-	)
 
 	// Get the email to use for deployment based on user's choice
 	function getOnBehalfOfEmailForDeploy(statusPath: string): string | undefined {
@@ -364,16 +353,8 @@
 		workspaceToDeployTo && initialPath && untrack(() => reload(initialPath))
 	})
 
-	// Transform dependencies to DeployableItem format for the shared layout
-	interface DeployableItem {
-		key: string
-		path: string
-		kind: Kind
-		include: boolean
-		triggerKind?: string
-	}
-
-	let deployableItems = $derived<DeployableItem[]>(
+	// Transform dependencies to deployable item format for the shared layout
+	let deployableItems = $derived(
 		(dependencies ?? []).map((dep) => ({
 			key: computeStatusPath(dep.kind, dep.path),
 			path: dep.path,
@@ -391,6 +372,18 @@
 
 	let allSelected = $derived(
 		dependencies != null && dependencies.length > 0 && dependencies.every((dep) => dep.include)
+	)
+
+	// Check if all required on_behalf_of selections are made
+	let hasUnselectedOnBehalfOf = $derived(
+		selectedItems.some((statusPath) => {
+			const dep = dependencies?.find((d) => computeStatusPath(d.kind, d.path) === statusPath)
+			if (!dep) return false
+			return (
+				itemNeedsOnBehalfOfSelection(statusPath, dep.kind) &&
+				onBehalfOfChoice[statusPath] === undefined
+			)
+		})
 	)
 
 	function toggleItem(item: { key: string }) {
