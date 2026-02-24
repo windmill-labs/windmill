@@ -76,14 +76,16 @@
 	// Target workspace on_behalf_of emails (keyed by kind:path)
 	let targetOnBehalfOfInfo = $state<Record<string, string | undefined>>({})
 	let onBehalfOfChoice = $state<Record<string, OnBehalfOfChoice>>({})
+	let canPreserveOnBehalfOf = $state(false)
 
 	// Check if an item needs on_behalf_of selection (more than 1 unique option)
 	function itemNeedsOnBehalfOfSelection(statusPath: string, kind: string): boolean {
+		const myIdentity = kind === 'trigger' ? $userStore?.username : $userStore?.email
 		return needsOnBehalfOfSelection(
 			kind,
 			sourceOnBehalfOfInfo[statusPath],
 			targetOnBehalfOfInfo[statusPath],
-			$userStore?.email
+			myIdentity
 		)
 	}
 
@@ -111,11 +113,18 @@
 	async function reload(path: string) {
 		try {
 			if (!$superadmin) {
-				await UserService.whoami({ workspace: workspaceToDeployTo! })
+				const targetUser = await UserService.whoami({ workspace: workspaceToDeployTo! })
+				canPreserveOnBehalfOf =
+					targetUser.is_admin ||
+					targetUser.groups?.includes('wm_deployers') ||
+					false
+			} else {
+				canPreserveOnBehalfOf = true
 			}
 			canSeeTarget = 'yes'
 		} catch {
 			canSeeTarget = 'cant-deploy-to-workspace'
+			canPreserveOnBehalfOf = false
 			return
 		}
 
@@ -153,18 +162,26 @@
 			['flow', 'script', 'app', 'trigger'].includes(d.kind)
 		)) {
 			const key = computeStatusPath(dep.kind, dep.path)
-			sourceOnBehalfOfInfo[key] = await getOnBehalfOfEmail(
-				dep.kind,
-				dep.path,
-				$workspaceStore!,
-				additionalInformation
-			)
-			targetOnBehalfOfInfo[key] = await getOnBehalfOfEmail(
-				dep.kind,
-				dep.path,
-				workspaceToDeployTo!,
-				additionalInformation
-			)
+			try {
+				sourceOnBehalfOfInfo[key] = await getOnBehalfOfEmail(
+					dep.kind,
+					dep.path,
+					$workspaceStore!,
+					additionalInformation
+				)
+			} catch {
+				sourceOnBehalfOfInfo[key] = undefined
+			}
+			try {
+				targetOnBehalfOfInfo[key] = await getOnBehalfOfEmail(
+					dep.kind,
+					dep.path,
+					workspaceToDeployTo!,
+					additionalInformation
+				)
+			} catch {
+				targetOnBehalfOfInfo[key] = undefined
+			}
 		}
 	}
 
@@ -466,6 +483,7 @@
 						selected={onBehalfOfChoice[statusPath]}
 						onSelect={(choice) => (onBehalfOfChoice[statusPath] = choice)}
 						kind={item.kind}
+						canPreserve={canPreserveOnBehalfOf}
 					/>
 				{/if}
 

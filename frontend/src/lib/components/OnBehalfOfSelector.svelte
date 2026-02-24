@@ -32,21 +32,16 @@
 	import MeltPopover from './meltComponents/Popover.svelte'
 	import { userStore } from '$lib/stores'
 
-	const WM_DEPLOYERS_GROUP = 'wm_deployers'
-
 	interface Props {
 		sourceEmail: string | undefined
 		targetEmail: string | undefined
 		selected: OnBehalfOfChoice
 		onSelect: (choice: OnBehalfOfChoice) => void
 		kind: string
+		canPreserve: boolean
 	}
 
-	let { sourceEmail, targetEmail, selected, onSelect, kind }: Props = $props()
-
-	let canPreserve = $derived(
-		$userStore?.is_admin || $userStore?.groups?.includes(WM_DEPLOYERS_GROUP) || false
-	)
+	let { sourceEmail, targetEmail, selected, onSelect, kind, canPreserve }: Props = $props()
 
 	let label = $derived(
 		kind === 'trigger'
@@ -72,27 +67,27 @@
 			<span class="truncate max-w-40">{sourceEmail}</span>
 			<span class="text-xs text-tertiary">(source)</span>
 		</button>
-		{#if targetEmail !== sourceEmail}
-			<button
-				class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover {!canPreserve
-					? 'opacity-50 cursor-not-allowed'
-					: ''}"
-				disabled={!canPreserve}
-				onclick={() => onSelect('target')}
+		<button
+			class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover {!canPreserve || !targetEmail
+				? 'opacity-50 cursor-not-allowed'
+				: ''}"
+			disabled={!canPreserve || !targetEmail}
+			onclick={() => onSelect('target')}
+		>
+			<Check class="w-3 h-3 {selected === 'target' ? 'opacity-100' : 'opacity-0'}" />
+			<span class="truncate max-w-40 {!targetEmail ? 'italic text-tertiary' : ''}"
+				>{targetEmail ?? 'unknown'}</span
 			>
-				<Check class="w-3 h-3 {selected === 'target' ? 'opacity-100' : 'opacity-0'}" />
-				<span class="truncate max-w-40 {!targetEmail ? 'italic text-tertiary' : ''}"
-					>{targetEmail ?? 'unknown'}</span
-				>
-				<span class="text-xs text-tertiary">(target)</span>
-			</button>
-		{/if}
+			<span class="text-xs text-tertiary">(target)</span>
+		</button>
 		<button
 			class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover"
 			onclick={() => onSelect('me')}
 		>
 			<Check class="w-3 h-3 {selected === 'me' ? 'opacity-100' : 'opacity-0'}" />
-			<span class="truncate max-w-40">{$userStore?.email}</span>
+			<span class="truncate max-w-40"
+				>{kind === 'trigger' ? $userStore?.username : $userStore?.email}</span
+			>
 			<span class="text-xs text-tertiary">(me)</span>
 		</button>
 	</div>

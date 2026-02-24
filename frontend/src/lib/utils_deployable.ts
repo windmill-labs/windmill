@@ -459,31 +459,31 @@ export async function getTriggerEmail(
 	try {
 		if (kind === 'sqs') {
 			const trigger = await SqsTriggerService.getSqsTrigger({ workspace, path })
-			return trigger.email
+			return trigger.edited_by
 		} else if (kind === 'kafka') {
 			const trigger = await KafkaTriggerService.getKafkaTrigger({ workspace, path })
-			return trigger.email
+			return trigger.edited_by
 		} else if (kind === 'mqtt') {
 			const trigger = await MqttTriggerService.getMqttTrigger({ workspace, path })
-			return trigger.email
+			return trigger.edited_by
 		} else if (kind === 'nats') {
 			const trigger = await NatsTriggerService.getNatsTrigger({ workspace, path })
-			return trigger.email
+			return trigger.edited_by
 		} else if (kind === 'gcp') {
 			const trigger = await GcpTriggerService.getGcpTrigger({ workspace, path })
-			return trigger.email
+			return trigger.edited_by
 		} else if (kind === 'postgres') {
 			const trigger = await PostgresTriggerService.getPostgresTrigger({ workspace, path })
-			return trigger.email
+			return trigger.edited_by
 		} else if (kind === 'websockets') {
 			const trigger = await WebsocketTriggerService.getWebsocketTrigger({ workspace, path })
-			return trigger.email
+			return trigger.edited_by
 		} else if (kind === 'routes') {
 			const trigger = await HttpTriggerService.getHttpTrigger({ workspace, path })
-			return trigger.email
+			return trigger.edited_by
 		} else if (kind === 'schedules') {
 			const trigger = await ScheduleService.getSchedule({ workspace, path })
-			return trigger.email
+			return trigger.edited_by
 		}
 	} catch {
 		// Trigger may not exist in the workspace

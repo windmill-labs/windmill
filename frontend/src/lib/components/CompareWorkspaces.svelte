@@ -16,6 +16,7 @@
 		FlowService,
 		FolderService,
 		ScriptService,
+		UserService,
 		WorkspaceService,
 		type WorkspaceComparison,
 		type WorkspaceItemDiff
@@ -53,6 +54,11 @@
 	let deploying = $state(false)
 	let hasAutoSelected = $state(false)
 	let canDeployToParent = $state(true)
+	let canPreserveInParent = $state(false)
+	let canPreserveInCurrent = $state(false)
+	let canPreserveOnBehalfOf = $derived(
+		mergeIntoParent ? canPreserveInParent : canPreserveInCurrent
+	)
 
 	let selectableDiffs = $derived(
 		comparison?.diffs.filter((diff) => {
@@ -157,16 +163,19 @@
 	async function fetchOnBehalfOfInfo(diffs: WorkspaceItemDiff[]) {
 		const flowsAndScripts = diffs.filter((d) => ['flow', 'script', 'app'].includes(d.kind))
 		for (const diff of flowsAndScripts) {
-			// Fetch from both source (where we're deploying FROM) and target (where we're deploying TO)
 			for (const workspace of [currentWorkspaceId, parentWorkspaceId]) {
 				const workspacedKey = getWorkspacedKey(workspace, getItemKey(diff))
 				if (onBehalfOfInfo[workspacedKey] !== undefined) continue
 
-				onBehalfOfInfo[workspacedKey] = await getOnBehalfOfEmail(
-					diff.kind as Kind,
-					diff.path,
-					workspace
-				)
+				try {
+					onBehalfOfInfo[workspacedKey] = await getOnBehalfOfEmail(
+						diff.kind as Kind,
+						diff.path,
+						workspace
+					)
+				} catch {
+					onBehalfOfInfo[workspacedKey] = undefined
+				}
 			}
 		}
 	}
@@ -367,6 +376,28 @@
 		mergeIntoParent = v == 'deploy_to'
 		selectDefault()
 	}
+
+	// Fetch user permissions for both workspaces
+	$effect(() => {
+		;[currentWorkspaceId, parentWorkspaceId]
+		async function fetchPermissions() {
+			try {
+				const parentUser = await UserService.whoami({ workspace: parentWorkspaceId })
+				canPreserveInParent =
+					parentUser.is_admin || parentUser.groups?.includes('wm_deployers') || false
+			} catch {
+				canPreserveInParent = false
+			}
+			try {
+				const currentUser = await UserService.whoami({ workspace: currentWorkspaceId })
+				canPreserveInCurrent =
+					currentUser.is_admin || currentUser.groups?.includes('wm_deployers') || false
+			} catch {
+				canPreserveInCurrent = false
+			}
+		}
+		fetchPermissions()
+	})
 
 	// Fetch summaries and on_behalf_of_email when comparison data loads
 	$effect(() => {
@@ -612,6 +643,7 @@
 					selected={onBehalfOfChoice[key]}
 					onSelect={(choice) => (onBehalfOfChoice[key] = choice)}
 					kind={diff.kind}
+					canPreserve={canPreserveOnBehalfOf}
 				/>
 			{/if}
 			<!-- Status badges -->
