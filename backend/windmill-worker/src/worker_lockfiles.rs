@@ -800,7 +800,6 @@ async fn lock_modules<'c>(
                     parallel,
                     parallelism,
                     squash,
-                    collapsed,
                 } => {
                     let nmodules;
                     (nmodules, tx, nmodified_ids, nerrors) = Box::pin(lock_modules(
@@ -833,11 +832,10 @@ async fn lock_modules<'c>(
                         parallel,
                         parallelism,
                         squash,
-                        collapsed,
                     }
                     .into()
                 }
-                FlowModuleValue::BranchAll { branches, parallel, collapsed } => {
+                FlowModuleValue::BranchAll { branches, parallel } => {
                     let mut nbranches = vec![];
                     for mut b in branches {
                         let nmodules;
@@ -870,9 +868,9 @@ async fn lock_modules<'c>(
                         b.modules = nmodules;
                         nbranches.push(b)
                     }
-                    e.value = FlowModuleValue::BranchAll { branches: nbranches, parallel, collapsed }.into()
+                    e.value = FlowModuleValue::BranchAll { branches: nbranches, parallel }.into()
                 }
-                FlowModuleValue::WhileloopFlow { modules, modules_node, skip_failures, squash, collapsed } => {
+                FlowModuleValue::WhileloopFlow { modules, modules_node, skip_failures, squash } => {
                     let nmodules;
                     (nmodules, tx, nmodified_ids, nerrors) = Box::pin(lock_modules(
                         modules,
@@ -901,11 +899,10 @@ async fn lock_modules<'c>(
                         modules_node,
                         skip_failures,
                         squash,
-                        collapsed,
                     }
                     .into()
                 }
-                FlowModuleValue::BranchOne { branches, default, default_node, collapsed } => {
+                FlowModuleValue::BranchOne { branches, default, default_node } => {
                     let mut nbranches = vec![];
                     for mut b in branches {
                         let nmodules;
@@ -969,7 +966,6 @@ async fn lock_modules<'c>(
                         branches: nbranches,
                         default: ndefault,
                         default_node,
-                        collapsed,
                     }
                     .into();
                 }
