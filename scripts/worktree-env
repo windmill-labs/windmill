@@ -46,7 +46,19 @@ FRONTEND_PORT=$frontend_port
 REMOTE=http://localhost:$backend_port
 EOF
 
+if [[ -n "${CARGO_FEATURES:-}" ]]; then
+  echo "CARGO_FEATURES=$CARGO_FEATURES" >> .env.local
+fi
+
 echo "Created .env.local with ports: backend=$backend_port, frontend=$frontend_port"
+
+# --- Copy frontend/node_modules preserving symlinks ---
+# cp -a preserves .bin/ symlinks that cp -r would dereference, breaking require() paths
+main_repo_root="$(cd "$(git rev-parse --git-common-dir 2>/dev/null)/.." && pwd)"
+if [[ -n "$main_repo_root" && -d "$main_repo_root/frontend/node_modules" ]]; then
+  cp -a "$main_repo_root/frontend/node_modules" frontend/
+  echo "Copied frontend/node_modules (with symlinks preserved)"
+fi
 
 # --- Allow direnv so the nix devshell activates in pane commands ---
 if command -v direnv &>/dev/null && [ -f .envrc ]; then
@@ -55,14 +67,20 @@ if command -v direnv &>/dev/null && [ -f .envrc ]; then
 fi
 
 # --- Create matching windmill-ee-private worktree ---
-# Check parent directory first (sibling to worktree root), then fall back to home
-parent_dir="$(cd "$(pwd)/.." && pwd)"
-if [ -d "${parent_dir}/windmill-ee-private" ]; then
-  ee_repo="${parent_dir}/windmill-ee-private"
-else
-  ee_repo="${HOME}/windmill-ee-private"
-fi
-if [ -d "$ee_repo" ]; then
+# Find ee repo: sibling to the main worktree (git toplevel of the main checkout),
+# then try parent of cwd, then fall back to home
+ee_repo=""
+for candidate in \
+  "${main_repo_root:+${main_repo_root}/../windmill-ee-private}" \
+  "$(pwd)/../windmill-ee-private" \
+  "${HOME}/windmill-ee-private" \
+  "${HOME}/projects/windmill-ee-private"; do
+  if [ -n "$candidate" ] && [ -d "$candidate" ]; then
+    ee_repo="$(cd "$candidate" && pwd)"
+    break
+  fi
+done
+if [ -n "$ee_repo" ]; then
   branch=$(git branch --show-current 2>/dev/null || true)
   wt_basename=$(basename "$(pwd)")
   ee_worktree_dir="${ee_repo}__worktrees/${wt_basename}"

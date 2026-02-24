@@ -57,9 +57,9 @@ panes:
       When restarting backend or frontend, make sure to use the ports listed in .env.local.\n
       Because we are running backend with cargo watch, to verify your changes, just check the logs in the backend pane. No need for cargo check."
     focus: true
-  - command: 'ROOT="$(git rev-parse --show-toplevel)"; [ -f "$ROOT/.env.local" ] && source "$ROOT/.env.local"; cd "$ROOT/backend" && PORT=${BACKEND_PORT:-8000} cargo watch -x run'
+  - command: 'ROOT="$(git rev-parse --show-toplevel)"; [ -f "$ROOT/.env.local" ] && source "$ROOT/.env.local"; cd "$ROOT/backend" && PORT=${BACKEND_PORT:-8000} cargo watch -x "run ${CARGO_FEATURES:+--features $CARGO_FEATURES}"'
     split: horizontal
-  - command: 'ROOT="$(git rev-parse --show-toplevel)"; [ -f "$ROOT/.env.local" ] && source "$ROOT/.env.local"; cd "$ROOT/frontend" && npm install && npm run generate-backend-client && REMOTE=${REMOTE:-http://localhost:${BACKEND_PORT:-8000}} npm run dev -- --port ${FRONTEND_PORT:-3000} --host 0.0.0.0'
+  - command: 'ROOT="$(git rev-parse --show-toplevel)"; [ -f "$ROOT/.env.local" ] && source "$ROOT/.env.local"; cd "$ROOT/frontend" && npm run generate-backend-client && REMOTE=${REMOTE:-http://localhost:${BACKEND_PORT:-8000}} npm run dev -- --port ${FRONTEND_PORT:-3000} --host 0.0.0.0'
     split: vertical
 
 files:
