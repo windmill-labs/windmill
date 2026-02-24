@@ -66,8 +66,21 @@
 		}
 	}
 
-	// Border color mapping from NoteColor
+	// Border color mapping from NoteColor (same shade as background)
 	const GROUP_BORDER_COLORS: Record<NoteColor, string> = {
+		[NoteColor.YELLOW]: 'border-yellow-200 dark:border-yellow-900',
+		[NoteColor.BLUE]: 'border-blue-100 dark:border-blue-950',
+		[NoteColor.GREEN]: 'border-green-200 dark:border-green-900',
+		[NoteColor.PURPLE]: 'border-purple-200 dark:border-purple-900',
+		[NoteColor.PINK]: 'border-pink-200 dark:border-pink-900',
+		[NoteColor.ORANGE]: 'border-orange-200 dark:border-orange-900',
+		[NoteColor.RED]: 'border-red-200 dark:border-red-900',
+		[NoteColor.CYAN]: 'border-cyan-200 dark:border-cyan-900',
+		[NoteColor.LIME]: 'border-lime-200 dark:border-lime-900',
+		[NoteColor.GRAY]: 'border-gray-200 dark:border-gray-800'
+	}
+
+	const GROUP_BORDER_COLORS_HOVER: Record<NoteColor, string> = {
 		[NoteColor.YELLOW]: 'border-yellow-400 dark:border-yellow-600',
 		[NoteColor.BLUE]: 'border-blue-400 dark:border-blue-600',
 		[NoteColor.GREEN]: 'border-green-400 dark:border-green-600',
@@ -80,11 +93,9 @@
 		[NoteColor.GRAY]: 'border-gray-400 dark:border-gray-600'
 	}
 
-	function getBorderColorClass(color?: string): string {
-		return (
-			GROUP_BORDER_COLORS[(color as NoteColor) ?? NoteColor.BLUE] ??
-			GROUP_BORDER_COLORS[NoteColor.BLUE]
-		)
+	function getBorderColorClass(color?: string, hovered?: boolean): string {
+		const map = hovered ? GROUP_BORDER_COLORS_HOVER : GROUP_BORDER_COLORS
+		return map[(color as NoteColor) ?? NoteColor.BLUE] ?? map[NoteColor.BLUE]
 	}
 
 	function toggleCollapse(groupId: string) {
@@ -101,7 +112,7 @@
 			<ViewportPortal target="front">
 				<!-- Always-visible border (no bg, solid 1px) -->
 				<div
-					class="absolute rounded-lg border pointer-events-none {getBorderColorClass(group.color)}"
+					class="absolute rounded-lg border pointer-events-none transition-colors duration-150 {getBorderColorClass(group.color, visibleGroup?.id === group.id)}"
 					style:transform="translate({bounds.x}px, {bounds.y}px)"
 					style:width="{bounds.width}px"
 					style:height="{bounds.height}px"
@@ -114,6 +125,7 @@
 						style="pointer-events: auto;"
 						onpointerenter={() => {
 							actionBarHovered = true
+							visibleGroup = group
 							if (hideTimeout) {
 								clearTimeout(hideTimeout)
 								hideTimeout = undefined
