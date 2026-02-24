@@ -1,5 +1,7 @@
-FROM node:slim
+FROM oven/bun:slim
 
-RUN npm install -g windmill-cli
+RUN bun install -g windmill-cli
+
+RUN ln -s $(bun pm bin -g)/wmill /usr/bin/wmill
 
 ENTRYPOINT [ "wmill" ]

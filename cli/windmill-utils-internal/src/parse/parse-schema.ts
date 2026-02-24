@@ -228,7 +228,7 @@ export function argSigToJsonSchemaType(
         if (oldS.items && typeof oldS.items === "object") {
           ITEMS_PRESERVED_FIELDS.forEach((field) => {
             if (oldS.items && oldS.items[field] !== undefined) {
-              newS.items![field] = oldS.items[field];
+              (newS.items as any)[field] = oldS.items[field];
             }
           });
         }
@@ -241,7 +241,7 @@ export function argSigToJsonSchemaType(
       if (oldS.items && typeof oldS.items === "object") {
         ITEMS_PRESERVED_FIELDS.forEach((field) => {
           if (oldS.items && oldS.items[field] !== undefined) {
-            newS.items![field] = oldS.items[field];
+            (newS.items as any)[field] = oldS.items[field];
           }
         });
       }

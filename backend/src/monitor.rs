@@ -54,7 +54,7 @@ use windmill_common::{
         HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING, JWT_SECRET_SETTING,
         KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING,
-        NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OTEL_SETTING,
+        NPMRC_SETTING, NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OTEL_SETTING,
         OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
         POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
@@ -89,9 +89,9 @@ use windmill_worker::{
     result_processor::handle_job_error, JobCompletedSender, JobIsolationLevel,
     OtelTracingProxySettings, SameWorkerSender, BUNFIG_INSTALL_SCOPES, CARGO_REGISTRIES,
     INSTANCE_PYTHON_VERSION, JAVA_HOME_DIR, JOB_DEFAULT_TIMEOUT, JOB_ISOLATION, KEEP_JOB_DIR,
-    MAVEN_REPOS, MAVEN_SETTINGS_XML, NO_DEFAULT_MAVEN, NPM_CONFIG_REGISTRY, NSJAIL_AVAILABLE,
-    NUGET_CONFIG, OTEL_TRACING_PROXY_SETTINGS, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL,
-    POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL, UV_INDEX_STRATEGY,
+    MAVEN_REPOS, MAVEN_SETTINGS_XML, NO_DEFAULT_MAVEN, NPMRC, NPM_CONFIG_REGISTRY,
+    NSJAIL_AVAILABLE, NUGET_CONFIG, OTEL_TRACING_PROXY_SETTINGS, PIP_EXTRA_INDEX_URL,
+    PIP_INDEX_URL, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL, UV_INDEX_STRATEGY,
 };
 
 #[cfg(feature = "parquet")]
@@ -330,6 +330,7 @@ pub async fn initial_load(
         reload_uv_index_strategy_setting(&conn).await;
         reload_npm_config_registry_setting(&conn).await;
         reload_bunfig_install_scopes_setting(&conn).await;
+        reload_npmrc_setting(&conn).await;
         reload_instance_python_version_setting(&conn).await;
         reload_nuget_config_setting(&conn).await;
         reload_powershell_repo_url_setting(&conn).await;
@@ -1304,6 +1305,10 @@ pub async fn reload_bunfig_install_scopes_setting(conn: &Connection) {
         BUNFIG_INSTALL_SCOPES.clone(),
     )
     .await;
+}
+
+pub async fn reload_npmrc_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(conn, NPMRC_SETTING, "NPMRC", NPMRC.clone()).await;
 }
 
 pub async fn reload_nuget_config_setting(conn: &Connection) {

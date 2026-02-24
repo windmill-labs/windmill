@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH job_result AS (\n                 SELECT result\n                 FROM v2_job_completed\n                 WHERE id = $1\n             ),\n             updated_queue AS (\n                UPDATE v2_job_queue\n                SET running = false,\n                tag = COALESCE($3, tag),\n                scheduled_for = COALESCE($6, scheduled_for)\n                WHERE id = $2\n             )\n             UPDATE v2_job\n             SET\n                tag = COALESCE($3, tag),\n                concurrent_limit = COALESCE($4, concurrent_limit),\n                concurrency_time_window_s = COALESCE($5, concurrency_time_window_s),\n                args = COALESCE(\n                     CASE\n                         WHEN job_result.result IS NULL THEN NULL\n                         WHEN jsonb_typeof(job_result.result) = 'object'\n                         THEN job_result.result\n                         WHEN jsonb_typeof(job_result.result) = 'null'\n                         THEN NULL\n                         ELSE jsonb_build_object('value', job_result.result)\n                     END,\n                     '{}'::jsonb\n                 ),\n                 preprocessed = TRUE\n             FROM job_result\n             WHERE v2_job.id = $2;\n             ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Varchar",
+        "Int4",
+        "Int4",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "79b437ad31ddab94310989b8fb6a1c130b9be1ab4b6a100fffffd687677b9c92"
+}

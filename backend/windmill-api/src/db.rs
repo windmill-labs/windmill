@@ -15,7 +15,10 @@ use sqlx::{
 
 use tokio::task::JoinHandle;
 pub use windmill_common::db::DB;
-use windmill_common::{error::Error, utils::{generate_lock_id, GIT_VERSION}};
+use windmill_common::{
+    error::Error,
+    utils::{generate_lock_id, GIT_VERSION},
+};
 
 #[allow(unused_imports)]
 pub use windmill_api_auth::{ApiAuthed, OptJobAuthed};
@@ -255,13 +258,37 @@ pub async fn migrate(
     if let Err(err) = sqlx::query!(
         "DELETE FROM _sqlx_migrations WHERE
         version=20250131115248 OR version=20250902085503 OR version=20250201145630 OR
-        version=20250201145631 OR version=20250201145632 OR version=20251006143821 OR
-        version=20260207000001 OR version=20260207000002 OR version=20260207000003 OR version=20260207000004"
+        version=20250201145631 OR version=20250201145632 OR version=20251006143821"
     )
     .execute(db)
     .await
     {
         tracing::info!("Could not remove sqlx migrations: {err:#}");
+    }
+
+    // For migrations that were replaced (same version, new content), only delete if
+    // the stored checksum doesn't match the current file — i.e., it's a stale record
+    // from the old broken version. Once the new migration is applied, the checksum
+    // matches and the record is kept, avoiding expensive re-application on every start.
+    let migrator = sqlx::migrate!("../migrations");
+    let potentially_stale: &[i64] = &[
+        20260207000001,
+        20260207000002,
+        20260207000003,
+        20260207000004,
+    ];
+    for m in migrator.migrations.iter() {
+        if potentially_stale.contains(&m.version) {
+            if let Err(err) =
+                sqlx::query("DELETE FROM _sqlx_migrations WHERE version = $1 AND checksum != $2")
+                    .bind(m.version)
+                    .bind(&*m.checksum)
+                    .execute(db)
+                    .await
+            {
+                tracing::info!("Could not clean up stale migration {}: {err:#}", m.version);
+            }
+        }
     }
 
     tokio::select! {
@@ -309,12 +336,11 @@ pub async fn wait_for_migrations(
     let mut attempts = 0;
 
     loop {
-        let is_applied: Result<Option<bool>, sqlx::Error> = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM _sqlx_migrations WHERE version = $1)",
-        )
-        .bind(latest_version)
-        .fetch_one(db)
-        .await;
+        let is_applied: Result<Option<bool>, sqlx::Error> =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM _sqlx_migrations WHERE version = $1)")
+                .bind(latest_version)
+                .fetch_one(db)
+                .await;
 
         match is_applied {
             Ok(Some(true)) => {

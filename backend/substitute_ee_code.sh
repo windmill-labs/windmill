@@ -7,6 +7,7 @@ REVERT="NO"
 COPY="NO"
 MOVE_NEW_FILES="NO"
 EE_CODE_DIR="../windmill-ee-private/"
+DIR_EXPLICIT="NO"
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -34,6 +35,7 @@ while [[ $# -gt 0 ]]; do
       # Path to the local directory of the windmill-ee-private repository. By defaults, it
       # assumes it is cloned next to the Windmill OSS repo.
       EE_CODE_DIR="$2"
+      DIR_EXPLICIT="YES"
       shift # past argument
       shift # past value
       ;;
@@ -55,8 +57,20 @@ else
 fi
 
 # Fallback to ~/windmill-ee-private if the default location doesn't exist
-if [ ! -d "${EE_CODE_DIR}" ] && [ "${EE_CODE_DIR}" == "${root_dirpath}/../windmill-ee-private/" ]; then
+if [ ! -d "${EE_CODE_DIR}" ]; then
   EE_CODE_DIR="${HOME}/windmill-ee-private"
+fi
+
+# Unless --dir was explicitly set, try to find an EE worktree on the same branch
+if [ "$DIR_EXPLICIT" == "NO" ] && [ -d "${HOME}/windmill-ee-private" ]; then
+  current_branch=$(git -C "${root_dirpath}" branch --show-current 2>/dev/null || true)
+  if [ -n "$current_branch" ]; then
+    ee_worktree=$(git -C "${HOME}/windmill-ee-private" worktree list 2>/dev/null \
+      | awk -v branch="[${current_branch}]" '$NF == branch {print $1; exit}')
+    if [ -n "$ee_worktree" ] && [ -d "$ee_worktree" ]; then
+      EE_CODE_DIR="$ee_worktree"
+    fi
+  fi
 fi
 
 echo "EE code directory = ${EE_CODE_DIR} | Revert = ${REVERT}"

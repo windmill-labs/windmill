@@ -1,4 +1,7 @@
-// deno-lint-ignore-file no-explicit-any
+import { stat, writeFile, readdir, readFile } from "node:fs/promises";
+import { stringify as yamlStringify } from "yaml";
+import nodePath from "node:path";
+
 import {
   GlobalOptions,
   isSuperset,
@@ -7,7 +10,11 @@ import {
 } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
-import { colors, Command, log, SEP, Table } from "../../../deps.ts";
+import { Command } from "@cliffy/command";
+import { Table } from "@cliffy/table";
+import { colors } from "@cliffy/ansi/colors";
+import * as log from "../../core/log.ts";
+import { sep as SEP } from "node:path";
 import * as wmill from "../../../gen/services.gen.ts";
 import { Resource } from "../../../gen/types.gen.ts";
 import { readInlinePathSync } from "../../utils/utils.ts";
@@ -19,6 +26,24 @@ export interface ResourceFile {
   description?: string;
   resource_type: string;
   is_oauth?: boolean; // deprecated
+}
+
+async function readFilesetDirectory(dirPath: string): Promise<Record<string, string>> {
+  const result: Record<string, string> = {};
+  async function walk(currentPath: string, prefix: string) {
+    const entries = await readdir(currentPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const entryPath = nodePath.join(currentPath, entry.name);
+      const relPath = prefix ? prefix + "/" + entry.name : entry.name;
+      if (entry.isDirectory()) {
+        await walk(entryPath, relPath);
+      } else if (entry.isFile()) {
+        result[relPath] = await readFile(entryPath, "utf-8");
+      }
+    }
+  }
+  await walk(dirPath, "");
+  return result;
 }
 
 export async function pushResource(
@@ -40,7 +65,10 @@ export async function pushResource(
 
   // Helper function to resolve inline content
   const resolveInlineContent = async () => {
-    if (localResource.value["content"]?.startsWith("!inline ")) {
+    if (typeof localResource.value === "string" && localResource.value.startsWith("!inline_fileset ")) {
+      const dirPath = localResource.value.split(" ")[1];
+      localResource.value = await readFilesetDirectory(dirPath.replaceAll("/", SEP));
+    } else if (localResource.value["content"]?.startsWith("!inline ")) {
       const basePath = localResource.value["content"].split(" ")[1];
 
       // If we're processing a branch-specific metadata file, read from branch-specific resource file
@@ -109,8 +137,8 @@ async function push(opts: PushOptions, filePath: string, remotePath: string) {
     return;
   }
 
-  const fstat = await Deno.stat(filePath);
-  if (!fstat.isFile) {
+  const fstat = await stat(filePath);
+  if (!fstat.isFile()) {
     throw new Error("file path must refer to a file.");
   }
 
@@ -126,7 +154,7 @@ async function push(opts: PushOptions, filePath: string, remotePath: string) {
   log.info(colors.bold.underline.green(`Resource ${remotePath} pushed`));
 }
 
-async function list(opts: GlobalOptions) {
+async function list(opts: GlobalOptions & { json?: boolean }) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   let page = 0;
@@ -145,17 +173,73 @@ async function list(opts: GlobalOptions) {
     }
   }
 
-  new Table()
-    .header(["Path", "Resource Type"])
-    .padding(2)
-    .border(true)
-    .body(total.map((x) => [x.path, x.resource_type]))
-    .render();
+  if (opts.json) {
+    console.log(JSON.stringify(total));
+  } else {
+    new Table()
+      .header(["Path", "Resource Type"])
+      .padding(2)
+      .border(true)
+      .body(total.map((x) => [x.path, x.resource_type]))
+      .render();
+  }
+}
+
+async function newResource(opts: GlobalOptions, path: string) {
+  if (!validatePath(path)) {
+    return;
+  }
+  const filePath = path + ".resource.yaml";
+  try {
+    await stat(filePath);
+    throw new Error("File already exists: " + filePath);
+  } catch (e: any) {
+    if (e.message?.startsWith("File already exists")) throw e;
+    // file doesn't exist, proceed
+  }
+  const template: ResourceFile = {
+    value: {},
+    resource_type: "",
+    description: "",
+  };
+  await writeFile(filePath, yamlStringify(template as Record<string, any>), {
+    flag: "wx",
+    encoding: "utf-8",
+  });
+  log.info(colors.green(`Created ${filePath}`));
+}
+
+async function get(opts: GlobalOptions & { json?: boolean }, path: string) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  const r = await wmill.getResource({
+    workspace: workspace.workspaceId,
+    path,
+  });
+  if (opts.json) {
+    console.log(JSON.stringify(r));
+  } else {
+    console.log(colors.bold("Path:") + " " + r.path);
+    console.log(colors.bold("Resource Type:") + " " + (r.resource_type ?? ""));
+    console.log(colors.bold("Description:") + " " + (r.description ?? ""));
+    console.log(colors.bold("Value:") + " " + JSON.stringify(r.value, null, 2));
+  }
 }
 
 const command = new Command()
   .description("resource related commands")
+  .option("--json", "Output as JSON (for piping to jq)")
   .action(list as any)
+  .command("list", "list all resources")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(list as any)
+  .command("get", "get a resource's details")
+  .arguments("<path:string>")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(get as any)
+  .command("new", "create a new resource locally")
+  .arguments("<path:string>")
+  .action(newResource as any)
   .command(
     "push",
     "push a local resource spec. This overrides any remote versions."

@@ -9,12 +9,11 @@ set -e
 # Generate utils client files
 ./windmill-utils-internal/gen_wm_client.sh
 
-# Add .ts extensions to windmill-utils-internal
-./windmill-utils-internal/remove-ts-ext.sh -r
+# Install dependencies
+bun install
 
-# Run dnt
-echo "Running dnt..."
-deno run -A dnt.ts
+# Build npm package with bun
+echo "Building npm package..."
+bun run build-npm.ts
 
 echo "Build complete!"
-

@@ -1,14 +1,11 @@
-// deno-lint-ignore-file no-explicit-any
-
-import {
-  colors,
-  Diff,
-  log,
-  path,
-  SEP,
-  yamlParseContent,
-  yamlStringify,
-} from "../deps.ts";
+import { colors } from "@cliffy/ansi/colors";
+import * as Diff from "diff";
+import * as log from "./core/log.ts";
+import * as path from "node:path";
+import { sep as SEP } from "node:path";
+import { stringify as yamlStringify } from "yaml";
+import { yamlParseContent } from "./utils/yaml.ts";
+import { readFileSync } from "node:fs";
 import { pushApp } from "./commands/app/app.ts";
 import { pushFolder } from "./commands/folder/folder.ts";
 import { pushFlow } from "./commands/flow/flow.ts";
@@ -17,7 +14,7 @@ import { pushResourceType } from "./commands/resource-type/resource-type.ts";
 import { pushVariable } from "./commands/variable/variable.ts";
 import { yamlOptions } from "./commands/sync/sync.ts";
 import { showDiffs } from "./core/conf.ts";
-import { deepEqual, isFileResource, isWorkspaceDependencies } from "./utils/utils.ts";
+import { deepEqual, isFileResource, isFilesetResource, isWorkspaceDependencies } from "./utils/utils.ts";
 import { pushSchedule } from "./commands/schedule/schedule.ts";
 import { pushWorkspaceUser } from "./commands/user/user.ts";
 import { pushGroup } from "./commands/user/user.ts";
@@ -228,9 +225,9 @@ export function parseFromPath(p: string, content: string): any {
 }
 export function parseFromFile(p: string): any {
   if (p.endsWith(".json")) {
-    return JSON.parse(Deno.readTextFileSync(p));
+    return JSON.parse(readFileSync(p, "utf-8"));
   } else if (p.endsWith(".yaml") || p.endsWith(".yml")) {
-    return yamlParseContent(p, Deno.readTextFileSync(p));
+    return yamlParseContent(p, readFileSync(p, "utf-8"));
   } else {
     throw new Error("Could not read file " + p);
   }
@@ -336,7 +333,7 @@ export function getTypeStrFromPath(
   ) {
     return typeEnding;
   } else {
-    if (isFileResource(p)) {
+    if (isFileResource(p) || isFilesetResource(p)) {
       return "resource";
     }
     throw new Error("Could not infer type of path " + JSON.stringify(parsed));

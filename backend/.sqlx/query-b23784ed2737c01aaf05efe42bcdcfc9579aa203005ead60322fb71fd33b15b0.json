@@ -102,8 +102,7 @@
                 "aiagent",
                 "unassigned_script",
                 "unassigned_flow",
-                "unassigned_singlestepflow",
-                "snapshotbuild"
+                "unassigned_singlestepflow"
               ]
             }
           }

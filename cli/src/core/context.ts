@@ -1,5 +1,8 @@
-// deno-lint-ignore-file no-explicit-any
-import { colors, log, Select, Confirm, Input } from "../../deps.ts";
+import { colors } from "@cliffy/ansi/colors";
+import * as log from "./log.ts";
+import { Select } from "@cliffy/prompt/select";
+import { Confirm } from "@cliffy/prompt/confirm";
+import { Input } from "@cliffy/prompt/input";
 
 import { loginInteractive } from "./login.ts";
 import { GlobalOptions } from "../types.ts";
@@ -56,7 +59,7 @@ async function selectFromMultipleProfiles(
   }
 
   // No last used or it no longer exists - prompt for selection
-  if (!Deno.stdin.isTerminal() || !Deno.stdout.isTerminal()) {
+  if (!!!process.stdin.isTTY || !!!process.stdout.isTTY) {
     const selectedProfile = profiles[0];
     log.info(
       colors.yellow(
@@ -129,7 +132,7 @@ async function createWorkspaceProfileInteractively(
     );
   }
 
-  if (!Deno.stdin.isTerminal() || !Deno.stdout.isTerminal()) {
+  if (!!!process.stdin.isTTY || !!!process.stdout.isTTY) {
     log.info(
       "Not a TTY, cannot create profile interactively. Use 'wmill workspace add' first."
     );
@@ -382,7 +385,7 @@ export async function resolveWorkspace(
         normalizedBaseUrl = new URL(opts.baseUrl).toString(); // add trailing slash if not present
       } catch (error) {
         log.info(colors.red(`Invalid base URL: ${opts.baseUrl}`));
-        return Deno.exit(-1);
+        return process.exit(-1);
       }
 
       // Try to find existing workspace profile by name, then by workspaceId + remote
@@ -423,7 +426,7 @@ export async function resolveWorkspace(
                 `Base URL mismatch: --base-url is ${normalizedBaseUrl} but workspace profile "${opts.workspace}" uses ${existingWorkspace.remote}`
               )
             );
-            return Deno.exit(-1);
+            return process.exit(-1);
           }
           // Use the existing workspace profile (preserves workspace name)
           return {
@@ -446,7 +449,7 @@ export async function resolveWorkspace(
           "If you specify a base URL with --base-url, you must also specify a workspace (--workspace) and token (--token)."
         )
       );
-      return Deno.exit(-1);
+      return process.exit(-1);
     }
   }
 
@@ -456,11 +459,12 @@ export async function resolveWorkspace(
   // forked workspace, that we detect through the branch name (only when not using branchOverride)
   const res = await tryResolveWorkspace(opts);
   if (!res.isError) {
+    const workspace = (res as { isError: false; value: Workspace }).value;
     if (branchOverride || !branch || !branch.startsWith(WM_FORK_PREFIX)) {
-      return res.value;
+      return workspace;
     } else {
       log.info(
-        `Found an active workspace \`${res.value.name}\` but the branch name indicates this is a forked workspace. Ignoring active workspace and trying to resolve the correct workspace from the branch name \`${branch}\``
+        `Found an active workspace \`${workspace.name}\` but the branch name indicates this is a forked workspace. Ignoring active workspace and trying to resolve the correct workspace from the branch name \`${branch}\``
       );
     }
   }
@@ -479,20 +483,48 @@ export async function resolveWorkspace(
           `Failed to resolve workspace profile for workspace fork. This most likely means that the original branch \`${originalBranch}\` where \`${branch}\` is originally forked from, is not setup in the wmill.yaml. You need to update the \`gitBranches\` section for \`${originalBranch}\` to include workspaceId and baseUrl.`
         )
       );
-      return Deno.exit(-1);
+      return process.exit(-1);
     }
   }
 
-  // Fall back to active workspace (lowest priority)
+  // Fall back to active workspace
   const activeWorkspace = await getActiveWorkspace(opts);
   if (activeWorkspace) {
     (opts as any).__secret_workspace = activeWorkspace;
     return activeWorkspace;
   }
 
+  // Last resort: auto-configure from Windmill environment variables
+  // (set by the worker for bash/script execution)
+  const envWorkspace = process.env["WM_WORKSPACE"];
+  const envToken = process.env["WM_TOKEN"];
+  const envBaseUrl =
+    process.env["BASE_INTERNAL_URL"] ?? process.env["BASE_URL"];
+
+  if (envWorkspace && envToken && envBaseUrl) {
+    let normalizedBaseUrl: string;
+    try {
+      normalizedBaseUrl = new URL(envBaseUrl).toString();
+    } catch {
+      log.info(colors.red(`Invalid BASE_INTERNAL_URL: ${envBaseUrl}`));
+      return process.exit(-1);
+    }
+    log.debug(
+      `Using workspace from environment variables: ${envWorkspace} on ${normalizedBaseUrl}`
+    );
+    const ws: Workspace = {
+      name: envWorkspace,
+      workspaceId: envWorkspace,
+      remote: normalizedBaseUrl,
+      token: envToken,
+    };
+    (opts as any).__secret_workspace = ws;
+    return ws;
+  }
+
   // If everything failed, show error
   log.info(colors.red.bold("No workspace given and no default set."));
-  return Deno.exit(-1);
+  return process.exit(-1);
 }
 
 export async function fetchVersion(baseUrl: string): Promise<string> {
@@ -529,7 +561,8 @@ export async function tryResolveVersion(
 
   const workspaceRes = await tryResolveWorkspace(opts);
   if (workspaceRes.isError) return undefined;
-  const version = await fetchVersion(workspaceRes.value.remote);
+  const workspace = (workspaceRes as { isError: false; value: Workspace }).value;
+  const version = await fetchVersion(workspace.remote);
 
   try {
     return Number.parseInt(

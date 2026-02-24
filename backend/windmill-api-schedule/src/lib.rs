@@ -516,8 +516,15 @@ pub struct ListScheduleQuery {
     pub per_page: Option<usize>,
     pub path: Option<String>,
     pub is_flow: Option<bool>,
+    // filter by matching a subset of the args using base64 encoded json subset
     pub args: Option<String>,
     pub path_start: Option<String>,
+    // exact match on schedule path
+    pub schedule_path: Option<String>,
+    // filter on description (pattern match)
+    pub description: Option<String>,
+    // filter on summary (pattern match)
+    pub summary: Option<String>,
 }
 
 #[derive(sqlx::FromRow, Serialize, Deserialize, Debug, Clone)]
@@ -572,6 +579,18 @@ async fn list_schedule(
     }
     if let Some(path_start) = &lsq.path_start {
         sqlb.and_where_like_left("path", path_start);
+    }
+    if let Some(schedule_path) = &lsq.schedule_path {
+        sqlb.and_where_eq("path", "?".bind(schedule_path));
+    }
+    if let Some(description) = &lsq.description {
+        sqlb.and_where(&format!(
+            "description ILIKE '%{}%'",
+            description.replace("'", "''")
+        ));
+    }
+    if let Some(summary) = &lsq.summary {
+        sqlb.and_where(&format!("summary ILIKE '%{}%'", summary.replace("'", "''")));
     }
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let rows = sqlx::query_as::<_, ScheduleLight>(&sql)

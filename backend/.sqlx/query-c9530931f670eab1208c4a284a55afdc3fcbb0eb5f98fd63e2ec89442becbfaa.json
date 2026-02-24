@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                WITH _ AS (\n                    UPDATE debounce_key\n                    SET debounced_times = 0,\n                        first_started_at = now(),\n                        previous_job_id = NULL\n                    WHERE job_id = $1\n                )\n                UPDATE v2_job_debounce_batch\n                SET debounce_batch = nextval('debounce_batch_seq')\n                WHERE id = $1\n                    ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c9530931f670eab1208c4a284a55afdc3fcbb0eb5f98fd63e2ec89442becbfaa"
+}
