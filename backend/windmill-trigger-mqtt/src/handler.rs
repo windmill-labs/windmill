@@ -66,7 +66,7 @@ impl TriggerCrud for MqttTrigger {
 
     async fn create_trigger(
         &self,
-        db: &DB,
+        _db: &DB,
         tx: &mut PgConnection,
         authed: &ApiAuthed,
         w_id: &str,
@@ -130,7 +130,7 @@ impl TriggerCrud for MqttTrigger {
 
     async fn update_trigger(
         &self,
-        db: &DB,
+        _db: &DB,
         tx: &mut PgConnection,
         authed: &ApiAuthed,
         workspace_id: &str,
