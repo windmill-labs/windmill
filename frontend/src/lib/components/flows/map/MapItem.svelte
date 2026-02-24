@@ -25,8 +25,6 @@
 		moduleAction: ModuleActionInfo | undefined
 		annotation?: string | undefined
 		nodeState?: FlowNodeState
-		/** The ID of the enclosing subflow module, if any */
-		parentSubflowId?: string | undefined
 		duration_ms?: number | undefined
 		retries?: number | undefined
 		flowJobs:
@@ -59,7 +57,6 @@
 		moduleAction = undefined,
 		annotation = undefined,
 		nodeState,
-		parentSubflowId = undefined,
 		duration_ms = undefined,
 		retries = undefined,
 		flowJobs,
@@ -109,14 +106,7 @@
 	}
 
 	/** Whether this module should be faded because it or its parent subflow is being moved/dragged */
-	let isPartOfMovingSubflow = $derived.by(() => {
-		// Drag case: check set membership (covers all nesting levels)
-		if (moveManager?.draggedNodeIds?.has(mod.id)) return true
-		// Legacy move case: check immediate parent
-		const movingId = moveManager?.movingModuleId
-		if (!movingId) return false
-		return movingId === mod.id || movingId === parentSubflowId
-	})
+	let isPartOfMovingSubflow = $derived(moveManager?.draggedNodeIds?.has(mod.id) ?? false)
 
 </script>
 

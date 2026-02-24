@@ -26,6 +26,36 @@ type DragInfo = {
 	isSubflow: boolean
 }
 
+/**
+ * Compute the set of node IDs belonging to a subflow (or a single step).
+ * Includes the module itself, all nested children (id starts with `moduleId-`),
+ * and structural edge endpoints whose `disableMoveIds` reference this module.
+ */
+export function getSubflowNodeIds(
+	moduleId: string,
+	allNodes: { id: string }[],
+	allEdges: { source: string; target: string; data?: any }[]
+): Set<string> {
+	const nodeIdPrefix = moduleId + '-'
+	const nodeIds = new Set<string>()
+
+	for (const n of allNodes) {
+		if (n.id === moduleId || n.id.startsWith(nodeIdPrefix)) {
+			nodeIds.add(n.id)
+		}
+	}
+
+	for (const e of allEdges) {
+		const disableIds: string[] = e.data?.disableMoveIds ?? []
+		if (disableIds.includes(moduleId)) {
+			nodeIds.add(e.source)
+			nodeIds.add(e.target)
+		}
+	}
+
+	return nodeIds
+}
+
 export class MoveManager {
 	dragging = $state<DragInfo | undefined>(undefined)
 	ghostScreenX = $state(0)
@@ -39,6 +69,7 @@ export class MoveManager {
 	setMoving(id: string) {
 		if (this.movingModuleId === id) {
 			this.movingModuleId = undefined
+			this.draggedNodeIds = new Set()
 		} else {
 			this.movingModuleId = id
 		}
@@ -46,6 +77,7 @@ export class MoveManager {
 
 	clearMoving() {
 		this.movingModuleId = undefined
+		this.draggedNodeIds = new Set()
 	}
 
 	setDraggedNodeIds(ids: Set<string>) {

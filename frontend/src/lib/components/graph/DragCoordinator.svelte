@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { useSvelteFlow, type Edge, type Node } from '@xyflow/svelte'
 	import { onMount } from 'svelte'
-	import type { MoveManager } from './moveManager.svelte'
+	import { getSubflowNodeIds, type MoveManager } from './moveManager.svelte'
 	import type { GraphEventHandlers } from './graphBuilder.svelte'
 	import DragGhost from './DragGhost.svelte'
 
@@ -21,6 +21,15 @@
 
 	onMount(() => {
 		moveManager.setScreenToFlowPosition(screenToFlowPosition)
+	})
+
+	// Populate draggedNodeIds for both legacy move and drag-and-drop
+	$effect(() => {
+		const moduleId = moveManager.movingModuleId ?? moveManager.dragging?.moduleId
+		if (!moduleId) return
+
+		const ids = getSubflowNodeIds(moduleId, nodes, edges)
+		moveManager.setDraggedNodeIds(ids)
 	})
 
 	$effect(() => {

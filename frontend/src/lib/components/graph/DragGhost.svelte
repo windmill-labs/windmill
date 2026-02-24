@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { useSvelteFlow, type Node, type Edge } from '@xyflow/svelte'
-	import type { MoveManager } from './moveManager.svelte'
+	import { getSubflowNodeIds, type MoveManager } from './moveManager.svelte'
 	import { NODE } from './util'
 	import MiniFlowGraph from './MiniFlowGraph.svelte'
 	import { Move } from 'lucide-svelte'
@@ -18,28 +18,11 @@
 		moduleId: string,
 		allNodes: Node[],
 		allEdges: Edge[]
-	): { sfNodes: Node[]; sfEdges: Edge[]; nodeIds: Set<string> } {
-		const nodeIdPrefix = moduleId + '-'
-		const nodeIds = new Set<string>()
-
-		for (const n of allNodes) {
-			if (n.id === moduleId || n.id.startsWith(nodeIdPrefix)) {
-				nodeIds.add(n.id)
-			}
-		}
-
-		for (const e of allEdges) {
-			const disableIds: string[] = (e.data as any)?.disableMoveIds ?? []
-			if (disableIds.includes(moduleId)) {
-				nodeIds.add(e.source)
-				nodeIds.add(e.target)
-			}
-		}
-
+	): { sfNodes: Node[]; sfEdges: Edge[] } {
+		const nodeIds = getSubflowNodeIds(moduleId, allNodes, allEdges)
 		const sfNodes = allNodes.filter((n) => nodeIds.has(n.id))
 		const sfEdges = allEdges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
-
-		return { sfNodes, sfEdges, nodeIds }
+		return { sfNodes, sfEdges }
 	}
 
 	let isNearDrop = $derived(moveManager.nearestDropZone != null)
@@ -48,7 +31,7 @@
 		const dragging = moveManager.dragging
 		if (!dragging) return undefined
 
-		const { sfNodes, sfEdges, nodeIds } = getSubflowNodesAndEdges(dragging.moduleId, nodes, edges)
+		const { sfNodes, sfEdges } = getSubflowNodesAndEdges(dragging.moduleId, nodes, edges)
 		if (sfNodes.length === 0) return undefined
 
 		// Compute bounding box
@@ -96,13 +79,7 @@
 			data: { ...e.data, insertable: false, editMode: false }
 		}))
 
-		return { containerWidth, containerHeight, ghostNodes, ghostEdges, offsetX, offsetY, nodeIds }
-	})
-
-	$effect(() => {
-		if (ghost) {
-			moveManager.setDraggedNodeIds(ghost.nodeIds)
-		}
+		return { containerWidth, containerHeight, ghostNodes, ghostEdges, offsetX, offsetY }
 	})
 </script>
 

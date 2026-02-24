@@ -29,9 +29,7 @@
 	const { moveManager } = getGraphContext()
 
 	let faded = $derived(
-		parentModuleId != null &&
-			((moveManager?.draggedNodeIds?.has(parentModuleId) ?? false) ||
-				(moveManager?.movingModuleId != null && moveManager.movingModuleId === parentModuleId))
+		parentModuleId != null && (moveManager?.draggedNodeIds?.has(parentModuleId) ?? false)
 	)
 
 	let darkMode: boolean = $state(false)
