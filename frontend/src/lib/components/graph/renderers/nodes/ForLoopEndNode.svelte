@@ -13,7 +13,7 @@
 	const { selectionManager } = getGraphContext()
 </script>
 
-<NodeWrapper offset={data.offset} parentModuleId={data.id} moving={data.moving}>
+<NodeWrapper offset={data.offset} parentModuleId={data.id}>
 	{#snippet children({ darkMode })}
 		{#if data.simplifiedTriggerView}
 			<VirtualItem

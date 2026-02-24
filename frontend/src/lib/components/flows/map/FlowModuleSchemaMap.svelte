@@ -33,6 +33,7 @@
 	import { JobService } from '$lib/gen'
 	import { dfsByModule } from '../previousResults'
 	import type { InlineScript, InsertKind } from '$lib/components/graph/graphBuilder.svelte'
+	import { MoveManager } from '$lib/components/graph/moveManager.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import type { GraphModuleState } from '$lib/components/graph'
 	import FlowStickyNode from './FlowStickyNode.svelte'
@@ -107,8 +108,10 @@
 		flowHasChanged
 	}: Props = $props()
 
-	const { customUi, selectionManager, moving, history, flowStateStore, flowStore, pathStore } =
+	const { customUi, selectionManager, history, flowStateStore, flowStore, pathStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
+
+	const moveManager = new MoveManager()
 	const { triggersCount, triggersState } = getContext<TriggerContext>('TriggerContext')
 
 	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
@@ -117,11 +120,11 @@
 	const noteEditorContext = getNoteEditorContext()
 
 	$effect(() => {
-		if (!$moving) return
+		if (!moveManager.movingModuleId) return
 
 		function onKeyDown(e: KeyboardEvent) {
 			if (e.key === 'Escape') {
-				$moving = undefined
+				moveManager.clearMoving()
 			}
 		}
 
@@ -447,7 +450,7 @@
 			insertable
 			scroll
 			{minHeight}
-			moving={$moving?.id}
+			{moveManager}
 			maxHeight={minHeight}
 			modules={flowStore.val.value.modules}
 			{noteMode}
@@ -504,8 +507,8 @@
 					}
 
 					dfs(flowStore.val.value.modules, (mod, modules, branches) => {
-						// console.log('mod', mod.id, $moving?.id, detail, branches)
-						if (mod.id == $moving?.id) {
+						// console.log('mod', mod.id, moveManager.movingModuleId, detail, branches)
+						if (mod.id == moveManager.movingModuleId) {
 							originalModules = modules
 						}
 						if (detail.branch) {
@@ -520,15 +523,15 @@
 					})
 					if (flowStore.val.value.modules && Array.isArray(flowStore.val.value.modules)) {
 						await tick()
-						if ($moving) {
+						if (moveManager.movingModuleId) {
 							// console.log('modules', modules, movingModules, movingModule)
 							push(history, flowStore.val)
-							let indexToRemove = originalModules.findIndex((m) => $moving?.id == m.id)
+							let indexToRemove = originalModules.findIndex((m) => moveManager.movingModuleId == m.id)
 
 							let [removedModule] = originalModules.splice(indexToRemove, 1)
 							targetModules.splice(detail.index, 0, removedModule)
 							selectionManager.selectId(removedModule.id)
-							$moving = undefined
+							moveManager.clearMoving()
 						} else {
 							if (detail.isPreprocessor) {
 								await insertNewPreprocessorModule(
@@ -661,11 +664,7 @@
 				}
 			}}
 			onMove={(id) => {
-				if (!$moving || $moving.id !== id) {
-					$moving = { id }
-				} else {
-					$moving = undefined
-				}
+				moveManager.setMoving(id)
 			}}
 			onUpdateMock={(detail) => {
 				let module = findModuleById(detail.id)

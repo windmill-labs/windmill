@@ -26,12 +26,27 @@ type DragInfo = {
 	isSubflow: boolean
 }
 
-export class DragManager {
+export class MoveManager {
 	dragging = $state<DragInfo | undefined>(undefined)
 	ghostScreenX = $state(0)
 	ghostScreenY = $state(0)
 	nearestDropZone = $state<DropZone | undefined>(undefined)
 	draggedNodeIds = $state<Set<string>>(new Set())
+
+	/** The module ID currently being moved via legacy click-to-move */
+	movingModuleId = $state<string | undefined>(undefined)
+
+	setMoving(id: string) {
+		if (this.movingModuleId === id) {
+			this.movingModuleId = undefined
+		} else {
+			this.movingModuleId = id
+		}
+	}
+
+	clearMoving() {
+		this.movingModuleId = undefined
+	}
 
 	setDraggedNodeIds(ids: Set<string>) {
 		this.draggedNodeIds = ids

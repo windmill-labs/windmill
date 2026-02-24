@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { useSvelteFlow, type Node, type Edge } from '@xyflow/svelte'
-	import type { DragManager } from './dragManager.svelte'
+	import type { MoveManager } from './moveManager.svelte'
 	import { NODE } from './util'
 	import MiniFlowGraph from './MiniFlowGraph.svelte'
 	import { Move } from 'lucide-svelte'
 
-	let { dragManager, nodes, edges }: { dragManager: DragManager; nodes: Node[]; edges: Edge[] } =
+	let { moveManager, nodes, edges }: { moveManager: MoveManager; nodes: Node[]; edges: Edge[] } =
 		$props()
 
 	const { getViewport } = useSvelteFlow()
@@ -42,10 +42,10 @@
 		return { sfNodes, sfEdges, nodeIds }
 	}
 
-	let isNearDrop = $derived(dragManager.nearestDropZone != null)
+	let isNearDrop = $derived(moveManager.nearestDropZone != null)
 
 	let ghost = $derived.by(() => {
-		const dragging = dragManager.dragging
+		const dragging = moveManager.dragging
 		if (!dragging) return undefined
 
 		const { sfNodes, sfEdges, nodeIds } = getSubflowNodesAndEdges(dragging.moduleId, nodes, edges)
@@ -101,25 +101,25 @@
 
 	$effect(() => {
 		if (ghost) {
-			dragManager.setDraggedNodeIds(ghost.nodeIds)
+			moveManager.setDraggedNodeIds(ghost.nodeIds)
 		}
 	})
 </script>
 
-{#if dragManager.dragging}
+{#if moveManager.dragging}
 	<div
 		class="fixed pointer-events-none z-[10001] flex items-center justify-center w-5 h-5 rounded-full shadow border border-border transition-colors duration-150 {isNearDrop
 			? 'bg-surface-accent-primary text-white'
 			: 'bg-surface text-secondary'}"
-		style="left: {dragManager.ghostScreenX + 8}px; top: {dragManager.ghostScreenY + 8}px;"
+		style="left: {moveManager.ghostScreenX + 8}px; top: {moveManager.ghostScreenY + 8}px;"
 	>
 		<Move size={12} />
 	</div>
 	{#if ghost}
 		<div
 			class="fixed pointer-events-none z-[10000]"
-			style="left: {dragManager.ghostScreenX +
-				MOVE_BTN_OFFSET.x}px; top: {dragManager.ghostScreenY +
+			style="left: {moveManager.ghostScreenX +
+				MOVE_BTN_OFFSET.x}px; top: {moveManager.ghostScreenY +
 				MOVE_BTN_OFFSET.y}px; transform: translate({-ghost.offsetX}px, {-ghost.offsetY}px);"
 		>
 			<div

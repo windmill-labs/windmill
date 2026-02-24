@@ -13,7 +13,7 @@
 	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
 	import { getGraphContext } from '../../graphContext'
 
-	const { useDataflow, showAssets, dragManager } = getGraphContext()
+	const { useDataflow, showAssets, moveManager } = getGraphContext()
 
 	let {
 		id,
@@ -32,7 +32,6 @@
 			sourceId: string
 			branch: { rootId: string; branch: number } | undefined
 			targetId: string
-			moving: string | undefined
 			eventHandlers: GraphEventHandlers
 			index: number
 			enableTrigger: boolean
@@ -75,8 +74,8 @@
 		data?.suspendStatus
 	)
 
-	let isDragging = $derived(!!dragManager?.dragging)
-	let draggedId = $derived(dragManager?.dragging?.moduleId)
+	let isDragging = $derived(!!moveManager?.dragging)
+	let draggedId = $derived(moveManager?.dragging?.moduleId)
 	let isValidDropTarget = $derived(
 		isDragging &&
 			data?.insertable &&
@@ -87,9 +86,9 @@
 	)
 	let isNearestDrop = $derived(
 		isValidDropTarget &&
-			dragManager?.nearestDropZone?.sourceId === data?.sourceId &&
-			dragManager?.nearestDropZone?.targetId === data?.targetId &&
-			dragManager?.nearestDropZone?.index === data?.index
+			moveManager?.nearestDropZone?.sourceId === data?.sourceId &&
+			moveManager?.nearestDropZone?.targetId === data?.targetId &&
+			moveManager?.nearestDropZone?.index === data?.index
 	)
 	let isAdjacentToDragged = $derived(
 		isDragging && (data?.sourceId === draggedId || data?.targetId === draggedId)
@@ -98,7 +97,7 @@
 	// Register this edge's drop zone position with the drag manager so proximity
 	// detection uses the actual xyflow-computed position rather than re-deriving it.
 	$effect(() => {
-		if (!data?.insertable || !dragManager) return
+		if (!data?.insertable || !moveManager) return
 
 		const centerX = sourceX
 		const centerY =
@@ -108,7 +107,7 @@
 				? NODE_WITH_WRITE_ASSET_Y_OFFSET
 				: 0)
 
-		dragManager.registerDropZone(id, {
+		moveManager.registerDropZone(id, {
 			sourceId: data.sourceId,
 			targetId: data.targetId,
 			branch: data.branch,
@@ -118,7 +117,7 @@
 			centerY
 		})
 
-		return () => dragManager.unregisterDropZone(id)
+		return () => moveManager.unregisterDropZone(id)
 	})
 </script>
 
@@ -175,7 +174,7 @@
 				{@render dropTargetIndicator(isNearestDrop)}
 			</div>
 		</div>
-	{:else if data?.insertable && !$useDataflow && !data?.moving && !isDragging}
+	{:else if data?.insertable && !$useDataflow && !moveManager?.movingModuleId && !isDragging}
 		<div
 			class={twMerge('edgeButtonContainer nodrag nopan top-0')}
 			style:transform="translate(-50%, -50%)"
@@ -225,9 +224,9 @@
 		</div>
 	{/if}
 
-	{#if data?.moving}
+	{#if moveManager?.movingModuleId}
 		<div class="edgeButtonContainer nodrag nopan" style:transform="translate(-50%, -50%)">
-			{#if data.moving && !data.disableMoveIds?.includes(data.moving)}
+			{#if !data.disableMoveIds?.includes(moveManager.movingModuleId)}
 				<button
 					title="Paste module"
 					onclick={() => {

@@ -138,7 +138,7 @@
 
 	const flowGraphContext = getGraphContext()
 	const diffManager = flowGraphContext?.diffManager
-	const dragManager = flowGraphContext?.dragManager
+	const moveManager = flowGraphContext?.moveManager
 
 	let pickableIds: Record<string, any> | undefined = $state(undefined)
 
@@ -188,7 +188,7 @@
 		!!id && !!$flowPropPickerConfig && !!pickableIds && Object.keys(pickableIds).includes(id)
 	)
 
-	let isDragging = $derived(!!dragManager?.dragging)
+	let isDragging = $derived(!!moveManager?.dragging)
 
 	const outputPickerVisible = $derived(
 		editMode && (isConnectingCandidate || alwaysShowOutputPicker) && !!id && !isDragging
@@ -510,8 +510,8 @@
 								const dy = me.clientY - startY
 								if (!didDrag && Math.sqrt(dx * dx + dy * dy) > 5) {
 									didDrag = true
-									if (dragManager && id) {
-										dragManager.startDrag(id, label, startX, startY, isSubflow)
+									if (moveManager && id) {
+										moveManager.startDrag(id, label, startX, startY, isSubflow)
 									}
 								}
 							}

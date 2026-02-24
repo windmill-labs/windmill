@@ -118,7 +118,6 @@ export type InputN = {
 		eventHandlers: GraphEventHandlers
 		hasPreprocessor: boolean
 		insertable: boolean
-		moving: string | undefined
 		disableAi: boolean
 		cache: boolean
 		earlyStop: boolean
@@ -142,7 +141,6 @@ export type ModuleN = {
 		id: string
 		parentIds: string[]
 		eventHandlers: GraphEventHandlers
-		moving: string | undefined
 		/** The ID of the enclosing subflow module (forloop, branchall, branchone), if any */
 		parentSubflowId: string | undefined
 		flowModuleState: GraphModuleState | undefined
@@ -167,7 +165,6 @@ export type BranchAllStartN = {
 		flowModuleState: GraphModuleState | undefined
 		insertable: boolean
 		branchOne: boolean
-		moving: string | undefined
 	}
 }
 
@@ -178,7 +175,6 @@ export type BranchAllEndN = {
 		id: string
 		eventHandlers: GraphEventHandlers
 		flowModuleState: GraphModuleState | undefined
-		moving: string | undefined
 	}
 }
 
@@ -190,7 +186,6 @@ export type ForLoopEndN = {
 		eventHandlers: GraphEventHandlers
 		simplifiedTriggerView: boolean
 		flowModuleState: GraphModuleState | undefined
-		moving: string | undefined
 	}
 }
 
@@ -205,7 +200,6 @@ export type ForLoopStartN = {
 		editMode: boolean
 		simplifiedTriggerView: boolean
 		module: FlowModule
-		moving: string | undefined
 	}
 }
 
@@ -248,7 +242,6 @@ export type BranchOneStartN = {
 		preLabel: string | undefined
 		branchIndex: number
 		modules: FlowModule[]
-		moving: string | undefined
 	}
 }
 
@@ -259,7 +252,6 @@ export type BranchOneEndN = {
 		id: string
 		eventHandlers: GraphEventHandlers
 		flowModuleState: GraphModuleState | undefined
-		moving: string | undefined
 	}
 }
 
@@ -286,7 +278,6 @@ export type NoBranchN = {
 		branchOne: boolean
 		label: string
 		branchIndex: number
-		moving: string | undefined
 	}
 }
 
@@ -403,7 +394,6 @@ export function graphBuilder(
 	success: boolean | undefined,
 	useDataflow: boolean | undefined,
 	selectedId: string | undefined,
-	moving: string | undefined,
 	simplifiableFlow: SimplifiableFlow | undefined,
 	flowPathForTriggerNode: string | undefined,
 	expandedSubflows: Record<string, FlowModule[]>
@@ -445,7 +435,6 @@ export function graphBuilder(
 					id: module.id,
 					parentIds: [],
 					eventHandlers: eventHandlers,
-					moving: moving,
 					parentSubflowId,
 					flowModuleState: extra.flowModuleStates?.[module.id],
 					testModuleState: extra.testModuleStates?.states?.[module.id],
@@ -540,7 +529,6 @@ export function graphBuilder(
 					sourceId,
 					targetId,
 					branch,
-					moving,
 					eventHandlers,
 					simplifiedTriggerView: simplifiableFlow?.simplifiedFlow,
 					disableMoveIds: options?.disableMoveIds,
@@ -563,7 +551,6 @@ export function graphBuilder(
 				eventHandlers: eventHandlers,
 				hasPreprocessor: !!preprocessorModule || flowPathForTriggerNode == undefined,
 				insertable: extra.insertable,
-				moving: moving,
 				disableAi: extra.disableAi,
 				cache: extra.cache,
 				earlyStop: extra.earlyStop,
@@ -673,8 +660,7 @@ export function graphBuilder(
 								offset: currentOffset,
 								id: module.id,
 								eventHandlers: eventHandlers,
-								flowModuleState: extra.flowModuleStates?.[module.id],
-								moving
+								flowModuleState: extra.flowModuleStates?.[module.id]
 							},
 							type: 'branchAllEnd'
 						}
@@ -692,8 +678,7 @@ export function graphBuilder(
 									eventHandlers: eventHandlers,
 									flowModuleState: extra.flowModuleStates?.[module.id],
 									branchOne: false,
-									label: 'No branches',
-									moving
+									label: 'No branches'
 								},
 								type: 'noBranch'
 							}
@@ -720,8 +705,7 @@ export function graphBuilder(
 										eventHandlers: eventHandlers,
 										flowModuleState: extra.flowModuleStates?.[module.id],
 										insertable: extra.insertable,
-										branchOne: false,
-										moving
+										branchOne: false
 									},
 									type: 'branchAllStart'
 								}
@@ -768,8 +752,7 @@ export function graphBuilder(
 								eventHandlers: eventHandlers,
 								editMode: extra.editMode,
 								flowModuleState: extra.flowModuleStates?.[module.id],
-								selectedId: extra.selectedId,
-								moving
+								selectedId: extra.selectedId
 							},
 							type: 'forLoopStart'
 						}
@@ -791,8 +774,7 @@ export function graphBuilder(
 								id: module.id,
 								eventHandlers: eventHandlers,
 								simplifiedTriggerView,
-								flowModuleState: extra.flowModuleStates?.[module.id],
-								moving
+								flowModuleState: extra.flowModuleStates?.[module.id]
 							},
 							type: 'forLoopEnd'
 						}
@@ -867,8 +849,7 @@ export function graphBuilder(
 								offset: currentOffset,
 								eventHandlers: eventHandlers,
 								flowModuleState: extra.flowModuleStates?.[module.id],
-								id: module.id,
-								moving
+								id: module.id
 							},
 							type: 'branchOneEnd'
 						}
@@ -901,8 +882,7 @@ export function graphBuilder(
 								preLabel: undefined,
 								flowModuleState: extra.flowModuleStates?.[module.id],
 								selected: false,
-								modules: module.value.default,
-								moving
+								modules: module.value.default
 							},
 							type: 'branchOneStart'
 						}
@@ -940,8 +920,7 @@ export function graphBuilder(
 									insertable: extra.insertable,
 									flowModuleState: extra.flowModuleStates?.[module.id],
 									selected: false,
-									modules: branch.modules,
-									moving
+									modules: branch.modules
 								},
 								type: 'branchOneStart'
 							}

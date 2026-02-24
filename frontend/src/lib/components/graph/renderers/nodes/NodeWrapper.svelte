@@ -13,8 +13,6 @@
 		contextMenuItems?: ContextMenuItem[]
 		/** Parent module ID — used to fade the node when the parent subflow is being moved */
 		parentModuleId?: string
-		/** The module ID currently being moved (legacy move) */
-		moving?: string
 		children?: import('svelte').Snippet<[any]>
 	}
 
@@ -25,16 +23,15 @@
 		wrapperClass = '',
 		contextMenuItems = undefined,
 		parentModuleId = undefined,
-		moving = undefined,
 		children
 	}: Props = $props()
 
-	const { dragManager } = getGraphContext()
+	const { moveManager } = getGraphContext()
 
 	let faded = $derived(
 		parentModuleId != null &&
-			((dragManager?.draggedNodeIds?.has(parentModuleId) ?? false) ||
-				(moving != null && moving === parentModuleId))
+			((moveManager?.draggedNodeIds?.has(parentModuleId) ?? false) ||
+				(moveManager?.movingModuleId != null && moveManager.movingModuleId === parentModuleId))
 	)
 
 	let darkMode: boolean = $state(false)

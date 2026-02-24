@@ -25,7 +25,6 @@
 		moduleAction: ModuleActionInfo | undefined
 		annotation?: string | undefined
 		nodeState?: FlowNodeState
-		moving?: string | undefined
 		/** The ID of the enclosing subflow module, if any */
 		parentSubflowId?: string | undefined
 		duration_ms?: number | undefined
@@ -60,7 +59,6 @@
 		moduleAction = undefined,
 		annotation = undefined,
 		nodeState,
-		moving = undefined,
 		parentSubflowId = undefined,
 		duration_ms = undefined,
 		retries = undefined,
@@ -75,7 +73,7 @@
 		maximizeSubflow
 	}: Props = $props()
 
-	const { selectionManager, dragManager } = getGraphContext()
+	const { selectionManager, moveManager } = getGraphContext()
 
 	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')
 	const { flowStore } = flowEditorContext || {}
@@ -113,9 +111,9 @@
 	/** Whether this module should be faded because it or its parent subflow is being moved/dragged */
 	let isPartOfMovingSubflow = $derived.by(() => {
 		// Drag case: check set membership (covers all nesting levels)
-		if (dragManager?.draggedNodeIds?.has(mod.id)) return true
+		if (moveManager?.draggedNodeIds?.has(mod.id)) return true
 		// Legacy move case: check immediate parent
-		const movingId = moving
+		const movingId = moveManager?.movingModuleId
 		if (!movingId) return false
 		return movingId === mod.id || movingId === parentSubflowId
 	})
@@ -124,7 +122,7 @@
 
 {#if mod}
 	<div class="relative">
-		{#if moving == mod.id}
+		{#if moveManager?.movingModuleId == mod.id}
 			<div class="absolute z-10 -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap">
 				<Button variant="accent" on:click={() => dispatch('move')} size="xs" destructive>
 					Cancel move
@@ -167,7 +165,7 @@
 			</div>
 		{/if}
 
-		<div class={moving && isPartOfMovingSubflow ? 'opacity-50' : dragManager?.dragging && isPartOfMovingSubflow ? 'opacity-30' : ''}>
+		<div class={moveManager?.movingModuleId && isPartOfMovingSubflow ? 'opacity-50' : moveManager?.dragging && isPartOfMovingSubflow ? 'opacity-30' : ''}>
 			{#if mod.value.type === 'forloopflow' || mod.value.type === 'whileloopflow'}
 				<FlowModuleSchemaItem
 					deletable={insertable}

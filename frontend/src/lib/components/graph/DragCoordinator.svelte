@@ -1,17 +1,17 @@
 <script lang="ts">
 	import { useSvelteFlow, type Edge, type Node } from '@xyflow/svelte'
 	import { onMount } from 'svelte'
-	import type { DragManager } from './dragManager.svelte'
+	import type { MoveManager } from './moveManager.svelte'
 	import type { GraphEventHandlers } from './graphBuilder.svelte'
 	import DragGhost from './DragGhost.svelte'
 
 	let {
-		dragManager,
+		moveManager,
 		eventHandlers,
 		edges,
 		nodes
 	}: {
-		dragManager: DragManager
+		moveManager: MoveManager
 		eventHandlers: GraphEventHandlers
 		edges: Edge[]
 		nodes: Node[]
@@ -20,23 +20,23 @@
 	const { screenToFlowPosition } = useSvelteFlow()
 
 	onMount(() => {
-		dragManager.setScreenToFlowPosition(screenToFlowPosition)
+		moveManager.setScreenToFlowPosition(screenToFlowPosition)
 	})
 
 	$effect(() => {
-		if (!dragManager.dragging) return
+		if (!moveManager.dragging) return
 
 		function onPointerMove(e: PointerEvent) {
-			dragManager.updateDrag(e.clientX, e.clientY)
+			moveManager.updateDrag(e.clientX, e.clientY)
 		}
 
 		function onPointerUp(_e: PointerEvent) {
-			const moduleId = dragManager.dragging?.moduleId
-			const zone = dragManager.endDrag()
+			const moduleId = moveManager.dragging?.moduleId
+			const zone = moveManager.endDrag()
 			if (zone && moduleId) {
-				// First set the move (toggles $moving store in FlowModuleSchemaMap)
+				// First set the move (sets movingModuleId on MoveManager)
 				eventHandlers.move({ id: moduleId })
-				// Then trigger the insert, which detects $moving and performs the splice
+				// Then trigger the insert, which detects movingModuleId and performs the splice
 				eventHandlers.insert({
 					sourceId: zone.sourceId,
 					targetId: zone.targetId,
@@ -48,7 +48,7 @@
 
 		function onKeyDown(e: KeyboardEvent) {
 			if (e.key === 'Escape') {
-				dragManager.cancelDrag()
+				moveManager.cancelDrag()
 			}
 		}
 
@@ -64,4 +64,4 @@
 	})
 </script>
 
-<DragGhost {dragManager} {nodes} {edges} />
+<DragGhost {moveManager} {nodes} {edges} />

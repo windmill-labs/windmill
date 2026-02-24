@@ -74,7 +74,6 @@
 
 	const previewArgsStore = $state({ val: {} })
 	const scriptEditorDrawer = writable(undefined)
-	const moving = writable<{ id: string } | undefined>(undefined)
 	const history = initHistory(flowStore.val)
 
 	const stepsInputArgs = new StepsInputArgs()
@@ -93,7 +92,6 @@
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
 		flowEditorDrawer: writable(undefined),
-		moving,
 		history,
 		pathStore: writable(''),
 		flowStateStore,
