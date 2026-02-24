@@ -170,7 +170,8 @@ The setup is defined in `.workmux.yaml` at the repo root. Key sections:
 - **`post_create`**: Runs `scripts/worktree-env` to generate `.env.local` with port assignments
 - **`panes`**: Defines the tmux layout (agent, backend, frontend)
 - **`files.copy`**: Copies `backend/.env` and `scripts/` into each worktree
-- **`files.symlink`**: Symlinks `node_modules` and `.svelte-kit` to avoid reinstalling per worktree
+
+The `post_create` hook also copies `frontend/node_modules` using `cp -a` (preserves `.bin/` symlinks that `cp -r` would dereference).
 
 ## Enterprise (EE) Code Access
 
@@ -246,6 +247,34 @@ wmc close my-feature
 ```
 
 This kills the grouped tmux session and calls `workmux close` to close the tmux window. The worktree and branch are preserved. Grouped sessions are also automatically cleaned up when you `workmux rm` a worktree (via `scripts/worktree-cleanup`).
+
+## Cargo Features
+
+To build the backend with specific Cargo features (e.g., `enterprise`, `parquet`), pass them via `CARGO_FEATURES`. The backend pane reads this from `.env.local` and appends `--features <value>` to the `cargo watch` command.
+
+**With `wm` (workmux):**
+
+Set `CARGO_FEATURES` as an environment variable before creating the worktree:
+
+```bash
+CARGO_FEATURES="enterprise,parquet" wm add my-feature
+```
+
+This gets written to `.env.local` by the `post_create` hook (`scripts/worktree-env`), and the backend pane picks it up automatically.
+
+**With `wmc` (wm-cursor):**
+
+Use the `--features` flag:
+
+```bash
+# Create a new worktree with features
+wmc add --features "enterprise,parquet" -A -p "implement feature X"
+
+# Open an existing worktree with different features
+wmc open my-feature --features "enterprise,parquet"
+```
+
+The `--features` flag exports `CARGO_FEATURES` so the `post_create` hook writes it to `.env.local`. When using `wmc open`, it updates the existing `.env.local` with the new features.
 
 ## Login
 
