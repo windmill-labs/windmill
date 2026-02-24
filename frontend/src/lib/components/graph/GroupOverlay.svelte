@@ -123,7 +123,7 @@
 							actionBarHovered = false
 						}}
 					>
-						<GroupNodeCard summary={group.summary} stepCount={group.module_ids.length} fullWidth>
+						<GroupNodeCard summary={group.summary} stepCount={group.module_ids.length} color={group.color} fullWidth>
 							{#snippet actions()}
 								{#if editMode && visibleGroup?.id === group.id}
 									<Button
