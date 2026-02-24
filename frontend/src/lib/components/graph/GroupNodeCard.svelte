@@ -5,6 +5,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { preventDefault, stopPropagation } from 'svelte/legacy'
 	import GroupNoteArea from './GroupNoteArea.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 
 	interface Props {
 		summary?: string
@@ -43,15 +44,15 @@
 	// Inline summary editing
 	let editingSummary = $state(false)
 	let summaryInput = $state('')
-	let summaryInputElement: HTMLInputElement | undefined = $state(undefined)
+	let textInputComponent: TextInput | undefined = $state(undefined)
 
 	function startEditingSummary() {
 		if (!editMode) return
 		editingSummary = true
 		summaryInput = summary ?? ''
 		requestAnimationFrame(() => {
-			summaryInputElement?.focus()
-			summaryInputElement?.select()
+			textInputComponent?.focus()
+			textInputComponent?.select()
 		})
 	}
 
@@ -98,22 +99,18 @@
 	<div class="flex items-center w-full gap-1.5 px-2 h-[34px] relative z-1">
 		<Group size={14} />
 		{#if editingSummary}
-			<input
-				bind:this={summaryInputElement}
+			<TextInput
+				bind:this={textInputComponent}
 				bind:value={summaryInput}
-				class="text-2xs font-medium bg-transparent border-none p-0 m-0 outline-none min-w-0 flex-1 nodrag nowheel"
-				placeholder="Group"
-				onblur={saveSummary}
-				onkeydown={handleSummaryKeydown}
-				onclick={stopPropagation(preventDefault(() => {}))}
-				onpointerdown={stopPropagation(() => {})}
-				spellcheck="false"
+				size="xs"
+				class="!bg-transparent !border-transparent !shadow-none !text-2xs !font-medium !p-0 !m-0 !min-w-0 flex-1 !min-h-0 !h-auto nodrag nowheel"
+				inputProps={{ placeholder: 'Group', onblur: saveSummary, onkeydown: handleSummaryKeydown, spellcheck: false }}
 			/>
 		{:else}
 			<!-- svelte-ignore a11y_click_events_have_key_events -->
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<span
-				class="text-2xs font-medium truncate {editMode ? 'cursor-text hover:opacity-80' : ''}"
+				class="text-2xs font-medium truncate {editMode ? 'cursor-text rounded px-0.5 -mx-0.5 hover:bg-black/10 dark:hover:bg-white/10' : ''}"
 				onclick={editMode ? stopPropagation(preventDefault(startEditingSummary)) : undefined}
 				onpointerdown={editMode ? stopPropagation(preventDefault(() => {})) : undefined}
 			>{summary || 'Group'}</span>
