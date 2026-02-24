@@ -18,8 +18,6 @@ type DragInfo = {
 	isSubflow: boolean
 }
 
-const DROP_THRESHOLD_PX = 80
-
 export class DragManager {
 	dragging = $state<DragInfo | undefined>(undefined)
 	ghostScreenX = $state(0)
@@ -73,7 +71,11 @@ export class DragManager {
 
 		const draggedId = this.dragging.moduleId
 		let best: DropZone | undefined = undefined
-		let bestDist = DROP_THRESHOLD_PX
+		let bestDist = Infinity
+
+		// Box half-dimensions matching the visual drop zone
+		const halfW = 275 / 2 // NODE.width / 2
+		const halfH = 62 / 2 // NODE.gap.vertical / 2
 
 		for (const edge of edges) {
 			if (edge.type !== 'edge') continue
@@ -90,28 +92,31 @@ export class DragManager {
 			const sourceNode = nodes.find((n) => n.id === data.sourceId)
 			if (!sourceNode) continue
 
-			// The insert button is placed at (sourceX, sourceY + 32) in the EdgeLabel.
+			// The insert point is at the center of the gap between source and target nodes.
 			// sourceX/sourceY are the edge source endpoint = bottom center of source node.
-			// Nodes already have yOffset applied, so node.position.y is the final y.
 			// NODE height = 34, so bottom of node = position.y + 34.
 			// EdgeLabel offset = +32 from sourceY.
 			const insertX = sourceNode.position.x + 275 / 2
 			const insertY = sourceNode.position.y + 34 + 32
 
-			const dx = flowPos.x - insertX
-			const dy = flowPos.y - insertY
-			const dist = Math.sqrt(dx * dx + dy * dy)
+			const dx = Math.abs(flowPos.x - insertX)
+			const dy = Math.abs(flowPos.y - insertY)
 
-			if (dist < bestDist) {
-				bestDist = dist
-				best = {
-					edgeId: edge.id,
-					sourceId: data.sourceId,
-					targetId: data.targetId,
-					branch: data.branch,
-					index: data.index,
-					flowPosition: { x: insertX, y: insertY },
-					disableMoveIds
+			// Axis-aligned bounding box test
+			if (dx <= halfW && dy <= halfH) {
+				// Manhattan-like distance for ranking overlapping boxes
+				const dist = dx + dy
+				if (dist < bestDist) {
+					bestDist = dist
+					best = {
+						edgeId: edge.id,
+						sourceId: data.sourceId,
+						targetId: data.targetId,
+						branch: data.branch,
+						index: data.index,
+						flowPosition: { x: insertX, y: insertY },
+						disableMoveIds
+					}
 				}
 			}
 		}

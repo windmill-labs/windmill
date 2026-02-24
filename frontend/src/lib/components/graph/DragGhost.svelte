@@ -3,6 +3,7 @@
 	import type { DragManager } from './dragManager.svelte'
 	import { NODE } from './util'
 	import MiniFlowGraph from './MiniFlowGraph.svelte'
+	import { ArrowUpDown } from 'lucide-svelte'
 
 	let { dragManager, nodes, edges }: { dragManager: DragManager; nodes: Node[]; edges: Edge[] } =
 		$props()
@@ -37,6 +38,8 @@
 
 		return { sfNodes, sfEdges }
 	}
+
+	let isNearDrop = $derived(dragManager.nearestDropZone != null)
 
 	let subflow = $derived.by(() => {
 		const dragging = dragManager.dragging
@@ -95,13 +98,24 @@
 </script>
 
 {#if dragManager.dragging}
+	<div
+		class="fixed pointer-events-none z-[10001] flex items-center justify-center w-5 h-5 rounded-full shadow border border-border transition-colors duration-150 {isNearDrop
+			? 'bg-surface-accent-primary text-white'
+			: 'bg-surface text-secondary'}"
+		style="left: {dragManager.ghostScreenX + 12}px; top: {dragManager.ghostScreenY + 12}px;"
+	>
+		<ArrowUpDown size={12} />
+	</div>
 	{#if subflow}
 		<div
 			class="fixed pointer-events-none z-[10000]"
-			style="left: {dragManager.ghostScreenX}px; top: {dragManager.ghostScreenY}px; transform: translate({-subflow.offsetX}px, {-subflow.offsetY}px);"
+			style="left: {dragManager.ghostScreenX - 90}px; top: {dragManager.ghostScreenY +
+				10}px; transform: translate({-subflow.offsetX}px, {-subflow.offsetY}px);"
 		>
 			<div
-				style="opacity: 0.4; width: {subflow.containerWidth}px; height: {subflow.containerHeight}px;"
+				style="opacity: {isNearDrop
+					? 0.8
+					: 0.25}; width: {subflow.containerWidth}px; height: {subflow.containerHeight}px; transition: opacity 150ms ease;"
 			>
 				<MiniFlowGraph
 					nodes={subflow.ghostNodes}
@@ -114,11 +128,11 @@
 	{:else}
 		<div
 			class="fixed pointer-events-none z-[10000]"
-			style="left: {dragManager.ghostScreenX}px; top: {dragManager.ghostScreenY}px; transform: translate(-50%, -50%);"
+			style="left: {dragManager.ghostScreenX}px; top: {dragManager.ghostScreenY}px; transform: translate(-12px, -12px);"
 		>
 			<div
-				class="rounded-md bg-surface shadow-lg border border-border-selected opacity-70 px-3 py-1.5 flex items-center gap-2 text-sm text-primary truncate"
-				style="width: {NODE.width}px;"
+				class="rounded-md bg-surface shadow-lg border border-border-selected px-3 py-1.5 flex items-center gap-2 text-sm text-primary truncate transition-opacity duration-150"
+				style="opacity: {isNearDrop ? 0.9 : 0.5}; width: {NODE.width}px;"
 			>
 				<span class="font-medium truncate">{dragManager.dragging.label}</span>
 				<span
