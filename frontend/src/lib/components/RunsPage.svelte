@@ -47,7 +47,15 @@
 	import Select from '$lib/components/select/Select.svelte'
 	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
 	import { StaleWhileLoading, useLocalStorageValue } from '$lib/svelte5Utils.svelte'
-	import { CircleAlert, CircleCheck, CirclePlay, Hourglass, TriangleAlertIcon } from 'lucide-svelte'
+	import {
+		Calendar,
+		CircleAlert,
+		CircleCheck,
+		CirclePlay,
+		Clock,
+		Hourglass,
+		TriangleAlertIcon
+	} from 'lucide-svelte'
 	import DropdownV2 from './DropdownV2.svelte'
 	import TimeframeSelect, {
 		buildManualTimeframe,
@@ -669,6 +677,41 @@
 				</ToggleButtonGroup>
 			</div>
 
+			<div class="hidden xl:flex gap-2 items-center min-h-8 ml-2">
+				{#if !filters.val.job_trigger_kind || filters.val.job_trigger_kind === '!schedule'}
+					<div class="flex items-center gap-1" title="Show schedules">
+						<Toggle
+							size="xs"
+							color="nord"
+							id="show-schedules"
+							bind:checked={
+								() => filters.val.job_trigger_kind !== '!schedule',
+								(v) =>
+									v
+										? delete filters.val.job_trigger_kind
+										: (filters.val.job_trigger_kind = '!schedule')
+							}
+						/>
+						<Calendar size={14} />
+					</div>
+				{/if}
+				<div class="flex items-center gap-1" title="Show future jobs">
+					<Toggle
+						size="xs"
+						color="nord"
+						id="show-future-jobs"
+						bind:checked={
+							() => filters.val.show_future_jobs !== false,
+							(v) =>
+								v
+									? delete filters.val.show_future_jobs
+									: (filters.val.show_future_jobs = false)
+						}
+					/>
+					<Clock size={14} />
+				</div>
+			</div>
+
 			<TimeframeSelect
 				wrapperClasses="ml-auto"
 				onClick={() => jobsLoader?.loadJobs(true)}
@@ -835,6 +878,7 @@
 								<div class="flex-1"></div>
 								<Toggle
 									size="xs"
+									color="nord"
 									bind:checked={autoRefresh.val}
 									options={{ right: 'Auto-refresh' }}
 									textClass="whitespace-nowrap"
