@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Node, Edge } from '@xyflow/svelte'
+	import { useSvelteFlow, type Node, type Edge } from '@xyflow/svelte'
 	import type { DragManager } from './dragManager.svelte'
 	import { NODE } from './util'
 	import MiniFlowGraph from './MiniFlowGraph.svelte'
@@ -8,7 +8,8 @@
 	let { dragManager, nodes, edges }: { dragManager: DragManager; nodes: Node[]; edges: Edge[] } =
 		$props()
 
-	const GHOST_MAX_WIDTH = 300
+	const { getViewport } = useSvelteFlow()
+	const GHOST_ZOOM_FACTOR = 0.8
 	const PADDING = 10
 	/** Offset from the move button (drag handle) to the node center */
 	const MOVE_BTN_OFFSET = { x: -90, y: 10 }
@@ -68,7 +69,7 @@
 
 		const bbWidth = maxX - minX + PADDING * 2
 		const bbHeight = maxY - minY + PADDING * 2
-		const scale = Math.min(1, GHOST_MAX_WIDTH / bbWidth)
+		const scale = getViewport().zoom * GHOST_ZOOM_FACTOR
 		const containerWidth = Math.round(bbWidth * scale)
 		const containerHeight = Math.round(bbHeight * scale)
 
