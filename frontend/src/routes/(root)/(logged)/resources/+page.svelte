@@ -80,6 +80,7 @@
 
 	let cacheResources: ResourceW[] | undefined = $state()
 	let stateResources: ResourceW[] | undefined = $state()
+	let themeResources: ResourceW[] | undefined = $state()
 	let resources: ResourceW[] | undefined = $state()
 	let resourceTypes: ResourceTypeW[] | undefined = $state()
 
@@ -93,7 +94,8 @@
 		rt: '',
 		description: '',
 		schema: emptySchema(),
-		formatExtension: undefined as string | undefined
+		formatExtension: undefined as string | undefined,
+		isFileset: false
 	})
 
 	let resourceTypeDrawer: Drawer | undefined = $state(undefined)
@@ -102,7 +104,8 @@
 		name: '',
 		schema: emptySchema(),
 		description: '',
-		formatExtension: undefined
+		formatExtension: undefined as string | undefined,
+		isFileset: undefined as boolean | undefined
 	})
 	let isNewResourceTypeNameValid: boolean = $state(false)
 	let resourceTypeNameExists: boolean = $state(false)
@@ -111,7 +114,8 @@
 		name: '',
 		schema: emptySchema(),
 		description: '',
-		formatExtension: undefined as string | undefined
+		formatExtension: undefined as string | undefined,
+		isFileset: false
 	})
 	let resourceEditor: ResourceEditorDrawer | undefined = $state(undefined)
 	let shareModal: ShareModal | undefined = $state(undefined)
@@ -146,7 +150,7 @@
 	let filters = useUrlSyncedFilterInstance(untrack(() => resourcesFilterSchema))
 
 	async function loadResources(): Promise<void> {
-		resources = await loadResourceInternal(undefined, 'cache,state')
+		resources = await loadResourceInternal(undefined, 'cache,state,app_theme')
 		loading.resources = false
 	}
 
@@ -157,6 +161,11 @@
 
 	async function loadState(): Promise<void> {
 		stateResources = await loadResourceInternal('state', undefined)
+		loading.resources = false
+	}
+
+	async function loadTheme(): Promise<void> {
+		themeResources = await loadResourceInternal('app_theme', undefined)
 		loading.resources = false
 	}
 
@@ -229,11 +238,13 @@
 	}
 
 	async function addResourceType(): Promise<void> {
-		if (newResourceType.formatExtension === '') {
-			throw new Error('Invalid empty file extension (make sure it is selected)')
-		}
-		if (!validateFileExtension(newResourceType.formatExtension ?? 'txt')) {
-			throw new Error('Invalid file extension')
+		if (!newResourceType.isFileset) {
+			if (newResourceType.formatExtension === '') {
+				throw new Error('Invalid empty file extension (make sure it is selected)')
+			}
+			if (!validateFileExtension(newResourceType.formatExtension ?? 'txt')) {
+				throw new Error('Invalid file extension')
+			}
 		}
 		await ResourceService.createResourceType({
 			workspace: $workspaceStore!,
@@ -241,7 +252,8 @@
 				name: (disableCustomPrefix ? '' : 'c_') + newResourceType.name,
 				schema: newResourceType.schema,
 				description: newResourceType.description,
-				format_extension: newResourceType.formatExtension
+				format_extension: newResourceType.formatExtension,
+				is_fileset: newResourceType.isFileset
 			}
 		})
 		resourceTypeDrawer?.closeDrawer?.()
@@ -303,7 +315,8 @@
 			name: uniqueName,
 			schema: emptySchema(),
 			description: '',
-			formatExtension: undefined
+			formatExtension: undefined,
+			isFileset: undefined
 		}
 		validateResourceTypeName()
 
@@ -316,7 +329,8 @@
 			name: rt.name,
 			schema: rt.schema as any,
 			description: rt.description ?? '',
-			formatExtension: rt.format_extension
+			formatExtension: rt.format_extension,
+			isFileset: rt.is_fileset ?? false
 		}
 		editResourceTypeDrawer?.openDrawer?.()
 	}
@@ -431,34 +445,64 @@
 		validateResourceTypeName()
 	}
 
-	let resourceNameToFileExtMap: any = undefined
+	let resourceNameToFileExtMap: Record<string, string> | undefined = undefined
+	let resourceNameToIsFilesetMap: Record<string, boolean> | undefined = undefined
 
 	let loadingResourceNameToFileExt = false
-	async function resourceNameToFileExt(resourceName: string) {
-		if (resourceNameToFileExtMap == undefined && !loadingResourceNameToFileExt) {
-			loadingResourceNameToFileExt = true
-			try {
-				resourceNameToFileExtMap = await ResourceService.fileResourceTypeToFileExtMap({
-					workspace: $workspaceStore!
-				})
-			} catch (e) {
-				console.error('Error loading resourceNameToFileExtMap', e)
-			} finally {
-				loadingResourceNameToFileExt = false
-			}
-		} else {
+	async function loadResourceNameToFileExtMap() {
+		if (resourceNameToFileExtMap != undefined) return
+		if (loadingResourceNameToFileExt) {
 			while (resourceNameToFileExtMap == undefined) {
 				console.log('waiting for resourceNameToFileExtMap')
 				await new Promise((resolve) => setTimeout(resolve, 100))
 			}
+			return
 		}
-
-		return resourceNameToFileExtMap[resourceName]
+		loadingResourceNameToFileExt = true
+		try {
+			const raw = (await ResourceService.fileResourceTypeToFileExtMap({
+				workspace: $workspaceStore!
+			})) as Record<string, string | { format_extension: string | null; is_fileset: boolean }>
+			resourceNameToFileExtMap = {}
+			resourceNameToIsFilesetMap = {}
+			for (const [k, v] of Object.entries(raw)) {
+				if (typeof v === 'string') {
+					resourceNameToFileExtMap[k] = v
+					resourceNameToIsFilesetMap![k] = false
+				} else {
+					if (v.format_extension) {
+						resourceNameToFileExtMap[k] = v.format_extension
+					}
+					resourceNameToIsFilesetMap![k] = v.is_fileset ?? false
+				}
+			}
+		} catch (e) {
+			console.error('Error loading resourceNameToFileExtMap', e)
+		} finally {
+			loadingResourceNameToFileExt = false
+		}
 	}
+
+	function resourceNameToFileExt(resourceName: string): string | undefined {
+		return resourceNameToFileExtMap?.[resourceName]
+	}
+
+	function resourceNameIsFileset(resourceName: string): boolean {
+		return resourceNameToIsFilesetMap?.[resourceName] ?? false
+	}
+
+	// Eagerly load the map
+	loadResourceNameToFileExtMap()
 
 	// Current resources based on tab
 	let currentResources = $derived(
-		tab == 'cache' ? cacheResources : tab == 'states' ? stateResources : resources
+		tab == 'cache'
+			? cacheResources
+			: tab == 'states'
+				? stateResources
+				: tab == 'theme'
+					? themeResources
+					: resources
 	)
 
 	// Filter resources client-side for user folder filtering (admin feature)
@@ -480,8 +524,10 @@
 		filters.val
 		if ($workspaceStore) {
 			untrack(() => {
-				if (tab === 'workspace' || tab === 'theme') {
+				if (tab === 'workspace') {
 					loadResources()
+				} else if (tab === 'theme') {
+					loadTheme()
 				} else if (tab === 'cache') {
 					loadCache()
 				} else if (tab === 'states') {
@@ -560,6 +606,7 @@
 				><IconedResourceType
 					name={resourceTypeViewerObj.rt}
 					formatExtension={resourceTypeViewerObj.formatExtension}
+					isFileset={resourceTypeViewerObj.isFileset}
 				/></h1
 			>
 			{#if resourceTypeViewerObj.description}
@@ -567,7 +614,12 @@
 					<GfmMarkdown md={resourceTypeViewerObj.description ?? ''} />
 				</div>
 			{/if}
-			{#if resourceTypeViewerObj.formatExtension}
+			{#if resourceTypeViewerObj.isFileset}
+				<Alert type="info" title="Fileset resource type">
+					This resource type represents a collection of files. Each file is identified by its
+					relative path and contains text content. In the CLI, filesets are stored as directories.
+				</Alert>
+			{:else if resourceTypeViewerObj.formatExtension}
 				<Alert
 					type="info"
 					title="Plain text file resource (.{resourceTypeViewerObj.formatExtension})"
@@ -619,7 +671,11 @@
 				></textarea></label
 			>
 			<div>
-				{#if editResourceType.formatExtension}
+				{#if editResourceType.isFileset}
+					<Alert type="info" title="Fileset resource type">
+						This resource type represents a collection of files. The schema cannot be edited.
+					</Alert>
+				{:else if editResourceType.formatExtension}
 					<Alert type="info" title="Plain text file resource (.{editResourceType.formatExtension})">
 						This resource type represents a plain text file with a <b
 							>.{editResourceType.formatExtension}</b
@@ -721,6 +777,7 @@
 					<EditableSchemaWrapper
 						bind:schema={newResourceType.schema}
 						bind:formatExtension={newResourceType.formatExtension}
+						bind:isFileset={newResourceType.isFileset}
 						fullHeight
 					/>
 				</div>
@@ -895,7 +952,8 @@
 															//@ts-ignore
 															schema: linkedRt.schema,
 															description: linkedRt.description ?? '',
-															formatExtension: linkedRt.format_extension
+															formatExtension: linkedRt.format_extension,
+															isFileset: linkedRt.is_fileset ?? false
 														}
 														resourceTypeViewer?.openDrawer?.()
 													} else {
@@ -910,6 +968,7 @@
 													name={resource_type}
 													after={true}
 													formatExtension={resourceNameToFileExt(resource_type)}
+													isFileset={resourceNameIsFileset(resource_type)}
 												/>
 											</a>
 										</Cell>
@@ -1096,7 +1155,7 @@
 						</Head>
 						<tbody class="divide-y bg-surface">
 							{#if resourceTypes}
-								{#each resourceTypes as { name, description, schema, canWrite, format_extension }}
+								{#each resourceTypes as { name, description, schema, canWrite, format_extension, is_fileset }}
 									<Row>
 										<Cell first>
 											<a
@@ -1107,7 +1166,8 @@
 														//@ts-ignore
 														schema: schema,
 														description: description ?? '',
-														formatExtension: format_extension
+														formatExtension: format_extension,
+														isFileset: is_fileset ?? false
 													}
 
 													resourceTypeViewer?.openDrawer?.()
@@ -1117,6 +1177,7 @@
 													after={true}
 													{name}
 													formatExtension={format_extension}
+													isFileset={is_fileset}
 												/>
 											</a>
 										</Cell>

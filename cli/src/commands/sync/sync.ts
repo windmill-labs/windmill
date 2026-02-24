@@ -38,6 +38,7 @@ import {
   deepEqual,
   fetchRemoteVersion,
   isFileResource,
+  isFilesetResource,
   isRawAppFile,
   isWorkspaceDependencies,
 } from "../../utils/utils.ts";
@@ -484,11 +485,53 @@ export function extractInlineScriptsForApps(
   return [];
 }
 
+type FileResourceTypeInfo = { format_extension: string | null; is_fileset: boolean };
+
+function parseFileResourceTypeMap(
+  raw: Record<string, string | FileResourceTypeInfo>,
+): { formatExtMap: Record<string, string>; filesetMap: Record<string, boolean> } {
+  const formatExtMap: Record<string, string> = {};
+  const filesetMap: Record<string, boolean> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (typeof v === "string") {
+      formatExtMap[k] = v;
+      filesetMap[k] = false;
+    } else {
+      if (v.format_extension) {
+        formatExtMap[k] = v.format_extension;
+      }
+      filesetMap[k] = v.is_fileset ?? false;
+    }
+  }
+  return { formatExtMap, filesetMap };
+}
+
+async function findFilesetResourceFile(changePath: string): Promise<string> {
+  // Extract the base path before .fileset/
+  const filesetIdx = changePath.indexOf(".fileset" + SEP);
+  if (filesetIdx === -1) {
+    throw new Error(`Not a fileset resource path: ${changePath}`);
+  }
+  const basePath = changePath.substring(0, filesetIdx);
+  const candidates = [basePath + ".resource.json", basePath + ".resource.yaml"];
+
+  for (const candidate of candidates) {
+    try {
+      const s = await stat(candidate);
+      if (s.isFile()) return candidate;
+    } catch {
+      // not found, try next
+    }
+  }
+  throw new Error(`No resource metadata file found for fileset resource: ${changePath}`);
+}
+
 function ZipFSElement(
   zip: JSZip,
   useYaml: boolean,
   defaultTs: "bun" | "deno",
   resourceTypeToFormatExtension: Record<string, string>,
+  resourceTypeToIsFileset: Record<string, boolean>,
   ignoreCodebaseChanges: boolean,
 ): DynFSElement {
   async function _internal_file(
@@ -860,10 +903,17 @@ function ZipFSElement(
               log.error(`Failed to parse resource.yaml at path: ${p}`);
               throw error;
             }
+            const resourceType = parsed["resource_type"];
             const formatExtension =
-              resourceTypeToFormatExtension[parsed["resource_type"]];
+              resourceTypeToFormatExtension[resourceType];
+            const isFileset = resourceTypeToIsFileset[resourceType] ?? false;
 
-            if (formatExtension) {
+            if (isFileset) {
+              parsed["value"] =
+                "!inline_fileset " +
+                removeSuffix(p.replaceAll(SEP, "/"), ".resource.json") +
+                ".fileset";
+            } else if (formatExtension) {
               parsed["value"]["content"] =
                 "!inline " +
                 removeSuffix(p.replaceAll(SEP, "/"), ".resource.json") +
@@ -918,10 +968,37 @@ function ZipFSElement(
         log.error(`Failed to parse resource file content at path: ${p}`);
         throw error;
       }
+      const resourceType = parsed["resource_type"];
       const formatExtension =
-        resourceTypeToFormatExtension[parsed["resource_type"]];
+        resourceTypeToFormatExtension[resourceType];
+      const isFileset = resourceTypeToIsFileset[resourceType] ?? false;
 
-      if (formatExtension) {
+      if (isFileset && typeof parsed["value"] === "object" && parsed["value"] !== null) {
+        const filesetBasePath =
+          removeSuffix(finalPath, ".resource.json") + ".fileset";
+        // Push directory entry for the fileset
+        r.push({
+          isDirectory: true,
+          path: filesetBasePath,
+          async *getChildren() {
+            for (const [relPath, fileContent] of Object.entries(parsed["value"])) {
+              if (typeof fileContent === "string") {
+                yield {
+                  isDirectory: false,
+                  path: path.join(filesetBasePath, relPath),
+                  async *getChildren() {},
+                  async getContentText() {
+                    return fileContent;
+                  },
+                };
+              }
+            }
+          },
+          async getContentText() {
+            throw new Error("Cannot get content of directory");
+          },
+        });
+      } else if (formatExtension) {
         const fileContent: string = parsed["value"]["content"];
         if (typeof fileContent === "string") {
           r.push({
@@ -1058,6 +1135,7 @@ export async function elementsToMap(
     const path = entry.path;
     if (
       !isFileResource(path) &&
+      !isFilesetResource(path) &&
       !isRawAppFile(path) &&
       !isWorkspaceDependencies(path)
     ) {
@@ -1103,7 +1181,7 @@ export async function elementsToMap(
       }
     }
 
-    if (skips.skipResources && isFileResource(path)) continue;
+    if (skips.skipResources && (isFileResource(path) || isFilesetResource(path))) continue;
 
     const ext = json ? ".json" : ".yaml";
     if (!skips.includeSchedules && path.endsWith(".schedule" + ext)) continue;
@@ -1715,10 +1793,14 @@ export async function pull(
   );
 
   let resourceTypeToFormatExtension: Record<string, string> = {};
+  let resourceTypeToIsFileset: Record<string, boolean> = {};
   try {
-    resourceTypeToFormatExtension = (await wmill.fileResourceTypeToFileExtMap({
+    const raw = (await wmill.fileResourceTypeToFileExtMap({
       workspace: workspace.workspaceId,
-    })) as Record<string, string>;
+    })) as Record<string, string | FileResourceTypeInfo>;
+    const parsed = parseFileResourceTypeMap(raw);
+    resourceTypeToFormatExtension = parsed.formatExtMap;
+    resourceTypeToIsFileset = parsed.filesetMap;
   } catch {
     // ignore
   }
@@ -1745,6 +1827,7 @@ export async function pull(
     !opts.json,
     opts.defaultTs ?? "bun",
     resourceTypeToFormatExtension,
+    resourceTypeToIsFileset,
     true,
   );
 
@@ -2241,10 +2324,14 @@ export async function push(
     ),
   );
   let resourceTypeToFormatExtension: Record<string, string> = {};
+  let resourceTypeToIsFileset: Record<string, boolean> = {};
   try {
-    resourceTypeToFormatExtension = (await wmill.fileResourceTypeToFileExtMap({
+    const raw = (await wmill.fileResourceTypeToFileExtMap({
       workspace: workspace.workspaceId,
-    })) as Record<string, string>;
+    })) as Record<string, string | FileResourceTypeInfo>;
+    const parsed = parseFileResourceTypeMap(raw);
+    resourceTypeToFormatExtension = parsed.formatExtMap;
+    resourceTypeToIsFileset = parsed.filesetMap;
   } catch {
     // ignore
   }
@@ -2269,6 +2356,7 @@ export async function push(
     !opts.json,
     opts.defaultTs ?? "bun",
     resourceTypeToFormatExtension,
+    resourceTypeToIsFileset,
     false,
   );
 
@@ -2587,6 +2675,39 @@ export async function push(
                   continue;
                 }
               }
+              if (isFilesetResource(change.path)) {
+                const resourceFilePath = await findFilesetResourceFile(change.path);
+                if (!alreadySynced.includes(resourceFilePath)) {
+                  alreadySynced.push(resourceFilePath);
+
+                  const newObj = parseFromPath(
+                    resourceFilePath,
+                    await readFile(resourceFilePath, "utf-8"),
+                  );
+
+                  let serverPath = resourceFilePath;
+                  const currentBranch = cachedBranchForPush;
+
+                  if (currentBranch && isBranchSpecificFile(resourceFilePath)) {
+                    serverPath = fromBranchSpecificPath(
+                      resourceFilePath,
+                      currentBranch,
+                    );
+                  }
+
+                  await pushResource(
+                    workspace.workspaceId,
+                    serverPath,
+                    undefined,
+                    newObj,
+                    resourceFilePath,
+                  );
+                  if (stateTarget) {
+                    await writeFile(stateTarget, change.after, "utf-8");
+                  }
+                  continue;
+                }
+              }
               const oldObj = parseFromPath(change.path, change.before);
               const newObj = parseFromPath(change.path, change.after);
 
@@ -2619,7 +2740,8 @@ export async function push(
                 change.path.endsWith(".script.json") ||
                 change.path.endsWith(".script.yaml") ||
                 change.path.endsWith(".lock") ||
-                isFileResource(change.path)
+                isFileResource(change.path) ||
+                isFilesetResource(change.path)
               ) {
                 continue;
               } else if (
