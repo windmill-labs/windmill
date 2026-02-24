@@ -139,16 +139,11 @@
 			{/if}
 		</div>
 	{:else if isDragging && isValidDropTarget}
-		<div
-			class="edgeButtonContainer nodrag nopan"
-			style:transform="translate(-50%, -50%)"
-		>
+		<div class="edgeButtonContainer nodrag nopan" style:transform="translate(-50%, -50%)">
 			<div
 				class={twMerge(
 					'w-5 h-5 rounded-full border-2 border-current bg-surface flex items-center justify-center transition-all duration-150',
-					isNearestDrop
-						? 'text-accent scale-110'
-						: 'text-gray-300 dark:text-gray-600 opacity-60'
+					isNearestDrop ? 'text-accent scale-110' : 'text-secondary'
 				)}
 			>
 				<div class="w-2 h-2 rounded-full bg-current"></div>
@@ -218,9 +213,11 @@
 						})
 					}}
 					type="button"
-					class="group w-5 h-5 rounded-full border-2 border-gray-300 dark:border-gray-600 bg-surface flex items-center justify-center hover:border-accent dark:hover:border-accent hover:scale-110 transition-all duration-150"
+					class="group w-5 h-5 rounded-full border-2 border-secondary bg-surface flex items-center justify-center hover:border-accent hover:scale-110 transition-all duration-150"
 				>
-					<div class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600 group-hover:bg-accent transition-all duration-150"></div>
+					<div
+						class="w-2 h-2 rounded-full bg-secondary group-hover:bg-accent transition-all duration-150"
+					></div>
 				</button>
 			{/if}
 		</div>
