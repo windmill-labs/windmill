@@ -415,7 +415,14 @@ export function graphBuilder(
 	simplifiableFlow: SimplifiableFlow | undefined,
 	flowPathForTriggerNode: string | undefined,
 	expandedSubflows: Record<string, FlowModule[]>,
-	collapsedGroups: Array<{ id: string; summary?: string; note?: string; color?: string; collapsed?: boolean; module_ids: string[] }>,
+	collapsedGroups: Array<{
+		id: string
+		summary?: string
+		note?: string
+		color?: string
+		collapsed?: boolean
+		module_ids: string[]
+	}>,
 	showNotes: boolean
 	// triggerProps?: {
 	// 	path?: string

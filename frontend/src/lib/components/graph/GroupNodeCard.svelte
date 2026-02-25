@@ -89,7 +89,7 @@
 <div
 	class={twMerge(
 		'w-full module cursor-pointer max-w-full',
-		fullWidth ? 'rounded-t-md' : 'shadow-sm border rounded-md  overflow-clip',
+		fullWidth ? 'rounded-t-md' : 'shadow-sm rounded-md  overflow-clip',
 		'bg-surface-tertiary'
 	)}
 	style={fullWidth ? '' : 'width: 275px;'}

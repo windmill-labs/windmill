@@ -19,6 +19,7 @@
 
 	let selected = $derived(!!(selectionManager && selectionManager.isNodeSelected(id)))
 	let hover = $state(false)
+	let noteHeight = $state(0)
 
 	let group = $derived(
 		groupEditorContext?.groupEditor.getGroups().find((g) => g.id === data.groupId)
@@ -38,12 +39,12 @@
 		<div class="relative" onmouseenter={() => (hover = true)} onmouseleave={() => (hover = false)}>
 			<!-- Stacked layers behind the card -->
 			<div
-				class="absolute inset-0 top-[4px] left-2 h-9 rounded-md border z-[-1] {colorConfig.background} {borderColorClass}"
-				style="width: 259px;"
+				class="absolute inset-0 left-2 h-9 rounded-md border z-[-1] {colorConfig.background} {borderColorClass}"
+				style="top: {3 + noteHeight}px; width: 259px;"
 			></div>
 			<div
-				class="absolute inset-0 top-[7px] left-4 h-9 rounded-md border z-[-2] {colorConfig.background} {borderColorClass}"
-				style="width: 243px;"
+				class="absolute inset-0 left-4 h-9 rounded-md border z-[-2] {colorConfig.background} {borderColorClass}"
+				style="top: {7 + noteHeight}px; width: 243px;"
 			></div>
 
 			<GroupNodeCard
@@ -59,7 +60,10 @@
 				onSummaryUpdate={(text) =>
 					groupEditorContext?.groupEditor.updateSummary(data.groupId, text)}
 				onNoteUpdate={(text) => groupEditorContext?.groupEditor.updateNote(data.groupId, text)}
-				onHeightChange={(h) => groupEditorContext?.groupEditor.setNoteHeight(data.groupId, h)}
+				onHeightChange={(h) => {
+					noteHeight = h
+					groupEditorContext?.groupEditor.setNoteHeight(data.groupId, h)
+				}}
 			/>
 
 			{#if data.editMode && (hover || selected)}
