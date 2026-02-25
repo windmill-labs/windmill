@@ -4,12 +4,13 @@
 	import type { NoBranchN } from '../../graphBuilder.svelte'
 	interface Props {
 		data: NoBranchN['data']
+		id: string
 	}
 
-	let { data }: Props = $props()
+	let { data, id }: Props = $props()
 </script>
 
-<NodeWrapper offset={data.offset} enableSourceHandle enableTargetHandle parentModuleId={data.id}>
+<NodeWrapper offset={data.offset} enableSourceHandle enableTargetHandle nodeId={id}>
 	{#snippet children({ darkMode })}
 		<VirtualItem
 			label={data.label ?? 'No branches'}

@@ -13,7 +13,7 @@
 	const { selectionManager } = getGraphContext()
 </script>
 
-<NodeWrapper offset={data.offset} enableSourceHandle enableTargetHandle parentModuleId={data.id}>
+<NodeWrapper offset={data.offset} enableSourceHandle enableTargetHandle nodeId={id}>
 	{#snippet children({ darkMode })}
 		<VirtualItem
 			label={'Collect result from all branches'}
