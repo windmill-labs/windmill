@@ -19,6 +19,7 @@
 		showNote?: boolean
 		editMode?: boolean
 		modules?: FlowModule[]
+		onExpand?: () => void
 		onSummaryUpdate?: (text: string) => void
 		onNoteUpdate?: (text: string) => void
 		onHeightChange?: (height: number) => void
@@ -34,6 +35,7 @@
 		showNote = false,
 		editMode = false,
 		modules,
+		onExpand,
 		onSummaryUpdate,
 		onNoteUpdate,
 		onHeightChange
@@ -132,7 +134,13 @@
 			>
 		{/if}
 		{#if stepCount != null}
-			<span class="text-3xs opacity-60 ml-auto shrink-0 whitespace-nowrap"
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<span
+				class="text-3xs opacity-60 ml-auto shrink-0 whitespace-nowrap {onExpand
+					? 'cursor-pointer hover:opacity-100 hover:text-blue-500 dark:hover:text-blue-400'
+					: ''}"
+				onclick={onExpand ? stopPropagation(preventDefault(onExpand)) : undefined}
 				>{stepCount} node{stepCount !== 1 ? 's' : ''}</span
 			>
 		{/if}

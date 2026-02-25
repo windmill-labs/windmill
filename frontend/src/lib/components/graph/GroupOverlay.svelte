@@ -155,6 +155,7 @@
 							showNote={showNotes && group.note != null}
 							{editMode}
 							modules={getGroupModules(group)}
+							onExpand={() => toggleCollapse(group.id)}
 							onSummaryUpdate={(text) => groupEditorContext?.groupEditor.updateSummary(group.id, text)}
 							onNoteUpdate={(text) => groupEditorContext?.groupEditor.updateNote(group.id, text)}
 							onHeightChange={(h) => groupEditorContext?.groupEditor.setNoteHeight(group.id, h)}

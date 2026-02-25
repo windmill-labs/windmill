@@ -47,6 +47,7 @@
 				showNote={data.showNotes && data.note != null}
 				editMode={data.editMode}
 				modules={data.modules}
+				onExpand={() => data.eventHandlers.expandGroup(data.groupId)}
 				onSummaryUpdate={(text) =>
 					groupEditorContext?.groupEditor.updateSummary(data.groupId, text)}
 				onNoteUpdate={(text) => groupEditorContext?.groupEditor.updateNote(data.groupId, text)}
