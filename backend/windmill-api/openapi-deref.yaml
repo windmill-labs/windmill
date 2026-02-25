@@ -28049,6 +28049,7 @@ components:
       name: trigger_kind
       description: trigger kind (schedule, http, websocket...)
       in: query
+      x-go-name: JobTriggerKindParam
       schema: *ref_160
     OrderDesc:
       name: order_desc

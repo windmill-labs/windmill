@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.642.0",
+	"version": "1.644.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -280,6 +280,11 @@
 			"types": "./package/components/FlowStatusViewer.svelte.d.ts",
 			"svelte": "./package/components/FlowStatusViewer.svelte",
 			"default": "./package/components/FlowStatusViewer.svelte"
+		},
+		"./components/FlowRecordingReplay.svelte": {
+			"types": "./package/components/recording/FlowRecordingReplay.svelte.d.ts",
+			"svelte": "./package/components/recording/FlowRecordingReplay.svelte",
+			"default": "./package/components/recording/FlowRecordingReplay.svelte"
 		},
 		"./components/FlowWrapper.svelte": {
 			"types": "./package/components/FlowWrapper.svelte.d.ts",

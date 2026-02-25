@@ -62,6 +62,17 @@ pub fn parse_raw_script_schema(
     Ok(to_raw_value(&schema))
 }
 
+pub fn is_completed_input_transform(transform: &InputTransform) -> bool {
+    match transform {
+        InputTransform::Static { value } => {
+            let val = value.get().trim();
+            !val.is_empty() && val != "null"
+        }
+        InputTransform::Javascript { expr } => !expr.trim().is_empty(),
+        InputTransform::Ai => false,
+    }
+}
+
 /// Filters out properties from a JSON schema that have completed input transforms.
 /// This allows AI agents to only see and fill parameters that don't have user-configured values.
 pub fn filter_schema_by_input_transforms(
@@ -77,14 +88,7 @@ pub fn filter_schema_by_input_transforms(
     let keys_to_remove: HashSet<String> = input_transforms
         .iter()
         .filter_map(|(key, transform)| {
-            let is_completed = match transform {
-                InputTransform::Static { value } => {
-                    let val = value.get().trim();
-                    !val.is_empty() && val != "null"
-                }
-                InputTransform::Javascript { expr } => !expr.trim().is_empty(),
-                InputTransform::Ai => false,
-            };
+            let is_completed = is_completed_input_transform(transform);
             if is_completed {
                 Some(key.clone())
             } else {
@@ -123,10 +127,13 @@ pub fn filter_schema_by_input_transforms(
     Ok(to_raw_value(&schema_value))
 }
 
+#[derive(Clone)]
 pub struct FlowJobRunnableIdAndRawFlow {
     pub runnable_id: Option<ScriptHash>,
     pub raw_flow: Option<sqlx::types::Json<Box<RawValue>>>,
     pub kind: JobKind,
+    pub parent_job: Option<Uuid>,
+    pub flow_step_id: Option<String>,
 }
 
 pub async fn get_flow_job_runnable_and_raw_flow(
@@ -135,7 +142,7 @@ pub async fn get_flow_job_runnable_and_raw_flow(
 ) -> windmill_common::error::Result<FlowJobRunnableIdAndRawFlow> {
     let job = sqlx::query_as!(
         FlowJobRunnableIdAndRawFlow,
-        "SELECT runnable_id as \"runnable_id: ScriptHash\", raw_flow as \"raw_flow: _\", kind as \"kind: _\" FROM v2_job WHERE id = $1",
+        "SELECT runnable_id as \"runnable_id: ScriptHash\", raw_flow as \"raw_flow: _\", kind as \"kind: _\", parent_job, flow_step_id FROM v2_job WHERE id = $1",
         job_id
     )
     .fetch_one(db)
@@ -690,6 +697,7 @@ pub fn any_tool_needs_previous_result(tools: &[Tool]) -> bool {
                     FlowModuleValue::Script { input_transforms, .. } => input_transforms,
                     FlowModuleValue::RawScript { input_transforms, .. } => input_transforms,
                     FlowModuleValue::FlowScript { input_transforms, .. } => input_transforms,
+                    FlowModuleValue::AIAgent { input_transforms, .. } => input_transforms,
                     _ => return false,
                 };
 
