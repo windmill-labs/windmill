@@ -65,7 +65,7 @@ Setting up zsh autocomplete is also recommended — see the [workmux docs](https
 Each worktree is assigned a **slot** that determines its ports:
 
 | Slot | Backend | Frontend |
-|------|---------|----------|
+| ---- | ------- | -------- |
 | 0    | 8000    | 3000     |
 | 1    | 8010    | 3010     |
 | 2    | 8020    | 3020     |
@@ -192,7 +192,6 @@ sandbox:
 
 This mounts both the main EE repo (used by the main worktree) and the EE worktrees directory (used by feature worktrees) into every sandbox container.
 
-
 ## Cursor SSH Integration (`wmc`)
 
 `wm-cursor` (aliased as `wmc`) gives each worktree its own Cursor SSH remote window with an independently-focused tmux session. All windows are visible in the status bar across all Cursor terminals, but each one is focused on its own worktree.
@@ -219,6 +218,7 @@ This:
 1. **Merges `.vscode/settings.json`** — adds the `wm-tmux` terminal profile (auto-attaches to the `main` tmux session), disables auto port forwarding, configures forwarding for ports 8000/3000/5432, and stops rust-analyzer from auto-starting. Existing settings are preserved.
 2. **Creates `.vscode/tasks.json`** — auto-starts the dev database (`start-dev-db.sh`) when the folder opens.
 3. **Adds `wmc` alias to `~/.zshrc`** — so you can use `wmc` from any tmux window.
+4. **Adds `eval "$(wmc completions)"`** to `~/.zshrc` — provides tab-completion for subcommands and worktree names (for `open`, `open-ee`, and `close`).
 
 After setup, reopen Cursor's terminal to pick up the new profile.
 
@@ -239,6 +239,14 @@ This runs `workmux add`, creates a grouped tmux session, writes `.vscode/setting
 ```bash
 wmc open my-feature
 ```
+
+**Open the EE worktree in Cursor (no tmux session):**
+
+```bash
+wmc open-ee my-feature
+```
+
+This finds the matching `windmill-ee-private__worktrees/<name>` directory and opens it in a new Cursor window.
 
 **Close a worktree's Cursor window and tmux window (keeps the worktree):**
 

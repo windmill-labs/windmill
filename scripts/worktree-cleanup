@@ -26,18 +26,30 @@ fi
 # Remove the matching windmill-ee-private worktree if one exists
 wt_basename=$(basename "$wt_dir")
 
-# Check parent directory first (sibling to worktree root), then fall back to home
+# Find ee repo using same discovery logic as worktree-env
+main_repo_root="$(cd "$(git -C "$wt_dir" rev-parse --git-common-dir 2>/dev/null)/.." && pwd)"
 parent_dir="$(cd "$wt_dir/.." && pwd)"
-echo "[cleanup] wt_basename=$wt_basename parent_dir=$parent_dir"
-if [ -d "${parent_dir}/windmill-ee-private" ]; then
-  ee_repo="${parent_dir}/windmill-ee-private"
-else
-  ee_repo="${HOME}/windmill-ee-private"
+echo "[cleanup] wt_basename=$wt_basename main_repo_root=$main_repo_root parent_dir=$parent_dir"
+
+ee_repo=""
+for candidate in \
+  "${main_repo_root:+${main_repo_root}/../windmill-ee-private}" \
+  "${parent_dir}/windmill-ee-private" \
+  "${HOME}/windmill-ee-private" \
+  "${HOME}/projects/windmill-ee-private"; do
+  if [ -n "$candidate" ] && [ -d "$candidate" ]; then
+    ee_repo="$(cd "$candidate" && pwd)"
+    break
+  fi
+done
+
+if [ -z "$ee_repo" ]; then
+  echo "[cleanup] Could not find windmill-ee-private repo, skipping EE worktree cleanup"
 fi
 
-ee_worktree_dir="${ee_repo}__worktrees/${wt_basename}"
-echo "[cleanup] ee_repo=$ee_repo ee_worktree_dir=$ee_worktree_dir exists=$([ -d "$ee_worktree_dir" ] && echo yes || echo no)"
-if [ -d "$ee_worktree_dir" ]; then
+ee_worktree_dir="${ee_repo:+${ee_repo}__worktrees/${wt_basename}}"
+echo "[cleanup] ee_repo=${ee_repo:-<not found>} ee_worktree_dir=${ee_worktree_dir:-<none>} exists=$([ -n "$ee_worktree_dir" ] && [ -d "$ee_worktree_dir" ] && echo yes || echo no)"
+if [ -n "$ee_worktree_dir" ] && [ -d "$ee_worktree_dir" ]; then
   git -C "$ee_repo" worktree remove "$ee_worktree_dir" --force 2>/dev/null \
     && echo "[cleanup] Removed EE worktree at $ee_worktree_dir" \
     || echo "[cleanup] Warning: Could not remove EE worktree at $ee_worktree_dir"
