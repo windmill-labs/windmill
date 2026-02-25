@@ -157,6 +157,17 @@
 	let args: Record<string, any> = $state(initialArgs) // Test args input
 	let selectedInputTab: 'main' | 'preprocessor' = $state('main')
 	let hasPreprocessor = $state(false)
+	let preserveOnBehalfOf = $state(false)
+
+	const WM_DEPLOYERS_GROUP = 'wm_deployers'
+	let isDeployer = $derived($userStore?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
+	let originalOnBehalfOfEmail = $derived(savedScript?.on_behalf_of_email)
+	let showPreserveToggle = $derived(
+		isDeployer &&
+			script.on_behalf_of_email &&
+			originalOnBehalfOfEmail &&
+			originalOnBehalfOfEmail !== $userStore?.email
+	)
 
 	let metadataOpen = $state(
 		!neverShowMeta &&
@@ -541,6 +552,7 @@
 					has_preprocessor: script.has_preprocessor,
 					deployment_message: deploymentMsg || undefined,
 					on_behalf_of_email: script.on_behalf_of_email,
+					preserve_on_behalf_of: preserveOnBehalfOf || undefined,
 					assets: script.assets
 				}
 			})
@@ -1591,6 +1603,7 @@
 												on:change={() => {
 													if (script.on_behalf_of_email) {
 														script.on_behalf_of_email = undefined
+														preserveOnBehalfOf = false
 													} else {
 														script.on_behalf_of_email = $userStore?.email
 													}
@@ -1599,6 +1612,15 @@
 													right: 'Run on behalf of last editor'
 												}}
 											/>
+											{#if showPreserveToggle}
+												<Toggle
+													size="sm"
+													bind:checked={preserveOnBehalfOf}
+													options={{
+														right: `Keep original author (${originalOnBehalfOfEmail})`
+													}}
+												/>
+											{/if}
 										</div>
 									</Section>
 									{#if !isCloudHosted()}

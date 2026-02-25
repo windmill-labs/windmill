@@ -2,7 +2,6 @@
 	import { Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import DeployWorkspace from './DeployWorkspace.svelte'
-	import ParentWorkspaceProtectionAlert from './ParentWorkspaceProtectionAlert.svelte'
 	import { type AdditionalInformation, type Kind } from '$lib/utils_deployable'
 
 	let initialPath: string | undefined = $state(undefined)
@@ -27,17 +26,9 @@
 
 <Drawer bind:this={drawer} size="900px">
 	<DrawerContent title="Deploy {initialPath}" on:close={drawer.closeDrawer}>
-		{#if workspaceToDeployTo}
-			<ParentWorkspaceProtectionAlert
-				parentWorkspaceId={workspaceToDeployTo}
-				onUpdateCanDeploy={(canDeploy) => {
-					canDeployToWorkspace = canDeploy
-				}}
-			/>
-		{/if}
 		{#if (kind != 'trigger' && kind != undefined && initialPath != undefined) || (kind === 'trigger' && initialPath != undefined && additionalInformation?.triggers != undefined)}
 			<DeployWorkspace
-				hideButton
+				hideButton={false}
 				{initialPath}
 				{kind}
 				{additionalInformation}

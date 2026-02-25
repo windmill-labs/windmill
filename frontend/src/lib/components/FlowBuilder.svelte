@@ -57,7 +57,8 @@
 		Circle,
 		CheckCircle,
 		RefreshCw,
-		CheckCheck
+		CheckCheck,
+		Focus
 	} from 'lucide-svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
@@ -129,6 +130,10 @@
 	}: FlowBuilderProps = $props()
 
 	let initialPathStore = writable(initialPath)
+
+	// For preserve_on_behalf_of feature
+	let preserveOnBehalfOf = writable(false)
+	let savedOnBehalfOfEmail = writable<string | undefined>(savedFlow?.on_behalf_of_email)
 
 	// used for new flows for captures
 	let fakeInitialPath =
@@ -480,6 +485,7 @@
 						dedicated_worker: flow.dedicated_worker,
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
+						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
 						deployment_message: deploymentMsg || undefined
 					}
 				})
@@ -532,6 +538,7 @@
 						ws_error_handler_muted: flow.ws_error_handler_muted,
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
+						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
 						deployment_message: deploymentMsg || undefined
 					}
 				})
@@ -559,7 +566,7 @@
 
 	function saveSessionDraft() {
 		timeout && clearTimeout(timeout)
-		timeout = setTimeout(() => {
+		timeout = window.setTimeout(() => {
 			try {
 				localStorage.setItem(
 					initialPath && initialPath != '' ? `flow-${initialPath}` : 'flow',
@@ -640,7 +647,9 @@
 		executionCount: writable(0),
 		flowInputEditorState: flowInputEditorStateStore,
 		modulesTestStates,
-		outputPickerOpenFns
+		outputPickerOpenFns,
+		preserveOnBehalfOf,
+		savedOnBehalfOfEmail
 	})
 
 	// Set up NoteEditor context for note editing capabilities
@@ -913,6 +922,11 @@
 						icon: CheckCheck
 					}
 				]
+			},
+			{
+				displayName: 'Test flow & record',
+				icon: Focus,
+				action: () => flowPreviewButtons?.openRecordingPreview()
 			}
 		]
 	}

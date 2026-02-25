@@ -16,6 +16,8 @@
 	import EEOnly from '$lib/components/EEOnly.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 
+	const WM_DEPLOYERS_GROUP = 'wm_deployers'
+
 	let {
 		policy,
 		setPublishState,
@@ -29,7 +31,8 @@
 		pathError = $bindable(),
 		newEditedPath = $bindable(),
 		newPath,
-		hideSecretUrl = false
+		hideSecretUrl = false,
+		preserveOnBehalfOf = $bindable(false)
 	}: {
 		policy: any
 		setPublishState: () => void
@@ -44,7 +47,17 @@
 		newEditedPath: string
 		newPath: string
 		hideSecretUrl?: boolean
+		preserveOnBehalfOf?: boolean
 	} = $props()
+
+	let isDeployer = $derived($userStore?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
+	let savedOnBehalfOfEmail = $derived(savedApp?.policy?.on_behalf_of_email)
+	let showPreserveToggle = $derived(
+		isDeployer &&
+			policy?.on_behalf_of_email &&
+			savedOnBehalfOfEmail &&
+			savedOnBehalfOfEmail !== $userStore?.email
+	)
 	let dirtyCustomPath = $state(false)
 	let path: Path | undefined = $state(undefined)
 
@@ -181,6 +194,18 @@
 		leaking resources not used in the app.
 	</Tooltip>
 </Alert>
+
+{#if showPreserveToggle}
+	<div class="mt-4">
+		<Toggle
+			size="sm"
+			bind:checked={preserveOnBehalfOf}
+			options={{
+				right: `Keep original author (${savedOnBehalfOfEmail})`
+			}}
+		/>
+	</div>
+{/if}
 
 <div class="mt-10"></div>
 

@@ -8,9 +8,9 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{types::Json as SqlxJson, FromRow};
+use sqlx::{types::Json as SqlxJson, FromRow, Pool, Postgres};
 use std::{collections::HashMap, fmt::Debug};
-use windmill_common::jobs::JobTriggerKind;
+use windmill_common::{db::Authable, error::Result, jobs::JobTriggerKind};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -103,6 +103,12 @@ pub struct BaseTriggerData {
     #[deprecated(note = "Use mode instead")]
     enabled: Option<bool>, // Kept for backwards compatibility, use mode instead
     mode: Option<TriggerMode>,
+    /// Optional email for deployment - when set, the trigger will run jobs as this user
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    /// If true and user is admin/wm_deployers, preserve the provided email instead of using deploying user's email
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preserve_email: Option<bool>,
 }
 
 impl BaseTriggerData {
@@ -115,6 +121,42 @@ impl BaseTriggerData {
                 &TriggerMode::Disabled
             },
         )
+    }
+
+    pub async fn resolve_email(
+        &self,
+        authed: &impl Authable,
+        db: &Pool<Postgres>,
+        w_id: &str,
+    ) -> Result<String> {
+        if let Some(ref username) = self.email {
+            if self.preserve_email.unwrap_or(false)
+                && windmill_common::can_preserve_on_behalf_of(authed)
+            {
+                let email = sqlx::query_scalar!(
+                    "SELECT email FROM usr WHERE username = $1 AND workspace_id = $2",
+                    username,
+                    w_id
+                )
+                .fetch_optional(db)
+                .await?;
+                if let Some(email) = email {
+                    return Ok(email);
+                }
+            }
+        }
+        Ok(authed.email().to_string())
+    }
+
+    pub fn resolve_edited_by(&self, authed: &impl Authable) -> String {
+        if let Some(ref username) = self.email {
+            if self.preserve_email.unwrap_or(false)
+                && windmill_common::can_preserve_on_behalf_of(authed)
+            {
+                return username.clone();
+            }
+        }
+        authed.username().to_string()
     }
 }
 
@@ -166,9 +208,18 @@ mod tests {
 
     #[test]
     fn test_trigger_mode_serialize() {
-        assert_eq!(serde_json::to_value(TriggerMode::Enabled).unwrap(), json!("enabled"));
-        assert_eq!(serde_json::to_value(TriggerMode::Disabled).unwrap(), json!("disabled"));
-        assert_eq!(serde_json::to_value(TriggerMode::Suspended).unwrap(), json!("suspended"));
+        assert_eq!(
+            serde_json::to_value(TriggerMode::Enabled).unwrap(),
+            json!("enabled")
+        );
+        assert_eq!(
+            serde_json::to_value(TriggerMode::Disabled).unwrap(),
+            json!("disabled")
+        );
+        assert_eq!(
+            serde_json::to_value(TriggerMode::Suspended).unwrap(),
+            json!("suspended")
+        );
     }
 
     #[test]
@@ -181,7 +232,7 @@ mod tests {
 
     #[test]
     fn test_trigger_mode_invalid() {
-        let result: Result<TriggerMode, _> = serde_json::from_value(json!("paused"));
+        let result: std::result::Result<TriggerMode, _> = serde_json::from_value(json!("paused"));
         assert!(result.is_err());
     }
 
@@ -314,11 +365,7 @@ mod tests {
 
     #[test]
     fn test_server_state_skip_none_fields() {
-        let state = ServerState {
-            server_id: None,
-            last_server_ping: None,
-            error: None,
-        };
+        let state = ServerState { server_id: None, last_server_ping: None, error: None };
         let json = serde_json::to_value(&state).unwrap();
         assert!(!json.as_object().unwrap().contains_key("server_id"));
         assert!(!json.as_object().unwrap().contains_key("error"));

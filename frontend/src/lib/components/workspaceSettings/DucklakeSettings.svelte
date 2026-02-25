@@ -51,7 +51,7 @@
 	}
 </script>
 
-<script>
+<script lang="ts">
 	import { Plus, SettingsIcon } from 'lucide-svelte'
 
 	import Button from '../common/button/Button.svelte'
