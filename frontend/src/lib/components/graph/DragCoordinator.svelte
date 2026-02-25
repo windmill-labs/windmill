@@ -26,8 +26,10 @@
 	// Populate draggedNodeIds for both legacy move and drag-and-drop
 	$effect(() => {
 		const moduleId = moveManager.movingModuleId ?? moveManager.dragging?.moduleId
-		if (!moduleId) return
-
+		if (!moduleId) {
+			moveManager.setDraggedNodeIds(new Set())
+			return
+		}
 		const ids = getSubflowNodeIds(moduleId, nodes, edges)
 		moveManager.setDraggedNodeIds(ids)
 	})

@@ -67,7 +67,6 @@ export class MoveManager {
 	setMoving(id: string) {
 		if (this.movingModuleId === id) {
 			this.movingModuleId = undefined
-			this.draggedNodeIds = new Set()
 		} else {
 			this.movingModuleId = id
 		}
@@ -80,7 +79,6 @@ export class MoveManager {
 
 	clearMoving() {
 		this.movingModuleId = undefined
-		this.draggedNodeIds = new Set()
 	}
 
 	setDraggedNodeIds(ids: Set<string>) {
@@ -128,14 +126,12 @@ export class MoveManager {
 		const zone = this.nearestDropZone
 		this.dragging = undefined
 		this.nearestDropZone = undefined
-		this.draggedNodeIds = new Set()
 		return zone
 	}
 
 	cancelDrag() {
 		this.dragging = undefined
 		this.nearestDropZone = undefined
-		this.draggedNodeIds = new Set()
 	}
 
 	#findNearestDropZone(flowPos: { x: number; y: number }): DropZone | undefined {
