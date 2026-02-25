@@ -56,6 +56,7 @@
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
 	import type { TriggerKind } from './triggers'
 	import { triggerDisplayNamesMap, triggerKindToTriggerType } from './triggers/utils'
+	import { getEmailAddress, getEmailDomain } from './triggers/email/utils'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 
@@ -601,14 +602,17 @@
 				scriptPath: item.script_path,
 				isFlow: item.is_flow,
 				enabled: item.mode === 'enabled',
-				extraLabel: item.local_part
+				extraLabel: getEmailAddress(item.local_part, item.workspaced_local_part, currentWorkspaceId, emailDomain ?? '')
 			})
 		}
 	} as const
 
+	let emailDomain = $state<string | undefined>(undefined)
+
 	async function fetchAllTriggers() {
 		loadingTriggers = true
 		try {
+			emailDomain = await getEmailDomain()
 			const entries = Object.values(triggerServices)
 			const results = await Promise.allSettled(
 				entries.map(async (svc) => {
