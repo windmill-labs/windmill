@@ -14,11 +14,11 @@
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
 
-	let jsonViewerDrawer: Drawer
+	let jsonViewerDrawer: Drawer = $state()
 
-	let app: any | undefined = undefined
+	let app: any | undefined = $state(undefined)
 
-	let rawType: 'json' | 'yaml' = 'yaml'
+	let rawType: 'json' | 'yaml' = $state('yaml')
 
 	export function open(app_l: any) {
 		app = app_l

@@ -134,8 +134,8 @@
 			{showAuthor}
 			{placement}
 			{viewerOpen}
-			on:openChange={({ detail }) => {
-				updateViewerOpenState(item.id, detail)
+			onOpenChange={(isOpen) => {
+				updateViewerOpenState(item.id, isOpen)
 			}}
 			{limitPayloadSize}
 		/>

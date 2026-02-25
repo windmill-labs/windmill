@@ -213,10 +213,13 @@
 					bind:schema={script.schema}
 					{args}
 				>
-					<!-- @migration-task: migrate this slot by hand, `editor_bar_right` is an invalid identifier -->
-					<div slot="editor_bar_right">
-						<WorkerTagSelect bind:tag={script.tag} />
-					</div>
+					{#snippet editor_bar_right()}
+						{#if script}
+							<div>
+								<WorkerTagSelect bind:tag={script.tag} />
+							</div>
+						{/if}
+					{/snippet}
 				</ScriptEditor>
 			{/key}
 		{:else}

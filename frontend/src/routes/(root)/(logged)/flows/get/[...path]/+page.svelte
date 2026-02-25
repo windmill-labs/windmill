@@ -507,7 +507,6 @@
 					}
 				: undefined}
 		>
-			<!-- @migration-task: migrate this slot by hand, `trigger-badges` is an invalid identifier -->
 			{#snippet trigger_badges()}
 				<TriggersBadge
 					showOnlyWithCount={true}

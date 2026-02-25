@@ -9,8 +9,8 @@
 
 	let recording: FlowRecording | undefined = $state(undefined)
 
-	function handleFileChange(event: CustomEvent<(string | ArrayBuffer | null)[]>) {
-		const content = event.detail?.[0]
+	function handleFileChange(detail: (string | ArrayBuffer | null)[] | undefined) {
+		const content = detail?.[0]
 		if (!content || typeof content !== 'string') return
 		try {
 			const data = JSON.parse(content) as FlowRecording
@@ -49,7 +49,7 @@
 					accept=".json"
 					convertTo="text"
 					class="w-full"
-					on:change={handleFileChange}
+					onChange={handleFileChange}
 				>
 					Drag and drop a recording file
 				</FileInput>

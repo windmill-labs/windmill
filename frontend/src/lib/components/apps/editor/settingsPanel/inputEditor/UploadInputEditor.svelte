@@ -66,7 +66,7 @@
 		convertTo={hasConvertTo(fileUpload) ? fileUpload.convertTo : undefined}
 		iconSize={24}
 		class="text-sm py-4"
-		on:change={({ detail }) => {
+		onChange={(detail) => {
 			componentInput = {
 				...componentInput,
 				type: 'static',
@@ -74,10 +74,9 @@
 			}
 		}}
 	>
-		<!-- @migration-task: migrate this slot by hand, `selected-title` is an invalid identifier -->
-		<svelte:fragment slot="selected-title">
+		{#snippet selected_title()}
 			<!-- Removing the title when there is a selected file -->
 			<span></span>
-		</svelte:fragment>
+		{/snippet}
 	</FileInput>
 {/if}

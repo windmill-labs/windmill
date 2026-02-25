@@ -42,6 +42,8 @@
 		buttonReplacement?: import('svelte').Snippet
 		menu?: import('svelte').Snippet
 		maxHeight?: string | undefined
+		onOpen?: () => void
+		onClose?: () => void
 	}
 
 	let {
@@ -64,7 +66,9 @@
 		btnId = undefined,
 		buttonReplacement,
 		menu,
-		maxHeight = undefined
+		maxHeight = undefined,
+		onOpen: onOpenProp = undefined,
+		onClose: onCloseProp = undefined
 	}: Props = $props()
 
 	let buttonEl: HTMLButtonElement | undefined = $state(undefined)
@@ -121,7 +125,7 @@
 	}
 </script>
 
-<ResolveOpen {open} on:open on:close />
+<ResolveOpen {open} onOpen={onOpenProp} onClose={onCloseProp} />
 
 <button
 	bind:this={buttonEl}

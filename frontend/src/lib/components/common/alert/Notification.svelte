@@ -1,6 +1,10 @@
 <script lang="ts">
-	export let notificationCount = 0
-	export let notificationLimit: number | undefined = undefined
+	interface Props {
+		notificationCount?: number;
+		notificationLimit?: number | undefined;
+	}
+
+	let { notificationCount = 0, notificationLimit = undefined }: Props = $props();
 </script>
 
 {#if notificationCount > 0}

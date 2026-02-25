@@ -231,7 +231,7 @@
 									iconSize={24}
 									returnFileNames={true}
 									class="text-sm py-4"
-									on:change={async ({ detail }) => {
+									onChange={async (detail) => {
 										if (detail && detail.length > 0) {
 											if (openApiFile.endsWith('.json')) {
 												lang = 'json'

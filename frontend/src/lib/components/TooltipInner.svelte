@@ -4,9 +4,19 @@
 	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
 	import { twMerge } from 'tailwind-merge'
 
-	export let documentationLink: string | undefined = undefined
-	export let markdownTooltip: string | undefined = undefined
-	export let customBgClass: string | undefined = undefined
+	interface Props {
+		documentationLink?: string | undefined;
+		markdownTooltip?: string | undefined;
+		customBgClass?: string | undefined;
+		children?: import('svelte').Snippet;
+	}
+
+	let {
+		documentationLink = undefined,
+		markdownTooltip = undefined,
+		customBgClass = undefined,
+		children
+	}: Props = $props();
 	const plugins = [gfmPlugin()]
 </script>
 
@@ -21,7 +31,7 @@
 			<Markdown md={markdownTooltip} {plugins} />
 		</div>
 	{:else}
-		<slot />
+		{@render children?.()}
 	{/if}
 
 	{#if documentationLink}

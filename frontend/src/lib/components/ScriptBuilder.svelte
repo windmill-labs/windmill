@@ -1230,7 +1230,10 @@
 									{#if script.schema && !disableAi && !customUi?.settingsPanel?.metadata?.disableAiFilling}
 										<div class="mt-3">
 											<AIFormSettings
-												bind:prompt={script.schema.prompt_for_ai as string | undefined}
+												bind:prompt={
+													() => script.schema!.prompt_for_ai as string | undefined,
+													(v) => (script.schema!.prompt_for_ai = v)
+												}
 												type="script"
 											/>
 										</div>

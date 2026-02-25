@@ -270,12 +270,13 @@
 			{/if}
 			{#if perms}
 				<TableCustom>
-					<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
-					<tr slot="header-row">
-						<th>user/group</th>
-						<th></th>
-						<th></th>
-					</tr>
+					{#snippet header_row()}
+						<tr>
+							<th>user/group</th>
+							<th></th>
+							<th></th>
+						</tr>
+					{/snippet}
 					{#snippet body()}
 						<tbody>
 							{#each perms ?? [] as { owner_name, role }}<tr>
@@ -407,10 +408,12 @@
 				<p class="text-primary text-sm">No folder is managing this folder</p>
 			{:else}
 				<TableCustom>
-					<tr slot="header-row">
+					{#snippet header_row()}
+					<tr>
 						<th>folder</th>
 						<th />
 					</tr>
+					{/snippet}
 					<tbody slot="body">
 						{#each managing_folders as managing_folder}<tr>
 								<td>{managing_folder.split('/')[1]}</td>

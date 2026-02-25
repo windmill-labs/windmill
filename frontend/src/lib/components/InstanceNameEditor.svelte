@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { stopPropagation, createBubbler } from 'svelte/legacy';
+
+	const bubble = createBubbler();
 	import { Pencil } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Button from './common/button/Button.svelte'
@@ -9,13 +12,23 @@
 	import { sendUserToast } from '$lib/toast'
 	import TextInput from './text_input/TextInput.svelte'
 
-	export let value: string | undefined
-	export let email: string
-	export let username: string | undefined = undefined
-	export let automateUsernameCreation: boolean = false
-	export let login_type: string
+	interface Props {
+		value: string | undefined;
+		email: string;
+		username?: string | undefined;
+		automateUsernameCreation?: boolean;
+		login_type: string;
+	}
 
-	let password: string = ''
+	let {
+		value = $bindable(),
+		email,
+		username = undefined,
+		automateUsernameCreation = false,
+		login_type = $bindable()
+	}: Props = $props();
+
+	let password: string = $state('')
 
 	const dispatch = createEventDispatcher()
 
@@ -46,112 +59,116 @@
 	}}
 	closeButton
 >
-	<svelte:fragment slot="trigger">
-		<Button unifiedSize="sm" nonCaptureEvent={true} variant="subtle" startIcon={{ icon: Pencil }}
-			>Edit</Button
-		>
-	</svelte:fragment>
-	<svelte:fragment slot="content">
-		<div class="flex flex-col gap-8 max-w-sm p-4">
-			{#if automateUsernameCreation && username}
-				<ChangeInstanceUsernameInner {email} {username} on:renamed noPadding />
-			{/if}
-			<label class="block text-primary">
-				<div class="pb-1 text-xs font-semibold text-emphasis">Name</div>
-				<div class="flex w-full">
-					<TextInput
-						inputProps={{
-							onclick: (e) => {
-								e.stopPropagation()
-							},
-							onkeydown: (e) => {
-								e.stopPropagation()
-							},
-							onkeypress: ({ key }) => {
-								if (key === 'Enter') {
-									saveName()
+	{#snippet trigger()}
+	
+			<Button unifiedSize="sm" nonCaptureEvent={true} variant="subtle" startIcon={{ icon: Pencil }}
+				>Edit</Button
+			>
+		
+	{/snippet}
+	{#snippet content()}
+	
+			<div class="flex flex-col gap-8 max-w-sm p-4">
+				{#if automateUsernameCreation && username}
+					<ChangeInstanceUsernameInner {email} {username} on:renamed noPadding />
+				{/if}
+				<label class="block text-primary">
+					<div class="pb-1 text-xs font-semibold text-emphasis">Name</div>
+					<div class="flex w-full">
+						<TextInput
+							inputProps={{
+								onclick: (e) => {
+									e.stopPropagation()
+								},
+								onkeydown: (e) => {
+									e.stopPropagation()
+								},
+								onkeypress: ({ key }) => {
+									if (key === 'Enter') {
+										saveName()
+									}
 								}
-							}
+							}}
+							bind:value
+						/>
+					</div>
+					<Button
+						unifiedSize="md"
+						variant="default"
+						buttonType="button"
+						btnClasses="mt-2 "
+						aria-label="Save ID"
+						onclick={() => {
+							saveName()
 						}}
-						bind:value
-					/>
-				</div>
-				<Button
-					unifiedSize="md"
-					variant="default"
-					buttonType="button"
-					btnClasses="mt-2 "
-					aria-label="Save ID"
-					onclick={() => {
-						saveName()
-					}}
-				>
-					Update name
-				</Button>
-			</label>
-			<label class="block text-primary">
-				<div class="pb-1 text-xs font-semibold text-emphasis">Password</div>
-				<div class="flex w-full">
-					<input
-						type="password"
-						bind:value={password}
-						class="!w-auto grow"
-						on:click|stopPropagation={() => {}}
-						on:keydown|stopPropagation
-						on:keypress|stopPropagation={({ key }) => {
+					>
+						Update name
+					</Button>
+				</label>
+				<label class="block text-primary">
+					<div class="pb-1 text-xs font-semibold text-emphasis">Password</div>
+					<div class="flex w-full">
+						<input
+							type="password"
+							bind:value={password}
+							class="!w-auto grow"
+							onclick={stopPropagation(() => {})}
+							onkeydown={stopPropagation(bubble('keydown'))}
+							onkeypress={stopPropagation(({ key }) => {
 							if (key === 'Enter') {
 								savePassword()
 							}
+						})}
+						/>
+					</div>
+					<Button
+						unifiedSize="md"
+						variant="default"
+						buttonType="button"
+						btnClasses="mt-2 "
+						aria-label="Save ID"
+						on:click={() => {
+							savePassword()
 						}}
-					/>
-				</div>
-				<Button
-					unifiedSize="md"
-					variant="default"
-					buttonType="button"
-					btnClasses="mt-2 "
-					aria-label="Save ID"
-					on:click={() => {
-						savePassword()
-					}}
-				>
-					Update password
-				</Button>
-			</label>
-			<label class="block text-primary">
-				<div class="mb-1 text-xs font-semibold text-emphasis">Login type</div>
+					>
+						Update password
+					</Button>
+				</label>
+				<label class="block text-primary">
+					<div class="mb-1 text-xs font-semibold text-emphasis">Login type</div>
 
-				<div class="flex w-full">
-					<input
-						type="text"
-						bind:value={login_type}
-						class="!w-auto grow"
-						on:click|stopPropagation={() => {}}
-						on:keydown|stopPropagation
-						on:keypress|stopPropagation={({ key }) => {
+					<div class="flex w-full">
+						<input
+							type="text"
+							bind:value={login_type}
+							class="!w-auto grow"
+							onclick={stopPropagation(() => {})}
+							onkeydown={stopPropagation(bubble('keydown'))}
+							onkeypress={stopPropagation(({ key }) => {
 							if (key === 'Enter') {
 								saveLoginType()
 							}
+						})}
+						/>
+					</div>
+					<div class="text-2xs text-secondary mb-1">
+						Must match exact SSO name, "password" or "saml". Examples: password, google, saml,
+						microsoft
+					</div>
+					<Button
+						unifiedSize="md"
+						variant="default"
+						buttonType="button"
+						btnClasses="mt-2 "
+						aria-label="Save login type"
+						on:click={() => {
+							saveLoginType()
 						}}
-					/>
-				</div>
-				<div class="text-2xs text-secondary mb-1">
-					Must match exact SSO name, "password" or "saml". Examples: password, google, saml,
-					microsoft
-				</div>
-				<Button
-					unifiedSize="md"
-					variant="default"
-					buttonType="button"
-					btnClasses="mt-2 "
-					aria-label="Save login type"
-					on:click={() => {
-						saveLoginType()
-					}}
-				>
-					Update login type
-				</Button>
-			</label>
-		</div>
-	</svelte:fragment>
+					>
+						Update login type
+					</Button>
+				</label>
+			</div>
+		
+	{/snippet}
 </Popover>

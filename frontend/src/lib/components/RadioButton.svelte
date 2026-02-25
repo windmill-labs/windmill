@@ -1,13 +1,24 @@
 <script lang="ts">
-	export let label = ''
-	export let options: [string | { title: string; desc: string }, any][]
-	export let value: any
-	export let disabled = false
-	export let labelClass = ''
-	export let inputClass = ''
 
 	import { createEventDispatcher } from 'svelte'
 	import Tooltip from './Tooltip.svelte'
+	interface Props {
+		label?: string;
+		options: [string | { title: string; desc: string }, any][];
+		value: any;
+		disabled?: boolean;
+		labelClass?: string;
+		inputClass?: string;
+	}
+
+	let {
+		label = '',
+		options,
+		value = $bindable(),
+		disabled = false,
+		labelClass = '',
+		inputClass = ''
+	}: Props = $props();
 
 	const dispatch = createEventDispatcher()
 </script>
@@ -28,7 +39,7 @@
 					class="sr-only"
 					bind:group={value}
 					aria-labelledby="memory-option-0-label"
-					on:click={() => dispatch('change', val)}
+					onclick={() => dispatch('change', val)}
 				/>
 				<p>
 					{#if typeof label !== 'string'}

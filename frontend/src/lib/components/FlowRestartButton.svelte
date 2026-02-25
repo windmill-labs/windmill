@@ -161,7 +161,7 @@
 		<Popover
 			floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}
 			disablePopup={!flowPath}
-			on:openChange={(e) => { if (e.detail) loadFlowVersions() }}
+			onOpenChange={(isOpen) => { if (isOpen) loadFlowVersions() }}
 		>
 			{#snippet trigger()}
 				{@render singleRestartButton()}
@@ -178,7 +178,7 @@
 {:else}
 	<Popover
 		floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}
-		on:openChange={(e) => { if (e.detail) loadFlowVersions() }}
+		onOpenChange={(isOpen) => { if (isOpen) loadFlowVersions() }}
 	>
 		{#snippet trigger()}
 			<Button

@@ -2,15 +2,33 @@
 	import { type AnyMeltElement } from '@melt-ui/svelte'
 	import { conditionalMelt } from '$lib/utils'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
+	import type { Snippet } from 'svelte'
 
-	export let aiId: string | undefined = undefined
-	export let aiDescription: string | undefined = undefined
-	export let meltElement: AnyMeltElement | undefined = undefined
-	export let type: 'button' | 'submit' | 'reset' | null | undefined = undefined
-	export let title: string = ''
-	export let id: string | undefined = undefined
+	interface Props {
+		aiId?: string | undefined
+		aiDescription?: string | undefined
+		meltElement?: AnyMeltElement | undefined
+		type?: 'button' | 'submit' | 'reset' | null | undefined
+		title?: string
+		id?: string | undefined
+		class?: string
+		onclick?: (e: MouseEvent) => void
+		children?: Snippet
+	}
 
-	let buttonRef: HTMLButtonElement | undefined = undefined
+	let {
+		aiId = undefined,
+		aiDescription = undefined,
+		meltElement = undefined,
+		type = undefined,
+		title = '',
+		id = undefined,
+		class: className = undefined,
+		onclick: onclickProp = undefined,
+		children
+	}: Props = $props()
+
+	let buttonRef: HTMLButtonElement | undefined = $state(undefined)
 </script>
 
 <button
@@ -23,12 +41,12 @@
 			buttonRef?.click()
 		}
 	}}
-	class={$$props.class}
+	class={className}
 	{type}
 	{title}
 	{id}
 	{...$meltElement}
-	on:click
+	onclick={onclickProp}
 >
-	<slot />
+	{@render children?.()}
 </button>

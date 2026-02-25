@@ -1,7 +1,4 @@
 <script lang="ts">
-	import { createBubbler } from 'svelte/legacy'
-
-	const bubble = createBubbler()
 	import { copyToClipboard, formatDate, formatDateShort } from '$lib/utils'
 	import ObjectViewerWrapper from '$lib/components/propertyPicker/ObjectViewerWrapper.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -10,7 +7,7 @@
 	import { CopyIcon, Eye, Loader2 } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { isObjectTooBig } from '$lib/utils'
-	import { createEventDispatcher, untrack } from 'svelte'
+	import { untrack } from 'svelte'
 	import type { FloatingConfig } from '@melt-ui/svelte/internal/actions'
 
 	interface Props {
@@ -21,6 +18,7 @@
 		viewerOpen?: boolean
 		limitPayloadSize?: boolean
 		forceLoad?: boolean
+		onOpenChange?: (isOpen: boolean) => void
 		start?: import('svelte').Snippet
 		extra?: import('svelte').Snippet<[any]>
 	}
@@ -33,6 +31,7 @@
 		viewerOpen = false,
 		limitPayloadSize = false,
 		forceLoad = $bindable(false),
+		onOpenChange = undefined,
 		start,
 		extra
 	}: Props = $props()
@@ -43,7 +42,6 @@
 	let popoverFullyOpened = $state(false)
 	let popoverOpenTimeout: ReturnType<typeof setTimeout> | null = null
 
-	const dispatch = createEventDispatcher()
 	const payloadTooBigForPreview = payloadData != 'WINDMILL_TOO_BIG' && isObjectTooBig(payloadData)
 	const isTooBig = payloadData === 'WINDMILL_TOO_BIG' || payloadTooBigForPreview
 
@@ -55,8 +53,7 @@
 		fitViewport: true
 	}
 
-	function handlePopoverChange(event: CustomEvent<boolean>) {
-		const isOpen = event.detail
+	function handlePopoverChange(isOpen: boolean) {
 		popoverOpen = isOpen
 
 		if (!isOpen) {
@@ -71,7 +68,7 @@
 			}, 50)
 		}
 
-		dispatch('openChange', isOpen)
+		onOpenChange?.(isOpen)
 	}
 
 	function handleHoveringChange(isHovering: boolean) {
@@ -123,11 +120,11 @@
 			contentClasses="overflow-auto"
 			usePointerDownOutside
 			closeOnOtherPopoverOpen
-			on:click={(e) => {
+			onclick={(e) => {
 				e.stopPropagation()
 			}}
 			{floatingConfig}
-			on:openChange={handlePopoverChange}
+			onOpenChange={handlePopoverChange}
 		>
 			{#snippet trigger()}
 				<Button
@@ -160,7 +157,12 @@
 							onclick={() => {
 								copyToClipboard(JSON.stringify(payloadData))
 							}}
-							onkeydown={bubble('keydown')}
+							onkeydown={(e) => {
+								if (e.key === 'Enter' || e.key === ' ') {
+									e.preventDefault()
+									copyToClipboard(JSON.stringify(payloadData))
+								}
+							}}
 						>
 							{#if !objectViewerLoaded && isTooBig}
 								<div class="flex justify-center items-center p-4">
@@ -178,7 +180,7 @@
 										json={payloadData}
 										allowCopy
 										pureViewer
-										on:mounted={() => (objectViewerLoaded = true)}
+										onmounted={() => (objectViewerLoaded = true)}
 									/>
 								</div>
 							{/if}

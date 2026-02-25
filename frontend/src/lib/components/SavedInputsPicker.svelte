@@ -285,8 +285,8 @@
 										{limitPayloadSize}
 										{hover}
 										{viewerOpen}
-										on:openChange={(e) => {
-											updateViewerOpenState(item.id, e.detail)
+										onOpenChange={(isOpen) => {
+											updateViewerOpenState(item.id, isOpen)
 										}}
 										maxWidth={clientWidth}
 										{editOptions}

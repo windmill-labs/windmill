@@ -5,7 +5,11 @@
 	import CodeDisplay from './script/CodeDisplay.svelte'
 	import LinkRenderer from './LinkRenderer.svelte'
 
-	export let message: DisplayMessage
+	interface Props {
+		message: DisplayMessage;
+	}
+
+	let { message }: Props = $props();
 </script>
 
 <div

@@ -98,15 +98,17 @@
 						<span class="text-accent">→ {uptodateVersion}</span>
 					{/if}
 				</div>
-				<svelte:fragment slot="text">
-					{#if isCloudHosted()}
-						The cloud version is updated daily.
-					{:else}
-						How to update?<br />
-						- docker: <code>docker compose up -d</code><br />
-						- <a href="https://github.com/windmill-labs/windmill-helm-charts#install">helm</a>
-					{/if}
-				</svelte:fragment>
+				{#snippet text()}
+							
+						{#if isCloudHosted()}
+							The cloud version is updated daily.
+						{:else}
+							How to update?<br />
+							- docker: <code>docker compose up -d</code><br />
+							- <a href="https://github.com/windmill-labs/windmill-helm-charts#install">helm</a>
+						{/if}
+					
+							{/snippet}
 			</MeltTooltip>
 		{/snippet}
 		{#snippet actions()}

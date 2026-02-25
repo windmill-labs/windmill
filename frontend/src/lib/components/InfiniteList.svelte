@@ -178,13 +178,13 @@
 	<tbody class="h-full w-full">
 		{#if extra_row}
 			<Row
-				on:click={() => dispatch('select', 'extraRow')}
+				onclick={() => dispatch('select', 'extraRow')}
 				class={twMerge(
 					extraRowClasses.class,
 					selectedItemId === 'extraRow' ? extraRowClasses.bgSelected : extraRowClasses.bgHover,
 					'cursor-pointer rounded-md'
 				)}
-				on:hover={(e) => (hovered = e.detail ? 'extraRow' : undefined)}
+				onHover={(h) => (hovered = h ? 'extraRow' : undefined)}
 			>
 				{@render extra_row?.({ hover: hovered === 'extraRow' })}
 			</Row>
@@ -195,13 +195,13 @@
 				{@render customRow?.({ item, hover })}
 			{:else}
 				<Row
-					on:click={() => dispatch('select', item)}
+					onclick={() => dispatch('select', item)}
 					class={twMerge(
 						selectedItemId === item.id ? 'bg-surface-selected' : 'hover:bg-surface-hover',
 						'cursor-pointer rounded-md',
 						item.isNew && index === 0 ? 'animate-slideIn' : 'group'
 					)}
-					on:hover={(e) => (hovered = e.detail ? item.id : undefined)}
+					onHover={(h) => (hovered = h ? item.id : undefined)}
 				>
 					{@render children?.({ item, hover })}
 				</Row>

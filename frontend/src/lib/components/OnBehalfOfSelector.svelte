@@ -51,44 +51,48 @@
 </script>
 
 <MeltPopover placement="bottom">
-	<svelte:fragment slot="trigger">
-		<UserCog class="w-4 h-4 {selected ? 'text-green-500' : 'text-yellow-500'}" />
-	</svelte:fragment>
-	<div slot="content" class="p-3 flex flex-col gap-2 min-w-48">
-		<div class="text-xs font-medium text-secondary mb-1">{label}</div>
-		<button
-			class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover {!canPreserve
-				? 'opacity-50 cursor-not-allowed'
-				: ''}"
-			disabled={!canPreserve}
-			onclick={() => onSelect('source')}
-		>
-			<Check class="w-3 h-3 {selected === 'source' ? 'opacity-100' : 'opacity-0'}" />
-			<span class="truncate max-w-40">{sourceEmail}</span>
-			<span class="text-xs text-tertiary">(source)</span>
-		</button>
-		<button
-			class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover {!canPreserve || !targetEmail
-				? 'opacity-50 cursor-not-allowed'
-				: ''}"
-			disabled={!canPreserve || !targetEmail}
-			onclick={() => onSelect('target')}
-		>
-			<Check class="w-3 h-3 {selected === 'target' ? 'opacity-100' : 'opacity-0'}" />
-			<span class="truncate max-w-40 {!targetEmail ? 'italic text-tertiary' : ''}"
-				>{targetEmail ?? 'unknown'}</span
+	{#snippet trigger()}
+	
+			<UserCog class="w-4 h-4 {selected ? 'text-green-500' : 'text-yellow-500'}" />
+		
+	{/snippet}
+	{#snippet content()}
+		<div  class="p-3 flex flex-col gap-2 min-w-48">
+			<div class="text-xs font-medium text-secondary mb-1">{label}</div>
+			<button
+				class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover {!canPreserve
+					? 'opacity-50 cursor-not-allowed'
+					: ''}"
+				disabled={!canPreserve}
+				onclick={() => onSelect('source')}
 			>
-			<span class="text-xs text-tertiary">(target)</span>
-		</button>
-		<button
-			class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover"
-			onclick={() => onSelect('me')}
-		>
-			<Check class="w-3 h-3 {selected === 'me' ? 'opacity-100' : 'opacity-0'}" />
-			<span class="truncate max-w-40"
-				>{kind === 'trigger' ? $userStore?.username : $userStore?.email}</span
+				<Check class="w-3 h-3 {selected === 'source' ? 'opacity-100' : 'opacity-0'}" />
+				<span class="truncate max-w-40">{sourceEmail}</span>
+				<span class="text-xs text-tertiary">(source)</span>
+			</button>
+			<button
+				class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover {!canPreserve || !targetEmail
+					? 'opacity-50 cursor-not-allowed'
+					: ''}"
+				disabled={!canPreserve || !targetEmail}
+				onclick={() => onSelect('target')}
 			>
-			<span class="text-xs text-tertiary">(me)</span>
-		</button>
-	</div>
+				<Check class="w-3 h-3 {selected === 'target' ? 'opacity-100' : 'opacity-0'}" />
+				<span class="truncate max-w-40 {!targetEmail ? 'italic text-tertiary' : ''}"
+					>{targetEmail ?? 'unknown'}</span
+				>
+				<span class="text-xs text-tertiary">(target)</span>
+			</button>
+			<button
+				class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover"
+				onclick={() => onSelect('me')}
+			>
+				<Check class="w-3 h-3 {selected === 'me' ? 'opacity-100' : 'opacity-0'}" />
+				<span class="truncate max-w-40"
+					>{kind === 'trigger' ? $userStore?.username : $userStore?.email}</span
+				>
+				<span class="text-xs text-tertiary">(me)</span>
+			</button>
+		</div>
+	{/snippet}
 </MeltPopover>

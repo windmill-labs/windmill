@@ -192,7 +192,7 @@
 			<Tooltip
 				disablePopup={menuOpen}
 				placement={vertical ? 'right' : 'bottom'}
-				on:click={(e) => e.stopPropagation()}
+				onclick={(e) => e.stopPropagation()}
 			>
 				{#snippet text()}
 					{camelCaseToWords(type)}
@@ -279,7 +279,7 @@
 			isSelected ? 'bg-surface-accent-selected text-accent border-border-selected' : '',
 			small ? 'w-[23px] h-[23px]' : 'p-2'
 		)}
-		on:click={(e) => {
+		onclick={(e) => {
 			e.stopPropagation()
 			e.preventDefault()
 			if (singleItem) {

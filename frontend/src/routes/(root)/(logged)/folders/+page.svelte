@@ -164,7 +164,7 @@
 						{#each folders as { name, extra_perms, owners, canWrite, summary } (name)}
 							<Row
 								hoverable
-								on:click={() => {
+								onclick={() => {
 									editFolderName = name
 									folderDrawer?.openDrawer()
 								}}

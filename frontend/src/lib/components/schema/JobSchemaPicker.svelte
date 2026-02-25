@@ -12,6 +12,7 @@
 		placement?: 'bottom-start' | 'top-start' | 'bottom-end' | 'top-end'
 		viewerOpen?: boolean
 		limitPayloadSize?: boolean
+		onOpenChange?: (isOpen: boolean) => void
 	}
 
 	let {
@@ -21,7 +22,8 @@
 		showAuthor = false,
 		placement = 'bottom-start',
 		viewerOpen = false,
-		limitPayloadSize = false
+		limitPayloadSize = false,
+		onOpenChange = undefined
 	}: Props = $props()
 </script>
 
@@ -31,7 +33,7 @@
 	{hovering}
 	{placement}
 	{viewerOpen}
-	on:openChange
+	{onOpenChange}
 	{limitPayloadSize}
 >
 	{#snippet start()}

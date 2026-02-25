@@ -151,7 +151,7 @@
 						{#each groups as { name, summary, extra_perms, canWrite } (name)}
 							<Row
 								hoverable
-								on:click={() => {
+								onclick={() => {
 									editGroupName = name
 									groupDrawer?.openDrawer()
 								}}

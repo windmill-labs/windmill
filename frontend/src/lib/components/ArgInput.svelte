@@ -892,8 +892,8 @@
 												{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
 													<FileInput
 														class="w-full"
-														on:change={(x) =>
-															fileChangedInner(x.detail?.[0], (val) => (value[i] = val))}
+														onChange={(x) =>
+															fileChangedInner(x?.[0], (val) => (value[i] = val))}
 														multiple={false}
 													/>
 													{@render deleteItemBtn()}
@@ -1390,7 +1390,7 @@
 		{:else if inputCat == 'base64'}
 			<div class="flex flex-col w-full">
 				<FileInput
-					on:change={(x) => fileChangedInner(x.detail?.[0], (val) => (value = val))}
+					onChange={(x) => fileChangedInner(x?.[0], (val) => (value = val))}
 					multiple={false}
 				/>
 				{#if value?.length}

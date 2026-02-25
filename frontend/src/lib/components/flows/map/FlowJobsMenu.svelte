@@ -4,7 +4,7 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import VirtualList from '@tutorlatin/svelte-tiny-virtual-list'
-	import type { onSelectedIteration } from '$lib/components/graph/graphBuilder.svelte'
+	import type { onSelectedIteration as OnSelectedIterationType } from '$lib/components/graph/graphBuilder.svelte'
 	import { untrack } from 'svelte'
 
 	interface Props {
@@ -14,7 +14,7 @@
 		flowJobsSuccess: (boolean | undefined)[] | undefined
 		selected: number
 		selectedManually: boolean | undefined
-		onSelectedIteration?: onSelectedIteration
+		onSelectedIteration?: OnSelectedIterationType
 		showIcon?: boolean
 	}
 
@@ -104,11 +104,11 @@
 <Menubar>
 	{#snippet children({ createMenu })}
 		<Menu
-			on:open={() => {
+			onOpen={() => {
 				isOpen = true
 				updateItems()
 			}}
-			on:close={() => {
+			onClose={() => {
 				isOpen = false
 			}}
 			{createMenu}

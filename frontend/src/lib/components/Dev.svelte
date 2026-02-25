@@ -22,7 +22,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { onDestroy, onMount, setContext, untrack } from 'svelte'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import { getUserExt } from '$lib/user'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import FlowModuleSchemaMap from './flows/map/FlowModuleSchemaMap.svelte'

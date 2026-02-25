@@ -154,12 +154,13 @@
 				{/if}
 				{#if acls?.length > 0}
 					<TableCustom>
-						<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
-						<tr slot="header-row">
-							<th>owner</th>
-							<th></th>
-							<th></th>
-						</tr>
+						{#snippet header_row()}
+							<tr>
+								<th>owner</th>
+								<th></th>
+								<th></th>
+							</tr>
+						{/snippet}
 						{#snippet body()}
 							<tbody>
 								{#each acls as [owner, write]}

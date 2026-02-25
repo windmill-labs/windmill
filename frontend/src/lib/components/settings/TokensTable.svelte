@@ -80,14 +80,15 @@
 	/>
 	<div class="overflow-auto grow min-h-64 max-h-2/3">
 		<TableCustom>
-			<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
-			<tr slot="header-row">
-				<th>Prefix</th>
-				<th>Label</th>
-				<th>Expiration</th>
-				<th>Scopes</th>
-				<th></th>
-			</tr>
+			{#snippet header_row()}
+				<tr>
+					<th>Prefix</th>
+					<th>Label</th>
+					<th>Expiration</th>
+					<th>Scopes</th>
+					<th></th>
+				</tr>
+			{/snippet}
 			{#snippet body()}
 				<tbody>
 					{#if tokens && tokens.length > 0}

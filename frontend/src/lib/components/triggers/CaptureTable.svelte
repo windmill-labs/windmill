@@ -312,8 +312,8 @@
 					date={item.created_at}
 					payloadData={item.payloadData}
 					hovering={hover}
-					on:openChange={({ detail }) => {
-						updateViewerOpenState(item.id, detail)
+					onOpenChange={(isOpen) => {
+						updateViewerOpenState(item.id, isOpen)
 					}}
 					{viewerOpen}
 					{limitPayloadSize}

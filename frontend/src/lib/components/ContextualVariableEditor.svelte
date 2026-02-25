@@ -13,9 +13,9 @@
 
 	const dispatch = createEventDispatcher()
 
-	let edit: boolean = false
-	let name: string = ''
-	let value: string = ''
+	let edit: boolean = $state(false)
+	let name: string = $state('')
+	let value: string = $state('')
 
 	export function initNew(): void {
 		edit = false
@@ -31,7 +31,7 @@
 		drawer.openDrawer()
 	}
 
-	let drawer: Drawer
+	let drawer: Drawer = $state()
 
 	async function updateVariable(): Promise<void> {
 		await WorkspaceService.setEnvironmentVariable({

@@ -323,7 +323,7 @@
 			<span class="text-xs absolute font-semibold text-emphasis -top-4">Scope</span>
 			<ToggleButtonGroup
 				selected={scope ?? 'admins'}
-				on:selected={({ detail }) => {
+				onSelected={(detail) => {
 					scope = detail === 'admins' ? undefined : detail
 				}}
 			>
@@ -358,10 +358,10 @@
 			date={after}
 			placement="bottom-end"
 			label="From"
-			on:change={({ detail }) => {
-				after = new Date(detail).toISOString()
+			onchange={(value) => {
+				after = new Date(value).toISOString()
 			}}
-			on:clear={() => {
+			onclear={() => {
 				after = undefined
 			}}
 		/>
@@ -374,10 +374,10 @@
 			bind:date={before}
 			label="To"
 			placement="bottom-end"
-			on:change={({ detail }) => {
-				before = new Date(detail).toISOString()
+			onchange={(value) => {
+				before = new Date(value).toISOString()
 			}}
-			on:clear={() => {
+			onclear={() => {
 				before = undefined
 			}}
 		/>
@@ -445,7 +445,7 @@
 	<div class="flex flex-row">
 		<Button
 			variant="subtle"
-			on:click={() => {
+			onclick={() => {
 				after = undefined
 				before = undefined
 				username = 'all'
@@ -462,7 +462,7 @@
 		</Button>
 		<Button
 			variant="subtle"
-			on:click={downloadAuditLogsAsJson}
+			onclick={downloadAuditLogsAsJson}
 			unifiedSize="md"
 			title="Downloads currently displayed logs only (up to {perPage} entries)"
 		>
@@ -473,7 +473,7 @@
 		</Button>
 		<Button
 			variant="accent"
-			on:click={() => {
+			onclick={() => {
 				refresh++
 			}}
 			unifiedSize="md"

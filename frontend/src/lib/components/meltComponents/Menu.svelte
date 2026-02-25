@@ -1,7 +1,4 @@
 <script lang="ts">
-	import { createBubbler } from 'svelte/legacy'
-
-	const bubble = createBubbler()
 	import { melt, createSync } from '@melt-ui/svelte'
 	import type { MenubarBuilders } from '@melt-ui/svelte'
 	import type { Placement } from '@floating-ui/core'
@@ -26,6 +23,9 @@
 		triggr?: import('svelte').Snippet<[any]>
 		children?: import('svelte').Snippet<[any]>
 		class?: string
+		onOpen?: () => void
+		onClose?: () => void
+		onclick?: (e: MouseEvent) => void
 	}
 
 	let {
@@ -42,7 +42,10 @@
 		renderContent = false,
 		class: classNames = '',
 		triggr,
-		children
+		children,
+		onOpen: onOpenProp = undefined,
+		onClose: onCloseProp = undefined,
+		onclick: onclickProp = undefined
 	}: Props = $props()
 
 	// Use the passed createMenu function
@@ -76,7 +79,7 @@
 </script>
 
 <div class={twMerge('w-full h-8', classNames)}>
-	<ResolveOpen {open} on:open on:close />
+	<ResolveOpen {open} onOpen={onOpenProp} onClose={onCloseProp} />
 
 	<button
 		class={twMerge('w-full h-full', justifyEnd ? 'flex justify-end' : '')}
@@ -108,7 +111,7 @@
 				invisible ? 'opacity-0' : '',
 				menuClass
 			)}
-			onclick={bubble('click')}
+			onclick={(e) => onclickProp?.(e)}
 		>
 			<div class="py-1" style="max-height: {maxHeight}px; ">
 				{@render children?.({ item, open })}

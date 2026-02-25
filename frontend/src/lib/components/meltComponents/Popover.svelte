@@ -1,4 +1,4 @@
-<script context="module" lang="ts">
+<script module lang="ts">
 	import { writable } from 'svelte/store'
 	const activePopover = writable<{ id: string | null; close: (() => void) | null }>({
 		id: null,
@@ -13,75 +13,128 @@
 	import type { Placement } from '@floating-ui/core'
 	import { debounce, pointerDownOutside } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
-	import { createEventDispatcher } from 'svelte'
 	import { Button } from '$lib/components/common'
 	import DocLink from '$lib/components/apps/editor/settingsPanel/DocLink.svelte'
 	import type { FloatingConfig } from '@melt-ui/svelte/internal/actions/floating'
 	import type { EscapeBehaviorType } from '@melt-ui/svelte/internal/actions'
+	import { onDestroy } from 'svelte'
+	import type { Snippet } from 'svelte'
 
-	export let closeButton: boolean = false
-	export let displayArrow: boolean = false
-	export let placement: Placement = 'bottom'
-	export let disablePopup: boolean = false
-	export let openOnHover: boolean = false
-	export let debounceDelay: number = 0
-	export let floatingConfig: any | undefined = undefined
-	export let usePointerDownOutside: boolean = false
-	export let closeOnOutsideClick: boolean = true
-	export let contentClasses: string = ''
-	export let contentStyle: string = ''
-	export let portal: string | HTMLElement | null = 'body'
-	export let closeOnOtherPopoverOpen: boolean = false
-	export let allowFullScreen: boolean = false
-	export let extraProps: Record<string, any> = {}
-	export let disabled: boolean = false
-	export let documentationLink: string | undefined = undefined
-	export let disableFocusTrap: boolean = false
-	export let openFocus: string | HTMLElement | (() => HTMLElement | null) | null | undefined = undefined
-	export let escapeBehavior: EscapeBehaviorType = 'close'
-	export let enableFlyTransition: boolean = false
-	export let onKeyDown: (e: KeyboardEvent) => void = () => {}
-	export let onClose: () => void = () => {}
-	/**
-	 * If provided, the popover will only open if the click is on the element with the given id.
-	 */
-	export let targetId: string | undefined = undefined
-	/**
-	 * Additional CSS selectors whose matching elements should be excluded from outside-click detection.
-	 */
-	export let excludeSelectors: string | undefined = undefined
+	interface Props {
+		closeButton?: boolean
+		displayArrow?: boolean
+		placement?: Placement
+		disablePopup?: boolean
+		/** When true, the trigger renders as a non-interactive span instead of a button */
+		notClickable?: boolean
+		openOnHover?: boolean
+		debounceDelay?: number
+		floatingConfig?: any | undefined
+		usePointerDownOutside?: boolean
+		closeOnOutsideClick?: boolean
+		/** @deprecated Use `closeOnOutsideClick` instead */
+		closeOnClickOutside?: boolean
+		contentClasses?: string
+		/** @deprecated Use `contentClasses` instead */
+		containerClasses?: string
+		contentStyle?: string
+		portal?: string | HTMLElement | null
+		closeOnOtherPopoverOpen?: boolean
+		allowFullScreen?: boolean
+		extraProps?: Record<string, any>
+		disabled?: boolean
+		documentationLink?: string | undefined
+		disableFocusTrap?: boolean
+		openFocus?: string | HTMLElement | (() => HTMLElement | null) | null | undefined
+		escapeBehavior?: EscapeBehaviorType
+		enableFlyTransition?: boolean
+		onKeyDown?: (e: KeyboardEvent) => void
+		onClose?: () => void
+		/**
+		 * If provided, the popover will only open if the click is on the element with the given id.
+		 */
+		targetId?: string | undefined
+		/**
+		 * Additional CSS selectors whose matching elements should be excluded from outside-click detection.
+		 */
+		excludeSelectors?: string | undefined
+		isOpen?: boolean
+		class?: string
+		onclick?: (e: MouseEvent) => void
+		onOpenChange?: (isOpen: boolean) => void
+		trigger?: Snippet<[{ isOpen: boolean }]>
+		content?: Snippet<[{ open: () => void; close: () => void }]>
+	}
 
-	let fullScreen = false
-	const dispatch = createEventDispatcher()
+	let {
+		closeButton = false,
+		displayArrow = false,
+		placement = 'bottom',
+		disablePopup = false,
+		notClickable = false,
+		openOnHover = false,
+		debounceDelay = 0,
+		floatingConfig = undefined,
+		usePointerDownOutside = false,
+		closeOnOutsideClick: closeOnOutsideClickProp = true,
+		closeOnClickOutside: closeOnClickOutsideProp = undefined,
+		contentClasses: contentClassesProp = '',
+		containerClasses: containerClassesProp = undefined,
+		contentStyle = '',
+		portal = 'body',
+		closeOnOtherPopoverOpen = false,
+		allowFullScreen = false,
+		extraProps = {},
+		disabled = false,
+		documentationLink = undefined,
+		disableFocusTrap = false,
+		openFocus = undefined,
+		escapeBehavior = 'close',
+		enableFlyTransition = false,
+		onKeyDown: onKeyDownProp = () => {},
+		onClose: onCloseProp = () => {},
+		targetId = undefined,
+		excludeSelectors = undefined,
+		isOpen = $bindable(false),
+		class: className = undefined,
+		onclick: onclickProp = undefined,
+		onOpenChange: onOpenChangeProp = undefined,
+		trigger: triggerSnippet,
+		content: contentSnippet
+	}: Props = $props()
+
+	// Alias props: containerClasses -> contentClasses, closeOnClickOutside -> closeOnOutsideClick
+	const contentClasses = $derived(containerClassesProp ?? contentClassesProp)
+	const closeOnOutsideClick = $derived(closeOnClickOutsideProp ?? closeOnOutsideClickProp)
+
+	let fullScreen = $state(false)
 
 	// Dynamic portal: use 'body' when fullscreen, otherwise use the provided portal
-	$: dynamicPortal = fullScreen ? 'body' : portal
+	let dynamicPortal = $derived(fullScreen ? 'body' : portal)
 
 	function clearTimers() {
 		clearDebounceClose()
 	}
 
 	// Cleanup timers on component destruction
-	import { onDestroy } from 'svelte'
-	import type { MeltEventHandler } from '@melt-ui/svelte/internal/types'
 	onDestroy(clearTimers)
 
 	const {
-		elements: { trigger, content, arrow, close: closeElement, overlay },
+		elements: { trigger: triggerEl, content: contentEl, arrow, close: closeElement, overlay },
 		states,
 		options: { closeOnOutsideClick: closeOnOutsideClickOption, positioning, portal: portalOption },
 		ids: { content: popoverId }
 	} = createPopover({
 		forceVisible: true,
-		portal: dynamicPortal,
+		portal: portal,
 		disableFocusTrap,
 		escapeBehavior,
 		openFocus,
 		onOpenChange: ({ curr, next }) => {
 			if (curr != next) {
-				dispatch('openChange', next)
+				onOpenChangeProp?.(next)
 				if (!next) {
-					onClose()
+					onCloseProp()
 				}
 			}
 			if (closeOnOtherPopoverOpen) {
@@ -114,16 +167,21 @@
 	}
 
 	// Update portal reactively when fullscreen state changes
-	$: if (portalOption) {
-		$portalOption = dynamicPortal
-	}
+	$effect(() => {
+		if (portalOption) {
+			$portalOption = dynamicPortal
+		}
+	})
 
-	export let isOpen = false
 	const sync = createSync(states)
-	$: sync.open(isOpen, (v) => (isOpen = v))
+	$effect(() => {
+		sync.open(isOpen, (v) => (isOpen = v))
+	})
 
 	// Allow for dynamic closeOnOutsideClick
-	$: $closeOnOutsideClickOption = usePointerDownOutside ? false : closeOnOutsideClick
+	$effect(() => {
+		$closeOnOutsideClickOption = usePointerDownOutside ? false : closeOnOutsideClick
+	})
 
 	export function close() {
 		isOpen = false
@@ -155,9 +213,9 @@
 		debounceDelay
 	)
 
-	const handleClick: MeltEventHandler<PointerEvent> = (event) => {
+	const handleClick = (event: MouseEvent) => {
 		if (targetId) {
-			const target = event.detail.originalEvent.target as Element
+			const target = event.target as Element
 			const targetElement = target.closest(`#${targetId}`)
 			if (!targetElement) {
 				event.preventDefault()
@@ -168,37 +226,57 @@
 	}
 </script>
 
-<svelte:window onkeydown={(e) => isOpen && onKeyDown(e)} />
+<svelte:window onkeydown={(e) => isOpen && onKeyDownProp(e)} />
 
-<button
-	class={$$props.class}
-	use:melt={$trigger}
-	aria-label="Popup button"
-	disabled={disablePopup || disabled}
-	on:mouseenter={() => {
-		if (openOnHover) {
-			open()
-			clearDebounceClose()
-		}
-	}}
-	on:mouseleave={debounceClose}
-	use:pointerDownOutside={{
-		capture: true,
-		stopPropagation: false,
-		exclude: getMenuElements
-	}}
-	on:pointerdown_outside={() => {
-		if (usePointerDownOutside) {
-			if (fullScreen) fullScreen = false
-			else close()
-		}
-	}}
-	data-popover
-	on:m-click={handleClick}
-	on:click
->
-	<slot name="trigger" {isOpen} />
-</button>
+{#if notClickable}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<span
+		class={className}
+		use:melt={$triggerEl}
+		onmouseenter={() => {
+			if (openOnHover) {
+				open()
+				clearDebounceClose()
+			}
+		}}
+		onmouseleave={debounceClose}
+		data-popover
+	>
+		{@render triggerSnippet?.({ isOpen })}
+	</span>
+{:else}
+	<button
+		class={className}
+		use:melt={$triggerEl}
+		aria-label="Popup button"
+		disabled={disablePopup || disabled}
+		onmouseenter={() => {
+			if (openOnHover) {
+				open()
+				clearDebounceClose()
+			}
+		}}
+		onmouseleave={debounceClose}
+		use:pointerDownOutside={{
+			capture: true,
+			stopPropagation: false,
+			exclude: getMenuElements,
+			onClickOutside: () => {
+				if (usePointerDownOutside) {
+					if (fullScreen) fullScreen = false
+					else close()
+				}
+			}
+		}}
+		data-popover
+		onclick={(e) => {
+			handleClick(e)
+			onclickProp?.(e)
+		}}
+	>
+		{@render triggerSnippet?.({ isOpen })}
+	</button>
+{/if}
 
 {#if fullScreen && isOpen && !disablePopup}
 	<div use:melt={$overlay} class="fixed inset-0 z-10 bg-black/50"></div>
@@ -206,14 +284,14 @@
 
 {#if isOpen && !disablePopup}
 	<div
-		on:mouseenter={() => {
+		onmouseenter={() => {
 			if (openOnHover) {
 				open()
 				clearDebounceClose()
 			}
 		}}
-		on:mouseleave={debounceClose}
-		use:melt={$content}
+		onmouseleave={debounceClose}
+		use:melt={$contentEl}
 		transition:fly={{ duration: enableFlyTransition ? 100 : 0, y: -16 }}
 		class={twMerge(
 			'relative dark:border rounded-md bg-surface-tertiary shadow-lg',
@@ -233,7 +311,7 @@
 		{#if allowFullScreen}
 			<div class="absolute top-0 right-0 z-10">
 				<Button
-					on:click={() => (fullScreen = !fullScreen)}
+					onclick={() => (fullScreen = !fullScreen)}
 					variant="subtle"
 					unifiedSize="sm"
 					btnClasses="text-secondary"
@@ -253,7 +331,7 @@
 			</button>
 		{/if}
 
-		<slot name="content" {open} {close} />
+		{@render contentSnippet?.({ open, close })}
 	</div>
 {/if}
 

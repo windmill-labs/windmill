@@ -7,13 +7,19 @@
 	import { getContext } from 'svelte'
 	import type { AppViewerContext } from '$lib/components/apps/types'
 
-	export let title: string
-	export let style: string = ''
-	export let css: any = {}
+	interface Props {
+		title: string
+		style?: string
+		css?: any
+		class?: string
+		children?: import('svelte').Snippet
+	}
+
+	let { title, style = '', css = {}, class: c = '', children }: Props = $props()
 
 	const { mode } = getContext<AppViewerContext>('AppViewerContext')
 
-	let isOpen = false
+	let isOpen = $state(false)
 
 	export function close() {
 		isOpen = false
@@ -41,16 +47,13 @@
 					css?.popup?.class,
 					'wm-modal-form-popup'
 				)}
-				use:clickOutside
-				on:click_outside={() => {
-					close()
-				}}
+				use:clickOutside={{ onClickOutside: () => close() }}
 			>
 				<div class="px-4 py-2 border-b flex justify-between items-center">
 					<div>{title}</div>
 					<div class="w-8">
 						<button
-							on:click={() => {
+							onclick={() => {
 								isOpen = false
 							}}
 							class="hover:bg-surface-hover bg-surface-secondary rounded-full w-8 h-8 flex items-center justify-center transition-all"
@@ -60,17 +63,17 @@
 					</div>
 				</div>
 
-				<!-- svelte-ignore a11y-click-events-have-key-events -->
-				<!-- svelte-ignore a11y-no-static-element-interactions -->
-				<div class="relative bg-surface rounded-md" on:click|stopPropagation={() => {}}>
+				<!-- svelte-ignore a11y_click_events_have_key_events -->
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div class="relative bg-surface rounded-md" onclick={(e) => e.stopPropagation()}>
 					<div
 						class={twMerge(
 							'max-w-screen-lg max-h-screen-80 overflow-auto flex flex-col',
-							$$props.class
+							c
 						)}
 						{style}
 					>
-						<slot />
+						{@render children?.()}
 					</div>
 				</div>
 			</div>

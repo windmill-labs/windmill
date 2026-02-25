@@ -466,8 +466,8 @@
 			class="h-auto w-fit"
 			hidePopup={hideDropdown}
 			usePointerDownOutside
-			on:open={() => dispatch('dropdownOpen', true)}
-			on:close={() => dispatch('dropdownOpen', false)}
+			onOpen={() => dispatch('dropdownOpen', true)}
+			onClose={() => dispatch('dropdownOpen', false)}
 			bind:open={dropdownOpen}
 			enableFlyTransition
 			customWidth={dropdownWidth}

@@ -137,7 +137,7 @@
 				{#each rules as rule (rule.name)}
 					<Row
 						hoverable
-						on:click={() => {
+						onclick={() => {
 							selectedRule = rule
 							ruleDrawer?.openDrawer()
 						}}

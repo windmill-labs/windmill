@@ -430,7 +430,7 @@
 
 							<Row
 								hoverable
-								on:click={() => window.open(`/run/${job.id}?workspace=${workspace}`, '_blank')}
+								onclick={() => window.open(`/run/${job.id}?workspace=${workspace}`, '_blank')}
 							>
 								<Cell class="w-12 sm:pl-3" shouldStopPropagation>
 									<div class="h-4 w-4">

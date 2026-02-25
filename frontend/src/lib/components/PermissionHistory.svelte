@@ -79,12 +79,14 @@
 		<p class="text-primary text-sm">No permission changes recorded yet</p>
 	{:else}
 		<TableCustom>
-			<tr slot="header-row">
-				<th>Changed By</th>
-				<th>Change Type</th>
-				<th>Affected</th>
-				<th>Date</th>
-			</tr>
+			{#snippet header_row()}
+				<tr>
+					<th>Changed By</th>
+					<th>Change Type</th>
+					<th>Affected</th>
+					<th>Date</th>
+				</tr>
+			{/snippet}
 			{#snippet body()}
 				<tbody>
 					{#each history as change}

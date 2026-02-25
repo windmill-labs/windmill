@@ -108,7 +108,7 @@
 			multiple={resolvedConfig?.allowMultiple}
 			convertTo="base64"
 			returnFileNames
-			on:change={({ detail }) => {
+			onChange={(detail) => {
 				handleChange(detail)
 			}}
 			class={twMerge('w-full h-full', css?.container?.class, 'wm-file-input')}

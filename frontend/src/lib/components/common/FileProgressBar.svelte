@@ -1,23 +1,37 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy';
+
 	import { tweened } from 'svelte/motion'
 	import { cubicOut } from 'svelte/easing'
 
-	export let color = 'blue'
-	export let progress = 0
-	export let ended: boolean = false
+	interface Props {
+		color?: string;
+		progress?: number;
+		ended?: boolean;
+		children?: import('svelte').Snippet;
+	}
+
+	let {
+		color = 'blue',
+		progress = 0,
+		ended = false,
+		children
+	}: Props = $props();
 
 	const tweenedProgress = tweened(progress, {
 		duration: 400,
 		easing: cubicOut
 	})
 
-	$: tweenedProgress.set(progress)
+	run(() => {
+		tweenedProgress.set(progress)
+	});
 </script>
 
 {#key color}
 	<div class="flex flex-row gap-1 items-center justify-between w-full">
 		{#if ended}
-			<slot />
+			{@render children?.()}
 		{:else}
 			<div class="progress-bar">
 				<div

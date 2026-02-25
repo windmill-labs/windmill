@@ -415,7 +415,7 @@
 		multiple={allowMultiple}
 		returnFileNames
 		{iconSize}
-		on:change={({ detail }) => {
+		onChange={(detail) => {
 			forceDisplayUploads = false
 			handleChange(detail)
 		}}

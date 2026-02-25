@@ -6,9 +6,13 @@
 	import DrawerContent from '../../common/drawer/DrawerContent.svelte'
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 
-	let drawer: Drawer
+	let drawer: Drawer = $state()
 
-	export let text: string = 'Approval Help'
+	interface Props {
+		text?: string;
+	}
+
+	let { text = 'Approval Help' }: Props = $props();
 </script>
 
 <Button

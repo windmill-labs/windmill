@@ -589,7 +589,10 @@
 				</div>
 				{#if flowStore.val.schema && enableAi}
 					<AIFormSettings
-						bind:prompt={flowStore.val.schema.prompt_for_ai as string | undefined}
+						bind:prompt={
+						() => flowStore.val.schema!.prompt_for_ai as string | undefined,
+						(v) => (flowStore.val.schema!.prompt_for_ai = v)
+					}
 						type="flow"
 					/>
 				{/if}
