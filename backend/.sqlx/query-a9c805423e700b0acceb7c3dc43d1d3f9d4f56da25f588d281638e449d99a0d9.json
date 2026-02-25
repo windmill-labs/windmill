@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO flow_version (workspace_id, path, value, schema, created_by) \n        VALUES ($1, $2, $3, $4::text::json, $5)\n        RETURNING id",
+  "query": "INSERT INTO flow_version (workspace_id, path, value, schema, created_by)\n        VALUES ($1, $2, $3, $4::text::json, $5)\n        RETURNING id",
   "describe": {
     "columns": [
       {
@@ -22,5 +22,5 @@
       false
     ]
   },
-  "hash": "07f5290e90533eac50b890a0d7f4a5e73ac111c838f687fe8647636827aae8b5"
+  "hash": "a9c805423e700b0acceb7c3dc43d1d3f9d4f56da25f588d281638e449d99a0d9"
 }

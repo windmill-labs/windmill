@@ -52,7 +52,10 @@ fn extract_assets_from_raw_value(
         if prefix {
             let s = serde_json::from_str::<String>(value.get()).ok()?;
             let (kind, path) = parse_asset_syntax(&s, false)?;
-            assets.push(RuntimeAsset { path: path.to_string(), kind: crate::assets::asset_kind_from_parser(kind) });
+            assets.push(RuntimeAsset {
+                path: path.to_string(),
+                kind: crate::assets::asset_kind_from_parser(kind),
+            });
         }
     }
     None

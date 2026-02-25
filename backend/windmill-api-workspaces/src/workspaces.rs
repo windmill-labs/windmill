@@ -2789,6 +2789,14 @@ async fn create_workspace(
     .await?;
 
     sqlx::query!(
+        "INSERT INTO group_
+            VALUES ($1, 'wm_deployers', 'Members can preserve the original author when deploying to this workspace')",
+        nw.id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
         "INSERT INTO usr_to_group
             VALUES ($1, 'all', $2)",
         nw.id,

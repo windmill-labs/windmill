@@ -138,6 +138,7 @@ fn check_no_duplicates(
 
 pub async fn insert_new_trigger_into_db(
     authed: &ApiAuthed,
+    db: &DB,
     tx: &mut PgConnection,
     w_id: &str,
     trigger: &TriggerData<HttpConfigRequest>,
@@ -146,6 +147,8 @@ pub async fn insert_new_trigger_into_db(
     require_admin(authed.is_admin, &authed.username)?;
 
     let request_type = trigger.config.request_type;
+    let resolved_edited_by = trigger.base.resolve_edited_by(authed);
+    let resolved_email = trigger.base.resolve_email(authed, db, w_id).await?;
 
     sqlx::query!(
             r#"
@@ -196,8 +199,8 @@ pub async fn insert_new_trigger_into_db(
             trigger.config.authentication_method as _,
             trigger.config.http_method as _,
             trigger.config.static_asset_config as _,
-            &authed.username,
-            &authed.email,
+            &resolved_edited_by,
+            resolved_email,
             trigger.config.is_static_website,
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
@@ -247,9 +250,16 @@ pub async fn create_many_http_triggers(
     let mut tx = user_db.begin(&authed).await?;
 
     for (new_http_trigger, route_path_key) in new_http_triggers.iter().zip(route_path_keys.iter()) {
-        insert_new_trigger_into_db(&authed, &mut tx, &w_id, new_http_trigger, route_path_key)
-            .await
-            .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err))?;
+        insert_new_trigger_into_db(
+            &authed,
+            &db,
+            &mut tx,
+            &w_id,
+            new_http_trigger,
+            route_path_key,
+        )
+        .await
+        .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err))?;
 
         audit_log(
             &mut *tx,
@@ -403,7 +413,7 @@ impl TriggerCrud for HttpTrigger {
     ) -> Result<()> {
         let route_path_key = check_if_route_exist(db, &trigger.config, &w_id, None).await?;
 
-        insert_new_trigger_into_db(authed, tx, w_id, &trigger, &route_path_key).await?;
+        insert_new_trigger_into_db(authed, db, tx, w_id, &trigger, &route_path_key).await?;
 
         increase_trigger_version(tx).await?;
 
@@ -419,6 +429,9 @@ impl TriggerCrud for HttpTrigger {
         path: &str,
         trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
+        let resolved_edited_by = trigger.base.resolve_edited_by(authed);
+        let resolved_email = trigger.base.resolve_email(authed, db, workspace_id).await?;
+
         if authed.is_admin {
             if trigger.config.route_path.is_empty() {
                 return Err(Error::BadRequest("route_path is required".to_string()));
@@ -478,8 +491,8 @@ impl TriggerCrud for HttpTrigger {
                 trigger.base.mode() as _,
                 trigger.config.http_method as _,
                 trigger.config.static_asset_config as _,
-                &authed.username,
-                &authed.email,
+                &resolved_edited_by,
+                resolved_email,
                 request_type as _,
                 trigger.config.authentication_method as _,
                 trigger.config.summary,
@@ -534,8 +547,8 @@ impl TriggerCrud for HttpTrigger {
                 trigger.base.mode() as _,
                 trigger.config.http_method as _,
                 trigger.config.static_asset_config as _,
-                &authed.username,
-                &authed.email,
+                &resolved_edited_by,
+                resolved_email,
                 request_type as _,
                 trigger.config.authentication_method as _,
                 trigger.config.summary,
