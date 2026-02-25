@@ -6,6 +6,9 @@
 // import { page } from '$app/stores'
 // import { get } from 'svelte/store'
 
+// CI test: deliberate type error
+const _ciTest: number = 'this is not a number'
+
 import { deepEqual } from 'fast-equals'
 import YAML from 'yaml'
 import { type UserExt } from './stores'
