@@ -103,15 +103,16 @@
 	{#snippet children({ darkMode })}
 		<div class="relative">
 			{#if data.isCollapsedContainer}
+				{@const numberOfsteps = data.containerModules?.length ?? 0}
 				<!-- Step count badge — top-left -->
 				<button
-					class="absolute -top-5 left-0 text-3xs text-secondary opacity-60 hover:opacity-100 hover:text-blue-500 z-10"
+					class="absolute -top-5 left-0 text-3xs text-secondary font-normal opacity-60 hover:opacity-100 hover:text-blue-500 z-10"
 					onclick={stopPropagation(
 						preventDefault(() => data.eventHandlers.expandContainer(data.id))
 					)}
 					onpointerdown={stopPropagation(preventDefault(() => {}))}
 				>
-					{data.containerModules?.length ?? 0} steps
+					{`${numberOfsteps} step${numberOfsteps > 1 ? 's' : ''}`}
 				</button>
 
 				<!-- Stacked layers behind the card -->

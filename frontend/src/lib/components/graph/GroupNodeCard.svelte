@@ -107,31 +107,34 @@
 		{:else}
 			<Group size={14} />
 		{/if}
-		{#if editingSummary}
-			<TextInput
-				bind:this={textInputComponent}
-				bind:value={summaryInput}
-				size="xs"
-				class="!bg-transparent !border-transparent !shadow-none !text-2xs !font-medium !p-0 !m-0 !min-w-0 flex-1 text-center !min-h-0 !h-auto nodrag nowheel"
-				inputProps={{
-					placeholder: 'Group',
-					onblur: saveSummary,
-					onkeydown: handleSummaryKeydown,
-					spellcheck: false
-				}}
-			/>
-		{:else}
-			<!-- svelte-ignore a11y_click_events_have_key_events -->
-			<!-- svelte-ignore a11y_no_static_element_interactions -->
-			<span
-				class="text-2xs font-medium truncate flex-1 text-center {editMode
-					? 'cursor-text rounded px-0.5 -mx-0.5 hover:bg-black/10 dark:hover:bg-white/10'
-					: ''}"
-				onclick={editMode ? stopPropagation(preventDefault(startEditingSummary)) : undefined}
-				onpointerdown={editMode ? stopPropagation(preventDefault(() => {})) : undefined}
-				>{summary || 'Group'}</span
-			>
-		{/if}
+		<div class="absolute inset-x-0 flex items-center justify-center h-[34px] pointer-events-none px-8">
+			{#if editingSummary}
+				<TextInput
+					bind:this={textInputComponent}
+					bind:value={summaryInput}
+					size="xs"
+					class="!bg-transparent !border-transparent !shadow-none !text-2xs !font-medium !p-0 !m-0 !min-w-0 w-full text-center !min-h-0 !h-auto nodrag nowheel pointer-events-auto"
+					inputProps={{
+						placeholder: 'Group',
+						onblur: saveSummary,
+						onkeydown: handleSummaryKeydown,
+						spellcheck: false
+					}}
+				/>
+			{:else}
+				<!-- svelte-ignore a11y_click_events_have_key_events -->
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<span
+					class="text-2xs font-medium truncate text-center pointer-events-auto {editMode
+						? 'cursor-text rounded px-0.5 -mx-0.5 hover:bg-black/10 dark:hover:bg-white/10'
+						: ''}"
+					onclick={editMode ? stopPropagation(preventDefault(startEditingSummary)) : undefined}
+					onpointerdown={editMode ? stopPropagation(preventDefault(() => {})) : undefined}
+					>{summary || 'Group'}</span
+				>
+			{/if}
+		</div>
+		<div class="flex-1"></div>
 		{#if stepCount != null}
 			<!-- svelte-ignore a11y_click_events_have_key_events -->
 			<!-- svelte-ignore a11y_no_static_element_interactions -->

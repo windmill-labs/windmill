@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { stopPropagation, preventDefault } from 'svelte/legacy'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { CollapsedGroupN } from '../../graphBuilder.svelte'
 	import { getGraphContext } from '../../graphContext'
@@ -37,6 +38,17 @@
 	{#snippet children({ darkMode })}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div class="relative" onmouseenter={() => (hover = true)} onmouseleave={() => (hover = false)}>
+			<!-- Step count badge — top-left -->
+			<button
+				class="absolute -top-5 font-normal left-0 text-3xs text-secondary opacity-60 hover:opacity-100 hover:text-blue-500 z-10"
+				onclick={stopPropagation(
+					preventDefault(() => data.eventHandlers.expandGroup(data.groupId))
+				)}
+				onpointerdown={stopPropagation(preventDefault(() => {}))}
+			>
+				{data.stepCount} step{data.stepCount !== 1 ? 's' : ''}
+			</button>
+
 			<!-- Stacked layers behind the card -->
 			<div
 				class="absolute inset-0 left-2 h-9 rounded-md border z-[-1] {colorConfig.background} {borderColorClass}"
@@ -51,12 +63,10 @@
 				summary={data.summary}
 				color={data.color}
 				{selected}
-				stepCount={data.stepCount}
 				note={data.note}
 				showNote={data.showNotes && data.note != null}
 				editMode={data.editMode}
 				modules={data.modules}
-				onExpand={() => data.eventHandlers.expandGroup(data.groupId)}
 				onSummaryUpdate={(text) =>
 					groupEditorContext?.groupEditor.updateSummary(data.groupId, text)}
 				onNoteUpdate={(text) => groupEditorContext?.groupEditor.updateNote(data.groupId, text)}
@@ -66,12 +76,13 @@
 				}}
 			/>
 
-			{#if data.editMode && (hover || selected)}
+			{#if data.editMode}
 				<GroupActionBar
 					note={data.note}
 					color={data.color}
 					collapsedByDefault={group?.collapsed_by_default ?? false}
 					collapsed={true}
+					showAll={hover || selected}
 					onAddNote={() => groupEditorContext?.groupEditor.addNote(data.groupId)}
 					onRemoveNote={() => groupEditorContext?.groupEditor.removeNote(data.groupId)}
 					onToggleCollapse={() => data.eventHandlers.expandGroup(data.groupId)}
