@@ -103,6 +103,8 @@ export class MoveManager {
 	}
 
 	startDrag(moduleId: string, screenX: number, screenY: number) {
+		// Clear any active click-to-move so only drag mode is active
+		this.movingModuleId = undefined
 		this.dragging = { moduleId }
 		this.ghostScreenX = screenX
 		this.ghostScreenY = screenY
