@@ -4231,6 +4231,8 @@ mount {{
     #[cfg(feature = "parquet")]
     let mut volume_client: Option<std::sync::Arc<dyn windmill_worker_volumes::DynObjectStore>> =
         None;
+    #[cfg(feature = "parquet")]
+    let mut volume_lease_renewal: Option<tokio::task::JoinHandle<()>> = None;
 
     #[cfg(feature = "parquet")]
     if !volume_mounts.is_empty() {
@@ -4250,8 +4252,59 @@ mount {{
                 volume_client = Some(client_arc.clone());
 
                 for volume in &volume_mounts {
+                    // Acquire exclusive lease before downloading
+                    let mut acquired = false;
+                    for attempt in 0..120 {
+                        let row = sqlx::query_scalar!(
+                            "INSERT INTO volume (workspace_id, name, size_bytes, created_by, lease_until, leased_by)
+                             VALUES ($1, $2, 0, $3, now() + interval '30 seconds', $4)
+                             ON CONFLICT (workspace_id, name) DO UPDATE
+                             SET lease_until = now() + interval '30 seconds', leased_by = $4
+                             WHERE volume.lease_until IS NULL OR volume.lease_until < now()
+                             RETURNING name",
+                            &job.workspace_id,
+                            &volume.name,
+                            &job.created_by,
+                            worker_name
+                        )
+                        .fetch_optional(db)
+                        .await;
+
+                        match row {
+                            Ok(Some(_)) => {
+                                acquired = true;
+                                break;
+                            }
+                            Ok(None) => {
+                                if attempt == 0 {
+                                    tracing::info!(
+                                        workspace_id = %job.workspace_id,
+                                        "volume '{}' is leased by another worker, waiting...",
+                                        volume.name
+                                    );
+                                }
+                                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    workspace_id = %job.workspace_id,
+                                    "failed to acquire lease for volume '{}': {e}",
+                                    volume.name
+                                );
+                                break;
+                            }
+                        }
+                    }
+
+                    if !acquired {
+                        return Err(Error::internal_err(format!(
+                            "Timed out waiting for volume '{}' lease (held by another worker)",
+                            volume.name
+                        )));
+                    }
+
                     let _ = sqlx::query!(
-                        "UPDATE volume SET last_read_at = now() WHERE workspace_id = $1 AND name = $2",
+                        "UPDATE volume SET last_used_at = now() WHERE workspace_id = $1 AND name = $2",
                         &job.workspace_id,
                         &volume.name
                     )
@@ -4262,6 +4315,7 @@ mount {{
                         client_arc.clone(),
                         volume,
                         job_dir,
+                        &job.workspace_id,
                     )
                     .await
                     {
@@ -4312,6 +4366,16 @@ mount {{
                             volume_states.push(state);
                         }
                         Err(e) => {
+                            // Release lease on failure
+                            let _ = sqlx::query!(
+                                "UPDATE volume SET lease_until = NULL, leased_by = NULL
+                                 WHERE workspace_id = $1 AND name = $2 AND leased_by = $3",
+                                &job.workspace_id,
+                                &volume.name,
+                                worker_name
+                            )
+                            .execute(db)
+                            .await;
                             tracing::warn!(
                                 workspace_id = %job.workspace_id,
                                 "failed to download volume '{}' for job {}: {}",
@@ -4322,6 +4386,33 @@ mount {{
                             return Err(e);
                         }
                     }
+                }
+
+                // Spawn background lease renewal task
+                if !volume_states.is_empty() {
+                    let db_pool = db.clone();
+                    let ws_id = job.workspace_id.clone();
+                    let vol_names: Vec<String> =
+                        volume_states.iter().map(|s| s.mount.name.clone()).collect();
+                    let worker = worker_name.to_string();
+                    volume_lease_renewal = Some(tokio::spawn(async move {
+                        let mut interval =
+                            tokio::time::interval(std::time::Duration::from_secs(10));
+                        loop {
+                            interval.tick().await;
+                            for name in &vol_names {
+                                let _ = sqlx::query!(
+                                    "UPDATE volume SET lease_until = now() + interval '30 seconds'
+                                     WHERE workspace_id = $1 AND name = $2 AND leased_by = $3",
+                                    &ws_id,
+                                    name,
+                                    &worker
+                                )
+                                .execute(&db_pool)
+                                .await;
+                            }
+                        }
+                    }));
                 }
             }
         }
@@ -4738,24 +4829,28 @@ mount {{
         // for related places search: ADD_NEW_LANG
         _ => panic!("unreachable, language is not supported: {language:#?}"),
     };
-    // Volume sync-back
+    // Volume sync-back and lease release
     #[cfg(feature = "parquet")]
     if !volume_states.is_empty() {
         if let Some(ref vol_client) = volume_client {
             if let Connection::Sql(db) = conn {
                 for state in &volume_states {
-                    match windmill_worker_volumes::sync_volume_back(vol_client.clone(), state).await
+                    match windmill_worker_volumes::sync_volume_back(
+                        vol_client.clone(),
+                        state,
+                        &job.workspace_id,
+                    )
+                    .await
                     {
                         Ok(sync_stats) => {
                             let _ = sqlx::query!(
-                                "INSERT INTO volume (workspace_id, name, size_bytes, created_by, last_write_at)
-                                 VALUES ($1, $2, $3, $4, now())
-                                 ON CONFLICT (workspace_id, name) DO UPDATE
-                                 SET size_bytes = $3, last_write_at = now()",
+                                "UPDATE volume
+                                 SET size_bytes = $3, last_used_at = now(),
+                                     lease_until = NULL, leased_by = NULL
+                                 WHERE workspace_id = $1 AND name = $2",
                                 &job.workspace_id,
                                 &state.mount.name,
                                 sync_stats.new_size_bytes as i64,
-                                &job.created_by
                             )
                             .execute(db)
                             .await;
@@ -4769,6 +4864,17 @@ mount {{
                             );
                         }
                         Err(e) => {
+                            // Release lease even on sync failure
+                            let _ = sqlx::query!(
+                                "UPDATE volume SET lease_until = NULL, leased_by = NULL
+                                 WHERE workspace_id = $1 AND name = $2 AND leased_by = $3",
+                                &job.workspace_id,
+                                &state.mount.name,
+                                worker_name
+                            )
+                            .execute(db)
+                            .await;
+
                             tracing::warn!(
                                 workspace_id = %job.workspace_id,
                                 "failed to sync volume '{}' back for job {}: {}",
@@ -4780,6 +4886,11 @@ mount {{
                     }
                 }
             }
+        }
+
+        // Stop lease renewal
+        if let Some(handle) = volume_lease_renewal.take() {
+            handle.abort();
         }
     }
 
