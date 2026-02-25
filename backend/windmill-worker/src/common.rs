@@ -948,7 +948,11 @@ pub(crate) async fn get_workspace_s3_resource_path(
             )
         }
         Some(LargeFileStorage::FilesystemStorage(fs)) => {
-            (StorageResourceType::Filesystem, fs.root_path.clone())
+            return Ok(Some(
+                windmill_object_store::ObjectStoreResource::Filesystem(
+                    windmill_object_store::FilesystemSettings { root_path: fs.root_path.clone() },
+                ),
+            ));
         }
         None => {
             return Ok(None);

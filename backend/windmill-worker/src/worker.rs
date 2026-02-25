@@ -4236,6 +4236,22 @@ mount {{
 
     #[cfg(feature = "parquet")]
     if !volume_mounts.is_empty() {
+        let vol_summary: Vec<String> = volume_mounts
+            .iter()
+            .map(|v| format!("'{}' -> {}", v.name, v.target))
+            .collect();
+        append_logs(
+            &job.id,
+            &job.workspace_id,
+            format!(
+                "\n--- VOLUME MOUNTS ---\nPulling {} volume(s): {}\n",
+                volume_mounts.len(),
+                vol_summary.join(", "),
+            ),
+            conn,
+        )
+        .await;
+
         if let Connection::Sql(db) = conn {
             let s3_resource = crate::common::get_workspace_s3_resource_path(
                 db,
@@ -4319,7 +4335,20 @@ mount {{
                     )
                     .await
                     {
-                        Ok(state) => {
+                        Ok((state, dl_stats)) => {
+                            append_logs(
+                                &job.id,
+                                &job.workspace_id,
+                                format!(
+                                    "Volume '{}': {} total files ({} from cache, {} pulled from object store)\n",
+                                    volume.name,
+                                    dl_stats.total_files,
+                                    dl_stats.from_cache,
+                                    dl_stats.downloaded,
+                                ),
+                                conn,
+                            )
+                            .await;
                             let nsjail_target = if volume.target.starts_with('/') {
                                 volume.target.clone()
                             } else {
@@ -4834,6 +4863,8 @@ mount {{
     if !volume_states.is_empty() {
         if let Some(ref vol_client) = volume_client {
             if let Connection::Sql(db) = conn {
+                let mut sync_log = "\n--- VOLUME SYNC BACK ---\n".to_string();
+
                 for state in &volume_states {
                     match windmill_worker_volumes::sync_volume_back(
                         vol_client.clone(),
@@ -4845,15 +4876,21 @@ mount {{
                         Ok(sync_stats) => {
                             let _ = sqlx::query!(
                                 "UPDATE volume
-                                 SET size_bytes = $3, last_used_at = now(),
+                                 SET size_bytes = $3, file_count = $4, last_used_at = now(),
                                      lease_until = NULL, leased_by = NULL
                                  WHERE workspace_id = $1 AND name = $2",
                                 &job.workspace_id,
                                 &state.mount.name,
                                 sync_stats.new_size_bytes as i64,
+                                sync_stats.file_count as i32,
                             )
                             .execute(db)
                             .await;
+
+                            sync_log.push_str(&format!(
+                                "Volume '{}': {} files uploaded, {} files unchanged (skipped)\n",
+                                state.mount.name, sync_stats.uploaded, sync_stats.skipped,
+                            ));
 
                             tracing::info!(
                                 workspace_id = %job.workspace_id,
@@ -4875,6 +4912,11 @@ mount {{
                             .execute(db)
                             .await;
 
+                            sync_log.push_str(&format!(
+                                "Volume '{}': failed to sync back: {}\n",
+                                state.mount.name, e,
+                            ));
+
                             tracing::warn!(
                                 workspace_id = %job.workspace_id,
                                 "failed to sync volume '{}' back for job {}: {}",
@@ -4885,6 +4927,8 @@ mount {{
                         }
                     }
                 }
+
+                append_logs(&job.id, &job.workspace_id, sync_log, conn).await;
             }
         }
 

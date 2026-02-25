@@ -3,7 +3,7 @@
 	import { VolumeService } from '$lib/gen'
 	import { workspaceStore, userStore } from '$lib/stores'
 	import { displayDate, displaySize, sendUserToast } from '$lib/utils'
-	import { ExternalLink, HardDriveIcon, Loader2, Trash2 } from 'lucide-svelte'
+	import { File, HardDriveIcon, Loader2, Trash2 } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import { resource } from 'runed'
 
@@ -50,7 +50,8 @@
 						<div class="flex flex-col flex-1 min-w-0">
 							<span class="text-sm font-medium truncate">{vol.name}</span>
 							<span class="text-2xs text-secondary">
-								{displaySize(vol.size_bytes) ?? '0 B'}
+								{vol.file_count} {vol.file_count === 1 ? 'file' : 'files'}
+								&middot; {displaySize(vol.size_bytes) ?? '0 B'}
 								&middot; created by {vol.created_by}
 							</span>
 						</div>
@@ -61,15 +62,16 @@
 						{/if}
 						{#if onExplore}
 							<Button
-								variant="subtle"
-								iconOnly
+								variant="default"
 								unifiedSize="sm"
-								endIcon={{ icon: ExternalLink }}
+								endIcon={{ icon: File }}
 								on:click={() => {
 									open = false
 									onExplore(vol.name)
 								}}
-							/>
+							>
+								Explore
+							</Button>
 						{/if}
 						{#if $userStore?.is_admin}
 							<Button

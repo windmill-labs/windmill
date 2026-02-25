@@ -102,7 +102,7 @@
 		folderOnly = false,
 		regexFilter = undefined,
 		hideS3SpecificDetails = false,
-		rootPath = '',
+		rootPath: initialRootPath = '',
 		workspaceSettingsInitialized = $bindable(true),
 		storage = $bindable(undefined),
 		uploadModalOpen = $bindable(false),
@@ -116,6 +116,7 @@
 		testConnectionRequest = HelpersService.datasetStorageTestConnection
 	}: Props = $props()
 
+	let rootPath = $state(initialRootPath)
 	let rootPathNestingLevel = $derived(1 * (rootPath.split('/').length - 1))
 
 	let csvSeparatorChar: string = $state(',')
@@ -424,9 +425,16 @@
 	export async function open(_preSelectedFileKey: S3Object | undefined = undefined) {
 		const preSelectedFileKey = _preSelectedFileKey && parseS3Object(_preSelectedFileKey)
 		storage = preSelectedFileKey?.storage
-		if (preSelectedFileKey !== undefined) {
+		if (preSelectedFileKey !== undefined && preSelectedFileKey.s3.endsWith('/')) {
+			rootPath = preSelectedFileKey.s3
+			filter = ''
+			selectedFileKey = undefined
+		} else if (preSelectedFileKey !== undefined) {
+			rootPath = ''
 			initialFileKey = { ...preSelectedFileKey }
 			selectedFileKey = { ...preSelectedFileKey }
+		} else {
+			rootPath = ''
 		}
 		reloadContent()
 	}
@@ -461,7 +469,7 @@
 		if (selectedFileKey !== undefined) {
 			if (allFilesByKey[selectedFileKey.s3] === undefined) {
 				selectedFileKey = { s3: '', storage }
-			} else {
+			} else if (allFilesByKey[selectedFileKey.s3].type !== 'folder') {
 				loadFileMetadataPlusPreviewAsync(selectedFileKey.s3)
 			}
 		}

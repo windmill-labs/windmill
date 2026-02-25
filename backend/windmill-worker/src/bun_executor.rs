@@ -1160,6 +1160,10 @@ pub async fn handle_bun_job(
         init_logs = format!("\n{}{}", cache_logs, init_logs);
     }
 
+    if annotation.sandbox {
+        init_logs.push_str("sandbox mode (nsjail)\n");
+    }
+
     let write_wrapper_f = async {
         if !has_bundle_cache && annotation.native {
             return Ok(()) as error::Result<()>;

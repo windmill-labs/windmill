@@ -235,7 +235,10 @@ pub async fn handle_deno_job(
     let annotations = TypeScriptAnnotations::parse(inner_content);
 
     // let mut start = Instant::now();
-    let logs1 = "\n\n--- DENO CODE EXECUTION ---\n".to_string();
+    let mut logs1 = "\n\n--- DENO CODE EXECUTION ---\n".to_string();
+    if annotations.sandbox {
+        logs1.push_str("sandbox mode (nsjail)\n");
+    }
     append_logs(&job.id, &job.workspace_id, logs1, conn).await;
 
     let main_override = job.script_entrypoint_override.as_deref();

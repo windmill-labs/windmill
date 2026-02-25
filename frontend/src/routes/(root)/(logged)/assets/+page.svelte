@@ -32,6 +32,9 @@
 	} from '$lib/components/FilterSearchbar.svelte'
 	import { buildAssetsFilterSchema } from '$lib/components/assets/assetsFilter'
 	import { untrack } from 'svelte'
+	import { VolumeService } from '$lib/gen'
+	import VolumesDrawer from '$lib/components/assets/VolumesDrawer.svelte'
+	import { HardDriveIcon } from 'lucide-svelte'
 
 	interface AssetCursor {
 		created_at?: string
@@ -45,7 +48,8 @@
 		'resource',
 		'variable',
 		'ducklake',
-		'datatable'
+		'datatable',
+		'volume'
 	])
 
 	// FilterSearchbar setup
@@ -130,6 +134,11 @@
 				d.map((d) => ({ label: d == 'main' ? 'Main data table' : d, value: d }))
 			)
 	)
+	let allVolumes = resource(
+		() => $workspaceStore,
+		() => VolumeService.listVolumes({ workspace: $workspaceStore! })
+	)
+	let volumesDrawer: VolumesDrawer | undefined = $state()
 
 	function extractFavorites(kind: AssetKind) {
 		return favoriteManager.current
@@ -160,6 +169,7 @@
 					settingsHref: string
 					docsHref: string
 					favorites?: { table: string; schema?: string; assetName: string; path: string }[]
+					itemExtra?: import('svelte').Snippet<[{ label: string; value: string }]>
 				})}
 					<div class="flex flex-col bg-surface-tertiary drop-shadow-base rounded-md flex-1">
 						<div class="flex justify-between border-b">
@@ -191,12 +201,17 @@
 								{#each props.data.current ?? [] as item}
 									<div class="text-xs py-2 text-primary flex justify-between items-center px-6">
 										{item.label}
-										<ExploreAssetButton
-											asset={{ kind: props.assetKind, path: item.value }}
-											{s3FilePicker}
-											{dbManagerDrawer}
-											btnClasses="dark:bg-surface"
-										/>
+										<div class="flex items-center gap-2">
+											{#if props.itemExtra}
+												{@render props.itemExtra(item)}
+											{/if}
+											<ExploreAssetButton
+												asset={{ kind: props.assetKind, path: item.value }}
+												{s3FilePicker}
+												{dbManagerDrawer}
+												btnClasses="dark:bg-surface"
+											/>
+										</div>
 									</div>
 								{/each}
 							</div>
@@ -260,13 +275,27 @@
 					docsHref: 'https://www.windmill.dev/docs/core_concepts/persistent_storage/ducklake',
 					favorites: extractFavorites('ducklake')
 				})}
+				{#snippet volumesButton(item: { label: string; value: string })}
+					{#if item.value === '/'}
+						<Button
+							variant="default"
+							unifiedSize="sm"
+							btnClasses="dark:bg-surface"
+							startIcon={{ icon: HardDriveIcon }}
+							on:click={() => volumesDrawer?.openDrawer()}
+						>
+							{allVolumes.current?.length ?? 0} {(allVolumes.current?.length ?? 0) === 1 ? 'volume' : 'volumes'}
+						</Button>
+					{/if}
+				{/snippet}
 				{@render card({
 					title: 'Object storage',
 					data: allS3Storages,
 					assetKind: 's3object',
 					settingsHref: '/workspace_settings?tab=windmill_lfs',
 					docsHref:
-						'https://www.windmill.dev/docs/core_concepts/persistent_storage/large_data_files'
+						'https://www.windmill.dev/docs/core_concepts/persistent_storage/large_data_files',
+					itemExtra: volumesButton
 				})}
 			</div>
 		</Section>
@@ -292,6 +321,10 @@
 
 <AssetsUsageDrawer bind:this={assetsUsageDropdown} />
 <S3FilePicker bind:this={s3FilePicker} readOnlyMode />
+<VolumesDrawer
+	bind:this={volumesDrawer}
+	onExplore={(name) => s3FilePicker?.open({ s3: `volumes/${name}/` })}
+/>
 
 {#snippet table()}
 	<DataTable>

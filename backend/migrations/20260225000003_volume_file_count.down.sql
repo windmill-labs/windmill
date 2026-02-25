@@ -1,0 +1,1 @@
+ALTER TABLE volume DROP COLUMN IF EXISTS file_count;

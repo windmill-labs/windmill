@@ -8,6 +8,9 @@ edition.workspace = true
 name = "windmill_worker_volumes"
 path = "src/lib.rs"
 
+[features]
+enterprise = []
+
 [dependencies]
 windmill-common = { workspace = true, default-features = false }
 object_store.workspace = true

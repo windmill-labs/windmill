@@ -122,6 +122,39 @@ export type PreparedAssetsSqlQuery =
 	| { columns: Record<string, string> } // e.g { id: "number", name: "text" }
 	| { error: string; columns?: undefined } // error message if preparation failed
 
+function parseVolumeAnnotations(code: string, commentPrefix: string): AssetWithAccessType[] {
+	const volumes: AssetWithAccessType[] = []
+	for (const line of code.split('\n')) {
+		const trimmed = line.trim()
+		if (!trimmed) continue
+		if (!trimmed.startsWith(commentPrefix)) break
+		const after = trimmed.slice(commentPrefix.length).trim()
+		const match = after.match(/^volume:\s*(\S+)/)
+		if (match) {
+			volumes.push({ kind: 'volume', path: match[1], access_type: 'rw' })
+		}
+	}
+	return volumes
+}
+
+function getCommentPrefix(language: SupportedLanguage | undefined): string | undefined {
+	switch (language) {
+		case 'python3':
+		case 'bash':
+		case 'powershell':
+		case 'ruby':
+			return '#'
+		case 'deno':
+		case 'bun':
+		case 'bunnative':
+		case 'nativets':
+		case 'go':
+			return '//'
+		default:
+			return undefined
+	}
+}
+
 export async function inferAssets(
 	language: SupportedLanguage | undefined,
 	code: string
@@ -133,28 +166,39 @@ export async function inferAssets(
 		return { status: 'ok', ...JSON.parse(raw_result) }
 	}
 
+	let result: InferAssetsResult | undefined
+
 	try {
 		if (language === 'duckdb') {
 			await initWasmRegex()
-			return wrap(parse_assets_sql(code))
-		}
-		if (language === 'deno' || language === 'nativets' || language === 'bun') {
+			result = wrap(parse_assets_sql(code))
+		} else if (language === 'deno' || language === 'nativets' || language === 'bun') {
 			await initWasmTs()
-			return wrap(parse_assets_ts(code))
-		}
-		if (language === 'python3') {
+			result = wrap(parse_assets_ts(code))
+		} else if (language === 'python3') {
 			await initWasmPython()
-			return wrap(parse_assets_py(code))
-		}
-		if (language === 'ansible') {
+			result = wrap(parse_assets_py(code))
+		} else if (language === 'ansible') {
 			await initWasmYaml()
-			return wrap(parse_assets_ansible(code))
+			result = wrap(parse_assets_ansible(code))
 		}
 	} catch (e) {
 		return { status: 'error', error: (e as Error)?.message || JSON.stringify(e) }
 	}
 
-	return { status: 'ok', assets: [] }
+	if (!result) {
+		result = { status: 'ok', assets: [] }
+	}
+
+	const prefix = getCommentPrefix(language)
+	if (prefix && result.status === 'ok') {
+		const volumeAssets = parseVolumeAnnotations(code, prefix)
+		if (volumeAssets.length > 0) {
+			result = { ...result, assets: [...result.assets, ...volumeAssets] }
+		}
+	}
+
+	return result
 }
 
 export async function inferAnsibleExecutionMode(code: string): Promise<any> {

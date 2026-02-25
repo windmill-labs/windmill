@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ResourceService, type Job } from '$lib/gen'
+	import { ResourceService, ScriptService, type Job } from '$lib/gen'
 	import { inferAssets } from '$lib/infer'
 	import { globalDbManagerDrawer, workspaceStore } from '$lib/stores'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
@@ -35,7 +35,15 @@
 		}
 
 		if (job.job_kind === 'script') {
-			let inferAssetsResult = await inferAssets(job.language!, job.raw_code ?? '')
+			let code = job.raw_code
+			if (!code && job.script_hash && $workspaceStore) {
+				const script = await ScriptService.getScriptByHash({
+					workspace: $workspaceStore,
+					hash: job.script_hash
+				})
+				code = script.content
+			}
+			let inferAssetsResult = await inferAssets(job.language!, code ?? '')
 			let assets = inferAssetsResult.status === 'ok' ? inferAssetsResult.assets : []
 			return [...assets, ...parseInputArgsAssets(job.args ?? {})]
 		}

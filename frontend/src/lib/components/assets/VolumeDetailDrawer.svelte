@@ -53,6 +53,10 @@
 			<div class="flex flex-col gap-4">
 				<div class="flex flex-col gap-2 border rounded-md p-4">
 					<div class="flex justify-between text-sm">
+						<span class="text-secondary">Files</span>
+						<span>{volume.file_count}</span>
+					</div>
+					<div class="flex justify-between text-sm">
 						<span class="text-secondary">Size</span>
 						<span>{displaySize(volume.size_bytes) ?? '0 B'}</span>
 					</div>

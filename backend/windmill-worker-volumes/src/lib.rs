@@ -26,8 +26,17 @@ pub struct FileManifestEntry {
     pub modified: SystemTime,
 }
 
+pub struct DownloadStats {
+    pub total_files: usize,
+    pub from_cache: usize,
+    pub downloaded: usize,
+}
+
 pub struct SyncStats {
     pub new_size_bytes: u64,
+    pub file_count: usize,
+    pub uploaded: usize,
+    pub skipped: usize,
 }
 
 pub static VOLUME_CACHE: Mutex<VolumeCache> = Mutex::new(VolumeCache::new());

@@ -613,16 +613,14 @@ pub async fn handle_python_job(
     }
 
     {
-        append_logs(
-            &job.id,
-            &job.workspace_id,
-            format!(
-                "\n\n--- PYTHON ({}) CODE EXECUTION ---\n",
-                py_version.clone().to_string()
-            ),
-            conn,
-        )
-        .await;
+        let mut logs = format!(
+            "\n\n--- PYTHON ({}) CODE EXECUTION ---\n",
+            py_version.clone().to_string()
+        );
+        if annotations.sandbox {
+            logs.push_str("sandbox mode (nsjail)\n");
+        }
+        append_logs(&job.id, &job.workspace_id, logs, conn).await;
     }
     let (
         import_loader,

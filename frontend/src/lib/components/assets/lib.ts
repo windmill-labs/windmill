@@ -26,6 +26,8 @@ export function formatAsset(asset: Asset): string {
 			return `ducklake://${asset.path}`
 		case 'datatable':
 			return `datatable://${asset.path}`
+		case 'volume':
+			return `volume://${asset.path}`
 	}
 	return 'unknown'
 }
@@ -89,6 +91,8 @@ export function formatAssetKind(asset: {
 			return 'Ducklake'
 		case 'datatable':
 			return 'Data table'
+		case 'volume':
+			return 'Volume'
 	}
 }
 
