@@ -640,6 +640,7 @@
 							disabled={!can_write}
 							bind:value={postgres_resource_path}
 							resourceType={'postgresql'}
+							datatableAsPgResource
 						/>
 						<CheckPostgresRequirement bind:postgres_resource_path bind:can_write />
 					</div>
