@@ -88,7 +88,7 @@
 		// Clone nodes/edges with interactive features disabled
 		const ghostNodes = sfNodes.map((n) => ({
 			...n,
-			data: { ...n.data, insertable: false, editMode: false, moving: undefined }
+			data: { ...n.data, insertable: false, editMode: false }
 		}))
 		const ghostEdges = sfEdges.map((e) => ({
 			...e,

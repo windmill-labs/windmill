@@ -20,7 +20,7 @@
 		Timer,
 		Maximize2
 	} from 'lucide-svelte'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import type { FlowEditorContext } from '../types'
 	import { twMerge } from 'tailwind-merge'
@@ -187,6 +187,42 @@
 	)
 
 	let isDragging = $derived(!!moveManager?.dragging)
+
+	// --- Drag handle logic ---
+	let dragCleanup: (() => void) | undefined
+
+	function onMovePointerDown(e: Event) {
+		const pe = e as PointerEvent
+		const startX = pe.clientX
+		const startY = pe.clientY
+		let didDrag = false
+
+		function onMovePointer(me: PointerEvent) {
+			const dx = me.clientX - startX
+			const dy = me.clientY - startY
+			if (!didDrag && Math.sqrt(dx * dx + dy * dy) > 5) {
+				didDrag = true
+				if (moveManager && id) {
+					moveManager.startDrag(id, startX, startY)
+				}
+			}
+		}
+
+		function onUp() {
+			document.removeEventListener('pointermove', onMovePointer)
+			document.removeEventListener('pointerup', onUp)
+			dragCleanup = undefined
+			if (!didDrag) {
+				dispatch('move')
+			}
+		}
+
+		document.addEventListener('pointermove', onMovePointer)
+		document.addEventListener('pointerup', onUp)
+		dragCleanup = onUp
+	}
+
+	onDestroy(() => dragCleanup?.())
 
 	const outputPickerVisible = $derived(
 		editMode && (isConnectingCandidate || alwaysShowOutputPicker) && !!id && !isDragging
@@ -497,34 +533,7 @@
 							'group-hover:block',
 							'touch-none'
 						)}
-						onpointerdown={stopPropagation(preventDefault((e) => {
-							const pe = e as PointerEvent
-							const startX = pe.clientX
-							const startY = pe.clientY
-							let didDrag = false
-
-							function onMovePointer(me: PointerEvent) {
-								const dx = me.clientX - startX
-								const dy = me.clientY - startY
-								if (!didDrag && Math.sqrt(dx * dx + dy * dy) > 5) {
-									didDrag = true
-									if (moveManager && id) {
-										moveManager.startDrag(id, startX, startY)
-									}
-								}
-							}
-
-							function onUp() {
-								document.removeEventListener('pointermove', onMovePointer)
-								document.removeEventListener('pointerup', onUp)
-								if (!didDrag) {
-									dispatch('move')
-								}
-							}
-
-							document.addEventListener('pointermove', onMovePointer)
-							document.addEventListener('pointerup', onUp)
-						}))}
+						onpointerdown={stopPropagation(preventDefault(onMovePointerDown))}
 						title="Move"
 					>
 						<Move size={12} />

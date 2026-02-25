@@ -90,12 +90,7 @@
 			data.sourceId !== draggedId &&
 			data.targetId !== draggedId
 	)
-	let isNearestDrop = $derived(
-		isValidDropTarget &&
-			moveManager?.nearestDropZone?.sourceId === data?.sourceId &&
-			moveManager?.nearestDropZone?.targetId === data?.targetId &&
-			moveManager?.nearestDropZone?.index === data?.index
-	)
+	let isNearestDrop = $derived(isValidDropTarget && moveManager?.nearestDropZone?.edgeId === id)
 	let isAdjacentToDragged = $derived(
 		isDragging && (data?.sourceId === draggedId || data?.targetId === draggedId)
 	)
@@ -216,7 +211,7 @@
 		</div>
 	{/if}
 
-	{#if moveManager?.movingModuleId}
+	{#if moveManager?.movingModuleId && data?.insertable}
 		<div class="edgeButtonContainer nodrag nopan" style:transform="translate(-50%, -50%)">
 			{#if !data.disableMoveIds?.includes(moveManager.movingModuleId)}
 				<button
