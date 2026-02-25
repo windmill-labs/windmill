@@ -123,7 +123,7 @@
 {#if mod}
 	<div class="relative">
 		{#if moveManager?.movingModuleId == mod.id}
-			<div class="absolute z-10 -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap">
+			<div class="absolute z-10 inset-0 flex items-center justify-center">
 				<Button variant="accent" on:click={() => dispatch('move')} size="xs" destructive>
 					Cancel move
 					<kbd class="ml-1 text-2xs opacity-60 font-mono">Esc</kbd>
