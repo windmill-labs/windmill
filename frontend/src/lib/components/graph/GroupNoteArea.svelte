@@ -1,6 +1,7 @@
 <script lang="ts">
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 	import { NOTE_COLORS, NoteColor } from './noteColors'
+	import { stopPropagation, preventDefault } from 'svelte/legacy'
 
 	interface Props {
 		note: string
@@ -62,6 +63,7 @@
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
+		event.stopPropagation()
 		if (event.key === 'Escape') {
 			editing = false
 			textContent = note
@@ -72,26 +74,36 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	bind:this={containerElement}
-	class="w-full border-t {borderColorClass} {noteColorConfig.background}"
-	ondblclick={handleDoubleClick}
+	class="w-full border-t nodrag nopan nowheel {borderColorClass} {noteColorConfig.background}"
 >
 	{#if editing}
 		<textarea
 			bind:this={textareaElement}
 			bind:value={textContent}
-			class="w-full shadow-none resize-none text-2xs overflow-y-auto border-none bg-transparent p-2 nodrag nowheel focus:outline-none {noteColorConfig.text}"
+			class="w-full shadow-none resize-none text-2xs overflow-y-auto border-none bg-transparent p-2 nodrag nopan nowheel focus:outline-none {noteColorConfig.text}"
 			placeholder="Write a note (markdown supported)"
 			onblur={handleSave}
 			onkeydown={handleKeydown}
+			onpointerdown={stopPropagation(() => {})}
 			spellcheck="false"
 			rows="3"
 		></textarea>
 	{:else if note}
-		<div class="w-full text-2xs break-words overflow-hidden p-2 {noteColorConfig.text}">
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			class="w-full text-2xs break-words overflow-hidden p-2 {noteColorConfig.text}"
+			ondblclick={editMode ? stopPropagation(preventDefault(handleDoubleClick)) : undefined}
+			onpointerdown={editMode ? stopPropagation(preventDefault(() => {})) : undefined}
+		>
 			<GfmMarkdown md={note} noPadding />
 		</div>
 	{:else}
-		<div class="text-2xs italic opacity-60 p-2 {noteColorConfig.text}">
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			class="text-2xs italic opacity-60 p-2 {noteColorConfig.text}"
+			ondblclick={editMode ? stopPropagation(preventDefault(handleDoubleClick)) : undefined}
+			onpointerdown={editMode ? stopPropagation(preventDefault(() => {})) : undefined}
+		>
 			Double click to add a note
 		</div>
 	{/if}
