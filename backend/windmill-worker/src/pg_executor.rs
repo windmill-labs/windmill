@@ -32,8 +32,8 @@ use windmill_common::{PgDatabase, PrepareQueryColumnInfo, PrepareQueryResult};
 use windmill_object_store::convert_json_line_stream;
 use windmill_parser::{Arg, Typ};
 use windmill_parser_sql::{
-    parse_db_resource, parse_pg_statement_arg_indices, parse_pgsql_sig, parse_s3_mode,
-    parse_sql_blocks,
+    parse_db_resource, parse_pg_statement_arg_indices, parse_pgsql_sig_with_typed_schema,
+    parse_s3_mode, parse_sql_blocks,
 };
 use windmill_queue::{CanceledBy, MiniPulledJob};
 
@@ -58,6 +58,42 @@ lazy_static! {
     pub static ref LAST_QUERY: AtomicU64 = AtomicU64::new(0);
 }
 
+fn otyp_to_pg_type(otyp: &str) -> error::Result<Type> {
+    let base = otyp.trim_end_matches("[]");
+    let is_array = otyp.ends_with("[]");
+
+    let (scalar, array) = match base {
+        "bool" | "boolean" => (Type::BOOL, Type::BOOL_ARRAY),
+        "char" | "character" => (Type::CHAR, Type::CHAR_ARRAY),
+        "smallint" | "smallserial" | "int2" | "serial2" => (Type::INT2, Type::INT2_ARRAY),
+        "int" | "integer" | "int4" | "serial" => (Type::INT4, Type::INT4_ARRAY),
+        "bigint" | "bigserial" | "int8" | "serial8" => (Type::INT8, Type::INT8_ARRAY),
+        "real" | "float4" => (Type::FLOAT4, Type::FLOAT4_ARRAY),
+        "double" | "float8" => (Type::FLOAT8, Type::FLOAT8_ARRAY),
+        "numeric" | "decimal" => (Type::NUMERIC, Type::NUMERIC_ARRAY),
+        "text" => (Type::TEXT, Type::TEXT_ARRAY),
+        "varchar" | "character varying" => (Type::VARCHAR, Type::VARCHAR_ARRAY),
+        "uuid" => (Type::UUID, Type::UUID_ARRAY),
+        "date" => (Type::DATE, Type::DATE_ARRAY),
+        "time" => (Type::TIME, Type::TIME_ARRAY),
+        "timetz" => (Type::TIMETZ, Type::TIMETZ_ARRAY),
+        "timestamp" => (Type::TIMESTAMP, Type::TIMESTAMP_ARRAY),
+        "timestamptz" => (Type::TIMESTAMPTZ, Type::TIMESTAMPTZ_ARRAY),
+        "json" => (Type::JSON, Type::JSON_ARRAY),
+        "jsonb" => (Type::JSONB, Type::JSONB_ARRAY),
+        "bytea" => (Type::BYTEA, Type::BYTEA_ARRAY),
+        "oid" => (Type::OID, Type::OID_ARRAY),
+        _ => {
+            return Err(Error::ExecutionErr(format!(
+                "Unsupported PostgreSQL type for typed schema: {}",
+                otyp
+            )))
+        }
+    };
+
+    Ok(if is_array { array } else { scalar })
+}
+
 fn do_postgresql_inner<'a>(
     mut query: String,
     param_idx_to_arg_and_value: &HashMap<i32, (&Arg, Option<&Value>)>,
@@ -67,8 +103,10 @@ fn do_postgresql_inner<'a>(
     skip_collect: bool,
     first_row_only: bool,
     s3: Option<S3ModeWorkerData>,
+    typed_schema: bool,
 ) -> error::Result<BoxFuture<'a, error::Result<Vec<Box<RawValue>>>>> {
     let mut query_params = vec![];
+    let mut param_types = vec![];
 
     let arg_indices = parse_pg_statement_arg_indices(&query);
 
@@ -86,13 +124,14 @@ fn do_postgresql_inner<'a>(
             let typ = &arg.typ;
             let param = convert_val(value, arg_t, typ)?;
             query_params.push(param);
+            if typed_schema {
+                param_types.push(otyp_to_pg_type(arg_t)?);
+            }
             i += 1;
         }
     }
 
     let result_f = async move {
-        // Now we can execute a simple statement that just returns its parameter.
-
         let mut res: Vec<Box<serde_json::value::RawValue>> = vec![];
 
         let query_params = query_params
@@ -100,72 +139,151 @@ fn do_postgresql_inner<'a>(
             .map(|p| &**p as &(dyn ToSql + Sync))
             .collect_vec();
 
-        if skip_collect {
-            client
-                .execute_raw(&query, query_params)
-                .await
-                .map_err(to_anyhow)?;
-        } else if let Some(ref s3) = s3 {
-            let rows_stream = client
-                .query_raw(&query, query_params)
-                .map_err(to_anyhow)
-                .await?
-                .map_err(to_anyhow)
-                .map(|row_result| {
-                    row_result.and_then(|row| postgres_row_to_json_value(row).map_err(to_anyhow))
-                });
-
-            let stream = convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
-            s3.upload(stream.boxed()).await?;
-
-            return Ok(vec![to_raw_value(&s3.to_return_s3_obj())]);
-        } else {
-            let rows = client
-                .query_raw(&query, query_params)
+        if typed_schema {
+            let statement = client
+                .prepare_typed(&query, &param_types)
                 .await
                 .map_err(to_anyhow)?;
 
-            let rows = if first_row_only {
-                rows.take(1).boxed()
+            if skip_collect {
+                client
+                    .execute_raw(&statement, query_params)
+                    .await
+                    .map_err(to_anyhow)?;
+            } else if let Some(ref s3) = s3 {
+                let rows_stream = client
+                    .query_raw(&statement, query_params)
+                    .map_err(to_anyhow)
+                    .await?
+                    .map_err(to_anyhow)
+                    .map(|row_result| {
+                        row_result
+                            .and_then(|row| postgres_row_to_json_value(row).map_err(to_anyhow))
+                    });
+
+                let stream = convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
+                s3.upload(stream.boxed()).await?;
+
+                return Ok(vec![to_raw_value(&s3.to_return_s3_obj())]);
             } else {
-                rows.boxed()
-            };
+                let rows = client
+                    .query_raw(&statement, query_params)
+                    .await
+                    .map_err(to_anyhow)?;
 
-            let rows = rows.try_collect::<Vec<Row>>().await.map_err(to_anyhow)?;
+                let rows = if first_row_only {
+                    rows.take(1).boxed()
+                } else {
+                    rows.boxed()
+                };
 
-            if let Some(column_order) = column_order {
-                *column_order = Some(
-                    rows.first()
-                        .map(|x| {
-                            x.columns()
-                                .iter()
-                                .map(|x| x.name().to_string())
-                                .collect::<Vec<String>>()
-                        })
-                        .unwrap_or_default(),
-                );
-            }
+                let rows = rows.try_collect::<Vec<Row>>().await.map_err(to_anyhow)?;
 
-            for row in rows.into_iter() {
-                let r = postgres_row_to_json_value(row);
-                if let Ok(v) = r.as_ref() {
-                    let size = sizeof_val(v);
-                    siz.fetch_add(size, Ordering::Relaxed);
+                if let Some(column_order) = column_order {
+                    *column_order = Some(
+                        rows.first()
+                            .map(|x| {
+                                x.columns()
+                                    .iter()
+                                    .map(|x| x.name().to_string())
+                                    .collect::<Vec<String>>()
+                            })
+                            .unwrap_or_default(),
+                    );
                 }
-                if *CLOUD_HOSTED {
-                    let siz = siz.load(Ordering::Relaxed);
-                    if siz > MAX_RESULT_SIZE * 4 {
-                        return Err(Error::ExecutionErr(format!(
-                            "Query result too large for cloud (size = {} > {})",
-                            siz,
-                            MAX_RESULT_SIZE & 4,
-                        )));
+
+                for row in rows.into_iter() {
+                    let r = postgres_row_to_json_value(row);
+                    if let Ok(v) = r.as_ref() {
+                        let size = sizeof_val(v);
+                        siz.fetch_add(size, Ordering::Relaxed);
+                    }
+                    if *CLOUD_HOSTED {
+                        let siz = siz.load(Ordering::Relaxed);
+                        if siz > MAX_RESULT_SIZE * 4 {
+                            return Err(Error::ExecutionErr(format!(
+                                "Query result too large for cloud (size = {} > {})",
+                                siz,
+                                MAX_RESULT_SIZE & 4,
+                            )));
+                        }
+                    }
+                    if let Ok(v) = r {
+                        res.push(to_raw_value(&v));
+                    } else {
+                        return Err(to_anyhow(r.err().unwrap()).into());
                     }
                 }
-                if let Ok(v) = r {
-                    res.push(to_raw_value(&v));
+            }
+        } else {
+            if skip_collect {
+                client
+                    .execute_raw(&query, query_params)
+                    .await
+                    .map_err(to_anyhow)?;
+            } else if let Some(ref s3) = s3 {
+                let rows_stream = client
+                    .query_raw(&query, query_params)
+                    .map_err(to_anyhow)
+                    .await?
+                    .map_err(to_anyhow)
+                    .map(|row_result| {
+                        row_result
+                            .and_then(|row| postgres_row_to_json_value(row).map_err(to_anyhow))
+                    });
+
+                let stream = convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
+                s3.upload(stream.boxed()).await?;
+
+                return Ok(vec![to_raw_value(&s3.to_return_s3_obj())]);
+            } else {
+                let rows = client
+                    .query_raw(&query, query_params)
+                    .await
+                    .map_err(to_anyhow)?;
+
+                let rows = if first_row_only {
+                    rows.take(1).boxed()
                 } else {
-                    return Err(to_anyhow(r.err().unwrap()).into());
+                    rows.boxed()
+                };
+
+                let rows = rows.try_collect::<Vec<Row>>().await.map_err(to_anyhow)?;
+
+                if let Some(column_order) = column_order {
+                    *column_order = Some(
+                        rows.first()
+                            .map(|x| {
+                                x.columns()
+                                    .iter()
+                                    .map(|x| x.name().to_string())
+                                    .collect::<Vec<String>>()
+                            })
+                            .unwrap_or_default(),
+                    );
+                }
+
+                for row in rows.into_iter() {
+                    let r = postgres_row_to_json_value(row);
+                    if let Ok(v) = r.as_ref() {
+                        let size = sizeof_val(v);
+                        siz.fetch_add(size, Ordering::Relaxed);
+                    }
+                    if *CLOUD_HOSTED {
+                        let siz = siz.load(Ordering::Relaxed);
+                        if siz > MAX_RESULT_SIZE * 4 {
+                            return Err(Error::ExecutionErr(format!(
+                                "Query result too large for cloud (size = {} > {})",
+                                siz,
+                                MAX_RESULT_SIZE & 4,
+                            )));
+                        }
+                    }
+                    if let Ok(v) = r {
+                        res.push(to_raw_value(&v));
+                    } else {
+                        return Err(to_anyhow(r.err().unwrap()).into());
+                    }
                 }
             }
         }
@@ -272,7 +390,8 @@ pub async fn do_postgresql(
         (Some((client, handle)), None)
     };
 
-    let sig = parse_pgsql_sig(&query).map_err(|x| Error::ExecutionErr(x.to_string()))?;
+    let (sig, typed_schema) = parse_pgsql_sig_with_typed_schema(&query)
+        .map_err(|x| Error::ExecutionErr(x.to_string()))?;
 
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
@@ -346,6 +465,7 @@ pub async fn do_postgresql(
                     && i < queries.len() - 1,
                 collection_strategy.collect_first_row_only(),
                 s3.clone(),
+                typed_schema,
             )?
             .await?;
             results.push(result);

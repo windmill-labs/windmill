@@ -58,16 +58,23 @@ pub fn parse_oracledb_sig(code: &str) -> anyhow::Result<MainArgSignature> {
 }
 
 pub fn parse_pgsql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
+    let (sig, _) = parse_pgsql_sig_with_typed_schema(code)?;
+    Ok(sig)
+}
+
+pub fn parse_pgsql_sig_with_typed_schema(code: &str) -> anyhow::Result<(MainArgSignature, bool)> {
     let parsed = parse_pg_file(&code)?;
-    if let Some(x) = parsed {
-        let args = x;
-        Ok(MainArgSignature {
-            star_args: false,
-            star_kwargs: false,
-            args,
-            no_main_func: None,
-            has_preprocessor: None,
-        })
+    if let Some((args, typed_schema)) = parsed {
+        Ok((
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args,
+                no_main_func: None,
+                has_preprocessor: None,
+            },
+            typed_schema,
+        ))
     } else {
         Err(anyhow!("Error parsing sql".to_string()))
     }
@@ -478,7 +485,7 @@ pub fn parse_pg_statement_arg_indices(code: &str) -> HashSet<i32> {
     arg_indices
 }
 
-fn parse_pg_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
+fn parse_pg_file(code: &str) -> anyhow::Result<Option<(Vec<Arg>, bool)>> {
     let mut args = vec![];
 
     // Track which args have explicit types in declaration comments
@@ -582,8 +589,10 @@ fn parse_pg_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
         }
     }
 
+    let typed_schema = !explicitly_typed_args.is_empty();
+
     args.append(&mut parse_sql_sanitized_interpolation(code));
-    Ok(Some(args))
+    Ok(Some((args, typed_schema)))
 }
 
 // The regex doesn't parse types with space such as "character varying"
