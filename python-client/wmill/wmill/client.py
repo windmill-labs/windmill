@@ -2338,7 +2338,7 @@ def infer_sql_type(value) -> str:
     elif isinstance(value, int):
         return "BIGINT"
     elif isinstance(value, float):
-        return "DOUBLE PRECISION"
+        return "FLOAT8"
     elif value is None:
         return "TEXT"
     elif isinstance(value, str):
