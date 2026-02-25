@@ -35,8 +35,8 @@ impl TriggerCrud for KafkaTrigger {
     const DEPLOYMENT_NAME: &'static str = "";
     const IS_ALLOWED_ON_CLOUD: bool = false;
 
-    fn get_deployed_object(path: String) -> DeployedObject {
-        DeployedObject::KafkaTrigger { path }
+    fn get_deployed_object(path: String, parent_path: Option<String>) -> DeployedObject {
+        DeployedObject::KafkaTrigger { path, parent_path }
     }
 
     async fn create_trigger(

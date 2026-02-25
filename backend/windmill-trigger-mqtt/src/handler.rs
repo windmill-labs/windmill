@@ -39,8 +39,8 @@ impl TriggerCrud for MqttTrigger {
     ];
     const IS_ALLOWED_ON_CLOUD: bool = false;
 
-    fn get_deployed_object(path: String) -> DeployedObject {
-        DeployedObject::MqttTrigger { path }
+    fn get_deployed_object(path: String, parent_path: Option<String>) -> DeployedObject {
+        DeployedObject::MqttTrigger { path, parent_path }
     }
 
     async fn validate_config(
