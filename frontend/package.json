@@ -26,6 +26,7 @@
 		"@melt-ui/pp": "^0.3.2",
 		"@melt-ui/svelte": "^0.86.2",
 		"@playwright/test": "^1.57.0",
+		"@popperjs/core": "^2.11.8",
 		"@sveltejs/adapter-static": "^3.0.6",
 		"@sveltejs/kit": "^2.53.2",
 		"@sveltejs/package": "^2.3.7",
