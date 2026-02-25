@@ -18,6 +18,18 @@ let plugin = {
 	}
 }
 
+// Resolve windmill-client as external during dependency scanning.
+// It appears in template string code snippets (server-side scripts) across many files
+// and is not an actual browser dependency.
+let externalWindmillClient = {
+	name: 'external-windmill-client',
+	resolveId(id) {
+		if (id === 'windmill-client' || id.startsWith('windmill-client@')) {
+			return { id, external: true }
+		}
+	}
+}
+
 /** @type {import('vite').UserConfig} */
 const config = {
 	server: {
@@ -85,13 +97,18 @@ const config = {
 		}
 	},
 	preview: { port: 3001 },
-	plugins: [sveltekit(), ...(process.env.HTTPS === 'true' ? [mkcert()] : []), plugin],
+	plugins: [
+		externalWindmillClient,
+		sveltekit(),
+		...(process.env.HTTPS === 'true' ? [mkcert()] : []),
+		plugin
+	],
 	define: { __pkg__: version },
 	optimizeDeps: {
-		include: ['highlight.js', 'highlight.js/lib/core', 'monaco-vim', 'monaco-editor-wrapper'],
+		include: ['highlight.js', 'highlight.js/lib/core', 'monaco-vim'],
 		exclude: [
 			'@codingame/monaco-vscode-standalone-typescript-language-features',
-			'@codingame/monaco-vscode-standalone-languages',
+			'@codingame/monaco-vscode-standalone-languages'
 		]
 	},
 	worker: { format: 'es' },
