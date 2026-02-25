@@ -16,6 +16,7 @@ import {
 } from 'lucide-svelte'
 import { triggerDisplayNamesMap } from '../triggers/utils'
 import type { FilterInstanceRec, FilterSchemaRec } from '../FilterSearchbar.svelte'
+import { runsTimeframes } from './TimeframeSelect.svelte'
 
 export function buildRunsFilterSearchbarSchema({
 	paths,
@@ -46,6 +47,13 @@ export function buildRunsFilterSearchbarSchema({
 			description: 'Only include jobs that completed before this date',
 			mode: 'end',
 			otherField: 'min_ts'
+		},
+		timeframe: {
+			type: 'oneof' as const,
+			label: 'Timeframe',
+			icon: Calendar,
+			description: 'Predefined timeframes',
+			options: runsTimeframes.map((tf) => ({ label: tf.label, value: tf.label }))
 		},
 		path: {
 			type: 'oneof' as const,

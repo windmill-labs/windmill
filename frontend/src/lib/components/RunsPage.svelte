@@ -117,18 +117,17 @@
 				type?: ConfirmationModal['$$prop_def']['type']
 		  } = $state(undefined)
 
-	let automaticTimeframeState = useLocalStorageValue('runs_automatic_timeframe', 'null', 'string')
 	let _timeframe = useSyncedTimeframe(
 		runsTimeframes,
 		() => ({
 			maxTs: filters.val.max_ts?.toISOString(),
 			minTs: filters.val.min_ts?.toISOString(),
-			timeframe: automaticTimeframeState.val === 'null' ? null : automaticTimeframeState.val
+			timeframe: filters.val.timeframe
 		}),
 		(v) => {
 			v.maxTs ? (filters.val.max_ts = new Date(v.maxTs)) : delete filters.val.max_ts
 			v.minTs ? (filters.val.min_ts = new Date(v.minTs)) : delete filters.val.min_ts
-			automaticTimeframeState.val = v.timeframe ?? 'null'
+			v.timeframe ? (filters.val.timeframe = v.timeframe) : delete filters.val.timeframe
 		}
 	)
 	let timeframe = $derived(_timeframe.val)
@@ -703,9 +702,7 @@
 						bind:checked={
 							() => filters.val.show_future_jobs !== false,
 							(v) =>
-								v
-									? delete filters.val.show_future_jobs
-									: (filters.val.show_future_jobs = false)
+								v ? delete filters.val.show_future_jobs : (filters.val.show_future_jobs = false)
 						}
 					/>
 					<Clock size={14} />
