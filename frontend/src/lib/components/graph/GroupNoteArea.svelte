@@ -93,7 +93,7 @@
 		<div
 			class="w-full text-2xs break-words overflow-hidden p-2 {noteColorConfig.text}"
 			ondblclick={editMode ? stopPropagation(preventDefault(handleDoubleClick)) : undefined}
-			onpointerdown={editMode ? stopPropagation(preventDefault(() => {})) : undefined}
+			onpointerdown={editMode ? stopPropagation(() => {}) : undefined}
 		>
 			<GfmMarkdown md={note} noPadding />
 		</div>
@@ -102,7 +102,7 @@
 		<div
 			class="text-2xs italic opacity-60 p-2 {noteColorConfig.text}"
 			ondblclick={editMode ? stopPropagation(preventDefault(handleDoubleClick)) : undefined}
-			onpointerdown={editMode ? stopPropagation(preventDefault(() => {})) : undefined}
+			onpointerdown={editMode ? stopPropagation(() => {}) : undefined}
 		>
 			Double click to add a note
 		</div>
