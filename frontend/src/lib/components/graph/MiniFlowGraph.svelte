@@ -16,6 +16,10 @@
 	import BranchOneEndNode from './renderers/nodes/branchOneEndNode.svelte'
 	import SubflowBound from './renderers/nodes/SubflowBound.svelte'
 	import NoBranchNode from './renderers/nodes/NoBranchNode.svelte'
+	import AssetNode from './renderers/nodes/AssetNode.svelte'
+	import AssetsOverflowedNode from './renderers/nodes/AssetsOverflowedNode.svelte'
+	import AiToolNode from './renderers/nodes/AIToolNode.svelte'
+	import NewAiToolNode from './renderers/nodes/NewAIToolNode.svelte'
 	import BaseEdge from './renderers/edges/BaseEdge.svelte'
 	import EmptyEdge from './renderers/edges/EmptyEdge.svelte'
 	import DataflowEdge from './renderers/edges/DataflowEdge.svelte'
@@ -48,7 +52,11 @@
 		branchOneStart: BranchOneStart,
 		branchOneEnd: BranchOneEndNode,
 		subflowBound: SubflowBound,
-		noBranch: NoBranchNode
+		noBranch: NoBranchNode,
+		asset: AssetNode,
+		assetsOverflowed: AssetsOverflowedNode,
+		aiTool: AiToolNode,
+		newAiTool: NewAiToolNode
 	} as any
 
 	const edgeTypes = {
@@ -59,6 +67,7 @@
 	} as any
 
 	const proOptions = { hideAttribution: true }
+	const fitViewOptions = { padding: 0 }
 </script>
 
 <div style="width: {width}px; height: {height}px;">
@@ -69,6 +78,7 @@
 			{nodeTypes}
 			{edgeTypes}
 			fitView
+			{fitViewOptions}
 			nodesDraggable={false}
 			elementsSelectable={false}
 			panOnDrag={false}
