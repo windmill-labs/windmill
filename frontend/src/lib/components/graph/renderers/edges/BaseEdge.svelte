@@ -77,9 +77,7 @@
 	let centerY = $derived(
 		sourceY +
 			32 +
-			(data.shouldOffsetInsertBtnDueToAssetNode && $showAssets
-				? NODE_WITH_WRITE_ASSET_Y_OFFSET
-				: 0)
+			(data.shouldOffsetInsertBtnDueToAssetNode && $showAssets ? NODE_WITH_WRITE_ASSET_Y_OFFSET : 0)
 	)
 
 	let isDragging = $derived(!!moveManager?.dragging)
@@ -123,12 +121,7 @@
 	})
 </script>
 
-<EdgeLabel
-	x={sourceX}
-	y={centerY}
-	class="base-edge"
-	style=""
->
+<EdgeLabel x={sourceX} y={centerY} class="base-edge" style="">
 	{#if waitingForEvents && data.flowJob && data.flowJob.type === 'QueuedJob'}
 		<div
 			class="px-2 py-0.5 rounded-md bg-surface shadow-md text-violet-700 dark:text-violet-400 text-xs flex items-center gap-1"
@@ -167,8 +160,7 @@
 		<div class="edgeButtonContainer nodrag nopan" style:transform="translate(-50%, -50%)">
 			<div class="relative flex items-center justify-center" style="width: 275px; height: 20px;">
 				{#if isNearestDrop}
-					<div
-						class="absolute inset-0 rounded-md bg-accent/5 transition-opacity duration-150"
+					<div class="absolute inset-0 rounded-md bg-accent/5 transition-opacity duration-150"
 					></div>
 				{/if}
 				{@render dropTargetIndicator(isNearestDrop)}
