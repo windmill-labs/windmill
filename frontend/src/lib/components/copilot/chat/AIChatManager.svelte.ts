@@ -229,11 +229,11 @@ class AIChatManager {
 			closeScriptSettings?: boolean
 		}
 	) {
+		if (mode === AIMode.SCRIPT && !tryGetCurrentModel()) return
 		this.mode = mode
 		this.pendingPrompt = pendingPrompt ?? ''
 		if (mode === AIMode.SCRIPT) {
-			const currentModel = tryGetCurrentModel()
-			if (!currentModel) return
+			const currentModel = getCurrentModel()
 			const customPrompt = getCombinedCustomPrompt(mode)
 			const lang = this.scriptEditorOptions?.lang ?? 'bun'
 			const context = this.contextManager.getSelectedContext()
