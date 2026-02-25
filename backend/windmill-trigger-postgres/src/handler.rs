@@ -58,8 +58,8 @@ impl TriggerCrud for PostgresTrigger {
     ];
     const IS_ALLOWED_ON_CLOUD: bool = false;
 
-    fn get_deployed_object(path: String) -> DeployedObject {
-        DeployedObject::PostgresTrigger { path }
+    fn get_deployed_object(path: String, parent_path: Option<String>) -> DeployedObject {
+        DeployedObject::PostgresTrigger { path, parent_path }
     }
 
     async fn create_trigger(

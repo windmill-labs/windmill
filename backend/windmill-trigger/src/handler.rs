@@ -61,7 +61,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
     const ADDITIONAL_SELECT_FIELDS: &[&'static str] = &[];
     const IS_ALLOWED_ON_CLOUD: bool;
 
-    fn get_deployed_object(path: String) -> DeployedObject;
+    fn get_deployed_object(path: String, parent_path: Option<String>) -> DeployedObject;
 
     async fn validate_new(
         &self,
@@ -437,7 +437,7 @@ async fn create_trigger<T: TriggerCrud>(
         &authed.username,
         &db,
         &workspace_id,
-        T::get_deployed_object(new_path.clone()),
+        T::get_deployed_object(new_path.clone(), None),
         Some(format!("{} '{}' created", T::DEPLOYMENT_NAME, new_path)),
         true,
         None,
@@ -526,12 +526,18 @@ async fn update_trigger<T: TriggerCrud>(
     )
     .await?;
 
+    let parent_path = if path != new_path {
+        Some(path.to_string())
+    } else {
+        None
+    };
+
     handle_deployment_metadata(
         &authed.email,
         &authed.username,
         &db,
         &workspace_id,
-        T::get_deployed_object(new_path.clone()),
+        T::get_deployed_object(new_path.clone(), parent_path),
         Some(format!("{} '{}' updated", T::DEPLOYMENT_NAME, new_path)),
         true,
         None,
@@ -632,7 +638,7 @@ async fn set_trigger_mode<T: TriggerCrud>(
         &authed.username,
         &db,
         &workspace_id,
-        T::get_deployed_object(path.to_owned()),
+        T::get_deployed_object(path.to_owned(), None),
         Some(format!("{} trigger '{}' updated", T::DEPLOYMENT_NAME, path)),
         true,
         None,

@@ -53,6 +53,16 @@
 		flowPreviewContent?.test()
 	}
 
+	export async function openRecordingPreview() {
+		if (!previewOpen) {
+			previewOpen = true
+			await tick()
+			flowPreviewContent?.refresh()
+		}
+		previewMode = 'whole'
+		flowPreviewContent?.setRecordingMode(true)
+	}
+
 	export async function runPreview(conversationId?: string): Promise<string | undefined> {
 		if (!previewOpen) {
 			deferContent = true
@@ -172,6 +182,7 @@
 				// keep the data in the preview content
 				deferContent = true
 				previewOpen = false
+				flowPreviewContent?.setRecordingMode(false)
 			}}
 			on:openTriggers={(e) => {
 				previewOpen = false

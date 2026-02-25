@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO token (token, email, label, expiration, scopes, workspace_id)\n         SELECT $1::varchar, $2::varchar, $3::varchar, now() + ($4 || ' seconds')::interval, $5::text[], $6::varchar\n         WHERE NOT EXISTS(SELECT 1 FROM workspace WHERE id = $6 AND deleted = true)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Text",
+        "TextArray",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d32448f6b329cf98dad42b218a630c0cf40a99edb4ae9fe3e9be485ab1077b3a"
+}

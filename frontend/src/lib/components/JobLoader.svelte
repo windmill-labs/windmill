@@ -19,6 +19,11 @@
 	import type { SupportedLanguage } from '$lib/common'
 	import { sendUserToast } from '$lib/toast'
 	import { DynamicInput, isScriptPreview } from '$lib/utils'
+	import {
+		getActiveRecording,
+		getActiveReplay,
+		getReplayStartTime
+	} from './recording/flowRecording.svelte'
 
 	// Will be set to number if job is not a flow
 
@@ -348,6 +353,8 @@
 		return sseSupported
 	}
 
+	let replayTimeouts: ReturnType<typeof setTimeout>[] = []
+
 	let startedWatchingJob: number | undefined = undefined
 	export async function watchJob(testId: string, callbacks?: Callbacks) {
 		logOffset = 0
@@ -356,6 +363,52 @@
 		errorIteration = 0
 		currentId = testId
 		scriptProgress = undefined
+
+		// Replay mode: feed recorded events instead of real SSE
+		const replay = getActiveReplay()
+		if (replay) {
+			const recorded = replay.jobs[testId]
+			if (recorded) {
+				job = structuredClone(recorded.initial_job)
+				callbacks?.change?.(job)
+				// Compute delays relative to replay start so sub-jobs (discovered
+				// later by FlowStatusViewerInner) stay in sync with the root job.
+				const elapsed = Date.now() - getReplayStartTime()
+				for (const event of recorded.events) {
+					const delay = Math.max(0, event.t - elapsed)
+					const timeout = setTimeout(() => {
+						if (job) {
+							updateJobFromProgress(event.data, job, callbacks)
+						}
+						if (event.data.completed) {
+							const njob = (event.data as any).job as Job & { result_stream?: string }
+							if (njob) {
+								// Use whichever logs are more complete (longer)
+								const streamedLogs = job?.logs ?? ''
+								const completedLogs = njob.logs ?? ''
+								njob.logs =
+									streamedLogs.length >= completedLogs.length ? streamedLogs : completedLogs
+								const streamedResult = job?.result_stream ?? ''
+								const completedResult = njob.result_stream ?? ''
+								njob.result_stream =
+									streamedResult.length >= completedResult.length ? streamedResult : completedResult
+								job = njob
+								onJobCompleted(testId, job, callbacks)
+							}
+						}
+					}, delay)
+					replayTimeouts.push(timeout)
+				}
+				return
+			}
+			// Job not in recording — stub it to prevent API calls
+			const stubJob = { id: testId, type: 'CompletedJob', success: true } as Job
+			job = stubJob
+			callbacks?.change?.(stubJob)
+			clearCurrentId()
+			return
+		}
+
 		if (loadPlaceholderJobOnStart) {
 			job = structuredClone(loadPlaceholderJobOnStart)
 		} else {
@@ -581,6 +634,7 @@
 					})
 
 					callbacks?.change?.(job)
+					getActiveRecording()?.recordInitialJob(id, job)
 				}
 
 				if (!onlyResult) {
@@ -683,6 +737,7 @@
 								throw new Error('Not found')
 							}
 							jobUpdateLastFetch = new Date()
+							getActiveRecording()?.recordEvent(id, previewJobUpdates)
 
 							if (job) {
 								updateJobFromProgress(previewJobUpdates, job, callbacks)
@@ -806,6 +861,8 @@
 		clearCurrentId()
 		currentEventSource?.close()
 		currentEventSource = undefined
+		replayTimeouts.forEach(clearTimeout)
+		replayTimeouts = []
 	})
 </script>
 
