@@ -37,6 +37,8 @@
 		type WorkspaceItemDiff
 	} from '$lib/gen'
 	import Button from './common/button/Button.svelte'
+	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
+	import Row from './common/table/Row.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
 	import DeployWorkspaceDrawer from './DeployWorkspaceDrawer.svelte'
 	import ParentWorkspaceProtectionAlert from './ParentWorkspaceProtectionAlert.svelte'
@@ -53,11 +55,7 @@
 	import { deepEqual } from 'fast-equals'
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
 	import type { TriggerKind } from './triggers'
-	import {
-		triggerIconMap,
-		triggerDisplayNamesMap,
-		triggerKindToTriggerType
-	} from './triggers/utils'
+	import { triggerDisplayNamesMap, triggerKindToTriggerType } from './triggers/utils'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 
@@ -468,13 +466,14 @@
 		triggerKind: TriggerKind
 		scriptPath: string
 		isFlow: boolean
-		enabled: boolean
+		enabled?: boolean
 		extraLabel?: string
 	}
 
 	let forkTriggers = $state<ForkTrigger[]>([])
 	let loadingTriggers = $state(true)
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state(undefined)
+	let triggerToDelete = $state<ForkTrigger | undefined>(undefined)
 
 	/** Deployable trigger kinds and their list+delete services */
 	const triggerServices = {
@@ -499,7 +498,7 @@
 				triggerKind: 'routes',
 				scriptPath: item.script_path,
 				isFlow: item.is_flow,
-				enabled: item.enabled,
+				enabled: item.mode === 'enabled',
 				extraLabel: `${(item.http_method ?? 'get').toUpperCase()} ${item.route_path ?? ''}`
 			})
 		},
@@ -512,7 +511,7 @@
 				triggerKind: 'websockets',
 				scriptPath: item.script_path,
 				isFlow: item.is_flow,
-				enabled: item.enabled,
+				enabled: item.mode === 'enabled',
 				extraLabel: item.url
 			})
 		},
@@ -525,7 +524,7 @@
 				triggerKind: 'kafka',
 				scriptPath: item.script_path,
 				isFlow: item.is_flow,
-				enabled: item.enabled,
+				enabled: item.mode === 'enabled',
 				extraLabel: item.topics?.join(', ')
 			})
 		},
@@ -538,7 +537,7 @@
 				triggerKind: 'postgres',
 				scriptPath: item.script_path,
 				isFlow: item.is_flow,
-				enabled: item.enabled
+				enabled: item.mode === 'enabled'
 			})
 		},
 		nats: {
@@ -550,7 +549,7 @@
 				triggerKind: 'nats',
 				scriptPath: item.script_path,
 				isFlow: item.is_flow,
-				enabled: item.enabled,
+				enabled: item.mode === 'enabled',
 				extraLabel: item.subjects?.join(', ')
 			})
 		},
@@ -563,7 +562,7 @@
 				triggerKind: 'mqtt',
 				scriptPath: item.script_path,
 				isFlow: item.is_flow,
-				enabled: item.enabled
+				enabled: item.mode === 'enabled'
 			})
 		},
 		sqs: {
@@ -575,7 +574,7 @@
 				triggerKind: 'sqs',
 				scriptPath: item.script_path,
 				isFlow: item.is_flow,
-				enabled: item.enabled,
+				enabled: item.mode === 'enabled',
 				extraLabel: item.queue_url
 			})
 		},
@@ -588,7 +587,7 @@
 				triggerKind: 'gcp',
 				scriptPath: item.script_path,
 				isFlow: item.is_flow,
-				enabled: item.enabled,
+				enabled: item.mode === 'enabled',
 				extraLabel: item.topic_id
 			})
 		},
@@ -601,7 +600,7 @@
 				triggerKind: 'emails',
 				scriptPath: item.script_path,
 				isFlow: item.is_flow,
-				enabled: item.enabled,
+				enabled: item.mode === 'enabled',
 				extraLabel: item.local_part
 			})
 		}
@@ -626,12 +625,16 @@
 		}
 	}
 
-	async function deleteTrigger(trigger: ForkTrigger) {
+	function deleteTrigger(trigger: ForkTrigger) {
+		triggerToDelete = trigger
+	}
+
+	async function confirmDeleteTrigger() {
+		const trigger = triggerToDelete
+		if (!trigger) return
+		triggerToDelete = undefined
 		const triggerType = triggerKindToTriggerType(trigger.triggerKind)
 		const displayName = triggerType ? triggerDisplayNamesMap[triggerType] : trigger.triggerKind
-		if (!confirm(`Are you sure you want to delete this ${displayName} trigger '${trigger.path}'?`)) {
-			return
-		}
 		try {
 			const svc = triggerServices[trigger.triggerKind as keyof typeof triggerServices]
 			if (!svc) {
@@ -645,11 +648,6 @@
 		} catch (e: any) {
 			sendUserToast(`Failed to delete trigger '${trigger.path}': ${e.body || e.message}`, true)
 		}
-	}
-
-	function getTriggerIcon(triggerKind: TriggerKind) {
-		const triggerType = triggerKindToTriggerType(triggerKind)
-		return triggerType ? triggerIconMap[triggerType] : undefined
 	}
 
 	function getTriggerDisplayName(triggerKind: TriggerKind): string {
@@ -999,39 +997,34 @@
 				No triggers in this fork workspace.
 			</div>
 		{:else}
-			<div class="border rounded-md bg-surface-tertiary divide-y">
+			<div class="border rounded-md bg-surface-tertiary">
 				{#each forkTriggers as trigger (trigger.triggerKind + ':' + trigger.path)}
-					{@const icon = getTriggerIcon(trigger.triggerKind)}
-					{@const displayName = getTriggerDisplayName(trigger.triggerKind)}
-					<div class="flex items-center gap-3 px-4 py-2.5 text-sm">
-						<div class="flex items-center gap-1.5 min-w-[100px]">
-							{#if icon}
-								<svelte:component this={icon} size={14} />
-							{/if}
-							<span class="font-medium">{displayName}</span>
-						</div>
-
-						<span class="text-tertiary truncate" title={trigger.path}>{trigger.path}</span>
-
-						<ArrowRight size={12} class="text-tertiary shrink-0" />
-
-						<span class="text-secondary truncate" title={trigger.scriptPath}>
-							{trigger.scriptPath}
+					<Row
+						kind="trigger"
+						triggerKind={trigger.triggerKind}
+						path={trigger.path}
+						marked={undefined}
+						isSelectable={false}
+						canFavorite={false}
+						workspaceId={currentWorkspaceId}
+					>
+						{#snippet customSummary()}
+							<span>{getTriggerDisplayName(trigger.triggerKind)}</span>
+							<span class="text-secondary mx-1">&rarr;</span>
+							<span class="text-secondary">{trigger.scriptPath}</span>
 							{#if trigger.isFlow}
 								<Badge color="blue" size="xs">flow</Badge>
 							{/if}
-						</span>
-
-						{#if trigger.extraLabel}
-							<span class="text-tertiary text-xs truncate" title={trigger.extraLabel}>
-								({trigger.extraLabel})
-							</span>
-						{/if}
-
-						<div class="ml-auto flex items-center gap-1.5 shrink-0">
-							<Badge color={trigger.enabled ? 'green' : 'gray'} size="xs">
-								{trigger.enabled ? 'Enabled' : 'Disabled'}
-							</Badge>
+							{#if trigger.extraLabel}
+								<span class="text-tertiary text-xs">({trigger.extraLabel})</span>
+							{/if}
+						{/snippet}
+						{#snippet actions()}
+							{#if trigger.enabled != null}
+								<Badge color={trigger.enabled ? 'green' : 'gray'} size="xs">
+									{trigger.enabled ? 'Enabled' : 'Disabled'}
+								</Badge>
+							{/if}
 							<Button
 								size="xs"
 								variant="subtle"
@@ -1052,8 +1045,8 @@
 							>
 								<Trash2 size={12} />
 							</Button>
-						</div>
-					</div>
+						{/snippet}
+					</Row>
 				{/each}
 			</div>
 		{/if}
@@ -1061,6 +1054,17 @@
 
 	<DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 	<DiffDrawer bind:this={diffDrawer} {isFlow} />
+	<ConfirmationModal
+		title="Delete trigger"
+		confirmationText="Delete"
+		open={!!triggerToDelete}
+		onConfirmed={confirmDeleteTrigger}
+		onCanceled={() => (triggerToDelete = undefined)}
+	>
+		{#if triggerToDelete}
+			Are you sure you want to delete the {getTriggerDisplayName(triggerToDelete.triggerKind)} trigger '{triggerToDelete.path}'?
+		{/if}
+	</ConfirmationModal>
 {:else}
 	<div class="flex items-center justify-center h-full">
 		<div class="text-gray-500">No comparison data available</div>
