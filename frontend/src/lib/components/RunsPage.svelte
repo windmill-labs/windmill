@@ -82,7 +82,8 @@
 			usernames,
 			folders,
 			jobTriggerKinds,
-			isSuperAdmin: !!$superadmin
+			isSuperAdmin: !!$superadmin,
+			isAdminsWorkspace: $workspaceStore === 'admins'
 		})
 	)
 	let perPage = useLocalStorageValue('runs_per_page', 1000, 'number')
@@ -719,7 +720,10 @@
 			<FilterSearchbar
 				class="flex-1 relative max-w-[34rem] min-w-[18rem] {ButtonType.UnifiedMinHeightClasses.md}"
 				schema={runsFilterSearchbarSchema}
-				presets={buildRunsFilterPresets({ isSuperadmin: !!$superadmin })}
+				presets={buildRunsFilterPresets({
+					isSuperadmin: !!$superadmin,
+					isAdminsWorkspace: $workspaceStore === 'admins'
+				})}
 				bind:value={filters.val}
 				placeholder="Filter runs..."
 			/>
