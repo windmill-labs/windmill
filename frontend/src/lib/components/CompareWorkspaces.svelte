@@ -8,21 +8,37 @@
 		ArrowUpRight,
 		Building,
 		DiffIcon,
-		GitFork
+		GitFork,
+		Loader2,
+		Trash2,
+		Upload
 	} from 'lucide-svelte'
 	import { Alert, Badge } from './common'
 	import {
 		AppService,
+		EmailTriggerService,
 		FlowService,
 		FolderService,
+		GcpTriggerService,
+		HttpTriggerService,
+		KafkaTriggerService,
+		MqttTriggerService,
+		NatsTriggerService,
+		PostgresTriggerService,
+		ResourceService,
+		ScheduleService,
 		ScriptService,
+		SqsTriggerService,
 		UserService,
+		VariableService,
+		WebsocketTriggerService,
 		WorkspaceService,
 		type WorkspaceComparison,
 		type WorkspaceItemDiff
 	} from '$lib/gen'
 	import Button from './common/button/Button.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
+	import DeployWorkspaceDrawer from './DeployWorkspaceDrawer.svelte'
 	import ParentWorkspaceProtectionAlert from './ParentWorkspaceProtectionAlert.svelte'
 	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 
@@ -36,6 +52,12 @@
 	import { sendUserToast } from '$lib/toast'
 	import { deepEqual } from 'fast-equals'
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
+	import type { TriggerKind } from './triggers'
+	import {
+		triggerIconMap,
+		triggerDisplayNamesMap,
+		triggerKindToTriggerType
+	} from './triggers/utils'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 
@@ -438,6 +460,209 @@
 				diff
 			}))
 	)
+
+	// --- Fork Triggers ---
+
+	type ForkTrigger = {
+		path: string
+		triggerKind: TriggerKind
+		scriptPath: string
+		isFlow: boolean
+		enabled: boolean
+		extraLabel?: string
+	}
+
+	let forkTriggers = $state<ForkTrigger[]>([])
+	let loadingTriggers = $state(true)
+	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state(undefined)
+
+	/** Deployable trigger kinds and their list+delete services */
+	const triggerServices = {
+		schedules: {
+			list: (ws: string) => ScheduleService.listSchedules({ workspace: ws }),
+			delete: (ws: string, path: string) => ScheduleService.deleteSchedule({ workspace: ws, path }),
+			normalize: (item: any): ForkTrigger => ({
+				path: item.path,
+				triggerKind: 'schedules',
+				scriptPath: item.script_path,
+				isFlow: item.is_flow,
+				enabled: item.enabled,
+				extraLabel: item.schedule
+			})
+		},
+		routes: {
+			list: (ws: string) => HttpTriggerService.listHttpTriggers({ workspace: ws }),
+			delete: (ws: string, path: string) =>
+				HttpTriggerService.deleteHttpTrigger({ workspace: ws, path }),
+			normalize: (item: any): ForkTrigger => ({
+				path: item.path,
+				triggerKind: 'routes',
+				scriptPath: item.script_path,
+				isFlow: item.is_flow,
+				enabled: item.enabled,
+				extraLabel: `${(item.http_method ?? 'get').toUpperCase()} ${item.route_path ?? ''}`
+			})
+		},
+		websockets: {
+			list: (ws: string) => WebsocketTriggerService.listWebsocketTriggers({ workspace: ws }),
+			delete: (ws: string, path: string) =>
+				WebsocketTriggerService.deleteWebsocketTrigger({ workspace: ws, path }),
+			normalize: (item: any): ForkTrigger => ({
+				path: item.path,
+				triggerKind: 'websockets',
+				scriptPath: item.script_path,
+				isFlow: item.is_flow,
+				enabled: item.enabled,
+				extraLabel: item.url
+			})
+		},
+		kafka: {
+			list: (ws: string) => KafkaTriggerService.listKafkaTriggers({ workspace: ws }),
+			delete: (ws: string, path: string) =>
+				KafkaTriggerService.deleteKafkaTrigger({ workspace: ws, path }),
+			normalize: (item: any): ForkTrigger => ({
+				path: item.path,
+				triggerKind: 'kafka',
+				scriptPath: item.script_path,
+				isFlow: item.is_flow,
+				enabled: item.enabled,
+				extraLabel: item.topics?.join(', ')
+			})
+		},
+		postgres: {
+			list: (ws: string) => PostgresTriggerService.listPostgresTriggers({ workspace: ws }),
+			delete: (ws: string, path: string) =>
+				PostgresTriggerService.deletePostgresTrigger({ workspace: ws, path }),
+			normalize: (item: any): ForkTrigger => ({
+				path: item.path,
+				triggerKind: 'postgres',
+				scriptPath: item.script_path,
+				isFlow: item.is_flow,
+				enabled: item.enabled
+			})
+		},
+		nats: {
+			list: (ws: string) => NatsTriggerService.listNatsTriggers({ workspace: ws }),
+			delete: (ws: string, path: string) =>
+				NatsTriggerService.deleteNatsTrigger({ workspace: ws, path }),
+			normalize: (item: any): ForkTrigger => ({
+				path: item.path,
+				triggerKind: 'nats',
+				scriptPath: item.script_path,
+				isFlow: item.is_flow,
+				enabled: item.enabled,
+				extraLabel: item.subjects?.join(', ')
+			})
+		},
+		mqtt: {
+			list: (ws: string) => MqttTriggerService.listMqttTriggers({ workspace: ws }),
+			delete: (ws: string, path: string) =>
+				MqttTriggerService.deleteMqttTrigger({ workspace: ws, path }),
+			normalize: (item: any): ForkTrigger => ({
+				path: item.path,
+				triggerKind: 'mqtt',
+				scriptPath: item.script_path,
+				isFlow: item.is_flow,
+				enabled: item.enabled
+			})
+		},
+		sqs: {
+			list: (ws: string) => SqsTriggerService.listSqsTriggers({ workspace: ws }),
+			delete: (ws: string, path: string) =>
+				SqsTriggerService.deleteSqsTrigger({ workspace: ws, path }),
+			normalize: (item: any): ForkTrigger => ({
+				path: item.path,
+				triggerKind: 'sqs',
+				scriptPath: item.script_path,
+				isFlow: item.is_flow,
+				enabled: item.enabled,
+				extraLabel: item.queue_url
+			})
+		},
+		gcp: {
+			list: (ws: string) => GcpTriggerService.listGcpTriggers({ workspace: ws }),
+			delete: (ws: string, path: string) =>
+				GcpTriggerService.deleteGcpTrigger({ workspace: ws, path }),
+			normalize: (item: any): ForkTrigger => ({
+				path: item.path,
+				triggerKind: 'gcp',
+				scriptPath: item.script_path,
+				isFlow: item.is_flow,
+				enabled: item.enabled,
+				extraLabel: item.topic_id
+			})
+		},
+		emails: {
+			list: (ws: string) => EmailTriggerService.listEmailTriggers({ workspace: ws }),
+			delete: (ws: string, path: string) =>
+				EmailTriggerService.deleteEmailTrigger({ workspace: ws, path }),
+			normalize: (item: any): ForkTrigger => ({
+				path: item.path,
+				triggerKind: 'emails',
+				scriptPath: item.script_path,
+				isFlow: item.is_flow,
+				enabled: item.enabled,
+				extraLabel: item.local_part
+			})
+		}
+	} as const
+
+	async function fetchAllTriggers() {
+		loadingTriggers = true
+		try {
+			const entries = Object.values(triggerServices)
+			const results = await Promise.allSettled(
+				entries.map(async (svc) => {
+					const items = await svc.list(currentWorkspaceId)
+					return items.map(svc.normalize)
+				})
+			)
+			forkTriggers = results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []))
+		} catch (e) {
+			console.error('Failed to fetch fork triggers:', e)
+			forkTriggers = []
+		} finally {
+			loadingTriggers = false
+		}
+	}
+
+	async function deleteTrigger(trigger: ForkTrigger) {
+		const triggerType = triggerKindToTriggerType(trigger.triggerKind)
+		const displayName = triggerType ? triggerDisplayNamesMap[triggerType] : trigger.triggerKind
+		if (!confirm(`Are you sure you want to delete this ${displayName} trigger '${trigger.path}'?`)) {
+			return
+		}
+		try {
+			const svc = triggerServices[trigger.triggerKind as keyof typeof triggerServices]
+			if (!svc) {
+				throw new Error(`No service for trigger kind: ${trigger.triggerKind}`)
+			}
+			await svc.delete(currentWorkspaceId, trigger.path)
+			forkTriggers = forkTriggers.filter(
+				(t) => !(t.path === trigger.path && t.triggerKind === trigger.triggerKind)
+			)
+			sendUserToast(`Deleted ${displayName} trigger '${trigger.path}'`)
+		} catch (e: any) {
+			sendUserToast(`Failed to delete trigger '${trigger.path}': ${e.body || e.message}`, true)
+		}
+	}
+
+	function getTriggerIcon(triggerKind: TriggerKind) {
+		const triggerType = triggerKindToTriggerType(triggerKind)
+		return triggerType ? triggerIconMap[triggerType] : undefined
+	}
+
+	function getTriggerDisplayName(triggerKind: TriggerKind): string {
+		const triggerType = triggerKindToTriggerType(triggerKind)
+		return triggerType ? triggerDisplayNamesMap[triggerType] : triggerKind
+	}
+
+	// Fetch triggers when workspace is available
+	$effect(() => {
+		if (currentWorkspaceId) {
+			fetchAllTriggers()
+		}
+	})
 </script>
 
 {#if $workspaceStore != currentWorkspaceId}
@@ -749,6 +974,92 @@
 			</div>
 		{/snippet}
 	</WorkspaceDeployLayout>
+
+	<!-- Fork Triggers Section -->
+	<div class="mt-6">
+		<div class="flex items-center gap-2 mb-2">
+			<h3 class="text-sm font-semibold">Fork Triggers</h3>
+			{#if !loadingTriggers}
+				<Badge color="indigo" size="xs">{forkTriggers.length} trigger{forkTriggers.length !== 1 ? 's' : ''}</Badge>
+			{/if}
+		</div>
+
+		<Alert title="Triggers are not included in workspace forks" type="info" class="mb-2">
+			These triggers exist in the fork workspace but are not part of the workspace comparison.
+			You can deploy them to the parent workspace or delete them.
+		</Alert>
+
+		{#if loadingTriggers}
+			<div class="flex items-center gap-2 text-secondary text-sm p-4">
+				<Loader2 class="animate-spin w-4 h-4" />
+				Loading triggers...
+			</div>
+		{:else if forkTriggers.length === 0}
+			<div class="text-secondary text-sm p-4 border rounded-md bg-surface-tertiary">
+				No triggers in this fork workspace.
+			</div>
+		{:else}
+			<div class="border rounded-md bg-surface-tertiary divide-y">
+				{#each forkTriggers as trigger (trigger.triggerKind + ':' + trigger.path)}
+					{@const icon = getTriggerIcon(trigger.triggerKind)}
+					{@const displayName = getTriggerDisplayName(trigger.triggerKind)}
+					<div class="flex items-center gap-3 px-4 py-2.5 text-sm">
+						<div class="flex items-center gap-1.5 min-w-[100px]">
+							{#if icon}
+								<svelte:component this={icon} size={14} />
+							{/if}
+							<span class="font-medium">{displayName}</span>
+						</div>
+
+						<span class="text-tertiary truncate" title={trigger.path}>{trigger.path}</span>
+
+						<ArrowRight size={12} class="text-tertiary shrink-0" />
+
+						<span class="text-secondary truncate" title={trigger.scriptPath}>
+							{trigger.scriptPath}
+							{#if trigger.isFlow}
+								<Badge color="blue" size="xs">flow</Badge>
+							{/if}
+						</span>
+
+						{#if trigger.extraLabel}
+							<span class="text-tertiary text-xs truncate" title={trigger.extraLabel}>
+								({trigger.extraLabel})
+							</span>
+						{/if}
+
+						<div class="ml-auto flex items-center gap-1.5 shrink-0">
+							<Badge color={trigger.enabled ? 'green' : 'gray'} size="xs">
+								{trigger.enabled ? 'Enabled' : 'Disabled'}
+							</Badge>
+							<Button
+								size="xs"
+								variant="subtle"
+								onclick={() => {
+									deploymentDrawer?.openDrawer(trigger.path, 'trigger', {
+										triggers: { kind: trigger.triggerKind }
+									})
+								}}
+							>
+								<Upload size={12} />
+								Deploy
+							</Button>
+							<Button
+								size="xs"
+								variant="subtle"
+								color="red"
+								onclick={() => deleteTrigger(trigger)}
+							>
+								<Trash2 size={12} />
+							</Button>
+						</div>
+					</div>
+				{/each}
+			</div>
+		{/if}
+	</div>
+
+	<DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 	<DiffDrawer bind:this={diffDrawer} {isFlow} />
 {:else}
 	<div class="flex items-center justify-center h-full">
