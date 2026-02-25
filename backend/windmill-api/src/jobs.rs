@@ -4635,6 +4635,7 @@ async fn run_inline_script_by_path(
     OptJobAuthed { authed, .. }: OptJobAuthed,
     Tokened { token }: Tokened,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Json(body): Json<InlineScriptArgs>,
 ) -> error::Result<Response> {
@@ -4647,6 +4648,7 @@ async fn run_inline_script_by_path(
         w_id,
         InlineScriptTarget::Path(script_path.to_path().to_string()),
         body.args,
+        Some(user_db),
     )
     .await
 }
@@ -4685,6 +4687,7 @@ async fn run_inline_script_by_hash(
         w_id,
         InlineScriptTarget::Hash(hash),
         body.args,
+        Some(user_db),
     )
     .await
 }
@@ -4704,8 +4707,10 @@ async fn run_inline_script_inner(
     w_id: String,
     target: InlineScriptTarget,
     args: Option<HashMap<String, Box<JsonRawValue>>>,
+    user_db: Option<UserDB>,
 ) -> error::Result<Response> {
     let utils = get_worker_internal_server_inline_utils()?;
+    let authed_owned: windmill_common::db::Authed = authed.clone().into();
     let result = utils.run_inline_script.as_ref()(RunInlineScriptFnParams {
         target,
         args,
@@ -4725,6 +4730,7 @@ async fn run_inline_script_inner(
             workspace: w_id,
         },
         conn: windmill_common::worker::Connection::Sql(db),
+        user_db: user_db.map(|udb| (udb, authed_owned)),
     })
     .await?;
     Ok(Json(to_raw_value(&result)).into_response())

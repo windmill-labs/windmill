@@ -14,6 +14,7 @@ use futures::TryFutureExt;
 use tokio::sync::Mutex;
 use tokio::time::timeout;
 use windmill_common::client::AuthedClient;
+use windmill_common::db::UserDbWithAuthed;
 use windmill_common::get_latest_deployed_hash_for_path;
 use windmill_common::jobs::InlineScriptTarget;
 use windmill_common::jobs::RunInlineScriptFnParams;
@@ -4770,9 +4771,18 @@ pub fn init_worker_internal_server_inline_utils(
                                 )
                             })?
                             .clone();
-                        let script_hash_info =
-                            get_latest_deployed_hash_for_path(None, db, &params.workspace_id, path)
-                                .await?;
+                        let authed_ref = params.user_db.as_ref().map(|(_, a)| a.to_authed_ref());
+                        let user_db_authed =
+                            params.user_db.as_ref().zip(authed_ref.as_ref()).map(
+                                |((udb, _), ar)| UserDbWithAuthed { db: udb.clone(), authed: ar },
+                            );
+                        let script_hash_info = get_latest_deployed_hash_for_path(
+                            user_db_authed,
+                            db,
+                            &params.workspace_id,
+                            path,
+                        )
+                        .await?;
                         (ScriptHash(script_hash_info.hash), Some(path.clone()))
                     }
                     InlineScriptTarget::Hash(hash) => (ScriptHash(hash), None),

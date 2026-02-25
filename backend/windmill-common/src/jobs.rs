@@ -345,6 +345,7 @@ pub struct RunInlineScriptFnParams {
     pub job_dir: String,
     pub worker_dir: String,
     pub killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    pub user_db: Option<(crate::db::UserDB, crate::db::Authed)>,
 }
 
 #[derive(Clone)]
