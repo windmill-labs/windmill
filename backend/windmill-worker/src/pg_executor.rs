@@ -139,151 +139,81 @@ fn do_postgresql_inner<'a>(
             .map(|p| &**p as &(dyn ToSql + Sync))
             .collect_vec();
 
-        if typed_schema {
-            let statement = client
+        let statement = if typed_schema {
+            client
                 .prepare_typed(&query, &param_types)
+                .await
+                .map_err(to_anyhow)?
+        } else {
+            client.prepare(&query).await.map_err(to_anyhow)?
+        };
+
+        if skip_collect {
+            client
+                .execute_raw(&statement, query_params)
+                .await
+                .map_err(to_anyhow)?;
+        } else if let Some(ref s3) = s3 {
+            let rows_stream = client
+                .query_raw(&statement, query_params)
+                .map_err(to_anyhow)
+                .await?
+                .map_err(to_anyhow)
+                .map(|row_result| {
+                    row_result.and_then(|row| postgres_row_to_json_value(row).map_err(to_anyhow))
+                });
+
+            let stream = convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
+            s3.upload(stream.boxed()).await?;
+
+            return Ok(vec![to_raw_value(&s3.to_return_s3_obj())]);
+        } else {
+            let rows = client
+                .query_raw(&statement, query_params)
                 .await
                 .map_err(to_anyhow)?;
 
-            if skip_collect {
-                client
-                    .execute_raw(&statement, query_params)
-                    .await
-                    .map_err(to_anyhow)?;
-            } else if let Some(ref s3) = s3 {
-                let rows_stream = client
-                    .query_raw(&statement, query_params)
-                    .map_err(to_anyhow)
-                    .await?
-                    .map_err(to_anyhow)
-                    .map(|row_result| {
-                        row_result
-                            .and_then(|row| postgres_row_to_json_value(row).map_err(to_anyhow))
-                    });
-
-                let stream = convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
-                s3.upload(stream.boxed()).await?;
-
-                return Ok(vec![to_raw_value(&s3.to_return_s3_obj())]);
+            let rows = if first_row_only {
+                rows.take(1).boxed()
             } else {
-                let rows = client
-                    .query_raw(&statement, query_params)
-                    .await
-                    .map_err(to_anyhow)?;
+                rows.boxed()
+            };
 
-                let rows = if first_row_only {
-                    rows.take(1).boxed()
-                } else {
-                    rows.boxed()
-                };
+            let rows = rows.try_collect::<Vec<Row>>().await.map_err(to_anyhow)?;
 
-                let rows = rows.try_collect::<Vec<Row>>().await.map_err(to_anyhow)?;
-
-                if let Some(column_order) = column_order {
-                    *column_order = Some(
-                        rows.first()
-                            .map(|x| {
-                                x.columns()
-                                    .iter()
-                                    .map(|x| x.name().to_string())
-                                    .collect::<Vec<String>>()
-                            })
-                            .unwrap_or_default(),
-                    );
-                }
-
-                for row in rows.into_iter() {
-                    let r = postgres_row_to_json_value(row);
-                    if let Ok(v) = r.as_ref() {
-                        let size = sizeof_val(v);
-                        siz.fetch_add(size, Ordering::Relaxed);
-                    }
-                    if *CLOUD_HOSTED {
-                        let siz = siz.load(Ordering::Relaxed);
-                        if siz > MAX_RESULT_SIZE * 4 {
-                            return Err(Error::ExecutionErr(format!(
-                                "Query result too large for cloud (size = {} > {})",
-                                siz,
-                                MAX_RESULT_SIZE & 4,
-                            )));
-                        }
-                    }
-                    if let Ok(v) = r {
-                        res.push(to_raw_value(&v));
-                    } else {
-                        return Err(to_anyhow(r.err().unwrap()).into());
-                    }
-                }
+            if let Some(column_order) = column_order {
+                *column_order = Some(
+                    rows.first()
+                        .map(|x| {
+                            x.columns()
+                                .iter()
+                                .map(|x| x.name().to_string())
+                                .collect::<Vec<String>>()
+                        })
+                        .unwrap_or_default(),
+                );
             }
-        } else {
-            if skip_collect {
-                client
-                    .execute_raw(&query, query_params)
-                    .await
-                    .map_err(to_anyhow)?;
-            } else if let Some(ref s3) = s3 {
-                let rows_stream = client
-                    .query_raw(&query, query_params)
-                    .map_err(to_anyhow)
-                    .await?
-                    .map_err(to_anyhow)
-                    .map(|row_result| {
-                        row_result
-                            .and_then(|row| postgres_row_to_json_value(row).map_err(to_anyhow))
-                    });
 
-                let stream = convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
-                s3.upload(stream.boxed()).await?;
-
-                return Ok(vec![to_raw_value(&s3.to_return_s3_obj())]);
-            } else {
-                let rows = client
-                    .query_raw(&query, query_params)
-                    .await
-                    .map_err(to_anyhow)?;
-
-                let rows = if first_row_only {
-                    rows.take(1).boxed()
-                } else {
-                    rows.boxed()
-                };
-
-                let rows = rows.try_collect::<Vec<Row>>().await.map_err(to_anyhow)?;
-
-                if let Some(column_order) = column_order {
-                    *column_order = Some(
-                        rows.first()
-                            .map(|x| {
-                                x.columns()
-                                    .iter()
-                                    .map(|x| x.name().to_string())
-                                    .collect::<Vec<String>>()
-                            })
-                            .unwrap_or_default(),
-                    );
+            for row in rows.into_iter() {
+                let r = postgres_row_to_json_value(row);
+                if let Ok(v) = r.as_ref() {
+                    let size = sizeof_val(v);
+                    siz.fetch_add(size, Ordering::Relaxed);
                 }
-
-                for row in rows.into_iter() {
-                    let r = postgres_row_to_json_value(row);
-                    if let Ok(v) = r.as_ref() {
-                        let size = sizeof_val(v);
-                        siz.fetch_add(size, Ordering::Relaxed);
+                if *CLOUD_HOSTED {
+                    let siz = siz.load(Ordering::Relaxed);
+                    if siz > MAX_RESULT_SIZE * 4 {
+                        return Err(Error::ExecutionErr(format!(
+                            "Query result too large for cloud (size = {} > {})",
+                            siz,
+                            MAX_RESULT_SIZE & 4,
+                        )));
                     }
-                    if *CLOUD_HOSTED {
-                        let siz = siz.load(Ordering::Relaxed);
-                        if siz > MAX_RESULT_SIZE * 4 {
-                            return Err(Error::ExecutionErr(format!(
-                                "Query result too large for cloud (size = {} > {})",
-                                siz,
-                                MAX_RESULT_SIZE & 4,
-                            )));
-                        }
-                    }
-                    if let Ok(v) = r {
-                        res.push(to_raw_value(&v));
-                    } else {
-                        return Err(to_anyhow(r.err().unwrap()).into());
-                    }
+                }
+                if let Ok(v) = r {
+                    res.push(to_raw_value(&v));
+                } else {
+                    return Err(to_anyhow(r.err().unwrap()).into());
                 }
             }
         }
