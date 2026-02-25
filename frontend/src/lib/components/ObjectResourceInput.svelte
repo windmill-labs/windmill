@@ -18,6 +18,7 @@
 		editor?: SimpleEditor | undefined
 		path?: string
 		disabled?: boolean
+		datatableAsPgResource?: boolean
 		onClear?: () => void
 	}
 
@@ -30,16 +31,23 @@
 		defaultValue,
 		editor = $bindable(undefined),
 		disabled = false,
+		datatableAsPgResource = false,
 		onClear = undefined
 	}: Props = $props()
 
 	function isResource() {
-		return isString(value) && value.length >= '$res:'.length
+		return isString(value) && value.startsWith('$res:')
+	}
+
+	function isDatatable(val: any): boolean {
+		return (isString(val) && val.startsWith('datatable://')) || val === 'datatable'
 	}
 
 	function valueToPath() {
 		if (isResource()) {
 			return value.substr('$res:'.length)
+		} else if (isDatatable(value)) {
+			return value
 		}
 	}
 </script>
@@ -50,6 +58,7 @@
 		<S3ObjectPicker bind:value />
 	{:else if value == undefined || typeof value === 'string'}
 		<ResourcePicker
+			{datatableAsPgResource}
 			{disabled}
 			{selectFirst}
 			{disablePortal}
@@ -60,7 +69,7 @@
 					if (v == undefined) {
 						value = undefined
 					} else {
-						value = `$res:${v}`
+						value = isDatatable(v) ? v : `$res:${v}`
 					}
 				}
 			}

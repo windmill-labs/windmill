@@ -180,7 +180,10 @@ mod tests {
     fn test_postgres_to_typescript_date_types() {
         assert_eq!(postgres_to_typescript_type(Some(Type::DATE)), "string");
         assert_eq!(postgres_to_typescript_type(Some(Type::TIMESTAMP)), "string");
-        assert_eq!(postgres_to_typescript_type(Some(Type::TIMESTAMPTZ)), "string");
+        assert_eq!(
+            postgres_to_typescript_type(Some(Type::TIMESTAMPTZ)),
+            "string"
+        );
         assert_eq!(postgres_to_typescript_type(Some(Type::UUID)), "string");
     }
 
