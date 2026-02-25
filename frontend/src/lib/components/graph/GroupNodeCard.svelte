@@ -113,7 +113,7 @@
 				bind:this={textInputComponent}
 				bind:value={summaryInput}
 				size="xs"
-				class="!bg-transparent !border-transparent !shadow-none !text-2xs !font-medium !p-0 !m-0 !min-w-0 flex-1 !min-h-0 !h-auto nodrag nowheel"
+				class="!bg-transparent !border-transparent !shadow-none !text-2xs !font-medium !p-0 !m-0 !min-w-0 flex-1 text-center !min-h-0 !h-auto nodrag nowheel"
 				inputProps={{
 					placeholder: 'Group',
 					onblur: saveSummary,
@@ -125,7 +125,7 @@
 			<!-- svelte-ignore a11y_click_events_have_key_events -->
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<span
-				class="text-2xs font-medium truncate {editMode
+				class="text-2xs font-medium truncate flex-1 text-center {editMode
 					? 'cursor-text rounded px-0.5 -mx-0.5 hover:bg-black/10 dark:hover:bg-white/10'
 					: ''}"
 				onclick={editMode ? stopPropagation(preventDefault(startEditingSummary)) : undefined}
@@ -137,7 +137,7 @@
 			<!-- svelte-ignore a11y_click_events_have_key_events -->
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<span
-				class="text-3xs opacity-60 ml-auto shrink-0 whitespace-nowrap {onExpand
+				class="text-3xs opacity-60 shrink-0 whitespace-nowrap {onExpand
 					? 'cursor-pointer hover:opacity-100 hover:text-blue-500 dark:hover:text-blue-400'
 					: ''}"
 				onclick={onExpand ? stopPropagation(preventDefault(onExpand)) : undefined}
