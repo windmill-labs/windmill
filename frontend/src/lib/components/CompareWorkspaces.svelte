@@ -57,6 +57,7 @@
 	import type { TriggerKind } from './triggers'
 	import { triggerDisplayNamesMap, triggerKindToTriggerType } from './triggers/utils'
 	import { getEmailAddress, getEmailDomain } from './triggers/email/utils'
+	import { base } from '$lib/base'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 
@@ -77,9 +78,7 @@
 	let canDeployToParent = $state(true)
 	let canPreserveInParent = $state(false)
 	let canPreserveInCurrent = $state(false)
-	let canPreserveOnBehalfOf = $derived(
-		mergeIntoParent ? canPreserveInParent : canPreserveInCurrent
-	)
+	let canPreserveOnBehalfOf = $derived(mergeIntoParent ? canPreserveInParent : canPreserveInCurrent)
 
 	let selectableDiffs = $derived(
 		comparison?.diffs.filter((diff) => {
@@ -602,7 +601,12 @@
 				scriptPath: item.script_path,
 				isFlow: item.is_flow,
 				enabled: item.mode === 'enabled',
-				extraLabel: getEmailAddress(item.local_part, item.workspaced_local_part, currentWorkspaceId, emailDomain ?? '')
+				extraLabel: getEmailAddress(
+					item.local_part,
+					item.workspaced_local_part,
+					currentWorkspaceId,
+					emailDomain ?? ''
+				)
 			})
 		}
 	} as const
@@ -657,6 +661,24 @@
 	function getTriggerDisplayName(triggerKind: TriggerKind): string {
 		const triggerType = triggerKindToTriggerType(triggerKind)
 		return triggerType ? triggerDisplayNamesMap[triggerType] : triggerKind
+	}
+
+	const triggerKindToPagePath: Record<string, string> = {
+		schedules: '/schedules',
+		routes: '/routes',
+		websockets: '/websocket_triggers',
+		kafka: '/kafka_triggers',
+		postgres: '/postgres_triggers',
+		nats: '/nats_triggers',
+		mqtt: '/mqtt_triggers',
+		sqs: '/sqs_triggers',
+		gcp: '/gcp_triggers',
+		emails: '/email_triggers'
+	}
+
+	function getTriggerHref(triggerKind: TriggerKind): string | undefined {
+		const pagePath = triggerKindToPagePath[triggerKind]
+		return pagePath ? `${base}${pagePath}` : undefined
 	}
 
 	// Fetch triggers when workspace is available
@@ -952,9 +974,8 @@
 								<span class="text-xs text-yellow-600">
 									You must set the "on behalf of" user for all items before deploying
 									<Tooltip class="text-yellow-600">
-										The "run on behalf of" field defines which user's permissions will be
-										applied during execution. Make sure this is set to an appropriate
-										user before deploying.
+										The "run on behalf of" field defines which user's permissions will be applied
+										during execution. Make sure this is set to an appropriate user before deploying.
 									</Tooltip>
 								</span>
 							{/if}
@@ -980,15 +1001,18 @@
 	<!-- Fork Triggers Section -->
 	<div class="mt-6">
 		<div class="flex items-center gap-2 mb-2">
-			<h3 class="text-sm font-semibold">Fork Triggers</h3>
+			<h3 class="text-sm font-semibold">Triggers created in this fork</h3>
 			{#if !loadingTriggers}
-				<Badge color="indigo" size="xs">{forkTriggers.length} trigger{forkTriggers.length !== 1 ? 's' : ''}</Badge>
+				<Badge color="indigo" size="xs"
+					>{forkTriggers.length} trigger{forkTriggers.length !== 1 ? 's' : ''}</Badge
+				>
 			{/if}
 		</div>
 
 		<Alert title="Triggers are not included in workspace forks" type="info" class="mb-2">
-			These triggers exist in the fork workspace but are not part of the workspace comparison.
-			You can deploy them to the parent workspace or delete them.
+			When forking a workspace, triggers are not forked to avoid unnecessary executions or
+			collisions. If you created this triggers with the intention of deploying them to the parent
+			workspace, you can do so here. Otherwise it is recommended to delete them or disable them.
 		</Alert>
 
 		{#if loadingTriggers}
@@ -1007,6 +1031,7 @@
 						kind="trigger"
 						triggerKind={trigger.triggerKind}
 						path={trigger.path}
+						href={getTriggerHref(trigger.triggerKind)}
 						marked={undefined}
 						isSelectable={false}
 						canFavorite={false}
@@ -1041,12 +1066,7 @@
 								<Upload size={12} />
 								Deploy
 							</Button>
-							<Button
-								size="xs"
-								variant="subtle"
-								color="red"
-								onclick={() => deleteTrigger(trigger)}
-							>
+							<Button size="xs" variant="subtle" color="red" onclick={() => deleteTrigger(trigger)}>
 								<Trash2 size={12} />
 							</Button>
 						{/snippet}
@@ -1066,7 +1086,8 @@
 		onCanceled={() => (triggerToDelete = undefined)}
 	>
 		{#if triggerToDelete}
-			Are you sure you want to delete the {getTriggerDisplayName(triggerToDelete.triggerKind)} trigger '{triggerToDelete.path}'?
+			Are you sure you want to delete the {getTriggerDisplayName(triggerToDelete.triggerKind)} trigger
+			'{triggerToDelete.path}'?
 		{/if}
 	</ConfirmationModal>
 {:else}
