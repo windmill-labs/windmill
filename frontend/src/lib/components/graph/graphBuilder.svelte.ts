@@ -63,6 +63,8 @@ export type GraphEventHandlers = {
 	expandSubflow: (id: string, path: string) => void
 	minimizeSubflow: (id: string) => void
 	expandGroup: (groupId: string) => void
+	expandContainer: (moduleId: string) => void
+	collapseContainer: (moduleId: string) => void
 	updateMock: (detail: { mock: FlowModule['mock']; id: string }) => void
 	testUpTo: (id: string) => void
 	editInput: (moduleId: string, key: string) => void
@@ -153,6 +155,8 @@ export type ModuleN = {
 		isOwner: boolean
 		assets: AssetWithAltAccessType[] | undefined
 		moduleAction: ModuleActionInfo | undefined
+		isCollapsedContainer?: boolean
+		containerModules?: FlowModule[]
 	}
 }
 
@@ -423,6 +427,7 @@ export function graphBuilder(
 		collapsed?: boolean
 		module_ids: string[]
 	}>,
+	expandedContainers: Set<string>,
 	showNotes: boolean
 	// triggerProps?: {
 	// 	path?: string
@@ -452,7 +457,11 @@ export function graphBuilder(
 		const nodes: NodeLayout[] = []
 		const edges: Edge[] = []
 
-		function addNode(module: FlowModule, offset: number) {
+		function addNode(
+			module: FlowModule,
+			offset: number,
+			extraData?: { isCollapsedContainer?: boolean; containerModules?: FlowModule[] }
+		) {
 			const duplicated = nodes.find((n) => n.id === module.id)
 			if (duplicated) {
 				console.log('Duplicated node detected: ', module, duplicated)
@@ -474,7 +483,8 @@ export function graphBuilder(
 					isOwner: extra.isOwner,
 					flowJob: extra.flowJob,
 					assets: getFlowModuleAssets(module, extra.additionalAssetsMap),
-					moduleAction: extra.moduleActions?.[module.id]
+					moduleAction: extra.moduleActions?.[module.id],
+					...extraData
 				},
 				type: 'module',
 				selectable: true
@@ -572,6 +582,14 @@ export function graphBuilder(
 				},
 				selectable: false
 			})
+		}
+
+		function getContainerModules(module: FlowModule): FlowModule[] {
+			const v = module.value
+			if (v.type === 'branchall') return v.branches.flatMap((b) => b.modules)
+			if (v.type === 'branchone') return [...v.default, ...v.branches.flatMap((b) => b.modules)]
+			if (v.type === 'forloopflow' || v.type === 'whileloopflow') return v.modules
+			return []
 		}
 
 		const inputAssets = extra.additionalAssetsMap?.['Input']
@@ -731,6 +749,41 @@ export function graphBuilder(
 						return
 					}
 					// --- End collapsed group handling ---
+
+					// --- Collapsed container handling ---
+					const isContainer =
+						module.value.type === 'branchall' ||
+						module.value.type === 'branchone' ||
+						module.value.type === 'forloopflow' ||
+						module.value.type === 'whileloopflow'
+					if (isContainer && !expandedContainers.has(module.id)) {
+						const containerModules = getContainerModules(module)
+						addNode(module, currentOffset, { isCollapsedContainer: true, containerModules })
+
+						if (index === 0) {
+							addEdge(beforeNode.id, module.id, undefined, prefix, {
+								subModules: modules,
+								disableMoveIds,
+								disableInsert: simplifiedTriggerView
+							})
+						} else if (previousId) {
+							addEdge(previousId, module.id, branch, prefix, {
+								subModules: modules,
+								disableMoveIds
+							})
+						}
+
+						if (index === modules.length - 1 && nextNode) {
+							addEdge(module.id, nextNode.id, branch, prefix, {
+								subModules: modules,
+								disableMoveIds
+							})
+						}
+
+						previousId = module.id
+						return
+					}
+					// --- End collapsed container handling ---
 
 					const localDisableMoveIds = [...disableMoveIds, module.id]
 

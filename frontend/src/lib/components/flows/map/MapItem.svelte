@@ -48,6 +48,8 @@
 		isOwner?: boolean
 		maximizeSubflow?: () => void
 		menuItems?: Item[]
+		collapseContainer?: () => void
+		expandContainer?: () => void
 	}
 
 	let {
@@ -69,7 +71,9 @@
 		flowJob,
 		isOwner = false,
 		maximizeSubflow,
-		menuItems = undefined
+		menuItems = undefined,
+		collapseContainer,
+		expandContainer
 	}: Props = $props()
 
 	const { selectionManager, moveManager } = getGraphContext()
@@ -197,6 +201,8 @@
 					alwaysShowOutputPicker={!mod.id.startsWith('subflow:')}
 					loopStatus={{ type: 'self', flow: mod.value.type }}
 					{onTestUpTo}
+					{collapseContainer}
+					{expandContainer}
 				>
 					{#snippet icon()}
 						<FlowModuleIcon module={mod} />
@@ -217,6 +223,8 @@
 					label={mod.summary || 'Run one branch'}
 					{nodeState}
 					{onTestUpTo}
+					{collapseContainer}
+					{expandContainer}
 				>
 					{#snippet icon()}
 						<FlowModuleIcon module={mod} />
@@ -237,6 +245,8 @@
 					label={mod.summary || `Run all branches${mod.value.parallel ? ' (parallel)' : ''}`}
 					{nodeState}
 					{onTestUpTo}
+					{collapseContainer}
+					{expandContainer}
 				>
 					{#snippet icon()}
 						<FlowModuleIcon module={mod} />
@@ -284,6 +294,8 @@
 					{isOwner}
 					enableTestRun
 					{maximizeSubflow}
+					{collapseContainer}
+					{expandContainer}
 				>
 					{#snippet icon()}
 						{@const size =

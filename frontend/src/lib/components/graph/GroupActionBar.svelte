@@ -17,7 +17,7 @@
 		onToggleCollapse: () => void
 		onUpdateColor: (color: NoteColor) => void
 		onUpdateCollapsedDefault: (value: boolean) => void
-		onDeleteGroup: () => void
+		onDeleteGroup?: () => void
 	}
 
 	let {
@@ -31,7 +31,7 @@
 		onToggleCollapse,
 		onUpdateColor,
 		onUpdateCollapsedDefault,
-		onDeleteGroup
+		onDeleteGroup = undefined
 	}: Props = $props()
 </script>
 
@@ -112,14 +112,16 @@
 			</div>
 		{/snippet}
 	</Popover>
-	<Tooltip>
-		<button
-			class="center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-red-400 hover:text-white p-1 rounded-md"
-			onclick={stopPropagation(preventDefault(onDeleteGroup))}
-			onpointerdown={stopPropagation(preventDefault(() => {}))}
-		>
-			<Ungroup size={12} />
-		</button>
-		<svelte:fragment slot="text">Ungroup</svelte:fragment>
-	</Tooltip>
+	{#if onDeleteGroup}
+		<Tooltip>
+			<button
+				class="center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-red-400 hover:text-white p-1 rounded-md"
+				onclick={stopPropagation(preventDefault(onDeleteGroup))}
+				onpointerdown={stopPropagation(preventDefault(() => {}))}
+			>
+				<Ungroup size={12} />
+			</button>
+			<svelte:fragment slot="text">Ungroup</svelte:fragment>
+		</Tooltip>
+	{/if}
 </div>
