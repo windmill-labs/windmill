@@ -286,7 +286,7 @@ pub async fn create_many_http_triggers(
             &authed.username,
             &db,
             &w_id,
-            DeployedObject::HttpTrigger { path: http_trigger.base.path.clone() },
+            DeployedObject::HttpTrigger { path: http_trigger.base.path.clone(), parent_path: None },
             Some(format!("HTTP trigger '{}' created", http_trigger.base.path)),
             true,
             None,
@@ -354,8 +354,8 @@ impl TriggerCrud for HttpTrigger {
         "raw_string",
     ];
 
-    fn get_deployed_object(path: String) -> DeployedObject {
-        DeployedObject::HttpTrigger { path }
+    fn get_deployed_object(path: String, parent_path: Option<String>) -> DeployedObject {
+        DeployedObject::HttpTrigger { path, parent_path }
     }
 
     fn additional_routes(&self) -> Router {
