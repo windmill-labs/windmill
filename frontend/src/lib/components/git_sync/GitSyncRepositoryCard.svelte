@@ -11,6 +11,9 @@
 		Plus
 	} from 'lucide-svelte'
 	import { Button, Alert } from '$lib/components/common'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import Section from '$lib/components/Section.svelte'
+	import Label from '$lib/components/Label.svelte'
 	import { getGitSyncContext } from './GitSyncContext.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import GitSyncFilterSettings from '$lib/components/workspaceSettings/GitSyncFilterSettings.svelte'
@@ -527,6 +530,27 @@
 							</div>
 						{/if}
 					</div>
+
+					<!-- Advanced settings (collapsible) -->
+					<Section
+						label="Advanced"
+						small
+						collapsable
+						initiallyCollapsed={!repo.force_branch}
+					>
+						<Label
+							label="Force branch"
+							tooltip="Override the Git branch used by the sync script. When set, the sync script will pass this value as --branch to the CLI, which controls the branch configuration used from wmill.yaml (workspace target, specific items) and branch-specific file naming for resources and variables. This does not change which Git branch commits are pushed to (that is configured in the Git resource)."
+						>
+							<div class="w-48">
+								<TextInput
+									size="sm"
+									bind:value={repo.force_branch}
+									inputProps={{ placeholder: 'none' }}
+								/>
+							</div>
+						</Label>
+					</Section>
 				{/if}
 			{/if}
 		{:else}
