@@ -538,7 +538,12 @@
 							let indexToRemove = originalModules.findIndex((m) => moveManager.movingModuleId == m.id)
 
 							let [removedModule] = originalModules.splice(indexToRemove, 1)
-							targetModules.splice(detail.index, 0, removedModule)
+							// When moving within the same array, removal shifts subsequent indices down by 1
+							let insertIndex = detail.index
+							if (originalModules === targetModules && indexToRemove < detail.index) {
+								insertIndex -= 1
+							}
+							targetModules.splice(insertIndex, 0, removedModule)
 							selectionManager.selectId(removedModule.id)
 							moveManager.clearMoving()
 						} else {
