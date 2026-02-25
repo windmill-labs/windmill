@@ -31,18 +31,32 @@
 		return { sfNodes, sfEdges }
 	}
 
+	/** Resolve a node's position to absolute flow coordinates.
+	 *  xyflow child nodes (with parentId) have positions relative to their parent. */
+	function absolutePosition(n: Node, allNodes: Node[]): { x: number; y: number } {
+		if (n.parentId) {
+			const parent = allNodes.find((p) => p.id === n.parentId)
+			if (parent) {
+				const parentAbs = absolutePosition(parent, allNodes)
+				return { x: parentAbs.x + n.position.x, y: parentAbs.y + n.position.y }
+			}
+		}
+		return { x: n.position.x, y: n.position.y }
+	}
+
 	function computeGhost(moduleId: string, allNodes: Node[], allEdges: Edge[]) {
 		const { sfNodes, sfEdges } = getSubflowNodesAndEdges(moduleId, allNodes, allEdges)
 		if (sfNodes.length === 0) return undefined
 
-		// Compute bounding box
+		// Compute bounding box using absolute positions
 		let minX = Infinity,
 			minY = Infinity,
 			maxX = -Infinity,
 			maxY = -Infinity
 		for (const n of sfNodes) {
-			const x = n.position.x + nodeOffset(n)
-			const y = n.position.y
+			const abs = absolutePosition(n, allNodes)
+			const x = abs.x + nodeOffset(n)
+			const y = abs.y
 			const w = n.measured?.width ?? NODE.width
 			const h = n.measured?.height ?? NODE.height
 			minX = Math.min(minX, x)
@@ -62,8 +76,9 @@
 		let offsetX = containerWidth / 2
 		let offsetY = containerHeight / 2
 		if (mainNode) {
-			const mx = mainNode.position.x + nodeOffset(mainNode) - minX + PADDING
-			const my = mainNode.position.y - minY + PADDING
+			const mainAbs = absolutePosition(mainNode, allNodes)
+			const mx = mainAbs.x + nodeOffset(mainNode) - minX + PADDING
+			const my = mainAbs.y - minY + PADDING
 			const mw = mainNode.measured?.width ?? NODE.width
 			const mh = mainNode.measured?.height ?? NODE.height
 			offsetX = (mx + mw / 2) * scale
