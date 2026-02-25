@@ -264,7 +264,7 @@
 		NewAiToolN,
 		NodeLayout
 	} from '../../graphBuilder.svelte'
-	import { Globe, MessageCircle, Play, Plug, Wrench, X } from 'lucide-svelte'
+	import { Bot, Globe, MessageCircle, Play, Plug, Wrench, X } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { Edge, Node } from '@xyflow/svelte'
 
@@ -317,6 +317,8 @@
 					<Globe size={16} class="ml-1 shrink-0" />
 				{:else if data.type === 'mcp'}
 					<Plug size={16} class="ml-1 shrink-0" />
+				{:else if data.type === 'aiagent'}
+					<Bot size={16} class="ml-1 shrink-0" />
 				{:else}
 					<Wrench size={16} class="ml-1 shrink-0" />
 				{/if}

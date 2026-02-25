@@ -30,7 +30,6 @@ use uuid::Uuid;
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
-use windmill_types::s3::LargeFileStorage;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::{build_crypt, decrypt, encrypt, WORKSPACE_CRYPT_CACHE};
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
@@ -55,6 +54,7 @@ use windmill_dep_map::scoped_dependency_map::{
     DependencyDependent, DependencyMap, ScopedDependencyMap,
 };
 use windmill_git_sync::{handle_deployment_metadata, handle_fork_branch_creation, DeployedObject};
+use windmill_types::s3::LargeFileStorage;
 
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
@@ -3010,8 +3010,8 @@ async fn clone_resource_types(
     target_workspace_id: &str,
 ) -> Result<()> {
     sqlx::query!(
-        "INSERT INTO resource_type (workspace_id, name, schema, description, edited_at, created_by, format_extension)
-         SELECT $2, name, schema, description, edited_at, created_by, format_extension
+        "INSERT INTO resource_type (workspace_id, name, schema, description, edited_at, created_by, format_extension, is_fileset)
+         SELECT $2, name, schema, description, edited_at, created_by, format_extension, is_fileset
          FROM resource_type
          WHERE workspace_id = $1",
         source_workspace_id,
@@ -3558,7 +3558,7 @@ pub(crate) async fn archive_workspace_impl(
     db: &DB,
     w_id: &str,
     username: &str,
-) -> Result<(usize, usize)> {
+) -> Result<(usize, usize, usize)> {
     // Step 1: Disable all schedules and clear their queued jobs
     let mut tx = db.begin().await?;
     let disabled_schedules = sqlx::query_scalar!(
@@ -3579,6 +3579,20 @@ pub(crate) async fn archive_workspace_impl(
     for schedule_path in &disabled_schedules {
         windmill_queue::schedule::clear_schedule(&mut tx, schedule_path, w_id).await?;
     }
+
+    // Delete non-session tokens scoped to this workspace
+    let deleted_tokens = sqlx::query_scalar!(
+        "DELETE FROM token WHERE workspace_id = $1 AND label IS DISTINCT FROM 'session' RETURNING token",
+        w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    tracing::info!(
+        "Deleted {} non-session tokens in workspace {}",
+        deleted_tokens.len(),
+        w_id
+    );
 
     // Mark workspace as archived
     sqlx::query!("UPDATE workspace SET deleted = true WHERE id = $1", w_id)
@@ -3618,7 +3632,7 @@ pub(crate) async fn archive_workspace_impl(
         0
     };
 
-    Ok((schedules_count, canceled_count))
+    Ok((schedules_count, canceled_count, deleted_tokens.len()))
 }
 
 async fn archive_workspace(
@@ -3628,7 +3642,7 @@ async fn archive_workspace(
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
 
-    let (schedules_count, canceled_count) =
+    let (schedules_count, canceled_count, deleted_tokens_count) =
         archive_workspace_impl(&db, &w_id, &authed.username).await?;
 
     // Audit log
@@ -3636,6 +3650,7 @@ async fn archive_workspace(
     let mut audit_params = HashMap::new();
     audit_params.insert("disabled_schedules", schedules_count.to_string());
     audit_params.insert("canceled_jobs", canceled_count.to_string());
+    audit_params.insert("deleted_tokens", deleted_tokens_count.to_string());
     let audit_params_refs: HashMap<&str, &str> =
         audit_params.iter().map(|(k, v)| (*k, v.as_str())).collect();
 
@@ -3652,8 +3667,8 @@ async fn archive_workspace(
     tx.commit().await?;
 
     Ok(format!(
-        "Archived workspace {}, disabled {} schedules and canceled {} jobs",
-        &w_id, schedules_count, canceled_count
+        "Archived workspace {}, disabled {} schedules, canceled {} jobs and deleted {} tokens",
+        &w_id, schedules_count, canceled_count, deleted_tokens_count
     ))
 }
 
@@ -5254,7 +5269,7 @@ async fn compare_two_resource_types(
 ) -> Result<ItemComparison> {
     // Get resource type from each workspace
     let source_resource_type = sqlx::query!(
-        "SELECT schema, description, format_extension
+        "SELECT schema, description, format_extension, is_fileset
          FROM resource_type
          WHERE workspace_id = $1 AND name = $2",
         source_workspace_id,
@@ -5264,7 +5279,7 @@ async fn compare_two_resource_types(
     .await?;
 
     let target_resource_type = sqlx::query!(
-        "SELECT schema, description, format_extension
+        "SELECT schema, description, format_extension, is_fileset
          FROM resource_type
          WHERE workspace_id = $1 AND name = $2",
         fork_workspace_id,
@@ -5280,6 +5295,7 @@ async fn compare_two_resource_types(
         if source.schema != target.schema
             || source.description != target.description
             || source.format_extension != target.format_extension
+            || source.is_fileset != target.is_fileset
         {
             has_changes = true;
         }

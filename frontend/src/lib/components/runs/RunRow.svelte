@@ -7,10 +7,8 @@
 		truncateHash,
 		truncateRev,
 		isScriptPreview,
-		isJobSelectable,
 		msToReadableTime,
 		isFlowPreview,
-		type RunsSelectionMode,
 		getJobKindIcon
 	} from '$lib/utils'
 	import { Button } from '../common'
@@ -39,7 +37,7 @@
 		containsLabel?: boolean
 		showTag?: boolean
 		activeLabel: string | null
-		selectionMode?: RunsSelectionMode | false
+		manualSelectionMode?: undefined | 'cancel' | 'rerun'
 	}
 
 	let {
@@ -49,7 +47,7 @@
 		containsLabel = false,
 		showTag = true,
 		activeLabel,
-		selectionMode = false
+		manualSelectionMode
 	}: Props = $props()
 
 	let scheduleEditor: ScheduleEditor | undefined = $state(undefined)
@@ -68,36 +66,33 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	class={twMerge(
-		'hover:bg-surface-hover cursor-pointer',
-		selected ? 'bg-surface-accent-selected' : '',
+		'cursor-pointer',
+		selected ? 'bg-surface-accent-selected' : 'hover:bg-surface-hover',
 		'grid items-center h-full'
 	)}
-	class:grid-runs-table={!containsLabel && !selectionMode && showTag}
-	class:grid-runs-table-with-labels={containsLabel && !selectionMode && showTag}
-	class:grid-runs-table-selection={!containsLabel && selectionMode && showTag}
-	class:grid-runs-table-with-labels-selection={containsLabel && selectionMode && showTag}
-	class:grid-runs-table-no-tag={!containsLabel && !selectionMode && !showTag}
-	class:grid-runs-table-with-labels-no-tag={containsLabel && !selectionMode && !showTag}
-	class:grid-runs-table-selection-no-tag={!containsLabel && selectionMode && !showTag}
-	class:grid-runs-table-with-labels-selection-no-tag={containsLabel && selectionMode && !showTag}
+	class:grid-runs-table={!containsLabel && !manualSelectionMode && showTag}
+	class:grid-runs-table-with-labels={containsLabel && !manualSelectionMode && showTag}
+	class:grid-runs-table-selection={!containsLabel && manualSelectionMode && showTag}
+	class:grid-runs-table-with-labels-selection={containsLabel && manualSelectionMode && showTag}
+	class:grid-runs-table-no-tag={!containsLabel && !manualSelectionMode && !showTag}
+	class:grid-runs-table-with-labels-no-tag={containsLabel && !manualSelectionMode && !showTag}
+	class:grid-runs-table-selection-no-tag={!containsLabel && manualSelectionMode && !showTag}
+	class:grid-runs-table-with-labels-selection-no-tag={containsLabel &&
+		manualSelectionMode &&
+		!showTag}
 	style="width: {containerWidth}px"
-	onclick={() => {
-		if (!selectionMode || isJobSelectable(selectionMode)(job)) {
-			dispatch('select')
-		}
-	}}
+	onclick={() => dispatch('select')}
+	oncontextmenu={(e) => !selected && dispatch('select')}
 >
 	<!-- Selection column (only when in selection mode) -->
-	{#if selectionMode}
-		<div class="flex items-center justify-center">
-			<div class="w-4 h-4">
-				<input type="checkbox" checked={selected} disabled={!isJobSelectable(selectionMode)(job)} />
-			</div>
+	{#if manualSelectionMode}
+		<div class="w-4 h-4 ml-4 pointer-events-none">
+			<input type="checkbox" checked={selected} />
 		</div>
 	{/if}
 
 	<!-- Status -->
-	<div class="flex items-center justify-start pl-2">
+	<div class="flex items-center justify-start pl-4">
 		<JobStatusIcon {job} {isExternal} />
 	</div>
 

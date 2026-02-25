@@ -227,3 +227,92 @@ When generating Svelte 5 code, prioritize frontend performance by applying the f
     </div>
     ```
 5.  **Stay Updated**: Keep Svelte and its related packages up to date to benefit from the latest features, performance improvements, and security fixes.
+
+## Windmill UI Component Rules (MUST follow)
+
+Always use Windmill's own design-system components instead of raw HTML elements. Using raw HTML elements produces inconsistent styling and breaks the design language.
+
+### Icons — use `lucide-svelte`
+
+**Never** write inline SVGs. Import icons from `lucide-svelte`.
+
+```svelte
+<script>
+  import { ChevronLeft, ChevronRight, X } from 'lucide-svelte'
+</script>
+
+<ChevronLeft size={16} />
+```
+
+### Buttons — use `<Button>`
+
+**Never** use `<button>`. Import and use `Button` from `$lib/components/common`.
+
+```svelte
+<script>
+  import { Button } from '$lib/components/common'
+  import { ChevronLeft, ChevronRight } from 'lucide-svelte'
+</script>
+
+<!-- Regular button -->
+<Button variant="default" onclick={handleClick}>Label</Button>
+
+<!-- Icon-only button (no label) -->
+<Button startIcon={{ icon: ChevronLeft }} iconOnly onclick={prevMonth} />
+<Button startIcon={{ icon: ChevronRight }} iconOnly onclick={nextMonth} />
+```
+
+Key `Button` props:
+- `variant?: 'accent' | 'accent-secondary' | 'default' | 'subtle'`
+- `unifiedSize?: 'sm' | 'md' | 'lg'`
+- `startIcon?: { icon: SvelteComponent }` — renders an icon before the label
+- `iconOnly?: boolean` — renders icon with no surrounding label text
+- `disabled?: boolean`
+
+### Text inputs — use `<TextInput>`
+
+**Never** use `<input>`. Import and use `TextInput` from `$lib/components/common`.
+
+```svelte
+<script>
+  import { TextInput } from '$lib/components/common'
+  let val = $state('')
+</script>
+
+<TextInput bind:value={val} placeholder="Enter value" />
+```
+
+Key `TextInput` props:
+- `value?: string | number` (bindable)
+- `placeholder?: string`
+- `disabled?: boolean`
+- `error?: string | boolean`
+- `size?: 'sm' | 'md' | 'lg'`
+- `inputProps?` — forwarded to the underlying `<input>`
+
+### Selects — use `<Select>`
+
+**Never** use `<select>`. Import and use `Select` from `$lib/components/select/Select.svelte`.
+
+```svelte
+<script>
+  import Select from '$lib/components/select/Select.svelte'
+
+  const monthItems = [
+    { label: 'January', value: 1 },
+    { label: 'February', value: 2 },
+    // ...
+  ]
+  let selectedMonth = $state(1)
+</script>
+
+<Select items={monthItems} bind:value={selectedMonth} />
+```
+
+Key `Select` props:
+- `items?: Array<{ label?: string; value: any; subtitle?: string; disabled?: boolean }>`
+- `value` (bindable) — the currently selected `.value`
+- `placeholder?: string`
+- `clearable?: boolean`
+- `disabled?: boolean`
+- `size?: 'sm' | 'md' | 'lg'`

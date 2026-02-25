@@ -24,6 +24,7 @@ import { capitalize, toCamel } from "../../utils/utils.ts";
 export interface ResourceTypeFile {
   schema?: any;
   description?: string;
+  is_fileset?: boolean;
 }
 
 export async function pushResourceType(

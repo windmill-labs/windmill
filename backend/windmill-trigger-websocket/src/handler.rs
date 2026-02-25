@@ -43,8 +43,8 @@ impl TriggerCrud for WebsocketTrigger {
     ];
     const IS_ALLOWED_ON_CLOUD: bool = false;
 
-    fn get_deployed_object(path: String) -> DeployedObject {
-        DeployedObject::WebsocketTrigger { path }
+    fn get_deployed_object(path: String, parent_path: Option<String>) -> DeployedObject {
+        DeployedObject::WebsocketTrigger { path, parent_path }
     }
 
     async fn validate_config(

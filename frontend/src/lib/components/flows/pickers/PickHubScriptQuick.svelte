@@ -24,7 +24,7 @@
 							[])
 					: undefined
 			} catch (err) {
-				console.error('Error fetching top hub scripts')
+				sendUserToast('Failed to fetch hub scripts: ' + err, 'error')
 				return undefined
 			}
 		},
@@ -38,7 +38,7 @@
 <script lang="ts">
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { Skeleton } from '$lib/components/common'
-	import { classNames, createCache } from '$lib/utils'
+	import { classNames, createCache, sendUserToast } from '$lib/utils'
 	import { APP_TO_ICON_COMPONENT } from '$lib/components/icons'
 	import { IntegrationService, ScriptService, type HubScriptKind } from '$lib/gen'
 	import { Circle, ExternalLink } from 'lucide-svelte'
@@ -100,7 +100,7 @@
 				(x) => x.name
 			)
 		} catch (err) {
-			console.error('Hub is not available')
+			sendUserToast('Failed to fetch hub integrations: ' + err, 'error')
 			allApps = []
 			hubNotAvailable = true
 		}
@@ -144,7 +144,7 @@
 			try {
 				await ScriptService.pickHubScriptByPath({ path: item.path })
 			} catch (error) {
-				console.error('Failed to track hub script pick:', error)
+				sendUserToast('Failed to call ScriptService.pickHubScriptByPath: ' + error, 'error')
 				// Don't block the flow if tracking fails
 			}
 		}

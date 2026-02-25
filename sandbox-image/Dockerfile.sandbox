@@ -1,0 +1,61 @@
+FROM debian:bookworm-slim
+
+# ── System packages ───────────────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates git unzip \
+    # Rust native build deps
+    pkg-config cmake clang mold libtool \
+    libssl-dev libxml2-dev libxmlsec1-dev libxslt1-dev \
+    libffi-dev zlib1g-dev libcurl4-openssl-dev libclang-dev \
+    libkrb5-dev libsasl2-dev \
+    # PostgreSQL
+    postgresql postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Node.js 22 ────────────────────────────────────────────────────────────────
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── GitHub CLI ────────────────────────────────────────────────────────────────
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update && apt-get install -y --no-install-recommends gh \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Rust toolchain ────────────────────────────────────────────────────────────
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+    sh -s -- -y --default-toolchain stable --profile minimal
+ENV PATH="/root/.cargo/bin:$PATH"
+
+RUN cargo install sqlx-cli --no-default-features --features native-tls,postgres \
+    && cargo install cargo-watch
+
+# ── Bun ───────────────────────────────────────────────────────────────────────
+RUN curl -fsSL https://bun.sh/install | bash
+ENV PATH="/root/.bun/bin:$PATH"
+
+# ── Playwright + Chromium ─────────────────────────────────────────────────────
+RUN bun add -g @playwright/test \
+    && bunx playwright install chromium --with-deps \
+    && rm -rf /var/lib/apt/lists/* /tmp/bunx-*
+
+# ── AWS CLI ───────────────────────────────────────────────────────────────────
+RUN curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip \
+    && unzip -q /tmp/awscliv2.zip -d /tmp \
+    && /tmp/aws/install \
+    && rm -rf /tmp/aws /tmp/awscliv2.zip
+ENV AWS_DEFAULT_REGION=auto
+
+# ── Claude Code ───────────────────────────────────────────────────────────────
+RUN curl -fsSL https://claude.ai/install.sh | bash
+ENV PATH="/root/.local/bin:$PATH"
+
+# ── Codex ─────────────────────────────────────────────────────────────────────
+RUN npm i -g @openai/codex
+
+# ── Entrypoint (run explicitly via docker exec, not on container start) ──────
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
