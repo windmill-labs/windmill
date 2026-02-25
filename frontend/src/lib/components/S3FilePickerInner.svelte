@@ -263,7 +263,7 @@
 				}
 			}
 		}
-		displayedFileKeys = displayedFileKeys.sort()
+		displayedFileKeys = [...new Set(displayedFileKeys)].sort()
 		fileListLoading = false
 		fileInfoLoading = false
 	}
@@ -381,7 +381,7 @@
 				}
 			}
 		}
-		displayedFileKeys = displayedFileKeys.sort()
+		displayedFileKeys = [...new Set(displayedFileKeys)].sort()
 	}
 
 	async function clearAndLoadFiles({ keepFilter }: { keepFilter?: boolean } = {}) {
@@ -518,7 +518,7 @@
 					}
 				}
 			}
-			displayedFileKeys = displayedFileKeys.sort()
+			displayedFileKeys = [...new Set(displayedFileKeys)].sort()
 		} else {
 			selectedFileKey = {
 				s3: item_key,

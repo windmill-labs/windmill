@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE volume SET lease_until = now() + interval '15 seconds', leased_by = $1\n                             WHERE workspace_id = $2 AND name = $3\n                               AND (lease_until IS NULL OR lease_until < now())\n                             RETURNING name",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "2882014cb0c5b7638a603b8b80a9dcfabfacac4cbbc2e018439f4761fbfd98e3"
+}

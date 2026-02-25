@@ -6,7 +6,7 @@
 	import { createEventDispatcher } from 'svelte'
 
 	export let label: string
-	export let lang: SupportedLanguage | 'docker' | 'javascript' | undefined = undefined
+	export let lang: SupportedLanguage | 'docker' | 'javascript' | 'claudesandbox' | undefined = undefined
 	export let selected = false
 	export let eeRestricted: boolean
 	export let enterpriseLangs: string[] = []
@@ -46,6 +46,9 @@
 	{/if}
 	<span class="grow truncate text-left {eeRestricted ? 'text-disabled' : ''}">
 		{label}{#if eeRestricted}&nbsp;(EE){/if}
+		{#if lang === 'claudesandbox'}
+			<span class="text-primary !text-xs">(new)</span>
+		{/if}
 	</span>
 	{#if selected}
 		<kbd class="!text-xs">&crarr;</kbd>

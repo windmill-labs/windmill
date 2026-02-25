@@ -1,0 +1,58 @@
+// sandbox
+// volume: claude .claude
+
+
+import { query } from "@anthropic-ai/claude-agent-sdk";
+import * as fs from "fs";
+import * as path from "path";
+
+
+export async function main(anthropic: RT.Anthropic) {
+
+  const sessionFile = path.join(".claude/session-id.txt");
+
+  let sessionId = fs.existsSync(sessionFile) ? fs.readFileSync(sessionFile, "utf-8").trim() : undefined
+
+  const isResume = !!sessionId;
+  const prompt = "What did I ask you previously in this session"
+
+  process.env.ANTHROPIC_API_KEY = anthropic.apiKey;
+
+  let response = "";
+  let newSessionId: string | undefined;
+
+  for await (const msg of query({
+    prompt,
+    options: {
+      model: "opus",
+      allowedTools: ['*'],
+      pathToClaudeCodeExecutable: "/usr/bin/claude",
+      permissionMode: 'bypassPermissions',
+      allowDangerouslySkipPermissions: true,
+      ...(isResume ? { resume: sessionId } : {}),
+    },
+  })) {
+    // console.log(msg)
+    if (msg.type === "system" && msg.subtype === "init") {
+      newSessionId = msg.session_id;
+    }
+    if (msg.type === "assistant") {
+      response += msg.message.content
+        .filter((b: any) => b.type === "text")
+        .map((b: any) => b.text)
+        .join("");
+    }
+  }
+
+  if (newSessionId) {
+    // fs.mkdirSync(".claude/")
+    fs.writeFileSync(sessionFile, newSessionId);
+  }
+  return {
+    is_resume: isResume,
+    previous_session_id: sessionId ?? null,
+    new_session_id: newSessionId,
+    prompt,
+    response,
+  };
+}
