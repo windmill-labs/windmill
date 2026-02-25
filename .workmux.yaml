@@ -11,7 +11,7 @@ worktree_prefix: ""
 window_prefix: "wm-"
 
 auto_name:
-  model: "claude-sonnet-4.6"
+  model: "gemini-2.5-flash-lite"
   system_prompt: |
     Generate a concise git branch name based on the task description.
 

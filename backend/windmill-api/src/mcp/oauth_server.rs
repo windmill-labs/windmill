@@ -387,10 +387,11 @@ async fn handle_authorization_code_grant(
     let token_family = sqlx::types::Uuid::new_v4();
     let scopes = auth_code.scopes;
 
-    // Create access token
-    if let Err(e) = sqlx::query!(
+    // Create access token (rejects archived workspaces inline)
+    let rows = sqlx::query!(
         "INSERT INTO token (token, email, label, expiration, scopes, workspace_id)
-         VALUES ($1, $2, $3, now() + ($4 || ' seconds')::interval, $5, $6)",
+         SELECT $1::varchar, $2::varchar, $3::varchar, now() + ($4 || ' seconds')::interval, $5::text[], $6::varchar
+         WHERE NOT EXISTS(SELECT 1 FROM workspace WHERE id = $6 AND deleted = true)",
         access_token,
         auth_code.user_email,
         format!("mcp-oauth-{}", auth_code.client_id),
@@ -400,10 +401,13 @@ async fn handle_authorization_code_grant(
     )
     .execute(db)
     .await
-    {
+    .map_err(|e| {
         tracing::error!("Failed to create access token: {}", e);
-        return Err(OAuthTokenError::server_error(
-            "Failed to create access token",
+        OAuthTokenError::server_error("Failed to create access token")
+    })?;
+    if rows.rows_affected() == 0 {
+        return Err(OAuthTokenError::invalid_grant(
+            "Cannot create a token for an archived workspace",
         ));
     }
 
@@ -514,10 +518,11 @@ async fn handle_refresh_token_grant(
     let new_refresh_token = rd_string(32);
     let scopes = token_row.scopes;
 
-    // Create new access token
-    if let Err(e) = sqlx::query!(
+    // Create new access token (rejects archived workspaces inline)
+    let rows = sqlx::query!(
         "INSERT INTO token (token, email, label, expiration, scopes, workspace_id)
-         VALUES ($1, $2, $3, now() + ($4 || ' seconds')::interval, $5, $6)",
+         SELECT $1::varchar, $2::varchar, $3::varchar, now() + ($4 || ' seconds')::interval, $5::text[], $6::varchar
+         WHERE NOT EXISTS(SELECT 1 FROM workspace WHERE id = $6 AND deleted = true)",
         new_access_token,
         token_row.user_email,
         format!("mcp-oauth-{}", token_row.client_id),
@@ -527,10 +532,13 @@ async fn handle_refresh_token_grant(
     )
     .execute(db)
     .await
-    {
+    .map_err(|e| {
         tracing::error!("Failed to create new access token: {}", e);
-        return Err(OAuthTokenError::server_error(
-            "Failed to create access token",
+        OAuthTokenError::server_error("Failed to create access token")
+    })?;
+    if rows.rows_affected() == 0 {
+        return Err(OAuthTokenError::invalid_grant(
+            "Cannot create a token for an archived workspace",
         ));
     }
 

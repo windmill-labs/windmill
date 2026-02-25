@@ -534,10 +534,13 @@ pub async fn create_token_internal(
             ));
         }
     }
-    sqlx::query!(
+    let rows = sqlx::query!(
         "INSERT INTO token
             (token, email, label, expiration, super_admin, scopes, workspace_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            SELECT $1, $2, $3, $4, $5, $6, $7
+            WHERE $7::varchar IS NULL OR NOT EXISTS(
+                SELECT 1 FROM workspace WHERE id = $7 AND deleted = true
+            )",
         token,
         authed.email,
         token_config.label,
@@ -548,6 +551,11 @@ pub async fn create_token_internal(
     )
     .execute(&mut *tx)
     .await?;
+    if rows.rows_affected() == 0 {
+        return Err(Error::BadRequest(
+            "Cannot create a token for an archived workspace".to_string(),
+        ));
+    }
 
     audit_log(
         &mut *tx,

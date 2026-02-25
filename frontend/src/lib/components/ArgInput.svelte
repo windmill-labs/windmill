@@ -1057,6 +1057,7 @@
 		{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format && format?.split('-').length > 1 && resourceTypes.includes(format?.substring('resource-'.length))))}
 			<!-- {JSON.stringify(value)} -->
 			<ObjectResourceInput
+				datatableAsPgResource={label === 'database'}
 				{disabled}
 				{defaultValue}
 				selectFirst={!noDefaultOnSelectFirst && required}

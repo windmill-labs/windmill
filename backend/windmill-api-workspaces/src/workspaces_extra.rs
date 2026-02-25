@@ -641,7 +641,7 @@ pub(crate) async fn change_workspace_id(
     // Archive old workspace: disable schedules, cancel remaining jobs, set deleted=true
     // Note: schedules were already moved to new workspace, so this will find 0 schedules
     info!("Archiving old workspace");
-    let (_schedules_count, canceled_count) =
+    let (_schedules_count, canceled_count, _deleted_tokens_count) =
         archive_workspace_impl(&db, &old_id, &authed.username).await?;
 
     info!(
