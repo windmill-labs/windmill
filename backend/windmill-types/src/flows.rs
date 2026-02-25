@@ -98,6 +98,7 @@ pub struct NewFlow {
     pub deployment_message: Option<String>,
     pub visible_to_runner_only: Option<bool>,
     pub on_behalf_of_email: Option<String>,
+    pub preserve_on_behalf_of: Option<bool>,
     pub ws_error_handler_muted: Option<bool>,
 }
 
