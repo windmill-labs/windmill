@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { writable } from 'svelte/store'
-	import { SvelteFlow, SvelteFlowProvider, type Node, type Edge } from '@xyflow/svelte'
+	import { SvelteFlow, SvelteFlowProvider, type Node, type Edge, type Viewport } from '@xyflow/svelte'
 	import { setGraphContext } from './graphContext'
 	import { SelectionManager } from './selectionUtils.svelte'
 	import { createFlowDiffManager } from '../flows/flowDiffManager.svelte'
@@ -29,8 +29,10 @@
 		nodes,
 		edges,
 		width,
-		height
-	}: { nodes: Node[]; edges: Edge[]; width: number; height: number } = $props()
+		height,
+		initialViewport
+	}: { nodes: Node[]; edges: Edge[]; width: number; height: number; initialViewport?: Viewport } =
+		$props()
 
 	setGraphContext({
 		selectionManager: new SelectionManager(),
@@ -77,8 +79,9 @@
 			{edges}
 			{nodeTypes}
 			{edgeTypes}
-			fitView
+			fitView={!initialViewport}
 			{fitViewOptions}
+			{initialViewport}
 			nodesDraggable={false}
 			elementsSelectable={false}
 			panOnDrag={false}

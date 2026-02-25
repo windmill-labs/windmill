@@ -95,7 +95,14 @@
 			data: { ...e.data, insertable: false, editMode: false }
 		}))
 
-		return { containerWidth, containerHeight, ghostNodes, ghostEdges, offsetX, offsetY }
+		// Viewport so the ghost renders at the same zoom as the main flow
+		const initialViewport = {
+			x: (PADDING - minX) * scale,
+			y: (PADDING - minY) * scale,
+			zoom: scale
+		}
+
+		return { containerWidth, containerHeight, ghostNodes, ghostEdges, offsetX, offsetY, initialViewport }
 	}
 
 	let isNearDrop = $derived(moveManager.nearestDropZone != null)
@@ -133,6 +140,7 @@
 					edges={ghost.ghostEdges}
 					width={ghost.containerWidth}
 					height={ghost.containerHeight}
+					initialViewport={ghost.initialViewport}
 				/>
 			</div>
 		</div>
