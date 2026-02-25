@@ -384,8 +384,11 @@ impl WorkspaceDependenciesPrefetched {
 
         Box::pin(async {
             let r = if let Some(wdar) =
-                crate::scripts::extract_workspace_dependencies_annotated_refs(&language, code, runnable_path)
-            {
+                crate::scripts::extract_workspace_dependencies_annotated_refs(
+                    &language,
+                    code,
+                    runnable_path,
+                ) {
                 tracing::debug!(workspace_id, ?language, "found explicit annotations");
 
                 let expanded = wdar
