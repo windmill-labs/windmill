@@ -490,6 +490,7 @@ pub struct NewScript {
     pub codebase: Option<String>,
     pub has_preprocessor: Option<bool>,
     pub on_behalf_of_email: Option<String>,
+    pub preserve_on_behalf_of: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub assets: Option<Vec<AssetWithAltAccessType>>,
 }
