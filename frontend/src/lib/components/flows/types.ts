@@ -93,6 +93,8 @@ export type FlowEditorContext = {
 	executionCount: Writable<number>
 	modulesTestStates: ModulesTestStates
 	outputPickerOpenFns: Record<string, () => void>
+	preserveOnBehalfOf: Writable<boolean>
+	savedOnBehalfOfEmail: Writable<string | undefined>
 }
 
 export type FlowGraphAssetContext = StateStore<{

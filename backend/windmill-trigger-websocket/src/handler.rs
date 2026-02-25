@@ -72,12 +72,14 @@ impl TriggerCrud for WebsocketTrigger {
 
     async fn create_trigger(
         &self,
-        _db: &DB,
+        db: &DB,
         tx: &mut PgConnection,
         authed: &ApiAuthed,
         w_id: &str,
         trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
+        let resolved_edited_by = trigger.base.resolve_edited_by(authed);
+        let resolved_email = trigger.base.resolve_email(authed, db, w_id).await?;
         let filters = trigger
             .config
             .filters
@@ -127,10 +129,10 @@ impl TriggerCrud for WebsocketTrigger {
                 .config
                 .url_runnable_args
                 .map(|v| SqlxJson(serde_json::value::to_raw_value(&v).unwrap())) as _,
-            authed.username,
+            &resolved_edited_by,
             trigger.config.can_return_message,
             trigger.config.can_return_error_result,
-            authed.email,
+            resolved_email,
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
             trigger.error_handling.retry as _
@@ -142,13 +144,15 @@ impl TriggerCrud for WebsocketTrigger {
 
     async fn update_trigger(
         &self,
-        _db: &DB,
+        db: &DB,
         tx: &mut PgConnection,
         authed: &ApiAuthed,
         w_id: &str,
         path: &str,
         trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
+        let resolved_edited_by = trigger.base.resolve_edited_by(authed);
+        let resolved_email = trigger.base.resolve_email(authed, db, w_id).await?;
         let filters = trigger
             .config
             .filters
@@ -200,8 +204,8 @@ impl TriggerCrud for WebsocketTrigger {
                 .url_runnable_args
                 .map(|v| SqlxJson(serde_json::value::to_raw_value(&v).unwrap()))
                 as Option<SqlxJson<Box<RawValue>>>,
-            &authed.username,
-            &authed.email,
+            &resolved_edited_by,
+            resolved_email,
             trigger.config.can_return_message,
             trigger.config.can_return_error_result,
             w_id,

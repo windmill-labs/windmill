@@ -416,6 +416,12 @@ async fn create_trigger<T: TriggerCrud>(
     let mut tx = user_db.begin(&authed).await?;
 
     let new_path = new_trigger.base.path.clone();
+    let on_behalf_of_info = windmill_common::check_on_behalf_of_preservation(
+        new_trigger.base.email.as_deref(),
+        new_trigger.base.preserve_email.unwrap_or(false),
+        &authed,
+        &authed.username,
+    );
 
     handler
         .create_trigger(&db, &mut *tx, &authed, &workspace_id, new_trigger)
@@ -431,6 +437,24 @@ async fn create_trigger<T: TriggerCrud>(
         None,
     )
     .await?;
+    if let Some(on_behalf_of) = on_behalf_of_info {
+        audit_log(
+            &mut *tx,
+            &authed,
+            &format!("{}_triggers.on_behalf_of", T::TRIGGER_TYPE),
+            ActionKind::Create,
+            &workspace_id,
+            Some(&new_path),
+            Some(
+                [
+                    ("on_behalf_of", on_behalf_of.as_str()),
+                    ("action", "create"),
+                ]
+                .into(),
+            ),
+        )
+        .await?;
+    }
 
     handle_deployment_metadata(
         &authed.email,
@@ -510,6 +534,12 @@ async fn update_trigger<T: TriggerCrud>(
     let mut tx = user_db.begin(&authed).await?;
 
     let new_path = edit_trigger.base.path.to_string();
+    let on_behalf_of_info = windmill_common::check_on_behalf_of_preservation(
+        edit_trigger.base.email.as_deref(),
+        edit_trigger.base.preserve_email.unwrap_or(false),
+        &authed,
+        &authed.username,
+    );
 
     handler
         .update_trigger(&db, &mut *tx, &authed, &workspace_id, path, edit_trigger)
@@ -525,6 +555,24 @@ async fn update_trigger<T: TriggerCrud>(
         None,
     )
     .await?;
+    if let Some(on_behalf_of) = on_behalf_of_info {
+        audit_log(
+            &mut *tx,
+            &authed,
+            &format!("{}_triggers.on_behalf_of", T::TRIGGER_TYPE),
+            ActionKind::Update,
+            &workspace_id,
+            Some(&new_path),
+            Some(
+                [
+                    ("on_behalf_of", on_behalf_of.as_str()),
+                    ("action", "update"),
+                ]
+                .into(),
+            ),
+        )
+        .await?;
+    }
 
     let parent_path = if path != new_path {
         Some(path.to_string())
