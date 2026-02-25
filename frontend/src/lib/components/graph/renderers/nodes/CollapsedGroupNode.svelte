@@ -28,6 +28,16 @@
 	{#snippet children({ darkMode })}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div class="relative" onmouseenter={() => (hover = true)} onmouseleave={() => (hover = false)}>
+			<!-- Stacked layers behind the card -->
+			<div
+				class="absolute inset-0 top-[4px] left-2 h-9 rounded-md bg-surface border border-gray-300 z-[-1]"
+				style="width: 259px;"
+			></div>
+			<div
+				class="absolute inset-0 top-[7px] left-4 h-9 rounded-md bg-[#F2F2F8] border border-gray-300 z-[-2]"
+				style="width: 243px;"
+			></div>
+
 			<GroupNodeCard
 				summary={data.summary}
 				color={data.color}

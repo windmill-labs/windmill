@@ -87,8 +87,8 @@
 <div
 	class={twMerge(
 		'w-full module cursor-pointer max-w-full',
-		fullWidth ? 'rounded-t-md' : 'rounded-md drop-shadow-base overflow-clip',
-		'bg-surface',
+		fullWidth ? 'rounded-t-md' : 'shadow-sm border rounded-md  overflow-clip',
+		'bg-surface-tertiary',
 		noteColorConfig ? noteColorConfig.text : ''
 	)}
 	style={fullWidth ? '' : 'width: 275px;'}
@@ -137,6 +137,7 @@
 			>
 		{/if}
 	</div>
+
 	{#if showNote}
 		<div class="relative z-1">
 			<GroupNoteArea
