@@ -10680,6 +10680,16 @@ paths:
           required: false
           schema:
             type: string
+        - name: resume_button_text
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: cancel_button_text
+          in: query
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: Interactive slack approval message sent successfully
@@ -10722,6 +10732,16 @@ paths:
           schema:
             type: string
         - name: dynamic_enums_json
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: resume_button_text
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: cancel_button_text
           in: query
           required: false
           schema:

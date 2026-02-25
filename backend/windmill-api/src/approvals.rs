@@ -83,6 +83,12 @@ pub struct QueryDynamicEnumJson {
     pub dynamic_enums_json: Option<serde_json::Value>,
 }
 
+#[derive(Deserialize, Debug)]
+pub struct QueryButtonText {
+    pub resume_button_text: Option<String>,
+    pub cancel_button_text: Option<String>,
+}
+
 #[derive(Debug)]
 pub struct ApprovalFormDetails {
     pub message_str: String,
@@ -266,7 +272,12 @@ pub async fn get_approval_form_details(
         })
     });
 
-    let args_str = args.map_or("None".to_string(), |a| a.get().to_string());
+    let args_str = args.map_or("None".to_string(), |a| {
+        serde_json::from_str::<serde_json::Value>(a.get())
+            .ok()
+            .and_then(|v| serde_json::to_string_pretty(&v).ok())
+            .unwrap_or_else(|| a.get().to_string())
+    });
     let parent_job_id_str = parent_job_id.map_or("None".to_string(), |id| id.to_string());
     let script_path_str = script_path.as_deref().unwrap_or("None");
 
@@ -282,7 +293,7 @@ pub async fn get_approval_form_details(
         {}: {created_by}\n\n\
         {}: {created_at_formatted}\n\n\
         {}: {script_path_str}\n\n\
-        {}: {args_str}\n\n\
+        {}:\n```\n{args_str}\n```\n\n\
         {}: {parent_job_id_str}\n\n",
         bold_format.replace("{}", "Created by"),
         bold_format.replace("{}", "Created at"),
