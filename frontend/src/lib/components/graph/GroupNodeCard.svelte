@@ -90,8 +90,7 @@
 	class={twMerge(
 		'w-full module cursor-pointer max-w-full',
 		fullWidth ? 'rounded-t-md' : 'shadow-sm border rounded-md  overflow-clip',
-		'bg-surface-tertiary',
-		noteColorConfig ? noteColorConfig.text : ''
+		'bg-surface-tertiary'
 	)}
 	style={fullWidth ? '' : 'width: 275px;'}
 >
@@ -137,7 +136,9 @@
 			<!-- svelte-ignore a11y_click_events_have_key_events -->
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<span
-				class="text-3xs opacity-60 shrink-0 whitespace-nowrap {onExpand
+				class="text-3xs opacity-60 shrink-0 whitespace-nowrap {noteColorConfig
+					? noteColorConfig.text
+					: ''} {onExpand
 					? 'cursor-pointer hover:opacity-100 hover:text-blue-500 dark:hover:text-blue-400'
 					: ''}"
 				onclick={onExpand ? stopPropagation(preventDefault(onExpand)) : undefined}

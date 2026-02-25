@@ -5,6 +5,7 @@
 	import GroupNodeCard from '../../GroupNodeCard.svelte'
 	import GroupActionBar from '../../GroupActionBar.svelte'
 	import { getGroupEditorContext } from '../../groupEditor.svelte'
+	import { NOTE_COLORS, NoteColor } from '../../noteColors'
 
 	interface Props {
 		data: CollapsedGroupN['data']
@@ -22,6 +23,13 @@
 	let group = $derived(
 		groupEditorContext?.groupEditor.getGroups().find((g) => g.id === data.groupId)
 	)
+
+	let colorConfig = $derived(
+		data.color
+			? (NOTE_COLORS[data.color as NoteColor] ?? NOTE_COLORS[NoteColor.BLUE])
+			: NOTE_COLORS[NoteColor.BLUE]
+	)
+	let borderColorClass = $derived(colorConfig.outline.replace(/outline-/g, 'border-'))
 </script>
 
 <NodeWrapper offset={data.offset}>
@@ -30,11 +38,11 @@
 		<div class="relative" onmouseenter={() => (hover = true)} onmouseleave={() => (hover = false)}>
 			<!-- Stacked layers behind the card -->
 			<div
-				class="absolute inset-0 top-[4px] left-2 h-9 rounded-md bg-surface border border-gray-300 z-[-1]"
+				class="absolute inset-0 top-[4px] left-2 h-9 rounded-md border z-[-1] {colorConfig.background} {borderColorClass}"
 				style="width: 259px;"
 			></div>
 			<div
-				class="absolute inset-0 top-[7px] left-4 h-9 rounded-md bg-[#F2F2F8] border border-gray-300 z-[-2]"
+				class="absolute inset-0 top-[7px] left-4 h-9 rounded-md border z-[-2] {colorConfig.background} {borderColorClass}"
 				style="width: 243px;"
 			></div>
 
