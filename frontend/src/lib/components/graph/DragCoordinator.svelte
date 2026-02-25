@@ -46,7 +46,7 @@
 			const zone = moveManager.endDrag()
 			if (zone && moduleId) {
 				// Set movingModuleId directly (non-toggle) so the insert handler knows which module to relocate
-				moveManager.forceSetMoving(moduleId)
+				moveManager.setMoving(moduleId)
 				// Then trigger the insert, which detects movingModuleId and performs the splice
 				eventHandlers.insert({
 					sourceId: zone.sourceId,
@@ -65,12 +65,12 @@
 
 		document.addEventListener('pointermove', onPointerMove)
 		document.addEventListener('pointerup', onPointerUp)
-		document.addEventListener('keydown', onKeyDown)
+		document.addEventListener('keydown', onKeyDown, true)
 
 		return () => {
 			document.removeEventListener('pointermove', onPointerMove)
 			document.removeEventListener('pointerup', onPointerUp)
-			document.removeEventListener('keydown', onKeyDown)
+			document.removeEventListener('keydown', onKeyDown, true)
 		}
 	})
 </script>

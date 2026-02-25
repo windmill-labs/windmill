@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { useSvelteFlow, type Node, type Edge } from '@xyflow/svelte'
 	import { getSubflowNodeIds, type MoveManager } from './moveManager.svelte'
 	import { NODE } from './util'
@@ -10,9 +11,14 @@
 
 	const { getViewport } = useSvelteFlow()
 	const PADDING = 10
-	/** Offset from the move button (drag handle) to the ghost center.
-	 *  x: roughly half node width left of the handle; y: small downward nudge */
-	const MOVE_BTN_OFFSET = { x: -90, y: 10 }
+	/** Approximate position of the drag handle (move button) on the node,
+	 *  used to offset the ghost so the dragged node aligns with the cursor.
+	 *  The handle is at the top-right of the 275px-wide node (right-4 = 16px inset). */
+	const DRAG_HANDLE_OFFSET = { x: -90, y: 10 }
+
+	function nodeOffset(n: Node): number {
+		return ((n.data as Record<string, unknown>)?.offset as number) ?? 0
+	}
 
 	function getSubflowNodesAndEdges(
 		moduleId: string,
@@ -25,13 +31,8 @@
 		return { sfNodes, sfEdges }
 	}
 
-	let isNearDrop = $derived(moveManager.nearestDropZone != null)
-
-	let ghost = $derived.by(() => {
-		const dragging = moveManager.dragging
-		if (!dragging) return undefined
-
-		const { sfNodes, sfEdges } = getSubflowNodesAndEdges(dragging.moduleId, nodes, edges)
+	function computeGhost(moduleId: string, allNodes: Node[], allEdges: Edge[]) {
+		const { sfNodes, sfEdges } = getSubflowNodesAndEdges(moduleId, allNodes, allEdges)
 		if (sfNodes.length === 0) return undefined
 
 		// Compute bounding box
@@ -40,7 +41,7 @@
 			maxX = -Infinity,
 			maxY = -Infinity
 		for (const n of sfNodes) {
-			const x = n.position.x + ((n.data as any).offset ?? 0)
+			const x = n.position.x + nodeOffset(n)
 			const y = n.position.y
 			const w = n.measured?.width ?? NODE.width
 			const h = n.measured?.height ?? NODE.height
@@ -57,11 +58,11 @@
 		const containerHeight = Math.round(bbHeight * scale)
 
 		// Compute the offset so the dragged node's center aligns with the cursor
-		const mainNode = sfNodes.find((n) => n.id === dragging.moduleId)
+		const mainNode = sfNodes.find((n) => n.id === moduleId)
 		let offsetX = containerWidth / 2
 		let offsetY = containerHeight / 2
 		if (mainNode) {
-			const mx = mainNode.position.x + ((mainNode.data as any).offset ?? 0) - minX + PADDING
+			const mx = mainNode.position.x + nodeOffset(mainNode) - minX + PADDING
 			const my = mainNode.position.y - minY + PADDING
 			const mw = mainNode.measured?.width ?? NODE.width
 			const mh = mainNode.measured?.height ?? NODE.height
@@ -80,6 +81,14 @@
 		}))
 
 		return { containerWidth, containerHeight, ghostNodes, ghostEdges, offsetX, offsetY }
+	}
+
+	let isNearDrop = $derived(moveManager.nearestDropZone != null)
+
+	let ghost = $derived.by(() => {
+		const moduleId = moveManager.dragging?.moduleId
+		if (!moduleId) return undefined
+		return untrack(() => computeGhost(moduleId, nodes, edges))
 	})
 </script>
 
@@ -96,8 +105,8 @@
 		<div
 			class="fixed pointer-events-none z-[10000]"
 			style="left: {moveManager.ghostScreenX +
-				MOVE_BTN_OFFSET.x}px; top: {moveManager.ghostScreenY +
-				MOVE_BTN_OFFSET.y}px; transform: translate({-ghost.offsetX}px, {-ghost.offsetY}px);"
+				DRAG_HANDLE_OFFSET.x}px; top: {moveManager.ghostScreenY +
+				DRAG_HANDLE_OFFSET.y}px; transform: translate({-ghost.offsetX}px, {-ghost.offsetY}px);"
 		>
 			<div
 				style="opacity: {isNearDrop

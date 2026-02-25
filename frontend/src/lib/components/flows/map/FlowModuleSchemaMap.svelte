@@ -676,7 +676,7 @@
 				}
 			}}
 			onMove={(id) => {
-				moveManager.setMoving(id)
+				moveManager.toggleMoving(id)
 			}}
 			onUpdateMock={(detail) => {
 				let module = findModuleById(detail.id)

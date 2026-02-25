@@ -1,3 +1,5 @@
+import { NODE } from './util'
+
 export type DropZone = {
 	edgeId: string
 	sourceId: string
@@ -52,8 +54,6 @@ export function getSubflowNodeIds(
 	return nodeIds
 }
 
-import { NODE } from './util'
-
 export class MoveManager {
 	dragging = $state<DragInfo | undefined>(undefined)
 	ghostScreenX = $state(0)
@@ -64,7 +64,7 @@ export class MoveManager {
 	/** The module ID currently being moved via legacy click-to-move */
 	movingModuleId = $state<string | undefined>(undefined)
 
-	setMoving(id: string) {
+	toggleMoving(id: string) {
 		if (this.movingModuleId === id) {
 			this.movingModuleId = undefined
 		} else {
@@ -72,8 +72,7 @@ export class MoveManager {
 		}
 	}
 
-	/** Non-toggle setter — always sets movingModuleId (used by drag coordinator) */
-	forceSetMoving(id: string) {
+	setMoving(id: string) {
 		this.movingModuleId = id
 	}
 
