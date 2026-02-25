@@ -214,7 +214,7 @@
 		flowStore?.val?.value.failure_module
 	)}
 	<Drawer bind:open={editId}>
-		<DrawerContent title="Edit Step Id {id}" on:close={() => (editId = false)}>
+		<DrawerContent title="Edit step id {id}" on:close={() => (editId = false)}>
 			<div>
 				<IdEditorInput
 					buttonText="Edit Id "

@@ -87,11 +87,6 @@
 						}}
 			>
 				<span class="max-w-full text-2xs truncate flex items-center">
-					{#if !disableEditId && (editId || (hover && deletable))}
-						<span transition:slide={{ axis: 'x', duration: 100 }}>
-							<Pencil size={10} class="mr-1" />
-						</span>
-					{/if}
 					<span class="max-w-12 truncate">
 						{id}
 					</span>
