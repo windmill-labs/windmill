@@ -54,6 +54,7 @@
 	} from '../agentToolUtils'
 	import { loadFlowModuleState } from '../flowStateUtils.svelte'
 	import { getNoteEditorContext } from '$lib/components/graph/noteEditor.svelte'
+	import { getGroupEditorContext } from '$lib/components/graph/groupEditor.svelte'
 
 	interface Props {
 		sidebarSize?: number | undefined
@@ -125,6 +126,7 @@
 
 	// Get NoteEditor context for note position updates
 	const noteEditorContext = getNoteEditorContext()
+	const groupEditorContext = getGroupEditorContext()
 
 	$effect(() => {
 		if (!moveManager.movingModuleId) return
@@ -569,6 +571,7 @@
 						selectNextId(id)
 						removeAtId(flowStore.val.value.modules, id)
 					}
+					groupEditorContext?.groupEditor.removeNode(id)
 					refreshStateStore(flowStore)
 					onDelete?.(id)
 					delete flowStateStore.val[id]
@@ -629,6 +632,11 @@
 								}
 								targetModules.splice(insertIndex, 0, ...removedModules)
 								selectionManager.selectByIds(removedModules.map((m) => m.id))
+								for (const m of removedModules) {
+									groupEditorContext?.groupEditor.handleNodeMoved(
+										m.id, detail.sourceId, detail.targetId
+									)
+								}
 							} else {
 								let indexToRemove = originalModules.findIndex((m) => moveManager.movingModuleId == m.id)
 								let [removedModule] = originalModules.splice(indexToRemove, 1)
@@ -639,6 +647,9 @@
 								}
 								targetModules.splice(insertIndex, 0, removedModule)
 								selectionManager.selectId(removedModule.id)
+								groupEditorContext?.groupEditor.handleNodeMoved(
+									removedModule.id, detail.sourceId, detail.targetId
+								)
 							}
 							moveManager.clearMoving()
 						} else {
@@ -676,6 +687,7 @@
 									toolKind
 								)
 								const id = targetModules[index].id
+								groupEditorContext?.groupEditor.addInsertedNode(id, detail.sourceId, detail.targetId)
 								selectionManager.selectId(id)
 
 								if (detail.inlineScript?.instructions) {

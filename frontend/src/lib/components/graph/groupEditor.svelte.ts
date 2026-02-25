@@ -195,6 +195,55 @@ export class GroupEditor {
 	isAvailable(): boolean {
 		return !!this.flowStore.val.value
 	}
+
+	/** Remove a deleted node from all groups. Removes empty groups. */
+	removeNode(nodeId: string): void {
+		const groups = this.getGroups()
+		let changed = false
+		for (const group of groups) {
+			const idx = group.module_ids.indexOf(nodeId)
+			if (idx !== -1) {
+				group.module_ids.splice(idx, 1)
+				changed = true
+			}
+		}
+		if (changed) {
+			this.setGroups(groups.filter((g) => g.module_ids.length > 0))
+		}
+	}
+
+	/** Add a newly inserted node to the group that contains both its neighbors. */
+	addInsertedNode(newNodeId: string, sourceId?: string, targetId?: string): void {
+		if (!sourceId || !targetId) return
+		const groups = this.getGroups()
+		for (const group of groups) {
+			if (group.module_ids.includes(sourceId) && group.module_ids.includes(targetId)) {
+				group.module_ids.push(newNodeId)
+				this.setGroups(groups)
+				return
+			}
+		}
+	}
+
+	/** Handle a node that was moved to a new position in the flow. */
+	handleNodeMoved(movedId: string, sourceId?: string, targetId?: string): void {
+		const groups = this.getGroups()
+		const currentGroup = groups.find((g) => g.module_ids.includes(movedId))
+
+		if (currentGroup) {
+			// Was in a group — only keep if BOTH neighbors are in the same group
+			const sourceInGroup = sourceId ? currentGroup.module_ids.includes(sourceId) : false
+			const targetInGroup = targetId ? currentGroup.module_ids.includes(targetId) : false
+			if (!(sourceInGroup && targetInGroup)) {
+				// Moved to boundary or outside the group — remove
+				currentGroup.module_ids = currentGroup.module_ids.filter((id) => id !== movedId)
+				this.setGroups(groups.filter((g) => g.module_ids.length > 0))
+			}
+		} else {
+			// Wasn't in a group — check if moved into one
+			this.addInsertedNode(movedId, sourceId, targetId)
+		}
+	}
 }
 
 export type GroupEditorContext = {
