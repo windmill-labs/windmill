@@ -34,8 +34,24 @@
 
 	let { noEditor, enableAi }: Props = $props()
 
-	const { flowStore, initialPathStore, previewArgs, pathStore, customUi } =
-		getContext<FlowEditorContext>('FlowEditorContext')
+	const {
+		flowStore,
+		initialPathStore,
+		previewArgs,
+		pathStore,
+		customUi,
+		preserveOnBehalfOf,
+		savedOnBehalfOfEmail
+	} = getContext<FlowEditorContext>('FlowEditorContext')
+
+	const WM_DEPLOYERS_GROUP = 'wm_deployers'
+	let isDeployer = $derived($userStore?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
+	let showPreserveToggle = $derived(
+		isDeployer &&
+			flowStore.val.on_behalf_of_email &&
+			$savedOnBehalfOfEmail &&
+			$savedOnBehalfOfEmail !== $userStore?.email
+	)
 
 	function asSchema(x: any) {
 		return x as Schema
@@ -373,6 +389,7 @@
 					on:change={() => {
 						if (flowStore.val.on_behalf_of_email) {
 							flowStore.val.on_behalf_of_email = undefined
+							$preserveOnBehalfOf = false
 						} else {
 							flowStore.val.on_behalf_of_email = $userStore?.email
 						}
@@ -383,6 +400,16 @@
 							'When this option is enabled, the flow will be run with the permissions of the last editor.'
 					}}
 				/>
+				{#if showPreserveToggle}
+					<Toggle
+						textClass="font-medium"
+						size="xs"
+						bind:checked={$preserveOnBehalfOf}
+						options={{
+							right: `Keep original author (${$savedOnBehalfOfEmail})`
+						}}
+					/>
+				{/if}
 
 				<!-- Error Handler Section -->
 				<div class="flex flex-row items-center py-1">

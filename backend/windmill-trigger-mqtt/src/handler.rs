@@ -66,12 +66,14 @@ impl TriggerCrud for MqttTrigger {
 
     async fn create_trigger(
         &self,
-        _db: &DB,
+        db: &DB,
         tx: &mut PgConnection,
         authed: &ApiAuthed,
         w_id: &str,
         trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
+        let resolved_edited_by = trigger.base.resolve_edited_by(authed);
+        let resolved_email = trigger.base.resolve_email(authed, db, w_id).await?;
         let subscribe_topics = trigger
             .config
             .subscribe_topics
@@ -114,9 +116,9 @@ impl TriggerCrud for MqttTrigger {
             trigger.base.path,
             trigger.base.script_path,
             trigger.base.is_flow,
-            authed.email,
+            resolved_email,
             trigger.base.mode() as _,
-            authed.username,
+            &resolved_edited_by,
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
             trigger.error_handling.retry as _
@@ -129,13 +131,15 @@ impl TriggerCrud for MqttTrigger {
 
     async fn update_trigger(
         &self,
-        _db: &DB,
+        db: &DB,
         tx: &mut PgConnection,
         authed: &ApiAuthed,
         workspace_id: &str,
         path: &str,
         trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
+        let resolved_edited_by = trigger.base.resolve_edited_by(authed);
+        let resolved_email = trigger.base.resolve_email(authed, db, workspace_id).await?;
         let subscribe_topics = trigger
             .config
             .subscribe_topics
@@ -179,8 +183,8 @@ impl TriggerCrud for MqttTrigger {
             v3_config as Option<SqlxJson<MqttV3Config>>,
             v5_config as Option<SqlxJson<MqttV5Config>>,
             trigger.base.is_flow,
-            authed.username,
-            authed.email,
+            &resolved_edited_by,
+            resolved_email,
             trigger.base.script_path,
             trigger.base.path,
             workspace_id,

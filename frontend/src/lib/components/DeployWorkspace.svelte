@@ -1,39 +1,43 @@
 <script lang="ts">
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { base } from '$lib/base'
-	import { enterpriseLicense, superadmin, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, superadmin, userStore, workspaceStore } from '$lib/stores'
 	import {
 		AppService,
 		FlowService,
-		FolderService,
 		ResourceService,
 		ScheduleService,
-		ScriptService,
 		UserService,
-		VariableService,
 		WorkspaceService
 	} from '$lib/gen'
 	import { getAllModules } from './flows/flowExplorer'
 	import Button from './common/button/Button.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import Alert from './common/alert/Alert.svelte'
-	import Toggle from './Toggle.svelte'
-	import { Loader2 } from 'lucide-svelte'
+	import { DiffIcon, Loader2 } from 'lucide-svelte'
 	import Badge from './common/badge/Badge.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
 	import {
-		existsTrigger,
 		getTriggerDependency,
-		getTriggersDeployData,
-		getTriggerValue,
 		type AdditionalInformation,
 		type Kind
 	} from '$lib/utils_deployable'
-	import type { TriggerKind } from './triggers'
+	import {
+		checkItemExists,
+		deployItem,
+		getItemValue,
+		getOnBehalfOfEmail
+	} from '$lib/utils_workspace_deploy'
 	import type { App } from './apps/types'
 	import { getAllGridItems } from './apps/editor/appUtils'
 	import { isRunnableByPath } from './apps/inputType'
 	import type { Runnable } from './raw_apps/utils'
+	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
+	import OnBehalfOfSelector, {
+		needsOnBehalfOfSelection,
+		type OnBehalfOfChoice
+	} from './OnBehalfOfSelector.svelte'
+	import ParentWorkspaceProtectionAlert from './ParentWorkspaceProtectionAlert.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -52,13 +56,14 @@
 		additionalInformation = undefined,
 		workspaceToDeployTo = $bindable(undefined),
 		hideButton = false,
-		canDeployToWorkspace = $bindable(false)
+		canDeployToWorkspace = $bindable(true)
 	}: Props = $props()
 
 	let canSeeTarget: 'yes' | 'cant-deploy-to-workspace' | 'cant-see-all-deps' | undefined =
 		$state(undefined)
 
-	let dependencies: { kind: Kind; path: string; include: boolean }[] | undefined = $state(undefined)
+	type Dependency = { kind: Kind; path: string; include: boolean }
+	let dependencies: Dependency[] | undefined = $state<Dependency[] | undefined>(undefined)
 
 	const allAlreadyExists: { [key: string]: boolean } = $state({})
 
@@ -66,14 +71,49 @@
 	let notSet: boolean | undefined = $state(undefined)
 	let isFlow: boolean | undefined = $state(undefined)
 
+	// On-behalf-of tracking for flows and scripts
+	// Source workspace on_behalf_of emails (keyed by kind:path)
+	let sourceOnBehalfOfInfo = $state<Record<string, string | undefined>>({})
+	// Target workspace on_behalf_of emails (keyed by kind:path)
+	let targetOnBehalfOfInfo = $state<Record<string, string | undefined>>({})
+	let onBehalfOfChoice = $state<Record<string, OnBehalfOfChoice>>({})
+	let canPreserveOnBehalfOf = $state(false)
+
+	// Check if an item needs on_behalf_of selection (more than 1 unique option)
+	function itemNeedsOnBehalfOfSelection(statusPath: string, kind: string): boolean {
+		const myIdentity = kind === 'trigger' ? $userStore?.username : $userStore?.email
+		return needsOnBehalfOfSelection(
+			kind,
+			sourceOnBehalfOfInfo[statusPath],
+			targetOnBehalfOfInfo[statusPath],
+			myIdentity
+		)
+	}
+
+	// Get the email to use for deployment based on user's choice
+	function getOnBehalfOfEmailForDeploy(statusPath: string): string | undefined {
+		const choice = onBehalfOfChoice[statusPath]
+		if (choice === 'source') return sourceOnBehalfOfInfo[statusPath]
+		if (choice === 'target') return targetOnBehalfOfInfo[statusPath]
+		// 'me' or undefined = don't pass, backend will use deploying user's email
+		return undefined
+	}
+
 	async function reload(path: string) {
 		try {
 			if (!$superadmin) {
-				await UserService.whoami({ workspace: workspaceToDeployTo! })
+				const targetUser = await UserService.whoami({ workspace: workspaceToDeployTo! })
+				canPreserveOnBehalfOf =
+					targetUser.is_admin ||
+					targetUser.groups?.includes('wm_deployers') ||
+					false
+			} else {
+				canPreserveOnBehalfOf = true
 			}
 			canSeeTarget = 'yes'
 		} catch {
 			canSeeTarget = 'cant-deploy-to-workspace'
+			canPreserveOnBehalfOf = false
 			return
 		}
 
@@ -105,6 +145,33 @@
 				x.kind != 'resource_type' &&
 				(x.kind != 'folder' || !allAlreadyExists[computeStatusPath(x.kind, x.path)])
 		}))
+
+		// Fetch on_behalf_of_email for flows, scripts, apps, and triggers from both workspaces
+		for (const dep of sortedSet.filter((d) =>
+			['flow', 'script', 'app', 'trigger'].includes(d.kind)
+		)) {
+			const key = computeStatusPath(dep.kind, dep.path)
+			try {
+				sourceOnBehalfOfInfo[key] = await getOnBehalfOfEmail(
+					dep.kind,
+					dep.path,
+					$workspaceStore!,
+					additionalInformation
+				)
+			} catch {
+				sourceOnBehalfOfInfo[key] = undefined
+			}
+			try {
+				targetOnBehalfOfInfo[key] = await getOnBehalfOfEmail(
+					dep.kind,
+					dep.path,
+					workspaceToDeployTo!,
+					additionalInformation
+				)
+			} catch {
+				targetOnBehalfOfInfo[key] = undefined
+			}
+		}
 	}
 
 	async function getDependencies(
@@ -217,78 +284,7 @@
 	}
 
 	async function checkAlreadyExists(kind: Kind, path: string): Promise<boolean> {
-		let exists: boolean
-		if (kind == 'flow') {
-			exists = await FlowService.existsFlowByPath({
-				workspace: workspaceToDeployTo!,
-				path: path
-			})
-		} else if (kind == 'script') {
-			exists = await ScriptService.existsScriptByPath({
-				workspace: workspaceToDeployTo!,
-				path: path
-			})
-		} else if (kind == 'app') {
-			exists = await AppService.existsApp({
-				workspace: workspaceToDeployTo!,
-				path: path
-			})
-		} else if (kind == 'variable') {
-			exists = await VariableService.existsVariable({
-				workspace: workspaceToDeployTo!,
-				path: path
-			})
-		} else if (kind == 'resource') {
-			exists = await ResourceService.existsResource({
-				workspace: workspaceToDeployTo!,
-				path: path
-			})
-		} else if (kind == 'schedule') {
-			exists = await ScheduleService.existsSchedule({
-				workspace: workspaceToDeployTo!,
-				path: path
-			})
-		} else if (kind == 'resource_type') {
-			exists = await ResourceService.existsResourceType({
-				workspace: workspaceToDeployTo!,
-				path: path
-			})
-		} else if (kind == 'folder') {
-			exists = await FolderService.existsFolder({
-				workspace: workspaceToDeployTo!,
-				name: path
-			})
-		} else if (kind === 'trigger') {
-			const triggersKind: TriggerKind[] = [
-				'kafka',
-				'mqtt',
-				'nats',
-				'postgres',
-				'routes',
-				'schedules',
-				'sqs',
-				'websockets',
-				'gcp'
-			]
-			if (
-				additionalInformation?.triggers &&
-				triggersKind.includes(additionalInformation.triggers.kind)
-			) {
-				exists = await existsTrigger(
-					{ workspace: workspaceToDeployTo!, path },
-					additionalInformation.triggers.kind
-				)
-			} else {
-				throw new Error(
-					`Unexpected triggers kind, expected one of: '${triggersKind.join(', ')}' got: ${
-						additionalInformation?.triggers?.kind
-					}`
-				)
-			}
-		} else {
-			throw new Error(`Unknown kind ${kind}`)
-		}
-		return exists
+		return checkItemExists(kind, path, workspaceToDeployTo!, additionalInformation)
 	}
 
 	const deploymentStatus: Record<
@@ -297,240 +293,23 @@
 	> = $state({})
 
 	async function deploy(kind: Kind, path: string) {
-		const statusPath = `${kind}:${path}`
+		const statusPath = computeStatusPath(kind, path)
 		deploymentStatus[statusPath] = { status: 'loading' }
-		try {
-			let alreadyExists = await checkAlreadyExists(kind, path)
-			if (kind == 'flow') {
-				const flow = await FlowService.getFlowByPath({
-					workspace: $workspaceStore!,
-					path: path
-				})
-				getAllModules(flow.value.modules).forEach((x) => {
-					if (x.value.type == 'script' && x.value.hash != undefined) {
-						x.value.hash = undefined
-					}
-				})
-				if (alreadyExists) {
-					await FlowService.updateFlow({
-						workspace: workspaceToDeployTo!,
-						path: path,
-						requestBody: {
-							...flow
-						}
-					})
-				} else {
-					await FlowService.createFlow({
-						workspace: workspaceToDeployTo!,
-						requestBody: {
-							...flow
-						}
-					})
-				}
-			} else if (kind == 'script') {
-				const script = await ScriptService.getScriptByPath({
-					workspace: $workspaceStore!,
-					path: path
-				})
-				await ScriptService.createScript({
-					workspace: workspaceToDeployTo!,
-					requestBody: {
-						...script,
-						lock: script.lock,
-						parent_hash: alreadyExists
-							? (
-									await ScriptService.getScriptByPath({
-										workspace: workspaceToDeployTo!,
-										path: path
-									})
-								).hash
-							: undefined
-					}
-				})
-			} else if (kind == 'app') {
-				const app = await AppService.getAppByPath({
-					workspace: $workspaceStore!,
-					path: path
-				})
-				if (alreadyExists) {
-					if (app.raw_app) {
-						const secret = await AppService.getPublicSecretOfLatestVersionOfApp({
-							workspace: $workspaceStore!,
-							path: app.path
-						})
-						const js = await AppService.getRawAppData({
-							secretWithExtension: `${secret}.js`,
-							workspace: $workspaceStore!
-						})
-						const css = await AppService.getRawAppData({
-							secretWithExtension: `${secret}.css`,
-							workspace: $workspaceStore!
-						})
-						await AppService.updateAppRaw({
-							workspace: workspaceToDeployTo!,
-							path: path,
-							formData: {
-								app,
-								css,
-								js
-							}
-						})
-					} else {
-						await AppService.updateApp({
-							workspace: workspaceToDeployTo!,
-							path: path,
-							requestBody: {
-								...app
-							}
-						})
-					}
-				} else {
-					if (app.raw_app) {
-						const secret = await AppService.getPublicSecretOfLatestVersionOfApp({
-							workspace: $workspaceStore!,
-							path: app.path
-						})
-						const js = await AppService.getRawAppData({
-							secretWithExtension: `${secret}.js`,
-							workspace: $workspaceStore!
-						})
-						const css = await AppService.getRawAppData({
-							secretWithExtension: `${secret}.css`,
-							workspace: $workspaceStore!
-						})
-						await AppService.createAppRaw({
-							workspace: workspaceToDeployTo!,
-							formData: {
-								app,
-								css,
-								js
-							}
-						})
-					} else {
-						await AppService.createApp({
-							workspace: workspaceToDeployTo!,
-							requestBody: {
-								...app
-							}
-						})
-					}
-				}
-			} else if (kind == 'variable') {
-				const variable = await VariableService.getVariable({
-					workspace: $workspaceStore!,
-					path: path,
-					decryptSecret: true
-				})
-				if (alreadyExists) {
-					await VariableService.updateVariable({
-						workspace: workspaceToDeployTo!,
-						path: path,
-						requestBody: {
-							path: path,
-							value: variable.value ?? '',
-							is_secret: variable.is_secret,
-							description: variable.description ?? ''
-						},
-						alreadyEncrypted: false
-					})
-				} else {
-					await VariableService.createVariable({
-						workspace: workspaceToDeployTo!,
-						requestBody: {
-							path: path,
-							value: variable.value ?? '',
-							is_secret: variable.is_secret,
-							description: variable.description ?? ''
-						}
-					})
-				}
-			} else if (kind == 'resource') {
-				const resource = await ResourceService.getResource({
-					workspace: $workspaceStore!,
-					path: path
-				})
-				if (alreadyExists) {
-					await ResourceService.updateResource({
-						workspace: workspaceToDeployTo!,
-						path: path,
-						requestBody: {
-							path: path,
-							value: resource.value ?? '',
-							description: resource.description ?? ''
-						}
-					})
-				} else {
-					await ResourceService.createResource({
-						workspace: workspaceToDeployTo!,
-						requestBody: {
-							path: path,
-							value: resource.value ?? '',
-							resource_type: resource.resource_type,
-							description: resource.description ?? ''
-						}
-					})
-				}
-			} else if (kind == 'resource_type') {
-				const resource = await ResourceService.getResourceType({
-					workspace: $workspaceStore!,
-					path: path
-				})
-				if (alreadyExists) {
-					await ResourceService.updateResourceType({
-						workspace: workspaceToDeployTo!,
-						path: path,
-						requestBody: {
-							schema: resource.schema,
-							description: resource.description ?? ''
-						}
-					})
-				} else {
-					await ResourceService.createResourceType({
-						workspace: workspaceToDeployTo!,
-						requestBody: {
-							description: resource.description ?? '',
-							schema: resource.schema,
-							name: resource.name
-						}
-					})
-				}
-			} else if (kind == 'folder') {
-				await FolderService.createFolder({
-					workspace: workspaceToDeployTo!,
-					requestBody: {
-						name: path
-					}
-				})
-			} else if (kind === 'trigger') {
-				if (additionalInformation?.triggers) {
-					const { data, createFn, updateFn } = await getTriggersDeployData(
-						additionalInformation.triggers.kind,
-						path,
-						$workspaceStore!
-					)
-					if (alreadyExists) {
-						await updateFn({
-							path,
-							workspace: workspaceToDeployTo!,
-							requestBody: data
-						} as any)
-					} else {
-						await createFn({
-							workspace: workspaceToDeployTo!,
-							requestBody: data
-						} as any)
-					}
-				} else {
-					throw new Error('Missing triggers kind')
-				}
-			} else {
-				throw new Error(`Unknown kind ${kind}`)
-			}
 
+		const result = await deployItem({
+			kind,
+			path,
+			workspaceFrom: $workspaceStore!,
+			workspaceTo: workspaceToDeployTo!,
+			additionalInformation,
+			onBehalfOfEmail: getOnBehalfOfEmailForDeploy(statusPath)
+		})
+
+		if (result.success) {
 			allAlreadyExists[statusPath] = true
 			deploymentStatus[statusPath] = { status: 'deployed' }
-		} catch (e) {
-			deploymentStatus[statusPath] = { status: 'failed', error: e.body || e.message }
+		} else {
+			deploymentStatus[statusPath] = { status: 'failed', error: result.error }
 		}
 	}
 
@@ -547,83 +326,11 @@
 		return `${kind}:${path}`
 	}
 
-	async function getValue(kind: Kind, path: string, workspace: string) {
-		try {
-			if (kind == 'flow') {
-				const flow = await FlowService.getFlowByPath({
-					workspace: workspace,
-					path: path
-				})
-				getAllModules(flow.value.modules).forEach((x) => {
-					if (x.value.type == 'script' && x.value.hash != undefined) {
-						x.value.hash = undefined
-					}
-				})
-				return { summary: flow.summary, description: flow.description, value: flow.value }
-			} else if (kind == 'script') {
-				const script = await ScriptService.getScriptByPath({
-					workspace: workspace,
-					path: path
-				})
-				return {
-					content: script.content,
-					lock: script.lock,
-					schema: script.schema,
-					summary: script.summary,
-					language: script.language
-				}
-			} else if (kind == 'app') {
-				const app = await AppService.getAppByPath({
-					workspace: workspace,
-					path: path
-				})
-				return app
-			} else if (kind == 'variable') {
-				const variable = await VariableService.getVariable({
-					workspace: workspace,
-					path: path,
-					decryptSecret: true
-				})
-				return variable.value
-			} else if (kind == 'resource') {
-				const resource = await ResourceService.getResource({
-					workspace: workspace,
-					path: path
-				})
-				return resource.value
-			} else if (kind == 'resource_type') {
-				const resource = await ResourceService.getResourceType({
-					workspace: workspace,
-					path: path
-				})
-				return resource.schema
-			} else if (kind == 'folder') {
-				const folder = await FolderService.getFolder({
-					workspace: workspace,
-					name: path
-				})
-				return {
-					name: folder.name
-				}
-			} else if (kind == 'trigger') {
-				if (additionalInformation?.triggers) {
-					return await getTriggerValue(additionalInformation.triggers.kind, path, workspace)
-				} else {
-					throw new Error(`Missing trigger information`)
-				}
-			} else {
-				throw new Error(`Unknown kind ${kind}`)
-			}
-		} catch {
-			return {}
-		}
-	}
-
 	async function showDiff(kind: Kind, path: string) {
 		diffDrawer?.openDrawer()
 		let values = await Promise.all([
-			getValue(kind, path, workspaceToDeployTo!),
-			getValue(kind, path, $workspaceStore!)
+			getItemValue(kind, path, workspaceToDeployTo!, additionalInformation),
+			getItemValue(kind, path, $workspaceStore!, additionalInformation)
 		])
 		diffDrawer?.setDiff({
 			mode: 'simple',
@@ -632,6 +339,7 @@
 			title: 'Staging/prod <> Dev'
 		})
 	}
+
 	$effect(() => {
 		WorkspaceService.getDeployTo({ workspace: $workspaceStore! }).then((x) => {
 			workspaceToDeployTo = x.deploy_to
@@ -640,9 +348,66 @@
 			}
 		})
 	})
+
 	$effect(() => {
 		workspaceToDeployTo && initialPath && untrack(() => reload(initialPath))
 	})
+
+	// Transform dependencies to deployable item format for the shared layout
+	let deployableItems = $derived(
+		(dependencies ?? []).map((dep) => ({
+			key: computeStatusPath(dep.kind, dep.path),
+			path: dep.path,
+			kind: dep.kind,
+			include: dep.include,
+			triggerKind: dep.kind === 'trigger' ? additionalInformation?.triggers?.kind : undefined
+		}))
+	)
+
+	let selectedItems = $derived<string[]>(
+		(dependencies ?? [])
+			.filter((dep) => dep.include)
+			.map((dep) => computeStatusPath(dep.kind, dep.path))
+	)
+
+	let allSelected = $derived(
+		dependencies != null && dependencies.length > 0 && dependencies.every((dep) => dep.include)
+	)
+
+	// Check if all required on_behalf_of selections are made
+	let hasUnselectedOnBehalfOf = $derived(
+		selectedItems.some((statusPath) => {
+			const dep = dependencies?.find((d) => computeStatusPath(d.kind, d.path) === statusPath)
+			if (!dep) return false
+			return (
+				itemNeedsOnBehalfOfSelection(statusPath, dep.kind) &&
+				onBehalfOfChoice[statusPath] === undefined
+			)
+		})
+	)
+
+	function toggleItem(item: { key: string }) {
+		if (dependencies) {
+			const idx = dependencies.findIndex(
+				(dep) => computeStatusPath(dep.kind, dep.path) === item.key
+			)
+			if (idx !== -1) {
+				dependencies[idx].include = !dependencies[idx].include
+			}
+		}
+	}
+
+	function selectAll() {
+		if (dependencies) {
+			dependencies = dependencies.map((dep) => ({ ...dep, include: true }))
+		}
+	}
+
+	function deselectAll() {
+		if (dependencies) {
+			dependencies = dependencies.map((dep) => ({ ...dep, include: false }))
+		}
+	}
 </script>
 
 <div class="mt-6"></div>
@@ -668,6 +433,15 @@
 	>
 	<input class="max-w-xs" type="text" disabled value={workspaceToDeployTo} />
 
+	{#if workspaceToDeployTo}
+		<ParentWorkspaceProtectionAlert
+			parentWorkspaceId={workspaceToDeployTo}
+			onUpdateCanDeploy={(canDeploy) => {
+				canDeployToWorkspace = canDeploy
+			}}
+		/>
+	{/if}
+
 	{#if canSeeTarget == undefined}
 		<div class="mt-6"></div>
 		<Loader2 class="animate-spin" />
@@ -675,79 +449,114 @@
 		<h3 class="mb-6 mt-16">All related deployable items</h3>
 
 		<DiffDrawer bind:this={diffDrawer} {isFlow} />
-		<div class="grid grid-cols-9 justify-center max-w-3xl gap-2">
-			{#each dependencies ?? [] as { kind, path, include }, i}
-				{@const statusPath = computeStatusPath(kind, path)}
-				<div class="col-span-1 truncate text-secondary text-sm pt-0.5">{kind}</div><div
-					class="col-span-5 truncate font-semibold">{path}</div
-				><div class="col-span-1 pt-1.5">
-					<Toggle
-						size="xs"
-						checked={include}
-						on:change={(e) => {
-							if (dependencies?.[i]) {
-								dependencies[i].include = e.detail
-							}
-						}}
+
+		<WorkspaceDeployLayout
+			items={deployableItems}
+			{selectedItems}
+			{deploymentStatus}
+			selectablePredicate={() => true}
+			{allSelected}
+			onToggleItem={toggleItem}
+			onSelectAll={selectAll}
+			onDeselectAll={deselectAll}
+			emptyMessage="No deployable items found"
+		>
+			{#snippet itemActions(item)}
+				{@const statusPath = item.key}
+				{@const exists = allAlreadyExists[statusPath]}
+				{@const status = deploymentStatus[statusPath]}
+				{@const sourceEmail = sourceOnBehalfOfInfo[statusPath]}
+				{@const targetEmail = targetOnBehalfOfInfo[statusPath]}
+
+				<!-- On-behalf-of selector -->
+				{#if itemNeedsOnBehalfOfSelection(statusPath, item.kind)}
+					<OnBehalfOfSelector
+						{sourceEmail}
+						{targetEmail}
+						selected={onBehalfOfChoice[statusPath]}
+						onSelect={(choice) => (onBehalfOfChoice[statusPath] = choice)}
+						kind={item.kind}
+						canPreserve={canPreserveOnBehalfOf}
 					/>
-				</div>
-				<div class="col-span-1">
-					{#if allAlreadyExists[statusPath] == false}
-						{#if include}
-							<Badge
-								>New <Tooltip
-									>This {kind} doesn't exist yet on the target and will be created by the deployment</Tooltip
-								></Badge
-							>
-						{:else}
-							<Badge color="red">
-								Missing
-								<Tooltip
-									>{#if kind == 'resource_type'}
-										Resource types are not re-deployed by default. We strongly recommend to add
-										shared resource types in 'admin' workspace, which will have them be shared to
-										every workspace.
-									{:else}
-										This {kind} doesn't exist and is not included in the deployment. Variables and Resources
-										are considered to be workspace specific and are never included by default.
-									{/if}</Tooltip
-								>
-							</Badge>
-						{/if}
-					{:else if allAlreadyExists[statusPath] == true}
-						<button
-							class="text-blue-600 font-normal mt-1"
-							onclick={() => {
-								showDiff(kind, path)
-								isFlow = kind === 'flow'
-							}}>diff</button
+				{/if}
+
+				{#if exists === false}
+					{#if item.include}
+						<Badge
+							>New <Tooltip
+								>This {item.kind} doesn't exist yet on the target and will be created by the deployment</Tooltip
+							></Badge
 						>
-					{/if}</div
-				>
-				<div class="col-span-1 pr-1">
-					{#if deploymentStatus[statusPath]}
-						{#if deploymentStatus[statusPath].status == 'loading'}
-							<Loader2 class="animate-spin" />
-						{:else if deploymentStatus[statusPath].status == 'deployed'}
-							<Badge color="green">Deployed</Badge>
-						{:else if deploymentStatus[statusPath].status == 'failed'}
-							<div class="inline-flex gap-1">
-								<Badge color="red">Failed</Badge>
-								<Tooltip>{deploymentStatus[statusPath].error}</Tooltip></div
-							>
-						{/if}
 					{:else}
-						<Button color="light" size="xs" disabled={!canDeployToWorkspace} on:click={() => deploy(kind, path)}>Deploy</Button>
+						<Badge color="red">
+							Missing
+							<Tooltip
+								>{#if item.kind == 'resource_type'}
+									Resource types are not re-deployed by default. We strongly recommend to add shared
+									resource types in 'admin' workspace, which will have them be shared to every
+									workspace.
+								{:else}
+									This {item.kind} doesn't exist and is not included in the deployment. Variables and
+									Resources are considered to be workspace specific and are never included by default.
+								{/if}</Tooltip
+							>
+						</Badge>
+					{/if}
+				{:else if exists === true && !status}
+					<Button
+						size="xs"
+						variant="subtle"
+						onclick={() => {
+							showDiff(item.kind, item.path)
+							isFlow = item.kind === 'flow'
+						}}
+					>
+						<DiffIcon class="w-3 h-3" />
+						Show diff
+					</Button>
+				{/if}
+
+				{#if !status}
+					<Button
+						color="light"
+						size="xs"
+						disabled={!canDeployToWorkspace ||
+							(itemNeedsOnBehalfOfSelection(statusPath, item.kind) &&
+								onBehalfOfChoice[statusPath] === undefined)}
+						onclick={() => deploy(item.kind, item.path)}>Deploy</Button
+					>
+				{/if}
+			{/snippet}
+
+			{#snippet footer()}
+				<div class="flex flex-col items-end gap-2">
+					{#if !hideButton}
+						<Button on:click={deployAll} disabled={!canDeployToWorkspace || hasUnselectedOnBehalfOf}
+							>Deploy all toggled</Button
+						>
+					{/if}
+					{#if hasUnselectedOnBehalfOf}
+						<span class="text-xs text-yellow-600">
+							{#if kind === 'trigger'}
+								You must set the "edited by" user for all triggers before deploying
+								<Tooltip class="text-yellow-600">
+									The "edited by" field defines which user's permissions will be applied
+									when the trigger runs. Make sure this is set to an appropriate user
+									before deploying.
+								</Tooltip>
+							{:else}
+								You must set the "on behalf of" user for all items before deploying
+								<Tooltip class="text-yellow-600">
+									The "run on behalf of" field defines which user's permissions will be
+									applied during execution. Make sure this is set to an appropriate user
+									before deploying.
+								</Tooltip>
+							{/if}
+						</span>
 					{/if}
 				</div>
-			{/each}
-		</div>
-
-		{#if !hideButton}
-			<div class="mt-16 flex flex-row-reverse max-w-3xl"
-				><Button on:click={deployAll} disabled={!canDeployToWorkspace}>Deploy all toggled</Button></div
-			>
-		{/if}
+			{/snippet}
+		</WorkspaceDeployLayout>
 	{:else if canSeeTarget == 'cant-see-all-deps'}
 		<div class="my-2"></div>
 		<Alert type="error" title="User doesn't have visibility over all dependencies"
