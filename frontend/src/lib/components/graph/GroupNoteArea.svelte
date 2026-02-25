@@ -26,9 +26,9 @@
 	// Derive border class from outline (e.g. "outline-yellow-300" → "border-yellow-300")
 	let borderColorClass = $derived(noteColorConfig.outline.replace(/outline-/g, 'border-'))
 
-	// Measure height and report to parent
+	// Measure height and report to parent (skip while editing to avoid full graph rebuilds)
 	$effect(() => {
-		if (containerElement) {
+		if (containerElement && !editing) {
 			const height = containerElement.clientHeight
 			onHeightChange(height)
 		}
@@ -38,6 +38,7 @@
 	$effect(() => {
 		if (!containerElement) return
 		const observer = new ResizeObserver((entries) => {
+			if (editing) return
 			for (const entry of entries) {
 				onHeightChange(entry.contentRect.height)
 			}
