@@ -1009,7 +1009,7 @@
 			{/if}
 		</div>
 
-		<Alert title="Triggers are not included in workspace forks" type="info" class="mb-2">
+		<Alert title="Deploy and/or delete these triggers" type="info" class="mb-2">
 			When forking a workspace, triggers are not forked to avoid unnecessary executions or
 			collisions. If you created this triggers with the intention of deploying them to the parent
 			workspace, you can do so here. Otherwise it is recommended to delete them or disable them.
