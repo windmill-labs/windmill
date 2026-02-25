@@ -176,6 +176,7 @@
 	let resourceEditor: ResourceEditorDrawer | undefined = $state()
 	let dbManagerDrawer = $derived(globalDbManagerDrawer.val)
 	let hovering = $state(false)
+	let isDatatableSelected = $derived(value?.startsWith('datatable://') ?? false)
 </script>
 
 <AppConnect
@@ -231,16 +232,18 @@
 			id="resource-picker-select"
 		>
 			{#snippet endSnippet({ item, close })}
-				<Button
-					{disabled}
-					variant="subtle"
-					size="xs2"
-					wrapperClasses="-mr-2 pl-1 -my-2"
-					btnClasses="hover:bg-surface-tertiary"
-					on:click={() => (resourceEditor?.initEdit?.(item.value ?? ''), close())}
-					startIcon={{ icon: Pen }}
-					iconOnly
-				/>
+				{#if !item.value?.startsWith('datatable://')}
+					<Button
+						{disabled}
+						variant="subtle"
+						size="xs2"
+						wrapperClasses="-mr-2 pl-1 -my-2"
+						btnClasses="hover:bg-surface-tertiary"
+						on:click={() => (resourceEditor?.initEdit?.(item.value ?? ''), close())}
+						startIcon={{ icon: Pen }}
+						iconOnly
+					/>
+				{/if}
 			{/snippet}
 			{#snippet bottomSnippet({ close })}
 				<div class="flex bg-surface border-t divide-x">
@@ -295,7 +298,7 @@
 				</div>
 			{/snippet}
 		</Select>
-		{#if value && hovering}
+		{#if value && hovering && !isDatatableSelected}
 			<div class="absolute {disabled ? 'right-2' : 'right-10'} z-20">
 				<Button
 					variant="subtle"
