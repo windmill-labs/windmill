@@ -82,21 +82,32 @@ export class MoveManager {
 	toggleMoving(id: string) {
 		if (this.movingModuleId === id) {
 			this.movingModuleId = undefined
+			this.#updateDraggedNodeIds(undefined)
 		} else {
 			this.movingModuleId = id
+			this.#updateDraggedNodeIds(id)
 		}
 	}
 
 	setMoving(id: string) {
 		this.movingModuleId = id
+		this.#updateDraggedNodeIds(id)
 	}
 
 	clearMoving() {
 		this.movingModuleId = undefined
+		this.#updateDraggedNodeIds(undefined)
 	}
 
-	setDraggedNodeIds(ids: Set<string>) {
-		this.draggedNodeIds = ids
+	#computeDraggedNodeIds: ((moduleId: string) => Set<string>) | undefined
+
+	setComputeDraggedNodeIds(fn: (moduleId: string) => Set<string>) {
+		this.#computeDraggedNodeIds = fn
+	}
+
+	#updateDraggedNodeIds(moduleId: string | undefined) {
+		this.draggedNodeIds =
+			moduleId && this.#computeDraggedNodeIds ? this.#computeDraggedNodeIds(moduleId) : new Set()
 	}
 
 	#screenToFlowPosition: ((pos: { x: number; y: number }) => { x: number; y: number }) | undefined
@@ -121,6 +132,7 @@ export class MoveManager {
 		this.ghostScreenX = screenX
 		this.ghostScreenY = screenY
 		this.nearestDropZone = undefined
+		this.#updateDraggedNodeIds(moduleId)
 	}
 
 	updateDrag(screenX: number, screenY: number) {
@@ -140,12 +152,14 @@ export class MoveManager {
 		const zone = this.nearestDropZone
 		this.dragging = undefined
 		this.nearestDropZone = undefined
+		this.#updateDraggedNodeIds(undefined)
 		return zone
 	}
 
 	cancelDrag() {
 		this.dragging = undefined
 		this.nearestDropZone = undefined
+		this.#updateDraggedNodeIds(undefined)
 	}
 
 	#findNearestDropZone(flowPos: { x: number; y: number }): DropZone | undefined {
