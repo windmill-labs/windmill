@@ -2789,6 +2789,14 @@ async fn create_workspace(
     .await?;
 
     sqlx::query!(
+        "INSERT INTO group_
+            VALUES ($1, 'wm_deployers', 'Members can preserve the original author when deploying to this workspace')",
+        nw.id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
         "INSERT INTO usr_to_group
             VALUES ($1, 'all', $2)",
         nw.id,
@@ -3558,7 +3566,7 @@ pub(crate) async fn archive_workspace_impl(
     db: &DB,
     w_id: &str,
     username: &str,
-) -> Result<(usize, usize)> {
+) -> Result<(usize, usize, usize)> {
     // Step 1: Disable all schedules and clear their queued jobs
     let mut tx = db.begin().await?;
     let disabled_schedules = sqlx::query_scalar!(
@@ -3579,6 +3587,20 @@ pub(crate) async fn archive_workspace_impl(
     for schedule_path in &disabled_schedules {
         windmill_queue::schedule::clear_schedule(&mut tx, schedule_path, w_id).await?;
     }
+
+    // Delete non-session tokens scoped to this workspace
+    let deleted_tokens = sqlx::query_scalar!(
+        "DELETE FROM token WHERE workspace_id = $1 AND label IS DISTINCT FROM 'session' RETURNING token",
+        w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    tracing::info!(
+        "Deleted {} non-session tokens in workspace {}",
+        deleted_tokens.len(),
+        w_id
+    );
 
     // Mark workspace as archived
     sqlx::query!("UPDATE workspace SET deleted = true WHERE id = $1", w_id)
@@ -3618,7 +3640,7 @@ pub(crate) async fn archive_workspace_impl(
         0
     };
 
-    Ok((schedules_count, canceled_count))
+    Ok((schedules_count, canceled_count, deleted_tokens.len()))
 }
 
 async fn archive_workspace(
@@ -3628,7 +3650,7 @@ async fn archive_workspace(
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
 
-    let (schedules_count, canceled_count) =
+    let (schedules_count, canceled_count, deleted_tokens_count) =
         archive_workspace_impl(&db, &w_id, &authed.username).await?;
 
     // Audit log
@@ -3636,6 +3658,7 @@ async fn archive_workspace(
     let mut audit_params = HashMap::new();
     audit_params.insert("disabled_schedules", schedules_count.to_string());
     audit_params.insert("canceled_jobs", canceled_count.to_string());
+    audit_params.insert("deleted_tokens", deleted_tokens_count.to_string());
     let audit_params_refs: HashMap<&str, &str> =
         audit_params.iter().map(|(k, v)| (*k, v.as_str())).collect();
 
@@ -3652,8 +3675,8 @@ async fn archive_workspace(
     tx.commit().await?;
 
     Ok(format!(
-        "Archived workspace {}, disabled {} schedules and canceled {} jobs",
-        &w_id, schedules_count, canceled_count
+        "Archived workspace {}, disabled {} schedules, canceled {} jobs and deleted {} tokens",
+        &w_id, schedules_count, canceled_count, deleted_tokens_count
     ))
 }
 

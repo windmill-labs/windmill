@@ -32,8 +32,8 @@ impl TriggerCrud for SqsTrigger {
     const DEPLOYMENT_NAME: &'static str = "";
     const IS_ALLOWED_ON_CLOUD: bool = false;
 
-    fn get_deployed_object(path: String) -> DeployedObject {
-        DeployedObject::SqsTrigger { path }
+    fn get_deployed_object(path: String, parent_path: Option<String>) -> DeployedObject {
+        DeployedObject::SqsTrigger { path, parent_path }
     }
 
     async fn create_trigger(

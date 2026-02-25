@@ -485,6 +485,9 @@
 			"components/FlowStatusViewer.svelte": [
 				"./package/components/FlowStatusViewer.svelte.d.ts"
 			],
+			"components/FlowRecordingReplay.svelte": [
+				"./package/components/recording/FlowRecordingReplay.svelte.d.ts"
+			],
 			"components/FlowBuilder.svelte": [
 				"./package/components/FlowBuilder.svelte.d.ts"
 			],
