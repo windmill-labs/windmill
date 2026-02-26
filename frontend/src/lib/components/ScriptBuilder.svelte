@@ -1151,7 +1151,8 @@
 													{@const isPicked =
 														(lang == script.language && template != 'bunnative' && template != 'docker' && template != 'claudesandbox') ||
 														(template == 'bunnative' && lang == 'bunnative') ||
-														(template == 'docker' && lang == 'docker')}
+														(template == 'docker' && lang == 'docker') ||
+														(template == 'claudesandbox' && lang == 'bun')}
 													<Popover
 														disablePopup={!enterpriseLangs.includes(lang) || !!$enterpriseLicense}
 													>
