@@ -57,6 +57,9 @@
 		usersLoaded = true
 	}
 
+	// Fetch users eagerly so we can resolve usernames for display
+	loadUsers()
+
 	function resolveUsername(email: string | undefined): string | undefined {
 		if (!email) return undefined
 		return users.find((u) => u.email === email)?.username ?? email
@@ -96,11 +99,23 @@
 		onSelect('custom', user.email)
 		modalOpen = false
 	}
+
+	let selectedDisplayName = $derived.by(() => {
+		if (selected === 'target') return targetUsername
+		if (selected === 'me') return $userStore?.username
+		if (selected === 'custom') return customUsername
+		return undefined
+	})
 </script>
 
 <MeltPopover placement="bottom" on:openChange={(e) => e.detail && loadUsers()}>
 	<svelte:fragment slot="trigger">
-		<UserCog class="w-4 h-4 {selected ? 'text-green-500' : 'text-yellow-500'}" />
+		<span class="inline-flex items-center gap-1">
+			<UserCog class="w-4 h-4 {selected ? 'text-green-500' : 'text-yellow-500'}" />
+			{#if selectedDisplayName}
+				<span class="text-xs truncate max-w-24">{selectedDisplayName}</span>
+			{/if}
+		</span>
 	</svelte:fragment>
 	<div slot="content" let:close={closePopover} class="p-3 flex flex-col gap-2 min-w-48">
 		<div class="text-xs font-medium text-secondary mb-1">{label}</div>
