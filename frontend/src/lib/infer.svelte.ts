@@ -138,8 +138,7 @@ async function prepareDucklakeQueries(
 					return mapPrepareResults(res, chunk)
 				} catch (e) {
 					const error = e instanceof Error ? e.message : JSON.stringify(e)
-					let res = [{ error }]
-					return mapPrepareResults(res, chunk)
+					return chunk.map(([key]) => [key, { error }] as [string, PreparedAssetsSqlQuery])
 				}
 			})
 		)
