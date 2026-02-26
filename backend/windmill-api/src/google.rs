@@ -169,6 +169,69 @@ async fn handle_streaming(
 }
 
 // ============================================================================
+// Model listing
+// ============================================================================
+
+/// List available Gemini models and convert to OpenAI format.
+///
+/// Gemini returns `{ models: [{ name: "models/gemini-2.5-flash", displayName, ... }] }`.
+/// The frontend expects OpenAI format `{ data: [{ id: "models/gemini-2.5-flash", ... }] }`.
+pub async fn handle_google_ai_models(
+    api_key: &str,
+    base_url: &str,
+) -> Result<(http::StatusCode, http::HeaderMap, Body)> {
+    #[derive(Deserialize)]
+    struct GeminiModel {
+        name: String,
+        #[serde(rename = "displayName", default)]
+        display_name: String,
+    }
+
+    #[derive(Deserialize)]
+    struct GeminiModelsResponse {
+        #[serde(default)]
+        models: Vec<GeminiModel>,
+    }
+
+    let endpoint = format!("{}/models", base_url.trim_end_matches('/'));
+    let response = HTTP_CLIENT
+        .get(&endpoint)
+        .header("x-goog-api-key", api_key)
+        .send()
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to fetch Gemini models: {}", e)))?;
+
+    if response.error_for_status_ref().is_err() {
+        let err_msg = response.text().await.unwrap_or_default();
+        return Err(Error::AIError(err_msg));
+    }
+
+    let gemini_resp: GeminiModelsResponse = response.json().await.map_err(|e| {
+        Error::internal_err(format!("Failed to parse Gemini models response: {}", e))
+    })?;
+
+    let data: Vec<serde_json::Value> = gemini_resp
+        .models
+        .into_iter()
+        .map(|m| {
+            json!({
+                "id": m.name,
+                "object": "model",
+                "display_name": m.display_name,
+            })
+        })
+        .collect();
+
+    let body_bytes = serde_json::to_vec(&json!({ "data": data }))
+        .map_err(|e| Error::internal_err(format!("Failed to serialize models: {}", e)))?;
+
+    let mut headers = http::HeaderMap::new();
+    headers.insert("content-type", "application/json".parse().unwrap());
+
+    Ok((http::StatusCode::OK, headers, Body::from(body_bytes)))
+}
+
+// ============================================================================
 // Non-streaming path
 // ============================================================================
 

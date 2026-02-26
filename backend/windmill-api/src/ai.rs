@@ -811,7 +811,7 @@ async fn proxy(
     }
 
     // Handle GoogleAI (Gemini) using the native Gemini API
-    if matches!(provider, AIProvider::GoogleAI) && ai_path == "chat/completions" {
+    if matches!(provider, AIProvider::GoogleAI) {
         let api_key = request_config.api_key.as_deref().unwrap_or("");
         let base_url = request_config.base_url.trim_end_matches('/');
 
@@ -828,7 +828,16 @@ async fn proxy(
         .await?;
         tx.commit().await?;
 
-        return crate::google::handle_google_ai_chat(&body, api_key, base_url).await;
+        return match ai_path.as_str() {
+            "chat/completions" => {
+                crate::google::handle_google_ai_chat(&body, api_key, base_url).await
+            }
+            "models" => crate::google::handle_google_ai_models(api_key, base_url).await,
+            _ => Err(Error::BadRequest(format!(
+                "Unsupported Google AI path: {}",
+                ai_path
+            ))),
+        };
     }
 
     // Handle Bedrock-specific logic when the feature is enabled
