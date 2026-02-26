@@ -28,23 +28,19 @@ export function usePreparedAssetSqlQueries(
 			queries = queries.filter(([_, q]) => getQueryStmtCountHeuristic(q.query_string) === 1)
 
 			if (!queries?.length) return {}
-			try {
-				let datatableQueries = queries.filter(([_, q]) => q.source_kind === 'datatable')
-				let ducklakeQueries = queries.filter(([_, q]) => q.source_kind === 'ducklake')
+			let datatableQueries = queries.filter(([_, q]) => q.source_kind === 'datatable')
+			let ducklakeQueries = queries.filter(([_, q]) => q.source_kind === 'ducklake')
 
-				let allResults: [string, PreparedAssetsSqlQuery][] = []
+			let allResults: [string, PreparedAssetsSqlQuery][] = []
 
-				if (datatableQueries.length) {
-					allResults.push(...(await prepareDatatableQueries(datatableQueries, getWorkspace)))
-				}
-				if (ducklakeQueries.length) {
-					allResults.push(...(await prepareDucklakeQueries(ducklakeQueries, getWorkspace)))
-				}
-
-				return Object.fromEntries(allResults)
-			} catch (e) {
-				throw e
+			if (datatableQueries.length) {
+				allResults.push(...(await prepareDatatableQueries(datatableQueries, getWorkspace)))
 			}
+			if (ducklakeQueries.length) {
+				allResults.push(...(await prepareDucklakeQueries(ducklakeQueries, getWorkspace)))
+			}
+
+			return Object.fromEntries(allResults)
 		}
 	)
 
@@ -130,16 +126,21 @@ async function prepareDucklakeQueries(
 				queryContent =
 					'-- prepare\n--result_collection=all_statements_first_row\n' + attachSetup + queryContent
 
-				let res = (await JobService.runScriptPreviewAndWaitResult({
-					workspace: getWorkspace()!,
-					requestBody: {
-						language: 'duckdb',
-						content: queryContent,
-						args: {}
-					}
-				})) as { error?: string; columns?: { name: string; type: string }[] }[]
-
-				return mapPrepareResults(res, chunk)
+				try {
+					let res = (await JobService.runScriptPreviewAndWaitResult({
+						workspace: getWorkspace()!,
+						requestBody: {
+							language: 'duckdb',
+							content: queryContent,
+							args: {}
+						}
+					})) as { error?: string; columns?: { name: string; type: string }[] }[]
+					return mapPrepareResults(res, chunk)
+				} catch (e) {
+					const error = e instanceof Error ? e.message : JSON.stringify(e)
+					let res = [{ error }]
+					return mapPrepareResults(res, chunk)
+				}
 			})
 		)
 	).flat()
