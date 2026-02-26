@@ -376,6 +376,7 @@ impl AIRequestConfig {
         let is_anthropic_vertex =
             is_anthropic && self.platform == AnthropicPlatform::GoogleVertexAi;
         let is_anthropic_sdk = headers.get("X-Anthropic-SDK").is_some();
+        let is_google_ai = matches!(provider, AIProvider::GoogleAI);
 
         let base_url = base_url.to_string();
         let base_url = base_url.as_str();
@@ -422,6 +423,9 @@ impl AIRequestConfig {
         if let Some(api_key) = self.api_key {
             if is_azure {
                 request = request.header("api-key", api_key.clone())
+            } else if is_google_ai {
+                // Native Gemini API uses x-goog-api-key, not Authorization: Bearer
+                request = request.header("x-goog-api-key", api_key.clone())
             } else {
                 request = request.header("authorization", format!("Bearer {}", api_key.clone()))
             }
