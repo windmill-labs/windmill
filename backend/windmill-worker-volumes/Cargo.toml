@@ -20,3 +20,4 @@ bytes.workspace = true
 futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+regex.workspace = true

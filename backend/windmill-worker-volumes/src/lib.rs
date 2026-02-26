@@ -287,6 +287,53 @@ pub fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+pub fn interpolate_volume_name(
+    name: &str,
+    args: Option<&HashMap<String, Box<serde_json::value::RawValue>>>,
+    workspace_id: &str,
+) -> String {
+    let name = name.replace("$workspace", workspace_id);
+    if !name.contains("$args[") {
+        return name;
+    }
+    let Some(args) = args else {
+        return name;
+    };
+    let re = regex::Regex::new(r#"\$args\[((?:\w+\.)*\w+)\]"#).unwrap();
+    let mut result = name.clone();
+    for cap in re.captures_iter(&name) {
+        let full_match = cap.get(0).unwrap().as_str();
+        let arg_name = cap.get(1).unwrap().as_str();
+        let arg_value = if arg_name.contains('.') {
+            let parts: Vec<&str> = arg_name.split('.').collect();
+            let root = parts[0];
+            let mut value = args
+                .get(root)
+                .map(|x| x.get().to_string())
+                .unwrap_or_default();
+            for part in parts.iter().skip(1) {
+                if let Ok(obj) = serde_json::from_str::<serde_json::Value>(&value) {
+                    value = obj
+                        .get(part)
+                        .map(|v| v.to_string())
+                        .unwrap_or_default()
+                        .to_string();
+                } else {
+                    value = String::new();
+                    break;
+                }
+            }
+            value.trim_matches('"').to_string()
+        } else {
+            args.get(arg_name)
+                .map(|x| x.get().trim_matches('"').to_string())
+                .unwrap_or_default()
+        };
+        result = result.replace(full_match, &arg_value);
+    }
+    result
+}
+
 pub fn parse_volume_annotations(content: &str, comment_prefix: &str) -> Vec<VolumeMount> {
     let mut volumes = Vec::new();
     for line in content.lines() {
@@ -442,6 +489,66 @@ mod tests {
             result,
             vec![VolumeMount { name: "my-data_v2".to_string(), target: "/tmp/data".to_string() }]
         );
+    }
+
+    #[test]
+    fn interpolate_workspace() {
+        let name = "$workspace-data";
+        let result = interpolate_volume_name(name, None, "my_ws");
+        assert_eq!(result, "my_ws-data");
+    }
+
+    #[test]
+    fn interpolate_args_simple() {
+        let mut args = HashMap::new();
+        args.insert(
+            "env".to_string(),
+            serde_json::value::RawValue::from_string("\"prod\"".to_string()).unwrap(),
+        );
+        let result = interpolate_volume_name("data-$args[env]", Some(&args), "ws");
+        assert_eq!(result, "data-prod");
+    }
+
+    #[test]
+    fn interpolate_args_and_workspace() {
+        let mut args = HashMap::new();
+        args.insert(
+            "env".to_string(),
+            serde_json::value::RawValue::from_string("\"staging\"".to_string()).unwrap(),
+        );
+        let result = interpolate_volume_name("$workspace-$args[env]-cache", Some(&args), "acme");
+        assert_eq!(result, "acme-staging-cache");
+    }
+
+    #[test]
+    fn interpolate_no_placeholders() {
+        let result = interpolate_volume_name("plain-name", None, "ws");
+        assert_eq!(result, "plain-name");
+    }
+
+    #[test]
+    fn interpolate_missing_arg() {
+        let args = HashMap::new();
+        let result = interpolate_volume_name("data-$args[missing]", Some(&args), "ws");
+        assert_eq!(result, "data-");
+    }
+
+    #[test]
+    fn interpolate_nested_arg() {
+        let mut args = HashMap::new();
+        args.insert(
+            "config".to_string(),
+            serde_json::value::RawValue::from_string(
+                r#"{"env": "prod", "region": "us-east"}"#.to_string(),
+            )
+            .unwrap(),
+        );
+        let result = interpolate_volume_name(
+            "data-$args[config.env]-$args[config.region]",
+            Some(&args),
+            "ws",
+        );
+        assert_eq!(result, "data-prod-us-east");
     }
 
     #[test]

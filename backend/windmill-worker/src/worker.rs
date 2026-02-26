@@ -4223,7 +4223,19 @@ mount {{
             | ScriptLang::Go => "//",
             _ => "",
         };
-        windmill_worker_volumes::parse_volume_annotations(&code, comment_prefix)
+        let raw_mounts = windmill_worker_volumes::parse_volume_annotations(&code, comment_prefix);
+        let args_ref = job.args.as_ref().map(|a| &**a);
+        raw_mounts
+            .into_iter()
+            .map(|mut v| {
+                v.name = windmill_worker_volumes::interpolate_volume_name(
+                    &v.name,
+                    args_ref,
+                    &job.workspace_id,
+                );
+                v
+            })
+            .collect::<Vec<_>>()
     };
 
     #[cfg(feature = "parquet")]

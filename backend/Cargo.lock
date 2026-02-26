@@ -17492,6 +17492,7 @@ dependencies = [
  "bytes",
  "futures",
  "object_store",
+ "regex",
  "serde",
  "serde_json",
  "tokio",
