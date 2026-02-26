@@ -720,7 +720,7 @@
 			<FilterSearchbar
 				class={twMerge(
 					'flex-1 relative min-w-[18rem]',
-					Object.keys(filters.val).length <= 3 ? 'max-w-[24rem]' : 'max-w-[34rem]',
+					Object.keys(filters.val).length <= 3 ? 'max-w-[28rem]' : 'max-w-[34rem]',
 					ButtonType.UnifiedMinHeightClasses.md
 				)}
 				schema={runsFilterSearchbarSchema}

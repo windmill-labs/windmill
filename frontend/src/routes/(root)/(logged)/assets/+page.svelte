@@ -273,14 +273,20 @@
 		</Section>
 		<Section label="Latest assets used">
 			{#snippet action()}
-				<RefreshButton onClick={() => assetsQuery.reset()} loading={assetsQuery.isLoading} />
+				<div class="flex gap-2 grow justify-end">
+					<RefreshButton
+						variant="default"
+						onClick={() => assetsQuery.reset()}
+						loading={assetsQuery.isLoading}
+					/>
+					<FilterSearchbar
+						class="grow max-w-[26rem]"
+						schema={assetsFilterSchema}
+						bind:value={filterValues.val}
+						placeholder="Filter assets..."
+					/>
+				</div>
 			{/snippet}
-			<FilterSearchbar
-				schema={assetsFilterSchema}
-				bind:value={filterValues.val}
-				placeholder="Filter assets..."
-				class="mb-4"
-			/>
 			{@render table()}
 			{#if assetsQuery.isFetchingNextPage}
 				<Loader2 size={32} class="mx-auto my-4 text-primary animate-spin" />
