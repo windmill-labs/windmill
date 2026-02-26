@@ -202,6 +202,15 @@ impl StripPath {
     }
 }
 
+/// Escape ILIKE special characters (`%`, `_`, `\`) so user input is matched
+/// literally. Use this when building `ILIKE '%…%'` patterns from user-supplied
+/// strings to prevent wildcard injection.
+pub fn escape_ilike_pattern(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
 pub fn require_admin(is_admin: bool, username: &str) -> Result<()> {
     if !is_admin {
         Err(Error::RequireAdmin(username.to_string()))

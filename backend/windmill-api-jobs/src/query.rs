@@ -10,7 +10,7 @@
 
 use sql_builder::prelude::*;
 use sql_builder::SqlBuilder;
-use windmill_common::utils::{paginate_without_limits, Pagination};
+use windmill_common::utils::{escape_ilike_pattern, paginate_without_limits, Pagination};
 
 use crate::types::{ListCompletedQuery, ListQueueQuery};
 
@@ -227,6 +227,14 @@ pub fn filter_list_queue_query(
         } else {
             sqlb.and_where_in("trigger", &quoted);
         }
+    }
+
+    if let Some(bf) = &lq.broad_filter {
+        let pat = format!("%{}%", escape_ilike_pattern(bf));
+        sqlb.and_where(
+            "(runnable_path ILIKE ? OR v2_job.tag ILIKE ? OR trigger ILIKE ? OR trigger_kind::text ILIKE ?)"
+                .bind(&pat).bind(&pat).bind(&pat).bind(&pat)
+        );
     }
 
     sqlb
@@ -524,6 +532,15 @@ pub fn filter_list_completed_query(
         }
     }
 
+    if let Some(bf) = &lq.broad_filter {
+        let pat = format!("%{}%", escape_ilike_pattern(bf));
+        sqlb.and_where(
+            "(runnable_path ILIKE ? OR v2_job.tag ILIKE ? OR trigger ILIKE ? OR trigger_kind::text ILIKE ? \
+             OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(result->'wm_labels') lbl WHERE jsonb_typeof(result->'wm_labels') = 'array' AND lbl ILIKE ?))"
+                .bind(&pat).bind(&pat).bind(&pat).bind(&pat).bind(&pat)
+        );
+    }
+
     sqlb
 }
 
@@ -598,6 +615,7 @@ mod tests {
             trigger_kind: None,
             trigger_path: None,
             include_args: None,
+            broad_filter: None,
         }
     }
 
@@ -641,6 +659,7 @@ mod tests {
             trigger_kind: None,
             trigger_path: None,
             include_args: None,
+            broad_filter: None,
         }
     }
 
