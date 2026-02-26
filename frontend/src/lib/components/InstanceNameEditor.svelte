@@ -114,8 +114,8 @@
 							class="!w-auto grow"
 							onclick={stopPropagation(() => {})}
 							onkeydown={stopPropagation(bubble('keydown'))}
-							onkeypress={stopPropagation(({ key }) => {
-							if (key === 'Enter') {
+							onkeypress={stopPropagation((e: Event) => {
+							if ((e as KeyboardEvent).key === 'Enter') {
 								savePassword()
 							}
 						})}
@@ -144,8 +144,8 @@
 							class="!w-auto grow"
 							onclick={stopPropagation(() => {})}
 							onkeydown={stopPropagation(bubble('keydown'))}
-							onkeypress={stopPropagation(({ key }) => {
-							if (key === 'Enter') {
+							onkeypress={stopPropagation((e: Event) => {
+							if ((e as KeyboardEvent).key === 'Enter') {
 								saveLoginType()
 							}
 						})}

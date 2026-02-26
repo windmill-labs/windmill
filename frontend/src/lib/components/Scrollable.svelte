@@ -6,20 +6,15 @@
 	let isScrollable = $state(false)
 
 	interface Props {
-		id?: string | null | undefined;
-		scrollableClass?: string;
-		shiftedShadow?: boolean;
-		children?: import('svelte').Snippet;
+		id?: string | null | undefined
+		scrollableClass?: string
+		shiftedShadow?: boolean
+		children?: import('svelte').Snippet
 	}
 
-	let {
-		id = undefined,
-		scrollableClass = '',
-		shiftedShadow = false,
-		children
-	}: Props = $props();
+	let { id = undefined, scrollableClass = '', shiftedShadow = false, children }: Props = $props()
 	let mutationObserver: MutationObserver
-	let el: HTMLDivElement = $state()
+	let el: HTMLDivElement | undefined = $state()
 
 	function handleScroll(event) {
 		const scrollableElement = event.target
@@ -43,7 +38,7 @@
 	}
 
 	export function scrollIntoView(top: number) {
-		el.scrollTo({ top, behavior: 'smooth' })
+		el?.scrollTo({ top, behavior: 'smooth' })
 	}
 	onMount(() => {
 		observeScrollability(el)

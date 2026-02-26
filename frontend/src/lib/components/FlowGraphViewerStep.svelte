@@ -27,7 +27,7 @@
 	}
 
 	let { schema = undefined, stepDetail = undefined, jobScriptHash = undefined }: Props = $props();
-	let codeViewer: Drawer = $state()
+	let codeViewer: Drawer | undefined = $state()
 </script>
 
 <HighlightTheme />

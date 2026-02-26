@@ -106,7 +106,7 @@
 		toggleRow(rows[0])
 	}
 
-	let eGui: HTMLDivElement = $state()
+	let eGui: HTMLDivElement | undefined = $state()
 
 
 	let error: string | undefined = $state(undefined)

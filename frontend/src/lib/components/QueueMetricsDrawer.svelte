@@ -3,7 +3,7 @@
 	import QueueMetricsDrawerInner from './QueueMetricsDrawerInner.svelte'
 	import QueueAlerts from './QueueAlerts.svelte'
 
-	let drawer: Drawer = $state()
+	let drawer: Drawer | undefined = $state()
 	export function openDrawer() {
 		drawer?.openDrawer()
 	}

@@ -6,7 +6,7 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import DefaultScriptsInner from './DefaultScriptsInner.svelte'
 
-	let drawer: Drawer = $state()
+	let drawer: Drawer | undefined = $state()
 
 	interface Props {
 		placement?: 'left' | 'right';

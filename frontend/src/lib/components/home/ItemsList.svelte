@@ -367,7 +367,7 @@
 					if (itemKind != 'all') {
 						subtab = v
 					}
-					setQuery($page.url, 'kind', v)
+					setQuery(page.url, 'kind', v)
 				}}
 			>
 				{#snippet children({ item })}

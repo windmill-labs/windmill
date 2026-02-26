@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
+	import { run } from 'svelte/legacy'
 
 	import { Loader2, RotateCwIcon } from 'lucide-svelte'
 
@@ -17,11 +17,11 @@
 	import { createEventDispatcher } from 'svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
 
-	let drawer: Drawer = $state()
+	let drawer: Drawer | undefined = $state()
 	let token: undefined | string = $state(undefined)
 	export async function open() {
 		token = $oauthStore?.access_token ?? ''
-		drawer.openDrawer?.()
+		drawer?.openDrawer?.()
 		step = 'init'
 		description = ''
 	}
@@ -50,7 +50,7 @@
 
 	run(() => {
 		token != undefined && listDatabases()
-	});
+	})
 
 	let selectedDatabase: undefined | Database = $state(undefined)
 
@@ -64,9 +64,9 @@
 	 * host is in the format of `aws-0-${region}.pooler.supabase.com`
 	 * user is in the format of `postgres.${id}`
 	 */
-	let resourceValue = $derived({
-		host: `aws-0-${selectedDatabase?.region}.pooler.supabase.com`,
-		user: `postgres.${selectedDatabase?.id}`,
+	let resourceValue: Record<string, any> = $derived({
+		host: `aws-0-${(selectedDatabase as Database | undefined)?.region}.pooler.supabase.com`,
+		user: `postgres.${(selectedDatabase as Database | undefined)?.id}`,
 		port: 5432,
 		dbname: 'postgres',
 		sslmode: 'prefer',
@@ -99,14 +99,14 @@
 		})
 		sendUserToast('Saved postgres resource')
 		dispatch('refresh')
-		drawer.closeDrawer?.()
+		drawer?.closeDrawer?.()
 	}
 </script>
 
 <HighlightTheme />
 
 <Drawer bind:this={drawer} size="800px">
-	<DrawerContent title="Add a Supabase Database" on:close={drawer.closeDrawer}>
+	<DrawerContent title="Add a Supabase Database" on:close={drawer?.closeDrawer}>
 		{#if step === 'init' || selectedDatabase == undefined}
 			<h2
 				>Connect an existing database <div class="inline-block ml-2"

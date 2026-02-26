@@ -100,6 +100,8 @@
 	}
 
 	const lang = $derived(highlightLanguage ?? getLang(language))
+	// Cast needed: svelte-highlight types not updated for Svelte 5 snippets
+	const HighlightWithSnippet = Highlight as any
 </script>
 
 <HighlightTheme />
@@ -134,11 +136,11 @@
 			{#if !lines}
 				<Highlight class="nowrap {className}" language={lang} {code} />
 			{:else}
-				<Highlight class="nowrap {className}" language={lang} {code} >
+					<HighlightWithSnippet class="nowrap {className}" language={lang} {code} >
 					{#snippet children({ highlighted })}
 										<LineNumbers {highlighted} />
 														{/snippet}
-								</Highlight>
+								</HighlightWithSnippet>
 			{/if}
 		{:else}
 			<pre class="overflow-auto max-h-screen text-xs {className}"

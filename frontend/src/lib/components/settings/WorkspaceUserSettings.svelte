@@ -553,7 +553,7 @@
 				<Popover
 					floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
 					usePointerDownOutside
-					floatingClass="!z-20"
+					contentClasses="!z-20"
 				>
 					{#snippet trigger()}
 						<Button

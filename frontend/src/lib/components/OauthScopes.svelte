@@ -10,15 +10,15 @@
 </script>
 
 {#if scopes && Array.isArray(scopes)}
-	{#each scopes as v}
+	{#each scopes as _, i}
 		<div class="flex flex-row max-w-md mb-2">
-			<input type="text" bind:value={v} />
+			<input type="text" bind:value={scopes[i]} />
 			<Button
 				variant="default"
 				size="xs"
 				btnClasses="mx-6"
 				on:click={() => {
-					scopes = scopes.filter((el) => el != v)
+					scopes = scopes.filter((_, idx) => idx != i)
 				}}
 				startIcon={{ icon: Minus }}
 				iconOnly

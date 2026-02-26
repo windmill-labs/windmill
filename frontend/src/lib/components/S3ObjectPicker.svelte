@@ -20,8 +20,8 @@
 
 	const dispatch = createEventDispatcher()
 
-	let s3FilePicker: S3FilePicker = $state()
-	let s3FileUploadRawMode: false = $state()
+	let s3FilePicker: S3FilePicker | undefined = $state()
+	let s3FileUploadRawMode: false | undefined = $state()
 	let el: HTMLTextAreaElement | undefined = undefined
 	let rawValue: string | undefined = $state(undefined)
 

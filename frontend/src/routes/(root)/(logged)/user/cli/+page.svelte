@@ -6,10 +6,10 @@
 	import { Button } from '$lib/components/common'
 	import { userStore, workspaceStore } from '$lib/stores'
 
-	let port = $state(Number(page.url.searchParams.get('port')))
+	const rawPort = Number(page.url.searchParams.get('port'))
+	let port = $state(rawPort == 0 || Number.isNaN(rawPort) ? 80 : rawPort)
 	let host: string = page.url.searchParams.get('host') || 'localhost'
 	let scheme: string = page.url.searchParams.get('scheme') || 'http'
-	port = port == 0 || Number.isNaN(port) ? 80 : port
 
 	async function authorizeToken(): Promise<void> {
 		const username = $userStore?.username

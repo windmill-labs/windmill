@@ -28,7 +28,7 @@
 
 	let step: number = 1
 
-	let slider: HTMLElement = $state()
+	let slider: HTMLElement | undefined = $state()
 
 	function calculateAxisStep(min: number, max: number): number {
 		const range = max - min
