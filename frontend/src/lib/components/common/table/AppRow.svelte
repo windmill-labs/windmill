@@ -100,35 +100,19 @@
 	{#snippet actions()}
 		<span class="hidden md:inline-flex gap-x-1">
 			{#if !$userStore?.operator}
-				{#if showEditButton}
-					{#if app.canWrite}
-						<div>
-							<Button
-								aiId={`edit-app-button-${app.summary?.length > 0 ? app.summary : app.path}`}
-								aiDescription={`Edits the app ${app.summary?.length > 0 ? app.summary : app.path}`}
-								variant="subtle"
-								wrapperClasses="w-20"
-								startIcon={{ icon: Pen }}
-								href="{base}/apps{app.raw_app ? '_raw' : ''}/edit/{app.path}?nodraft=true"
-							>
-								Edit
-							</Button>
-						</div>
-					{:else}
-						<div>
-							<Button
-								aiId={`fork-app-button-${app.summary?.length > 0 ? app.summary : app.path}`}
-								aiDescription={`Fork the app ${app.summary?.length > 0 ? app.summary : app.path}`}
-								variant="subtle"
-								wrapperClasses="w-20"
-								unifiedSize="md"
-								startIcon={{ icon: GitFork }}
-								href="{base}/apps{app.raw_app ? '_raw' : ''}/add?template={app.path}"
-							>
-								Fork
-							</Button>
-						</div>
-					{/if}
+				{#if showEditButton && app.canWrite}
+					<div>
+						<Button
+							aiId={`edit-app-button-${app.summary?.length > 0 ? app.summary : app.path}`}
+							aiDescription={`Edits the app ${app.summary?.length > 0 ? app.summary : app.path}`}
+							variant="subtle"
+							wrapperClasses="w-20"
+							startIcon={{ icon: Pen }}
+							href="{base}/apps{app.raw_app ? '_raw' : ''}/edit/{app.path}?nodraft=true"
+						>
+							Edit
+						</Button>
+					</div>
 				{/if}
 				{#if !isRuleActive('DisableWorkspaceForking') && (!showEditButton || !app.canWrite)}
 					<div>
