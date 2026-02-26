@@ -592,6 +592,7 @@ pub struct ListScheduleQuery {
     pub description: Option<String>,
     // filter on summary (pattern match)
     pub summary: Option<String>,
+    pub broad_filter: Option<String>,
 }
 
 #[derive(sqlx::FromRow, Serialize, Deserialize, Debug, Clone)]
@@ -658,6 +659,13 @@ async fn list_schedule(
     }
     if let Some(summary) = &lsq.summary {
         sqlb.and_where(&format!("summary ILIKE '%{}%'", summary.replace("'", "''")));
+    }
+    if let Some(broad_filter) = &lsq.broad_filter {
+        let escaped = broad_filter.replace("'", "''");
+        sqlb.and_where(&format!(
+            "(path ILIKE '%{}%' OR script_path ILIKE '%{}%' OR description ILIKE '%{}%' OR summary ILIKE '%{}%' OR schedule ILIKE '%{}%')",
+            escaped, escaped, escaped, escaped, escaped
+        ));
     }
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let rows = sqlx::query_as::<_, ScheduleLight>(&sql)

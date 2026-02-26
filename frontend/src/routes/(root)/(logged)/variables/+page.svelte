@@ -118,6 +118,9 @@
 		if (currentFilters.owner) {
 			apiParams.pathStart = currentFilters.owner
 		}
+		if (currentFilters._default_) {
+			apiParams.broadFilter = currentFilters._default_
+		}
 
 		const result = (await VariableService.listVariable(apiParams)).map((x) => {
 			return {

@@ -170,6 +170,7 @@ pub struct ListResourceQuery {
     pub description: Option<String>,
     // filter by matching a subset of the value using base64 encoded json subset
     pub value: Option<String>,
+    pub broad_filter: Option<String>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -299,6 +300,14 @@ async fn list_resources(
 
     if let Some(value) = &lq.value {
         sqlb.and_where("resource.value @> ?".bind(&value.replace("'", "''")));
+    }
+
+    if let Some(broad_filter) = &lq.broad_filter {
+        let escaped = broad_filter.replace("'", "''");
+        sqlb.and_where(&format!(
+            "(resource.path ILIKE '%{}%' OR resource.description ILIKE '%{}%' OR resource_type ILIKE '%{}%' OR resource.value::text ILIKE '%{}%')",
+            escaped, escaped, escaped, escaped
+        ));
     }
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;

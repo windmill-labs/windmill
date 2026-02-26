@@ -101,6 +101,7 @@ struct ListVariableQuery {
     pub description: Option<String>,
     // filter by matching the non-encrypted value (for non-secrets only)
     pub value: Option<String>,
+    pub broad_filter: Option<String>,
 }
 
 async fn list_variables(
@@ -172,6 +173,14 @@ async fn list_variables(
         sqlb.and_where(&format!(
             "(is_secret = FALSE AND variable.value ILIKE '%{}%')",
             value.replace("'", "''")
+        ));
+    }
+
+    if let Some(broad_filter) = &lq.broad_filter {
+        let escaped = broad_filter.replace("'", "''");
+        sqlb.and_where(&format!(
+            "(variable.path ILIKE '%{}%' OR variable.description ILIKE '%{}%' OR (is_secret = FALSE AND variable.value ILIKE '%{}%'))",
+            escaped, escaped, escaped
         ));
     }
 

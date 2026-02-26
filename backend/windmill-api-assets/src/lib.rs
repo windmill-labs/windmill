@@ -34,6 +34,7 @@ struct ListAssetsQuery {
     pub path: Option<String>,
     // Filter by matching a subset of the columns using base64 encoded json subset
     pub columns: Option<String>,
+    pub broad_filter: Option<String>,
 }
 
 fn default_per_page() -> i64 {
@@ -126,6 +127,14 @@ async fn list_assets(
     if has_asset_kinds {
         param_count += 1;
         asset_summary_filters.push(format!("asset.kind = ANY(${})", param_count));
+    }
+
+    if query.broad_filter.is_some() {
+        param_count += 1;
+        asset_summary_filters.push(format!(
+            "(asset.path ILIKE ${} OR asset.usage_path ILIKE ${})",
+            param_count, param_count
+        ));
     }
 
     let asset_summary_where = asset_summary_filters.join(" AND ");
@@ -249,6 +258,10 @@ async fn list_assets(
         if !asset_kinds.is_empty() {
             query_builder = query_builder.bind(asset_kinds);
         }
+    }
+
+    if let Some(ref broad_filter) = query.broad_filter {
+        query_builder = query_builder.bind(format!("%{}%", broad_filter));
     }
 
     if let (Some(cursor_created_at), Some(cursor_id)) = (query.cursor_created_at, query.cursor_id) {

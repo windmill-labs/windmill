@@ -63,7 +63,8 @@
 			usagePath: filterValues.val.usage_path || undefined,
 			assetKinds: filterValues.val.asset_kinds || undefined,
 			path: filterValues.val.path || undefined,
-			columns: filterValues.val.columns || undefined
+			columns: filterValues.val.columns || undefined,
+			broadFilter: filterValues.val._default_ || undefined
 		}),
 		500
 	)

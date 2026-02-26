@@ -88,6 +88,9 @@
 		if (currentFilters.args) {
 			apiParams.args = currentFilters.args
 		}
+		if (currentFilters._default_) {
+			apiParams.broadFilter = currentFilters._default_
+		}
 
 		const result = (await ScheduleService.listSchedules(apiParams)).map((x) => {
 			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }

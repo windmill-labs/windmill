@@ -9,6 +9,10 @@ export function buildAssetsFilterSchema({
 	assetKinds: string[]
 }) {
 	return {
+		_default_: {
+			type: 'string' as const,
+			hidden: true
+		},
 		asset_path: {
 			type: 'string' as const,
 			label: 'Asset path pattern',
