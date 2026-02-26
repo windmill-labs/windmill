@@ -10,6 +10,7 @@ use windmill_common::{
     assets::{AssetKind, AssetUsageKind},
     db::UserDB,
     error::JsonResult,
+    utils::escape_ilike_pattern,
 };
 
 use windmill_api_auth::ApiAuthed;
@@ -233,7 +234,7 @@ async fn list_assets(
     let mut query_builder = sqlx::query(&sql).bind(&w_id).bind(limit);
 
     if let Some(ref asset_path) = query.asset_path {
-        query_builder = query_builder.bind(format!("%{}%", asset_path));
+        query_builder = query_builder.bind(format!("%{}%", escape_ilike_pattern(asset_path)));
     }
 
     if let Some(ref path) = query.path {
@@ -251,7 +252,7 @@ async fn list_assets(
     }
 
     if let Some(ref usage_path) = query.usage_path {
-        query_builder = query_builder.bind(format!("%{}%", usage_path));
+        query_builder = query_builder.bind(format!("%{}%", escape_ilike_pattern(usage_path)));
     }
 
     if let Some(ref asset_kinds) = asset_kinds {
@@ -261,7 +262,7 @@ async fn list_assets(
     }
 
     if let Some(ref broad_filter) = query.broad_filter {
-        query_builder = query_builder.bind(format!("%{}%", broad_filter));
+        query_builder = query_builder.bind(format!("%{}%", escape_ilike_pattern(broad_filter)));
     }
 
     if let (Some(cursor_created_at), Some(cursor_id)) = (query.cursor_created_at, query.cursor_id) {

@@ -17,7 +17,7 @@ use windmill_common::workspaces::{check_user_against_rule, ProtectionRuleKind, R
 
 use crate::secret_backend_ext::rename_vault_secret;
 use crate::var_resource_cache::{cache_resource, get_cached_resource};
-use windmill_common::utils::BulkDeleteRequest;
+use windmill_common::utils::{escape_ilike_pattern, BulkDeleteRequest};
 use windmill_common::webhook::{WebhookMessage, WebhookShared};
 
 use axum::{
@@ -295,7 +295,8 @@ async fn list_resources(
     }
 
     if let Some(description) = &lq.description {
-        sqlb.and_where("resource.description ILIKE ?".bind(&format!("%{}%", description)));
+        let pat = format!("%{}%", escape_ilike_pattern(description));
+        sqlb.and_where("resource.description ILIKE ?".bind(&pat));
     }
 
     if let Some(value) = &lq.value {
@@ -303,11 +304,11 @@ async fn list_resources(
     }
 
     if let Some(broad_filter) = &lq.broad_filter {
-        let escaped = broad_filter.replace("'", "''");
-        sqlb.and_where(&format!(
-            "(resource.path ILIKE '%{}%' OR resource.description ILIKE '%{}%' OR resource_type ILIKE '%{}%' OR resource.value::text ILIKE '%{}%')",
-            escaped, escaped, escaped, escaped
-        ));
+        let pat = format!("%{}%", escape_ilike_pattern(broad_filter));
+        sqlb.and_where(
+            "(resource.path ILIKE ? OR resource.description ILIKE ? OR resource_type ILIKE ? OR resource.value::text ILIKE ?)"
+                .bind(&pat).bind(&pat).bind(&pat).bind(&pat)
+        );
     }
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
