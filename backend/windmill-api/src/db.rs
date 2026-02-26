@@ -78,6 +78,9 @@ lazy_static::lazy_static! {
                     (20260207000004, include_str!(
                         "../../migrations/20260207000004_concurrent_indexes_other.up.sql"
                     ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
+                    (20260225100000, include_str!(
+                        "../../migrations/20260225100000_asset_covering_index.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
                     ].into_iter().collect();
 }
 

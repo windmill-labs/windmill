@@ -88,10 +88,11 @@ const config = {
 	plugins: [sveltekit(), ...(process.env.HTTPS === 'true' ? [mkcert()] : []), plugin],
 	define: { __pkg__: version },
 	optimizeDeps: {
-		include: ['highlight.js', 'highlight.js/lib/core', 'monaco-vim', 'monaco-editor-wrapper'],
+		include: ['highlight.js', 'highlight.js/lib/core', 'monaco-vim'],
 		exclude: [
 			'@codingame/monaco-vscode-standalone-typescript-language-features',
 			'@codingame/monaco-vscode-standalone-languages',
+			'windmill-client'
 		]
 	},
 	worker: { format: 'es' },

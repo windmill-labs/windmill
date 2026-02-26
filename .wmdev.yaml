@@ -73,3 +73,7 @@ profiles:
       3) Upload to asciinema.org:
           XDG_DATA_HOME=/tmp/.local/share \
             asciinema upload --server-url https://asciinema.org /tmp/demo.cast
+
+linkedRepos:
+  - repo: windmill-labs/windmill-ee-private
+    alias: ee

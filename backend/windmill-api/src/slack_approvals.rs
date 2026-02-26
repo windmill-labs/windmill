@@ -16,8 +16,8 @@ use crate::jobs::{QueryApprover, ResumeUrls};
 use crate::{
     approvals::{
         extract_w_id_from_resume_url, handle_resume_action, ApprovalFormDetails, FieldType,
-        MessageFormat, QueryDefaultArgsJson, QueryDynamicEnumJson, QueryFlowStepId, QueryMessage,
-        ResumeFormField, ResumeSchema,
+        MessageFormat, QueryButtonText, QueryDefaultArgsJson, QueryDynamicEnumJson,
+        QueryFlowStepId, QueryMessage, ResumeFormField, ResumeSchema,
     },
     auth::OptTokened,
 };
@@ -107,6 +107,8 @@ struct ModalActionValue {
     flow_step_id: Option<String>,
     default_args_json: Option<String>,
     dynamic_enums_json: Option<String>,
+    resume_button_text: Option<String>,
+    cancel_button_text: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -200,6 +202,8 @@ pub async fn slack_app_callback_handler(
                                 container,
                                 default_args_json.as_ref(),
                                 dynamic_enums_json.as_ref(),
+                                parsed_value.resume_button_text.as_deref(),
+                                parsed_value.cancel_button_text.as_deref(),
                             )
                             .await
                             .map_err(|e| Error::BadRequest(e.to_string()))?;
@@ -229,6 +233,7 @@ pub async fn request_slack_approval(
     Query(flow_step_id): Query<QueryFlowStepId>,
     Query(default_args_json): Query<QueryDefaultArgsJson>,
     Query(dynamic_enums_json): Query<QueryDynamicEnumJson>,
+    Query(button_text): Query<QueryButtonText>,
 ) -> Result<StatusCode, Error> {
     let slack_resource_path = slack_resource_path.slack_resource_path;
     let channel_id = channel_id.channel_id;
@@ -255,6 +260,8 @@ pub async fn request_slack_approval(
         flow_step_id.as_str(),
         default_args_json.default_args_json.as_ref(),
         dynamic_enums_json.dynamic_enums_json.as_ref(),
+        button_text.resume_button_text.as_deref(),
+        button_text.cancel_button_text.as_deref(),
     )
     .await
     .map_err(|e| Error::BadRequest(e.to_string()))?;
@@ -752,6 +759,8 @@ async fn send_slack_message(
     flow_step_id: &str,
     default_args_json: Option<&serde_json::Value>,
     dynamic_enums_json: Option<&serde_json::Value>,
+    resume_button_text: Option<&str>,
+    cancel_button_text: Option<&str>,
 ) -> Result<StatusCode, Box<dyn std::error::Error>> {
     let url = "https://slack.com/api/chat.postMessage";
 
@@ -777,6 +786,14 @@ async fn send_slack_message(
 
     if let Some(dynamic_enums_json) = dynamic_enums_json {
         value["dynamic_enums_json"] = dynamic_enums_json.clone();
+    }
+
+    if let Some(resume_button_text) = resume_button_text {
+        value["resume_button_text"] = serde_json::json!(resume_button_text);
+    }
+
+    if let Some(cancel_button_text) = cancel_button_text {
+        value["cancel_button_text"] = serde_json::json!(cancel_button_text);
     }
 
     let payload = serde_json::json!({
@@ -842,6 +859,8 @@ async fn get_modal_blocks(
     container: Container,
     default_args_json: Option<&serde_json::Value>,
     dynamic_enums_json: Option<&serde_json::Value>,
+    resume_button_text: Option<&str>,
+    cancel_button_text: Option<&str>,
 ) -> Result<axum::Json<serde_json::Value>, Error> {
     let approval_details = crate::approvals::get_approval_form_details(
         db,
@@ -895,6 +914,8 @@ async fn get_modal_blocks(
         &urls.resume,
         resource_path,
         container,
+        resume_button_text,
+        cancel_button_text,
     )))
 }
 
@@ -905,6 +926,8 @@ fn construct_payload(
     resume_url: &str,
     resource_path: &str,
     container: Container,
+    resume_button_text: Option<&str>,
+    cancel_button_text: Option<&str>,
 ) -> serde_json::Value {
     let mut view = serde_json::json!({
         "type": "modal",
@@ -912,12 +935,12 @@ fn construct_payload(
         "notify_on_close": true,
         "title": {
             "type": "plain_text",
-            "text": "Worfklow Suspended"
+            "text": "Workflow Suspended"
         },
         "blocks": blocks,
         "submit": {
             "type": "plain_text",
-            "text": "Resume Workflow"
+            "text": resume_button_text.unwrap_or("Resume Workflow")
         },
         "private_metadata": serde_json::json!({ "resume_url": resume_url, "resource_path": resource_path, "container": container, "hide_cancel": hide_cancel }).to_string(),
     });
@@ -925,7 +948,7 @@ fn construct_payload(
     if !hide_cancel {
         view["close"] = serde_json::json!({
             "type": "plain_text",
-            "text": "Cancel Workflow"
+            "text": cancel_button_text.unwrap_or("Cancel Workflow")
         });
     }
 
@@ -949,6 +972,8 @@ async fn open_modal_with_blocks(
     container: Container,
     default_args_json: Option<&serde_json::Value>,
     dynamic_enums_json: Option<&serde_json::Value>,
+    resume_button_text: Option<&str>,
+    cancel_button_text: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let resume_id = rand::random::<u32>();
     let blocks_json = match get_modal_blocks(
@@ -964,6 +989,8 @@ async fn open_modal_with_blocks(
         container,
         default_args_json,
         dynamic_enums_json,
+        resume_button_text,
+        cancel_button_text,
     )
     .await
     {

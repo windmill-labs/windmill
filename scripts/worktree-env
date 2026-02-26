@@ -52,6 +52,34 @@ fi
 
 echo "Created .env.local with ports: backend=$backend_port, frontend=$frontend_port"
 
+# --- Create per-worktree database ---
+wt_basename=$(basename "$(pwd)")
+db_name="windmill_${wt_basename//-/_}"
+db_conn="postgres://postgres:changeme@127.0.0.1:5432"
+
+if command -v psql &>/dev/null; then
+  if psql "$db_conn/postgres" -tc "SELECT 1 FROM pg_database WHERE datname = '${db_name}'" 2>/dev/null | grep -q 1; then
+    echo "Database $db_name already exists"
+  else
+    psql "$db_conn/postgres" -c "CREATE DATABASE ${db_name}" 2>/dev/null \
+      && echo "Created database $db_name" \
+      || echo "WARNING: Could not create database $db_name (is PostgreSQL running?)" >&2
+  fi
+  db_url="${db_conn}/${db_name}?sslmode=disable"
+  # Run migrations against the new database
+  DATABASE_URL="$db_url" sqlx migrate run --source backend/migrations \
+    && echo "Migrations applied to $db_name" \
+    || echo "WARNING: Could not run migrations on $db_name" >&2
+  # Use export so DATABASE_URL overrides the nix devshell value for child processes
+  cat >> .env.local <<EOF
+export DATABASE_URL=$db_url
+WM_DB_NAME=$db_name
+EOF
+  echo "Added DATABASE_URL for database $db_name to .env.local"
+else
+  echo "WARNING: psql not found, skipping per-worktree database creation" >&2
+fi
+
 # --- Copy frontend/node_modules preserving symlinks ---
 # cp -a preserves .bin/ symlinks that cp -r would dereference, breaking require() paths
 main_repo_root="$(cd "$(git rev-parse --git-common-dir 2>/dev/null)/.." && pwd)"
@@ -64,6 +92,25 @@ fi
 if command -v direnv &>/dev/null && [ -f .envrc ]; then
   direnv allow
   echo "direnv allowed"
+fi
+
+# --- Trust worktree directory in Claude Code ---
+claude_json="$HOME/.claude.json"
+if [ -f "$claude_json" ]; then
+  wt_path="$(pwd)"
+  python3 -c "
+import json, sys
+path = '$wt_path'
+with open('$claude_json', 'r') as f:
+    data = json.load(f)
+projects = data.setdefault('projects', {})
+proj = projects.setdefault(path, {})
+proj['hasTrustDialogAccepted'] = True
+proj['hasCompletedProjectOnboarding'] = True
+with open('$claude_json', 'w') as f:
+    json.dump(data, f, indent=2)
+" && echo "Added $wt_path to Claude Code trusted directories" \
+  || echo "Warning: Could not update Claude Code trusted directories"
 fi
 
 # --- Create matching windmill-ee-private worktree ---
