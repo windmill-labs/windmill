@@ -7,7 +7,6 @@
 	interface Props {
 		loading: boolean
 		size?: ButtonType.UnifiedSize
-		light?: boolean
 		variant?: ButtonType.Variant
 		onClick?: () => void
 	}
