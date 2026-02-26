@@ -34,6 +34,8 @@
 	} from 'lucide-svelte'
 	import FlowHistory from '$lib/components/flows/FlowHistory.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
+	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
+	import { buildForkEditUrl } from '$lib/utils/editInFork'
 
 	interface Props {
 		flow: Flow & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
@@ -120,33 +122,48 @@
 	{/snippet}
 	{#snippet actions()}
 		<span class="hidden md:inline-flex gap-x-1">
-			{#if !$userStore?.operator && showEditButton}
-				{#if flow.canWrite && !flow.archived}
+			{#if !$userStore?.operator}
+				{#if showEditButton}
+					{#if flow.canWrite && !flow.archived}
+						<div>
+							<Button
+								variant="subtle"
+								wrapperClasses="w-20"
+								unifiedSize="md"
+								startIcon={{ icon: Pen }}
+								href="{base}/flows/edit/{flow.path}?nodraft=true"
+								aiId={`edit-flow-button-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
+								aiDescription={`Edits the flow ${flow.summary?.length > 0 ? flow.summary : flow.path}`}
+							>
+								Edit
+							</Button>
+						</div>
+					{:else}
+						<div>
+							<Button
+								variant="subtle"
+								wrapperClasses="w-20"
+								unifiedSize="md"
+								startIcon={{ icon: GitFork }}
+								href="{base}/flows/add?template={flow.path}"
+								aiId={`fork-flow-button-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
+								aiDescription={`Fork the flow ${flow.summary?.length > 0 ? flow.summary : flow.path}`}
+							>
+								Fork
+							</Button>
+						</div>
+					{/if}
+				{/if}
+				{#if !isRuleActive('DisableWorkspaceForking') && (!showEditButton || !flow.canWrite)}
 					<div>
 						<Button
-							variant="subtle"
-							wrapperClasses="w-20"
-							unifiedSize="md"
-							startIcon={{ icon: Pen }}
-							href="{base}/flows/edit/{flow.path}?nodraft=true"
-							aiId={`edit-flow-button-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
-							aiDescription={`Edits the flow ${flow.summary?.length > 0 ? flow.summary : flow.path}`}
-						>
-							Edit
-						</Button>
-					</div>
-				{:else}
-					<div>
-						<Button
-							variant="subtle"
-							wrapperClasses="w-20"
+							variant={!showEditButton ? 'default' : 'subtle'}
+							wrapperClasses="w-32"
 							unifiedSize="md"
 							startIcon={{ icon: GitFork }}
-							href="{base}/flows/add?template={flow.path}"
-							aiId={`fork-flow-button-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
-							aiDescription={`Fork the flow ${flow.summary?.length > 0 ? flow.summary : flow.path}`}
+							href={buildForkEditUrl('flow', flow.path)}
 						>
-							Fork
+							Edit in fork
 						</Button>
 					</div>
 				{/if}
@@ -193,6 +210,12 @@
 						href: `${base}/flows/add?template=${path}`,
 						disabled: !showEditButton,
 						hide: $userStore?.operator
+					},
+					{
+						displayName: 'Edit in workspace fork',
+						icon: GitFork,
+						href: buildForkEditUrl('flow', path),
+						hide: $userStore?.operator || isRuleActive('DisableWorkspaceForking')
 					},
 					{
 						displayName: 'Audit logs',

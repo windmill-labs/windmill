@@ -103,6 +103,8 @@
 	import { inputSizeClasses } from './text_input/TextInput.svelte'
 	import type { ButtonType } from './common/button/model'
 	import DebounceLimit from './flows/DebounceLimit.svelte'
+	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
+	import { buildForkEditUrl } from '$lib/utils/editInFork'
 
 	let {
 		script = $bindable(),
@@ -771,6 +773,16 @@
 								window.open(`/scripts/add?template=${initialPath}`)
 							}
 						},
+						...(!isRuleActive('DisableWorkspaceForking')
+							? [
+									{
+										label: 'Edit in workspace fork',
+										onClick: () => {
+											window.open(buildForkEditUrl('script', initialPath))
+										}
+									}
+								]
+							: []),
 						...(customUi?.topBar?.diff !== false && savedScript && diffDrawer
 							? [
 									{
