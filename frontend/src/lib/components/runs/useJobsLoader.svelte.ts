@@ -116,7 +116,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		promise = CancelablePromiseUtils.onTimeout(promise, 4000, () => {
 			sendUserToast(
 				'Loading jobs is taking longer than expected...',
-				true,
+				'warning',
 				perPage > 25 && onSetPerPage
 					? [{ label: 'Reduce to 25 items per page', callback: () => onSetPerPage(25) }]
 					: []
