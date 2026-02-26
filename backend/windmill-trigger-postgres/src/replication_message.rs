@@ -682,10 +682,7 @@ mod tests {
 
     #[test]
     fn test_parse_insert_with_null_tuple() {
-        let data = Bytes::from(build_insert_message(
-            10,
-            &[(TUPLE_DATA_NULL_BYTE, &[])],
-        ));
+        let data = Bytes::from(build_insert_message(10, &[(TUPLE_DATA_NULL_BYTE, &[])]));
         let body = XLogDataBody::new(0, 0, 0, data);
         match body.parse(&settings(false)).unwrap() {
             LogicalReplicationMessage::Insert(insert) => {
@@ -698,10 +695,7 @@ mod tests {
 
     #[test]
     fn test_parse_insert_with_toast_tuple() {
-        let data = Bytes::from(build_insert_message(
-            10,
-            &[(TUPLE_DATA_TOAST_BYTE, &[])],
-        ));
+        let data = Bytes::from(build_insert_message(10, &[(TUPLE_DATA_TOAST_BYTE, &[])]));
         let body = XLogDataBody::new(0, 0, 0, data);
         match body.parse(&settings(false)).unwrap() {
             LogicalReplicationMessage::Insert(insert) => {
@@ -759,7 +753,7 @@ mod tests {
         buf.extend_from_slice(b"users\0"); // name
         buf.push(REPLICA_IDENTITY_DEFAULT_BYTE as u8); // replica identity
         buf.extend_from_slice(&1i16.to_be_bytes()); // num columns
-        // column: flags=0, name="id", type_oid=23 (INT4), type_modifier=-1
+                                                    // column: flags=0, name="id", type_oid=23 (INT4), type_modifier=-1
         buf.push(0); // flags
         buf.extend_from_slice(b"id\0"); // name
         buf.extend_from_slice(&23u32.to_be_bytes()); // type_oid (INT4)

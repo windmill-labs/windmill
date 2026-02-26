@@ -274,16 +274,19 @@ pub async fn eval_timeout_quickjs(
 
     let expr_clone = expr.clone();
 
-    // Run the QuickJS evaluation with a timeout
+    // Run the QuickJS evaluation with a timeout.
+    // Use the current runtime handle rather than creating an independent
+    // current-thread runtime so that HTTP connections opened by the global
+    // reqwest client (HTTP_CLIENT) are managed by the main runtime.
+    // Creating a child runtime caused connection-pool dispatch tasks to be
+    // dropped when the child runtime exited, poisoning pooled connections
+    // and producing spurious "DispatchGone" / "runtime dropped the dispatch
+    // task" errors on subsequent requests from the main runtime.
+    let handle = tokio::runtime::Handle::current();
     tokio::time::timeout(
         std::time::Duration::from_millis(EVAL_TIMEOUT_MS),
         tokio::task::spawn_blocking(move || {
-            // Create a new tokio runtime for async operations within the blocking context
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()?;
-
-            rt.block_on(async move {
+            handle.block_on(async move {
                 eval_quickjs_inner(
                     &expr_clone,
                     filtered_context,
@@ -300,7 +303,9 @@ pub async fn eval_timeout_quickjs(
     )
     .await
     .map_err(|_| {
-        anyhow::anyhow!("The expression evaluation `{expr}` took too long to execute (>{EVAL_TIMEOUT_MS}ms)")
+        anyhow::anyhow!(
+            "The expression evaluation `{expr}` took too long to execute (>{EVAL_TIMEOUT_MS}ms)"
+        )
     })??
 }
 
@@ -787,13 +792,11 @@ pub async fn eval_simple_js(
     expr: String,
     globals: HashMap<String, serde_json::Value>,
 ) -> anyhow::Result<Box<RawValue>> {
+    let handle = tokio::runtime::Handle::current();
     tokio::time::timeout(
         std::time::Duration::from_millis(EVAL_TIMEOUT_MS),
         tokio::task::spawn_blocking(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()?;
-            rt.block_on(async move {
+            handle.block_on(async move {
                 let runtime = AsyncRuntime::new()?;
                 runtime.set_memory_limit(QUICKJS_MEMORY_LIMIT).await;
                 let context = AsyncContext::full(&runtime).await?;

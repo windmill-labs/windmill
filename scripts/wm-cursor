@@ -199,6 +199,40 @@ cmd_close() {
   workmux close $name
 }
 
+cmd_open_ee() {
+  local name=${1:?Usage: wm-cursor open-ee <name>}
+
+  local wt_path=$(workmux path $name)
+  local main_repo_root="$(cd "$(git -C "$wt_path" rev-parse --git-common-dir 2>/dev/null)/.." && pwd)"
+
+  # Find ee repo (same discovery logic as worktree-env)
+  local ee_repo="" candidate
+  for candidate in \
+    "${main_repo_root:+${main_repo_root}/../windmill-ee-private}" \
+    "${wt_path}/../windmill-ee-private" \
+    "${HOME}/windmill-ee-private" \
+    "${HOME}/projects/windmill-ee-private"; do
+    if [[ -n $candidate ]] && [[ -d $candidate ]]; then
+      ee_repo=${candidate:A}
+      break
+    fi
+  done
+
+  if [[ -z $ee_repo ]]; then
+    print -u2 "Error: Could not find windmill-ee-private repo"
+    exit 1
+  fi
+
+  local ee_worktree_dir="${ee_repo}__worktrees/${name}"
+  if [[ ! -d $ee_worktree_dir ]]; then
+    print -u2 "Error: EE worktree not found at ${ee_worktree_dir}"
+    exit 1
+  fi
+
+  $cursor_bin -n $ee_worktree_dir
+  print "Opened Cursor for EE worktree: ${ee_worktree_dir}"
+}
+
 cmd_setup() {
   local repo_root=${1:?Usage: wm-cursor setup <repo-root>}
   repo_root=${repo_root:A}
@@ -275,7 +309,7 @@ json.dump(json.loads(text), sys.stdout, indent=2)
     print "Created ${settings_file}"
   fi
 
-  # --- zsh alias ---
+  # --- zsh alias + completion ---
   local rc=${ZDOTDIR:-$HOME}/.zshrc
   local alias_line="alias wmc=${(q)script_path}"
 
@@ -286,6 +320,45 @@ json.dump(json.loads(text), sys.stdout, indent=2)
     print "\n# wm-cursor alias\n${alias_line}" >> $rc
     print "Added wmc alias to ${rc}"
   fi
+
+  local eval_line='eval "$(wmc completions)"'
+  if ! grep -qF 'wmc completions' $rc; then
+    print "${eval_line}" >> $rc
+    print "Added completions eval to ${rc}"
+  fi
+}
+
+cmd_completions() {
+  cat <<'COMP'
+_wmc_worktree_names() {
+  local -a names
+  names=(${(f)"$(git worktree list --porcelain 2>/dev/null | sed -n 's|^worktree .*/||p' | tail -n +2)"})
+  _describe 'worktree' names
+}
+
+_wmc() {
+  local -a subcmds=(
+    'add:Create worktree + open Cursor'
+    'open:Open Cursor for existing worktree'
+    'open-ee:Open EE worktree in Cursor'
+    'close:Clean up grouped tmux session'
+    'setup:Set up .vscode settings, tasks + wmc alias'
+    'completions:Print zsh completions'
+  )
+
+  if (( CURRENT == 2 )); then
+    _describe 'subcommand' subcmds
+  else
+    case $words[2] in
+      open|open-ee|close)
+        _wmc_worktree_names
+        ;;
+    esac
+  fi
+}
+
+compdef _wmc wmc wm-cursor
+COMP
 }
 
 # --- Main ---
@@ -293,16 +366,20 @@ json.dump(json.loads(text), sys.stdout, indent=2)
 case ${1-} in
   add)            shift; cmd_add "$@" ;;
   open)           shift; cmd_open "$@" ;;
+  open-ee)        shift; cmd_open_ee "$@" ;;
   close)          shift; cmd_close "$@" ;;
   setup)          shift; cmd_setup "$@" ;;
+  completions)    cmd_completions ;;
   *)
-    print -u2 "Usage: wm-cursor <add|open|close|setup> [args...]"
+    print -u2 "Usage: wm-cursor <add|open|open-ee|close|setup|completions> [args...]"
     print -u2 ""
     print -u2 "Subcommands:"
     print -u2 "  add [--features <f>] [workmux-add-args...]   Create worktree + open Cursor"
     print -u2 "  open <name> [--features <f>]                 Open Cursor for existing worktree"
+    print -u2 "  open-ee <name>                               Open EE worktree in Cursor"
     print -u2 "  close <name>                                 Clean up grouped tmux session"
     print -u2 "  setup <repo-root>                            Set up .vscode settings, tasks + wmc alias"
+    print -u2 "  completions                                  Print zsh completions (use with eval)"
     print -u2 ""
     print -u2 "Options:"
     print -u2 "  --features <features>   Cargo features for the backend (e.g. \"enterprise,parquet\")"

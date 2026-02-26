@@ -13,38 +13,38 @@
 		DollarSign,
 		Folder,
 		LayoutDashboard,
+		Mail,
 		Route,
 		Unplug
 	} from 'lucide-svelte'
 
-
-	
 	interface Props {
-		kind: 
-		| 'script'
-		| 'flow'
-		| 'app'
-		| 'raw_app'
-		| 'resource'
-		| 'variable'
-		| 'resource_type'
-		| 'folder'
-		| 'schedule'
-		| 'trigger'
-		| 'routes'
-		| 'schedules'
-		| 'websockets'
-		| 'postgres'
-		| 'kafka'
-		| 'nats'
-		| 'mqtt'
-		| 'sqs'
-		| 'gcp';
+		kind:
+			| 'script'
+			| 'flow'
+			| 'app'
+			| 'raw_app'
+			| 'resource'
+			| 'variable'
+			| 'resource_type'
+			| 'folder'
+			| 'schedule'
+			| 'trigger'
+			| 'routes'
+			| 'schedules'
+			| 'websockets'
+			| 'postgres'
+			| 'kafka'
+			| 'nats'
+			| 'mqtt'
+			| 'sqs'
+			| 'gcp'
+			| 'emails'
 		/** For 'trigger' kind, specifies the specific trigger type (routes, schedules, etc.) */
-		triggerKind?: string | undefined;
+		triggerKind?: string | undefined
 	}
 
-	let { kind, triggerKind = undefined }: Props = $props();
+	let { kind, triggerKind = undefined }: Props = $props()
 
 	// Use triggerKind if kind is 'trigger' and triggerKind is provided
 	let effectiveKind = $derived(kind === 'trigger' && triggerKind ? triggerKind : kind)
@@ -83,6 +83,8 @@
 		<AwsIcon size={16} class="text-gray-400" />
 	{:else if effectiveKind === 'gcp'}
 		<GoogleCloudIcon size={16} />
+	{:else if effectiveKind === 'emails'}
+		<Mail size={16} class="text-gray-400" />
 	{:else if effectiveKind === 'trigger'}
 		<Calendar size={16} class="text-gray-400" />
 	{:else}

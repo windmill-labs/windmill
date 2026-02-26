@@ -144,7 +144,7 @@ async fn list_assets(
         format!(
             r#"FROM asset
             LEFT JOIN v2_job job_cte ON asset.usage_kind = 'job'
-              AND asset.usage_path = job_cte.id::text
+              AND job_cte.id = CASE WHEN asset.usage_kind = 'job' THEN asset.usage_path::uuid END
               AND job_cte.workspace_id = $1"#
         )
     } else {
@@ -209,7 +209,7 @@ async fn list_assets(
           ) = resource.path
           AND resource.workspace_id = $1
         LEFT JOIN v2_job job ON asset.usage_kind = 'job'
-          AND asset.usage_path = job.id::text
+          AND job.id = CASE WHEN asset.usage_kind = 'job' THEN asset.usage_path::uuid END
           AND job.workspace_id = $1
         WHERE asset.workspace_id = $1
           AND (asset.kind <> 'resource' OR resource.path IS NOT NULL)
