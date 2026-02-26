@@ -229,6 +229,17 @@ pub fn filter_list_queue_query(
         }
     }
 
+    if let Some(bf) = &lq.broad_filter {
+        let escaped = bf.replace("'", "''");
+        sqlb.and_where(format!(
+            "(runnable_path ILIKE '%{e}%' \
+             OR v2_job.tag ILIKE '%{e}%' \
+             OR trigger ILIKE '%{e}%' \
+             OR trigger_kind::text ILIKE '%{e}%')",
+            e = escaped
+        ));
+    }
+
     sqlb
 }
 
@@ -524,6 +535,18 @@ pub fn filter_list_completed_query(
         }
     }
 
+    if let Some(bf) = &lq.broad_filter {
+        let escaped = bf.replace("'", "''");
+        sqlb.and_where(format!(
+            "(runnable_path ILIKE '%{e}%' \
+             OR v2_job.tag ILIKE '%{e}%' \
+             OR trigger ILIKE '%{e}%' \
+             OR trigger_kind::text ILIKE '%{e}%' \
+             OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(result->'wm_labels') lbl WHERE jsonb_typeof(result->'wm_labels') = 'array' AND lbl ILIKE '%{e}%'))",
+            e = escaped
+        ));
+    }
+
     sqlb
 }
 
@@ -598,6 +621,7 @@ mod tests {
             trigger_kind: None,
             trigger_path: None,
             include_args: None,
+            broad_filter: None,
         }
     }
 
@@ -641,6 +665,7 @@ mod tests {
             trigger_kind: None,
             trigger_path: None,
             include_args: None,
+            broad_filter: None,
         }
     }
 

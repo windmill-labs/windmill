@@ -10006,6 +10006,11 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: broad_filter
+          description: broad search across multiple fields (case-insensitive substring match on path, tag, schedule path, trigger kind, label)
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: All jobs
