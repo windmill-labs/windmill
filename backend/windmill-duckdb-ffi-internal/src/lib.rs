@@ -267,8 +267,9 @@ fn do_duckdb_inner(
                             (0..stmt.column_count())
                                 .map(|i| {
                                     let logical_type = stmt.column_logical_type(i);
-                                    let invalid = logical_type.id() == LogicalTypeId::Invalid
-                                        || logical_type.id() == LogicalTypeId::Unsupported;
+                                    let logical_type_id = logical_type.id();
+                                    let invalid = logical_type_id == LogicalTypeId::Invalid
+                                        || logical_type_id == LogicalTypeId::Unsupported;
                                     if invalid {
                                         None
                                     } else {
