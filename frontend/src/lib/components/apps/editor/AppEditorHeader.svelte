@@ -63,6 +63,8 @@
 	import AppEditorHeaderDeployInitialDraft from './AppEditorHeaderDeployInitialDraft.svelte'
 	import { computeSecretUrl } from './appDeploy.svelte'
 	import { updatePolicy } from './appPolicy'
+	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
+	import { buildForkEditUrl } from '$lib/utils/editInFork'
 
 	interface Props {
 		policy: Policy
@@ -1118,7 +1120,17 @@
 							onClick: () => {
 								window.open(`/apps/add?template=${appPath}`)
 							}
-						}
+						},
+						...(!isRuleActive('DisableWorkspaceForking')
+							? [
+									{
+										label: 'Edit in workspace fork',
+										onClick: () => {
+											window.open(buildForkEditUrl('app', $appPath))
+										}
+									}
+								]
+							: [])
 					]
 				: undefined}
 		>

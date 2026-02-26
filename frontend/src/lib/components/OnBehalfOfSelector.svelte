@@ -26,15 +26,25 @@
 		targetWorkspace: string
 		targetEmail: string | undefined
 		selected: OnBehalfOfChoice
-		onSelect: (choice: OnBehalfOfChoice, email?: string) => void
+		onSelect: (choice: OnBehalfOfChoice, email?: string, username?: string) => void
 		kind: string
 		canPreserve: boolean
 		/** The email of the custom-selected user (for display) */
 		customEmail?: string | undefined
+		/** When false, labels say "current" instead of "target" and modal text refers to "this workspace" */
+		isDeployment?: boolean
 	}
 
-	let { targetWorkspace, targetEmail, selected, onSelect, kind, canPreserve, customEmail }: Props =
-		$props()
+	let {
+		targetWorkspace,
+		targetEmail,
+		selected,
+		onSelect,
+		kind,
+		canPreserve,
+		customEmail,
+		isDeployment = true
+	}: Props = $props()
 
 	let label = $derived(
 		kind === 'trigger'
@@ -96,7 +106,7 @@
 	}
 
 	function selectUser(user: User) {
-		onSelect('custom', user.email)
+		onSelect('custom', user.email, user.username)
 		modalOpen = false
 	}
 
@@ -130,7 +140,7 @@
 			>
 				<Check class="w-3 h-3 {selected === 'target' ? 'opacity-100' : 'opacity-0'}" />
 				<span class="truncate max-w-40">{targetUsername}</span>
-				<span class="text-xs text-tertiary">(target)</span>
+				<span class="text-xs text-tertiary">{isDeployment ? '(target)' : '(current)'}</span>
 			</button>
 		{/if}
 		<!-- Me option -->
@@ -171,9 +181,9 @@
 	<div class="flex flex-col gap-4">
 		<div class="text-xs text-secondary">
 			{#if kind === 'trigger'}
-				Choose the user this trigger will be recorded as edited by in the target workspace.
+				Choose the user this trigger will be recorded as edited by {isDeployment ? 'in the target workspace' : 'in this workspace'}.
 			{:else}
-				Choose the user this {kind} will run on behalf of in the target workspace. The selected
+				Choose the user this {kind} will run on behalf of {isDeployment ? 'in the target workspace' : 'in this workspace'}. The selected
 				user's permissions will be used when executing.
 			{/if}
 			<a

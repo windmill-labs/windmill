@@ -103,6 +103,9 @@
 	import { inputSizeClasses } from './text_input/TextInput.svelte'
 	import type { ButtonType } from './common/button/model'
 	import DebounceLimit from './flows/DebounceLimit.svelte'
+	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
+	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import OnBehalfOfSelector, { type OnBehalfOfChoice } from './OnBehalfOfSelector.svelte'
 
 	let {
 		script = $bindable(),
@@ -161,13 +164,10 @@
 
 	const WM_DEPLOYERS_GROUP = 'wm_deployers'
 	let isDeployer = $derived($userStore?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
+	let canPreserve = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin || isDeployer)
 	let originalOnBehalfOfEmail = $derived(savedScript?.on_behalf_of_email)
-	let showPreserveToggle = $derived(
-		isDeployer &&
-			script.on_behalf_of_email &&
-			originalOnBehalfOfEmail &&
-			originalOnBehalfOfEmail !== $userStore?.email
-	)
+	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
+	let customOnBehalfOfEmail: string = $state('')
 
 	let metadataOpen = $state(
 		!neverShowMeta &&
@@ -771,6 +771,16 @@
 								window.open(`/scripts/add?template=${initialPath}`)
 							}
 						},
+						...(!isRuleActive('DisableWorkspaceForking')
+							? [
+									{
+										label: 'Edit in workspace fork',
+										onClick: () => {
+											window.open(buildForkEditUrl('script', initialPath))
+										}
+									}
+								]
+							: []),
 						...(customUi?.topBar?.diff !== false && savedScript && diffDrawer
 							? [
 									{
@@ -1488,9 +1498,9 @@
 											>
 												In this mode, the script is meant to be run on dedicated workers that run
 												the script at native speed. Can reach &gt;1500rps per dedicated worker. Only
-												available on enterprise edition and for Python3, Deno, Bun and Bunnative. For other
-												languages, the efficiency is already on par with dedicated workers since
-												they do not spawn a full runtime</Tooltip
+												available on enterprise edition and for Python3, Deno, Bun and Bunnative.
+												For other languages, the efficiency is already on par with dedicated workers
+												since they do not spawn a full runtime</Tooltip
 											>
 										{/snippet}
 									</Section>
@@ -1617,30 +1627,51 @@
 											</Tooltip>
 										{/snippet}
 										<div class="flex gap-2 shrink flex-col">
-											<Toggle
-												size="sm"
-												checked={Boolean(script.on_behalf_of_email)}
-												on:change={() => {
-													if (script.on_behalf_of_email) {
-														script.on_behalf_of_email = undefined
-														preserveOnBehalfOf = false
-													} else {
-														script.on_behalf_of_email = $userStore?.email
-													}
-												}}
-												options={{
-													right: 'Run on behalf of last editor'
-												}}
-											/>
-											{#if showPreserveToggle}
+											<span class="inline-flex gap-2">
 												<Toggle
 													size="sm"
-													bind:checked={preserveOnBehalfOf}
+													checked={Boolean(script.on_behalf_of_email)}
+													on:change={() => {
+														if (script.on_behalf_of_email) {
+															script.on_behalf_of_email = undefined
+															preserveOnBehalfOf = false
+															onBehalfOfChoice = undefined
+														} else {
+															script.on_behalf_of_email = $userStore?.email
+														}
+													}}
 													options={{
-														right: `Keep original author (${originalOnBehalfOfEmail})`
+														right: `Run on behalf of ${canPreserve ? 'a specified user' : 'last editor'}`
 													}}
 												/>
-											{/if}
+												{#if script.on_behalf_of_email && canPreserve}
+													&rarr; <OnBehalfOfSelector
+														targetWorkspace={$workspaceStore ?? ''}
+														targetEmail={originalOnBehalfOfEmail}
+														selected={onBehalfOfChoice}
+														onSelect={(choice, email) => {
+															onBehalfOfChoice = choice
+															if (choice === 'me') {
+																script.on_behalf_of_email = $userStore?.email
+																customOnBehalfOfEmail = ''
+																preserveOnBehalfOf = false
+															} else if (choice === 'target') {
+																script.on_behalf_of_email = originalOnBehalfOfEmail
+																customOnBehalfOfEmail = ''
+																preserveOnBehalfOf = true
+															} else if (choice === 'custom' && email) {
+																script.on_behalf_of_email = email
+																customOnBehalfOfEmail = email
+																preserveOnBehalfOf = true
+															}
+														}}
+														kind="script"
+														{canPreserve}
+														customEmail={customOnBehalfOfEmail}
+														isDeployment={false}
+													/>
+												{/if}
+											</span>
 										</div>
 									</Section>
 									{#if !isCloudHosted()}
