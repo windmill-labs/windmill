@@ -1126,7 +1126,7 @@
 									{
 										label: 'Edit in workspace fork',
 										onClick: () => {
-											window.open(buildForkEditUrl('app', appPath))
+											window.open(buildForkEditUrl('app', $appPath))
 										}
 									}
 								]
