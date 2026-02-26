@@ -1,2 +1,0 @@
-ALTER TABLE volume DROP COLUMN IF EXISTS lease_until;
-ALTER TABLE volume DROP COLUMN IF EXISTS leased_by;
