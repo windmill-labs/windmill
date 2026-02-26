@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT ws.datatable->'datatables' AS datatable_name\n                FROM workspace_settings ws\n                WHERE ws.workspace_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "datatable_name",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "16a67b92dbd32024838983184e6974f2ce577b78decd6b821096c9f2f252ae8b"
+}

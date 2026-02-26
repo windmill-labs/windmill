@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE v2_job_status SET\n                    flow_status = jsonb_set(\n                        flow_status,\n                        array['modules', $2::TEXT, 'agent_actions_success'],\n                        COALESCE(\n                            flow_status->'modules'->$2->'agent_actions_success',\n                            to_jsonb(ARRAY[]::bool[])\n                        ) || to_jsonb(ARRAY[$3::bool])\n                    )\n                WHERE id = $1\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3e3afba04a10f16606e17cea6b31d9578cac41b76092722fd2698afb4cf08834"
+}

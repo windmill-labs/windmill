@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO workspace_protection_rule (workspace_id, name, rules, bypass_groups, bypass_users)\n            VALUES ($1, $2, $3, $4, $5)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Int4",
+        "TextArray",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "dbf2982f43577999dec0c488dfb67f56e5bd0e5fbf8da5132f6fc5a282d2b0e1"
+}

@@ -17,7 +17,7 @@ async fn test_volume_insert(db: Pool<Postgres>) -> anyhow::Result<()> {
     .await?;
 
     let row = sqlx::query!(
-        "SELECT workspace_id, name, size_bytes, created_by, last_read_at, last_write_at
+        "SELECT workspace_id, name, size_bytes, created_by, last_used_at
          FROM volume WHERE workspace_id = $1 AND name = $2",
         "test-workspace",
         "test-volume"
@@ -29,8 +29,7 @@ async fn test_volume_insert(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(row.name, "test-volume");
     assert_eq!(row.size_bytes, 1024);
     assert_eq!(row.created_by, "test-user");
-    assert!(row.last_read_at.is_none());
-    assert!(row.last_write_at.is_none());
+    assert!(row.last_used_at.is_none());
 
     Ok(())
 }
@@ -40,10 +39,10 @@ async fn test_volume_upsert_size(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
 
     sqlx::query!(
-        "INSERT INTO volume (workspace_id, name, size_bytes, created_by, last_write_at)
+        "INSERT INTO volume (workspace_id, name, size_bytes, created_by, last_used_at)
          VALUES ($1, $2, $3, $4, now())
          ON CONFLICT (workspace_id, name) DO UPDATE
-         SET size_bytes = $3, last_write_at = now()",
+         SET size_bytes = $3, last_used_at = now()",
         "test-workspace",
         "upsert-vol",
         500_i64,
@@ -62,10 +61,10 @@ async fn test_volume_upsert_size(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(row.size_bytes, 500);
 
     sqlx::query!(
-        "INSERT INTO volume (workspace_id, name, size_bytes, created_by, last_write_at)
+        "INSERT INTO volume (workspace_id, name, size_bytes, created_by, last_used_at)
          VALUES ($1, $2, $3, $4, now())
          ON CONFLICT (workspace_id, name) DO UPDATE
-         SET size_bytes = $3, last_write_at = now()",
+         SET size_bytes = $3, last_used_at = now()",
         "test-workspace",
         "upsert-vol",
         2048_i64,
@@ -75,27 +74,27 @@ async fn test_volume_upsert_size(db: Pool<Postgres>) -> anyhow::Result<()> {
     .await?;
 
     let row = sqlx::query!(
-        "SELECT size_bytes, last_write_at FROM volume WHERE workspace_id = $1 AND name = $2",
+        "SELECT size_bytes, last_used_at FROM volume WHERE workspace_id = $1 AND name = $2",
         "test-workspace",
         "upsert-vol"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(row.size_bytes, 2048);
-    assert!(row.last_write_at.is_some());
+    assert!(row.last_used_at.is_some());
 
     Ok(())
 }
 
 #[sqlx::test(fixtures("base"))]
-async fn test_volume_update_last_read(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_volume_update_last_used(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
 
     sqlx::query!(
         "INSERT INTO volume (workspace_id, name, size_bytes, created_by)
          VALUES ($1, $2, $3, $4)",
         "test-workspace",
-        "read-vol",
+        "used-vol",
         100_i64,
         "test-user"
     )
@@ -103,30 +102,30 @@ async fn test_volume_update_last_read(db: Pool<Postgres>) -> anyhow::Result<()> 
     .await?;
 
     let row = sqlx::query!(
-        "SELECT last_read_at FROM volume WHERE workspace_id = $1 AND name = $2",
+        "SELECT last_used_at FROM volume WHERE workspace_id = $1 AND name = $2",
         "test-workspace",
-        "read-vol"
+        "used-vol"
     )
     .fetch_one(&db)
     .await?;
-    assert!(row.last_read_at.is_none());
+    assert!(row.last_used_at.is_none());
 
     sqlx::query!(
-        "UPDATE volume SET last_read_at = now() WHERE workspace_id = $1 AND name = $2",
+        "UPDATE volume SET last_used_at = now() WHERE workspace_id = $1 AND name = $2",
         "test-workspace",
-        "read-vol"
+        "used-vol"
     )
     .execute(&db)
     .await?;
 
     let row = sqlx::query!(
-        "SELECT last_read_at FROM volume WHERE workspace_id = $1 AND name = $2",
+        "SELECT last_used_at FROM volume WHERE workspace_id = $1 AND name = $2",
         "test-workspace",
-        "read-vol"
+        "used-vol"
     )
     .fetch_one(&db)
     .await?;
-    assert!(row.last_read_at.is_some());
+    assert!(row.last_used_at.is_some());
 
     Ok(())
 }
@@ -136,7 +135,7 @@ async fn test_volume_update_nonexistent_noop(db: Pool<Postgres>) -> anyhow::Resu
     initialize_tracing().await;
 
     let result = sqlx::query!(
-        "UPDATE volume SET last_read_at = now() WHERE workspace_id = $1 AND name = $2",
+        "UPDATE volume SET last_used_at = now() WHERE workspace_id = $1 AND name = $2",
         "test-workspace",
         "nonexistent-vol"
     )

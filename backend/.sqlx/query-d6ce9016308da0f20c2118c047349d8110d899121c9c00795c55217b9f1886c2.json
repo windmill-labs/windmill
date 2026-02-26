@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE app SET summary = 'Modified dashboard app'\n         WHERE workspace_id = 'test-workspace' AND path = 'f/shared/dashboard'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "d6ce9016308da0f20c2118c047349d8110d899121c9c00795c55217b9f1886c2"
+}
