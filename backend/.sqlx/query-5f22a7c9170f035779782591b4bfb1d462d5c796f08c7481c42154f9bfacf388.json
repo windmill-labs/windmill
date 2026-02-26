@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO healthchecks (check_type, healthy) \n                    SELECT 'min_alive_workers_' || $1, false\n                    WHERE NOT EXISTS (\n                        SELECT 1 FROM healthchecks \n                        WHERE check_type = 'min_alive_workers_' || $1 AND created_at > NOW() - INTERVAL '2 minutes'\n                    )\n                    RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "5f22a7c9170f035779782591b4bfb1d462d5c796f08c7481c42154f9bfacf388"
+}
