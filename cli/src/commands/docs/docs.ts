@@ -34,6 +34,8 @@ async function docs(
 
   const url = `${workspace.remote}api/inkeep`;
 
+  console.log(colors.bold(`\nSearching Windmill docs...\n`));
+
   let res: Response;
   try {
     res = await fetch(url, {
@@ -57,7 +59,7 @@ async function docs(
 
   if (!res.ok) {
     throw new Error(
-      `Documentation search failed: ${res.status} ${res.statusText}`
+      `Documentation search failed: ${res.status} ${res.statusText}\n${await res.text()}`
     );
   }
 
@@ -88,10 +90,6 @@ async function docs(
     return;
   }
 
-  console.log(
-    colors.bold(`\nSearching Windmill docs for: "${query}"...\n`)
-  );
-
   for (const item of items) {
     console.log(colors.bold(colors.cyan(`📄 ${item.title}`)));
     if (item.url) {
@@ -110,7 +108,7 @@ const command = new Command()
   .name("docs")
   .description("Search Windmill documentation. Requires Enterprise Edition.")
   .arguments("<query:string>")
-  .option("--json", "Output raw JSON instead of formatted text.")
+  .option("--json", "Output results as JSON.")
   .action(docs as any);
 
 export default command;
