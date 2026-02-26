@@ -2,7 +2,7 @@ FROM debian:bookworm-slim
 
 # ── System packages ───────────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates git unzip \
+    curl ca-certificates git unzip openssh-client \
     # Rust native build deps
     pkg-config cmake clang mold libtool \
     libssl-dev libxml2-dev libxmlsec1-dev libxslt1-dev \

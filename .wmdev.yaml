@@ -18,6 +18,9 @@ profiles:
       - R2_BUCKET
       - R2_PUBLIC_URL
     extraMounts:
+      - hostPath: ~/.ssh
+        guestPath: /root/.ssh
+        writable: true
       - hostPath: ~/.codex
         guestPath: /root/.codex
         writable: true
