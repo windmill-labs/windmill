@@ -123,36 +123,20 @@
 	{#snippet actions()}
 		<span class="hidden md:inline-flex gap-x-1">
 			{#if !$userStore?.operator}
-				{#if showEditButton}
-					{#if flow.canWrite && !flow.archived}
-						<div>
-							<Button
-								variant="subtle"
-								wrapperClasses="w-20"
-								unifiedSize="md"
-								startIcon={{ icon: Pen }}
-								href="{base}/flows/edit/{flow.path}?nodraft=true"
-								aiId={`edit-flow-button-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
-								aiDescription={`Edits the flow ${flow.summary?.length > 0 ? flow.summary : flow.path}`}
-							>
-								Edit
-							</Button>
-						</div>
-					{:else}
-						<div>
-							<Button
-								variant="subtle"
-								wrapperClasses="w-20"
-								unifiedSize="md"
-								startIcon={{ icon: GitFork }}
-								href="{base}/flows/add?template={flow.path}"
-								aiId={`fork-flow-button-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
-								aiDescription={`Fork the flow ${flow.summary?.length > 0 ? flow.summary : flow.path}`}
-							>
-								Fork
-							</Button>
-						</div>
-					{/if}
+				{#if showEditButton && flow.canWrite && !flow.archived}
+					<div>
+						<Button
+							variant="subtle"
+							wrapperClasses="w-20"
+							unifiedSize="md"
+							startIcon={{ icon: Pen }}
+							href="{base}/flows/edit/{flow.path}?nodraft=true"
+							aiId={`edit-flow-button-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
+							aiDescription={`Edits the flow ${flow.summary?.length > 0 ? flow.summary : flow.path}`}
+						>
+							Edit
+						</Button>
+					</div>
 				{/if}
 				{#if !isRuleActive('DisableWorkspaceForking') && (!showEditButton || !flow.canWrite)}
 					<div>

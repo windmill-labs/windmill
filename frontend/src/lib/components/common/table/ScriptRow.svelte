@@ -174,20 +174,6 @@
 								Edit
 							</Button>
 						</div>
-					{:else if !script.draft_only}
-						<div>
-							<Button
-								aiId={`fork-script-button-${script.summary ?? script.path}`}
-								aiDescription={`Fork the script ${script.summary ?? script.path}`}
-								variant="subtle"
-								wrapperClasses="w-20"
-								unifiedSize="md"
-								startIcon={{ icon: GitFork }}
-								href="{base}/scripts/add?template={script.path}"
-							>
-								Fork
-							</Button>
-						</div>
 					{/if}
 				{/if}
 				{#if !isRuleActive('DisableWorkspaceForking') && (!showEditButton || !script.canWrite)}
