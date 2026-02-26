@@ -13,12 +13,12 @@
 	import { Button, Alert } from '$lib/components/common'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Section from '$lib/components/Section.svelte'
-	import Label from '$lib/components/Label.svelte'
 	import { getGitSyncContext } from './GitSyncContext.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import GitSyncFilterSettings from '$lib/components/workspaceSettings/GitSyncFilterSettings.svelte'
 	import DetectionFlow from './DetectionFlow.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import Toggle from '$lib/components/Toggle.svelte'
 	import { fade } from 'svelte/transition'
 	import { workspaceStore } from '$lib/stores'
 	import hubPaths from '$lib/hubPaths.json'
@@ -532,24 +532,27 @@
 					</div>
 
 					<!-- Advanced settings (collapsible) -->
-					<Section
-						label="Advanced"
-						small
-						collapsable
-						initiallyCollapsed={!repo.force_branch}
-					>
-						<Label
-							label="Force branch"
-							tooltip="Override the Git branch used by the sync script. When set, the sync script will pass this value as --branch to the CLI, which controls the branch configuration used from wmill.yaml (workspace target, specific items) and branch-specific file naming for resources and variables. This does not change which Git branch commits are pushed to (that is configured in the Git resource)."
-						>
-							<div class="w-48">
-								<TextInput
-									size="sm"
-									bind:value={repo.force_branch}
-									inputProps={{ placeholder: 'none' }}
-								/>
+					<Section label="Advanced" small collapsable initiallyCollapsed={!repo.force_branch}>
+						<Toggle
+							checked={!!repo.force_branch}
+							on:change={(e) => {
+								if (e.detail) {
+									repo.force_branch = $workspaceStore ?? ''
+								} else {
+									repo.force_branch = undefined
+								}
+							}}
+							options={{
+								right: 'Environment (experimental)',
+								rightTooltip:
+									'Made for monobranch setups. Passes the value as --branch/--environment to the wmill CLI, which selects the matching branch/environment configuration from wmill.yaml and includes the branch/environment in the item paths.'
+							}}
+						/>
+						{#if repo.force_branch != null && repo.force_branch !== undefined}
+							<div class="w-48 mt-2">
+								<TextInput size="sm" bind:value={repo.force_branch} />
 							</div>
-						</Label>
+						{/if}
 					</Section>
 				{/if}
 			{/if}
