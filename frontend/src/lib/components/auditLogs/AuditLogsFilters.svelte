@@ -117,7 +117,7 @@
 		promise = CancelablePromiseUtils.onTimeout(promise, 4000, () => {
 			sendUserToast(
 				'Loading audit logs is taking longer than expected...',
-				true,
+				'warning',
 				perPage > 25
 					? [{ label: 'Reduce to 25 items per page', callback: () => (perPage = 25) }]
 					: []

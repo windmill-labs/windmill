@@ -16,19 +16,22 @@ import {
 } from 'lucide-svelte'
 import { triggerDisplayNamesMap } from '../triggers/utils'
 import type { FilterInstanceRec, FilterSchemaRec } from '../FilterSearchbar.svelte'
+import { runsTimeframes } from './TimeframeSelect.svelte'
 
 export function buildRunsFilterSearchbarSchema({
 	paths,
 	usernames,
 	folders,
 	jobTriggerKinds,
-	isSuperAdmin
+	isSuperAdmin,
+	isAdminsWorkspace
 }: {
 	paths: string[]
 	usernames: string[]
 	folders: string[]
 	jobTriggerKinds: JobTriggerKind[]
 	isSuperAdmin: boolean
+	isAdminsWorkspace: boolean
 }) {
 	return {
 		_default_: {
@@ -50,6 +53,13 @@ export function buildRunsFilterSearchbarSchema({
 			description: 'Only include jobs that completed before this date',
 			mode: 'end',
 			otherField: 'min_ts'
+		},
+		timeframe: {
+			type: 'oneof' as const,
+			label: 'Timeframe',
+			icon: Calendar,
+			description: 'Predefined timeframes',
+			options: runsTimeframes.map((tf) => ({ label: tf.label, value: tf.label }))
 		},
 		path: {
 			type: 'oneof' as const,
@@ -196,13 +206,14 @@ export function buildRunsFilterSearchbarSchema({
 			label: 'Show future jobs (Default: true)',
 			description: 'Include jobs that are planned later'
 		},
-		...(isSuperAdmin && {
-			all_workspaces: {
-				type: 'boolean' as const,
-				label: 'All workspaces',
-				description: 'Show jobs of all workspaces (superadmin only)'
-			}
-		})
+		...(isSuperAdmin &&
+			isAdminsWorkspace && {
+				all_workspaces: {
+					type: 'boolean' as const,
+					label: 'All workspaces',
+					description: 'Show jobs of all workspaces (superadmin only)'
+				}
+			})
 	} satisfies FilterSchemaRec
 }
 
@@ -218,8 +229,16 @@ export function allowWildcards(filters: Partial<RunsFilterInstance> | undefined)
 	)
 }
 
-export const buildRunsFilterPresets = ({ isSuperadmin }: { isSuperadmin: boolean }) => [
+export const buildRunsFilterPresets = ({
+	isSuperadmin,
+	isAdminsWorkspace
+}: {
+	isSuperadmin: boolean
+	isAdminsWorkspace: boolean
+}) => [
 	{ name: 'Hide schedules', value: 'job_trigger_kind:\\ !schedule' },
 	{ name: 'Hide future jobs', value: 'show_future_jobs:\\ false' },
-	...(isSuperadmin ? [{ name: 'All workspaces', value: 'all_workspaces:\\ true' }] : [])
+	...(isSuperadmin && isAdminsWorkspace
+		? [{ name: 'All workspaces', value: 'all_workspaces:\\ true' }]
+		: [])
 ]
