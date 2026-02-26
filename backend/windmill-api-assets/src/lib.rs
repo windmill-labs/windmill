@@ -133,7 +133,7 @@ async fn list_assets(
     if query.broad_filter.is_some() {
         param_count += 1;
         asset_summary_filters.push(format!(
-            "(asset.path ILIKE ${p} OR asset.kind ILIKE ${p})",
+            "(asset.path ILIKE ${p} OR asset.kind::text ILIKE ${p})",
             p = param_count
         ));
     }
