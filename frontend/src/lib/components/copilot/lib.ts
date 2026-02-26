@@ -55,7 +55,7 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 	},
 	anthropic: {
 		label: 'Anthropic',
-		defaultModels: ['claude-sonnet-4-0', 'claude-sonnet-4-0/thinking', 'claude-3-5-haiku-latest']
+		defaultModels: ['claude-sonnet-4-6', 'claude-sonnet-4-6/thinking', 'claude-3-5-haiku-latest']
 	},
 	mistral: {
 		label: 'Mistral',
