@@ -1,20 +1,28 @@
 // sandbox
 // volume: claude .claude
 
-
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import * as fs from "fs";
 import * as path from "path";
 
+// path -> content, fileset resource, that contains your CLAUDE.md, and skills
+type AgentInstructions = Record<string, string>
 
-export async function main(anthropic: RT.Anthropic) {
+export async function main(anthropic: RT.Anthropic, agent_instructions?: AgentInstructions) {
 
   const sessionFile = path.join(".claude/session-id.txt");
 
   let sessionId = fs.existsSync(sessionFile) ? fs.readFileSync(sessionFile, "utf-8").trim() : undefined
 
+  // Writing claude.md and skills to .claude/
+  for (const [filePath, content] of Object.entries(agent_instructions ?? {})) {const fullPath = path.join(filePath);
+    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    fs.writeFileSync(fullPath, content);
+  }
+
+
   const isResume = !!sessionId;
-  const prompt = "What did I ask you previously in this session"
+  const prompt = "what day are we, what is the current gitlab price"
 
   process.env.ANTHROPIC_API_KEY = anthropic.apiKey;
 
@@ -44,9 +52,14 @@ export async function main(anthropic: RT.Anthropic) {
   }
 
   if (newSessionId) {
-    // fs.mkdirSync(".claude/")
     fs.writeFileSync(sessionFile, newSessionId);
   }
+
+  // Delete all files created from agent_instructions
+  for (const filePath of Object.keys(agent_instructions ?? {})) {
+      fs.unlinkSync(path.join(filePath));
+  }
+
   return {
     is_resume: isResume,
     previous_session_id: sessionId ?? null,

@@ -4274,7 +4274,15 @@ mount {{
             )
             .await?;
 
-            if let Some(s3_resource) = s3_resource {
+            let s3_resource = s3_resource.ok_or_else(|| {
+                Error::internal_err(
+                    "Volume mounts require a workspace S3 storage to be configured. \
+                     Set it in the workspace settings."
+                        .to_string(),
+                )
+            })?;
+
+            {
                 let client_arc =
                     windmill_object_store::build_object_store_client(&s3_resource).await?;
                 volume_client = Some(client_arc.clone());
