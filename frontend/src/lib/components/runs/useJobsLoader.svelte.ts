@@ -110,6 +110,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let intervalId: ReturnType<typeof setInterval> | undefined = $state()
 	let sync = true
 	let paramChangeTimeout: ReturnType<typeof setTimeout> | undefined
+	let paramChangePromise: CancelablePromise<void> | undefined
 
 	function onParamChanges() {
 		resetJobs()
@@ -545,14 +546,14 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		perPage
 		showSchedules
 		showFutureJobs
-		let p: CancelablePromise<void> | undefined
 		clearTimeout(paramChangeTimeout)
+		paramChangePromise?.cancel()
 		paramChangeTimeout = setTimeout(() => {
-			p = untrack(() => onParamChanges())
+			paramChangePromise = untrack(() => onParamChanges())
 		}, 0)
 		return () => {
 			clearTimeout(paramChangeTimeout)
-			p?.cancel()
+			paramChangePromise?.cancel()
 		}
 	})
 	$effect(() => {

@@ -776,9 +776,8 @@
 					maxTimeSet={manualTimeframe?.maxTs}
 					maxIsNow={manualTimeframe?.maxTs == undefined}
 					jobs={completedJobs}
-					onZoom={async (zoom) => {
+					onZoom={(zoom) => {
 						_timeframe.val = buildManualTimeframe(zoom.min.toISOString(), zoom.max.toISOString())
-						jobsLoader?.loadJobs(true)
 					}}
 					onPointClicked={(ids) => {
 						runsTable?.scrollToRun(ids)
@@ -790,9 +789,8 @@
 					maxTimeSet={manualTimeframe?.maxTs}
 					maxIsNow={manualTimeframe?.maxTs == undefined}
 					{extendedJobs}
-					onZoom={async (zoom) => {
+					onZoom={(zoom) => {
 						_timeframe.val = buildManualTimeframe(zoom.min.toISOString(), zoom.max.toISOString())
-						jobsLoader?.loadJobs(true)
 					}}
 				/>
 			{/if}
