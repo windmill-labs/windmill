@@ -126,7 +126,7 @@ fn is_setup_statement(query: &str) -> bool {
 }
 
 fn replace_params_with_null(query: &str) -> String {
-    let re = Regex::new(r"\$[a-zA-Z_][a-zA-Z0-9_]*").unwrap();
+    let re = Regex::new(r"\$\d+").unwrap();
     re.replace_all(query, "NULL").to_string()
 }
 
