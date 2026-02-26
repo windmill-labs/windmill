@@ -126,27 +126,29 @@ async fn handle_streaming(
         tokio::pin!(gemini_sse_stream);
         while let Some(event) = gemini_sse_stream.next().await {
             match event {
-                Ok(event) => match parse_gemini_sse_event(&event.data) {
-                    Ok(Some(parsed)) => {
-                        if let Some(text) = parsed.text {
-                            let chunk = json!({
-                                "id": id,
-                                "object": "chat.completion.chunk",
-                                "model": model_str,
-                                "choices": [{
-                                    "index": 0,
-                                    "delta": { "content": text },
-                                    "finish_reason": null
-                                }]
-                            });
-                            yield Ok::<Bytes, reqwest::Error>(
-                                Bytes::from(format!("data: {}\n\n", chunk))
-                            );
+                Ok(event) => {
+                    match parse_gemini_sse_event(&event.data) {
+                        Ok(Some(parsed)) => {
+                            if let Some(text) = parsed.text {
+                                let chunk = json!({
+                                    "id": id,
+                                    "object": "chat.completion.chunk",
+                                    "model": model_str,
+                                    "choices": [{
+                                        "index": 0,
+                                        "delta": { "content": text },
+                                        "finish_reason": null
+                                    }]
+                                });
+                                yield Ok::<Bytes, reqwest::Error>(
+                                    Bytes::from(format!("data: {}\n\n", chunk))
+                                );
+                            }
                         }
+                        Ok(None) => {}
+                        Err(e) => tracing::error!("Error parsing Gemini SSE event: {}", e),
                     }
-                    Ok(None) => {}
-                    Err(e) => tracing::error!("Error parsing Gemini SSE event: {}", e),
-                },
+                }
                 Err(e) => tracing::error!("Error reading Gemini SSE stream: {}", e),
             }
         }

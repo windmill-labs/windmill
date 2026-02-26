@@ -200,6 +200,10 @@ pub struct GeminiSSEPart {
     /// Thought signature for Gemini 3+ models.
     #[serde(rename = "thoughtSignature")]
     pub thought_signature: Option<String>,
+    /// Set to `true` for internal reasoning parts emitted by thinking models.
+    /// These should not be surfaced as response content.
+    #[serde(default)]
+    pub thought: Option<bool>,
 }
 
 /// Function call contained in a streaming part.
@@ -517,7 +521,7 @@ pub fn parse_gemini_sse_event(data: &str) -> Result<Option<GeminiParsedEvent>, E
             if let Some(parts) = content.parts {
                 for part in parts {
                     if let Some(text) = part.text {
-                        if !text.is_empty() {
+                        if !text.is_empty() && part.thought != Some(true) {
                             match parsed.text.as_mut() {
                                 Some(existing) => existing.push_str(&text),
                                 None => parsed.text = Some(text),
