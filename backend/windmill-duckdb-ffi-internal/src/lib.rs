@@ -1,12 +1,13 @@
 use std::{
     collections::HashMap,
-    ffi::{CStr, CString, c_char, c_uint},
+    ffi::{c_char, c_uint, CStr, CString},
     ptr::null_mut,
 };
 
-use duckdb::{Row, core::LogicalTypeId, params_from_iter, types::TimeUnit};
-use rust_decimal::{Decimal, prelude::FromPrimitive};
-use serde::Deserialize;
+use duckdb::{core::LogicalTypeId, params_from_iter, types::TimeUnit, Row};
+use regex::Regex;
+use rust_decimal::{prelude::FromPrimitive, Decimal};
+use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 
 #[derive(Deserialize, Clone, Debug, PartialEq, Default)]
@@ -94,6 +95,183 @@ pub extern "C" fn run_duckdb_ffi(
         println!("Failed to allocate error string in duckdb ffi lib: {:?}", e);
         null_mut()
     })
+}
+
+#[derive(Serialize, Debug)]
+struct PrepareQueryColumnInfo {
+    name: String,
+    #[serde(rename = "type")]
+    type_name: String,
+}
+
+#[derive(Serialize, Debug)]
+struct PrepareQueryResult {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    columns: Option<Vec<PrepareQueryColumnInfo>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+fn is_setup_statement(query: &str) -> bool {
+    let trimmed = query.trim_start();
+    let upper = trimmed.to_uppercase();
+    upper.starts_with("ATTACH")
+        || upper.starts_with("USE")
+        || upper.starts_with("INSTALL")
+        || upper.starts_with("LOAD")
+        || upper.starts_with("SET")
+        || upper.starts_with("RESET")
+        || upper.starts_with("CREATE OR REPLACE SECRET")
+        || upper.starts_with("CREATE SECRET")
+}
+
+fn replace_params_with_null(query: &str) -> String {
+    let re = Regex::new(r"\$\d+").unwrap();
+    re.replace_all(query, "NULL").to_string()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn prepare_duckdb_ffi(
+    query_block_list: *const *const c_char,
+    query_block_list_count: usize,
+    token: *const c_char,
+    base_internal_url: *const c_char,
+    w_id: *const c_char,
+) -> *mut c_char {
+    let r = match convert_prepare_args(
+        query_block_list,
+        query_block_list_count,
+        token,
+        base_internal_url,
+        w_id,
+    )
+    .and_then(|(query_block_list, token, base_internal_url, w_id)| {
+        prepare_duckdb_internal(query_block_list, token, base_internal_url, w_id)
+    }) {
+        Ok(result) => result,
+        Err(err) => {
+            let err = serde_json::to_string(&err)
+                .unwrap_or_else(|_| "Unknown error in duckdb ffi lib".to_string());
+            format!("ERROR {}", err)
+        }
+    };
+
+    CString::new(r).map(|s| s.into_raw()).unwrap_or_else(|e| {
+        println!("Failed to allocate error string in duckdb ffi lib: {:?}", e);
+        null_mut()
+    })
+}
+
+fn convert_prepare_args<'a>(
+    query_block_list: *const *const c_char,
+    query_block_list_count: usize,
+    token: *const c_char,
+    base_internal_url: *const c_char,
+    w_id: *const c_char,
+) -> Result<(Vec<&'a str>, &'a str, &'a str, &'a str), String> {
+    let query_block_list = unsafe {
+        std::slice::from_raw_parts(query_block_list, query_block_list_count)
+            .iter()
+            .map(|q| {
+                CStr::from_ptr(*q).to_str().unwrap_or_else(|e| {
+                    println!(
+                        "Invalid query_block string pointer in duckdb ffi: {}",
+                        e.to_string()
+                    );
+                    "Invalid query_block string pointer in duckdb ffi"
+                })
+            })
+            .collect::<Vec<_>>()
+    };
+    let token = unsafe { CStr::from_ptr(token) }
+        .to_str()
+        .map_err(|e| format!("Invalid token string: {}", e.to_string()))?;
+    let base_internal_url = unsafe { CStr::from_ptr(base_internal_url) }
+        .to_str()
+        .map_err(|e| format!("Invalid base_internal_url string: {}", e.to_string()))?;
+    let w_id = unsafe { CStr::from_ptr(w_id) }
+        .to_str()
+        .map_err(|e| format!("Invalid w_id string: {}", e.to_string()))?;
+    Ok((query_block_list, token, base_internal_url, w_id))
+}
+
+fn prepare_duckdb_internal(
+    query_block_list: Vec<&str>,
+    token: &str,
+    base_internal_url: &str,
+    w_id: &str,
+) -> Result<String, String> {
+    let conn = duckdb::Connection::open_in_memory().map_err(|e| e.to_string())?;
+
+    let (s3_access_key, s3_secret_key) = token.split_at(token.rfind('.').unwrap_or(0));
+    let s3_secret_key = &s3_secret_key[1..];
+    let (s3_endpoint_ssl, s3_endpoint) = base_internal_url
+        .split_once("://")
+        .unwrap_or(("http", &base_internal_url));
+    let s3_endpoint_ssl = match s3_endpoint_ssl {
+        "https" => true,
+        _ => false,
+    };
+
+    conn.execute_batch(&format!(
+        "INSTALL httpfs; LOAD httpfs;
+        INSTALL azure; LOAD azure;
+        CREATE OR REPLACE SECRET s3_secret (
+            TYPE s3,
+            PROVIDER config,
+            KEY_ID '{s3_access_key}',
+            SECRET '{s3_secret_key}',
+            ENDPOINT '{s3_endpoint}/api/w/{w_id}/s3_proxy',
+            URL_STYLE path,
+            USE_SSL {s3_endpoint_ssl}
+        );
+        CREATE OR REPLACE SECRET gcs_secret (
+            TYPE gcs,
+            KEY_ID '{s3_access_key}',
+            SECRET '{s3_secret_key}',
+            ENDPOINT '{s3_endpoint}/api/w/{w_id}/s3_proxy',
+            USE_SSL {s3_endpoint_ssl}
+        );
+        ",
+    ))
+    .map_err(|e| format!("Error setting up S3 secret: {}", e.to_string()))?;
+
+    let mut results: Vec<PrepareQueryResult> = vec![];
+
+    for query_block in &query_block_list {
+        if is_setup_statement(query_block) {
+            conn.execute_batch(query_block)
+                .map_err(|e| format!("Error executing setup statement: {}", e.to_string()))?;
+            continue;
+        }
+
+        let modified_query = replace_params_with_null(query_block);
+        // Validate the query parses correctly by preparing it
+        if let Err(e) = conn.prepare(&modified_query) {
+            results.push(PrepareQueryResult { columns: None, error: Some(e.to_string()) });
+            continue;
+        }
+
+        let describe_query = format!("DESCRIBE {}", modified_query);
+        match conn.prepare(&describe_query).and_then(|mut stmt| {
+            let rows = stmt.query_map([], |row| {
+                Ok(PrepareQueryColumnInfo {
+                    name: row.get::<_, String>(0)?,
+                    type_name: row.get::<_, String>(1)?,
+                })
+            })?;
+            rows.collect::<std::result::Result<Vec<_>, _>>()
+        }) {
+            Ok(columns) => {
+                results.push(PrepareQueryResult { columns: Some(columns), error: None });
+            }
+            Err(e) => {
+                results.push(PrepareQueryResult { columns: None, error: Some(e.to_string()) });
+            }
+        }
+    }
+
+    serde_json::to_string(&results).map_err(|e| e.to_string())
 }
 
 fn convert_args<'a>(

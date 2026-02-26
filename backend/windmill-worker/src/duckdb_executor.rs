@@ -161,6 +161,23 @@ pub async fn do_duckdb(
         let base_internal_url = client.base_internal_url.clone();
         let w_id = job.workspace_id.clone();
 
+        if annotations.prepare {
+            let result = tokio::task::spawn_blocking(move || {
+                prepare_duckdb_ffi_safe(
+                    query_block_list.iter().map(String::as_str),
+                    query_block_list.len(),
+                    &token,
+                    &base_internal_url,
+                    &w_id,
+                )
+            })
+            .await
+            .map_err(|e| Error::from(to_anyhow(e)))
+            .and_then(|r| r)?;
+
+            return Ok(result);
+        }
+
         let result = tokio::task::spawn_blocking(move || {
             run_duckdb_ffi_safe(
                 query_block_list.iter().map(String::as_str),
@@ -248,6 +265,18 @@ struct DuckDbFfiLib {
             collect_first_row_only: bool,
         ) -> *mut c_char,
     >,
+    prepare_duckdb_ffi: Option<
+        Symbol<
+            'static,
+            unsafe extern "C" fn(
+                query_block_list: *const *const c_char,
+                query_block_list_count: usize,
+                token: *const c_char,
+                base_internal_url: *const c_char,
+                w_id: *const c_char,
+            ) -> *mut c_char,
+        >,
+    >,
     free_cstr: Symbol<'static, unsafe extern "C" fn(string: *mut c_char) -> ()>,
 }
 
@@ -307,8 +336,11 @@ impl DuckDbFfiLib {
             }
         }
 
+        let prepare_duckdb_ffi = unsafe { lib.get(b"prepare_duckdb_ffi").ok() };
+
         Ok(DuckDbFfiLib {
             run_duckdb_ffi: unsafe { lib.get(b"run_duckdb_ffi").map_err(to_anyhow)? },
+            prepare_duckdb_ffi,
             free_cstr: unsafe { lib.get(b"free_cstr").map_err(to_anyhow)? },
         })
     }
@@ -385,6 +417,57 @@ fn run_duckdb_ffi_safe<'a>(
             collection_strategy.collect(result)?
         };
         Ok((result, column_order))
+    }
+}
+
+fn prepare_duckdb_ffi_safe<'a>(
+    query_block_list: impl Iterator<Item = &'a str>,
+    query_block_list_count: usize,
+    token: &str,
+    base_internal_url: &str,
+    w_id: &str,
+) -> Result<Box<RawValue>> {
+    let query_block_list = query_block_list
+        .map(|s| {
+            CString::new(s).map_err(|e| {
+                Error::ExecutionErr(format!("Failed CString conversion: {}", e.to_string()))
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let query_block_list = query_block_list
+        .iter()
+        .map(|s| s.as_ptr())
+        .collect::<Vec<_>>();
+
+    let token = CString::new(token).map_err(to_anyhow)?;
+    let base_internal_url = CString::new(base_internal_url).map_err(to_anyhow)?;
+    let w_id = CString::new(w_id).map_err(to_anyhow)?;
+
+    let lib = DuckDbFfiLib::get_singleton()?;
+    let prepare_fn = lib.prepare_duckdb_ffi.as_ref().ok_or_else(|| {
+        Error::InternalErr(
+            "prepare_duckdb_ffi not available in duckdb ffi library. Please update to the latest windmill_duckdb_ffi_lib.".to_string(),
+        )
+    })?;
+    let free_cstr = &lib.free_cstr;
+
+    let result_str = unsafe {
+        let ptr = prepare_fn(
+            query_block_list.as_ptr(),
+            query_block_list_count,
+            token.as_ptr(),
+            base_internal_url.as_ptr(),
+            w_id.as_ptr(),
+        );
+        let str = CStr::from_ptr(ptr).to_string_lossy().to_string();
+        free_cstr(ptr);
+        str
+    };
+
+    if result_str.starts_with("ERROR") {
+        Err(Error::ExecutionErr(result_str[6..].to_string()))
+    } else {
+        Ok(serde_json::value::RawValue::from_string(result_str).map_err(to_anyhow)?)
     }
 }
 
