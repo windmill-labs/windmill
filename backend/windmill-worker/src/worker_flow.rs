@@ -1099,21 +1099,22 @@ pub async fn update_flow_status_after_job_completion_internal(
                     || (flow_jobs.is_some() && (skip_loop_failures || skip_seq_branch_failure)))
                     && !(stop_early && stop_early_err_msg.is_some() && !skip_if_stop_early)
                 {
-                    let is_skipped = if current_module.as_ref().is_some_and(|m| m.skip_if.is_some())
-                    {
-                        sqlx::query_scalar!(
-                            "SELECT kind = 'identity' FROM v2_job WHERE id = $1",
-                            job_id_for_status
-                        )
-                        .fetch_one(db)
-                        .await
-                        .map_err(|e| {
-                            Error::internal_err(format!("error during skip check: {e:#}"))
-                        })?
-                        .unwrap_or(false)
-                    } else {
-                        stop_early && skip_if_stop_early // Mark as skipped when stop_after_if with skip_if_stopped=true
-                    };
+                    let is_skipped = (stop_early && skip_if_stop_early)
+                        || if current_module.as_ref().is_some_and(|m| m.skip_if.is_some()) {
+                            sqlx::query_scalar!(
+                                "SELECT kind = 'identity' FROM v2_job WHERE id = $1",
+                                job_id_for_status
+                            )
+                            .fetch_optional(db)
+                            .await
+                            .map_err(|e| {
+                                Error::internal_err(format!("error during skip check: {e:#}"))
+                            })?
+                            .flatten()
+                            .unwrap_or(false)
+                        } else {
+                            false
+                        };
                     success = true;
                     (
                         true,
