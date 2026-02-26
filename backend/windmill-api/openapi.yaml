@@ -4106,6 +4106,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: broad_filter
+          description: broad search across multiple fields (case-insensitive substring match)
+          in: query
+          schema:
+            type: string
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
       responses:
@@ -5117,6 +5122,11 @@ paths:
             type: string
         - name: value
           description: JSONB subset match filter using base64 encoded JSON
+          in: query
+          schema:
+            type: string
+        - name: broad_filter
+          description: broad search across multiple fields (case-insensitive substring match)
           in: query
           schema:
             type: string
@@ -9996,6 +10006,11 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: broad_filter
+          description: broad search across multiple fields (case-insensitive substring match on path, tag, schedule path, trigger kind, label)
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: All jobs
@@ -11217,6 +11232,11 @@ paths:
             type: string
         - name: summary
           description: pattern match filter for summary field (case-insensitive)
+          in: query
+          schema:
+            type: string
+        - name: broad_filter
+          description: broad search across multiple fields (case-insensitive substring match)
           in: query
           schema:
             type: string
@@ -16979,6 +16999,11 @@ paths:
         - name: columns
           in: query
           description: JSONB subset match filter for columns using base64 encoded JSON
+          schema:
+            type: string
+        - name: broad_filter
+          description: broad search across multiple fields (case-insensitive substring match)
+          in: query
           schema:
             type: string
       responses:

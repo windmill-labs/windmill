@@ -18,6 +18,9 @@ profiles:
       - R2_BUCKET
       - R2_PUBLIC_URL
     extraMounts:
+      - hostPath: ~/.ssh
+        guestPath: /root/.ssh
+        writable: true
       - hostPath: ~/.codex
         guestPath: /root/.codex
         writable: true
@@ -73,6 +76,30 @@ profiles:
       3) Upload to asciinema.org:
           XDG_DATA_HOME=/tmp/.local/share \
             asciinema upload --server-url https://asciinema.org /tmp/demo.cast
+
+      --- Mermaid Diagrams ---
+      You can render Mermaid diagrams to SVG using the pre-installed mmdc CLI.
+      The puppeteer config (no-sandbox + Chromium path) is at /root/.puppeteerrc.json.
+
+      1) Write a .mmd file with your diagram:
+          cat > /tmp/diagram.mmd << 'EOF'
+          graph TD
+            A[Start] --> B[End]
+          EOF
+
+      2) Render to SVG (the -p flag is required):
+          mmdc -i /tmp/diagram.mmd -o /tmp/diagram.svg -p /root/.puppeteerrc.json
+
+      3) Upload to R2:
+          aws s3 cp /tmp/diagram.svg
+          "s3://$(printenv R2_BUCKET)/$(git rev-parse --abbrev-ref HEAD)/diagram.svg"
+          --endpoint-url "$(printenv R2_ENDPOINT)"
+
+      4) The public URL will be:
+          $(printenv R2_PUBLIC_URL)/<branch>/diagram.svg
+
+      5) Include in PR descriptions as markdown images:
+          ![description]($(printenv R2_PUBLIC_URL)/<branch>/diagram.svg)
 
 linkedRepos:
   - repo: windmill-labs/windmill-ee-private

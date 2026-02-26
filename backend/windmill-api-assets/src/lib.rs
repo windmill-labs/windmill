@@ -10,6 +10,7 @@ use windmill_common::{
     assets::{AssetKind, AssetUsageKind},
     db::UserDB,
     error::JsonResult,
+    utils::escape_ilike_pattern,
 };
 
 use windmill_api_auth::ApiAuthed;
@@ -34,6 +35,7 @@ struct ListAssetsQuery {
     pub path: Option<String>,
     // Filter by matching a subset of the columns using base64 encoded json subset
     pub columns: Option<String>,
+    pub broad_filter: Option<String>,
 }
 
 fn default_per_page() -> i64 {
@@ -126,6 +128,14 @@ async fn list_assets(
     if has_asset_kinds {
         param_count += 1;
         asset_summary_filters.push(format!("asset.kind = ANY(${})", param_count));
+    }
+
+    if query.broad_filter.is_some() {
+        param_count += 1;
+        asset_summary_filters.push(format!(
+            "(asset.path ILIKE ${p} OR asset.kind::text ILIKE ${p})",
+            p = param_count
+        ));
     }
 
     let asset_summary_where = asset_summary_filters.join(" AND ");
@@ -224,7 +234,7 @@ async fn list_assets(
     let mut query_builder = sqlx::query(&sql).bind(&w_id).bind(limit);
 
     if let Some(ref asset_path) = query.asset_path {
-        query_builder = query_builder.bind(format!("%{}%", asset_path));
+        query_builder = query_builder.bind(format!("%{}%", escape_ilike_pattern(asset_path)));
     }
 
     if let Some(ref path) = query.path {
@@ -242,13 +252,17 @@ async fn list_assets(
     }
 
     if let Some(ref usage_path) = query.usage_path {
-        query_builder = query_builder.bind(format!("%{}%", usage_path));
+        query_builder = query_builder.bind(format!("%{}%", escape_ilike_pattern(usage_path)));
     }
 
     if let Some(ref asset_kinds) = asset_kinds {
         if !asset_kinds.is_empty() {
             query_builder = query_builder.bind(asset_kinds);
         }
+    }
+
+    if let Some(ref broad_filter) = query.broad_filter {
+        query_builder = query_builder.bind(format!("%{}%", escape_ilike_pattern(broad_filter)));
     }
 
     if let (Some(cursor_created_at), Some(cursor_id)) = (query.cursor_created_at, query.cursor_id) {
