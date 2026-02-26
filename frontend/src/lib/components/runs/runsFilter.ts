@@ -31,6 +31,10 @@ export function buildRunsFilterSearchbarSchema({
 	isSuperAdmin: boolean
 }) {
 	return {
+		_default_: {
+			type: 'string' as const,
+			hidden: true
+		},
 		min_ts: {
 			type: 'date' as const,
 			label: 'From',

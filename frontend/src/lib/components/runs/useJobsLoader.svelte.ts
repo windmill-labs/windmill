@@ -95,6 +95,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let folder = $derived(filters?.folder)
 	let path = $derived(filters?.path)
 	let argFilter = $derived(filters?.arg)
+	let broadFilter = $derived(filters?._default_ || undefined)
 
 	let queue_count: Tweened<number> | undefined = $state()
 	let suspended_count: Tweened<number> | undefined = $state()
@@ -217,7 +218,8 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 			triggerKind: jobTriggerKind ?? undefined,
 			allWorkspaces: allWorkspaces ? true : undefined,
 			perPage,
-			allowWildcards: allowWildcards ? true : undefined
+			allowWildcards: allowWildcards ? true : undefined,
+			broadFilter
 		})
 		promise = CancelablePromiseUtils.catchErr(promise, (e) => {
 			if (e instanceof CancelError) return CancelablePromiseUtils.err(e)

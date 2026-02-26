@@ -12,24 +12,24 @@ use std::{collections::HashMap, time::Duration};
 mod ee;
 pub mod ee_oss;
 
-use windmill_api_auth::{require_super_admin, ApiAuthed};
 #[cfg(feature = "enterprise")]
 use windmill_api_auth::require_devops_role;
+use windmill_api_auth::{require_super_admin, ApiAuthed};
 use windmill_common::utils::HTTP_CLIENT_PERMISSIVE as HTTP_CLIENT;
 use windmill_common::DB;
 
 use ee_oss::validate_license_key;
 use windmill_common::usernames::generate_instance_username_for_all_users;
 
-use axum::{
-    extract::{Extension, Path},
-    routing::{get, post},
-    body::Body,
-    response::Response,
-    Json, Router,
-};
 #[cfg(feature = "enterprise")]
 use axum::extract::Query;
+use axum::{
+    body::Body,
+    extract::{Extension, Path},
+    response::Response,
+    routing::{get, post},
+    Json, Router,
+};
 use serde_json::json;
 
 use serde::{Deserialize, Serialize};
@@ -43,9 +43,8 @@ use windmill_common::{
     get_database_url,
     global_settings::{
         APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
-        CRITICAL_ALERT_MUTE_UI_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
-        EMAIL_DOMAIN_SETTING, ENV_SETTINGS, HUB_ACCESSIBLE_URL_SETTING,
-        HUB_BASE_URL_SETTING,
+        CRITICAL_ALERT_MUTE_UI_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING, EMAIL_DOMAIN_SETTING,
+        ENV_SETTINGS, HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
     },
     instance_config::{self, ApplyMode, InstanceConfig},
     server::Smtp,
@@ -171,7 +170,9 @@ pub async fn test_s3_bucket(
         .await?
         .store;
 
-    let mut list = client.list(Some(&windmill_object_store::object_store_reexports::Path::from("".to_string())));
+    let mut list = client.list(Some(
+        &windmill_object_store::object_store_reexports::Path::from("".to_string()),
+    ));
     let first_file = list.next().await;
     if first_file.is_some() {
         if let Err(e) = first_file.as_ref().unwrap() {
@@ -189,7 +190,10 @@ pub async fn test_s3_bucket(
     ));
     tracing::info!("Testing blob storage at path: {path}");
     client
-        .put(&path, windmill_object_store::object_store_reexports::PutPayload::from_static(b"hello"))
+        .put(
+            &path,
+            windmill_object_store::object_store_reexports::PutPayload::from_static(b"hello"),
+        )
         .await
         .map_err(|e| anyhow::anyhow!("error writing file to {path}: {e:#}"))?;
     let content = client
@@ -290,17 +294,17 @@ pub async fn set_global_setting_internal(
     match value {
         serde_json::Value::Null => {
             if instance_config::PROTECTED_SETTINGS.contains(&key.as_str()) {
-                return Err(error::Error::BadRequest(
-                    format!("{key} is a protected setting and cannot be deleted"),
-                ));
+                return Err(error::Error::BadRequest(format!(
+                    "{key} is a protected setting and cannot be deleted"
+                )));
             }
             delete_global_setting(db, &key).await?;
         }
         serde_json::Value::String(x) if x.is_empty() => {
             if instance_config::PROTECTED_SETTINGS.contains(&key.as_str()) {
-                return Err(error::Error::BadRequest(
-                    format!("{key} is a protected setting and cannot be set to empty"),
-                ));
+                return Err(error::Error::BadRequest(format!(
+                    "{key} is a protected setting and cannot be set to empty"
+                )));
             }
             delete_global_setting(db, &key).await?;
         }
@@ -437,7 +441,8 @@ async fn get_instance_config_yaml(
     let config = InstanceConfig::from_db(&db)
         .await
         .map_err(|e| error::Error::internal_err(e.to_string()))?;
-    let yaml = config.to_sorted_yaml()
+    let yaml = config
+        .to_sorted_yaml()
         .map_err(|e| error::Error::internal_err(e))?;
     Response::builder()
         .header("content-type", "application/yaml")
@@ -478,8 +483,7 @@ async fn set_instance_config(
             .map(|(k, v)| {
                 (
                     k.clone(),
-                    serde_json::to_value(v)
-                        .expect("WorkerGroupConfig serialization cannot fail"),
+                    serde_json::to_value(v).expect("WorkerGroupConfig serialization cannot fail"),
                 )
             })
             .collect();
@@ -489,8 +493,7 @@ async fn set_instance_config(
             .map(|(k, v)| {
                 (
                     k.clone(),
-                    serde_json::to_value(v)
-                        .expect("WorkerGroupConfig serialization cannot fail"),
+                    serde_json::to_value(v).expect("WorkerGroupConfig serialization cannot fail"),
                 )
             })
             .collect();
@@ -944,7 +947,8 @@ async fn setup_custom_instance_pg_database_inner(
              GRANT CREATE ON DATABASE \"{dbname}\" TO custom_instance_user;
              ALTER DEFAULT PRIVILEGES IN SCHEMA public
                  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;
-             ALTER ROLE custom_instance_user CREATEROLE;"
+             ALTER ROLE custom_instance_user CREATEROLE;
+             ALTER ROLE custom_instance_user REPLICATION;"
         ))
         .await
         .map_err(|e| {
@@ -1083,19 +1087,16 @@ async fn sync_cached_resource_types(
     use windmill_common::worker::HUB_RT_CACHE_DIR;
     let cache_path = format!("{}/resource_types.json", HUB_RT_CACHE_DIR);
 
-    let content = tokio::fs::read_to_string(&cache_path)
-        .await
-        .map_err(|e| {
-            error::Error::NotFound(format!(
-                "No cached resource types found at {}: {}",
-                cache_path, e
-            ))
-        })?;
+    let content = tokio::fs::read_to_string(&cache_path).await.map_err(|e| {
+        error::Error::NotFound(format!(
+            "No cached resource types found at {}: {}",
+            cache_path, e
+        ))
+    })?;
 
-    let cached_types: Vec<CachedResourceType> =
-        serde_json::from_str(&content).map_err(|e| {
-            error::Error::InternalErr(format!("Failed to parse cached resource types: {}", e))
-        })?;
+    let cached_types: Vec<CachedResourceType> = serde_json::from_str(&content).map_err(|e| {
+        error::Error::InternalErr(format!("Failed to parse cached resource types: {}", e))
+    })?;
 
     let mut synced_count = 0;
 
@@ -1176,7 +1177,10 @@ mod tests {
             deserialized.global_settings.base_url.as_deref(),
             Some("https://windmill.example.com")
         );
-        assert_eq!(deserialized.global_settings.retention_period_secs, Some(86400));
+        assert_eq!(
+            deserialized.global_settings.retention_period_secs,
+            Some(86400)
+        );
         assert_eq!(deserialized.global_settings.expose_metrics, Some(true));
         let wc = &deserialized.worker_configs["default"];
         assert_eq!(
@@ -1208,9 +1212,7 @@ mod tests {
         let retention_pos = yaml.find("retention_period_secs:").unwrap();
 
         assert!(
-            base_url_pos < email_pos
-                && email_pos < expose_pos
-                && expose_pos < retention_pos,
+            base_url_pos < email_pos && email_pos < expose_pos && expose_pos < retention_pos,
             "global_settings keys should be alphabetically sorted, got yaml:\n{yaml}"
         );
     }
@@ -1220,22 +1222,34 @@ mod tests {
         let config = InstanceConfig {
             global_settings: GlobalSettings::default(),
             worker_configs: BTreeMap::from([
-                ("gpu".to_string(), WorkerGroupConfig {
-                    init_bash: Some("echo gpu".to_string()),
-                    ..Default::default()
-                }),
-                ("native".to_string(), WorkerGroupConfig {
-                    init_bash: Some("echo native".to_string()),
-                    ..Default::default()
-                }),
-                ("default".to_string(), WorkerGroupConfig {
-                    init_bash: Some("echo default".to_string()),
-                    ..Default::default()
-                }),
-                ("alpha".to_string(), WorkerGroupConfig {
-                    init_bash: Some("echo alpha".to_string()),
-                    ..Default::default()
-                }),
+                (
+                    "gpu".to_string(),
+                    WorkerGroupConfig {
+                        init_bash: Some("echo gpu".to_string()),
+                        ..Default::default()
+                    },
+                ),
+                (
+                    "native".to_string(),
+                    WorkerGroupConfig {
+                        init_bash: Some("echo native".to_string()),
+                        ..Default::default()
+                    },
+                ),
+                (
+                    "default".to_string(),
+                    WorkerGroupConfig {
+                        init_bash: Some("echo default".to_string()),
+                        ..Default::default()
+                    },
+                ),
+                (
+                    "alpha".to_string(),
+                    WorkerGroupConfig {
+                        init_bash: Some("echo alpha".to_string()),
+                        ..Default::default()
+                    },
+                ),
             ]),
         };
 
@@ -1264,26 +1278,40 @@ mod tests {
                 ..Default::default()
             },
             worker_configs: BTreeMap::from([
-                ("default".to_string(), WorkerGroupConfig {
-                    worker_tags: Some(vec!["deno".to_string()]),
-                    ..Default::default()
-                }),
-                ("native".to_string(), WorkerGroupConfig {
-                    init_bash: Some("echo hi".to_string()),
-                    ..Default::default()
-                }),
+                (
+                    "default".to_string(),
+                    WorkerGroupConfig {
+                        worker_tags: Some(vec!["deno".to_string()]),
+                        ..Default::default()
+                    },
+                ),
+                (
+                    "native".to_string(),
+                    WorkerGroupConfig {
+                        init_bash: Some("echo hi".to_string()),
+                        ..Default::default()
+                    },
+                ),
             ]),
         };
 
         let yaml = config.to_sorted_yaml().unwrap();
         let deserialized: InstanceConfig = serde_yml::from_str(&yaml).unwrap();
 
-        assert_eq!(deserialized.global_settings.base_url.as_deref(), Some("https://rt.test"));
-        assert_eq!(deserialized.global_settings.retention_period_secs, Some(7200));
+        assert_eq!(
+            deserialized.global_settings.base_url.as_deref(),
+            Some("https://rt.test")
+        );
+        assert_eq!(
+            deserialized.global_settings.retention_period_secs,
+            Some(7200)
+        );
         assert_eq!(deserialized.global_settings.expose_metrics, Some(false));
         assert_eq!(deserialized.worker_configs.len(), 2);
         assert_eq!(
-            deserialized.worker_configs["default"].worker_tags.as_deref(),
+            deserialized.worker_configs["default"]
+                .worker_tags
+                .as_deref(),
             Some(["deno".to_string()].as_slice())
         );
         assert_eq!(

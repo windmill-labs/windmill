@@ -1169,6 +1169,8 @@ interface SlackApprovalOptions {
   approver?: string;
   defaultArgsJson?: Record<string, any>;
   dynamicEnumsJson?: Record<string, any>;
+  resumeButtonText?: string;
+  cancelButtonText?: string;
 }
 
 interface TeamsApprovalOptions {
@@ -1208,6 +1210,8 @@ interface TeamsApprovalOptions {
  *   approver: "approver123",
  *   defaultArgsJson: { key1: "value1", key2: 42 },
  *   dynamicEnumsJson: { foo: ["choice1", "choice2"], bar: ["optionA", "optionB"] },
+ *   resumeButtonText: "Resume",
+ *   cancelButtonText: "Cancel",
  * });
  * ```
  *
@@ -1220,6 +1224,8 @@ export async function requestInteractiveSlackApproval({
   approver,
   defaultArgsJson,
   dynamicEnumsJson,
+  resumeButtonText,
+  cancelButtonText,
 }: SlackApprovalOptions): Promise<void> {
   const workspace = getWorkspace();
   const flowJobId = getEnv("WM_FLOW_JOB_ID");
@@ -1244,6 +1250,8 @@ export async function requestInteractiveSlackApproval({
     flowStepId: string;
     defaultArgsJson?: string;
     dynamicEnumsJson?: string;
+    resumeButtonText?: string;
+    cancelButtonText?: string;
   } = {
     slackResourcePath,
     channelId,
@@ -1263,6 +1271,13 @@ export async function requestInteractiveSlackApproval({
 
   if (dynamicEnumsJson) {
     params.dynamicEnumsJson = JSON.stringify(dynamicEnumsJson);
+  }
+
+  if (resumeButtonText) {
+    params.resumeButtonText = resumeButtonText;
+  }
+  if (cancelButtonText) {
+    params.cancelButtonText = cancelButtonText;
   }
 
   await JobService.getSlackApprovalPayload({

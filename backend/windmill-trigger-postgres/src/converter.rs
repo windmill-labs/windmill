@@ -361,19 +361,13 @@ mod tests {
     fn test_timestamp() {
         let result =
             Converter::try_from_str(Some(Type::TIMESTAMP), "2024-01-15 14:30:00.0").unwrap();
-        assert_eq!(
-            result,
-            Value::String("2024-01-15 14:30:00".to_string())
-        );
+        assert_eq!(result, Value::String("2024-01-15 14:30:00".to_string()));
     }
 
     #[test]
     fn test_timestamptz() {
-        let result = Converter::try_from_str(
-            Some(Type::TIMESTAMPTZ),
-            "2024-01-15 14:30:00.0+00",
-        )
-        .unwrap();
+        let result =
+            Converter::try_from_str(Some(Type::TIMESTAMPTZ), "2024-01-15 14:30:00.0+00").unwrap();
         assert!(result.as_str().unwrap().contains("2024-01-15"));
     }
 
@@ -484,8 +478,7 @@ mod tests {
 
     #[test]
     fn test_array_with_escaped_backslash() {
-        let result =
-            Converter::try_from_str(Some(Type::TEXT_ARRAY), r#"{"a\\b","c"}"#).unwrap();
+        let result = Converter::try_from_str(Some(Type::TEXT_ARRAY), r#"{"a\\b","c"}"#).unwrap();
         assert_eq!(result, json!(["a\\b", "c"]));
     }
 
