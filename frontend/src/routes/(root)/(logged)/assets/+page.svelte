@@ -324,7 +324,7 @@
 {/if}
 
 <AssetsUsageDrawer bind:this={assetsUsageDropdown} />
-<S3FilePicker bind:this={s3FilePicker} readOnlyMode />
+<S3FilePicker bind:this={s3FilePicker} readOnlyMode allowDelete />
 <VolumesDrawer
 	bind:this={volumesDrawer}
 	onExplore={(name) => s3FilePicker?.open({ s3: `volumes/${name}/` })}

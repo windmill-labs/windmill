@@ -81,6 +81,7 @@
 				count: number
 			}
 		>
+		allowDelete?: boolean
 		replaceUnauthorizedWarning?: Snippet
 		listStoredFilesRequest?: (d: ListStoredFilesData) => CancelablePromise<ListStoredFilesResponse>
 		loadFilePreviewRequest?: (d: LoadFilePreviewData) => CancelablePromise<LoadFilePreviewResponse>
@@ -107,6 +108,7 @@
 		storage = $bindable(undefined),
 		uploadModalOpen = $bindable(false),
 		allFilesByKey = $bindable({}),
+		allowDelete = false,
 		replaceUnauthorizedWarning,
 		listStoredFilesRequest = HelpersService.listStoredFiles,
 		loadFilePreviewRequest = HelpersService.loadFilePreview,
@@ -727,8 +729,10 @@
 											startIcon={{ icon: MoveRight }}
 											iconOnly={true}
 										/>
+									{/if}
+									{#if !readOnlyMode || allowDelete}
 										<Button
-											title="Delete file from S3"
+											title="Delete file"
 											variant="default"
 											on:click={() => {
 												deletionModalOpen = true
