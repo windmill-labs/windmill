@@ -15830,6 +15830,7 @@ dependencies = [
  "dashmap 6.1.0",
  "datafusion",
  "ed25519-dalek",
+ "eventsource-stream",
  "flate2",
  "futures",
  "git-version",

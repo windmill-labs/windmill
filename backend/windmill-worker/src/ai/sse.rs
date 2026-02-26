@@ -5,14 +5,17 @@ use reqwest::Response;
 use serde::Deserialize;
 use serde_json;
 use tokio_stream::StreamExt;
-use windmill_common::{error::Error, utils::rd_string};
+use windmill_common::{
+    ai_google::{parse_gemini_sse_event, GeminiUsageMetadata},
+    ai_types::{ExtraContent, GoogleExtraContent, OpenAIFunction, OpenAIToolCall},
+    error::Error,
+    utils::rd_string,
+};
 
 use crate::ai::{
     query_builder::StreamEventProcessor,
     types::{StreamingEvent, UrlCitation},
 };
-
-use windmill_common::ai_types::{ExtraContent, GoogleExtraContent, OpenAIFunction, OpenAIToolCall};
 
 #[derive(Deserialize)]
 pub struct OpenAIChoiceDeltaToolCallFunction {
@@ -457,96 +460,19 @@ impl SSEParser for AnthropicSSEParser {
 // Gemini SSE Parser
 // ============================================================================
 
-/// Gemini streaming response part - can be text or function call
-#[derive(Deserialize, Debug)]
-pub struct GeminiSSEPart {
-    #[serde(default)]
-    pub text: Option<String>,
-    #[serde(rename = "functionCall")]
-    pub function_call: Option<GeminiSSEFunctionCall>,
-    /// Thought signature for Gemini 3+ models - required for function calling
-    #[serde(rename = "thoughtSignature")]
-    pub thought_signature: Option<String>,
-}
-
-/// Function call in Gemini streaming response
-#[derive(Deserialize, Debug)]
-pub struct GeminiSSEFunctionCall {
-    pub name: String,
-    pub args: serde_json::Value,
-}
-
-/// Content in Gemini streaming candidate
-#[derive(Deserialize, Debug)]
-pub struct GeminiSSEContent {
-    pub parts: Option<Vec<GeminiSSEPart>>,
-}
-
-/// Web reference in Gemini grounding chunk
-#[derive(Deserialize, Debug)]
-pub struct GeminiGroundingChunkWeb {
-    pub uri: String,
-    #[serde(default)]
-    pub title: Option<String>,
-}
-
-/// Grounding chunk from Gemini web search
-#[derive(Deserialize, Debug)]
-pub struct GeminiGroundingChunk {
-    pub web: Option<GeminiGroundingChunkWeb>,
-}
-
-/// Grounding metadata from Gemini web search
-#[derive(Deserialize, Debug)]
-pub struct GeminiGroundingMetadata {
-    #[serde(rename = "groundingChunks", default)]
-    pub grounding_chunks: Vec<GeminiGroundingChunk>,
-    #[serde(rename = "webSearchQueries", default)]
-    pub web_search_queries: Vec<String>,
-}
-
-/// Candidate in Gemini streaming response
-#[derive(Deserialize, Debug)]
-pub struct GeminiSSECandidate {
-    pub content: Option<GeminiSSEContent>,
-    #[serde(rename = "finishReason")]
-    #[allow(dead_code)]
-    pub finish_reason: Option<String>,
-    #[serde(rename = "groundingMetadata")]
-    pub grounding_metadata: Option<GeminiGroundingMetadata>,
-}
-
-/// Gemini usage metadata from SSE response
-#[derive(Deserialize, Debug, Clone)]
-pub struct GeminiUsageMetadata {
-    #[serde(rename = "promptTokenCount", default)]
-    pub prompt_token_count: Option<i32>,
-    #[serde(rename = "candidatesTokenCount", default)]
-    pub candidates_token_count: Option<i32>,
-    #[serde(rename = "totalTokenCount", default)]
-    pub total_token_count: Option<i32>,
-}
-
-/// Gemini SSE event structure
-#[derive(Deserialize, Debug)]
-pub struct GeminiSSEEvent {
-    pub candidates: Option<Vec<GeminiSSECandidate>>,
-    #[serde(rename = "usageMetadata")]
-    pub usage_metadata: Option<GeminiUsageMetadata>,
-}
-
-/// Gemini SSE Parser for streaming responses
+/// Accumulates Gemini streaming events and converts them into the worker's
+/// internal [`OpenAIToolCall`] / [`StreamingEvent`] representation.
+///
+/// The actual SSE parsing is delegated to [`parse_gemini_sse_event`] from
+/// `windmill_common::ai_google` so the logic can be shared with the API proxy.
 pub struct GeminiSSEParser {
     pub accumulated_content: String,
     pub accumulated_tool_calls: HashMap<i64, OpenAIToolCall>,
     pub events_str: String,
     pub stream_event_processor: StreamEventProcessor,
     tool_call_index: i64,
-    /// Collected URL citation annotations from web search
     pub annotations: Vec<UrlCitation>,
-    /// Whether web search was used in this response
     pub used_websearch: bool,
-    /// Token usage from usageMetadata
     pub usage: Option<GeminiUsageMetadata>,
 }
 
@@ -567,101 +493,57 @@ impl GeminiSSEParser {
 
 impl SSEParser for GeminiSSEParser {
     async fn parse_event_data(&mut self, data: &str) -> Result<(), Error> {
-        let event: Option<GeminiSSEEvent> = serde_json::from_str(data)
-            .inspect_err(|e| {
-                tracing::error!("Failed to parse SSE as a Gemini event {}: {}", data, e);
-            })
-            .ok();
+        let Some(parsed) = parse_gemini_sse_event(data)? else {
+            return Ok(());
+        };
 
-        if let Some(event) = event {
-            if let Some(candidates) = event.candidates {
-                for candidate in candidates {
-                    if let Some(content) = candidate.content {
-                        if let Some(parts) = content.parts {
-                            for part in parts {
-                                // Handle text content
-                                if let Some(text) = part.text {
-                                    if !text.is_empty() {
-                                        self.accumulated_content.push_str(&text);
-                                        let event = StreamingEvent::TokenDelta { content: text };
-                                        self.stream_event_processor
-                                            .send(event, &mut self.events_str)
-                                            .await?;
-                                    }
-                                }
+        if let Some(text) = parsed.text {
+            self.accumulated_content.push_str(&text);
+            self.stream_event_processor
+                .send(StreamingEvent::TokenDelta { content: text }, &mut self.events_str)
+                .await?;
+        }
 
-                                // Handle function calls
-                                if let Some(function_call) = part.function_call {
-                                    let call_id = format!("call_{}", rd_string(24));
-                                    let idx = self.tool_call_index;
-                                    self.tool_call_index += 1;
+        for tool_call in parsed.tool_calls {
+            let call_id = format!("call_{}", rd_string(24));
+            let idx = self.tool_call_index;
+            self.tool_call_index += 1;
 
-                                    // Send tool call start event
-                                    let event = StreamingEvent::ToolCall {
-                                        call_id: call_id.clone(),
-                                        function_name: function_call.name.clone(),
-                                    };
-                                    self.stream_event_processor
-                                        .send(event, &mut self.events_str)
-                                        .await?;
+            self.stream_event_processor
+                .send(
+                    StreamingEvent::ToolCall {
+                        call_id: call_id.clone(),
+                        function_name: tool_call.name.clone(),
+                    },
+                    &mut self.events_str,
+                )
+                .await?;
 
-                                    // Build extra_content with thought_signature if present
-                                    let extra_content =
-                                        part.thought_signature.map(|sig| ExtraContent {
-                                            google: Some(GoogleExtraContent {
-                                                thought_signature: Some(sig),
-                                            }),
-                                        });
+            let extra_content = tool_call.thought_signature.map(|sig| ExtraContent {
+                google: Some(GoogleExtraContent { thought_signature: Some(sig) }),
+            });
 
-                                    // Store accumulated tool call
-                                    self.accumulated_tool_calls.insert(
-                                        idx,
-                                        OpenAIToolCall {
-                                            id: call_id,
-                                            function: OpenAIFunction {
-                                                name: function_call.name,
-                                                arguments: serde_json::to_string(
-                                                    &function_call.args,
-                                                )
-                                                .unwrap_or_else(|_| "{}".to_string()),
-                                            },
-                                            r#type: "function".to_string(),
-                                            extra_content,
-                                        },
-                                    );
-                                }
-                            }
-                        }
-                    }
+            self.accumulated_tool_calls.insert(
+                idx,
+                OpenAIToolCall {
+                    id: call_id,
+                    function: OpenAIFunction {
+                        name: tool_call.name,
+                        arguments: serde_json::to_string(&tool_call.args)
+                            .unwrap_or_else(|_| "{}".to_string()),
+                    },
+                    r#type: "function".to_string(),
+                    extra_content,
+                },
+            );
+        }
 
-                    // Handle grounding metadata (web search results)
-                    if let Some(ref grounding_metadata) = candidate.grounding_metadata {
-                        // Set used_websearch if there are search queries or grounding chunks
-                        if !grounding_metadata.web_search_queries.is_empty()
-                            || !grounding_metadata.grounding_chunks.is_empty()
-                        {
-                            self.used_websearch = true;
-                        }
-
-                        // Extract citations from grounding chunks
-                        for chunk in &grounding_metadata.grounding_chunks {
-                            if let Some(ref web) = chunk.web {
-                                self.annotations.push(UrlCitation {
-                                    start_index: 0, // Gemini doesn't provide character indices
-                                    end_index: 0,
-                                    url: web.uri.clone(),
-                                    title: web.title.clone(),
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Extract usage metadata
-            if let Some(usage_metadata) = event.usage_metadata {
-                self.usage = Some(usage_metadata);
-            }
+        self.annotations.extend(parsed.annotations);
+        if parsed.used_websearch {
+            self.used_websearch = true;
+        }
+        if let Some(usage) = parsed.usage {
+            self.usage = Some(usage);
         }
 
         Ok(())

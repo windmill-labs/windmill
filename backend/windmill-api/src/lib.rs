@@ -67,6 +67,7 @@ use crate::scim_oss::has_scim_token;
 use windmill_common::error::AppError;
 
 mod ai;
+mod google;
 mod apps;
 pub mod args;
 mod audit;
