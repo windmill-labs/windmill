@@ -100,7 +100,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let queue_count: Tweened<number> | undefined = $state()
 	let suspended_count: Tweened<number> | undefined = $state()
 	let loading = $state(false)
-	let lastFetchWentToEnd = $state(false)
+	let lastFetchWentToEnd = $state(true)
 
 	let completedJobs: CompletedJob[] | undefined = $state()
 	let externalJobs: Job[] | undefined = $state()
@@ -329,6 +329,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 					jobs = sortMinDate(minTs, newJobs)
 					externalJobs = []
 					computeCompletedJobs()
+					lastFetchWentToEnd = newJobs.length < perPage
 					loading = false
 				}
 			)
@@ -359,6 +360,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 						externalJobs = computeExternalJobs(newExternalJobs)
 					}
 					computeCompletedJobs()
+					lastFetchWentToEnd = newJobs.length < perPage
 					loading = false
 				}
 			)
