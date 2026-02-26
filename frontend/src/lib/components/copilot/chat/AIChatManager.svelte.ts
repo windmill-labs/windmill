@@ -57,7 +57,7 @@ import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 import { getAnthropicCompletion, parseAnthropicCompletion } from './anthropic'
 import { getOpenAIResponsesCompletion, parseOpenAIResponsesCompletion } from './openai-responses'
 import type { ReviewChangesOpts } from './monaco-adapter'
-import { getCurrentModel, getCombinedCustomPrompt } from '$lib/aiStore'
+import { getCurrentModel, tryGetCurrentModel, getCombinedCustomPrompt } from '$lib/aiStore'
 
 // If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
 const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
@@ -229,11 +229,12 @@ class AIChatManager {
 			closeScriptSettings?: boolean
 		}
 	) {
+		if (mode === AIMode.SCRIPT && !tryGetCurrentModel()) return
 		this.mode = mode
 		this.pendingPrompt = pendingPrompt ?? ''
 		if (mode === AIMode.SCRIPT) {
-			const customPrompt = getCombinedCustomPrompt(mode)
 			const currentModel = getCurrentModel()
+			const customPrompt = getCombinedCustomPrompt(mode)
 			const lang = this.scriptEditorOptions?.lang ?? 'bun'
 			const context = this.contextManager.getSelectedContext()
 			this.systemMessage = prepareScriptSystemMessage(currentModel, lang, {}, customPrompt)

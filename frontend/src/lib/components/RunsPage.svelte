@@ -429,14 +429,14 @@
 	}
 
 	function jobsFilter(f: 'waiting' | 'suspended') {
-		filters.val.path = undefined
-		filters.val.user = undefined
-		filters.val.folder = undefined
-		filters.val.label = undefined
-		filters.val.concurrency_key = undefined
-		filters.val.tag = undefined
-		filters.val.worker = undefined
-		filters.val.schedule_path = undefined
+		delete filters.val.path
+		delete filters.val.user
+		delete filters.val.folder
+		delete filters.val.label
+		delete filters.val.concurrency_key
+		delete filters.val.tag
+		delete filters.val.worker
+		delete filters.val.schedule_path
 		filters.val.status = filters.val.status == f ? undefined : f
 		filters.val.job_kinds = 'all'
 	}
@@ -703,9 +703,7 @@
 						bind:checked={
 							() => filters.val.show_future_jobs !== false,
 							(v) =>
-								v
-									? delete filters.val.show_future_jobs
-									: (filters.val.show_future_jobs = false)
+								v ? delete filters.val.show_future_jobs : (filters.val.show_future_jobs = false)
 						}
 					/>
 					<Clock size={14} />
