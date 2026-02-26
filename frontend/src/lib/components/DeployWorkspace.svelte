@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { base } from '$lib/base'
-	import { enterpriseLicense, superadmin, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, superadmin, workspaceStore } from '$lib/stores'
 	import {
 		AppService,
 		FlowService,

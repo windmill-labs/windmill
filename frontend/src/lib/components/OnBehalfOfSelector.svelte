@@ -187,7 +187,7 @@
 			</a>
 		</div>
 
-		<TextInput bind:value={searchQuery} placeholder="Search users..." />
+		<TextInput bind:value={searchQuery} inputProps={{ placeholder: 'Search users...' }} />
 
 		<div class="max-h-60 overflow-y-auto border rounded">
 			{#each filteredUsers as user (user.email)}
