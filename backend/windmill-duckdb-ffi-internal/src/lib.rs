@@ -170,8 +170,7 @@ fn setup_duckdb_connection(
     base_internal_url: &str,
     w_id: &str,
 ) -> Result<(), String> {
-    let (s3_access_key, s3_secret_key) = token.split_at(token.rfind('.').unwrap_or(0));
-    let s3_secret_key = &s3_secret_key[1..];
+    let (s3_access_key, s3_secret_key) = token.rsplit_once('.').unwrap_or(("", token));
     let (s3_endpoint_ssl, s3_endpoint) = base_internal_url
         .split_once("://")
         .unwrap_or(("http", &base_internal_url));
