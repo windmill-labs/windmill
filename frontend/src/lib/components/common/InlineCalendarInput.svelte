@@ -503,7 +503,11 @@
 				<span
 					class={twMerge(
 						'relative z-10',
-						selected ? 'text-white dark:text-white' : isToday && !disabled ? 'text-accent' : ''
+						selected
+							? 'text-white dark:text-white'
+							: isToday && !disabled
+								? 'text-accent font-semibold'
+								: ''
 					)}
 				>
 					{cell.day}
