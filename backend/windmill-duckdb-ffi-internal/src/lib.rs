@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     ffi::{c_char, c_uint, CStr, CString},
     ptr::null_mut,
+    sync::LazyLock,
 };
 
 use duckdb::{core::LogicalTypeId, params_from_iter, types::TimeUnit, Row};
@@ -125,9 +126,10 @@ fn is_setup_statement(query: &str) -> bool {
         || upper.starts_with("CREATE SECRET")
 }
 
+static PARAM_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\$\d+").expect("invalid regex"));
+
 fn replace_params_with_null(query: &str) -> String {
-    let re = Regex::new(r"\$\d+").unwrap();
-    re.replace_all(query, "NULL").to_string()
+    PARAM_RE.replace_all(query, "NULL").to_string()
 }
 
 #[unsafe(no_mangle)]
