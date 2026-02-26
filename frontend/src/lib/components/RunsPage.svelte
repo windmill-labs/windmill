@@ -429,14 +429,14 @@
 	}
 
 	function jobsFilter(f: 'waiting' | 'suspended') {
-		filters.val.path = undefined
-		filters.val.user = undefined
-		filters.val.folder = undefined
-		filters.val.label = undefined
-		filters.val.concurrency_key = undefined
-		filters.val.tag = undefined
-		filters.val.worker = undefined
-		filters.val.schedule_path = undefined
+		delete filters.val.path
+		delete filters.val.user
+		delete filters.val.folder
+		delete filters.val.label
+		delete filters.val.concurrency_key
+		delete filters.val.tag
+		delete filters.val.worker
+		delete filters.val.schedule_path
 		filters.val.status = filters.val.status == f ? undefined : f
 		filters.val.job_kinds = 'all'
 	}
@@ -703,9 +703,7 @@
 						bind:checked={
 							() => filters.val.show_future_jobs !== false,
 							(v) =>
-								v
-									? delete filters.val.show_future_jobs
-									: (filters.val.show_future_jobs = false)
+								v ? delete filters.val.show_future_jobs : (filters.val.show_future_jobs = false)
 						}
 					/>
 					<Clock size={14} />
@@ -720,7 +718,11 @@
 				bind:value={_timeframe.val}
 			/>
 			<FilterSearchbar
-				class="flex-1 relative max-w-[34rem] min-w-[18rem] {ButtonType.UnifiedMinHeightClasses.md}"
+				class={twMerge(
+					'flex-1 relative min-w-[18rem]',
+					Object.keys(filters.val).length <= 3 ? 'max-w-[28rem]' : 'max-w-[34rem]',
+					ButtonType.UnifiedMinHeightClasses.md
+				)}
 				schema={runsFilterSearchbarSchema}
 				presets={buildRunsFilterPresets({ isSuperadmin: !!$superadmin })}
 				bind:value={filters.val}

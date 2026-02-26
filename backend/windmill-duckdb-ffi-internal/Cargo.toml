@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 chrono = "0.4.41"
-duckdb = { rev = "fe0702529de6ec5a568337726bba9355503157d2", git = "https://github.com/windmill-labs/duckdb-rs.git", features = ["bundled"] }
+duckdb = { version = "1.4.4", features = ["bundled"] }
 rust_decimal = "1.37.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "^1", features = ["preserve_order", "raw_value"] }

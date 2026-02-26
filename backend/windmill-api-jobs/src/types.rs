@@ -121,6 +121,7 @@ pub struct ListQueueQuery {
     pub trigger_kind: Option<NegatedListFilter<JobTriggerKind>>,
     pub trigger_path: Option<NegatedListFilter<String>>,
     pub include_args: Option<bool>,
+    pub broad_filter: Option<String>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -165,6 +166,7 @@ pub struct ListCompletedQuery {
     pub trigger_kind: Option<NegatedListFilter<JobTriggerKind>>,
     pub trigger_path: Option<NegatedListFilter<String>>,
     pub include_args: Option<bool>,
+    pub broad_filter: Option<String>,
 }
 
 impl From<ListCompletedQuery> for ListQueueQuery {
@@ -199,6 +201,7 @@ impl From<ListCompletedQuery> for ListQueueQuery {
             trigger_kind: lcq.trigger_kind,
             trigger_path: lcq.trigger_path,
             include_args: lcq.include_args,
+            broad_filter: lcq.broad_filter,
         }
     }
 }
@@ -703,6 +706,7 @@ mod tests {
             trigger_kind: None,
             trigger_path: None,
             include_args: None,
+            broad_filter: None,
         };
 
         let lqq: ListQueueQuery = lcq.into();
@@ -770,6 +774,7 @@ mod tests {
             trigger_kind: None,
             trigger_path: None,
             include_args: None,
+            broad_filter: None,
         };
 
         let lqq: ListQueueQuery = lcq.into();

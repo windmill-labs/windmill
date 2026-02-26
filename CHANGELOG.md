@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.645.0](https://github.com/windmill-labs/windmill/compare/v1.644.0...v1.645.0) (2026-02-26)
+
+
+### Features
+
+* add resume and cancel button text options to Slack approval API + formatted args + typo ([#8095](https://github.com/windmill-labs/windmill/issues/8095)) ([c7c828b](https://github.com/windmill-labs/windmill/commit/c7c828b56e7a5f877ef0a78498018ed930bccb23))
+* Data table as pg resource / trigger ([#8088](https://github.com/windmill-labs/windmill/issues/8088)) ([8e7ba9b](https://github.com/windmill-labs/windmill/commit/8e7ba9b33da2ddba0eba8341219b9a3576a9d95d))
+* option to preserve on_behalf_of and edited_by for admins and users in the new wm_deployers group ([#8079](https://github.com/windmill-labs/windmill/issues/8079)) ([7ac93f6](https://github.com/windmill-labs/windmill/commit/7ac93f6ee30eb8dfa6ddb9c19697cde93bf7e134))
+* per-worktree database isolation and Claude Code auto-trust ([09970cd](https://github.com/windmill-labs/windmill/commit/09970cd22b8f19c6d01351f9a9bf4aac170116c2))
+* show triggers in fork deploy to parent UI. ([#8094](https://github.com/windmill-labs/windmill/issues/8094)) ([935b005](https://github.com/windmill-labs/windmill/commit/935b0058e2b8056e07f8dd8f80ef6de78ca8331f))
+
+
+### Bug Fixes
+
+* **backend:** fix skip check crash when flow-level skip_expr triggers on first module with skip_if ([#8111](https://github.com/windmill-labs/windmill/issues/8111)) ([7bb450e](https://github.com/windmill-labs/windmill/commit/7bb450edbfccd5c21dc5dbc1e7bf2f2ecc4c779c))
+* **backend:** pass parent_path for trigger renames in git sync ([#8059](https://github.com/windmill-labs/windmill/issues/8059)) ([5730009](https://github.com/windmill-labs/windmill/commit/5730009404171cbffb67d0296baf9c0aa2858816))
+* correct asset node x offset inside loops and branches ([#8093](https://github.com/windmill-labs/windmill/issues/8093)) ([1c9ac97](https://github.com/windmill-labs/windmill/commit/1c9ac97f876a82c6ce3b18e30ffdeea79ccd4481))
+* delete non-session tokens on workspace archive and reject token creation for archived workspaces ([#8082](https://github.com/windmill-labs/windmill/issues/8082)) ([bc67255](https://github.com/windmill-labs/windmill/commit/bc672555a77f3b78ff324a26603d2ab7839df77e))
+* improve Anthropic API proxy handling and update default models ([#8105](https://github.com/windmill-labs/windmill/issues/8105)) ([a9968d0](https://github.com/windmill-labs/windmill/commit/a9968d0aed446a090b158c3269ffeb6907330933))
+* optimize slow list_assets query for recents loading ([#8103](https://github.com/windmill-labs/windmill/issues/8103)) ([0c204b6](https://github.com/windmill-labs/windmill/commit/0c204b69bdd319af2706c1add552622678cd343f))
+* remove duplicate num_columns in test_parse_relation test ([cff9e2c](https://github.com/windmill-labs/windmill/commit/cff9e2c5c22b3c1a0b5891839fe59e4058ded888))
+* resolve Vite dependency pre-bundling errors ([#8102](https://github.com/windmill-labs/windmill/issues/8102)) ([07ddcd2](https://github.com/windmill-labs/windmill/commit/07ddcd2a08c103246b2b60f9df1ffb477ff97006))
+* use @-prefixed LIKE pattern for email domain matching ([#8101](https://github.com/windmill-labs/windmill/issues/8101)) ([02d5447](https://github.com/windmill-labs/windmill/commit/02d5447e1d567a18b0d6eb24f3423bd675f6cbe8))
+* use main runtime handle in QuickJS eval to prevent connection pool poisoning ([#8106](https://github.com/windmill-labs/windmill/issues/8106)) ([af2aca5](https://github.com/windmill-labs/windmill/commit/af2aca56b04c7a3fd25f096f2471292489923431))
+
 ## [1.644.0](https://github.com/windmill-labs/windmill/compare/v1.643.0...v1.644.0) (2026-02-24)
 
 
