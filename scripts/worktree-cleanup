@@ -23,6 +23,20 @@ else
   echo "[cleanup] No .env.local at $wt_dir/.env.local"
 fi
 
+# Drop per-worktree database
+if [ -n "${WM_DB_NAME:-}" ]; then
+  db_conn="postgres://postgres:changeme@127.0.0.1:5432"
+  if command -v psql &>/dev/null; then
+    psql "$db_conn/postgres" -c "DROP DATABASE IF EXISTS ${WM_DB_NAME} WITH (FORCE)" 2>/dev/null \
+      && echo "[cleanup] Dropped database $WM_DB_NAME" \
+      || echo "[cleanup] Warning: Could not drop database $WM_DB_NAME"
+  else
+    echo "[cleanup] psql not found, skipping database cleanup for $WM_DB_NAME"
+  fi
+else
+  echo "[cleanup] No WM_DB_NAME in .env.local, skipping database cleanup"
+fi
+
 # Remove the matching windmill-ee-private worktree if one exists
 wt_basename=$(basename "$wt_dir")
 
