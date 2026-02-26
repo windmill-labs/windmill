@@ -100,7 +100,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let queue_count: Tweened<number> | undefined = $state()
 	let suspended_count: Tweened<number> | undefined = $state()
 	let loading = $state(false)
-	let lastFetchWentToEnd = $state(false)
+	let lastFetchWentToEnd = $state(true)
 
 	let completedJobs: CompletedJob[] | undefined = $state()
 	let externalJobs: Job[] | undefined = $state()
@@ -109,6 +109,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 
 	let intervalId: ReturnType<typeof setInterval> | undefined = $state()
 	let sync = true
+	let paramChangeTimeout: ReturnType<typeof setTimeout> | undefined
 
 	function onParamChanges() {
 		resetJobs()
@@ -180,11 +181,18 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		loadingFetch = true
 		let scriptPathStart = folder == null || folder === '' ? undefined : `f/${folder}/`
 		let scriptPathExact = path == null || path === '' ? undefined : path
+		let isQueueOnly = success == 'running' || success == 'suspended' || success == 'waiting'
+		let isCompletedOnly = success == 'success' || success == 'failure'
 		let promise = JobService.listJobs({
 			workspace: currentWorkspace,
-			completedBefore: completedBefore ?? undefined,
-			completedAfter: completedAfter ?? undefined,
-			createdAfterQueue,
+			completedBefore: isQueueOnly ? undefined : (completedBefore ?? undefined),
+			completedAfter: isQueueOnly ? undefined : (completedAfter ?? undefined),
+			createdBeforeQueue: isQueueOnly ? (completedBefore ?? undefined) : undefined,
+			createdAfterQueue: isCompletedOnly
+				? undefined
+				: isQueueOnly
+					? (completedAfter ?? createdAfterQueue)
+					: createdAfterQueue,
 			schedulePath: schedulePath ?? undefined,
 			scriptPathExact,
 			createdBy: user == null || user === '' ? undefined : user,
@@ -311,16 +319,20 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		const extendedMinTs = subtractDaysFromDateString(minTs, lookback)
 
 		if (concurrencyKey == null || concurrencyKey === '') {
-			return CancelablePromiseUtils.map(fetchJobs(maxTs, null, extendedMinTs), (newJobs) => {
-				extendedJobs = { jobs: newJobs, obscured_jobs: [] } as ExtendedJobs
+			return CancelablePromiseUtils.map(
+				fetchJobs(maxTs, extendedMinTs ?? null, extendedMinTs),
+				(newJobs) => {
+					extendedJobs = { jobs: newJobs, obscured_jobs: [] } as ExtendedJobs
 
-				// Filter on minTs here and not in the backend
-				// to get enough data for the concurrency graph
-				jobs = sortMinDate(minTs, newJobs)
-				externalJobs = []
-				computeCompletedJobs()
-				loading = false
-			})
+					// Filter on minTs here and not in the backend
+					// to get enough data for the concurrency graph
+					jobs = sortMinDate(minTs, newJobs)
+					externalJobs = []
+					computeCompletedJobs()
+					lastFetchWentToEnd = newJobs.length < perPage
+					loading = false
+				}
+			)
 		} else {
 			return CancelablePromiseUtils.map(
 				fetchExtendedJobs(concurrencyKey, maxTs, extendedMinTs ?? null),
@@ -348,6 +360,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 						externalJobs = computeExternalJobs(newExternalJobs)
 					}
 					computeCompletedJobs()
+					lastFetchWentToEnd = newJobs.length < perPage
 					loading = false
 				}
 			)
@@ -377,6 +390,9 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 
 	async function syncer() {
 		if (loadingFetch) {
+			return
+		}
+		if (timeframe?.type === 'manual') {
 			return
 		}
 		if (sync) {
@@ -526,12 +542,18 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		Object.keys(filters ?? {}).map((k) => filters?.[k as keyof RunsFilterInstance])
 		currentWorkspace
 		lookback
-		timeframe
 		perPage
 		showSchedules
 		showFutureJobs
-		let p = untrack(() => onParamChanges())
-		return () => p.cancel()
+		let p: CancelablePromise<void> | undefined
+		clearTimeout(paramChangeTimeout)
+		paramChangeTimeout = setTimeout(() => {
+			p = untrack(() => onParamChanges())
+		}, 0)
+		return () => {
+			clearTimeout(paramChangeTimeout)
+			p?.cancel()
+		}
 	})
 	$effect(() => {
 		;[autoRefresh, refreshRate]
