@@ -74,6 +74,24 @@ profiles:
           XDG_DATA_HOME=/tmp/.local/share \
             asciinema upload --server-url https://asciinema.org /tmp/demo.cast
 
+      --- Mermaid Diagrams ---
+      You can render Mermaid diagrams to SVG using the pre-installed mmdc CLI.
+      The puppeteer no-sandbox config is at /root/.puppeteerrc.json.
+
+      1) Write a .mmd file with your diagram:
+          cat > /tmp/diagram.mmd << 'EOF'
+          graph TD
+            A[Start] --> B[End]
+          EOF
+
+      2) Render to SVG:
+          mmdc -i /tmp/diagram.mmd -o /tmp/diagram.svg
+
+      3) Upload to R2 (same as screenshots):
+          aws s3 cp /tmp/diagram.svg
+          "s3://$(printenv R2_BUCKET)/$(git rev-parse --abbrev-ref HEAD)/diagram.svg"
+          --endpoint-url "$(printenv R2_ENDPOINT)"
+
 linkedRepos:
   - repo: windmill-labs/windmill-ee-private
     alias: ee

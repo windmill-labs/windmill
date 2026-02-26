@@ -56,6 +56,11 @@ ENV PATH="/root/.local/bin:$PATH"
 # ── Codex ─────────────────────────────────────────────────────────────────────
 RUN npm i -g @openai/codex
 
+# ── Mermaid CLI ───────────────────────────────────────────────────────────────
+RUN npm i -g @mermaid-js/mermaid-cli
+# Allow puppeteer (used by mmdc) to run as root inside the container
+RUN echo '{"args":["--no-sandbox","--disable-setuid-sandbox"]}' > /root/.puppeteerrc.json
+
 # ── Entrypoint (run explicitly via docker exec, not on container start) ──────
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
