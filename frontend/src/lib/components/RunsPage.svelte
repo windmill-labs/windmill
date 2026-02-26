@@ -703,9 +703,7 @@
 						bind:checked={
 							() => filters.val.show_future_jobs !== false,
 							(v) =>
-								v
-									? delete filters.val.show_future_jobs
-									: (filters.val.show_future_jobs = false)
+								v ? delete filters.val.show_future_jobs : (filters.val.show_future_jobs = false)
 						}
 					/>
 					<Clock size={14} />
@@ -720,7 +718,11 @@
 				bind:value={_timeframe.val}
 			/>
 			<FilterSearchbar
-				class="flex-1 relative max-w-[34rem] min-w-[18rem] {ButtonType.UnifiedMinHeightClasses.md}"
+				class={twMerge(
+					'flex-1 relative min-w-[18rem]',
+					Object.keys(filters.val).length <= 3 ? 'max-w-[24rem]' : 'max-w-[34rem]',
+					ButtonType.UnifiedMinHeightClasses.md
+				)}
 				schema={runsFilterSearchbarSchema}
 				presets={buildRunsFilterPresets({ isSuperadmin: !!$superadmin })}
 				bind:value={filters.val}
