@@ -545,7 +545,7 @@
 							options={{
 								right: 'Environment (experimental)',
 								rightTooltip:
-									'Made for monobranch setups. Passes the value as --branch/--environment to the wmill CLI, which selects the matching branch/environment configuration from wmill.yaml and includes the branch/environment in the item paths.'
+									'Made for monobranch setups. Passes the value as --branch/--env to the wmill CLI, which selects the matching branch/env configuration from wmill.yaml and includes the branch/env in the item paths.'
 							}}
 						/>
 						{#if repo.force_branch != null && repo.force_branch !== undefined}
