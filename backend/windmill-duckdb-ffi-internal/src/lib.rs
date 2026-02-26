@@ -162,6 +162,43 @@ pub extern "C" fn prepare_duckdb_ffi(
     })
 }
 
+fn setup_duckdb_connection(
+    conn: &duckdb::Connection,
+    token: &str,
+    base_internal_url: &str,
+    w_id: &str,
+) -> Result<(), String> {
+    let (s3_access_key, s3_secret_key) = token.split_at(token.rfind('.').unwrap_or(0));
+    let s3_secret_key = &s3_secret_key[1..];
+    let (s3_endpoint_ssl, s3_endpoint) = base_internal_url
+        .split_once("://")
+        .unwrap_or(("http", &base_internal_url));
+    let s3_endpoint_ssl = s3_endpoint_ssl == "https";
+
+    conn.execute_batch(&format!(
+        "INSTALL httpfs; LOAD httpfs;
+        INSTALL azure; LOAD azure;
+        CREATE OR REPLACE SECRET s3_secret (
+            TYPE s3,
+            PROVIDER config,
+            KEY_ID '{s3_access_key}',
+            SECRET '{s3_secret_key}',
+            ENDPOINT '{s3_endpoint}/api/w/{w_id}/s3_proxy',
+            URL_STYLE path,
+            USE_SSL {s3_endpoint_ssl}
+        );
+        CREATE OR REPLACE SECRET gcs_secret (
+            TYPE gcs,
+            KEY_ID '{s3_access_key}',
+            SECRET '{s3_secret_key}',
+            ENDPOINT '{s3_endpoint}/api/w/{w_id}/s3_proxy',
+            USE_SSL {s3_endpoint_ssl}
+        );
+        ",
+    ))
+    .map_err(|e| format!("Error setting up S3 secret: {}", e.to_string()))
+}
+
 fn convert_prepare_args<'a>(
     query_block_list: *const *const c_char,
     query_block_list_count: usize,
@@ -203,38 +240,7 @@ fn prepare_duckdb_internal(
 ) -> Result<String, String> {
     let conn = duckdb::Connection::open_in_memory().map_err(|e| e.to_string())?;
 
-    let (s3_access_key, s3_secret_key) = token.split_at(token.rfind('.').unwrap_or(0));
-    let s3_secret_key = &s3_secret_key[1..];
-    let (s3_endpoint_ssl, s3_endpoint) = base_internal_url
-        .split_once("://")
-        .unwrap_or(("http", &base_internal_url));
-    let s3_endpoint_ssl = match s3_endpoint_ssl {
-        "https" => true,
-        _ => false,
-    };
-
-    conn.execute_batch(&format!(
-        "INSTALL httpfs; LOAD httpfs;
-        INSTALL azure; LOAD azure;
-        CREATE OR REPLACE SECRET s3_secret (
-            TYPE s3,
-            PROVIDER config,
-            KEY_ID '{s3_access_key}',
-            SECRET '{s3_secret_key}',
-            ENDPOINT '{s3_endpoint}/api/w/{w_id}/s3_proxy',
-            URL_STYLE path,
-            USE_SSL {s3_endpoint_ssl}
-        );
-        CREATE OR REPLACE SECRET gcs_secret (
-            TYPE gcs,
-            KEY_ID '{s3_access_key}',
-            SECRET '{s3_secret_key}',
-            ENDPOINT '{s3_endpoint}/api/w/{w_id}/s3_proxy',
-            USE_SSL {s3_endpoint_ssl}
-        );
-        ",
-    ))
-    .map_err(|e| format!("Error setting up S3 secret: {}", e.to_string()))?;
+    setup_duckdb_connection(&conn, token, base_internal_url, w_id)?;
 
     let mut results: Vec<PrepareQueryResult> = vec![];
 
@@ -348,38 +354,7 @@ fn run_duckdb_internal<'a>(
 ) -> Result<(String, Option<Vec<String>>), String> {
     let conn = duckdb::Connection::open_in_memory().map_err(|e| e.to_string())?;
 
-    let (s3_access_key, s3_secret_key) = token.split_at(token.rfind('.').unwrap_or(0));
-    let s3_secret_key = &s3_secret_key[1..];
-    let (s3_endpoint_ssl, s3_endpoint) = base_internal_url
-        .split_once("://")
-        .unwrap_or(("http", &base_internal_url));
-    let s3_endpoint_ssl = match s3_endpoint_ssl {
-        "https" => true,
-        _ => false,
-    };
-
-    conn.execute_batch(&format!(
-        "INSTALL httpfs; LOAD httpfs;
-        INSTALL azure; LOAD azure;
-        CREATE OR REPLACE SECRET s3_secret (
-            TYPE s3,
-            PROVIDER config,
-            KEY_ID '{s3_access_key}',
-            SECRET '{s3_secret_key}',
-            ENDPOINT '{s3_endpoint}/api/w/{w_id}/s3_proxy',
-            URL_STYLE path,
-            USE_SSL {s3_endpoint_ssl}
-        );
-        CREATE OR REPLACE SECRET gcs_secret (
-            TYPE gcs,
-            KEY_ID '{s3_access_key}',
-            SECRET '{s3_secret_key}',
-            ENDPOINT '{s3_endpoint}/api/w/{w_id}/s3_proxy',
-            USE_SSL {s3_endpoint_ssl}
-        );
-        ",
-    ))
-    .map_err(|e| format!("Error setting up S3 secret: {}", e.to_string()))?;
+    setup_duckdb_connection(&conn, token, base_internal_url, w_id)?;
 
     let mut results: Vec<Vec<Box<RawValue>>> = vec![];
     let mut column_order = None;
