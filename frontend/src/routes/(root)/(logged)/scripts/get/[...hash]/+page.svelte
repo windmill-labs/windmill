@@ -86,6 +86,8 @@
 	import TriggersEditor from '$lib/components/triggers/TriggersEditor.svelte'
 	import { Triggers } from '$lib/components/triggers/triggers.svelte'
 	import { page } from '$app/state'
+	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
+	import { buildForkEditUrl } from '$lib/utils/editInFork'
 
 	let script: Script | undefined = $state()
 	let topHash: string | undefined = $state()
@@ -344,6 +346,18 @@
 					unifiedSize: 'md',
 					variant: 'subtle',
 					disabled: !showEditButtons,
+					startIcon: GitFork
+				}
+			})
+		}
+
+		if (script && !$userStore?.operator && !isRuleActive('DisableWorkspaceForking')) {
+			buttons.push({
+				label: 'Edit in fork',
+				buttonProps: {
+					href: buildForkEditUrl('script', script.path),
+					unifiedSize: 'md',
+					variant: !showEditButtons ? 'default' : 'subtle',
 					startIcon: GitFork
 				}
 			})
