@@ -79,6 +79,13 @@
 			: activeUsers
 	)
 
+	// Preselect "target" when available and user has permission to preserve
+	$effect(() => {
+		if (selected === undefined && targetEmail && canPreserve) {
+			onSelect('target')
+		}
+	})
+
 	function openModal() {
 		loadUsers()
 		searchQuery = ''
