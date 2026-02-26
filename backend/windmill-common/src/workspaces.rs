@@ -157,6 +157,8 @@ pub struct GitRepositorySettings {
     pub use_individual_branch: Option<bool>,
     pub group_by_folder: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub force_branch: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub settings: Option<GitSyncSettings>,
 }
 
