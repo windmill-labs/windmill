@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { base } from '$lib/base'
-	import { enterpriseLicense, superadmin, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, superadmin, workspaceStore } from '$lib/stores'
 	import {
 		AppService,
 		FlowService,
@@ -77,24 +77,19 @@
 	// Target workspace on_behalf_of emails (keyed by kind:path)
 	let targetOnBehalfOfInfo = $state<Record<string, string | undefined>>({})
 	let onBehalfOfChoice = $state<Record<string, OnBehalfOfChoice>>({})
+	let customOnBehalfOfEmails = $state<Record<string, string>>({})
 	let canPreserveOnBehalfOf = $state(false)
 
-	// Check if an item needs on_behalf_of selection (more than 1 unique option)
+	// Check if an item needs on_behalf_of selection
 	function itemNeedsOnBehalfOfSelection(statusPath: string, kind: string): boolean {
-		const myIdentity = kind === 'trigger' ? $userStore?.username : $userStore?.email
-		return needsOnBehalfOfSelection(
-			kind,
-			sourceOnBehalfOfInfo[statusPath],
-			targetOnBehalfOfInfo[statusPath],
-			myIdentity
-		)
+		return needsOnBehalfOfSelection(kind, sourceOnBehalfOfInfo[statusPath])
 	}
 
 	// Get the email to use for deployment based on user's choice
 	function getOnBehalfOfEmailForDeploy(statusPath: string): string | undefined {
 		const choice = onBehalfOfChoice[statusPath]
-		if (choice === 'source') return sourceOnBehalfOfInfo[statusPath]
 		if (choice === 'target') return targetOnBehalfOfInfo[statusPath]
+		if (choice === 'custom') return customOnBehalfOfEmails[statusPath]
 		// 'me' or undefined = don't pass, backend will use deploying user's email
 		return undefined
 	}
@@ -465,18 +460,21 @@
 				{@const statusPath = item.key}
 				{@const exists = allAlreadyExists[statusPath]}
 				{@const status = deploymentStatus[statusPath]}
-				{@const sourceEmail = sourceOnBehalfOfInfo[statusPath]}
 				{@const targetEmail = targetOnBehalfOfInfo[statusPath]}
 
 				<!-- On-behalf-of selector -->
 				{#if itemNeedsOnBehalfOfSelection(statusPath, item.kind)}
 					<OnBehalfOfSelector
-						{sourceEmail}
+						targetWorkspace={workspaceToDeployTo!}
 						{targetEmail}
 						selected={onBehalfOfChoice[statusPath]}
-						onSelect={(choice) => (onBehalfOfChoice[statusPath] = choice)}
+						onSelect={(choice, email) => {
+							onBehalfOfChoice[statusPath] = choice
+							if (email) customOnBehalfOfEmails[statusPath] = email
+						}}
 						kind={item.kind}
 						canPreserve={canPreserveOnBehalfOf}
+						customEmail={customOnBehalfOfEmails[statusPath]}
 					/>
 				{/if}
 

@@ -13,6 +13,10 @@ export function buildSchedulesFilterSchema({
 	userFoldersLabel?: string
 }) {
 	return {
+		_default_: {
+			type: 'string' as const,
+			hidden: true
+		},
 		schedule_path: {
 			type: 'oneof' as const,
 			options: paths.map((s) => ({ label: s, value: s })),

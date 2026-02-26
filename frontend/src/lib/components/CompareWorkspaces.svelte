@@ -40,7 +40,7 @@
 	import DiffDrawer from './DiffDrawer.svelte'
 	import DeployWorkspaceDrawer from './DeployWorkspaceDrawer.svelte'
 	import ParentWorkspaceProtectionAlert from './ParentWorkspaceProtectionAlert.svelte'
-	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { userWorkspaces, workspaceStore } from '$lib/stores'
 
 	import type { Kind } from '$lib/utils_deployable'
 	import { deployItem, getItemValue, getOnBehalfOfEmail } from '$lib/utils_workspace_deploy'
@@ -119,6 +119,8 @@
 	// Source workspace on_behalf_of emails (keyed by workspace/kind:path)
 	let onBehalfOfInfo = $state<Record<string, string | undefined>>({})
 	let onBehalfOfChoice = $state<Record<string, OnBehalfOfChoice>>({})
+	let customOnBehalfOfEmails = $state<Record<string, string>>({})
+	let deployTargetWorkspace = $derived(mergeIntoParent ? parentWorkspaceId : currentWorkspaceId)
 
 	function getItemKey(diff: WorkspaceItemDiff): string {
 		return `${diff.kind}:${diff.path}`
@@ -210,14 +212,9 @@
 		return onBehalfOfInfo[getWorkspacedKey(targetWorkspace, itemKey)]
 	}
 
-	// Check if an item needs on_behalf_of selection (more than 1 unique option)
+	// Check if an item needs on_behalf_of selection
 	function itemNeedsOnBehalfOfSelection(itemKey: string, kind: string): boolean {
-		return needsOnBehalfOfSelection(
-			kind,
-			getSourceEmail(itemKey),
-			getTargetEmail(itemKey),
-			$userStore?.email
-		)
+		return needsOnBehalfOfSelection(kind, getSourceEmail(itemKey))
 	}
 
 	// Check if all required on_behalf_of selections are made
@@ -234,8 +231,8 @@
 	// Get the email to use for deployment based on user's choice
 	function getOnBehalfOfEmailForDeploy(itemKey: string): string | undefined {
 		const choice = onBehalfOfChoice[itemKey]
-		if (choice === 'source') return getSourceEmail(itemKey)
 		if (choice === 'target') return getTargetEmail(itemKey)
+		if (choice === 'custom') return customOnBehalfOfEmails[itemKey]
 		// 'me' or undefined = don't pass, backend will use deploying user's email
 		return undefined
 	}
@@ -868,7 +865,6 @@
 		{#snippet itemActions(item)}
 			{@const diff = item.diff as WorkspaceItemDiff}
 			{@const key = item.key}
-			{@const sourceEmail = getSourceEmail(key)}
 			{@const targetEmail = getTargetEmail(key)}
 			{@const isConflict = diff.ahead > 0 && diff.behind > 0}
 			{@const existsInBothWorkspaces = !(
@@ -878,12 +874,16 @@
 			<!-- On-behalf-of selector -->
 			{#if itemNeedsOnBehalfOfSelection(key, diff.kind)}
 				<OnBehalfOfSelector
-					{sourceEmail}
+					targetWorkspace={deployTargetWorkspace}
 					{targetEmail}
 					selected={onBehalfOfChoice[key]}
-					onSelect={(choice) => (onBehalfOfChoice[key] = choice)}
+					onSelect={(choice, email) => {
+						onBehalfOfChoice[key] = choice
+						if (email) customOnBehalfOfEmails[key] = email
+					}}
 					kind={diff.kind}
 					canPreserve={canPreserveOnBehalfOf}
+					customEmail={customOnBehalfOfEmails[key]}
 				/>
 			{/if}
 			<!-- Status badges -->
