@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { stopPropagation, createBubbler } from 'svelte/legacy'
-
-	const bubble = createBubbler()
+	import { stopPropagation } from 'svelte/legacy'
 	import { Pencil } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Button from './common/button/Button.svelte'
@@ -20,6 +18,7 @@
 		login_type: string
 		onsave?: (...args: any[]) => any
 		onrefresh?: (...args: any[]) => any
+		onkeydown?: (...args: any[]) => any
 	}
 
 	let {
@@ -29,7 +28,8 @@
 		automateUsernameCreation = false,
 		login_type = $bindable(),
 		onsave = undefined,
-		onrefresh = undefined
+		onrefresh = undefined,
+		onkeydown = undefined
 	}: Props = $props()
 
 	let password: string = $state('')
@@ -116,7 +116,7 @@
 						bind:value={password}
 						class="!w-auto grow"
 						onclick={stopPropagation(() => {})}
-						onkeydown={stopPropagation(bubble('keydown'))}
+						onkeydown={stopPropagation((e) => onkeydown?.(e))}
 						onkeypress={stopPropagation((e: Event) => {
 							if ((e as KeyboardEvent).key === 'Enter') {
 								savePassword()
@@ -146,7 +146,7 @@
 						bind:value={login_type}
 						class="!w-auto grow"
 						onclick={stopPropagation(() => {})}
-						onkeydown={stopPropagation(bubble('keydown'))}
+						onkeydown={stopPropagation((e) => onkeydown?.(e))}
 						onkeypress={stopPropagation((e: Event) => {
 							if ((e as KeyboardEvent).key === 'Enter') {
 								saveLoginType()

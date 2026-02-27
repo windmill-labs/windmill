@@ -1,7 +1,4 @@
 <script lang="ts">
-	import { createBubbler } from 'svelte/legacy'
-
-	const bubble = createBubbler()
 	import { Badge } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { getNextId } from '$lib/components/flows/idUtils'
@@ -16,9 +13,10 @@
 	interface Props {
 		components: (BaseAppComponent & ButtonComponent)[]
 		id: string
+		onkeypress?: (...args: any[]) => any
 	}
 
-	let { components = $bindable(), id }: Props = $props()
+	let { components = $bindable(), id, onkeypress = undefined }: Props = $props()
 
 	const { selectedComponent, app, errorByComponent } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -59,7 +57,7 @@
 			onclick={() => {
 				$selectedComponent = [component.id]
 			}}
-			onkeypress={bubble('keypress')}
+			onkeypress={(e) => onkeypress?.(e)}
 		>
 			<Badge color="dark-indigo">
 				{component.id}

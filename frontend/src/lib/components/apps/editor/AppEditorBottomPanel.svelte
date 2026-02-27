@@ -1,7 +1,4 @@
 <script lang="ts">
-	import { createBubbler } from 'svelte/legacy'
-
-	const bubble = createBubbler()
 	import InlineScriptsPanel from './inlineScriptsPanel/InlineScriptsPanel.svelte'
 	import RunnableJobPanel from './RunnableJobPanel.svelte'
 
@@ -9,17 +6,25 @@
 		rightPanelSize?: number
 		centerPanelWidth?: number
 		runnablePanelSize?: number
+		onmouseenter?: (...args: any[]) => any
+		onmouseleave?: (...args: any[]) => any
 	}
 
-	let { rightPanelSize = 0, centerPanelWidth = 0, runnablePanelSize = 0 }: Props = $props()
+	let {
+		rightPanelSize = 0,
+		centerPanelWidth = 0,
+		runnablePanelSize = 0,
+		onmouseenter = undefined,
+		onmouseleave = undefined
+	}: Props = $props()
 </script>
 
 {#if rightPanelSize !== 0}
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class="relative h-full w-full overflow-x-visible"
-		onmouseenter={bubble('mouseenter')}
-		onmouseleave={bubble('mouseleave')}
+		onmouseenter={(e) => onmouseenter?.(e)}
+		onmouseleave={(e) => onmouseleave?.(e)}
 	>
 		<InlineScriptsPanel on:hidePanel />
 		<RunnableJobPanel hidden={runnablePanelSize === 0} />

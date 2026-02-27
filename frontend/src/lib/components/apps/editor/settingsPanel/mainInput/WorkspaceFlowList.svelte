@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { createBubbler, stopPropagation } from 'svelte/legacy'
-
-	const bubble = createBubbler()
+	import { stopPropagation } from 'svelte/legacy'
 	import { createEventDispatcher, onMount } from 'svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -15,9 +13,15 @@
 		filter?: string
 		children?: import('svelte').Snippet
 		onpick?: (...args: any[]) => any
+		onkeydown?: (...args: any[]) => any
 	}
 
-	let { filter = $bindable(''), children, onpick = undefined }: Props = $props()
+	let {
+		filter = $bindable(''),
+		children,
+		onpick = undefined,
+		onkeydown = undefined
+	}: Props = $props()
 
 	let flows: Flow[] | undefined = $state(undefined)
 	let filteredItems: (Flow & { marked?: string })[] = $state([])
@@ -51,7 +55,7 @@
 	<input
 		type="text"
 		placeholder="Search workspace flows"
-		onkeydown={stopPropagation(bubble('keydown'))}
+		onkeydown={stopPropagation((e) => onkeydown?.(e))}
 		bind:value={filter}
 		class="text-2xl grow mb-4"
 	/>

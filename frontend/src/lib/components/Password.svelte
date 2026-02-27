@@ -1,10 +1,7 @@
 <script lang="ts">
-	import { createBubbler } from 'svelte/legacy'
 	import Button from './common/button/Button.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import { Eye, EyeClosed } from 'lucide-svelte'
-
-	const bubble = createBubbler()
 	interface Props {
 		password: string | undefined
 		placeholder?: string
@@ -14,6 +11,7 @@
 		id?: string
 		onKeyDown?: (event: KeyboardEvent) => void
 		onBlur?: (event: FocusEvent) => void
+		onkeydown?: (...args: any[]) => any
 	}
 
 	let {
@@ -24,7 +22,8 @@
 		small = false,
 		id,
 		onKeyDown,
-		onBlur
+		onBlur,
+		onkeydown = undefined
 	}: Props = $props()
 
 	let red = $derived(required && (password == '' || password == undefined))
@@ -55,7 +54,7 @@
 			onblur: (e) => onBlur?.(e),
 			onkeydown: (e) => {
 				onKeyDown?.(e)
-				bubble('keydown')(e)
+				onkeydown?.(e)
 			},
 			type: hideValue ? 'password' : 'text'
 		}}

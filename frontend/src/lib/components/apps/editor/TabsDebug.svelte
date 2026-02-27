@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { createBubbler, stopPropagation } from 'svelte/legacy'
-
-	const bubble = createBubbler()
+	import { stopPropagation } from 'svelte/legacy'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import { classNames } from '$lib/utils'
 	import { createEventDispatcher, getContext } from 'svelte'
@@ -18,6 +16,7 @@
 		isSmall?: boolean
 		isManuallySelected?: boolean
 		ontriggerInlineEditor?: (...args: any[]) => any
+		onpointerdown?: (...args: any[]) => any
 	}
 
 	let {
@@ -26,7 +25,8 @@
 		isConditionalDebugMode = false,
 		isSmall = false,
 		isManuallySelected = $bindable(false),
-		ontriggerInlineEditor = undefined
+		ontriggerInlineEditor = undefined,
+		onpointerdown = undefined
 	}: Props = $props()
 	let selected: number | null = $state(null)
 
@@ -71,7 +71,7 @@
 						: 'text-blue-600 hover:bg-blue-300 hover:text-blue-800'
 				)}
 				onclick={() => (dispatch('triggerInlineEditor'), ontriggerInlineEditor?.())}
-				onpointerdown={stopPropagation(bubble('pointerdown'))}
+				onpointerdown={stopPropagation((e) => onpointerdown?.(e))}
 			>
 				{#if isManuallySelected}
 					<div class="whitespace-nowrap">

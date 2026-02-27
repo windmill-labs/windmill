@@ -1,7 +1,4 @@
 <script lang="ts">
-	import { createBubbler } from 'svelte/legacy'
-
-	const bubble = createBubbler()
 	import { Alert } from '$lib/components/common'
 	import { getContext, onMount, untrack } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
@@ -19,6 +16,7 @@
 		xData: RichConfiguration | undefined
 		initializing?: boolean | undefined
 		render: boolean
+		onpointerdown?: (...args: any[]) => any
 	}
 
 	let {
@@ -28,7 +26,8 @@
 		datasets,
 		xData,
 		initializing = $bindable(undefined),
-		render
+		render,
+		onpointerdown = undefined
 	}: Props = $props()
 
 	const { worldStore, darkMode } = getContext<AppViewerContext>('AppViewerContext')
@@ -207,7 +206,7 @@
 					</Alert>
 				</div>
 			{/if}
-			<div onpointerdown={bubble('pointerdown')} bind:this={divEl}></div>
+			<div onpointerdown={(e) => onpointerdown?.(e)} bind:this={divEl}></div>
 		</RunnableWrapper>
 	</div>
 {:else}

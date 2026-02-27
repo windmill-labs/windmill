@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { createBubbler, preventDefault } from 'svelte/legacy'
-
-	const bubble = createBubbler()
+	import { preventDefault } from 'svelte/legacy'
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
@@ -21,9 +19,16 @@
 		configuration: RichConfigurations
 		customCss?: ComponentCustomCSS<'imagecomponent'> | undefined
 		render: boolean
+		onpointerdown?: (...args: any[]) => any
 	}
 
-	let { id, configuration, customCss = undefined, render }: Props = $props()
+	let {
+		id,
+		configuration,
+		customCss = undefined,
+		render,
+		onpointerdown = undefined
+	}: Props = $props()
 
 	const resolvedConfig = $state(
 		initConfig(components['imagecomponent'].initialData.configuration, configuration)
@@ -115,7 +120,7 @@
 	<Loader loading={imageUrl === undefined}>
 		{#if imageUrl}
 			<img
-				onpointerdown={preventDefault(bubble('pointerdown'))}
+				onpointerdown={preventDefault((e) => onpointerdown?.(e))}
 				src={imageUrl}
 				alt={resolvedConfig.altText}
 				style={css?.image?.style ?? ''}

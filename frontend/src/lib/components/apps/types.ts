@@ -164,6 +164,7 @@ export interface AppEditorProps {
 	gotoFn?: (path: string, opt?: Record<string, any> | undefined) => void
 	unsavedConfirmationModal?: import('svelte').Snippet<[any]>
 	onSavedNewAppPath?: (path: string) => void
+	onpointerdown?: (...args: any[]) => any
 }
 
 export type App = {

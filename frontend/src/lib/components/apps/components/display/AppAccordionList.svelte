@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { createBubbler, stopPropagation } from 'svelte/legacy'
-
-	const bubble = createBubbler()
+	import { stopPropagation } from 'svelte/legacy'
 	import { getContext } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
@@ -21,6 +19,7 @@
 		render: boolean
 		initializing: boolean | undefined
 		componentContainerHeight: number
+		onpointerdown?: (...args: any[]) => any
 	}
 
 	let {
@@ -29,7 +28,8 @@
 		customCss = undefined,
 		render,
 		initializing = $bindable(),
-		componentContainerHeight
+		componentContainerHeight,
+		onpointerdown = undefined
 	}: Props = $props()
 
 	type AccordionListValue = { header: string; [key: string]: any }
@@ -113,7 +113,7 @@
 					{#each result ?? [] as value, index}
 						<div class="border-b">
 							<button
-								onpointerdown={stopPropagation(bubble('pointerdown'))}
+								onpointerdown={stopPropagation((e) => onpointerdown?.(e))}
 								onclick={() => toggleAccordion(index)}
 								class={twMerge(
 									'w-full text-left bg-surface !truncate text-sm hover:text-primary px-1 py-2',

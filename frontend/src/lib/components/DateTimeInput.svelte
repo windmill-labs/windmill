@@ -1,7 +1,4 @@
 <script lang="ts">
-	import { createBubbler } from 'svelte/legacy'
-
-	const bubble = createBubbler()
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { Button } from './common'
 	import { Clock, X } from 'lucide-svelte'
@@ -27,6 +24,8 @@
 		timezone?: 'naive' | 'local'
 		onchange?: (...args: any[]) => any
 		onclear?: (...args: any[]) => any
+		onpointerdown?: (...args: any[]) => any
+		onfocus?: (...args: any[]) => any
 	}
 
 	let {
@@ -40,7 +39,9 @@
 		inputClass = undefined,
 		timezone = 'local',
 		onchange = undefined,
-		onclear = undefined
+		onclear = undefined,
+		onpointerdown = undefined,
+		onfocus = undefined
 	}: Props = $props()
 
 	let date: string | undefined = $state(undefined)
@@ -129,8 +130,8 @@
 <div
 	class="flex flex-row gap-1 items-center w-full relative"
 	id={randomId}
-	onpointerdown={bubble('pointerdown')}
-	onfocus={bubble('focus')}
+	onpointerdown={(e) => onpointerdown?.(e)}
+	onfocus={(e) => onfocus?.(e)}
 >
 	<!-- svelte-ignore a11y_autofocus -->
 	<TextInput

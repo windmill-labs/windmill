@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { createBubbler, preventDefault } from 'svelte/legacy'
-
-	const bubble = createBubbler()
+	import { preventDefault } from 'svelte/legacy'
 	import { getContext, untrack } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
@@ -20,9 +18,16 @@
 		configuration: RichConfigurations
 		customCss?: ComponentCustomCSS<'statcomponent'> | undefined
 		render: boolean
+		onpointerdown?: (...args: any[]) => any
 	}
 
-	let { id, configuration, customCss = undefined, render }: Props = $props()
+	let {
+		id,
+		configuration,
+		customCss = undefined,
+		render,
+		onpointerdown = undefined
+	}: Props = $props()
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -104,7 +109,7 @@
 			{:else}
 				<Loader loading={resolvedConfig?.media?.configuration?.image?.source == undefined}>
 					<img
-						onpointerdown={preventDefault(bubble('pointerdown'))}
+						onpointerdown={preventDefault((e) => onpointerdown?.(e))}
 						src={getImageDataURL(
 							resolvedConfig?.media?.configuration?.image?.sourceKind,
 							resolvedConfig?.media?.configuration?.image?.source

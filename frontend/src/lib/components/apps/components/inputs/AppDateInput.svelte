@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { createBubbler, stopPropagation } from 'svelte/legacy'
-
-	const bubble = createBubbler()
+	import { stopPropagation } from 'svelte/legacy'
 	import { getContext, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
@@ -22,6 +20,7 @@
 		customCss?: ComponentCustomCSS<'dateinputcomponent'> | undefined
 		render: boolean
 		onChange?: string[] | undefined
+		onpointerdown?: (...args: any[]) => any
 	}
 
 	let {
@@ -31,7 +30,8 @@
 		verticalAlignment = undefined,
 		customCss = undefined,
 		render,
-		onChange = undefined
+		onChange = undefined,
+		onpointerdown = undefined
 	}: Props = $props()
 
 	const { app, worldStore, selectedComponent, componentControl, runnableComponents } =
@@ -124,7 +124,7 @@
 				e.stopPropagation()
 			}}
 			onfocus={() => ($selectedComponent = [id])}
-			onpointerdown={stopPropagation(bubble('pointerdown'))}
+			onpointerdown={stopPropagation((e) => onpointerdown?.(e))}
 			type="date"
 			bind:value
 			disabled={resolvedConfig.disabled}

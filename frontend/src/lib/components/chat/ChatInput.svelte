@@ -2,10 +2,7 @@
 	import { Button } from '$lib/components/common'
 	import { ArrowUp, Square } from 'lucide-svelte'
 	import autosize from '$lib/autosize'
-	import { createBubbler, stopPropagation } from 'svelte/legacy'
-
-	const bubble = createBubbler()
-
+	import { stopPropagation } from 'svelte/legacy'
 	interface Props {
 		value: string
 		placeholder?: string
@@ -22,6 +19,7 @@
 		onCancel?: () => void
 		cancelTitle?: string
 		sendTitle?: string
+		onpointerdown?: (...args: any[]) => any
 	}
 
 	let {
@@ -35,7 +33,8 @@
 		showCancelButton = false,
 		onCancel = undefined,
 		cancelTitle = 'Cancel execution',
-		sendTitle = 'Send message'
+		sendTitle = 'Send message',
+		onpointerdown = undefined
 	}: Props = $props()
 
 	function handleKeydown(e: KeyboardEvent) {
@@ -53,7 +52,7 @@
 		bind:value
 		use:autosize
 		onkeydown={handleKeydown}
-		onpointerdown={stopPropagation(bubble('pointerdown'))}
+		onpointerdown={stopPropagation((e) => onpointerdown?.(e))}
 		{placeholder}
 		class="flex-1 min-h-[24px] max-h-32 resize-none !border-0 text-sm placeholder-gray-400 !outline-none !ring-0 p-0 !shadow-none focus:!border-0 focus:!outline-none focus:!ring-0 focus:!shadow-none {customCss
 			?.input?.class ?? ''}"

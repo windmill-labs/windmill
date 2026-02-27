@@ -1,9 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
 	import { format, isValid, parse } from 'date-fns'
-	import { createBubbler } from 'svelte/legacy'
-
-	const bubble = createBubbler()
 
 	interface Props {
 		value?: string | null | undefined
@@ -13,6 +10,8 @@
 		dateFormat?: string | undefined
 		disabled?: boolean
 		onchange?: (...args: any[]) => any
+		onpointerdown?: (...args: any[]) => any
+		onfocus?: (...args: any[]) => any
 	}
 
 	let {
@@ -22,7 +21,9 @@
 		maxDate = undefined,
 		dateFormat = 'dd-MM-yyyy',
 		disabled = false,
-		onchange = undefined
+		onchange = undefined,
+		onpointerdown = undefined,
+		onfocus = undefined
 	}: Props = $props()
 
 	const defaultDateFormat = 'dd-MM-yyyy'
@@ -75,8 +76,8 @@
 <div
 	class="flex flex-row gap-1 items-center w-full"
 	id={randomId}
-	onpointerdown={bubble('pointerdown')}
-	onfocus={bubble('focus')}
+	onpointerdown={(e) => onpointerdown?.(e)}
+	onfocus={(e) => onfocus?.(e)}
 >
 	<!-- svelte-ignore a11y_autofocus -->
 	<input

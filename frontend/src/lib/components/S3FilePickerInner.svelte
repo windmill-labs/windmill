@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { createBubbler, stopPropagation } from 'svelte/legacy'
-
-	const bubble = createBubbler()
+	import { stopPropagation } from 'svelte/legacy'
 	import {
 		File as FileIcon,
 		FolderClosed,
@@ -93,6 +91,8 @@
 			d: DatasetStorageTestConnectionData
 		) => CancelablePromise<DatasetStorageTestConnectionResponse>
 		onselectAndClose?: (...args: any[]) => any
+		onfocus?: (...args: any[]) => any
+		onclick?: (...args: any[]) => any
 	}
 
 	let {
@@ -115,7 +115,9 @@
 		deleteS3FileRequest = HelpersService.deleteS3File,
 		moveS3FileRequest = HelpersService.moveS3File,
 		testConnectionRequest = HelpersService.datasetStorageTestConnection,
-		onselectAndClose = undefined
+		onselectAndClose = undefined,
+		onfocus = undefined,
+		onclick = undefined
 	}: Props = $props()
 
 	let rootPathNestingLevel = $derived(1 * (rootPath.split('/').length - 1))
@@ -799,8 +801,8 @@
 								Header row:
 								<div class="inline-flex item-center w-4 ml-2 mr-2">
 									<input
-										onfocus={bubble('focus')}
-										onclick={bubble('click')}
+										onfocus={(e) => onfocus?.(e)}
+										onclick={(e) => onclick?.(e)}
 										disabled={false}
 										type="checkbox"
 										id="csv-header"

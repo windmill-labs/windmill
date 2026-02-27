@@ -1,7 +1,4 @@
 <script lang="ts">
-	import { createBubbler } from 'svelte/legacy'
-
-	const bubble = createBubbler()
 	import { createPopperActions, type PopperOptions } from 'svelte-popperjs'
 	import type { PopoverPlacement } from './Popover.model'
 	import Portal from '$lib/components/Portal.svelte'
@@ -18,6 +15,7 @@
 		class?: string
 		children?: import('svelte').Snippet
 		overlay?: import('svelte').Snippet
+		onclick?: (...args: any[]) => any
 	}
 
 	let {
@@ -31,7 +29,8 @@
 		focusEl = undefined,
 		class: clazz = '',
 		children,
-		overlay
+		overlay,
+		onclick = undefined
 	}: Props = $props()
 	const [popperRef, popperContent] = createPopperActions({ placement })
 
@@ -83,7 +82,7 @@
 		use:popperRef
 		onmouseenter={open}
 		onmouseleave={close}
-		onclick={bubble('click')}
+		onclick={(e) => onclick?.(e)}
 		class={clazz}
 	>
 		{@render children?.()}

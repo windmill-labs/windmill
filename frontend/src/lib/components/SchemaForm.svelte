@@ -1,7 +1,4 @@
 <script lang="ts">
-	import { createBubbler } from 'svelte/legacy'
-
-	const bubble = createBubbler()
 	import type { Schema } from '$lib/common'
 	import { VariableService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -78,6 +75,8 @@
 		onacceptChange?: (...args: any[]) => any
 		onrejectChange?: (...args: any[]) => any
 		onkeydownCmdEnter?: (...args: any[]) => any
+		onfinalize?: (...args: any[]) => any
+		onconsider?: (...args: any[]) => any
 	}
 
 	let {
@@ -126,7 +125,9 @@
 		onnestedChange = undefined,
 		onacceptChange = undefined,
 		onrejectChange = undefined,
-		onkeydownCmdEnter = undefined
+		onkeydownCmdEnter = undefined,
+		onfinalize = undefined,
+		onconsider = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -296,8 +297,8 @@
 <div
 	class="w-full {className} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 ' : ''} {nestedClasses}"
 	use:dragHandleZone={dndConfig ?? { items: [], dragDisabled: true }}
-	onfinalize={bubble('finalize')}
-	onconsider={bubble('consider')}
+	onfinalize={(e) => onfinalize?.(e)}
+	onconsider={(e) => onconsider?.(e)}
 >
 	{#if keys.length > 0 && args}
 		{#each fields as item, i (item.id)}

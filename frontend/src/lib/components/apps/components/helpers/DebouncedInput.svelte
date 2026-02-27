@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { createBubbler, stopPropagation } from 'svelte/legacy'
-
-	const bubble = createBubbler()
+	import { stopPropagation } from 'svelte/legacy'
 	import { onMount } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 
@@ -14,6 +12,8 @@
 		debounceDelay?: number
 		class?: string | undefined
 		[key: string]: any
+		onpointerdown?: (...args: any[]) => any
+		onkeydown?: (...args: any[]) => any
 	}
 
 	let {
@@ -21,6 +21,8 @@
 		value = $bindable(),
 		debounceDelay = 100,
 		class: parentClass = undefined,
+		onpointerdown = undefined,
+		onkeydown = undefined,
 		...rest
 	}: Props = $props()
 
@@ -46,9 +48,9 @@
 <input
 	bind:this={inputElement}
 	{placeholder}
-	onpointerdown={stopPropagation(bubble('pointerdown'))}
+	onpointerdown={stopPropagation((e) => onpointerdown?.(e))}
 	onkeyup={debounce}
-	onkeydown={stopPropagation(bubble('keydown'))}
+	onkeydown={stopPropagation((e) => onkeydown?.(e))}
 	class={twMerge(parentClass, 'mb-1 h-8 !rounded-md !shadow-none')}
 	{...rest}
 />

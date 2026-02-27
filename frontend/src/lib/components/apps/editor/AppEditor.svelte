@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { createBubbler, stopPropagation } from 'svelte/legacy'
-
-	const bubble = createBubbler()
+	import { stopPropagation } from 'svelte/legacy'
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
 	import { onMount, setContext, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -77,7 +75,8 @@
 		replaceStateFn = (path: string) => window.history.replaceState(null, '', path),
 		gotoFn = (path: string, opt?: Record<string, any>) => window.history.pushState(null, '', path),
 		unsavedConfirmationModal,
-		onSavedNewAppPath
+		onSavedNewAppPath,
+		onpointerdown = undefined
 	}: AppEditorProps = $props()
 
 	migrateApp(app)
@@ -991,7 +990,7 @@
 									<div
 										class="absolute bottom-2 left-2 z-50 border bg-surface"
 										data-connection-button
-										onpointerdown={stopPropagation(bubble('pointerdown'))}
+										onpointerdown={stopPropagation((e) => onpointerdown?.(e))}
 									>
 										<div class="flex flex-row gap-2 text-xs items-center h-8 px-1">
 											<Button

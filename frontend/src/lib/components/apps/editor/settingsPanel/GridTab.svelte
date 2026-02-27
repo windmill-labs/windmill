@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { createBubbler, stopPropagation } from 'svelte/legacy'
-
-	const bubble = createBubbler()
+	import { stopPropagation } from 'svelte/legacy'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import CloseButton from '$lib/components/common/CloseButton.svelte'
 	import { getContext, tick, untrack } from 'svelte'
@@ -23,6 +21,7 @@
 		canHideTabs?: boolean
 		word?: string
 		component: AppComponent
+		onkeydown?: (...args: any[]) => any
 	}
 
 	let {
@@ -32,7 +31,8 @@
 		canDisableTabs = false,
 		canHideTabs = false,
 		word = 'Tab',
-		component = $bindable()
+		component = $bindable(),
+		onkeydown = undefined
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -199,7 +199,7 @@
 				<div class="border rounded-md p-2 mb-2 bg-surface">
 					<div class="w-full flex flex-row gap-2 items-center relative my-1">
 						<input
-							onkeydown={stopPropagation(bubble('keydown'))}
+							onkeydown={stopPropagation((e) => onkeydown?.(e))}
 							oninput={(e) => updateItemValue(index, e)}
 							type="text"
 							bind:value={items[index].value}

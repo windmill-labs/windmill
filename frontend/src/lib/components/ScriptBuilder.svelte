@@ -1,7 +1,4 @@
 <script lang="ts">
-	import { createBubbler } from 'svelte/legacy'
-
-	const bubble = createBubbler()
 	import {
 		DraftService,
 		type NewScript,
@@ -131,7 +128,8 @@
 		onSeeDetails,
 		onSaveDraftError,
 		onSaveDraft,
-		disableAi
+		disableAi,
+		onfocus = undefined
 	}: ScriptBuilderProps = $props()
 
 	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
@@ -1550,7 +1548,7 @@
 														class="!w-16 ml-4"
 														disabled={script.priority === undefined}
 														bind:value={script.priority}
-														onfocus={bubble('focus')}
+														onfocus={(e) => onfocus?.(e)}
 														onchange={() => {
 															if (script.priority && script.priority > 100) {
 																script.priority = 100

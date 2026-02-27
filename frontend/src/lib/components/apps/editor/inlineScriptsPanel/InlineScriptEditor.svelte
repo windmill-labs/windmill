@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { createBubbler, stopPropagation } from 'svelte/legacy'
-
-	const bubble = createBubbler()
+	import { stopPropagation } from 'svelte/legacy'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import type { Preview } from '$lib/gen'
 	import { createEventDispatcher, getContext, onMount, untrack } from 'svelte'
@@ -48,6 +46,7 @@
 		editor?: Editor | undefined
 		oncreateScriptFromInlineScript?: (...args: any[]) => any
 		ondelete?: (...args: any[]) => any
+		onkeydown?: (...args: any[]) => any
 	}
 
 	let {
@@ -61,7 +60,8 @@
 		componentType = undefined,
 		editor = $bindable(undefined),
 		oncreateScriptFromInlineScript = undefined,
-		ondelete = undefined
+		ondelete = undefined,
+		onkeydown = undefined
 	}: Props = $props()
 	let diffEditor: DiffEditor | undefined = $state()
 	let simpleEditor: SimpleEditor | undefined = $state()
@@ -245,7 +245,7 @@
 									}
 								},
 								placeholder: 'Inline script name',
-								onkeydown: () => stopPropagation(bubble('keydown'))
+								onkeydown: () => stopPropagation((e) => onkeydown?.(e))
 							}}
 							size="sm"
 						/>

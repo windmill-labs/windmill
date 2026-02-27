@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { createBubbler, stopPropagation } from 'svelte/legacy'
-
-	const bubble = createBubbler()
+	import { stopPropagation } from 'svelte/legacy'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import { classNames } from '$lib/utils'
 	import { createEventDispatcher, getContext } from 'svelte'
@@ -16,6 +14,7 @@
 		isSmall?: boolean
 		componentIsDebugging?: boolean
 		ontriggerInlineEditor?: (...args: any[]) => any
+		onpointerdown?: (...args: any[]) => any
 	}
 
 	let {
@@ -23,7 +22,8 @@
 		id,
 		isSmall = false,
 		componentIsDebugging = $bindable(false),
-		ontriggerInlineEditor = undefined
+		ontriggerInlineEditor = undefined,
+		onpointerdown = undefined
 	}: Props = $props()
 
 	$effect(() => {
@@ -127,7 +127,7 @@
 						: 'text-blue-600 hover:bg-blue-300 hover:text-blue-800'
 				)}
 				onclick={() => (dispatch('triggerInlineEditor'), ontriggerInlineEditor?.())}
-				onpointerdown={stopPropagation(bubble('pointerdown'))}
+				onpointerdown={stopPropagation((e) => onpointerdown?.(e))}
 			>
 				{#if componentIsDebugging}
 					<div class="flex flex-row items-center gap-2">

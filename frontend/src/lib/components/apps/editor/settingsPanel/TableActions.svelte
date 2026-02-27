@@ -1,7 +1,4 @@
 <script lang="ts">
-	import { createBubbler } from 'svelte/legacy'
-
-	const bubble = createBubbler()
 	import { Badge } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { getNextId } from '$lib/components/flows/idUtils'
@@ -31,9 +28,15 @@
 			| undefined
 		actionsOrder?: RichConfiguration | undefined
 		id: string
+		onkeypress?: (...args: any[]) => any
 	}
 
-	let { components = $bindable(), actionsOrder = $bindable(undefined), id }: Props = $props()
+	let {
+		components = $bindable(),
+		actionsOrder = $bindable(undefined),
+		id,
+		onkeypress = undefined
+	}: Props = $props()
 
 	// Migration code:
 	onMount(() => {
@@ -173,7 +176,7 @@
 							onmouseover={() => {
 								$hoverStore = component.id
 							}}
-							onkeypress={bubble('keypress')}
+							onkeypress={(e) => onkeypress?.(e)}
 						>
 							<div class="flex flex-row gap-2 items-center">
 								<Badge color="dark-indigo">

@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { createBubbler, preventDefault } from 'svelte/legacy'
-
-	const bubble = createBubbler()
+	import { preventDefault } from 'svelte/legacy'
 	import { IndexSearchService, ServiceLogsService } from '$lib/gen'
 
 	import TimeframeSelect, {
@@ -29,9 +27,15 @@
 		searchTerm: string
 		queryParseErrors?: string[]
 		tagLabel?: string
+		onclick?: (...args: any[]) => any
 	}
 
-	let { searchTerm, queryParseErrors = $bindable(), tagLabel }: Props = $props()
+	let {
+		searchTerm,
+		queryParseErrors = $bindable(),
+		tagLabel,
+		onclick = undefined
+	}: Props = $props()
 
 	let minTs: undefined | string = $state(undefined)
 	let maxTs: undefined | string = $state(undefined)
@@ -719,7 +723,7 @@
 									{:else if logsContent[file.file_path].content}
 										<!-- svelte-ignore a11y_click_events_have_key_events -->
 										<!-- svelte-ignore a11y_no_static_element_interactions -->
-										<div onclick={preventDefault(bubble('click'))} class="pr-2"
+										<div onclick={preventDefault((e) => onclick?.(e))} class="pr-2"
 											><LogViewer
 												noAutoScroll
 												noMaxH

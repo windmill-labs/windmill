@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { stopPropagation, createBubbler } from 'svelte/legacy'
-
-	const bubble = createBubbler()
+	import { stopPropagation } from 'svelte/legacy'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import PanelSection from './settingsPanel/common/PanelSection.svelte'
 	import { classNames, displayDate, emptyString } from '$lib/utils'
@@ -15,9 +13,10 @@
 	interface Props {
 		appPath: string | undefined
 		onrestore?: (...args: any[]) => any
+		onkeydown?: (...args: any[]) => any
 	}
 
-	let { appPath, onrestore = undefined }: Props = $props()
+	let { appPath, onrestore = undefined, onkeydown = undefined }: Props = $props()
 	let loading: boolean = $state(false)
 
 	let versions: AppHistory[] = $state([])
@@ -128,7 +127,7 @@
 										bind:value={deploymentMsgUpdate}
 										class="!w-auto grow"
 										onclick={stopPropagation(() => {})}
-										onkeydown={stopPropagation(bubble('keydown'))}
+										onkeydown={stopPropagation((e) => onkeydown?.(e))}
 										onkeypress={(e) => {
 											e.stopPropagation()
 											if (e.key === 'Enter')

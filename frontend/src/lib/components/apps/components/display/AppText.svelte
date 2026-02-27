@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { createBubbler, stopPropagation } from 'svelte/legacy'
-
-	const bubble = createBubbler()
+	import { stopPropagation } from 'svelte/legacy'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { Copy } from 'lucide-svelte'
 	import { getContext, untrack } from 'svelte'
@@ -28,6 +26,8 @@
 		customCss?: ComponentCustomCSS<'textcomponent'> | undefined
 		render: boolean
 		editorMode?: boolean
+		onkeydown?: (...args: any[]) => any
+		onpointerdown?: (...args: any[]) => any
 	}
 
 	let {
@@ -39,7 +39,9 @@
 		initializing = $bindable(undefined),
 		customCss = undefined,
 		render,
-		editorMode = $bindable(false)
+		editorMode = $bindable(false),
+		onkeydown = undefined,
+		onpointerdown = undefined
 	}: Props = $props()
 
 	let resolvedConfig = $state(
@@ -193,7 +195,7 @@
 				document.getElementById(`text-${id}`)?.focus()
 			}
 		}}
-		onkeydown={stopPropagation(bubble('keydown'))}
+		onkeydown={stopPropagation((e) => onkeydown?.(e))}
 	>
 		{#if $mode == 'dnd' && editorMode && (componentInput?.type == 'template' || componentInput?.type == 'templatev2')}
 			<AlignWrapper {verticalAlignment}>
@@ -211,7 +213,7 @@
 								? 'text-right'
 								: 'text-left'
 					)}
-					onpointerdown={stopPropagation(bubble('pointerdown'))}
+					onpointerdown={stopPropagation((e) => onpointerdown?.(e))}
 					style={css?.text?.style}
 					id={`text-${id}`}
 					onpointerenter={() => {

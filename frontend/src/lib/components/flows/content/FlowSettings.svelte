@@ -1,7 +1,4 @@
 <script lang="ts">
-	import { createBubbler } from 'svelte/legacy'
-
-	const bubble = createBubbler()
 	import Path from '$lib/components/Path.svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -33,9 +30,10 @@
 	interface Props {
 		noEditor: boolean
 		enableAi?: boolean
+		onfocus?: (...args: any[]) => any
 	}
 
-	let { noEditor, enableAi }: Props = $props()
+	let { noEditor, enableAi, onfocus = undefined }: Props = $props()
 
 	const {
 		flowStore,
@@ -561,7 +559,7 @@
 							)}
 							disabled={flowStore.val.value.priority === undefined}
 							bind:value={flowStore.val.value.priority}
-							onfocus={bubble('focus')}
+							onfocus={(e) => onfocus?.(e)}
 							onchange={() => {
 								if (flowStore.val.value.priority && flowStore.val.value.priority > 100) {
 									flowStore.val.value.priority = 100
@@ -610,9 +608,9 @@
 				{#if flowStore.val.schema && enableAi}
 					<AIFormSettings
 						bind:prompt={
-						() => flowStore.val.schema!.prompt_for_ai as string | undefined,
-						(v) => (flowStore.val.schema!.prompt_for_ai = v)
-					}
+							() => flowStore.val.schema!.prompt_for_ai as string | undefined,
+							(v) => (flowStore.val.schema!.prompt_for_ai = v)
+						}
 						type="flow"
 					/>
 				{/if}

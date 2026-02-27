@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { createBubbler, stopPropagation } from 'svelte/legacy'
-
-	const bubble = createBubbler()
+	import { stopPropagation } from 'svelte/legacy'
 	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import Button from '../button/Button.svelte'
@@ -20,6 +18,7 @@
 		actions?: import('svelte').Snippet
 		onconfirmed?: (...args: any[]) => any
 		oncanceled?: (...args: any[]) => any
+		onclick?: (...args: any[]) => any
 	}
 
 	let {
@@ -33,7 +32,8 @@
 		children,
 		actions,
 		onconfirmed = undefined,
-		oncanceled = undefined
+		oncanceled = undefined,
+		onclick = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -85,7 +85,7 @@
 			<div class="flex min-h-full items-center justify-center p-4">
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
-					onclick={stopPropagation(bubble('click'))}
+					onclick={stopPropagation((e) => onclick?.(e))}
 					class={twMerge(
 						'relative transform overflow-hidden rounded-md bg-surface px-4 pt-5 pb-4 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg sm:p-6',
 						c,

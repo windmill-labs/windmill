@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { createBubbler, stopPropagation } from 'svelte/legacy'
-
-	const bubble = createBubbler()
+	import { stopPropagation } from 'svelte/legacy'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import type { Preview, ScriptLang } from '$lib/gen'
 	import { createEventDispatcher, onDestroy, onMount, untrack } from 'svelte'
@@ -61,6 +59,7 @@
 			} | null
 		) => void
 		ondelete?: (...args: any[]) => any
+		onkeydown?: (...args: any[]) => any
 	}
 
 	let {
@@ -73,7 +72,8 @@
 		editor = $bindable(undefined),
 		lastDeployedCode,
 		onSelectionChange,
-		ondelete = undefined
+		ondelete = undefined,
+		onkeydown = undefined
 	}: Props = $props()
 	let diffEditor = $state() as DiffEditor | undefined
 	let validCode = $state(true)
@@ -606,7 +606,7 @@
 				<div class="flex flex-row gap-2 w-full items-center">
 					<TextInput
 						inputProps={{
-							onkeydown: () => stopPropagation(bubble('keydown')),
+							onkeydown: () => stopPropagation((e) => onkeydown?.(e)),
 							placeholder: 'Inline script name'
 						}}
 						bind:value={name}

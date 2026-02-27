@@ -36,4 +36,5 @@ export interface ScriptBuilderProps {
 	onSaveDraft?: (e: { path: string; savedAtNewPath: boolean; script: NewScript }) => void
 	onSeeDetails?: (e: { path: string }) => void
 	onSaveDraftError?: (e: { path: string; error: any }) => void
+	onfocus?: (...args: any[]) => any
 }

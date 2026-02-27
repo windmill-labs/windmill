@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { createBubbler, stopPropagation, preventDefault } from 'svelte/legacy'
-
-	const bubble = createBubbler()
+	import { stopPropagation, preventDefault } from 'svelte/legacy'
 	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import { X } from 'lucide-svelte'
@@ -17,6 +15,9 @@
 		children?: import('svelte').Snippet
 		[key: string]: any
 		onchange?: (...args: any[]) => any
+		onkeydown?: (...args: any[]) => any
+		onfocus?: (...args: any[]) => any
+		onblur?: (...args: any[]) => any
 	}
 
 	let {
@@ -28,6 +29,9 @@
 		buttonClass = '',
 		children,
 		onchange = undefined,
+		onkeydown = undefined,
+		onfocus = undefined,
+		onblur = undefined,
 		...rest
 	}: Props = $props()
 	const dispatch = createEventDispatcher()
@@ -67,9 +71,9 @@
 			class="resize-y {inputClass}"
 			{...rest}
 			oninput={handleInput}
-			onkeydown={stopPropagation(bubble('keydown'))}
-			onfocus={bubble('focus')}
-			onblur={bubble('blur')}
+			onkeydown={stopPropagation((e) => onkeydown?.(e))}
+			onfocus={(e) => onfocus?.(e)}
+			onblur={(e) => onblur?.(e)}
 		></textarea>
 	{:else}
 		<input
@@ -79,9 +83,9 @@
 			class=" {(value ? '!pr-[26px] ' : '') + inputClass}"
 			{...rest}
 			oninput={handleInput}
-			onkeydown={stopPropagation(bubble('keydown'))}
-			onfocus={bubble('focus')}
-			onblur={bubble('blur')}
+			onkeydown={stopPropagation((e) => onkeydown?.(e))}
+			onfocus={(e) => onfocus?.(e)}
+			onblur={(e) => onblur?.(e)}
 		/>
 	{/if}
 	{#if value && isHovered}

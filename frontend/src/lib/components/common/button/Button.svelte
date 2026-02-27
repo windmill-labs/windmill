@@ -1,7 +1,4 @@
 <script lang="ts">
-	import { createBubbler } from 'svelte/legacy'
-
-	const bubble = createBubbler()
 	import { createEventDispatcher } from 'svelte'
 	import { ButtonType } from './model'
 	import { twMerge } from 'tailwind-merge'
@@ -99,6 +96,11 @@
 		dropdownWidth?: number | undefined
 		ontooltipOpen?: (...args: any[]) => any
 		ondropdownOpen?: (...args: any[]) => any
+		onpointerdown?: (...args: any[]) => any
+		onfocus?: (...args: any[]) => any
+		onblur?: (...args: any[]) => any
+		onmouseenter?: (...args: any[]) => any
+		onmouseleave?: (...args: any[]) => any
 	}
 
 	let {
@@ -143,6 +145,11 @@
 		dropdownWidth = undefined,
 		ontooltipOpen = undefined,
 		ondropdownOpen = undefined,
+		onpointerdown = undefined,
+		onfocus = undefined,
+		onblur = undefined,
+		onmouseenter = undefined,
+		onmouseleave = undefined,
 		...rest
 	}: Props = $props()
 
@@ -354,11 +361,11 @@
 	{#if href && !disabled}
 		<a
 			bind:this={element}
-			onpointerdown={bubble('pointerdown')}
-			onfocus={bubble('focus')}
-			onblur={bubble('blur')}
-			onmouseenter={bubble('mouseenter')}
-			onmouseleave={bubble('mouseleave')}
+			onpointerdown={(e) => onpointerdown?.(e)}
+			onfocus={(e) => onfocus?.(e)}
+			onblur={(e) => onblur?.(e)}
+			onmouseenter={(e) => onmouseenter?.(e)}
+			onmouseleave={(e) => onmouseleave?.(e)}
 			onclick={() => {
 				loading = true
 				dispatch('click', event)
@@ -408,12 +415,12 @@
 	{:else}
 		<button
 			bind:this={element}
-			onpointerdown={bubble('pointerdown')}
+			onpointerdown={(e) => onpointerdown?.(e)}
 			{onclick}
-			onfocus={bubble('focus')}
-			onblur={bubble('blur')}
-			onmouseenter={bubble('mouseenter')}
-			onmouseleave={bubble('mouseleave')}
+			onfocus={(e) => onfocus?.(e)}
+			onblur={(e) => onblur?.(e)}
+			onmouseenter={(e) => onmouseenter?.(e)}
+			onmouseleave={(e) => onmouseleave?.(e)}
 			class={buttonClass}
 			{id}
 			tabindex={disabled ? -1 : 0}

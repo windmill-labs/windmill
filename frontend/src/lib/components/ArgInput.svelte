@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { preventDefault, stopPropagation, createBubbler } from 'svelte/legacy'
-
-	const bubble = createBubbler()
+	import { preventDefault, stopPropagation } from 'svelte/legacy'
 	import type { EnumType, SchemaProperty } from '$lib/common'
 	import {
 		setInputCat as computeInputCat,
@@ -688,7 +686,7 @@
 				<div class="w-full">
 					<SecondsInput
 						bind:seconds={value}
-						onfocus={bubble('focus')}
+						onfocus={(e) => onfocus?.(e)}
 						{defaultValue}
 						clearable={extra['clearable'] !== false}
 					/>
@@ -713,8 +711,8 @@
 					<TextInput
 						inputProps={{
 							autofocus,
-							onfocus: bubble('focus'),
-							onblur: bubble('blur'),
+							onfocus: (e) => onfocus?.(e),
+							onblur: (e) => onblur?.(e),
 							disabled,
 							type: 'number',
 							onkeydown: () => (ignoreValueUndefined = true),
@@ -727,8 +725,8 @@
 					/>
 					<!-- <input
 						{autofocus}
-						onfocus={bubble('focus')}
-						onblur={bubble('blur')}
+						onfocus={((e) => onfocus?.(e))}
+						onblur={((e) => onblur?.(e))}
 						{disabled}
 						type="number"
 						onkeydown={() => {
@@ -1455,8 +1453,8 @@
 		{:else if inputCat == 'email'}
 			<input
 				{autofocus}
-				onfocus={bubble('focus')}
-				onblur={bubble('blur')}
+				onfocus={(e) => onfocus?.(e)}
+				onblur={(e) => onblur?.(e)}
 				{disabled}
 				type="email"
 				class={valid

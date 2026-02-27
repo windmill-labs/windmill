@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { createBubbler, preventDefault } from 'svelte/legacy'
-
-	const bubble = createBubbler()
+	import { preventDefault } from 'svelte/legacy'
 	import { getContext } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
@@ -20,9 +18,17 @@
 		customCss?: ComponentCustomCSS<'navbarcomponent'> | undefined
 		render: boolean
 		navbarItems?: NavbarItem[]
+		onpointerdown?: (...args: any[]) => any
 	}
 
-	let { id, configuration, customCss = undefined, render, navbarItems = [] }: Props = $props()
+	let {
+		id,
+		configuration,
+		customCss = undefined,
+		render,
+		navbarItems = [],
+		onpointerdown = undefined
+	}: Props = $props()
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -71,7 +77,7 @@
 	>
 		{#if resolvedConfig.logo?.selected === 'yes'}
 			<img
-				onpointerdown={preventDefault(bubble('pointerdown'))}
+				onpointerdown={preventDefault((e) => onpointerdown?.(e))}
 				src={resolvedConfig.logo?.configuration?.yes?.sourceKind == 'png encoded as base64'
 					? 'data:image/png;base64,' + resolvedConfig.logo?.configuration?.yes?.source
 					: resolvedConfig.logo?.configuration?.yes?.sourceKind == 'jpeg encoded as base64'

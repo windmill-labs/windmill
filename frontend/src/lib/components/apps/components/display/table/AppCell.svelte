@@ -1,7 +1,4 @@
 <script lang="ts">
-	import { createBubbler } from 'svelte/legacy'
-
-	const bubble = createBubbler()
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { createEventDispatcher, tick } from 'svelte'
 	import { writable } from 'svelte/store'
@@ -13,9 +10,18 @@
 		value: any
 		width: number
 		onupdate?: (...args: any[]) => any
+		onkeydown?: (...args: any[]) => any
+		onclick?: (...args: any[]) => any
 	}
 
-	let { type = 'text', value = $bindable(), width, onupdate = undefined }: Props = $props()
+	let {
+		type = 'text',
+		value = $bindable(),
+		width,
+		onupdate = undefined,
+		onkeydown = undefined,
+		onclick = undefined
+	}: Props = $props()
 
 	let isEditable = writable(false)
 	let tempValue = $state(value)
@@ -53,8 +59,8 @@
 </script>
 
 <td
-	onkeydown={bubble('keydown')}
-	onclick={bubble('click')}
+	onkeydown={(e) => onkeydown?.(e)}
+	onclick={(e) => onclick?.(e)}
 	class={twMerge(
 		'p-4 whitespace-pre-wrap truncate text-xs text-primary',
 		$isEditable && 'bg-gray-100'

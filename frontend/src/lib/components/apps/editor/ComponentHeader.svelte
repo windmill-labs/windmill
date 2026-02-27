@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { stopPropagation, createBubbler } from 'svelte/legacy'
-
-	const bubble = createBubbler()
+	import { stopPropagation } from 'svelte/legacy'
 	import { classNames } from '$lib/utils'
 	import type { AppViewerContext } from '../types'
 	import { Anchor, ArrowDownFromLine, Bug, Expand, Network, Pen, Plug } from 'lucide-svelte'
@@ -33,6 +31,8 @@
 		onlock?: (...args: any[]) => any
 		onexpand?: (...args: any[]) => any
 		ontriggerInlineEditor?: (...args: any[]) => any
+		onmousedown?: (...args: any[]) => any
+		onpointerdown?: (...args: any[]) => any
 	}
 
 	let {
@@ -50,7 +50,9 @@
 		onfillHeight = undefined,
 		onlock = undefined,
 		onexpand = undefined,
-		ontriggerInlineEditor = undefined
+		ontriggerInlineEditor = undefined,
+		onmousedown = undefined,
+		onpointerdown = undefined
 	}: Props = $props()
 
 	const DECISION_TREE_THRESHOLD = 300
@@ -145,7 +147,7 @@
 			onmouseleave={stopPropagation(() => {
 				hoverHeader = false
 			})}
-			onmousedowncapture={stopPropagation(bubble('mousedown'))}
+			onmousedowncapture={stopPropagation((e) => onmousedown?.(e))}
 			draggable="false"
 			title={`Id: ${component.id}`}
 			class={twMerge(
@@ -175,7 +177,7 @@
 								: 'text-white hover:bg-blue-400 hover:text-white'
 						)}
 						onclick={() => (dispatch('fillHeight'), onfillHeight?.())}
-						onpointerdown={stopPropagation(bubble('pointerdown'))}
+						onpointerdown={stopPropagation((e) => onpointerdown?.(e))}
 					>
 						<ArrowDownFromLine aria-label="Full height" size={11} />
 					</button>
@@ -187,7 +189,7 @@
 							locked ? 'bg-blue-300 text-blue-800' : 'text-white hover:bg-blue-400 hover:text-white'
 						)}
 						onclick={() => (dispatch('lock'), onlock?.())}
-						onpointerdown={stopPropagation(bubble('pointerdown'))}
+						onpointerdown={stopPropagation((e) => onpointerdown?.(e))}
 					>
 						{#if locked}
 							<Anchor aria-label="Unlock position" size={11} />
@@ -202,7 +204,7 @@
 								'px-1 py-0.5 text-2xs font-bold rounded cursor-pointer w-fit h-full text-white hover:bg-blue-400 hover:text-white'
 							)}
 							onclick={() => (dispatch('expand'), onexpand?.())}
-							onpointerdown={stopPropagation(bubble('pointerdown'))}
+							onpointerdown={stopPropagation((e) => onpointerdown?.(e))}
 						>
 							<Expand aria-label="Expand" size={11} />
 						</button>
@@ -229,7 +231,7 @@
 								: 'text-blue-600 hover:bg-blue-300 hover:text-blue-800'
 						)}
 						onclick={() => (dispatch('triggerInlineEditor'), ontriggerInlineEditor?.())}
-						onpointerdown={stopPropagation(bubble('pointerdown'))}
+						onpointerdown={stopPropagation((e) => onpointerdown?.(e))}
 					>
 						<Pen aria-label="Edit" size={11} />
 					</button>
@@ -264,7 +266,7 @@
 								element.click()
 							}
 						}}
-						onpointerdown={stopPropagation(bubble('pointerdown'))}
+						onpointerdown={stopPropagation((e) => onpointerdown?.(e))}
 					>
 						<Network size={11} />
 					</button>

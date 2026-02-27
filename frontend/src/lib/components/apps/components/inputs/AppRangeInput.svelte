@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { createBubbler, stopPropagation } from 'svelte/legacy'
-
-	const bubble = createBubbler()
+	import { stopPropagation } from 'svelte/legacy'
 	import { getContext, onDestroy, untrack } from 'svelte'
 	import RangeSlider from 'svelte-range-slider-pips'
 	import { twMerge } from 'tailwind-merge'
@@ -26,6 +24,7 @@
 		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
 		customCss?: ComponentCustomCSS<'rangecomponent'> | undefined
 		render: boolean
+		onpointerdown?: (...args: any[]) => any
 	}
 
 	let {
@@ -33,7 +32,8 @@
 		configuration,
 		verticalAlignment = undefined,
 		customCss = undefined,
-		render
+		render,
+		onpointerdown = undefined
 	}: Props = $props()
 
 	const { app, worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
@@ -123,7 +123,7 @@
 				class={twMerge('grow', 'wm-slider-bar')}
 				style="--range-handle-focus: {'#7e9abd'}; --range-handle: {'#7e9abd'}; {css?.bar?.style ??
 					''}"
-				onpointerdown={stopPropagation(bubble('pointerdown'))}
+				onpointerdown={stopPropagation((e) => onpointerdown?.(e))}
 			>
 				<RangeSlider
 					id="range-slider"

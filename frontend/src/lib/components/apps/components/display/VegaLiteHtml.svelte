@@ -1,7 +1,4 @@
 <script lang="ts">
-	import { createBubbler } from 'svelte/legacy'
-
-	const bubble = createBubbler()
 	import { getContext, onMount } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
@@ -15,6 +12,7 @@
 		configuration: RichConfigurations
 		initializing?: boolean | undefined
 		render: boolean
+		onpointerdown?: (...args: any[]) => any
 	}
 
 	let {
@@ -22,7 +20,8 @@
 		componentInput,
 		configuration,
 		initializing = $bindable(undefined),
-		render
+		render,
+		onpointerdown = undefined
 	}: Props = $props()
 
 	let result: object | undefined = $state(undefined)
@@ -85,7 +84,7 @@
 {#if render}
 	<div class="w-full h-full" bind:clientHeight={h} bind:clientWidth={w}>
 		<RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
-			<div onpointerdown={bubble('pointerdown')} bind:this={divEl}></div>
+			<div onpointerdown={(e) => onpointerdown?.(e)} bind:this={divEl}></div>
 		</RunnableWrapper>
 	</div>
 {:else}

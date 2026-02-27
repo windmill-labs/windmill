@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { createBubbler, stopPropagation } from 'svelte/legacy'
-
-	const bubble = createBubbler()
+	import { stopPropagation } from 'svelte/legacy'
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import { base } from '$lib/base'
 	import FlowModuleScript from '$lib/components/flows/content/FlowModuleScript.svelte'
@@ -48,6 +46,7 @@
 		onCancel?: any
 		onfork?: (...args: any[]) => any
 		ondelete?: (...args: any[]) => any
+		onkeydown?: (...args: any[]) => any
 	}
 
 	let {
@@ -59,7 +58,8 @@
 		onRun = async () => {},
 		onCancel = async () => {},
 		onfork = undefined,
-		ondelete = undefined
+		ondelete = undefined,
+		onkeydown = undefined
 	}: Props = $props()
 
 	const viewerContext = getContext<AppViewerContext>('AppViewerContext')
@@ -337,7 +337,7 @@
 		</Popover>
 
 		<input
-			onkeydown={stopPropagation(bubble('keydown'))}
+			onkeydown={stopPropagation((e) => onkeydown?.(e))}
 			bind:value={runnable.name}
 			placeholder="Background runnable name"
 			class="!text-xs !rounded-xs"

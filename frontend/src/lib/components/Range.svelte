@@ -1,18 +1,17 @@
 <script lang="ts">
-	import { createBubbler, stopPropagation } from 'svelte/legacy';
-
-	const bubble = createBubbler();
+	import { stopPropagation } from 'svelte/legacy'
 	import RangeSlider from 'svelte-range-slider-pips'
 
 	interface Props {
-		min?: number;
-		max?: number;
-		initialValue?: number;
-		value?: any;
-		disabled?: boolean;
-		defaultValue?: number | undefined;
-		format?: (value: number) => string;
-		hideInput?: boolean;
+		min?: number
+		max?: number
+		initialValue?: number
+		value?: any
+		disabled?: boolean
+		defaultValue?: number | undefined
+		format?: (value: number) => string
+		hideInput?: boolean
+		onpointerdown?: (...args: any[]) => any
 	}
 
 	let {
@@ -23,8 +22,9 @@
 		disabled = false,
 		defaultValue = undefined,
 		format = (v) => `${v}`,
-		hideInput = false
-	}: Props = $props();
+		hideInput = false,
+		onpointerdown = undefined
+	}: Props = $props()
 
 	let step: number = 1
 
@@ -39,7 +39,7 @@
 		if (value === null) {
 			value = 0
 		}
-	});
+	})
 
 	let axisStep = $derived(calculateAxisStep(min, max))
 
@@ -71,7 +71,7 @@
 	<div
 		class={'grow'}
 		style="--range-handle-focus: {'#7e9abd'}; --range-handle: {'#7e9abd'}; --handle-width: {handleWidth}; --handle-border: 4px;"
-		onpointerdown={stopPropagation(bubble('pointerdown'))}
+		onpointerdown={stopPropagation((e) => onpointerdown?.(e))}
 		onkeydown={handleKeyDown}
 		>{#if max <= min}
 			<div class="text-secondary text-sm"

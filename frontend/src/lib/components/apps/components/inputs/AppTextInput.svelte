@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { stopPropagation, createBubbler } from 'svelte/legacy'
-
-	const bubble = createBubbler()
+	import { stopPropagation } from 'svelte/legacy'
 	import { getContext, onDestroy, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput, selectId } from '../../editor/appUtils'
@@ -33,6 +31,7 @@
 			| 'textareainputcomponent'
 		render: boolean
 		onChange?: string[] | undefined
+		onkeydown?: (...args: any[]) => any
 	}
 
 	let {
@@ -43,7 +42,8 @@
 		customCss = undefined,
 		appCssKey = 'textinputcomponent',
 		render,
-		onChange = undefined
+		onChange = undefined,
+		onkeydown = undefined
 	}: Props = $props()
 
 	const {
@@ -198,7 +198,7 @@
 				e.stopPropagation()
 				!$connectingInput.opened && selectId(e, id, selectedComponent, $app)
 			}}
-			onkeydown={stopPropagation(bubble('keydown'))}
+			onkeydown={stopPropagation((e) => onkeydown?.(e))}
 			bind:value
 			placeholder={resolvedConfig.placeholder}
 			disabled={resolvedConfig.disabled}
@@ -226,7 +226,7 @@
 							e.stopPropagation()
 							!$connectingInput.opened && selectId(e, id, selectedComponent, $app)
 						}}
-						onkeydown={stopPropagation(bubble('keydown'))}
+						onkeydown={stopPropagation((e) => onkeydown?.(e))}
 						type="password"
 						autocomplete="new-password"
 						bind:value
@@ -245,7 +245,7 @@
 							e.stopPropagation()
 							!$connectingInput.opened && selectId(e, id, selectedComponent, $app)
 						}}
-						onkeydown={stopPropagation(bubble('keydown'))}
+						onkeydown={stopPropagation((e) => onkeydown?.(e))}
 						type="text"
 						bind:value
 						placeholder={resolvedConfig.placeholder}
@@ -263,7 +263,7 @@
 							e.stopPropagation()
 							!$connectingInput.opened && selectId(e, id, selectedComponent, $app)
 						}}
-						onkeydown={stopPropagation(bubble('keydown'))}
+						onkeydown={stopPropagation((e) => onkeydown?.(e))}
 						type="email"
 						bind:value
 						placeholder={resolvedConfig.placeholder}

@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { createBubbler, stopPropagation } from 'svelte/legacy'
-
-	const bubble = createBubbler()
+	import { stopPropagation } from 'svelte/legacy'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { getContext } from 'svelte'
 	import type { AppViewerContext } from '../../types'
@@ -13,9 +11,10 @@
 	interface Props {
 		panes: number[]
 		component: AppComponent
+		onkeydown?: (...args: any[]) => any
 	}
 
-	let { panes = $bindable(), component = $bindable() }: Props = $props()
+	let { panes = $bindable(), component = $bindable(), onkeydown = undefined }: Props = $props()
 
 	const { app, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -61,7 +60,7 @@
 		{#each panes as _, index (index)}
 			<div class="w-full flex flex-row gap-1 items-center relative">
 				<input
-					onkeydown={stopPropagation(bubble('keydown'))}
+					onkeydown={stopPropagation((e) => onkeydown?.(e))}
 					type="number"
 					bind:value={panes[index]}
 				/>

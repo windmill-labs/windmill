@@ -1,7 +1,4 @@
 <script lang="ts">
-	import { createBubbler } from 'svelte/legacy'
-
-	const bubble = createBubbler()
 	import { Wand2 } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 
@@ -29,7 +26,7 @@
 	class="px-3 py-2 gap-2 w-full text-left hover:bg-surface-hover flex flex-row items-center transition-all rounded-md {selected
 		? 'bg-surface-hover'
 		: ''}"
-	onclick={bubble('click')}
+	onclick={(e) => onclick?.(e)}
 >
 	<Wand2 size={14} class="text-ai" />
 

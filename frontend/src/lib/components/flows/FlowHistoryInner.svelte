@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { stopPropagation, createBubbler } from 'svelte/legacy'
-
-	const bubble = createBubbler()
+	import { stopPropagation } from 'svelte/legacy'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { classNames, displayDate, emptyString, sendUserToast } from '$lib/utils'
 	import { type Flow, FlowService, type FlowVersion } from '$lib/gen'
@@ -14,9 +12,10 @@
 		path: string
 		allowFork?: boolean
 		onHistoryRestore?: () => void
+		onkeydown?: (...args: any[]) => any
 	}
 
-	let { path, allowFork = false, onHistoryRestore }: Props = $props()
+	let { path, allowFork = false, onHistoryRestore, onkeydown = undefined }: Props = $props()
 	let loading: boolean = $state(false)
 
 	let versions: FlowVersion[] = $state([])
@@ -140,7 +139,7 @@
 											bind:value={deploymentMsgUpdate}
 											class="!w-auto grow"
 											onclick={stopPropagation(() => {})}
-											onkeydown={stopPropagation(bubble('keydown'))}
+											onkeydown={stopPropagation((e) => onkeydown?.(e))}
 											onkeypress={(e) => {
 												e.stopPropagation()
 												if (e.key === 'Enter') updateDeploymentMsg(selectedVersion?.id)

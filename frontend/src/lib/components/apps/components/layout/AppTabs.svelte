@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { createBubbler, stopPropagation } from 'svelte/legacy'
-
-	const bubble = createBubbler()
+	import { stopPropagation } from 'svelte/legacy'
 	import { Tab, Tabs } from '$lib/components/common'
 	import { getContext, untrack } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
@@ -30,6 +28,7 @@
 		disabledTabs: RichConfiguration[]
 		hiddenTabs: RichConfiguration[]
 		onTabChange?: string[] | undefined
+		onpointerdown?: (...args: any[]) => any
 	}
 
 	let {
@@ -41,7 +40,8 @@
 		render,
 		disabledTabs,
 		hiddenTabs,
-		onTabChange = undefined
+		onTabChange = undefined,
+		onpointerdown = undefined
 	}: Props = $props()
 
 	let resolvedConfig = $state(
@@ -246,7 +246,7 @@
 				{#each tabs ?? [] as res, index}
 					{#if !resolvedHiddenTabs[index]}
 						<button
-							onpointerdown={stopPropagation(bubble('pointerdown'))}
+							onpointerdown={stopPropagation((e) => onpointerdown?.(e))}
 							onclick={() => !resolvedDisabledTabs[index] && (selected = res)}
 							disabled={resolvedDisabledTabs[index]}
 							class={twMerge(
@@ -280,7 +280,7 @@
 					{#if !resolvedHiddenTabs[index]}
 						<div class="border-b">
 							<button
-								onpointerdown={stopPropagation(bubble('pointerdown'))}
+								onpointerdown={stopPropagation((e) => onpointerdown?.(e))}
 								onclick={() => !resolvedDisabledTabs[index] && (selected = res)}
 								disabled={resolvedDisabledTabs[index]}
 								class={twMerge(

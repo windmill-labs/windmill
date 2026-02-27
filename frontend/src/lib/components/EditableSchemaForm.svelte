@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { createBubbler, preventDefault, stopPropagation } from 'svelte/legacy'
-
-	const bubble = createBubbler()
+	import { preventDefault, stopPropagation } from 'svelte/legacy'
 	import type { Schema } from '$lib/common'
 	import { VariableService, type ScriptLang } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -83,6 +81,7 @@
 		onChange?: (args: Record<string, any>) => void
 		oneditPanelSizeChanged?: (...args: any[]) => any
 		ondelete?: (...args: any[]) => any
+		onclick?: (...args: any[]) => any
 	}
 
 	let {
@@ -121,7 +120,8 @@
 		schemaFormClassName = undefined,
 		onChange = undefined,
 		oneditPanelSizeChanged = undefined,
-		ondelete = undefined
+		ondelete = undefined,
+		onclick = undefined
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -596,7 +596,7 @@
 											<div class="flex flex-row gap-2 text-sm">
 												{argName}
 												{#if !uiOnly}
-													<div onclick={stopPropagation(preventDefault(bubble('click')))}>
+													<div onclick={stopPropagation(preventDefault((e) => onclick?.(e)))}>
 														<Popover placement="bottom-end" contentClasses="p-4" closeButton>
 															{#snippet trigger()}
 																<Button

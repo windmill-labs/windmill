@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { createBubbler, stopPropagation } from 'svelte/legacy'
-
-	const bubble = createBubbler()
+	import { stopPropagation } from 'svelte/legacy'
 	import { classNames } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -34,6 +32,8 @@
 		textDisabled?: boolean
 		right?: import('svelte').Snippet
 		onchange?: (...args: any[]) => any
+		onclick?: (...args: any[]) => any
+		onfocus?: (...args: any[]) => any
 	}
 
 	let {
@@ -52,7 +52,9 @@
 		size = 'sm',
 		textDisabled = false,
 		right,
-		onchange = undefined
+		onchange = undefined,
+		onclick = undefined,
+		onfocus = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher<{ change: boolean }>()
@@ -87,7 +89,7 @@
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class="relative"
-		onclick={stopPropagation(bubble('click'))}
+		onclick={stopPropagation((e) => onclick?.(e))}
 		use:triggerableByAI={{
 			id: aiId,
 			description: aiDescription,
@@ -97,8 +99,8 @@
 		}}
 	>
 		<input
-			onfocus={bubble('focus')}
-			onclick={bubble('click')}
+			onfocus={(e) => onfocus?.(e)}
+			onclick={(e) => onclick?.(e)}
 			{disabled}
 			type="checkbox"
 			{id}

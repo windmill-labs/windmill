@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { createBubbler, stopPropagation } from 'svelte/legacy'
-
-	const bubble = createBubbler()
+	import { stopPropagation } from 'svelte/legacy'
 	import { createEventDispatcher } from 'svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -12,9 +10,16 @@
 		inlineScripts?: string[]
 		children?: import('svelte').Snippet
 		onpick?: (...args: any[]) => any
+		onkeydown?: (...args: any[]) => any
 	}
 
-	let { filter = $bindable(''), inlineScripts = [], children, onpick = undefined }: Props = $props()
+	let {
+		filter = $bindable(''),
+		inlineScripts = [],
+		children,
+		onpick = undefined,
+		onkeydown = undefined
+	}: Props = $props()
 
 	type Item = { title: string }
 	let filteredItems: (Item & { marked?: string })[] = $state([])
@@ -28,7 +33,7 @@
 <div class="w-full flex mt-1 items-center gap-2">
 	{@render children?.()}
 	<input
-		onkeydown={stopPropagation(bubble('keydown'))}
+		onkeydown={stopPropagation((e) => onkeydown?.(e))}
 		type="text"
 		placeholder="Search inline scripts"
 		bind:value={filter}

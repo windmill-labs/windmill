@@ -1,7 +1,4 @@
 <script lang="ts">
-	import { createBubbler } from 'svelte/legacy'
-
-	const bubble = createBubbler()
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
@@ -110,6 +107,7 @@
 		forceTestTab?: boolean
 		highlightArg?: string
 		isAgentTool?: boolean
+		onfocus?: (...args: any[]) => any
 	}
 
 	let {
@@ -125,7 +123,8 @@
 		savedModule = undefined,
 		forceTestTab = false,
 		highlightArg = undefined,
-		isAgentTool = false
+		isAgentTool = false,
+		onfocus = undefined
 	}: Props = $props()
 
 	let workspaceScriptTag: string | undefined = $state(undefined)
@@ -1062,8 +1061,8 @@
 														{enableAi}
 														{isAgentTool}
 														allowedAiTransforms={isAgentTool && flowModule.value.type === 'aiagent'
-														? ['user_message']
-														: undefined}
+															? ['user_message']
+															: undefined}
 														helperScript={retrieveDynCodeAndLang(flowModule.value)}
 														chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
 													/>
@@ -1267,7 +1266,7 @@
 																class="!w-24"
 																disabled={flowModule.priority === undefined}
 																bind:value={flowModule.priority}
-																onfocus={bubble('focus')}
+																onfocus={(e) => onfocus?.(e)}
 																onchange={() => {
 																	if (flowModule.priority && flowModule.priority > 100) {
 																		flowModule.priority = 100

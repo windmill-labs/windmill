@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { stopPropagation, createBubbler } from 'svelte/legacy'
-
-	const bubble = createBubbler()
+	import { stopPropagation } from 'svelte/legacy'
 	import { ArrowRight } from 'lucide-svelte'
 	import { Button } from './common'
 	import { forbiddenIds } from './flows/idUtils'
@@ -18,6 +16,7 @@
 		acceptUnderScores?: boolean
 		onSave: ({ oldId, newId }: { oldId: string; newId: string }) => void
 		onClose?: () => void
+		onkeypress?: (...args: any[]) => any
 	}
 
 	let {
@@ -30,7 +29,8 @@
 		btnClasses = '!p-1 !w-[34px] !ml-1',
 		acceptUnderScores = false,
 		onSave,
-		onClose
+		onClose,
+		onkeypress = undefined
 	}: Props = $props()
 
 	let error = $state('')
@@ -84,7 +84,7 @@
 					onClose?.()
 				}
 			}}
-			onkeypress={stopPropagation(bubble('keypress'))}
+			onkeypress={stopPropagation((e) => onkeypress?.(e))}
 		/>
 		<Button
 			size="xs"

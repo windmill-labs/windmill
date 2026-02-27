@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { createBubbler, stopPropagation } from 'svelte/legacy'
-
-	const bubble = createBubbler()
+	import { stopPropagation } from 'svelte/legacy'
 	import type { InputType, StaticInput, StaticOptions } from '../../../inputType'
 	import ArrayStaticInputEditor from '../ArrayStaticInputEditor.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
@@ -40,6 +38,7 @@
 		placeholder?: string | undefined
 		format?: string | undefined
 		id: string | undefined
+		onkeydown?: (...args: any[]) => any
 	}
 
 	let {
@@ -49,7 +48,8 @@
 		selectOptions = undefined,
 		placeholder = undefined,
 		format = undefined,
-		id
+		id,
+		onkeydown = undefined
 	}: Props = $props()
 
 	const appContext = getContext<AppViewerContext>('AppViewerContext')
@@ -69,25 +69,25 @@
 	{#if componentInput?.type === 'static'}
 		{#if fieldType === 'number' || fieldType === 'integer'}
 			<input
-				onkeydown={stopPropagation(bubble('keydown'))}
+				onkeydown={stopPropagation((e) => onkeydown?.(e))}
 				type="number"
 				bind:value={componentInput.value}
 			/>
 		{:else if fieldType === 'textarea'}
 			<textarea
 				use:autosize
-				onkeydown={stopPropagation(bubble('keydown'))}
+				onkeydown={stopPropagation((e) => onkeydown?.(e))}
 				bind:value={componentInput.value}
 			></textarea>
 		{:else if fieldType === 'date'}
 			<input
-				onkeydown={stopPropagation(bubble('keydown'))}
+				onkeydown={stopPropagation((e) => onkeydown?.(e))}
 				type="date"
 				bind:value={componentInput.value}
 			/>
 		{:else if fieldType === 'time'}
 			<input
-				onkeydown={stopPropagation(bubble('keydown'))}
+				onkeydown={stopPropagation((e) => onkeydown?.(e))}
 				type="time"
 				bind:value={componentInput.value}
 			/>
@@ -99,7 +99,10 @@
 			{#if subFieldType === 'db-table'}
 				<DBTableSelect bind:componentInput {selectOptions} {id} />
 			{:else}
-				<select onkeydown={stopPropagation(bubble('keydown'))} bind:value={componentInput.value}>
+				<select
+					onkeydown={stopPropagation((e) => onkeydown?.(e))}
+					bind:value={componentInput.value}
+				>
 					{#each selectOptions ?? [] as option}
 						{#if typeof option == 'string'}
 							<option value={option}>
@@ -173,7 +176,7 @@
 			{#if componentInput?.value && typeof componentInput?.value == 'object' && 'label' in componentInput?.value && (componentInput.value?.['value'] == undefined || typeof componentInput.value?.['value'] == 'string')}
 				<div class="flex flex-col gap-1 w-full">
 					<input
-						onkeydown={stopPropagation(bubble('keydown'))}
+						onkeydown={stopPropagation((e) => onkeydown?.(e))}
 						placeholder="Label"
 						type="text"
 						bind:value={
@@ -489,7 +492,7 @@
 				<textarea
 					rows="1"
 					use:autosize
-					onkeydown={stopPropagation(bubble('keydown'))}
+					onkeydown={stopPropagation((e) => onkeydown?.(e))}
 					placeholder={placeholder ?? 'Static value'}
 					bind:value={componentInput.value}
 					class="!pr-12"
