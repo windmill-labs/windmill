@@ -126,6 +126,17 @@ fn is_setup_statement(query: &str) -> bool {
         || upper.starts_with("CREATE SECRET")
 }
 
+/// Returns true if the query is expected to return a result set and can be wrapped with DESCRIBE.
+fn is_describable_query(query: &str) -> bool {
+    let trimmed = query.trim_start();
+    let upper = trimmed.to_uppercase();
+    upper.starts_with("SELECT")
+        || upper.starts_with("WITH")
+        || upper.starts_with("VALUES")
+        || upper.starts_with("TABLE")
+        || upper.starts_with("FROM")
+}
+
 static PARAM_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\$\d+").expect("invalid regex"));
 
 fn replace_params_with_null(query: &str) -> String {
@@ -266,9 +277,17 @@ fn prepare_duckdb_internal(
             continue;
         }
 
-        // Note : We have to use a DESCRIBE statement and cannot simply use the
+        // DESCRIBE only works on queries that return result sets (SELECT, WITH, VALUES, TABLE,
+        // FROM). For non-returning statements (INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, etc.)
+        // we skip DESCRIBE and assume no columns.
+        if !is_describable_query(&modified_query) {
+            results.push(PrepareQueryResult { columns: Some(vec![]), error: None });
+            continue;
+        }
+
+        // Note: We have to use a DESCRIBE statement and cannot simply use the
         // methods returned by .prepare() because they panic if the statement was
-        // not executed at least once (which we specifically do not want to do)
+        // not executed at least once (which we specifically do not want to do).
         let describe_query = format!("DESCRIBE {}", modified_query);
         match conn.prepare(&describe_query).and_then(|mut stmt| {
             let rows = stmt.query_map([], |row| {
