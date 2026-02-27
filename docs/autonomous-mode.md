@@ -2,6 +2,35 @@
 
 When running in bypass/auto permission mode, follow these instructions to work end-to-end without human intervention.
 
+## Available Tools
+
+The Nix devShell provides these tools for documentation and testing:
+
+- **`mmdc`** (mermaid-cli): Generate diagrams from Mermaid markup. Uses Nix-provided headless Chrome via `$PUPPETEER_EXECUTABLE_PATH`.
+- **`asciinema`**: Record terminal sessions as `.cast` files for demo videos.
+- **`playwright`** CLI: Take screenshots of the running frontend.
+
+### When to Use Them
+
+- **Designing a feature**: Use `mmdc` to generate Mermaid diagrams (architecture, data flow, sequence diagrams) during the planning phase. Include them in the PR description.
+- **Frontend changes**: Take screenshots with the Playwright CLI after manual testing. Attach them to the PR.
+- **CLI / terminal changes**: Record a demo with `asciinema` showing the feature in action. Attach to the PR.
+
+### Quick Reference
+
+```bash
+# Generate a diagram
+echo 'graph LR; A-->B; B-->C;' | mmdc -i - -o diagram.png
+
+# Take a screenshot of a page
+playwright screenshot --browser chromium http://localhost:3000 screenshot.png
+
+# Record a terminal demo
+asciinema rec demo.cast
+# ... do the demo ...
+# ctrl-d to stop
+```
+
 ## Always Plan First
 
 Even in bypass mode, **enter plan mode before starting non-trivial work**. Ask all important questions upfront:
@@ -58,4 +87,8 @@ When done, provide:
 - What was changed and why (files modified, approach taken)
 - What checks passed (cargo check, npm run check, etc.)
 - What was manually tested and the results
+- **Screenshots** of UI changes (via `playwright screenshot`)
+- **Terminal recordings** of CLI changes (via asciinema)
 - Any known limitations or follow-up work needed
+
+Attach screenshots and recordings to the PR description or as PR comments.
