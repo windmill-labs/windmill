@@ -15,6 +15,8 @@ enterprise = []
 python = ["windmill-common/python"]
 deno_core = ["dep:windmill-runtime-nativets"]
 agent_worker_server = ["dep:windmill-api-agent-workers"]
+run_inline = ["windmill-api/run_inline"]
+duckdb = ["windmill-worker/duckdb"]
 
 [dependencies]
 windmill-api = { workspace = true, default-features = false }

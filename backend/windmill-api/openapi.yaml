@@ -9173,6 +9173,54 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/jobs/run_inline/p/{path}:
+    post:
+      summary: run script by path without starting a new job
+      operationId: runScriptByPathInline
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      requestBody:
+        description: script args
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InlineScriptArgs"
+
+      responses:
+        "200":
+          description: script result
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/jobs/run_inline/h/{hash}:
+    post:
+      summary: run script by hash without starting a new job
+      operationId: runScriptByHashInline
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptHash"
+      requestBody:
+        description: script args
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InlineScriptArgs"
+
+      responses:
+        "200":
+          description: script result
+          content:
+            application/json:
+              schema: {}
+
   /w/{workspace}/jobs/run_wait_result/preview:
     post:
       summary: run script preview and wait for result
@@ -19810,6 +19858,12 @@ components:
         language:
           $ref: "#/components/schemas/ScriptLang"
       required: [content, args, language]
+
+    InlineScriptArgs:
+      type: object
+      properties:
+        args:
+          $ref: "#/components/schemas/ScriptArgs"
 
     WorkflowTask:
       type: object
