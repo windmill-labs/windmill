@@ -27,6 +27,7 @@
 		label?: string
 		description?: string
 		icon?: IconType
+		hidden?: boolean
 	}
 	export type FilterInstanceRec<T extends FilterSchemaRec> = {
 		[K in keyof T]: FilterInstance<T[K]>
@@ -289,14 +290,24 @@
 	let taggedTextInput: TaggedTextInput | undefined = $state()
 
 	let tags = $derived(
-		Object.entries(schema).map(([key, filterSchema]) => ({
-			regex: new RegExp(`\\b${key}:(?:\\\\.|[^\\s])*`, 'g'),
-			id: key,
-			onClear: () => (delete value[key], asText.reparse())
-		}))
+		Object.entries(schema)
+			.filter(([_, s]) => !s.hidden)
+			.map(([key, filterSchema]) => ({
+				regex: new RegExp(`\\b${key}:(?:\\\\.|[^\\s])*`, 'g'),
+				id: key,
+				onClear: () => (delete value[key], asText.reparse())
+			}))
 	)
 
-	let keyHighlightRegex = $derived(new RegExp(`\\b(${Object.keys(schema).join('|')}):`, 'g'))
+	let keyHighlightRegex = $derived(
+		new RegExp(
+			`\\b(${Object.entries(schema)
+				.filter(([_, s]) => !s.hidden)
+				.map(([k]) => k)
+				.join('|')}):`,
+			'g'
+		)
+	)
 
 	let errorKeys = $derived(new Set(errors.flatMap((e) => e.fields)))
 	let errorHighlights = $derived(
@@ -310,6 +321,7 @@
 		if (!currentTag) {
 			const searchText = currentTextSegment.text.trim().toLowerCase()
 			return Object.entries(schema)
+				.filter(([_, s]) => !s.hidden)
 				.filter(([k, _]) => !(k in value))
 				.filter(([k, filterSchema]) => {
 					if (!searchText) return true
@@ -397,34 +409,61 @@
 
 	function parseFromText(text: string): Partial<FilterInstanceRec<SchemaT>> {
 		const parsed: Record<string, string> = {}
+		const matchedRanges: [number, number][] = []
 		let match
 		while ((match = kvRegex.exec(text)) !== null) {
-			let [_, key, val] = match
-			if (key in schema) {
+			let [fullMatch, key, val] = match
+			if (key in schema && key !== '_default_') {
 				val ??= ''
 				val = val.replace(/\\(.)/g, (_: string, c: string) => {
 					if (c === 'n') return '\n'
 					if (c === 'r') return '\r'
 					return c
-				}) // Unescape escaped characters
+				})
 				val = val.trim()
 				parsed[key] = textToFilter(val, schema[key]) as any
+				matchedRanges.push([match.index, match.index + fullMatch.length])
 			}
 		}
+
+		if ('_default_' in schema) {
+			let remaining = ''
+			let lastEnd = 0
+			matchedRanges.sort((a, b) => a[0] - b[0])
+			for (const [start, end] of matchedRanges) {
+				remaining += text.slice(lastEnd, start)
+				lastEnd = end
+			}
+			remaining += text.slice(lastEnd)
+			remaining = remaining.replace(/\s+/g, ' ').trim()
+			if (remaining) {
+				parsed['_default_'] = remaining
+			}
+		}
+
 		return parsed
 	}
 
 	function parseToText(v: Partial<FilterInstanceRec<SchemaT>>): string {
-		return (
-			Object.entries(v)
-				.map(([key, val]) =>
-					`${key}: ${filterToText(val as any, schema[key])}`
-						.replace(/ /g, '\\ ')
-						.replace(/\n/g, '\\n')
-						.replace(/\r/g, '\\r')
-				)
-				.join(' ') + '\u00A0'
-		)
+		const parts: string[] = []
+		let defaultText = ''
+		for (const [key, val] of Object.entries(v)) {
+			if (key === '_default_') {
+				defaultText = String(val)
+				continue
+			}
+			parts.push(
+				`${key}: ${filterToText(val as any, schema[key])}`
+					.replace(/ /g, '\\ ')
+					.replace(/\n/g, '\\n')
+					.replace(/\r/g, '\\r')
+			)
+		}
+		let result = parts.join(' ')
+		if (defaultText) {
+			result = result ? `${result} ${defaultText}` : defaultText
+		}
+		return result + '\u00A0'
 	}
 
 	let asText = useTransformedSyncedValue(

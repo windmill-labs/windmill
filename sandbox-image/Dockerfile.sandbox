@@ -2,7 +2,7 @@ FROM debian:bookworm-slim
 
 # ── System packages ───────────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates git unzip \
+    curl ca-certificates git unzip openssh-client \
     # Rust native build deps
     pkg-config cmake clang mold libtool \
     libssl-dev libxml2-dev libxmlsec1-dev libxslt1-dev \
@@ -55,6 +55,13 @@ ENV PATH="/root/.local/bin:$PATH"
 
 # ── Codex ─────────────────────────────────────────────────────────────────────
 RUN npm i -g @openai/codex
+
+# ── Mermaid CLI ───────────────────────────────────────────────────────────────
+# Skip puppeteer's own Chromium download; reuse the one Playwright already installed above
+RUN PUPPETEER_SKIP_DOWNLOAD=true npm i -g @mermaid-js/mermaid-cli \
+    && CHROMIUM=$(find /root/.cache/ms-playwright -name 'chrome' -executable -type f | head -1) \
+    && printf '{"args":["--no-sandbox","--disable-setuid-sandbox"],"executablePath":"%s"}\n' "$CHROMIUM" \
+       > /root/.puppeteerrc.json
 
 # ── Entrypoint (run explicitly via docker exec, not on container start) ──────
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh

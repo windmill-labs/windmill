@@ -13,6 +13,10 @@ export function buildVariablesFilterSchema({
 	userFoldersLabel?: string
 }) {
 	return {
+		_default_: {
+			type: 'string' as const,
+			hidden: true
+		},
 		owner: {
 			type: 'oneof' as const,
 			options: owners.map((s) => ({ label: s, value: s })),

@@ -32,6 +32,8 @@
 	import AppDeploymentHistory from '$lib/components/apps/editor/AppDeploymentHistory.svelte'
 	import { isDeployable } from '$lib/utils_deployable'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
+	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
+	import { buildForkEditUrl } from '$lib/utils/editInFork'
 
 	interface Props {
 		app: ListableApp & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
@@ -97,8 +99,8 @@
 	{/snippet}
 	{#snippet actions()}
 		<span class="hidden md:inline-flex gap-x-1">
-			{#if !$userStore?.operator && showEditButton}
-				{#if app.canWrite}
+			{#if !$userStore?.operator}
+				{#if showEditButton && app.canWrite}
 					<div>
 						<Button
 							aiId={`edit-app-button-${app.summary?.length > 0 ? app.summary : app.path}`}
@@ -111,18 +113,17 @@
 							Edit
 						</Button>
 					</div>
-				{:else}
+				{/if}
+				{#if !isRuleActive('DisableWorkspaceForking') && (!showEditButton || !app.canWrite)}
 					<div>
 						<Button
-							aiId={`fork-app-button-${app.summary?.length > 0 ? app.summary : app.path}`}
-							aiDescription={`Fork the app ${app.summary?.length > 0 ? app.summary : app.path}`}
-							variant="subtle"
-							wrapperClasses="w-20"
+							variant={!showEditButton ? 'default' : 'subtle'}
+							wrapperClasses="w-32"
 							unifiedSize="md"
 							startIcon={{ icon: GitFork }}
-							href="{base}/apps{app.raw_app ? '_raw' : ''}/add?template={app.path}"
+							href={buildForkEditUrl(app.raw_app ? 'raw_app' : 'app', app.path)}
 						>
-							Fork
+							Edit in fork
 						</Button>
 					</div>
 				{/if}
@@ -173,6 +174,12 @@
 						href: `${base}/apps${app.raw_app ? '_raw' : ''}/add?template=${path}`,
 						disabled: !showEditButton,
 						hide: $userStore?.operator
+					},
+					{
+						displayName: 'Edit in workspace fork',
+						icon: GitFork,
+						href: buildForkEditUrl(app.raw_app ? 'raw_app' : 'app', path),
+						hide: $userStore?.operator || isRuleActive('DisableWorkspaceForking')
 					},
 					{
 						displayName: 'Move/Rename',

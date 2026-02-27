@@ -15,7 +15,6 @@ use windmill_common::{
     DB,
 };
 
-use windmill_store::resources::try_get_resource_from_db_as;
 use windmill_trigger::{listener::ListeningTrigger, trigger_helpers::TriggerJobArgs, Listener};
 
 use super::{
@@ -26,7 +25,8 @@ use super::{
         LogicalReplicationMessage::{Begin, Commit, Delete, Insert, Relation, Type, Update},
         PrimaryKeepAliveBody, ReplicationMessage,
     },
-    Postgres, PostgresConfig, PostgresTrigger, ERROR_PUBLICATION_NAME_NOT_EXISTS,
+    resolve_postgres_resource, Postgres, PostgresConfig, PostgresTrigger,
+    ERROR_PUBLICATION_NAME_NOT_EXISTS,
 };
 
 const ERROR_REPLICATION_SLOT_NOT_EXISTS: &str = r#"The replication slot associated with this trigger no longer exists. Recreate a new replication slot or select an existing one in the advanced tab, or delete and recreate a new trigger"#;
@@ -147,7 +147,7 @@ impl Listener for PostgresTrigger {
             .authed(db, &Self::TRIGGER_KIND.to_string())
             .await?;
 
-        let database = try_get_resource_from_db_as::<Postgres>(
+        let database = resolve_postgres_resource(
             &authed,
             Some(UserDB::new(db.clone())),
             &db,

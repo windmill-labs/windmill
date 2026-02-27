@@ -137,7 +137,8 @@
 										`GRANT CREATE ON DATABASE "${dbname}" TO custom_instance_user;\n` +
 										'ALTER DEFAULT PRIVILEGES IN SCHEMA public \n' +
 										'  	GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES\n    TO custom_instance_user;\n' +
-										'ALTER ROLE custom_instance_user CREATEROLE;'
+										'ALTER ROLE custom_instance_user CREATEROLE;\n' +
+										'ALTER ROLE custom_instance_user REPLICATION;'
 								}
 							],
 							status?.error ?? undefined

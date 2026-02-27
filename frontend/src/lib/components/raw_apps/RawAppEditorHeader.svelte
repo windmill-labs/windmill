@@ -51,6 +51,8 @@
 	import { aiChatManager } from '../copilot/chat/AIChatManager.svelte'
 	import { AIBtnClasses } from '../copilot/chat/AIButtonStyle'
 	import type { RawAppData } from './dataTableRefUtils'
+	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
+	import { buildForkEditUrl } from '$lib/utils/editInFork'
 
 	// async function hash(message) {
 	// 	try {
@@ -931,7 +933,17 @@
 							onClick: () => {
 								window.open(`/apps/add?template=${appPath}`)
 							}
-						}
+						},
+						...(!isRuleActive('DisableWorkspaceForking')
+							? [
+									{
+										label: 'Edit in workspace fork',
+										onClick: () => {
+											window.open(buildForkEditUrl('raw_app', appPath))
+										}
+									}
+								]
+							: [])
 					]
 				: undefined}
 		>

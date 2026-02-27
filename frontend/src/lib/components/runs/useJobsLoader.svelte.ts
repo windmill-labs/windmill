@@ -95,11 +95,12 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let folder = $derived(filters?.folder)
 	let path = $derived(filters?.path)
 	let argFilter = $derived(filters?.arg)
+	let broadFilter = $derived(filters?._default_ || undefined)
 
 	let queue_count: Tweened<number> | undefined = $state()
 	let suspended_count: Tweened<number> | undefined = $state()
 	let loading = $state(false)
-	let lastFetchWentToEnd = $state(false)
+	let lastFetchWentToEnd = $state(true)
 
 	let completedJobs: CompletedJob[] | undefined = $state()
 	let externalJobs: Job[] | undefined = $state()
@@ -108,6 +109,8 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 
 	let intervalId: ReturnType<typeof setInterval> | undefined = $state()
 	let sync = true
+	let paramChangeTimeout: ReturnType<typeof setTimeout> | undefined
+	let paramChangePromise: CancelablePromise<void> | undefined
 
 	function onParamChanges() {
 		resetJobs()
@@ -115,7 +118,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		promise = CancelablePromiseUtils.onTimeout(promise, 4000, () => {
 			sendUserToast(
 				'Loading jobs is taking longer than expected...',
-				true,
+				'warning',
 				perPage > 25 && onSetPerPage
 					? [{ label: 'Reduce to 25 items per page', callback: () => onSetPerPage(25) }]
 					: []
@@ -179,11 +182,18 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		loadingFetch = true
 		let scriptPathStart = folder == null || folder === '' ? undefined : `f/${folder}/`
 		let scriptPathExact = path == null || path === '' ? undefined : path
+		let isQueueOnly = success == 'running' || success == 'suspended' || success == 'waiting'
+		let isCompletedOnly = success == 'success' || success == 'failure'
 		let promise = JobService.listJobs({
 			workspace: currentWorkspace,
-			completedBefore: completedBefore ?? undefined,
-			completedAfter: completedAfter ?? undefined,
-			createdAfterQueue,
+			completedBefore: isQueueOnly ? undefined : (completedBefore ?? undefined),
+			completedAfter: isQueueOnly ? undefined : (completedAfter ?? undefined),
+			createdBeforeQueue: isQueueOnly ? (completedBefore ?? undefined) : undefined,
+			createdAfterQueue: isCompletedOnly
+				? undefined
+				: isQueueOnly
+					? (completedAfter ?? createdAfterQueue)
+					: createdAfterQueue,
 			schedulePath: schedulePath ?? undefined,
 			scriptPathExact,
 			createdBy: user == null || user === '' ? undefined : user,
@@ -217,7 +227,8 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 			triggerKind: jobTriggerKind ?? undefined,
 			allWorkspaces: allWorkspaces ? true : undefined,
 			perPage,
-			allowWildcards: allowWildcards ? true : undefined
+			allowWildcards: allowWildcards ? true : undefined,
+			broadFilter
 		})
 		promise = CancelablePromiseUtils.catchErr(promise, (e) => {
 			if (e instanceof CancelError) return CancelablePromiseUtils.err(e)
@@ -309,16 +320,20 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		const extendedMinTs = subtractDaysFromDateString(minTs, lookback)
 
 		if (concurrencyKey == null || concurrencyKey === '') {
-			return CancelablePromiseUtils.map(fetchJobs(maxTs, null, extendedMinTs), (newJobs) => {
-				extendedJobs = { jobs: newJobs, obscured_jobs: [] } as ExtendedJobs
+			return CancelablePromiseUtils.map(
+				fetchJobs(maxTs, extendedMinTs ?? null, extendedMinTs),
+				(newJobs) => {
+					extendedJobs = { jobs: newJobs, obscured_jobs: [] } as ExtendedJobs
 
-				// Filter on minTs here and not in the backend
-				// to get enough data for the concurrency graph
-				jobs = sortMinDate(minTs, newJobs)
-				externalJobs = []
-				computeCompletedJobs()
-				loading = false
-			})
+					// Filter on minTs here and not in the backend
+					// to get enough data for the concurrency graph
+					jobs = sortMinDate(minTs, newJobs)
+					externalJobs = []
+					computeCompletedJobs()
+					lastFetchWentToEnd = newJobs.length < perPage
+					loading = false
+				}
+			)
 		} else {
 			return CancelablePromiseUtils.map(
 				fetchExtendedJobs(concurrencyKey, maxTs, extendedMinTs ?? null),
@@ -346,6 +361,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 						externalJobs = computeExternalJobs(newExternalJobs)
 					}
 					computeCompletedJobs()
+					lastFetchWentToEnd = newJobs.length < perPage
 					loading = false
 				}
 			)
@@ -375,6 +391,9 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 
 	async function syncer() {
 		if (loadingFetch) {
+			return
+		}
+		if (timeframe?.type === 'manual') {
 			return
 		}
 		if (sync) {
@@ -524,12 +543,18 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		Object.keys(filters ?? {}).map((k) => filters?.[k as keyof RunsFilterInstance])
 		currentWorkspace
 		lookback
-		timeframe
 		perPage
 		showSchedules
 		showFutureJobs
-		let p = untrack(() => onParamChanges())
-		return () => p.cancel()
+		clearTimeout(paramChangeTimeout)
+		paramChangePromise?.cancel()
+		paramChangeTimeout = setTimeout(() => {
+			paramChangePromise = untrack(() => onParamChanges())
+		}, 0)
+		return () => {
+			clearTimeout(paramChangeTimeout)
+			paramChangePromise?.cancel()
+		}
 	})
 	$effect(() => {
 		;[autoRefresh, refreshRate]
