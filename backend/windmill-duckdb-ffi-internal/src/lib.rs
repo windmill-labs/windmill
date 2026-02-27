@@ -245,6 +245,13 @@ fn prepare_duckdb_internal(
 
     let mut results: Vec<PrepareQueryResult> = vec![];
 
+    // IMPORTANT: Setup statements (ATTACH, USE, INSTALL, etc.) are executed but intentionally
+    // do not produce a PrepareQueryResult entry. The frontend prepends these as connection setup
+    // before the actual user queries, and mapPrepareResults expects results.length to equal the
+    // number of user queries (not setup statements). If a new setup-like statement is added to
+    // the connection flow (e.g. in setup_duckdb_connection or transform_attach_ducklake) without
+    // also being caught by is_setup_statement, the result count will mismatch and the frontend
+    // will throw.
     for query_block in &query_block_list {
         if is_setup_statement(query_block) {
             conn.execute_batch(query_block)
