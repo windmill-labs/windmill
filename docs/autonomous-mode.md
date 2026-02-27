@@ -91,4 +91,4 @@ When done, provide:
 - **Terminal recordings** of CLI changes (via asciinema)
 - Any known limitations or follow-up work needed
 
-Attach screenshots and recordings to the PR description or as PR comments.
+Upload images via pastebin (e.g., `curl -F 'file=@screenshot.png' https://0x0.st`) and include the URLs in the PR description or comments.
