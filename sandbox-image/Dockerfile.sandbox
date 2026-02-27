@@ -33,6 +33,9 @@ ENV PATH="/root/.cargo/bin:$PATH"
 RUN cargo install sqlx-cli --no-default-features --features native-tls,postgres \
     && cargo install cargo-watch
 
+# ── asciinema (cargo build for latest) ───────────────────────────────────────
+RUN cargo install asciinema
+
 # ── Bun ───────────────────────────────────────────────────────────────────────
 RUN curl -fsSL https://bun.sh/install | bash
 ENV PATH="/root/.bun/bin:$PATH"
@@ -57,11 +60,15 @@ ENV PATH="/root/.local/bin:$PATH"
 RUN npm i -g @openai/codex
 
 # ── Mermaid CLI ───────────────────────────────────────────────────────────────
-# Skip puppeteer's own Chromium download; reuse the one Playwright already installed above
+# Skip puppeteer's own Chromium download; reuse Playwright's headless shell
+# (the full "chrome" binary crashes with a crashpad handler error in containers)
 RUN PUPPETEER_SKIP_DOWNLOAD=true npm i -g @mermaid-js/mermaid-cli \
-    && CHROMIUM=$(find /root/.cache/ms-playwright -name 'chrome' -executable -type f | head -1) \
+    && CHROMIUM=$(find /root/.cache/ms-playwright -name 'chrome-headless-shell' -executable -type f | head -1) \
     && printf '{"args":["--no-sandbox","--disable-setuid-sandbox"],"executablePath":"%s"}\n' "$CHROMIUM" \
        > /root/.puppeteerrc.json
+
+# ── Allow non-root UID (--user) to access tools installed in /root ───────────
+RUN chmod -R 777 /root
 
 # ── Entrypoint (run explicitly via docker exec, not on container start) ──────
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
