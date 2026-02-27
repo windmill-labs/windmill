@@ -275,9 +275,8 @@ async fn sign_debug_request(
             duration_ms,
             result,
             status,
-            worker,
-            fast_filter
-        ) VALUES ($1, $2, $3, $3, 0, $4, 'success'::job_status, 'debugger', 1::smallint)",
+            worker
+        ) VALUES ($1, $2, $3, $3, 0, $4, 'success'::job_status, 'debugger')",
         job_id,
         w_id,
         now,

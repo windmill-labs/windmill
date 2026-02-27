@@ -116,6 +116,7 @@ async fn fast_filter_migration_inner(db: &DB) -> Result<(), Error> {
                 SELECT c.id FROM v2_job_completed c
                 JOIN v2_job j ON c.id = j.id
                 WHERE j.parent_job IS NULL AND c.fast_filter IS NULL AND c.status != 'skipped'
+                    AND j.kind IN ('script', 'flow', 'singlestepflow')
                 LIMIT 50000
             )
             UPDATE v2_job_completed SET fast_filter =

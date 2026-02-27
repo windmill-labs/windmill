@@ -358,14 +358,18 @@ pub async fn import_completed_jobs(
         .execute(&mut *tx)
         .await?;
 
-        let fast_filter: Option<i16> =
-            if job.parent_job.is_some() || job.status == JobStatus::Skipped {
-                None
-            } else if job.status == JobStatus::Success {
-                Some(1)
-            } else {
-                Some(2)
-            };
+        let fast_filter: Option<i16> = if job.parent_job.is_some()
+            || job.status == JobStatus::Skipped
+            || !matches!(
+                job.kind,
+                JobKind::Script | JobKind::Flow | JobKind::SingleStepFlow
+            ) {
+            None
+        } else if job.status == JobStatus::Success {
+            Some(1)
+        } else {
+            Some(2)
+        };
 
         sqlx::query!(
             r#"

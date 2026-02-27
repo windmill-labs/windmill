@@ -923,6 +923,19 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         return value;
     }
 
+    let fast_filter: Option<i16> = if completed_job.parent_job.is_some()
+        || skipped
+        || !matches!(
+            completed_job.kind,
+            JobKind::Script | JobKind::Flow | JobKind::SingleStepFlow
+        ) {
+        None
+    } else if canceled_by.is_some() || !success {
+        Some(2)
+    } else {
+        Some(1)
+    };
+
     let duration =  sqlx::query_scalar!(
             "INSERT INTO v2_job_completed AS cj
                     ( workspace_id
@@ -947,11 +960,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                         WHEN $2::BOOL THEN 'success'::job_status
                         ELSE 'failure'::job_status END AS status,
                         q.worker,
-                        CASE WHEN $11::uuid IS NOT NULL THEN NULL
-                             WHEN $7::BOOL THEN NULL
-                             WHEN $4::BOOL THEN 2::smallint
-                             WHEN $2::BOOL THEN 1::smallint
-                             ELSE 2::smallint END
+                        $11::smallint
                 FROM v2_job_queue q LEFT JOIN v2_job_status USING (id) WHERE q.id = $1
             ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = $3, fast_filter = EXCLUDED.fast_filter RETURNING duration_ms AS \"duration_ms!\"",
             /* $1 */ completed_job.id,
@@ -964,7 +973,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             /* $8 */ if mem_peak > 0 { Some(mem_peak) } else { None },
             /* $9 */ duration,
             /* $10 */ result_columns as Option<&Vec<String>>,
-            /* $11 */ completed_job.parent_job,
+            /* $11 */ fast_filter,
         )
         .fetch_optional(&mut *tx)
         .warn_after_seconds(10)
