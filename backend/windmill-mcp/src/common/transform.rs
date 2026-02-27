@@ -64,27 +64,22 @@ pub fn transform_hub_path(version_id: u64, summary: &str) -> String {
     format!("{}{}{}", fixed_prefix, truncated_summary, hash_suffix)
 }
 
-/// Check if a tool name is a hashed (long) name.
-/// Hashed names have an uppercase first character.
-pub fn is_hashed_name(name: &str) -> bool {
-    name.chars()
-        .next()
-        .map(|c| c.is_ascii_uppercase())
-        .unwrap_or(false)
-}
-
-/// Extract the item type from a hashed name.
-/// Returns the type string ("script" or "flow") and whether it's a hub script.
-pub fn parse_hashed_name(name: &str) -> Result<(&str, bool), String> {
-    if name.starts_with("S-") {
-        Ok(("script", false))
-    } else if name.starts_with("F-") {
-        Ok(("flow", false))
-    } else if name.starts_with("Hs-") {
-        Ok(("script", true))
+/// Parse the prefix of any tool name (both short and hashed).
+/// Returns `(type_str, is_hub, is_hashed)`.
+/// Hashed names use an uppercase first character as the signal.
+pub fn parse_tool_prefix(name: &str) -> Result<(&str, bool, bool), String> {
+    let is_hashed = name.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false);
+    let lower = name.to_ascii_lowercase();
+    let (type_str, is_hub) = if lower.starts_with("hs-") {
+        ("script", true)
+    } else if lower.starts_with("s-") {
+        ("script", false)
+    } else if lower.starts_with("f-") {
+        ("flow", false)
     } else {
-        Err(format!("Invalid hashed name prefix: {}", name))
-    }
+        return Err(format!("Invalid tool name prefix: {}", name));
+    };
+    Ok((type_str, is_hub, is_hashed))
 }
 
 /// Extract the hub version_id from a hashed hub script name like `Hs-{id}-...`
@@ -102,19 +97,25 @@ pub fn extract_hub_version_id_from_hashed(name: &str) -> Result<String, String> 
     Ok(id.to_string())
 }
 
-/// Extract a safe original-path prefix from a hashed workspace tool name.
+/// Extract a safe original-path prefix from a hashed tool name.
 ///
 /// Given `S-u_admin_engineering__te<hash16>`, extracts the escaped prefix between
-/// `S-` and the hash, un-escapes it, and returns a prefix suitable for
-/// `WHERE path LIKE '{prefix}%'`.
+/// the type prefix (`S-`, `F-`, or `Hs-`) and the hash, un-escapes it, and
+/// returns a prefix suitable for `WHERE path LIKE '{prefix}%'`.
 ///
-/// Returns `None` if the name is too short to contain a meaningful prefix.
+/// Returns `None` if the name is too short or has an unrecognized prefix.
 pub fn extract_path_prefix_from_hashed(name: &str) -> Option<String> {
-    // Strip the 2-char type prefix ("S-" or "F-") and the 16-char hash suffix
-    if name.len() <= 2 + HASH_LEN {
+    let prefix_len = if name.starts_with("Hs-") {
+        3
+    } else if name.starts_with("S-") || name.starts_with("F-") {
+        2
+    } else {
+        return None;
+    };
+    if name.len() <= prefix_len + HASH_LEN {
         return None;
     }
-    let escaped_prefix = &name[2..name.len() - HASH_LEN];
+    let escaped_prefix = &name[prefix_len..name.len() - HASH_LEN];
     if escaped_prefix.is_empty() {
         return None;
     }
@@ -160,31 +161,18 @@ fn truncate_to_char_boundary(s: &str, max_len: usize) -> &str {
 /// Note: This only works for non-hashed (short) names. Hashed names must be
 /// resolved via `is_hashed_name` + path enumeration in the runner.
 pub fn reverse_transform(transformed_path: &str) -> Result<(&str, String, bool), String> {
-    if is_hashed_name(transformed_path) {
+    let (type_str, is_hub, is_hashed) = parse_tool_prefix(transformed_path)?;
+
+    if is_hashed {
         return Err(
             "Hashed names cannot be reverse-transformed directly; use path enumeration instead"
                 .to_string(),
         );
     }
 
-    let is_hub = transformed_path.starts_with("h");
-    let transformed_path = if is_hub {
-        transformed_path[1..].to_string()
-    } else {
-        transformed_path.to_string()
-    };
-    let type_str = if transformed_path.starts_with("s-") {
-        "script"
-    } else if transformed_path.starts_with("f-") {
-        "flow"
-    } else {
-        return Err(format!(
-            "Invalid prefix in transformed path: {}",
-            transformed_path
-        ));
-    };
-
-    let mangled_path = &transformed_path[2..];
+    // Strip the prefix: "hs-" (3 chars) for hub, "s-"/"f-" (2 chars) for others
+    let prefix_len = if is_hub { 3 } else { 2 };
+    let mangled_path = &transformed_path[prefix_len..];
 
     let original_path = if is_hub {
         let parts = mangled_path.split("-").collect::<Vec<&str>>();
@@ -260,7 +248,8 @@ mod tests {
         let result = transform_path(long_path, "script");
         assert_eq!(result.len(), MAX_PATH_LENGTH);
         assert!(result.starts_with("S-"));
-        assert!(is_hashed_name(&result));
+        let (_, _, is_hashed) = parse_tool_prefix(&result).unwrap();
+        assert!(is_hashed);
     }
 
     #[test]
@@ -269,7 +258,8 @@ mod tests {
         let result = transform_path(long_path, "flow");
         assert_eq!(result.len(), MAX_PATH_LENGTH);
         assert!(result.starts_with("F-"));
-        assert!(is_hashed_name(&result));
+        let (_, _, is_hashed) = parse_tool_prefix(&result).unwrap();
+        assert!(is_hashed);
     }
 
     #[test]
@@ -297,7 +287,8 @@ mod tests {
     fn test_transform_hub_path_short() {
         let result = transform_hub_path(12345, "Send Slack Message");
         assert_eq!(result, "hs-12345-Send_Slack_Message");
-        assert!(!is_hashed_name(&result));
+        let (_, _, is_hashed) = parse_tool_prefix(&result).unwrap();
+        assert!(!is_hashed);
     }
 
     #[test]
@@ -308,7 +299,8 @@ mod tests {
         );
         assert_eq!(result.len(), MAX_PATH_LENGTH);
         assert!(result.starts_with("Hs-12345-"));
-        assert!(is_hashed_name(&result));
+        let (_, _, is_hashed) = parse_tool_prefix(&result).unwrap();
+        assert!(is_hashed);
     }
 
     #[test]
@@ -319,28 +311,36 @@ mod tests {
     }
 
     #[test]
-    fn test_is_hashed_name() {
-        assert!(is_hashed_name("S-u_admin_script_abc123"));
-        assert!(is_hashed_name("F-f_folder_flow_abc123"));
-        assert!(is_hashed_name("Hs-12345-summary"));
-        assert!(!is_hashed_name("s-u_admin_script"));
-        assert!(!is_hashed_name("f-f_folder_flow"));
-        assert!(!is_hashed_name("hs-12345-summary"));
-    }
-
-    #[test]
-    fn test_parse_hashed_name() {
-        let (t, hub) = parse_hashed_name("S-something").unwrap();
+    fn test_parse_tool_prefix() {
+        let (t, hub, hashed) = parse_tool_prefix("S-something").unwrap();
         assert_eq!(t, "script");
         assert!(!hub);
+        assert!(hashed);
 
-        let (t, hub) = parse_hashed_name("F-something").unwrap();
+        let (t, hub, hashed) = parse_tool_prefix("F-something").unwrap();
         assert_eq!(t, "flow");
         assert!(!hub);
+        assert!(hashed);
 
-        let (t, hub) = parse_hashed_name("Hs-12345-something").unwrap();
+        let (t, hub, hashed) = parse_tool_prefix("Hs-12345-something").unwrap();
         assert_eq!(t, "script");
         assert!(hub);
+        assert!(hashed);
+
+        let (t, hub, hashed) = parse_tool_prefix("s-u_admin_script").unwrap();
+        assert_eq!(t, "script");
+        assert!(!hub);
+        assert!(!hashed);
+
+        let (t, hub, hashed) = parse_tool_prefix("f-f_folder_flow").unwrap();
+        assert_eq!(t, "flow");
+        assert!(!hub);
+        assert!(!hashed);
+
+        let (t, hub, hashed) = parse_tool_prefix("hs-12345-summary").unwrap();
+        assert_eq!(t, "script");
+        assert!(hub);
+        assert!(!hashed);
     }
 
     #[test]
@@ -361,7 +361,8 @@ mod tests {
         // Generate a real hashed name and verify prefix extraction
         let long_path = "u/admin/engineering/team/automation/very_long_script";
         let hashed = transform_path(long_path, "script");
-        assert!(is_hashed_name(&hashed));
+        let (_, _, is_hashed) = parse_tool_prefix(&hashed).unwrap();
+        assert!(is_hashed);
 
         let prefix = extract_path_prefix_from_hashed(&hashed).unwrap();
         // The original path should start with the extracted prefix
@@ -384,6 +385,32 @@ mod tests {
             long_path,
             prefix
         );
+    }
+
+    #[test]
+    fn test_extract_path_prefix_rejects_invalid_prefix() {
+        assert!(extract_path_prefix_from_hashed("x-something").is_none());
+        assert!(extract_path_prefix_from_hashed("").is_none());
+        assert!(extract_path_prefix_from_hashed("S-").is_none());
+    }
+
+    #[test]
+    fn test_extract_path_prefix_handles_hs_prefix() {
+        // Hs- is 3 chars, not 2 — ensure the prefix is stripped correctly
+        let hashed = transform_hub_path(12345, "a]very long hub script summary that exceeds the limit");
+        let (_, is_hub, is_hashed) = parse_tool_prefix(&hashed).unwrap();
+        assert!(is_hub);
+        assert!(is_hashed);
+
+        let prefix = extract_path_prefix_from_hashed(&hashed);
+        // Should not start with 's' (leftover from Hs- if sliced at index 2)
+        if let Some(ref p) = prefix {
+            assert!(
+                !p.starts_with('s'),
+                "prefix '{}' should not start with 's' from mis-sliced Hs- prefix",
+                p
+            );
+        }
     }
 
     #[test]

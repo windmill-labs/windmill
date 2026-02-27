@@ -6,8 +6,8 @@
 use crate::common::schema::extract_resource_types_from_schema;
 use crate::common::scope::parse_mcp_scopes;
 use crate::common::transform::{
-    extract_hub_version_id_from_hashed, extract_path_prefix_from_hashed, is_hashed_name,
-    parse_hashed_name, reverse_transform, reverse_transform_key, transform_path,
+    extract_hub_version_id_from_hashed, extract_path_prefix_from_hashed, parse_tool_prefix,
+    reverse_transform, reverse_transform_key, transform_path,
 };
 use crate::common::types::{ResourceInfo, ToolableItem, WorkspaceId};
 use crate::server::backend::{McpAuth, McpBackend};
@@ -267,57 +267,55 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         }
 
         // Resolve the tool name to (type, path, is_hub)
-        let (tool_type, path, is_hub) = if is_hashed_name(&request.name) {
-            let (type_str, is_hub) = parse_hashed_name(&request.name).map_err(|e| {
-                ErrorData::internal_error(format!("Failed to parse hashed tool name: {}", e), None)
+        let (type_str, is_hub, is_hashed) =
+            parse_tool_prefix(&request.name).map_err(|e| {
+                ErrorData::internal_error(format!("Failed to parse tool name: {}", e), None)
             })?;
 
-            if is_hub {
-                let version_id =
-                    extract_hub_version_id_from_hashed(&request.name).map_err(|e| {
-                        ErrorData::internal_error(
-                            format!("Failed to extract hub version_id: {}", e),
-                            None,
-                        )
-                    })?;
-                (type_str, version_id, true)
-            } else {
-                let path_prefix =
-                    extract_path_prefix_from_hashed(&request.name);
-                let matched_path = if type_str == "script" {
-                    self.backend
-                        .list_scripts(&auth, &workspace_id, false, path_prefix.as_deref())
-                        .await
-                        .map_err(|e| ErrorData::internal_error(e.message, None))?
-                        .into_iter()
-                        .find(|s| transform_path(&s.path, "script") == request.name.as_ref())
-                        .map(|s| s.path)
-                } else {
-                    self.backend
-                        .list_flows(&auth, &workspace_id, false, path_prefix.as_deref())
-                        .await
-                        .map_err(|e| ErrorData::internal_error(e.message, None))?
-                        .into_iter()
-                        .find(|f| transform_path(&f.path, "flow") == request.name.as_ref())
-                        .map(|f| f.path)
-                };
-
-                let matched_path = matched_path.ok_or_else(|| {
-                    ErrorData::internal_error(
-                        format!(
-                            "No {} found matching hashed tool name '{}'",
-                            type_str, request.name
-                        ),
-                        None,
-                    )
-                })?;
-
-                (type_str, matched_path, false)
-            }
-        } else {
+        let (tool_type, path, is_hub) = if !is_hashed {
             reverse_transform(&request.name).map_err(|e| {
                 ErrorData::internal_error(format!("Failed to parse tool name: {}", e), None)
             })?
+        } else if is_hub {
+            let version_id =
+                extract_hub_version_id_from_hashed(&request.name).map_err(|e| {
+                    ErrorData::internal_error(
+                        format!("Failed to extract hub version_id: {}", e),
+                        None,
+                    )
+                })?;
+            (type_str, version_id, true)
+        } else {
+            let path_prefix = extract_path_prefix_from_hashed(&request.name);
+            let matched_path = if type_str == "script" {
+                self.backend
+                    .list_scripts(&auth, &workspace_id, false, path_prefix.as_deref())
+                    .await
+                    .map_err(|e| ErrorData::internal_error(e.message, None))?
+                    .into_iter()
+                    .find(|s| transform_path(&s.path, "script") == request.name.as_ref())
+                    .map(|s| s.path)
+            } else {
+                self.backend
+                    .list_flows(&auth, &workspace_id, false, path_prefix.as_deref())
+                    .await
+                    .map_err(|e| ErrorData::internal_error(e.message, None))?
+                    .into_iter()
+                    .find(|f| transform_path(&f.path, "flow") == request.name.as_ref())
+                    .map(|f| f.path)
+            };
+
+            let matched_path = matched_path.ok_or_else(|| {
+                ErrorData::internal_error(
+                    format!(
+                        "No {} found matching hashed tool name '{}'",
+                        type_str, request.name
+                    ),
+                    None,
+                )
+            })?;
+
+            (type_str, matched_path, false)
         };
 
         // Validate script/flow scope
