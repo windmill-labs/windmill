@@ -165,7 +165,6 @@ pub async fn do_duckdb(
             let result = tokio::task::spawn_blocking(move || {
                 prepare_duckdb_ffi_safe(
                     query_block_list.iter().map(String::as_str),
-                    query_block_list.len(),
                     &token,
                     &base_internal_url,
                     &w_id,
@@ -422,7 +421,6 @@ fn run_duckdb_ffi_safe<'a>(
 
 fn prepare_duckdb_ffi_safe<'a>(
     query_block_list: impl Iterator<Item = &'a str>,
-    query_block_list_count: usize,
     token: &str,
     base_internal_url: &str,
     w_id: &str,
