@@ -15,9 +15,9 @@ Reflect on the current session and update documentation with lessons learned.
    - Think about: what was slow, what failed, what required multiple attempts, what information was missing or hard to find
 
 2. **Read current docs**: Read the docs that were relevant to this session:
-   - `docs/architecture.md`
    - `docs/validation.md`
    - `docs/enterprise.md`
+   - `docs/autonomous-mode.md`
    - Any skills that were invoked
 
 3. **Propose updates**: For each piece of friction, decide if it warrants a doc update:

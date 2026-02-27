@@ -20,7 +20,7 @@ After making changes, run the appropriate checks and fix all errors before consi
 
 **Never** use `SQLX_OFFLINE=true` — a live database is always available.
 
-After all code changes are done, run `./update-sqlx` from `backend/` to regenerate the offline query cache.
+After all code changes are done, run `./update_sqlx.sh` from `backend/` to regenerate the offline query cache.
 
 ## Frontend: What to Check
 

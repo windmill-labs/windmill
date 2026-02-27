@@ -14,7 +14,6 @@
 
 - Standard location: `~/windmill-ee-private`
 - Worktree location: `~/windmill-ee-private__worktrees/<branch-name>/`
-- Also configured as additional directory in `.claude/settings.local.json`
 
 ## EE PR Workflow (MUST DO when modifying `*_ee.rs` files)
 
