@@ -237,22 +237,6 @@
         };
 
         # ---------------------------------------------------------------
-        # Shared shell hook — load .env.local from the main worktree
-        # (gitignored files don't exist in worktrees, so we resolve
-        # back to the main tree via git-common-dir)
-        # ---------------------------------------------------------------
-
-        loadEnvLocal = ''
-          _MAIN_TREE="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null | sed 's|/.git$||')"
-          if [ -f "$_MAIN_TREE/.env.local" ]; then
-            set -a
-            source "$_MAIN_TREE/.env.local"
-            set +a
-          fi
-          unset _MAIN_TREE
-        '';
-
-        # ---------------------------------------------------------------
         # Helper scripts — base set (default + full)
         # ---------------------------------------------------------------
 
@@ -371,8 +355,6 @@
         devShells.default = pkgs.mkShell (buildEnvVars // commonRuntimeVars // devEnvVars // browserVars // {
           buildInputs = coreBuildInputs;
 
-          shellHook = loadEnvLocal;
-
           packages = helperScriptsBase ++ [ playwrightWrapper ];
         });
 
@@ -407,8 +389,6 @@
             nsjail
           ]);
 
-          shellHook = loadEnvLocal;
-
           packages = helperScriptsBase ++ helperScriptsFull ++ [ playwrightWrapper ];
         });
 
@@ -439,7 +419,7 @@
         # =============================================================
 
         devShells.cli = pkgs.mkShell {
-          shellHook = loadEnvLocal + ''
+          shellHook = ''
             if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
               export FLAKE_ROOT="$(git rev-parse --show-toplevel)"
             else
