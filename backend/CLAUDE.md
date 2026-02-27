@@ -1,6 +1,5 @@
 # Backend (Rust)
 
-- **Architecture**: `docs/architecture.md` — crate structure, DB schema, feature flags
 - **Coding patterns**: MUST use the `rust-backend` skill when writing Rust code
 - **Validation**: `docs/validation.md` — which `cargo check` flags to use
 - **Enterprise**: `docs/enterprise.md` — EE file conventions and PR workflow

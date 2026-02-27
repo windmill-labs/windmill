@@ -1,6 +1,5 @@
 # Frontend (Svelte 5)
 
-- **Architecture**: `docs/architecture.md` — component hierarchy, routes, generated client
 - **Coding patterns**: MUST use the `svelte-frontend` skill when writing Svelte code
 - **Validation**: `docs/validation.md` — `npm run check:fast` (2s) for iteration, `npm run check` (50s) for final PR
 - **UI components**: use Windmill's design-system components (Button, TextInput, Select) — never raw HTML elements

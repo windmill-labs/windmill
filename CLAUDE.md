@@ -11,7 +11,6 @@ Open-source platform for internal tools, workflows, API integrations, background
 
 ## Documentation
 
-- **Architecture**: `docs/architecture.md` — platform overview, crate structure, DB, frontend layout
 - **Validation**: `docs/validation.md` — what checks to run based on what you changed
 - **Enterprise**: `docs/enterprise.md` — EE file conventions and PR workflow
 - **Backend patterns**: use the `rust-backend` skill when writing Rust code
