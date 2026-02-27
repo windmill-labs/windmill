@@ -4,6 +4,13 @@ import { ChangeOnDeepInequality, MapResource } from './svelte5Utils.svelte'
 import { sqlDataTypeToJsTypeHeuristic } from './components/apps/components/display/dbtable/utils'
 import { chunkBy, clone, getQueryStmtCountHeuristic } from './utils'
 
+function extractErrorMessage(e: unknown): string {
+	if (e != null && typeof e === 'object' && 'body' in e) {
+		return (e as any).body?.error?.message ?? JSON.stringify(e)
+	}
+	return e instanceof Error ? e.message : JSON.stringify(e)
+}
+
 function computeQueryKey(query: InferAssetsSqlQueryDetails, workspace?: string) {
 	return `${query.source_kind}::${query.source_name}::${query.source_schema}::${workspace}::${query.query_string}`
 }
@@ -106,7 +113,7 @@ async function prepareDatatableQueries(
 
 					return mapPrepareResults(res, chunk)
 				} catch (e) {
-					const error = e instanceof Error ? e.message : JSON.stringify(e)
+					const error = extractErrorMessage(e)
 					return chunk.map(([key]) => [key, { error }] as [string, PreparedAssetsSqlQuery])
 				}
 			})
@@ -148,7 +155,7 @@ async function prepareDucklakeQueries(
 						})) as { error?: string; columns?: { name: string; type: string }[] }[]
 						return mapPrepareResults(res, chunk)
 					} catch (e) {
-						const error = e instanceof Error ? e.message : JSON.stringify(e)
+						const error = extractErrorMessage(e)
 						return chunk.map(([key]) => [key, { error }] as [string, PreparedAssetsSqlQuery])
 					}
 				}
