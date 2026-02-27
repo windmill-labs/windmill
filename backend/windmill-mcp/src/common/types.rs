@@ -94,6 +94,8 @@ pub struct ItemSchema {
 pub trait ToolableItem {
     /// Get the path or identifier for this item (transformed for MCP compatibility)
     fn get_path_or_id(&self) -> String;
+    /// Get the original full path of this item (for display in tool title)
+    fn get_full_path(&self) -> &str;
     /// Get the summary/title of this item
     fn get_summary(&self) -> &str;
     /// Get the description of this item

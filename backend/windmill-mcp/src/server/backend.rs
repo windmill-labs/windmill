@@ -90,6 +90,15 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
     async fn list_hub_scripts(&self, app_filter: Option<&str>)
         -> BackendResult<Vec<HubScriptInfo>>;
 
+    /// List all paths for a given item type (script or flow) in a workspace.
+    /// Used for resolving hashed tool names back to their original paths.
+    async fn list_all_item_paths(
+        &self,
+        auth: &Self::Auth,
+        workspace_id: &str,
+        item_type: &str,
+    ) -> BackendResult<Vec<String>>;
+
     // ─────────────────────────────────────────────────────────────────
     // Schema Operations
     // ─────────────────────────────────────────────────────────────────

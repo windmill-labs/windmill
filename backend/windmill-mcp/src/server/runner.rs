@@ -5,7 +5,10 @@
 
 use crate::common::schema::extract_resource_types_from_schema;
 use crate::common::scope::parse_mcp_scopes;
-use crate::common::transform::{reverse_transform, reverse_transform_key};
+use crate::common::transform::{
+    extract_hub_version_id_from_hashed, is_hashed_name, parse_hashed_name, reverse_transform,
+    reverse_transform_key, transform_path,
+};
 use crate::common::types::{ResourceInfo, ToolableItem, WorkspaceId};
 use crate::server::backend::{McpAuth, McpBackend};
 use crate::server::endpoints::endpoint_tool_to_mcp_tool;
@@ -231,17 +234,6 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         let scope_config =
             parse_mcp_scopes(scopes).map_err(|e| ErrorData::internal_error(e, None))?;
 
-        // Handle truncated tool names
-        if request.name.ends_with("_TRUNC") {
-            return Ok(CallToolResult::error(vec![rmcp::model::Annotated::new(
-                rmcp::model::RawContent::Text(rmcp::model::RawTextContent {
-                    text: "Tool path is too long. Consider shortening it to make it compatible with MCP.".to_string(),
-                    meta: None,
-                }),
-                None,
-            )]));
-        }
-
         let args = request.arguments.map(Value::Object).unwrap_or(Value::Null);
 
         // Check if this is an endpoint tool
@@ -274,10 +266,54 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
             }
         }
 
-        // Not an endpoint tool - parse as script/flow
-        let (tool_type, path, is_hub) = reverse_transform(&request.name).map_err(|e| {
-            ErrorData::internal_error(format!("Failed to parse tool name: {}", e), None)
-        })?;
+        // Resolve the tool name to (type, path, is_hub)
+        let (tool_type, path, is_hub) = if is_hashed_name(&request.name) {
+            let (type_str, is_hub) = parse_hashed_name(&request.name).map_err(|e| {
+                ErrorData::internal_error(format!("Failed to parse hashed tool name: {}", e), None)
+            })?;
+
+            if is_hub {
+                let version_id =
+                    extract_hub_version_id_from_hashed(&request.name).map_err(|e| {
+                        ErrorData::internal_error(
+                            format!("Failed to extract hub version_id: {}", e),
+                            None,
+                        )
+                    })?;
+                (type_str, version_id, true)
+            } else {
+                let all_paths = self
+                    .backend
+                    .list_all_item_paths(&auth, &workspace_id, type_str)
+                    .await
+                    .map_err(|e| {
+                        ErrorData::internal_error(
+                            format!("Failed to list {} paths: {}", type_str, e.message),
+                            None,
+                        )
+                    })?;
+
+                let matched_path = all_paths
+                    .iter()
+                    .find(|p| transform_path(p, type_str) == request.name.as_ref())
+                    .cloned()
+                    .ok_or_else(|| {
+                        ErrorData::internal_error(
+                            format!(
+                                "No {} found matching hashed tool name '{}'",
+                                type_str, request.name
+                            ),
+                            None,
+                        )
+                    })?;
+
+                (type_str, matched_path, false)
+            }
+        } else {
+            reverse_transform(&request.name).map_err(|e| {
+                ErrorData::internal_error(format!("Failed to parse tool name: {}", e), None)
+            })?
+        };
 
         // Validate script/flow scope
         if !is_hub && scope_config.granular {

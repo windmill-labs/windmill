@@ -20,9 +20,9 @@ use crate::jobs::{
 
 use super::auto_generated_endpoints::all_tools;
 use super::utils::{
-    build_query_string, build_request_body, create_http_request, get_hub_script_schema,
-    get_item_schema, get_items, get_resources, get_resources_types, get_scripts_from_hub,
-    parse_response_body, prepare_push_args, substitute_path_params,
+    build_query_string, build_request_body, create_http_request, get_all_item_paths,
+    get_hub_script_schema, get_item_schema, get_items, get_resources, get_resources_types,
+    get_scripts_from_hub, parse_response_body, prepare_push_args, substitute_path_params,
 };
 
 use std::sync::Arc;
@@ -109,6 +109,17 @@ impl McpBackend for WindmillBackend {
         app_filter: Option<&str>,
     ) -> BackendResult<Vec<HubScriptInfo>> {
         get_scripts_from_hub(&self.db, app_filter)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.message, None))
+    }
+
+    async fn list_all_item_paths(
+        &self,
+        auth: &ApiAuthed,
+        workspace_id: &str,
+        item_type: &str,
+    ) -> BackendResult<Vec<String>> {
+        get_all_item_paths(&self.user_db, auth, workspace_id, item_type)
             .await
             .map_err(|e| ErrorData::internal_error(e.message, None))
     }

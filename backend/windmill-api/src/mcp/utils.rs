@@ -184,6 +184,50 @@ pub async fn get_items<T: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Sen
     Ok(rows)
 }
 
+/// Get all paths for a given item type (script or flow) in a workspace.
+/// Unlike `get_items`, this selects only the `path` column, has no LIMIT,
+/// and does not join favorites. Used for resolving hashed tool names.
+pub async fn get_all_item_paths(
+    user_db: &UserDB,
+    authed: &ApiAuthed,
+    workspace_id: &str,
+    item_type: &str,
+) -> Result<Vec<String>, ErrorData> {
+    let mut sqlb = SqlBuilder::select_from(&format!("{} as o", item_type));
+    sqlb.fields(&["o.path"]);
+    sqlb.and_where("o.workspace_id = ?".bind(&workspace_id))
+        .and_where("o.archived = false")
+        .and_where("o.draft_only IS NOT TRUE");
+
+    if item_type == "script" {
+        sqlb.and_where("(o.no_main_func IS NOT TRUE OR o.no_main_func IS NULL)");
+    }
+
+    let sql = sqlb.sql().map_err(|e| {
+        tracing::error!("failed to build sql: {}", e);
+        ErrorData::internal_error(format!("failed to build sql: {}", e), None)
+    })?;
+    let mut tx = user_db.clone().begin(authed).await.map_err(|e| {
+        tracing::error!("failed to begin transaction: {}", e);
+        ErrorData::internal_error(format!("failed to begin transaction: {}", e), None)
+    })?;
+    let rows: Vec<(String,)> = sqlx::query_as(&sql)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| {
+            tracing::error!("failed to fetch {} paths: {}", item_type, e);
+            ErrorData::internal_error(
+                format!("failed to fetch {} paths: {}", item_type, e),
+                None,
+            )
+        })?;
+    tx.commit().await.map_err(|e| {
+        tracing::error!("failed to commit transaction: {}", e);
+        ErrorData::internal_error(format!("failed to commit transaction: {}", e), None)
+    })?;
+    Ok(rows.into_iter().map(|(p,)| p).collect())
+}
+
 /// Get scripts from the Hub
 pub async fn get_scripts_from_hub(
     db: &DB,
