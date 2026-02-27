@@ -13,7 +13,7 @@ default = []
 enterprise = ["dep:windmill-autoscaling"]
 private = []
 python = []
-inline_preview = ["dep:windmill-worker", "dep:itertools"]
+run_inline = ["dep:windmill-worker", "dep:itertools"]
 
 [dependencies]
 windmill-api-auth.workspace = true

@@ -27,20 +27,22 @@ use url::Url;
 #[cfg(all(feature = "enterprise", feature = "smtp"))]
 use windmill_common::auth::is_super_admin_email;
 use windmill_common::auth::TOKEN_PREFIX_LEN;
-#[cfg(feature = "inline_preview")]
+#[cfg(feature = "run_inline")]
 use windmill_common::client::AuthedClient;
 use windmill_common::db::UserDbWithAuthed;
 use windmill_common::error::JsonResult;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
-#[cfg(feature = "inline_preview")]
-use windmill_common::jobs::RunInlinePreviewScriptFnParams;
 use windmill_common::jobs::{
     format_completed_job_result, format_result, DynamicInput, ENTRYPOINT_OVERRIDE,
+};
+#[cfg(feature = "run_inline")]
+use windmill_common::jobs::{
+    InlineScriptTarget, RunInlinePreviewScriptFnParams, RunInlineScriptFnParams,
 };
 use windmill_common::runnable_settings::{
     ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings,
 };
-#[cfg(feature = "inline_preview")]
+#[cfg(feature = "run_inline")]
 use windmill_common::runtime_assets::{register_runtime_asset, InsertRuntimeAssetParams};
 use windmill_common::scripts::ScriptRunnableSettingsInline;
 use windmill_common::triggers::TriggerMetadata;
@@ -53,15 +55,15 @@ use windmill_common::DYNAMIC_INPUT_CACHE;
 #[cfg(all(feature = "enterprise", feature = "smtp"))]
 use windmill_common::{email_oss::send_email_html, server::load_smtp_config};
 use windmill_object_store::upload_artifact_to_store;
-#[cfg(feature = "inline_preview")]
+#[cfg(feature = "run_inline")]
 use windmill_parser::asset_parser::AssetKind;
 use windmill_types::s3::BundleFormat;
-#[cfg(feature = "inline_preview")]
+#[cfg(feature = "run_inline")]
 use windmill_worker::get_worker_internal_server_inline_utils;
 
 use windmill_common::variables::get_workspace_key;
 
-#[cfg(feature = "inline_preview")]
+#[cfg(feature = "run_inline")]
 use crate::db::OptJobAuthed;
 use crate::triggers::trigger_helpers::{FlowId, ScriptId};
 use crate::{
@@ -242,6 +244,11 @@ pub fn workspaced_service() -> Router {
         )
         .route("/run/preview", post(run_preview_script))
         .route("/run_inline/preview", post(run_inline_preview_script))
+        .route(
+            "/run_inline/p/*script_path",
+            post(run_inline_script_by_path),
+        )
+        .route("/run_inline/h/:hash", post(run_inline_script_by_hash))
         .route(
             "/run_wait_result/preview",
             post(run_wait_result_preview_script),
@@ -2853,12 +2860,18 @@ struct Preview {
     flow_path: Option<String>,
 }
 
-#[cfg(feature = "inline_preview")]
+#[cfg(feature = "run_inline")]
 #[derive(Debug, Deserialize)]
 struct PreviewInline {
     content: String,
     args: Option<HashMap<String, Box<JsonRawValue>>>,
     language: ScriptLang,
+}
+
+#[cfg(feature = "run_inline")]
+#[derive(Debug, Deserialize)]
+struct InlineScriptArgs {
+    args: Option<HashMap<String, Box<JsonRawValue>>>,
 }
 
 #[derive(Deserialize)]
@@ -4573,7 +4586,7 @@ async fn run_preview_script(
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
-#[cfg(feature = "inline_preview")]
+#[cfg(feature = "run_inline")]
 async fn run_inline_preview_script(
     OptJobAuthed { authed, job_id }: OptJobAuthed,
     Tokened { token }: Tokened,
@@ -4610,14 +4623,120 @@ async fn run_inline_preview_script(
     Ok(Json(to_raw_value(&result)).into_response())
 }
 
-#[cfg(not(feature = "inline_preview"))]
+#[cfg(not(feature = "run_inline"))]
 async fn run_inline_preview_script() -> error::Result<Response> {
     Err(error::Error::InternalErr(
         "inline preview requires the worker feature".to_string(),
     ))
 }
 
-#[cfg(feature = "inline_preview")]
+#[cfg(feature = "run_inline")]
+async fn run_inline_script_by_path(
+    OptJobAuthed { authed, .. }: OptJobAuthed,
+    Tokened { token }: Tokened,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, script_path)): Path<(String, StripPath)>,
+    Json(body): Json<InlineScriptArgs>,
+) -> error::Result<Response> {
+    let script_path_str = script_path.to_path();
+    check_scopes(&authed, || format!("jobs:run:scripts:{script_path_str}"))?;
+    run_inline_script_inner(
+        authed,
+        token,
+        db,
+        w_id,
+        InlineScriptTarget::Path(script_path.to_path().to_string()),
+        body.args,
+        Some(user_db),
+    )
+    .await
+}
+
+#[cfg(not(feature = "run_inline"))]
+async fn run_inline_script_by_path() -> error::Result<Response> {
+    Err(error::Error::InternalErr(
+        "inline script by path requires the worker feature".to_string(),
+    ))
+}
+
+#[cfg(feature = "run_inline")]
+async fn run_inline_script_by_hash(
+    OptJobAuthed { authed, .. }: OptJobAuthed,
+    Tokened { token }: Tokened,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, script_hash)): Path<(String, ScriptHash)>,
+    Json(body): Json<InlineScriptArgs>,
+) -> error::Result<Response> {
+    // Resolve the script path from the hash and check scopes properly
+    let hash = script_hash.0;
+    let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
+    let ScriptHashInfo { path, .. } =
+        get_script_info_for_hash(Some(userdb_authed), &db, &w_id, hash)
+            .await?
+            .prefetch_cached(&db)
+            .await?;
+
+    check_scopes(&authed, || format!("jobs:run:scripts:{path}"))?;
+
+    run_inline_script_inner(
+        authed,
+        token,
+        db,
+        w_id,
+        InlineScriptTarget::Hash(hash),
+        body.args,
+        Some(user_db),
+    )
+    .await
+}
+
+#[cfg(not(feature = "run_inline"))]
+async fn run_inline_script_by_hash() -> error::Result<Response> {
+    Err(error::Error::InternalErr(
+        "inline script by hash requires the worker feature".to_string(),
+    ))
+}
+
+#[cfg(feature = "run_inline")]
+async fn run_inline_script_inner(
+    authed: ApiAuthed,
+    token: String,
+    db: DB,
+    w_id: String,
+    target: InlineScriptTarget,
+    args: Option<HashMap<String, Box<JsonRawValue>>>,
+    user_db: Option<UserDB>,
+) -> error::Result<Response> {
+    let utils = get_worker_internal_server_inline_utils()?;
+    let authed_owned: windmill_common::db::Authed = authed.clone().into();
+    let result = utils.run_inline_script.as_ref()(RunInlineScriptFnParams {
+        target,
+        args,
+        workspace_id: w_id.clone(),
+        base_internal_url: utils.base_internal_url.clone(),
+        killpill_rx: utils.killpill_rx.resubscribe(),
+        created_by: authed.display_username().to_string(),
+        permissioned_as: username_to_permissioned_as(&authed.username),
+        permissioned_as_email: authed.email.clone(),
+        job_dir: "".to_string(),
+        worker_name: "".to_string(),
+        worker_dir: "".to_string(),
+        client: AuthedClient {
+            base_internal_url: utils.base_internal_url.clone(),
+            force_client: None,
+            token,
+            workspace: w_id,
+        },
+        conn: windmill_common::worker::Connection::Sql(db),
+        user_db: user_db.map(|udb| (udb, authed_owned)),
+    })
+    .await?;
+    Ok(Json(to_raw_value(&result)).into_response())
+}
+
+#[cfg(feature = "run_inline")]
 fn register_potential_assets_on_inline_execution(
     job_id: Uuid,
     w_id: &str,
