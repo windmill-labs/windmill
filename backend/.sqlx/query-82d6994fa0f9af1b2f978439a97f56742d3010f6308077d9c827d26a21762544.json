@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO v2_job_completed (\n            id,\n            workspace_id,\n            started_at,\n            completed_at,\n            duration_ms,\n            result,\n            status,\n            worker,\n            fast_filter\n        ) VALUES ($1, $2, $3, $3, 0, $4, 'success'::job_status, 'debugger', 1::smallint)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar",
+        "Timestamptz",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "82d6994fa0f9af1b2f978439a97f56742d3010f6308077d9c827d26a21762544"
+}

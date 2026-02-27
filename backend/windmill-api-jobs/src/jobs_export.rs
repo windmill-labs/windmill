@@ -358,14 +358,23 @@ pub async fn import_completed_jobs(
         .execute(&mut *tx)
         .await?;
 
+        let fast_filter: Option<i16> =
+            if job.parent_job.is_some() || job.status == JobStatus::Skipped {
+                None
+            } else if job.status == JobStatus::Success {
+                Some(1)
+            } else {
+                Some(2)
+            };
+
         sqlx::query!(
             r#"
             INSERT INTO v2_job_completed (
                 id, workspace_id, started_at, completed_at, duration_ms, result, deleted,
                 canceled_by, canceled_reason, flow_status, memory_peak, status, worker,
-                workflow_as_code_status, result_columns, retries, extras
+                workflow_as_code_status, result_columns, retries, extras, fast_filter
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
             )
             ON CONFLICT (id) DO NOTHING
             "#,
@@ -385,7 +394,8 @@ pub async fn import_completed_jobs(
             job.workflow_as_code_status as _,
             job.result_columns as _,
             job.retries as _,
-            job.extras as _
+            job.extras as _,
+            fast_filter
         )
         .execute(&mut *tx)
         .await?;

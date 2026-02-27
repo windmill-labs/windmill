@@ -99,6 +99,7 @@ pub async fn cancel_jobs(
                    , flow_status
                    , status
                    , worker
+                   , fast_filter
                 )
                 SELECT  q.workspace_id
                    , q.id
@@ -109,6 +110,7 @@ pub async fn cancel_jobs(
                    , (SELECT flow_status FROM v2_job_status WHERE id = q.id)
                    , 'canceled'::job_status
                    , worker
+                   , 2::smallint
         FROM v2_job_queue q
             JOIN v2_job USING (id)
         WHERE q.id = any($2) AND running = false AND parent_job IS NULL AND q.workspace_id = $3 AND trigger_kind IS DISTINCT FROM 'schedule'
