@@ -14,7 +14,7 @@ use crate::secret_backend_ext::{
     delete_secret_from_backend, get_secret_value, is_vault_stored_value, rename_vault_secret,
     store_secret_value,
 };
-use windmill_common::utils::BulkDeleteRequest;
+use windmill_common::utils::{escape_ilike_pattern, BulkDeleteRequest};
 use windmill_common::webhook::{WebhookMessage, WebhookShared};
 
 use axum::{
@@ -101,6 +101,7 @@ struct ListVariableQuery {
     pub description: Option<String>,
     // filter by matching the non-encrypted value (for non-secrets only)
     pub value: Option<String>,
+    pub broad_filter: Option<String>,
 }
 
 async fn list_variables(
@@ -161,18 +162,22 @@ async fn list_variables(
     }
 
     if let Some(description) = &lq.description {
-        sqlb.and_where(&format!(
-            "variable.description ILIKE '%{}%'",
-            description.replace("'", "''")
-        ));
+        let pat = format!("%{}%", escape_ilike_pattern(description));
+        sqlb.and_where("variable.description ILIKE ?".bind(&pat));
     }
 
     if let Some(value) = &lq.value {
         // Only filter on non-secret variables' value
-        sqlb.and_where(&format!(
-            "(is_secret = FALSE AND variable.value ILIKE '%{}%')",
-            value.replace("'", "''")
-        ));
+        let pat = format!("%{}%", escape_ilike_pattern(value));
+        sqlb.and_where("(is_secret = FALSE AND variable.value ILIKE ?)".bind(&pat));
+    }
+
+    if let Some(broad_filter) = &lq.broad_filter {
+        let pat = format!("%{}%", escape_ilike_pattern(broad_filter));
+        sqlb.and_where(
+            "(variable.path ILIKE ? OR variable.description ILIKE ? OR (is_secret = FALSE AND variable.value ILIKE ?))"
+                .bind(&pat).bind(&pat).bind(&pat)
+        );
     }
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;

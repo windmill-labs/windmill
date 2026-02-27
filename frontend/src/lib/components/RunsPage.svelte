@@ -82,10 +82,13 @@
 			usernames,
 			folders,
 			jobTriggerKinds,
-			isSuperAdmin: !!$superadmin
+			isSuperAdmin: !!$superadmin,
+			isAdminsWorkspace: $workspaceStore === 'admins'
 		})
 	)
 	let perPage = useLocalStorageValue('runs_per_page', 1000, 'number')
+	let showSchedulesStorage = useLocalStorageValue('runs_show_schedules', true, 'boolean')
+	let showFutureJobsStorage = useLocalStorageValue('runs_show_future_jobs', true, 'boolean')
 	let filters = useUrlSyncedFilterInstance(untrack(() => runsFilterSearchbarSchema))
 
 	let { initialPath }: Props = $props()
@@ -96,6 +99,24 @@
 	if (initialPath && !filters.val.path) {
 		filters.val.path = initialPath
 	}
+
+	// Apply persistent toggle values from local storage if URL doesn't specify them
+	if (!page.url.searchParams.has('job_trigger_kind') && showSchedulesStorage.val === false) {
+		filters.val.job_trigger_kind = '!schedule'
+	}
+	if (!page.url.searchParams.has('show_future_jobs') && showFutureJobsStorage.val === false) {
+		filters.val.show_future_jobs = false
+	}
+
+	// Sync toggle state back to local storage when filters change
+	$effect(() => {
+		if (!filters.val.job_trigger_kind || filters.val.job_trigger_kind === '!schedule') {
+			showSchedulesStorage.val = filters.val.job_trigger_kind !== '!schedule'
+		}
+	})
+	$effect(() => {
+		showFutureJobsStorage.val = filters.val.show_future_jobs !== false
+	})
 
 	let selectedIds: string[] = $state([])
 	let selectedWorkspace: string | undefined = $state(undefined)
@@ -117,18 +138,17 @@
 				type?: ConfirmationModal['$$prop_def']['type']
 		  } = $state(undefined)
 
-	let automaticTimeframeState = useLocalStorageValue('runs_automatic_timeframe', 'null', 'string')
 	let _timeframe = useSyncedTimeframe(
 		runsTimeframes,
 		() => ({
 			maxTs: filters.val.max_ts?.toISOString(),
 			minTs: filters.val.min_ts?.toISOString(),
-			timeframe: automaticTimeframeState.val === 'null' ? null : automaticTimeframeState.val
+			timeframe: filters.val.timeframe
 		}),
 		(v) => {
 			v.maxTs ? (filters.val.max_ts = new Date(v.maxTs)) : delete filters.val.max_ts
 			v.minTs ? (filters.val.min_ts = new Date(v.minTs)) : delete filters.val.min_ts
-			automaticTimeframeState.val = v.timeframe ?? 'null'
+			v.timeframe ? (filters.val.timeframe = v.timeframe) : delete filters.val.timeframe
 		}
 	)
 	let timeframe = $derived(_timeframe.val)
@@ -718,9 +738,16 @@
 				bind:value={_timeframe.val}
 			/>
 			<FilterSearchbar
-				class="flex-1 relative max-w-[34rem] min-w-[18rem] {ButtonType.UnifiedMinHeightClasses.md}"
+				class={twMerge(
+					'flex-1 relative min-w-[18rem]',
+					Object.keys(filters.val).length <= 3 ? 'max-w-[28rem]' : 'max-w-[34rem]',
+					ButtonType.UnifiedMinHeightClasses.md
+				)}
 				schema={runsFilterSearchbarSchema}
-				presets={buildRunsFilterPresets({ isSuperadmin: !!$superadmin })}
+				presets={buildRunsFilterPresets({
+					isSuperadmin: !!$superadmin,
+					isAdminsWorkspace: $workspaceStore === 'admins'
+				})}
 				bind:value={filters.val}
 				placeholder="Filter runs..."
 			/>
@@ -753,7 +780,7 @@
 						transformInputSelectedText={(_, v) => `${pluralize(v, 'day')} lookback`}
 						tooltip={'How far behind the min datetime to start considering jobs for the concurrency graph. Change this value to include jobs started before the set time window for the computation of the graph'}
 					/>
-				{:else if !lastFetchWentToEnd}
+				{:else if !lastFetchWentToEnd && (jobs?.length ?? 0) >= (perPage.val ?? 1000)}
 					<Button wrapperClasses="ml-2" unifiedSize="md" onClick={() => jobsLoader.loadExtraJobs()}>
 						Load more
 						<Tooltip>There are more jobs to load</Tooltip>
@@ -769,9 +796,8 @@
 					maxTimeSet={manualTimeframe?.maxTs}
 					maxIsNow={manualTimeframe?.maxTs == undefined}
 					jobs={completedJobs}
-					onZoom={async (zoom) => {
+					onZoom={(zoom) => {
 						_timeframe.val = buildManualTimeframe(zoom.min.toISOString(), zoom.max.toISOString())
-						jobsLoader?.loadJobs(true)
 					}}
 					onPointClicked={(ids) => {
 						runsTable?.scrollToRun(ids)
@@ -783,9 +809,8 @@
 					maxTimeSet={manualTimeframe?.maxTs}
 					maxIsNow={manualTimeframe?.maxTs == undefined}
 					{extendedJobs}
-					onZoom={async (zoom) => {
+					onZoom={(zoom) => {
 						_timeframe.val = buildManualTimeframe(zoom.min.toISOString(), zoom.max.toISOString())
-						jobsLoader?.loadJobs(true)
 					}}
 				/>
 			{/if}

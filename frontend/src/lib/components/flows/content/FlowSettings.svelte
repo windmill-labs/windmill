@@ -8,7 +8,7 @@
 	import { Alert, Button, SecondsInput } from '$lib/components/common'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
-	import { enterpriseLicense, userStore } from '$lib/stores'
+	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
@@ -26,6 +26,9 @@
 	import { slide } from 'svelte/transition'
 	import DebounceLimit from '../DebounceLimit.svelte'
 	import EEOnly from '$lib/components/EEOnly.svelte'
+	import OnBehalfOfSelector, {
+		type OnBehalfOfChoice
+	} from '$lib/components/OnBehalfOfSelector.svelte'
 
 	interface Props {
 		noEditor: boolean
@@ -46,12 +49,9 @@
 
 	const WM_DEPLOYERS_GROUP = 'wm_deployers'
 	let isDeployer = $derived($userStore?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
-	let showPreserveToggle = $derived(
-		isDeployer &&
-			flowStore.val.on_behalf_of_email &&
-			$savedOnBehalfOfEmail &&
-			$savedOnBehalfOfEmail !== $userStore?.email
-	)
+	let canPreserve = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin || isDeployer)
+	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
+	let customOnBehalfOfEmail: string = $state('')
 
 	function asSchema(x: any) {
 		return x as Schema
@@ -382,34 +382,54 @@
 				/>
 
 				<!-- On behalf of last editor section -->
-				<Toggle
-					textClass="font-medium"
-					size="xs"
-					checked={Boolean(flowStore.val.on_behalf_of_email)}
-					on:change={() => {
-						if (flowStore.val.on_behalf_of_email) {
-							flowStore.val.on_behalf_of_email = undefined
-							$preserveOnBehalfOf = false
-						} else {
-							flowStore.val.on_behalf_of_email = $userStore?.email
-						}
-					}}
-					options={{
-						right: 'Run on behalf of last editor',
-						rightTooltip:
-							'When this option is enabled, the flow will be run with the permissions of the last editor.'
-					}}
-				/>
-				{#if showPreserveToggle}
+				<span class="inline-flex gap-2">
 					<Toggle
 						textClass="font-medium"
 						size="xs"
-						bind:checked={$preserveOnBehalfOf}
+						checked={Boolean(flowStore.val.on_behalf_of_email)}
+						on:change={() => {
+							if (flowStore.val.on_behalf_of_email) {
+								flowStore.val.on_behalf_of_email = undefined
+								$preserveOnBehalfOf = false
+								onBehalfOfChoice = undefined
+							} else {
+								flowStore.val.on_behalf_of_email = $userStore?.email
+							}
+						}}
 						options={{
-							right: `Keep original author (${$savedOnBehalfOfEmail})`
+							right: `Run on behalf of ${canPreserve ? 'a specified user' : 'last editor'}`,
+							rightTooltip:
+								'When this option is enabled, the flow will be run with the permissions of the corresponding user.'
 						}}
 					/>
-				{/if}
+					{#if flowStore.val.on_behalf_of_email && canPreserve}
+						&rarr; <OnBehalfOfSelector
+							targetWorkspace={$workspaceStore ?? ''}
+							targetEmail={$savedOnBehalfOfEmail}
+							selected={onBehalfOfChoice}
+							onSelect={(choice, email) => {
+								onBehalfOfChoice = choice
+								if (choice === 'me') {
+									flowStore.val.on_behalf_of_email = $userStore?.email
+									customOnBehalfOfEmail = ''
+									$preserveOnBehalfOf = false
+								} else if (choice === 'target') {
+									flowStore.val.on_behalf_of_email = $savedOnBehalfOfEmail
+									customOnBehalfOfEmail = ''
+									$preserveOnBehalfOf = true
+								} else if (choice === 'custom' && email) {
+									flowStore.val.on_behalf_of_email = email
+									customOnBehalfOfEmail = email
+									$preserveOnBehalfOf = true
+								}
+							}}
+							kind="flow"
+							{canPreserve}
+							customEmail={customOnBehalfOfEmail}
+							isDeployment={false}
+						/>
+					{/if}
+				</span>
 
 				<!-- Error Handler Section -->
 				<div class="flex flex-row items-center py-1">
@@ -581,8 +601,8 @@
 					{#if flowStore.val.dedicated_worker}
 						<div class="mt-2">
 							<Alert type="info" title="Require dedicated workers">
-								A worker group needs to be configured to listen to this flow. Select it in the dedicated
-								workers section of the worker group configuration.
+								A worker group needs to be configured to listen to this flow. Select it in the
+								dedicated workers section of the worker group configuration.
 							</Alert>
 						</div>
 					{/if}

@@ -1195,6 +1195,8 @@ interface TeamsApprovalOptions {
  * @param {string} [options.approver] - Optional user ID or name of the approver for the request.
  * @param {DefaultArgs} [options.defaultArgsJson] - Optional object defining or overriding the default arguments to a form field.
  * @param {Enums} [options.dynamicEnumsJson] - Optional object overriding the enum default values of an enum form field.
+ * @param {string} [options.resumeButtonText] - Optional text for the resume button.
+ * @param {string} [options.cancelButtonText] - Optional text for the cancel button.
  *
  * @returns {Promise<void>} Resolves when the Slack approval request is successfully sent.
  *

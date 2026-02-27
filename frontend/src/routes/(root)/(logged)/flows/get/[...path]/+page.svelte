@@ -67,6 +67,8 @@
 	import { slide } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
+	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
+	import { buildForkEditUrl } from '$lib/utils/editInFork'
 
 	let flow: Flow | undefined = $state()
 	let can_write = $state(false)
@@ -248,6 +250,18 @@
 					variant: 'subtle',
 					unifiedSize: 'md',
 					disabled: !showEditButtons,
+					startIcon: GitFork
+				}
+			})
+		}
+
+		if (flow && !$userStore?.operator && !isRuleActive('DisableWorkspaceForking')) {
+			buttons.push({
+				label: 'Edit in fork',
+				buttonProps: {
+					href: buildForkEditUrl('flow', flow.path),
+					unifiedSize: 'md',
+					variant: !showEditButtons ? 'default' : 'subtle',
 					startIcon: GitFork
 				}
 			})
