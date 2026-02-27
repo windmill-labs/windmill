@@ -334,21 +334,21 @@
             gh
             awscli2
             asciinema
-            playwright-driver
             mermaid-cli
           ]);
 
-          # Playwright: use Nix-provided browsers; override with system Chrome via
-          # PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH if preferred
+          # Playwright: use Nix-provided browsers (version-matched to playwright-driver)
           PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers}";
+          # Mermaid/Puppeteer: point at Nix chromium (Puppeteer respects this env var)
+          PUPPETEER_EXECUTABLE_PATH = "${pkgs.chromium}/bin/chromium";
           PUPPETEER_SKIP_DOWNLOAD = "true";
 
-          # Resolve Puppeteer executable path dynamically (revision number varies)
-          shellHook = ''
-            export PUPPETEER_EXECUTABLE_PATH="$(echo $PLAYWRIGHT_BROWSERS_PATH/chromium_headless_shell-*/chrome-linux/headless_shell)"
-          '';
-
-          packages = helperScriptsBase;
+          packages = helperScriptsBase ++ [
+            # Wrapper for the Nix-provided playwright CLI (version-matched to its browsers)
+            (pkgs.writeShellScriptBin "playwright" ''
+              exec ${pkgs.nodejs}/bin/node ${pkgs.playwright-driver}/cli.js "$@"
+            '')
+          ];
         });
 
         # =============================================================
@@ -391,7 +391,6 @@
             gh
             awscli2
             asciinema
-            playwright-driver
             mermaid-cli
 
             # Extra
@@ -400,13 +399,14 @@
           ]);
 
           PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers}";
+          PUPPETEER_EXECUTABLE_PATH = "${pkgs.chromium}/bin/chromium";
           PUPPETEER_SKIP_DOWNLOAD = "true";
 
-          shellHook = ''
-            export PUPPETEER_EXECUTABLE_PATH="$(echo $PLAYWRIGHT_BROWSERS_PATH/chromium_headless_shell-*/chrome-linux/headless_shell)"
-          '';
-
-          packages = helperScriptsBase ++ helperScriptsFull;
+          packages = helperScriptsBase ++ helperScriptsFull ++ [
+            (pkgs.writeShellScriptBin "playwright" ''
+              exec ${pkgs.nodejs}/bin/node ${pkgs.playwright-driver}/cli.js "$@"
+            '')
+          ];
         });
 
         # =============================================================
