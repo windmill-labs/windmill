@@ -164,7 +164,7 @@
 			{#if cache}
 				<Popover notClickable>
 					<div
-						transition:fade|local={{ duration: 200 }}
+						transition:fade={{ duration: 200 }}
 						class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
 					>
 						<Database size={12} />
@@ -177,7 +177,7 @@
 			{#if earlyStop}
 				<Popover notClickable>
 					<div
-						transition:fade|local={{ duration: 200 }}
+						transition:fade={{ duration: 200 }}
 						class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
 					>
 						<Square size={12} />

@@ -83,7 +83,7 @@
 	{/if}
 	{#if value && isHovered}
 		<button
-			transition:fade|local={{ duration: 80 }}
+			transition:fade={{ duration: 80 }}
 			class="absolute z-10 top-[9.5px] right-2 rounded-full p-0.5 text-primary bg-surface-secondary
 			 hover:bg-surface-hover focus:bg-surface-hover {buttonClass}"
 			aria-label="Clear"

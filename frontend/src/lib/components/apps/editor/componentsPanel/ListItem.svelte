@@ -78,7 +78,7 @@
 			<ChevronDown class="rotate-0 duration-300 {isOpen ? '!rotate-180' : ''}" />
 		</button>
 		{#if isOpen}
-			<div transition:slide|local={{ duration: 300 }} class="px-2 {contentWrapperClasses}">
+			<div transition:slide={{ duration: 300 }} class="px-2 {contentWrapperClasses}">
 				{@render children?.()}
 			</div>
 		{/if}

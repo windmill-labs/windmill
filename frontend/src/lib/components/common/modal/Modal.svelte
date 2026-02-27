@@ -63,7 +63,7 @@
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 	<div
 		onclick={() => (open = false)}
-		transition:fadeFast|local
+		transition:fadeFast
 		class={'fixed top-0 bottom-0 left-0 right-0 z-[9999]'}
 		role="dialog"
 		tabindex="-1"

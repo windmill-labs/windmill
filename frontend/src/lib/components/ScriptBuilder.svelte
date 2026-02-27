@@ -1686,7 +1686,7 @@
 																/>
 															{/if}
 															<button
-																transition:fade|local={{ duration: 50 }}
+																transition:fade={{ duration: 50 }}
 																class="rounded-full p-1 bg-surface/60 duration-200 hover:bg-gray-200 absolute right-2"
 																aria-label="Clear"
 																onclick={() => {

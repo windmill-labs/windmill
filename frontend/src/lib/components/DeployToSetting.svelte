@@ -192,7 +192,7 @@
 								placeholder="e.g., f/*, u/admin/**"
 							/>
 							<button
-								transition:fade|local={{ duration: 100 }}
+								transition:fade={{ duration: 100 }}
 								class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
 								aria-label="Clear"
 								onclick={() => {

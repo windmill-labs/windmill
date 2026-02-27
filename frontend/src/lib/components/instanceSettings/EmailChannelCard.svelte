@@ -65,7 +65,7 @@
 			<!-- Email Inputs -->
 			<div class="space-y-2">
 				{#each channels as channel}
-					<div class="flex items-center gap-2 w-full" transition:fade|local={{ duration: 200 }}>
+					<div class="flex items-center gap-2 w-full" transition:fade={{ duration: 200 }}>
 						<TextInput
 							inputProps={{
 								type: 'email',

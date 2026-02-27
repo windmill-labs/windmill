@@ -190,7 +190,7 @@
 					</div>
 					{#if quickStyleProperties?.length && isQuickMenuOpen}
 						<div class="text-xs mb-1 font-medium">Rich editor</div>
-						<div transition:slide|local={{ duration: 200 }} class="w-full">
+						<div transition:slide={{ duration: 200 }} class="w-full">
 							<QuickStyleMenu
 								bind:value={value.style}
 								properties={quickStyleProperties}

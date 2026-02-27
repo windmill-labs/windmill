@@ -97,7 +97,7 @@
 			</div>
 
 			{#if children && !isCollapsed}
-				<div transition:slide|local={{ duration: 200 }} class="mt-2">
+				<div transition:slide={{ duration: 200 }} class="mt-2">
 					<div
 						class={twMerge('text-xs', classes[type].descriptionClass, descriptionClass)}
 						style={descriptionStyle}

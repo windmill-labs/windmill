@@ -517,7 +517,7 @@
 				</div>
 				<AlignmentEditor bind:component={item.data} />
 				{#if viewCssOptions}
-					<div transition:slide|local class="w-full">
+					<div transition:slide class="w-full">
 						{#each Object.keys(ccomponents[component.type]?.customCss ?? {}) as name}
 							{#if item.data?.customCss != undefined}
 								<div class="w-full mb-2">

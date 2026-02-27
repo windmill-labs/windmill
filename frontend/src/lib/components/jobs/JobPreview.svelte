@@ -103,7 +103,7 @@
 	{@render children?.({ open })}
 	{#if open}
 		<div
-			transition:fade|local={{ duration: 50 }}
+			transition:fade={{ duration: 50 }}
 			class={twMerge(
 				'absolute z-50  -left-10 bg-surface rounded border shadow-md flex flex-col gap-4 items-start w-[600px] h-80 overflow-hidden',
 				popupOnTop ? 'bottom-[35px]' : 'top-[35px]',

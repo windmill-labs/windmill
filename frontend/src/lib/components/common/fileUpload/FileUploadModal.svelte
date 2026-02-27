@@ -35,7 +35,7 @@
 
 {#if open}
 	<div
-		transition:fadeFast|local
+		transition:fadeFast
 		class={'fixed top-0 bottom-0 left-0 right-0 z-[5000]'}
 		role="dialog"
 	>

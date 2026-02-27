@@ -127,7 +127,7 @@
 					</button>
 
 					{#if isExpanded}
-						<div transition:slide|local={{ duration: 200 }} class="p-4 border-t">
+						<div transition:slide={{ duration: 200 }} class="p-4 border-t">
 							<div class="space-y-3">
 								{#each models as { model }}
 									{@const currentTokens = getCurrentTokensForModel(provider as AIProvider, model)}

@@ -40,7 +40,7 @@
 />
 
 {#if disablable}
-	<div transition:slide|local>
+	<div transition:slide>
 		<InputsSpecEditor
 			key="tabDisabled {index}"
 			bind:componentInput={field}

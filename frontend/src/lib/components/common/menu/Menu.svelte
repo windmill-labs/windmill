@@ -109,7 +109,7 @@
 	</div>
 	{#if show}
 		<div
-			transition:fade|local={{ duration: transitionDuration }}
+			transition:fade={{ duration: transitionDuration }}
 			class={classNames(
 				'z-50 absolute mt-2 rounded-md shadow-lg bg-surface ring-1 ring-black ring-opacity-5 focus:outline-none',
 				placementsClasses[placement],

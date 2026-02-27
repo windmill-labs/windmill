@@ -40,7 +40,7 @@
 />
 
 {#if hideable}
-	<div transition:slide|local>
+	<div transition:slide>
 		<InputsSpecEditor
 			key="tabHidden {index}"
 			bind:componentInput={field}

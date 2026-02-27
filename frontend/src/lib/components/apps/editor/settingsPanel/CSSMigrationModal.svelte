@@ -135,7 +135,7 @@
 
 {#if migrationModalOpen}
 	<Portal name="css-global-migration-modal" class="z-[5000] absolute">
-		<div transition:fadeFast|local class={' top-0 bottom-0 left-0 right-0 z-[5000]'} role="dialog">
+		<div transition:fadeFast class={' top-0 bottom-0 left-0 right-0 z-[5000]'} role="dialog">
 			<div
 				class={twMerge(
 					'fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity',

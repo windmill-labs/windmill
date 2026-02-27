@@ -298,7 +298,7 @@
 			{#if retry}
 				<Popover notClickable>
 					<div
-						transition:fade|local={{ duration: 200 }}
+						transition:fade={{ duration: 200 }}
 						class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
 					>
 						{#if retries}<span class="text-red-400 mr-2">{retries}</span>{/if}
@@ -313,7 +313,7 @@
 			{#if concurrency}
 				<Popover notClickable>
 					<div
-						transition:fade|local={{ duration: 200 }}
+						transition:fade={{ duration: 200 }}
 						class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
 					>
 						<Gauge size={12} />
@@ -326,7 +326,7 @@
 			{#if debouncing}
 				<Popover notClickable>
 					<div
-						transition:fade|local={{ duration: 200 }}
+						transition:fade={{ duration: 200 }}
 						class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
 					>
 						<Timer size={12} />
@@ -339,7 +339,7 @@
 			{#if cache}
 				<Popover notClickable>
 					<div
-						transition:fade|local={{ duration: 200 }}
+						transition:fade={{ duration: 200 }}
 						class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
 					>
 						<Database size={12} />
@@ -352,7 +352,7 @@
 			{#if earlyStop}
 				<Popover notClickable>
 					<div
-						transition:fade|local={{ duration: 200 }}
+						transition:fade={{ duration: 200 }}
 						class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
 					>
 						<Square size={12} />
@@ -365,7 +365,7 @@
 			{#if skip}
 				<Popover notClickable>
 					<div
-						transition:fade|local={{ duration: 200 }}
+						transition:fade={{ duration: 200 }}
 						class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
 					>
 						<SkipForward size={12} />
@@ -378,7 +378,7 @@
 			{#if suspend}
 				<Popover notClickable>
 					<div
-						transition:fade|local={{ duration: 200 }}
+						transition:fade={{ duration: 200 }}
 						class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
 					>
 						<PhoneIncoming size={12} />
@@ -391,7 +391,7 @@
 			{#if sleep}
 				<Popover notClickable>
 					<div
-						transition:fade|local={{ duration: 200 }}
+						transition:fade={{ duration: 200 }}
 						class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
 					>
 						<Bed size={12} />
@@ -404,7 +404,7 @@
 			{#if mock?.enabled}
 				<Popover notClickable>
 					<button
-						transition:fade|local={{ duration: 200 }}
+						transition:fade={{ duration: 200 }}
 						class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
 						onclick={() => {
 							outputPicker?.toggleOpen()

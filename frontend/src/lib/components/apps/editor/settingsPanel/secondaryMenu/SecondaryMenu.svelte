@@ -23,7 +23,7 @@
 >
 	{#if $secondaryMenu.isOpen && $secondaryMenu.component}
 		<div
-			transition:fly|local={{ duration: 300, x: right ? width : -width, y: 0, opacity: 1 }}
+			transition:fly={{ duration: 300, x: right ? width : -width, y: 0, opacity: 1 }}
 			class="flex flex-col w-full h-full bg-surface"
 		>
 			<div

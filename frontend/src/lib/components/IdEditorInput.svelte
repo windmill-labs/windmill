@@ -102,7 +102,7 @@
 	</div>
 	{#if error != ''}
 		<div
-			transition:slide|local={{ duration: 100 }}
+			transition:slide={{ duration: 100 }}
 			class="w-full text-sm text-red-600 whitespace-pre-wrap pt-1"
 		>
 			{error}

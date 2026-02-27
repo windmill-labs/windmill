@@ -27,6 +27,6 @@
 	</button>
 
 	{#if open}
-		<div transition:slide|local={{ duration: 100 }}>{@render children?.()}</div>
+		<div transition:slide={{ duration: 100 }}>{@render children?.()}</div>
 	{/if}
 </div>

@@ -37,5 +37,5 @@
 	{/if}
 </Button>
 {#if view}
-	<div class="my-4 px-2" transition:slide|local>{@render children?.()}</div>
+	<div class="my-4 px-2" transition:slide>{@render children?.()}</div>
 {/if}

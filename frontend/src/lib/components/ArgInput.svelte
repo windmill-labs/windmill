@@ -869,7 +869,7 @@
 											<div class="flex w-full items-center relative">
 												{#snippet deleteItemBtn()}
 													<button
-														transition:fade|local={{ duration: 100 }}
+														transition:fade={{ duration: 100 }}
 														class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
 														aria-label="Clear"
 														onclick={() => {

@@ -329,7 +329,7 @@
 		</button>
 	{/if}
 	{#if !confirmingDelete}
-		<div transition:fade|local={{ duration: 100 }}>
+		<div transition:fade={{ duration: 100 }}>
 			<Button
 				size="xs"
 				variant="default"
@@ -343,14 +343,14 @@
 	{:else}
 		<div class="flex gap-1">
 			<button
-				transition:fade|local={{ duration: 100 }}
+				transition:fade={{ duration: 100 }}
 				class="px-3 py-1 text-xs bg-red-500 text-white rounded duration-200 hover:bg-red-600"
 				onclick={confirmDelete}
 			>
 				Confirm delete
 			</button>
 			<button
-				transition:fade|local={{ duration: 100 }}
+				transition:fade={{ duration: 100 }}
 				class="px-2 py-1 text-xs bg-surface-secondary rounded duration-200 hover:bg-surface-hover"
 				onclick={cancelDelete}
 			>

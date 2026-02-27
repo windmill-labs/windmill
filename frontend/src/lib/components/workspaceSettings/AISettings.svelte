@@ -246,7 +246,7 @@
 					{#if aiProviders[provider]}
 						<div
 							class="mb-4 flex flex-col gap-6 border p-4 rounded-md mt-2"
-							transition:slide|local={{ duration: 150 }}
+							transition:slide={{ duration: 150 }}
 						>
 							<Label label="Resource">
 								<div class="flex flex-row gap-1">
@@ -328,7 +328,7 @@
 		</SettingCard>
 
 		{#if codeCompletionModel != undefined}
-			<div transition:slide|local={{ duration: 150 }} class="mt-6">
+			<div transition:slide={{ duration: 150 }} class="mt-6">
 				<SettingCard label="Code completion model">
 					<Select
 						items={safeSelectItems(autocompleteModels)}

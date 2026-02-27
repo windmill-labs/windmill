@@ -77,7 +77,7 @@
 	<Portal name="always-mounted" {target}>
 		<div
 			class={'fixed top-0 bottom-0 left-0 right-0 transition-all z-[1110] overflow-auto bg-black bg-opacity-60 w-full h-full'}
-			transition:fadeFast|local
+			transition:fadeFast
 		>
 			<div class="flex min-h-full items-center justify-center p-8">
 				<div
