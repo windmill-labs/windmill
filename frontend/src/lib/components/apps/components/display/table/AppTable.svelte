@@ -99,7 +99,7 @@
 
 	let searchValue = $state('')
 
-	let outputs = initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, untrack(() => id), {
 		selectedRowIndex: 0,
 		selectedRow: undefined,
 		loading: false,
@@ -126,7 +126,7 @@
 	let table = $state(createSvelteTable(options))
 
 	let resolvedConfig = $state(
-		initConfig(components['tablecomponent'].initialData.configuration, configuration)
+		initConfig(components['tablecomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
 	let selectedRowIndex = $state(-1)
@@ -237,9 +237,9 @@
 		}
 	}
 
-	let css = $state(initCss($app.css?.tablecomponent, customCss))
+	let css = $state(initCss($app.css?.tablecomponent, untrack(() => customCss)))
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		right: (skipActions: boolean | undefined) => {
 			if (skipActions) {
 				return false

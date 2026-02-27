@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { ButtonType } from './model'
 	import { twMerge } from 'tailwind-merge'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
@@ -315,14 +315,14 @@
 		elements: { trigger, content },
 		states: { open },
 		options: { openDelay }
-	} = tooltipPopover
+	} = untrack(() => tooltipPopover)
 		? createTooltip({
 				positioning: {
-					placement: tooltipPopover?.placement
+					placement: untrack(() => tooltipPopover)?.placement
 				},
-				closeDelay: tooltipPopover?.closeDelay,
+				closeDelay: untrack(() => tooltipPopover)?.closeDelay,
 				group: true,
-				portal: tooltipPopover?.portal
+				portal: untrack(() => tooltipPopover)?.portal
 			})
 		: {
 				elements: { trigger: undefined, content: undefined },

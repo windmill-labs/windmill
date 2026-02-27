@@ -31,12 +31,12 @@
 	const { app, worldStore, componentControl, mode, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	let outputs = initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, untrack(() => id), {
 		result: [] as { name: string; data: string }[] | undefined
 	})
 
 	let resolvedConfig = $state(
-		initConfig(components['fileinputcomponent'].initialData.configuration, configuration)
+		initConfig(components['fileinputcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
 	// Receives Base64 encoded strings from the input component
@@ -51,11 +51,11 @@
 		onFileChange?.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb?.()))
 	}
 
-	let css = $state(initCss($app.css?.fileinputcomponent, customCss))
+	let css = $state(initCss($app.css?.fileinputcomponent, untrack(() => customCss)))
 
 	let fileInput: FileInput | undefined = $state(undefined)
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		clearFiles: () => {
 			fileInput?.clearFiles()
 		}

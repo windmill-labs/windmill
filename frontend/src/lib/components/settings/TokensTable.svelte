@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { displayDate } from '$lib/utils'
 	import { UserService, type TruncatedToken } from '$lib/gen'
@@ -29,7 +30,7 @@
 	// --- Local State ---
 	let tokens = $state<TruncatedToken[]>([])
 	let tokenPage = $state(1)
-	let newTokenLabel = $state<string | undefined>(defaultNewTokenLabel)
+	let newTokenLabel = $state<string | undefined>(untrack(() => defaultNewTokenLabel))
 
 	$effect(() => {
 		listTokens()

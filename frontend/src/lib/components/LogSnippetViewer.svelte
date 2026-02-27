@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { AnsiUp } from 'ansi_up'
 
 	interface Props {
@@ -32,7 +33,7 @@
 		return html2
 	}
 
-	let html = highlightSnippet(content)
+	let html = highlightSnippet(untrack(() => content))
 </script>
 
 <button onclick={() => onclickProp?.()} class="font-light !m-0 !p-0">

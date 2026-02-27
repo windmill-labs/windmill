@@ -117,7 +117,7 @@
 
 	let hasChanged = $derived(!deepEqual(getSaveCfg(), originalConfig ?? {}))
 	const websocketCfg = $derived.by(getSaveCfg)
-	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
+	const captureConfig = $derived.by(untrack(() => isEditor) ? getCaptureConfig : () => ({}))
 	const saveDisabled = $derived.by(() => {
 		const invalidInitialMessages = initial_messages.some((v) => {
 			if ('runnable_result' in v) {

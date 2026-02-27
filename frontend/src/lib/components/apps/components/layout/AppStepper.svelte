@@ -51,21 +51,21 @@
 		runnableComponents
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	let everRender = $state(render)
+	let everRender = $state(untrack(() => render))
 	$effect.pre(() => {
 		render && !everRender && (everRender = true)
 	})
 
-	let selected = $state(tabs[0])
+	let selected = $state(untrack(() => tabs)[0])
 	let tabHeight: number = $state(0)
 	let footerHeight: number = $state(0)
 	let runnableComponent: RunnableComponent | undefined = $state()
-	let selectedIndex = $state(tabs?.indexOf(untrack(() => selected)) ?? -1)
+	let selectedIndex = $state(untrack(() => tabs)?.indexOf(untrack(() => selected)) ?? -1)
 	let maxReachedIndex = $state(-1)
 	let statusByStep = $state([] as Array<'success' | 'error' | 'pending'>)
 	let debugMode: boolean = false
 
-	let outputs = initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, untrack(() => id), {
 		currentStepIndex: 0,
 		result: undefined,
 		loading: false,
@@ -113,7 +113,7 @@
 		directionClicked = undefined
 	}
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		left: () => {
 			const index = tabs.indexOf(selected)
 			if (index > 0) {
@@ -152,7 +152,7 @@
 	$effect.pre(() => {
 		selected != undefined && untrack(() => handleTabSelection())
 	})
-	let css = $state(initCss($app.css?.steppercomponent, customCss))
+	let css = $state(initCss($app.css?.steppercomponent, untrack(() => customCss)))
 	let lastStep = $derived(selectedIndex === tabs.length - 1)
 
 	let directionClicked: 'left' | 'right' | undefined = $state(undefined)

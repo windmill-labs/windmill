@@ -1,4 +1,5 @@
 <script lang="ts" module>
+	import { untrack } from 'svelte'
 	const s3LogPrefixes = [
 		'[windmill] Previous logs have been saved to object storage at logs/',
 		'[windmill] Previous logs have been saved to disk at logs/',
@@ -73,7 +74,7 @@
 	let LOG_INC = 10000
 	let LOG_LIMIT = $state(LOG_INC)
 
-	let lastJobId = $state(jobId)
+	let lastJobId = $state(untrack(() => jobId))
 
 	let loadedFromObjectStore = $state('')
 

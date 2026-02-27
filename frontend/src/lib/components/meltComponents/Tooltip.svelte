@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import type { Placement } from '@floating-ui/core'
 	import { InfoIcon } from 'lucide-svelte'
 	import { zIndexes } from '$lib/zIndexes'
@@ -61,12 +62,12 @@
 		states: { open }
 	} = createTooltip({
 		positioning: {
-			placement
+			placement: untrack(() => placement)
 		},
-		openDelay,
-		closeDelay: disappearTimeoutProp ?? closeDelayProp,
+		openDelay: untrack(() => openDelay),
+		closeDelay: untrack(() => disappearTimeoutProp) ?? untrack(() => closeDelayProp),
 		group: true,
-		portal
+		portal: untrack(() => portal)
 	})
 </script>
 

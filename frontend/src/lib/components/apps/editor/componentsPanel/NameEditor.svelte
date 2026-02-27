@@ -2,7 +2,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { Pen } from 'lucide-svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 
 	interface Props {
 		kind: string
@@ -15,7 +15,7 @@
 
 	let { kind, row, onupdate = undefined }: Props = $props()
 
-	let editedName = $state(row.name)
+	let editedName = $state(untrack(() => row).name)
 
 	const dispatch = createEventDispatcher()
 	function onkeydown(e) {

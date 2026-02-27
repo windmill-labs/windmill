@@ -33,18 +33,18 @@
 	const { app, worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = $state(
-		initConfig(components['dateselectcomponent'].initialData.configuration, configuration)
+		initConfig(components['dateselectcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
 	let value: string | undefined = $state(undefined)
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		setValue(nvalue: string) {
 			value = nvalue
 		}
 	}
 
-	let outputs = initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, untrack(() => id), {
 		day: undefined as number | undefined,
 		month: undefined as number | undefined,
 		year: undefined as number | undefined
@@ -90,7 +90,7 @@
 		}
 	}
 
-	let css = $state(initCss($app.css?.dateinputcomponent, customCss))
+	let css = $state(initCss($app.css?.dateinputcomponent, untrack(() => customCss)))
 
 	let selectedDay: string | undefined = $state(undefined)
 	let selectedMonth: string | undefined = $state(undefined)

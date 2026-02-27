@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { AlertTriangle, Edit2 } from 'lucide-svelte'
 	import { Button } from '../common'
 	import ExploreAssetButton, { assetCanBeExplored } from '../ExploreAssetButton.svelte'
@@ -27,7 +28,7 @@
 		onClick
 	}: Props = $props()
 
-	let truncatedPath = asset.path.split('?table=')[0]
+	let truncatedPath = untrack(() => asset).path.split('?table=')[0]
 	let resourceDataCacheValue = $derived(resourceDataCache[truncatedPath])
 </script>
 

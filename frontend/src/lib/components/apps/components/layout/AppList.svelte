@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
@@ -37,12 +37,12 @@
 		getContext<AppViewerContext>('AppViewerContext')
 	let page = $state(0)
 
-	let everRender = $state(render)
+	let everRender = $state(untrack(() => render))
 	$effect.pre(() => {
 		render && !everRender && (everRender = true)
 	})
 
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined,
 		loading: false,
 		inputs: {},
@@ -50,7 +50,7 @@
 	})
 
 	let resolvedConfig = $state(
-		initConfig(components['listcomponent'].initialData.configuration, configuration)
+		initConfig(components['listcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
 	function onFocus() {
@@ -60,7 +60,7 @@
 		}
 	}
 
-	let css = $state(initCss($app.css?.listcomponent, customCss))
+	let css = $state(initCss($app.css?.listcomponent, untrack(() => customCss)))
 	let result: any[] | undefined = $state(undefined)
 
 	let isCard = $derived(resolvedConfig.width?.selected == 'card')

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 
 	import { tweened } from 'svelte/motion'
 	import { cubicOut } from 'svelte/easing'
@@ -17,7 +18,7 @@
 		children
 	}: Props = $props();
 
-	const tweenedProgress = tweened(progress, {
+	const tweenedProgress = tweened(untrack(() => progress), {
 		duration: 400,
 		easing: cubicOut
 	})

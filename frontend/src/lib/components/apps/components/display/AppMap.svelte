@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { stopPropagation } from 'svelte/legacy'
 
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { initCss } from '../../utils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { twMerge } from 'tailwind-merge'
@@ -46,10 +46,10 @@
 		getContext<AppViewerContext>('AppViewerContext')
 
 	const resolvedConfig = $state(
-		initConfig(components['mapcomponent'].initialData.configuration, configuration)
+		initConfig(components['mapcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
-	let outputs = initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, untrack(() => id), {
 		mapRegion: {
 			topLeft: { lat: 0, lon: 0 },
 			bottomRight: { lat: 0, lon: 0 }
@@ -151,7 +151,7 @@
 		map.changed()
 	}
 
-	let css = $state(initCss($app.css?.mapcomponent, customCss))
+	let css = $state(initCss($app.css?.mapcomponent, untrack(() => customCss)))
 
 	function updateRegionOutput() {
 		if (map && !resolvedConfig.lock) {

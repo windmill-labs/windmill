@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { stopPropagation } from 'svelte/legacy'
 	import { classNames } from '$lib/utils'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import Tooltip from './Tooltip.svelte'
 	import { AlertTriangle } from 'lucide-svelte'
@@ -59,7 +59,7 @@
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher<{ change: boolean }>()
-	const bothOptions = Boolean(options.left) && Boolean(options.right)
+	const bothOptions = Boolean(untrack(() => options).left) && Boolean(untrack(() => options).right)
 </script>
 
 <label

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { createPopperActions } from 'svelte-popperjs'
 	import type { PopoverPlacement } from './Popover.model'
 	import Portal from '$lib/components/Portal.svelte'
@@ -26,7 +27,7 @@
 		content
 	}: Props = $props()
 
-	const [popperRef, popperContent, getInstance] = createPopperActions({ placement })
+	const [popperRef, popperContent, getInstance] = createPopperActions({ placement: untrack(() => placement) })
 
 	export function open() {
 		showTooltip = true

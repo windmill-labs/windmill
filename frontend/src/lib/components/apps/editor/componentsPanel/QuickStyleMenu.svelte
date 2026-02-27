@@ -30,7 +30,7 @@
 		componentProperty = undefined
 	}: Props = $props()
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
-	const styleStore = createStyleStore(properties)
+	const styleStore = createStyleStore(untrack(() => properties))
 	setContext(STYLE_STORE_KEY, styleStore)
 
 	let multiValues: Record<number, string[]> = $state(initiateMultiValues())

@@ -169,13 +169,16 @@
 	let loadingCodebaseButton = $state(false)
 	let lastCommandId = ''
 
-	if (initial) {
-		if (initial.type == 'script') {
-			replaceScript(initial.script)
-		} else if (initial.type == 'flow') {
-			replaceFlow(initial.flow)
+	{
+		const _initial = untrack(() => initial)
+		if (_initial) {
+			if (_initial.type == 'script') {
+				replaceScript(_initial.script)
+			} else if (_initial.type == 'flow') {
+				replaceFlow(_initial.flow)
+			}
+			modeInitialized = true
 		}
-		modeInitialized = true
 	}
 
 	const el = (event) => {

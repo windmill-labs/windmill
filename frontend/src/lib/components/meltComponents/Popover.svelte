@@ -17,7 +17,7 @@
 	import DocLink from '$lib/components/apps/editor/settingsPanel/DocLink.svelte'
 	import type { FloatingConfig } from '@melt-ui/svelte/internal/actions/floating'
 	import type { EscapeBehaviorType } from '@melt-ui/svelte/internal/actions'
-	import { onDestroy } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
 	import type { Snippet } from 'svelte'
 
 	interface Props {
@@ -126,10 +126,10 @@
 		ids: { content: popoverId }
 	} = createPopover({
 		forceVisible: true,
-		portal: portal,
-		disableFocusTrap,
-		escapeBehavior,
-		openFocus,
+		portal: untrack(() => portal),
+		disableFocusTrap: untrack(() => disableFocusTrap),
+		escapeBehavior: untrack(() => escapeBehavior),
+		openFocus: untrack(() => openFocus),
 		onOpenChange: ({ curr, next }) => {
 			if (curr != next) {
 				onOpenChangeProp?.(next)
@@ -156,8 +156,8 @@
 		}
 	})
 
-	$positioning = floatingConfig ?? {
-		placement,
+	$positioning = untrack(() => floatingConfig) ?? {
+		placement: untrack(() => placement),
 		strategy: 'absolute',
 		gutter: 8,
 		overflowPadding: 16,
@@ -210,7 +210,7 @@
 
 	let { debounced: debounceClose, clearDebounce: clearDebounceClose } = debounce(
 		() => openOnHover && close(),
-		debounceDelay
+		untrack(() => debounceDelay)
 	)
 
 	const handleClick = (event: MouseEvent) => {

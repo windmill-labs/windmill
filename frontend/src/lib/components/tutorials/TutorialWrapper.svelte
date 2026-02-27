@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { getTutorialIndex } from '$lib/tutorials/config'
 
 	interface Props {
@@ -16,7 +17,7 @@
 		onreload = undefined }: Props = $props()
 
 	let instance: any = $state(undefined)
-	const index = getTutorialIndex(id)
+	const index = getTutorialIndex(untrack(() => id))
 
 	$effect(() => {
 		if (instance) {

@@ -55,12 +55,12 @@
 	const rowInputs: ListInputs | undefined = getContext<ListInputs>('RowInputs')
 
 	let resolvedConfig = $state(
-		initConfig(components['checkboxcomponent'].initialData.configuration, configuration)
+		initConfig(components['checkboxcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
 	let value: boolean = $state(resolvedConfig.defaultValue ?? false)
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		setValue(nvalue: boolean) {
 			value = nvalue
 			if (recomputeIds) {
@@ -69,14 +69,14 @@
 		}
 	}
 
-	if (controls) {
-		$componentControl[id] = { ...$componentControl[id], ...controls }
+	if (untrack(() => controls)) {
+		$componentControl[untrack(() => id)] = { ...$componentControl[untrack(() => id)], ...untrack(() => controls) }
 	}
 
 	// As the checkbox is a special case and has no input
 	// we need to manually set the output
 
-	let outputs = initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, untrack(() => id), {
 		result: false
 	})
 
@@ -111,7 +111,7 @@
 		resolvedConfig.defaultValue != undefined && untrack(() => handleDefault())
 	})
 
-	let css = $state(initCss($app.css?.checkboxcomponent, customCss))
+	let css = $state(initCss($app.css?.checkboxcomponent, untrack(() => customCss)))
 </script>
 
 {#each Object.keys(components['checkboxcomponent'].initialData.configuration) as key (key)}

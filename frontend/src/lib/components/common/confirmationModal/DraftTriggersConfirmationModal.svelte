@@ -1,6 +1,6 @@
 <script lang="ts">
 	import ConfirmationModal from './ConfirmationModal.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -28,7 +28,7 @@
 		onconfirmed = undefined
 	}: Props = $props()
 
-	let selectedTriggers: Trigger[] = $state(draftTriggers)
+	let selectedTriggers: Trigger[] = $state(untrack(() => draftTriggers))
 
 	const dispatch = createEventDispatcher<{
 		canceled: void

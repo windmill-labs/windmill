@@ -5,7 +5,7 @@
 
 	import type { AppViewerContext, EditorBreakpoint } from '../types'
 
-	import { onMount, createEventDispatcher, getContext } from 'svelte'
+	import { onMount, createEventDispatcher, getContext, untrack } from 'svelte'
 
 	import type { FilledItem } from '../svelte-grid/types'
 	import { getColumn, throttle } from '../svelte-grid/utils/other'
@@ -62,7 +62,7 @@
 
 	let xPerPx = $state(0)
 
-	let yPerPx = rowHeight
+	let yPerPx = untrack(() => rowHeight)
 
 	let containerHeight = $derived(getContainerHeight(items, yPerPx, getComputedCols))
 
@@ -81,7 +81,7 @@
 			yPerPx,
 			width: containerWidth
 		})
-	}, throttleUpdate)
+	}, untrack(() => throttleUpdate))
 
 	onMount(() => {
 		setTimeout(() => {

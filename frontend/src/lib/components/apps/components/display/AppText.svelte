@@ -45,7 +45,7 @@
 	}: Props = $props()
 
 	let resolvedConfig = $state(
-		initConfig(components['textcomponent'].initialData.configuration, configuration)
+		initConfig(components['textcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
 	function onEditorMode() {
@@ -55,26 +55,29 @@
 	const { app, worldStore, mode, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	let css = $state(initCss($app.css?.textcomponent, customCss))
+	let css = $state(initCss($app.css?.textcomponent, untrack(() => customCss)))
 
 	let result: string | undefined = $state(undefined)
 
-	if (
-		componentInput?.type == 'template' ||
-		(componentInput?.type == 'templatev2' && !isCodeInjection(componentInput.eval))
-	) {
-		result = componentInput.eval
-		initializing = false
+	{
+		const _ci = untrack(() => componentInput)
+		if (
+			_ci?.type == 'template' ||
+			(_ci?.type == 'templatev2' && !isCodeInjection(_ci.eval))
+		) {
+			result = _ci.eval
+			initializing = false
+		}
 	}
 
-	$componentControl[id] = {
-		...$componentControl[id],
+	$componentControl[untrack(() => id)] = {
+		...$componentControl[untrack(() => id)],
 		setValue(value: string) {
 			result = value
 		}
 	}
 
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: untrack(() => result),
 		loading: initializing
 	})

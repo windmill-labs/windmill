@@ -41,7 +41,7 @@
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
 	let resolvedConfig = $state(
-		initConfig(components['rangecomponent'].initialData.configuration, configuration)
+		initConfig(components['rangecomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
 	let values: [number, number] = $state([0, 1])
@@ -52,11 +52,11 @@
 
 	let slider: HTMLElement | undefined = $state()
 
-	let outputs = initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, untrack(() => id), {
 		result: null as [number, number] | null
 	})
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		setValue(nvalue: [number, number]) {
 			values = nvalue
 		}
@@ -66,7 +66,7 @@
 		listInputs?.remove(id)
 	})
 
-	let css = $state(initCss($app.css?.rangecomponent, customCss))
+	let css = $state(initCss($app.css?.rangecomponent, untrack(() => customCss)))
 
 	let lastStyle: string | undefined = $state(undefined)
 

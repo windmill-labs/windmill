@@ -3,7 +3,7 @@
 
 	import { push } from '$lib/history.svelte'
 	import { classNames } from '$lib/utils'
-	import { getContext, onDestroy } from 'svelte'
+	import { getContext, onDestroy, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { gridColumns, isFixed, toggleFixed } from '../gridUtils'
 	import Grid from '../svelte-grid/Grid.svelte'
@@ -68,7 +68,7 @@
 	let isActive = $state(false)
 	let sber = editorContext?.componentActive?.subscribe((x) => (isActive = x))
 
-	let everVisible = $state(visible)
+	let everVisible = $state(untrack(() => visible))
 
 	$effect.pre(() => {
 		visible && !everVisible && (everVisible = true)

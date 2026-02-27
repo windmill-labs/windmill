@@ -3,7 +3,7 @@
 </script>
 
 <script lang="ts">
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import StepGenQuick from '$lib/components/copilot/StepGenQuick.svelte'
 	import FlowInputsQuick from '../content/FlowInputsQuick.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
@@ -48,7 +48,7 @@
 
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
 	let selectedKind: 'script' | 'trigger' | 'preprocessor' | 'approval' | 'flow' | 'failure' =
-		$state(kind)
+		$state(untrack(() => kind))
 	let preFilter: 'all' | 'workspace' | 'hub' = $state('all')
 	let loading = $state(false)
 	let small = $derived(kind === 'preprocessor' || kind === 'failure')

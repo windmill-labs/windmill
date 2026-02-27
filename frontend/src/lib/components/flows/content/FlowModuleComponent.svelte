@@ -151,7 +151,7 @@
 		shellcheck: false
 	})
 
-	let selected = $state(preprocessorModule ? 'test' : 'inputs')
+	let selected = $state(untrack(() => preprocessorModule) ? 'test' : 'inputs')
 	let advancedSelected = $state('retries')
 	let advancedRuntimeSelected = $state('concurrency')
 	let s3Kind = $state('s3_client')
@@ -236,7 +236,7 @@
 	}
 
 	let forceReload = $state(0)
-	let editorPanelSize = $state(noEditor ? 0 : flowModule.value.type == 'script' ? 30 : 50)
+	let editorPanelSize = $state(untrack(() => noEditor) ? 0 : flowModule.value.type == 'script' ? 30 : 50)
 	let editorSettingsPanelSize = $state(100 - untrack(() => editorPanelSize))
 	let stepHistoryLoader = getStepHistoryLoaderContext()
 

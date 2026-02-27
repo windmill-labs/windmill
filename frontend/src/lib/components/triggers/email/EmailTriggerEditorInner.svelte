@@ -83,7 +83,7 @@
 	let hasChanged = $derived(!deepEqual(getEmailTriggerConfig(), originalConfig ?? {}))
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
 	const emailConfig = $derived.by(getEmailTriggerConfig)
-	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
+	const captureConfig = $derived.by(untrack(() => isEditor) ? getCaptureConfig : () => ({}))
 	const saveDisabled = $derived(
 		drawerLoading ||
 			!can_write ||

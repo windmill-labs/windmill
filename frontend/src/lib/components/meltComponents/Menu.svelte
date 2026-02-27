@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { melt, createSync } from '@melt-ui/svelte'
 	import type { MenubarBuilders } from '@melt-ui/svelte'
 	import type { Placement } from '@floating-ui/core'
@@ -49,9 +50,9 @@
 	}: Props = $props()
 
 	// Use the passed createMenu function
-	const menu = createMenu({
+	const menu = untrack(() => createMenu)({
 		positioning: {
-			placement,
+			placement: untrack(() => placement),
 			fitViewport: true,
 			strategy: 'fixed'
 		},

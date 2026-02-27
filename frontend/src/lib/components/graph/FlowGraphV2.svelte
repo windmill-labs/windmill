@@ -249,7 +249,7 @@
 	let flowContainer: HTMLDivElement | undefined = $state(undefined)
 
 	// Selection manager - create one if not provided
-	let selectionManager = selectionManagerProp || new SelectionManager()
+	let selectionManager = untrack(() => selectionManagerProp) || new SelectionManager()
 	const selectedId = $derived(selectionManager.getSelectedId())
 
 	const noteEditorContext = getNoteEditorContext()
@@ -271,8 +271,8 @@
 	}
 
 	// Calculate note gap based on current nodes and notes
-	const topPadding = editMode ? 100 : 24
-	const yOffset = calculateNoteGap(notes) + topPadding
+	const topPadding = untrack(() => editMode) ? 100 : 24
+	const yOffset = calculateNoteGap(untrack(() => notes)) + topPadding
 
 	setGraphContext({
 		selectionManager: selectionManager,
@@ -284,8 +284,8 @@
 		diffManager
 	} as any)
 
-	if (triggerContext && allowSimplifiedPoll) {
-		if (isSimplifiable(modules)) {
+	if (triggerContext && untrack(() => allowSimplifiedPoll)) {
+		if (isSimplifiable(untrack(() => modules))) {
 			triggerContext?.simplifiedPoll?.set(true)
 		}
 		triggerContext?.simplifiedPoll.subscribe((value) => {

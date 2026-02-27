@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import ComponentInner from './ComponentInner.svelte'
 	import ComponentRendered from './ComponentRendered.svelte'
 	import type { AppComponent } from './components'
@@ -31,7 +31,7 @@
 		onlock = undefined,
 		onfillHeight = undefined
 	}: Props = $props()
-	let everRender = $state(render)
+	let everRender = $state(untrack(() => render))
 
 	$effect(() => {
 		render && !everRender && (everRender = true)

@@ -185,7 +185,7 @@
 	let lazyStaticValues = computeStaticValues()
 	let currentStaticValues = $state(lazyStaticValues)
 
-	let isBg = id.startsWith('bg_')
+	let isBg = untrack(() => id).startsWith('bg_')
 
 	function refreshOnStaticChange() {
 		if (!deepEqual(currentStaticValues, lazyStaticValues)) {
@@ -318,7 +318,7 @@
 	let resultJobLoader: JobLoader | undefined = $state(undefined)
 
 	let schemaStripped: Schema | undefined = $state(
-		autoRefresh || forceSchemaDisplay ? emptySchema() : undefined
+		untrack(() => autoRefresh) || untrack(() => forceSchemaDisplay) ? emptySchema() : undefined
 	)
 
 	function stripSchema(inputs: AppInputs, s: any): Schema {

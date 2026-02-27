@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
@@ -43,7 +43,7 @@
 
 	const { app, worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		onDelete: () => {
 			modal?.close()
 		},
@@ -58,19 +58,19 @@
 		}
 	}
 
-	let outputs = initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined,
 		loading: false
 	})
 
 	let resolvedConfig = $state(
-		initConfig(components['formbuttoncomponent'].initialData.configuration, configuration)
+		initConfig(components['formbuttoncomponent'].initialData.configuration, untrack(() => configuration))
 	)
 	let runnableComponent: RunnableComponent | undefined = $state()
 
 	let errors: Record<string, string> = {}
 
-	let css = $state(initCss($app?.css?.formbuttoncomponent, customCss))
+	let css = $state(initCss($app?.css?.formbuttoncomponent, untrack(() => customCss)))
 	let runnableWrapper: RunnableWrapper | undefined = $state()
 	let loading = $state(false)
 	let modal: AlwaysMountedModal | undefined = $state()

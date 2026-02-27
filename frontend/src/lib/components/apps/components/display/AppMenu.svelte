@@ -41,17 +41,17 @@
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	let outputs = initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, untrack(() => id), {
 		result: {
 			latestButtonClicked: undefined as string | undefined
 		}
 	})
 
 	const resolvedConfig = $state(
-		initConfig(components['menucomponent'].initialData.configuration, configuration)
+		initConfig(components['menucomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
-	let css = $state(initCss($app.css?.menucomponent, customCss))
+	let css = $state(initCss($app.css?.menucomponent, untrack(() => customCss)))
 
 	let beforeIconComponent: any = $state()
 	let afterIconComponent: any = $state()

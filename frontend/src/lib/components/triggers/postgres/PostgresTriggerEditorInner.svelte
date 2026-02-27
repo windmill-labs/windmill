@@ -156,7 +156,7 @@
 	)
 
 	const postgresConfig = $derived.by(getSaveCfg)
-	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
+	const captureConfig = $derived.by(untrack(() => isEditor) ? getCaptureConfig : () => ({}))
 
 	const saveDisabled = $derived(
 		pathError !== '' ||

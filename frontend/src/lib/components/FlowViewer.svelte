@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { type FlowValue, FlowService } from '$lib/gen'
 	import { Tab, Tabs, TabContent } from './common'
 	import SchemaViewer from './SchemaViewer.svelte'
@@ -51,13 +52,16 @@
 	}: Props = $props()
 
 	let open: { [id: number]: boolean } = {}
-	if (initialOpen) {
-		open[initialOpen] = true
+	{
+		const _initialOpen = untrack(() => initialOpen)
+		if (_initialOpen) {
+			open[_initialOpen] = true
+		}
 	}
 
 	let previousVersionId: number | undefined = $state(undefined)
 	let previousFlow: PreviousFlow | undefined = $state(undefined)
-	let tab: TabValue = $state(initTab ?? 'diff')
+	let tab: TabValue = $state(untrack(() => initTab) ?? 'diff')
 
 	let previousFlowCache: Record<number, PreviousFlow> = {}
 

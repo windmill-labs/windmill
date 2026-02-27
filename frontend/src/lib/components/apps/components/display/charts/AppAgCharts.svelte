@@ -38,7 +38,7 @@
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined as
 			| {
 					data: any[]
@@ -51,10 +51,10 @@
 	let result: undefined | any = $state(undefined)
 
 	const resolvedConfig = $state(
-		initConfig(components['agchartscomponent'].initialData.configuration, configuration)
+		initConfig(components['agchartscomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
-	let css = $state(initCss($app.css?.agchartscomponent, customCss))
+	let css = $state(initCss($app.css?.agchartscomponent, untrack(() => customCss)))
 	let chartInstance: AgChartInstance | undefined = $state(undefined)
 
 	function getChartStyleByTheme() {

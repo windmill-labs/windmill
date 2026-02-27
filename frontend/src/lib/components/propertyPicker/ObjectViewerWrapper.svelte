@@ -1,6 +1,6 @@
 <script lang="ts">
 	import ObjectViewer from './ObjectViewer.svelte'
-	import { onMount } from 'svelte'
+	import { onMount, untrack } from 'svelte'
 
 	interface Props {
 		json: any
@@ -35,18 +35,18 @@
 	}: Props = $props()
 
 	const viewerProps = {
-		json,
-		level,
-		currentPath,
-		pureViewer,
-		collapsed,
-		rawKey,
-		topBrackets,
-		allowCopy,
-		collapseLevel,
-		prefix,
-		expandedEvenOnLevel0,
-		connecting
+		json: untrack(() => json),
+		level: untrack(() => level),
+		currentPath: untrack(() => currentPath),
+		pureViewer: untrack(() => pureViewer),
+		collapsed: untrack(() => collapsed),
+		rawKey: untrack(() => rawKey),
+		topBrackets: untrack(() => topBrackets),
+		allowCopy: untrack(() => allowCopy),
+		collapseLevel: untrack(() => collapseLevel),
+		prefix: untrack(() => prefix),
+		expandedEvenOnLevel0: untrack(() => expandedEvenOnLevel0),
+		connecting: untrack(() => connecting)
 	}
 
 	onMount(() => {
