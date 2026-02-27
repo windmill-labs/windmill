@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { runVariantComparison, writeFlowComparisonResults, type ExpectedFlow } from './flowEvalRunner'
+import {
+	runVariantComparison,
+	writeFlowComparisonResults,
+	type ExpectedFlow
+} from './flowEvalRunner'
 import { BASELINE_VARIANT, MINIMAL_SINGLE_TOOL_VARIANT } from './variants'
 // @ts-ignore - JSON import
 import expectedTest1 from './expected/test1.json'

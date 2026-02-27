@@ -15,7 +15,7 @@ type RunScriptOptions = {
  * @function runScript
  * @param {RunScriptPreviewData | RunScriptByPathData} data - Data for running the script.
  * @returns {Promise<string>} A UUID representing the running script.
- * 
+ *
  * @example
  * const uuid = await runScript(data)
  */
@@ -36,7 +36,7 @@ export async function runScript(data: RunScriptPreviewData | RunScriptByPathData
  * @param {string} workspace - Workspace identifier.
  * @param {RunScriptOptions} [options] - Optional settings like retries and job data inclusion.
  * @returns {Promise<unknown>} Final job result or throws error if it fails.
- * 
+ *
  * @example
  * const result = await pollJobResult(uuid, 'my-workspace', { maxRetries: 5, withJobData: true });
  */

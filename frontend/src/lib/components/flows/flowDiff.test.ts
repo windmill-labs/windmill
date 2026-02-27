@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import { buildFlowTimeline, hasInputSchemaChanged } from './flowDiff'
-import type { FlowValue, RawScript, ForloopFlow, WhileloopFlow, BranchOne, BranchAll } from '$lib/gen'
+import type {
+	FlowValue,
+	RawScript,
+	ForloopFlow,
+	WhileloopFlow,
+	BranchOne,
+	BranchAll
+} from '$lib/gen'
 import {
 	createRawScriptModule,
 	createIdentityModule,
@@ -422,12 +429,16 @@ describe('buildFlowTimeline', () => {
 			const branchModuleA = createRawScriptModule('branch_a', 'branch step a')
 			const branchModuleB = createRawScriptModule('branch_b', 'branch step b')
 
-			const beforeBranch = createBranchOneModule('branch1', [], [
-				{ expr: 'true', modules: [branchModuleA, branchModuleB] }
-			])
-			const afterBranch = createBranchOneModule('branch1', [], [
-				{ expr: 'true', modules: [branchModuleA] }
-			])
+			const beforeBranch = createBranchOneModule(
+				'branch1',
+				[],
+				[{ expr: 'true', modules: [branchModuleA, branchModuleB] }]
+			)
+			const afterBranch = createBranchOneModule(
+				'branch1',
+				[],
+				[{ expr: 'true', modules: [branchModuleA] }]
+			)
 
 			const beforeFlow = createFlow([beforeBranch])
 			const afterFlow = createFlow([afterBranch])
@@ -450,13 +461,19 @@ describe('buildFlowTimeline', () => {
 			const branch2ModuleA = createRawScriptModule('b2_a', 'branch 2 a')
 			const branch2ModuleB = createRawScriptModule('b2_b', 'branch 2 b')
 
-			const beforeBranch = createBranchOneModule('branch1', [defaultModule], [
-				{ expr: 'x > 0', modules: [branch1ModuleA] },
-				{ expr: 'x < 0', modules: [branch2ModuleA, branch2ModuleB] } // entire branch removed
-			])
-			const afterBranch = createBranchOneModule('branch1', [defaultModule], [
-				{ expr: 'x > 0', modules: [branch1ModuleA] }
-			])
+			const beforeBranch = createBranchOneModule(
+				'branch1',
+				[defaultModule],
+				[
+					{ expr: 'x > 0', modules: [branch1ModuleA] },
+					{ expr: 'x < 0', modules: [branch2ModuleA, branch2ModuleB] } // entire branch removed
+				]
+			)
+			const afterBranch = createBranchOneModule(
+				'branch1',
+				[defaultModule],
+				[{ expr: 'x > 0', modules: [branch1ModuleA] }]
+			)
 
 			const beforeFlow = createFlow([beforeBranch])
 			const afterFlow = createFlow([afterBranch])
@@ -492,14 +509,22 @@ describe('buildFlowTimeline', () => {
 			const branch2ModuleA = createRawScriptModule('b2_a', 'branch 2 a - original')
 			const branch2ModuleAModified = createRawScriptModule('b2_a', 'branch 2 a - modified')
 
-			const beforeBranch = createBranchOneModule('branch1', [defaultModule], [
-				{ expr: 'x > 0', modules: [branch1ModuleA] },
-				{ expr: 'x < 0', modules: [branch2ModuleA] }
-			])
-			const afterBranch = createBranchOneModule('branch1', [defaultModule], [
-				{ expr: 'x > 0', modules: [branch1ModuleA, branch1ModuleB] },
-				{ expr: 'x < 0', modules: [branch2ModuleAModified] }
-			])
+			const beforeBranch = createBranchOneModule(
+				'branch1',
+				[defaultModule],
+				[
+					{ expr: 'x > 0', modules: [branch1ModuleA] },
+					{ expr: 'x < 0', modules: [branch2ModuleA] }
+				]
+			)
+			const afterBranch = createBranchOneModule(
+				'branch1',
+				[defaultModule],
+				[
+					{ expr: 'x > 0', modules: [branch1ModuleA, branch1ModuleB] },
+					{ expr: 'x < 0', modules: [branch2ModuleAModified] }
+				]
+			)
 
 			const beforeFlow = createFlow([beforeBranch])
 			const afterFlow = createFlow([afterBranch])
@@ -797,12 +822,16 @@ describe('buildFlowTimeline', () => {
 				{ modules: [scriptInParallel2, scriptInParallel3] }
 			])
 
-			const branchOneBefore = createBranchOneModule('outer_branch', [branchAllBefore], [
-				{ expr: 'x > 0', modules: [] }
-			])
-			const branchOneAfter = createBranchOneModule('outer_branch', [branchAllAfter], [
-				{ expr: 'x > 0', modules: [] }
-			])
+			const branchOneBefore = createBranchOneModule(
+				'outer_branch',
+				[branchAllBefore],
+				[{ expr: 'x > 0', modules: [] }]
+			)
+			const branchOneAfter = createBranchOneModule(
+				'outer_branch',
+				[branchAllAfter],
+				[{ expr: 'x > 0', modules: [] }]
+			)
 
 			const beforeFlow = createFlow([branchOneBefore])
 			const afterFlow = createFlow([branchOneAfter])
@@ -1393,15 +1422,23 @@ describe('buildFlowTimeline', () => {
 			const moduleA = createRawScriptModule('a', 'step a')
 
 			// Before: branch with 'a' in first conditional branch
-			const beforeBranch = createBranchOneModule('branch1', [], [
-				{ expr: 'x > 0', modules: [moduleA] },
-				{ expr: 'x < 0', modules: [] }
-			])
+			const beforeBranch = createBranchOneModule(
+				'branch1',
+				[],
+				[
+					{ expr: 'x > 0', modules: [moduleA] },
+					{ expr: 'x < 0', modules: [] }
+				]
+			)
 			// After: branch with 'a' in second conditional branch
-			const afterBranch = createBranchOneModule('branch1', [], [
-				{ expr: 'x > 0', modules: [] },
-				{ expr: 'x < 0', modules: [moduleA] }
-			])
+			const afterBranch = createBranchOneModule(
+				'branch1',
+				[],
+				[
+					{ expr: 'x > 0', modules: [] },
+					{ expr: 'x < 0', modules: [moduleA] }
+				]
+			)
 
 			const beforeFlow = createFlow([beforeBranch])
 			const afterFlow = createFlow([afterBranch])

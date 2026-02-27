@@ -177,4 +177,3 @@ export function supportsAutocomplete(model: string): boolean {
 	const lower = model.toLowerCase()
 	return lower.includes('codestral') && !lower.includes('embed')
 }
-

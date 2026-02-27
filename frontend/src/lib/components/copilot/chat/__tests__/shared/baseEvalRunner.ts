@@ -1,5 +1,8 @@
 import OpenAI, { APIError } from 'openai'
-import type { ChatCompletionMessageParam, ChatCompletionSystemMessageParam } from 'openai/resources/chat/completions.mjs'
+import type {
+	ChatCompletionMessageParam,
+	ChatCompletionSystemMessageParam
+} from 'openai/resources/chat/completions.mjs'
 import type { ChatCompletionTool } from 'openai/resources/chat/completions.mjs'
 import type { TokenUsage, ToolCallDetail, EvalRunnerOptions } from './types'
 import type { Tool } from './baseVariants'
@@ -52,16 +55,8 @@ export interface RunEvalParams<THelpers, TOutput> {
 export async function runEval<THelpers, TOutput>(
 	params: RunEvalParams<THelpers, TOutput>
 ): Promise<RawEvalResult<TOutput>> {
-	const {
-		systemMessage,
-		userMessage,
-		toolDefs,
-		tools,
-		helpers,
-		apiKey,
-		getOutput,
-		options
-	} = params
+	const { systemMessage, userMessage, toolDefs, tools, helpers, apiKey, getOutput, options } =
+		params
 
 	const client = new OpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey })
 	const model = options?.model ?? 'gpt-4o'

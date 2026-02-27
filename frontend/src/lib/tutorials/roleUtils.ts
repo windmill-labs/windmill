@@ -19,10 +19,7 @@ export function getUserEffectiveRole(user: UserExt | null | undefined): Role | n
  * Check if a role has access to a required role.
  * This is the core role-checking logic used by both normal and preview modes.
  */
-function checkRoleMatch(
-	userRole: Role,
-	requiredRole: Role
-): boolean {
+function checkRoleMatch(userRole: Role, requiredRole: Role): boolean {
 	if (requiredRole === 'admin') return userRole === 'admin'
 	if (requiredRole === 'operator') return userRole === 'operator' || userRole === 'admin'
 	if (requiredRole === 'developer') return userRole === 'developer' || userRole === 'admin'
@@ -40,7 +37,7 @@ export function hasRoleAccess(
 ): boolean {
 	// No roles specified = available to everyone
 	if (!roles || roles.length === 0) return true
-	
+
 	// If previewRole is provided, use it (admin preview mode)
 	// Otherwise, derive role from user
 	const effectiveRole = previewRole ?? getUserEffectiveRole(user)
@@ -55,14 +52,10 @@ export function hasRoleAccess(
  * Used by admins to preview what other roles can see.
  * Uses exact role matching - only shows tutorials explicitly marked for the preview role.
  */
-export function hasRoleAccessForPreview(
-	previewRole: Role,
-	roles?: Role[]
-): boolean {
+export function hasRoleAccessForPreview(previewRole: Role, roles?: Role[]): boolean {
 	// No roles specified = available to everyone
 	if (!roles || roles.length === 0) return true
 
 	// Exact role match - tutorial must explicitly include the preview role
 	return roles.includes(previewRole)
 }
-

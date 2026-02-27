@@ -156,9 +156,7 @@ export async function loadAppFixture(fixturePath: string): Promise<AppFiles> {
  * Loads an app fixture and returns the separate frontend and backend objects.
  * Convenience function for use with runAppEval options.
  */
-export async function loadAppFixtureForEval(
-	fixturePath: string
-): Promise<{
+export async function loadAppFixtureForEval(fixturePath: string): Promise<{
 	initialFrontend: Record<string, string>
 	initialBackend: Record<string, BackendRunnable>
 }> {

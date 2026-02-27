@@ -48,7 +48,7 @@ def main(input_file: S3Object):
     ]
 `,
 
-    polars: `#requirements:
+	polars: `#requirements:
 #polars==0.20.2
 #s3fs==2023.12.0
 #wmill>=1.229.0
@@ -90,7 +90,7 @@ def main(input_file: S3Object):
     return S3Object(s3=output_file)
 `,
 
-    duckdb: `#requirements:
+	duckdb: `#requirements:
 #wmill>=1.229.0
 #duckdb==0.9.1
 
@@ -141,7 +141,7 @@ def main(input_file: S3Object):
 
     conn.close()
     return S3Object(s3=output_file)
-`,
+`
 }
 
 export default python3

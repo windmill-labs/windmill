@@ -92,24 +92,24 @@ export async function skipTutorialsByIndexes(tutorialIndexes: number[]) {
 	const currentTodos = get(tutorialsToDo)
 	const aft = currentTodos.filter((x) => !tutorialIndexes.includes(x))
 	tutorialsToDo.set(aft)
-	
+
 	// Get current progress bits
 	const currentResponse = await UserService.getTutorialProgress()
 	let bits: number = currentResponse.progress ?? 0
-	
+
 	// Set bits for the specified indexes
 	for (const index of tutorialIndexes) {
 		const mask = 1 << index
 		bits = bits | mask
 	}
-	
+
 	// Only set skipped_all to true if ALL tutorials are now complete
 	const allComplete = aft.length === 0
-	await UserService.updateTutorialProgress({ 
-		requestBody: { 
-			progress: bits, 
-			skipped_all: allComplete 
-		} 
+	await UserService.updateTutorialProgress({
+		requestBody: {
+			progress: bits,
+			skipped_all: allComplete
+		}
 	})
 }
 
@@ -121,22 +121,22 @@ export async function resetTutorialsByIndexes(tutorialIndexes: number[]) {
 	const aft = [...new Set([...currentTodos, ...tutorialIndexes])]
 	tutorialsToDo.set(aft)
 	skippedAll.set(false)
-	
+
 	// Get current progress bits
 	const currentResponse = await UserService.getTutorialProgress()
 	let bits: number = currentResponse.progress ?? 0
-	
+
 	// Clear bits for the specified indexes
 	for (const index of tutorialIndexes) {
 		const mask = 1 << index
 		bits = bits & ~mask
 	}
-	
-	await UserService.updateTutorialProgress({ 
-		requestBody: { 
-			progress: bits, 
-			skipped_all: false 
-		} 
+
+	await UserService.updateTutorialProgress({
+		requestBody: {
+			progress: bits,
+			skipped_all: false
+		}
 	})
 }
 
@@ -146,29 +146,29 @@ export async function resetTutorialsByIndexes(tutorialIndexes: number[]) {
 async function updateTutorialStatusByIndex(tutorialIndex: number, completed: boolean) {
 	const currentTodos = get(tutorialsToDo)
 	const isInTodos = currentTodos.includes(tutorialIndex)
-	
+
 	// Only update if the status needs to change
 	// isInTodos = true means NOT completed, isInTodos = false means completed
 	// So if completed === !isInTodos, we're already in the desired state
 	if (completed === !isInTodos) {
 		return // Already in the desired state
 	}
-	
+
 	// Update todos list
 	const aft = completed
 		? currentTodos.filter((x) => x !== tutorialIndex)
 		: [...currentTodos, tutorialIndex]
 	tutorialsToDo.set(aft)
 	skippedAll.set(false)
-	
+
 	// Get current progress bits
 	const currentResponse = await UserService.getTutorialProgress()
 	let bits: number = currentResponse.progress ?? 0
-	
+
 	// Update bit for this tutorial index
 	const mask = 1 << tutorialIndex
 	bits = completed ? bits | mask : bits & ~mask
-	
+
 	await UserService.updateTutorialProgress({
 		requestBody: {
 			progress: bits,

@@ -11,11 +11,17 @@ interface DelegateToGitRepoConfig {
  * @param value - The value to set (or undefined to remove the field)
  * @returns The modified YAML script content
  */
-export function updateDelegateToGitRepoField(code: string, fieldName: string, value: string | undefined): string {
+export function updateDelegateToGitRepoField(
+	code: string,
+	fieldName: string,
+	value: string | undefined
+): string {
 	const lines = code.split('\n')
 
 	// Find delegate_to_git_repo section
-	const delegateLineIndex = lines.findIndex(line => line.trim().startsWith('delegate_to_git_repo:'))
+	const delegateLineIndex = lines.findIndex((line) =>
+		line.trim().startsWith('delegate_to_git_repo:')
+	)
 
 	if (delegateLineIndex === -1) {
 		// If no delegate section exists and we're setting a value, create the whole section
@@ -26,8 +32,8 @@ export function updateDelegateToGitRepoField(code: string, fieldName: string, va
 	}
 
 	// Find the specific field line
-	const fieldLineIndex = lines.findIndex((line, index) =>
-		index > delegateLineIndex && line.trim().startsWith(`${fieldName}:`)
+	const fieldLineIndex = lines.findIndex(
+		(line, index) => index > delegateLineIndex && line.trim().startsWith(`${fieldName}:`)
 	)
 
 	if (fieldLineIndex !== -1) {
@@ -52,7 +58,10 @@ export function updateDelegateToGitRepoField(code: string, fieldName: string, va
  * @param config - Configuration object with fields to update
  * @returns The modified YAML script content
  */
-export function updateDelegateToGitRepoConfig(code: string, config: DelegateToGitRepoConfig): string {
+export function updateDelegateToGitRepoConfig(
+	code: string,
+	config: DelegateToGitRepoConfig
+): string {
 	let updatedCode = code
 
 	// Update each field that's provided
@@ -121,7 +130,12 @@ function insertDelegateToGitRepoSection(code: string, config: DelegateToGitRepoC
 			// Find the end of inventories section
 			for (let j = i + 1; j < lines.length; j++) {
 				const nextLine = lines[j].trim()
-				if (nextLine && !nextLine.startsWith('-') && !nextLine.startsWith(' ') && !nextLine.startsWith('#')) {
+				if (
+					nextLine &&
+					!nextLine.startsWith('-') &&
+					!nextLine.startsWith(' ') &&
+					!nextLine.startsWith('#')
+				) {
 					insertionIndex = j
 					break
 				}
@@ -150,7 +164,9 @@ function extractDelegateToGitRepoField(code: string, fieldName: string): string 
 	const lines = code.split('\n')
 
 	// Find delegate_to_git_repo section
-	const delegateLineIndex = lines.findIndex(line => line.trim().startsWith('delegate_to_git_repo:'))
+	const delegateLineIndex = lines.findIndex((line) =>
+		line.trim().startsWith('delegate_to_git_repo:')
+	)
 
 	if (delegateLineIndex === -1) {
 		return undefined
@@ -222,7 +238,9 @@ export function insertAdditionalInventories(code: string, inventoryPaths: string
 	const lines = code.split('\n')
 
 	// Find and update existing additional_inventories section if it exists
-	const additionalInventoriesIndex = lines.findIndex(line => line.trim().startsWith('additional_inventories:'))
+	const additionalInventoriesIndex = lines.findIndex((line) =>
+		line.trim().startsWith('additional_inventories:')
+	)
 	if (additionalInventoriesIndex !== -1) {
 		// Determine the indentation level of the additional_inventories line
 		const sectionLine = lines[additionalInventoriesIndex]
@@ -292,7 +310,7 @@ export function insertAdditionalInventories(code: string, inventoryPaths: string
 
 		// Format the new options content
 		const optionsIndentation = '  ' // Standard 2-space indentation under additional_inventories
-		const formattedPaths = inventoryPaths.map(path => `"delegated_git_repository/${path}"`)
+		const formattedPaths = inventoryPaths.map((path) => `"delegated_git_repository/${path}"`)
 		const inlineFormat = `${optionsIndentation}- options: [${formattedPaths.join(', ')}]`
 
 		let newOptionsContent: string[]
@@ -302,7 +320,7 @@ export function insertAdditionalInventories(code: string, inventoryPaths: string
 		} else {
 			// Use dash format
 			newOptionsContent = [`${optionsIndentation}- options:`]
-			inventoryPaths.forEach(path => {
+			inventoryPaths.forEach((path) => {
 				newOptionsContent.push(`${optionsIndentation}  - "delegated_git_repository/${path}"`)
 			})
 		}
@@ -319,29 +337,25 @@ export function insertAdditionalInventories(code: string, inventoryPaths: string
 	}
 
 	// Format the inventory paths based on length
-	const formattedPaths = inventoryPaths.map(path => `"delegated_git_repository/${path}"`)
+	const formattedPaths = inventoryPaths.map((path) => `"delegated_git_repository/${path}"`)
 	const inlineFormat = `options: [${formattedPaths.join(', ')}]`
 
 	let inventorySection: string[]
 	if (inlineFormat.length <= 100) {
 		// Use inline format
-		inventorySection = [
-			'additional_inventories:',
-			`  ${inlineFormat}`
-		]
+		inventorySection = ['additional_inventories:', `  ${inlineFormat}`]
 	} else {
 		// Use dash format with each item on new line
-		inventorySection = [
-			'additional_inventories:',
-			'  - options:'
-		]
-		inventoryPaths.forEach(path => {
+		inventorySection = ['additional_inventories:', '  - options:']
+		inventoryPaths.forEach((path) => {
 			inventorySection.push(`    - "delegated_git_repository/${path}"`)
 		})
 	}
 
 	// Find insertion point (after the complete delegate_to_git_repo section)
-	const delegateLineIndex = lines.findIndex(line => line.trim().startsWith('delegate_to_git_repo:'))
+	const delegateLineIndex = lines.findIndex((line) =>
+		line.trim().startsWith('delegate_to_git_repo:')
+	)
 	if (delegateLineIndex === -1) {
 		// If no delegate_to_git_repo section, insert at the beginning (after document marker if exists)
 		let insertionIndex = 0
@@ -381,4 +395,3 @@ export function insertAdditionalInventories(code: string, inventoryPaths: string
 
 	return lines.join('\n')
 }
-

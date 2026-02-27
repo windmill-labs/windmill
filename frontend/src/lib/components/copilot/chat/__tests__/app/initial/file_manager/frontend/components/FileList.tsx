@@ -11,9 +11,7 @@ interface FileListProps {
 
 export const FileList: React.FC<FileListProps> = ({ files, onDelete, onRename, onFolderOpen }) => {
 	if (files.length === 0) {
-		return (
-			<div className="text-center text-gray-500 py-8">This folder is empty</div>
-		)
+		return <div className="text-center text-gray-500 py-8">This folder is empty</div>
 	}
 
 	// Sort: folders first, then files

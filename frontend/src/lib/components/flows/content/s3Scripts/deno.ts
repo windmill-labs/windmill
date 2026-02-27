@@ -1,5 +1,5 @@
 const deno = {
-  s3_client: `import type { S3Object } from "npm:windmill-client@${__pkg__.version}";
+	s3_client: `import type { S3Object } from "npm:windmill-client@${__pkg__.version}";
 import * as wmill from "npm:windmill-client@${__pkg__.version}";
 import { S3Client } from "https://deno.land/x/s3_lite_client@0.2.0/mod.ts";
 

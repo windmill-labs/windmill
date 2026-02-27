@@ -9,9 +9,7 @@ import { VariableService, UserService } from '$lib/gen'
  * Fetch contextual variables (WM_WORKSPACE, WM_TOKEN, etc.) for the debugger.
  * Creates a fresh short-lived token for the debug session.
  */
-export async function fetchContextualVariables(
-	workspace: string
-): Promise<Record<string, string>> {
+export async function fetchContextualVariables(workspace: string): Promise<Record<string, string>> {
 	if (!workspace) {
 		return {}
 	}
