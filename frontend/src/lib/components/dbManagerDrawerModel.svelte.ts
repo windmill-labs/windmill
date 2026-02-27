@@ -4,8 +4,10 @@ import type { DbInput, DbType } from './dbTypes'
 import { isDbType } from './dbTypes'
 
 const dbManagerSchema = z.object({
-	db_path: z.string().nullable(),
+	db_type: z.string().nullable(),
 	db_res_type: z.string().nullable(),
+	db_res_path: z.string().nullable(),
+	db_ducklake: z.string().nullable(),
 	db_schema: z.string().nullable(),
 	db_table: z.string().nullable(),
 	db_datatable: z.string().nullable()
@@ -27,29 +29,28 @@ export function useDbManagerUriState(): DbManagerUriState {
 	const params = useSearchParams(dbManagerSchema)
 
 	let input: DbInput | undefined = $derived.by(() => {
-		const path = params.db_path
-		if (!path) return undefined
-
-		if (typeof path === 'string' && path.startsWith('ducklake://')) {
-			const ducklake = path.slice('ducklake://'.length)
-			if (!ducklake) return undefined
+		if (params.db_type === 'database') {
+			const rt = params.db_res_type
+			const rp = params.db_res_path
+			if (!isDbType(rt ?? undefined) || !rp) return undefined
 			return {
-				type: 'ducklake' as const,
-				ducklake,
+				type: 'database' as const,
+				resourceType: rt as DbType,
+				resourcePath: rp as string,
+				specificSchema: (params.db_schema as string) ?? undefined,
 				specificTable: (params.db_table as string) ?? undefined
 			}
 		}
-
-		// database type: datatable://, $res:, res://, or any other path
-		const rt = params.db_res_type
-		if (!isDbType(rt ?? undefined)) return undefined
-		return {
-			type: 'database' as const,
-			resourceType: rt as DbType,
-			resourcePath: path as string,
-			specificSchema: (params.db_schema as string) ?? undefined,
-			specificTable: (params.db_table as string) ?? undefined
+		if (params.db_type === 'ducklake') {
+			const dl = params.db_ducklake
+			if (!dl) return undefined
+			return {
+				type: 'ducklake' as const,
+				ducklake: dl as string,
+				specificTable: (params.db_table as string) ?? undefined
+			}
 		}
+		return undefined
 	})
 
 	const isDatatableInput = $derived(
@@ -71,8 +72,10 @@ export function useDbManagerUriState(): DbManagerUriState {
 	})
 
 	function clearAllParams() {
-		params.db_path = null
+		params.db_type = null
 		params.db_res_type = null
+		params.db_res_path = null
+		params.db_ducklake = null
 		params.db_schema = null
 		params.db_table = null
 		params.db_datatable = null
@@ -80,20 +83,24 @@ export function useDbManagerUriState(): DbManagerUriState {
 
 	function openDrawer(nInput: DbInput) {
 		if (nInput.type === 'database') {
-			params.db_path = nInput.resourcePath
+			params.db_type = 'database'
 			params.db_res_type = nInput.resourceType
+			params.db_res_path = nInput.resourcePath
 			params.db_schema = nInput.specificSchema ?? null
 			params.db_table = nInput.specificTable ?? null
+			params.db_ducklake = null
 			if (nInput.resourcePath.startsWith('datatable://')) {
 				params.db_datatable = nInput.resourcePath.replace('datatable://', '')
 			} else {
 				params.db_datatable = null
 			}
 		} else {
-			params.db_path = `ducklake://${nInput.ducklake}`
-			params.db_res_type = null
-			params.db_schema = null
+			params.db_type = 'ducklake'
+			params.db_ducklake = nInput.ducklake
 			params.db_table = nInput.specificTable ?? null
+			params.db_res_type = null
+			params.db_res_path = null
+			params.db_schema = null
 			params.db_datatable = null
 		}
 	}
