@@ -329,7 +329,24 @@
             cargo-watch
             jq
             gnused
+
+            # CLI tools (for AI agents and dev workflow)
+            gh
+            awscli2
+            asciinema
+            playwright-driver
+            mermaid-cli
           ]);
+
+          # Playwright: use Nix-provided browsers; override with system Chrome via
+          # PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH if preferred
+          PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers}";
+          PUPPETEER_SKIP_DOWNLOAD = "true";
+
+          # Resolve Puppeteer executable path dynamically (revision number varies)
+          shellHook = ''
+            export PUPPETEER_EXECUTABLE_PATH="$(echo $PLAYWRIGHT_BROWSERS_PATH/chromium_headless_shell-*/chrome-linux/headless_shell)"
+          '';
 
           packages = helperScriptsBase;
         });
@@ -370,10 +387,24 @@
             conntrack-tools
             cri-tools
 
+            # CLI tools (for AI agents and dev workflow)
+            gh
+            awscli2
+            asciinema
+            playwright-driver
+            mermaid-cli
+
             # Extra
             xcaddy
             nsjail
           ]);
+
+          PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers}";
+          PUPPETEER_SKIP_DOWNLOAD = "true";
+
+          shellHook = ''
+            export PUPPETEER_EXECUTABLE_PATH="$(echo $PLAYWRIGHT_BROWSERS_PATH/chromium_headless_shell-*/chrome-linux/headless_shell)"
+          '';
 
           packages = helperScriptsBase ++ helperScriptsFull;
         });
