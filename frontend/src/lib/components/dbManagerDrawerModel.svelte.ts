@@ -3,15 +3,89 @@ import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
 import type { DbInput, DbType } from './dbTypes'
 import { isDbType } from './dbTypes'
 
+/**
+ * Single URL param `dbm` encodes the full DB manager state:
+ *   type~path~schema.table
+ *
+ * type:
+ *   datatable           – database with datatable:// resource (resourceType always postgresql)
+ *   ducklake            – ducklake connection
+ *   database:resType    – regular database, e.g. database:postgresql
+ *
+ * schema.table (third segment, optional):
+ *   schema.table  – both
+ *   .table        – table only
+ *   schema.       – schema only
+ *   (omitted)     – neither
+ *
+ * Examples:
+ *   datatable~main~public.customers
+ *   ducklake~main~.orders
+ *   database:postgresql~$res:u/user/my_pg~public.customers
+ */
+
 const dbManagerSchema = z.object({
-	db_type: z.string().nullable(),
-	db_res_type: z.string().nullable(),
-	db_res_path: z.string().nullable(),
-	db_ducklake: z.string().nullable(),
-	db_schema: z.string().nullable(),
-	db_table: z.string().nullable(),
-	db_datatable: z.string().nullable()
+	dbm: z.string().nullable()
 })
+
+interface ParsedDbm {
+	type: 'database' | 'datatable' | 'ducklake'
+	path: string
+	resType?: string
+	schema?: string
+	table?: string
+}
+
+function parseDbm(raw: unknown): ParsedDbm | null {
+	if (!raw || typeof raw !== 'string') return null
+	const parts = raw.split('~')
+	if (parts.length < 2 || !parts[1]) return null
+
+	const typePart = parts[0]
+	const path = parts[1]
+	const schemaTable = parts[2] ?? ''
+
+	let type: string
+	let resType: string | undefined
+	const colonIdx = typePart.indexOf(':')
+	if (colonIdx !== -1) {
+		type = typePart.slice(0, colonIdx)
+		resType = typePart.slice(colonIdx + 1) || undefined
+	} else {
+		type = typePart
+	}
+
+	if (type !== 'database' && type !== 'datatable' && type !== 'ducklake') return null
+
+	let schema: string | undefined
+	let table: string | undefined
+	if (schemaTable) {
+		const dotIdx = schemaTable.indexOf('.')
+		if (dotIdx === 0) {
+			table = schemaTable.slice(1) || undefined
+		} else if (dotIdx === schemaTable.length - 1) {
+			schema = schemaTable.slice(0, -1) || undefined
+		} else if (dotIdx > 0) {
+			schema = schemaTable.slice(0, dotIdx)
+			table = schemaTable.slice(dotIdx + 1)
+		}
+	}
+
+	return { type: type as ParsedDbm['type'], path, resType, schema, table }
+}
+
+function buildDbm(p: ParsedDbm): string {
+	const typePart = p.resType ? `${p.type}:${p.resType}` : p.type
+	let schemaTable = ''
+	if (p.schema && p.table) {
+		schemaTable = `${p.schema}.${p.table}`
+	} else if (p.table) {
+		schemaTable = `.${p.table}`
+	} else if (p.schema) {
+		schemaTable = `${p.schema}.`
+	}
+	return schemaTable ? `${typePart}~${p.path}~${schemaTable}` : `${typePart}~${p.path}`
+}
 
 export interface DbManagerUriState {
 	readonly input: DbInput | undefined
@@ -28,85 +102,59 @@ export interface DbManagerUriState {
 export function useDbManagerUriState(): DbManagerUriState {
 	const params = useSearchParams(dbManagerSchema)
 
+	const parsed = $derived(parseDbm(params.dbm))
+
 	let input: DbInput | undefined = $derived.by(() => {
-		if (params.db_type === 'database') {
-			const rt = params.db_res_type
-			const rp = params.db_res_path
-			if (!isDbType(rt ?? undefined) || !rp) return undefined
-			return {
-				type: 'database' as const,
-				resourceType: rt as DbType,
-				resourcePath: rp as string,
-				specificSchema: (params.db_schema as string) ?? undefined,
-				specificTable: (params.db_table as string) ?? undefined
-			}
-		}
-		if (params.db_type === 'ducklake') {
-			const dl = params.db_ducklake
-			if (!dl) return undefined
+		if (!parsed) return undefined
+		if (parsed.type === 'ducklake') {
 			return {
 				type: 'ducklake' as const,
-				ducklake: dl as string,
-				specificTable: (params.db_table as string) ?? undefined
+				ducklake: parsed.path,
+				specificTable: parsed.table
 			}
 		}
-		return undefined
-	})
-
-	const isDatatableInput = $derived(
-		input?.type === 'database' && input.resourcePath.startsWith('datatable://')
-	)
-
-	// selectedDatatable reads directly from URL params (no separate $state needed)
-	const selectedDatatable = $derived(
-		params.db_datatable != null ? String(params.db_datatable) : undefined
-	)
-
-	const effectiveInput: DbInput | undefined = $derived.by(() => {
-		if (!input) return undefined
-		if (!isDatatableInput || !selectedDatatable) return input
+		// datatable or database
+		const resType = parsed.type === 'datatable' ? 'postgresql' : parsed.resType
+		if (!isDbType(resType ?? undefined)) return undefined
 		return {
-			...input,
-			resourcePath: `datatable://${selectedDatatable}`
+			type: 'database' as const,
+			resourceType: resType as DbType,
+			resourcePath: parsed.type === 'datatable' ? `datatable://${parsed.path}` : parsed.path,
+			specificSchema: parsed.schema,
+			specificTable: parsed.table
 		}
 	})
 
-	function clearAllParams() {
-		params.db_type = null
-		params.db_res_type = null
-		params.db_res_path = null
-		params.db_ducklake = null
-		params.db_schema = null
-		params.db_table = null
-		params.db_datatable = null
+	const isDatatableInput = $derived(parsed?.type === 'datatable')
+
+	function updateField(updates: Partial<ParsedDbm>) {
+		const p = parseDbm(params.dbm)
+		if (!p) return
+		Object.assign(p, updates)
+		params.dbm = buildDbm(p)
 	}
 
 	function openDrawer(nInput: DbInput) {
 		if (nInput.type === 'database') {
-			params.db_type = 'database'
-			params.db_res_type = nInput.resourceType
-			params.db_res_path = nInput.resourcePath
-			params.db_schema = nInput.specificSchema ?? null
-			params.db_table = nInput.specificTable ?? null
-			params.db_ducklake = null
-			if (nInput.resourcePath.startsWith('datatable://')) {
-				params.db_datatable = nInput.resourcePath.replace('datatable://', '')
-			} else {
-				params.db_datatable = null
-			}
+			const isDatatable = nInput.resourcePath.startsWith('datatable://')
+			params.dbm = buildDbm({
+				type: isDatatable ? 'datatable' : 'database',
+				path: isDatatable ? nInput.resourcePath.slice('datatable://'.length) : nInput.resourcePath,
+				resType: isDatatable ? undefined : nInput.resourceType,
+				schema: nInput.specificSchema,
+				table: nInput.specificTable
+			})
 		} else {
-			params.db_type = 'ducklake'
-			params.db_ducklake = nInput.ducklake
-			params.db_table = nInput.specificTable ?? null
-			params.db_res_type = null
-			params.db_res_path = null
-			params.db_schema = null
-			params.db_datatable = null
+			params.dbm = buildDbm({
+				type: 'ducklake',
+				path: nInput.ducklake,
+				table: nInput.specificTable
+			})
 		}
 	}
 
 	function closeDrawer() {
-		clearAllParams()
+		params.dbm = null
 	}
 
 	return {
@@ -114,28 +162,28 @@ export function useDbManagerUriState(): DbManagerUriState {
 			return input
 		},
 		get effectiveInput() {
-			return effectiveInput
+			return input
 		},
 		get isDatatableInput() {
 			return isDatatableInput
 		},
 		get selectedDatatable() {
-			return selectedDatatable
+			return parsed?.type === 'datatable' ? parsed.path : undefined
 		},
 		set selectedDatatable(v: string | undefined) {
-			params.db_datatable = v ?? null
+			if (v) updateField({ path: v })
 		},
 		get selectedSchema() {
-			return params.db_schema != null ? String(params.db_schema) : undefined
+			return parsed?.schema
 		},
 		set selectedSchema(v: string | undefined) {
-			params.db_schema = v ?? null
+			updateField({ schema: v })
 		},
 		get selectedTable() {
-			return params.db_table != null ? String(params.db_table) : undefined
+			return parsed?.table
 		},
 		set selectedTable(v: string | undefined) {
-			params.db_table = v ?? null
+			updateField({ table: v })
 		},
 		get open() {
 			return !!input
