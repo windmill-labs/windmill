@@ -7,9 +7,9 @@ use super::types::SchemaType;
 use windmill_common::utils::calculate_hash;
 
 /// Max tool name length. The MCP spec allows 64 chars, but some clients
-/// (e.g. Cursor) prepend the server name to the tool name, so we use 50
+/// (e.g. Cursor) prepend the server name to the tool name, so we use 40
 /// to leave room for that prefix.
-const MAX_PATH_LENGTH: usize = 50;
+const MAX_PATH_LENGTH: usize = 40;
 
 /// Length of the SHA256 hash suffix used for hashed names
 const HASH_LEN: usize = 16;
