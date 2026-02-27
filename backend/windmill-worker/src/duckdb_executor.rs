@@ -454,7 +454,7 @@ fn prepare_duckdb_ffi_safe<'a>(
     let result_str = unsafe {
         let ptr = prepare_fn(
             query_block_list.as_ptr(),
-            query_block_list_count,
+            query_block_list.len(),
             token.as_ptr(),
             base_internal_url.as_ptr(),
             w_id.as_ptr(),
