@@ -82,10 +82,8 @@ async function prepareDatatableQueries(
 	queries: QueryEntry[],
 	getWorkspace: () => string | undefined
 ): Promise<[string, PreparedAssetsSqlQuery][]> {
-	queries.sort((a, b) => a[1].source_name.localeCompare(b[1].source_name))
-	let results = (
-		await Promise.all(
 			chunkBy(queries, ([_, q]) => q.source_name).map(async (chunk) => {
+				try {
 				let queryContent = chunk
 					.flatMap(([_, q]) => [
 						q.source_schema ? `SET search_path TO ${q.source_schema};` : 'RESET search_path;',
@@ -104,6 +102,11 @@ async function prepareDatatableQueries(
 				})) as { error?: string; columns?: { name: string; type: string }[] }[]
 
 				return mapPrepareResults(res, chunk)
+				} catch (e) {
+					const error = e instanceof Error ? e.message : JSON.stringify(e)
+					return chunk.map(([key]) => [key, { error }] as [string, PreparedAssetsSqlQuery])
+				}
+			})
 			})
 		)
 	).flat()
