@@ -5,12 +5,12 @@ import { isDbType } from './dbTypes'
 
 /**
  * Single URL param `dbm` encodes the full DB manager state:
- *   type~path~schema.table
+ *   firstSegment~path~schema.table
  *
- * type:
- *   datatable           – database with datatable:// resource (resourceType always postgresql)
- *   ducklake            – ducklake connection
- *   database:resType    – regular database, e.g. database:postgresql
+ * firstSegment:
+ *   datatable              – database with datatable:// resource (resourceType always postgresql)
+ *   ducklake               – ducklake connection
+ *   postgresql, mysql, …   – regular database (the segment IS the resource type)
  *
  * schema.table (third segment, optional):
  *   schema.table  – both
@@ -21,7 +21,7 @@ import { isDbType } from './dbTypes'
  * Examples:
  *   datatable~main~public.customers
  *   ducklake~main~.orders
- *   database:postgresql~$res:u/user/my_pg~public.customers
+ *   postgresql~$res:u/user/my_pg~public.customers
  */
 
 const dbManagerSchema = z.object({
@@ -41,21 +41,22 @@ function parseDbm(raw: unknown): ParsedDbm | null {
 	const parts = raw.split('~')
 	if (parts.length < 2 || !parts[1]) return null
 
-	const typePart = parts[0]
+	const firstSeg = parts[0]
 	const path = parts[1]
 	const schemaTable = parts[2] ?? ''
 
-	let type: string
+	let type: ParsedDbm['type']
 	let resType: string | undefined
-	const colonIdx = typePart.indexOf(':')
-	if (colonIdx !== -1) {
-		type = typePart.slice(0, colonIdx)
-		resType = typePart.slice(colonIdx + 1) || undefined
+	if (firstSeg === 'datatable') {
+		type = 'datatable'
+	} else if (firstSeg === 'ducklake') {
+		type = 'ducklake'
+	} else if (isDbType(firstSeg)) {
+		type = 'database'
+		resType = firstSeg
 	} else {
-		type = typePart
+		return null
 	}
-
-	if (type !== 'database' && type !== 'datatable' && type !== 'ducklake') return null
 
 	let schema: string | undefined
 	let table: string | undefined
@@ -71,11 +72,11 @@ function parseDbm(raw: unknown): ParsedDbm | null {
 		}
 	}
 
-	return { type: type as ParsedDbm['type'], path, resType, schema, table }
+	return { type, path, resType, schema, table }
 }
 
 function buildDbm(p: ParsedDbm): string {
-	const typePart = p.resType ? `${p.type}:${p.resType}` : p.type
+	const firstSeg = p.type === 'database' ? p.resType! : p.type
 	let schemaTable = ''
 	if (p.schema && p.table) {
 		schemaTable = `${p.schema}.${p.table}`
@@ -84,7 +85,7 @@ function buildDbm(p: ParsedDbm): string {
 	} else if (p.schema) {
 		schemaTable = `${p.schema}.`
 	}
-	return schemaTable ? `${typePart}~${p.path}~${schemaTable}` : `${typePart}~${p.path}`
+	return schemaTable ? `${firstSeg}~${p.path}~${schemaTable}` : `${firstSeg}~${p.path}`
 }
 
 export interface DbManagerUriState {
