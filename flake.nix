@@ -215,9 +215,9 @@
           DOTNET_ROOT = "${pkgs.dotnet-sdk_9}/share/dotnet";
           PHP_PATH = "${pkgs.php}/bin/php";
           COMPOSER_PATH = "${pkgs.php84Packages.composer}/bin/composer";
-          RUBY_PATH = "${pkgs.ruby}/bin/ruby";
-          RUBY_BUNDLE_PATH = "${pkgs.ruby}/bin/bundle";
-          RUBY_GEM_PATH = "${pkgs.ruby}/bin/gem";
+          RUBY_PATH = "${pkgs.ruby_3_4}/bin/ruby";
+          RUBY_BUNDLE_PATH = "${pkgs.ruby_3_4}/bin/bundle";
+          RUBY_GEM_PATH = "${pkgs.ruby_3_4}/bin/gem";
           ORACLE_LIB_DIR = "${pkgs.oracle-instantclient.lib}/lib";
           ANSIBLE_PLAYBOOK_PATH = "${pkgs.ansible}/bin/ansible-playbook";
           ANSIBLE_GALAXY_PATH = "${pkgs.ansible}/bin/ansible-galaxy";
@@ -261,13 +261,13 @@
             cd ./frontend
             npm install
             npm run ${if stdenv.isDarwin then "generate-backend-client-mac" else "generate-backend-client"}
-            npm run dev $*
+            npm run dev "$@"
           '')
           (pkgs.writeScriptBin "wm-build" ''
             cd ./frontend
             npm install
             npm run ${if stdenv.isDarwin then "generate-backend-client-mac" else "generate-backend-client"}
-            npm run build $*
+            npm run build "$@"
           '')
           (pkgs.writeScriptBin "wm-migrate" ''
             cd ./backend
@@ -312,7 +312,7 @@
         helperScriptsFull = [
           (pkgs.writeScriptBin "wm-caddy" ''
             cd ./frontend
-            xcaddy build $* \
+            xcaddy build "$@" \
               --with github.com/mholt/caddy-l4@145ec36251a44286f05a10d231d8bfb3a8192e09 \
               --with github.com/RussellLuo/caddy-ext/layer4@ab1e18cfe426012af351a68463937ae2e934a2a1
           '')
@@ -323,9 +323,43 @@
             wm-migrate
           '')
           (pkgs.writeScriptBin "wm-bench" ''
-            deno run -A benchmarks/main.ts -e admin@windmill.dev -p changeme $*
+            deno run -A benchmarks/main.ts -e admin@windmill.dev -p changeme "$@"
           '')
         ];
+
+        # ---------------------------------------------------------------
+        # Shared inputs and settings for default + full shells
+        # ---------------------------------------------------------------
+
+        coreBuildInputs = nativeBuildDeps ++ commonRuntimes ++ [
+          rustStable
+          openapi-generator-cli
+        ] ++ (with pkgs; [
+          nodejs
+          git
+          sqlx-cli
+          cargo-watch
+          jq
+          gnused
+
+          # CLI tools (for AI agents and dev workflow)
+          gh
+          asciinema
+          mermaid-cli
+        ]);
+
+        # Playwright: use Nix-provided browsers (version-matched to playwright-driver)
+        # Mermaid/Puppeteer: point at Nix chromium (Puppeteer respects this env var)
+        browserVars = {
+          PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers}";
+          PUPPETEER_EXECUTABLE_PATH = "${pkgs.chromium}/bin/chromium";
+          PUPPETEER_SKIP_DOWNLOAD = "true";
+        };
+
+        # Wrapper for the Nix-provided playwright CLI (version-matched to its browsers)
+        playwrightWrapper = pkgs.writeShellScriptBin "playwright" ''
+          exec ${pkgs.nodejs}/bin/node ${pkgs.playwright-driver}/cli.js "$@"
+        '';
 
       in {
 
@@ -334,38 +368,12 @@
         # Usage: nix develop
         # =============================================================
 
-        devShells.default = pkgs.mkShell (buildEnvVars // commonRuntimeVars // devEnvVars // {
-          buildInputs = nativeBuildDeps ++ commonRuntimes ++ [
-            rustStable
-            openapi-generator-cli
-          ] ++ (with pkgs; [
-            nodejs
-            git
-            sqlx-cli
-            cargo-watch
-            jq
-            gnused
-
-            # CLI tools (for AI agents and dev workflow)
-            gh
-            asciinema
-            mermaid-cli
-          ]);
-
-          # Playwright: use Nix-provided browsers (version-matched to playwright-driver)
-          PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers}";
-          # Mermaid/Puppeteer: point at Nix chromium (Puppeteer respects this env var)
-          PUPPETEER_EXECUTABLE_PATH = "${pkgs.chromium}/bin/chromium";
-          PUPPETEER_SKIP_DOWNLOAD = "true";
+        devShells.default = pkgs.mkShell (buildEnvVars // commonRuntimeVars // devEnvVars // browserVars // {
+          buildInputs = coreBuildInputs;
 
           shellHook = loadEnvLocal;
 
-          packages = helperScriptsBase ++ [
-            # Wrapper for the Nix-provided playwright CLI (version-matched to its browsers)
-            (pkgs.writeShellScriptBin "playwright" ''
-              exec ${pkgs.nodejs}/bin/node ${pkgs.playwright-driver}/cli.js "$@"
-            '')
-          ];
+          packages = helperScriptsBase ++ [ playwrightWrapper ];
         });
 
         # =============================================================
@@ -373,18 +381,8 @@
         # Usage: nix develop .#full
         # =============================================================
 
-        devShells.full = pkgs.mkShell (buildEnvVars // commonRuntimeVars // extraRuntimeVars // devEnvVars // {
-          buildInputs = nativeBuildDeps ++ commonRuntimes ++ extraRuntimes ++ [
-            rustStable
-            openapi-generator-cli
-          ] ++ (with pkgs; [
-            nodejs
-            git
-            sqlx-cli
-            cargo-watch
-            jq
-            gnused
-
+        devShells.full = pkgs.mkShell (buildEnvVars // commonRuntimeVars // extraRuntimeVars // devEnvVars // browserVars // {
+          buildInputs = coreBuildInputs ++ extraRuntimes ++ (with pkgs; [
             # Python extras
             poetry
             pyright
@@ -404,27 +402,14 @@
             conntrack-tools
             cri-tools
 
-            # CLI tools (for AI agents and dev workflow)
-            gh
-            asciinema
-            mermaid-cli
-
             # Extra
             xcaddy
             nsjail
           ]);
 
-          PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers}";
-          PUPPETEER_EXECUTABLE_PATH = "${pkgs.chromium}/bin/chromium";
-          PUPPETEER_SKIP_DOWNLOAD = "true";
-
           shellHook = loadEnvLocal;
 
-          packages = helperScriptsBase ++ helperScriptsFull ++ [
-            (pkgs.writeShellScriptBin "playwright" ''
-              exec ${pkgs.nodejs}/bin/node ${pkgs.playwright-driver}/cli.js "$@"
-            '')
-          ];
+          packages = helperScriptsBase ++ helperScriptsFull ++ [ playwrightWrapper ];
         });
 
         # =============================================================
@@ -466,7 +451,7 @@
 
           packages = [
             (pkgs.writeScriptBin "wm-cli" ''
-              bun run $FLAKE_ROOT/cli/src/main.ts $*
+              bun run $FLAKE_ROOT/cli/src/main.ts "$@"
             '')
             (pkgs.writeScriptBin "wm-cli-deps" ''
               pushd $FLAKE_ROOT/cli/
