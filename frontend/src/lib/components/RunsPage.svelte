@@ -87,6 +87,8 @@
 		})
 	)
 	let perPage = useLocalStorageValue('runs_per_page', 1000, 'number')
+	let showSchedulesStorage = useLocalStorageValue('runs_show_schedules', true, 'boolean')
+	let showFutureJobsStorage = useLocalStorageValue('runs_show_future_jobs', true, 'boolean')
 	let filters = useUrlSyncedFilterInstance(untrack(() => runsFilterSearchbarSchema))
 
 	let { initialPath }: Props = $props()
@@ -97,6 +99,24 @@
 	if (initialPath && !filters.val.path) {
 		filters.val.path = initialPath
 	}
+
+	// Apply persistent toggle values from local storage if URL doesn't specify them
+	if (!page.url.searchParams.has('job_trigger_kind') && showSchedulesStorage.val === false) {
+		filters.val.job_trigger_kind = '!schedule'
+	}
+	if (!page.url.searchParams.has('show_future_jobs') && showFutureJobsStorage.val === false) {
+		filters.val.show_future_jobs = false
+	}
+
+	// Sync toggle state back to local storage when filters change
+	$effect(() => {
+		if (!filters.val.job_trigger_kind || filters.val.job_trigger_kind === '!schedule') {
+			showSchedulesStorage.val = filters.val.job_trigger_kind !== '!schedule'
+		}
+	})
+	$effect(() => {
+		showFutureJobsStorage.val = filters.val.show_future_jobs !== false
+	})
 
 	let selectedIds: string[] = $state([])
 	let selectedWorkspace: string | undefined = $state(undefined)
