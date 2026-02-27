@@ -348,7 +348,6 @@
 
             # CLI tools (for AI agents and dev workflow)
             gh
-            awscli2
             asciinema
             mermaid-cli
           ]);
@@ -407,7 +406,6 @@
 
             # CLI tools (for AI agents and dev workflow)
             gh
-            awscli2
             asciinema
             mermaid-cli
 
