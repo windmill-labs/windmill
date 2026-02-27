@@ -1,0 +1,1 @@
+ALTER TABLE v2_job_completed ADD COLUMN IF NOT EXISTS fast_filter SMALLINT;

@@ -938,6 +938,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     , memory_peak
                     , status
                     , worker
+                    , fast_filter
                     )
                 SELECT q.workspace_id, q.id, started_at, COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000), $3, $10, $5, $6,
                         flow_status, workflow_as_code_status,
@@ -945,9 +946,14 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                         WHEN $7::BOOL THEN 'skipped'::job_status
                         WHEN $2::BOOL THEN 'success'::job_status
                         ELSE 'failure'::job_status END AS status,
-                        q.worker
+                        q.worker,
+                        CASE WHEN $11::uuid IS NOT NULL THEN NULL
+                             WHEN $7::BOOL THEN NULL
+                             WHEN $4::BOOL THEN 2::smallint
+                             WHEN $2::BOOL THEN 1::smallint
+                             ELSE 2::smallint END
                 FROM v2_job_queue q LEFT JOIN v2_job_status USING (id) WHERE q.id = $1
-            ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = $3 RETURNING duration_ms AS \"duration_ms!\"",
+            ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = $3, fast_filter = EXCLUDED.fast_filter RETURNING duration_ms AS \"duration_ms!\"",
             /* $1 */ completed_job.id,
             /* $2 */ success,
             /* $3 */ result as Json<&T>,
@@ -958,6 +964,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             /* $8 */ if mem_peak > 0 { Some(mem_peak) } else { None },
             /* $9 */ duration,
             /* $10 */ result_columns as Option<&Vec<String>>,
+            /* $11 */ completed_job.parent_job,
         )
         .fetch_optional(&mut *tx)
         .warn_after_seconds(10)

@@ -8,9 +8,12 @@
 
 //! Query builders for filtering job lists (queue and completed).
 
+use std::sync::atomic::Ordering;
+
 use sql_builder::prelude::*;
 use sql_builder::SqlBuilder;
 use windmill_common::utils::{escape_ilike_pattern, paginate_without_limits, Pagination};
+use windmill_common::FAST_FILTER_INDEXED;
 
 use crate::types::{ListCompletedQuery, ListQueueQuery};
 
@@ -491,6 +494,14 @@ pub fn filter_list_completed_query(
     if let Some(fs) = &lq.has_null_parent {
         if *fs {
             sqlb.and_where_is_null("parent_job");
+
+            if FAST_FILTER_INDEXED.load(Ordering::Relaxed) {
+                if lq.success == Some(false) {
+                    sqlb.and_where("fast_filter = 2");
+                } else if lq.success.is_none() && lq.is_skipped == Some(false) {
+                    sqlb.and_where("fast_filter IS NOT NULL");
+                }
+            }
         }
     }
     if let Some(jk) = &lq.job_kinds {

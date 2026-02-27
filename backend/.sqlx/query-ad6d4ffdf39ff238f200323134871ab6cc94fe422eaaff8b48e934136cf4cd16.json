@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO windmill_migrations (name) VALUES ('fast_filter_indexed')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "ad6d4ffdf39ff238f200323134871ab6cc94fe422eaaff8b48e934136cf4cd16"
+}
