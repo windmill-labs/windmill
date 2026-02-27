@@ -70,7 +70,7 @@
 
         rustyV8Archive = let
           version = "130.0.7";
-          target = pkgs.hostPlatform.rust.rustcTarget;
+          target = stdenv.hostPlatform.rust.rustcTarget;
           sha256 = {
             x86_64-linux = "sha256-pkdsuU6bAkcIHEZUJOt5PXdzK424CEgTLXjLtQ80t10=";
             aarch64-linux = lib.fakeHash;
