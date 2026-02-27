@@ -15,11 +15,13 @@
 	let {
 		disableAi,
 		small,
-		diffManager
+		diffManager,
+		ongenerateStep = undefined
 	}: {
 		small: boolean
 		disableAi?: boolean
 		diffManager?: FlowDiffManager
+		ongenerateStep?: (...args: any[]) => any
 	} = $props()
 
 	const dispatch = createEventDispatcher<{
@@ -49,6 +51,11 @@
 
 		if (inlineScript?.instructions) {
 			dispatch('generateStep', {
+				moduleId: 'failure',
+				instructions: inlineScript.instructions,
+				lang: inlineScript.language
+			})
+			ongenerateStep?.({
 				moduleId: 'failure',
 				instructions: inlineScript.instructions,
 				lang: inlineScript.language

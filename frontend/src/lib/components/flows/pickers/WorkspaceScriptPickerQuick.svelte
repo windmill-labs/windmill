@@ -77,6 +77,8 @@
 			| { kind: 'inline' | 'owner' | 'integrations'; name: string | undefined }
 			| undefined
 		refreshCount?: number
+		onpickFlow?: (...args: any[]) => any
+		onpickScript?: (...args: any[]) => any
 	}
 
 	let {
@@ -88,7 +90,9 @@
 		filter = '',
 		owners = $bindable([]),
 		ownerFilter = $bindable(undefined),
-		refreshCount = 0
+		refreshCount = 0,
+		onpickFlow = undefined,
+		onpickScript = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -106,8 +110,10 @@
 			let item = filteredWithOwner[selected]
 			if (kind == 'flow') {
 				dispatch('pickFlow', { path: item.path })
+				onpickFlow?.({ path: item.path })
 			} else {
 				dispatch('pickScript', { path: item.path, hash: lockHash ? item.hash : undefined, kind })
+				onpickScript?.({ path: item.path, hash: lockHash ? item.hash : undefined, kind })
 			}
 		}
 	}
@@ -177,8 +183,10 @@
 						onClick={() => {
 							if (kind == 'flow') {
 								dispatch('pickFlow', { path: path })
+								onpickFlow?.({ path: path })
 							} else {
 								dispatch('pickScript', { path: path, hash: lockHash ? hash : undefined, kind })
+								onpickScript?.({ path: path, hash: lockHash ? hash : undefined, kind })
 							}
 						}}
 						startIcon={{

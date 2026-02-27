@@ -25,10 +25,36 @@
 	interface Props {
 		module: FlowModule
 		tag: string | undefined
+		ontoggleRetry?: (...args: any[]) => any
+		ontoggleConcurrency?: (...args: any[]) => any
+		ontoggleCache?: (...args: any[]) => any
+		ontoggleStopAfterIf?: (...args: any[]) => any
+		ontoggleSuspend?: (...args: any[]) => any
+		ontoggleSleep?: (...args: any[]) => any
+		ontogglePin?: (...args: any[]) => any
+		onreload?: (...args: any[]) => any
+		ontagChange?: (...args: any[]) => any
+		onfork?: (...args: any[]) => any
+		oncreateScriptFromInlineScript?: (...args: any[]) => any
 	}
 
-	let { module, tag }: Props = $props()
-	const { scriptEditorDrawer, flowEditorDrawer } = getContext<FlowEditorContext>('FlowEditorContext')
+	let {
+		module,
+		tag,
+		ontoggleRetry = undefined,
+		ontoggleConcurrency = undefined,
+		ontoggleCache = undefined,
+		ontoggleStopAfterIf = undefined,
+		ontoggleSuspend = undefined,
+		ontoggleSleep = undefined,
+		ontogglePin = undefined,
+		onreload = undefined,
+		ontagChange = undefined,
+		onfork = undefined,
+		oncreateScriptFromInlineScript = undefined
+	}: Props = $props()
+	const { scriptEditorDrawer, flowEditorDrawer } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 
 	const dispatch = createEventDispatcher()
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
@@ -40,7 +66,11 @@
 <div class="flex flex-row gap-2 whitespace-nowrap">
 	{#if module.value.type === 'script' || module.value.type === 'rawscript' || module.value.type == 'flow'}
 		{#if module.retry?.constant || module.retry?.exponential}
-			<Popover placement="bottom" class={popoverClasses} onClick={() => dispatch('toggleRetry')}>
+			<Popover
+				placement="bottom"
+				class={popoverClasses}
+				onClick={() => (dispatch('toggleRetry'), ontoggleRetry?.())}
+			>
 				<Repeat size={14} />
 				{#snippet text()}
 					Retries
@@ -51,7 +81,7 @@
 			<Popover
 				placement="bottom"
 				class={popoverClasses}
-				onClick={() => dispatch('toggleConcurrency')}
+				onClick={() => (dispatch('toggleConcurrency'), ontoggleConcurrency?.())}
 			>
 				<Gauge size={14} />
 				{#snippet text()}
@@ -60,7 +90,11 @@
 			</Popover>
 		{/if}
 		{#if module.cache_ttl != undefined}
-			<Popover placement="bottom" class={popoverClasses} onClick={() => dispatch('toggleCache')}>
+			<Popover
+				placement="bottom"
+				class={popoverClasses}
+				onClick={() => (dispatch('toggleCache'), ontoggleCache?.())}
+			>
 				<Database size={14} />
 				{#snippet text()}
 					Cache
@@ -71,7 +105,7 @@
 			<Popover
 				placement="bottom"
 				class={popoverClasses}
-				onClick={() => dispatch('toggleStopAfterIf')}
+				onClick={() => (dispatch('toggleStopAfterIf'), ontoggleStopAfterIf?.())}
 			>
 				<Square size={14} />
 				{#snippet text()}
@@ -80,7 +114,11 @@
 			</Popover>
 		{/if}
 		{#if module.suspend}
-			<Popover placement="bottom" class={popoverClasses} onClick={() => dispatch('toggleSuspend')}>
+			<Popover
+				placement="bottom"
+				class={popoverClasses}
+				onClick={() => (dispatch('toggleSuspend'), ontoggleSuspend?.())}
+			>
 				<PhoneIncoming size={14} />
 				{#snippet text()}
 					Suspend
@@ -88,7 +126,11 @@
 			</Popover>
 		{/if}
 		{#if module.sleep}
-			<Popover placement="bottom" class={popoverClasses} onClick={() => dispatch('toggleSleep')}>
+			<Popover
+				placement="bottom"
+				class={popoverClasses}
+				onClick={() => (dispatch('toggleSleep'), ontoggleSleep?.())}
+			>
 				<Bed size={14} />
 				{#snippet text()}
 					Sleep
@@ -96,7 +138,11 @@
 			</Popover>
 		{/if}
 		{#if module.mock?.enabled}
-			<Popover placement="bottom" class={popoverClasses} onClick={() => dispatch('togglePin')}>
+			<Popover
+				placement="bottom"
+				class={popoverClasses}
+				onClick={() => (dispatch('togglePin'), ontogglePin?.())}
+			>
 				<Pin size={14} />
 				{#snippet text()}
 					This step is pinned
@@ -114,6 +160,7 @@
 						const hash = module.value.hash ?? (await getLatestHashForScript(module.value.path))
 						$scriptEditorDrawer?.openDrawer(hash, () => {
 							dispatch('reload')
+							onreload?.()
 							sendUserToast('Script has been updated')
 						})
 					}
@@ -132,14 +179,14 @@
 				noLabel={customUi?.tagSelectNoLabel}
 				nullTag={tag}
 				tag={module.value.tag_override}
-				on:change={(e) => dispatch('tagChange', e.detail)}
+				on:change={(e) => (dispatch('tagChange', e.detail), ontagChange?.(e.detail))}
 			/>
 		{/if}
 		{#if customUi?.scriptFork != false}
 			<Button
 				unifiedSize="sm"
 				variant="subtle"
-				on:click={() => dispatch('fork')}
+				on:click={() => (dispatch('fork'), onfork?.())}
 				startIcon={{ icon: GitFork }}
 				iconOnly={false}
 			>
@@ -154,6 +201,7 @@
 				if (module.value.type == 'flow') {
 					$flowEditorDrawer?.openDrawer(module.value.path, () => {
 						dispatch('reload')
+						onreload?.()
 						sendUserToast('Flow has been updated')
 					})
 				}
@@ -168,6 +216,7 @@
 			variant="subtle"
 			on:click={async () => {
 				dispatch('reload')
+				onreload?.()
 			}}
 			startIcon={{
 				icon: RefreshCcw
@@ -183,13 +232,16 @@
 			noLabel={customUi?.tagSelectNoLabel}
 			nullTag={tag}
 			tag={module.value.tag}
-			on:change={(e) => dispatch('tagChange', e.detail)}
+			on:change={(e) => (dispatch('tagChange', e.detail), ontagChange?.(e.detail))}
 		/>
 		<Button
 			unifiedSize="sm"
 			variant="subtle"
 			startIcon={{ icon: Save }}
-			on:click={() => dispatch('createScriptFromInlineScript')}
+			on:click={() => (
+				dispatch('createScriptFromInlineScript'),
+				oncreateScriptFromInlineScript?.()
+			)}
 			iconOnly={false}
 		>
 			Save to workspace

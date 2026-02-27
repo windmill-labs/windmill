@@ -144,6 +144,12 @@
 		preparedAssetsSqlQueries?: InferAssetsSqlQueryDetails[] | undefined
 		// To execute preview scripts with the right worker group
 		customTag?: string
+		onchange?: (...args: any[]) => any
+		onsaveDraft?: (...args: any[]) => any
+		onblur?: (...args: any[]) => any
+		onfocus?: (...args: any[]) => any
+		ontoggleTestPanel?: (...args: any[]) => any
+		onataReady?: (...args: any[]) => any
 	}
 
 	let {
@@ -174,7 +180,13 @@
 		enablePreprocessorSnippet = false,
 		rawAppRunnableKey = undefined,
 		preparedAssetsSqlQueries,
-		customTag
+		customTag,
+		onchange = undefined,
+		onsaveDraft = undefined,
+		onblur = undefined,
+		onfocus = undefined,
+		ontoggleTestPanel = undefined,
+		onataReady = undefined
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -395,6 +407,7 @@
 		}
 		code = ncode
 		dispatch('change', ncode)
+		onchange?.(ncode)
 	}
 
 	export function append(code: string): void {
@@ -1237,6 +1250,7 @@
 
 	function saveDraft() {
 		dispatch('saveDraft', code)
+		onsaveDraft?.(code)
 	}
 
 	let vimDisposable: IDisposable | undefined = $state(undefined)
@@ -1450,6 +1464,7 @@
 
 		editor?.onDidBlurEditorText(() => {
 			dispatch('blur')
+			onblur?.()
 		})
 
 		editor?.onDidChangeCursorPosition((event) => {
@@ -1458,6 +1473,7 @@
 
 		editor?.onDidFocusEditorText(() => {
 			dispatch('focus')
+			onfocus?.()
 
 			// for escape we use onkeydown instead of addCommand because addCommand on escape specifically prevents default behavior (like autocomplete cancellation)
 			editor?.onKeyDown((e) => {
@@ -1526,6 +1542,7 @@
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyU, function () {
 				dispatch('toggleTestPanel')
+				ontoggleTestPanel?.()
 			})
 
 			if (
@@ -1705,6 +1722,7 @@
 				ata?.(code ?? '')
 			}
 			dispatch('ataReady')
+			onataReady?.()
 		}
 	}
 

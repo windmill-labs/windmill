@@ -17,6 +17,7 @@
 		placement?: 'bottom-start' | 'top-start' | 'bottom-end' | 'top-end'
 		limitPayloadSize?: boolean
 		searchArgs?: Record<string, any> | undefined
+		onselect?: (...args: any[]) => any
 	}
 
 	let {
@@ -26,7 +27,8 @@
 		showAuthor = false,
 		placement = 'top-end',
 		limitPayloadSize = false,
-		searchArgs = undefined
+		searchArgs = undefined,
+		onselect = undefined
 	}: Props = $props()
 
 	let historicList: HistoricList | undefined = $state(undefined)
@@ -44,8 +46,13 @@
 		if (data.payloadData === 'WINDMILL_TOO_BIG') {
 			const fullPayload = await data.getFullPayload?.()
 			dispatch('select', { args: fullPayload, jobId: data.id })
+			onselect?.({ args: fullPayload, jobId: data.id })
 		} else {
 			dispatch('select', {
+				args: structuredClone($state.snapshot(data.payloadData)),
+				jobId: data.id
+			})
+			onselect?.({
 				args: structuredClone($state.snapshot(data.payloadData)),
 				jobId: data.id
 			})
@@ -84,6 +91,7 @@
 		selected = undefined
 		if (dispatchEvent) {
 			dispatch('select', undefined)
+			onselect?.(undefined)
 		}
 	}
 

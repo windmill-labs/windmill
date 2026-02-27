@@ -15,14 +15,19 @@
 
 	interface Props {
 		small?: boolean
+		onopenTriggers?: (...args: any[]) => any
 	}
 
-	let { small = false }: Props = $props()
+	let { small = false, onopenTriggers = undefined }: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
 	function handleClick(kind: CaptureTriggerKind) {
 		dispatch('openTriggers', {
+			kind: captureTriggerKindToTriggerKind(kind),
+			config: {}
+		})
+		onopenTriggers?.({
 			kind: captureTriggerKindToTriggerKind(kind),
 			config: {}
 		})

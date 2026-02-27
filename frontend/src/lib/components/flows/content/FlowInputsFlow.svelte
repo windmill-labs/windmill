@@ -11,9 +11,10 @@
 	import { fade } from 'svelte/transition'
 	interface Props {
 		children?: import('svelte').Snippet
+		onpick?: (...args: any[]) => any
 	}
 
-	let { children }: Props = $props()
+	let { children, onpick = undefined }: Props = $props()
 
 	// export let failureModule: boolean
 	const dispatch = createEventDispatcher()
@@ -90,6 +91,7 @@
 						class="p-4 gap-1 flex flex-row grow hover:bg-surface-hover bg-surface transition-all text-primary"
 						onclick={() => {
 							dispatch('pick', { path })
+							onpick?.({ path })
 						}}
 					>
 						<div class="flex flex-col">

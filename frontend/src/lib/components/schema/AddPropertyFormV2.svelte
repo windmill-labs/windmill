@@ -10,14 +10,22 @@
 		disabled?: boolean
 		trigger?: import('svelte').Snippet
 		noPopover?: boolean
+		onadd?: (...args: any[]) => any
 	}
 
-	let { customName = undefined, disabled = false, trigger, noPopover }: Props = $props()
+	let {
+		customName = undefined,
+		disabled = false,
+		trigger,
+		noPopover,
+		onadd = undefined
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
 	function addField() {
 		dispatch('add', { name })
+		onadd?.({ name })
 		name = ''
 	}
 

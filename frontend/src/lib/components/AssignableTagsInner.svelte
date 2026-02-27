@@ -15,9 +15,10 @@
 
 	interface Props {
 		variant?: 'popover' | 'drawer'
+		onrefresh?: (...args: any[]) => any
 	}
 
-	let { variant = 'popover' }: Props = $props()
+	let { variant = 'popover', onrefresh = undefined }: Props = $props()
 
 	let newTag: string = $state('')
 	let customTags: string[] | undefined = $state(undefined)
@@ -82,6 +83,7 @@
 				requestBody: { value: [...(customTags ?? []), tag.trim().replaceAll(' ', '_')] }
 			})
 			dispatch('refresh')
+			onrefresh?.()
 			loadCustomTags()
 			sendUserToast(restoreCustomTags ? 'Tag restored' : 'Tag added')
 			if (!restoreCustomTags) {
@@ -119,6 +121,7 @@
 										requestBody: { value: customTags?.filter((x) => x != customTag) }
 									})
 									dispatch('refresh')
+									onrefresh?.()
 									loadCustomTags()
 									sendUserToast('Tag removed', false, [
 										{

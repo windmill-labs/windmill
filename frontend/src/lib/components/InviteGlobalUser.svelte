@@ -9,10 +9,11 @@
 	import { globalEmailInvite } from '$lib/stores'
 
 	interface Props {
-		close?: (() => void) | undefined;
+		close?: (() => void) | undefined
+		onnew?: (...args: any[]) => any
 	}
 
-	let { close = undefined }: Props = $props();
+	let { close = undefined, onnew = undefined }: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
@@ -35,6 +36,7 @@
 		$globalEmailInvite = ''
 		password = generateRandomString(10)
 		dispatch('new')
+		onnew?.()
 		close?.()
 	}
 </script>

@@ -28,6 +28,8 @@
 		children?: import('svelte').Snippet
 		action?: import('svelte').Snippet
 		isAgentTool?: boolean
+		onsetHash?: (...args: any[]) => any
+		onreload?: (...args: any[]) => any
 	}
 
 	let {
@@ -36,7 +38,9 @@
 		summary = $bindable(undefined),
 		children,
 		action,
-		isAgentTool = false
+		isAgentTool = false,
+		onsetHash = undefined,
+		onreload = undefined
 	}: Props = $props()
 
 	let latestHash: string | undefined = $state(undefined)
@@ -134,8 +138,10 @@
 								on:click={() => {
 									if (flowModuleValue.type == 'script') {
 										dispatch('setHash', latestHash)
+										onsetHash?.(latestHash)
 									}
 									dispatch('reload')
+									onreload?.()
 								}}>Update to latest hash</Button
 							>
 						{/if}
@@ -147,6 +153,7 @@
 							on:click={() => {
 								if (flowModuleValue.type == 'script') {
 									dispatch('setHash', undefined)
+									onsetHash?.(undefined)
 								}
 							}}><Unlock size={12} />hash</Button
 						>
@@ -159,6 +166,7 @@
 								on:click={() => {
 									if (flowModuleValue.type == 'script') {
 										dispatch('setHash', latestHash)
+										onsetHash?.(latestHash)
 									}
 								}}><Lock size={12} />hash</Button
 							>
@@ -166,7 +174,7 @@
 								title="Reload latest hash"
 								unifiedSize="sm"
 								variant="default"
-								on:click={() => dispatch('reload')}
+								on:click={() => (dispatch('reload'), onreload?.())}
 								startIcon={{ icon: RefreshCw }}
 								iconOnly
 							/>

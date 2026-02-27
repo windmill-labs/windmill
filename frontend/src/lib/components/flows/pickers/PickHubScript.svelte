@@ -15,6 +15,7 @@
 		syncQuery?: boolean
 		children?: import('svelte').Snippet
 		size?: ButtonType.UnifiedSize
+		onpick?: (...args: any[]) => any
 	}
 
 	let {
@@ -22,7 +23,8 @@
 		filter = $bindable(''),
 		syncQuery = false,
 		children,
-		size = 'md'
+		size = 'md',
+		onpick = undefined
 	}: Props = $props()
 
 	let loading = $state(false)
@@ -126,6 +128,7 @@
 
 		// Dispatch the event to continue with the selection
 		dispatch('pick', item)
+		onpick?.(item)
 	}
 
 	$effect(() => {

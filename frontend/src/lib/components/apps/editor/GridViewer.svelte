@@ -29,6 +29,8 @@
 		containerWidth?: number | undefined
 		parentWidth?: number | undefined
 		children?: import('svelte').Snippet<[any]>
+		onresize?: (...args: any[]) => any
+		onmount?: (...args: any[]) => any
 	}
 
 	let {
@@ -41,7 +43,9 @@
 		allIdsInPath = undefined,
 		containerWidth = $bindable(undefined),
 		parentWidth = undefined,
-		children
+		children,
+		onresize = undefined,
+		onmount = undefined
 	}: Props = $props()
 
 	const cols = columnConfiguration
@@ -71,6 +75,12 @@
 			yPerPx,
 			width: containerWidth
 		})
+		onresize?.({
+			cols: getComputedCols,
+			xPerPx,
+			yPerPx,
+			width: containerWidth
+		})
 	}, throttleUpdate)
 
 	onMount(() => {
@@ -95,6 +105,11 @@
 					items = specifyUndefinedColumns(items, getComputedCols, cols)
 
 					dispatch('mount', {
+						cols: getComputedCols,
+						xPerPx,
+						yPerPx // same as rowHeight
+					})
+					onmount?.({
 						cols: getComputedCols,
 						xPerPx,
 						yPerPx // same as rowHeight

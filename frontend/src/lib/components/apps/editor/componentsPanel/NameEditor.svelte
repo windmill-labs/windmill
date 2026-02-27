@@ -10,9 +10,10 @@
 			name: string
 			path: string
 		}
+		onupdate?: (...args: any[]) => any
 	}
 
-	let { kind, row }: Props = $props()
+	let { kind, row, onupdate = undefined }: Props = $props()
 
 	let editedName = $state(row.name)
 
@@ -20,6 +21,7 @@
 	function onkeydown(e) {
 		if (e.key === 'Enter') {
 			dispatch('update', { path: row.path, name: editedName })
+			onupdate?.({ path: row.path, name: editedName })
 		}
 	}
 </script>
@@ -42,6 +44,7 @@
 					size="xs"
 					on:click={() => {
 						dispatch('update', { path: row.path, name: editedName })
+						onupdate?.({ path: row.path, name: editedName })
 						close()
 					}}
 				>

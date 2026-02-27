@@ -16,6 +16,7 @@
 		preFilter: string
 		disableAi?: boolean
 		filteredItems?: (Script & { marked?: string })[] | (Item & { marked?: string })[]
+		onescape?: (...args: any[]) => any
 	}
 
 	let {
@@ -24,7 +25,8 @@
 		loading = false,
 		preFilter,
 		disableAi = false,
-		filteredItems = $bindable([])
+		filteredItems = $bindable([]),
+		onescape = undefined
 	}: Props = $props()
 	let prefilteredItems = $derived(scripts ?? [])
 
@@ -74,7 +76,7 @@
 			inputProps={{
 				type: 'text',
 				onkeydown: (e) => {
-					if (e.key === 'Escape') dispatch('escape')
+					if (e.key === 'Escape') (dispatch('escape'), onescape?.())
 				},
 				placeholder: `Search ${trigger ? 'triggers' : 'scripts'} ${disableAi ? '' : 'or AI gen'}`
 			}}

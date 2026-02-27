@@ -33,6 +33,12 @@
 		limitPayloadSize?: boolean
 		noBorder?: boolean
 		captureActiveIndicator?: boolean | undefined
+		onselect?: (...args: any[]) => any
+		onselectCapture?: (...args: any[]) => any
+		onaddPreprocessor?: (...args: any[]) => any
+		onupdateSchema?: (...args: any[]) => any
+		ontestWithArgs?: (...args: any[]) => any
+		onapplyArgs?: (...args: any[]) => any
 	}
 
 	let {
@@ -47,7 +53,13 @@
 		fullHeight = true,
 		limitPayloadSize = false,
 		noBorder = false,
-		captureActiveIndicator = undefined
+		captureActiveIndicator = undefined,
+		onselect = undefined,
+		onselectCapture = undefined,
+		onaddPreprocessor = undefined,
+		onupdateSchema = undefined,
+		ontestWithArgs = undefined,
+		onapplyArgs = undefined
 	}: Props = $props()
 
 	let selected: number | undefined = $state(undefined)
@@ -162,7 +174,9 @@
 			const payloadData = await getPayload(capture)
 			selected = capture.id
 			dispatch('select', structuredClone($state.snapshot(payloadData)))
+			onselect?.(structuredClone($state.snapshot(payloadData)))
 			dispatch('selectCapture', capture)
+			onselectCapture?.(capture)
 		}
 	}
 
@@ -197,6 +211,7 @@
 		selected = undefined
 		if (dispatchEvent) {
 			dispatch('select', undefined)
+			onselect?.(undefined)
 		}
 	}
 
@@ -350,6 +365,7 @@
 													variant="accent"
 													on:click={() => {
 														dispatch('addPreprocessor')
+														onaddPreprocessor?.()
 													}}
 												>
 													Add preprocessor
@@ -371,6 +387,11 @@
 														redirect: true,
 														args: true
 													})
+													onupdateSchema?.({
+														payloadData,
+														redirect: true,
+														args: true
+													})
 												},
 												disabled: isTooBig,
 												hidden: !isFlow || testKind !== 'main'
@@ -380,8 +401,13 @@
 											const payloadData = await getPayload(item)
 											if (isFlow && testKind === 'main') {
 												dispatch('testWithArgs', payloadData)
+												ontestWithArgs?.(payloadData)
 											} else {
 												dispatch('applyArgs', {
+													kind: testKind,
+													args: payloadData
+												})
+												onapplyArgs?.({
 													kind: testKind,
 													args: payloadData
 												})

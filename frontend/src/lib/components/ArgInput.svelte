@@ -126,6 +126,13 @@
 		actions?: import('svelte').Snippet
 		innerBottomSnippet?: import('svelte').Snippet
 		fieldHeaderActions?: import('svelte').Snippet
+		onkeydownCmdEnter?: (...args: any[]) => any
+		onchange?: (...args: any[]) => any
+		onacceptChange?: (...args: any[]) => any
+		onrejectChange?: (...args: any[]) => any
+		onfocus?: (...args: any[]) => any
+		onblur?: (...args: any[]) => any
+		onnestedChange?: (...args: any[]) => any
 	}
 
 	let {
@@ -187,7 +194,14 @@
 		actions,
 		innerBottomSnippet,
 		fieldHeaderActions,
-		lightHeaderFont = false
+		lightHeaderFont = false,
+		onkeydownCmdEnter = undefined,
+		onchange = undefined,
+		onacceptChange = undefined,
+		onrejectChange = undefined,
+		onfocus = undefined,
+		onblur = undefined,
+		onnestedChange = undefined
 	}: Props = $props()
 
 	$effect(() => {
@@ -475,6 +489,7 @@
 		) {
 			if (e.key == 'Enter') {
 				dispatch('keydownCmdEnter')
+				onkeydownCmdEnter?.()
 			}
 			return
 		}
@@ -490,6 +505,7 @@
 		if (!deepEqual(oldValue, value)) {
 			oldValue = value
 			dispatch('change')
+			onchange?.()
 		}
 	}
 
@@ -603,6 +619,7 @@
 				onclick={stopPropagation(
 					preventDefault(() => {
 						dispatch('acceptChange', { label, nestedParent })
+						onacceptChange?.({ label, nestedParent })
 					})
 				)}
 			>
@@ -613,6 +630,7 @@
 				onclick={stopPropagation(
 					preventDefault(() => {
 						dispatch('rejectChange', { label, nestedParent })
+						onrejectChange?.({ label, nestedParent })
 					})
 				)}
 			>
@@ -752,8 +770,8 @@
 				{defaultValue}
 				{setNewValueFromCode}
 				{workspace}
-				onFocus={() => dispatch('focus')}
-				onBlur={() => dispatch('blur')}
+				onFocus={() => (dispatch('focus'), onfocus?.())}
+				onBlur={() => (dispatch('blur'), onblur?.())}
 				bind:editor
 				{appPath}
 				{computeS3ForceViewerPolicies}
@@ -786,6 +804,7 @@
 							// Update the value to trigger reactivity
 							value = { ...value }
 							dispatch('change')
+							onchange?.()
 						}
 					}}
 				/>
@@ -836,7 +855,7 @@
 								{disabled}
 								bind:value
 								items={safeSelectItems(itemsType?.multiselect)}
-								onOpen={() => dispatch('focus')}
+								onOpen={() => (dispatch('focus'), onfocus?.())}
 								reorderable
 							/>
 						</div>
@@ -846,7 +865,7 @@
 								{disabled}
 								bind:value
 								items={safeSelectItems(enum_)}
-								onOpen={() => dispatch('focus')}
+								onOpen={() => (dispatch('focus'), onfocus?.())}
 								reorderable
 							/>
 						</div>
@@ -856,7 +875,7 @@
 								{disabled}
 								bind:value
 								items={safeSelectItems(itemsType?.enum)}
-								onOpen={() => dispatch('focus')}
+								onOpen={() => (dispatch('focus'), onfocus?.())}
 								reorderable
 							/>
 						</div>
@@ -892,8 +911,7 @@
 												{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
 													<FileInput
 														class="w-full"
-														onChange={(x) =>
-															fileChangedInner(x?.[0], (val) => (value[i] = val))}
+														onChange={(x) => fileChangedInner(x?.[0], (val) => (value[i] = val))}
 														multiple={false}
 													/>
 													{@render deleteItemBtn()}
@@ -912,9 +930,11 @@
 														create={extra['disableCreate'] != true}
 														on:focus={() => {
 															dispatch('focus')
+															onfocus?.()
 														}}
 														on:blur={(e) => {
 															dispatch('blur')
+															onblur?.()
 														}}
 														{defaultValue}
 														valid={valid ?? true}
@@ -946,9 +966,11 @@
 															bind:editor
 															on:focus={(e) => {
 																dispatch('focus')
+																onfocus?.()
 															}}
 															on:blur={(e) => {
 																dispatch('blur')
+																onblur?.()
 															}}
 															code={JSON.stringify(v, null, 2)}
 															bind:value={value[i]}
@@ -1132,6 +1154,7 @@
 												}),
 												() => {
 													dispatch('nestedChange')
+													onnestedChange?.()
 												}
 											}
 											bind:args={value}
@@ -1175,6 +1198,7 @@
 											{shouldDispatchChanges}
 											on:change={() => {
 												dispatch('nestedChange')
+												onnestedChange?.()
 											}}
 											on:nestedChange
 										/>
@@ -1198,9 +1222,11 @@
 										bind:editor
 										on:focus={(e) => {
 											dispatch('focus')
+											onfocus?.()
 										}}
 										on:blur={(e) => {
 											dispatch('blur')
+											onblur?.()
 										}}
 										code={rawValue}
 										on:changeValue={(e) => {
@@ -1220,9 +1246,11 @@
 								bind:editor
 								on:focus={(e) => {
 									dispatch('focus')
+									onfocus?.()
 								}}
 								on:blur={(e) => {
 									dispatch('blur')
+									onblur?.()
 								}}
 								code={rawValue}
 								on:change={(e) => {
@@ -1257,9 +1285,11 @@
 							diff={diffStatus && typeof diffStatus.diff === 'object' ? diffStatus.diff : {}}
 							on:acceptChange={(e) => {
 								dispatch('acceptChange', e.detail)
+								onacceptChange?.(e.detail)
 							}}
 							on:rejectChange={(e) => {
 								dispatch('rejectChange', e.detail)
+								onrejectChange?.(e.detail)
 							}}
 							on:nestedChange
 							nestedParent={{ label, nestedParent }}
@@ -1285,12 +1315,15 @@
 							nestedParent={{ label, nestedParent }}
 							on:acceptChange={(e) => {
 								dispatch('acceptChange', e.detail)
+								onacceptChange?.(e.detail)
 							}}
 							on:rejectChange={(e) => {
 								dispatch('rejectChange', e.detail)
+								onrejectChange?.(e.detail)
 							}}
 							on:change={() => {
 								dispatch('nestedChange')
+								onnestedChange?.()
 							}}
 							on:nestedChange
 							{shouldDispatchChanges}
@@ -1307,9 +1340,11 @@
 						bind:editor
 						on:focus={(e) => {
 							dispatch('focus')
+							onfocus?.()
 						}}
 						on:blur={(e) => {
 							dispatch('blur')
+							onblur?.()
 						}}
 						code={rawValue}
 						on:changeValue={(e) => {
@@ -1347,9 +1382,11 @@
 					{autofocus}
 					on:focus={() => {
 						dispatch('focus')
+						onfocus?.()
 					}}
 					on:blur={(e) => {
 						dispatch('blur')
+						onblur?.()
 					}}
 					enumLabels={extra['enumLabels']}
 				/>
@@ -1373,9 +1410,11 @@
 						<Module.default
 							on:focus={(e) => {
 								dispatch('focus')
+								onfocus?.()
 							}}
 							on:blur={(e) => {
 								dispatch('blur')
+								onblur?.()
 							}}
 							on:change={(e) => {
 								setNewValueFromCode(e.detail?.code)
@@ -1448,8 +1487,8 @@
 							<TextInput
 								inputProps={{
 									autofocus,
-									onfocus: () => dispatch('focus'),
-									onblur: () => dispatch('blur'),
+									onfocus: () => (dispatch('focus'), onfocus?.()),
+									onblur: () => (dispatch('blur'), onblur?.()),
 									disabled,
 									onkeydown: onKeyDown,
 									placeholder: placeholder ?? defaultValue ?? '',

@@ -210,6 +210,7 @@
 		onDeleted?: (deletedGroupName: string) => void
 		onOpenYamlEditor?: () => void
 		selectGroup?: import('svelte').Snippet
+		onreload?: (...args: any[]) => any
 	}
 
 	let {
@@ -225,7 +226,8 @@
 		onDrawerOpened = () => {},
 		onDeleted = () => {},
 		onOpenYamlEditor = undefined,
-		selectGroup = undefined
+		selectGroup = undefined,
+		onreload = undefined
 	}: Props = $props()
 
 	let workspaces: Workspace[] = $state([])
@@ -243,6 +245,7 @@
 	async function deleteWorkerGroup() {
 		await ConfigService.deleteConfig({ name: 'worker__' + name })
 		dispatch('reload')
+		onreload?.()
 		onDeleted(name)
 	}
 
@@ -345,6 +348,7 @@
 		}
 		sendUserToast('Worker caches clearing in 5s. Require a restart.')
 		dispatch('reload')
+		onreload?.()
 		openClean = false
 	}}
 >
@@ -1121,6 +1125,7 @@
 								await ConfigService.updateConfig({ name: 'worker__' + name, requestBody: nconfig })
 								sendUserToast('Configuration set')
 								dispatch('reload')
+								onreload?.()
 							}}
 							disabled={(!hasChanges && nconfig?.dedicated_worker == undefined) || !canEditConfig}
 						>

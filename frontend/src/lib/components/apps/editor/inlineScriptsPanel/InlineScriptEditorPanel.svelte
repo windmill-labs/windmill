@@ -14,6 +14,7 @@
 		componentType: string
 		id: string
 		transformer: boolean
+		oncreateScriptFromInlineScript?: (...args: any[]) => any
 	}
 
 	let {
@@ -21,7 +22,8 @@
 		defaultUserInput = false,
 		componentType,
 		id,
-		transformer
+		transformer,
+		oncreateScriptFromInlineScript = undefined
 	}: Props = $props()
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
@@ -70,6 +72,7 @@
 				on:createScriptFromInlineScript={() => {
 					if (componentInput?.type == 'runnable' && isRunnableByName(componentInput.runnable)) {
 						dispatch('createScriptFromInlineScript', componentInput?.runnable)
+						oncreateScriptFromInlineScript?.(componentInput?.runnable)
 					}
 				}}
 				{defaultUserInput}

@@ -30,6 +30,8 @@
 		selectedJobId?: string | undefined
 		refreshComponents?: (() => void) | undefined
 		errorByComponent?: Record<string, { id?: string; error: string }>
+		onclear?: (...args: any[]) => any
+		onclearErrors?: (...args: any[]) => any
 	}
 
 	let {
@@ -39,7 +41,9 @@
 		hasErrors = false,
 		selectedJobId = $bindable(undefined),
 		refreshComponents = undefined,
-		errorByComponent = {}
+		errorByComponent = {},
+		onclear = undefined,
+		onclearErrors = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -301,11 +305,16 @@
 				variant="default"
 				on:click={() => {
 					dispatch('clear')
+					onclear?.()
 				}}
 				>Clear jobs
 			</Button>
 			{#if hasErrors}
-				<Button size="md" variant="default" on:click={() => dispatch('clearErrors')}>
+				<Button
+					size="md"
+					variant="default"
+					on:click={() => (dispatch('clearErrors'), onclearErrors?.())}
+				>
 					Clear Errors &nbsp;<BellOff size={14} />
 				</Button>
 			{/if}

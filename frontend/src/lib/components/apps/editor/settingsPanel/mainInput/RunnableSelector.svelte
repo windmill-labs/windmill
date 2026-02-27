@@ -21,6 +21,7 @@
 		onlyFlow?: boolean
 		rawApps?: boolean
 		unusedInlineScripts: { name: string; inlineScript: InlineScript }[]
+		onpick?: (...args: any[]) => any
 	}
 
 	let {
@@ -28,7 +29,8 @@
 		hideCreateScript = false,
 		onlyFlow = false,
 		rawApps = false,
-		unusedInlineScripts = $bindable()
+		unusedInlineScripts = $bindable(),
+		onpick = undefined
 	}: Props = $props()
 
 	// const { app, workspace } = getContext<AppViewerContext>('AppViewerContext')
@@ -76,6 +78,10 @@
 			runnable,
 			fields
 		})
+		onpick?.({
+			runnable,
+			fields
+		})
 	}
 
 	async function pickFlow(path: string) {
@@ -89,6 +95,10 @@
 			name: defaultIfEmptyString(schema.summary, path)
 		} as const
 		dispatch('pick', {
+			runnable,
+			fields
+		})
+		onpick?.({
 			runnable,
 			fields
 		})
@@ -108,6 +118,10 @@
 			runnable,
 			fields
 		})
+		onpick?.({
+			runnable,
+			fields
+		})
 	}
 
 	function pickInlineScript(name: string) {
@@ -122,6 +136,14 @@
 			fields: {}
 		})
 
+		onpick?.({
+			runnable: {
+				type: 'inline',
+				name,
+				inlineScript: unusedInlineScript.inlineScript
+			},
+			fields: {}
+		})
 		unusedInlineScripts.splice(unusedInlineScriptIndex, 1)
 		unusedInlineScripts = unusedInlineScripts
 	}
@@ -130,6 +152,14 @@
 		let newScriptName = `Inline Script`
 
 		dispatch('pick', {
+			runnable: {
+				type: 'inline',
+				name: newScriptName,
+				inlineScript: undefined
+			},
+			fields: {}
+		})
+		onpick?.({
 			runnable: {
 				type: 'inline',
 				name: newScriptName,

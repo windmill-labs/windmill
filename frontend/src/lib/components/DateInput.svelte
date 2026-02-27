@@ -12,6 +12,7 @@
 		maxDate?: string | undefined
 		dateFormat?: string | undefined
 		disabled?: boolean
+		onchange?: (...args: any[]) => any
 	}
 
 	let {
@@ -20,7 +21,8 @@
 		minDate = undefined,
 		maxDate = undefined,
 		dateFormat = 'dd-MM-yyyy',
-		disabled = false
+		disabled = false,
+		onchange = undefined
 	}: Props = $props()
 
 	const defaultDateFormat = 'dd-MM-yyyy'
@@ -60,6 +62,7 @@
 				const parsedDate = format(dateFromValue, getFormat())
 				value = parsedDate
 				dispatch('change', value)
+				onchange?.(value)
 			} catch (error) {
 				console.error('Failed to parse date:', error)
 			}
@@ -91,6 +94,7 @@
 			} else {
 				value = null
 				dispatch('change', value)
+				onchange?.(value)
 			}
 		}}
 	/>

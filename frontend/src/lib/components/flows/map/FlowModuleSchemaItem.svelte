@@ -89,6 +89,10 @@
 		isOwner?: boolean
 		enableTestRun?: boolean
 		maximizeSubflow?: () => void
+		onchangeId?: (...args: any[]) => any
+		onpointerdown?: (...args: any[]) => any
+		onmove?: (...args: any[]) => any
+		ondelete?: (...args: any[]) => any
 	}
 
 	let {
@@ -123,7 +127,11 @@
 		onEditInput,
 		flowJob,
 		enableTestRun = false,
-		maximizeSubflow = undefined
+		maximizeSubflow = undefined,
+		onchangeId = undefined,
+		onpointerdown = undefined,
+		onmove = undefined,
+		ondelete = undefined
 	}: Props = $props()
 
 	// AI action colors take priority over execution state
@@ -217,6 +225,7 @@
 					bind:value={newId}
 					onSave={({ oldId, newId }) => {
 						dispatch('changeId', { id: oldId, newId, deps: getDeps?.dependents ?? {} })
+						onchangeId?.({ id: oldId, newId, deps: getDeps?.dependents ?? {} })
 						editId = false
 					}}
 					onClose={() => {
@@ -282,7 +291,9 @@
 		style="width: 275px; height: 34px;"
 		onmouseenter={() => (hover = true)}
 		onmouseleave={() => (hover = false)}
-		onpointerdown={stopPropagation(preventDefault((e) => dispatch('pointerdown', e)))}
+		onpointerdown={stopPropagation(
+			preventDefault((e) => (dispatch('pointerdown', e), onpointerdown?.(e)))
+		)}
 	>
 		{#if id}
 			<DiffActionBar moduleId={id} {moduleAction} {diffManager} {flowStore} />
@@ -493,7 +504,7 @@
 							'shadow-md rounded-md',
 							'group-hover:block'
 						)}
-						onclick={stopPropagation(preventDefault((event) => dispatch('move')))}
+						onclick={stopPropagation(preventDefault((event) => (dispatch('move'), onmove?.())))}
 						title="Move"
 					>
 						<Move size={12} />
@@ -514,7 +525,12 @@
 					)}
 					title="Delete"
 					onclick={stopPropagation(
-						preventDefault((event) => dispatch('delete', { id, type: modType }))
+						preventDefault(
+							(event) => (
+								dispatch('delete', { id, type: modType }),
+								ondelete?.({ id, type: modType })
+							)
+						)
 					)}
 					onpointerdown={stopPropagation(preventDefault(() => {}))}
 				>

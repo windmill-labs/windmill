@@ -15,9 +15,15 @@
 		runnable: HiddenRunnable
 		id: string
 		transformer: boolean
+		oncreateScriptFromInlineScript?: (...args: any[]) => any
 	}
 
-	let { runnable = $bindable(), id, transformer }: Props = $props()
+	let {
+		runnable = $bindable(),
+		id,
+		transformer,
+		oncreateScriptFromInlineScript = undefined
+	}: Props = $props()
 
 	const { runnableComponents, app } = getContext<AppViewerContext>('AppViewerContext')
 	async function fork(nrunnable: Runnable) {
@@ -60,7 +66,10 @@
 	{/if}
 {:else if isRunnableByName(runnable) && runnable.inlineScript}
 	<InlineScriptEditor
-		on:createScriptFromInlineScript={() => dispatch('createScriptFromInlineScript', runnable)}
+		on:createScriptFromInlineScript={() => (
+			dispatch('createScriptFromInlineScript', runnable),
+			oncreateScriptFromInlineScript?.(runnable)
+		)}
 		{id}
 		bind:inlineScript={runnable.inlineScript}
 		bind:name={runnable.name}

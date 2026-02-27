@@ -65,6 +65,7 @@
 			tagLabel?: string | undefined
 		}
 		suspendStatus: StateStore<Record<string, { job: Job; nb: number }>>
+		onclose?: (...args: any[]) => any
 	}
 
 	let {
@@ -86,7 +87,8 @@
 		render = false,
 		onJobDone,
 		upToId = undefined,
-		suspendStatus
+		suspendStatus,
+		onclose = undefined
 	}: Props = $props()
 
 	let restartBranchNames: [number, string][] = []
@@ -384,7 +386,7 @@
 		<div class="flex flex-row w-full items-center gap-x-2 px-4">
 			<div class="w-8">
 				<Button
-					on:click={() => dispatch('close')}
+					on:click={() => (dispatch('close'), onclose?.())}
 					startIcon={{ icon: X }}
 					iconOnly
 					unifiedSize="md"
@@ -437,7 +439,8 @@
 							startIcon={{ icon: isRunning ? RefreshCw : Play }}
 							size="sm"
 							btnClasses="w-full max-w-lg"
-							on:click={() => recordingMode ? recordAndTest() : runPreview(previewArgs.val, undefined)}
+							on:click={() =>
+								recordingMode ? recordAndTest() : runPreview(previewArgs.val, undefined)}
 							id="flow-editor-test-flow-drawer"
 							shortCut={{ Icon: CornerDownLeft }}
 						>

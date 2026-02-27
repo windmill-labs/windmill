@@ -72,6 +72,12 @@
 		workspace?: string | undefined
 		chatInputEnabled?: boolean
 		actions?: import('svelte').Snippet<[{ item: { id: string; value: string } }]> | undefined
+		onchange?: (...args: any[]) => any
+		onclick?: (...args: any[]) => any
+		onnestedChange?: (...args: any[]) => any
+		onacceptChange?: (...args: any[]) => any
+		onrejectChange?: (...args: any[]) => any
+		onkeydownCmdEnter?: (...args: any[]) => any
 	}
 
 	let {
@@ -114,7 +120,13 @@
 		computeS3ForceViewerPolicies = undefined,
 		workspace = undefined,
 		chatInputEnabled = false,
-		actions: actions_render = undefined
+		actions: actions_render = undefined,
+		onchange = undefined,
+		onclick = undefined,
+		onnestedChange = undefined,
+		onacceptChange = undefined,
+		onrejectChange = undefined,
+		onkeydownCmdEnter = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -188,6 +200,7 @@
 			if (!deepEqual(keys, nkeys)) {
 				keys = nkeys
 				dispatch('change')
+				onchange?.()
 			}
 		}
 		// let missingKeys = keys.filter((x) => args && !(x in args))
@@ -360,6 +373,7 @@
 						class="flex flex-row items-center {largeGap ? 'pb-4' : 'pb-2'} "
 						onclick={() => {
 							dispatch('click', argName)
+							onclick?.(argName)
 						}}
 					>
 						{#if args && typeof args == 'object' && prop}
@@ -371,13 +385,21 @@
 									{lightHeaderFont}
 									on:change={() => {
 										dispatch('change')
+										onchange?.()
 									}}
 									on:nestedChange={() => {
 										dispatch('nestedChange')
+										onnestedChange?.()
 									}}
-									on:acceptChange={(e) => dispatch('acceptChange', e.detail)}
-									on:rejectChange={(e) => dispatch('rejectChange', e.detail)}
-									on:keydownCmdEnter={() => dispatch('keydownCmdEnter')}
+									on:acceptChange={(e) => (
+										dispatch('acceptChange', e.detail),
+										onacceptChange?.(e.detail)
+									)}
+									on:rejectChange={(e) => (
+										dispatch('rejectChange', e.detail),
+										onrejectChange?.(e.detail)
+									)}
+									on:keydownCmdEnter={() => (dispatch('keydownCmdEnter'), onkeydownCmdEnter?.())}
 									{disablePortal}
 									{resourceTypes}
 									{prettifyHeader}
@@ -398,17 +420,19 @@
 									customErrorMessage={prop?.customErrorMessage}
 									bind:properties={
 										() => prop?.properties,
-										(v) => { if (prop) prop.properties = v }
+										(v) => {
+											if (prop) prop.properties = v
+										}
 									}
 									bind:order={
 										() => prop?.order,
-										(v) => { if (prop) prop.order = v }
+										(v) => {
+											if (prop) prop.order = v
+										}
 									}
 									nestedRequired={prop?.required}
 									itemsType={prop?.items}
-									disabled={disabledArgs.includes(argName) ||
-										disabled ||
-										prop?.disabled}
+									disabled={disabledArgs.includes(argName) || disabled || prop?.disabled}
 									{compact}
 									{variableEditor}
 									{itemPicker}

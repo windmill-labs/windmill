@@ -25,9 +25,10 @@
 
 	interface Props {
 		name: string
+		onupdate?: (...args: any[]) => any
 	}
 
-	let { name }: Props = $props()
+	let { name, onupdate = undefined }: Props = $props()
 	let can_write = $state(false)
 
 	type Role = 'member' | 'manager' | 'admin'
@@ -141,6 +142,7 @@
 						requestBody: { summary }
 					})
 					dispatch('update')
+					onupdate?.()
 					sendUserToast('Group summary updated')
 					loadGroup()
 				}}>Save</Button

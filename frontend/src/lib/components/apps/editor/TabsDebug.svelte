@@ -17,6 +17,7 @@
 		isConditionalDebugMode?: boolean
 		isSmall?: boolean
 		isManuallySelected?: boolean
+		ontriggerInlineEditor?: (...args: any[]) => any
 	}
 
 	let {
@@ -24,7 +25,8 @@
 		id,
 		isConditionalDebugMode = false,
 		isSmall = false,
-		isManuallySelected = $bindable(false)
+		isManuallySelected = $bindable(false),
+		ontriggerInlineEditor = undefined
 	}: Props = $props()
 	let selected: number | null = $state(null)
 
@@ -68,7 +70,7 @@
 						? 'hover:bg-red-200 hover:text-red-800'
 						: 'text-blue-600 hover:bg-blue-300 hover:text-blue-800'
 				)}
-				onclick={() => dispatch('triggerInlineEditor')}
+				onclick={() => (dispatch('triggerInlineEditor'), ontriggerInlineEditor?.())}
 				onpointerdown={stopPropagation(bubble('pointerdown'))}
 			>
 				{#if isManuallySelected}

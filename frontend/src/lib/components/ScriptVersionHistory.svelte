@@ -13,7 +13,15 @@
 
 	const dispatch = createEventDispatcher()
 
-	let { openDetails = false, scriptPath }: { openDetails?: boolean; scriptPath: string } = $props()
+	let {
+		openDetails = false,
+		scriptPath,
+		onopenDetails = undefined
+	}: {
+		openDetails?: boolean
+		scriptPath: string
+		onopenDetails?: (...args: any[]) => any
+	} = $props()
 
 	let deploymentMsgUpdateMode = $state(false)
 	let deploymentMsgUpdate: string | undefined = $state()
@@ -102,6 +110,7 @@
 									<Button
 										on:click={() => {
 											dispatch('openDetails', { version: version.script_hash })
+											onopenDetails?.({ version: version.script_hash })
 										}}
 										class="ml-2 inline-flex gap-1 text-xs items-center"
 										size="xs"

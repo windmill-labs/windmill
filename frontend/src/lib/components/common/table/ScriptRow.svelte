@@ -58,6 +58,7 @@
 		depth?: number
 		menuOpen?: boolean
 		showEditButton?: boolean
+		onchange?: (...args: any[]) => any
 	}
 
 	let {
@@ -71,7 +72,8 @@
 		showCode,
 		depth = 0,
 		menuOpen = $bindable(false),
-		showEditButton = $bindable(true)
+		showEditButton = $bindable(true),
+		onchange = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -79,6 +81,7 @@
 	async function archiveScript(path: string): Promise<void> {
 		await ScriptService.archiveScriptByPath({ workspace: $workspaceStore!, path })
 		dispatch('change')
+		onchange?.()
 		sendUserToast(`Archived script ${path}`)
 	}
 
@@ -93,12 +96,14 @@
 			}
 		})
 		dispatch('change')
+		onchange?.()
 		sendUserToast(`Unarchived script ${path}`)
 	}
 
 	async function deleteScript(path: string): Promise<void> {
 		await ScriptService.deleteScriptByPath({ workspace: $workspaceStore!, path })
 		dispatch('change')
+		onchange?.()
 		sendUserToast(`Deleted script ${path}`)
 	}
 	let scheduleEditor: ScheduleEditor | undefined = $state(undefined)
@@ -359,6 +364,7 @@
 											kind: 'script'
 										})
 										dispatch('change')
+										onchange?.()
 									},
 									type: DELETE,
 									disabled: !owner,

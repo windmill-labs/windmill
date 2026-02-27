@@ -10,13 +10,15 @@
 		nullTag,
 		placeholder,
 		noLabel,
-		isPreprocessor
+		isPreprocessor,
+		onchange = undefined
 	}: {
 		tag: string | undefined
 		nullTag?: string | undefined
 		placeholder?: string
 		noLabel?: boolean
 		isPreprocessor: boolean
+		onchange?: (...args: any[]) => any
 	} = $props()
 
 	const { flowStore, selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -40,7 +42,7 @@
 					{placeholder}
 					{nullTag}
 					bind:tag
-					on:change={(e) => dispatch('change', e.detail)}
+					on:change={(e) => (dispatch('change', e.detail), onchange?.(e.detail))}
 				/>
 			{:else}
 				<button

@@ -33,6 +33,7 @@
 		field?: string
 		onDemandOnly?: boolean
 		exportValueFunction?: boolean
+		ondone?: (...args: any[]) => any
 	}
 
 	let {
@@ -43,7 +44,8 @@
 		key = '',
 		field = key,
 		onDemandOnly = false,
-		exportValueFunction = false
+		exportValueFunction = false,
+		ondone = undefined
 	}: Props = $props()
 
 	const { componentControl, runnableComponents, recomputeAllContext } =
@@ -67,6 +69,7 @@
 		// How did this ever do anything at the top level in svelte 4 if
 		// events were not being picked up before the component fully mounted?
 		dispatch('done')
+		ondone?.()
 	}
 
 	const { worldStore, state: stateStore, mode } = getContext<AppViewerContext>('AppViewerContext')
@@ -211,6 +214,7 @@
 
 		await tick()
 		dispatchIfMounted('done')
+		ondone?.()
 	}
 
 	function onEvalChange(previousValueKey: string) {

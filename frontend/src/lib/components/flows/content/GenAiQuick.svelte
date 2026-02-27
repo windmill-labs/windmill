@@ -1,23 +1,25 @@
 <script lang="ts">
-	import { createBubbler } from 'svelte/legacy';
+	import { createBubbler } from 'svelte/legacy'
 
-	const bubble = createBubbler();
+	const bubble = createBubbler()
 	import { Wand2 } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 
 	interface Props {
-		funcDesc: string;
-		selected: boolean;
-		lang: string;
+		funcDesc: string
+		selected: boolean
+		lang: string
+		onclick?: (...args: any[]) => any
 	}
 
-	let { funcDesc, selected, lang }: Props = $props();
+	let { funcDesc, selected, lang, onclick = undefined }: Props = $props()
 	const dispatch = createEventDispatcher()
 
 	const onKeyDown = (e: KeyboardEvent) => {
 		if (selected && e.key === 'Enter') {
 			e.preventDefault()
 			dispatch('click')
+			onclick?.()
 		}
 	}
 </script>

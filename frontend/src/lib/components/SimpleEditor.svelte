@@ -95,7 +95,10 @@
 		disabled = false,
 		minHeight = 1000,
 		renderLineHighlight = 'none',
-		suggestion
+		suggestion,
+		onchange = undefined,
+		onfocus = undefined,
+		onblur = undefined
 	}: {
 		lang: string
 		code?: string
@@ -124,6 +127,9 @@
 		minHeight?: number
 		renderLineHighlight?: 'all' | 'line' | 'gutter' | 'none'
 		suggestion?: string
+		onchange?: (...args: any[]) => any
+		onfocus?: (...args: any[]) => any
+		onblur?: (...args: any[]) => any
 	} = $props()
 
 	let yPadding = MONACO_Y_PADDING
@@ -166,6 +172,7 @@
 		}
 		code = ncode
 		dispatch('change', { code: ncode })
+		onchange?.({ code: ncode })
 	}
 
 	function updatePlaceholderVisibility(value: string) {
@@ -390,6 +397,7 @@
 		editor.onDidFocusEditorText(() => {
 			if (!editor) return
 			dispatch('focus')
+			onfocus?.()
 			loadExtraLib()
 
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
@@ -431,10 +439,12 @@
 				shouldBindKey && cmdEnterAction && cmdEnterAction()
 			})
 			dispatch('focus')
+			onfocus?.()
 		})
 
 		editor.onDidBlurEditorText(() => {
 			dispatch('blur')
+			onblur?.()
 			updateCode()
 		})
 

@@ -22,6 +22,8 @@
 		allowFullscreen?: boolean
 		class?: string | undefined
 		style?: string | undefined
+		onloading?: (...args: any[]) => any
+		onloaded?: (...args: any[]) => any
 	}
 
 	let {
@@ -30,7 +32,9 @@
 		extraButton = undefined,
 		allowFullscreen = false,
 		class: classNames = undefined,
-		style = undefined
+		style = undefined,
+		onloading = undefined,
+		onloaded = undefined
 	}: Props = $props()
 
 	let fullscreen = $state(false)
@@ -67,6 +71,7 @@
 		}
 		try {
 			dispatch('loading')
+			onloading?.()
 			await resetDoc()
 			doc = await getDocument(src).promise
 			console.log('got doc')
@@ -80,6 +85,7 @@
 			console.log(err)
 		}
 		dispatch('loaded')
+		onloaded?.()
 	}
 
 	async function renderPdf(scaleToViewport = true, resizing = false) {

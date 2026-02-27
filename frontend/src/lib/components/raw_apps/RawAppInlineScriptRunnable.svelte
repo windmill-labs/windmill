@@ -47,9 +47,16 @@
 				endColumn: number
 			} | null
 		) => void
+		oncreateScriptFromInlineScript?: (...args: any[]) => any
 	}
 
-	let { runnable = $bindable(), id, appPath, onSelectionChange }: Props = $props()
+	let {
+		runnable = $bindable(),
+		id,
+		appPath,
+		onSelectionChange,
+		oncreateScriptFromInlineScript = undefined
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
@@ -188,7 +195,10 @@
 			{#if isRunnableByName(runnable)}
 				<RawAppInlineScriptEditor
 					bind:this={inlineScriptEditor}
-					on:createScriptFromInlineScript={() => dispatch('createScriptFromInlineScript', runnable)}
+					on:createScriptFromInlineScript={() => (
+						dispatch('createScriptFromInlineScript', runnable),
+						oncreateScriptFromInlineScript?.(runnable)
+					)}
 					{id}
 					bind:inlineScript={runnable.inlineScript}
 					bind:name={runnable.name}

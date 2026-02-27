@@ -21,6 +21,8 @@
 		colorClasses: FlowNodeColorClasses
 		onSelect?: (triggerIndex: number) => void
 		onAddDraftTrigger?: (type: TriggerType) => void
+		onnew?: (...args: any[]) => any
+		onpickScript?: (...args: any[]) => any
 	}
 
 	let {
@@ -32,7 +34,9 @@
 		showDraft,
 		onSelect,
 		colorClasses,
-		onAddDraftTrigger
+		onAddDraftTrigger,
+		onnew = undefined,
+		onpickScript = undefined
 	}: Props = $props()
 
 	let showTriggerScriptPicker = $state(false)
@@ -110,10 +114,12 @@
 				on:new={(e) => {
 					showTriggerScriptPicker = false
 					dispatch('new', e.detail)
+					onnew?.(e.detail)
 				}}
 				on:pickScript={(e) => {
 					showTriggerScriptPicker = false
 					dispatch('pickScript', e.detail)
+					onpickScript?.(e.detail)
 				}}
 				kind="trigger"
 			/>

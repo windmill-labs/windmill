@@ -9,9 +9,10 @@
 	interface Props {
 		columns?: string[]
 		id: string | undefined
+		onadd?: (...args: any[]) => any
 	}
 
-	let { columns = [], id }: Props = $props()
+	let { columns = [], id, onadd = undefined }: Props = $props()
 
 	let remainingColumns: string[] = $state([])
 
@@ -64,7 +65,7 @@
 	<div class="flex flex-row gap-2 items-center flex-wrap">
 		{#each remainingColumns as column}
 			<Button
-				on:click={() => dispatch('add', column)}
+				on:click={() => (dispatch('add', column), onadd?.(column))}
 				size="xs2"
 				color="light"
 				variant="border"

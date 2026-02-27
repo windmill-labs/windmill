@@ -41,6 +41,7 @@
 		paneClass?: string
 		noFlowPlugConnect?: boolean
 		children?: import('svelte').Snippet
+		onselect?: (...args: any[]) => any
 	}
 
 	let {
@@ -54,7 +55,8 @@
 		noPadding = false,
 		paneClass = '',
 		noFlowPlugConnect = false,
-		children
+		children,
+		onselect = undefined
 	}: Props = $props()
 
 	const propPickerConfig: Writable<PropPickerConfig | undefined> = writable<
@@ -145,6 +147,7 @@
 							allowCopy={!notSelectable && !$propPickerConfig}
 							on:select={({ detail }) => {
 								dispatch('select', detail)
+								onselect?.(detail)
 								if ($propPickerConfig?.onSelect(detail)) {
 									$propPickerConfig?.clearFocus()
 								}
@@ -163,6 +166,7 @@
 							on:select={({ detail }) => {
 								// console.log('selecting', detail)
 								dispatch('select', detail)
+								onselect?.(detail)
 								if ($propPickerConfig?.onSelect(detail)) {
 									$propPickerConfig?.clearFocus()
 								}

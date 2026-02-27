@@ -48,6 +48,11 @@
 		description?: import('svelte').Snippet
 		children?: import('svelte').Snippet
 		displayAlert?: boolean
+		oncaptureToggle?: (...args: any[]) => any
+		onupdateSchema?: (...args: any[]) => any
+		ontestWithArgs?: (...args: any[]) => any
+		onapplyArgs?: (...args: any[]) => any
+		onaddPreprocessor?: (...args: any[]) => any
 	}
 
 	let {
@@ -59,7 +64,12 @@
 		captureLoading = false,
 		description,
 		children,
-		displayAlert = false
+		displayAlert = false,
+		oncaptureToggle = undefined,
+		onupdateSchema = undefined,
+		ontestWithArgs = undefined,
+		onapplyArgs = undefined,
+		onaddPreprocessor = undefined
 	}: Props = $props()
 
 	const testKind: 'preprocessor' | 'main' = $derived(hasPreprocessor ? 'preprocessor' : 'main')
@@ -80,12 +90,20 @@
 				// this on destroy can be called after capturing has already been stopped (aka after on destroy of the wrapper), make sure we do not start it again
 				disableOnly: true
 			})
+			oncaptureToggle?.({
+				// this on destroy can be called after capturing has already been stopped (aka after on destroy of the wrapper), make sure we do not start it again
+				disableOnly: true
+			})
 		}
 		stopCaptureListening()
 	})
 
 	/* function handleUpdateSchema(e: any) {
 		dispatch('updateSchema', {
+			payloadData: e.detail.payloadData,
+			redirect: e.detail.redirect
+		})
+		onupdateSchema?.({
 			payloadData: e.detail.payloadData,
 			redirect: e.detail.redirect
 		})
@@ -286,7 +304,7 @@
 						<AnimatedButton animate={captureInfo.active} baseRadius="6px">
 							<Button
 								size="xs"
-								on:click={() => dispatch('captureToggle', {})}
+								on:click={() => (dispatch('captureToggle', {}), oncaptureToggle?.({}))}
 								{disabled}
 								variant={captureInfo.active ? 'default' : 'accent-secondary'}
 								selected={captureInfo.active}
@@ -423,6 +441,11 @@
 										redirect: true,
 										args: true
 									})
+									onupdateSchema?.({
+										payloadData: payloadData ?? {},
+										redirect: true,
+										args: true
+									})
 								},
 								disabled: !selectedCapture,
 								hidden: !isFlow || testKind !== 'main'
@@ -433,12 +456,17 @@
 							const payloadData = selectedCapture?.main_args ?? {}
 							if (isFlow && testKind === 'main') {
 								dispatch('testWithArgs', payloadData)
+								ontestWithArgs?.(payloadData)
 							} else {
 								const trigger_extra = isObject(selectedCapture.preprocessor_args)
 									? selectedCapture.preprocessor_args
 									: {}
 
 								dispatch('applyArgs', {
+									kind: testKind,
+									args: { ...structuredClone($state.snapshot(payloadData)), ...trigger_extra }
+								})
+								onapplyArgs?.({
 									kind: testKind,
 									args: { ...structuredClone($state.snapshot(payloadData)), ...trigger_extra }
 								})
@@ -497,8 +525,12 @@
 													dispatch('addPreprocessor', {
 														args: $state.snapshot(payloadData)
 													})
+													onaddPreprocessor?.({
+														args: $state.snapshot(payloadData)
+													})
 												} else {
 													dispatch('addPreprocessor')
+													onaddPreprocessor?.()
 												}
 											}}
 										>

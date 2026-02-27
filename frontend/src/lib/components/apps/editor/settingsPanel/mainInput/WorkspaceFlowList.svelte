@@ -14,9 +14,10 @@
 	interface Props {
 		filter?: string
 		children?: import('svelte').Snippet
+		onpick?: (...args: any[]) => any
 	}
 
-	let { filter = $bindable(''), children }: Props = $props()
+	let { filter = $bindable(''), children, onpick = undefined }: Props = $props()
 
 	let flows: Flow[] | undefined = $state(undefined)
 	let filteredItems: (Flow & { marked?: string })[] = $state([])
@@ -65,7 +66,7 @@
 				<li class="flex flex-row w-full">
 					<button
 						class="p-4 gap-4 flex flex-row grow justify-between hover:bg-surface-hover bg-surface transition-all items-center rounded-md"
-						onclick={() => dispatch('pick', item.path)}
+						onclick={() => (dispatch('pick', item.path), onpick?.(item.path))}
 					>
 						<div class="flex items-center gap-4">
 							<RowIcon kind="flow" />

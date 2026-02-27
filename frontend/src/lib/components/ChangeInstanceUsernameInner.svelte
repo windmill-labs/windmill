@@ -6,18 +6,22 @@
 	import { createEventDispatcher } from 'svelte'
 
 	interface Props {
-		email: string;
-		username: string;
-		isConflict?: boolean;
-		noPadding?: boolean;
+		email: string
+		username: string
+		isConflict?: boolean
+		noPadding?: boolean
+		onrenamed?: (...args: any[]) => any
+		onclose?: (...args: any[]) => any
 	}
 
 	let {
 		email,
 		username = $bindable(),
 		isConflict = false,
-		noPadding = false
-	}: Props = $props();
+		noPadding = false,
+		onrenamed = undefined,
+		onclose = undefined
+	}: Props = $props()
 
 	let loading = $state(false)
 
@@ -75,6 +79,7 @@
 			sendUserToast(`Renamed user ${email} to ${username}`)
 
 			dispatch('renamed')
+			onrenamed?.()
 		} finally {
 			loading = false
 		}
@@ -134,6 +139,7 @@
 		on:click={() => {
 			renameUser().then(() => {
 				dispatch('close')
+				onclose?.()
 			})
 		}}
 		disabled={email === undefined || !username}

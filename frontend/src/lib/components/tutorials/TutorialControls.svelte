@@ -5,11 +5,18 @@
 	import Alert from '../common/alert/Alert.svelte'
 
 	interface Props {
-		activeIndex?: number | undefined;
-		totalSteps?: number | undefined;
+		activeIndex?: number | undefined
+		totalSteps?: number | undefined
+		onprevious?: (...args: any[]) => any
+		onnext?: (...args: any[]) => any
 	}
 
-	let { activeIndex = undefined, totalSteps = undefined }: Props = $props();
+	let {
+		activeIndex = undefined,
+		totalSteps = undefined,
+		onprevious = undefined,
+		onnext = undefined
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 </script>
@@ -34,6 +41,7 @@
 				startIcon={{ icon: ArrowLeft }}
 				on:click={() => {
 					dispatch('previous')
+					onprevious?.()
 				}}
 			>
 				Previous
@@ -44,6 +52,7 @@
 				endIcon={{ icon: ArrowRight }}
 				on:click={() => {
 					dispatch('next')
+					onnext?.()
 				}}
 			>
 				Next

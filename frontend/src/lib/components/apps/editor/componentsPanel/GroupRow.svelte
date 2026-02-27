@@ -13,9 +13,10 @@
 			name: string
 			path: string
 		}
+		onreloadGroups?: (...args: any[]) => any
 	}
 
-	let { row }: Props = $props()
+	let { row, onreloadGroups = undefined }: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
@@ -24,6 +25,7 @@
 			await deleteGroup($workspaceStore, row.path)
 		}
 		dispatch('reloadGroups')
+		onreloadGroups?.()
 		sendUserToast('Group deleted:\n' + row.name)
 	}
 
@@ -54,6 +56,7 @@
 						}
 					})
 					dispatch('reloadGroups')
+					onreloadGroups?.()
 
 					sendUserToast('Group name updated:\n' + e.detail.name)
 				}}

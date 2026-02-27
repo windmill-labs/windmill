@@ -13,9 +13,16 @@
 		syncQuery?: boolean
 		children?: import('svelte').Snippet
 		size?: ButtonType.UnifiedSize
+		onpick?: (...args: any[]) => any
 	}
 
-	let { filter = $bindable(''), syncQuery = false, children, size = 'md' }: Props = $props()
+	let {
+		filter = $bindable(''),
+		syncQuery = false,
+		children,
+		size = 'md',
+		onpick = undefined
+	}: Props = $props()
 
 	type Item = { apps: string[]; summary: string; path: string }
 	let hubFlows: any[] | undefined = $state(undefined)
@@ -63,7 +70,7 @@
 				<li class="flex flex-row w-full">
 					<button
 						class="p-4 gap-4 flex flex-row grow justify-between hover:bg-surface-hover transition-all items-center"
-						onclick={() => dispatch('pick', item)}
+						onclick={() => (dispatch('pick', item), onpick?.(item))}
 					>
 						<div class="flex items-center gap-4">
 							<RowIcon kind="flow" />

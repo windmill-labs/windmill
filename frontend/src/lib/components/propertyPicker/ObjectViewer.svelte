@@ -30,6 +30,7 @@
 		connecting?: boolean
 		metaData?: Snippet<[any]>
 		editKey?: Snippet<[any]>
+		onselect?: (...args: any[]) => any
 	}
 
 	let {
@@ -46,7 +47,8 @@
 		expandedEvenOnLevel0 = undefined,
 		connecting = false,
 		metaData,
-		editKey
+		editKey,
+		onselect = undefined
 	}: Props = $props()
 
 	let jsonFiltered = $state(json)
@@ -118,6 +120,7 @@
 			}
 		}
 		dispatch('select', fullKey)
+		onselect?.(fullKey)
 	}
 
 	function clearSearch() {

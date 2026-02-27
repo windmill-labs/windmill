@@ -8,9 +8,10 @@
 	interface Props {
 		isOpen?: boolean
 		children?: import('svelte').Snippet
+		onselected?: (...args: any[]) => any
 	}
 
-	let { isOpen = $bindable(false), children }: Props = $props()
+	let { isOpen = $bindable(false), children, onselected = undefined }: Props = $props()
 
 	const dispatch = createEventDispatcher<{
 		selected: { resourcePath: string }
@@ -46,6 +47,7 @@
 
 	function handleSelect(resourcePath: string) {
 		dispatch('selected', { resourcePath })
+		onselected?.({ resourcePath })
 		isOpen = false
 	}
 </script>

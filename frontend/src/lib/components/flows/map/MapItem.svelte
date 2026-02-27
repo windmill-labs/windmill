@@ -48,6 +48,7 @@
 		flowJob?: Job | undefined
 		isOwner?: boolean
 		maximizeSubflow?: () => void
+		onmove?: (...args: any[]) => any
 	}
 
 	let {
@@ -69,7 +70,8 @@
 		onEditInput,
 		flowJob,
 		isOwner = false,
-		maximizeSubflow
+		maximizeSubflow,
+		onmove = undefined
 	}: Props = $props()
 
 	const { selectionManager } = getGraphContext()
@@ -112,8 +114,11 @@
 	<div class="relative">
 		{#if moving == mod.id}
 			<div class="absolute z-10 right-20 top-0.5 center-center">
-				<Button variant="accent" on:click={() => dispatch('move')} size="xs" destructive
-					>Cancel move</Button
+				<Button
+					variant="accent"
+					on:click={() => (dispatch('move'), onmove?.())}
+					size="xs"
+					destructive>Cancel move</Button
 				>
 			</div>
 		{/if}

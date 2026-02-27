@@ -20,6 +20,7 @@
 		subtitle?: string | undefined
 		titleSlot?: import('svelte').Snippet
 		children?: import('svelte').Snippet
+		onopen?: (...args: any[]) => any
 	}
 
 	let {
@@ -34,7 +35,8 @@
 		documentationLink = undefined,
 		subtitle = undefined,
 		titleSlot,
-		children
+		children,
+		onopen = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -46,6 +48,7 @@
 
 	$effect(() => {
 		dispatch('open', isOpen ?? false)
+		onopen?.(isOpen ?? false)
 	})
 
 	onMount(() => {

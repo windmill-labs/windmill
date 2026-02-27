@@ -47,6 +47,7 @@
 			| undefined
 		typeeditor?: import('svelte').Snippet
 		children?: import('svelte').Snippet
+		onchange?: (...args: any[]) => any
 	}
 
 	let {
@@ -69,7 +70,8 @@
 		order = $bindable(),
 		itemsType = $bindable(undefined),
 		typeeditor,
-		children
+		children,
+		onchange = undefined
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -144,6 +146,7 @@
 			initialExtra = structuredClone($state.snapshot(extra))
 			console.debug('property content updated')
 			dispatchIfMounted('change')
+			onchange?.()
 		}
 	}
 
@@ -155,6 +158,7 @@
 			}
 			console.debug('property schema updated')
 			dispatchIfMounted('change')
+			onchange?.()
 		}
 	}
 	$effect(() => {
@@ -180,7 +184,7 @@
 				rows="2"
 				bind:value={description}
 				onkeydown={onKeyDown}
-				onchange={() => dispatch('change')}
+				onchange={() => (dispatch('change'), onchange?.())}
 				placeholder="Field description"
 				class={twMerge(inputBorderClass(), inputBaseClass, 'w-full')}
 			></textarea>
@@ -192,7 +196,11 @@
 			{/snippet}
 			<TextInput
 				bind:value={title}
-				inputProps={{ placeholder: 'Field title', onkeydown, onchange: () => dispatch('change') }}
+				inputProps={{
+					placeholder: 'Field title',
+					onkeydown,
+					onchange: () => (dispatch('change'), onchange?.())
+				}}
 			/>
 		</Label>
 
@@ -210,7 +218,7 @@
 					placeholder="Enter a placeholder"
 					rows="1"
 					bind:value={placeholder}
-					onchange={() => dispatch('change')}
+					onchange={() => (dispatch('change'), onchange?.())}
 					class={twMerge(inputBorderClass(), inputBaseClass, 'w-full')}
 				></textarea>
 			</Label>

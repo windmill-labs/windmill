@@ -68,6 +68,7 @@
 		allowedAiTransforms?: string[] | undefined
 		s3StorageConfigured?: boolean
 		chatInputEnabled?: boolean
+		onchange?: (...args: any[]) => any
 	}
 
 	let {
@@ -95,7 +96,8 @@
 		isAgentTool = false,
 		allowedAiTransforms = isAgentTool ? undefined : [],
 		s3StorageConfigured = true,
-		chatInputEnabled = false
+		chatInputEnabled = false,
+		onchange = undefined
 	}: Props = $props()
 
 	let monaco: SimpleEditor | undefined = $state(undefined)
@@ -300,6 +302,7 @@
 
 		// Dispatch change
 		dispatch('change', { argName, arg })
+		onchange?.({ argName, arg })
 	}
 
 	async function switchToJsAndConnect(onPath: (path: string) => void) {
@@ -579,6 +582,7 @@
 									focusProp?.(argName, (path) => {
 										connectProperty(path)
 										dispatch('change', { argName })
+										onchange?.({ argName })
 										return true
 									})
 								}
@@ -774,6 +778,7 @@
 										fontSize={12}
 										on:change={() => {
 											dispatch('change', { argName, arg })
+											onchange?.({ argName, arg })
 										}}
 										loadAsync
 										class="bg-surface-input"
@@ -792,6 +797,7 @@
 								shouldDispatchChanges
 								on:change={() => {
 									dispatch('change', { argName, arg })
+									onchange?.({ argName, arg })
 								}}
 								label={argName}
 								bind:editor={monaco}
@@ -867,6 +873,7 @@
 									}}
 									on:change={() => {
 										dispatch('change', { argName, arg })
+										onchange?.({ argName, arg })
 									}}
 									autoHeight
 									loadAsync

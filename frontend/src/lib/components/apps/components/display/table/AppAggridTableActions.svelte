@@ -33,6 +33,7 @@
 		wrapActions?: boolean | undefined
 		selectRow: (params: ICellRendererParams<any>) => void
 		setModalRow: (row?: ICellRendererParams<any>) => void
+		ontoggleRow?: (...args: any[]) => any
 	}
 
 	let {
@@ -46,7 +47,8 @@
 		onRemove,
 		wrapActions = undefined,
 		selectRow,
-		setModalRow
+		setModalRow,
+		ontoggleRow = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -197,6 +199,7 @@
 							noWFull
 							preclickAction={async () => {
 								dispatch('toggleRow')
+								ontoggleRow?.()
 								p && selectRow(p)
 							}}
 							id={action.id}
@@ -223,6 +226,7 @@
 							verticalAlignment="center"
 							preclickAction={async () => {
 								dispatch('toggleRow')
+								ontoggleRow?.()
 								p && (selectRow(p), setModalRow(p))
 							}}
 							onClose={() => setModalRow(undefined)}
@@ -239,6 +243,7 @@
 							onToggle={action.onToggle}
 							preclickAction={async () => {
 								dispatch('toggleRow')
+								ontoggleRow?.()
 								p && selectRow(p)
 							}}
 							verticalAlignment="center"
@@ -259,6 +264,7 @@
 								onSelect={action.onSelect}
 								preclickAction={async () => {
 									dispatch('toggleRow')
+									ontoggleRow?.()
 									p && selectRow(p)
 								}}
 								{controls}
@@ -272,6 +278,7 @@
 						{render}
 						preclickAction={async () => {
 							dispatch('toggleRow')
+							ontoggleRow?.()
 							p && selectRow(p)
 						}}
 						noWFull
@@ -297,6 +304,7 @@
 						verticalAlignment="center"
 						preclickAction={async () => {
 							dispatch('toggleRow')
+							ontoggleRow?.()
 							p && (selectRow(p), setModalRow(p))
 						}}
 						onClose={() => setModalRow(undefined)}
@@ -313,6 +321,7 @@
 						onToggle={action.onToggle}
 						preclickAction={async () => {
 							dispatch('toggleRow')
+							ontoggleRow?.()
 							p && selectRow(p)
 						}}
 					/>
@@ -331,6 +340,7 @@
 							onSelect={action.onSelect}
 							preclickAction={async () => {
 								dispatch('toggleRow')
+								ontoggleRow?.()
 								p && selectRow(p)
 							}}
 						/>

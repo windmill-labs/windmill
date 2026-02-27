@@ -30,6 +30,7 @@
 		quickSetup?: boolean
 		yamlMode?: boolean
 		hasUnsavedChanges?: boolean
+		onsaved?: (...args: any[]) => any
 	}
 
 	let {
@@ -40,7 +41,8 @@
 		onNavigateToTab,
 		quickSetup = false,
 		yamlMode = $bindable(false),
-		hasUnsavedChanges = $bindable(false)
+		hasUnsavedChanges = $bindable(false),
+		onsaved = undefined
 	}: Props = $props()
 
 	let values: Writable<Record<string, any>> = writable({})
@@ -229,6 +231,7 @@
 		} else {
 			sendUserToast('Settings updated')
 			dispatch('saved')
+			onsaved?.()
 		}
 	}
 
@@ -571,6 +574,7 @@
 		} else {
 			sendUserToast('Settings updated')
 			dispatch('saved')
+			onsaved?.()
 		}
 	}
 

@@ -33,6 +33,9 @@
 		overriden?: boolean
 		overridding?: boolean
 		wmClass?: string | undefined
+		onchange?: (...args: any[]) => any
+		onleft?: (...args: any[]) => any
+		onright?: (...args: any[]) => any
 	}
 
 	let {
@@ -47,7 +50,10 @@
 		shouldDisplayRight = false,
 		overriden = false,
 		overridding = false,
-		wmClass = undefined
+		wmClass = undefined,
+		onchange = undefined,
+		onleft = undefined,
+		onright = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -58,6 +64,7 @@
 		if (deepEqual(prevValue, value)) return
 		prevValue = structuredClone($state.snapshot(value))
 		dispatch('change', value)
+		onchange?.(value)
 	})
 
 	function toggleQuickMenu() {
@@ -93,7 +100,7 @@
 						size="xs2"
 						iconOnly
 						startIcon={{ icon: MoveLeft }}
-						on:click={() => dispatch('left')}
+						on:click={() => (dispatch('left'), onleft?.())}
 					/>
 					{#snippet text()}
 						{'Copy for this component'}
@@ -107,7 +114,7 @@
 						size="xs2"
 						iconOnly
 						startIcon={{ icon: MoveRight }}
-						on:click={() => dispatch('right')}
+						on:click={() => (dispatch('right'), onright?.())}
 					/>
 					{#snippet text()}
 						Copy for every {componentType ? ccomponents[componentType].name : 'component'}

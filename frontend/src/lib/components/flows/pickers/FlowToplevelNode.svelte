@@ -3,11 +3,12 @@
 	import TopLevelNode from './TopLevelNode.svelte'
 
 	interface Props {
-		label: string;
-		selected?: boolean;
+		label: string
+		selected?: boolean
+		onclick?: (...args: any[]) => any
 	}
 
-	let { label, selected = false }: Props = $props();
+	let { label, selected = false, onclick = undefined }: Props = $props()
 	const dispatch = createEventDispatcher()
 	function handleKeydown(event: KeyboardEvent & { currentTarget: EventTarget & Window }) {
 		if (selected && event.key === 'Enter') {
@@ -18,6 +19,7 @@
 
 	function click() {
 		dispatch('click')
+		onclick?.()
 	}
 </script>
 

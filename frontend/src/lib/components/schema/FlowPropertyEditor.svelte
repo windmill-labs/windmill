@@ -48,6 +48,7 @@
 		requiredProperty?: string[] | undefined
 		displayWebhookWarning?: boolean
 		onDrawerClose?: () => void
+		onrequiredChange?: (...args: any[]) => any
 	}
 
 	let {
@@ -72,7 +73,8 @@
 		order = $bindable(undefined),
 		requiredProperty = $bindable(undefined),
 		displayWebhookWarning = true,
-		onDrawerClose = undefined
+		onDrawerClose = undefined,
+		onrequiredChange = undefined
 	}: Props = $props()
 
 	let oneOfSelected: string | undefined = $state(oneOf?.[0]?.title)
@@ -385,6 +387,7 @@
 			disabled={type === 'boolean'}
 			on:change={(event) => {
 				dispatch('requiredChange', { required: event?.detail })
+				onrequiredChange?.({ required: event?.detail })
 			}}
 			checked={required}
 			on:change={(event) => {

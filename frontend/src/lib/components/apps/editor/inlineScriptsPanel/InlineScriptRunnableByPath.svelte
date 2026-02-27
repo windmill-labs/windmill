@@ -36,13 +36,18 @@
 	interface Props {
 		runnable: RunnableByPath
 		fields:
-			| Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput | CtxAppInput>
+			| Record<
+					string,
+					StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput | CtxAppInput
+			  >
 			| undefined
 		id: string
 		rawApps?: boolean
 		isLoading?: boolean
 		onRun?: any
 		onCancel?: any
+		onfork?: (...args: any[]) => any
+		ondelete?: (...args: any[]) => any
 	}
 
 	let {
@@ -52,7 +57,9 @@
 		rawApps = false,
 		isLoading = false,
 		onRun = async () => {},
-		onCancel = async () => {}
+		onCancel = async () => {},
+		onfork = undefined,
+		ondelete = undefined
 	}: Props = $props()
 
 	const viewerContext = getContext<AppViewerContext>('AppViewerContext')
@@ -109,6 +116,16 @@
 			await inferArgs(language, content, schema)
 		}
 		dispatch('fork', {
+			type: 'inline',
+			name: path,
+			inlineScript: {
+				content,
+				language,
+				schema,
+				path
+			}
+		})
+		onfork?.({
 			type: 'inline',
 			name: path,
 			inlineScript: {
@@ -227,6 +244,7 @@
 			startIcon={{ icon: Trash }}
 			on:click={() => {
 				dispatch('delete')
+				ondelete?.()
 			}}
 		>
 			Clear

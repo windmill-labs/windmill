@@ -12,6 +12,7 @@
 		refreshing?: string[]
 		progress?: number
 		loading?: boolean | undefined
+		onsetInter?: (...args: any[]) => any
 	}
 
 	let {
@@ -19,7 +20,8 @@
 		interval = undefined,
 		refreshing = [],
 		progress = 100,
-		loading = false
+		loading = false,
+		onsetInter = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -27,11 +29,11 @@
 	const items = [
 		{
 			displayName: 'Once',
-			action: () => dispatch('setInter', undefined)
+			action: () => (dispatch('setInter', undefined), onsetInter?.(undefined))
 		},
 		...[1, 2, 3, 4, 5, 6].map((i) => ({
 			displayName: `Every ${i * 5} seconds`,
-			action: () => dispatch('setInter', i * 5000)
+			action: () => (dispatch('setInter', i * 5000), onsetInter?.(i * 5000))
 		}))
 	]
 </script>

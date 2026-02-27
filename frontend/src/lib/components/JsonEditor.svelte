@@ -18,6 +18,9 @@
 		class?: string | undefined
 		disabled?: boolean
 		fixedOverflowWidgets?: boolean
+		onchangeValue?: (...args: any[]) => any
+		onfocus?: (...args: any[]) => any
+		onblur?: (...args: any[]) => any
 	}
 
 	let {
@@ -29,7 +32,10 @@
 		loadAsync = false,
 		class: clazz = undefined,
 		disabled = false,
-		fixedOverflowWidgets = true
+		fixedOverflowWidgets = true,
+		onchangeValue = undefined,
+		onfocus = undefined,
+		onblur = undefined
 	}: Props = $props()
 
 	let tooBig = $derived(code && code?.length > 1000000)
@@ -47,6 +53,7 @@
 				value = JSON.parse(code ?? '')
 			}
 			dispatchIfMounted('changeValue', value)
+			onchangeValue?.(value)
 			error = ''
 		} catch (e) {
 			error = e.message
@@ -75,8 +82,8 @@
 			<SimpleEditor
 				{loadAsync}
 				{small}
-				on:focus={() => (dispatch('focus'), (focused = true))}
-				on:blur={() => (dispatch('blur'), (focused = false))}
+				on:focus={() => ((dispatch('focus'), onfocus?.()), (focused = true))}
+				on:blur={() => ((dispatch('blur'), onblur?.()), (focused = false))}
 				bind:this={editor}
 				on:change
 				autoHeight

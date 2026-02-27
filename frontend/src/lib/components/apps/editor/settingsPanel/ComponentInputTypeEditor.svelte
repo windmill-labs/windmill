@@ -13,9 +13,15 @@
 		componentInput: AppInput
 		disableStatic?: boolean
 		evalV2editor: EvalV2InputEditor | undefined
+		onselect?: (...args: any[]) => any
 	}
 
-	let { componentInput = $bindable(), disableStatic = false, evalV2editor }: Props = $props()
+	let {
+		componentInput = $bindable(),
+		disableStatic = false,
+		evalV2editor,
+		onselect = undefined
+	}: Props = $props()
 
 	const { onchange, connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -66,6 +72,7 @@
 							onConnect: () => {}
 						}
 						dispatch('select', true)
+						onselect?.(true)
 					}}
 					openConnection={() => {
 						$connectingInput = {

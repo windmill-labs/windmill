@@ -38,6 +38,12 @@
 		showTag?: boolean
 		activeLabel: string | null
 		manualSelectionMode?: undefined | 'cancel' | 'rerun'
+		onselect?: (...args: any[]) => any
+		onfilterByPath?: (...args: any[]) => any
+		onfilterByFolder?: (...args: any[]) => any
+		onfilterByLabel?: (...args: any[]) => any
+		onfilterBySchedule?: (...args: any[]) => any
+		onfilterByUser?: (...args: any[]) => any
 	}
 
 	let {
@@ -47,7 +53,13 @@
 		containsLabel = false,
 		showTag = true,
 		activeLabel,
-		manualSelectionMode
+		manualSelectionMode,
+		onselect = undefined,
+		onfilterByPath = undefined,
+		onfilterByFolder = undefined,
+		onfilterByLabel = undefined,
+		onfilterBySchedule = undefined,
+		onfilterByUser = undefined
 	}: Props = $props()
 
 	let scheduleEditor: ScheduleEditor | undefined = $state(undefined)
@@ -81,8 +93,8 @@
 		manualSelectionMode &&
 		!showTag}
 	style="width: {containerWidth}px"
-	onclick={() => dispatch('select')}
-	oncontextmenu={(e) => !selected && dispatch('select')}
+	onclick={() => (dispatch('select'), onselect?.())}
+	oncontextmenu={(e) => !selected && (dispatch('select'), onselect?.())}
 >
 	<!-- Selection column (only when in selection mode) -->
 	{#if manualSelectionMode}
@@ -194,7 +206,10 @@
 											: [
 													{
 														displayName: `Filter by path: ${job.script_path}`,
-														action: () => dispatch('filterByPath', job.script_path),
+														action: () => (
+															dispatch('filterByPath', job.script_path),
+															onfilterByPath?.(job.script_path)
+														),
 														disabled: isExternal
 													}
 												]
@@ -203,7 +218,10 @@
 											return [
 												{
 													displayName: `Filter by folder: ${folder}`,
-													action: () => dispatch('filterByFolder', folder)
+													action: () => (
+														dispatch('filterByFolder', folder),
+														onfilterByFolder?.(folder)
+													)
 												},
 												...items
 											]
@@ -237,7 +255,7 @@
 			<RunLabels
 				{job}
 				{activeLabel}
-				onFilterByLabel={(label) => dispatch('filterByLabel', label)}
+				onFilterByLabel={(label) => (dispatch('filterByLabel', label), onfilterByLabel?.(label))}
 				{labelWidth}
 			/>
 		</div>
@@ -265,7 +283,10 @@
 					items={[
 						{
 							displayName: `Filter by schedule: ${truncateRev(job.schedule_path, 20)}`,
-							action: () => dispatch('filterBySchedule', job.schedule_path)
+							action: () => (
+								dispatch('filterBySchedule', job.schedule_path),
+								onfilterBySchedule?.(job.schedule_path)
+							)
 						}
 					]}
 					class="w-fit"
@@ -289,7 +310,10 @@
 						items={[
 							{
 								displayName: `Filter by triggered by: ${job.created_by}`,
-								action: () => dispatch('filterByUser', job.created_by ?? '')
+								action: () => (
+									dispatch('filterByUser', job.created_by ?? ''),
+									onfilterByUser?.(job.created_by ?? '')
+								)
 							}
 						]}
 						customWidth={256}

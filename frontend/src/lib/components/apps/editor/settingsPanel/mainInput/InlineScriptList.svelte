@@ -11,9 +11,10 @@
 		filter?: string
 		inlineScripts?: string[]
 		children?: import('svelte').Snippet
+		onpick?: (...args: any[]) => any
 	}
 
-	let { filter = $bindable(''), inlineScripts = [], children }: Props = $props()
+	let { filter = $bindable(''), inlineScripts = [], children, onpick = undefined }: Props = $props()
 
 	type Item = { title: string }
 	let filteredItems: (Item & { marked?: string })[] = $state([])
@@ -47,7 +48,7 @@
 			<li class="flex flex-row w-full">
 				<button
 					class="p-4 gap-4 flex flex-row grow justify-between hover:bg-surface-hover bg-surface transition-all items-center rounded-md"
-					onclick={() => dispatch('pick', item.title)}
+					onclick={() => (dispatch('pick', item.title), onpick?.(item.title))}
 				>
 					<div class="flex items-center gap-4">
 						<RowIcon kind="script" />

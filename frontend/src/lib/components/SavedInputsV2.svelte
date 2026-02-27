@@ -24,6 +24,7 @@
 		// Are the current Inputs valid and able to be saved?
 		isValid: boolean
 		args: object
+		onselected_args?: (...args: any[]) => any
 	}
 
 	let {
@@ -34,7 +35,8 @@
 		jsonView = false,
 		schema,
 		isValid,
-		args
+		args,
+		onselected_args = undefined
 	}: Props = $props()
 
 	export function resetSelected() {
@@ -59,9 +61,11 @@
 			}
 			inputSelected = type
 			dispatch('selected_args', selected_args)
+			onselected_args?.(selected_args)
 		} else if (savedArgs) {
 			inputSelected = type
 			dispatch('selected_args', savedArgs)
+			onselected_args?.(savedArgs)
 		}
 	}
 

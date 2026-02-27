@@ -60,6 +60,7 @@
 				endColumn: number
 			} | null
 		) => void
+		ondelete?: (...args: any[]) => any
 	}
 
 	let {
@@ -71,7 +72,8 @@
 		onRun,
 		editor = $bindable(undefined),
 		lastDeployedCode,
-		onSelectionChange
+		onSelectionChange,
+		ondelete = undefined
 	}: Props = $props()
 	let diffEditor = $state() as DiffEditor | undefined
 	let validCode = $state(true)
@@ -617,7 +619,7 @@
 					aria-label="Clear script"
 					destructive
 					unifiedSize="sm"
-					on:click={() => dispatch('delete')}
+					on:click={() => (dispatch('delete'), ondelete?.())}
 					endIcon={{ icon: Trash2 }}
 					iconOnly
 				/>

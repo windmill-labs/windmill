@@ -20,6 +20,9 @@
 		positionClass?: string | undefined
 		name?: string
 		children?: import('svelte').Snippet<[any]>
+		onafterClose?: (...args: any[]) => any
+		onopen?: (...args: any[]) => any
+		onclose?: (...args: any[]) => any
 	}
 
 	let {
@@ -35,7 +38,10 @@
 		class: clazz = '',
 		positionClass = undefined,
 		name = undefined,
-		children: children_render
+		children: children_render,
+		onafterClose = undefined,
+		onopen = undefined,
+		onclose = undefined
 	}: Props = $props()
 
 	if (open === undefined) {
@@ -60,6 +66,7 @@
 		if (open) {
 			setTimeout(() => {
 				dispatch('afterClose')
+				onafterClose?.()
 			}, durationMs)
 		}
 		disposable?.closeDrawer()
@@ -111,8 +118,8 @@
 		initialOffset={offset}
 		bind:open
 		bind:this={disposable}
-		onOpen={() => dispatch('open')}
-		onClose={() => dispatch('close')}
+		onOpen={() => (dispatch('open'), onopen?.())}
+		onClose={() => (dispatch('close'), onclose?.())}
 		{preventEscape}
 	>
 		{#snippet children({ handleClickAway, zIndex, isTop })}

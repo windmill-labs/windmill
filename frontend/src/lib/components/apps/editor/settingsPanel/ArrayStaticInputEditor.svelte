@@ -19,13 +19,15 @@
 		subFieldType?: InputType | undefined
 		selectOptions?: StaticOptions['selectOptions'] | undefined
 		id: string | undefined
+		ondeleteArrayItem?: (...args: any[]) => any
 	}
 
 	let {
 		componentInput = $bindable(),
 		subFieldType = undefined,
 		selectOptions = undefined,
-		id
+		id,
+		ondeleteArrayItem = undefined
 	}: Props = $props()
 
 	const appContext = getContext<AppViewerContext>('AppViewerContext')
@@ -223,6 +225,7 @@
 			items = items
 			componentInput.value = componentInput.value
 			dispatch('deleteArrayItem', { index })
+			ondeleteArrayItem?.({ index })
 		}
 	}
 

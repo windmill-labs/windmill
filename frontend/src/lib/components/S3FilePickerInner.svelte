@@ -92,6 +92,7 @@
 		testConnectionRequest?: (
 			d: DatasetStorageTestConnectionData
 		) => CancelablePromise<DatasetStorageTestConnectionResponse>
+		onselectAndClose?: (...args: any[]) => any
 	}
 
 	let {
@@ -113,7 +114,8 @@
 		loadFileMetadataRequest = HelpersService.loadFileMetadata,
 		deleteS3FileRequest = HelpersService.deleteS3File,
 		moveS3FileRequest = HelpersService.moveS3File,
-		testConnectionRequest = HelpersService.datasetStorageTestConnection
+		testConnectionRequest = HelpersService.datasetStorageTestConnection,
+		onselectAndClose = undefined
 	}: Props = $props()
 
 	let rootPathNestingLevel = $derived(1 * (rootPath.split('/').length - 1))
@@ -470,6 +472,7 @@
 	export async function selectAndClose() {
 		if (selectedFileKey?.s3) {
 			dispatch('selectAndClose', { s3: selectedFileKey.s3, storage })
+			onselectAndClose?.({ s3: selectedFileKey.s3, storage })
 		}
 	}
 

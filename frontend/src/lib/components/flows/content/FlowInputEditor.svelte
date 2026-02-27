@@ -7,12 +7,14 @@
 		title?: string
 		action?: import('svelte').Snippet
 		children?: import('svelte').Snippet
+		ondestroy?: (...args: any[]) => any
 	}
 
-	let { title = '', action, children }: Props = $props()
+	let { title = '', action, children, ondestroy = undefined }: Props = $props()
 
 	onDestroy(() => {
 		dispatch('destroy')
+		ondestroy?.()
 	})
 </script>
 

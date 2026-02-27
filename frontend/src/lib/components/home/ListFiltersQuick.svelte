@@ -4,16 +4,19 @@
 	import { createEventDispatcher } from 'svelte'
 	import { Button } from '../common'
 
-
 	interface Props {
-		filters: string[];
-		selectedFilter?: 
-		| { kind: 'owner' | 'integrations'; name: string | undefined }
-		| undefined;
-		resourceType?: boolean;
+		filters: string[]
+		selectedFilter?: { kind: 'owner' | 'integrations'; name: string | undefined } | undefined
+		resourceType?: boolean
+		onselected?: (...args: any[]) => any
 	}
 
-	let { filters, selectedFilter = $bindable(undefined), resourceType = false }: Props = $props();
+	let {
+		filters,
+		selectedFilter = $bindable(undefined),
+		resourceType = false,
+		onselected = undefined
+	}: Props = $props()
 
 	function getIconComponent(name: string, resourceType: boolean) {
 		if (resourceType) {
@@ -32,7 +35,9 @@
 	}
 
 	const dispatch = createEventDispatcher()
-	let selectedAppFilter = $derived(selectedFilter?.kind === 'integrations' ? selectedFilter?.name : undefined)
+	let selectedAppFilter = $derived(
+		selectedFilter?.kind === 'integrations' ? selectedFilter?.name : undefined
+	)
 </script>
 
 {#if Array.isArray(filters) && filters.length > 0}
@@ -45,6 +50,7 @@
 					selectedFilter =
 						selectedAppFilter == filter ? undefined : { kind: 'integrations', name: filter }
 					dispatch('selected')
+					onselected?.()
 				}}
 				variant="subtle"
 				startIcon={icon}

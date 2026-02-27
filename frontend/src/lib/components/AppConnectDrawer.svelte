@@ -1,5 +1,4 @@
 <script lang="ts">
-
 	import { createEventDispatcher } from 'svelte'
 	import { Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
@@ -9,9 +8,10 @@
 
 	interface Props {
 		expressOAuthSetup?: boolean
+		onclose?: (...args: any[]) => any
 	}
 
-	let { expressOAuthSetup = false }: Props = $props()
+	let { expressOAuthSetup = false, onclose = undefined }: Props = $props()
 
 	let drawer: Drawer | undefined = $state()
 	let resourceType = $state('')
@@ -47,6 +47,7 @@
 	on:close={() => {
 		step = 1
 		dispatch('close')
+		onclose?.()
 	}}
 	size="800px"
 >

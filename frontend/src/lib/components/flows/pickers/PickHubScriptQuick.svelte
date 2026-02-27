@@ -70,6 +70,7 @@
 		displayPath?: boolean
 		apps?: string[]
 		refreshCount?: number
+		onpickScript?: (...args: any[]) => any
 	}
 
 	let {
@@ -81,7 +82,8 @@
 		items = $bindable([]),
 		displayPath = false,
 		apps = $bindable([]),
-		refreshCount = 0
+		refreshCount = 0,
+		onpickScript = undefined
 	}: Props = $props()
 
 	let allApps: string[] = $state([])
@@ -151,6 +153,7 @@
 
 		// Dispatch the event to continue with the selection
 		dispatch('pickScript', item)
+		onpickScript?.(item)
 	}
 
 	function onKeyDown(e: KeyboardEvent) {

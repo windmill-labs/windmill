@@ -26,6 +26,7 @@
 		 */
 		small?: boolean
 		extra?: import('svelte').Snippet
+		ononpointerdown?: (...args: any[]) => any
 	}
 
 	let {
@@ -44,7 +45,8 @@
 		otherValues = [],
 		disabled = false,
 		small = false,
-		extra = undefined
+		extra = undefined,
+		ononpointerdown = undefined
 	}: Props = $props()
 	const { selected, update, hashNavigation } = getContext<TabsContext>('Tabs')
 
@@ -96,6 +98,7 @@
 	onpointerdown={(event) => {
 		event.stopPropagation()
 		dispatch('onpointerdown', event)
+		ononpointerdown?.(event)
 	}}
 	{disabled}
 	{id}

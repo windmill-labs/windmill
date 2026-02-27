@@ -21,6 +21,8 @@
 		noButton?: boolean
 		jsonView?: boolean
 		limitPayloadSize?: boolean
+		onselect?: (...args: any[]) => any
+		onisEditing?: (...args: any[]) => any
 	}
 
 	let {
@@ -30,7 +32,9 @@
 		isValid = false,
 		noButton = false,
 		jsonView = false,
-		limitPayloadSize = false
+		limitPayloadSize = false,
+		onselect = undefined,
+		onisEditing = undefined
 	}: Props = $props()
 
 	interface EditableInput extends Input {
@@ -136,9 +140,11 @@
 			if (input.payloadData === 'WINDMILL_TOO_BIG') {
 				const fullPayload = await input.getFullPayload?.()
 				dispatch('select', fullPayload)
+				onselect?.(fullPayload)
 			} else {
 				selectedArgs = structuredClone($state.snapshot(input.payloadData) ?? {})
 				dispatch('select', selectedArgs)
+				onselect?.(selectedArgs)
 			}
 		}
 	}
@@ -170,6 +176,7 @@
 	function setEditing(input: EditableInput | null) {
 		isEditing = input
 		dispatch('isEditing', !!input)
+		onisEditing?.(!!input)
 	}
 
 	function handleError(error: { type: string; error: any }) {
@@ -189,6 +196,7 @@
 		selectedArgs = undefined
 		if (dispatchEvent) {
 			dispatch('select', undefined)
+			onselect?.(undefined)
 		}
 	}
 

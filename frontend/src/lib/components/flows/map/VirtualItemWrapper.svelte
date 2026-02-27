@@ -15,6 +15,7 @@
 		className?: string
 		previewButton?: import('svelte').Snippet
 		colorClasses: FlowNodeColorClasses
+		onselect?: (...args: any[]) => any
 	}
 
 	let {
@@ -25,7 +26,8 @@
 		children,
 		className,
 		previewButton,
-		colorClasses
+		colorClasses,
+		onselect = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher<{
@@ -55,6 +57,7 @@
 		onpointerdown={() => {
 			if (selectable) {
 				dispatch('select', id || label || '')
+				onselect?.(id || label || '')
 			}
 		}}
 		onmouseenter={() => {

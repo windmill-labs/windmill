@@ -37,6 +37,8 @@
 		batchRerunOptionsIsOpen?: boolean
 		manualSelectionMode: undefined | 'cancel' | 'rerun'
 		onCancelJobs: (jobIds: string[]) => void
+		onselect?: (...args: any[]) => any
+		onloadExtra?: (...args: any[]) => any
 	}
 
 	let {
@@ -51,7 +53,9 @@
 		perPage = 1000,
 		manualSelectionMode,
 		onCancelJobs,
-		batchRerunOptionsIsOpen = $bindable()
+		batchRerunOptionsIsOpen = $bindable(),
+		onselect = undefined,
+		onloadExtra = undefined
 	}: Props = $props()
 
 	let hasClickFocus = $state(false)
@@ -498,10 +502,12 @@
 															selectedWorkspace = jobOrDate.job.workspace_id
 															selectedIds = [jobOrDate.job.id]
 															dispatch('select')
+															onselect?.()
 														} else {
 															selectedIds = []
 															selectedWorkspace = undefined
 															dispatch('select')
+															onselect?.()
 														}
 													}
 												}}
@@ -537,6 +543,7 @@
 									class="text-xs text-accent text-center w-full pb-2"
 									onclick={() => {
 										dispatch('loadExtra')
+										onloadExtra?.()
 									}}
 								>
 									Load next {perPage} jobs

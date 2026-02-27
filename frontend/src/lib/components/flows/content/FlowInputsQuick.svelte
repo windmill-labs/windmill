@@ -51,6 +51,7 @@
 		selectedKind?: 'script' | 'flow' | 'approval' | 'trigger' | 'preprocessor' | 'failure'
 		displayPath?: boolean
 		refreshCount?: number
+		onnew?: (...args: any[]) => any
 	}
 
 	let {
@@ -64,7 +65,8 @@
 		kind,
 		selectedKind = kind,
 		displayPath = false,
-		refreshCount = 0
+		refreshCount = 0,
+		onnew = undefined
 	}: Props = $props()
 
 	if ($workspaceStore && cachedOwners?.[$workspaceStore]) {
@@ -124,6 +126,16 @@
 		}
 		console.log('ongenerate', selectedKind, lang, funcDesc)
 		dispatch('new', {
+			kind: selectedKind,
+			inlineScript: {
+				language: lang,
+				kind: selectedKind,
+				subkind: 'flow',
+				summary,
+				instructions: funcDesc
+			}
+		})
+		onnew?.({
 			kind: selectedKind,
 			inlineScript: {
 				language: lang,
@@ -353,6 +365,7 @@
 				<FlowToplevelNode
 					on:click={() => {
 						dispatch('new', { kind })
+						onnew?.({ kind })
 					}}
 					{label}
 					selected={selectedByKeyboard === i}
@@ -420,6 +433,20 @@
 						}
 
 						dispatch('new', {
+							kind: selectedKind,
+							inlineScript: {
+								language: lang == 'docker' ? 'bash' : lang,
+								kind: selectedKind,
+								subkind:
+									lang == 'docker'
+										? 'docker'
+										: selectedKind == 'preprocessor'
+											? 'preprocessor'
+											: 'flow',
+								summary
+							}
+						})
+						onnew?.({
 							kind: selectedKind,
 							inlineScript: {
 								language: lang == 'docker' ? 'bash' : lang,

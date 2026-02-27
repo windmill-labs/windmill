@@ -51,6 +51,8 @@
 					  }
 					| undefined)
 			| undefined
+		onaddition?: (...args: any[]) => any
+		ondeletion?: (...args: any[]) => any
 	}
 
 	let {
@@ -73,7 +75,9 @@
 		disabled = false,
 		iconSize = undefined,
 		initialValue = undefined,
-		computeForceViewerPolicies = undefined
+		computeForceViewerPolicies = undefined,
+		onaddition = undefined,
+		ondeletion = undefined
 	}: Props = $props()
 
 	const containerText = $derived(
@@ -152,6 +156,10 @@
 			)
 			if (uploadedFolderRoot) {
 				dispatch('addition', {
+					path: uniqueFolderPrefix + uploadedFolderRoot,
+					filename: undefined
+				})
+				onaddition?.({
 					path: uniqueFolderPrefix + uploadedFolderRoot,
 					filename: undefined
 				})
@@ -355,6 +363,7 @@
 		}
 		if (!folderOnly) {
 			dispatch('addition', { path: uploadData.path, filename: fileToUpload.name })
+			onaddition?.({ path: uploadData.path, filename: fileToUpload.name })
 			sendUserToast('File uploaded!')
 		}
 
@@ -382,6 +391,7 @@
 				})
 			}
 			dispatch('deletion', { path: fileKey })
+			ondeletion?.({ path: fileKey })
 			sendUserToast('File deleted!')
 		} catch (err) {
 			console.error(err)
@@ -547,6 +557,7 @@
 
 											if (fileUpload.path) {
 												dispatch('deletion', { path: fileUpload.path })
+												ondeletion?.({ path: fileUpload.path })
 											}
 										}}
 										startIcon={{

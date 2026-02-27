@@ -19,6 +19,11 @@
 		kind?: 'script' | 'trigger' | 'preprocessor' | 'failure'
 		allowTrigger?: boolean
 		toolMode?: boolean
+		onclose?: (...args: any[]) => any
+		onpickMcpTool?: (...args: any[]) => any
+		onpickWebsearchTool?: (...args: any[]) => any
+		onpickAiAgentTool?: (...args: any[]) => any
+		onnew?: (...args: any[]) => any
 	}
 
 	let {
@@ -27,7 +32,12 @@
 		disableAi = false,
 		kind = 'script',
 		allowTrigger = true,
-		toolMode = false
+		toolMode = false,
+		onclose = undefined,
+		onpickMcpTool = undefined,
+		onpickWebsearchTool = undefined,
+		onpickAiAgentTool = undefined,
+		onnew = undefined
 	}: Props = $props()
 
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
@@ -57,7 +67,7 @@
 >
 	<div class="flex flex-row items-center gap-2">
 		<StepGenQuick
-			on:escape={() => dispatch('close')}
+			on:escape={() => (dispatch('close'), onclose?.())}
 			{disableAi}
 			on:insert
 			bind:funcDesc
@@ -91,21 +101,27 @@
 						label="MCP"
 						onSelect={() => {
 							dispatch('pickMcpTool')
+							onpickMcpTool?.()
 							dispatch('close')
+							onclose?.()
 						}}
 					/>
 					<TopLevelNode
 						label="Web Search"
 						onSelect={() => {
 							dispatch('pickWebsearchTool')
+							onpickWebsearchTool?.()
 							dispatch('close')
+							onclose?.()
 						}}
 					/>
 					<TopLevelNode
 						label="AI Agent"
 						onSelect={() => {
 							dispatch('pickAiAgentTool')
+							onpickAiAgentTool?.()
 							dispatch('close')
+							onclose?.()
 						}}
 					/>
 				{:else}
@@ -148,28 +164,36 @@
 						label="For loop"
 						onSelect={() => {
 							dispatch('close')
+							onclose?.()
 							dispatch('new', { kind: 'forloop' })
+							onnew?.({ kind: 'forloop' })
 						}}
 					/>
 					<TopLevelNode
 						label="While loop"
 						onSelect={() => {
 							dispatch('close')
+							onclose?.()
 							dispatch('new', { kind: 'whileloop' })
+							onnew?.({ kind: 'whileloop' })
 						}}
 					/>
 					<TopLevelNode
 						label="Branch to one"
 						onSelect={() => {
 							dispatch('close')
+							onclose?.()
 							dispatch('new', { kind: 'branchone' })
+							onnew?.({ kind: 'branchone' })
 						}}
 					/>
 					<TopLevelNode
 						label="Branch to all"
 						onSelect={() => {
 							dispatch('close')
+							onclose?.()
 							dispatch('new', { kind: 'branchall' })
+							onnew?.({ kind: 'branchall' })
 						}}
 					/>
 					{#if customUi?.aiAgent != false}
@@ -177,7 +201,9 @@
 							label="AI Agent"
 							onSelect={() => {
 								dispatch('close')
+								onclose?.()
 								dispatch('new', { kind: 'aiagent' })
+								onnew?.({ kind: 'aiagent' })
 							}}
 						/>
 					{/if}
@@ -195,6 +221,7 @@
 			bind:owners
 			on:close={() => {
 				dispatch('close')
+				onclose?.()
 			}}
 			on:new
 			on:pickScript

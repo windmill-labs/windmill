@@ -38,6 +38,7 @@
 		onSaved?: (newPath: string) => void
 		children?: import('svelte').Snippet
 		trigger_badges?: import('svelte').Snippet
+		onseeTriggers?: (...args: any[]) => any
 	}
 
 	let {
@@ -51,7 +52,8 @@
 		errorHandlerMuted = $bindable(),
 		onSaved,
 		children,
-		trigger_badges
+		trigger_badges,
+		onseeTriggers = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -82,6 +84,7 @@
 						size="xs"
 						on:click={async () => {
 							dispatch('seeTriggers')
+							onseeTriggers?.()
 							await tick()
 							triggersState.selectedTriggerIndex = primarySchedule
 						}}

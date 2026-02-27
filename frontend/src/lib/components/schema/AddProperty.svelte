@@ -6,10 +6,11 @@
 	import AddPropertyForm from './AddPropertyForm.svelte'
 
 	interface Props {
-		schema?: Schema | any;
+		schema?: Schema | any
+		onchange?: (...args: any[]) => any
 	}
 
-	let { schema = $bindable(emptySchema()) }: Props = $props();
+	let { schema = $bindable(emptySchema()), onchange = undefined }: Props = $props()
 
 	export const DEFAULT_PROPERTY: ModalSchemaProperty = {
 		selectedType: 'string',
@@ -119,6 +120,7 @@
 			sendUserToast(argError, true)
 		}
 		dispatch('change', schema)
+		onchange?.(schema)
 	}
 
 	export function handleDeleteArgument(argPath: string[], nschema?: Schema): void {
@@ -148,10 +150,12 @@
 				schema = modifiedObject
 				schemaString = JSON.stringify(schema, null, '\t')
 				dispatch('change', schema)
+				onchange?.(schema)
 			} else {
 				throw Error('Argument not found!')
 			}
 			dispatch('change', schema)
+			onchange?.(schema)
 		} catch (err) {
 			sendUserToast(`Could not delete argument: ${err}`, true)
 		}

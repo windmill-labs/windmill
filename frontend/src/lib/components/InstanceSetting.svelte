@@ -36,6 +36,7 @@
 		openSmtpSettings?: () => void
 		oauths?: Record<string, any>
 		warning?: string
+		oncloseDrawer?: (...args: any[]) => any
 	}
 
 	let {
@@ -45,7 +46,8 @@
 		loading = true,
 		openSmtpSettings,
 		oauths,
-		warning
+		warning,
+		oncloseDrawer = undefined
 	}: Props = $props()
 	const dispatch = createEventDispatcher()
 
@@ -523,6 +525,7 @@
 								on:click={() => {
 									isCriticalAlertsUIOpen.set(true)
 									dispatch('closeDrawer')
+									oncloseDrawer?.()
 								}}
 							>
 								Show critical alerts

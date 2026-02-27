@@ -22,6 +22,8 @@
 		extra_row?: import('svelte').Snippet<[any]>
 		children?: import('svelte').Snippet<[any]>
 		empty?: import('svelte').Snippet<[any]>
+		onerror?: (...args: any[]) => any
+		onselect?: (...args: any[]) => any
 	}
 
 	let {
@@ -43,7 +45,9 @@
 		columns,
 		extra_row,
 		children,
-		empty
+		empty,
+		onerror = undefined,
+		onselect = undefined
 	}: Props = $props()
 
 	const perPage = 20
@@ -125,6 +129,7 @@
 			if (hasAlreadyFailed) return
 			hasAlreadyFailed = true
 			dispatch('error', { type: 'load', error: err })
+			onerror?.({ type: 'load', error: err })
 		} finally {
 			loading = false
 			loadingMore = false
@@ -145,6 +150,7 @@
 			}, 100)
 		} catch (err) {
 			dispatch('error', { type: 'delete', error: err })
+			onerror?.({ type: 'delete', error: err })
 		}
 	}
 
@@ -178,7 +184,7 @@
 	<tbody class="h-full w-full">
 		{#if extra_row}
 			<Row
-				onclick={() => dispatch('select', 'extraRow')}
+				onclick={() => (dispatch('select', 'extraRow'), onselect?.('extraRow'))}
 				class={twMerge(
 					extraRowClasses.class,
 					selectedItemId === 'extraRow' ? extraRowClasses.bgSelected : extraRowClasses.bgHover,
@@ -195,7 +201,7 @@
 				{@render customRow?.({ item, hover })}
 			{:else}
 				<Row
-					onclick={() => dispatch('select', item)}
+					onclick={() => (dispatch('select', item), onselect?.(item))}
 					class={twMerge(
 						selectedItemId === item.id ? 'bg-surface-selected' : 'hover:bg-surface-hover',
 						'cursor-pointer rounded-md',

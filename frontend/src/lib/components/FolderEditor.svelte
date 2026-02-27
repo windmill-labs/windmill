@@ -24,9 +24,10 @@
 
 	interface Props {
 		name: string
+		onupdate?: (...args: any[]) => any
 	}
 
-	let { name }: Props = $props()
+	let { name, onupdate = undefined }: Props = $props()
 	let can_write = $state(false)
 
 	type Role = 'viewer' | 'writer' | 'admin'
@@ -137,6 +138,7 @@
 		})
 		sendUserToast('Folder summary updated')
 		dispatch('update')
+		onupdate?.()
 		loadFolder()
 	}
 	$effect.pre(() => {

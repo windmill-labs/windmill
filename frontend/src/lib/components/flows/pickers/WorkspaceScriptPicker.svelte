@@ -27,6 +27,7 @@
 		displayLock?: boolean
 		filter?: string
 		children?: import('svelte').Snippet
+		onpick?: (...args: any[]) => any
 	}
 
 	let {
@@ -34,7 +35,8 @@
 		isTemplate = undefined,
 		displayLock = false,
 		filter = $bindable(''),
-		children
+		children,
+		onpick = undefined
 	}: Props = $props()
 
 	async function loadItems(): Promise<void> {
@@ -128,6 +130,7 @@
 						class="p-4 gap-1 flex flex-row grow hover:bg-surface-hover bg-surface transition-all text-primary"
 						onclick={() => {
 							dispatch('pick', { path, hash: lockHash ? hash : undefined })
+							onpick?.({ path, hash: lockHash ? hash : undefined })
 						}}
 					>
 						<div class="flex flex-col">

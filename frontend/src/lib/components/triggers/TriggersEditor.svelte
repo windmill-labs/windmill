@@ -53,6 +53,7 @@
 		noCapture?: boolean
 		isEditor?: boolean
 		onDeployTrigger?: (trigger: Trigger) => void
+		onexitTriggers?: (...args: any[]) => any
 	}
 
 	let {
@@ -70,7 +71,8 @@
 		schema = undefined,
 		noCapture = false,
 		isEditor = true,
-		onDeployTrigger
+		onDeployTrigger,
+		onexitTriggers = undefined
 	}: Props = $props()
 
 	let config: Record<string, any> = $state({})
@@ -91,6 +93,7 @@
 	const dispatch = createEventDispatcher()
 	onDestroy(() => {
 		dispatch('exitTriggers')
+		onexitTriggers?.()
 	})
 
 	// Handle trigger selection

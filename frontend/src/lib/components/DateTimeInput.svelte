@@ -25,6 +25,8 @@
 		 * 'local' will use the local timezone of the user
 		 */
 		timezone?: 'naive' | 'local'
+		onchange?: (...args: any[]) => any
+		onclear?: (...args: any[]) => any
 	}
 
 	let {
@@ -36,7 +38,9 @@
 		maxDate = undefined,
 		disabled = undefined,
 		inputClass = undefined,
-		timezone = 'local'
+		timezone = 'local',
+		onchange = undefined,
+		onclear = undefined
 	}: Props = $props()
 
 	let date: string | undefined = $state(undefined)
@@ -80,6 +84,7 @@
 		if (date === '' && value) {
 			value = null
 			dispatchIfMounted('change', value)
+			onchange?.(value)
 			return
 		}
 
@@ -89,6 +94,7 @@
 			if (newDate.getFullYear() < 1900) return
 			value = newDate.toISOString()
 			dispatchIfMounted('change', value)
+			onchange?.(value)
 		}
 	}
 
@@ -114,6 +120,7 @@
 		newDate.setMinutes(newDate.getMinutes() + mins)
 		value = newDate.toISOString()
 		dispatch('change', value)
+		onchange?.(value)
 	}
 
 	let randomId = 'datetarget-' + Math.random().toString(36).substring(7)
@@ -189,6 +196,7 @@
 			on:click={() => {
 				value = null
 				dispatch('clear')
+				onclear?.()
 			}}
 		></Button>
 	{/if}

@@ -9,24 +9,25 @@
 	import { dfs } from './flows/dfs'
 	import { workspaceStore } from '$lib/stores'
 
-
 	interface Props {
 		flow: {
-		summary: string
-		description?: string
-		value: FlowValue
-		schema?: any
-		path?: string
-	};
-		overflowAuto?: boolean;
-		noSide?: boolean;
-		download?: boolean;
-		noGraph?: boolean;
-		triggerNode?: boolean;
-		stepDetail?: FlowModule | string | undefined;
-		workspace?: string | undefined;
-		minHeight?: number;
-		noBorder?: boolean;
+			summary: string
+			description?: string
+			value: FlowValue
+			schema?: any
+			path?: string
+		}
+		overflowAuto?: boolean
+		noSide?: boolean
+		download?: boolean
+		noGraph?: boolean
+		triggerNode?: boolean
+		stepDetail?: FlowModule | string | undefined
+		workspace?: string | undefined
+		minHeight?: number
+		noBorder?: boolean
+		ontriggerDetail?: (...args: any[]) => any
+		onselect?: (...args: any[]) => any
 	}
 
 	let {
@@ -39,8 +40,10 @@
 		stepDetail = $bindable(undefined),
 		workspace = $workspaceStore,
 		minHeight = 400,
-		noBorder = false
-	}: Props = $props();
+		noBorder = false,
+		ontriggerDetail = undefined,
+		onselect = undefined
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 </script>
@@ -67,6 +70,7 @@
 				onSelect={(nodeId) => {
 					if (nodeId === 'Trigger') {
 						dispatch('triggerDetail')
+						ontriggerDetail?.()
 						return
 					} else if (nodeId === 'failure') {
 						stepDetail = flow?.value?.failure_module
@@ -77,6 +81,7 @@
 					}
 					stepDetail = stepDetail ?? nodeId
 					dispatch('select', stepDetail)
+					onselect?.(stepDetail)
 				}}
 			/>
 		</div>

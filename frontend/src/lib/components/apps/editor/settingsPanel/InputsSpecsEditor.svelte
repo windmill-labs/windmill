@@ -21,6 +21,7 @@
 		showOnDemandOnlyToggle?: boolean
 		securedContext?: boolean
 		overridenByComponent?: string[]
+		ondelete?: (...args: any[]) => any
 	}
 
 	let {
@@ -36,7 +37,8 @@
 		recomputeOnInputChanged = true,
 		showOnDemandOnlyToggle = false,
 		securedContext = false,
-		overridenByComponent = []
+		overridenByComponent = [],
+		ondelete = undefined
 	}: Props = $props()
 
 	let finalInputSpecsConfiguration = $derived(inputSpecsConfiguration ?? inputSpecs)
@@ -104,7 +106,7 @@
 				/>
 				{#if deletable}
 					<div class="flex flex-row-reverse -mt-4">
-						<CloseButton noBg on:close={() => dispatch('delete', k)} />
+						<CloseButton noBg on:close={() => (dispatch('delete', k), ondelete?.(k))} />
 					</div>
 				{/if}
 			{/if}

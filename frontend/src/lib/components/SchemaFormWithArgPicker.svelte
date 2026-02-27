@@ -19,6 +19,7 @@
 		isValid?: boolean
 		jsonView?: boolean
 		children?: import('svelte').Snippet
+		onselect?: (...args: any[]) => any
 	}
 
 	let {
@@ -28,7 +29,8 @@
 		previewArgs,
 		isValid = true,
 		jsonView = false,
-		children
+		children,
+		onselect = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -142,6 +144,7 @@
 								{runnableType}
 								on:select={(e) => {
 									dispatch('select', { payload: e.detail?.args, type: 'history' })
+									onselect?.({ payload: e.detail?.args, type: 'history' })
 								}}
 							/>
 						</FlowInputEditor>
@@ -155,6 +158,7 @@
 								bind:this={savedInputsPicker}
 								on:select={(e) => {
 									dispatch('select', { payload: e.detail, type: 'saved' })
+									onselect?.({ payload: e.detail, type: 'saved' })
 								}}
 								{jsonView}
 							/>
@@ -173,6 +177,7 @@
 									path={stablePathForCaptures}
 									on:select={(e) => {
 										dispatch('select', { payload: e.detail, type: 'captures' })
+										onselect?.({ payload: e.detail, type: 'captures' })
 									}}
 									bind:this={captureTable}
 									isFlow={true}

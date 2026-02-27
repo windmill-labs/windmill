@@ -4,12 +4,13 @@
 	import { createEventDispatcher } from 'svelte'
 
 	interface Props {
-		tabs: string[];
-		selectedIndex?: number;
-		maxReachedIndex?: number;
-		statusByStep?: Array<'success' | 'error' | 'pending'>;
-		hasValidations?: boolean;
-		allowStepNavigation?: boolean;
+		tabs: string[]
+		selectedIndex?: number
+		maxReachedIndex?: number
+		statusByStep?: Array<'success' | 'error' | 'pending'>
+		hasValidations?: boolean
+		allowStepNavigation?: boolean
+		onclick?: (...args: any[]) => any
 	}
 
 	let {
@@ -18,8 +19,9 @@
 		maxReachedIndex = -1,
 		statusByStep = [],
 		hasValidations = false,
-		allowStepNavigation = false
-	}: Props = $props();
+		allowStepNavigation = false,
+		onclick = undefined
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
@@ -74,6 +76,7 @@
 				)}
 				onclick={() => {
 					dispatch('click', { index })
+					onclick?.({ index })
 				}}
 			>
 				{#if statusByStep[index] === 'pending'}

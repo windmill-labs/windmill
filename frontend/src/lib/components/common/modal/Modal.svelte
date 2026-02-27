@@ -18,6 +18,8 @@
 		settings?: import('svelte').Snippet
 		children?: import('svelte').Snippet
 		actions?: import('svelte').Snippet
+		onconfirmed?: (...args: any[]) => any
+		oncanceled?: (...args: any[]) => any
 	}
 
 	let {
@@ -29,7 +31,9 @@
 		kind = 'button',
 		settings,
 		children,
-		actions
+		actions,
+		onconfirmed = undefined,
+		oncanceled = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -41,12 +45,14 @@
 					event.stopPropagation()
 					event.preventDefault()
 					dispatch('confirmed')
+					onconfirmed?.()
 					break
 				case 'Escape':
 					event.stopPropagation()
 					event.preventDefault()
 					open = false
 					dispatch('canceled')
+					oncanceled?.()
 					break
 			}
 		}
@@ -111,6 +117,7 @@
 							<Button
 								on:click={() => {
 									dispatch('canceled')
+									oncanceled?.()
 									open = false
 								}}
 								color="light"

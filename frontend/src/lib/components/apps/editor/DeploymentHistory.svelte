@@ -14,9 +14,10 @@
 
 	interface Props {
 		appPath: string | undefined
+		onrestore?: (...args: any[]) => any
 	}
 
-	let { appPath }: Props = $props()
+	let { appPath, onrestore = undefined }: Props = $props()
 	let loading: boolean = $state(false)
 
 	let versions: AppHistory[] = $state([])
@@ -186,7 +187,9 @@
 							>
 								Restore as fork
 							</Button>
-							<Button size="xs" on:click={() => dispatch('restore', selected)}
+							<Button
+								size="xs"
+								on:click={() => (dispatch('restore', selected), onrestore?.(selected))}
 								>Redeploy with that version
 							</Button>
 						</div>

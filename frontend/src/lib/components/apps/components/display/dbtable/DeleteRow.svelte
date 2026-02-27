@@ -12,9 +12,10 @@
 
 	interface Props {
 		id: string
+		ondeleted?: (...args: any[]) => any
 	}
 
-	let { id }: Props = $props()
+	let { id, ondeleted = undefined }: Props = $props()
 
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -58,6 +59,7 @@
 					onDone: (_x) => {
 						sendUserToast('Row deleted', false)
 						dispatch('deleted')
+						ondeleted?.()
 					},
 					onCancel: () => {
 						sendUserToast('Error deleting row', true)

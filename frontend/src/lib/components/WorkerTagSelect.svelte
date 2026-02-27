@@ -16,7 +16,8 @@
 		nullTag = undefined,
 		disabled = false,
 		placeholder,
-		inputClass
+		inputClass,
+		onchange = undefined
 	}: {
 		tag: string | undefined
 		noLabel?: boolean
@@ -26,6 +27,7 @@
 		language?: string
 		class?: string
 		inputClass?: string
+		onchange?: (...args: any[]) => any
 	} = $props()
 
 	let loading = $state(false)
@@ -142,7 +144,9 @@
 		{disabled}
 		placeholder={nullTag ? nullTag : (placeholder ?? 'lang default')}
 		items={safeSelectItems(items)}
-		bind:value={() => tag, (value) => ((tag = value), dispatch('change', value))}
+		bind:value={
+			() => tag, (value) => ((tag = value), (dispatch('change', value), onchange?.(value)))
+		}
 		{startSnippet}
 		bottomSnippet={refreshAll}
 	/>

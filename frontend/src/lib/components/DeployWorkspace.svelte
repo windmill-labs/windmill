@@ -48,6 +48,7 @@
 		workspaceToDeployTo?: string | undefined
 		hideButton?: boolean
 		canDeployToWorkspace?: boolean
+		onupdate?: (...args: any[]) => any
 	}
 
 	let {
@@ -56,7 +57,8 @@
 		additionalInformation = undefined,
 		workspaceToDeployTo = $bindable(undefined),
 		hideButton = false,
-		canDeployToWorkspace = $bindable(true)
+		canDeployToWorkspace = $bindable(true),
+		onupdate = undefined
 	}: Props = $props()
 
 	let canSeeTarget: 'yes' | 'cant-deploy-to-workspace' | 'cant-see-all-deps' | undefined =
@@ -99,9 +101,7 @@
 			if (!$superadmin) {
 				const targetUser = await UserService.whoami({ workspace: workspaceToDeployTo! })
 				canPreserveOnBehalfOf =
-					targetUser.is_admin ||
-					targetUser.groups?.includes('wm_deployers') ||
-					false
+					targetUser.is_admin || targetUser.groups?.includes('wm_deployers') || false
 			} else {
 				canPreserveOnBehalfOf = true
 			}
@@ -315,6 +315,7 @@
 			}
 		})
 		dispatch('update', initialPath)
+		onupdate?.(initialPath)
 	}
 
 	function computeStatusPath(kind: Kind, path: string) {
@@ -538,16 +539,14 @@
 							{#if kind === 'trigger'}
 								You must set the "edited by" user for all triggers before deploying
 								<Tooltip class="text-yellow-600">
-									The "edited by" field defines which user's permissions will be applied
-									when the trigger runs. Make sure this is set to an appropriate user
-									before deploying.
+									The "edited by" field defines which user's permissions will be applied when the
+									trigger runs. Make sure this is set to an appropriate user before deploying.
 								</Tooltip>
 							{:else}
 								You must set the "on behalf of" user for all items before deploying
 								<Tooltip class="text-yellow-600">
-									The "run on behalf of" field defines which user's permissions will be
-									applied during execution. Make sure this is set to an appropriate user
-									before deploying.
+									The "run on behalf of" field defines which user's permissions will be applied
+									during execution. Make sure this is set to an appropriate user before deploying.
 								</Tooltip>
 							{/if}
 						</span>

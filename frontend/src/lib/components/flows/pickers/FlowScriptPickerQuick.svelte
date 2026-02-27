@@ -6,11 +6,12 @@
 	import { createEventDispatcher } from 'svelte'
 
 	interface Props {
-		label: string;
-		lang?: SupportedLanguage | 'docker' | 'javascript' | undefined;
-		selected?: boolean;
-		eeRestricted: boolean;
-		enterpriseLangs?: string[];
+		label: string
+		lang?: SupportedLanguage | 'docker' | 'javascript' | undefined
+		selected?: boolean
+		eeRestricted: boolean
+		enterpriseLangs?: string[]
+		onclick?: (...args: any[]) => any
 	}
 
 	let {
@@ -18,8 +19,9 @@
 		lang = undefined,
 		selected = false,
 		eeRestricted,
-		enterpriseLangs = []
-	}: Props = $props();
+		enterpriseLangs = [],
+		onclick = undefined
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 	function handleKeydown(event: KeyboardEvent & { currentTarget: EventTarget & Window }) {
@@ -37,6 +39,7 @@
 			return
 		}
 		dispatch('click')
+		onclick?.()
 	}
 </script>
 

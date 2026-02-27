@@ -80,6 +80,8 @@
 		suspendStatus?: StateStore<Record<string, { job: Job; nb: number }>>
 		onDelete?: (id: string) => void
 		flowHasChanged?: boolean
+		ongenerateStep?: (...args: any[]) => any
+		onchange?: (...args: any[]) => any
 	}
 
 	let {
@@ -109,7 +111,9 @@
 		showJobStatus = false,
 		suspendStatus = $bindable({ val: {} }),
 		onDelete,
-		flowHasChanged
+		flowHasChanged,
+		ongenerateStep = undefined,
+		onchange = undefined
 	}: Props = $props()
 
 	const { customUi, selectionManager, moving, history, flowStateStore, flowStore, pathStore } =
@@ -542,6 +546,11 @@
 										lang: detail.inlineScript?.language,
 										instructions: detail.inlineScript?.instructions
 									})
+									ongenerateStep?.({
+										moduleId: 'preprocessor',
+										lang: detail.inlineScript?.language,
+										instructions: detail.inlineScript?.instructions
+									})
 								}
 							} else {
 								const index = (detail.agentId ? targetModules?.length : detail.index) ?? 0
@@ -565,6 +574,11 @@
 
 								if (detail.inlineScript?.instructions) {
 									dispatch('generateStep', {
+										moduleId: id,
+										lang: detail.inlineScript?.language,
+										instructions: detail.inlineScript?.instructions
+									})
+									ongenerateStep?.({
 										moduleId: id,
 										lang: detail.inlineScript?.language,
 										instructions: detail.inlineScript?.instructions
@@ -596,6 +610,7 @@
 						}
 						refreshStateStore(flowStore)
 						dispatch('change')
+						onchange?.()
 					}
 				}
 			}}

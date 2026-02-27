@@ -1,5 +1,4 @@
 <script lang="ts">
-
 	import type { Schema } from '$lib/common'
 	import { ResourceService, type Resource, type ResourceType } from '$lib/gen'
 	import { canWrite, emptyString, isOwner, urlize } from '$lib/utils'
@@ -32,6 +31,7 @@
 		hidePath?: boolean
 		onChange?: (args: { path: string; args: Record<string, any>; description: string }) => void
 		defaultValues?: Record<string, any> | undefined
+		onrefresh?: (...args: any[]) => any
 	}
 
 	let {
@@ -41,7 +41,8 @@
 		newResource = false,
 		hidePath = false,
 		onChange,
-		defaultValues = undefined
+		defaultValues = undefined,
+		onrefresh = undefined
 	}: Props = $props()
 
 	let isValid = $state(true)
@@ -100,6 +101,7 @@
 			}
 			sendUserToast(`Updated resource at ${path}`)
 			dispatch('refresh', path)
+			onrefresh?.(path)
 		} else {
 			throw Error('Cannot edit undefined resource')
 		}
@@ -112,6 +114,7 @@
 		})
 		sendUserToast(`Updated resource at ${path}`)
 		dispatch('refresh', path)
+		onrefresh?.(path)
 	}
 
 	async function loadResourceType(): Promise<void> {
@@ -295,9 +298,7 @@
 				{#if loadingSchema}
 					<Skeleton layout={[[4]]} />
 				{:else if !viewJsonSchema && resourceTypeInfo?.is_fileset}
-					<h5 class="mt-1 inline-flex items-center gap-4">
-						Fileset
-					</h5>
+					<h5 class="mt-1 inline-flex items-center gap-4"> Fileset </h5>
 					<FilesetEditor bind:args />
 				{:else if !viewJsonSchema && resourceSchema && resourceSchema?.properties}
 					{#if resourceTypeInfo?.format_extension}

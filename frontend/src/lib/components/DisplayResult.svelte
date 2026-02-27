@@ -100,6 +100,7 @@
 		copilot_fix?: import('svelte').Snippet
 		children?: import('svelte').Snippet
 		growVertical?: boolean
+		ontoolbarLocationChanged?: (...args: any[]) => any
 	}
 
 	let {
@@ -124,7 +125,8 @@
 		copilot_fix,
 		children,
 		loading = false,
-		growVertical = false
+		growVertical = false,
+		ontoolbarLocationChanged = undefined
 	}: Props = $props()
 	let enableHtml = $state(false)
 	let s3FileDisplayRawMode = $state(false)
@@ -469,6 +471,7 @@
 			toolbarLocation = 'self'
 		}
 		dispatch('toolbar-location-changed', toolbarLocation)
+		ontoolbarLocationChanged?.(toolbarLocation)
 	}
 
 	export function getToolbarLocation() {
@@ -477,6 +480,7 @@
 
 	onDestroy(() => {
 		dispatch('toolbar-location-changed', undefined)
+		ontoolbarLocationChanged?.(undefined)
 	})
 
 	$effect(() => {

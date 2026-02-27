@@ -31,14 +31,16 @@
 	interface Props {
 		value?: Dataset | undefined
 		trigger?: import('svelte').Snippet
+		onremove?: (...args: any[]) => any
 	}
 
-	let { value = $bindable(undefined), trigger }: Props = $props()
+	let { value = $bindable(undefined), trigger, onremove = undefined }: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
 	function removeDataset() {
 		dispatch('remove')
+		onremove?.()
 	}
 
 	const trigger_render = $derived(trigger)

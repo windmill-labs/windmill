@@ -1,21 +1,22 @@
 <script lang="ts">
-	import { createBubbler, stopPropagation, preventDefault } from 'svelte/legacy';
+	import { createBubbler, stopPropagation, preventDefault } from 'svelte/legacy'
 
-	const bubble = createBubbler();
+	const bubble = createBubbler()
 	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import { X } from 'lucide-svelte'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	interface Props {
-		value?: any;
-		placeholder?: string;
-		type?: 'text' | 'textarea' | 'number';
-		inputClass?: string;
-		wrapperClass?: string;
-		buttonClass?: string;
-		children?: import('svelte').Snippet;
+		value?: any
+		placeholder?: string
+		type?: 'text' | 'textarea' | 'number'
+		inputClass?: string
+		wrapperClass?: string
+		buttonClass?: string
+		children?: import('svelte').Snippet
 		[key: string]: any
+		onchange?: (...args: any[]) => any
 	}
 
 	let {
@@ -26,8 +27,9 @@
 		wrapperClass = '',
 		buttonClass = '',
 		children,
+		onchange = undefined,
 		...rest
-	}: Props = $props();
+	}: Props = $props()
 	const dispatch = createEventDispatcher()
 	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 	let isHovered = $state(false)
@@ -35,7 +37,8 @@
 	let isNumeric = $derived(['number', 'range'].includes(type))
 	$effect(() => {
 		dispatchIfMounted('change', value)
-	});
+		onchange?.(value)
+	})
 
 	function handleInput(e) {
 		value = isNumeric ? +e.target.value : e.target.value
@@ -47,7 +50,7 @@
 
 	$effect(() => {
 		if (value === undefined) value = ''
-	});
+	})
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->

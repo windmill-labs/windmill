@@ -24,6 +24,7 @@
 		 * Use this when you want to prevent navigation before checking for unsaved changes.
 		 */
 		deferSelectedUpdate?: boolean
+		onselected?: (...args: any[]) => any
 	}
 
 	let {
@@ -36,7 +37,8 @@
 		values = undefined,
 		children,
 		content,
-		deferSelectedUpdate = false
+		deferSelectedUpdate = false,
+		onselected = undefined
 	}: Props = $props()
 
 	// Single source of truth for tab state
@@ -47,6 +49,7 @@
 			selected = value
 		}
 		dispatch('selected', value)
+		onselected?.(value)
 	}
 
 	setContext<TabsContext>('Tabs', {

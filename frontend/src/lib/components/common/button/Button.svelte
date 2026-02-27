@@ -97,6 +97,8 @@
 		[key: string]: any
 		dropdownOpen?: boolean
 		dropdownWidth?: number | undefined
+		ontooltipOpen?: (...args: any[]) => any
+		ondropdownOpen?: (...args: any[]) => any
 	}
 
 	let {
@@ -139,6 +141,8 @@
 		onClick,
 		dropdownOpen = $bindable(false),
 		dropdownWidth = undefined,
+		ontooltipOpen = undefined,
+		ondropdownOpen = undefined,
 		...rest
 	}: Props = $props()
 
@@ -323,7 +327,7 @@
 	}) //This option is reactive
 
 	$effect(() => {
-		$open !== undefined && dispatchIfMounted('tooltipOpen', $open)
+		$open !== undefined && (dispatchIfMounted('tooltipOpen', $open), ontooltipOpen?.($open))
 	})
 
 	const dividerClass = $derived(getDividerClass(color, variant))
@@ -466,8 +470,8 @@
 			class="h-auto w-fit"
 			hidePopup={hideDropdown}
 			usePointerDownOutside
-			onOpen={() => dispatch('dropdownOpen', true)}
-			onClose={() => dispatch('dropdownOpen', false)}
+			onOpen={() => (dispatch('dropdownOpen', true), ondropdownOpen?.(true))}
+			onClose={() => (dispatch('dropdownOpen', false), ondropdownOpen?.(false))}
 			bind:open={dropdownOpen}
 			enableFlyTransition
 			customWidth={dropdownWidth}

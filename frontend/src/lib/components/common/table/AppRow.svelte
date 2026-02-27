@@ -45,6 +45,7 @@
 		depth?: number
 		menuOpen?: boolean
 		showEditButton?: boolean
+		onchange?: (...args: any[]) => any
 	}
 
 	let {
@@ -56,7 +57,8 @@
 		deleteConfirmedCallback = $bindable(),
 		depth = 0,
 		menuOpen = $bindable(false),
-		showEditButton = $bindable(true)
+		showEditButton = $bindable(true),
+		onchange = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -147,10 +149,12 @@
 								if (event?.shiftKey) {
 									await AppService.deleteApp({ workspace: $workspaceStore ?? '', path })
 									dispatch('change')
+									onchange?.()
 								} else {
 									deleteConfirmedCallback = async () => {
 										await AppService.deleteApp({ workspace: $workspaceStore ?? '', path })
 										dispatch('change')
+										onchange?.()
 									}
 								}
 							},
@@ -261,6 +265,7 @@
 											kind: 'app'
 										})
 										dispatch('change')
+										onchange?.()
 									},
 									type: DELETE,
 									disabled: !canWrite,
@@ -277,10 +282,12 @@
 							if (event?.shiftKey) {
 								await AppService.deleteApp({ workspace: $workspaceStore ?? '', path })
 								dispatch('change')
+								onchange?.()
 							} else {
 								deleteConfirmedCallback = async () => {
 									await AppService.deleteApp({ workspace: $workspaceStore ?? '', path })
 									dispatch('change')
+									onchange?.()
 								}
 							}
 						},

@@ -18,6 +18,7 @@
 		onJobDone?: () => void
 		localModuleStates?: Record<string, GraphModuleState>
 		suspendStatus: StateStore<Record<string, { job: Job; nb: number }>>
+		onopenTriggers?: (...args: any[]) => any
 	}
 
 	let {
@@ -25,7 +26,8 @@
 		onRunPreview,
 		onJobDone,
 		localModuleStates = $bindable({}),
-		suspendStatus
+		suspendStatus,
+		onopenTriggers = undefined
 	}: Props = $props()
 
 	const { selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -187,6 +189,7 @@
 			on:openTriggers={(e) => {
 				previewOpen = false
 				dispatch('openTriggers', e.detail)
+				onopenTriggers?.(e.detail)
 			}}
 			bind:preventEscape
 			{onRunPreview}

@@ -12,9 +12,10 @@
 			name: string
 			path: string
 		}
+		onreloadThemes?: (...args: any[]) => any
 	}
 
-	let { row }: Props = $props()
+	let { row, onreloadThemes = undefined }: Props = $props()
 
 	let editedName = $state(row.name)
 
@@ -49,6 +50,7 @@
 						}
 					})
 					dispatch('reloadThemes')
+					onreloadThemes?.()
 					close()
 					sendUserToast('Theme name updated:\n' + editedName)
 				}}

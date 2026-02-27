@@ -48,6 +48,7 @@
 		depth?: number
 		menuOpen?: boolean
 		showEditButton?: boolean
+		onchange?: (...args: any[]) => any
 	}
 
 	let {
@@ -60,7 +61,8 @@
 		errorHandlerMuted,
 		depth = 0,
 		menuOpen = $bindable(false),
-		showEditButton = $bindable(true)
+		showEditButton = $bindable(true),
+		onchange = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -73,6 +75,7 @@
 				requestBody: { archived }
 			})
 			dispatch('change')
+			onchange?.()
 			sendUserToast(`Archived flow ${path}`)
 		} catch (err) {
 			sendUserToast(`Could not archive this flow ${err.body}`, true)
@@ -83,6 +86,7 @@
 		try {
 			await FlowService.deleteFlowByPath({ workspace: $workspaceStore!, path })
 			dispatch('change')
+			onchange?.()
 			sendUserToast(`Deleted flow ${path}`)
 		} catch (err) {
 			sendUserToast(`Could not delete this flow ${err.body}`, true)
@@ -283,6 +287,7 @@
 											kind: 'flow'
 										})
 										dispatch('change')
+										onchange?.()
 									},
 									type: DELETE,
 									disabled: !owner,

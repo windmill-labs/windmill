@@ -21,6 +21,7 @@
 		path: string
 		can_write?: boolean
 		showTestingBadge?: boolean
+		onvalidConfig?: (...args: any[]) => any
 	}
 
 	const dispatch = createEventDispatcher()
@@ -32,7 +33,8 @@
 		natsCfg = $bindable(),
 		path,
 		can_write = true,
-		showTestingBadge = false
+		showTestingBadge = false,
+		onvalidConfig = undefined
 	}: Props = $props()
 
 	let otherArgsValid = $state(false)
@@ -95,6 +97,7 @@
 			natsCfg.subjects.every((b) => /^[a-zA-Z0-9-_.*>]+$/.test(b)) &&
 			globalError === ''
 		dispatch('valid-config', valid)
+		onvalidConfig?.(valid)
 	})
 
 	function setStreamAndConsumerNames() {

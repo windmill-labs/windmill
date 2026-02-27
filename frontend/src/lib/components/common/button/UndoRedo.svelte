@@ -4,11 +4,13 @@
 	import { Button } from '..'
 
 	interface Props {
-		undoProps?: Record<string, any>;
-		redoProps?: Record<string, any>;
+		undoProps?: Record<string, any>
+		redoProps?: Record<string, any>
+		onundo?: (...args: any[]) => any
+		onredo?: (...args: any[]) => any
 	}
 
-	let { undoProps = {}, redoProps = {} }: Props = $props();
+	let { undoProps = {}, redoProps = {}, onundo = undefined, onredo = undefined }: Props = $props()
 	const dispatch = createEventDispatcher()
 </script>
 
@@ -17,7 +19,7 @@
 		title="Undo"
 		variant="default"
 		btnClasses="!min-h-[30px] !rounded-r-none"
-		on:click={() => dispatch('undo')}
+		on:click={() => (dispatch('undo'), onundo?.())}
 		startIcon={{ icon: Undo }}
 		iconOnly
 		{...undoProps}
@@ -26,7 +28,7 @@
 		title="Redo"
 		variant="default"
 		btnClasses="!min-h-[30px] !rounded-l-none !border-l-0"
-		on:click={() => dispatch('redo')}
+		on:click={() => (dispatch('redo'), onredo?.())}
 		startIcon={{ icon: Redo }}
 		iconOnly
 		{...redoProps}

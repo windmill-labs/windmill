@@ -6,9 +6,10 @@
 		href: string
 		actions?: import('svelte').Snippet
 		children?: import('svelte').Snippet
+		onclose?: (...args: any[]) => any
 	}
 
-	let { title, href, actions, children }: Props = $props()
+	let { title, href, actions, children, onclose = undefined }: Props = $props()
 
 	const dispatch = createEventDispatcher()
 </script>
@@ -20,6 +21,7 @@
 			{href}
 			onclick={() => {
 				dispatch('close')
+				onclose?.()
 			}}
 		>
 			{title}

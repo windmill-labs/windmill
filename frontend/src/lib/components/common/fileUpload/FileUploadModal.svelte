@@ -6,14 +6,14 @@
 	import { X } from 'lucide-svelte'
 	import FileUpload from './FileUpload.svelte'
 
-
 	interface Props {
-		title: string;
-		open?: boolean;
-		fileKey?: string | undefined;
+		title: string
+		open?: boolean
+		fileKey?: string | undefined
+		onclose?: (...args: any[]) => any
 	}
 
-	let { title, open = false, fileKey = $bindable(undefined) }: Props = $props();
+	let { title, open = false, fileKey = $bindable(undefined), onclose = undefined }: Props = $props()
 
 	let s3Folder: string = $state('')
 	const dispatch = createEventDispatcher()
@@ -34,11 +34,7 @@
 </script>
 
 {#if open}
-	<div
-		transition:fadeFast
-		class={'fixed top-0 bottom-0 left-0 right-0 z-[5000]'}
-		role="dialog"
-	>
+	<div transition:fadeFast class={'fixed top-0 bottom-0 left-0 right-0 z-[5000]'} role="dialog">
 		<div
 			class={classNames(
 				'fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity',
@@ -62,7 +58,7 @@
 								{title}
 							</h3>
 							<Button
-								on:click={() => dispatch('close', fileKey)}
+								on:click={() => (dispatch('close', fileKey), onclose?.(fileKey))}
 								title="Close"
 								color="light"
 								size="sm"

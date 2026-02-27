@@ -72,6 +72,7 @@
 		hideFullPath?: boolean
 		size?: 'sm' | 'md'
 		drawerOffset?: number
+		onenter?: (...args: any[]) => any
 	}
 
 	let {
@@ -89,7 +90,8 @@
 		disableEditing = false,
 		hideFullPath = false,
 		size = 'md',
-		drawerOffset = 0
+		drawerOffset = 0,
+		onenter = undefined
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -133,6 +135,7 @@
 		if (key === 'Enter') {
 			event.preventDefault()
 			dispatch('enter')
+			onenter?.()
 		}
 	}
 

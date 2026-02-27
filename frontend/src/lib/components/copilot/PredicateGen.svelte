@@ -18,9 +18,15 @@
 	let loading = $state(false)
 	interface Props {
 		pickableProperties?: PickableProperties | undefined
+		onsetExpr?: (...args: any[]) => any
+		onupdateSummary?: (...args: any[]) => any
 	}
 
-	let { pickableProperties = undefined }: Props = $props()
+	let {
+		pickableProperties = undefined,
+		onsetExpr = undefined,
+		onupdateSummary = undefined
+	}: Props = $props()
 
 	let instructions = $state('')
 	let instructionsField: HTMLInputElement | undefined = $state(undefined)
@@ -77,7 +83,9 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 			)
 
 			dispatch('setExpr', result)
+			onsetExpr?.(result)
 			dispatch('updateSummary', instructions)
+			onupdateSummary?.(instructions)
 		} catch (err) {
 			if (!abortController.signal.aborted) {
 				sendUserToast('Could not generate predicate: ' + err, true)

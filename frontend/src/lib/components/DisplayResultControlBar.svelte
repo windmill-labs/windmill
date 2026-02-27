@@ -15,6 +15,7 @@
 		base: string
 		result: any
 		disableTooltips?: boolean
+		onopenDrawer?: (...args: any[]) => any
 	}
 
 	let {
@@ -25,7 +26,8 @@
 		nodeId = undefined,
 		base,
 		result,
-		disableTooltips = false
+		disableTooltips = false,
+		onopenDrawer = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -67,7 +69,7 @@
 	<button onclick={() => copyToClipboard(toJsonStr(result))}>
 		<ClipboardCopy size={14} />
 	</button>
-	<button onclick={() => dispatch('open-drawer')}>
+	<button onclick={() => (dispatch('open-drawer'), onopenDrawer?.())}>
 		<Expand size={14} />
 	</button>
 </div>

@@ -7,7 +7,8 @@
 		loading = false,
 		loadingSave = false,
 		newFlow = false,
-		dropdownItems = []
+		dropdownItems = [],
+		onsave = undefined
 	}: {
 		loading?: boolean
 		loadingSave?: boolean
@@ -16,6 +17,7 @@
 			label: string
 			onClick: () => void
 		}>
+		onsave?: (...args: any[]) => any
 	} = $props()
 
 	const dispatch = createEventDispatcher()
@@ -32,7 +34,7 @@
 	variant="accent"
 	unifiedSize="md"
 	startIcon={{ icon: Save }}
-	on:click={() => dispatch('save')}
+	on:click={() => (dispatch('save'), onsave?.())}
 	dropdownItems={!newFlow ? dropdownItems : undefined}
 	tooltipPopover={{
 		placement: 'bottom-end',
@@ -66,6 +68,7 @@
 				onkeydown={async (e) => {
 					if (e.key === 'Enter') {
 						dispatch('save', deploymentMsg)
+						onsave?.(deploymentMsg)
 					}
 				}}
 				bind:this={msgInput}
@@ -73,7 +76,7 @@
 			<Button
 				unifiedSize="md"
 				variant="accent"
-				on:click={async () => dispatch('save', deploymentMsg)}
+				on:click={async () => (dispatch('save', deploymentMsg), onsave?.(deploymentMsg))}
 				endIcon={{ icon: CornerDownLeft }}
 				loading={loadingSave}
 			>

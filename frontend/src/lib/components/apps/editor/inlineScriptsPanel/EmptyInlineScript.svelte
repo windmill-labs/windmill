@@ -25,13 +25,17 @@
 		showScriptPicker?: boolean
 		rawApps?: boolean
 		unusedInlineScripts: { name: string; inlineScript: InlineScript }[]
+		onnew?: (...args: any[]) => any
+		ondelete?: (...args: any[]) => any
 	}
 
 	let {
 		componentType = undefined,
 		showScriptPicker = false,
 		rawApps = false,
-		unusedInlineScripts
+		unusedInlineScripts,
+		onnew = undefined,
+		ondelete = undefined
 	}: Props = $props()
 
 	let tab = $state('workspacescripts')
@@ -75,6 +79,7 @@
 			schema
 		}
 		dispatch('new', newInlineScript)
+		onnew?.(newInlineScript)
 	}
 
 	async function pickScript(path: string) {
@@ -147,7 +152,7 @@
 			</Button>
 
 			<Button
-				on:click={() => dispatch('delete')}
+				on:click={() => (dispatch('delete'), ondelete?.())}
 				size="xs"
 				color="red"
 				variant="border"
@@ -216,6 +221,7 @@ return state.foo`,
 								schema: undefined
 							}
 							dispatch('new', newInlineScript)
+							onnew?.(newInlineScript)
 						}}
 					/>
 				</div>

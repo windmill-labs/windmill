@@ -1,5 +1,4 @@
 <script lang="ts">
-
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import {
@@ -41,6 +40,9 @@
 		disabled?: boolean
 		manual?: boolean
 		express?: boolean
+		onerror?: (...args: any[]) => any
+		onrefresh?: (...args: any[]) => any
+		onclose?: (...args: any[]) => any
 	}
 
 	let {
@@ -49,7 +51,10 @@
 		isGoogleSignin = $bindable(false),
 		disabled = $bindable(false),
 		manual = $bindable(true),
-		express = false
+		express = false,
+		onerror = undefined,
+		onrefresh = undefined,
+		onclose = undefined
 	}: Props = $props()
 
 	let isValid = $state(true)
@@ -146,6 +151,7 @@
 		manual = !connects?.includes(resourceType)
 		if (manual && express) {
 			dispatch('error', 'Express OAuth setup is not available for non OAuth resource types')
+			onerror?.('Express OAuth setup is not available for non OAuth resource types')
 			return
 		}
 		if (rt) {
@@ -492,7 +498,9 @@
 				}
 			})
 			dispatch('refresh', path)
+			onrefresh?.(path)
 			dispatch('close')
+			onclose?.()
 			sendUserToast(`Saved resource${saveVariable ? ' and variable' : ''} path: ${path}`)
 			step = 1
 			resourceType = ''

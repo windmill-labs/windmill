@@ -119,6 +119,8 @@
 		assets?: AssetWithAltAccessType[]
 		editor_bar_right?: import('svelte').Snippet
 		enablePreprocessorSnippet?: boolean
+		onchange?: (...args: any[]) => any
+		onformat?: (...args: any[]) => any
 	}
 
 	let {
@@ -150,7 +152,9 @@
 		disableAi = false,
 		assets = $bindable(),
 		editor_bar_right,
-		enablePreprocessorSnippet = false
+		enablePreprocessorSnippet = false,
+		onchange = undefined,
+		onformat = undefined
 	}: Props = $props()
 
 	let initialArgs = structuredClone($state.snapshot(args))
@@ -187,6 +191,7 @@
 		watchChanges &&
 			(code != undefined || schema != undefined) &&
 			dispatch('change', { code, schema })
+		onchange?.({ code, schema })
 	})
 
 	watch(
@@ -1407,6 +1412,7 @@
 					console.error('Could not save last_save to local storage', e)
 				}
 				dispatch('format')
+				onformat?.()
 			}}
 			class="flex flex-1 h-full !overflow-visible"
 			scriptLang={lang}

@@ -26,6 +26,7 @@
 		className?: string
 		dndType?: string
 		lightHeaderFont?: boolean
+		onreorder?: (...args: any[]) => any
 	}
 
 	let {
@@ -46,7 +47,8 @@
 		noVariablePicker = false,
 		className = '',
 		dndType = generateRandomString(),
-		lightHeaderFont
+		lightHeaderFont,
+		onreorder = undefined
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -91,6 +93,7 @@
 		items = $state.snapshot(newItems)
 		const newOrder = items.map((item) => item.value)
 		dispatch('reorder', newOrder)
+		onreorder?.(newOrder)
 	}
 	$effect(() => {
 		readFieldsRecursively(schema)

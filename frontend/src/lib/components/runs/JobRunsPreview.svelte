@@ -20,9 +20,16 @@
 	interface Props {
 		id: string
 		workspace: string | undefined
+		onfilterByConcurrencyKey?: (...args: any[]) => any
+		onfilterByWorker?: (...args: any[]) => any
 	}
 
-	let { id, workspace }: Props = $props()
+	let {
+		id,
+		workspace,
+		onfilterByConcurrencyKey = undefined,
+		onfilterByWorker = undefined
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
@@ -52,10 +59,12 @@
 
 	function handleFilterByConcurrencyKey(key: string) {
 		dispatch('filterByConcurrencyKey', key)
+		onfilterByConcurrencyKey?.(key)
 	}
 
 	function handleFilterByWorker(worker: string) {
 		dispatch('filterByWorker', worker)
+		onfilterByWorker?.(worker)
 	}
 	$effect(() => {
 		if (currentJob?.id == id) {

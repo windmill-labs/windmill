@@ -45,7 +45,7 @@
 			order: keys
 		}
 
-		tick().then(() => dispatch('change', schema))
+		tick().then(() => (dispatch('change', schema), onchange?.(schema)))
 	}
 
 	interface Props {
@@ -53,12 +53,14 @@
 		jsonView?: boolean
 		hiddenArgs?: string[]
 		onClose?: () => void
+		onchange?: (...args: any[]) => any
 	}
 
 	let {
 		schema = $bindable(),
 		jsonView = $bindable(false),
-		hiddenArgs = undefined
+		hiddenArgs = undefined,
+		onchange = undefined
 	}: Props = $props()
 
 	// let schema = $state(structuredClone($state.snapshot(schema)))

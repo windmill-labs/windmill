@@ -12,9 +12,10 @@
 
 	interface Props {
 		id: string
+		oninsert?: (...args: any[]) => any
 	}
 
-	let { id }: Props = $props()
+	let { id, oninsert = undefined }: Props = $props()
 
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -54,6 +55,7 @@
 			await runnableComponent?.runComponent(undefined, undefined, undefined, values, {
 				onDone: (_x) => {
 					dispatch('insert')
+					oninsert?.()
 					sendUserToast('Row inserted', false)
 				},
 				onCancel: () => {

@@ -22,9 +22,17 @@
 		focused?: boolean
 		arg: InputTransform | any
 		pickableProperties?: PickableProperties | undefined
+		onsetExpr?: (...args: any[]) => any
+		onshowExpr?: (...args: any[]) => any
 	}
 
-	let { focused = false, arg, pickableProperties = undefined }: Props = $props()
+	let {
+		focused = false,
+		arg,
+		pickableProperties = undefined,
+		onsetExpr = undefined,
+		onshowExpr = undefined
+	}: Props = $props()
 
 	let btnFocused = $state(false)
 
@@ -94,6 +102,7 @@ Only output the expression, do not explain or discuss.`
 			if (!loading && generatedContent) {
 				event.preventDefault()
 				dispatch('setExpr', generatedContent)
+				onsetExpr?.(generatedContent)
 				generatedContent = ''
 			}
 		} else {
@@ -141,6 +150,7 @@ Only output the expression, do not explain or discuss.`
 
 	$effect(() => {
 		dispatch('showExpr', generatedContent)
+		onshowExpr?.(generatedContent)
 	})
 
 	let out = $state(true) // hack to prevent regenerating answer when accepting the answer due to mouseenter on new icon
@@ -160,6 +170,7 @@ Only output the expression, do not explain or discuss.`
 			on:click={() => {
 				if (!loading && generatedContent.length > 0) {
 					dispatch('setExpr', generatedContent)
+					onsetExpr?.(generatedContent)
 					generatedContent = ''
 				}
 			}}

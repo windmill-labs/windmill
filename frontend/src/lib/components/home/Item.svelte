@@ -24,16 +24,29 @@
 		depth?: number
 		showCode: (path: string, summary: string) => void
 		showEditButton?: boolean
+		onscriptChanged?: (...args: any[]) => any
+		onflowChanged?: (...args: any[]) => any
+		onappChanged?: (...args: any[]) => any
+		onreload?: (...args: any[]) => any
 	}
 
-	let { item, depth = 0, showCode, showEditButton = true }: Props = $props()
+	let {
+		item,
+		depth = 0,
+		showCode,
+		showEditButton = true,
+		onscriptChanged = undefined,
+		onflowChanged = undefined,
+		onappChanged = undefined,
+		onreload = undefined
+	}: Props = $props()
 </script>
 
 {#if item.type == 'script'}
 	<ScriptRow
 		bind:deleteConfirmedCallback
 		marked={item.marked}
-		on:change={() => dispatch('scriptChanged')}
+		on:change={() => (dispatch('scriptChanged'), onscriptChanged?.())}
 		script={item}
 		errorHandlerMuted={item.ws_error_handler_muted === undefined ||
 		item.ws_error_handler_muted === null
@@ -51,7 +64,7 @@
 	<FlowRow
 		bind:deleteConfirmedCallback
 		marked={item.marked}
-		on:change={() => dispatch('flowChanged')}
+		on:change={() => (dispatch('flowChanged'), onflowChanged?.())}
 		flow={item}
 		errorHandlerMuted={item.ws_error_handler_muted === undefined ||
 		item.ws_error_handler_muted === null
@@ -68,7 +81,7 @@
 	<AppRow
 		bind:deleteConfirmedCallback
 		marked={item.marked}
-		on:change={() => dispatch('appChanged')}
+		on:change={() => (dispatch('appChanged'), onappChanged?.())}
 		app={item}
 		{moveDrawer}
 		{shareModal}
@@ -123,6 +136,7 @@
 		bind:this={shareModal}
 		on:change={() => {
 			dispatch('reload')
+			onreload?.()
 		}}
 	/>
 
@@ -131,6 +145,7 @@
 		bind:this={moveDrawer}
 		on:update={() => {
 			dispatch('reload')
+			onreload?.()
 		}}
 	/>
 {/if}

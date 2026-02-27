@@ -42,6 +42,9 @@
 		result?: any[] | undefined
 		allowColumnDefsActions?: boolean
 		onChange?: string[] | undefined
+		onupdate?: (...args: any[]) => any
+		ondelete?: (...args: any[]) => any
+		onrecompute?: (...args: any[]) => any
 	}
 
 	let {
@@ -56,7 +59,10 @@
 		actions = [],
 		result = undefined,
 		allowColumnDefsActions = true,
-		onChange = undefined
+		onChange = undefined,
+		onupdate = undefined,
+		ondelete = undefined,
+		onrecompute = undefined
 	}: Props = $props()
 	let inputs = {}
 
@@ -129,6 +135,14 @@
 			columnDef: event.colDef
 		})
 
+		onupdate?.({
+			row: event.node.rowIndex,
+			column: event.colDef.field,
+			value: dataCell,
+			data: event.node.data,
+			oldValue: event.oldValue,
+			columnDef: event.colDef
+		})
 		resolvedConfig?.extraConfig?.['defaultColDef']?.['onCellValueChanged']?.(event)
 		fireOnChange()
 	}
@@ -253,6 +267,7 @@
 				cellRendererParams: {
 					onClick: (e) => {
 						dispatch('delete', e)
+						ondelete?.(e)
 					}
 				},
 				lockPosition: 'right',
@@ -383,6 +398,7 @@
 							},
 							recompute: () => {
 								dispatch('recompute')
+								onrecompute?.()
 							}
 						}
 						api = e.api

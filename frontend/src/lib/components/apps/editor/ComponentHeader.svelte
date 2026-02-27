@@ -28,6 +28,11 @@
 		errorHandledByComponent?: boolean
 		fullHeight?: boolean
 		componentContainerWidth: number
+		onmouseover?: (...args: any[]) => any
+		onfillHeight?: (...args: any[]) => any
+		onlock?: (...args: any[]) => any
+		onexpand?: (...args: any[]) => any
+		ontriggerInlineEditor?: (...args: any[]) => any
 	}
 
 	let {
@@ -40,7 +45,12 @@
 		inlineEditorOpened = false,
 		errorHandledByComponent = false,
 		fullHeight = false,
-		componentContainerWidth
+		componentContainerWidth,
+		onmouseover = undefined,
+		onfillHeight = undefined,
+		onlock = undefined,
+		onexpand = undefined,
+		ontriggerInlineEditor = undefined
 	}: Props = $props()
 
 	const DECISION_TREE_THRESHOLD = 300
@@ -130,6 +140,7 @@
 			onmouseover={stopPropagation(() => {
 				hoverHeader = true
 				dispatch('mouseover')
+				onmouseover?.()
 			})}
 			onmouseleave={stopPropagation(() => {
 				hoverHeader = false
@@ -163,7 +174,7 @@
 								? 'bg-blue-300 text-blue-800'
 								: 'text-white hover:bg-blue-400 hover:text-white'
 						)}
-						onclick={() => dispatch('fillHeight')}
+						onclick={() => (dispatch('fillHeight'), onfillHeight?.())}
 						onpointerdown={stopPropagation(bubble('pointerdown'))}
 					>
 						<ArrowDownFromLine aria-label="Full height" size={11} />
@@ -175,7 +186,7 @@
 							'px-1 py-0.5 text-2xs font-bold rounded cursor-pointer w-fit h-full',
 							locked ? 'bg-blue-300 text-blue-800' : 'text-white hover:bg-blue-400 hover:text-white'
 						)}
-						onclick={() => dispatch('lock')}
+						onclick={() => (dispatch('lock'), onlock?.())}
 						onpointerdown={stopPropagation(bubble('pointerdown'))}
 					>
 						{#if locked}
@@ -190,7 +201,7 @@
 							class={twMerge(
 								'px-1 py-0.5 text-2xs font-bold rounded cursor-pointer w-fit h-full text-white hover:bg-blue-400 hover:text-white'
 							)}
-							onclick={() => dispatch('expand')}
+							onclick={() => (dispatch('expand'), onexpand?.())}
 							onpointerdown={stopPropagation(bubble('pointerdown'))}
 						>
 							<Expand aria-label="Expand" size={11} />
@@ -217,7 +228,7 @@
 								? 'bg-blue-300 text-blue-800'
 								: 'text-blue-600 hover:bg-blue-300 hover:text-blue-800'
 						)}
-						onclick={() => dispatch('triggerInlineEditor')}
+						onclick={() => (dispatch('triggerInlineEditor'), ontriggerInlineEditor?.())}
 						onpointerdown={stopPropagation(bubble('pointerdown'))}
 					>
 						<Pen aria-label="Edit" size={11} />

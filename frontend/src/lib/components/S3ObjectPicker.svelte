@@ -12,11 +12,12 @@
 	import FileUpload from './common/fileUpload/FileUpload.svelte'
 
 	interface Props {
-		value: any;
-		editor?: SimpleEditor | undefined;
+		value: any
+		editor?: SimpleEditor | undefined
+		onfocus?: (...args: any[]) => any
 	}
 
-	let { value = $bindable(), editor = $bindable(undefined) }: Props = $props();
+	let { value = $bindable(), editor = $bindable(undefined), onfocus = undefined }: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
@@ -65,6 +66,7 @@
 				bind:editor
 				on:focus={(e) => {
 					dispatch('focus')
+					onfocus?.()
 				}}
 				code={JSON.stringify(value ?? { s3: '' }, null, 2)}
 				bind:value

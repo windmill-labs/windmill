@@ -26,6 +26,7 @@
 		path?: string
 		staticInputs?: undefined | StepHistoryData[]
 		noHistory?: 'isLoop' | 'isInsideLoop' | undefined
+		onselect?: (...args: any[]) => any
 	}
 
 	let {
@@ -36,7 +37,8 @@
 		mockEnabled = false,
 		path = '',
 		staticInputs = undefined,
-		noHistory = undefined
+		noHistory = undefined,
+		onselect = undefined
 	}: Props = $props()
 
 	const { pathStore } = getContext<FlowEditorContext>('FlowEditorContext') ?? {}
@@ -100,6 +102,7 @@
 			}
 			selected = 'extraRow'
 			dispatch('select', 'mock')
+			onselect?.('mock')
 			return
 		}
 
@@ -109,11 +112,13 @@
 		}
 		selected = e.detail.id
 		dispatch('select', { ...e.detail })
+		onselect?.({ ...e.detail })
 	}
 
 	export function deselect() {
 		selected = undefined
 		dispatch('select', undefined)
+		onselect?.(undefined)
 	}
 </script>
 

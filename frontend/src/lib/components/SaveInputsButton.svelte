@@ -11,12 +11,13 @@
 	const dispatch = createEventDispatcher()
 
 	interface Props {
-		runnableId: string | undefined;
-		runnableType: RunnableType | undefined;
-		args: object;
-		disabled?: boolean;
-		small?: boolean | undefined;
-		showTooltip?: boolean | undefined;
+		runnableId: string | undefined
+		runnableType: RunnableType | undefined
+		args: object
+		disabled?: boolean
+		small?: boolean | undefined
+		showTooltip?: boolean | undefined
+		onupdate?: (...args: any[]) => any
 	}
 
 	let {
@@ -25,8 +26,9 @@
 		args,
 		disabled = false,
 		small = undefined,
-		showTooltip = undefined
-	}: Props = $props();
+		showTooltip = undefined,
+		onupdate = undefined
+	}: Props = $props()
 
 	let savingInputs = $state(false)
 
@@ -52,6 +54,7 @@
 
 		savingInputs = false
 		dispatch('update')
+		onupdate?.()
 	}
 </script>
 

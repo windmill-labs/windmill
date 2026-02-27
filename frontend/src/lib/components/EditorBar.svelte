@@ -94,6 +94,9 @@
 		right?: import('svelte').Snippet
 		openAiChat?: boolean
 		moduleId?: string
+		ontoggleCollabMode?: (...args: any[]) => any
+		oncollabPopup?: (...args: any[]) => any
+		oncreateScriptFromInlineScript?: (...args: any[]) => any
 	}
 
 	let {
@@ -116,7 +119,10 @@
 		showHistoryDrawer = $bindable(false),
 		right,
 		openAiChat = false,
-		moduleId = undefined
+		moduleId = undefined,
+		ontoggleCollabMode = undefined,
+		oncollabPopup = undefined,
+		oncreateScriptFromInlineScript = undefined
 	}: Props = $props()
 
 	let contextualVariablePicker: ItemPicker | undefined = $state()
@@ -1054,7 +1060,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 						options={{ right: '' }}
 						size="xs"
 						checked={collabLive}
-						on:change={() => dispatch('toggleCollabMode')}
+						on:change={() => (dispatch('toggleCollabMode'), ontoggleCollabMode?.())}
 					/>
 					<Popover>
 						{#snippet text()}
@@ -1066,7 +1072,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 						<button
 							title="Show invite link"
 							class="p-1 rounded hover:bg-gray-400 mx-1 border"
-							onclick={() => dispatch('collabPopup')}><Link size={14} /></button
+							onclick={() => (dispatch('collabPopup'), oncollabPopup?.())}
+							><Link size={14} /></button
 						>
 						<div class="isolate flex -space-x-2 pl-2">
 							{#each collabUsers as user}
@@ -1125,7 +1132,10 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 				unifiedSize="sm"
 				variant="subtle"
 				startIcon={{ icon: Save }}
-				on:click={() => dispatch('createScriptFromInlineScript')}
+				on:click={() => (
+					dispatch('createScriptFromInlineScript'),
+					oncreateScriptFromInlineScript?.()
+				)}
 				iconOnly={false}
 			>
 				Save to workspace

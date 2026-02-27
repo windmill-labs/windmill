@@ -389,6 +389,9 @@
 		fontSize?: number
 		loadAsync?: boolean
 		class?: string | undefined
+		onfocus?: (...args: any[]) => any
+		onchange?: (...args: any[]) => any
+		onblur?: (...args: any[]) => any
 	}
 
 	let {
@@ -400,7 +403,10 @@
 		fixedOverflowWidgets = true,
 		fontSize = 12,
 		loadAsync = false,
-		class: clazz = ''
+		class: clazz = '',
+		onfocus = undefined,
+		onchange = undefined,
+		onblur = undefined
 	}: Props = $props()
 
 	let yPadding = MONACO_Y_PADDING
@@ -515,6 +521,7 @@
 
 		editor.onDidFocusEditorText(() => {
 			dispatch('focus')
+			onfocus?.()
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {})
 
@@ -528,6 +535,7 @@
 			}
 			code = ncode
 			dispatch('change', { code: ncode })
+			onchange?.({ code: ncode })
 		}
 
 		editor.onDidChangeModelContent((event) => {
@@ -555,11 +563,13 @@
 
 		editor.onDidFocusEditorText(() => {
 			dispatch('focus')
+			onfocus?.()
 			isFocus = true
 		})
 
 		editor.onDidBlurEditorText(() => {
 			dispatch('blur')
+			onblur?.()
 			isFocus = false
 			updateCode()
 		})

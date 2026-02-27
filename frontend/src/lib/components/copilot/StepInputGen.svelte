@@ -1,5 +1,4 @@
 <script lang="ts">
-
 	import { Check, Loader2, Wand2 } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import { getNonStreamingCompletion } from './lib'
@@ -29,6 +28,8 @@
 		pickableProperties?: PickableProperties | undefined
 		argName: string
 		btnClass?: string
+		onsetExpr?: (...args: any[]) => any
+		onshowExpr?: (...args: any[]) => any
 	}
 
 	let {
@@ -37,7 +38,9 @@
 		schemaProperty,
 		pickableProperties = undefined,
 		argName,
-		btnClass = ''
+		btnClass = '',
+		onsetExpr = undefined,
+		onshowExpr = undefined
 	}: Props = $props()
 
 	let empty = $state(false)
@@ -159,6 +162,7 @@ Only return the expression without any wrapper.`
 			if (!loading && generatedContent) {
 				event.preventDefault()
 				dispatch('setExpr', generatedContent)
+				onsetExpr?.(generatedContent)
 				if (newFlowInput) {
 					openInputsModal = true
 				}
@@ -209,10 +213,12 @@ Only return the expression without any wrapper.`
 
 	$effect(() => {
 		dispatch('showExpr', generatedContent)
+		onshowExpr?.(generatedContent)
 	})
 
 	$effect(() => {
 		dispatch('showExpr', $generatedExprs?.[argName] || '')
+		onshowExpr?.($generatedExprs?.[argName] || '')
 	})
 
 	let out = $state(true) // hack to prevent regenerating answer when accepting the answer due to mouseenter on new icon
@@ -237,6 +243,7 @@ Only return the expression without any wrapper.`
 		on:click={() => {
 			if (!loading && generatedContent.length > 0) {
 				dispatch('setExpr', generatedContent)
+				onsetExpr?.(generatedContent)
 				if (newFlowInput) {
 					openInputsModal = true
 				}

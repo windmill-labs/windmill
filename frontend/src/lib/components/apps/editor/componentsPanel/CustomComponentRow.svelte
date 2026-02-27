@@ -14,9 +14,10 @@
 			name: string
 			path: string
 		}
+		onreload?: (...args: any[]) => any
 	}
 
-	let { row }: Props = $props()
+	let { row, onreload = undefined }: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
@@ -28,6 +29,7 @@
 			})
 		}
 		dispatch('reload')
+		onreload?.()
 		sendUserToast('Component deleted:\n' + row.name)
 	}
 
@@ -49,6 +51,7 @@
 			}
 		})
 		dispatch('reload')
+		onreload?.()
 
 		sendUserToast('Component name updated:\n' + name)
 	}

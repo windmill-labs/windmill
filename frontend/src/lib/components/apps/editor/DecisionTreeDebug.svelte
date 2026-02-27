@@ -15,9 +15,16 @@
 		id: string
 		isSmall?: boolean
 		componentIsDebugging?: boolean
+		ontriggerInlineEditor?: (...args: any[]) => any
 	}
 
-	let { nodes = [], id, isSmall = false, componentIsDebugging = $bindable(false) }: Props = $props()
+	let {
+		nodes = [],
+		id,
+		isSmall = false,
+		componentIsDebugging = $bindable(false),
+		ontriggerInlineEditor = undefined
+	}: Props = $props()
 
 	$effect(() => {
 		componentIsDebugging = isDebugging($debuggingComponents, id)
@@ -119,7 +126,7 @@
 						? ' hover:bg-red-300 hover:text-red-800'
 						: 'text-blue-600 hover:bg-blue-300 hover:text-blue-800'
 				)}
-				onclick={() => dispatch('triggerInlineEditor')}
+				onclick={() => (dispatch('triggerInlineEditor'), ontriggerInlineEditor?.())}
 				onpointerdown={stopPropagation(bubble('pointerdown'))}
 			>
 				{#if componentIsDebugging}

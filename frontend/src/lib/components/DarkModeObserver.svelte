@@ -36,10 +36,13 @@
 	import { onMount, onDestroy } from 'svelte'
 	import { createEventDispatcher } from 'svelte'
 
-	let { darkMode = $bindable(false) }: { darkMode?: boolean } = $props()
+	let {
+		darkMode = $bindable(false),
+		onchange = undefined
+	}: { darkMode?: boolean; onchange?: (...args: any[]) => any } = $props()
 	const dispatch = createEventDispatcher()
 	let isDarkMode = useIsDarkMode({
-		onChange: (newDarkMode) => dispatch('change', newDarkMode)
+		onChange: (newDarkMode) => (dispatch('change', newDarkMode), onchange?.(newDarkMode))
 	})
 	$effect(() => {
 		if (darkMode !== isDarkMode.val) {

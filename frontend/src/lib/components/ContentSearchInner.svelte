@@ -23,9 +23,10 @@
 	const dispatch = createEventDispatcher()
 	interface Props {
 		search?: string
+		onclose?: (...args: any[]) => any
 	}
 
-	let { search = $bindable('') }: Props = $props()
+	let { search = $bindable(''), onclose = undefined }: Props = $props()
 
 	export async function open(nsearch?: string) {
 		await Promise.all([loadScripts(), loadResources(), loadApps(), loadFlows()])
@@ -252,7 +253,7 @@
 								<Button
 									href={`/scripts/get/${item.path}`}
 									startIcon={{ icon: ExternalLink }}
-									on:click={() => dispatch('close')}
+									on:click={() => (dispatch('close'), onclose?.())}
 								>
 									Open
 								</Button>
@@ -319,7 +320,7 @@
 								<Button
 									href={`/flows/get/${item.path}`}
 									startIcon={{ icon: ExternalLink }}
-									on:click={() => dispatch('close')}
+									on:click={() => (dispatch('close'), onclose?.())}
 								>
 									Open
 								</Button>
@@ -359,7 +360,7 @@
 								<Button
 									href={`/apps/get/${item.path}`}
 									startIcon={{ icon: ExternalLink }}
-									on:click={() => dispatch('close')}
+									on:click={() => (dispatch('close'), onclose?.())}
 								>
 									Open
 								</Button>

@@ -36,6 +36,7 @@
 		trigger?: MenubarMenuElements['trigger'] | undefined
 		href?: string | undefined
 		class?: string | undefined
+		onclick?: (...args: any[]) => any
 	}
 
 	let {
@@ -55,7 +56,8 @@
 		color = null,
 		trigger = undefined,
 		href = undefined,
-		class: classNames = undefined
+		class: classNames = undefined,
+		onclick = undefined
 	}: Props = $props()
 
 	let buttonRef: HTMLButtonElement | HTMLAnchorElement | undefined = $state(undefined)
@@ -91,6 +93,7 @@
 				: (e) => {
 						if (stopPropagationOnClick) e.preventDefault()
 						dispatch('click')
+						onclick?.()
 					}}
 			{href}
 			data-light-mode={lightMode}
@@ -122,7 +125,12 @@
 				{:else}
 					<SvelteComponent
 						size={16}
-						class={twMerge('flex-shrink-0', sidebarClasses.iconText, 'transition-colors', iconClasses)}
+						class={twMerge(
+							'flex-shrink-0',
+							sidebarClasses.iconText,
+							'transition-colors',
+							iconClasses
+						)}
 						{...iconProps}
 					/>
 				{/if}
@@ -140,9 +148,7 @@
 						title={label}
 					>
 						{label}
-						<span
-							class="pl-2 text-xs text-secondary font-semibold"
-						>
+						<span class="pl-2 text-xs text-secondary font-semibold">
 							{shortcut}
 						</span>
 					</div>

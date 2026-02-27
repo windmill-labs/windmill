@@ -14,6 +14,8 @@
 		enumLabels?: Record<string, string> | undefined
 		selectClass?: string
 		onClear?: () => void
+		onfocus?: (...args: any[]) => any
+		onblur?: (...args: any[]) => any
 	}
 
 	let {
@@ -26,7 +28,9 @@
 		create,
 		enumLabels = undefined,
 		selectClass = '',
-		onClear = undefined
+		onClear = undefined,
+		onfocus = undefined,
+		onblur = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -79,8 +83,8 @@
 				cleared = true
 				value = undefined
 			}}
-			onFocus={() => dispatch('focus')}
-			onBlur={() => dispatch('blur')}
+			onFocus={() => (dispatch('focus'), onfocus?.())}
+			onBlur={() => (dispatch('blur'), onblur?.())}
 			inputClass={selectClass}
 		/>
 	</div>

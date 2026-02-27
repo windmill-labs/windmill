@@ -8,18 +8,19 @@
 	import TutorialInner from './TutorialInner.svelte'
 	import { isCurrentlyInTutorial } from '$lib/stores'
 
-
 	type Options = {
 		indexToInsertAt?: number
 		skipStepsCount?: number
 	}
 
 	interface Props {
-		index?: number;
-		name?: string;
-		tainted?: boolean;
-		onDestroyed?: (() => void) | undefined;
-		getSteps?: (driver: Driver, options?: Options | undefined) => DriveStep[];
+		index?: number
+		name?: string
+		tainted?: boolean
+		onDestroyed?: (() => void) | undefined
+		getSteps?: (driver: Driver, options?: Options | undefined) => DriveStep[]
+		onskipAll?: (...args: any[]) => any
+		onerror?: (...args: any[]) => any
 	}
 
 	let {
@@ -27,8 +28,10 @@
 		name = 'action',
 		tainted = false,
 		onDestroyed = undefined,
-		getSteps = () => []
-	}: Props = $props();
+		getSteps = () => [],
+		onskipAll = undefined,
+		onerror = undefined
+	}: Props = $props()
 
 	let totalSteps = 0
 	let tutorial: Driver | undefined = $state(undefined)
@@ -55,6 +58,7 @@
 				events: {
 					skipAll: () => {
 						dispatch('skipAll')
+						onskipAll?.()
 						tutorial?.destroy()
 					},
 					skipThis: () => {
@@ -121,6 +125,7 @@
 	export const runTutorial = (options?: Options | undefined) => {
 		if (tainted) {
 			dispatch('error', { detail: name })
+			onerror?.({ detail: name })
 			return
 		}
 		isCurrentlyInTutorial.val = true

@@ -75,6 +75,15 @@
 		onSuccess?: (result: any) => void
 		children?: import('svelte').Snippet
 		nonRenderedPlaceholder?: import('svelte').Snippet
+		onstarted?: (...args: any[]) => any
+		ondone?: (...args: any[]) => any
+		onstreamupdate?: (...args: any[]) => any
+		oncancel?: (...args: any[]) => any
+		ondoneError?: (...args: any[]) => any
+		onresultSet?: (...args: any[]) => any
+		onhandleError?: (...args: any[]) => any
+		onrecompute?: (...args: any[]) => any
+		onargsChanged?: (...args: any[]) => any
 	}
 
 	let {
@@ -106,7 +115,16 @@
 		replaceCallback = false,
 		children,
 		nonRenderedPlaceholder,
-		onSuccess
+		onSuccess,
+		onstarted = undefined,
+		ondone = undefined,
+		onstreamupdate = undefined,
+		oncancel = undefined,
+		ondoneError = undefined,
+		onresultSet = undefined,
+		onhandleError = undefined,
+		onrecompute = undefined,
+		onargsChanged = undefined
 	}: Props = $props()
 
 	const {
@@ -190,6 +208,7 @@
 				loading = true
 				outputs.jobId?.set(id)
 				dispatch('started', id)
+				onstarted?.(id)
 			},
 			doneWithoutCompute(r: any) {
 				onDone?.(r)
@@ -200,6 +219,7 @@
 				setResult(result, id)
 				loading = false
 				dispatch('done', { id, result })
+				ondone?.({ id, result })
 			},
 			resultStreamUpdate({
 				id,
@@ -210,6 +230,7 @@
 			}) {
 				setResult(nresult_stream, id, false)
 				dispatch('streamupdate', { id, result_stream: nresult_stream })
+				onstreamupdate?.({ id, result_stream: nresult_stream })
 			},
 			cancel({ id }: { id: string }) {
 				onCancel?.()
@@ -224,12 +245,14 @@
 					}
 				}
 				dispatch('cancel', { id })
+				oncancel?.({ id })
 			},
 			doneError({ id, error }: { id?: string; error: any }) {
 				onError?.(error)
 				setResult({ error }, id)
 				loading = false
 				dispatch('doneError', { id, error })
+				ondoneError?.({ id, error })
 			}
 		}
 		if (isEditor) {
@@ -649,6 +672,7 @@
 
 	async function setResult(res: any, jobId: string | undefined, dispatchSuccess: boolean = true) {
 		dispatch('resultSet', res)
+		onresultSet?.(res)
 		const errors = getResultErrors(res)
 
 		if (errors) {
@@ -659,6 +683,7 @@
 			recordJob(jobId, errors, errors, transformerResult)
 			updateResult(res)
 			dispatch('handleError', errors)
+			onhandleError?.(errors)
 			// callbacks?.done(res)
 			return
 		}
@@ -678,6 +703,7 @@
 			recordJob(jobId, res, undefined, transformerResult)
 			updateResult(transformerResult)
 			dispatch('handleError', transformerResult.error)
+			onhandleError?.(transformerResult.error)
 			// callbacks?.done(res)
 			return
 		}
@@ -708,6 +734,7 @@
 				let rejectCb: (err: Error) => void
 				let p: Partial<CancelablePromise<any>> = new Promise<any>((resolve, reject) => {
 					dispatch('recompute')
+					onrecompute?.()
 					rejectCb = reject
 					executeComponent(true, inlineScript, setRunnableJobEditorPanel, undefined, {
 						onDone: (x) => {
@@ -834,7 +861,7 @@
 	})
 	let ignoreFirst = true
 	$effect(() => {
-		runnableInputValues && !ignoreFirst && dispatch('argsChanged')
+		runnableInputValues && !ignoreFirst && (dispatch('argsChanged'), onargsChanged?.())
 		ignoreFirst = false
 	})
 	let refreshOn = $derived(

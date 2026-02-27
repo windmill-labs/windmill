@@ -10,6 +10,7 @@
 		canConfigureRecomputeOnInputChanged?: boolean
 		canConfigureRunOnStart?: boolean
 		children?: import('svelte').Snippet
+		onupdateAutoRefresh?: (...args: any[]) => any
 	}
 
 	let {
@@ -17,7 +18,8 @@
 		recomputeOnInputChanged = $bindable(false),
 		canConfigureRecomputeOnInputChanged = true,
 		canConfigureRunOnStart = true,
-		children
+		children,
+		onupdateAutoRefresh = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -41,6 +43,7 @@
 						size="xs"
 						on:change={() => {
 							dispatch('updateAutoRefresh')
+							onupdateAutoRefresh?.()
 						}}
 					/>
 				</div>
@@ -56,6 +59,7 @@
 						size="xs"
 						on:change={() => {
 							dispatch('updateAutoRefresh')
+							onupdateAutoRefresh?.()
 						}}
 					/>
 				</div>

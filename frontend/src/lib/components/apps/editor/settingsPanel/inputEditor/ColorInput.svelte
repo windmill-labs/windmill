@@ -8,9 +8,10 @@
 
 	interface Props {
 		value?: string
+		onchange?: (...args: any[]) => any
 	}
 
-	let { value = $bindable('#fff') }: Props = $props()
+	let { value = $bindable('#fff'), onchange = undefined }: Props = $props()
 	const dispatch = createEventDispatcher()
 	const [popperRef, popperContent] = createPopperActions()
 	let isOpen = $state(false)
@@ -18,6 +19,7 @@
 
 	$effect(() => {
 		dispatch('change', value)
+		onchange?.(value)
 	})
 
 	function open() {

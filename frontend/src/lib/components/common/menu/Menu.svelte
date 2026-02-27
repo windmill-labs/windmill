@@ -23,6 +23,8 @@
 		placement?: Placement
 		trigger?: import('svelte').Snippet<[any]>
 		children?: import('svelte').Snippet<[any]>
+		ondropdownOpen?: (...args: any[]) => any
+		ondropdownClose?: (...args: any[]) => any
 	}
 
 	let {
@@ -34,7 +36,9 @@
 		pointerDown = false,
 		placement = 'bottom-start',
 		trigger,
-		children
+		children,
+		ondropdownOpen = undefined,
+		ondropdownClose = undefined
 	}: Props = $props()
 
 	function handleOutsideClick(event) {
@@ -89,8 +93,10 @@
 				show = !show
 				if (show) {
 					dispatch('dropdownOpen')
+					ondropdownOpen?.()
 				} else {
 					dispatch('dropdownClose')
+					ondropdownClose?.()
 				}
 			}
 		}}

@@ -12,9 +12,10 @@
 		type?: 'text' | 'badge' | 'link'
 		value: any
 		width: number
+		onupdate?: (...args: any[]) => any
 	}
 
-	let { type = 'text', value = $bindable(), width }: Props = $props()
+	let { type = 'text', value = $bindable(), width, onupdate = undefined }: Props = $props()
 
 	let isEditable = writable(false)
 	let tempValue = $state(value)
@@ -44,6 +45,9 @@
 			value
 		})
 
+		onupdate?.({
+			value
+		})
 		toggleEdit()
 	}
 </script>

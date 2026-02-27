@@ -46,6 +46,8 @@
 		transformer?: boolean
 		componentType?: string | undefined
 		editor?: Editor | undefined
+		oncreateScriptFromInlineScript?: (...args: any[]) => any
+		ondelete?: (...args: any[]) => any
 	}
 
 	let {
@@ -57,7 +59,9 @@
 		syncFields = false,
 		transformer = false,
 		componentType = undefined,
-		editor = $bindable(undefined)
+		editor = $bindable(undefined),
+		oncreateScriptFromInlineScript = undefined,
+		ondelete = undefined
 	}: Props = $props()
 	let diffEditor: DiffEditor | undefined = $state()
 	let simpleEditor: SimpleEditor | undefined = $state()
@@ -221,6 +225,7 @@
 			bind:inlineScript
 			on:createScriptFromInlineScript={() => {
 				dispatch('createScriptFromInlineScript')
+				oncreateScriptFromInlineScript?.()
 				drawerIsOpen = false
 			}}
 		/>
@@ -280,7 +285,7 @@
 					variant="subtle"
 					destructive
 					aria-label="Delete"
-					on:click={() => dispatch('delete')}
+					on:click={() => (dispatch('delete'), ondelete?.())}
 					endIcon={{ icon: Trash2 }}
 					iconOnly
 				/>

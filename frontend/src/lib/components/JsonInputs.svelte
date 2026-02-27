@@ -8,12 +8,18 @@
 		updateOnBlur?: boolean
 		placeholder?: string
 		selected?: boolean
+		onselect?: (...args: any[]) => any
+		onfocus?: (...args: any[]) => any
+		onblur?: (...args: any[]) => any
 	}
 
 	let {
 		updateOnBlur = true,
 		placeholder = 'Write a JSON payload. The input schema will be inferred.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}',
-		selected = false
+		selected = false,
+		onselect = undefined,
+		onfocus = undefined,
+		onblur = undefined
 	}: Props = $props()
 
 	let pendingJson = $state('')
@@ -23,13 +29,16 @@
 	function updatePayloadFromJson(jsonInput: string) {
 		if (jsonInput === undefined || jsonInput === null || jsonInput.trim() === '') {
 			dispatch('select', undefined)
+			onselect?.(undefined)
 			return
 		}
 		try {
 			const parsed = JSON.parse(jsonInput)
 			dispatch('select', parsed)
+			onselect?.(parsed)
 		} catch (error) {
 			dispatch('select', undefined)
+			onselect?.(undefined)
 		}
 	}
 
@@ -40,6 +49,7 @@
 	export function resetSelected(dispatchEvent?: boolean) {
 		if (dispatchEvent) {
 			dispatch('select', undefined)
+			onselect?.(undefined)
 		}
 	}
 
@@ -62,12 +72,14 @@
 		on:focus={() => {
 			if (updateOnBlur) {
 				dispatch('focus')
+				onfocus?.()
 				updatePayloadFromJson(pendingJson)
 			}
 		}}
 		on:blur={async () => {
 			if (updateOnBlur) {
 				dispatch('blur')
+				onblur?.()
 			}
 		}}
 		on:change={(e) => {

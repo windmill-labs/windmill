@@ -26,6 +26,7 @@
 		shouldDisableTriggerScripts?: boolean
 		noEditor: boolean
 		summary?: string | undefined
+		onnew?: (...args: any[]) => any
 	}
 
 	let {
@@ -33,7 +34,8 @@
 		preprocessorModule,
 		shouldDisableTriggerScripts = false,
 		noEditor,
-		summary = $bindable(undefined)
+		summary = $bindable(undefined),
+		onnew = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -277,6 +279,12 @@
 								}
 							}
 							dispatch('new', {
+								language: lang == 'docker' ? 'bash' : lang,
+								kind,
+								subkind: lang == 'docker' ? 'docker' : preprocessorModule ? 'preprocessor' : 'flow',
+								summary
+							})
+							onnew?.({
 								language: lang == 'docker' ? 'bash' : lang,
 								kind,
 								subkind: lang == 'docker' ? 'docker' : preprocessorModule ? 'preprocessor' : 'flow',

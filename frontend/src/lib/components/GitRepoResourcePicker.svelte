@@ -13,6 +13,8 @@
 		currentInventories?: string
 		currentPlaybook?: string
 		gitSshIdentity?: string[]
+		onselected?: (...args: any[]) => any
+		onaddInventories?: (...args: any[]) => any
 	}
 
 	let {
@@ -21,7 +23,9 @@
 		currentCommit = undefined,
 		currentInventories = undefined,
 		currentPlaybook = undefined,
-		gitSshIdentity = undefined
+		gitSshIdentity = undefined,
+		onselected = undefined,
+		onaddInventories = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher<{
@@ -79,6 +83,7 @@
 	function handleSelect() {
 		if (selectedResource) {
 			dispatch('selected', { resourcePath: selectedResource, playbook, inventoriesLocation })
+			onselected?.({ resourcePath: selectedResource, playbook, inventoriesLocation })
 			selectedResource = undefined
 			open = false
 		}
@@ -147,6 +152,9 @@
 				inventoryPaths: inventoryFiles
 			})
 
+			onaddInventories?.({
+				inventoryPaths: inventoryFiles
+			})
 			// TODO: Add success feedback
 		} catch (error) {
 			console.error('Failed to load inventory files:', error)

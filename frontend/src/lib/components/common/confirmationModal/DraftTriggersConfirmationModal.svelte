@@ -16,9 +16,17 @@
 		open?: boolean
 		draftTriggers?: Trigger[]
 		isFlow?: boolean
+		oncanceled?: (...args: any[]) => any
+		onconfirmed?: (...args: any[]) => any
 	}
 
-	let { open = $bindable(false), draftTriggers = [], isFlow = false }: Props = $props()
+	let {
+		open = $bindable(false),
+		draftTriggers = [],
+		isFlow = false,
+		oncanceled = undefined,
+		onconfirmed = undefined
+	}: Props = $props()
 
 	let selectedTriggers: Trigger[] = $state(draftTriggers)
 
@@ -74,8 +82,11 @@
 	confirmationText={isFlow ? 'Deploy Flow' : 'Deploy Script'}
 	type="reload"
 	showIcon={false}
-	on:canceled={() => dispatch('canceled')}
-	on:confirmed={() => dispatch('confirmed', { selectedTriggers })}
+	on:canceled={() => (dispatch('canceled'), oncanceled?.())}
+	on:confirmed={() => (
+		dispatch('confirmed', { selectedTriggers }),
+		onconfirmed?.({ selectedTriggers })
+	)}
 >
 	<div class="flex flex-col w-full gap-8 pb-4">
 		<div class="text-secondary text-sm">

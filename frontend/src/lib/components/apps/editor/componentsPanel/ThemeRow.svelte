@@ -22,9 +22,16 @@
 			name: string
 			path: string
 		}
+		onreloadThemes?: (...args: any[]) => any
+		onsetCodeTab?: (...args: any[]) => any
 	}
 
-	let { previewThemePath = $bindable(undefined), row }: Props = $props()
+	let {
+		previewThemePath = $bindable(undefined),
+		row,
+		onreloadThemes = undefined,
+		onsetCodeTab = undefined
+	}: Props = $props()
 
 	const { previewTheme, app } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -80,6 +87,7 @@
 		}
 
 		dispatch('reloadThemes')
+		onreloadThemes?.()
 	}
 
 	async function toggleDelete() {
@@ -88,6 +96,7 @@
 			await deleteTheme($workspaceStore, row.path)
 		}
 		dispatch('reloadThemes')
+		onreloadThemes?.()
 		sendUserToast('Theme deleted:\n' + row.name)
 	}
 
@@ -120,6 +129,7 @@
 		}
 
 		dispatch('setCodeTab')
+		onsetCodeTab?.()
 	}
 
 	function stopPreview() {

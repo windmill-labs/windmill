@@ -39,6 +39,9 @@
 		preventXOverflow?: boolean
 		children?: import('svelte').Snippet
 		emptyMessage?: import('svelte').Snippet
+		onloadMore?: (...args: any[]) => any
+		onprevious?: (...args: any[]) => any
+		onnext?: (...args: any[]) => any
 	}
 
 	let {
@@ -64,7 +67,10 @@
 		containerClass = '',
 		children,
 		emptyMessage,
-		preventXOverflow = false
+		preventXOverflow = false,
+		onloadMore = undefined,
+		onprevious = undefined,
+		onnext = undefined
 	}: Props = $props()
 	setContext<DatatableContext>('datatable', {
 		size
@@ -109,6 +115,7 @@
 			return
 		}
 		dispatch('loadMore')
+		onloadMore?.()
 		lastLoadMoreDispatch = Date.now()
 	}
 
@@ -167,7 +174,7 @@
 						<Button
 							color="light"
 							size="xs2"
-							on:click={() => dispatch('previous')}
+							on:click={() => (dispatch('previous'), onprevious?.())}
 							disabled={currentPage === 1}
 							startIcon={{ icon: ArrowLeftIcon }}
 						>
@@ -178,7 +185,7 @@
 						<Button
 							color="light"
 							size="xs2"
-							on:click={() => dispatch('next')}
+							on:click={() => (dispatch('next'), onnext?.())}
 							endIcon={{ icon: ArrowRightIcon }}
 							disabled={!hasMore}
 						>

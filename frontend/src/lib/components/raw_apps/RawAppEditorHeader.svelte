@@ -104,6 +104,7 @@
 		canRedo?: boolean
 		onUndo?: () => void
 		onRedo?: () => void
+		onsavedNewAppPath?: (...args: any[]) => any
 	}
 
 	let {
@@ -124,7 +125,8 @@
 		canUndo = false,
 		canRedo = false,
 		onUndo = undefined,
-		onRedo = undefined
+		onRedo = undefined,
+		onsavedNewAppPath = undefined
 	}: Props = $props()
 
 	let newEditedPath = $state('')
@@ -236,6 +238,7 @@
 				console.error('error interacting with local storage', e)
 			}
 			dispatch('savedNewAppPath', path)
+			onsavedNewAppPath?.(path)
 		} catch (e) {
 			sendUserToast('Error creating app', e)
 		}
@@ -351,6 +354,7 @@
 				console.error('error interacting with local storage', e)
 			}
 			dispatch('savedNewAppPath', npath)
+			onsavedNewAppPath?.(npath)
 		}
 	}
 
@@ -428,6 +432,7 @@
 
 			draftDrawerOpen = false
 			dispatch('savedNewAppPath', newEditedPath)
+			onsavedNewAppPath?.(newEditedPath)
 		} catch (e) {
 			sendUserToast('Error saving initial draft', e)
 		}
@@ -535,6 +540,7 @@
 			loading.saveDraft = false
 			if (newApp || savedApp.draft_only) {
 				dispatch('savedNewAppPath', newEditedPath || path)
+				onsavedNewAppPath?.(newEditedPath || path)
 			}
 		} catch (e) {
 			loading.saveDraft = false

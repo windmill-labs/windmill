@@ -30,6 +30,7 @@
 		allowEdit?: boolean
 		allowView?: boolean
 		clearable?: boolean
+		onselect?: (...args: any[]) => any
 	}
 
 	let {
@@ -42,7 +43,8 @@
 		allowRefresh = false,
 		allowEdit = true,
 		allowView = true,
-		clearable = false
+		clearable = false,
+		onselect = undefined
 	}: Props = $props()
 
 	let items: { value: string; label: string }[] = $state([])
@@ -130,6 +132,7 @@
 				(path) => {
 					scriptPath = path
 					dispatch('select', { path, itemKind })
+					onselect?.({ path, itemKind })
 				}
 			}
 			class="grow shrink max-w-full"

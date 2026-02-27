@@ -58,6 +58,8 @@
 		markdownTooltip?: string | undefined
 		securedContext?: boolean
 		disabled?: boolean
+		oncloseConnection?: (...args: any[]) => any
+		onopenConnection?: (...args: any[]) => any
 	}
 
 	let {
@@ -87,7 +89,9 @@
 		showOnDemandOnlyToggle = true,
 		documentationLink = undefined,
 		markdownTooltip = undefined,
-		securedContext = false
+		securedContext = false,
+		oncloseConnection = undefined,
+		onopenConnection = undefined
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -140,6 +144,7 @@
 
 	function closeConnection() {
 		dispatch('closeConnection')
+		oncloseConnection?.()
 		$connectingInput = {
 			opened: false,
 			hoveredComponent: undefined,
@@ -150,6 +155,7 @@
 
 	function openConnection() {
 		dispatch('openConnection')
+		onopenConnection?.()
 		$connectingInput = {
 			opened: true,
 			input: undefined,

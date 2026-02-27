@@ -1,5 +1,4 @@
 <script lang="ts">
-
 	import { GroupService, type InstanceGroup } from '$lib/gen'
 	import { createEventDispatcher } from 'svelte'
 	import autosize from '$lib/autosize'
@@ -10,17 +9,17 @@
 	import { Loader2 } from 'lucide-svelte'
 
 	interface Props {
-		name: string;
+		name: string
+		onupdate?: (...args: any[]) => any
 	}
 
-	let { name }: Props = $props();
+	let { name, onupdate = undefined }: Props = $props()
 
 	let email = $state('')
 	let instance_group: InstanceGroup | undefined = $state()
 	let members: { member_email: string }[] | undefined = $state(undefined)
 
 	const dispatch = createEventDispatcher()
-
 
 	async function load() {
 		return Promise.all([loadInstanceGroup()])
@@ -36,7 +35,7 @@
 	}
 	$effect(() => {
 		load()
-	});
+	})
 </script>
 
 <div class="flex flex-col gap-6">
@@ -58,6 +57,7 @@
 							requestBody: { new_summary: instance_group?.summary ?? '' }
 						})
 						dispatch('update')
+						onupdate?.()
 						sendUserToast('New summary saved')
 					}}>Save Summary</Button
 				>
@@ -81,6 +81,7 @@
 						requestBody: { email: email }
 					})
 					dispatch('update')
+					onupdate?.()
 					sendUserToast('User added')
 					loadInstanceGroup()
 				}}
@@ -97,26 +98,27 @@
 					</tr>
 				{/snippet}
 				{#snippet body()}
-								<tbody >
+					<tbody>
 						{#each members as { member_email }}<tr>
 								<td>{member_email}</td>
 								<td>
 									<button
 										class="ml-2 text-red-500"
 										onclick={async () => {
-										await GroupService.removeUserFromInstanceGroup({
-											name,
-											requestBody: { email: member_email }
-										})
-										dispatch('update')
-										sendUserToast('User removed')
-										loadInstanceGroup()
-									}}>remove</button
+											await GroupService.removeUserFromInstanceGroup({
+												name,
+												requestBody: { email: member_email }
+											})
+											dispatch('update')
+											onupdate?.()
+											sendUserToast('User removed')
+											loadInstanceGroup()
+										}}>remove</button
 									>
 								</td>
 							</tr>{/each}
 					</tbody>
-							{/snippet}
+				{/snippet}
 			</TableCustom>
 		{:else}
 			<div class="flex flex-col">

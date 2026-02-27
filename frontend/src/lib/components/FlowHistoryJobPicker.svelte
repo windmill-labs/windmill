@@ -12,13 +12,19 @@
 		selected?: string | undefined
 		selectInitial?: boolean
 		loading?: boolean
+		onselect?: (...args: any[]) => any
+		onnohistory?: (...args: any[]) => any
+		onunselect?: (...args: any[]) => any
 	}
 
 	let {
 		path,
 		selected = undefined,
 		selectInitial = false,
-		loading = $bindable(false)
+		loading = $bindable(false),
+		onselect = undefined,
+		onnohistory = undefined,
+		onunselect = undefined
 	}: Props = $props()
 	const dispatch = createEventDispatcher()
 
@@ -33,9 +39,11 @@
 		if (jobs.length > 0) {
 			if (selectInitial) {
 				dispatch('select', { jobId: jobs[0].id, initial: true })
+				onselect?.({ jobId: jobs[0].id, initial: true })
 			}
 		} else {
 			dispatch('nohistory')
+			onnohistory?.()
 		}
 		loading = false
 	}
@@ -55,8 +63,10 @@
 				on:select={(e) => {
 					if (e.detail) {
 						dispatch('select', { jobId: e.detail?.jobId, initial: false })
+						onselect?.({ jobId: e.detail?.jobId, initial: false })
 					} else {
 						dispatch('unselect')
+						onunselect?.()
 					}
 				}}
 				{selected}

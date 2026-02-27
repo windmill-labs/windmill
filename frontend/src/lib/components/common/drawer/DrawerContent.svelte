@@ -23,6 +23,7 @@
 		actions?: import('svelte').Snippet
 		titleExtra?: import('svelte').Snippet
 		children?: import('svelte').Snippet
+		onclose?: (...args: any[]) => any
 	}
 
 	let {
@@ -40,7 +41,8 @@
 		id,
 		actions,
 		titleExtra,
-		children
+		children,
+		onclose = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -58,6 +60,7 @@
 					description: `Close ${aiDescription}`,
 					callback: () => {
 						dispatch('close')
+						onclose?.()
 					}
 				}}
 			>

@@ -15,6 +15,7 @@
 		newToken?: string | undefined
 		showMcpMode?: boolean
 		disableChatOffset?: boolean
+		ontokenCreated?: (...args: any[]) => any
 	}
 
 	let {
@@ -23,7 +24,8 @@
 		newTokenWorkspace = undefined,
 		newToken = $bindable(undefined),
 		showMcpMode = false,
-		disableChatOffset = false
+		disableChatOffset = false,
+		ontokenCreated = undefined
 	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state()
@@ -48,6 +50,7 @@
 	function handleTokenCreated(token: string) {
 		newToken = token
 		dispatch('tokenCreated', token)
+		ontokenCreated?.(token)
 	}
 </script>
 

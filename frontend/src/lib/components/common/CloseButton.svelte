@@ -11,15 +11,24 @@
 		class?: string
 		id?: string | undefined
 		onClick?: () => void | undefined | any
+		onclose?: (...args: any[]) => any
 	}
 
-	let { noBg = false, small = false, Icon, class: className, id, onClick }: Props = $props()
+	let {
+		noBg = false,
+		small = false,
+		Icon,
+		class: className,
+		id,
+		onClick,
+		onclose = undefined
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 </script>
 
 <Button
-	on:click={() => (dispatch('close'), onClick?.())}
+	on:click={() => ((dispatch('close'), onclose?.()), onClick?.())}
 	on:pointerdown={(e) => e.stopPropagation()}
 	{id}
 	startIcon={{ icon: Icon ?? X }}

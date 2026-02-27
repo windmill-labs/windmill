@@ -33,6 +33,7 @@
 		size?: '2xs' | 'xs' | 'sm' | 'md'
 		textDisabled?: boolean
 		right?: import('svelte').Snippet
+		onchange?: (...args: any[]) => any
 	}
 
 	let {
@@ -50,7 +51,8 @@
 		class: className = undefined,
 		size = 'sm',
 		textDisabled = false,
-		right
+		right,
+		onchange = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher<{ change: boolean }>()
@@ -104,6 +106,7 @@
 			bind:checked
 			onchange={stopPropagation((e) => {
 				dispatch('change', !!checked)
+				onchange?.(!!checked)
 			})}
 		/>
 		<div

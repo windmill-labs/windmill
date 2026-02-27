@@ -13,9 +13,15 @@
 		value: string | undefined
 		notPickable?: boolean
 		nonePickable?: boolean
+		onclick?: (...args: any[]) => any
 	}
 
-	let { value = $bindable(), notPickable = false, nonePickable = false }: Props = $props()
+	let {
+		value = $bindable(),
+		notPickable = false,
+		nonePickable = false,
+		onclick = undefined
+	}: Props = $props()
 
 	let resources: string[] = $state([])
 
@@ -28,6 +34,7 @@
 	function onClick(resource: string | undefined) {
 		value = resource
 		dispatch('click', resource)
+		onclick?.(resource)
 	}
 
 	$effect(() => {

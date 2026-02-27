@@ -71,9 +71,20 @@
 		fullHeight?: boolean
 		id: string
 		children?: import('svelte').Snippet
+		onfillHeight?: (...args: any[]) => any
+		onexpand?: (...args: any[]) => any
+		onlock?: (...args: any[]) => any
 	}
 
-	let { locked = false, fullHeight = false, id, children }: Props = $props()
+	let {
+		locked = false,
+		fullHeight = false,
+		id,
+		children,
+		onfillHeight = undefined,
+		onexpand = undefined,
+		onlock = undefined
+	}: Props = $props()
 
 	const { selectedComponent, focusedGrid, componentControl, app } = getContext<AppViewerContext>(
 		'AppViewerContext'
@@ -116,6 +127,7 @@
 			label: () => (fullHeight ? 'Undo fill height' : 'Fill height'),
 			onClick: () => {
 				dispatch('fillHeight')
+				onfillHeight?.()
 			},
 			icon: ArrowDownFromLine,
 			tooltip: {
@@ -127,6 +139,7 @@
 			label: () => 'Expand',
 			onClick: () => {
 				dispatch('expand')
+				onexpand?.()
 			},
 			icon: Expand,
 			tooltip: {
@@ -138,6 +151,7 @@
 			label: () => (locked ? 'Unlock' : 'Lock'),
 			onClick: () => {
 				dispatch('lock')
+				onlock?.()
 			},
 			icon: Anchor,
 			tooltip: {

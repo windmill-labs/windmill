@@ -81,6 +81,8 @@
 		extraTab?: import('svelte').Snippet
 		schemaFormClassName?: string
 		onChange?: (args: Record<string, any>) => void
+		oneditPanelSizeChanged?: (...args: any[]) => any
+		ondelete?: (...args: any[]) => any
 	}
 
 	let {
@@ -117,7 +119,9 @@
 		runButton,
 		extraTab,
 		schemaFormClassName = undefined,
-		onChange = undefined
+		onChange = undefined,
+		oneditPanelSizeChanged = undefined,
+		ondelete = undefined
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -322,6 +326,7 @@
 		editPanelSize = editSize
 		inputPanelSize = inputSize
 		dispatch('editPanelSizeChanged', editSize)
+		oneditPanelSizeChanged?.(editSize)
 	}
 
 	let panelButtonWidth: number = $state(0)
@@ -647,6 +652,7 @@
 													aria-label="Clear"
 													onclick={() => {
 														dispatch('delete', argName)
+														ondelete?.(argName)
 													}}
 												>
 													<X size={16} />
