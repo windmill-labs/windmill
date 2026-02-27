@@ -321,8 +321,8 @@
 						<Tooltip>
 							<AssetGenericIcon assetKind={asset.kind} size="16px" class="!text-secondary" />
 							{#snippet text()}
-														{formatAssetKind(asset)}
-													{/snippet}
+								{formatAssetKind(asset)}
+							{/snippet}
 						</Tooltip>
 					</Cell>
 					<Cell class="flex flex-col">
@@ -347,8 +347,8 @@
 							<Tooltip class={'w-24 flex items-center justify-center'}>
 								<AlertTriangle size={20} class="text-orange-600 dark:text-orange-500" />
 								{#snippet text()}
-																Could not find resource
-															{/snippet}
+									Could not find resource
+								{/snippet}
 							</Tooltip>
 						{/if}
 					</Cell>
