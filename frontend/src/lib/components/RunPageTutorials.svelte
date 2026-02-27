@@ -3,6 +3,16 @@
 	import TroubleshootFlowTutorial from './tutorials/TroubleshootFlowTutorial.svelte'
 	import { getTutorialIndex } from '$lib/tutorials/config'
 
+	interface Props {
+		onreload?: (...args: any[]) => any
+		onerror?: (...args: any[]) => any
+	}
+
+	let {
+		onreload = undefined,
+		onerror = undefined
+	}: Props = $props()
+
 	let troubleshootFlowTutorial: TroubleshootFlowTutorial | undefined = $state(undefined)
 
 	export function runTutorialById(id: string) {
@@ -19,7 +29,7 @@
 <TroubleshootFlowTutorial
 	bind:this={troubleshootFlowTutorial}
 	index={getTutorialIndex('troubleshoot-flow')}
-	on:error
-	on:skipAll={skipAll}
-	on:reload
+	onerror={onerror}
+	onskipAll={skipAll}
+	onreload={onreload}
 />

@@ -62,7 +62,7 @@
 	<Button
 		variant="accent"
 		size="sm"
-		on:click={addUser}
+		onclick={addUser}
 		disabled={$globalEmailInvite == '' || password == undefined}
 	>
 		Add user to instance

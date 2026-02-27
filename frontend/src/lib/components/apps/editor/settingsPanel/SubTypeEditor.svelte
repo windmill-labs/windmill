@@ -8,9 +8,11 @@
 		componentInput: StaticInput<any>
 		subFieldType: InputType | undefined
 		id: string | undefined
+		onremove?: (...args: any[]) => any
 	}
 
-	let { value = $bindable(), componentInput = $bindable(), subFieldType, id }: Props = $props()
+	let { value = $bindable(), componentInput = $bindable(), subFieldType, id,
+		onremove = undefined }: Props = $props()
 
 	let fakeComponentInput: StaticInput<any> = $state({
 		...componentInput,
@@ -29,5 +31,5 @@
 	{id}
 	fieldType={subFieldType}
 	bind:componentInput={fakeComponentInput}
-	on:remove
+	onremove={onremove}
 />

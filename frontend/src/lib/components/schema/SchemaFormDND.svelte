@@ -27,6 +27,11 @@
 		dndType?: string
 		lightHeaderFont?: boolean
 		onreorder?: (...args: any[]) => any
+		onclick?: (...args: any[]) => any
+		onchange?: (...args: any[]) => any
+		onacceptChange?: (...args: any[]) => any
+		onrejectChange?: (...args: any[]) => any
+		onnestedChange?: (...args: any[]) => any
 	}
 
 	let {
@@ -48,7 +53,12 @@
 		className = '',
 		dndType = generateRandomString(),
 		lightHeaderFont,
-		onreorder = undefined
+		onreorder = undefined,
+		onclick = undefined,
+		onchange = undefined,
+		onacceptChange = undefined,
+		onrejectChange = undefined,
+		onnestedChange = undefined
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -111,14 +121,14 @@
 <SchemaForm
 	{nestedClasses}
 	{hiddenArgs}
-	on:click
-	on:change
-	on:reorder
-	on:consider={handleConsider}
-	on:finalize={handleFinalize}
-	on:acceptChange
-	on:rejectChange
-	on:nestedChange
+	onclick={onclick}
+	onchange={onchange}
+	onreorder={onreorder}
+	onconsider={handleConsider}
+	onfinalize={handleFinalize}
+	onacceptChange={onacceptChange}
+	onrejectChange={onrejectChange}
+	onnestedChange={onnestedChange}
 	bind:args
 	{prettifyHeader}
 	{onlyMaskPassword}

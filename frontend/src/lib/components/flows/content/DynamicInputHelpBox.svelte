@@ -9,7 +9,7 @@
 
 <div class="text-xs flex flex-row-reverse">
 	<Button
-		on:click={() => {
+		onclick={() => {
 			opened = !opened
 		}}
 		color="light"

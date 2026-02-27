@@ -24,6 +24,9 @@
 		overlapped?: string | undefined
 		componentDraggedId?: string | undefined
 		render?: boolean
+		onlock?: (...args: any[]) => any
+		onexpand?: (...args: any[]) => any
+		onfillHeight?: (...args: any[]) => any
 	}
 
 	let {
@@ -33,7 +36,10 @@
 		fullHeight,
 		overlapped = undefined,
 		componentDraggedId = undefined,
-		render = false
+		render = false,
+		onlock = undefined,
+		onexpand = undefined,
+		onfillHeight = undefined
 	}: Props = $props()
 
 	let initializing: boolean | undefined = $state()
@@ -150,7 +156,7 @@
 		{/if}
 		{#if $mode !== 'preview'}
 			<ComponentHeader
-				on:mouseover={() => {
+				onmouseover={() => {
 					outTimeout && clearTimeout(outTimeout)
 
 					if (component.id !== $hoverStore) {
@@ -162,15 +168,15 @@
 				{selected}
 				{fullHeight}
 				connecting={$connectingInput.opened}
-				on:lock
-				on:expand
-				on:fillHeight
+				onlock={onlock}
+				onexpand={onexpand}
+				onfillHeight={onfillHeight}
 				{locked}
 				{inlineEditorOpened}
 				hasInlineEditor={component.type === 'textcomponent' &&
 					component.componentInput &&
 					component.componentInput.type !== 'connected'}
-				on:triggerInlineEditor={() => {
+				ontriggerInlineEditor={() => {
 					inlineEditorOpened = !inlineEditorOpened
 				}}
 				{errorHandledByComponent}

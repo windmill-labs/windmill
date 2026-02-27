@@ -713,12 +713,12 @@
 	<div class="h-full bg-surface" bind:clientWidth={width}>
 		<FlowCard
 			flowModuleValue={flowModule?.value}
-			on:reload={() => {
+			onreload={() => {
 				forceReload++
 				reload(flowModule)
 			}}
 			{noEditor}
-			on:setHash={(e) => {
+			onsetHash={(e) => {
 				if (flowModule.value.type == 'script') {
 					flowModule.value.hash = e.detail
 				}
@@ -730,7 +730,7 @@
 				<FlowModuleHeader
 					tag={workspaceScriptTag ?? rawScriptLang ?? workspaceScriptLang}
 					module={flowModule}
-					on:tagChange={(e) => {
+					ontagChange={(e) => {
 						console.log('tagChange', e.detail)
 						if (flowModule.value.type == 'script') {
 							flowModule.value.tag_override = e.detail
@@ -738,20 +738,20 @@
 							flowModule.value.tag = e.detail
 						}
 					}}
-					on:toggleSuspend={() => selectAdvanced('suspend')}
-					on:toggleSleep={() => selectAdvanced('sleep')}
-					on:toggleMock={() => selectAdvanced('mock')}
-					on:toggleRetry={() => selectAdvanced('retries')}
-					on:togglePin={() => (selected = 'test')}
-					on:toggleConcurrency={() => selectAdvanced('runtime')}
-					on:toggleCache={() => selectAdvanced('cache')}
-					on:toggleStopAfterIf={() => selectAdvanced('early-stop')}
-					on:fork={async () => {
+					ontoggleSuspend={() => selectAdvanced('suspend')}
+					ontoggleSleep={() => selectAdvanced('sleep')}
+					ontoggleMock={() => selectAdvanced('mock')}
+					ontoggleRetry={() => selectAdvanced('retries')}
+					ontogglePin={() => (selected = 'test')}
+					ontoggleConcurrency={() => selectAdvanced('runtime')}
+					ontoggleCache={() => selectAdvanced('cache')}
+					ontoggleStopAfterIf={() => selectAdvanced('early-stop')}
+					onfork={async () => {
 						const [module, state] = await fork(flowModule)
 						flowModule = module
 						flowStateStore.val[module.id] = state
 					}}
-					on:reload={async () => {
+					onreload={async () => {
 						if (flowModule.value.type == 'script') {
 							if (flowModule.value.hash != undefined) {
 								flowModule.value.hash = await getLatestHashForScript(flowModule.value.path)
@@ -764,7 +764,7 @@
 							await reload(flowModule)
 						}
 					}}
-					on:createScriptFromInlineScript={async () => {
+					oncreateScriptFromInlineScript={async () => {
 						const [module, state] = await createScriptFromInlineScript(
 							flowModule,
 							selectedId,
@@ -796,8 +796,8 @@
 								acc[key] = obj.type === 'static' ? obj.value : undefined
 								return acc
 							}, {})}
-							on:showDiffMode={showDiffMode}
-							on:hideDiffMode={hideDiffMode}
+							onshowDiffMode={showDiffMode}
+							onhideDiffMode={hideDiffMode}
 							{lastDeployedCode}
 							{diffMode}
 							openAiChat
@@ -868,7 +868,7 @@
 																		modulePreview?.runTestWithStepArgs()
 																	}
 																}}
-																on:change={async (event) => {
+																onchange={async (event) => {
 																	const content = event.detail
 																	if (flowModule.value.type === 'rawscript') {
 																		if (flowModule.value.content !== content) {
@@ -931,7 +931,7 @@
 																modulePreview?.runTestWithStepArgs()
 															}
 														}}
-														on:change={async (event) => {
+														onchange={async (event) => {
 															const content = event.detail
 															if (flowModule.value.type === 'rawscript') {
 																if (flowModule.value.content !== content) {
@@ -1186,7 +1186,7 @@
 																	<Button
 																		size="xs"
 																		variant="default"
-																		on:click={() => {
+																		onclick={() => {
 																			if (flowModule.value.type == 'rawscript') {
 																				flowModule.value.concurrent_limit = undefined
 																			}
@@ -1241,7 +1241,7 @@
 														<Toggle
 															disabled={!$enterpriseLicense || isCloudHosted()}
 															checked={flowModule.priority !== undefined && flowModule.priority > 0}
-															on:change={() => {
+															onchange={() => {
 																if (flowModule.priority) {
 																	flowModule.priority = undefined
 																} else {
@@ -1323,7 +1323,7 @@
 														</Alert>
 														<Button
 															btnClasses="mt-4"
-															on:click={() => {
+															onclick={() => {
 																selectionManager.selectId('settings-same-worker')
 															}}
 														>
@@ -1362,7 +1362,7 @@
 
 														<Button
 															size="xs"
-															on:click={() =>
+															onclick={() =>
 																editor?.setCode(s3Scripts[flowModule.value['language']][s3Kind])}
 														>
 															Apply snippet
@@ -1500,6 +1500,6 @@
 		</div>
 	</div>
 	{#snippet actions()}
-		<Button size="sm" on:click={confirmDebugBetaWarning}>Continue</Button>
+		<Button size="sm" onclick={confirmDebugBetaWarning}>Continue</Button>
 	{/snippet}
 </Modal>

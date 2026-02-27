@@ -16,6 +16,12 @@
 	import { Loader2, Save } from 'lucide-svelte'
 	import autosize from '$lib/autosize'
 
+	interface Props {
+		oncreate?: (...args: any[]) => any
+	}
+
+	let {}: Props = $props()
+
 	const dispatch = createEventDispatcher()
 
 	let path: string = $state('')
@@ -134,7 +140,7 @@
 <Drawer bind:this={drawer} size="900px">
 	<DrawerContent
 		title={edit ? `Update variable at ${initialPath}` : 'Add a variable'}
-		on:close={drawer?.closeDrawer}
+		onclose={drawer?.closeDrawer}
 	>
 		<div class="flex flex-col gap-8">
 			{#if !can_write}
@@ -157,7 +163,7 @@
 			<label class="flex flex-col gap-1">
 				<span class="text-xs font-semibold text-emphasis">Secret</span>
 				<Toggle
-					on:change={() => edit && loadVariable(initialPath)}
+					onchange={() => edit && loadVariable(initialPath)}
 					bind:checked={variable.is_secret}
 					disabled={edit && $userStore?.operator}
 				/>
@@ -182,7 +188,7 @@
 						{#if $userStore?.operator}
 							<div class="p-2 border">Operators cannot load secret value</div>
 						{:else}
-							<Button size="xs" variant="default" on:click={() => loadVariable(initialPath)}>
+							<Button size="xs" variant="default" onclick={() => loadVariable(initialPath)}>
 								Load secret value<Tooltip>Will generate an audit log</Tooltip>
 							</Button>
 						{/if}
@@ -248,7 +254,7 @@
 		</div>
 		{#snippet actions()}
 			<Button
-				on:click={() => (edit ? updateVariable() : createVariable())}
+				onclick={() => (edit ? updateVariable() : createVariable())}
 				disabled={!can_write || !valid || pathError != ''}
 				startIcon={{ icon: Save }}
 				variant="accent"

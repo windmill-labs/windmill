@@ -84,7 +84,7 @@
 				bind:slider
 				min={min == undefined ? 0 : +min}
 				max={max == undefined ? 1 : +max}
-				on:change={(e) => {
+				onchange={(e) => {
 					value = e.detail.value
 				}}
 				{defaultValue}

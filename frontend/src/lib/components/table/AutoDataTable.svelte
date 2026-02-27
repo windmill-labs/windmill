@@ -272,13 +272,13 @@
 					paginated={true}
 					bind:currentPage
 					bind:perPage
-					on:next={() => {
+					onnext={() => {
 						currentPage += 1
 					}}
-					on:previous={() => {
+					onprevious={() => {
 						currentPage -= 1
 					}}
-					on:change={(event) => {
+					onchange={(event) => {
 						currentPage = event.detail
 					}}
 					showNext={objects.length > perPage}

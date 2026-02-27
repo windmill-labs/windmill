@@ -22,10 +22,10 @@
 			label={data.label}
 			selectable
 			selected={selectionManager && selectionManager.isNodeSelected(id)}
-			on:select={() => {
+			onselect={() => {
 				setTimeout(() => data.eventHandlers.select(data.id))
 			}}
-			on:insert={(e) => {
+			oninsert={(e) => {
 				setTimeout(() => data.eventHandlers.insert(e.detail))
 			}}
 		/>

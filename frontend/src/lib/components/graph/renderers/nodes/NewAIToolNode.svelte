@@ -50,10 +50,10 @@
 		<InsertModuleInner
 			bind:funcDesc
 			toolMode
-			on:close={() => {
+			onclose={() => {
 				close()
 			}}
-			on:new={(e) => {
+			onnew={(e) => {
 				data.eventHandlers.insert({
 					index: -1, // ignored when agentId is set
 					agentId: data.agentModuleId,
@@ -61,7 +61,7 @@
 				})
 				close()
 			}}
-			on:insert={(e) => {
+			oninsert={(e) => {
 				data.eventHandlers.insert({
 					index: -1, // ignored when agentId is set
 					agentId: data.agentModuleId,
@@ -69,7 +69,7 @@
 				})
 				close()
 			}}
-			on:pickScript={(e) => {
+			onpickScript={(e) => {
 				data.eventHandlers.insert({
 					index: -1, // ignored when agentId is set
 					agentId: data.agentModuleId,
@@ -83,7 +83,7 @@
 				})
 				close()
 			}}
-			on:pickMcpTool={(e) => {
+			onpickMcpTool={(e) => {
 				data.eventHandlers.insert({
 					index: -1,
 					agentId: data.agentModuleId,
@@ -91,7 +91,7 @@
 				})
 				close()
 			}}
-			on:pickWebsearchTool={(e) => {
+			onpickWebsearchTool={(e) => {
 				data.eventHandlers.insert({
 					index: -1,
 					agentId: data.agentModuleId,
@@ -99,7 +99,7 @@
 				})
 				close()
 			}}
-			on:pickAiAgentTool={(e) => {
+			onpickAiAgentTool={(e) => {
 				data.eventHandlers.insert({
 					index: -1,
 					agentId: data.agentModuleId,

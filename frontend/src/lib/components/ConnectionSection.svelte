@@ -170,7 +170,7 @@
 			bind:itemKind
 			bind:scriptPath
 			{initialPath}
-			on:select={onSelect}
+			onselect={onSelect}
 			disabled={!teamName || (!$enterpriseLicense && platform === 'teams')}
 			clearable
 		/>

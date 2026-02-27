@@ -135,7 +135,7 @@
 		previewArgs={previewIterationArgs}
 		bind:job
 		bind:jobId
-		on:close={() => {
+		onclose={() => {
 			previewOpen = false
 		}}
 	/>
@@ -156,7 +156,7 @@
 				</div>
 				<div class="justify-end">
 					<Button
-						on:click={() => (previewOpen = true)}
+						onclick={() => (previewOpen = true)}
 						startIcon={{ icon: Play }}
 						variant="accent"
 						size="sm">Test an iteration</Button
@@ -205,7 +205,7 @@
 						</div>
 						<Toggle
 							bind:checked={mod.value.squash}
-							on:change={({ detail }) => {
+							onchange={(detail) => {
 								;(mod.value as ForloopFlow).squash = detail
 							}}
 							options={{
@@ -219,7 +219,7 @@
 						<div class="mb-2 text-sm font-bold">Run in parallel</div>
 						<Toggle
 							bind:checked={mod.value.parallel}
-							on:change={({ detail }) => {
+							onchange={(detail) => {
 								if (detail === false) {
 									;(mod.value as ForloopFlow).parallelism = undefined
 								}
@@ -263,7 +263,7 @@
 							<ToggleButtonGroup
 								disabled={!mod.value.parallel}
 								bind:selected={parallelismType}
-								on:selected={(e) => {
+								onselected={(e) => {
 									const forLoopFlow = mod.value as ForloopFlow
 									if (e.detail == parallelismType) return
 									if (e.detail === 'javascript') {
@@ -321,7 +321,7 @@
 							noPadding
 							flow_input={stepPropPicker.pickableProperties.flow_input}
 							pickableProperties={stepPropPicker.pickableProperties}
-							on:select={({ detail }) => {
+							onselect={(detail) => {
 								parallelismEditor?.insertAtCursor(detail)
 								parallelismEditor?.focus()
 							}}
@@ -362,7 +362,7 @@
 					</div>
 					<FlowPlugConnect
 						connecting={$flowPropPickerConfig != undefined}
-						on:click={() => {
+						onclick={() => {
 							const config = {
 								onSelect: (code) => {
 									setExpr(code)
@@ -385,8 +385,8 @@
 							bind:this={iteratorGen}
 							focused={iteratorFieldFocused}
 							arg={mod.value.iterator}
-							on:showExpr={(e) => (suggestion = e.detail || undefined)}
-							on:setExpr={(e) => {
+							onshowExpr={(e) => (suggestion = e.detail || undefined)}
+							onsetExpr={(e) => {
 								setExpr(e.detail)
 							}}
 							pickableProperties={stepPropPicker.pickableProperties}
@@ -404,7 +404,7 @@
 						<PropPickerWrapper
 							notSelectable
 							pickableProperties={stepPropPicker.pickableProperties}
-							on:select={({ detail }) => {
+							onselect={(detail) => {
 								if ($flowPropPickerConfig) {
 									setExpr(detail)
 									flowPropPickerConfig.set(undefined)
@@ -419,10 +419,10 @@
 								<SimpleEditor
 									small
 									bind:this={editor}
-									on:focus={() => {
+									onfocus={() => {
 										iteratorFieldFocused = true
 									}}
-									on:blur={() => {
+									onblur={() => {
 										iteratorFieldFocused = false
 									}}
 									autofocus
@@ -438,7 +438,7 @@
 					</div>
 				{:else}
 					<Button
-						on:click={() => {
+						onclick={() => {
 							if (mod.value.type === 'forloopflow') mod.value.iterator.type = 'javascript'
 						}}
 					/>

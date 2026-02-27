@@ -10,9 +10,11 @@
 		label: string
 		lang?: SupportedLanguage | 'docker' | 'javascript' | undefined
 		id?: string | undefined
+		onclick?: (...args: any[]) => any
 	}
 
-	let { disabled = false, label, lang = undefined, id = undefined }: Props = $props()
+	let { disabled = false, label, lang = undefined, id = undefined,
+		onclick = undefined }: Props = $props()
 
 	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql', 'oracledb']
 </script>
@@ -20,7 +22,7 @@
 <Popover disablePopup={!enterpriseLangs.includes(lang || '') || !!$enterpriseLicense}>
 	<Button
 		btnClasses="w-32 truncate"
-		on:click
+		onclick={onclick}
 		size="sm"
 		spacingSize="md"
 		variant="default"

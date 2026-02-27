@@ -164,7 +164,7 @@
 
 <div class="flex">
 	<AddPropertyForm
-		on:add={(e) => {
+		onadd={(e) => {
 			try {
 				handleAddOrEditArgument({
 					...DEFAULT_PROPERTY,

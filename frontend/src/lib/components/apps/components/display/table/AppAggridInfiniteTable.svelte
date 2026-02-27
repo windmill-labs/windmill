@@ -214,7 +214,7 @@
 	{render}
 	autoRefresh={true}
 	allowConcurentRequests
-	on:argsChanged={() => {
+	onargsChanged={() => {
 		clear()
 	}}
 >

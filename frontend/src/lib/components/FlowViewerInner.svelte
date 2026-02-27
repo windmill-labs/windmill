@@ -62,7 +62,7 @@
 <div>
 	<Tabs
 		bind:selected={rawType}
-		on:selected={() => {
+		onselected={() => {
 			maxLines = 100
 		}}
 	>
@@ -71,7 +71,7 @@
 		{#snippet content()}
 			<div class="relative pt-2">
 				<Button
-					on:click={() =>
+					onclick={() =>
 						copyToClipboard(
 							rawType === 'yaml'
 								? YAML.stringify(flowFiltered)
@@ -94,7 +94,7 @@
 				</div>
 				{#if shouldDisplayLoadMore}
 					<Button
-						on:click={() => {
+						onclick={() => {
 							maxLines += 500
 
 							// If the code is less than the max lines, we don't need to show the button

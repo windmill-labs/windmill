@@ -97,6 +97,8 @@
 		ontoggleCollabMode?: (...args: any[]) => any
 		oncollabPopup?: (...args: any[]) => any
 		oncreateScriptFromInlineScript?: (...args: any[]) => any
+		onshowDiffMode?: (...args: any[]) => any
+		onhideDiffMode?: (...args: any[]) => any
 	}
 
 	let {
@@ -447,20 +449,20 @@
 
 {#if scriptPath}
 	<Drawer bind:open={showHistoryDrawer} size="1200px">
-		<DrawerContent title="Versions History" on:close={() => (showHistoryDrawer = false)}>
+		<DrawerContent title="Versions History" onclose={() => (showHistoryDrawer = false)}>
 			<ScriptVersionHistory {scriptPath} />
 		</DrawerContent>
 	</Drawer>
 {/if}
 
 <Drawer bind:this={scriptPicker} size="900px">
-	<DrawerContent title="Code" on:close={scriptPicker.closeDrawer}>
+	<DrawerContent title="Code" onclose={scriptPicker.closeDrawer}>
 		{#if pick_existing == 'hub'}
-			<PickHubScript bind:filter {kind} on:pick={onScriptPick}>
+			<PickHubScript bind:filter {kind} onpick={onScriptPick}>
 				<ToggleHubWorkspace bind:selected={pick_existing} />
 			</PickHubScript>
 		{:else}
-			<WorkspaceScriptPicker bind:filter {kind} on:pick={onScriptPick}>
+			<WorkspaceScriptPicker bind:filter {kind} onpick={onScriptPick}>
 				<ToggleHubWorkspace bind:selected={pick_existing} />
 			</WorkspaceScriptPicker>
 		{/if}
@@ -468,7 +470,7 @@
 </Drawer>
 
 <Drawer bind:this={codeViewer} size="600px">
-	<DrawerContent title="Code" on:close={codeViewer.closeDrawer}>
+	<DrawerContent title="Code" onclose={codeViewer.closeDrawer}>
 		{#if codeObj}
 			<HighlightCode language={codeObj?.language} code={codeObj?.content} />
 		{:else}
@@ -595,7 +597,7 @@ string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 			<Button
 				variant="accent"
 				startIcon={{ icon: Plus }}
-				on:click={() => {
+				onclick={() => {
 					variableEditor?.initNew()
 				}}
 			>
@@ -709,8 +711,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			await ResourceService.listResourceType({ workspace: $workspaceStore ?? 'NO_W' })}
 	/>
 {/if}
-<ResourceEditorDrawer bind:this={resourceEditor} on:refresh={resourcePicker.openDrawer} />
-<VariableEditor bind:this={variableEditor} on:create={variablePicker.openDrawer} />
+<ResourceEditorDrawer bind:this={resourceEditor} onrefresh={resourcePicker.openDrawer} />
+<VariableEditor bind:this={variableEditor} oncreate={variablePicker.openDrawer} />
 
 {#if showDucklakePicker}
 	<ItemPicker
@@ -856,7 +858,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					aiDescription="Add context variable"
 					title="Add context variable"
 					variant="subtle"
-					on:click={contextualVariablePicker.openDrawer}
+					onclick={contextualVariablePicker.openDrawer}
 					unifiedSize="sm"
 					startIcon={{ icon: DollarSign }}
 					{iconOnly}
@@ -869,7 +871,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					aiDescription="Add variable"
 					title="Add variable"
 					variant="subtle"
-					on:click={variablePicker.openDrawer}
+					onclick={variablePicker.openDrawer}
 					unifiedSize="sm"
 					startIcon={{ icon: DollarSign }}
 					{iconOnly}
@@ -884,7 +886,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					aiDescription="Add S3 Object"
 					title="Add S3 object"
 					variant="subtle"
-					on:click={() => s3FilePicker?.open()}
+					onclick={() => s3FilePicker?.open()}
 					unifiedSize="sm"
 					startIcon={{ icon: File }}
 					{iconOnly}
@@ -899,7 +901,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					title="Add resource"
 					unifiedSize="sm"
 					variant="subtle"
-					on:click={resourcePicker.openDrawer}
+					onclick={resourcePicker.openDrawer}
 					{iconOnly}
 					startIcon={{ icon: Package }}
 				>
@@ -910,7 +912,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			{#if showGitRepoPicker && customUi?.resource != false}
 				<GitRepoPopoverPicker
 					bind:isOpen={gitRepoPickerOpen}
-					on:selected={(e) => insertDelegateToGitRepo(e.detail.resourcePath)}
+					onselected={(e) => insertDelegateToGitRepo(e.detail.resourcePath)}
 				>
 					<Button
 						aiId="editor-bar-add-git-repo"
@@ -918,7 +920,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 						title="Delegate to Git repository"
 						unifiedSize="sm"
 						variant="subtle"
-						on:click={() => (gitRepoPickerOpen = true)}
+						onclick={() => (gitRepoPickerOpen = true)}
 						{iconOnly}
 						startIcon={{ icon: GitBranch }}
 					>
@@ -934,7 +936,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					title="Add resource type"
 					variant="subtle"
 					unifiedSize="sm"
-					on:click={() => resourceTypePicker?.openDrawer()}
+					onclick={() => resourceTypePicker?.openDrawer()}
 					{iconOnly}
 					startIcon={{ icon: Package }}
 				>
@@ -948,7 +950,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					aiDescription="Add database"
 					title="Add database"
 					variant="subtle"
-					on:click={() => databasePicker?.openDrawer()}
+					onclick={() => databasePicker?.openDrawer()}
 					unifiedSize="sm"
 					startIcon={{ icon: DatabaseIcon }}
 					{iconOnly}
@@ -962,7 +964,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					aiDescription="Use Ducklake"
 					title="Use Ducklake"
 					variant="subtle"
-					on:click={() => ducklakePicker?.openDrawer()}
+					onclick={() => ducklakePicker?.openDrawer()}
 					unifiedSize="sm"
 					startIcon={{ icon: DucklakeIcon }}
 					{iconOnly}
@@ -976,7 +978,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					aiDescription="Use DataTable"
 					title="Use DataTable"
 					variant="subtle"
-					on:click={() => dataTablePicker?.openDrawer()}
+					onclick={() => dataTablePicker?.openDrawer()}
 					unifiedSize="sm"
 					startIcon={{ icon: DatabaseIcon }}
 					{iconOnly}
@@ -991,7 +993,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					title="Reset Content"
 					unifiedSize="sm"
 					variant="subtle"
-					on:click={clearContent}
+					onclick={clearContent}
 					{iconOnly}
 					startIcon={{ icon: RotateCw }}
 				>
@@ -1006,7 +1008,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 						aiDescription="Reload assistants"
 						unifiedSize="sm"
 						variant="subtle"
-						on:click={() => editor?.reloadWebsocket()}
+						onclick={() => editor?.reloadWebsocket()}
 						startIcon={{
 							icon: RotateCw,
 							classes: websocketAlive[lang] == false ? 'animate-spin' : ''
@@ -1040,7 +1042,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 						size="sm"
 						checked={diffMode}
 						disabled={!lastDeployedCode}
-						on:change={(e) => {
+						onchange={(e) => {
 							const turnOn = e.detail
 							dispatch(turnOn ? 'showDiffMode' : 'hideDiffMode')
 						}}
@@ -1060,7 +1062,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 						options={{ right: '' }}
 						size="xs"
 						checked={collabLive}
-						on:change={() => (dispatch('toggleCollabMode'), ontoggleCollabMode?.())}
+						onchange={() => (dispatch('toggleCollabMode'), ontoggleCollabMode?.())}
 					/>
 					<Popover>
 						{#snippet text()}
@@ -1107,7 +1109,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			<Button
 				unifiedSize="sm"
 				variant="subtle"
-				on:click={() => (showHistoryDrawer = true)}
+				onclick={() => (showHistoryDrawer = true)}
 				{iconOnly}
 				startIcon={{ icon: History }}
 				title="See history"
@@ -1119,7 +1121,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			<Button
 				unifiedSize="sm"
 				variant="subtle"
-				on:click={scriptPicker.openDrawer}
+				onclick={scriptPicker.openDrawer}
 				{iconOnly}
 				startIcon={{ icon: Library }}
 				title="Explore other scripts"
@@ -1132,7 +1134,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 				unifiedSize="sm"
 				variant="subtle"
 				startIcon={{ icon: Save }}
-				on:click={() => (
+				onclick={() => (
 					dispatch('createScriptFromInlineScript'),
 					oncreateScriptFromInlineScript?.()
 				)}

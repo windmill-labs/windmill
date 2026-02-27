@@ -694,7 +694,7 @@
 									startIcon={{ icon: Download }}
 									color="light"
 									size="xs2"
-									on:click={() => {
+									onclick={() => {
 										api?.exportDataAsCsv()
 									}}
 									iconOnly
@@ -721,7 +721,7 @@
 										color="light"
 										size="xs2"
 										disabled={api?.paginationGetCurrentPage() == 0}
-										on:click={() => {
+										onclick={() => {
 											api?.paginationGoToFirstPage()
 											refreshCount++
 										}}
@@ -732,7 +732,7 @@
 										color="light"
 										size="xs2"
 										disabled={api?.paginationGetCurrentPage() == 0}
-										on:click={() => {
+										onclick={() => {
 											api?.paginationGoToPreviousPage()
 											refreshCount++
 										}}
@@ -748,7 +748,7 @@
 										size="xs2"
 										disabled={(api?.paginationGetCurrentPage() ?? 0) + 1 ==
 											api?.paginationGetTotalPages()}
-										on:click={() => {
+										onclick={() => {
 											api?.paginationGoToNextPage()
 											refreshCount++
 										}}
@@ -760,7 +760,7 @@
 										size="xs2"
 										disabled={(api?.paginationGetCurrentPage() ?? 0) + 1 ==
 											api?.paginationGetTotalPages()}
-										on:click={() => {
+										onclick={() => {
 											api?.paginationGoToLastPage()
 											refreshCount++
 										}}

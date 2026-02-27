@@ -74,7 +74,7 @@
 				checked={config?.enabled ?? false}
 				options={{ right: 'Enabled' }}
 				{disabled}
-				on:change={(e) => {
+				onchange={(e) => {
 					if (e.detail) {
 						collapsed = false
 						if (!config) {

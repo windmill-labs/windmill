@@ -188,7 +188,7 @@
 											{/snippet}
 				</Tooltip>
 			</div>
-			<Button variant="contained" color="blue" on:click={startReplay} startIcon={{ icon: Play }}>
+			<Button variant="contained" color="blue" onclick={startReplay} startIcon={{ icon: Play }}>
 				Play
 			</Button>
 		</div>
@@ -198,7 +198,7 @@
 	<div class="flex flex-col gap-4">
 		<div class="flex items-center justify-between">
 			<h2 class="text-lg font-semibold text-emphasis">Replaying: {recording.flow_path}</h2>
-			<Button variant="border" size="xs" on:click={stop} startIcon={{ icon: done ? LogOut : Square }}>
+			<Button variant="border" size="xs" onclick={stop} startIcon={{ icon: done ? LogOut : Square }}>
 				{done ? 'Exit' : 'Stop'}
 			</Button>
 		</div>

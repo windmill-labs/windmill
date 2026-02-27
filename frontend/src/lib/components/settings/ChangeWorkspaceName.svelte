@@ -43,7 +43,7 @@
 	<div class="flex flex-row gap-2 items-center">
 		<p class="text-primary text-xs">{currentName}</p>
 		<Button
-			on:click={() => {
+			onclick={() => {
 				open = true
 			}}
 			unifiedSize="sm"
@@ -74,7 +74,7 @@
 			size="sm"
 			variant="accent"
 			disabled={!newName}
-			on:click={() => {
+			onclick={() => {
 				renameWorkspace()
 			}}
 		>

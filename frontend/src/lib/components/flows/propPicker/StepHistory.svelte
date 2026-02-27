@@ -27,6 +27,7 @@
 		staticInputs?: undefined | StepHistoryData[]
 		noHistory?: 'isLoop' | 'isInsideLoop' | undefined
 		onselect?: (...args: any[]) => any
+		onerror?: (...args: any[]) => any
 	}
 
 	let {
@@ -38,7 +39,8 @@
 		path = '',
 		staticInputs = undefined,
 		noHistory = undefined,
-		onselect = undefined
+		onselect = undefined,
+		onerror = undefined
 	}: Props = $props()
 
 	const { pathStore } = getContext<FlowEditorContext>('FlowEditorContext') ?? {}
@@ -125,8 +127,8 @@
 <InfiniteList
 	bind:this={infiniteList}
 	selectedItemId={selected}
-	on:error
-	on:select={handleSelect}
+	onerror={onerror}
+	onselect={handleSelect}
 	rounded={false}
 	noBorder
 	extraRowClasses={{

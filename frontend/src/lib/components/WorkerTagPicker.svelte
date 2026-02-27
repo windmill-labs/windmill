@@ -55,7 +55,7 @@
 
 	<Button
 		variant="default"
-		on:click={() => {
+		onclick={() => {
 			$workerTags = undefined
 			loadWorkerTags(true)
 		}}

@@ -226,7 +226,7 @@
 
 <WorkspaceDependenciesEditor
 	bind:this={workspaceDependenciesEditor}
-	on:create={loadWorkspaceDependencies}
+	oncreate={loadWorkspaceDependencies}
 />
 
 <SearchItems
@@ -283,7 +283,7 @@
 			<div class="text-sm text-secondary mb-4">
 				Try changing the filters or creating new enforced dependencies
 			</div>
-			<Button startIcon={{ icon: Plus }} on:click={createNewWorkspaceDependencies}>
+			<Button startIcon={{ icon: Plus }} onclick={createNewWorkspaceDependencies}>
 				Create your first enforced dependencies
 			</Button>
 		</div>
@@ -361,7 +361,7 @@
 									variant="border"
 									color="light"
 									startIcon={{ icon: Eye }}
-									on:click={() => viewWorkspaceDependencies(deps)}
+									onclick={() => viewWorkspaceDependencies(deps)}
 								>
 									View
 								</Button>
@@ -370,7 +370,7 @@
 									variant="border"
 									color="light"
 									startIcon={{ icon: Edit }}
-									on:click={() => editWorkspaceDependencies(deps)}
+									onclick={() => editWorkspaceDependencies(deps)}
 								>
 									Edit
 								</Button>
@@ -379,7 +379,7 @@
 									size="xs"
 									variant="border"
 									color="gray"
-									on:click={() => archiveWorkspaceDependencies(deps)}
+									onclick={() => archiveWorkspaceDependencies(deps)}
 									title="Archive"
 								>
 									Archive
@@ -388,7 +388,7 @@
 									size="xs"
 									variant="border"
 									color="red"
-									on:click={() => deleteWorkspaceDependencies(deps)}
+									onclick={() => deleteWorkspaceDependencies(deps)}
 									title="Delete"
 								>
 									Delete
@@ -397,7 +397,7 @@
 									size="xs"
 									variant="border"
 									color="gray"
-									on:click={() => viewReferencedFrom(deps)}
+									onclick={() => viewReferencedFrom(deps)}
 									title="Referenced From"
 								>
 									Refs
@@ -412,7 +412,7 @@
 </div>
 
 <Drawer bind:this={viewDrawer} size="900px">
-	<DrawerContent title="View Requirement - {viewPath}" on:close={viewDrawer?.closeDrawer}>
+	<DrawerContent title="View Requirement - {viewPath}" onclose={viewDrawer?.closeDrawer}>
 		{#snippet actions()}
 			<div class="flex items-center gap-2">
 				<Code2 size={16} class="text-secondary" />

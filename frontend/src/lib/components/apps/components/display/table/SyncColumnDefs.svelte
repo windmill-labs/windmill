@@ -167,7 +167,7 @@
 								startIcon={{ icon: RefreshCw }}
 								size="xs"
 								variant="accent"
-								on:click={syncColumns}
+								onclick={syncColumns}
 							>
 								Sync columns definition
 							</Button>
@@ -192,7 +192,7 @@
 								startIcon={{ icon: RefreshCw }}
 								size="xs"
 								color="red"
-								on:click={setEmptyColumns}
+								onclick={setEmptyColumns}
 							>
 								Fix columns definitions
 							</Button>
@@ -212,7 +212,7 @@
 								startIcon={{ icon: RefreshCw }}
 								size="xs"
 								color="red"
-								on:click={setEmptyColumns}
+								onclick={setEmptyColumns}
 							>
 								Fix columns definitions
 							</Button>

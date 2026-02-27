@@ -249,7 +249,7 @@
 <DarkModeObserver bind:darkMode />
 
 <Drawer bind:this={codeViewer} size="600px">
-	<DrawerContent title="Code" on:close={codeViewer.closeDrawer}>
+	<DrawerContent title="Code" onclose={codeViewer.closeDrawer}>
 		{#if codeObj}
 			<HighlightCode language={codeObj?.language} code={codeObj?.content} />
 		{:else}
@@ -259,13 +259,13 @@
 </Drawer>
 
 <Drawer bind:this={scriptPicker} size="900px">
-	<DrawerContent title="Code" on:close={scriptPicker.closeDrawer}>
+	<DrawerContent title="Code" onclose={scriptPicker.closeDrawer}>
 		{#if pick_existing == 'hub'}
-			<PickHubScript bind:filter kind={'script'} on:pick={onScriptPick}>
+			<PickHubScript bind:filter kind={'script'} onpick={onScriptPick}>
 				<ToggleHubWorkspace bind:selected={pick_existing} />
 			</PickHubScript>
 		{:else}
-			<WorkspaceScriptPicker bind:filter kind={'script'} on:pick={onScriptPick}>
+			<WorkspaceScriptPicker bind:filter kind={'script'} onpick={onScriptPick}>
 				<ToggleHubWorkspace bind:selected={pick_existing} />
 			</WorkspaceScriptPicker>
 		{/if}
@@ -280,7 +280,7 @@
 					loading={loadingPendingJobs}
 					variant="default"
 					wrapperClasses="self-stretch"
-					on:click={async () => {
+					onclick={async () => {
 						await listPendingJobs()
 						if (pendingsJobs.length === 0) {
 							sendUserToast('No pending ssh jobs found')
@@ -305,7 +305,7 @@
 						variant="default"
 						disabled={emptyString(selectedJobId)}
 						wrapperClasses="self-stretch"
-						on:click={listPendingJobsAndUpdateSelectedJobid}
+						onclick={listPendingJobsAndUpdateSelectedJobid}
 						startIcon={{ icon: RefreshCw }}
 						iconOnly
 					/>
@@ -314,7 +314,7 @@
 						variant="default"
 						disabled={emptyString(selectedJobId)}
 						startIcon={{ icon: Eye }}
-						on:click={async () => {
+						onclick={async () => {
 							const jobId = pendingsJobs.find((pendingsJob) => pendingsJob.id === selectedJobId)?.id
 							if (jobId) {
 								const job = await JobService.getJob({ workspace: $workspaceStore!, id: jobId })
@@ -336,7 +336,7 @@
 						size="xs"
 						variant="default"
 						startIcon={{ icon: Square }}
-						on:click={async () => {
+						onclick={async () => {
 							try {
 								isCancelingJob = true
 								await cancelJob(selectedJobId)
@@ -385,7 +385,7 @@
 					variant="default"
 					startIcon={{ icon: Play }}
 					title="Run bash script"
-					on:click={async () => {
+					onclick={async () => {
 						await replacePromptWithCommand(code)
 					}}
 				>
@@ -394,7 +394,7 @@
 				<Button
 					unifiedSize="md"
 					variant="subtle"
-					on:click={scriptPicker.openDrawer}
+					onclick={scriptPicker.openDrawer}
 					startIcon={{ icon: Library }}
 					title="Explore other scripts"
 				>

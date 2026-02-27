@@ -19,7 +19,7 @@
 
 <Drawer bind:this={drawer} size="1200px">
 	<DrawerContent
-		on:close={() => {
+		onclose={() => {
 			drawer?.closeDrawer()
 		}}
 		noPadding

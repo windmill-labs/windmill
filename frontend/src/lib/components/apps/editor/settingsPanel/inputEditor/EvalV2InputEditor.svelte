@@ -83,7 +83,7 @@
 	{#if fullscreen}
 		<Drawer
 			placement="bottom"
-			on:close={() => (fullscreen = false)}
+			onclose={() => (fullscreen = false)}
 			open
 			offset={zIndexes.monacoEditor}
 		>
@@ -98,7 +98,7 @@
 						shouldBindKey={false}
 						fixedOverflowWidgets={false}
 						{extraLib}
-						on:change={async (e) => {
+						onchange={async (e) => {
 							if (onchange) {
 								onchange()
 							}
@@ -140,13 +140,13 @@
 				autoHeight
 				{disabled}
 				{fixedOverflowWidgets}
-				on:focus={() => {
+				onfocus={() => {
 					focus = true
 				}}
-				on:blur={() => {
+				onblur={() => {
 					focus = false
 				}}
-				on:change={async (e) => {
+				onchange={async (e) => {
 					if (onchange) {
 						onchange()
 					}
@@ -207,7 +207,7 @@
 					color="blue"
 					disabled={!recomputeOnInputChanged}
 					checked={!componentInput.onDemandOnly}
-					on:change={() => {
+					onchange={() => {
 						if (componentInput) {
 							componentInput.onDemandOnly = !componentInput.onDemandOnly
 							if (!componentInput.onDemandOnly) {

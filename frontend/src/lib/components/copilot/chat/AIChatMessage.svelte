@@ -93,7 +93,7 @@
 			<Button
 				size="xs2"
 				variant="default"
-				on:click={() => {
+				onclick={() => {
 					if (message.snapshot) {
 						if (message.snapshot.type === 'flow') {
 							aiChatManager.flowAiChatHelpers?.revertToSnapshot(message.snapshot.value)

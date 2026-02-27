@@ -29,7 +29,7 @@
 <HighlightTheme />
 
 <Drawer bind:this={jsonViewerDrawer} size="800px">
-	<DrawerContent title="App Export" on:close={() => jsonViewerDrawer?.toggleDrawer()}>
+	<DrawerContent title="App Export" onclose={() => jsonViewerDrawer?.toggleDrawer()}>
 		<div>
 			<Tabs bind:selected={rawType}>
 				<Tab value="yaml" label="YAML" />
@@ -37,7 +37,7 @@
 				{#snippet content()}
 					<div class="relative pt-2">
 						<Button
-							on:click={() =>
+							onclick={() =>
 								copyToClipboard(
 									rawType === 'yaml'
 										? YAML.stringify(app ?? {})

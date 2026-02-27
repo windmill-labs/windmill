@@ -82,11 +82,11 @@
 					workspace={appViewerContext?.workspace ?? $workspaceStore}
 					{resourceType}
 					express={true}
-					on:error={(e) => {
+					onerror={(e) => {
 						sendUserToast(e.detail, true)
 						open = false
 					}}
-					on:refresh={async (e) => {
+					onrefresh={async (e) => {
 						await loadResources(resourceType)
 						value = e.detail
 						open = false
@@ -99,7 +99,7 @@
 	<Drawer bind:this={drawer} size="800px">
 		<DrawerContent
 			title="Add a resource"
-			on:close={drawer.closeDrawer}
+			onclose={drawer.closeDrawer}
 			tooltip="Resources represent connections to third party systems. Learn more on how to integrate external APIs."
 			documentationLink="https://www.windmill.dev/docs/integrations/integrations_on_windmill"
 		>
@@ -110,10 +110,10 @@
 					workspace={appViewerContext?.workspace ?? $workspaceStore}
 					{resourceType}
 					express={false}
-					on:error={(e) => {
+					onerror={(e) => {
 						sendUserToast(e.detail, true)
 					}}
-					on:refresh={async (e) => {
+					onrefresh={async (e) => {
 						await loadResources(resourceType)
 						value = e.detail
 						drawer?.closeDrawer?.()
@@ -147,7 +147,7 @@
 				<Button
 					color="light"
 					size="sm"
-					on:click={() => {
+					onclick={() => {
 						const item = collection[0]
 						if (item) {
 							value = item.value
@@ -183,7 +183,7 @@
 					size="sm"
 					btnClasses="w-8 px-0.5 py-1.5"
 					iconOnly
-					on:click={async () => {
+					onclick={async () => {
 						if (value) {
 							await ResourceService.deleteResource({
 								workspace: appViewerContext?.workspace ?? $workspaceStore,
@@ -203,7 +203,7 @@
 					variant="contained"
 					btnClasses="w-8 px-0.5 py-1.5"
 					size="sm"
-					on:click={() => {
+					onclick={() => {
 						refreshCount += 1
 						open = true
 						drawer?.openDrawer?.()

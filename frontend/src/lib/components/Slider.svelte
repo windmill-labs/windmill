@@ -24,7 +24,7 @@
 
 <Button
 	color="light"
-	on:click={() => (view = !view)}
+	onclick={() => (view = !view)}
 	{size}
 	variant="border"
 	endIcon={{

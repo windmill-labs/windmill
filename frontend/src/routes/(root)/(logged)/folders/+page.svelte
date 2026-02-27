@@ -77,8 +77,8 @@
 </script>
 
 <Drawer bind:this={folderDrawer}>
-	<DrawerContent title="Folder {editFolderName}" on:close={folderDrawer.closeDrawer}>
-		<FolderEditor on:update={loadFolders} name={editFolderName} />
+	<DrawerContent title="Folder {editFolderName}" onclose={folderDrawer.closeDrawer}>
+		<FolderEditor onupdate={loadFolders} name={editFolderName} />
 	</DrawerContent>
 </Drawer>
 
@@ -117,7 +117,7 @@
 								variant="accent"
 								startIcon={{ icon: Plus }}
 								disabled={!newFolderName}
-								on:click={() => {
+								onclick={() => {
 									addFolder()
 									close()
 								}}

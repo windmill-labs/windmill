@@ -19,7 +19,7 @@
 		title="Undo"
 		variant="default"
 		btnClasses="!min-h-[30px] !rounded-r-none"
-		on:click={() => (dispatch('undo'), onundo?.())}
+		onclick={() => (dispatch('undo'), onundo?.())}
 		startIcon={{ icon: Undo }}
 		iconOnly
 		{...undoProps}
@@ -28,7 +28,7 @@
 		title="Redo"
 		variant="default"
 		btnClasses="!min-h-[30px] !rounded-l-none !border-l-0"
-		on:click={() => (dispatch('redo'), onredo?.())}
+		onclick={() => (dispatch('redo'), onredo?.())}
 		startIcon={{ icon: Redo }}
 		iconOnly
 		{...redoProps}

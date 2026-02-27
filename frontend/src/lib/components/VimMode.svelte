@@ -11,7 +11,7 @@
 <Toggle
 	size="xs"
 	bind:checked={$vimMode}
-	on:change={() => {
+	onchange={() => {
 		storeSetting()
 	}}
 	options={{ right: 'vim mode' }}

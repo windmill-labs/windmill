@@ -34,7 +34,7 @@
 	variant="accent"
 	unifiedSize="md"
 	startIcon={{ icon: Save }}
-	on:click={() => (dispatch('save'), onsave?.())}
+	onclick={() => (dispatch('save'), onsave?.())}
 	dropdownItems={!newFlow ? dropdownItems : undefined}
 	tooltipPopover={{
 		placement: 'bottom-end',
@@ -42,7 +42,7 @@
 		closeDelay: 0,
 		portal: 'body'
 	}}
-	on:tooltipOpen={async ({ detail }) => {
+	ontooltipOpen={async ({ detail }) => {
 		if (detail) {
 			// Use setTimeout to ensure DOM is updated
 			setTimeout(() => {
@@ -54,7 +54,7 @@
 		}
 	}}
 	{hideDropdown}
-	on:dropdownOpen={({ detail }) => {
+	ondropdownOpen={(detail) => {
 		dropdownOpen = detail
 	}}
 >
@@ -76,7 +76,7 @@
 			<Button
 				unifiedSize="md"
 				variant="accent"
-				on:click={async () => (dispatch('save', deploymentMsg), onsave?.(deploymentMsg))}
+				onclick={async () => (dispatch('save', deploymentMsg), onsave?.(deploymentMsg))}
 				endIcon={{ icon: CornerDownLeft }}
 				loading={loadingSave}
 			>

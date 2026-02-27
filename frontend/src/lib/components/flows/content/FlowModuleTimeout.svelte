@@ -63,7 +63,7 @@
 
 	<Toggle
 		checked={istimeoutEnabled}
-		on:change={() => {
+		onchange={() => {
 			if (istimeoutEnabled && flowModule.timeout != undefined) {
 				flowModule.timeout = undefined
 			} else {
@@ -84,7 +84,7 @@
 					flow_input={stepPropPicker.pickableProperties.flow_input}
 					notSelectable
 					pickableProperties={stepPropPicker.pickableProperties}
-					on:select={({ detail }) => {
+					onselect={(detail) => {
 						editor?.insertAtCursor(detail)
 						editor?.focus()
 					}}

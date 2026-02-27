@@ -41,7 +41,7 @@
 			<Button
 				variant="accent"
 				size="xs"
-				on:click={async () => {
+				onclick={async () => {
 					if (!$workspaceStore) return
 					await updateTheme($workspaceStore, row.path, {
 						value: {

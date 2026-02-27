@@ -21,10 +21,10 @@
 	title={`Are you sure you want to delete this ${trigger?.isDraft ? 'draft' : 'deployed'} trigger ?`}
 	confirmationText="Delete"
 	open={confirmationModalOpen}
-	on:canceled={() => {
+	oncanceled={() => {
 		confirmationModalOpen = false
 	}}
-	on:confirmed={() => {
+	onconfirmed={() => {
 		onDelete?.()
 		confirmationModalOpen = false
 	}}
@@ -44,7 +44,7 @@
 	destructive
 	startIcon={{ icon: Trash }}
 	iconOnly
-	on:click={() => {
+	onclick={() => {
 		confirmationModalOpen = true
 	}}
 />

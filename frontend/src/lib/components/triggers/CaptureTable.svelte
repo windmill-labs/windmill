@@ -39,6 +39,7 @@
 		onupdateSchema?: (...args: any[]) => any
 		ontestWithArgs?: (...args: any[]) => any
 		onapplyArgs?: (...args: any[]) => any
+		onopenTriggers?: (...args: any[]) => any
 	}
 
 	let {
@@ -59,7 +60,8 @@
 		onaddPreprocessor = undefined,
 		onupdateSchema = undefined,
 		ontestWithArgs = undefined,
-		onapplyArgs = undefined
+		onapplyArgs = undefined,
+		onopenTriggers = undefined
 	}: Props = $props()
 
 	let selected: number | undefined = $state(undefined)
@@ -263,7 +265,7 @@
 	{#snippet header()}
 		{#if addButton}
 			<div class="inline-block">
-				<CaptureButton small={true} on:openTriggers />
+				<CaptureButton small={true} onopenTriggers={onopenTriggers} />
 			</div>
 		{/if}
 		{#if captureActiveIndicator}
@@ -276,7 +278,7 @@
 				<ToggleButtonGroup
 					bind:selected={testKind}
 					class="h-full"
-					on:selected={(e) => {
+					onselected={(e) => {
 						initLoadCaptures(e.detail)
 					}}
 				>
@@ -308,8 +310,8 @@
 			bind:this={infiniteList}
 			selectedItemId={selected}
 			bind:isEmpty
-			on:error={(e) => handleError(e.detail)}
-			on:select={(e) => handleSelect(e.detail)}
+			onerror={(e) => handleError(e)}
+			onselect={(e) => handleSelect(e)}
 			bind:length={capturesLength}
 			{noBorder}
 			neverShowLoader={captureActiveIndicator !== undefined}
@@ -363,7 +365,7 @@
 												<Button
 													size="xs2"
 													variant="accent"
-													on:click={() => {
+													onclick={() => {
 														dispatch('addPreprocessor')
 														onaddPreprocessor?.()
 													}}
@@ -397,7 +399,7 @@
 												hidden: !isFlow || testKind !== 'main'
 											}
 										].filter((item) => !item.hidden)}
-										on:click={async () => {
+										onclick={async () => {
 											const payloadData = await getPayload(item)
 											if (isFlow && testKind === 'main') {
 												dispatch('testWithArgs', payloadData)
@@ -431,7 +433,7 @@
 									iconOnly
 									startIcon={{ icon: Trash2 }}
 									loading={item.isDeleting}
-									on:click={() => {
+									onclick={() => {
 										infiniteList?.deleteItem(item.id)
 									}}
 									btnClasses="hover:text-white hover:bg-red-500 text-red-500"

@@ -275,7 +275,7 @@
 				{@const idx = oneOf.findIndex((obj) => obj.title === oneOfSelected)}
 				<div class="border">
 					<EditableSchemaForm
-						on:change
+						onchange={onchange}
 						noPreview
 						bind:schema={oneOfSchemas[idx]}
 						uiOnly
@@ -287,7 +287,7 @@
 		{:else if type == 'object' && !format?.startsWith('resource-') && !isFlowInput && !isAppInput}
 			<div class="border">
 				<EditableSchemaForm
-					on:change
+					onchange={onchange}
 					noPreview
 					bind:schema
 					uiOnly

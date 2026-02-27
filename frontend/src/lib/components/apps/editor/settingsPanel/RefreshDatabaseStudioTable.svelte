@@ -19,7 +19,7 @@
 </script>
 
 {#if id}
-	<Button size="xs2" color="light" startIcon={{ icon: RotateCcw }} on:click={() => onRefresh()}>
+	<Button size="xs2" color="light" startIcon={{ icon: RotateCcw }} onclick={() => onRefresh()}>
 		Force refresh
 	</Button>
 {/if}

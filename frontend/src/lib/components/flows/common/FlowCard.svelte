@@ -12,6 +12,8 @@
 		action?: import('svelte').Snippet
 		children?: import('svelte').Snippet
 		isAgentTool?: boolean
+		onsetHash?: (...args: any[]) => any
+		onreload?: (...args: any[]) => any
 	}
 
 	let {
@@ -23,7 +25,9 @@
 		header,
 		action,
 		children,
-		isAgentTool = false
+		isAgentTool = false,
+		onsetHash = undefined,
+		onreload = undefined
 	}: Props = $props()
 </script>
 
@@ -31,8 +35,8 @@
 	{#if !noEditor && !noHeader}
 		<div>
 			<FlowCardHeader
-				on:setHash
-				on:reload
+				onsetHash={onsetHash}
+				onreload={onreload}
 				{title}
 				bind:summary
 				{flowModuleValue}

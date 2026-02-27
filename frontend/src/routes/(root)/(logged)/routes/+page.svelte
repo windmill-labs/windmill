@@ -267,7 +267,7 @@
 						unifiedSize="md"
 						variant="default"
 						startIcon={{ icon: Plus }}
-						on:click={() => {
+						onclick={() => {
 							routesGenerator?.openDrawer()
 						}}
 					>
@@ -277,7 +277,7 @@
 						unifiedSize="md"
 						variant="default"
 						startIcon={{ icon: Plus }}
-						on:click={() => {
+						onclick={() => {
 							openAPISpecGenerator?.openDrawer()
 						}}
 					>
@@ -287,7 +287,7 @@
 						unifiedSize="md"
 						variant="accent"
 						startIcon={{ icon: Plus }}
-						on:click={() => routeEditor?.openNew(false)}
+						onclick={() => routeEditor?.openNew(false)}
 					>
 						New&nbsp;route
 					</Button>
@@ -396,7 +396,7 @@
 
 								<div class="flex gap-2 items-center justify-end">
 									<Button
-										on:click={() =>
+										onclick={() =>
 											copyToClipboard(
 												getHttpRoute('r', route_path, workspaced_route ?? false, workspace_id)
 											)}
@@ -407,7 +407,7 @@
 										Copy URL
 									</Button>
 									<Button
-										on:click={() => routeEditor?.openEdit(path, is_flow)}
+										onclick={() => routeEditor?.openEdit(path, is_flow)}
 										unifiedSize="md"
 										startIcon={canWrite
 											? { icon: Pen }
@@ -524,7 +524,7 @@
 
 <ShareModal
 	bind:this={shareModal}
-	on:change={() => {
+	onchange={() => {
 		loadTriggers()
 	}}
 />

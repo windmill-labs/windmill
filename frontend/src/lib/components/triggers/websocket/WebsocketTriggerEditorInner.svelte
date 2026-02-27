@@ -388,7 +388,7 @@
 					? `Edit WebSocket trigger ${initialPath}`
 					: `WebSocket trigger ${initialPath}`
 				: 'New WebSocket trigger'}
-			on:close={drawer.closeDrawer}
+			onclose={drawer.closeDrawer}
 		>
 			{#snippet actions()}
 				{@render actionsButtons()}
@@ -507,7 +507,7 @@
 
 				<Toggle
 					checked={can_return_message}
-					on:change={() => {
+					onchange={() => {
 						can_return_message = !can_return_message
 					}}
 					options={{
@@ -521,7 +521,7 @@
 
 				<Toggle
 					checked={can_return_error_result}
-					on:change={() => {
+					onchange={() => {
 						can_return_error_result = !can_return_error_result
 					}}
 					options={{
@@ -587,7 +587,7 @@
 											Raw JSON message (if a string, wrapping quotes will be discarded)
 										</div>
 										<JsonEditor
-											on:change={(ev) => {
+											onchange={(ev) => {
 												const { code } = ev.detail
 												initial_messages[i] = {
 													raw_message: code
@@ -604,7 +604,7 @@
 											allowFlow={true}
 											itemKind={v.runnable_result?.is_flow ? 'flow' : 'script'}
 											initialPath={v.runnable_result?.path ?? ''}
-											on:select={(ev) => {
+											onselect={(ev) => {
 												const { path, itemKind } = ev.detail
 												initial_messages[i] = {
 													runnable_result: {
@@ -668,7 +668,7 @@
 							variant="default"
 							size="xs"
 							btnClasses="mt-1"
-							on:click={() => {
+							onclick={() => {
 								if (initial_messages == undefined || !Array.isArray(initial_messages)) {
 									initial_messages = []
 								}

@@ -38,7 +38,7 @@
 				bind:recomputeOnInputChanged={runnable.recomputeOnInputChanged}
 				canConfigureRecomputeOnInputChanged={isRunnableByPath(runnable) ||
 					runnable.inlineScript?.language !== 'frontend'}
-				on:updateAutoRefresh={updateAutoRefresh}
+				onupdateAutoRefresh={updateAutoRefresh}
 			>
 				<BackgroundScriptTriggerBy
 					{id}

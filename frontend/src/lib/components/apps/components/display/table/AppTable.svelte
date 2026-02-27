@@ -499,8 +499,8 @@
 											{@const context = cell?.getContext()}
 											{#if context}
 												<AppCell
-													on:keydown={() => toggleRow(row)}
-													on:click={() => toggleRow(row)}
+													onkeydown={() => toggleRow(row)}
+													onclick={() => toggleRow(row)}
 													type={resolvedConfig.columnDefs?.find(
 														// TS types are wrong here
 														// @ts-ignore
@@ -508,7 +508,7 @@
 													)?.type ?? 'text'}
 													value={cell.getValue()}
 													width={cell.column.getSize()}
-													on:update={(event) => {
+													onupdate={(event) => {
 														updateCellValue(rowIndex, index, event.detail.value)
 													}}
 												/>
@@ -611,7 +611,7 @@
 																			{#snippet content()}
 																				<ComponentOutputViewer
 																					suffix="table"
-																					on:select={({ detail }) =>
+																					onselect={(detail) =>
 																						connectOutput(
 																							connectingInput,
 																							'buttoncomponent',

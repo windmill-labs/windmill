@@ -62,7 +62,7 @@
 		<!-- 	{comparison} -->
 		<!-- 	sourceWorkspace={currentWorkspaceId} -->
 		<!-- 	targetWorkspace={parentWorkspaceId} -->
-		<!-- 	on:deployed={() => { -->
+		<!-- 	ondeployed={() => { -->
 		<!-- 		sendUserToast('Changes deployed successfully') -->
 		<!-- 	}} -->
 		<!-- /> -->

@@ -49,7 +49,7 @@
 			'max-[1760px]:mt-[1.5px]' // Magic number comes from app.css (when :root fontSize becomes bigger)
 		)}
 		style="height: {NODE.height}px;"
-		on:click={() => {
+		onclick={() => {
 			onTestFlow?.()
 		}}
 	>
@@ -117,7 +117,7 @@
 		color="red"
 		variant="contained"
 		btnClasses="h-[34px] w-[120px] p-1.5"
-		on:click={async () => {
+		onclick={async () => {
 			onCancelTestFlow?.()
 		}}
 	>

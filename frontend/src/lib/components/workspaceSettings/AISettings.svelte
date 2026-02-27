@@ -193,7 +193,7 @@
 								right: details.label
 							}}
 							checked={!!aiProviders[provider]}
-							on:change={(e) => {
+							onchange={(e) => {
 								if (e.detail) {
 									aiProviders = {
 										...aiProviders,
@@ -311,7 +311,7 @@
 	<div>
 		<SettingCard label="Code completion">
 			<Toggle
-				on:change={(e) => {
+				onchange={(e) => {
 					if (e.detail) {
 						codeCompletionModel = autocompleteModels[0] ?? ''
 					} else {

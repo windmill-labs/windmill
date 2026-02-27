@@ -16,6 +16,12 @@
 	import { createEventDispatcher } from 'svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
 
+	interface Props {
+		onrefresh?: (...args: any[]) => any
+	}
+
+	let {}: Props = $props()
+
 	let drawer: Drawer | undefined = $state()
 	let token: undefined | string = $state(undefined)
 	export async function open() {
@@ -105,11 +111,11 @@
 <HighlightTheme />
 
 <Drawer bind:this={drawer} size="800px">
-	<DrawerContent title="Add a Supabase Database" on:close={drawer?.closeDrawer}>
+	<DrawerContent title="Add a Supabase Database" onclose={drawer?.closeDrawer}>
 		{#if step === 'init' || selectedDatabase == undefined}
 			<h2
 				>Connect an existing database <div class="inline-block ml-2"
-					><Button variant="default" wrapperClasses="self-stretch" on:click={listDatabases}
+					><Button variant="default" wrapperClasses="self-stretch" onclick={listDatabases}
 						><RotateCwIcon size={12} /></Button
 					></div
 				>
@@ -178,9 +184,9 @@
 		{#snippet actions()}
 			<div class="flex gap-1">
 				{#if step == 'resource' && selectedDatabase != undefined}
-					<Button variant="default" on:click={() => (step = 'init')}>Back</Button>
+					<Button variant="default" onclick={() => (step = 'init')}>Back</Button>
 
-					<Button {disabled} on:click={save} variant="accent">Save</Button>
+					<Button {disabled} onclick={save} variant="accent">Save</Button>
 				{/if}
 			</div>
 		{/snippet}

@@ -316,10 +316,10 @@
 	open={openDelete}
 	title="Delete worker group"
 	confirmationText="Remove"
-	on:canceled={() => {
+	oncanceled={() => {
 		openDelete = false
 	}}
-	on:confirmed={async () => {
+	onconfirmed={async () => {
 		deleteWorkerGroup()
 		openDelete = false
 	}}
@@ -333,10 +333,10 @@
 	open={openClean}
 	title="Clear cache"
 	confirmationText="Remove"
-	on:canceled={() => {
+	oncanceled={() => {
 		openClean = false
 	}}
-	on:confirmed={async () => {
+	onconfirmed={async () => {
 		const ndate = Math.floor(Date.now() / 1000)
 		const withCacheConfig = { ...nconfig, cache_clear: ndate }
 		await ConfigService.updateConfig({
@@ -362,7 +362,7 @@
 
 <Drawer bind:this={drawer} size="800px">
 	<DrawerContent
-		on:close={() => drawer?.closeDrawer()}
+		onclose={() => drawer?.closeDrawer()}
 		title={canEditConfig ? `Edit worker config '${name}'` : `Worker config '${name}'`}
 	>
 		{#if !hasEnterpriseFeatures}
@@ -379,7 +379,7 @@
 			<ToggleButtonGroup
 				{selected}
 				disabled={!canEditEEConfig}
-				on:selected={(e) => {
+				onselected={(e) => {
 					if (nconfig == undefined) {
 						nconfig = {}
 					}
@@ -467,7 +467,7 @@
 							<Button
 								variant="default"
 								unifiedSize="sm"
-								on:click={() => {
+								onclick={() => {
 									if (nconfig != undefined) {
 										nconfig.worker_tags =
 											defaultTagPerWorkspace && workspaceTag
@@ -557,7 +557,7 @@
 							right: isAutoNativeMode ? 'Native mode (automatically enabled)' : 'Enable native mode'
 						}}
 						checked={nconfig?.native_mode === true || isAutoNativeMode}
-						on:change={(ev) => {
+						onchange={(ev) => {
 							if (nconfig !== undefined) {
 								nconfig.native_mode = ev.detail ? true : undefined
 							}
@@ -584,7 +584,7 @@
 							<div class="mt-2 w-fit">
 								<Button
 									variant="default"
-									on:click={() => {
+									onclick={() => {
 										if (nconfig?.worker_tags != undefined) {
 											const flowTag =
 												defaultTagPerWorkspace && workspaceTag ? `flow-${workspaceTag}` : 'flow'
@@ -615,7 +615,7 @@
 							right: 'Send an alert when the number of alive workers falls below a given threshold'
 						}}
 						checked={nconfig?.min_alive_workers_alert_threshold !== undefined}
-						on:change={(ev) => {
+						onchange={(ev) => {
 							if (nconfig !== undefined) {
 								nconfig.min_alive_workers_alert_threshold = ev.detail ? 1 : undefined
 							}
@@ -689,7 +689,7 @@
 							disabled={!canEditEEConfig}
 							class="w-128"
 							bind:selected={envvar.type}
-							on:selected={(e) => {
+							onselected={(e) => {
 								if (e.detail === 'dynamic') {
 									envvar.value = undefined
 								}
@@ -741,7 +741,7 @@
 							variant="default"
 							unifiedSize="md"
 							startIcon={{ icon: Plus }}
-							on:click={() => {
+							onclick={() => {
 								customEnvVars.push({ key: '', type: 'dynamic', value: undefined })
 								customEnvVars = [...customEnvVars]
 							}}
@@ -862,7 +862,7 @@
 							variant="default"
 							size="xs"
 							startIcon={{ icon: Plus }}
-							on:click={() => {
+							onclick={() => {
 								if (nconfig.additional_python_paths === undefined) {
 									nconfig.additional_python_paths = []
 								}
@@ -915,7 +915,7 @@
 							variant="default"
 							size="xs"
 							startIcon={{ icon: Plus }}
-							on:click={() => {
+							onclick={() => {
 								if (nconfig.pip_local_dependencies === undefined) {
 									nconfig.pip_local_dependencies = []
 								}
@@ -966,7 +966,7 @@
 					scriptLang={'bash'}
 					useWebsockets={false}
 					code={config?.init_bash ?? ''}
-					on:change={(e) => {
+					onchange={(e) => {
 						if (config) {
 							const code = e.detail
 							if (code != '') {
@@ -1030,7 +1030,7 @@
 					useWebsockets={false}
 					fixedOverflowWidgets={false}
 					code={config?.periodic_script_bash ?? ''}
-					on:change={(e) => {
+					onchange={(e) => {
 						if (config) {
 							const code = e.detail
 							if (code != '') {
@@ -1075,7 +1075,7 @@
 					{#if canEditConfig}
 						<Button
 							variant="accent"
-							on:click={async () => {
+							onclick={async () => {
 								if (
 									nconfig?.min_alive_workers_alert_threshold &&
 									nconfig?.min_alive_workers_alert_threshold < 1
@@ -1210,7 +1210,7 @@
 							<Button
 								unifiedSize="sm"
 								variant="subtle"
-								on:click={() => {
+								onclick={() => {
 									if (!hasEnterpriseFeatures) {
 										sendUserToast('Worker Management UI is an EE feature', true)
 									} else {
@@ -1227,7 +1227,7 @@
 						<Button
 							unifiedSize="sm"
 							variant="subtle"
-							on:click={() => {
+							onclick={() => {
 								loadNConfig()
 								openClean = true
 							}}
@@ -1266,7 +1266,7 @@
 					<Button
 						variant="accent"
 						unifiedSize="sm"
-						on:click={() => {
+						onclick={() => {
 							loadNConfig()
 							drawer?.openDrawer()
 						}}
@@ -1280,7 +1280,7 @@
 					<Button
 						unifiedSize="md"
 						variant="accent"
-						on:click={() => {
+						onclick={() => {
 							loadNConfig()
 							drawer?.openDrawer()
 						}}

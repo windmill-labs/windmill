@@ -35,7 +35,7 @@
 	{#snippet action()}
 		<Toggle
 			checked={raw_string}
-			on:change={() => {
+			onchange={() => {
 				raw_string = !raw_string
 			}}
 			{disabled}
@@ -58,7 +58,7 @@
 	{#snippet action()}
 		<Toggle
 			checked={wrap_body}
-			on:change={() => {
+			onchange={() => {
 				wrap_body = !wrap_body
 			}}
 			{disabled}

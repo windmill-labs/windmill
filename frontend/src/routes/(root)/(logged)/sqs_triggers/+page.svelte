@@ -254,7 +254,7 @@
 			unifiedSize="md"
 			variant="accent"
 			startIcon={{ icon: Plus }}
-			on:click={() => sqsTriggerEditor?.openNew(false)}
+			onclick={() => sqsTriggerEditor?.openNew(false)}
 		>
 			New&nbsp;SQS trigger
 		</Button>
@@ -393,7 +393,7 @@
 
 							<div class="flex gap-2 items-center justify-end">
 								<Button
-									on:click={() => sqsTriggerEditor?.openEdit(path, is_flow)}
+									onclick={() => sqsTriggerEditor?.openEdit(path, is_flow)}
 									size="xs"
 									startIcon={canWrite
 										? { icon: Pen }
@@ -504,7 +504,7 @@
 
 <ShareModal
 	bind:this={shareModal}
-	on:change={() => {
+	onchange={() => {
 		loadTriggers()
 	}}
 />

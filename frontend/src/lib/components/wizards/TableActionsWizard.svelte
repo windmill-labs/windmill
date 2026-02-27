@@ -75,7 +75,7 @@
 							size="xs"
 							startIcon={{ icon: Code }}
 							variant="default"
-							on:click={() => {
+							onclick={() => {
 								actionsOrder = undefined
 							}}
 						>
@@ -86,7 +86,7 @@
 							size="xs"
 							startIcon={{ icon: Code }}
 							variant="default"
-							on:click={() => {
+							onclick={() => {
 								actionsOrder = {
 									fieldType: 'text',
 									type: 'evalv2',

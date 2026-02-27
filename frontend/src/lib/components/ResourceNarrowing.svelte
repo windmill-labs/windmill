@@ -13,7 +13,7 @@
 </script>
 
 <ResourceTypePicker
-	on:click={(e) => {
+	onclick={(e) => {
 		resource = e.detail
 		format = `resource-${resource ?? ''}`
 	}}

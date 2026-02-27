@@ -5,6 +5,14 @@
 
 	import { Loader2, Save } from 'lucide-svelte'
 
+	interface Props {
+		onrefresh?: (...args: any[]) => any
+	}
+
+	let {
+		onrefresh = undefined
+	}: Props = $props()
+
 	let drawer: Drawer | undefined = $state()
 	let canSave = $state(true)
 	let resource_type: string | undefined = $state(undefined)
@@ -40,7 +48,7 @@
 <Drawer bind:this={drawer} size="800px">
 	<DrawerContent
 		title={mode == 'edit' ? 'Edit ' + path : 'Add a resource'}
-		on:close={drawer?.closeDrawer}
+		onclose={drawer?.closeDrawer}
 	>
 		{#await import('./ResourceEditor.svelte')}
 			<Loader2 class="animate-spin" />
@@ -50,7 +58,7 @@
 				{path}
 				{resource_type}
 				{defaultValues}
-				on:refresh
+				onrefresh={onrefresh}
 				bind:this={resourceEditor}
 				bind:canSave
 			/>
@@ -60,7 +68,7 @@
 				variant="accent"
 				unifiedSize="md"
 				startIcon={{ icon: Save }}
-				on:click={() => {
+				onclick={() => {
 					if (mode == 'edit') {
 						resourceEditor?.editResource()
 					} else {

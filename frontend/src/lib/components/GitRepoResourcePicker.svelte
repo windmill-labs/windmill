@@ -168,7 +168,7 @@
 <Drawer bind:this={drawer} size="600px">
 	<DrawerContent
 		title="Select Git Repository Resource"
-		on:close={handleClose}
+		onclose={handleClose}
 		tooltip="Select a git repository resource to delegate ansible execution to"
 	>
 		<div class="flex flex-col gap-4 p-4">
@@ -235,11 +235,11 @@
 
 			<!-- Inventories Location Configuration -->
 			<div class="flex justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
-				<Button variant="default" on:click={handleClose}>Cancel</Button>
+				<Button variant="default" onclick={handleClose}>Cancel</Button>
 				<Button
 					variant="accent"
 					disabled={!selectedResource || loading}
-					on:click={handleSelect}
+					onclick={handleSelect}
 					startIcon={{ icon: GitBranch }}
 				>
 					Apply Configuration

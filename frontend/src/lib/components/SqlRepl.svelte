@@ -181,7 +181,7 @@
 			variant="accent"
 			destructive={isRunning}
 			shortCut={{ Icon: CornerDownLeft }}
-			on:click={() => run()}
+			onclick={() => run()}
 		>
 			{isRunning ? 'Running...' : 'Run'}
 		</Button>
@@ -189,7 +189,7 @@
 	<Pane size={24} minSize={16}>
 		<StepHistory
 			staticInputs={runHistory}
-			on:select={(e) => {
+			onselect={(e) => {
 				const data = e.detail as (typeof runHistory)[number]
 				editor?.setCode(data.code)
 				onData(data.result)

@@ -250,7 +250,7 @@
 						size="xs2"
 						variant="default"
 						btnClasses="flex flex-row gap-1 items-center wm-list-pagination-buttons"
-						on:click={() => {
+						onclick={() => {
 							isPreviousLoading = true
 							page = page - 1
 							outputs?.page.set(page, true)
@@ -268,7 +268,7 @@
 						size="xs2"
 						variant="default"
 						btnClasses="flex flex-row gap-1 items-center wm-list-pagination-buttons"
-						on:click={() => {
+						onclick={() => {
 							isNextLoading = true
 							page = page + 1
 							outputs?.page.set(page, true)

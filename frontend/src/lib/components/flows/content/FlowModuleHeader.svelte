@@ -36,6 +36,7 @@
 		ontagChange?: (...args: any[]) => any
 		onfork?: (...args: any[]) => any
 		oncreateScriptFromInlineScript?: (...args: any[]) => any
+		ontoggleMock?: (...args: any[]) => any
 	}
 
 	let {
@@ -179,14 +180,14 @@
 				noLabel={customUi?.tagSelectNoLabel}
 				nullTag={tag}
 				tag={module.value.tag_override}
-				on:change={(e) => (dispatch('tagChange', e.detail), ontagChange?.(e.detail))}
+				onchange={(e) => (dispatch('tagChange', e.detail), ontagChange?.(e.detail))}
 			/>
 		{/if}
 		{#if customUi?.scriptFork != false}
 			<Button
 				unifiedSize="sm"
 				variant="subtle"
-				on:click={() => (dispatch('fork'), onfork?.())}
+				onclick={() => (dispatch('fork'), onfork?.())}
 				startIcon={{ icon: GitFork }}
 				iconOnly={false}
 			>
@@ -197,7 +198,7 @@
 		<Button
 			unifiedSize="sm"
 			variant="subtle"
-			on:click={async () => {
+			onclick={async () => {
 				if (module.value.type == 'flow') {
 					$flowEditorDrawer?.openDrawer(module.value.path, () => {
 						dispatch('reload')
@@ -214,7 +215,7 @@
 		<Button
 			unifiedSize="sm"
 			variant="subtle"
-			on:click={async () => {
+			onclick={async () => {
 				dispatch('reload')
 				onreload?.()
 			}}
@@ -232,13 +233,13 @@
 			noLabel={customUi?.tagSelectNoLabel}
 			nullTag={tag}
 			tag={module.value.tag}
-			on:change={(e) => (dispatch('tagChange', e.detail), ontagChange?.(e.detail))}
+			onchange={(e) => (dispatch('tagChange', e.detail), ontagChange?.(e.detail))}
 		/>
 		<Button
 			unifiedSize="sm"
 			variant="subtle"
 			startIcon={{ icon: Save }}
-			on:click={() => (
+			onclick={() => (
 				dispatch('createScriptFromInlineScript'),
 				oncreateScriptFromInlineScript?.()
 			)}

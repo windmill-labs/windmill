@@ -164,7 +164,7 @@
 								<CloseButton
 									noBg
 									small
-									on:close={() => {
+									onclose={() => {
 										items = items.filter((_, i) => i !== index)
 									}}
 								/>
@@ -216,6 +216,6 @@
 				{/key}
 			{/each}
 		</section>
-		<Button size="xs" variant="default" startIcon={{ icon: Plus }} on:click={addPath} iconOnly />
+		<Button size="xs" variant="default" startIcon={{ icon: Plus }} onclick={addPath} iconOnly />
 	</div>
 </PanelSection>

@@ -97,7 +97,7 @@
 				variant="subtle"
 				title="Create a new background runnable"
 				aria-label="Create a new background runnable"
-				on:click={createBackgroundScript}
+				onclick={createBackgroundScript}
 				id="create-background-runnable"
 				btnClasses="gap-0.5 px-1"
 			>

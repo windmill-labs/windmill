@@ -387,14 +387,14 @@
 
 {#if (job?.job_kind == 'flow' || isFlowPreview(job?.job_kind)) && job?.['running'] && job?.parent_job == undefined}
 	<Drawer bind:this={debugViewer} size="800px">
-		<DrawerContent title="Debug Detail" on:close={debugViewer.closeDrawer}>
+		<DrawerContent title="Debug Detail" onclose={debugViewer.closeDrawer}>
 			{#snippet actions()}
 				<div class="flex items-center gap-1">
 					<div class="w-60 pt-2">
 						<Toggle bind:checked={redactSensitive} options={{ right: 'Redact args/result/logs' }} />
 					</div>
 					<Button
-						on:click={() =>
+						onclick={() =>
 							copyToClipboard(
 								JSON.stringify(removeSensitiveInfos(debugContent, redactSensitive), null, 4)
 							)}
@@ -445,7 +445,7 @@
 						<Button
 							variant="default"
 							unifiedSize="md"
-							on:click={() => {
+							onclick={() => {
 								goto(`/run/${page.params.run}?workspace=${workspace.id}`)
 							}}
 						>
@@ -542,7 +542,7 @@
 					unifiedSize="md"
 					variant="default"
 					startIcon={{ icon: GitBranch }}
-					on:click={forkPreview}
+					onclick={forkPreview}
 				>
 					Fork {isFlowPreview(job?.job_kind) ? 'flow' : 'code'} preview
 				</Button>
@@ -552,7 +552,7 @@
 					unifiedSize="md"
 					variant="default"
 					startIcon={{ icon: Activity }}
-					on:click={() => {
+					onclick={() => {
 						persistentScriptDrawer?.open?.(persistentScriptDefinition)
 					}}
 				>
@@ -566,7 +566,7 @@
 						variant="accent"
 						destructive
 						startIcon={{ icon: TimerOff }}
-						on:click|once={() => {
+						onclick={() => {
 							if (job?.id) {
 								cancelJob(job?.id)
 								setTimeout(() => {
@@ -584,7 +584,7 @@
 						variant="accent"
 						destructive
 						startIcon={{ icon: TimerOff }}
-						on:click|once={() => {
+						onclick={() => {
 							if (job?.id) {
 								cancelJob(job?.id)
 							}
@@ -598,7 +598,7 @@
 				<Button
 					unifiedSize="md"
 					variant="default"
-					on:click={() => {
+					onclick={() => {
 						if (!job || !job.schedule_path) {
 							return
 						}
@@ -624,7 +624,7 @@
 			{/if}
 			{#if job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow'}
 				<Button
-					on:click|once={() => {
+					onclick={() => {
 						goto(viewHref + `#${computeSharableHash(job?.args)}`)
 					}}
 					unifiedSize="md"
@@ -645,7 +645,7 @@
 				{#if !$userStore?.operator}
 					{#if canWrite(job?.script_path ?? '', {}, $userStore)}
 						<Button
-							on:click|once={() => {
+							onclick={() => {
 								$initialArgsStore = job?.args
 								goto(`${stem}/edit/${job?.script_path}${isScript ? `` : `?nodraft=true`}`)
 							}}

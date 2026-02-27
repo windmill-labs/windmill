@@ -213,7 +213,7 @@
 				unifiedSize="md"
 				variant="accent"
 				startIcon={{ icon: Plus }}
-				on:click={() => editor?.openNew()}
+				onclick={() => editor?.openNew()}
 				disabled={!serviceAvailable}
 			>
 				New&nbsp;{serviceConfig?.serviceDisplayName || serviceName} trigger

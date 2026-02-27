@@ -46,8 +46,8 @@
 			<RecomputeAllButton
 				interval={$recomputeAllContext.interval}
 				componentNumber={$recomputeAllContext.componentNumber ?? 0}
-				on:click={() => $recomputeAllContext.onRefresh?.()}
-				on:setInter={(e) => {
+				onclick={() => $recomputeAllContext.onRefresh?.()}
+				onsetInter={(e) => {
 					$recomputeAllContext.setInter?.(e.detail)
 				}}
 				refreshing={$recomputeAllContext.refreshing}

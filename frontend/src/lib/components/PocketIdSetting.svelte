@@ -50,7 +50,7 @@
 	<!-- svelte-ignore a11y_label_has_associated_control -->
 	<label class="text-xs font-semibold text-emphasis flex gap-4 items-center">
 		<div class="w-[120px]"><IconedResourceType name="pocketid" after={true} /></div>
-		<Toggle checked={enabled} on:change={handleToggle} />
+		<Toggle checked={enabled} onchange={handleToggle} />
 	</label>
 	{#if enabled}
 		<SettingCard class="flex flex-col gap-6">

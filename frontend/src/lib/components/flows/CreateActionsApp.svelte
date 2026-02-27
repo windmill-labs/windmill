@@ -47,7 +47,7 @@
 			unifiedSize="lg"
 			startIcon={{ icon: Plus }}
 			endIcon={{ icon: LayoutDashboard }}
-			on:click={openAppTypeModal}
+			onclick={openAppTypeModal}
 			variant="accent"
 			dropdownItems={[
 				{
@@ -122,7 +122,7 @@
 <Drawer bind:this={drawer} size="800px">
 	<DrawerContent
 		title={'Import low-code app from ' + (importType === 'yaml' ? 'YAML' : 'JSON')}
-		on:close={() => drawer?.toggleDrawer?.()}
+		onclose={() => drawer?.toggleDrawer?.()}
 	>
 		{#await import('$lib/components/SimpleEditor.svelte')}
 			<Loader2 class="animate-spin" />
@@ -135,7 +135,7 @@
 			/>
 		{/await}
 		{#snippet actions()}
-			<Button size="sm" on:click={importRaw}>Import</Button>
+			<Button size="sm" onclick={importRaw}>Import</Button>
 		{/snippet}
 	</DrawerContent>
 </Drawer>

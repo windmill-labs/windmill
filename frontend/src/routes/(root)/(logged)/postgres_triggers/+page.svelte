@@ -261,11 +261,11 @@
 	title="Delete Postgres trigger"
 	confirmationText="Remove"
 	loading={isDeleting}
-	on:canceled={() => {
+	oncanceled={() => {
 		isDeleting = false
 		deletePostgresTriggerCallback = undefined
 	}}
-	on:confirmed={async () => {
+	onconfirmed={async () => {
 		if (deletePostgresTriggerCallback) {
 			let msg: string
 			isDeleting = true
@@ -333,7 +333,7 @@
 			unifiedSize="md"
 			variant="accent"
 			startIcon={{ icon: Plus }}
-			on:click={() => postgresTriggerEditor?.openNew(false)}
+			onclick={() => postgresTriggerEditor?.openNew(false)}
 		>
 			New&nbsp;Postgres trigger
 		</Button>
@@ -475,7 +475,7 @@
 
 							<div class="flex gap-2 items-center justify-end">
 								<Button
-									on:click={() => postgresTriggerEditor?.openEdit(path, is_flow)}
+									onclick={() => postgresTriggerEditor?.openEdit(path, is_flow)}
 									size="xs"
 									startIcon={canWrite
 										? { icon: Pen }
@@ -608,7 +608,7 @@
 
 <ShareModal
 	bind:this={shareModal}
-	on:change={() => {
+	onchange={() => {
 		loadTriggers()
 	}}
 />

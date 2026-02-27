@@ -74,7 +74,7 @@
 		{/snippet}
 		<ToggleButtonGroup
 			selected={mode ?? 'none'}
-			onSelected={(v) => onModeChange(v === 'none' ? undefined : v)}
+			onselected={(v) => onModeChange(v === 'none' ? undefined : v)}
 		>
 			{#snippet children({ item })}
 				<ToggleButton value="none" label="None" {item} size="sm" />

@@ -55,9 +55,11 @@
 
 	interface Props {
 		width?: number | undefined
+		onhidePanel?: (...args: any[]) => any
 	}
 
-	let { width = undefined }: Props = $props()
+	let { width = undefined,
+		onhidePanel = undefined }: Props = $props()
 </script>
 
 <Splitpanes
@@ -65,7 +67,7 @@
 	style={width !== undefined ? `width:${width}px;` : 'width: 100%;'}
 >
 	<Pane size={25}>
-		<InlineScriptsPanelList on:hidePanel />
+		<InlineScriptsPanelList onhidePanel={onhidePanel} />
 	</Pane>
 	<Pane size={75}>
 		{#if !$selectedComponentInEditor}
@@ -76,7 +78,7 @@
 			{#each $app.grid as gridItem, index (gridItem?.id)}
 				{#if gridItem?.id == prefixOrId}
 					<InlineScriptsPanelWithTable
-						on:createScriptFromInlineScript={(e) => {
+						oncreateScriptFromInlineScript={(e) => {
 							createScriptFromInlineScript(
 								gridItem?.id ?? 'unknown',
 								e.detail,
@@ -92,7 +94,7 @@
 				{#each $app.subgrids?.[subgrid] ?? [] as subgridItem, index (subgridItem?.id)}
 					{#if subgridItem?.id == prefixOrId && $app.subgrids?.[subgrid]}
 						<InlineScriptsPanelWithTable
-							on:createScriptFromInlineScript={(e) => {
+							oncreateScriptFromInlineScript={(e) => {
 								createScriptFromInlineScript(
 									subgridItem?.id ?? 'unknown',
 									e.detail,
@@ -109,12 +111,12 @@
 			{#each $app.unusedInlineScripts as unusedInlineScript, index}
 				{#if `unused-${index}` == prefixOrId}
 					<InlineScriptEditor
-						on:createScriptFromInlineScript={() =>
+						oncreateScriptFromInlineScript={() =>
 							sendUserToast('Cannot save to workspace unused scripts', true)}
 						id={`unused-${index}`}
 						bind:name={unusedInlineScript.name}
 						bind:inlineScript={unusedInlineScript.inlineScript}
-						on:delete={() => {
+						ondelete={() => {
 							$app.unusedInlineScripts.splice(index, 1)
 							$app.unusedInlineScripts = [...$app.unusedInlineScripts]
 						}}
@@ -125,7 +127,7 @@
 			{#each $app.hiddenInlineScripts as _inlineScript, index}
 				{#if index.toString() == id}
 					<InlineScriptHiddenRunnable
-						on:createScriptFromInlineScript={(e) => {
+						oncreateScriptFromInlineScript={(e) => {
 							createScriptFromInlineScript(
 								BG_PREFIX + index,
 								e.detail,
@@ -135,7 +137,7 @@
 							$app = $app
 						}}
 						transformer={$selectedComponentInEditor?.endsWith('_transformer')}
-						on:delete={() => deleteBackgroundScript(index)}
+						ondelete={() => deleteBackgroundScript(index)}
 						id={BG_PREFIX + index}
 						bind:runnable={$app.hiddenInlineScripts[index]}
 					/>

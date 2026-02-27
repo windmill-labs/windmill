@@ -37,11 +37,11 @@ export function createAsyncConfirmationModal(): ConfirmationModalHandle {
 					children: createRawSnippet(() => ({ render: () => params.children })),
 					open: true,
 					loading: false,
-					onCanceled: () => (resolve(false), (o.props.open = false)),
-					onConfirmed: async () => {
+					oncanceled: () => (resolve(false), (o.props.open = false)),
+					onconfirmed: async () => {
 						o.props.loading = true
 						try {
-							await params.onConfirmed?.()
+							await params.onconfirmed?.()
 							o.props.loading = false
 							resolve(true)
 							o.props.open = false

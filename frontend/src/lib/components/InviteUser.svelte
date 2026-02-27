@@ -73,7 +73,7 @@
 			<Button
 				variant="accent"
 				unifiedSize="md"
-				on:click={() => inviteUser(email, selected)}
+				onclick={() => inviteUser(email, selected)}
 				disabled={!email || email.trim() === ''}
 			>
 				Invite

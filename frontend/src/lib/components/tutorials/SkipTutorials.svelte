@@ -12,7 +12,7 @@
 		startIcon={{ icon: CheckCircle }}
 		variant="default"
 		btnClasses="font-normal"
-		on:click={() => {
+		onclick={() => {
 			dispatch('skipThis')
 		}}
 	>
@@ -23,7 +23,7 @@
 		startIcon={{ icon: CheckCircle }}
 		btnClasses="font-normal"
 		variant="default"
-		on:click={() => {
+		onclick={() => {
 			dispatch('skipAll')
 		}}
 	>

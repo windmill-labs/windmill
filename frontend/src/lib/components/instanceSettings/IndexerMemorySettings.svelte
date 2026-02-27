@@ -61,7 +61,7 @@
 			<Button
 				variant="default"
 				unifiedSize="sm"
-				on:click={() => {
+				onclick={() => {
 					clearJobsIndexModalOpen = true
 				}}
 			>
@@ -70,7 +70,7 @@
 			<Button
 				variant="default"
 				unifiedSize="sm"
-				on:click={() => {
+				onclick={() => {
 					clearServiceLogsIndexModalOpen = true
 				}}
 			>
@@ -83,10 +83,10 @@
 		confirmationText="Clear"
 		open={clearJobsIndexModalOpen}
 		type="danger"
-		on:canceled={() => {
+		oncanceled={() => {
 			clearJobsIndexModalOpen = false
 		}}
-		on:confirmed={async () => {
+		onconfirmed={async () => {
 			const r = await IndexSearchService.clearIndex({
 				idxName: 'JobIndex'
 			})
@@ -102,10 +102,10 @@
 		confirmationText="Clear"
 		open={clearServiceLogsIndexModalOpen}
 		type="danger"
-		on:canceled={() => {
+		oncanceled={() => {
 			clearServiceLogsIndexModalOpen = false
 		}}
-		on:confirmed={async () => {
+		onconfirmed={async () => {
 			const r = await IndexSearchService.clearIndex({
 				idxName: 'ServiceLogIndex'
 			})

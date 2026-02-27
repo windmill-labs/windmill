@@ -35,7 +35,7 @@
 	{#key selectedRunnable}
 		<RawAppInlineScripRunnable
 			{appPath}
-			on:createScriptFromInlineScript={(e) => {
+			oncreateScriptFromInlineScript={(e) => {
 				createScriptFromInlineScript(
 					selectedRunnable ?? '',
 					e.detail,
@@ -43,7 +43,7 @@
 					appPath
 				)
 			}}
-			on:delete={() => {
+			ondelete={() => {
 				if (selectedRunnable) {
 					delete runnables[selectedRunnable]
 				}

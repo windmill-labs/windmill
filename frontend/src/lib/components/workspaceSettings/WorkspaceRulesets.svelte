@@ -70,7 +70,7 @@
 <Drawer bind:this={ruleDrawer}>
 	<DrawerContent
 		title={selectedRule ? `Protection Rule: ${selectedRule.name}` : 'New Protection Rule'}
-		on:close={ruleDrawer?.closeDrawer}
+		onclose={ruleDrawer?.closeDrawer}
 	>
 		<RulesetEditor
 			rule={selectedRule}
@@ -97,7 +97,7 @@
 		unifiedSize="md"
 		variant="accent"
 		startIcon={{ icon: Plus }}
-		on:click={() => {
+		onclick={() => {
 			selectedRule = undefined
 			ruleDrawer?.openDrawer()
 		}}

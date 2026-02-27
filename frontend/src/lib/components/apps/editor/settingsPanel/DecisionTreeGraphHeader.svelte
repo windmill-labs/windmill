@@ -75,7 +75,7 @@
 				)}
 			>
 				<InsertDecisionTreeNode
-					on:node={() => {
+					onnode={() => {
 						data.nodeCallbackHandler(
 							'nodeInsert',
 							data.node.id,
@@ -84,7 +84,7 @@
 							data.branchHeader
 						)
 					}}
-					on:addBranch={() => {
+					onaddBranch={() => {
 						data.nodeCallbackHandler('addBranch', data.node.id, data.node, data.parentIds, true)
 					}}
 					canAddBranch={false}

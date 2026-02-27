@@ -23,7 +23,7 @@
 	<ToggleButtonGroup
 		class="mb-4"
 		selected={dbSchema.publicOnly ? 'dbo' : 'all'}
-		on:selected={handleSelected}
+		onselected={handleSelected}
 	>
 		{#snippet children({ item })}
 			<ToggleButton value="dbo" label={dbSchema.schema.dbo ? 'Dbo' : 'Public'} {item} />

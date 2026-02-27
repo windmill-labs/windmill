@@ -165,7 +165,7 @@
 							arrows={true}
 							swiping={false}
 							bind:this={carousel}
-							on:pageChange={(event) => {
+							onpageChange={(event) => {
 								currentPageIndex = event.detail
 								$focusedGrid = {
 									parentComponentId: id,
@@ -178,7 +178,7 @@
 									<div>
 										<Button
 											color="light"
-											on:click={() => {
+											onclick={() => {
 												const pagesCount = result?.length ?? 0
 
 												if (currentPageIndex > 0) {
@@ -198,7 +198,7 @@
 									<div>
 										<Button
 											color="light"
-											on:click={() => {
+											onclick={() => {
 												const pagesCount = result?.length ?? 0
 												if (currentPageIndex < pagesCount - 1) {
 													carousel.goTo(currentPageIndex + 1)

@@ -49,6 +49,9 @@
 		isOwner?: boolean
 		maximizeSubflow?: () => void
 		onmove?: (...args: any[]) => any
+		onchangeId?: (...args: any[]) => any
+		ondelete?: (...args: any[]) => any
+		onnewBranch?: (...args: any[]) => any
 	}
 
 	let {
@@ -71,7 +74,9 @@
 		flowJob,
 		isOwner = false,
 		maximizeSubflow,
-		onmove = undefined
+		onmove = undefined,
+		onchangeId = undefined,
+		ondelete = undefined
 	}: Props = $props()
 
 	const { selectionManager } = getGraphContext()
@@ -116,7 +121,7 @@
 			<div class="absolute z-10 right-20 top-0.5 center-center">
 				<Button
 					variant="accent"
-					on:click={() => (dispatch('move'), onmove?.())}
+					onclick={() => (dispatch('move'), onmove?.())}
 					size="xs"
 					destructive>Cancel move</Button
 				>
@@ -169,10 +174,10 @@
 						mod.value.skip_failures ? '(skip failures)' : ''
 					} ${mod.value.squash ? '(squash)' : ''}`}
 					id={mod.id}
-					on:changeId
-					on:move
-					on:delete
-					on:pointerdown={handlePointerDown}
+					onchangeId={onchangeId}
+					onmove={onmove}
+					ondelete={ondelete}
+					onpointerdown={handlePointerDown}
 					onUpdateMock={(mock) => {
 						mod.mock = mock
 						onUpdateMock?.({ id: mod.id, mock })
@@ -197,10 +202,10 @@
 					deletable={insertable}
 					{editMode}
 					{moduleAction}
-					on:changeId
-					on:delete
-					on:move
-					on:pointerdown={handlePointerDown}
+					onchangeId={onchangeId}
+					ondelete={ondelete}
+					onmove={onmove}
+					onpointerdown={handlePointerDown}
 					{...itemProps}
 					id={mod.id}
 					label={mod.summary || 'Run one branch'}
@@ -216,10 +221,10 @@
 					deletable={insertable}
 					{editMode}
 					{moduleAction}
-					on:changeId
-					on:delete
-					on:move
-					on:pointerdown={handlePointerDown}
+					onchangeId={onchangeId}
+					ondelete={ondelete}
+					onmove={onmove}
+					onpointerdown={handlePointerDown}
 					id={mod.id}
 					{...itemProps}
 					label={mod.summary || `Run all branches${mod.value.parallel ? ' (parallel)' : ''}`}
@@ -235,10 +240,10 @@
 					{retries}
 					{editMode}
 					{moduleAction}
-					on:changeId
-					on:pointerdown={handlePointerDown}
-					on:delete
-					on:move
+					onchangeId={onchangeId}
+					onpointerdown={handlePointerDown}
+					ondelete={ondelete}
+					onmove={onmove}
 					onUpdateMock={(mock) => {
 						console.log('onUpdateMock', mock)
 

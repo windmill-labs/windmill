@@ -72,7 +72,7 @@
 		<p class="text-xs font-normal text-primary">{$workspaceStore ?? ''}</p>
 		{#if !isCloudHosted() || $superadmin}
 			<Button
-				on:click={() => {
+				onclick={() => {
 					open = true
 				}}
 				unifiedSize="sm"
@@ -117,7 +117,7 @@
 			variant="accent"
 			disabled={checking || errorId.length > 0 || !newName || !newId}
 			{loading}
-			on:click={() => {
+			onclick={() => {
 				renameWorkspace()
 			}}
 		>

@@ -142,7 +142,7 @@
 										placeholder="Type your answer..."
 										class="input"
 									/>
-									<Button variant="accent" unifiedSize="md" on:click={validateOtherSource}>
+									<Button variant="accent" unifiedSize="md" onclick={validateOtherSource}>
 										Validate
 									</Button>
 								</div>
@@ -155,7 +155,7 @@
 							selected={selectedSource === source.id}
 							startIcon={{ icon: source.icon }}
 							btnClasses="!justify-start"
-							on:click={() => selectSource(source.id)}
+							onclick={() => selectSource(source.id)}
 						>
 							{source.label}
 						</Button>
@@ -164,7 +164,7 @@
 			</div>
 
 			<div class="flex flex-row justify-end items-center pt-4">
-				<Button color="light" variant="border" size="xs" on:click={skip} loading={isSubmitting}
+				<Button color="light" variant="border" size="xs" onclick={skip} loading={isSubmitting}
 					>Skip</Button
 				>
 			</div>
@@ -196,7 +196,7 @@
 					variant="border"
 					startIcon={{ icon: ArrowLeft }}
 					size="xs"
-					on:click={goToPreviousStep}
+					onclick={goToPreviousStep}
 				>
 					Previous
 				</Button>
@@ -206,7 +206,7 @@
 					size="lg"
 					disabled={isSubmitting}
 					loading={isSubmitting}
-					on:click={continueToWorkspaces}
+					onclick={continueToWorkspaces}
 				>
 					Continue
 				</Button>

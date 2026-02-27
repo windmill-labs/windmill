@@ -13,9 +13,19 @@
 		depth?: number
 		showCode: (path: string, summary: string) => void
 		isSearching?: boolean
+		onscriptChanged?: (...args: any[]) => any
+		onflowChanged?: (...args: any[]) => any
+		onappChanged?: (...args: any[]) => any
+		onrawAppChanged?: (...args: any[]) => any
+		onreload?: (...args: any[]) => any
 	}
 
-	let { item, collapseAll, depth = 0, showCode, isSearching = false }: Props = $props()
+	let { item, collapseAll, depth = 0, showCode, isSearching = false,
+		onscriptChanged = undefined,
+		onflowChanged = undefined,
+		onappChanged = undefined,
+		onrawAppChanged = undefined,
+		onreload = undefined }: Props = $props()
 
 	const isFolder = (i: typeof item): i is FolderItem => i && 'folderName' in i
 	const isUser = (i: typeof item): i is UserItem => i && 'username' in i
@@ -72,11 +82,11 @@
 						{isSearching}
 						{collapseAll}
 						item={subItem}
-						on:scriptChanged
-						on:flowChanged
-						on:appChanged
-						on:rawAppChanged
-						on:reload
+						onscriptChanged={onscriptChanged}
+						onflowChanged={onflowChanged}
+						onappChanged={onappChanged}
+						onrawAppChanged={onrawAppChanged}
+						onreload={onreload}
 						{showCode}
 						depth={depth + 1}
 					/>
@@ -138,11 +148,11 @@
 					<TreeView
 						{collapseAll}
 						item={subItem}
-						on:scriptChanged
-						on:flowChanged
-						on:appChanged
-						on:rawAppChanged
-						on:reload
+						onscriptChanged={onscriptChanged}
+						onflowChanged={onflowChanged}
+						onappChanged={onappChanged}
+						onrawAppChanged={onrawAppChanged}
+						onreload={onreload}
 						{showCode}
 						depth={depth + 1}
 					/>
@@ -168,11 +178,11 @@
 	<Item
 		{item}
 		{showCode}
-		on:scriptChanged
-		on:flowChanged
-		on:appChanged
-		on:rawAppChanged
-		on:reload
+		onscriptChanged={onscriptChanged}
+		onflowChanged={onflowChanged}
+		onappChanged={onappChanged}
+		onrawAppChanged={onrawAppChanged}
+		onreload={onreload}
 		{depth}
 	/>
 {/if}

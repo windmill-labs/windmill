@@ -167,7 +167,7 @@
 		<Button
 			size="xs2"
 			variant="accent"
-			on:click={() => {
+			onclick={() => {
 				$connectingInput = {
 					opened: true,
 					input: undefined,

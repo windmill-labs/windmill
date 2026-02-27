@@ -184,8 +184,8 @@
 	{title}
 	confirmationText={confirmText}
 	type={isUnnamedDefault ? 'danger' : undefined}
-	onConfirmed={handleConfirm}
-	onCanceled={handleCancel}
+	onconfirmed={handleConfirm}
+	oncanceled={handleCancel}
 >
 	{#if loading}
 		<div class="flex items-center gap-2">

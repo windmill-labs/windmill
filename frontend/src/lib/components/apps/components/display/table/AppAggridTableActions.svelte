@@ -152,7 +152,7 @@
 								{#snippet content()}
 									<ComponentOutputViewer
 										suffix="table"
-										on:select={({ detail }) => {
+										onselect={(detail) => {
 											const tableId = action.id.split('_')[0]
 
 											connectOutput(

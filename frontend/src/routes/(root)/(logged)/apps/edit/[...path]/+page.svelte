@@ -225,7 +225,7 @@
 						app.path = url
 					}
 				}}
-				on:restore={onRestore}
+				onrestore={onRestore}
 				summary={app.summary}
 				app={app.value}
 				newPath={app.path}

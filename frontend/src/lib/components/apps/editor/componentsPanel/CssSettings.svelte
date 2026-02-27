@@ -37,7 +37,7 @@
 </script>
 
 <Drawer bind:this={themeViewer} size="800px">
-	<DrawerContent title="View themes" on:close={themeViewer.closeDrawer}>sa</DrawerContent>
+	<DrawerContent title="View themes" onclose={themeViewer.closeDrawer}>sa</DrawerContent>
 </Drawer>
 
 <Tabs bind:selected={selectedTab}>
@@ -85,7 +85,7 @@
 										<Button
 											size="xs"
 											color="dark"
-											on:click={async () => {
+											onclick={async () => {
 												const theme = await resolveTheme($app.theme, $workspaceStore)
 												$app.theme = {
 													type: 'inlined',
@@ -102,14 +102,14 @@
 						</div>
 					</Pane>
 					<Pane size={40}>
-						<CssHelperPanel on:insertSelector={(e) => insertSelector(e.detail)} />
+						<CssHelperPanel oninsertSelector={(e) => insertSelector(e)} />
 					</Pane>
 				</Splitpanes>
 			</SplitPanesWrapper>
 		{/if}
 		{#if selectedTab === 'theme'}
 			<ThemeList
-				on:setCodeTab={() => {
+				onsetCodeTab={() => {
 					selectedTab = 'css'
 				}}
 			/>

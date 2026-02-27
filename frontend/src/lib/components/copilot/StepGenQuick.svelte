@@ -17,6 +17,7 @@
 		disableAi?: boolean
 		filteredItems?: (Script & { marked?: string })[] | (Item & { marked?: string })[]
 		onescape?: (...args: any[]) => any
+		oninsert?: (...args: any[]) => any
 	}
 
 	let {

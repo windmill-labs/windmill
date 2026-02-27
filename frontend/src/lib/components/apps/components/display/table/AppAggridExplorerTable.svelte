@@ -558,7 +558,7 @@
 							startIcon={{ icon: Download }}
 							color="light"
 							size="xs2"
-							on:click={() => {
+							onclick={() => {
 								api?.exportDataAsCsv()
 							}}
 							iconOnly

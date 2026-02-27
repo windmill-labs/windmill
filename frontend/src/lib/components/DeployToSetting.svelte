@@ -219,7 +219,7 @@
 					variant="default"
 					size="xs"
 					btnClasses="mt-1"
-					on:click={() => {
+					onclick={() => {
 						deployUiSettings.include_path = [...deployUiSettings.include_path, '']
 					}}
 					id="deploy-ui-add-path-filter"
@@ -251,7 +251,7 @@
 				<div class="flex gap-3">
 					<Toggle
 						bind:checked={deployUiSettings.include_type.variables}
-						on:change={(ev) => {
+						onchange={(ev) => {
 							if (!ev.detail) {
 								deployUiSettings.include_type.secrets = false
 							}

@@ -100,7 +100,7 @@
 						size="xs2"
 						iconOnly
 						startIcon={{ icon: MoveLeft }}
-						on:click={() => (dispatch('left'), onleft?.())}
+						onclick={() => (dispatch('left'), onleft?.())}
 					/>
 					{#snippet text()}
 						{'Copy for this component'}
@@ -114,7 +114,7 @@
 						size="xs2"
 						iconOnly
 						startIcon={{ icon: MoveRight }}
-						on:click={() => (dispatch('right'), onright?.())}
+						onclick={() => (dispatch('right'), onright?.())}
 					/>
 					{#snippet text()}
 						Copy for every {componentType ? ccomponents[componentType].name : 'component'}
@@ -127,7 +127,7 @@
 					size="xs2"
 					iconOnly
 					startIcon={{ icon: Copy }}
-					on:click={() => copyToClipboard(wmClass)}
+					onclick={() => copyToClipboard(wmClass)}
 				/>
 				{#snippet text()}
 					Copy {wmClass}
@@ -158,7 +158,7 @@
 								{#if quickStyleProperties?.length}
 									<ToggleButtonGroup
 										selected={richEditorOpen ? 'true' : 'false'}
-										on:selected={({ detail }) => {
+										onselected={(detail) => {
 											richEditorOpen = detail === 'true'
 											if (richEditorOpen !== isQuickMenuOpen) {
 												toggleQuickMenu()
@@ -273,7 +273,7 @@
 				<Toggle
 					size="xs"
 					bind:checked={dynamicClass}
-					on:change={(e) => {
+					onchange={(e) => {
 						if (e.detail && !value.evalClass) {
 							value.evalClass = {
 								type: 'evalv2',

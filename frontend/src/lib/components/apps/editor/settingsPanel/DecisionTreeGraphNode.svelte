@@ -51,7 +51,7 @@
 					'flex flex-row gap-2 items-center justify-between bg-surface-tertiary'
 				)}
 				style="width: 275px; height: 34px;"
-				on:click={() => {
+				onclick={() => {
 					selected = true
 					data.nodeCallbackHandler('select', data.node.id, data.node, data.parentIds, false)
 				}}
@@ -93,10 +93,10 @@
 					)}
 				>
 					<InsertDecisionTreeNode
-						on:node={() => {
+						onnode={() => {
 							data.nodeCallbackHandler('nodeInsert', data.node.id, data.node, data.parentIds, false)
 						}}
-						on:addBranch={() => {
+						onaddBranch={() => {
 							data.nodeCallbackHandler('addBranch', data.node.id, data.node, data.parentIds, true)
 						}}
 						canAddBranch={data.canAddBranch || data.node.next.length > 1}

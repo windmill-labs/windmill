@@ -73,7 +73,7 @@
 
 <UserSettings
 	bind:this={userSettings}
-	on:tokenCreated={(e) => {
+	ontokenCreated={(e) => {
 		token = e.detail
 	}}
 	newTokenLabel={`webhook-${$userStore?.username ?? 'superadmin'}-${generateRandomString(4)}`}
@@ -149,7 +149,7 @@
 						size="md"
 						btnClasses="whitespace-normal break-words flex flex-wrap"
 						disabled={itemPath == undefined}
-						on:click={() => userSettings?.openDrawer()}
+						onclick={() => userSettings?.openDrawer()}
 					>
 						Generate webhook-specific Token
 					</Button>
@@ -158,10 +158,10 @@
 					<Button
 						disabled={!itemPath || !token || token === ''}
 						btnClasses="whitespace-normal break-words flex flex-wrap"
-						on:click={() => itemPath && token && createWebhook(itemPath, itemKind, token)}
+						onclick={() => itemPath && token && createWebhook(itemPath, itemKind, token)}
 						>Approve and share with {clientName}</Button
 					>
-					<Button color="red" on:click={() => redirectCancel('user_canceled')}>Cancel</Button>
+					<Button color="red" onclick={() => redirectCancel('user_canceled')}>Cancel</Button>
 				</div>
 			</div>
 		</div>

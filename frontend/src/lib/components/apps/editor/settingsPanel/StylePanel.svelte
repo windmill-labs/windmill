@@ -170,7 +170,7 @@
 				<Button
 					size="xs2"
 					variant="default"
-					on:click={() => {
+					onclick={() => {
 						$cssEditorOpen = true
 					}}
 				>
@@ -189,7 +189,7 @@
 				<Button
 					size="xs2"
 					variant="default"
-					on:click={() => {
+					onclick={() => {
 						migrationModal?.open()
 					}}
 				>
@@ -242,11 +242,11 @@
 										wmClass={getSelector(name)}
 										componentType={component.type}
 										value={component.customCss[name]}
-										on:change={(e) => {
+										onchange={(e) => {
 											updateCssProperty(name, e.detail)
 										}}
 										shouldDisplayRight={hasStyleValue(component.customCss[name])}
-										on:right={() => {
+										onright={() => {
 											copyLocalToGlobal(name, component?.customCss?.[name])
 											tab = 'global'
 										}}
@@ -270,7 +270,7 @@
 										{forceClass}
 										{id}
 										bind:property={$app.css[type]}
-										on:left={() => {
+										onleft={() => {
 											copyGlobalToLocal(
 												id,
 												component?.type ? $app?.css?.[component?.type]?.[id] : undefined
@@ -292,7 +292,7 @@
 			title="Confirm overriding global CSS"
 			confirmationText="Override global CSS"
 			open={Boolean(overrideGlobalCSS)}
-			on:confirmed={() => {
+			onconfirmed={() => {
 				if (overrideGlobalCSS) {
 					overrideGlobalCSS()
 					overrideGlobalCSS = undefined
@@ -300,7 +300,7 @@
 
 				sendUserToast('Global CSS overridden')
 			}}
-			on:canceled={() => {
+			oncanceled={() => {
 				overrideGlobalCSS = undefined
 			}}
 		>
@@ -313,7 +313,7 @@
 			title="Confirm overriding local CSS"
 			confirmationText="Override local CSS"
 			open={Boolean(overrideLocalCSS)}
-			on:confirmed={() => {
+			onconfirmed={() => {
 				if (overrideLocalCSS) {
 					overrideLocalCSS()
 					overrideLocalCSS = undefined
@@ -321,7 +321,7 @@
 
 				sendUserToast('Local CSS overridden')
 			}}
-			on:canceled={() => {
+			oncanceled={() => {
 				overrideLocalCSS = undefined
 			}}
 		>

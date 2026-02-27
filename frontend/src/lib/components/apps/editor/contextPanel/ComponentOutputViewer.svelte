@@ -10,9 +10,11 @@
 		hasContent?: boolean
 		suffix?: string
 		render?: boolean
+		onselect?: (...args: any[]) => any
 	}
 
-	let { componentId, hasContent = $bindable(false), suffix = '', render = true }: Props = $props()
+	let { componentId, hasContent = $bindable(false), suffix = '', render = true,
+		onselect = undefined }: Props = $props()
 	const { worldStore, connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 	const { search, hasResult } = getContext<ContextPanelContext>('ContextPanel')
 
@@ -55,7 +57,7 @@
 		<div class="pl-2 !cursor-pointer component-output-viewer-{componentId}" data-connection-button>
 			<ObjectViewer
 				json={filtered}
-				on:select
+				onselect={onselect}
 				topBrackets={false}
 				pureViewer={!$connectingInput.opened}
 				allowCopy={!$connectingInput.opened}

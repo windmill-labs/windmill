@@ -32,7 +32,7 @@
 		size="xs"
 		startIcon={{ icon: Unplug }}
 		variant="default"
-		on:click={() => {
+		onclick={() => {
 			if (componentInput.type === 'connected') {
 				componentInput.connection = undefined
 			}
@@ -45,7 +45,7 @@
 {:else}
 	<Button
 		size="xs"
-		on:click={() => {
+		onclick={() => {
 			if (componentInput.type === 'connected') {
 				$connectingInput = {
 					opened: true,

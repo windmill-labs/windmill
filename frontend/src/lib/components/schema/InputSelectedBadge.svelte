@@ -42,7 +42,7 @@
 			size="xs2"
 			startIcon={{ icon: X }}
 			shortCut={{ key: 'esc', withoutModifier: true }}
-			on:click={onReject}
+			onclick={onReject}
 		/>
 	</div>
 </div>

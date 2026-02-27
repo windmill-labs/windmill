@@ -112,10 +112,10 @@
 				)}
 				wrapperStyle={css?.container?.style}
 				disabled={resolvedConfig?.disabled}
-				on:pointerdown={(e) => {
+				onpointerdown={(e) => {
 					e?.stopPropagation()
 				}}
-				on:click={async (e) => {
+				onclick={async (e) => {
 					$focusedGrid = {
 						parentComponentId: id,
 						subGridIndex: 0
@@ -143,11 +143,11 @@
 			alwaysOpen
 			positionClass={$mode == 'dnd' ? '!absolute' : '!fixed'}
 			shouldUsePortal={false}
-			on:open={() => {
+			onopen={() => {
 				outputs?.open.set(true)
 				onOpenRecomputeIds?.forEach((id) => $runnableComponents?.[id]?.cb?.map((cb) => cb?.()))
 			}}
-			on:close={() => {
+			onclose={() => {
 				outputs?.open.set(false)
 				onCloseRecomputeIds?.forEach((id) => $runnableComponents?.[id]?.cb?.map((cb) => cb?.()))
 			}}
@@ -156,7 +156,7 @@
 			{#snippet children({ open })}
 				<DrawerContent
 					title={resolvedConfig.drawerTitle}
-					on:close={() => {
+					onclose={() => {
 						appDrawer?.toggleDrawer()
 						$focusedGrid = undefined
 					}}

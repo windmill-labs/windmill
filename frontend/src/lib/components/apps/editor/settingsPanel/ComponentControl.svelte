@@ -28,7 +28,7 @@
 					color="light"
 					size="xs2"
 					btnClasses="text-2xs font-normal"
-					on:click={() => {
+					onclick={() => {
 						collapsed = !collapsed
 					}}
 				>

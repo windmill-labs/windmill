@@ -76,7 +76,8 @@
 		gotoFn = (path: string, opt?: Record<string, any>) => window.history.pushState(null, '', path),
 		unsavedConfirmationModal,
 		onSavedNewAppPath,
-		onpointerdown = undefined
+		onpointerdown = undefined,
+		onrestore = undefined
 	}: AppEditorProps = $props()
 
 	migrateApp(app)
@@ -829,7 +830,7 @@
 
 <svelte:head></svelte:head>
 
-<DarkModeObserver on:change={onThemeChange} />
+<DarkModeObserver onchange={onThemeChange} />
 
 <svelte:window
 	onhashchange={hashchange}
@@ -848,7 +849,7 @@
 		<AppEditorHeader
 			{newPath}
 			{newApp}
-			on:restore
+			onrestore={onrestore}
 			{policy}
 			{fromHub}
 			bind:this={appEditorHeader}
@@ -936,7 +937,7 @@
 							<!-- {yTop} -->
 
 							<SecondaryMenu right={false} />
-							<ContextPanel on:hidePanel={() => hideLeftPanel()} />
+							<ContextPanel onhidePanel={() => hideLeftPanel()} />
 						</div>
 					</Pane>
 					<Pane bind:size={centerPanelSize}>
@@ -959,7 +960,7 @@
 									{#if leftPanelSize === 0}
 										<div class="absolute top-0.5 left-0.5 z-50">
 											<HideButton
-												on:click={() => showLeftPanel()}
+												onclick={() => showLeftPanel()}
 												direction="left"
 												hidden
 												btnClasses="border bg-surface"
@@ -969,7 +970,7 @@
 									{#if rightPanelSize === 0}
 										<div class="absolute top-0.5 right-0.5 z-50">
 											<HideButton
-												on:click={() => showRightPanel()}
+												onclick={() => showRightPanel()}
 												direction="right"
 												hidden
 												btnClasses="border bg-surface"
@@ -979,7 +980,7 @@
 									{#if runnablePanelSize === 0}
 										<div class="absolute bottom-0.5 right-0.5 z-50">
 											<HideButton
-												on:click={() => showBottomPanel()}
+												onclick={() => showBottomPanel()}
 												direction="bottom"
 												hidden
 												btnClasses="border bg-surface"
@@ -997,7 +998,7 @@
 												color="light"
 												size="xs2"
 												disabled={$scale <= 30}
-												on:click={() => {
+												onclick={() => {
 													zoomTo(0.5, 0, Math.round(($scale - 10) / 10) / 10)
 												}}
 											>
@@ -1010,13 +1011,13 @@
 												color="light"
 												size="xs2"
 												disabled={$scale >= 150}
-												on:click={() => {
+												onclick={() => {
 													zoomTo(0.5, 0, Math.round(($scale + 10) / 10) / 10)
 												}}
 											>
 												<Plus size={14} />
 											</Button>
-											<Button color="light" size="xs2" disabled={false} on:click={resetView}>
+											<Button color="light" size="xs2" disabled={false} onclick={resetView}>
 												<Scan size={14} />
 											</Button>
 											<Popover disappearTimeout={0} notClickable placement="bottom">
@@ -1049,7 +1050,7 @@
 													color="light"
 													size="xs2"
 													disabled={false}
-													on:click={() => (handMode = !handMode)}
+													onclick={() => (handMode = !handMode)}
 													btnClasses={handMode ? 'bg-surface-hover' : ''}
 												>
 													{#if $panzoomActive}
@@ -1115,7 +1116,7 @@
 													<Button
 														variant="default"
 														size="xs"
-														on:click={() => {
+														onclick={() => {
 															$appStore.mobileViewOnSmallerScreens = true
 														}}
 														startIcon={{
@@ -1133,7 +1134,7 @@
 							{#if $connectingInput?.opened == false && !$componentActive}
 								<Pane bind:size={runnablePanelSize}>
 									<AppEditorBottomPanel
-										on:mouseenter={() => {
+										onmouseenter={() => {
 											runnableJobEnterTimeout && clearTimeout(runnableJobEnterTimeout)
 											stillInJobEnter = true
 											runnableJobEnterTimeout = setTimeout(() => {
@@ -1142,8 +1143,8 @@
 												}
 											}, 200)
 										}}
-										on:hidePanel={() => hideBottomPanel()}
-										on:mouseleave={() => {
+										onhidePanel={() => hideBottomPanel()}
+										onmouseleave={() => {
 											stillInJobEnter = false
 											runnableJobEnterTimeout = setTimeout(
 												() => ($runnableJob.focused = false),
@@ -1176,7 +1177,7 @@
 										<Tab
 											value="insert"
 											class="h-full"
-											on:pointerdown={() => {
+											onpointerdown={() => {
 												if ($cssEditorOpen) {
 													$cssEditorOpen = false
 													selectedTab = 'insert'
@@ -1193,7 +1194,7 @@
 										<Tab
 											value="settings"
 											class="h-full"
-											on:pointerdown={() => {
+											onpointerdown={() => {
 												if ($cssEditorOpen) {
 													$cssEditorOpen = false
 													selectedTab = 'settings'
@@ -1209,7 +1210,7 @@
 										<Tab
 											value="css"
 											class="h-full"
-											on:pointerdown={() => {
+											onpointerdown={() => {
 												if (!$cssEditorOpen) {
 													$cssEditorOpen = true
 													selectedTab = 'css'
@@ -1219,14 +1220,14 @@
 										/>
 									</Popover>
 									<div class="h-full w-full flex justify-end px-1">
-										<HideButton on:click={() => hideRightPanel()} direction="right" />
+										<HideButton onclick={() => hideRightPanel()} direction="right" />
 									</div>
 									{#snippet content()}
 										<div class="h-full overflow-y-auto">
 											<TabContent class="overflow-auto h-full" value="settings">
 												{#if $selectedComponent !== undefined}
 													<SettingsPanel
-														on:delete={() => {
+														ondelete={() => {
 															befSelected = undefined
 															selectedTab = 'insert'
 														}}
@@ -1281,7 +1282,7 @@
 				variant="default"
 				size="sm"
 				startIcon={{ icon: Plus }}
-				on:click={() => {
+				onclick={() => {
 					variableEditor?.initNew?.()
 				}}
 			>

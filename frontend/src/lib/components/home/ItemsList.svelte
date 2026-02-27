@@ -336,14 +336,14 @@
 
 <Drawer
 	bind:this={viewCodeDrawer}
-	on:close={() => {
+	onclose={() => {
 		setTimeout(() => {
 			viewCodeTitle = undefined
 			script = undefined
 		}, 300)
 	}}
 >
-	<DrawerContent title={viewCodeTitle} on:close={viewCodeDrawer.closeDrawer}>
+	<DrawerContent title={viewCodeTitle} onclose={viewCodeDrawer.closeDrawer}>
 		{#if script}
 			<HighlightCode language={script?.language} code={script?.content} />
 		{:else}
@@ -363,7 +363,7 @@
 		<div class="flex justify-start">
 			<ToggleButtonGroup
 				bind:selected={itemKind}
-				onSelected={(v) => {
+				onselected={(v) => {
 					if (itemKind != 'all') {
 						subtab = v
 					}
@@ -429,7 +429,7 @@
 			</button>
 		</div>
 		<Button
-			on:click={() => openSearchWithPrefilledText('#')}
+			onclick={() => openSearchWithPrefilledText('#')}
 			variant="default"
 			unifiedSize="md"
 			endIcon={{
@@ -495,7 +495,7 @@
 					<Button
 						unifiedSize="sm"
 						variant="subtle"
-						on:click={() => (collapseAll = !collapseAll)}
+						onclick={() => (collapseAll = !collapseAll)}
 						startIcon={{
 							icon: collapseAll ? ChevronsUpDown : ChevronsDownUp
 						}}
@@ -525,11 +525,11 @@
 				{nbDisplayed}
 				{collapseAll}
 				isSearching={filter !== ''}
-				on:scriptChanged={() => loadScripts(includeWithoutMain)}
-				on:flowChanged={loadFlows}
-				on:appChanged={loadApps}
-				on:rawAppChanged={loadRawApps}
-				on:reload={() => {
+				onscriptChanged={() => loadScripts(includeWithoutMain)}
+				onflowChanged={loadFlows}
+				onappChanged={loadApps}
+				onrawAppChanged={loadRawApps}
+				onreload={() => {
 					loadScripts(includeWithoutMain)
 					loadFlows()
 					loadApps()
@@ -542,11 +542,11 @@
 				{#each (items ?? []).slice(0, nbDisplayed) as item (item.type + '/' + item.path + (item.hash ? '/' + item.hash : ''))}
 					<Item
 						{item}
-						on:scriptChanged={() => loadScripts(includeWithoutMain)}
-						on:flowChanged={loadFlows}
-						on:appChanged={loadApps}
-						on:rawAppChanged={loadRawApps}
-						on:reload={() => {
+						onscriptChanged={() => loadScripts(includeWithoutMain)}
+						onflowChanged={loadFlows}
+						onappChanged={loadApps}
+						onrawAppChanged={loadRawApps}
+						onreload={() => {
 							loadScripts(includeWithoutMain)
 							loadFlows()
 							loadApps()

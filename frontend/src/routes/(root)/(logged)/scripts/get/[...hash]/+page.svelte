@@ -601,7 +601,7 @@
 
 <MoveDrawer
 	bind:this={moveDrawer}
-	on:update={async (e) => {
+	onupdate={async (e) => {
 		await goto('/scripts/get/' + e.detail + `?workspace=${$workspaceStore}`)
 		loadScript(page.params.hash ?? '')
 	}}
@@ -614,12 +614,12 @@
 <ShareModal bind:this={shareModal} />
 
 <Drawer bind:open={versionsDrawerOpen} size="1200px">
-	<DrawerContent title="Versions History" on:close={() => (versionsDrawerOpen = false)} noPadding>
+	<DrawerContent title="Versions History" onclose={() => (versionsDrawerOpen = false)} noPadding>
 		{#if script}
 			<ScriptVersionHistory
 				scriptPath={script.path}
 				openDetails
-				on:openDetails={(e) => {
+				onopenDetails={(e) => {
 					if (script) {
 						goto(`/scripts/get/${e.detail.version}?workspace=${$workspaceStore}`)
 					}
@@ -644,7 +644,7 @@
 				errorHandlerKind="script"
 				scriptOrFlowPath={script?.path ?? ''}
 				tag={script?.tag ?? ''}
-				on:seeTriggers={() => {
+				onseeTriggers={() => {
 					rightPaneSelected = 'triggers'
 				}}
 				summary={script?.summary}
@@ -797,7 +797,7 @@
 											rightTooltip: 'Fill args from JSON'
 										}}
 										lightMode
-										on:change={(e) => {
+										onchange={(e) => {
 											runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
 										}}
 									/>
@@ -872,7 +872,7 @@
 					{jsonView}
 					{args}
 					bind:inputSelected
-					on:selected_args={(e) => {
+					onselected_args={(e) => {
 						const nargs = JSON.parse(JSON.stringify(e.detail))
 						args = nargs
 						if (jsonView) {
@@ -924,7 +924,7 @@
 										<div class="relative overflow-x-auto w-full">
 											<Button
 												wrapperClasses="absolute top-2 right-2 z-20"
-												on:click={() => copyToClipboard(script?.lock)}
+												onclick={() => copyToClipboard(script?.lock)}
 												color="light"
 												size="xs2"
 												startIcon={{

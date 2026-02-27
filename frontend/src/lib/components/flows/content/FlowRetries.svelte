@@ -114,7 +114,7 @@
 	<ToggleButtonGroup
 		bind:selected={delayType}
 		class={`${disabled ? 'disabled' : ''}`}
-		on:selected={(e) => {
+		onselected={(e) => {
 			flowModuleRetry = undefined
 			if (e.detail === 'constant') {
 				flowModuleRetry = undefined
@@ -143,7 +143,7 @@
 
 			<Toggle
 				checked={isRetryConditionEnabled}
-				on:change={() => {
+				onchange={() => {
 					if (!flowModuleRetry) {
 						return
 					}
@@ -181,7 +181,7 @@
 								notSelectable
 								pickableProperties={stepPropPicker.pickableProperties}
 								{result}
-								on:select={({ detail }) => {
+								onselect={(detail) => {
 									editor?.insertAtCursor(detail)
 									editor?.focus()
 								}}

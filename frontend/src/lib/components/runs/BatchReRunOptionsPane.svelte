@@ -208,7 +208,7 @@
 							<Toggle
 								checked={selectedUsesLatestSchema}
 								disabled={selected?.kind === 'flow'}
-								on:change={(e) => {
+								onchange={(e) => {
 									if (!selected) return
 									;(options[selected.kind][selected.script_path] ??= {}).use_latest_version =
 										e.detail as boolean
@@ -246,7 +246,7 @@
 													type: 'javascript',
 													expr: batchReRunDefaultPropertyExpr(propertyName, selected.schemas)
 												}}
-												on:change={(e) => {
+												onchange={(e) => {
 													if (!selected) return
 													const newArg = e.detail.arg as InputTransform
 													;((options[selected.kind][selected.script_path] ??=

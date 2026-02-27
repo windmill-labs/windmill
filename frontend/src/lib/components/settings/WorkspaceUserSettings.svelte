@@ -438,7 +438,7 @@
 							</div>
 							<ToggleButtonGroup
 								selected={displayMode}
-								on:selected={async (e) => {
+								onselected={async (e) => {
 									const switchingToAdd = e.detail === 'add' && !autoAdd
 
 									// If switching from invite to add on non-cloud, show confirmation with warning
@@ -478,7 +478,7 @@
 						<span class="text-xs mb-1">Role <Tooltip>Role of the auto-added users</Tooltip></span>
 						<ToggleButtonGroup
 							selected={operatorOnly ? 'operator' : 'developer'}
-							on:selected={async (e) => {
+							onselected={async (e) => {
 								operatorOnly = e.detail === 'operator'
 								if (auto_invite_domain != undefined) {
 									await updateAutoInvite(true)
@@ -504,7 +504,7 @@
 						<div class="mt-6">
 							<Toggle
 								checked={autoInviteOrAddEnabled}
-								on:change={async (e) => {
+								onchange={async (e) => {
 									const enabling = e.detail
 
 									if (enabling) {
@@ -589,7 +589,7 @@
 												<span class="text-xs text-primary">Role</span>
 												<ToggleButtonGroup
 													selected={selectedNewRole}
-													on:selected={(e) => {
+													onselected={(e) => {
 														selectedNewRole = e.detail
 													}}
 												>
@@ -656,7 +656,7 @@
 																<div>
 																	<ToggleButtonGroup
 																		selected={autoAddInstanceGroupsRoles[groupName] || 'developer'}
-																		on:selected={async (e) => {
+																		onselected={async (e) => {
 																			autoAddInstanceGroupsRoles[groupName] = e.detail
 																			await updateGroupRole(groupName, e.detail)
 																		}}
@@ -724,7 +724,7 @@
 			{/if}
 
 			<AddUser
-				on:new={() => {
+				onnew={() => {
 					listUsers()
 					listInvites()
 				}}
@@ -735,7 +735,7 @@
 	<DataTable
 		shouldLoadMore={(filteredUsers?.length ?? 0) > 30}
 		loadMore={30}
-		on:loadMore={() => {
+		onloadMore={() => {
 			nbDisplayed += 30
 		}}
 	>
@@ -814,7 +814,7 @@
 								{:else}
 									<ToggleButtonGroup
 										selected={is_admin ? 'admin' : operator ? 'operator' : 'developer'}
-										on:selected={async (e) => {
+										onselected={async (e) => {
 											if (is_admin && email == $userStore?.email && e.detail != 'admin') {
 												sendUserToast(
 													'Admins cannot be demoted by themselves, ask another admin to demote you',
@@ -867,7 +867,7 @@
 						<Cell>
 							<Toggle
 								checked={!disabled}
-								on:change={async (e) => {
+								onchange={async (e) => {
 									try {
 										await UserService.updateUser({
 											workspace: $workspaceStore ?? '',
@@ -922,7 +922,7 @@
 									<Button
 										variant="accent"
 										unifiedSize="sm"
-										on:click={() => {
+										onclick={() => {
 											convertConfirmedCallback = async () => {
 												await convertUserToGroup(username)
 											}
@@ -986,7 +986,7 @@
 								<div>
 									<ToggleButtonGroup
 										selected={is_admin ? 'admin' : operator ? 'operator' : 'developer'}
-										on:selected={async (e) => {
+										onselected={async (e) => {
 											const body =
 												e.detail == 'admin'
 													? { is_admin: true, operator: false }
@@ -1073,10 +1073,10 @@
 	open={Boolean(deleteConfirmedCallback)}
 	title="Remove user"
 	confirmationText="Remove"
-	on:canceled={() => {
+	oncanceled={() => {
 		deleteConfirmedCallback = undefined
 	}}
-	on:confirmed={() => {
+	onconfirmed={() => {
 		if (deleteConfirmedCallback) {
 			deleteConfirmedCallback()
 		}
@@ -1093,10 +1093,10 @@
 		open={Boolean(removeInstanceGroupConfirmedCallback)}
 		title="Remove instance group"
 		confirmationText="Remove"
-		on:canceled={() => {
+		oncanceled={() => {
 			removeInstanceGroupConfirmedCallback = undefined
 		}}
-		on:confirmed={() => {
+		onconfirmed={() => {
 			if (removeInstanceGroupConfirmedCallback) {
 				removeInstanceGroupConfirmedCallback()
 			}
@@ -1116,10 +1116,10 @@
 	open={Boolean(convertConfirmedCallback)}
 	title="Convert to Group User"
 	confirmationText="Convert"
-	on:canceled={() => {
+	oncanceled={() => {
 		convertConfirmedCallback = undefined
 	}}
-	on:confirmed={() => {
+	onconfirmed={() => {
 		if (convertConfirmedCallback) {
 			convertConfirmedCallback()
 		}
@@ -1143,10 +1143,10 @@
 		open={Boolean(autoAddConfirmCallback)}
 		title="Enable Auto-add"
 		confirmationText="Enable"
-		on:canceled={() => {
+		oncanceled={() => {
 			autoAddConfirmCallback = undefined
 		}}
-		on:confirmed={() => {
+		onconfirmed={() => {
 			if (autoAddConfirmCallback) {
 				autoAddConfirmCallback()
 			}
@@ -1163,10 +1163,10 @@
 		open={Boolean(autoInviteDisableConfirmCallback)}
 		title="Disable Auto-invite"
 		confirmationText="Disable"
-		on:canceled={() => {
+		oncanceled={() => {
 			autoInviteDisableConfirmCallback = undefined
 		}}
-		on:confirmed={() => {
+		onconfirmed={() => {
 			if (autoInviteDisableConfirmCallback) {
 				autoInviteDisableConfirmCallback()
 			}
@@ -1184,10 +1184,10 @@
 		open={Boolean(switchToAutoAddConfirmCallback)}
 		title="Switch to Auto-add"
 		confirmationText="Switch"
-		on:canceled={() => {
+		oncanceled={() => {
 			switchToAutoAddConfirmCallback = undefined
 		}}
-		on:confirmed={() => {
+		onconfirmed={() => {
 			if (switchToAutoAddConfirmCallback) {
 				switchToAutoAddConfirmCallback()
 			}

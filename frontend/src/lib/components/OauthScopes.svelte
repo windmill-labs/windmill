@@ -17,7 +17,7 @@
 				variant="default"
 				size="xs"
 				btnClasses="mx-6"
-				on:click={() => {
+				onclick={() => {
 					scopes = scopes.filter((_, idx) => idx != i)
 				}}
 				startIcon={{ icon: Minus }}
@@ -33,7 +33,7 @@
 		hover="yo"
 		size="xs"
 		startIcon={{ icon: Plus }}
-		on:click={() => {
+		onclick={() => {
 			scopes = (scopes ?? []).concat('')
 		}}
 	>

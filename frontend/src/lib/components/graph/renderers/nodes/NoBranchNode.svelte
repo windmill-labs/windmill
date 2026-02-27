@@ -17,7 +17,7 @@
 			hideId={true}
 			selectable={true}
 			selected={false}
-			on:select={(e) => {
+			onselect={(e) => {
 				setTimeout(() => data?.eventHandlers?.select(e.detail))
 			}}
 		/>

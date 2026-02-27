@@ -179,7 +179,7 @@
 
 <DarkModeObserver
 	bind:darkMode
-	on:change={(e) => {
+	onchange={(e) => {
 		tick().then(() => {
 			chartInstance && updateChartByResult()
 		})

@@ -44,6 +44,9 @@
 		onfilterByLabel?: (...args: any[]) => any
 		onfilterBySchedule?: (...args: any[]) => any
 		onfilterByUser?: (...args: any[]) => any
+		onfilterByTag?: (...args: any[]) => any
+		onfilterByConcurrencyKey?: (...args: any[]) => any
+		onfilterByWorker?: (...args: any[]) => any
 	}
 
 	let {
@@ -268,7 +271,7 @@
 					size="xs2"
 					color="light"
 					btnClasses="font-normal bg-transparent hover:bg-surface hover:text-primary"
-					on:click={() => scheduleEditor?.openEdit(job.schedule_path ?? '', job.job_kind == 'flow')}
+					onclick={() => scheduleEditor?.openEdit(job.schedule_path ?? '', job.job_kind == 'flow')}
 				>
 					<Calendar size={14} />
 				</Button>

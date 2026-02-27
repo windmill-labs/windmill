@@ -214,7 +214,7 @@
 							<div class="w-full">
 								{#if $superadmin}
 									<Toggle
-										on:change={saveGlobalMuteSetting}
+										onchange={saveGlobalMuteSetting}
 										bind:checked={muteSettings.global}
 										options={{
 											right: 'Automatically acknowledge critical alerts instance wide'
@@ -226,7 +226,7 @@
 
 							<div class="w-full">
 								<Toggle
-									on:change={saveWorkSpaceMuteSetting}
+									onchange={saveWorkSpaceMuteSetting}
 									bind:checked={muteSettings.workspace}
 									options={{
 										right: 'Automatically acknowledge critical alerts for current workspace'

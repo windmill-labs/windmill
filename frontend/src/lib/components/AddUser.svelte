@@ -11,6 +11,13 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { UserPlus } from 'lucide-svelte'
 
+	interface Props {
+		onnew?: (...args: any[]) => any
+	}
+
+	let {}: Props = $props()
+
+
 	const dispatch = createEventDispatcher()
 
 	let email: string | undefined = $state()
@@ -117,7 +124,7 @@
 			<Button
 				variant="accent"
 				size="sm"
-				on:click={() => {
+				onclick={() => {
 					addUser().then(() => {
 						// @ts-ignore
 						email = undefined

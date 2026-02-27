@@ -13,6 +13,7 @@
 		progress?: number
 		loading?: boolean | undefined
 		onsetInter?: (...args: any[]) => any
+		onclick?: (...args: any[]) => any
 	}
 
 	let {
@@ -21,7 +22,8 @@
 		refreshing = [],
 		progress = 100,
 		loading = false,
-		onsetInter = undefined
+		onsetInter = undefined,
+		onclick = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -42,7 +44,7 @@
 	<div class={twMerge('flex items-center')}>
 		<Button
 			disabled={componentNumber == 0}
-			on:click
+			onclick={onclick}
 			size="xs"
 			variant="default"
 			btnClasses={twMerge(

@@ -106,7 +106,7 @@
 										icon: Trash
 									}}
 									size="xs2"
-									on:click={() => {
+									onclick={() => {
 										let parent = findGridItemParentGrid($app, c)
 										deleteGridItem($app, item.data, parent)
 										$app = $app
@@ -162,7 +162,7 @@
 									icon: Trash
 								}}
 								size="xs2"
-								on:click={() => {
+								onclick={() => {
 									if ($app.subgrids && s) {
 										delete $app.subgrids[s.subGridId]
 										$app = $app

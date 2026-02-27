@@ -1445,7 +1445,7 @@
 				<div class="overflow-auto max-h-1/2">
 					{#each flowJobIds?.flowJobs ?? [] as loopJobId, j (loopJobId)}
 						{#if render && j + subflowsSize + 1 == (flowJobIds?.flowJobs.length ?? 0)}
-							<Button variant="default" on:click={() => (subflowsSize += 500)}
+							<Button variant="default" onclick={() => (subflowsSize += 500)}
 								>Load 500 more...</Button
 							>
 						{/if}
@@ -1458,7 +1458,7 @@
 										? 'dark'
 										: 'light'}
 								btnClasses="w-full flex justify-start"
-								on:click={async () => {
+								onclick={async () => {
 									let storedJob = storedListJobs[j]
 									if (!storedJob && !isReplay) {
 										storedJob = await JobService.getJob({
@@ -1584,7 +1584,7 @@
 										variant={retry_selected === failedRetry ? 'contained' : 'border'}
 										color="red"
 										btnClasses="w-full flex justify-start"
-										on:click={() => {
+										onclick={() => {
 											if (retry_selected == failedRetry) {
 												retry_selected = ''
 											} else {
@@ -1723,7 +1723,7 @@
 															? 'dark'
 															: 'light'}
 													btnClasses="w-full flex justify-start"
-													on:click={async () => {
+													onclick={async () => {
 														if (isSelected) {
 															selectedToolCall = undefined
 														} else {

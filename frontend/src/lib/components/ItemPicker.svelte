@@ -79,7 +79,7 @@
 		{documentationLink}
 		overflow_y={false}
 		title="Search {itemName}s"
-		on:close={drawer.closeDrawer}
+		onclose={drawer.closeDrawer}
 	>
 		<div class="w-full h-full flex flex-col">
 			<div class="flex flex-row gap-2 pb-4">
@@ -92,7 +92,7 @@
 					autofocus
 				/>
 				<Button
-					on:click={() => {
+					onclick={() => {
 						refreshing = true
 						loadItems()
 							.then((v) => {
@@ -173,7 +173,7 @@
 											<Button
 												size="sm"
 												variant="default"
-												on:click={() => {
+												onclick={() => {
 													button(obj['path'] ?? '')
 												}}
 											>

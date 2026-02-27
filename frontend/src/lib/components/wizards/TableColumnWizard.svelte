@@ -48,7 +48,7 @@
 
 			<Label label="Show column">
 				<Toggle
-					on:pointerdown={(e) => {
+					onpointerdown={(e) => {
 						e?.stopPropagation()
 					}}
 					options={{ right: 'Hide column' }}

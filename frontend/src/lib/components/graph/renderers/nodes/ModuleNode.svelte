@@ -70,16 +70,16 @@
 			duration_ms={state?.duration_ms}
 			retries={state?.retries}
 			{flowJobs}
-			on:delete={(e) => {
+			ondelete={(e) => {
 				data.eventHandlers.delete(e.detail, '')
 			}}
-			on:changeId={(e) => {
+			onchangeId={(e) => {
 				data.eventHandlers.changeId(e.detail)
 			}}
-			on:move={(e) => {
+			onmove={(e) => {
 				data.eventHandlers.move({ id: data.id })
 			}}
-			on:newBranch={(e) => {
+			onnewBranch={(e) => {
 				data.eventHandlers.newBranch(data.id)
 			}}
 			onSelect={(e) => {

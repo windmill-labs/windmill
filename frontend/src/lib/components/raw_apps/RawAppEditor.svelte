@@ -54,6 +54,8 @@
 			  }
 			| undefined
 		diffDrawer?: DiffDrawer | undefined
+		onrestore?: (...args: any[]) => any
+		onsavedNewAppPath?: (...args: any[]) => any
 	}
 
 	let {
@@ -66,7 +68,9 @@
 		path,
 		newPath = undefined,
 		savedApp = $bindable(undefined),
-		diffDrawer = undefined
+		diffDrawer = undefined,
+		onrestore = undefined,
+		onsavedNewAppPath = undefined
 	}: Props = $props()
 	export const version: number | undefined = undefined
 
@@ -811,8 +815,8 @@
 		bind:jobsById
 		bind:savedApp
 		bind:summary
-		on:restore
-		on:savedNewAppPath
+		onrestore={onrestore}
+		onsavedNewAppPath={onsavedNewAppPath}
 		{policy}
 		{diffDrawer}
 		{newApp}

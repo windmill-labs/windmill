@@ -24,7 +24,7 @@
 			preLabel={data.preLabel}
 			selectable
 			selected={selectionManager && selectionManager.isNodeSelected(id)}
-			on:select={() => {
+			onselect={() => {
 				setTimeout(() => data.eventHandlers?.select(data.id))
 			}}
 		/>

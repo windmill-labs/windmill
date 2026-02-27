@@ -86,7 +86,7 @@
 			canConfigureRunOnStart={!isTriggerable(appComponent.type)}
 			bind:autoRefresh={appInput.autoRefresh}
 			bind:recomputeOnInputChanged={appInput.recomputeOnInputChanged}
-			on:updateAutoRefresh={updateAutoRefresh}
+			onupdateAutoRefresh={updateAutoRefresh}
 		>
 			<ComponentScriptTriggerBy {appComponent} {appInput} />
 		</ScriptRunConfiguration>

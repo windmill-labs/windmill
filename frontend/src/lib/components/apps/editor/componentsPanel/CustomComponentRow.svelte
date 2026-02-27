@@ -73,7 +73,7 @@
 		<div class="flex flex-row gap-1 items-center">
 			<NameEditor
 				kind="custom component"
-				on:update={(e) => {
+				onupdate={(e) => {
 					updateName(e.detail.name)
 				}}
 				{row}

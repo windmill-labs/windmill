@@ -136,7 +136,7 @@
 			tabListClass="flex-wrap"
 			class="h-auto"
 			bind:selected={kind}
-			on:selected={(e) => {
+			onselected={(e) => {
 				if (e.detail != 'enum') {
 					enum_ = undefined
 				}
@@ -185,7 +185,7 @@
 					bind:value={patternStr}
 				/>
 				<RegexGen
-					on:gen={(e) => {
+					ongen={(e) => {
 						const { res, prompt } = e.detail
 						patternStr = res
 						customErrorMessage = 'does not match: ' + prompt
@@ -205,7 +205,7 @@
 					size="xs"
 					options={{ right: 'Enable' }}
 					checked={customErrorMessage != undefined && customErrorMessage != ''}
-					on:change={(e) => {
+					onchange={(e) => {
 						if (e.detail) {
 							customErrorMessage = 'Custom error message'
 						} else {
@@ -264,7 +264,7 @@
 								{#if allowKindChange}
 									<Button
 										size="sm"
-										on:click={() => enum_ && typeof enum_[i] === 'string' && remove(enum_[i])}
+										onclick={() => enum_ && typeof enum_[i] === 'string' && remove(enum_[i])}
 										>-</Button
 									>
 								{/if}
@@ -279,7 +279,7 @@
 			</div>
 			{#if allowKindChange}
 				<div class="flex flex-row my-1">
-					<Button color="light" size="sm" on:click={add}>+</Button>
+					<Button color="light" size="sm" onclick={add}>+</Button>
 				</div>
 			{/if}
 		</Label>
@@ -288,7 +288,7 @@
 				size="xs"
 				options={{ right: 'Disallow creating custom values' }}
 				checked={disableCreate}
-				on:change={(e) => {
+				onchange={(e) => {
 					if (e.detail) {
 						disableCreate = true
 					} else {
@@ -365,7 +365,7 @@
 			size="xs"
 			options={{ right: 'Disable variable picker' }}
 			checked={disableVariablePicker}
-			on:change={(e) => {
+			onchange={(e) => {
 				if (e.detail) {
 					disableVariablePicker = true
 				} else {
@@ -385,7 +385,7 @@
 					'The value will be stored as an ephemeral secret variable in the user space of the caller of the job, only viewable by him.'
 			}}
 			checked={password}
-			on:change={(e) => {
+			onchange={(e) => {
 				if (e.detail) {
 					password = true
 				} else {

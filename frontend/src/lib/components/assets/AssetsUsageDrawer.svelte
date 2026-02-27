@@ -29,9 +29,9 @@
 <Drawer
 	open={usagesDrawerData !== undefined}
 	size="900px"
-	on:close={() => (usagesDrawerData = undefined)}
+	onclose={() => (usagesDrawerData = undefined)}
 >
-	<DrawerContent title="Asset usage" on:close={() => (usagesDrawerData = undefined)}>
+	<DrawerContent title="Asset usage" onclose={() => (usagesDrawerData = undefined)}>
 		<div class="flex flex-col gap-6">
 			<!-- Static/Declared Usages -->
 			<section>

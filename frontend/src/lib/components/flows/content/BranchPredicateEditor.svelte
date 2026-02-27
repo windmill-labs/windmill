@@ -19,9 +19,11 @@
 		parentModule: FlowModule
 		previousModule: FlowModule | undefined
 		enableAi?: boolean
+		onupdateSummary?: (...args: any[]) => any
 	}
 
-	let { branch = $bindable(), parentModule, previousModule, enableAi = false }: Props = $props()
+	let { branch = $bindable(), parentModule, previousModule, enableAi = false,
+		onupdateSummary = undefined }: Props = $props()
 
 	const { previewArgs, flowStateStore, flowStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -45,7 +47,7 @@
 	<PropPickerWrapper
 		notSelectable
 		pickableProperties={stepPropPicker.pickableProperties}
-		on:select={({ detail }) => {
+		onselect={(detail) => {
 			editor?.insertAtCursor(detail)
 			editor?.focus()
 		}}
@@ -68,10 +70,10 @@
 		<div class="flex flex-row gap-2 items-center">
 			{#if enableAi}
 				<PredicateGen
-					on:setExpr={(e) => {
+					onsetExpr={(e) => {
 						branch.expr = e.detail
 					}}
-					on:updateSummary
+					onupdateSummary={onupdateSummary}
 					pickableProperties={stepPropPicker.pickableProperties}
 				/>
 			{/if}
@@ -79,7 +81,7 @@
 				size="xs"
 				startIcon={{ icon: Pen }}
 				variant="default"
-				on:click={() => (open = !open)}
+				onclick={() => (open = !open)}
 				id="flow-editor-edit-predicate"
 			>
 				Edit predicate

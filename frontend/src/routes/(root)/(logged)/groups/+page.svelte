@@ -72,8 +72,8 @@
 </script>
 
 <Drawer bind:this={groupDrawer}>
-	<DrawerContent title="Group {editGroupName}" on:close={groupDrawer.closeDrawer}>
-		<GroupEditor on:update={loadGroups} name={editGroupName} />
+	<DrawerContent title="Group {editGroupName}" onclose={groupDrawer.closeDrawer}>
+		<GroupEditor onupdate={loadGroups} name={editGroupName} />
 	</DrawerContent>
 </Drawer>
 
@@ -115,7 +115,7 @@
 									variant="accent"
 									startIcon={{ icon: Plus }}
 									disabled={!newGroupName}
-									on:click={() => {
+									onclick={() => {
 										addGroup()
 										close()
 									}}

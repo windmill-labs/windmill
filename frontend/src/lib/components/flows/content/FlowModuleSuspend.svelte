@@ -84,7 +84,7 @@
 			<Toggle
 				size="xs"
 				checked={isSuspendEnabled}
-				on:change={() => {
+				onchange={() => {
 					if (isSuspendEnabled && flowModule.suspend != undefined) {
 						flowModule.suspend = undefined
 					} else {
@@ -144,7 +144,7 @@
 				}}
 				checked={Boolean(flowModule.suspend?.continue_on_disapprove_timeout)}
 				disabled={!Boolean(flowModule.suspend)}
-				on:change={(e) => {
+				onchange={(e) => {
 					if (flowModule.suspend) {
 						flowModule.suspend.continue_on_disapprove_timeout = e.detail
 					}
@@ -172,7 +172,7 @@
 						options={{
 							right: 'Require approvers to be logged in'
 						}}
-						on:change={(e) => {
+						onchange={(e) => {
 							if (flowModule.suspend) {
 								flowModule.suspend.user_auth_required = e.detail
 								if (e.detail && flowModule.suspend?.user_groups_required === undefined) {
@@ -195,7 +195,7 @@
 						}}
 						checked={Boolean(flowModule.suspend.self_approval_disabled)}
 						disabled={!Boolean(flowModule.suspend.user_auth_required)}
-						on:change={(e) => {
+						onchange={(e) => {
 							if (flowModule.suspend) {
 								flowModule.suspend.self_approval_disabled = e.detail
 							}
@@ -215,7 +215,7 @@
 								noFlowPlugConnect
 								displayContext={false}
 								pickableProperties={undefined}
-								on:select={({ detail }) => {
+								onselect={(detail) => {
 									editor?.insertAtCursor(detail)
 									editor?.focus()
 								}}
@@ -252,7 +252,7 @@
 									'Arguments can be edited either using the wizard, or by editing their JSON Schema.'
 							}}
 							lightMode
-							on:change={() => {
+							onchange={() => {
 								if (flowModule.suspend) {
 									flowModule.suspend.resume_form = {
 										schema: emptySchema()
@@ -263,7 +263,7 @@
 						/>
 					</div>
 					<AddProperty
-						on:change={(e) => {
+						onchange={(e) => {
 							jsonView = false
 							if (flowModule.suspend) {
 								flowModule.suspend.resume_form = {

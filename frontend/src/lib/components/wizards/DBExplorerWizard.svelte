@@ -156,7 +156,7 @@
 					{/snippet}
 					{#snippet action()}
 						<Toggle
-							on:pointerdown={(e) => {
+							onpointerdown={(e) => {
 								e?.stopPropagation()
 							}}
 							bind:checked={value.ignored}
@@ -182,7 +182,7 @@
 					{#snippet action()}
 						<Toggle
 							disabled={value?.isidentity === ColumnIdentity.Always}
-							on:pointerdown={(e) => {
+							onpointerdown={(e) => {
 								e?.stopPropagation()
 							}}
 							bind:checked={value.hideInsert}
@@ -209,7 +209,7 @@
 						options={{
 							right: `Override default value: ${value?.defaultvalue}`
 						}}
-						on:change={() => {
+						onchange={() => {
 							if (!value || !value.overrideDefaultValue) {
 								if (value) {
 									value.defaultValueNull = false
@@ -246,7 +246,7 @@
 									disabled={value.hideInsert &&
 										value?.defaultvalue !== null &&
 										!value?.overrideDefaultValue}
-									on:change={() => {
+									onchange={() => {
 										if (value?.defaultValueNull && value) {
 											value.defaultUserValue = null
 										}
@@ -282,7 +282,7 @@
 
 					<Label label="Editable value">
 						<Toggle
-							on:pointerdown={(e) => {
+							onpointerdown={(e) => {
 								e?.stopPropagation()
 							}}
 							options={{ right: 'Editable' }}
@@ -318,7 +318,7 @@
 
 					<Label label="Hide">
 						<Toggle
-							on:pointerdown={(e) => {
+							onpointerdown={(e) => {
 								e?.stopPropagation()
 							}}
 							options={{ right: 'Hide' }}
@@ -341,7 +341,7 @@
 							<Button
 								size="xs"
 								variant="default"
-								on:click={() => {
+								onclick={() => {
 									// @ts-ignore
 									value.valueFormatter = null
 									renderCount++

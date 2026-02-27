@@ -216,7 +216,7 @@
 												unifiedSize="sm"
 												iconOnly
 												startIcon={{ icon: ListFilterPlus }}
-												on:click={() => {
+												onclick={() => {
 													usernameFilter = logOrDate.log.username
 												}}
 											/>
@@ -260,7 +260,7 @@
 												unifiedSize="sm"
 												iconOnly
 												startIcon={{ icon: ListFilterPlus }}
-												on:click={() => {
+												onclick={() => {
 													resourceFilter = logOrDate.log.resource
 												}}
 											/>
@@ -293,7 +293,7 @@
 				variant="subtle"
 				unifiedSize="sm"
 				startIcon={{ icon: ChevronLeft }}
-				on:click={() => {
+				onclick={() => {
 					pageIndex = (pageIndex ?? 1) - 1
 				}}
 				disabled={pageIndex <= 1}
@@ -305,7 +305,7 @@
 				variant="subtle"
 				unifiedSize="sm"
 				endIcon={{ icon: ChevronRight }}
-				on:click={() => {
+				onclick={() => {
 					pageIndex = (pageIndex ?? 1) + 1
 				}}
 				disabled={!hasMore}

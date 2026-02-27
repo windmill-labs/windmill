@@ -21,6 +21,7 @@
 		onchangeValue?: (...args: any[]) => any
 		onfocus?: (...args: any[]) => any
 		onblur?: (...args: any[]) => any
+		onchange?: (...args: any[]) => any
 	}
 
 	let {
@@ -35,7 +36,8 @@
 		fixedOverflowWidgets = true,
 		onchangeValue = undefined,
 		onfocus = undefined,
-		onblur = undefined
+		onblur = undefined,
+		onchange = undefined
 	}: Props = $props()
 
 	let tooBig = $derived(code && code?.length > 1000000)
@@ -67,7 +69,7 @@
 {#if tooBig && !loadTooBigAnyway}
 	<div class="flex-1 text-sm">
 		JSON is too big
-		<Button size="xs2" variant="default" on:click={() => (loadTooBigAnyway = true)}>
+		<Button size="xs2" variant="default" onclick={() => (loadTooBigAnyway = true)}>
 			Load anyway
 		</Button>
 	</div>
@@ -82,10 +84,10 @@
 			<SimpleEditor
 				{loadAsync}
 				{small}
-				on:focus={() => ((dispatch('focus'), onfocus?.()), (focused = true))}
-				on:blur={() => ((dispatch('blur'), onblur?.()), (focused = false))}
+				onfocus={() => ((dispatch('focus'), onfocus?.()), (focused = true))}
+				onblur={() => ((dispatch('blur'), onblur?.()), (focused = false))}
 				bind:this={editor}
-				on:change
+				onchange={onchange}
 				autoHeight
 				lang="json"
 				bind:code

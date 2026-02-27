@@ -156,7 +156,7 @@
 				<Button
 					unifiedSize="xs"
 					variant="subtle"
-					on:click={onManualSnapshot}
+					onclick={onManualSnapshot}
 					btnClasses="px-1 gap-0.5"
 					title="Create a new snapshot"
 				>

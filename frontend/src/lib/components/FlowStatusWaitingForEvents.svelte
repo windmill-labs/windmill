@@ -143,7 +143,7 @@
 							disabled={!cancelUrl}
 							destructive
 							unifiedSize="md"
-							on:click={() => continu(false)}
+							onclick={() => continu(false)}
 						/>
 					</div>
 				{/if}

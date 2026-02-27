@@ -580,7 +580,7 @@
 						unifiedSize="md"
 						variant="default"
 						selected={key === resourceType}
-						on:click={() => {
+						onclick={() => {
 							manual = false
 							resourceType = key
 							next()
@@ -620,7 +620,7 @@
 							unifiedSize="md"
 							variant="default"
 							selected={key === resourceType}
-							on:click={() => {
+							onclick={() => {
 								manual = true
 								resourceType = key
 								next()
@@ -642,7 +642,7 @@
 							variant="default"
 							color={key === resourceType ? 'blue' : 'light'}
 							btnClasses={key === resourceType ? '!border-2' : 'm-[1px]'}
-							on:click={() => {
+							onclick={() => {
 								manual = true
 								resourceType = key
 								next()

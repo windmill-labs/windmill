@@ -51,7 +51,7 @@
 
 <UserSettings
 	bind:this={userSettings}
-	on:tokenCreated={(e) => {
+	ontokenCreated={(e) => {
 		token = e.detail
 		triggerTokens?.listTokens()
 	}}

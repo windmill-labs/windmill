@@ -85,7 +85,7 @@
 				<div class="text-center space-y-4">
 					<p class="text-red-500">Invalid or missing reset token.</p>
 					<div class="pt-4">
-						<Button variant="accent" on:click={() => goto('/user/forgot-password')}>
+						<Button variant="accent" onclick={() => goto('/user/forgot-password')}>
 							Request New Reset Link
 						</Button>
 					</div>
@@ -95,7 +95,7 @@
 					<p class="text-secondary"> Your password has been reset successfully. </p>
 					<p class="text-secondary text-sm"> You can now log in with your new password. </p>
 					<div class="pt-4">
-						<Button variant="accent" on:click={() => goto('/user/login')}>Go to login</Button>
+						<Button variant="accent" onclick={() => goto('/user/login')}>Go to login</Button>
 					</div>
 				</div>
 			{:else}
@@ -132,13 +132,13 @@
 
 					<div class="pt-2 flex flex-col gap-2">
 						<Button
-							on:click={resetPassword}
+							onclick={resetPassword}
 							variant="accent"
 							disabled={!newPassword || !confirmPassword || loading}
 						>
 							{loading ? 'Resetting...' : 'Reset password'}
 						</Button>
-						<Button variant="subtle" on:click={() => goto('/user/login')}>Back to login</Button>
+						<Button variant="subtle" onclick={() => goto('/user/login')}>Back to login</Button>
 					</div>
 				</div>
 			{/if}

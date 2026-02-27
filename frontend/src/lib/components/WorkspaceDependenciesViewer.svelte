@@ -55,10 +55,10 @@
 	}
 </script>
 
-<WorkspaceDependenciesEditor bind:this={workspaceDependenciesEditor} on:create={onWorkspaceDependenciesUpdated} />
+<WorkspaceDependenciesEditor bind:this={workspaceDependenciesEditor} oncreate={onWorkspaceDependenciesUpdated} />
 
 <Drawer bind:this={drawer} size="900px">
-	<DrawerContent title="Workspace Dependencies from {viewPath}" on:close={closeViewer}>
+	<DrawerContent title="Workspace Dependencies from {viewPath}" onclose={closeViewer}>
 		{#snippet actions()}
 			<div class="flex items-center gap-4">
 				<div class="flex items-center gap-2">
@@ -71,7 +71,7 @@
 						variant="border"
 						color="light"
 						startIcon={{ icon: Edit }}
-						on:click={editWorkspaceDependencies}
+						onclick={editWorkspaceDependencies}
 					>
 						Edit
 					</Button>

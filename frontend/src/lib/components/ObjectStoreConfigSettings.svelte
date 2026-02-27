@@ -103,7 +103,7 @@
 		disabled={!$enterpriseLicense}
 		options={{ right: bucket_config ? '' : 'set object store' }}
 		checked={Boolean(bucket_config)}
-		on:change={(e) => {
+		onchange={(e) => {
 			if (e.detail) {
 				bucket_config = {
 					type: 'S3',
@@ -128,7 +128,7 @@
 				size="xs"
 				btnClasses="h-8"
 				variant="default"
-				on:click={testConnection}
+				onclick={testConnection}
 			>
 				{#if loading}
 					<Loader2 class="animate-spin mr-2 !h-4 !w-4" />
@@ -147,7 +147,7 @@
 
 		<Tabs
 			selected={bucket_config?.type ?? 'S3'}
-			on:selected={(e) => {
+			onselected={(e) => {
 				if (e.detail === 'S3' && bucket_config?.type !== 'S3') {
 					bucket_config = {
 						type: 'S3',
@@ -257,7 +257,7 @@
 					<div>
 						<Toggle
 							checked={effectiveAllowHttp}
-							on:change={(e) => {
+							onchange={(e) => {
 								if (bucket_config?.type === 'S3') {
 									bucket_config = { ...bucket_config, allow_http: e.detail }
 								}
@@ -380,7 +380,7 @@
 						bind:this={simpleEditor}
 						lang="json"
 						bind:code={serviceAccountKeyCode}
-						on:change={(e) => {
+						onchange={(e) => {
 							if (bucket_config?.type === 'Gcs') {
 								if (e.detail.code === undefined || e.detail.code === '') {
 									bucket_config = { ...bucket_config, serviceAccountKey: undefined }

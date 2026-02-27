@@ -37,6 +37,7 @@
 		onDelete?: () => void
 		onReset?: () => void
 		onEmailDomain: (domain: string) => void
+		onopenScheduledPoll?: (...args: any[]) => any
 	}
 
 	let {
@@ -51,6 +52,7 @@
 		newItem,
 		schema,
 		onEmailDomain,
+		onopenScheduledPoll = undefined,
 		...props
 	}: Props = $props()
 

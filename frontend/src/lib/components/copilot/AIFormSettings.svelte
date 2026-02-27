@@ -17,7 +17,7 @@
 		textClass="font-medium"
 		size="xs"
 		checked={prompt !== undefined}
-		on:change={() => {
+		onchange={() => {
 			if (prompt !== undefined) {
 				prompt = undefined
 			} else {

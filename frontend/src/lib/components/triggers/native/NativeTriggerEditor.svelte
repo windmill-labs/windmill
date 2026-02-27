@@ -317,7 +317,7 @@
 				: isNew
 					? `New ${serviceInfo?.serviceDisplayName} trigger`
 					: `Edit ${serviceInfo?.serviceDisplayName} trigger`}
-			on:close={drawer?.closeDrawer}
+			onclose={drawer?.closeDrawer}
 		>
 			{#snippet actions()}
 				{@render drawerActions()}
@@ -347,7 +347,7 @@
 		size="sm"
 		startIcon={{ icon: Save }}
 		variant="accent"
-		on:click={save}
+		onclick={save}
 		disabled={saveDisabled}
 		{loading}
 	>

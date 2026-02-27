@@ -905,7 +905,7 @@
 					color="red"
 					size="xs"
 					btnClasses="mt-2 w-min"
-					on:click={() => yamlEditorDrawer?.openDrawer()}>Open YAML editor</Button
+					onclick={() => yamlEditorDrawer?.openDrawer()}>Open YAML editor</Button
 				>
 			</Alert>
 		</div>

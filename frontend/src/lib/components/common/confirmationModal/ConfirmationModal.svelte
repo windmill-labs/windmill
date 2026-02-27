@@ -16,8 +16,8 @@
 		showIcon?: boolean
 		id?: string
 		children?: Snippet
-		onConfirmed?: () => void | Promise<void>
-		onCanceled?: () => void
+		onconfirmed?: () => void | Promise<void>
+		oncanceled?: () => void
 	}
 
 	const {
@@ -30,8 +30,8 @@
 		showIcon = true,
 		id,
 		children,
-		onConfirmed,
-		onCanceled
+		onconfirmed,
+		oncanceled
 	}: Props = $props()
 	const type = $derived(_type ?? 'danger')
 
@@ -44,11 +44,11 @@
 			switch (event.key) {
 				case 'Enter':
 					dispatch('confirmed')
-					onConfirmed?.()
+					onconfirmed?.()
 					break
 				case 'Escape':
 					dispatch('canceled')
-					onCanceled?.()
+					oncanceled?.()
 					break
 			}
 		}
@@ -125,7 +125,7 @@
 					<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
 						<Button
 							disabled={loading}
-							on:click={() => (dispatch('confirmed'), onConfirmed?.())}
+							onclick={() => (dispatch('confirmed'), onconfirmed?.())}
 							color={theme[type].color}
 							size="sm"
 							shortCut={{ Icon: CornerDownLeft, hide: !keyListen, withoutModifier: true }}
@@ -139,7 +139,7 @@
 						</Button>
 						<Button
 							disabled={loading}
-							on:click={() => (dispatch('canceled'), onCanceled?.())}
+							onclick={() => (dispatch('canceled'), oncanceled?.())}
 							variant="default"
 							size="sm"
 							shortCut={{ key: 'Esc', hide: !keyListen, withoutModifier: true }}

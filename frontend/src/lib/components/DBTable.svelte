@@ -194,7 +194,7 @@
 						startIcon={{ icon: Download }}
 						color="light"
 						size="xs2"
-						on:click={() => api?.exportDataAsCsv()}
+						onclick={() => api?.exportDataAsCsv()}
 						iconOnly
 					/>
 				</Popover>

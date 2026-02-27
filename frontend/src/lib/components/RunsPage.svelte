@@ -494,14 +494,14 @@
 	title={askingForConfirmation?.title ?? ''}
 	confirmationText={askingForConfirmation?.confirmBtnText ?? ''}
 	open={!!askingForConfirmation}
-	on:confirmed={async () => {
+	onconfirmed={async () => {
 		const func = askingForConfirmation?.onConfirm
 		await func?.(forceCancelInPopup)
 		askingForConfirmation = undefined
 	}}
 	type={askingForConfirmation?.type}
 	loading={askingForConfirmation?.loading}
-	on:canceled={() => {
+	oncanceled={() => {
 		askingForConfirmation = undefined
 	}}
 >
@@ -532,7 +532,7 @@
 </ConfirmationModal>
 
 <Drawer bind:this={runDrawer}>
-	<DrawerContent title="Run details" on:close={runDrawer.closeDrawer}>
+	<DrawerContent title="Run details" onclose={runDrawer.closeDrawer}>
 		{#if selectedIds.length === 1}
 			{#if selectedIds[0] === '-'}
 				<div class="p-4">There is no information available for this job</div>
@@ -833,15 +833,15 @@
 										{lastFetchWentToEnd}
 										bind:selectedIds
 										bind:selectedWorkspace
-										on:loadExtra={loadExtra}
-										on:filterByPath={filterByPath}
-										on:filterByUser={filterByUser}
-										on:filterByFolder={filterByFolder}
-										on:filterByLabel={filterByLabel}
-										on:filterByConcurrencyKey={filterByConcurrencyKey}
-										on:filterByTag={filterByTag}
-										on:filterBySchedule={filterBySchedule}
-										on:filterByWorker={filterByWorker}
+										onloadExtra={loadExtra}
+										onfilterByPath={filterByPath}
+										onfilterByUser={filterByUser}
+										onfilterByFolder={filterByFolder}
+										onfilterByLabel={filterByLabel}
+										onfilterByConcurrencyKey={filterByConcurrencyKey}
+										onfilterByTag={filterByTag}
+										onfilterBySchedule={filterBySchedule}
+										onfilterByWorker={filterByWorker}
 										bind:this={runsTable}
 										perPage={perPage.val}
 										bind:batchRerunOptionsIsOpen
@@ -966,8 +966,8 @@
 								<JobRunsPreview
 									id={selectedIds[0]}
 									workspace={selectedWorkspace}
-									on:filterByConcurrencyKey={filterByConcurrencyKey}
-									on:filterByWorker={filterByWorker}
+									onfilterByConcurrencyKey={filterByConcurrencyKey}
+									onfilterByWorker={filterByWorker}
 								/>
 							{/if}
 						{:else if selectedIds.length > 1}

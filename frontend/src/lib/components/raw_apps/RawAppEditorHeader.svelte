@@ -105,6 +105,7 @@
 		onUndo?: () => void
 		onRedo?: () => void
 		onsavedNewAppPath?: (...args: any[]) => any
+		onrestore?: (...args: any[]) => any
 	}
 
 	let {
@@ -126,7 +127,8 @@
 		canRedo = false,
 		onUndo = undefined,
 		onRedo = undefined,
-		onsavedNewAppPath = undefined
+		onsavedNewAppPath = undefined,
+		onrestore = undefined
 	}: Props = $props()
 
 	let newEditedPath = $state('')
@@ -662,13 +664,13 @@
 
 {#if appPath == ''}
 	<Drawer bind:open={draftDrawerOpen} size="800px">
-		<DrawerContent title="Initial draft save" on:close={() => closeDraftDrawer()}>
+		<DrawerContent title="Initial draft save" onclose={() => closeDraftDrawer()}>
 			{#snippet actions()}
 				<div>
 					<Button
 						startIcon={{ icon: Save }}
 						disabled={pathError != '' || app == undefined}
-						on:click={() => saveInitialDraft()}
+						onclick={() => saveInitialDraft()}
 						unifiedSize="md"
 						variant="accent"
 					>
@@ -686,13 +688,13 @@
 	</Drawer>
 {/if}
 <Drawer bind:open={saveDrawerOpen} size="800px">
-	<DrawerContent title="Deploy" on:close={() => closeSaveDrawer()}>
+	<DrawerContent title="Deploy" onclose={() => closeSaveDrawer()}>
 		{#snippet actions()}
 			<div class="flex flex-row gap-2">
 				<Button
 					variant="default"
 					disabled={!savedApp || savedApp.draft_only}
-					on:click={async () => {
+					onclick={async () => {
 						if (!savedApp) {
 							return
 						}
@@ -735,7 +737,7 @@
 					unifiedSize="md"
 					startIcon={{ icon: Save }}
 					disabled={pathError != '' || customPathError != '' || app == undefined}
-					on:click={() => {
+					onclick={() => {
 						if (appPath == '') {
 							createApp(newEditedPath)
 						} else {
@@ -766,18 +768,18 @@
 </Drawer>
 
 <Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
-	<DrawerContent title="Deployment History" on:close={() => (historyBrowserDrawerOpen = false)}>
-		<DeploymentHistory on:restore {appPath} />
+	<DrawerContent title="Deployment History" onclose={() => (historyBrowserDrawerOpen = false)}>
+		<DeploymentHistory onrestore={onrestore} {appPath} />
 	</DrawerContent>
 </Drawer>
 
 <Drawer bind:open={publishToHubDrawerOpen} size="600px">
-	<DrawerContent title="Publish to Hub" on:close={() => (publishToHubDrawerOpen = false)}>
+	<DrawerContent title="Publish to Hub" onclose={() => (publishToHubDrawerOpen = false)}>
 		{#snippet actions()}
 			<Button
 				loading={publishingToHub}
 				disabled={!app}
-				on:click={publishToHub}
+				onclick={publishToHub}
 				variant="accent"
 				startIcon={{ icon: Download }}
 			>
@@ -809,10 +811,10 @@
 
 <AppJobsDrawer
 	bind:open={jobsDrawerOpen}
-	on:clear={() => {
+	onclear={() => {
 		jobs = []
 	}}
-	on:clearErrors={() => {
+	onclearErrors={() => {
 		console.log('todo clear errors')
 	}}
 	{jobs}
@@ -830,8 +832,8 @@
 		<UndoRedo
 			undoProps={{ disabled: !canUndo }}
 			redoProps={{ disabled: !canRedo }}
-			on:undo={() => onUndo?.()}
-			on:redo={() => onRedo?.()}
+			onundo={() => onUndo?.()}
+			onredo={() => onRedo?.()}
 		/>
 	</div>
 
@@ -886,7 +888,7 @@
 
 		<div class="hidden md:inline relative overflow-visible">
 			<Button
-				on:click={() => {
+				onclick={() => {
 					jobsDrawerOpen = true
 				}}
 				color="light"
@@ -918,7 +920,7 @@
 		<Button
 			loading={loading.save}
 			startIcon={{ icon: Save }}
-			on:click={() => saveDraft()}
+			onclick={() => saveDraft()}
 			unifiedSize="md"
 			variant="default"
 			disabled={!newApp && !savedApp}
@@ -929,7 +931,7 @@
 		<Button
 			loading={loading.save}
 			startIcon={{ icon: Save }}
-			on:click={save}
+			onclick={save}
 			unifiedSize="md"
 			variant="accent"
 			dropdownItems={appPath != ''

@@ -88,8 +88,8 @@
 	}
 </script>
 
-<Drawer bind:this={drawer} size="1200px" {disableChatOffset} on:close={handleDrawerClose}>
-	<DrawerContent noPadding overflow_y={false} title="Instance settings" on:close={handleClose}>
+<Drawer bind:this={drawer} size="1200px" {disableChatOffset} onclose={handleDrawerClose}>
+	<DrawerContent noPadding overflow_y={false} title="Instance settings" onclose={handleClose}>
 		{#snippet titleExtra()}
 			<MeltTooltip disablePopup={!uptodateVersion}>
 				<div class="text-xs text-secondary flex items-center gap-1 ml-6">
@@ -152,7 +152,7 @@
 </Drawer>
 
 <Drawer bind:this={diffDrawer} size="1200px">
-	<DrawerContent title="Review changes" on:close={() => diffDrawer?.closeDrawer()}>
+	<DrawerContent title="Review changes" onclose={() => diffDrawer?.closeDrawer()}>
 		{#snippet actions()}
 			<Toggle
 				bind:checked={inlineDiff}
@@ -185,10 +185,10 @@
 		open={showCloseConfirmModal}
 		title="Unsaved changes"
 		confirmationText="Discard & close"
-		on:canceled={() => {
+		oncanceled={() => {
 			showCloseConfirmModal = false
 		}}
-		on:confirmed={() => {
+		onconfirmed={() => {
 			innerComponent?.discardAll()
 			showCloseConfirmModal = false
 			closeDrawer()

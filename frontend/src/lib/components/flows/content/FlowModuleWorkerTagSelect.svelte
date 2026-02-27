@@ -42,7 +42,7 @@
 					{placeholder}
 					{nullTag}
 					bind:tag
-					on:change={(e) => (dispatch('change', e.detail), onchange?.(e.detail))}
+					onchange={(e) => (dispatch('change', e.detail), onchange?.(e.detail))}
 				/>
 			{:else}
 				<button

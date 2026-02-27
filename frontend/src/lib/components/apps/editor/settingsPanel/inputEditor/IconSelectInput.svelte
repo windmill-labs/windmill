@@ -57,8 +57,8 @@
 			<ClearableInput
 				readonly
 				{value}
-				on:change={({ detail }) => (value = detail)}
-				on:focus={getData}
+				onchange={(detail) => (value = detail)}
+				onfocus={getData}
 				class="!pr-6"
 			/>
 			{#if loading}

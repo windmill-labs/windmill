@@ -403,11 +403,11 @@
 
 {#if script}
 	<Drawer bind:open={versionsDrawerOpen} size="1200px">
-		<DrawerContent title="Versions History" on:close={() => (versionsDrawerOpen = false)}>
+		<DrawerContent title="Versions History" onclose={() => (versionsDrawerOpen = false)}>
 			<ScriptVersionHistory
 				scriptPath={script.path}
 				openDetails
-				on:openDetails={(e) => {
+				onopenDetails={(e) => {
 					if (script) {
 						goto(`/scripts/get/${e.detail.version}?workspace=${$workspaceStore}`)
 					}

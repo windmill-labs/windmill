@@ -181,7 +181,7 @@
 <tr class={twMerge(previewThemePath === row.path ? 'bg-blue-200' : '', 'transition-all')}>
 	<Cell first>
 		<div class="flex flex-row gap-1 items-center">
-			<ThemeNameEditor on:reloadThemes {row} />
+			<ThemeNameEditor onreloadThemes={onreloadThemes} {row} />
 			{row.name}
 		</div>
 	</Cell>
@@ -200,17 +200,17 @@
 				<Button
 					color="light"
 					size="xs"
-					on:click={() => toggleUpdate(row)}
+					onclick={() => toggleUpdate(row)}
 					startIcon={{ icon: Save }}
 				>
 					Update
 				</Button>
 			{/if}
 			{#if $app?.theme?.type !== 'path' || $app.theme.path !== row.path}
-				<Button color="light" size="xs" on:click={preview} startIcon={{ icon: Eye }}>
+				<Button color="light" size="xs" onclick={preview} startIcon={{ icon: Eye }}>
 					Preview
 				</Button>
-				<Button variant="accent" size="xs2" on:click={apply}>Apply</Button>
+				<Button variant="accent" size="xs2" onclick={apply}>Apply</Button>
 			{/if}
 
 			<Dropdown items={getDropdownItems} class="w-fit" />

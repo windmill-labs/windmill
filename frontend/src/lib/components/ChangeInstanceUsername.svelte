@@ -8,9 +8,11 @@
 		email: string
 		username: string
 		isConflict?: boolean
+		onrenamed?: (...args: any[]) => any
 	}
 
-	let { email, username, isConflict = false }: Props = $props()
+	let { email, username, isConflict = false,
+		onrenamed = undefined }: Props = $props()
 </script>
 
 <Popover
@@ -33,8 +35,8 @@
 			{email}
 			{username}
 			{isConflict}
-			on:close={() => close()}
-			on:renamed
+			onclose={() => close()}
+			onrenamed={onrenamed}
 		/>
 	{/snippet}
 </Popover>

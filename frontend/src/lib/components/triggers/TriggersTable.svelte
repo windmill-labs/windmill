@@ -111,7 +111,7 @@
 										startIcon={{ icon: RotateCcw }}
 										iconOnly
 										title="Reset to deployed version"
-										on:click={() => onReset?.(index)}
+										onclick={() => onReset?.(index)}
 									/>
 								{/if}
 							{/if}

@@ -216,7 +216,7 @@
 {/if}
 
 <Drawer bind:this={auditLogDrawer}>
-	<DrawerContent title="Log details" on:close={auditLogDrawer.closeDrawer}>
+	<DrawerContent title="Log details" onclose={auditLogDrawer.closeDrawer}>
 		{#if logs}
 			<AuditLogDetails {logs} {selectedId} />
 		{/if}

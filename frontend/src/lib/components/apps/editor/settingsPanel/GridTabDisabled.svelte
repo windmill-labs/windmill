@@ -21,7 +21,7 @@
 	options={{
 		right: 'Can be disabled'
 	}}
-	on:change={() => {
+	onchange={() => {
 		if (disablable) {
 			field = {
 				type: 'evalv2',

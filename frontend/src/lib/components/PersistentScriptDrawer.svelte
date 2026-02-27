@@ -103,7 +103,7 @@
 
 <Drawer
 	bind:this={drawer}
-	on:close={() => {
+	onclose={() => {
 		loadQueuedJobs = false
 		dispatch('close')
 	}}
@@ -112,14 +112,14 @@
 	<DrawerContent
 		title="Persistent script"
 		overflow_y={false}
-		on:close={exit}
+		onclose={exit}
 		tooltip="Manage runs of persistent scripts. Scaling a persistent script to zero will cancel all current runs of this script based on the script path."
 	>
 		<div class="flex gap-2 items-center justify-between">
 			<h2>
 				Queued jobs for {script?.path}
 			</h2>
-			<Button size="md" btnClasses="w-full h-8" variant="default" on:click={loadQueuedJobsOnce}>
+			<Button size="md" btnClasses="w-full h-8" variant="default" onclick={loadQueuedJobsOnce}>
 				<RefreshCw class={queuedJobsLoading ? 'animate-spin' : ''} size={14} />
 			</Button>
 		</div>
@@ -175,7 +175,7 @@
 				<Button
 					color="red"
 					disabled={cancellingInProgress === true || queuedJobs.length === 0}
-					on:click={scaleToZero}
+					onclick={scaleToZero}
 				>
 					{#if cancellingInProgress}
 						<Loader2 class="animate-spin" /> Stopping jobs

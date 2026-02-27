@@ -284,14 +284,14 @@
 					{/if}
 				</Cell>
 				<Cell class="w-12">
-					<CloseButton small on:close={() => removeDataTable(dataTableIndex)} />
+					<CloseButton small onclose={() => removeDataTable(dataTableIndex)} />
 				</Cell>
 			</Row>
 		{/each}
 		<Row class="!border-0">
 			<Cell colspan={tableHeadNames.length} class="pt-0 pb-2">
 				<div class="flex justify-center">
-					<Button size="sm" btnClasses="max-w-fit" variant="default" on:click={onNewDataTable}>
+					<Button size="sm" btnClasses="max-w-fit" variant="default" onclick={onNewDataTable}>
 						<Plus /> New Data Table
 					</Button>
 				</div>

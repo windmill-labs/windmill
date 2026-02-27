@@ -341,7 +341,7 @@
 					? `Edit MQTT trigger ${initialPath}`
 					: `MQTT trigger ${initialPath}`
 				: 'New MQTT trigger'}
-			on:close={drawer.closeDrawer}
+			onclose={drawer.closeDrawer}
 		>
 			{#snippet actions()}
 				{@render actionsSnippet()}
@@ -515,7 +515,7 @@
 												color="nord"
 												size="xs"
 												bind:checked={activateV5Options.session_expiry_interval}
-												on:change={(ev) => {
+												onchange={(ev) => {
 													if (!ev.detail) {
 														v5_config.session_expiry_interval = undefined
 													}
@@ -546,7 +546,7 @@
 												color="nord"
 												size="xs"
 												bind:checked={activateV5Options.topic_alias_maximum}
-												on:change={(ev) => {
+												onchange={(ev) => {
 													if (!ev.detail) {
 														v5_config.topic_alias_maximum = undefined
 													}
@@ -577,7 +577,7 @@
 											color="nord"
 											size="xs"
 											checked={v3_config.clean_session}
-											on:change={() => {
+											onchange={() => {
 												v3_config.clean_session = !v3_config.clean_session
 											}}
 											options={{

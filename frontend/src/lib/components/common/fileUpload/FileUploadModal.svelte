@@ -58,7 +58,7 @@
 								{title}
 							</h3>
 							<Button
-								on:click={() => (dispatch('close', fileKey), onclose?.(fileKey))}
+								onclick={() => (dispatch('close', fileKey), onclose?.(fileKey))}
 								title="Close"
 								color="light"
 								size="sm"
@@ -80,10 +80,10 @@
 							<FileUpload
 								allowMultiple={true}
 								pathTransformer={(file) => cleanFilePath(s3Folder, file.file.name)}
-								on:addition={(evt) => {
+								onaddition={(evt) => {
 									fileKey = evt.detail?.path
 								}}
-								on:deletion={(evt) => {
+								ondeletion={(evt) => {
 									fileKey = undefined
 								}}
 							/>

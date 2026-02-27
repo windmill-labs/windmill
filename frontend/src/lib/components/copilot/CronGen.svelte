@@ -91,7 +91,7 @@
 			btnClasses="text-ai bg-violet-100 dark:bg-gray-700"
 			loading={genLoading}
 			clickableWhileLoading
-			on:click={genLoading ? () => abortController?.abort() : () => {}}
+			onclick={genLoading ? () => abortController?.abort() : () => {}}
 		/>
 	{/snippet}
 	{#snippet content({ close })}
@@ -119,7 +119,7 @@
 						title="Generate CRON schedule from prompt"
 						aria-label="Generate"
 						iconOnly
-						on:click={() => {
+						onclick={() => {
 							close()
 							generateCron()
 						}}

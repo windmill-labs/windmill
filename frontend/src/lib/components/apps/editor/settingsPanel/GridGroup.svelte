@@ -37,7 +37,7 @@
 	<Toggle
 		size="xs"
 		checked={groupFields != undefined}
-		on:change={(e) => {
+		onchange={(e) => {
 			if (e.detail) {
 				groupFields = {}
 			} else {
@@ -59,7 +59,7 @@
 {#if groupFields != undefined}
 	<div class="p-2">
 		<Button
-			on:click={() => {
+			onclick={() => {
 				groupManagementDrawer?.openDrawer()
 			}}
 			size="xs"
@@ -80,7 +80,7 @@
 		{/if}
 		<div class="w-full flex gap-2 flex-col mt-2">
 			<InputsSpecsEditor
-				on:delete={(e) => {
+				ondelete={(e) => {
 					if (!groupFields) {
 						return
 					}
@@ -114,7 +114,7 @@
 					size="sm"
 					variant="default"
 					startIcon={{ icon: Plus }}
-					on:click={() => addField(fieldName)}
+					onclick={() => addField(fieldName)}
 					iconOnly
 				/>
 			</div>

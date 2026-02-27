@@ -261,9 +261,9 @@
 	{outputs}
 	doOnSuccess={resolvedConfig.onSuccess}
 	doOnError={resolvedConfig.onError}
-	on:streamupdate={handleStreamUpdate}
-	on:done={handleJobComplete}
-	on:doneError={handleJobError}
+	onstreamupdate={handleStreamUpdate}
+	ondone={handleJobComplete}
+	ondoneError={handleJobError}
 	{errorHandledByComponent}
 	autoRefresh={false}
 	{render}

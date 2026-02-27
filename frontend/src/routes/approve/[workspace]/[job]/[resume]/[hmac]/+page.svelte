@@ -263,7 +263,7 @@
 						<Button
 							variant="accent"
 							destructive
-							on:click|once={cancel}
+							onclick={cancel}
 							size="lg"
 							disabled={completed || alreadyResumed}>Deny</Button
 						>
@@ -273,7 +273,7 @@
 
 					<Button
 						variant="accent"
-						on:click|once={resume}
+						onclick={resume}
 						size="lg"
 						disabled={completed || alreadyResumed || !valid}>Approve</Button
 					>

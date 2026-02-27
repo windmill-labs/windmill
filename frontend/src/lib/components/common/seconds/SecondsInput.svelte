@@ -223,7 +223,7 @@
 				class="bg-transparent text-secondary hover:text-primary"
 				noBg
 				small
-				on:close={() => {
+				onclose={() => {
 					seconds = defaultValue
 				}}
 			/>

@@ -49,7 +49,7 @@
 			const cleanPrefix = prefix ? `${prefix.replace(/^\/+|\/+$/g, '')}/` : ''
 			return `${cleanPrefix}${file.name}`
 		}}
-		on:addition={({ detail }) => {
+		onaddition={(detail) => {
 			// @ts-ignore
 			componentInput = {
 				...componentInput,

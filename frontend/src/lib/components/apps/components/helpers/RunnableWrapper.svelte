@@ -97,6 +97,12 @@
 		children?: import('svelte').Snippet
 		nonRenderedPlaceholder?: import('svelte').Snippet
 		preventDefaultRefresh?: boolean
+		ondone?: (...args: any[]) => any
+		ondoneError?: (...args: any[]) => any
+		oncancel?: (...args: any[]) => any
+		onrecompute?: (...args: any[]) => any
+		onargsChanged?: (...args: any[]) => any
+		onstreamupdate?: (...args: any[]) => any
 	}
 
 	let {
@@ -129,7 +135,13 @@
 		allowConcurentRequests = false,
 		onSuccess = () => {},
 		children,
-		nonRenderedPlaceholder
+		nonRenderedPlaceholder,
+		ondone = undefined,
+		ondoneError = undefined,
+		oncancel = undefined,
+		onrecompute = undefined,
+		onargsChanged = undefined,
+		onstreamupdate = undefined
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -368,16 +380,16 @@
 		wrapperClass={runnableClass}
 		wrapperStyle={runnableStyle}
 		{render}
-		on:started={(e) => {
+		onstarted={(e) => {
 			handleSubmitSideEffect()
 		}}
-		on:done
-		on:doneError
-		on:cancel
-		on:recompute
-		on:argsChanged
-		on:streamupdate
-		on:resultSet={(e) => {
+		ondone={ondone}
+		ondoneError={ondoneError}
+		oncancel={oncancel}
+		onrecompute={onrecompute}
+		onargsChanged={onargsChanged}
+		onstreamupdate={onstreamupdate}
+		onresultSet={(e) => {
 			const res = e.detail
 			if ($initialized?.runnableInitialized?.[fullId] === undefined) {
 				$initialized.runnableInitialized = {
@@ -392,7 +404,7 @@
 			onSuccess(result)
 			handleSideEffect(true)
 		}}
-		on:handleError={(e) => handleSideEffect(false, e.detail)}
+		onhandleError={(e) => handleSideEffect(false, e.detail)}
 		{outputs}
 		{errorHandledByComponent}
 		{nonRenderedPlaceholder}

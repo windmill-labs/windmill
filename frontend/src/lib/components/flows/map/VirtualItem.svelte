@@ -38,6 +38,8 @@
 		job?: Job
 		showJobStatus?: boolean
 		flowHasChanged?: boolean
+		onselect?: (...args: any[]) => any
+		oninsert?: (...args: any[]) => any
 	}
 
 	let {
@@ -66,7 +68,8 @@
 		individualStepTests = false,
 		job,
 		showJobStatus = false,
-		flowHasChanged = false
+		flowHasChanged = false,
+		onselect = undefined
 	}: Props = $props()
 
 	const outputPickerVisible = $derived(
@@ -97,7 +100,7 @@
 	{id}
 	outputPickerVisible={outputPickerVisible ?? false}
 	{colorClasses}
-	on:select
+	onselect={onselect}
 >
 	{#snippet children({ hover })}
 		<div class="flex flex-col w-full">

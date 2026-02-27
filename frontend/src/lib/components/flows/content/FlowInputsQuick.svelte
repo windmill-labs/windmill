@@ -52,6 +52,9 @@
 		displayPath?: boolean
 		refreshCount?: number
 		onnew?: (...args: any[]) => any
+		onpickScript?: (...args: any[]) => any
+		onpickFlow?: (...args: any[]) => any
+		onclose?: (...args: any[]) => any
 	}
 
 	let {
@@ -66,7 +69,9 @@
 		selectedKind = kind,
 		displayPath = false,
 		refreshCount = 0,
-		onnew = undefined
+		onnew = undefined,
+		onpickScript = undefined,
+		onpickFlow = undefined
 	}: Props = $props()
 
 	if ($workspaceStore && cachedOwners?.[$workspaceStore]) {
@@ -312,7 +317,7 @@
 						<div class="pb-0 text-2xs font-normal text-secondary ml-2 pt-1">Integrations</div>
 					{/if}
 					<ListFiltersQuick
-						on:selected={() => {
+						onselected={() => {
 							filteredWorkspaceItems = []
 							selectedByKeyboard = 0
 						}}
@@ -363,7 +368,7 @@
 		{#if kind == 'script'}
 			{#each topLevelNodes as [label, kind], i (label)}
 				<FlowToplevelNode
-					on:click={() => {
+					onclick={() => {
 						dispatch('new', { kind })
 						onnew?.({ kind })
 					}}
@@ -413,7 +418,7 @@
 					{enterpriseLangs}
 					{label}
 					lang={lang == 'docker' ? 'bash' : lang}
-					on:click={() => {
+					onclick={() => {
 						if (lang == 'docker') {
 							if (isCloudHosted()) {
 								sendUserToast(
@@ -472,7 +477,7 @@
 						{funcDesc}
 						lang="TypeScript"
 						selected={selectedByKeyboard === inlineScripts?.length + topLevelNodes.length}
-						on:click={() => {
+						onclick={() => {
 							lang = 'bun'
 							onGenerate()
 						}}
@@ -483,7 +488,7 @@
 						{funcDesc}
 						lang="Python"
 						selected={selectedByKeyboard === inlineScripts?.length + topLevelNodes.length + 1}
-						on:click={() => {
+						onclick={() => {
 							lang = 'python3'
 							onGenerate()
 						}}
@@ -510,8 +515,8 @@
 					{filter}
 					kind={selectedKind}
 					selected={selectedByKeyboard - inlineScripts?.length - aiLength - topLevelNodes.length}
-					on:pickScript
-					on:pickFlow
+					onpickScript={onpickScript}
+					onpickFlow={onpickFlow}
 					{displayPath}
 					{refreshCount}
 				/>
@@ -541,7 +546,7 @@
 							aiLength -
 							filteredWorkspaceItems?.length -
 							topLevelNodes.length}
-						on:pickScript
+						onpickScript={onpickScript}
 						bind:loading
 						{displayPath}
 						{refreshCount}

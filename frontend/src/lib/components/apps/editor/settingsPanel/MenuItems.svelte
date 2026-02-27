@@ -71,7 +71,7 @@
 			<div>
 				<Button
 					variant="default"
-					on:click={() => deleteComponent(component.id)}
+					onclick={() => deleteComponent(component.id)}
 					startIcon={{ icon: Trash }}
 					iconOnly
 					destructive
@@ -85,7 +85,7 @@
 			wrapperClasses="w-full"
 			variant="default"
 			size="xs"
-			on:click={() => addComponent()}
+			onclick={() => addComponent()}
 			title="Add Button"
 			startIcon={{ icon: Plus }}
 		>

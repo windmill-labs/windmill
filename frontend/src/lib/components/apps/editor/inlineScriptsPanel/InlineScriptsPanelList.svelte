@@ -15,6 +15,15 @@
 	import HideButton from '../settingsPanel/HideButton.svelte'
 	import { BG_PREFIX } from '../appUtilsCore'
 
+	interface Props {
+		onreload?: (...args: any[]) => any
+		onhidePanel?: (...args: any[]) => any
+	}
+
+	let {
+		onreload = undefined
+	}: Props = $props()
+
 	const PREFIX = 'script-selector-' as const
 
 	const { app, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
@@ -89,7 +98,7 @@
 		<div class="flex flex-row gap-1">
 			<HideButton
 				direction="bottom"
-				on:click={() => {
+				onclick={() => {
 					dispatch('hidePanel')
 				}}
 			/>
@@ -203,7 +212,7 @@
 					btnClasses="!rounded-full !p-1"
 					title="Create a new background runnable"
 					aria-label="Create a new background runnable"
-					on:click={createBackgroundScript}
+					onclick={createBackgroundScript}
 					id="create-background-runnable"
 				>
 					<Plus size={14} class="!text-primary" />
@@ -249,4 +258,4 @@
 	</div>
 </PanelSection>
 
-<AppTutorials bind:this={appTutorials} on:reload />
+<AppTutorials bind:this={appTutorials} onreload={onreload} />

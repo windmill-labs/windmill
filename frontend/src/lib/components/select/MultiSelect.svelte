@@ -158,7 +158,7 @@
 			noBg
 			class="ml-2 remove-all bg-transparent text-hint"
 			small
-			on:close={(e) => (clearValue(), e.stopPropagation())}
+			onclose={(e) => (clearValue(), e.stopPropagation())}
 		/>
 	{/if}
 	<SelectDropdown

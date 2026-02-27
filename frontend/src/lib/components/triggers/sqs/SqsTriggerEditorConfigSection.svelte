@@ -71,7 +71,7 @@
 
 						<ToggleButtonGroup
 							bind:selected={aws_auth_resource_type}
-							on:selected={() => {
+							onselected={() => {
 								aws_resource_path = ''
 							}}
 						>
@@ -124,7 +124,7 @@
 				<div class="mt-2">
 					<ToggleButtonGroup
 						selected={tab}
-						on:selected={({ detail }) => {
+						onselected={(detail) => {
 							if (detail === 'all') {
 								cached = message_attributes
 								message_attributes = ['All']
@@ -173,7 +173,7 @@
 				variant="accent"
 				size="sm"
 				startIcon={{ icon: Plus }}
-				on:click={() => {
+				onclick={() => {
 					variableEditor?.initNew()
 				}}
 			>
@@ -183,4 +183,4 @@
 	{/snippet}
 </ItemPicker>
 
-<VariableEditor bind:this={variableEditor} on:create={itemPicker.openDrawer} />
+<VariableEditor bind:this={variableEditor} oncreate={itemPicker.openDrawer} />

@@ -36,10 +36,10 @@
 </script>
 
 <Drawer bind:this={jsonViewer} size="800px">
-	<DrawerContent title="Argument Details" on:close={jsonViewer.closeDrawer}>
+	<DrawerContent title="Argument Details" onclose={jsonViewer.closeDrawer}>
 		{#snippet actions()}
 			<Button
-				on:click={() => copyToClipboard(JSON.stringify(jsonViewerContent, null, 4))}
+				onclick={() => copyToClipboard(JSON.stringify(jsonViewerContent, null, 4))}
 				variant="subtle"
 				unifiedSize="md"
 				startIcon={{ icon: ClipboardCopy }}

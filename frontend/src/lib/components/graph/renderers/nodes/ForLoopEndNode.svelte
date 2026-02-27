@@ -22,7 +22,7 @@
 				selected={false}
 				id={data.id}
 				hideId
-				on:select={(e) => {
+				onselect={(e) => {
 					setTimeout(() => data?.eventHandlers?.select(e.detail))
 				}}
 			/>
@@ -32,7 +32,7 @@
 				selectable={true}
 				selected={selectionManager && selectionManager.isNodeSelected(id)}
 				id={data.id}
-				on:select={(e) => {
+				onselect={(e) => {
 					setTimeout(() => data?.eventHandlers?.select(e.detail))
 				}}
 			/>

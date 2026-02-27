@@ -25,7 +25,7 @@
 	<div class="flex flex-row items-center gap-1.5">
 		{#if diffMode}
 			<Button
-				on:click={() => {
+				onclick={() => {
 					askAi(
 						'Based on the changes I made to the code, look for potential issues and recommend better solutions',
 						{ withDiff: true }
@@ -43,7 +43,7 @@
 			</Button>
 		{:else}
 			<Button
-				on:click={() => {
+				onclick={() => {
 					askAi('Explain the changes I made to the code from the last diff', {
 						withCode: false,
 						withDiff: true
@@ -60,7 +60,7 @@
 				Explain
 			</Button>
 			<Button
-				on:click={() => {
+				onclick={() => {
 					askAi('Look for potential issues and recommend better solutions in the actual code')
 				}}
 				title="Suggest improvements"

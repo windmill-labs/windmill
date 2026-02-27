@@ -87,7 +87,7 @@
 			</div>
 
 			<ToggleButtonGroup
-				on:selected={() => {
+				onselected={() => {
 					onchange?.()
 				}}
 				noWFull

@@ -30,14 +30,14 @@
 </script>
 
 <Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
-	<DrawerContent title="Deployment History" on:close={() => (historyBrowserDrawerOpen = false)}>
+	<DrawerContent title="Deployment History" onclose={() => (historyBrowserDrawerOpen = false)}>
 		<DeploymentHistory
-			on:restore={(e) => {
+			onrestore={(e) => {
 				sendUserToast('App restored from previous deployment')
 				updateApp(e.detail)
 			}}
 			{appPath}
-			on:close={() => {
+			onclose={() => {
 				historyBrowserDrawerOpen = false
 			}}
 		/>

@@ -40,10 +40,10 @@
 	setContext('DecisionTreeEditor', { selectedNodeId })
 </script>
 
-<Drawer bind:this={drawer} size="1800px" on:close={() => {}} on:open={() => {}}>
+<Drawer bind:this={drawer} size="1800px" onclose={() => {}} onopen={() => {}}>
 	<DrawerContent
 		title="Decision tree"
-		on:close={drawer.closeDrawer}
+		onclose={drawer.closeDrawer}
 		noPadding
 		forceOverflowVisible
 		tooltip="Decision tree graph editor"
@@ -80,7 +80,7 @@
 									size="xs"
 									startIcon={{ icon: Trash }}
 									variant="default"
-									on:click={() => {
+									onclick={() => {
 										nodes = removeNode(nodes, selectedNode)
 
 										$debuggingComponents = Object.fromEntries(
@@ -192,7 +192,7 @@
 	<Button
 		title="Decision tree graph editor"
 		id="decision-tree-graph-editor"
-		on:click={() => {
+		onclick={() => {
 			drawer?.openDrawer()
 		}}
 		size="xs"

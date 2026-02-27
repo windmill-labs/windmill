@@ -64,7 +64,7 @@
 					}
 				}}
 			>
-				<CloseButton on:close Icon={CloseIcon} id="{id}-close-btn" />
+				<CloseButton onclose={onclose} Icon={CloseIcon} id="{id}-close-btn" />
 			</div>
 			<span class="font-semibold text-emphasis truncate text-lg max-w-sm"
 				>{title ?? ''}

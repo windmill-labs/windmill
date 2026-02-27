@@ -19,11 +19,11 @@
 
 {#if $userStore?.is_admin || $userStore?.is_super_admin}
 	<Drawer bind:this={drawer} {placement}>
-		<DrawerContent title="Edit Default Scripts" on:close={drawer.closeDrawer}>
+		<DrawerContent title="Edit Default Scripts" onclose={drawer.closeDrawer}>
 			<DefaultScriptsInner />
 		</DrawerContent>
 	</Drawer>
-	<Button on:click={drawer?.openDrawer} startIcon={{ icon: SettingsIcon }} variant="subtle" {size}>
+	<Button onclick={drawer?.openDrawer} startIcon={{ icon: SettingsIcon }} variant="subtle" {size}>
 		{noText ? '' : 'defaults'}
 	</Button>
 {/if}

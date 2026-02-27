@@ -16,7 +16,7 @@
 		class?: string
 		wrap?: boolean
 		children?: import('svelte').Snippet<[any]>
-		onSelected?: (value: any) => void
+		onselected?: (value: any) => void
 	}
 
 	let {
@@ -28,7 +28,7 @@
 		allowEmpty = false,
 		class: className = '',
 		wrap = false,
-		onSelected,
+		onselected,
 		children
 	}: Props = $props()
 
@@ -44,7 +44,7 @@
 			}
 			if (curr !== next && curr !== undefined) {
 				dispatch('selected', next)
-				onSelected?.(next)
+				onselected?.(next)
 			}
 			return next
 		}

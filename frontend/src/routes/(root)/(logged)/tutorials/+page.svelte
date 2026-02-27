@@ -295,7 +295,7 @@
 					<span class="text-xs text-secondary">View as an</span>
 					<ToggleButtonGroup
 						bind:selected={selectedPreviewRole}
-						onSelected={(v) => {
+						onselected={(v) => {
 							selectedPreviewRole = (v || userEffectiveRole) as Role
 						}}
 						noWFull

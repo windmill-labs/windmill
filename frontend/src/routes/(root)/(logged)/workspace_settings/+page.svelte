@@ -1210,7 +1210,7 @@
 	{#if $userStore?.is_admin || $superadmin}
 		<PageHeader title="Workspace settings: {$workspaceStore}"
 			>{#if $superadmin}
-				<Button variant="default" size="sm" on:click={() => goto('#superadmin-settings')}>
+				<Button variant="default" size="sm" onclick={() => goto('#superadmin-settings')}>
 					Instance settings
 				</Button>
 			{/if}</PageHeader
@@ -1285,7 +1285,7 @@
 							<div class="space-y-6">
 								<Tabs
 									selected={slack_tabs}
-									on:selected={(e) => {
+									onselected={(e) => {
 										const params = new URLSearchParams($page.url.searchParams)
 										if (e.detail === 'teams_commands') {
 											params.set('tab', 'teams')
@@ -1516,7 +1516,7 @@
 									disabled={$workspaceStore === 'admins' || $workspaceStore === 'starter'}
 									unifiedSize="md"
 									btnClasses="mt-2"
-									on:click={async () => {
+									onclick={async () => {
 										await WorkspaceService.archiveWorkspace({ workspace: $workspaceStore ?? '' })
 										sendUserToast(`Archived workspace ${$workspaceStore}`)
 										workspaceStore.set(undefined)
@@ -1533,7 +1533,7 @@
 										disabled={$workspaceStore === 'admins' || $workspaceStore === 'starter'}
 										size="sm"
 										btnClasses="mt-2"
-										on:click={async () => {
+										onclick={async () => {
 											await WorkspaceService.deleteWorkspace({ workspace: $workspaceStore ?? '' })
 											sendUserToast(`Deleted workspace ${$workspaceStore}`)
 											workspaceStore.set(undefined)
@@ -1674,7 +1674,7 @@
 												initialPath={successHandlerScriptPath}
 												allowRefresh
 												itemKind="script"
-												on:select={(ev) => {
+												onselect={(ev) => {
 													successHandlerScriptPath = ev?.detail?.path
 												}}
 												clearable
@@ -1760,7 +1760,7 @@ export async function main(
 								<div class="flex gap-2">
 									<Button
 										disabled={!$enterpriseLicense}
-										on:click={() => isCriticalAlertsUIOpen.set(true)}
+										onclick={() => isCriticalAlertsUIOpen.set(true)}
 										btnClasses="w-fit"
 									>
 										Show critical alerts
@@ -1899,7 +1899,7 @@ export async function main(
 									<Button
 										variant="default"
 										unifiedSize="md"
-										on:click={() => {
+										onclick={() => {
 											loadWorkspaceEncryptionKey()
 										}}>Load current key</Button
 									>

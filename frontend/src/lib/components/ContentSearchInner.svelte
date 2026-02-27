@@ -247,13 +247,13 @@
 						<ContentSearchInnerItem
 							title={`Script: ${item.path}`}
 							href={`/scripts/get/${item.path}`}
-							on:close
+							onclose={onclose}
 						>
 							{#snippet actions()}
 								<Button
 									href={`/scripts/get/${item.path}`}
 									startIcon={{ icon: ExternalLink }}
-									on:click={() => (dispatch('close'), onclose?.())}
+									onclick={() => (dispatch('close'), onclose?.())}
 								>
 									Open
 								</Button>
@@ -274,7 +274,7 @@
 					{#if filteredScriptItems.length > showNbScripts}
 						<Button
 							color="light"
-							on:click={() => (showNbScripts += 30)}
+							onclick={() => (showNbScripts += 30)}
 							startIcon={{ icon: ArrowDown }}
 						>
 							Show more scripts ({showNbScripts} of {filteredScriptItems.length})
@@ -286,7 +286,7 @@
 						<ContentSearchInnerItem
 							title={`Resource: ${item.path}`}
 							href={`/resources#${item.path}`}
-							on:close
+							onclose={onclose}
 						>
 							{#snippet actions()}
 								<Button href={`/resources#${item.path}`} target="_blank" startIcon={{ icon: Edit }}>
@@ -302,7 +302,7 @@
 						<Button
 							color="light"
 							size="xs"
-							on:click={() => (showNbResources += 30)}
+							onclick={() => (showNbResources += 30)}
 							startIcon={{ icon: ArrowDown }}
 						>
 							Show more resources ({showNbResources} of {filteredResourceItems.length})
@@ -314,13 +314,13 @@
 						<ContentSearchInnerItem
 							title={`Flow: ${item.path}`}
 							href={`/flows/get/${item.path}`}
-							on:close
+							onclose={onclose}
 						>
 							{#snippet actions()}
 								<Button
 									href={`/flows/get/${item.path}`}
 									startIcon={{ icon: ExternalLink }}
-									on:click={() => (dispatch('close'), onclose?.())}
+									onclick={() => (dispatch('close'), onclose?.())}
 								>
 									Open
 								</Button>
@@ -342,7 +342,7 @@
 						<Button
 							color="light"
 							size="xs"
-							on:click={() => (showNbFlows += 30)}
+							onclick={() => (showNbFlows += 30)}
 							startIcon={{ icon: ArrowDown }}
 						>
 							Show more flows ({showNbFlows} of {filteredFlowItems.length})
@@ -354,13 +354,13 @@
 						<ContentSearchInnerItem
 							title={`App: ${item.path}`}
 							href={`/apps/get/${item.path}`}
-							on:close
+							onclose={onclose}
 						>
 							{#snippet actions()}
 								<Button
 									href={`/apps/get/${item.path}`}
 									startIcon={{ icon: ExternalLink }}
-									on:click={() => (dispatch('close'), onclose?.())}
+									onclick={() => (dispatch('close'), onclose?.())}
 								>
 									Open
 								</Button>
@@ -382,7 +382,7 @@
 						<Button
 							color="light"
 							size="xs"
-							on:click={() => (showNbApps += 30)}
+							onclick={() => (showNbApps += 30)}
 							startIcon={{ icon: ArrowDown }}
 						>
 							Show more apps ({showNbApps} of {filteredAppItems.length})

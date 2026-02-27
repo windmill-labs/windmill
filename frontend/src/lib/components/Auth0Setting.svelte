@@ -49,7 +49,7 @@
 	<label class="text-xs font-semibold text-emphasis flex gap-4 items-center"
 		><div class="w-[120px]"><IconedResourceType name="auth0" after={true} /></div><Toggle
 			checked={enabled}
-			on:change={(e) => {
+			onchange={(e) => {
 				if (e.detail) {
 					value = { id: '', secret: '', domain: '', custom: false }
 				} else {
@@ -65,7 +65,7 @@
 					<div>
 						<ToggleButtonGroup
 							selected={value['custom'] ? 'custom' : 'org'}
-							on:selected={({ detail }) => {
+							onselected={(detail) => {
 								value['custom'] = detail === 'custom'
 							}}
 						>

@@ -573,7 +573,7 @@
 				<Button
 					variant="default"
 					size="sm"
-					on:click={() => startApp(false)}
+					onclick={() => startApp(false)}
 					disabled={!templates[selectedTemplateIndex] || newSchemaAlreadyExists}
 				>
 					Start without AI
@@ -581,7 +581,7 @@
 				{#if isAiEnabled}
 					<Button
 						variant="accent"
-						on:click={() => startApp(true)}
+						onclick={() => startApp(true)}
 						disabled={!templates[selectedTemplateIndex] ||
 							!initialPrompt.trim() ||
 							newSchemaAlreadyExists}
@@ -597,7 +597,7 @@
 {/if}
 {#key reloadCounter}
 	<RawAppEditor
-		on:savedNewAppPath={(event) => {
+		onsavedNewAppPath={(event) => {
 			goto(`/apps_raw/edit/${event.detail}`)
 		}}
 		bind:files

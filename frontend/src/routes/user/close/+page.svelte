@@ -6,5 +6,5 @@
 <CenteredModal>
 	There was an error during login
 
-	<Button on:click={() => window.close()}>close</Button>
+	<Button onclick={() => window.close()}>close</Button>
 </CenteredModal>

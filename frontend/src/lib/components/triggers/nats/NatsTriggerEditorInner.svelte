@@ -326,7 +326,7 @@
 					? `Edit NATS trigger ${initialPath}`
 					: `NATS trigger ${initialPath}`
 				: 'New NATS trigger'}
-			on:close={drawer.closeDrawer}
+			onclose={drawer.closeDrawer}
 		>
 			{#snippet actions()}
 				{@render actionsSnippet()}
@@ -443,7 +443,7 @@
 				{path}
 				bind:natsResourcePath
 				bind:natsCfg
-				on:valid-config={({ detail }) => {
+				onvalidConfig={(detail) => {
 					isValid = detail
 				}}
 				defaultValues={useDefaultValues() ? defaultValues : undefined}

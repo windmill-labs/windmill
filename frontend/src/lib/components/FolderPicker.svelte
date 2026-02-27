@@ -150,7 +150,7 @@
 <Drawer bind:this={newFolder} name="newFolder" offset={drawerOffset}>
 	<DrawerContent
 		title={folderCreated ? `Folder ${folderCreated}` : 'Create folder'}
-		on:close={() => {
+		onclose={() => {
 			newFolder?.closeDrawer()
 			folderCreated = undefined
 		}}
@@ -190,7 +190,7 @@
 </Drawer>
 
 <Drawer bind:this={viewFolder} offset={drawerOffset}>
-	<DrawerContent title="Folder {editingFolder}" on:close={viewFolder.closeDrawer}>
+	<DrawerContent title="Folder {editingFolder}" onclose={viewFolder.closeDrawer}>
 		<FolderEditor name={editingFolder} />
 	</DrawerContent>
 </Drawer>

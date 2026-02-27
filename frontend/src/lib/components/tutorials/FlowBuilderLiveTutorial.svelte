@@ -29,9 +29,13 @@
 
 	interface Props {
 		index: number
+		onerror?: (...args: any[]) => any
+		onskipAll?: (...args: any[]) => any
 	}
 
-	let { index }: Props = $props()
+	let { index,
+		onerror = undefined,
+		onskipAll = undefined }: Props = $props()
 
 	let tutorial: Tutorial | undefined = undefined
 
@@ -215,8 +219,8 @@
 	index={index}
 	name="flow-live-tutorial"
 	tainted={isFlowTainted(flowStore.val)}
-	on:error
-	on:skipAll
+	onerror={onerror}
+	onskipAll={onskipAll}
 	getSteps={(driver) => {
 		const steps: DriveStep[] = [
 			{

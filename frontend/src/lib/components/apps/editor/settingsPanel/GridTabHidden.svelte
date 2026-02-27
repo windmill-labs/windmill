@@ -21,7 +21,7 @@
 	options={{
 		right: 'Can be hidden'
 	}}
-	on:change={() => {
+	onchange={() => {
 		if (hideable) {
 			field = {
 				type: 'evalv2',

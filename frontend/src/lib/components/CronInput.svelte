@@ -389,7 +389,7 @@
 				<Button
 					variant="accent"
 					size="xs"
-					on:click={() => {
+					onclick={() => {
 						schedule = nschedule
 						close()
 					}}

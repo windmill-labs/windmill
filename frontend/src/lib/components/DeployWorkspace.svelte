@@ -530,7 +530,7 @@
 			{#snippet footer()}
 				<div class="flex flex-col items-end gap-2">
 					{#if !hideButton}
-						<Button on:click={deployAll} disabled={!canDeployToWorkspace || hasUnselectedOnBehalfOf}
+						<Button onclick={deployAll} disabled={!canDeployToWorkspace || hasUnselectedOnBehalfOf}
 							>Deploy all toggled</Button
 						>
 					{/if}

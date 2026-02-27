@@ -303,7 +303,7 @@ BASE_INTERNAL_URL=<base url>
 										<Button
 											variant="accent"
 											unifiedSize="md"
-											on:click={addToBlacklist}
+											onclick={addToBlacklist}
 											disabled={!$superadmin || blacklistTokenError !== ''}>Blacklist</Button
 										>
 									</div>
@@ -329,7 +329,7 @@ BASE_INTERNAL_URL=<base url>
 									<Button
 										variant="subtle"
 										unifiedSize="sm"
-										on:click={loadBlacklistedTokens}
+										onclick={loadBlacklistedTokens}
 										disabled={isLoadingBlacklist}
 										title="Refresh blacklist"
 										startIcon={{ icon: RefreshCw }}
@@ -366,7 +366,7 @@ BASE_INTERNAL_URL=<base url>
 														variant="subtle"
 														destructive
 														unifiedSize="sm"
-														on:click={() => removeFromBlacklist(blacklistedToken.token)}
+														onclick={() => removeFromBlacklist(blacklistedToken.token)}
 														title="Remove from blacklist"
 														startIcon={{ icon: Trash }}
 													/>

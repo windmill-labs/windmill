@@ -60,6 +60,7 @@
 		) => void
 		ondelete?: (...args: any[]) => any
 		onkeydown?: (...args: any[]) => any
+		oncreateScriptFromInlineScript?: (...args: any[]) => any
 	}
 
 	let {
@@ -619,7 +620,7 @@
 					aria-label="Clear script"
 					destructive
 					unifiedSize="sm"
-					on:click={() => (dispatch('delete'), ondelete?.())}
+					onclick={() => (dispatch('delete'), ondelete?.())}
 					endIcon={{ icon: Trash2 }}
 					iconOnly
 				/>
@@ -632,7 +633,7 @@
 				<Button
 					variant="default"
 					unifiedSize="sm"
-					on:click={async () => {
+					onclick={async () => {
 						editor?.format()
 					}}
 				>
@@ -650,8 +651,8 @@
 				iconOnly={width < 1250}
 				kind={'script'}
 				template={'script'}
-				on:showDiffMode={showDiffMode}
-				on:hideDiffMode={hideDiffMode}
+				onshowDiffMode={showDiffMode}
+				onhideDiffMode={hideDiffMode}
 				{lastDeployedCode}
 				{diffMode}
 				openAiChat
@@ -668,7 +669,7 @@
 					<Button
 						variant={debugMode ? 'accent' : 'default'}
 						size="xs2"
-						on:click={toggleDebugMode}
+						onclick={toggleDebugMode}
 						startIcon={{ icon: Bug }}
 						btnClasses={debugMode
 							? ''
@@ -682,7 +683,7 @@
 					<Button
 						variant="default"
 						size="xs2"
-						on:click={() => (showDebugConsole = true)}
+						onclick={() => (showDebugConsole = true)}
 						startIcon={{ icon: Terminal }}
 						btnClasses="bg-surface hover:bg-surface-hover border border-tertiary/30"
 						title="Show Debug Console"
@@ -704,7 +705,7 @@
 							cmdEnterAction={() => onRun()}
 							bind:websocketAlive
 							rawAppRunnableKey={id}
-							on:change={async (e) => {
+							onchange={async (e) => {
 								if (inlineScript) {
 									if (inlineScript.lock != undefined) {
 										inlineScript.lock = undefined
@@ -755,7 +756,7 @@
 					cmdEnterAction={() => onRun()}
 					bind:websocketAlive
 					rawAppRunnableKey={id}
-					on:change={async (e) => {
+					onchange={async (e) => {
 						if (inlineScript) {
 							if (inlineScript.lock != undefined) {
 								inlineScript.lock = undefined
@@ -813,6 +814,6 @@
 		</div>
 	</div>
 	{#snippet actions()}
-		<Button size="sm" on:click={confirmDebugBetaWarning}>Continue</Button>
+		<Button size="sm" onclick={confirmDebugBetaWarning}>Continue</Button>
 	{/snippet}
 </Modal>

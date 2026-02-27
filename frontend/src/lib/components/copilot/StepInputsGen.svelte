@@ -177,7 +177,7 @@ input_name2: expression2
 <div class="flex flex-row justify-end">
 	{#if $copilotInfo.enabled && $stepInputCompletionEnabled}
 		<FlowCopilotInputsModal
-			on:confirmed={async () => {
+			onconfirmed={async () => {
 				createFlowInputs()
 			}}
 			bind:open={openInputsModal}
@@ -193,18 +193,18 @@ input_name2: expression2
 						!loading && Object.keys($generatedExprs || {}).length > 0 ? 'green' : 'default'
 					)
 			)}
-			on:mouseenter={(ev) => {
+			onmouseenter={(ev) => {
 				if (out) {
 					out = false
 					generateStepInputs()
 				}
 			}}
-			on:mouseleave={() => {
+			onmouseleave={() => {
 				out = true
 				abortController.abort()
 				generatedExprs?.set({})
 			}}
-			on:click={() => {
+			onclick={() => {
 				if (!loading && Object.keys($generatedExprs || {}).length > 0) {
 					applyExprs()
 				}

@@ -12,6 +12,12 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { createEventDispatcher } from 'svelte'
 
+	interface Props {
+		onreload?: (...args: any[]) => any
+	}
+
+	let {}: Props = $props()
+
 	let customcomponents: Array<{
 		name: string
 		path: string
@@ -88,7 +94,7 @@
 				/></div
 			></div
 		>
-		<Button on:click={() => addCustomComponent(nameField)} variant="accent" size="xs"
+		<Button onclick={() => addCustomComponent(nameField)} variant="accent" size="xs"
 			>Add Custom Component</Button
 		>
 	</div>
@@ -114,7 +120,7 @@
 							{#key row}
 								<CustomComponentRow
 									{row}
-									on:reload={() => {
+									onreload={() => {
 										getCustomComponents()
 										dispatch('reload')
 									}}

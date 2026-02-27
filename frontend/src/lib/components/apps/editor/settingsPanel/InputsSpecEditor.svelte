@@ -207,7 +207,7 @@
 					/>
 					<ToggleButtonGroup
 						bind:selected={componentInput.type}
-						on:selected={(e) => {
+						onselected={(e) => {
 							if (
 								e.detail == 'evalv2' &&
 								componentInput['value'] != undefined &&
@@ -349,7 +349,7 @@
 					variant="default"
 					size="xs"
 					btnClasses="mt-1"
-					on:click={() => {
+					onclick={() => {
 						s3PickerSelection = undefined
 						s3FilePicker?.open?.()
 					}}

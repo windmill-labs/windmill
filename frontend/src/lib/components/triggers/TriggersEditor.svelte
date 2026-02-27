@@ -54,6 +54,10 @@
 		isEditor?: boolean
 		onDeployTrigger?: (trigger: Trigger) => void
 		onexitTriggers?: (...args: any[]) => any
+		onapplyArgs?: (...args: any[]) => any
+		onupdateSchema?: (...args: any[]) => any
+		onaddPreprocessor?: (...args: any[]) => any
+		ontestWithArgs?: (...args: any[]) => any
 	}
 
 	let {
@@ -72,7 +76,11 @@
 		noCapture = false,
 		isEditor = true,
 		onDeployTrigger,
-		onexitTriggers = undefined
+		onexitTriggers = undefined,
+		onapplyArgs = undefined,
+		onupdateSchema = undefined,
+		onaddPreprocessor = undefined,
+		ontestWithArgs = undefined
 	}: Props = $props()
 
 	let config: Record<string, any> = $state({})
@@ -468,10 +476,10 @@
 								data={{ args, hash: !isFlow ? runnableVersion : undefined, emailDomain }}
 								{isValid}
 								triggerDeployed={!triggersState.selectedTrigger.isDraft}
-								on:applyArgs
-								on:updateSchema
-								on:addPreprocessor
-								on:testWithArgs
+								onapplyArgs={onapplyArgs}
+								onupdateSchema={onupdateSchema}
+								onaddPreprocessor={onaddPreprocessor}
+								ontestWithArgs={ontestWithArgs}
 							/>
 						</Pane>
 					{/key}

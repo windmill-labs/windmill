@@ -114,7 +114,7 @@
 	<div class="flex flex-row justify-between w-full items-center gap-x-2">
 		<div class="w-8">
 			<Button
-				on:click={() => (dispatch('close'), onclose?.())}
+				onclick={() => (dispatch('close'), onclose?.())}
 				startIcon={{ icon: X }}
 				iconOnly
 				unifiedSize="md"
@@ -127,7 +127,7 @@
 			<Button
 				variant="accent"
 				destructive
-				on:click={async () => {
+				onclick={async () => {
 					isRunning = false
 					try {
 						jobId &&
@@ -151,7 +151,7 @@
 				startIcon={{ icon: isRunning ? RefreshCw : Play }}
 				unifiedSize="md"
 				btnClasses="w-full max-w-lg"
-				on:click={() => runPreview(previewArgs, undefined)}
+				onclick={() => runPreview(previewArgs, undefined)}
 				id="flow-editor-test-flow-drawer"
 				shortCut={{
 					Icon: CornerDownLeft

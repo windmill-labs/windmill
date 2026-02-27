@@ -18,8 +18,8 @@
 
 <Popover>
 	<Button
-		on:mouseenter={() => (buttonHover = true)}
-		on:mouseleave={() => (buttonHover = false)}
+		onmouseenter={() => (buttonHover = true)}
+		onmouseleave={() => (buttonHover = false)}
 		color="light"
 		unifiedSize={size}
 		{variant}

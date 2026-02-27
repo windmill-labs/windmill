@@ -50,6 +50,6 @@
 		hideCreateScript={appComponent.type === 'flowstatuscomponent'}
 		onlyFlow={appComponent.type === 'flowstatuscomponent'}
 		{defaultUserInput}
-		on:pick={(e) => onPick(e.detail)}
+		onpick={(e) => onPick(e)}
 	/>
 {/if}

@@ -324,7 +324,7 @@
 					<Button
 						variant="subtle"
 						size="xs2"
-						on:click={async () => {
+						onclick={async () => {
 							await UserService.declineInvite({
 								requestBody: { workspace_id: invite.workspace_id }
 							})
@@ -413,7 +413,7 @@
 				<Button
 					variant="default"
 					unifiedSize="md"
-					on:click={() => superadminSettings?.openDrawer()}
+					onclick={() => superadminSettings?.openDrawer()}
 					startIcon={{ icon: Settings }}
 					dropdownItems={[
 						{
@@ -439,7 +439,7 @@
 			<Button
 				variant="accent"
 				unifiedSize="md"
-				on:click={async () => {
+				onclick={async () => {
 					logout()
 				}}
 			>

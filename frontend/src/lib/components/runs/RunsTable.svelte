@@ -39,6 +39,14 @@
 		onCancelJobs: (jobIds: string[]) => void
 		onselect?: (...args: any[]) => any
 		onloadExtra?: (...args: any[]) => any
+		onfilterByLabel?: (...args: any[]) => any
+		onfilterByPath?: (...args: any[]) => any
+		onfilterByUser?: (...args: any[]) => any
+		onfilterByFolder?: (...args: any[]) => any
+		onfilterByConcurrencyKey?: (...args: any[]) => any
+		onfilterBySchedule?: (...args: any[]) => any
+		onfilterByWorker?: (...args: any[]) => any
+		onfilterByTag?: (...args: any[]) => any
 	}
 
 	let {
@@ -55,7 +63,14 @@
 		onCancelJobs,
 		batchRerunOptionsIsOpen = $bindable(),
 		onselect = undefined,
-		onloadExtra = undefined
+		onloadExtra = undefined,
+		onfilterByLabel = undefined,
+		onfilterByPath = undefined,
+		onfilterByUser = undefined,
+		onfilterByFolder = undefined,
+		onfilterByConcurrencyKey = undefined,
+		onfilterBySchedule = undefined,
+		onfilterByWorker = undefined
 	}: Props = $props()
 
 	let hasClickFocus = $state(false)
@@ -460,7 +475,7 @@
 												{showTag}
 												job={jobOrDate.job}
 												{selected}
-												on:select={() => {
+												onselect={() => {
 													const jobId = jobOrDate.job.id
 													if (keysPressed.Shift && selectedIds.length > 0) {
 														if (nonSelectable) return
@@ -512,13 +527,13 @@
 													}
 												}}
 												{activeLabel}
-												on:filterByLabel
-												on:filterByPath
-												on:filterByUser
-												on:filterByFolder
-												on:filterByConcurrencyKey
-												on:filterBySchedule
-												on:filterByWorker
+												onfilterByLabel={onfilterByLabel}
+												onfilterByPath={onfilterByPath}
+												onfilterByUser={onfilterByUser}
+												onfilterByFolder={onfilterByFolder}
+												onfilterByConcurrencyKey={onfilterByConcurrencyKey}
+												onfilterBySchedule={onfilterBySchedule}
+												onfilterByWorker={onfilterByWorker}
 												{containerWidth}
 											/>
 										</div>

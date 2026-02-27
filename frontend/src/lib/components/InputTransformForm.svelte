@@ -549,8 +549,8 @@
 							{focused}
 							{arg}
 							schemaProperty={schema?.properties?.[argName]}
-							on:showExpr={(e) => (suggestion = e.detail || undefined)}
-							on:setExpr={(e) => {
+							onshowExpr={(e) => (suggestion = e.detail || undefined)}
+							onsetExpr={(e) => {
 								arg = { type: 'javascript', expr: e.detail }
 								propertyType = 'javascript'
 								monaco?.setCode('')
@@ -575,7 +575,7 @@
 							)}
 							id="flow-editor-plug"
 							{connecting}
-							on:click={() => {
+							onclick={() => {
 								if ($propPickerConfig?.propName == argName) {
 									clearFocus()
 								} else {
@@ -594,7 +594,7 @@
 						<ToggleButtonGroup
 							selected={visiblePropertyType}
 							class="h-full"
-							on:selected={(e) => {
+							onselected={(e) => {
 								if (e.detail == propertyType || suggestion) return
 								const staticTemplate = isStaticTemplate(inputCat)
 
@@ -690,7 +690,7 @@
 										size="xs2"
 										color="light"
 										btnClasses="font-normal text-xs w-fit bg-green-100 text-green-800 hover:bg-green-100 dark:text-green-300 dark:bg-green-700 dark:hover:bg-green-600"
-										on:click={() => setJavaScriptExpr(arg.value)}
+										onclick={() => setJavaScriptExpr(arg.value)}
 									>
 										<span class="font-normal whitespace-nowrap flex gap-2 items-center"
 											><FunctionSquare size={14} /> detected -
@@ -770,13 +770,13 @@
 									<TemplateEditor
 										bind:this={monacoTemplate}
 										{extraLib}
-										on:focus={onFocus}
-										on:blur={() => {
+										onfocus={onFocus}
+										onblur={() => {
 											focused = false
 										}}
 										bind:code={arg.value}
 										fontSize={12}
-										on:change={() => {
+										onchange={() => {
 											dispatch('change', { argName, arg })
 											onchange?.({ argName, arg })
 										}}
@@ -790,12 +790,12 @@
 								{resourceTypes}
 								noMargin
 								compact
-								on:focus={onFocus}
-								on:blur={() => {
+								onfocus={onFocus}
+								onblur={() => {
 									focused = false
 								}}
 								shouldDispatchChanges
-								on:change={() => {
+								onchange={() => {
 									dispatch('change', { argName, arg })
 									onchange?.({ argName, arg })
 								}}
@@ -863,15 +863,15 @@
 									shouldBindKey={false}
 									renderLineHighlight="none"
 									hideLineNumbers
-									on:focus={() => {
+									onfocus={() => {
 										focused = true
 										updatePropsBeingEdited(true)
 									}}
-									on:blur={() => {
+									onblur={() => {
 										focused = false
 										updatePropsBeingEdited(false)
 									}}
-									on:change={() => {
+									onchange={() => {
 										dispatch('change', { argName, arg })
 										onchange?.({ argName, arg })
 									}}
@@ -914,7 +914,7 @@
 								<Button
 									variant="default"
 									size="xs"
-									on:click={() => {
+									onclick={() => {
 										arg.expr = ''
 									}}>Set expr to empty string</Button
 								></div

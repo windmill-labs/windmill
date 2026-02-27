@@ -59,6 +59,9 @@
 		onDelete?: (id: string) => void
 		flowHasChanged?: boolean
 		previewOpen: boolean
+		onreload?: (...args: any[]) => any
+		onapplyArgs?: (...args: any[]) => any
+		ontestWithArgs?: (...args: any[]) => any
 	}
 
 	let {
@@ -93,7 +96,10 @@
 		suspendStatus,
 		onDelete,
 		flowHasChanged,
-		previewOpen
+		previewOpen,
+		onreload = undefined,
+		onapplyArgs = undefined,
+		ontestWithArgs = undefined
 	}: Props = $props()
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
@@ -161,8 +167,8 @@
 						{smallErrorHandler}
 						{newFlow}
 						{showJobStatus}
-						on:reload
-						on:generateStep={({ detail }) => {
+						onreload={onreload}
+						ongenerateStep={(detail) => {
 							if (!aiChatManager.open) {
 								aiChatManager.openChat()
 							}
@@ -203,8 +209,8 @@
 					{newFlow}
 					{savedFlow}
 					enableAi={!disableAi}
-					on:applyArgs
-					on:testWithArgs
+					onapplyArgs={onapplyArgs}
+					ontestWithArgs={ontestWithArgs}
 					{onDeployTrigger}
 					{forceTestTab}
 					{highlightArg}

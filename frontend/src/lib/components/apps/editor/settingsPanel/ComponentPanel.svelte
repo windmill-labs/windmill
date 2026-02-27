@@ -225,7 +225,7 @@
 					btnClasses={twMerge(
 						'p-1 text-gray-300 hover:!text-gray-600 dark:text-gray-500 dark:hover:!text-gray-200 bg-transparent'
 					)}
-					on:click={() => {
+					onclick={() => {
 						const tableId = item?.id?.split?.('_')?.[0]
 
 						if (tableId) {
@@ -306,7 +306,7 @@
 									fontSize={12}
 									bind:code={item.data.componentInput.eval}
 									{extraLib}
-									on:change={onTemplateChange}
+									onchange={onTemplateChange}
 								/>
 								{#if item.data?.componentInput?.type === 'templatev2'}
 									{#if item.data?.componentInput.connections?.length > 0}
@@ -488,7 +488,7 @@
 							size="xs"
 							variant="default"
 							startIcon={{ icon: ChevronLeft }}
-							on:click={() => secondaryMenuLeft.toggle(StylePanel, { type: 'style' })}
+							onclick={() => secondaryMenuLeft.toggle(StylePanel, { type: 'style' })}
 						>
 							Show
 						</Button>
@@ -543,7 +543,7 @@
 						<Button
 							size="xs"
 							variant="default"
-							on:click={removeGridElement}
+							onclick={removeGridElement}
 							shortCut={{ key: isMac() ? getModifierKey() + 'Del' : 'Del', withoutModifier: true }}
 							destructive
 						>

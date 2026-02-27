@@ -223,7 +223,7 @@
 			{editor}
 			bind:this={inlineScriptEditorDrawer}
 			bind:inlineScript
-			on:createScriptFromInlineScript={() => {
+			oncreateScriptFromInlineScript={() => {
 				dispatch('createScriptFromInlineScript')
 				oncreateScriptFromInlineScript?.()
 				drawerIsOpen = false
@@ -285,7 +285,7 @@
 					variant="subtle"
 					destructive
 					aria-label="Delete"
-					on:click={() => (dispatch('delete'), ondelete?.())}
+					onclick={() => (dispatch('delete'), ondelete?.())}
 					endIcon={{ icon: Trash2 }}
 					iconOnly
 				/>
@@ -294,7 +294,7 @@
 						unifiedSize="sm"
 						variant="subtle"
 						title="Full Editor"
-						on:click={() => {
+						onclick={() => {
 							inlineScriptEditorDrawer?.openDrawer()
 						}}
 						endIcon={{ icon: Maximize2 }}
@@ -305,7 +305,7 @@
 				<Button
 					variant="default"
 					unifiedSize="sm"
-					on:click={async () => {
+					onclick={async () => {
 						editor?.format()
 						simpleEditor?.format()
 					}}
@@ -344,7 +344,7 @@
 							} catch {}
 							runLoading = false
 						}}
-						on:change={async (e) => {
+						onchange={async (e) => {
 							if (inlineScript && inlineScript.language != 'frontend') {
 								if (inlineScript.lock != undefined) {
 									inlineScript.lock = undefined
@@ -386,7 +386,7 @@
 							)
 							runLoading = false
 						}}
-						on:change={async (e) => {
+						onchange={async (e) => {
 							inferSuggestions(e.detail.code)
 							$app = $app
 						}}

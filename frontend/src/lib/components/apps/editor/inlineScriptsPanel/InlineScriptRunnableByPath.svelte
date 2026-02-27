@@ -187,14 +187,14 @@
 </script>
 
 <Drawer bind:this={drawerFlowViewer} size="1200px">
-	<DrawerContent title="Flow {flowPath}" on:close={drawerFlowViewer.closeDrawer}>
+	<DrawerContent title="Flow {flowPath}" onclose={drawerFlowViewer.closeDrawer}>
 		<FlowPathViewer path={flowPath ?? ''} />
 	</DrawerContent>
 </Drawer>
 
 <ScriptEditorDrawer
 	bind:this={scriptEditorDrawer}
-	on:save={() => {
+	onsave={() => {
 		// Increment refreshKey to force re-mounting of FlowModuleScript (bypasses cache)
 		refreshKey++
 		// Refresh the schema
@@ -205,7 +205,7 @@
 
 <FlowEditorDrawer
 	bind:this={flowEditorDrawer}
-	on:save={() => {
+	onsave={() => {
 		// Increment refreshKey to force re-mounting of FlowPathViewer (bypasses cache)
 		refreshKey++
 		// Refresh the schema
@@ -226,7 +226,7 @@
 			variant="default"
 			size="xs"
 			startIcon={{ icon: RefreshCw }}
-			on:click={async () => {
+			onclick={async () => {
 				sendUserToast('Getting latest script version at that path')
 				// Increment refreshKey to force re-mounting of viewer components (bypasses cache)
 				refreshKey++
@@ -242,7 +242,7 @@
 			size="xs"
 			variant="default"
 			startIcon={{ icon: Trash }}
-			on:click={() => {
+			onclick={() => {
 				dispatch('delete')
 				ondelete?.()
 			}}
@@ -254,7 +254,7 @@
 				variant="default"
 				size="xs"
 				startIcon={{ icon: Eye }}
-				on:click={() => {
+				onclick={() => {
 					flowPath = runnable.path
 					drawerFlowViewer?.openDrawer()
 				}}
@@ -265,7 +265,7 @@
 				variant="default"
 				size="xs"
 				startIcon={{ icon: Pen }}
-				on:click={() => {
+				onclick={() => {
 					openFlowEditor(runnable.path)
 				}}
 			>
@@ -286,7 +286,7 @@
 				size="xs"
 				variant="default"
 				startIcon={{ icon: Pen }}
-				on:click={() => {
+				onclick={() => {
 					openScriptEditor(runnable.path)
 				}}
 			>
@@ -296,7 +296,7 @@
 				size="xs"
 				variant="default"
 				startIcon={{ icon: GitFork }}
-				on:click={() => {
+				onclick={() => {
 					fork(runnable.path)
 				}}
 			>

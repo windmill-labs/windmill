@@ -8,9 +8,11 @@
 		open?: boolean
 		inputs?: string[]
 		onconfirmed?: (...args: any[]) => any
+		oncanceled?: (...args: any[]) => any
 	}
 
-	let { open = $bindable(false), inputs = [], onconfirmed = undefined }: Props = $props()
+	let { open = $bindable(false), inputs = [], onconfirmed = undefined,
+		oncanceled = undefined }: Props = $props()
 
 	const dispatch = createEventDispatcher()
 </script>
@@ -18,12 +20,12 @@
 <Portal>
 	<Modal
 		bind:open
-		on:confirmed={() => {
+		onconfirmed={() => {
 			open = false
 			dispatch('confirmed')
 			onconfirmed?.()
 		}}
-		on:canceled
+		oncanceled={oncanceled}
 		title="Windmill AI wants to add the following inputs to the flow:"
 	>
 		<ul class=" list-disc pl-5">
@@ -34,7 +36,7 @@
 
 		{#snippet actions()}
 			<Button
-				on:click={() => {
+				onclick={() => {
 					open = false
 					dispatch('confirmed')
 					onconfirmed?.()

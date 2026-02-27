@@ -74,7 +74,7 @@
 						Please check your email and follow the instructions to reset your password.
 					</p>
 					<div class="pt-4">
-						<Button variant="accent" on:click={() => goto('/user/login')}>Back to login</Button>
+						<Button variant="accent" onclick={() => goto('/user/login')}>Back to login</Button>
 					</div>
 				</div>
 			{:else}
@@ -93,10 +93,10 @@
 					</div>
 
 					<div class="pt-2 flex flex-col gap-2">
-						<Button on:click={requestPasswordReset} variant="accent" disabled={!email || loading}>
+						<Button onclick={requestPasswordReset} variant="accent" disabled={!email || loading}>
 							{loading ? 'Sending...' : 'Send reset link'}
 						</Button>
-						<Button variant="subtle" on:click={() => goto('/user/login')}>Back to login</Button>
+						<Button variant="subtle" onclick={() => goto('/user/login')}>Back to login</Button>
 					</div>
 				</div>
 			{/if}

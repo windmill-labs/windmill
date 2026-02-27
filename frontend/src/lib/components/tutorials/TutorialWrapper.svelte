@@ -7,9 +7,13 @@
 		name?: string
 		onInstanceReady: (id: string, instance: any) => void
 		onSkipAll: () => void
+		onerror?: (...args: any[]) => any
+		onreload?: (...args: any[]) => any
 	}
 
-	let { id, component: Component, name, onInstanceReady, onSkipAll }: Props = $props()
+	let { id, component: Component, name, onInstanceReady, onSkipAll,
+		onerror = undefined,
+		onreload = undefined }: Props = $props()
 
 	let instance: any = $state(undefined)
 	const index = getTutorialIndex(id)
@@ -27,9 +31,9 @@
 		bind:this={instance}
 		{index}
 		{...(name ? { name } : {})}
-		on:error
-		on:skipAll={onSkipAll}
-		on:reload
+		onerror={onerror}
+		onskipAll={onSkipAll}
+		onreload={onreload}
 	/>
 {/if}
 

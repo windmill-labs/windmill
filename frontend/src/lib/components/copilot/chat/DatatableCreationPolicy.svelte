@@ -56,7 +56,7 @@
 			<Toggle
 				size="xs"
 				checked={aiChatManager.datatableCreationPolicy.enabled}
-				on:change={(e) => handleToggle(e.detail)}
+				onchange={(e) => handleToggle(e)}
 			/>
 			<span class="text-2xs text-secondary whitespace-nowrap">tables creation</span>
 		</div>

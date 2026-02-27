@@ -535,7 +535,7 @@
 					<Section label="Advanced" small collapsable initiallyCollapsed={!repo.force_branch}>
 						<Toggle
 							checked={!!repo.force_branch}
-							on:change={(e) => {
+							onchange={(e) => {
 								if (e.detail) {
 									repo.force_branch = $workspaceStore ?? ''
 								} else {

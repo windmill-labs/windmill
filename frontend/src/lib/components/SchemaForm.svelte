@@ -77,6 +77,8 @@
 		onkeydownCmdEnter?: (...args: any[]) => any
 		onfinalize?: (...args: any[]) => any
 		onconsider?: (...args: any[]) => any
+		onreorder?: (...args: any[]) => any
+		oninputClicked?: (...args: any[]) => any
 	}
 
 	let {
@@ -287,7 +289,7 @@
 
 {#if showReset}
 	<div class="flex flex-row-reverse w-full">
-		<Button size="xs" color="light" on:click={() => setDefaults()}>
+		<Button size="xs" color="light" onclick={() => setDefaults()}>
 			Reset args to runnable's defaults
 		</Button>
 	</div>
@@ -384,23 +386,23 @@
 							{#if !hidden[argName]}
 								<ArgInput
 									{lightHeaderFont}
-									on:change={() => {
+									onchange={() => {
 										dispatch('change')
 										onchange?.()
 									}}
-									on:nestedChange={() => {
+									onnestedChange={() => {
 										dispatch('nestedChange')
 										onnestedChange?.()
 									}}
-									on:acceptChange={(e) => (
+									onacceptChange={(e) => (
 										dispatch('acceptChange', e.detail),
 										onacceptChange?.(e.detail)
 									)}
-									on:rejectChange={(e) => (
+									onrejectChange={(e) => (
 										dispatch('rejectChange', e.detail),
 										onrejectChange?.(e.detail)
 									)}
-									on:keydownCmdEnter={() => (dispatch('keydownCmdEnter'), onkeydownCmdEnter?.())}
+									onkeydownCmdEnter={() => (dispatch('keydownCmdEnter'), onkeydownCmdEnter?.())}
 									{disablePortal}
 									{resourceTypes}
 									{prettifyHeader}
@@ -466,7 +468,7 @@
 											<div class="relative">
 												<ToggleButtonGroup
 													selected={linkedSecret == argName ? 'secret' : 'inlined'}
-													on:selected={(e) => {
+													onselected={(e) => {
 														if (e.detail === 'secret') {
 															linkedSecret = argName
 														} else if (linkedSecret == argName) {
@@ -528,7 +530,7 @@
 					variant="default"
 					unifiedSize="md"
 					startIcon={{ icon: Plus }}
-					on:click={() => variableEditor?.initNew?.()}
+					onclick={() => variableEditor?.initNew?.()}
 				>
 					New variable
 				</Button>

@@ -145,10 +145,10 @@
 					<Button
 						{loading}
 						btnClasses="my-1"
-						on:pointerdown={(e) => {
+						onpointerdown={(e) => {
 							e?.stopPropagation()
 						}}
-						on:click={async () => {
+						onclick={async () => {
 							if (!runnableComponent) {
 								runnableWrapper?.handleSideEffect(true)
 							} else {
@@ -176,7 +176,7 @@
 			color={resolvedConfig.color}
 			btnClasses={twMerge(css?.button?.class, 'wm-button', 'wm-modal-form-button')}
 			style={css?.button?.style ?? ''}
-			on:click={(e) => {
+			onclick={(e) => {
 				modal?.open()
 			}}
 			variant="contained"

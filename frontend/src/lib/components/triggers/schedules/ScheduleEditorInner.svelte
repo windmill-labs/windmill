@@ -662,7 +662,7 @@
 							size="sm"
 							variant="default"
 							disabled={!allowSchedule || pathError != '' || emptyString(script_path)}
-							on:click={() => {
+							onclick={() => {
 								runScheduleNow(script_path, path, is_flow, $workspaceStore!)
 							}}
 						>
@@ -792,7 +792,7 @@
 								}}
 								size="xs"
 								bind:checked={isLatestCron}
-								on:change={onVersionChange}
+								onchange={onVersionChange}
 								disabled={!can_write}
 							/>
 						</div>
@@ -835,7 +835,7 @@
 							allowRefresh={can_write}
 							bind:itemKind
 							bind:scriptPath={script_path}
-							on:select={(e) => {
+							onselect={(e) => {
 								loadScript(e.detail.path)
 							}}
 							clearable
@@ -1270,7 +1270,7 @@
 					? `Edit schedule ${initialPath}`
 					: `View schedule ${initialPath}`
 				: 'New schedule'}
-			on:close={drawer.closeDrawer}
+			onclose={drawer.closeDrawer}
 		>
 			{#snippet actions()}
 				<div class="flex flex-row gap-4 items-center">

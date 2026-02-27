@@ -39,6 +39,8 @@
 		format?: string | undefined
 		id: string | undefined
 		onkeydown?: (...args: any[]) => any
+		ondeleteArrayItem?: (...args: any[]) => any
+		onremove?: (...args: any[]) => any
 	}
 
 	let {
@@ -49,7 +51,9 @@
 		placeholder = undefined,
 		format = undefined,
 		id,
-		onkeydown = undefined
+		onkeydown = undefined,
+		ondeleteArrayItem = undefined,
+		onremove = undefined
 	}: Props = $props()
 
 	const appContext = getContext<AppViewerContext>('AppViewerContext')
@@ -240,7 +244,7 @@
 						<FileUpload
 							allowMultiple={false}
 							randomFileKey={true}
-							on:addition={(evt) => {
+							onaddition={(evt) => {
 								if (componentInput) {
 									componentInput.value = {
 										s3: evt.detail?.path ?? '',
@@ -249,7 +253,7 @@
 									s3FileUploadRawMode = true
 								}
 							}}
-							on:deletion={(evt) => {
+							ondeletion={(evt) => {
 								if (componentInput) {
 									componentInput.value = {
 										s3: ''
@@ -262,7 +266,7 @@
 						variant="default"
 						size="xs"
 						btnClasses="mt-1"
-						on:click={() => {
+						onclick={() => {
 							s3FilePicker?.open?.()
 						}}
 						startIcon={{ icon: Pipette }}
@@ -317,7 +321,7 @@
 				</div>
 			{/if}
 		{:else if fieldType === 'array'}
-			<ArrayStaticInputEditor {id} {subFieldType} bind:componentInput on:deleteArrayItem />
+			<ArrayStaticInputEditor {id} {subFieldType} bind:componentInput ondeleteArrayItem={ondeleteArrayItem} />
 		{:else if fieldType === 'schema'}
 			<div class="w-full">
 				<EditableSchemaDrawer bind:schema={componentInput.value} />
@@ -403,7 +407,7 @@
 						placeholder="Dataset name"
 					/>
 					<div class="absolute top-1 right-1">
-						<PlotlyWizard bind:value={componentInput.value} on:remove>
+						<PlotlyWizard bind:value={componentInput.value} onremove={onremove}>
 							{#snippet trigger()}
 								<Button color="light" size="xs2" nonCaptureEvent={true}>
 									<div class="flex flex-row items-center gap-2 text-xs font-normal">
@@ -424,7 +428,7 @@
 						placeholder="Dataset name"
 					/>
 					<div class="absolute top-1 right-1">
-						<ChartJSWizard bind:value={componentInput.value} on:remove>
+						<ChartJSWizard bind:value={componentInput.value} onremove={onremove}>
 							{#snippet trigger()}
 								<Button color="light" size="xs2" nonCaptureEvent={true}>
 									<div class="flex flex-row items-center gap-2 text-xs font-normal">
@@ -446,7 +450,7 @@
 					/>
 
 					<div class="absolute top-1 right-1">
-						<AgChartWizard bind:value={componentInput.value} on:remove>
+						<AgChartWizard bind:value={componentInput.value} onremove={onremove}>
 							{#snippet trigger()}
 								<Button color="light" size="xs2" nonCaptureEvent={true}>
 									<div class="flex flex-row items-center gap-2 text-xs font-normal">

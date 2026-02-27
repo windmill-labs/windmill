@@ -82,8 +82,8 @@
 	confirmationText={isFlow ? 'Deploy Flow' : 'Deploy Script'}
 	type="reload"
 	showIcon={false}
-	on:canceled={() => (dispatch('canceled'), oncanceled?.())}
-	on:confirmed={() => (
+	oncanceled={() => (dispatch('canceled'), oncanceled?.())}
+	onconfirmed={() => (
 		dispatch('confirmed', { selectedTriggers }),
 		onconfirmed?.({ selectedTriggers })
 	)}
@@ -136,7 +136,7 @@
 										<ToggleButtonGroup
 											class="w-fit h-fit"
 											selected={isSelectedTrigger ? 'deploy' : 'discard'}
-											on:selected={(e) => toggleTrigger(trigger, e.detail)}
+											onselected={(e) => toggleTrigger(trigger, e.detail)}
 										>
 											{#snippet children({ item })}
 												<ToggleButton

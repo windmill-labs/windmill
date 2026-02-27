@@ -41,7 +41,7 @@
 					<Toggle
 						bind:checked={autoRefresh}
 						size="xs"
-						on:change={() => {
+						onchange={() => {
 							dispatch('updateAutoRefresh')
 							onupdateAutoRefresh?.()
 						}}
@@ -57,7 +57,7 @@
 					<Toggle
 						bind:checked={recomputeOnInputChanged}
 						size="xs"
-						on:change={() => {
+						onchange={() => {
 							dispatch('updateAutoRefresh')
 							onupdateAutoRefresh?.()
 						}}

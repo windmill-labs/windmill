@@ -365,7 +365,7 @@
 				}}
 			>
 				<Toggle
-					on:change={(e) => {
+					onchange={(e) => {
 						mcpCreationMode = e.detail
 						if (e.detail) {
 							newTokenLabel = 'MCP token'
@@ -402,7 +402,7 @@
 			<div class="flex flex-col gap-2">
 				<Toggle
 					checked={showCustomScopes}
-					on:change={(e) => {
+					onchange={(e) => {
 						showCustomScopes = e.detail
 					}}
 					options={{
@@ -526,8 +526,8 @@
 						<div class="flex items-center justify-between">
 							<span class="block text-xs font-semibold">{label}</span>
 							<div class="flex gap-2">
-								<Button size="xs2" on:click={selectAll}>Select All</Button>
-								<Button size="xs2" on:click={clearAll}>Clear All</Button>
+								<Button size="xs2" onclick={selectAll}>Select All</Button>
+								<Button size="xs2" onclick={clearAll}>Clear All</Button>
 							</div>
 						</div>
 					{/snippet}
@@ -677,7 +677,7 @@
 
 		<div class="mt-4 flex justify-end gap-2 flex-row">
 			<Button
-				on:click={() => {
+				onclick={() => {
 					mcpCreationMode = false
 				}}
 				variant="default"
@@ -685,7 +685,7 @@
 				Cancel
 			</Button>
 			<Button
-				on:click={() => createToken(mcpCreationMode)}
+				onclick={() => createToken(mcpCreationMode)}
 				disabled={mcpCreationMode &&
 					(newTokenWorkspace == undefined ||
 						(newMcpScope === 'folder' && !selectedFolder) ||

@@ -10,6 +10,13 @@
 	import { createEventDispatcher } from 'svelte'
 	import { Globe, Loader2, Save } from 'lucide-svelte'
 
+	interface Props {
+		onchange?: (...args: any[]) => any
+	}
+
+	let {}: Props = $props()
+
+
 	let jsonViewerDrawer: Drawer | undefined = $state()
 
 	let code: string = $state('')
@@ -73,7 +80,7 @@
 </script>
 
 <Drawer bind:this={jsonViewerDrawer} size="800px">
-	<DrawerContent title="App JSON" on:close={() => jsonViewerDrawer?.toggleDrawer()}>
+	<DrawerContent title="App JSON" onclose={() => jsonViewerDrawer?.toggleDrawer()}>
 		{#if useDraft}
 			<div class="mb-1">
 				<Badge small color="indigo" baseClass="border border-indigo-200">+Draft</Badge>
@@ -87,10 +94,10 @@
 
 		{#snippet actions()}
 			{#if !$userStore?.operator}
-				<Button on:click={saveDraft} startIcon={{ icon: Save }} variant="accent" size="xs">
+				<Button onclick={saveDraft} startIcon={{ icon: Save }} variant="accent" size="xs">
 					Save as draft
 				</Button>
-				<Button on:click={saveApp} startIcon={{ icon: Globe }} variant="accent" size="xs">
+				<Button onclick={saveApp} startIcon={{ icon: Globe }} variant="accent" size="xs">
 					Deploy
 				</Button>
 			{/if}

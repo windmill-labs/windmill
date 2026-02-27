@@ -108,7 +108,7 @@
 								</span>
 								{#if openDetails}
 									<Button
-										on:click={() => {
+										onclick={() => {
 											dispatch('openDetails', { version: version.script_hash })
 											onopenDetails?.({ version: version.script_hash })
 										}}
@@ -160,7 +160,7 @@
 										buttonType="button"
 										btnClasses="!p-1 !w-[34px] !ml-1"
 										aria-label="Save deployment message"
-										on:click={() => {
+										onclick={() => {
 											updateDeploymentMsg(selectedVersion?.script_hash)
 										}}
 									>
@@ -172,7 +172,7 @@
 										buttonType="button"
 										btnClasses="!p-1 !w-[34px] !ml-1"
 										aria-label="Abort"
-										on:click={() => {
+										onclick={() => {
 											deploymentMsgUpdateMode = false
 											deploymentMsgUpdate = undefined
 										}}
@@ -205,7 +205,7 @@
 								<div class="w-min">
 									<ToggleButtonGroup
 										selected={showDiff ? 'diff' : 'code'}
-										on:selected={({ detail }) => {
+										onselected={(detail) => {
 											showDiff = detail === 'diff'
 										}}
 									>

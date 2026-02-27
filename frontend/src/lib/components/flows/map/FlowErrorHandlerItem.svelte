@@ -120,10 +120,10 @@
 	<InsertModulePopover
 		{disableAi}
 		placement={'bottom'}
-		on:new={(e) => {
+		onnew={(e) => {
 			insertFailureModule(e.detail.inlineScript)
 		}}
-		on:pickScript={(e) => {
+		onpickScript={(e) => {
 			insertFailureModule(undefined, e.detail)
 		}}
 		kind="failure"

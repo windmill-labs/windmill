@@ -11,6 +11,12 @@
 	import Label from './Label.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 
+	interface Props {
+		onupdate?: (...args: any[]) => any
+	}
+
+	let {}: Props = $props()
+
 	const dispatch = createEventDispatcher()
 
 	let edit: boolean = $state(false)
@@ -58,7 +64,7 @@
 <Drawer bind:this={drawer} size="900px">
 	<DrawerContent
 		title={edit ? `Update contextual variable ${name}` : 'Create a contextual variable'}
-		on:close={drawer?.closeDrawer}
+		onclose={drawer?.closeDrawer}
 	>
 		<div class="flex flex-col gap-8">
 			{#if !edit}
@@ -76,7 +82,7 @@
 		</div>
 		{#snippet actions()}
 			<Button
-				on:click={() => updateVariable()}
+				onclick={() => updateVariable()}
 				disabled={value === '' || name === ''}
 				startIcon={{ icon: Save }}
 				variant="accent"

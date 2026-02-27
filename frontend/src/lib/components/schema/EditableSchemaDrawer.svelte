@@ -86,7 +86,7 @@
 
 <div class="flex flex-wrap justify-between mb-2 w-full items-center gap-y-2">
 	<AddProperty
-		on:change={() => {
+		onchange={() => {
 			if (jsonView) {
 				schemaString = JSON.stringify(schema, null, '\t')
 				editor?.setCode(schemaString)
@@ -105,7 +105,7 @@
 				'Arguments can be edited either using the wizard, or by editing their JSON schema.'
 		}}
 		lightMode
-		on:change={() => {
+		onchange={() => {
 			schemaString = JSON.stringify(schema, null, '\t')
 			editor?.setCode(schemaString)
 		}}
@@ -147,7 +147,7 @@
 										size="xs2"
 										color="light"
 										startIcon={{ icon: Trash }}
-										on:click={() => {
+										onclick={() => {
 											addPropertyComponent?.handleDeleteArgument([item.value])
 										}}
 									/>
@@ -156,7 +156,7 @@
 										size="xs2"
 										color="light"
 										startIcon={{ icon: Pen }}
-										on:click={() => {
+										onclick={() => {
 											schemaFormDrawer?.openDrawer()
 
 											tick().then(() => {
@@ -188,16 +188,16 @@
 	{/key}
 	<Drawer bind:this={schemaFormDrawer} size="1200px">
 		{#snippet children()}
-			<DrawerContent title="UI Customisation" on:close={() => schemaFormDrawer?.closeDrawer()}>
+			<DrawerContent title="UI Customisation" onclose={() => schemaFormDrawer?.closeDrawer()}>
 				<EditableSchemaForm
 					schemaFormClassName="min-h-full"
 					bind:this={editableSchemaForm}
 					bind:schema
 					isAppInput
-					on:edit={(e) => {
+					onedit={(e) => {
 						addPropertyComponent?.openDrawer(e.detail)
 					}}
-					on:delete={(e) => {
+					ondelete={(e) => {
 						addPropertyComponent?.handleDeleteArgument([e.detail])
 					}}
 					{hiddenArgs}
@@ -229,7 +229,7 @@
 			bind:this={editor}
 			small
 			fixedOverflowWidgets={false}
-			on:change={() => {
+			onchange={() => {
 				try {
 					schema = JSON.parse(schemaString)
 					error = ''

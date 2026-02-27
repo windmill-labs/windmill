@@ -1008,10 +1008,10 @@
 <DraftTriggersConfirmationModal
 	bind:open={draftTriggersModalOpen}
 	draftTriggers={triggersState.triggers.filter((t) => t.draftConfig)}
-	on:canceled={() => {
+	oncanceled={() => {
 		draftTriggersModalOpen = false
 	}}
-	on:confirmed={handleDraftTriggersConfirmed}
+	onconfirmed={handleDraftTriggersConfirmed}
 />
 
 {#if !$userStore?.operator}
@@ -1023,7 +1023,7 @@
 		<DrawerContent
 			noPadding
 			title="Settings"
-			on:close={() => (metadataOpen = false)}
+			onclose={() => (metadataOpen = false)}
 			aiId="script-builder-settings"
 			aiDescription="Script builder settings"
 		>
@@ -1170,7 +1170,7 @@
 															variant="default"
 															selected={isPicked}
 															btnClasses={isPicked ? '' : 'm-[1px]'}
-															on:click={() => onScriptLanguageTrigger(lang)}
+															onclick={() => onScriptLanguageTrigger(lang)}
 															disabled={lockedLanguage ||
 																(enterpriseLangs.includes(lang) && !$enterpriseLicense) ||
 																(script.kind == 'preprocessor' && !canHavePreprocessor(lang))}
@@ -1204,7 +1204,7 @@
 											{/snippet}
 											<ToggleButtonGroup
 												selected={script.kind}
-												on:selected={({ detail }) => {
+												onselected={(detail) => {
 													template = 'script'
 													script.kind = detail
 													initContent(script.language, detail, template)
@@ -1276,7 +1276,7 @@
 										<Toggle
 											size="sm"
 											checked={Boolean(script.concurrent_limit)}
-											on:change={() => {
+											onchange={() => {
 												if (script.concurrent_limit && script.concurrent_limit != undefined) {
 													script.concurrent_limit = undefined
 													script.concurrency_time_window_s = undefined
@@ -1375,7 +1375,7 @@
 											<Toggle
 												size="sm"
 												checked={Boolean(script.timeout)}
-												on:change={() => {
+												onchange={() => {
 													if (script.timeout && script.timeout != undefined) {
 														script.timeout = undefined
 													} else {
@@ -1431,7 +1431,7 @@
 											<Toggle
 												size="sm"
 												checked={Boolean(script.restart_unless_cancelled)}
-												on:change={() => {
+												onchange={() => {
 													if (script.restart_unless_cancelled) {
 														script.restart_unless_cancelled = undefined
 													} else {
@@ -1454,7 +1454,7 @@
 													script.language != 'deno')}
 											size="sm"
 											checked={Boolean(script.dedicated_worker)}
-											on:change={() => {
+											onchange={() => {
 												if (script.dedicated_worker) {
 													script.dedicated_worker = undefined
 												} else {
@@ -1512,7 +1512,7 @@
 												disabled={!$enterpriseLicense}
 												size="sm"
 												checked={Boolean(script.delete_after_use)}
-												on:change={() => {
+												onchange={() => {
 													if (script.delete_after_use) {
 														script.delete_after_use = undefined
 													} else {
@@ -1531,7 +1531,7 @@
 												disabled={!$enterpriseLicense || isCloudHosted()}
 												size="sm"
 												checked={script.priority !== undefined && script.priority > 0}
-												on:change={() => {
+												onchange={() => {
 													if (script.priority) {
 														script.priority = undefined
 													} else {
@@ -1587,7 +1587,7 @@
 											<Toggle
 												size="sm"
 												checked={Boolean(script.visible_to_runner_only)}
-												on:change={() => {
+												onchange={() => {
 													if (script.visible_to_runner_only) {
 														script.visible_to_runner_only = undefined
 													} else {
@@ -1612,7 +1612,7 @@
 												<Toggle
 													size="sm"
 													checked={Boolean(script.on_behalf_of_email)}
-													on:change={() => {
+													onchange={() => {
 														if (script.on_behalf_of_email) {
 															script.on_behalf_of_email = undefined
 															preserveOnBehalfOf = false
@@ -1702,7 +1702,7 @@
 												<Button
 													variant="default"
 													size="xs"
-													on:click={() => {
+													onclick={() => {
 														if (script.envs == undefined || !Array.isArray(script.envs)) {
 															script.envs = []
 														}
@@ -1727,9 +1727,9 @@
 							</TabContent>
 							<TabContent value="triggers" class="h-full">
 								<TriggersEditor
-									on:applyArgs={applyArgs}
-									on:addPreprocessor={addPreprocessor}
-									on:exitTriggers={() => {
+									onapplyArgs={applyArgs}
+									onaddPreprocessor={addPreprocessor}
+									onexitTriggers={() => {
 										captureTable?.loadCaptures(true)
 									}}
 									currentPath={script.path}
@@ -1790,7 +1790,7 @@
 							variant="contained"
 							color="light"
 							size="xs"
-							on:click={async () => {
+							onclick={async () => {
 								metadataOpen = true
 								selectedTab = 'triggers'
 								triggersState.selectedTriggerIndex = primarySchedule ?? schedule
@@ -1857,7 +1857,7 @@
 						aiDescription="Script builder settings to configure metadata, runtime, triggers, and generated UI."
 						variant="default"
 						unifiedSize="md"
-						on:click={() => (metadataOpen = true)}
+						onclick={() => (metadataOpen = true)}
 						startIcon={{ icon: Settings }}
 					>
 						<span class="hidden lg:flex"> Settings </span>
@@ -1868,7 +1868,7 @@
 					unifiedSize="md"
 					variant="accent"
 					startIcon={{ icon: Save }}
-					on:click={() => saveDraft()}
+					onclick={() => saveDraft()}
 					disabled={initialPath != '' && !savedScript}
 					shortCut={{ key: 'S' }}
 				>
@@ -1880,7 +1880,7 @@
 					{loadingSave}
 					newFlow={false}
 					dropdownItems={computeDropdownItems(initialPath, savedScript, diffDrawer)}
-					on:save={({ detail }) => handleEditScript(false, detail)}
+					onsave={(detail) => handleEditScript(false, detail)}
 				/>
 			</div>
 		</div>
@@ -1891,15 +1891,15 @@
 			{customUi}
 			collabMode
 			edit={initialPath != ''}
-			on:format={() => {
+			onformat={() => {
 				saveDraft()
 			}}
-			on:saveDraft={() => {
+			onsaveDraft={() => {
 				saveDraft()
 			}}
-			on:openTriggers={openTriggers}
-			on:applyArgs={applyArgs}
-			on:addPreprocessor={addPreprocessor}
+			onopenTriggers={openTriggers}
+			onapplyArgs={applyArgs}
+			onaddPreprocessor={addPreprocessor}
 			bind:editor
 			bind:this={scriptEditor}
 			bind:schema={script.schema}

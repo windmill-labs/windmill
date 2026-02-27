@@ -198,7 +198,7 @@
 							<div class="flex flex-row items-center gap-1">
 								<CloseButton
 									small
-									on:close={() => deleteComponent(component.id, item.originalIndex)}
+									onclose={() => deleteComponent(component.id, item.originalIndex)}
 								/>
 							</div>
 						</div>
@@ -216,7 +216,7 @@
 				btnClasses="gap-1 flex items-center text-xs text-primary"
 				wrapperClasses="flex-1"
 				variant="default"
-				on:click={() => addComponent('buttoncomponent')}
+				onclick={() => addComponent('buttoncomponent')}
 				title="Add Button"
 			>
 				+ <Inspect size={14} />
@@ -225,7 +225,7 @@
 				btnClasses="gap-1 flex items-center text-xs text-primary"
 				wrapperClasses="flex-1"
 				variant="default"
-				on:click={() => addComponent('checkboxcomponent')}
+				onclick={() => addComponent('checkboxcomponent')}
 				title="Add Toggle"
 			>
 				+ <ToggleRightIcon size={14} />
@@ -234,7 +234,7 @@
 				btnClasses="gap-1 flex items-center text-xs text-primary"
 				wrapperClasses="flex-1"
 				variant="default"
-				on:click={() => addComponent('selectcomponent')}
+				onclick={() => addComponent('selectcomponent')}
 				title="Add Select"
 			>
 				+ <List size={14} />
@@ -258,7 +258,7 @@
 					<Button
 						btnClasses="mt-2"
 						size="xs2"
-						on:click={() => {
+						onclick={() => {
 							actionsOrder = undefined
 						}}
 					>

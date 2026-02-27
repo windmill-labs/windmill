@@ -66,7 +66,7 @@
 			btnClasses="!rounded-full !p-1.5 {customCss?.button?.class ?? ''}"
 			style={customCss?.button?.style}
 			startIcon={{ icon: Square }}
-			on:click={onCancel}
+			onclick={onCancel}
 			iconOnly
 			title={cancelTitle}
 		/>
@@ -78,7 +78,7 @@
 			style={customCss?.button?.style}
 			startIcon={{ icon: ArrowUp }}
 			disabled={!value.trim() || disabled}
-			on:click={onSend}
+			onclick={onSend}
 			iconOnly
 			title={sendTitle}
 		/>

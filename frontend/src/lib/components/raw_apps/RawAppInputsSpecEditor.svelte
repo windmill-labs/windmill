@@ -116,7 +116,7 @@
 				{#if componentInput?.type && allowTypeChange !== false}
 					<ToggleButtonGroup
 						selected={componentInput.type}
-						onSelected={(newType) => {
+						onselected={(newType) => {
 							// Preserve fieldType and other properties when changing type
 							componentInput = {
 								...componentInput,

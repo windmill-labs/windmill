@@ -128,15 +128,15 @@
 					placeholder={value.value?.['placeholder']}
 					customTitle={value.value?.['customTitle']}
 					displayType={false}
-					on:openConnection={() => {
+					onopenConnection={() => {
 						closeOnOutsideClick = false
 					}}
-					on:closeConnection={() => {
+					oncloseConnection={() => {
 						closeOnOutsideClick = true
 					}}
 				/>
 
-				<Button color="red" size="xs" on:click={removeDataset}>Remove dataset</Button>
+				<Button color="red" size="xs" onclick={removeDataset}>Remove dataset</Button>
 			</div>
 		{/if}
 	{/snippet}

@@ -49,7 +49,7 @@
 					disableAi={data.disableAi}
 					allowTrigger
 					kind="preprocessor"
-					on:new={(e) => {
+					onnew={(e) => {
 						data?.eventHandlers.insert({
 							index: 0,
 							kind: e.detail.kind,
@@ -57,7 +57,7 @@
 							isPreprocessor: true
 						})
 					}}
-					on:pickScript={(e) => {
+					onpickScript={(e) => {
 						data?.eventHandlers.insert({
 							index: 0,
 							kind: e.detail.kind,
@@ -82,10 +82,10 @@
 			label={inputLabel}
 			selectable
 			selected={selectionManager?.isNodeSelected('Input')}
-			on:insert={(e) => {
+			oninsert={(e) => {
 				setTimeout(() => data?.eventHandlers?.insert(e.detail))
 			}}
-			on:select={(e) => {
+			onselect={(e) => {
 				setTimeout(() => data?.eventHandlers?.select(e.detail))
 			}}
 			inputJson={topFlowInput}

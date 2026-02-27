@@ -180,7 +180,7 @@
 					}
 				]
 			: undefined}
-		on:click={() => {
+		onclick={() => {
 			setTimeLater(0)
 		}}
 	>
@@ -194,7 +194,7 @@
 			{disabled}
 			iconOnly
 			endIcon={{ icon: X }}
-			on:click={() => {
+			onclick={() => {
 				value = null
 				dispatch('clear')
 				onclear?.()

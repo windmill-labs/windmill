@@ -32,7 +32,7 @@
 
 	<div class="flex flex-col gap-4">
 		<Toggle
-			on:change={(e) => {
+			onchange={(e) => {
 				updateSetting(codeCompletionSessionEnabled, e.detail, 'codeCompletionSessionEnabled')
 			}}
 			checked={$codeCompletionSessionEnabled}
@@ -43,7 +43,7 @@
 		/>
 
 		<Toggle
-			on:change={(e) => {
+			onchange={(e) => {
 				updateSetting(metadataCompletionEnabled, e.detail, 'metadataCompletionEnabled')
 			}}
 			checked={$metadataCompletionEnabled}
@@ -53,7 +53,7 @@
 			}}
 		/>
 		<Toggle
-			on:change={(e) => {
+			onchange={(e) => {
 				updateSetting(stepInputCompletionEnabled, e.detail, 'stepInputCompletionEnabled')
 			}}
 			checked={$stepInputCompletionEnabled}

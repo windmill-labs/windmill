@@ -68,7 +68,7 @@
 				<Button
 					size="xs"
 					color="light"
-					on:click={() => {
+					onclick={() => {
 						deleteSubgrid(index)
 					}}
 					iconOnly
@@ -76,6 +76,6 @@
 				/>
 			</div>
 		{/each}
-		<Button size="xs" variant="default" startIcon={{ icon: Plus }} on:click={addTab} iconOnly />
+		<Button size="xs" variant="default" startIcon={{ icon: Plus }} onclick={addTab} iconOnly />
 	</div>
 </PanelSection>

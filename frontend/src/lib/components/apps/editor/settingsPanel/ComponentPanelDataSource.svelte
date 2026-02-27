@@ -347,7 +347,7 @@
 	<div class="p-2">
 		<ToggleButtonGroup
 			bind:selected
-			on:selected={({ detail }) => {
+			onselected={(detail) => {
 				handleSelected(detail)
 			}}
 		>
@@ -401,11 +401,11 @@
 	open={Boolean(convertToUIEditorCallback)}
 	title="Convert to UI Editor"
 	confirmationText="Remove"
-	on:canceled={() => {
+	oncanceled={() => {
 		convertToUIEditorCallback = undefined
 		selected = 'json'
 	}}
-	on:confirmed={() => {
+	onconfirmed={() => {
 		if (convertToUIEditorCallback) {
 			convertToUIEditorCallback()
 		}

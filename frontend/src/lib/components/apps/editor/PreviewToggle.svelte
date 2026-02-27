@@ -17,7 +17,7 @@
 
 <ToggleButtonGroup
 	bind:selected={$mode}
-	on:selected={(e) => {
+	onselected={(e) => {
 		jobsById.set({})
 		jobs.set([])
 	}}

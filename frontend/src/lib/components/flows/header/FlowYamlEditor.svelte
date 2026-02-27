@@ -66,11 +66,11 @@
 	let editorHeight = $state(0)
 </script>
 
-<Drawer on:open={reload} bind:this={drawer} size="800px">
-	<DrawerContent title="OpenFlow" on:close={() => drawer?.toggleDrawer()}>
+<Drawer onopen={reload} bind:this={drawer} size="800px">
+	<DrawerContent title="OpenFlow" onclose={() => drawer?.toggleDrawer()}>
 		{#snippet actions()}
-			<Button variant="default" unifiedSize="md" disabled={!hasChanges} on:click={reload}>Reset code</Button>
-			<Button variant="accent" unifiedSize="md" disabled={!hasChanges} on:click={apply}>Apply changes</Button>
+			<Button variant="default" unifiedSize="md" disabled={!hasChanges} onclick={reload}>Reset code</Button>
+			<Button variant="accent" unifiedSize="md" disabled={!hasChanges} onclick={apply}>Apply changes</Button>
 		{/snippet}
 
 		{#if flowStore.val}

@@ -70,7 +70,7 @@
 						btnClasses="!p-0 !w-[34px] !h-[34px]"
 						aria-label="Set {key} to {color}"
 						style={`background-color: ${color};`}
-						on:click={() => (value = color)}
+						onclick={() => (value = color)}
 					/>
 					{#snippet text()}
 						{color}
@@ -93,7 +93,7 @@
 				buttonClass="!right-9"
 				type="number"
 				value={internalValue}
-				on:change={({ detail }) => updateValue(detail)}
+				onchange={(detail) => updateValue(detail)}
 			>
 				<Menu
 					noMinW
@@ -118,7 +118,7 @@
 										size="xs"
 										variant="contained"
 										btnClasses="!justify-start !rounded-none !w-full !px-3 !py-1.5"
-										on:click={() => {
+										onclick={() => {
 											updateUnit(u)
 											close()
 										}}
@@ -140,7 +140,7 @@
 						variant={value === option.text ? 'contained' : 'border'}
 						btnClasses="!p-1 !min-w-[34px] !h-[34px]"
 						aria-label="Set {key} to {option.text}"
-						on:click={() => {
+						onclick={() => {
 							if (value === option.text) {
 								value = ''
 							} else {

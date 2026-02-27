@@ -124,7 +124,7 @@
 				{#snippet trigger()}
 							
 						<Button
-							on:click={() => {}}
+							onclick={() => {}}
 							title="History"
 							size="md"
 							btnClasses="!p-1"
@@ -163,7 +163,7 @@
 												btnClasses="!p-1"
 												variant="default"
 												startIcon={{ icon: X }}
-												on:click={() => {
+												onclick={() => {
 													deletePastChat(chat.id)
 												}}
 											/>
@@ -177,7 +177,7 @@
 			</Popover>
 			<Button
 				title="New chat"
-				on:click={() => {
+				onclick={() => {
 					saveAndClear()
 				}}
 				size="md"
@@ -232,7 +232,7 @@
 					size="xs"
 					variant="default"
 					btnClasses="bg-surface hover:bg-surface-selected"
-					on:click={() => {
+					onclick={() => {
 						cancel()
 					}}
 				>
@@ -376,7 +376,7 @@
 				<div class="flex flex-col gap-2">
 					{#each suggestions as suggestion}
 						<Button
-							on:click={() => submitSuggestion(suggestion)}
+							onclick={() => submitSuggestion(suggestion)}
 							size="xs2"
 							color="light"
 							btnClasses="whitespace-normal text-center font-normal"

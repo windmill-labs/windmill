@@ -730,10 +730,10 @@
 	open={leaveWorkspaceModal}
 	title="Leave workspace"
 	confirmationText="Leave workspace"
-	on:canceled={() => {
+	oncanceled={() => {
 		leaveWorkspaceModal = false
 	}}
-	on:confirmed={() => {
+	onconfirmed={() => {
 		leaveWorkspace()
 	}}
 >
@@ -747,10 +747,10 @@
 		open={deleteWorkspaceForkModal}
 		title="Delete forked workspace"
 		confirmationText="Remove"
-		on:canceled={() => {
+		oncanceled={() => {
 			deleteWorkspaceForkModal = false
 		}}
-		on:confirmed={() => {
+		onconfirmed={() => {
 			deleteFork()
 		}}
 	>

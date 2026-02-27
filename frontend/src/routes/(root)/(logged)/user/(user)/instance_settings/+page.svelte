@@ -620,11 +620,11 @@
 		open={showLicenseKeyWarning}
 		title="License key required"
 		confirmationText="Continue without license key"
-		on:canceled={() => {
+		oncanceled={() => {
 			showLicenseKeyWarning = false
 			pendingNextCallback = undefined
 		}}
-		on:confirmed={() => {
+		onconfirmed={() => {
 			showLicenseKeyWarning = false
 			const cb = pendingNextCallback
 			pendingNextCallback = undefined

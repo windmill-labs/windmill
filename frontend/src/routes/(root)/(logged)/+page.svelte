@@ -132,7 +132,7 @@
 </script>
 
 <Drawer bind:this={codeViewer} size="900px">
-	<DrawerContent title={codeViewerObj?.summary ?? ''} on:close={codeViewer.closeDrawer}>
+	<DrawerContent title={codeViewerObj?.summary ?? ''} onclose={codeViewer.closeDrawer}>
 		{#snippet actions()}
 			<Button
 				href="{$hubBaseUrlStore}/scripts/{codeViewerObj?.app ?? ''}/{codeViewerObj?.ask_id ?? 0}"
@@ -168,7 +168,7 @@
 </Drawer>
 
 <Drawer bind:this={flowViewer} size="1200px">
-	<DrawerContent title="Hub flow" on:close={flowViewer.closeDrawer}>
+	<DrawerContent title="Hub flow" onclose={flowViewer.closeDrawer}>
 		{#snippet actions()}
 			<Button
 				href="{$hubBaseUrlStore}/flows/{flowViewerFlow?.flow?.id}"
@@ -210,7 +210,7 @@
 </Drawer>
 
 <Drawer bind:this={appViewer} size="1200px">
-	<DrawerContent title="Hub app" on:close={appViewer.closeDrawer}>
+	<DrawerContent title="Hub app" onclose={appViewer.closeDrawer}>
 		{#snippet actions()}
 			<Button
 				href="{$hubBaseUrlStore}/apps/{appViewerApp?.app?.id}"
@@ -311,7 +311,7 @@
 					{#snippet toggleKinds()}
 						<ToggleButtonGroup
 							bind:selected={subtab}
-							onSelected={(v) => {
+							onselected={(v) => {
 								setQuery(page.url, 'kind', v, window.location.hash)
 							}}
 							noWFull
@@ -345,19 +345,19 @@
 					{/snippet}
 
 					{#if subtab == 'script'}
-						<PickHubScript syncQuery bind:filter on:pick={(e) => viewCode(e.detail)}>
+						<PickHubScript syncQuery bind:filter onpick={(e) => viewCode(e)}>
 							{#snippet children()}
 								{@render toggleKinds?.()}
 							{/snippet}
 						</PickHubScript>
 					{:else if subtab == 'flow'}
-						<PickHubFlow syncQuery bind:filter on:pick={(e) => viewFlow(e.detail)}>
+						<PickHubFlow syncQuery bind:filter onpick={(e) => viewFlow(e)}>
 							{#snippet children()}
 								{@render toggleKinds?.()}
 							{/snippet}
 						</PickHubFlow>
 					{:else if subtab == 'app'}
-						<PickHubApp syncQuery bind:filter on:pick={(e) => viewApp(e.detail)}>
+						<PickHubApp syncQuery bind:filter onpick={(e) => viewApp(e)}>
 							{#snippet children()}
 								{@render toggleKinds?.()}
 							{/snippet}

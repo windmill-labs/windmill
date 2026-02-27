@@ -34,6 +34,7 @@
 		onchange?: (...args: any[]) => any
 		onclick?: (...args: any[]) => any
 		onfocus?: (...args: any[]) => any
+		onpointerdown?: (...args: any[]) => any
 	}
 
 	let {

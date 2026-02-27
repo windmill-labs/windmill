@@ -319,7 +319,7 @@
 					<Button
 						variant="default"
 						startIcon={{ icon, classes: 'h-4' }}
-						on:click={() => storeRedirect(type)}
+						onclick={() => storeRedirect(type)}
 					>
 						{logins.find((login) => login.type === type)?.displayName}
 					</Button>
@@ -329,7 +329,7 @@
 				<Button
 					variant="default"
 					btnClasses="mt-2 w-full"
-					on:click={() => storeRedirect(login.type)}
+					onclick={() => storeRedirect(login.type)}
 				>
 					{login.displayName}
 				</Button>
@@ -339,7 +339,7 @@
 			<Button
 				variant="default"
 				btnClasses="mt-2 w-full"
-				on:click={() => {
+				onclick={() => {
 					if (saml) {
 						window.location.href = saml
 					} else {
@@ -356,7 +356,7 @@
 			<Button
 				size="xs"
 				variant="subtle"
-				on:click={() => {
+				onclick={() => {
 					showPassword = !showPassword
 				}}
 			>

@@ -270,7 +270,7 @@
 									startIcon={{ icon: X }}
 									wrapperClasses="w-fit ml-2"
 									btnClasses="delete-column-btn p-0"
-									on:click={() => values.columns.splice(i, 1)}
+									onclick={() => values.columns.splice(i, 1)}
 								/>
 							</Cell>
 						</tr>
@@ -281,7 +281,7 @@
 								wrapperClasses="mx-auto"
 								startIcon={{ icon: Plus }}
 								color="light"
-								on:click={() => addColumn({ name: '' })}
+								onclick={() => addColumn({ name: '' })}
 							>
 								Add
 							</Button>
@@ -398,7 +398,7 @@
 														startIcon={{ icon: X }}
 														wrapperClasses="w-fit ml-2"
 														btnClasses="fk-delete-btn p-0"
-														on:click={foreignKey.columns.length > 1
+														onclick={foreignKey.columns.length > 1
 															? () => foreignKey.columns.splice(columnIndex, 1)
 															: () => values.foreignKeys.splice(foreignKeyIndex, 1)}
 													/>
@@ -421,7 +421,7 @@
 									wrapperClasses="mx-auto"
 									startIcon={{ icon: Plus }}
 									color="light"
-									on:click={() =>
+									onclick={() =>
 										values.foreignKeys.push({
 											columns: [{}],
 											onDelete: 'NO ACTION',
@@ -440,7 +440,7 @@
 	<Button
 		disabled={!!errors || btnProps.current.disabled}
 		loading={btnProps.pending}
-		on:click={() => {
+		onclick={() => {
 			let preview = computePreview?.({ values })
 			askingForConfirmation = {
 				onConfirm: async () => {
@@ -469,8 +469,8 @@
 	<ConfirmationModal
 		id="db-table-editor-confirmation-modal"
 		{...askingForConfirmation ?? { confirmationText: '', title: '' }}
-		on:canceled={() => (askingForConfirmation = undefined)}
-		on:confirmed={askingForConfirmation?.onConfirm ?? (() => {})}
+		oncanceled={() => (askingForConfirmation = undefined)}
+		onconfirmed={askingForConfirmation?.onConfirm ?? (() => {})}
 	>
 		{#if askingForConfirmation?.alert}
 			<Alert title={askingForConfirmation.alert.title} type="error" class="mb-2">
@@ -483,7 +483,7 @@
 					{askingForConfirmation.codeContent}
 				</code>
 				<Button
-					on:click={() => copyToClipboard(askingForConfirmation?.codeContent)}
+					onclick={() => copyToClipboard(askingForConfirmation?.codeContent)}
 					size="xs"
 					startIcon={{ icon: ClipboardCopy }}
 					color="none"

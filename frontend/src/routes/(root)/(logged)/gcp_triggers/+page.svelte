@@ -258,10 +258,10 @@
 	title="Delete GCP Pub/Sub trigger"
 	confirmationText="Remove"
 	loading={isDeleting}
-	on:canceled={() => {
+	oncanceled={() => {
 		deleteGcpTriggerCallback = undefined
 	}}
-	on:confirmed={async () => {
+	onconfirmed={async () => {
 		if (deleteGcpTriggerCallback) {
 			isDeleting = true
 			if (deleteSubscription && deleteSubscriptionCallback) {
@@ -306,7 +306,7 @@
 			unifiedSize="md"
 			variant="accent"
 			startIcon={{ icon: Plus }}
-			on:click={() => gcpTriggerEditor?.openNew(false)}
+			onclick={() => gcpTriggerEditor?.openNew(false)}
 		>
 			New&nbsp;GCP Pub/Sub trigger
 		</Button>
@@ -453,7 +453,7 @@
 							<div class="flex gap-2 items-center justify-end">
 								{#if delivery_type === 'push'}
 									<Button
-										on:click={() =>
+										onclick={() =>
 											copyToClipboard(getHttpRoute('gcp/w', path, true, workspace_id))}
 										variant="subtle"
 										size="xs"
@@ -463,7 +463,7 @@
 									</Button>
 								{/if}
 								<Button
-									on:click={() => gcpTriggerEditor?.openEdit(path, is_flow)}
+									onclick={() => gcpTriggerEditor?.openEdit(path, is_flow)}
 									size="xs"
 									startIcon={canWrite
 										? { icon: Pen }
@@ -587,7 +587,7 @@
 
 <ShareModal
 	bind:this={shareModal}
-	on:change={() => {
+	onchange={() => {
 		loadTriggers()
 	}}
 />

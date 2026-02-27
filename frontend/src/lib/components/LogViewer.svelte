@@ -239,7 +239,7 @@
 </script>
 
 <Drawer bind:this={logViewer} bind:open={drawerOpen} size="900px">
-	<DrawerContent title="Expanded Logs" on:close={logViewer.closeDrawer}>
+	<DrawerContent title="Expanded Logs" onclose={logViewer.closeDrawer}>
 		{#snippet actions()}
 			{#if jobId && download}
 				<Button
@@ -256,7 +256,7 @@
 			{/if}
 
 			<Button
-				on:click={() => copyToClipboard(content)}
+				onclick={() => copyToClipboard(content)}
 				color="light"
 				size="xs"
 				startIcon={{

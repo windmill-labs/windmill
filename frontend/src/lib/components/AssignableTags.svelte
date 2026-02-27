@@ -10,9 +10,11 @@
 		placement?: 'bottom-end' | 'top-end'
 		variant?: 'default' | 'accent'
 		disabled?: boolean
+		onrefresh?: (...args: any[]) => any
 	}
 
-	let { placement = 'bottom-end', variant = 'default', disabled = false }: Props = $props()
+	let { placement = 'bottom-end', variant = 'default', disabled = false,
+		onrefresh = undefined }: Props = $props()
 </script>
 
 <Popover
@@ -34,6 +36,6 @@
 		</Button>
 	{/snippet}
 	{#snippet content()}
-		<AssignableTagsInner on:refresh />
+		<AssignableTagsInner onrefresh={onrefresh} />
 	{/snippet}
 </Popover>

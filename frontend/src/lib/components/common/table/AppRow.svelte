@@ -73,7 +73,7 @@
 
 {#if menuOpen}
 	{#await import('$lib/components/apps/editor/AppJsonEditor.svelte') then Module}
-		<Module.default on:change bind:this={appExport} />
+		<Module.default onchange={onchange} bind:this={appExport} />
 	{/await}
 	<AppDeploymentHistory bind:this={appDeploymentHistory} appPath={app.path} />
 {/if}

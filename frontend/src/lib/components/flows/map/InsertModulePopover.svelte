@@ -12,6 +12,10 @@
 		disableAi?: boolean
 		trigger: import('svelte').Snippet
 		gutter?: number
+		oninsert?: (...args: any[]) => any
+		onnew?: (...args: any[]) => any
+		onpickFlow?: (...args: any[]) => any
+		onpickScript?: (...args: any[]) => any
 	}
 
 	let {
@@ -20,7 +24,11 @@
 		disableAi = false,
 		trigger: triggerSnippet,
 		allowTrigger = false,
-		gutter = 0
+		gutter = 0,
+		oninsert = undefined,
+		onnew = undefined,
+		onpickFlow = undefined,
+		onpickScript = undefined
 	}: Props = $props()
 
 	let popover: Popover
@@ -51,11 +59,11 @@
 	{/snippet}
 	{#snippet content({ close })}
 		<InsertModuleInner
-			on:close={() => close()}
-			on:insert
-			on:new
-			on:pickFlow
-			on:pickScript
+			onclose={() => close()}
+			oninsert={oninsert}
+			onnew={onnew}
+			onpickFlow={onpickFlow}
+			onpickScript={onpickScript}
 			{allowTrigger}
 			{kind}
 			{disableAi}

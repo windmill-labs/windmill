@@ -67,7 +67,7 @@
 	{color}
 	size="xs"
 	checked={toggleState}
-	on:change={toggleErrorHandler}
+	onchange={toggleErrorHandler}
 	options={{
 		right: 'Mute',
 		rightTooltip: 'Disable workspace error handler, EE only',

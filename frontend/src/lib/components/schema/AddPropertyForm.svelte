@@ -4,6 +4,13 @@
 	import { Plus } from 'lucide-svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 
+	interface Props {
+		onadd?: (...args: any[]) => any
+	}
+
+	let {}: Props = $props()
+
+
 	let name: string = $state('')
 
 	const dispatch = createEventDispatcher()
@@ -29,7 +36,7 @@
 		size="xs"
 		startIcon={{ icon: Plus }}
 		id="flow-editor-add-property"
-		on:click={addField}
+		onclick={addField}
 		disabled={!name}
 	>
 		Add field

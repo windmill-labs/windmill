@@ -25,7 +25,7 @@
 </script>
 
 <Drawer bind:this={drawer} size="900px">
-	<DrawerContent title="Deploy {initialPath}" on:close={drawer.closeDrawer}>
+	<DrawerContent title="Deploy {initialPath}" onclose={drawer.closeDrawer}>
 		{#if (kind != 'trigger' && kind != undefined && initialPath != undefined) || (kind === 'trigger' && initialPath != undefined && additionalInformation?.triggers != undefined)}
 			<DeployWorkspace
 				hideButton={false}
@@ -41,7 +41,7 @@
 		{#snippet actions()}
 			<Button
 				disabled={workspaceToDeployTo == undefined || !canDeployToWorkspace}
-				on:click={() => deployWorkspace?.deployAll()}>Deploy All</Button
+				onclick={() => deployWorkspace?.deployAll()}>Deploy All</Button
 			>
 		{/snippet}
 	</DrawerContent>

@@ -546,7 +546,7 @@
 										</Menubar>
 										<MenuButton
 											stopPropagationOnClick={true}
-											on:click={() => openSearchModal()}
+											onclick={() => openSearchModal()}
 											isCollapsed={false}
 											icon={Search}
 											label="Search"
@@ -555,7 +555,7 @@
 										/>
 										<MenuButton
 											stopPropagationOnClick={true}
-											on:click={() => aiChatManager.toggleOpen()}
+											onclick={() => aiChatManager.toggleOpen()}
 											isCollapsed={false}
 											icon={WandSparkles}
 											iconProps={{
@@ -625,7 +625,7 @@
 								</Menubar>
 								<MenuButton
 									stopPropagationOnClick={true}
-									on:click={() => openSearchModal()}
+									onclick={() => openSearchModal()}
 									{isCollapsed}
 									icon={Search}
 									label="Search"
@@ -634,7 +634,7 @@
 								/>
 								<MenuButton
 									stopPropagationOnClick={true}
-									on:click={() => aiChatManager.toggleOpen()}
+									onclick={() => aiChatManager.toggleOpen()}
 									{isCollapsed}
 									icon={WandSparkles}
 									iconProps={{
@@ -738,7 +738,7 @@
 								</Menubar>
 								<MenuButton
 									stopPropagationOnClick={true}
-									on:click={() => openSearchModal()}
+									onclick={() => openSearchModal()}
 									{isCollapsed}
 									icon={Search}
 									label="Search"
@@ -747,7 +747,7 @@
 								/>
 								<MenuButton
 									stopPropagationOnClick={true}
-									on:click={() => aiChatManager.toggleOpen()}
+									onclick={() => aiChatManager.toggleOpen()}
 									{isCollapsed}
 									icon={WandSparkles}
 									iconProps={{

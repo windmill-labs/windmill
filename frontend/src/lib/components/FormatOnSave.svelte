@@ -11,7 +11,7 @@
 <Toggle
 	size="xs"
 	bind:checked={$formatOnSave}
-	on:change={() => {
+	onchange={() => {
 		storeSetting()
 	}}
 	options={{ right: 'auto-formatting' }}

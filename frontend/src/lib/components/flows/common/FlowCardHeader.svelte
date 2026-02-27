@@ -115,7 +115,7 @@
 							title="Report an issue with this hub script"
 							unifiedSize="sm"
 							variant="subtle"
-							on:click={() => {
+							onclick={() => {
 								const targetHubBaseUrl =
 									Number(hubVersionId) < PRIVATE_HUB_MIN_VERSION
 										? DEFAULT_HUB_BASE_URL
@@ -135,7 +135,7 @@
 							<Button
 								size="xs"
 								variant="default"
-								on:click={() => {
+								onclick={() => {
 									if (flowModuleValue.type == 'script') {
 										dispatch('setHash', latestHash)
 										onsetHash?.(latestHash)
@@ -150,7 +150,7 @@
 							size="xs"
 							btnClasses="text-primary inline-flex gap-1 items-center"
 							color="light"
-							on:click={() => {
+							onclick={() => {
 								if (flowModuleValue.type == 'script') {
 									dispatch('setHash', undefined)
 									onsetHash?.(undefined)
@@ -163,7 +163,7 @@
 								title="Lock hash to always use this specific version"
 								unifiedSize="sm"
 								variant="default"
-								on:click={() => {
+								onclick={() => {
 									if (flowModuleValue.type == 'script') {
 										dispatch('setHash', latestHash)
 										onsetHash?.(latestHash)
@@ -174,7 +174,7 @@
 								title="Reload latest hash"
 								unifiedSize="sm"
 								variant="default"
-								on:click={() => (dispatch('reload'), onreload?.())}
+								onclick={() => (dispatch('reload'), onreload?.())}
 								startIcon={{ icon: RefreshCw }}
 								iconOnly
 							/>

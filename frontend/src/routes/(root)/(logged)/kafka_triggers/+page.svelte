@@ -270,7 +270,7 @@
 				unifiedSize="md"
 				variant="accent"
 				startIcon={{ icon: Plus }}
-				on:click={() => kafkaTriggerEditor?.openNew(false)}
+				onclick={() => kafkaTriggerEditor?.openNew(false)}
 			>
 				New&nbsp;Kafka trigger
 			</Button>
@@ -422,7 +422,7 @@
 
 								<div class="flex gap-2 items-center justify-end">
 									<Button
-										on:click={() => kafkaTriggerEditor?.openEdit(path, is_flow)}
+										onclick={() => kafkaTriggerEditor?.openEdit(path, is_flow)}
 										unifiedSize="md"
 										startIcon={canWrite
 											? { icon: Pen }
@@ -531,7 +531,7 @@
 
 <ShareModal
 	bind:this={shareModal}
-	on:change={() => {
+	onchange={() => {
 		loadTriggers()
 	}}
 />

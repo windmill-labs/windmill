@@ -66,7 +66,7 @@
 			<span class="text-xs font-normal text-primary">No color set</span>
 		{/if}
 		<Button
-			on:click={() => {
+			onclick={() => {
 				open = true
 			}}
 			unifiedSize="sm"
@@ -94,7 +94,7 @@
 					bind:value={editingColor}
 					disabled={!colorEnabled}
 				/>
-				<Button on:click={generateRandomColor} size="xs" disabled={!colorEnabled}>Random</Button>
+				<Button onclick={generateRandomColor} size="xs" disabled={!colorEnabled}>Random</Button>
 			</div>
 		</label>
 	</div>
@@ -103,7 +103,7 @@
 		<Button
 			size="sm"
 			variant="accent"
-			on:click={() => {
+			onclick={() => {
 				changeWorkspaceColor()
 			}}
 		>

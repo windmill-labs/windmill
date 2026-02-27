@@ -270,10 +270,10 @@
 			listInputs.set(id, inputOutput)
 		}
 	}}
-	on:done={() => {
+	ondone={() => {
 		onDone?.()
 	}}
-	on:doneError={() => {
+	ondoneError={() => {
 		onDone?.()
 	}}
 	refreshOnStart={resolvedConfig.triggerOnAppLoad}
@@ -291,7 +291,7 @@
 					: undefined}
 			>
 				<Button
-					on:pointerdown={(e) => e.stopPropagation()}
+					onpointerdown={(e) => e.stopPropagation()}
 					btnClasses={twMerge(
 						css?.button?.class ?? '',
 						isMenuItem ? 'flex items-center justify-start' : '',
@@ -310,7 +310,7 @@
 					)}
 					wrapperStyle={css?.container?.style}
 					disabled={resolvedConfig.disabled}
-					on:click={handleClick}
+					onclick={handleClick}
 					extendedSize={resolvedConfig.size}
 					color={resolvedConfig.color}
 					loading={resolvedConfig.runInBackground ? backgroundClickFeedback : loading}
@@ -353,10 +353,10 @@
 			title={resolvedConfig?.confirmationModal?.configuration?.confirmationModal?.title ?? ''}
 			confirmationText={resolvedConfig?.confirmationModal?.configuration?.confirmationModal
 				?.confirmationText ?? ''}
-			on:canceled={() => {
+			oncanceled={() => {
 				confirmedCallback = undefined
 			}}
-			on:confirmed={() => {
+			onconfirmed={() => {
 				if (confirmedCallback) {
 					confirmedCallback()
 				}

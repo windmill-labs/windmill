@@ -15,6 +15,11 @@
 		captureInfo?: CaptureInfo | undefined
 		hasPreprocessor?: boolean
 		captureLoading?: boolean
+		oncaptureToggle?: (...args: any[]) => any
+		onapplyArgs?: (...args: any[]) => any
+		onupdateSchema?: (...args: any[]) => any
+		onaddPreprocessor?: (...args: any[]) => any
+		ontestWithArgs?: (...args: any[]) => any
 	}
 
 	let {
@@ -23,7 +28,12 @@
 		runnableArgs,
 		captureInfo = undefined,
 		hasPreprocessor = false,
-		captureLoading = false
+		captureLoading = false,
+		oncaptureToggle = undefined,
+		onapplyArgs = undefined,
+		onupdateSchema = undefined,
+		onaddPreprocessor = undefined,
+		ontestWithArgs = undefined
 	}: Props = $props()
 
 	let cleanedRunnableArgs = $derived(
@@ -50,13 +60,13 @@
 	<CaptureSection
 		{captureInfo}
 		disabled={false}
-		on:captureToggle
+		oncaptureToggle={oncaptureToggle}
 		captureType="webhook"
 		{captureLoading}
-		on:applyArgs
-		on:updateSchema
-		on:addPreprocessor
-		on:testWithArgs
+		onapplyArgs={onapplyArgs}
+		onupdateSchema={onupdateSchema}
+		onaddPreprocessor={onaddPreprocessor}
+		ontestWithArgs={ontestWithArgs}
 		{isFlow}
 		{hasPreprocessor}
 	>

@@ -323,7 +323,7 @@
 			<span class="text-xs absolute font-semibold text-emphasis -top-4">Scope</span>
 			<ToggleButtonGroup
 				selected={scope ?? 'admins'}
-				onSelected={(detail) => {
+				onselected={(detail) => {
 					scope = detail === 'admins' ? undefined : detail
 				}}
 			>

@@ -190,13 +190,13 @@
 </script>
 
 <RecomputeAllButton
-	on:click={() => onRefresh(false, 'button')}
+	onclick={() => onRefresh(false, 'button')}
 	interval={$recomputeAllContext.interval}
 	{refreshing}
 	componentNumber={$recomputeAllContext.componentNumber ?? 0}
 	loading={$recomputeAllContext.loading}
 	progress={$recomputeAllContext.progress}
-	on:setInter={(e) => {
+	onsetInter={(e) => {
 		setInter(e.detail, 'button setInter')
 		onRefresh(false, 'button setInter')
 	}}

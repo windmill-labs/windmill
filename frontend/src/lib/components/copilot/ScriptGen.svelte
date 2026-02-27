@@ -311,7 +311,7 @@
 				btnClasses="!font-medium px-2 w-7"
 				unifiedSize="md"
 				destructive
-				on:click={rejectDiff}
+				onclick={rejectDiff}
 				variant="accent"
 				startIcon={{ icon: X }}
 				iconOnly
@@ -322,7 +322,7 @@
 				btnClasses="!font-medium px-2 w-7"
 				unifiedSize="md"
 				variant="accent"
-				on:click={acceptDiff}
+				onclick={acceptDiff}
 				iconOnly
 				startIcon={{ icon: Check }}
 				{...btnProps}
@@ -335,7 +335,7 @@
 				btnClasses="!font-medium px-2"
 				unifiedSize="md"
 				destructive
-				on:click={rejectDiff}
+				onclick={rejectDiff}
 				variant="accent"
 				startIcon={{ icon: X }}
 				{...btnProps}
@@ -346,7 +346,7 @@
 				btnClasses="!font-medium px-2"
 				unifiedSize="md"
 				variant="accent"
-				on:click={acceptDiff}
+				onclick={acceptDiff}
 				startIcon={{ icon: Check }}
 				{...btnProps}
 			>
@@ -373,7 +373,7 @@
 					color={genLoading ? 'red' : 'light'}
 					btnClasses={twMerge(genLoading ? '!px-3 z-[5000]' : '!px-2')}
 					propagateEvent={!genLoading}
-					on:click={genLoading ? () => abortController?.abort() : handleAiButtonClick}
+					onclick={genLoading ? () => abortController?.abort() : handleAiButtonClick}
 					bind:element={button}
 					iconOnly
 					title="Generate code from prompt"
@@ -389,7 +389,7 @@
 					spacingSize="md"
 					startIcon={genLoading ? { icon: Ban } : { icon: Wand2 }}
 					propagateEvent={!genLoading}
-					on:click={genLoading ? () => abortController?.abort() : handleAiButtonClick}
+					onclick={genLoading ? () => abortController?.abort() : handleAiButtonClick}
 					bind:element={button}
 					{...btnProps}
 				>
@@ -449,7 +449,7 @@
 								btnClasses="!h-[34px] qhd:!h-[38px] !ml-2 text-ai bg-violet-100 dark:bg-gray-700"
 								title="Generate code from prompt"
 								aria-label="Generate"
-								on:click={() => {
+								onclick={() => {
 									onGenerate(() => close())
 								}}
 								disabled={trimmedDesc.length <= 0}
@@ -465,7 +465,7 @@
 										color="light"
 										btnClasses="justify-start overflow-x-scroll no-scrollbar"
 										startIcon={{ icon: HistoryIcon, classes: 'shrink-0' }}
-										on:click={() => {
+										onclick={() => {
 											funcDesc = p
 											setTimeout(() => {
 												autoResize()
@@ -507,7 +507,7 @@
 									<ToggleButtonGroup
 										class="w-auto shrink-0"
 										selected={dbSchema?.publicOnly ? 'true' : 'false'}
-										on:selected={handlePublicOnlySelected}
+										onselected={handlePublicOnlySelected}
 									>
 										{#snippet children({ item })}
 											<ToggleButton

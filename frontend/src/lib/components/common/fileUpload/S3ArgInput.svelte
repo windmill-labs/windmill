@@ -76,14 +76,14 @@
 		{:then Module}
 			<Module.default
 				bind:editor
-				on:focus={(e) => {
+				onfocus={(e) => {
 					onFocus()
 				}}
-				on:blur={(e) => {
+				onblur={(e) => {
 					onBlur()
 				}}
 				code={JSON.stringify(value ?? defaultValue ?? (multiple ? [] : { s3: '' }), null, 2)}
-				on:changeValue={(e) => {
+				onchangeValue={(e) => {
 					setNewValueFromCode(e.detail)
 				}}
 			/>
@@ -96,7 +96,7 @@
 			{workspace}
 			allowMultiple={multiple}
 			randomFileKey={true}
-			on:addition={(evt) => {
+			onaddition={(evt) => {
 				const s3Object = {
 					s3: evt.detail?.path ?? '',
 					filename: evt.detail?.filename ?? ''
@@ -111,7 +111,7 @@
 					value = s3Object
 				}
 			}}
-			on:deletion={(evt) => {
+			ondeletion={(evt) => {
 				if (multiple) {
 					if (Array.isArray(value)) {
 						value = value.filter((v) => v.s3 !== evt.detail?.path)
@@ -131,7 +131,7 @@
 			variant="default"
 			size="xs"
 			btnClasses="mt-1 font-normal text-primary"
-			on:click={() => {
+			onclick={() => {
 				s3FilePicker?.open?.(value)
 			}}
 			startIcon={{ icon: Pipette }}

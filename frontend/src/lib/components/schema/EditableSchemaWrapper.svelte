@@ -113,7 +113,7 @@
 			bind:this={editableSchemaForm}
 			bind:schema
 			isFlowInput
-			on:delete={(e) => {
+			ondelete={(e) => {
 				addPropertyComponent?.handleDeleteArgument([e.detail])
 			}}
 			{uiOnly}
@@ -177,7 +177,7 @@
 {/if}
 <ToggleButtonGroup
 	selected={resourceMode}
-	onSelected={(mode) => switchResourceMode(mode)}
+	onselected={(mode) => switchResourceMode(mode)}
 >
 	{#snippet children({ item })}
 		<ToggleButton value="schema" label="JSON" {item} size="sm" />

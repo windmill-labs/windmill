@@ -145,7 +145,7 @@
 							{extraResults}
 							{flow_input}
 							allowCopy={!notSelectable && !$propPickerConfig}
-							on:select={({ detail }) => {
+							onselect={(detail) => {
 								dispatch('select', detail)
 								onselect?.(detail)
 								if ($propPickerConfig?.onSelect(detail)) {
@@ -163,7 +163,7 @@
 							previousId={pickableProperties?.previousId}
 							{pickableProperties}
 							allowCopy={!notSelectable && !$propPickerConfig}
-							on:select={({ detail }) => {
+							onselect={(detail) => {
 								// console.log('selecting', detail)
 								dispatch('select', detail)
 								onselect?.(detail)

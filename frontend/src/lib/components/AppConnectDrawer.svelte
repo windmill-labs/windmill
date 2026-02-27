@@ -9,9 +9,11 @@
 	interface Props {
 		expressOAuthSetup?: boolean
 		onclose?: (...args: any[]) => any
+		onrefresh?: (...args: any[]) => any
 	}
 
-	let { expressOAuthSetup = false, onclose = undefined }: Props = $props()
+	let { expressOAuthSetup = false, onclose = undefined,
+		onrefresh = undefined }: Props = $props()
 
 	let drawer: Drawer | undefined = $state()
 	let resourceType = $state('')
@@ -44,7 +46,7 @@
 
 <Drawer
 	bind:this={drawer}
-	on:close={() => {
+	onclose={() => {
 		step = 1
 		dispatch('close')
 		onclose?.()
@@ -54,7 +56,7 @@
 	<DrawerContent
 		title="Add a resource"
 		id="add-resource-drawer"
-		on:close={drawer.closeDrawer}
+		onclose={drawer.closeDrawer}
 		tooltip="Resources represent connections to third party systems. Learn more on how to integrate external APIs."
 		documentationLink="https://www.windmill.dev/docs/integrations/integrations_on_windmill"
 	>
@@ -65,14 +67,14 @@
 			bind:isGoogleSignin
 			bind:disabled
 			bind:manual
-			on:close={drawer?.closeDrawer}
-			on:refresh
+			onclose={drawer?.closeDrawer}
+			onrefresh={onrefresh}
 			express={expressOAuthSetup}
 		/>
 		{#snippet actions()}
 			<div class="flex gap-1">
 				{#if step > 1}
-					<Button variant="default" on:click={appConnectInner?.back ?? (() => {})}>Back</Button>
+					<Button variant="default" onclick={appConnectInner?.back ?? (() => {})}>Back</Button>
 				{/if}
 				{#if isGoogleSignin}
 					<button {disabled} onclick={appConnectInner?.next}>
@@ -83,7 +85,7 @@
 						/>
 					</button>
 				{:else}
-					<Button variant="accent" {disabled} on:click={appConnectInner?.next ?? (() => {})}>
+					<Button variant="accent" {disabled} onclick={appConnectInner?.next ?? (() => {})}>
 						{#if step == 2 && !manual}
 							Connect
 						{:else if step == 1}

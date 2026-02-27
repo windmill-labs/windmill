@@ -54,8 +54,8 @@
 	}
 </script>
 
-<Drawer bind:this={drawer} size="900px" on:close={removeHash} {disableChatOffset}>
-	<DrawerContent title="User settings" on:close={closeDrawer}>
+<Drawer bind:this={drawer} size="900px" onclose={removeHash} {disableChatOffset}>
+	<DrawerContent title="User settings" onclose={closeDrawer}>
 		<div class="flex flex-col gap-6 pb-8">
 			{#if scopes == undefined}
 				<div

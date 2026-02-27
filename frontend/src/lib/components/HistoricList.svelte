@@ -13,6 +13,8 @@
 		placement?: 'bottom-start' | 'top-start' | 'bottom-end' | 'top-end'
 		limitPayloadSize?: boolean
 		searchArgs?: Record<string, any> | undefined
+		onerror?: (...args: any[]) => any
+		onselect?: (...args: any[]) => any
 	}
 
 	let {
@@ -22,7 +24,9 @@
 		showAuthor = false,
 		placement = 'bottom-start',
 		limitPayloadSize = false,
-		searchArgs = undefined
+		searchArgs = undefined,
+		onerror = undefined,
+		onselect = undefined
 	}: Props = $props()
 
 	let infiniteList: InfiniteList | undefined = $state(undefined)
@@ -118,7 +122,7 @@
 	})
 </script>
 
-<InfiniteList bind:this={infiniteList} selectedItemId={selected} on:error on:select>
+<InfiniteList bind:this={infiniteList} selectedItemId={selected} onerror={onerror} onselect={onselect}>
 	{#snippet columns()}
 		<colgroup>
 			<col class="w-8" />

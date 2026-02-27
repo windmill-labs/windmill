@@ -263,7 +263,7 @@
 			bind:this={editor}
 			code={initialCode}
 			lang="json"
-			on:change={(e) => {
+			onchange={(e) => {
 				updateFromCode(e.detail.code)
 			}}
 		/>
@@ -296,7 +296,7 @@
 				<Pane size={67}>
 					<FlowEditorPanel
 						noEditor
-						on:applyArgs={(ev) => {
+						onapplyArgs={(ev) => {
 							if (ev.detail.kind === 'preprocessor') {
 								stepsInputArgs.setStepArgs('preprocessor', ev.detail.args ?? {})
 								selectionManager.selectId('preprocessor')

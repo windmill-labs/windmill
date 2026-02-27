@@ -568,10 +568,10 @@
 	open={Boolean(deleteConfirmedCallback)}
 	title="Remove resource"
 	confirmationText="Remove"
-	on:canceled={() => {
+	oncanceled={() => {
 		deleteConfirmedCallback = undefined
 	}}
-	on:confirmed={() => {
+	onconfirmed={() => {
 		if (deleteConfirmedCallback) {
 			deleteConfirmedCallback()
 		}
@@ -593,7 +593,7 @@
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 
 <Drawer bind:this={inferrer} size="800px">
-	<DrawerContent title="Infer type from JSON" on:close={() => inferrer?.toggleDrawer?.()}>
+	<DrawerContent title="Infer type from JSON" onclose={() => inferrer?.toggleDrawer?.()}>
 		<SimpleEditor
 			bind:code={inferrerJson}
 			lang="json"
@@ -601,13 +601,13 @@
 			fixedOverflowWidgets={false}
 		/>
 		{#snippet actions()}
-			<Button size="sm" on:click={inferJson}>Infer</Button>
+			<Button size="sm" onclick={inferJson}>Infer</Button>
 		{/snippet}
 	</DrawerContent>
 </Drawer>
 
 <Drawer bind:this={resourceTypeViewer} size="800px">
-	<DrawerContent title={resourceTypeViewerObj.rt} on:close={resourceTypeViewer.closeDrawer}>
+	<DrawerContent title={resourceTypeViewerObj.rt} onclose={resourceTypeViewer.closeDrawer}>
 		<div>
 			<h1 class="mb-8 mt-4"
 				><IconedResourceType
@@ -644,11 +644,11 @@
 </Drawer>
 
 <Drawer bind:this={editResourceTypeDrawer} size="800px">
-	<DrawerContent title="Edit resource type" on:close={editResourceTypeDrawer.closeDrawer}>
+	<DrawerContent title="Edit resource type" onclose={editResourceTypeDrawer.closeDrawer}>
 		{#snippet actions()}
 			<Button
 				startIcon={{ icon: Save }}
-				on:click={updateResourceType}
+				onclick={updateResourceType}
 				unifiedSize="md"
 				variant="accent">Update</Button
 			>
@@ -702,13 +702,13 @@
 </Drawer>
 
 <Drawer bind:this={resourceTypeDrawer} size="1200px">
-	<DrawerContent title="Create resource type" on:close={resourceTypeDrawer.closeDrawer}>
+	<DrawerContent title="Create resource type" onclose={resourceTypeDrawer.closeDrawer}>
 		{#snippet actions()}
 			<Button
 				unifiedSize="md"
 				variant="accent"
 				startIcon={{ icon: Save }}
-				on:click={addResourceType}
+				onclick={addResourceType}
 				disabled={!isNewResourceTypeNameValid || resourceTypeNameExists}>Save</Button
 			>
 		{/snippet}
@@ -770,7 +770,7 @@
 					<div class="font-semibold text-emphasis text-xs">Schema</div>
 					<div class="w-full flex flex-row-reverse">
 						<Button
-							on:click={openInferrer}
+							onclick={openInferrer}
 							unifiedSize="md"
 							variant="default"
 							startIcon={{ icon: Braces }}
@@ -811,7 +811,7 @@
 						variant="default"
 						unifiedSize="md"
 						startIcon={{ icon: Plus }}
-						on:click={startNewType}
+						onclick={startNewType}
 						aiId="resources-add-resource-type"
 						aiDescription="Add resource type"
 					>
@@ -821,7 +821,7 @@
 						unifiedSize="md"
 						variant="accent"
 						startIcon={{ icon: Boxes }}
-						on:click={() => appConnect?.open?.()}
+						onclick={() => appConnect?.open?.()}
 						aiId="resources-add-resource"
 						aiDescription="Add resource"
 					>
@@ -835,7 +835,7 @@
 			<Tabs
 				class="w-full"
 				bind:selected={tab}
-				on:selected={(e) => {
+				onselected={(e) => {
 					if (e.detail == 'cache') {
 						loading.resources = true
 						loadCache()
@@ -1210,7 +1210,7 @@
 														disabled={!showCreateButtons}
 														btnClasses="border-0"
 														startIcon={{ icon: Trash }}
-														on:click={() => handleDeleteResourceType(name)}
+														onclick={() => handleDeleteResourceType(name)}
 														destructive
 													>
 														Delete
@@ -1220,7 +1220,7 @@
 														color="light"
 														disabled={!showCreateButtons}
 														startIcon={{ icon: Pen }}
-														on:click={() => startEditResourceType(name)}
+														onclick={() => startEditResourceType(name)}
 													>
 														Edit
 													</Button>
@@ -1246,13 +1246,13 @@
 	</CenteredPage>
 {/if}
 
-<SupabaseConnect bind:this={supabaseConnect} on:refresh={loadResources} />
-<AppConnect bind:this={appConnect} on:refresh={loadResources} />
-<ResourceEditorDrawer bind:this={resourceEditor} on:refresh={loadResources} />
+<SupabaseConnect bind:this={supabaseConnect} onrefresh={loadResources} />
+<AppConnect bind:this={appConnect} onrefresh={loadResources} />
+<ResourceEditorDrawer bind:this={resourceEditor} onrefresh={loadResources} />
 
 <ShareModal
 	bind:this={shareModal}
-	on:change={() => {
+	onchange={() => {
 		loadResources()
 	}}
 />

@@ -231,7 +231,7 @@
 					{runnableType}
 					args={previewArgs ?? {}}
 					disabled={!previewArgs || !runnableId || !isValid || jsonView}
-					on:update={() => {
+					onupdate={() => {
 						refresh()
 					}}
 					showTooltip={true}
@@ -244,8 +244,8 @@
 			<InfiniteList
 				bind:this={infiniteList}
 				selectedItemId={selectedInput}
-				on:error={(e) => handleError(e.detail)}
-				on:select={(e) => handleSelect(e.detail)}
+				onerror={(e) => handleError(e)}
+				onselect={(e) => handleSelect(e)}
 			>
 				{#snippet columns()}
 					<colgroup>
@@ -306,7 +306,7 @@
 													size="xs"
 													options={{ right: 'shared' }}
 													checked={item.is_public}
-													on:change={(e) => {
+													onchange={(e) => {
 														updateInput({ ...item, is_public: e.detail })
 													}}
 												/>
@@ -319,7 +319,7 @@
 											variant="subtle"
 											spacingSize="xs2"
 											btnClasses={hover || openStates[item.id] ? 'block -my-2 ' : 'hidden'}
-											on:click={(e) => {
+											onclick={(e) => {
 												e.stopPropagation()
 												if (isEditing?.id === item.id) {
 													updateInput(isEditing)
@@ -339,7 +339,7 @@
 													: 'hidden'
 											)}
 											destructive
-											on:click={() => {
+											onclick={() => {
 												infiniteList?.deleteItem(item.id)
 											}}
 											startIcon={{ icon: Trash2 }}

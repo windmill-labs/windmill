@@ -136,7 +136,7 @@
 	<Button
 		variant="default"
 		unifiedSize="md"
-		on:click={() => {
+		onclick={() => {
 			renameUser().then(() => {
 				dispatch('close')
 				onclose?.()

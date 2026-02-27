@@ -512,7 +512,7 @@
 		</div>
 		{#if !multiSelectMode}
 			<Button
-				on:click={() => (dbTableEditorState = { open: true })}
+				onclick={() => (dbTableEditorState = { open: true })}
 				wrapperClasses="mx-2 my-2 text-sm"
 				startIcon={{ icon: Plus }}
 				variant={tableKeys.length === 0 ? 'accent' : 'default'}
@@ -532,19 +532,19 @@
 <Portal>
 	<ConfirmationModal
 		{...askingForConfirmation ?? { confirmationText: '', title: '' }}
-		on:canceled={() => (askingForConfirmation = undefined)}
-		on:confirmed={askingForConfirmation?.onConfirm ?? (() => {})}
+		oncanceled={() => (askingForConfirmation = undefined)}
+		onconfirmed={askingForConfirmation?.onConfirm ?? (() => {})}
 	/>
 </Portal>
 
 <Drawer
 	size="600px"
 	open={dbTableEditorState.open}
-	on:close={() => (dbTableEditorState = { open: false })}
+	onclose={() => (dbTableEditorState = { open: false })}
 >
 	<DrawerContent
 		id="db-table-editor-drawer"
-		on:close={() => (dbTableEditorState = { open: false })}
+		onclose={() => (dbTableEditorState = { open: false })}
 		title={dbTableEditorState.alterTableKey
 			? `Alter ${dbTableEditorState.alterTableKey}`
 			: 'Create a new table'}
@@ -621,13 +621,13 @@
 <Drawer
 	size="400px"
 	open={newSchemaDialogOpen}
-	on:close={() => {
+	onclose={() => {
 		newSchemaDialogOpen = false
 		newSchemaName = ''
 	}}
 >
 	<DrawerContent
-		on:close={() => {
+		onclose={() => {
 			newSchemaDialogOpen = false
 			newSchemaName = ''
 		}}
@@ -642,7 +642,7 @@
 					bind:value={newSchemaName}
 					placeholder="Enter schema name..."
 					autofocus
-					on:keydown={(e) => {
+					onkeydown={(e) => {
 						if (e.key === 'Enter' && sanitizedNewSchemaName && !schemaAlreadyExists) {
 							askingForConfirmation = {
 								confirmationText: `Create ${sanitizedNewSchemaName}`,
@@ -681,7 +681,7 @@
 			<Button
 				color="blue"
 				disabled={!sanitizedNewSchemaName || schemaAlreadyExists}
-				on:click={() => {
+				onclick={() => {
 					askingForConfirmation = {
 						confirmationText: `Create ${sanitizedNewSchemaName}`,
 						type: 'reload',

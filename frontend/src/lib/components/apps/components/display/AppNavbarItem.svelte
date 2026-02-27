@@ -163,7 +163,7 @@
 		}`}
 	>
 		<Button
-			on:click={buttonProps.onClick ?? (() => {})}
+			onclick={buttonProps.onClick ?? (() => {})}
 			href={buttonProps.href}
 			target={buttonProps.target ?? '_self'}
 			color="light"

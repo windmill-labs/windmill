@@ -41,8 +41,8 @@
 </script>
 
 <Drawer bind:this={groupDrawer}>
-	<DrawerContent title="Instance Group {editGroupName}" on:close={groupDrawer?.closeDrawer}>
-		<InstanceGroupEditor on:update={loadInstanceGroups} name={editGroupName} />
+	<DrawerContent title="Instance Group {editGroupName}" onclose={groupDrawer?.closeDrawer}>
+		<InstanceGroupEditor onupdate={loadInstanceGroups} name={editGroupName} />
 	</DrawerContent>
 </Drawer>
 
@@ -64,7 +64,7 @@
 								size="md"
 								startIcon={{ icon: Plus }}
 								disabled={!newGroupName}
-								on:click={() => {
+								onclick={() => {
 									addInstanceGroup()
 									close()
 								}}
@@ -111,7 +111,7 @@
 									><Button
 										variant="default"
 										destructive
-										on:click={async () => {
+										onclick={async () => {
 											await GroupService.deleteInstanceGroup({ name })
 											sendUserToast(`Instance group ${name} deleted`)
 											loadInstanceGroups()

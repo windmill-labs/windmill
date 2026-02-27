@@ -55,7 +55,7 @@
 						<label for="run-time"></label>
 						<DateTimeInput
 							value={scheduledForStr}
-							on:change={(e) => {
+							onchange={(e) => {
 								console.log('e.detail', e.detail)
 								scheduledForStr = e.detail
 							}}
@@ -65,7 +65,7 @@
 						variant="default"
 						size="xs"
 						btnClasses="mx-2 "
-						on:click={() => {
+						onclick={() => {
 							scheduledForStr = undefined
 						}}
 					>

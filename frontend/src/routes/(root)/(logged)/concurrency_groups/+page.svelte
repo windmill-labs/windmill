@@ -69,7 +69,7 @@
 			size="md"
 			btnClasses="w-full h-8"
 			variant="default"
-			on:click={loadConcurrencyGroupsOnce}
+			onclick={loadConcurrencyGroupsOnce}
 		>
 			<RefreshCw class={concurrencyGroupsLoading ? 'animate-spin' : ''} size="xs" />Refresh
 		</Button>
@@ -105,7 +105,7 @@
 											color="light"
 											btnClasses="justify-center w-12"
 											startIcon={{ icon: Trash, classes: 'text-red-500' }}
-											on:click={() => {
+											onclick={() => {
 												deleteConcurrencyGroup(concurrency_key)
 											}}
 											iconOnly={true}

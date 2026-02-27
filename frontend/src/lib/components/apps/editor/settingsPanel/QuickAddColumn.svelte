@@ -65,7 +65,7 @@
 	<div class="flex flex-row gap-2 items-center flex-wrap">
 		{#each remainingColumns as column}
 			<Button
-				on:click={() => (dispatch('add', column), onadd?.(column))}
+				onclick={() => (dispatch('add', column), onadd?.(column))}
 				size="xs2"
 				color="light"
 				variant="border"

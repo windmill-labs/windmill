@@ -16,7 +16,7 @@
 		those jobs will not run automatically. You can review the list of suspended jobs, and resume or
 		cancel them individually.
 		<Button
-			on:click={() => {
+			onclick={() => {
 				suspendedJobsModal?.openModal('none')
 			}}
 			variant="accent"

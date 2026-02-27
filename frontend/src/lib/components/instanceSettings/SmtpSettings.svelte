@@ -138,7 +138,7 @@
 				{disabled}
 				bind:checked={$values['smtp_settings'].smtp_disable_tls}
 				size="xs"
-				on:change={(e) => {
+				onchange={(e) => {
 					if (e.detail) {
 						$values['smtp_settings'].smtp_tls_implicit = false
 					}

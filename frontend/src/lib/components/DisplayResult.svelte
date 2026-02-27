@@ -518,7 +518,7 @@
 			<div class="text-primary text-sm">
 				<ToggleButtonGroup
 					selected={globalForceJson ? 'json' : 'pretty'}
-					on:selected={(ev) => {
+					onselected={(ev) => {
 						globalForceJson = ev.detail === 'json'
 					}}
 				>
@@ -564,7 +564,7 @@
 				>
 					{#if !hideAsJson && !['json', 's3object'].includes(resultKind ?? '') && typeof result === 'object'}<ToggleButtonGroup
 							selected={forceJson ? 'json' : resultKind?.startsWith('table-') ? 'table' : 'pretty'}
-							on:selected={(ev) => {
+							onselected={(ev) => {
 								forceJson = ev.detail === 'json'
 							}}
 						>
@@ -595,7 +595,7 @@
 							{base}
 							{result}
 							{disableTooltips}
-							on:open-drawer={() => openDrawer()}
+							onopenDrawer={() => openDrawer()}
 						/>
 					{/if}
 				</div>
@@ -651,7 +651,7 @@
 									</p>
 								</div>
 								<div class="center-center">
-									<Button unifiedSize="md" variant="default" on:click={() => (enableHtml = true)}>
+									<Button unifiedSize="md" variant="default" onclick={() => (enableHtml = true)}>
 										Enable HTML rendering
 									</Button>
 								</div>
@@ -714,7 +714,7 @@
 						>{#if !noControls && !loading}
 							<div class="flex">
 								<Button
-									on:click={() =>
+									onclick={() =>
 										copyToClipboard(typeof result === 'string' ? result : result?.['result'])}
 									variant="subtle"
 									unifiedSize="sm"
@@ -783,7 +783,7 @@
 					>
 						<Button
 							variant="accent"
-							on:click={() =>
+							onclick={() =>
 								fetch(result['resume'], {
 									method: 'POST',
 									body: JSON.stringify({}),
@@ -792,7 +792,7 @@
 						>
 							Resume</Button
 						>
-						<Button variant="default" destructive on:click={() => fetch(result['cancel'])}
+						<Button variant="default" destructive onclick={() => fetch(result['cancel'])}
 							>Cancel</Button
 						>
 						<div class="center-center"
@@ -1039,7 +1039,7 @@
 				{:else if typeof result === 'string' && result.length > 0}
 					<pre class="text-sm">{result}</pre>{#if !noControls}<div class="flex">
 							<Button
-								on:click={() => copyToClipboard(result)}
+								onclick={() => copyToClipboard(result)}
 								variant="subtle"
 								unifiedSize="sm"
 								endIcon={{ icon: ClipboardCopy }}
@@ -1060,7 +1060,7 @@
 				{#if !noControls}
 					<div class="flex">
 						<Button
-							on:click={() => copyToClipboard(result)}
+							onclick={() => copyToClipboard(result)}
 							variant="subtle"
 							unifiedSize="md"
 							endIcon={{ icon: ClipboardCopy }}
@@ -1075,7 +1075,7 @@
 
 	{#if !disableExpand && !noControls}
 		<Drawer bind:this={jsonViewer} bind:open={drawerOpen} size="900px">
-			<DrawerContent title="Expanded Result" on:close={jsonViewer.closeDrawer}>
+			<DrawerContent title="Expanded Result" onclose={jsonViewer.closeDrawer}>
 				{#snippet actions()}
 					{#if customUi?.disableDownload !== true}
 						<Button
@@ -1093,7 +1093,7 @@
 						</Button>
 					{/if}
 					<Button
-						on:click={() => copyToClipboard(toJsonStr(result))}
+						onclick={() => copyToClipboard(toJsonStr(result))}
 						variant="subtle"
 						unifiedSize="md"
 						startIcon={{

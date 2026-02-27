@@ -654,7 +654,7 @@
 			<div class="ml-auto flex gap-2">
 				{#if displayJsonToggleHeader}
 					<Toggle
-						on:change={(e) => {
+						onchange={(e) => {
 							// Once the user has changed the input type, we should not change it back automatically
 							if (!hasIsListJsonChanged) {
 								hasIsListJsonChanged = true
@@ -745,7 +745,7 @@
 		{:else if inputCat == 'boolean'}
 			<div class="w-full">
 				<Toggle
-					on:pointerdown={(e) => {
+					onpointerdown={(e) => {
 						e?.stopPropagation()
 					}}
 					{disabled}
@@ -791,7 +791,7 @@
 					editTab="inputEditor"
 					noPreview
 					addPropertyInEditorTab
-					on:delete={(e) => {
+					ondelete={(e) => {
 						// Handle property deletion
 						if (value && value.properties && value.properties[e.detail]) {
 							delete value.properties[e.detail]
@@ -926,11 +926,11 @@
 												{:else if Array.isArray(itemsType?.enum)}
 													<ArgEnum
 														create={extra['disableCreate'] != true}
-														on:focus={() => {
+														onfocus={() => {
 															dispatch('focus')
 															onfocus?.()
 														}}
-														on:blur={(e) => {
+														onblur={(e) => {
 															dispatch('blur')
 															onblur?.()
 														}}
@@ -962,11 +962,11 @@
 													{:then Module}
 														<Module.default
 															bind:editor
-															on:focus={(e) => {
+															onfocus={(e) => {
 																dispatch('focus')
 																onfocus?.()
 															}}
-															on:blur={(e) => {
+															onblur={(e) => {
 																dispatch('blur')
 																onblur?.()
 															}}
@@ -1023,7 +1023,7 @@
 							color="light"
 							size="xs"
 							wrapperClasses="w-full {Array.isArray(value) && value.length > 0 ? 'mt-1.5' : ''}"
-							on:click={() => {
+							onclick={() => {
 								if (value == undefined || !Array.isArray(value)) {
 									value = []
 								}
@@ -1053,7 +1053,7 @@
 				{#if !displayHeader}
 					<div class="block mt-2 pl-2">
 						<Toggle
-							on:change={(e) => {
+							onchange={(e) => {
 								// Once the user has changed the input type, we should not change it back automatically
 								if (!hasIsListJsonChanged) {
 									hasIsListJsonChanged = true
@@ -1098,7 +1098,7 @@
 							selected={oneOfSelected}
 							wrap
 							class="mb-4"
-							on:selected={({ detail }) => {
+							onselected={(detail) => {
 								oneOfSelected = detail
 								const selectedObjProperties =
 									oneOf?.find((o) => o.title == detail)?.properties ?? {}
@@ -1161,13 +1161,13 @@
 													? 'kind'
 													: 'label'
 											]}
-											on:reorder={(e) => {
+											onreorder={(e) => {
 												if (oneOf && oneOf[objIdx]) {
 													const keys = e.detail
 													oneOf[objIdx].order = keys
 												}
 											}}
-											on:nestedChange
+											onnestedChange={onnestedChange}
 											{shouldDispatchChanges}
 										/>
 									{:else}
@@ -1194,11 +1194,11 @@
 												}
 											}
 											{shouldDispatchChanges}
-											on:change={() => {
+											onchange={() => {
 												dispatch('nestedChange')
 												onnestedChange?.()
 											}}
-											on:nestedChange
+											onnestedChange={onnestedChange}
 										/>
 									{/if}
 								{/key}
@@ -1218,16 +1218,16 @@
 								{:then Module}
 									<Module.default
 										bind:editor
-										on:focus={(e) => {
+										onfocus={(e) => {
 											dispatch('focus')
 											onfocus?.()
 										}}
-										on:blur={(e) => {
+										onblur={(e) => {
 											dispatch('blur')
 											onblur?.()
 										}}
 										code={rawValue}
-										on:changeValue={(e) => {
+										onchangeValue={(e) => {
 											setNewValueFromCode(e.detail)
 										}}
 									/>
@@ -1242,16 +1242,16 @@
 						{:then Module}
 							<Module.default
 								bind:editor
-								on:focus={(e) => {
+								onfocus={(e) => {
 									dispatch('focus')
 									onfocus?.()
 								}}
-								on:blur={(e) => {
+								onblur={(e) => {
 									dispatch('blur')
 									onblur?.()
 								}}
 								code={rawValue}
-								on:change={(e) => {
+								onchange={(e) => {
 									value = e.detail
 								}}
 							/>
@@ -1276,20 +1276,20 @@
 								order
 							}}
 							bind:args={value}
-							on:reorder={(e) => {
+							onreorder={(e) => {
 								const keys = e.detail
 								order = keys
 							}}
 							diff={diffStatus && typeof diffStatus.diff === 'object' ? diffStatus.diff : {}}
-							on:acceptChange={(e) => {
+							onacceptChange={(e) => {
 								dispatch('acceptChange', e.detail)
 								onacceptChange?.(e.detail)
 							}}
-							on:rejectChange={(e) => {
+							onrejectChange={(e) => {
 								dispatch('rejectChange', e.detail)
 								onrejectChange?.(e.detail)
 							}}
-							on:nestedChange
+							onnestedChange={onnestedChange}
 							nestedParent={{ label, nestedParent }}
 							{shouldDispatchChanges}
 						/>
@@ -1311,19 +1311,19 @@
 							bind:args={value}
 							diff={diffStatus && typeof diffStatus.diff === 'object' ? diffStatus.diff : {}}
 							nestedParent={{ label, nestedParent }}
-							on:acceptChange={(e) => {
+							onacceptChange={(e) => {
 								dispatch('acceptChange', e.detail)
 								onacceptChange?.(e.detail)
 							}}
-							on:rejectChange={(e) => {
+							onrejectChange={(e) => {
 								dispatch('rejectChange', e.detail)
 								onrejectChange?.(e.detail)
 							}}
-							on:change={() => {
+							onchange={() => {
 								dispatch('nestedChange')
 								onnestedChange?.()
 							}}
-							on:nestedChange
+							onnestedChange={onnestedChange}
 							{shouldDispatchChanges}
 						/>
 					{/if}
@@ -1336,16 +1336,16 @@
 				{:then Module}
 					<Module.default
 						bind:editor
-						on:focus={(e) => {
+						onfocus={(e) => {
 							dispatch('focus')
 							onfocus?.()
 						}}
-						on:blur={(e) => {
+						onblur={(e) => {
 							dispatch('blur')
 							onblur?.()
 						}}
 						code={rawValue}
-						on:changeValue={(e) => {
+						onchangeValue={(e) => {
 							setNewValueFromCode(e.detail)
 						}}
 					/>
@@ -1354,7 +1354,7 @@
 			{#if inputCat == 'list' && !displayHeader}
 				<div class="block mt-2.5 pl-2">
 					<Toggle
-						on:change={(e) => {
+						onchange={(e) => {
 							isListJson = !isListJson
 						}}
 						checked={isListJson}
@@ -1378,11 +1378,11 @@
 					bind:value
 					{enum_}
 					{autofocus}
-					on:focus={() => {
+					onfocus={() => {
 						dispatch('focus')
 						onfocus?.()
 					}}
-					on:blur={(e) => {
+					onblur={(e) => {
 						dispatch('blur')
 						onblur?.()
 					}}
@@ -1406,15 +1406,15 @@
 						<Loader2 class="animate-spin" />
 					{:then Module}
 						<Module.default
-							on:focus={(e) => {
+							onfocus={(e) => {
 								dispatch('focus')
 								onfocus?.()
 							}}
-							on:blur={(e) => {
+							onblur={(e) => {
 								dispatch('blur')
 								onblur?.()
 							}}
-							on:change={(e) => {
+							onchange={(e) => {
 								setNewValueFromCode(e.detail?.code)
 							}}
 							bind:this={editor}

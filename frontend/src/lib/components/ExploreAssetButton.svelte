@@ -56,7 +56,7 @@
 	wrapperClasses={className}
 	iconOnly={noText}
 	{btnClasses}
-	on:click={async () => {
+	onclick={async () => {
 		if (asset.kind === 'resource' && isDbType(_resourceMetadata?.resource_type)) {
 			let [resourcePath, specificTable] = asset.path.split('?table=')
 			dbManagerDrawer?.openDrawer({

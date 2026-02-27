@@ -119,7 +119,7 @@
 										<div class="flex flex-wrap gap-x-2">
 											{#if !emptySearchArgs}
 												<Button
-													on:click={async () => {
+													onclick={async () => {
 														searchArgs = {}
 														appliedSearchArgs = {}
 														await tick()
@@ -131,7 +131,7 @@
 												>
 											{/if}
 											<Button
-												on:click={async () => {
+												onclick={async () => {
 													appliedSearchArgs = structuredClone($state.snapshot(searchArgs))
 													await tick()
 													historicInputs?.refresh(true)
@@ -162,7 +162,7 @@
 						<Button
 							unifiedSize="sm"
 							endIcon={{ icon: ExternalLink }}
-							on:click={() => {
+							onclick={() => {
 								window.open(`/runs/${runnableId}`, '_blank')
 							}}
 						>
@@ -174,7 +174,7 @@
 					bind:this={historicInputs}
 					{runnableId}
 					{runnableType}
-					on:select={(e) => {
+					onselect={(e) => {
 						if (e.detail) savedInputsPicker?.resetSelected()
 						selectArgs(e.detail?.args, e.detail ? 'history' : undefined)
 					}}
@@ -197,7 +197,7 @@
 						disabled={!isValid || jsonView}
 						{runnableId}
 						{runnableType}
-						on:update={() => {
+						onupdate={() => {
 							savedInputsPicker?.refresh()
 						}}
 					/>
@@ -209,7 +209,7 @@
 					{runnableId}
 					{runnableType}
 					{isValid}
-					on:select={(e) => {
+					onselect={(e) => {
 						if (e.detail) historicInputs?.resetSelected()
 						selectArgs(e.detail, e.detail ? 'saved' : undefined)
 					}}

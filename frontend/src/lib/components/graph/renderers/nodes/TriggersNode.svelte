@@ -62,7 +62,7 @@
 				path={data.path}
 				showDraft={data.isEditor ?? false}
 				{colorClasses}
-				on:new={(e) => {
+				onnew={(e) => {
 					data?.eventHandlers.insert({
 						index: 0,
 						kind: 'trigger',
@@ -70,7 +70,7 @@
 					})
 					data?.eventHandlers?.simplifyFlow(true)
 				}}
-				on:pickScript={(e) => {
+				onpickScript={(e) => {
 					data?.eventHandlers.insert({
 						index: 0,
 						kind: 'trigger',
@@ -78,11 +78,11 @@
 					})
 					data?.eventHandlers?.simplifyFlow(true)
 				}}
-				on:openScheduledPoll={(e) => {
+				onopenScheduledPoll={(e) => {
 					const primarySchedule = triggersState.triggers.findIndex((t) => t.isPrimary && !t.isDraft)
 					triggersState.selectedTriggerIndex = primarySchedule
 				}}
-				on:select={() => data?.eventHandlers?.select('Trigger')}
+				onselect={() => data?.eventHandlers?.select('Trigger')}
 				onSelect={async (triggerIndex: number) => {
 					data?.eventHandlers?.select('Trigger')
 					await tick()
@@ -102,7 +102,7 @@
 				label="Check for new events"
 				selectable={true}
 				id={'Trigger'}
-				on:select={(e) => {
+				onselect={(e) => {
 					data?.eventHandlers?.select(e.detail)
 				}}
 				{colorClasses}

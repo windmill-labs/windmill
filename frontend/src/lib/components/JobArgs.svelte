@@ -118,7 +118,7 @@ ${Object.entries(args)
 <HighlightTheme />
 
 <Drawer bind:this={jsonViewer} size="900px">
-	<DrawerContent title="Expanded Args" on:close={jsonViewer.closeDrawer}>
+	<DrawerContent title="Expanded Args" onclose={jsonViewer.closeDrawer}>
 		{#snippet actions()}
 			<Button
 				download="windmill-args.json"
@@ -132,7 +132,7 @@ ${Object.entries(args)
 				Download
 			</Button>
 			<Button
-				on:click={() => runLocally?.openDrawer()}
+				onclick={() => runLocally?.openDrawer()}
 				color="light"
 				size="xs"
 				startIcon={{ icon: ChevronRightSquare }}
@@ -140,7 +140,7 @@ ${Object.entries(args)
 				Use in a local script
 			</Button>
 			<Button
-				on:click={() => copyToClipboard(jsonStr)}
+				onclick={() => copyToClipboard(jsonStr)}
 				color="light"
 				size="xs"
 				startIcon={{ icon: ClipboardCopy }}
@@ -165,7 +165,7 @@ ${Object.entries(args)
 	</DrawerContent>
 </Drawer>
 <Drawer bind:this={runLocally} size="900px">
-	<DrawerContent title="Run locally" on:close={runLocally.closeDrawer}>
+	<DrawerContent title="Run locally" onclose={runLocally.closeDrawer}>
 		<h3 class="mb-2">Envs</h3>
 		If using the wmill client in your code, set the following env variables:
 		<pre

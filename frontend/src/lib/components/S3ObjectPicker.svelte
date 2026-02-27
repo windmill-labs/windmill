@@ -64,7 +64,7 @@
 		{:then Module}
 			<Module.default
 				bind:editor
-				on:focus={(e) => {
+				onfocus={(e) => {
 					dispatch('focus')
 					onfocus?.()
 				}}
@@ -76,12 +76,12 @@
 		<FileUpload
 			allowMultiple={false}
 			randomFileKey={true}
-			on:addition={(evt) => {
+			onaddition={(evt) => {
 				value = {
 					s3: evt.detail?.path ?? ''
 				}
 			}}
-			on:deletion={(evt) => {
+			ondeletion={(evt) => {
 				value = {
 					s3: ''
 				}
@@ -92,7 +92,7 @@
 	<Button
 		variant="default"
 		unifiedSize="sm"
-		on:click={() => {
+		onclick={() => {
 			s3FilePicker?.open?.(value)
 		}}
 		startIcon={{ icon: Pipette }}

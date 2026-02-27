@@ -38,7 +38,7 @@
 			variant="default"
 			unifiedSize="md"
 			iconOnly
-			on:click={() => (resourceEditorDrawer?.initEdit(truncatedPath), onClick?.())}
+			onclick={() => (resourceEditorDrawer?.initEdit(truncatedPath), onClick?.())}
 		/>
 	{/if}
 	{#if (asset.kind === 'resource' && resourceDataCacheValue === undefined) || ducklakeNotFound || datatableNotFound}

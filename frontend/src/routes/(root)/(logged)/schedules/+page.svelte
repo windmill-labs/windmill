@@ -255,7 +255,7 @@
 				size="lg"
 				variant="accent"
 				startIcon={{ icon: Plus }}
-				on:click={() => scheduleEditor?.openNew(false)}
+				onclick={() => scheduleEditor?.openNew(false)}
 				aiId="schedules-add-schedule"
 				aiDescription="Add schedule"
 			>
@@ -352,7 +352,7 @@
 
 								<Toggle
 									checked={enabled}
-									on:change={(e) => {
+									onchange={(e) => {
 										if (canWrite) {
 											setScheduleEnabled(path, e.detail)
 										} else {
@@ -370,7 +370,7 @@
 										Runs
 									</Button>
 									<Button
-										on:click={() => scheduleEditor?.openEdit(path, is_flow)}
+										onclick={() => scheduleEditor?.openEdit(path, is_flow)}
 										size="xs"
 										startIcon={{ icon: canWrite ? Pen : Eye }}
 										variant="subtle"
@@ -509,7 +509,7 @@
 		{#if items && items?.length > 15 && nbDisplayed < items.length}
 			<div class="flex items-center gap-4 text-xs font-semibold text-emphasis">
 				<span>{nbDisplayed} items out of {items.length}</span>
-				<Button size="xs" variant="subtle" on:click={() => (nbDisplayed += 30)}>
+				<Button size="xs" variant="subtle" onclick={() => (nbDisplayed += 30)}>
 					Load 30 more
 				</Button>
 			</div>
@@ -519,7 +519,7 @@
 
 <ShareModal
 	bind:this={shareModal}
-	on:change={() => {
+	onchange={() => {
 		loadSchedules()
 	}}
 />

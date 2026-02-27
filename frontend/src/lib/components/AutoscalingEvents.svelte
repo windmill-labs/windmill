@@ -56,7 +56,7 @@
 				}}
 				variant="subtle"
 				unifiedSize="sm"
-				on:click={() => loadEvents()}
+				onclick={() => loadEvents()}
 				iconOnly
 			/>
 		{/if}
@@ -98,7 +98,7 @@
 
 			{#if events.length >= limit && limit < 100}
 				<div class="flex">
-					<Button variant="subtle" unifiedSize="sm" on:click={() => (limit = limit + 25)}>
+					<Button variant="subtle" unifiedSize="sm" onclick={() => (limit = limit + 25)}>
 						Show more
 					</Button>
 				</div>

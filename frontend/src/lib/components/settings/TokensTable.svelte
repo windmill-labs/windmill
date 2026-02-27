@@ -107,7 +107,7 @@
 									<Button
 										variant="subtle"
 										destructive
-										on:click={() => handleDeleteClick(token_prefix)}
+										onclick={() => handleDeleteClick(token_prefix)}
 										size="xs"
 										startIcon={{ icon: Trash }}
 										iconOnly
@@ -127,10 +127,10 @@
 		</TableCustom>
 		<div class="flex flex-row-reverse gap-2 w-full mt-2">
 			{#if tokens?.length == 100}
-				<Button variant="subtle" size="xs" on:click={handleNextPage}>Next</Button>
+				<Button variant="subtle" size="xs" onclick={handleNextPage}>Next</Button>
 			{/if}
 			{#if tokenPage > 1}
-				<Button variant="subtle" size="xs" on:click={handlePreviousPage}>Previous</Button>
+				<Button variant="subtle" size="xs" onclick={handlePreviousPage}>Previous</Button>
 			{/if}
 		</div>
 	</div>

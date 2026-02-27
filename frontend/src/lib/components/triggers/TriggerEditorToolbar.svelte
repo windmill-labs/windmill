@@ -68,7 +68,7 @@
 			variant="accent"
 			startIcon={{ icon: Save }}
 			disabled={saveDisabled}
-			on:click={() => {
+			onclick={() => {
 				onUpdate?.()
 			}}
 			loading={isLoading}
@@ -96,7 +96,7 @@
 				unifiedSize="sm"
 				startIcon={{ icon: RotateCcw }}
 				variant="default"
-				on:click={() => {
+				onclick={() => {
 					onReset?.()
 				}}
 			>
@@ -110,7 +110,7 @@
 					unifiedSize="sm"
 					startIcon={{ icon: Save }}
 					disabled={saveDisabled || cloudDisabled || !isDeployed || !trigger?.draftConfig}
-					on:click={() => {
+					onclick={() => {
 						onUpdate?.()
 					}}
 					loading={isLoading}

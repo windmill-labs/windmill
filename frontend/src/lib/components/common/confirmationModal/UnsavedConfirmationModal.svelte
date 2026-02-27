@@ -98,10 +98,10 @@
 	{open}
 	title="Unsaved changes detected"
 	confirmationText="Discard changes"
-	on:canceled={() => {
+	oncanceled={() => {
 		open = false
 	}}
-	on:confirmed={() => {
+	onconfirmed={() => {
 		open = false
 		// Discard changes before navigating
 		onDiscardChanges?.()
@@ -119,7 +119,7 @@
 				wrapperClasses="self-start"
 				variant="default"
 				size="xs"
-				on:click={() => {
+				onclick={() => {
 					if (!savedValue || !modifiedValue) {
 						return
 					}

@@ -57,7 +57,7 @@
 	<Toggle
 		checked={isSleepEnabled}
 		class="mb-6"
-		on:change={() => {
+		onchange={() => {
 			if (isSleepEnabled && flowModule.sleep != undefined) {
 				flowModule.sleep = undefined
 			} else {
@@ -81,7 +81,7 @@
 					{result}
 					displayContext={false}
 					pickableProperties={undefined}
-					on:select={({ detail }) => {
+					onselect={(detail) => {
 						editor?.insertAtCursor(detail)
 						editor?.focus()
 					}}

@@ -100,7 +100,7 @@
 			spacingSize="sm"
 			size="xs"
 			variant="default"
-			on:click={testTriggerConnection}
+			onclick={testTriggerConnection}
 			loading={testLoading}
 			clickableWhileLoading
 		>

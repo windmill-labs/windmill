@@ -146,7 +146,7 @@
 							size="sm"
 							checked={workspaced_local_part}
 							disabled={!can_write || !userCanEditConfig}
-							on:change={() => {
+							onchange={() => {
 								workspaced_local_part = !workspaced_local_part
 								dirtyLocalPart = true
 							}}

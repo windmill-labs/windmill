@@ -10,6 +10,12 @@
 	import type { TableAction } from './component'
 	import { BG_PREFIX } from './appUtilsCore'
 
+	interface Props {
+		ondelete?: (...args: any[]) => any
+	}
+
+	let {}: Props = $props()
+
 	const { selectedComponent, app, stateId, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
 

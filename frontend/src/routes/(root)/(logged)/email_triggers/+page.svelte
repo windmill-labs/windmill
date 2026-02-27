@@ -260,7 +260,7 @@
 					unifiedSize="md"
 					variant="accent"
 					startIcon={{ icon: Plus }}
-					on:click={() => emailTriggerEditor?.openNew(false)}
+					onclick={() => emailTriggerEditor?.openNew(false)}
 				>
 					New&nbsp;email trigger
 				</Button>
@@ -370,7 +370,7 @@
 
 								<div class="flex gap-2 items-center justify-end">
 									<Button
-										on:click={() => copyToClipboard(emailAddress)}
+										onclick={() => copyToClipboard(emailAddress)}
 										variant="subtle"
 										unifiedSize="md"
 										startIcon={{ icon: ClipboardCopy }}
@@ -378,7 +378,7 @@
 										Copy email address
 									</Button>
 									<Button
-										on:click={() => emailTriggerEditor?.openEdit(path, is_flow)}
+										onclick={() => emailTriggerEditor?.openEdit(path, is_flow)}
 										unifiedSize="md"
 										startIcon={canWrite
 											? { icon: Pen }
@@ -492,7 +492,7 @@
 
 <ShareModal
 	bind:this={shareModal}
-	on:change={() => {
+	onchange={() => {
 		loadTriggers()
 	}}
 />

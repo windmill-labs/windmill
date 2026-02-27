@@ -271,7 +271,7 @@
 
 <svelte:head></svelte:head>
 
-<DarkModeObserver on:change={onThemeChange} />
+<DarkModeObserver onchange={onThemeChange} />
 
 <svelte:window onhashchange={hashchange} onresize={resizeWindow} />
 
@@ -344,7 +344,7 @@
 			onclick={() => (isLocked = false)}
 			class="absolute inset-0 center-center bg-black/20 z-50 backdrop-blur-[1px] cursor-pointer"
 		>
-			<Button on:click={() => (isLocked = false)}>
+			<Button onclick={() => (isLocked = false)}>
 				Unlock preview
 				<Unlock size={18} class="ml-1" strokeWidth={2.5} />
 			</Button>

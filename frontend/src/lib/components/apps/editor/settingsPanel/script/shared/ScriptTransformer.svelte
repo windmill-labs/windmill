@@ -29,7 +29,7 @@
 				size="xs"
 				color={checked ? 'red' : 'light'}
 				variant="default"
-				on:click={() => {
+				onclick={() => {
 					if (appInput.transformer) {
 						appInput.transformer = undefined
 					} else {

@@ -9,6 +9,11 @@
 		nbDisplayed: number
 		items: ItemType[] | undefined
 		isSearching?: boolean
+		onscriptChanged?: (...args: any[]) => any
+		onflowChanged?: (...args: any[]) => any
+		onappChanged?: (...args: any[]) => any
+		onrawAppChanged?: (...args: any[]) => any
+		onreload?: (...args: any[]) => any
 	}
 
 	let {
@@ -16,7 +21,12 @@
 		showCode,
 		nbDisplayed = $bindable(),
 		items,
-		isSearching = false
+		isSearching = false,
+		onscriptChanged = undefined,
+		onflowChanged = undefined,
+		onappChanged = undefined,
+		onrawAppChanged = undefined,
+		onreload = undefined
 	}: Props = $props()
 
 	let groupedItems: ReturnType<typeof groupItems> | 'loading' = $state('loading')
@@ -43,11 +53,11 @@
 					{isSearching}
 					{collapseAll}
 					{item}
-					on:scriptChanged
-					on:flowChanged
-					on:appChanged
-					on:rawAppChanged
-					on:reload
+					onscriptChanged={onscriptChanged}
+					onflowChanged={onflowChanged}
+					onappChanged={onappChanged}
+					onrawAppChanged={onrawAppChanged}
+					onreload={onreload}
 					{showCode}
 				/>
 			{/if}

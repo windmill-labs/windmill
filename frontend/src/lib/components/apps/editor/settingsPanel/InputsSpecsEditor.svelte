@@ -106,7 +106,7 @@
 				/>
 				{#if deletable}
 					<div class="flex flex-row-reverse -mt-4">
-						<CloseButton noBg on:close={() => (dispatch('delete', k), ondelete?.(k))} />
+						<CloseButton noBg onclose={() => (dispatch('delete', k), ondelete?.(k))} />
 					</div>
 				{/if}
 			{/if}

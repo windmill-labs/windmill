@@ -435,7 +435,7 @@
 							)}
 							startIcon={{ icon: Pin }}
 							iconOnly={mockUpdateStatus !== 'override'}
-							on:click={() => togglePin()}
+							onclick={() => togglePin()}
 						>
 							{#if mockUpdateStatus === 'override'}
 								Override pin
@@ -455,7 +455,7 @@
 						variant="contained"
 						startIcon={{ icon: Check }}
 						btnClasses="h-[27px]"
-						on:click={() => {
+						onclick={() => {
 							if (!tmpMock) {
 								return
 							}
@@ -476,7 +476,7 @@
 						variant="contained"
 						startIcon={{ icon: X }}
 						btnClasses="h-[27px]"
-						on:click={() => {
+						onclick={() => {
 							jsonView = false
 							tmpMock = undefined
 						}}
@@ -489,7 +489,7 @@
 							color="light"
 							variant="contained"
 							startIcon={{ icon: Pen }}
-							on:click={() => {
+							onclick={() => {
 								stepHistoryPopover?.close()
 								jsonView = true
 								tmpMock = undefined
@@ -517,7 +517,7 @@
 						{base}
 						result={selectedJob.result}
 						disableTooltips={false}
-						on:open-drawer={() => {
+						onopenDrawer={() => {
 							if (displayResultJob && typeof displayResultJob.openDrawer === 'function') {
 								displayResultJob.openDrawer()
 							}
@@ -529,7 +529,7 @@
 						{base}
 						result={mock.return_value}
 						disableTooltips={false}
-						on:open-drawer={() => {
+						onopenDrawer={() => {
 							if (displayResultMock && typeof displayResultMock.openDrawer === 'function') {
 								displayResultMock.openDrawer()
 							}
@@ -603,7 +603,7 @@
 					topBrackets={false}
 					pureViewer={false}
 					{prefix}
-					on:select={(e) => {
+					onselect={(e) => {
 						onSelect?.(e.detail)
 					}}
 					{allowCopy}
@@ -617,7 +617,7 @@
 					<Module.default
 						bind:error
 						small
-						on:changeValue={({ detail }) => {
+						onchangeValue={(detail) => {
 							if (mock?.enabled) {
 								const newMock = {
 									enabled: true,
@@ -646,7 +646,7 @@
 							result={mock?.return_value}
 							externalToolbarAvailable
 							fixTableSizingToParent
-							on:toolbar-location-changed={({ detail }) => {
+							ontoolbarLocationChanged={(detail) => {
 								toolbarLocationMock = detail
 							}}
 						/>
@@ -675,7 +675,7 @@
 								result_stream={selectedJob?.result_stream}
 								externalToolbarAvailable
 								fixTableSizingToParent
-								on:toolbar-location-changed={({ detail }) => {
+								ontoolbarLocationChanged={(detail) => {
 									toolbarLocationJob = detail
 								}}
 							>
@@ -764,7 +764,7 @@
 				<StepHistory
 					{moduleId}
 					{getLogs}
-					on:select={selectJobFromHistory}
+					onselect={selectJobFromHistory}
 					mockValue={mock?.return_value}
 					mockEnabled={mock?.enabled}
 					{path}

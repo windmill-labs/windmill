@@ -28,8 +28,8 @@
 </script>
 
 <Button
-	on:click={() => ((dispatch('close'), onclose?.()), onClick?.())}
-	on:pointerdown={(e) => e.stopPropagation()}
+	onclick={() => ((dispatch('close'), onclose?.()), onClick?.())}
+	onpointerdown={(e) => e.stopPropagation()}
 	{id}
 	startIcon={{ icon: Icon ?? X }}
 	iconOnly

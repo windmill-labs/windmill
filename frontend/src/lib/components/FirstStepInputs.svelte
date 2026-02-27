@@ -10,6 +10,14 @@
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import { Building } from 'lucide-svelte'
 
+	interface Props {
+		onconnectFirstNode?: (...args: any[]) => any
+		onselect?: (...args: any[]) => any
+	}
+
+	let {}: Props = $props()
+
+
 	const { flowStore, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const dispatch = createEventDispatcher()

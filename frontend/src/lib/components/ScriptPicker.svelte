@@ -94,13 +94,13 @@
 <DarkModeObserver bind:darkMode />
 
 <Drawer bind:this={drawerViewer} size="900px">
-	<DrawerContent title="Script {scriptPath}" on:close={drawerViewer.closeDrawer}>
+	<DrawerContent title="Script {scriptPath}" onclose={drawerViewer.closeDrawer}>
 		<HighlightCode {code} language={lang} />
 	</DrawerContent>
 </Drawer>
 
 <Drawer bind:this={drawerFlowViewer} size="900px">
-	<DrawerContent title="Flow {scriptPath}" on:close={drawerFlowViewer.closeDrawer}>
+	<DrawerContent title="Flow {scriptPath}" onclose={drawerFlowViewer.closeDrawer}>
 		<FlowPathViewer path={scriptPath ?? ''} />
 	</DrawerContent>
 </Drawer>
@@ -110,7 +110,7 @@
 		<div>
 			<ToggleButtonGroup
 				bind:selected={itemKind}
-				on:selected={() => {
+				onselected={() => {
 					scriptPath = ''
 				}}
 			>
@@ -146,7 +146,7 @@
 		<Button
 			variant="subtle"
 			unifiedSize="md"
-			on:click={loadItems}
+			onclick={loadItems}
 			startIcon={{ icon: RefreshCw }}
 			iconOnly
 		/>
@@ -168,7 +168,7 @@
 					<Button
 						variant="default"
 						size="xs"
-						on:click={async () => {
+						onclick={async () => {
 							drawerFlowViewer?.openDrawer()
 						}}
 					>
@@ -219,7 +219,7 @@
 						variant="default"
 						size="xs"
 						startIcon={{ icon: Code }}
-						on:click={async () => {
+						onclick={async () => {
 							const { language, content } = await getScriptByPath(scriptPath ?? '')
 							code = content
 							lang = language

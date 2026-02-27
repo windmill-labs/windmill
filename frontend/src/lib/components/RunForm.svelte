@@ -154,7 +154,7 @@
 		}}
 		size="xs2"
 		btnClasses="border border-gray-200 dark:border-gray-600 !bg-surface text-primary"
-		on:click={() => {
+		onclick={() => {
 			showInputSelectedBadge = false
 			savedPreviousArgs = undefined
 		}}
@@ -233,7 +233,7 @@
 			>
 				<JsonInputs
 					bind:this={jsonEditor}
-					on:select={(e) => {
+					onselect={(e) => {
 						if (e.detail) {
 							args = e.detail
 						}
@@ -276,7 +276,7 @@
 					unifiedSize="md"
 					btnClasses="!inline-flex"
 					disabled={!isValid && !jsonView}
-					on:click={() => runAction(scheduledForStr, args ?? {}, invisible_to_owner, overrideTag)}
+					onclick={() => runAction(scheduledForStr, args ?? {}, invisible_to_owner, overrideTag)}
 					shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
 				>
 					{scheduledForStr ? 'Schedule to run later' : buttonText}
@@ -315,7 +315,7 @@
 			btnClasses="!px-6 !py-1 w-full"
 			variant="accent"
 			disabled={!isValid && !jsonView}
-			on:click={() => runAction(undefined, args ?? {}, invisible_to_owner, overrideTag)}
+			onclick={() => runAction(undefined, args ?? {}, invisible_to_owner, overrideTag)}
 			shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
 		>
 			{buttonText}

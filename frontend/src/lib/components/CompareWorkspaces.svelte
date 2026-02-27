@@ -723,7 +723,7 @@
 						<ToggleButtonGroup
 							disabled={deploying}
 							selected="deploy_to"
-							onSelected={toggleDeploymentDirection}
+							onselected={toggleDeploymentDirection}
 							noWFull
 						>
 							{#snippet children({ item })}
@@ -960,7 +960,7 @@
 									(mergeIntoParent && !canDeployToParent) ||
 									hasUnselectedOnBehalfOf}
 								loading={deploying}
-								on:click={deployChanges}
+								onclick={deployChanges}
 							>
 								{mergeIntoParent ? 'Deploy' : 'Update'}
 								{selectedItems.length} Item{selectedItems.length !== 1 ? 's' : ''}
@@ -1080,8 +1080,8 @@
 		title="Delete trigger"
 		confirmationText="Delete"
 		open={!!triggerToDelete}
-		onConfirmed={confirmDeleteTrigger}
-		onCanceled={() => (triggerToDelete = undefined)}
+		onconfirmed={confirmDeleteTrigger}
+		oncanceled={() => (triggerToDelete = undefined)}
 	>
 		{#if triggerToDelete}
 			Are you sure you want to delete the {getTriggerDisplayName(triggerToDelete.triggerKind)} trigger

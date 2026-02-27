@@ -95,6 +95,7 @@
 		onHideRightPanel?: () => void
 		onHideLeftPanel?: () => void
 		onHideBottomPanel?: () => void
+		onrestore?: (...args: any[]) => any
 	}
 
 	let {
@@ -115,7 +116,8 @@
 		onShowBottomPanel,
 		onHideLeftPanel,
 		onHideRightPanel,
-		onHideBottomPanel
+		onHideBottomPanel,
+		onrestore = undefined
 	}: Props = $props()
 
 	let newEditedPath = $state('')
@@ -741,13 +743,13 @@
 
 {#if $appPath == ''}
 	<Drawer bind:open={draftDrawerOpen} size="800px">
-		<DrawerContent title="Initial draft save" on:close={() => closeDraftDrawer()}>
+		<DrawerContent title="Initial draft save" onclose={() => closeDraftDrawer()}>
 			{#snippet actions()}
 				<div>
 					<Button
 						startIcon={{ icon: Save }}
 						disabled={pathError != ''}
-						on:click={() => saveInitialDraft()}
+						onclick={() => saveInitialDraft()}
 						unifiedSize="md"
 						variant="accent"
 					>
@@ -769,11 +771,11 @@
 <AppJobsDrawer
 	bind:open={$jobsDrawerOpen}
 	jobs={$jobs}
-	on:clear={() => {
+	onclear={() => {
 		$jobs = []
 		$errorByComponent = {}
 	}}
-	on:clearErrors={() => {
+	onclearErrors={() => {
 		$errorByComponent = {}
 	}}
 	{hasErrors}
@@ -783,13 +785,13 @@
 	errorByComponent={$errorByComponent}
 />
 <Drawer bind:open={saveDrawerOpen} size="800px">
-	<DrawerContent title="Deploy" on:close={() => closeSaveDrawer()}>
+	<DrawerContent title="Deploy" onclose={() => closeSaveDrawer()}>
 		{#snippet actions()}
 			<div class="flex flex-row gap-4">
 				<Button
 					variant="accent"
 					disabled={!savedApp || savedApp.draft_only}
-					on:click={async () => {
+					onclick={async () => {
 						if (!savedApp) {
 							return
 						}
@@ -831,7 +833,7 @@
 					variant="accent"
 					startIcon={{ icon: Save }}
 					disabled={pathError != '' || customPathError != ''}
-					on:click={() => {
+					onclick={() => {
 						if ($appPath == '') {
 							createApp(newEditedPath)
 						} else {
@@ -863,25 +865,25 @@
 </Drawer>
 
 <Drawer bind:open={inputsDrawerOpen} size="600px">
-	<DrawerContent title="App inputs configuration" on:close={() => (inputsDrawerOpen = false)}>
+	<DrawerContent title="App inputs configuration" onclose={() => (inputsDrawerOpen = false)}>
 		<AppInputs />
 	</DrawerContent>
 </Drawer>
 
 <Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
-	<DrawerContent title="Deployment History" on:close={() => (historyBrowserDrawerOpen = false)}>
-		<DeploymentHistory on:restore appPath={$appPath} />
+	<DrawerContent title="Deployment History" onclose={() => (historyBrowserDrawerOpen = false)}>
+		<DeploymentHistory onrestore={onrestore} appPath={$appPath} />
 	</DrawerContent>
 </Drawer>
 
 <Drawer bind:open={debugAppDrawerOpen} size="800px">
-	<DrawerContent title="Troubleshoot Panel" on:close={() => (debugAppDrawerOpen = false)}>
+	<DrawerContent title="Troubleshoot Panel" onclose={() => (debugAppDrawerOpen = false)}>
 		<DebugPanel />
 	</DrawerContent>
 </Drawer>
 
 <Drawer bind:open={lazyDrawerOpen} size="800px">
-	<DrawerContent title="Lazy Mode" on:close={() => (lazyDrawerOpen = false)}>
+	<DrawerContent title="Lazy Mode" onclose={() => (lazyDrawerOpen = false)}>
 		<LazyModePanel />
 	</DrawerContent>
 </Drawer>
@@ -897,13 +899,13 @@
 			<UndoRedo
 				undoProps={{ disabled: $history?.index === 0 }}
 				redoProps={{ disabled: $history && $history?.index === $history.history.length - 1 }}
-				on:undo={() => {
+				onundo={() => {
 					const napp = undo(history, $app)
 					for (const key in napp) {
 						$app[key] = napp[key]
 					}
 				}}
-				on:redo={() => {
+				onredo={() => {
 					const napp = redo(history)
 					for (const key in napp) {
 						$app[key] = napp[key]
@@ -914,7 +916,7 @@
 			{#if $app}
 				<ToggleButtonGroup
 					selected={$app.fullscreen ? 'true' : 'false'}
-					on:selected={({ detail }) => {
+					onselected={(detail) => {
 						$app.fullscreen = detail === 'true'
 					}}
 				>
@@ -940,7 +942,7 @@
 			{/if}
 			{#if $app}
 				<ToggleButtonGroup
-					on:selected={({ detail }) => {
+					onselected={(detail) => {
 						const theme = detail === 'dark' ? true : detail === 'sun' ? false : undefined
 						setTheme(theme)
 					}}
@@ -1017,7 +1019,7 @@
 			<HideButton
 				direction="left"
 				hidden={leftPanelHidden}
-				on:click={() => {
+				onclick={() => {
 					if (leftPanelHidden) {
 						onShowLeftPanel?.()
 					} else {
@@ -1028,7 +1030,7 @@
 			<HideButton
 				hidden={bottomPanelHidden}
 				direction="bottom"
-				on:click={() => {
+				onclick={() => {
 					if (bottomPanelHidden) {
 						onShowBottomPanel?.()
 					} else {
@@ -1039,7 +1041,7 @@
 			<HideButton
 				hidden={rightPanelHidden}
 				direction="right"
-				on:click={() => {
+				onclick={() => {
 					if (rightPanelHidden) {
 						onShowRightPanel?.()
 					} else {
@@ -1065,7 +1067,7 @@
 				></span>
 			{/if}
 			<Button
-				on:click={() => {
+				onclick={() => {
 					if (selectedJobId == undefined && $jobs.length > 0) {
 						selectedJobId = $jobs[$jobs.length - 1]
 					}
@@ -1087,7 +1089,7 @@
 							size="xs"
 							btnClasses="-my-2 !px-1 !py-0"
 							variant="default"
-							on:click={() => errorByComponent.set({})}
+							onclick={() => errorByComponent.set({})}
 							><BellOff size={12} />
 						</Button>
 					{/if}
@@ -1100,7 +1102,7 @@
 			variant="accent"
 			loading={loading.save}
 			startIcon={{ icon: Save }}
-			on:click={() => saveDraft()}
+			onclick={() => saveDraft()}
 			unifiedSize="md"
 			disabled={!newApp && !savedApp}
 			shortCut={{ key: 'S' }}
@@ -1111,7 +1113,7 @@
 			variant="accent"
 			loading={loading.save}
 			startIcon={{ icon: Save }}
-			on:click={save}
+			onclick={save}
 			unifiedSize="md"
 			dropdownItems={$appPath != ''
 				? () => [

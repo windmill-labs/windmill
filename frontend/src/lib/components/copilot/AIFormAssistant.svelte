@@ -36,7 +36,7 @@
 				icon: Pencil
 			}}
 			iconOnly
-			on:click={onEditInstructions}
+			onclick={onEditInstructions}
 		/>
 	</div>
 </div>

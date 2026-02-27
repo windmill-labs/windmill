@@ -27,6 +27,7 @@
 		noEditor: boolean
 		summary?: string | undefined
 		onnew?: (...args: any[]) => any
+		onpick?: (...args: any[]) => any
 	}
 
 	let {
@@ -35,7 +36,8 @@
 		shouldDisableTriggerScripts = false,
 		noEditor,
 		summary = $bindable(undefined),
-		onnew = undefined
+		onnew = undefined,
+		onpick = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -260,7 +262,7 @@
 						disabled={noEditor && (summary == undefined || summary == '')}
 						{label}
 						lang={lang == 'docker' ? 'bash' : lang}
-						on:click={() => {
+						onclick={() => {
 							if (lang == 'docker') {
 								if (isCloudHosted()) {
 									sendUserToast(
@@ -302,11 +304,11 @@
 			> script</h3
 		>
 		{#if pick_existing == 'hub'}
-			<PickHubScript bind:filter {kind} on:pick>
+			<PickHubScript bind:filter {kind} onpick={onpick}>
 				<ToggleHubWorkspace bind:selected={pick_existing} />
 			</PickHubScript>
 		{:else}
-			<WorkspaceScriptPicker displayLock bind:filter {kind} on:pick>
+			<WorkspaceScriptPicker displayLock bind:filter {kind} onpick={onpick}>
 				<ToggleHubWorkspace bind:selected={pick_existing} />
 			</WorkspaceScriptPicker>
 		{/if}

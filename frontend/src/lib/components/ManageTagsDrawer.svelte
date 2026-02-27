@@ -34,7 +34,7 @@
 </script>
 
 <Drawer bind:this={drawer} size="800px">
-	<DrawerContent title="Manage tags" on:close={() => drawer?.closeDrawer?.()}>
+	<DrawerContent title="Manage tags" onclose={() => drawer?.closeDrawer?.()}>
 		<div class="flex flex-col h-full gap-6">
 			<!-- Overall Description -->
 			<div class="text-xs font-normal text-secondary">
@@ -52,7 +52,7 @@
 				<Section label="Custom tags">
 					<AssignableTagsInner
 						variant="drawer"
-						on:refresh={() => {
+						onrefresh={() => {
 							if (onRefresh) {
 								onRefresh()
 							}

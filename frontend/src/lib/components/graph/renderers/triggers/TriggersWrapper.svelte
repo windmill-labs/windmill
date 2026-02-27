@@ -23,6 +23,8 @@
 		onAddDraftTrigger?: (type: TriggerType) => void
 		onnew?: (...args: any[]) => any
 		onpickScript?: (...args: any[]) => any
+		onopenScheduledPoll?: (...args: any[]) => any
+		onselect?: (...args: any[]) => any
 	}
 
 	let {
@@ -111,12 +113,12 @@
 		>
 			<InsertModuleInner
 				{disableAi}
-				on:new={(e) => {
+				onnew={(e) => {
 					showTriggerScriptPicker = false
 					dispatch('new', e.detail)
 					onnew?.(e.detail)
 				}}
-				on:pickScript={(e) => {
+				onpickScript={(e) => {
 					showTriggerScriptPicker = false
 					dispatch('pickScript', e.detail)
 					onpickScript?.(e.detail)

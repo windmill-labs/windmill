@@ -173,7 +173,7 @@
 						size="sm"
 						checked={workspaced_route}
 						disabled={!can_write || !userCanEditConfig}
-						on:change={() => {
+						onchange={() => {
 							workspaced_route = !workspaced_route
 							dirtyRoutePath = true
 						}}

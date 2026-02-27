@@ -143,7 +143,7 @@
 {#if !notFound}
 	<div class="w-full flex gap-2 flex-row-reverse items-center">
 		<Toggle
-			on:change={(e) => switchTab(e.detail)}
+			onchange={(e) => switchTab(e)}
 			options={{
 				right: 'As JSON'
 			}}
@@ -174,7 +174,7 @@
 									size="xs"
 									color="blue"
 									buttonType="button"
-									on:click={() => {
+									onclick={() => {
 										parseConnectionString(close)
 									}}
 									disabled={connectionString.length <= 0}

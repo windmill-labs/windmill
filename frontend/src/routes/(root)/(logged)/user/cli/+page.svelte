@@ -33,6 +33,6 @@
 	</p>
 	<div class="flex flex-row justify-around pt-4 gap-x-1">
 		<Button variant="default" destructive size="lg" href={base}>Decline</Button>
-		<Button variant="accent" size="lg" on:click={authorizeToken}>Authorize</Button>
+		<Button variant="accent" size="lg" onclick={authorizeToken}>Authorize</Button>
 	</div>
 </CenteredModal>

@@ -147,7 +147,7 @@
 				!isPartialS3Object(resolvedConfig.source)}
 		>
 			<Button
-				on:pointerdown={(e) => e.stopPropagation()}
+				onpointerdown={(e) => e.stopPropagation()}
 				btnClasses={twMerge(
 					css?.button?.class,
 					'wm-button',

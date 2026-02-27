@@ -243,7 +243,7 @@
 					right: `No login required`
 				}}
 				checked={policy.execution_mode == 'anonymous'}
-				on:change={(e) => {
+				onchange={(e) => {
 					policy.execution_mode = e.detail ? 'anonymous' : 'publisher'
 					setPublishState()
 				}}
@@ -273,7 +273,7 @@
 				<EEOnly />
 			{/if}
 			<Toggle
-				on:change={({ detail }) => {
+				onchange={(detail) => {
 					customPath = detail ? '' : undefined
 					if (customPath === undefined) {
 						customPathError = ''

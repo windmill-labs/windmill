@@ -88,7 +88,7 @@
 					<Button
 						size="xs2"
 						color="light"
-						on:click={downloadResultAsCSV}
+						onclick={downloadResultAsCSV}
 						startIcon={{ icon: Download }}
 						wrapperClasses="app-table-footer-btn"
 						iconOnly
@@ -103,7 +103,7 @@
 					<Button
 						size="xs2"
 						color="light"
-						on:click={() => {
+						onclick={() => {
 							$table.getAllColumns().forEach((column) => column.toggleVisibility(true))
 						}}
 						startIcon={{ icon: Columns }}
@@ -118,7 +118,7 @@
 				<Button
 					size="xs2"
 					variant="default"
-					on:click={() => {
+					onclick={() => {
 						isPreviousLoading = true
 						$table.previousPage()
 					}}
@@ -133,7 +133,7 @@
 				<Button
 					size="xs2"
 					variant="default"
-					on:click={() => {
+					onclick={() => {
 						isNextLoading = true
 						$table.nextPage()
 					}}

@@ -18,14 +18,14 @@
 <Button
 	size="xs"
 	variant="default"
-	on:click={() => {
+	onclick={() => {
 		drawer?.openDrawer()
 	}}
 	>{text} <HelpCircle size={12} />
 </Button>
 
 <Drawer bind:this={drawer}>
-	<DrawerContent title="Suspend/Approval/Prompt help" on:close={drawer?.closeDrawer}>
+	<DrawerContent title="Suspend/Approval/Prompt help" onclose={drawer?.closeDrawer}>
 		<div class="flex flex-col gap-y-6 text-xs text-primary font-normal">
 			<Section label="Form/Payload">
 				To add a form, go to the <b>Form</b> tab, inside the Advanced {'->'} Suspend tab, and add a form.

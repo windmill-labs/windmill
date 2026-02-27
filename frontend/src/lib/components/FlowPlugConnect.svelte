@@ -8,9 +8,11 @@
 		connecting: boolean;
 		id?: undefined | string;
 		wrapperClasses?: string;
+		onclick?: (...args: any[]) => any
 	}
 
-	let { connecting, id = undefined, wrapperClasses = '' }: Props = $props();
+	let { connecting, id = undefined, wrapperClasses = '',
+		onclick = undefined }: Props = $props();
 </script>
 
 <AnimatedButton animate={connecting} baseRadius="6px" animationDuration="2s" marginWidth="2px">
@@ -20,7 +22,7 @@
 			connecting ? 'text-accent' : '',
 			'bg-surface hover:bg-surface-hover group/plug-btn overflow-clip flex p-0'
 		)}
-		on:click
+		onclick={onclick}
 		{...id ? { id } : {}}
 		{wrapperClasses}
 	>

@@ -196,7 +196,7 @@
 								<Toggle
 									size="xs"
 									checked={typeToggles.scripts}
-									on:change={(e) => updateIncludeType('scripts', e.detail)}
+									onchange={(e) => updateIncludeType('scripts', e.detail)}
 									options={{ right: capitalize('scripts') }}
 								/>
 							</div>
@@ -204,7 +204,7 @@
 								<Toggle
 									size="xs"
 									checked={typeToggles.flows}
-									on:change={(e) => updateIncludeType('flows', e.detail)}
+									onchange={(e) => updateIncludeType('flows', e.detail)}
 									options={{ right: capitalize('flows') }}
 								/>
 							</div>
@@ -212,7 +212,7 @@
 								<Toggle
 									size="xs"
 									checked={typeToggles.apps}
-									on:change={(e) => updateIncludeType('apps', e.detail)}
+									onchange={(e) => updateIncludeType('apps', e.detail)}
 									options={{ right: capitalize('apps') }}
 								/>
 							</div>
@@ -220,7 +220,7 @@
 								<Toggle
 									size="xs"
 									checked={typeToggles.folders}
-									on:change={(e) => updateIncludeType('folders', e.detail)}
+									onchange={(e) => updateIncludeType('folders', e.detail)}
 									options={{ right: capitalize('folders') }}
 								/>
 							</div>
@@ -228,7 +228,7 @@
 								<Toggle
 									size="xs"
 									checked={typeToggles.resourceTypes}
-									on:change={(e) => updateIncludeType('resourceTypes', e.detail)}
+									onchange={(e) => updateIncludeType('resourceTypes', e.detail)}
 									options={{ right: capitalize('resourceTypes') }}
 								/>
 							</div>
@@ -236,7 +236,7 @@
 								<Toggle
 									size="xs"
 									checked={typeToggles.resources}
-									on:change={(e) => updateIncludeType('resources', e.detail)}
+									onchange={(e) => updateIncludeType('resources', e.detail)}
 									options={{ right: capitalize('resources') }}
 								/>
 							</div>
@@ -244,7 +244,7 @@
 								<Toggle
 									size="xs"
 									checked={typeToggles.variables}
-									on:change={(e) => updateIncludeType('variables', e.detail)}
+									onchange={(e) => updateIncludeType('variables', e.detail)}
 									options={{ right: 'Variables' }}
 								/>
 								<span class="text-gray-400">-</span>
@@ -252,7 +252,7 @@
 									size="xs"
 									disabled={!typeToggles.variables}
 									checked={typeToggles.secrets}
-									on:change={(e) => updateIncludeType('secrets', e.detail)}
+									onchange={(e) => updateIncludeType('secrets', e.detail)}
 									options={{ left: 'Include secrets' }}
 								/>
 							</div>
@@ -260,7 +260,7 @@
 								<Toggle
 									size="xs"
 									checked={typeToggles.schedules}
-									on:change={(e) => updateIncludeType('schedules', e.detail)}
+									onchange={(e) => updateIncludeType('schedules', e.detail)}
 									options={{ right: capitalize('schedules') }}
 								/>
 							</div>
@@ -268,7 +268,7 @@
 								<Toggle
 									size="xs"
 									checked={typeToggles.users}
-									on:change={(e) => updateIncludeType('users', e.detail)}
+									onchange={(e) => updateIncludeType('users', e.detail)}
 									options={{ right: capitalize('users') }}
 								/>
 							</div>
@@ -276,7 +276,7 @@
 								<Toggle
 									size="xs"
 									checked={typeToggles.groups}
-									on:change={(e) => updateIncludeType('groups', e.detail)}
+									onchange={(e) => updateIncludeType('groups', e.detail)}
 									options={{ right: capitalize('groups') }}
 								/>
 							</div>
@@ -284,7 +284,7 @@
 								<Toggle
 									size="xs"
 									checked={typeToggles.triggers}
-									on:change={(e) => updateIncludeType('triggers', e.detail)}
+									onchange={(e) => updateIncludeType('triggers', e.detail)}
 									options={{ right: capitalize('triggers') }}
 								/>
 							</div>
@@ -292,7 +292,7 @@
 								<Toggle
 									size="xs"
 									checked={typeToggles.settings}
-									on:change={(e) => updateIncludeType('settings', e.detail)}
+									onchange={(e) => updateIncludeType('settings', e.detail)}
 									options={{ right: 'Workspace settings' }}
 								/>
 							</div>
@@ -300,7 +300,7 @@
 								<Toggle
 									size="xs"
 									checked={typeToggles.key}
-									on:change={(e) => updateIncludeType('key', e.detail)}
+									onchange={(e) => updateIncludeType('key', e.detail)}
 									options={{ right: 'Encryption key' }}
 								/>
 							</div>

@@ -96,7 +96,7 @@
 			size={small ? 'xs' : 'md'}
 			variant="default"
 			title="Connect"
-			on:click={() => handleConnect(true)}
+			onclick={() => handleConnect(true)}
 			{id}
 			wrapperClasses={twMerge(btnWrapperClasses, selected ? 'opacity-100' : '')}
 			btnClasses={twMerge(

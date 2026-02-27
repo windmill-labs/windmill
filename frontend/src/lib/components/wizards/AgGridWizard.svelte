@@ -128,7 +128,7 @@
 				{#if !isActionsColumn}
 					<Label label="Editable value">
 						<Toggle
-							on:pointerdown={(e) => {
+							onpointerdown={(e) => {
 								e?.stopPropagation()
 							}}
 							options={{ right: 'Editable' }}
@@ -165,7 +165,7 @@
 
 				<Label label="Hide">
 					<Toggle
-						on:pointerdown={(e) => {
+						onpointerdown={(e) => {
 							e?.stopPropagation()
 						}}
 						options={{ right: 'Hide' }}
@@ -189,7 +189,7 @@
 							<Button
 								size="xs"
 								variant="default"
-								on:click={() => {
+								onclick={() => {
 									// @ts-ignore
 									value.valueFormatter = null
 									renderCount++
@@ -249,7 +249,7 @@
 							</Tooltip>
 						{/snippet}
 						<Toggle
-							on:pointerdown={(e) => {
+							onpointerdown={(e) => {
 								e?.stopPropagation()
 							}}
 							options={{ right: 'Enable filter' }}

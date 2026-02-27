@@ -28,7 +28,7 @@
 </script>
 
 <div use:popperRef bind:clientWidth={width} class="grow">
-	<ClearableInput readonly bind:value on:focus={open} />
+	<ClearableInput readonly bind:value onfocus={open} />
 </div>
 {#if isOpen}
 	<div

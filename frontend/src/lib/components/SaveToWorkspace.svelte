@@ -9,7 +9,7 @@
 	size="xs"
 	color="light"
 	startIcon={{ icon: Save }}
-	on:click={(e) => saveToWorkspace('')}
+	onclick={(e) => saveToWorkspace('')}
 	iconOnly={false}
 >
 	Save to workspace

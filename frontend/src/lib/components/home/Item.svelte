@@ -28,6 +28,7 @@
 		onflowChanged?: (...args: any[]) => any
 		onappChanged?: (...args: any[]) => any
 		onreload?: (...args: any[]) => any
+		onrawAppChanged?: (...args: any[]) => any
 	}
 
 	let {
@@ -46,7 +47,7 @@
 	<ScriptRow
 		bind:deleteConfirmedCallback
 		marked={item.marked}
-		on:change={() => (dispatch('scriptChanged'), onscriptChanged?.())}
+		onchange={() => (dispatch('scriptChanged'), onscriptChanged?.())}
 		script={item}
 		errorHandlerMuted={item.ws_error_handler_muted === undefined ||
 		item.ws_error_handler_muted === null
@@ -64,7 +65,7 @@
 	<FlowRow
 		bind:deleteConfirmedCallback
 		marked={item.marked}
-		on:change={() => (dispatch('flowChanged'), onflowChanged?.())}
+		onchange={() => (dispatch('flowChanged'), onflowChanged?.())}
 		flow={item}
 		errorHandlerMuted={item.ws_error_handler_muted === undefined ||
 		item.ws_error_handler_muted === null
@@ -81,7 +82,7 @@
 	<AppRow
 		bind:deleteConfirmedCallback
 		marked={item.marked}
-		on:change={() => (dispatch('appChanged'), onappChanged?.())}
+		onchange={() => (dispatch('appChanged'), onappChanged?.())}
 		app={item}
 		{moveDrawer}
 		{shareModal}
@@ -106,10 +107,10 @@
 		open={Boolean(deleteConfirmedCallback)}
 		title="Remove"
 		confirmationText="Remove"
-		on:canceled={() => {
+		oncanceled={() => {
 			deleteConfirmedCallback = undefined
 		}}
-		on:confirmed={() => {
+		onconfirmed={() => {
 			if (deleteConfirmedCallback) {
 				deleteConfirmedCallback()
 			}
@@ -134,7 +135,7 @@
 
 	<ShareModal
 		bind:this={shareModal}
-		on:change={() => {
+		onchange={() => {
 			dispatch('reload')
 			onreload?.()
 		}}
@@ -143,7 +144,7 @@
 	<DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 	<MoveDrawer
 		bind:this={moveDrawer}
-		on:update={() => {
+		onupdate={() => {
 			dispatch('reload')
 			onreload?.()
 		}}

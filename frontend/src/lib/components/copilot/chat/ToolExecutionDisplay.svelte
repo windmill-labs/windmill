@@ -84,7 +84,7 @@
 					<Button
 						variant="default"
 						size="xs"
-						on:click={() => {
+						onclick={() => {
 							if (message.tool_call_id) {
 								aiChatManager.handleToolConfirmation(message.tool_call_id, false)
 							}
@@ -95,7 +95,7 @@
 					<Button
 						variant="accent"
 						size="xs"
-						on:click={() => {
+						onclick={() => {
 							if (message.tool_call_id) {
 								aiChatManager.handleToolConfirmation(message.tool_call_id, true)
 							}

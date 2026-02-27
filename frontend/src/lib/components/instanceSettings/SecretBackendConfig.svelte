@@ -200,7 +200,7 @@
 <div class="space-y-6">
 	<!-- Backend Type Selector -->
 	<div class="flex flex-col gap-2 mt-1">
-		<ToggleButtonGroup selected={selectedType} onSelected={(v) => setBackendType(v)}>
+		<ToggleButtonGroup selected={selectedType} onselected={(v) => setBackendType(v)}>
 			{#snippet children({ item: toggleButton })}
 				<ToggleButton
 					value="Database"
@@ -290,7 +290,7 @@
 				<!-- Authentication Method Toggle -->
 				<div class="flex flex-col gap-2">
 					<span class="block text-xs font-semibold text-emphasis">Authentication Method</span>
-					<ToggleButtonGroup selected={authMethod} onSelected={(v) => setAuthMethod(v)}>
+					<ToggleButtonGroup selected={authMethod} onselected={(v) => setAuthMethod(v)}>
 						{#snippet children({ item: toggleButton })}
 							<ToggleButton
 								value="jwt"
@@ -484,10 +484,10 @@ vault write auth/jwt/role/windmill-secrets \
 	open={migrateToVaultModalOpen}
 	loading={migratingToVault}
 	type="reload"
-	onCanceled={() => {
+	oncanceled={() => {
 		migrateToVaultModalOpen = false
 	}}
-	onConfirmed={migrateSecretsToVault}
+	onconfirmed={migrateSecretsToVault}
 >
 	{#snippet children()}
 		<div class="flex flex-col gap-2">
@@ -516,10 +516,10 @@ vault write auth/jwt/role/windmill-secrets \
 	open={migrateToDatabaseModalOpen}
 	loading={migratingToDatabase}
 	type="reload"
-	onCanceled={() => {
+	oncanceled={() => {
 		migrateToDatabaseModalOpen = false
 	}}
-	onConfirmed={migrateSecretsToDatabase}
+	onconfirmed={migrateSecretsToDatabase}
 >
 	{#snippet children()}
 		<div class="flex flex-col gap-2">

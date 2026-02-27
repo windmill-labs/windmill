@@ -64,7 +64,7 @@
 			</Tooltip>
 			<Toggle
 				checked={isMockEnabled}
-				on:change={() => {
+				onchange={() => {
 					if (isMockEnabled) {
 						flowModule.mock = {
 							enabled: false,
@@ -88,7 +88,7 @@
 
 		{#if isMockEnabled}
 			{#key renderCount}
-				<JsonEditor {code} on:changeValue={updateMockValue} />
+				<JsonEditor {code} onchangeValue={updateMockValue} />
 			{/key}
 		{:else}
 			<pre class="text-xs border rounded p-2 bg-surface-disabled"

@@ -273,7 +273,7 @@
 									variant="default"
 									size="xs"
 									btnClasses="!p-1"
-									on:click={() => copyToClipboard(result)}
+									onclick={() => copyToClipboard(result)}
 								>
 									<Copy size={14} strokeWidth={2} />
 								</Button>

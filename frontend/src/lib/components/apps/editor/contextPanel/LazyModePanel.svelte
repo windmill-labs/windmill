@@ -30,7 +30,7 @@
 
 	<ToggleButtonGroup
 		bind:selected={selectedRendering}
-		on:selected={(e) => {
+		onselected={(e) => {
 			if (e.detail == 'eager') {
 				$app.eagerRendering = true
 				$app.lazyInitRequire = undefined

@@ -50,7 +50,7 @@
 			variant="accent"
 			size="xs"
 			id="flow-editor-add-property"
-			on:click={() => {
+			onclick={() => {
 				addField()
 				close()
 			}}

@@ -30,7 +30,7 @@
 	}}
 	unifiedSize="md"
 	btnClasses={AIBtnClasses('default')}
-	on:click={onClick}
+	onclick={onClick}
 >
 	{label}
 </Button>

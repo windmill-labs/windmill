@@ -553,7 +553,7 @@
 						href="{base}/workspace_settings?tab=windmill_lfs">configure it here</a
 					>.
 				</p>
-				<Button variant="default" on:click={reloadContent} startIcon={{ icon: RotateCw }} />
+				<Button variant="default" onclick={reloadContent} startIcon={{ icon: RotateCw }} />
 			</div>
 		</Alert>
 	{/if}
@@ -668,7 +668,7 @@
 								<Button
 									variant="default"
 									size="xs2"
-									on:click={() => {
+									onclick={() => {
 										page += 1
 										loadFiles()
 									}}
@@ -717,7 +717,7 @@
 										<Button
 											title="Move file"
 											variant="default"
-											on:click={() => {
+											onclick={() => {
 												moveDestKey = fileMetadata?.fileKey ?? ''
 												moveModalOpen = true
 											}}
@@ -727,7 +727,7 @@
 										<Button
 											title="Delete file from S3"
 											variant="default"
-											on:click={() => {
+											onclick={() => {
 												deletionModalOpen = true
 											}}
 											startIcon={{ icon: Trash }}
@@ -835,10 +835,10 @@
 	open={deletionModalOpen}
 	title="Permanently delete file"
 	confirmationText="Delete permanently"
-	on:canceled={() => {
+	oncanceled={() => {
 		deletionModalOpen = false
 	}}
-	on:confirmed={() => {
+	onconfirmed={() => {
 		deleteFileFromS3(fileMetadata?.fileKey)
 	}}
 	keyListen={false}
@@ -855,10 +855,10 @@
 	open={moveModalOpen}
 	title="Move file to new location"
 	confirmationText="Move"
-	on:canceled={() => {
+	oncanceled={() => {
 		moveModalOpen = false
 	}}
-	on:confirmed={() => {
+	onconfirmed={() => {
 		moveS3File(fileMetadata?.fileKey, moveDestKey)
 	}}
 	keyListen={false}
@@ -881,7 +881,7 @@
 <FileUploadModal
 	open={uploadModalOpen}
 	title="Upload file to S3 bucket"
-	on:close={async (evt) => {
+	onclose={async (evt) => {
 		uploadModalOpen = false
 		if (evt.detail !== undefined && evt.detail !== null) {
 			selectedFileKey = { s3: evt.detail, storage }

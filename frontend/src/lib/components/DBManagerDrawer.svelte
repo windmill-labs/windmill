@@ -96,11 +96,11 @@
 	size={expand ? `${windowWidth}px` : '1200px'}
 	preventEscape
 	{offset}
-	on:close={closeDrawer}
+	onclose={closeDrawer}
 >
 	<DrawerContent
 		title={hasReplResult ? 'Query Result' : 'Database Manager'}
-		on:close={() => {
+		onclose={() => {
 			if (hasReplResult) {
 				dbManagerContent?.clearReplResult()
 			} else {
@@ -138,7 +138,7 @@
 		{#snippet actions()}
 			<Button
 				loading={dbManagerContent?.isLoading() ?? false}
-				on:click={() => {
+				onclick={() => {
 					dbManagerContent?.refresh()
 					dbManagerContent?.dbManager()?.dbTable()?.refresh()
 				}}
@@ -150,7 +150,7 @@
 			</Button>
 
 			<Button
-				on:click={() => (expand = !expand)}
+				onclick={() => (expand = !expand)}
 				startIcon={{ icon: expand ? Minimize : Expand }}
 				size="xs"
 				color="light"

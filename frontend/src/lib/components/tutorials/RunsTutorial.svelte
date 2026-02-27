@@ -13,9 +13,13 @@
 
 	interface Props {
 		index: number
+		onerror?: (...args: any[]) => any
+		onskipAll?: (...args: any[]) => any
 	}
 
-	let { index }: Props = $props()
+	let { index,
+		onerror = undefined,
+		onskipAll = undefined }: Props = $props()
 
 	let tutorial: Tutorial | undefined = $state(undefined)
 	let tutorialFlowPaths: string[] = $state([])
@@ -466,8 +470,8 @@
 	{index}
 	name="runs-tutorial"
 	tainted={false}
-	on:error
-	on:skipAll
+	onerror={onerror}
+	onskipAll={onskipAll}
 	getSteps={(driver) => {
 		return getTutorialSteps(driver)
 	}}

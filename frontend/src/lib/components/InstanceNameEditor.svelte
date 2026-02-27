@@ -19,6 +19,7 @@
 		onsave?: (...args: any[]) => any
 		onrefresh?: (...args: any[]) => any
 		onkeydown?: (...args: any[]) => any
+		onrenamed?: (...args: any[]) => any
 	}
 
 	let {
@@ -29,7 +30,8 @@
 		login_type = $bindable(),
 		onsave = undefined,
 		onrefresh = undefined,
-		onkeydown = undefined
+		onkeydown = undefined,
+		onrenamed = undefined
 	}: Props = $props()
 
 	let password: string = $state('')
@@ -73,7 +75,7 @@
 	{#snippet content()}
 		<div class="flex flex-col gap-8 max-w-sm p-4">
 			{#if automateUsernameCreation && username}
-				<ChangeInstanceUsernameInner {email} {username} on:renamed noPadding />
+				<ChangeInstanceUsernameInner {email} {username} onrenamed={onrenamed} noPadding />
 			{/if}
 			<label class="block text-primary">
 				<div class="pb-1 text-xs font-semibold text-emphasis">Name</div>
@@ -130,7 +132,7 @@
 					buttonType="button"
 					btnClasses="mt-2 "
 					aria-label="Save ID"
-					on:click={() => {
+					onclick={() => {
 						savePassword()
 					}}
 				>
@@ -164,7 +166,7 @@
 					buttonType="button"
 					btnClasses="mt-2 "
 					aria-label="Save login type"
-					on:click={() => {
+					onclick={() => {
 						saveLoginType()
 					}}
 				>

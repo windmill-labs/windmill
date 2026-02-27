@@ -7,6 +7,18 @@
 	import { tutorialsToDo } from '$lib/stores'
 	import { getTutorialIndex } from '$lib/tutorials/config'
 
+	interface Props {
+		onreload?: (...args: any[]) => any
+		onerror?: (...args: any[]) => any
+		onskipAll?: (...args: any[]) => any
+	}
+
+	let {
+		onreload = undefined,
+		onerror = undefined,
+		onskipAll = undefined
+	}: Props = $props()
+
 	let flowTutorials: FlowTutorials | undefined = $state(undefined)
 
 	async function getTutorialItems() {
@@ -55,8 +67,8 @@
 
 <FlowTutorials
 	bind:this={flowTutorials}
-	on:reload
-	on:error
-	on:skipAll
+	onreload={onreload}
+	onerror={onerror}
+	onskipAll={onskipAll}
 />
 

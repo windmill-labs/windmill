@@ -96,7 +96,7 @@
 >
 	{#snippet action()}
 		<Button
-			on:click={saveSettings}
+			onclick={saveSettings}
 			startIcon={{ icon: SaveIcon }}
 			disabled={!isChanged}
 			variant="accent"
@@ -144,7 +144,7 @@
 					<Cell last class="pl-8">
 						<ToggleButtonGroup
 							selected={operatorWorkspaceSettings[key] ? 'on' : 'off'}
-							on:selected={({ detail }) => (operatorWorkspaceSettings[key] = detail === 'on')}
+							onselected={(detail) => (operatorWorkspaceSettings[key] = detail === 'on')}
 						>
 							{#snippet children({ item })}
 								<ToggleButton icon={EyeIcon} small={true} value={'on'} label="On" {item} />

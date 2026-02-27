@@ -200,7 +200,7 @@
 			size="xs"
 			variant="default"
 			startIcon={{ icon: Plus }}
-			on:click={addCondition}
+			onclick={addCondition}
 			iconOnly
 		/>
 	</div>

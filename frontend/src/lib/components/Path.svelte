@@ -410,7 +410,7 @@
 				<div class="block">
 					<ToggleButtonGroup
 						bind:selected={meta.ownerKind}
-						on:selected={(e) => {
+						onselected={(e) => {
 							setDirty()
 							const kind = e.detail
 							if (meta) {
@@ -592,7 +592,7 @@
 			<div class="flex pt-2">
 				<Button
 					variant="default"
-					on:click={() => {
+					onclick={() => {
 						openSearchWithPrefilledText('#')
 					}}
 					startIcon={{ icon: SearchCode }}

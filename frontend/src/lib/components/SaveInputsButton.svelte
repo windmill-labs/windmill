@@ -59,7 +59,7 @@
 </script>
 
 <Button
-	on:click={() => saveInput(args)}
+	onclick={() => saveInput(args)}
 	{disabled}
 	loading={savingInputs}
 	startIcon={{ icon: Save }}

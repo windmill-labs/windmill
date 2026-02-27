@@ -180,7 +180,7 @@
 </script>
 
 <AppConnect
-	on:refresh={async (e) => {
+	onrefresh={async (e) => {
 		await loadResources(resourceType)
 		value = e.detail
 		valueType = collection.find((x) => x?.value == value)?.type
@@ -190,7 +190,7 @@
 />
 <ResourceEditorDrawer
 	bind:this={resourceEditor}
-	on:refresh={async (e) => {
+	onrefresh={async (e) => {
 		await loadResources(resourceType)
 		if (e.detail) {
 			value = e.detail
@@ -239,7 +239,7 @@
 						size="xs2"
 						wrapperClasses="-mr-2 pl-1 -my-2"
 						btnClasses="hover:bg-surface-tertiary"
-						on:click={() => (resourceEditor?.initEdit?.(item.value ?? ''), close())}
+						onclick={() => (resourceEditor?.initEdit?.(item.value ?? ''), close())}
 						startIcon={{ icon: Pen }}
 						iconOnly
 					/>
@@ -278,7 +278,7 @@
 							wrapperClasses="flex-1"
 							btnClasses="rounded-none"
 							size="sm"
-							on:click={() => (appConnect?.open?.(resourceType), close())}
+							onclick={() => (appConnect?.open?.(resourceType), close())}
 							startIcon={{ icon: Plus }}
 						>
 							Add a {resourceType} resource
@@ -289,7 +289,7 @@
 						color="light"
 						btnClasses="rounded-none"
 						size="sm"
-						on:click={() => {
+						onclick={() => {
 							loadResources(resourceType)
 						}}
 						startIcon={loading ? { icon: Loader2, classes: 'animate-spin' } : { icon: RotateCw }}
@@ -305,7 +305,7 @@
 					size="xs2"
 					wrapperClasses="pl-1"
 					btnClasses="hover:bg-surface-tertiary"
-					on:click={() => resourceEditor?.initEdit?.(value ?? '')}
+					onclick={() => resourceEditor?.initEdit?.(value ?? '')}
 					startIcon={{ icon: Pen }}
 					iconOnly
 				/>

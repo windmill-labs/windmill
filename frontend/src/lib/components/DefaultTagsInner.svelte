@@ -97,7 +97,7 @@
 			<Button
 				variant="accent"
 				unifiedSize="md"
-				on:click={handleSave}
+				onclick={handleSave}
 				startIcon={{ icon: Save }}
 				disabled={!hasChanges || !$enterpriseLicense || !$superadmin}
 			>

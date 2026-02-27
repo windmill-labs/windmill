@@ -8,9 +8,11 @@
 
 	interface Props {
 		index: number
+		onskipAll?: (...args: any[]) => any
 	}
 
-	let { index }: Props = $props()
+	let { index,
+		onskipAll = undefined }: Props = $props()
 
 	let tutorial: Tutorial | undefined = $state(undefined)
 
@@ -30,7 +32,7 @@
 	index={index}
 	name="workspace-onboarding"
 	tainted={false}
-	on:skipAll
+	onskipAll={onskipAll}
 	getSteps={(driver) => {
 		const steps: DriveStep[] = [
 			{

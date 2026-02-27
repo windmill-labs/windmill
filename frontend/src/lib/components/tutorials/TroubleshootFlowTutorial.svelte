@@ -12,9 +12,14 @@
 
 	interface Props {
 		index: number
+		onerror?: (...args: any[]) => any
+		onskipAll?: (...args: any[]) => any
+		onreload?: (...args: any[]) => any
 	}
 
-	let { index }: Props = $props()
+	let { index,
+		onerror = undefined,
+		onskipAll = undefined }: Props = $props()
 
 	const { flowStore, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -245,8 +250,8 @@
 	index={index}
 	name="troubleshoot-flow"
 	tainted={false}
-	on:error
-	on:skipAll
+	onerror={onerror}
+	onskipAll={onskipAll}
 	getSteps={(driver) => {
 		const steps: DriveStep[] = [
 			{

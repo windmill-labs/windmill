@@ -98,7 +98,7 @@
 					<div class="h-full relative">
 						<Button
 							wrapperClasses="absolute top-2 right-2 z-20"
-							on:click={() => copyToClipboard(JSON.stringify(schema, null, 4))}
+							onclick={() => copyToClipboard(JSON.stringify(schema, null, 4))}
 							color="light"
 							size="xs2"
 							startIcon={{

@@ -522,14 +522,14 @@
 							>
 							{#if !loading && runnables.length > 0}
 								<div class="flex gap-1">
-									<Button size="xs2" color="light" on:click={selectAll} {disabled}>All</Button>
-									<Button size="xs2" color="light" on:click={deselectAll} {disabled}>None</Button>
+									<Button size="xs2" color="light" onclick={selectAll} {disabled}>All</Button>
+									<Button size="xs2" color="light" onclick={deselectAll} {disabled}>None</Button>
 									<Button
 										size="xs2"
 										color="light"
 										iconOnly
 										startIcon={{ icon: RefreshCcw }}
-										on:click={() => selectedWorkspace && loadRunnables(selectedWorkspace)}
+										onclick={() => selectedWorkspace && loadRunnables(selectedWorkspace)}
 										{disabled}
 									/>
 								</div>

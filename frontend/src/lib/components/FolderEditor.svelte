@@ -155,7 +155,7 @@
 <Drawer bind:this={newGroup}>
 	<DrawerContent
 		title="New Group"
-		on:close={() => {
+		onclose={() => {
 			newGroup?.closeDrawer()
 			groupCreated = undefined
 		}}
@@ -163,7 +163,7 @@
 		{#if !groupCreated}
 			<div class="flex flex-row">
 				<input class="mr-2" placeholder="New group name" bind:value={newGroupName} />
-				<Button size="md" startIcon={{ icon: Plus }} disabled={!newGroupName} on:click={addGroup}>
+				<Button size="md" startIcon={{ icon: Plus }} disabled={!newGroupName} onclick={addGroup}>
 					New&nbsp;group
 				</Button>
 			</div>
@@ -174,7 +174,7 @@
 </Drawer>
 
 <Drawer bind:this={viewGroup}>
-	<DrawerContent title="Group {ownerItem}" on:close={viewGroup.closeDrawer}>
+	<DrawerContent title="Group {ownerItem}" onclose={viewGroup.closeDrawer}>
 		<GroupEditor name={ownerItem} />
 	</DrawerContent>
 </Drawer>
@@ -187,7 +187,7 @@
 				bind:value={summary}
 				size="md"
 			/>
-			<Button variant="accent" unifiedSize="md" on:click={updateFolder} disabled={!can_write}
+			<Button variant="accent" unifiedSize="md" onclick={updateFolder} disabled={!can_write}
 				>Save</Button
 			>
 		</div>
@@ -201,7 +201,7 @@
 				</Alert>
 				<div class="flex items-center gap-1">
 					<div>
-						<ToggleButtonGroup bind:selected={ownerKind} on:selected={() => (ownerItem = '')}>
+						<ToggleButtonGroup bind:selected={ownerKind} onselected={() => (ownerItem = '')}>
 							{#snippet children({ item })}
 								<ToggleButton value="user" label="User" {item} />
 								<ToggleButton value="group" label="Group" {item} />
@@ -221,14 +221,14 @@
 								variant="default"
 								unifiedSize="md"
 								disabled={!ownerItem || ownerItem == ''}
-								on:click={viewGroup.openDrawer}
+								onclick={viewGroup.openDrawer}
 								startIcon={{ icon: Eye }}
 								iconOnly
 							/>
 							<Button
 								title="New Group"
 								variant="default"
-								on:click={newGroup.openDrawer}
+								onclick={newGroup.openDrawer}
 								unifiedSize="md"
 								startIcon={{ icon: Plus }}
 								iconOnly
@@ -239,7 +239,7 @@
 						disabled={ownerItem == ''}
 						variant="accent"
 						unifiedSize="md"
-						on:click={addToFolder}
+						onclick={addToFolder}
 					>
 						Grant
 					</Button>
@@ -258,7 +258,7 @@
 					wrapperClasses="w-min"
 					startIcon={{ icon: Plus }}
 					size="xs"
-					on:click={() => {
+					onclick={() => {
 						FolderService.createFolder({
 							workspace: $workspaceStore ?? '',
 							requestBody: { name }
@@ -290,7 +290,7 @@
 													disabled={owner_name == 'u/' + $userStore?.username &&
 														!($userStore?.is_admin || $userStore?.is_super_admin)}
 													selected={role}
-													on:selected={async (e) => {
+													onselected={async (e) => {
 														const role = e.detail
 														// const wasInFolder = (folder?.owners ?? []).includes(folder)
 														// const inAcl = (
@@ -401,7 +401,7 @@
 			{#if can_write}
 				<div class="flex items-start">
 					<AutoComplete items={folders} bind:selectedItem={new_managing_folder} />
-					<Button variant="accent" size="sm" btnClasses="!ml-4" on:click={addToManagingFolder}>
+					<Button variant="accent" size="sm" btnClasses="!ml-4" onclick={addToManagingFolder}>
 						Add folder managing this folder
 					</Button>
 				</div>
@@ -423,7 +423,7 @@
 									{#if can_write}
 										<button
 											class="ml-2 text-red-500"
-											on:click={async () => {
+											onclick={async () => {
 												await GranularAclService.removeGranularAcls({
 													workspace: $workspaceStore ?? '',
 													path: name,

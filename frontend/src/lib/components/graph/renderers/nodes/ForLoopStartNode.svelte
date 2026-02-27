@@ -64,7 +64,7 @@
 			selected={selectionManager && selectionManager.isNodeSelected(id)}
 			id={data.id}
 			hideId
-			on:select={(e) => {
+			onselect={(e) => {
 				setTimeout(() => data?.eventHandlers?.select(e.detail))
 			}}
 			inputJson={filteredInput}

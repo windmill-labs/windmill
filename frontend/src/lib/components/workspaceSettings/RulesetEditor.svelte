@@ -297,7 +297,7 @@
 			variant="accent"
 			unifiedSize="md"
 			disabled={!canSave}
-			on:click={isCreateMode ? create : save}
+			onclick={isCreateMode ? create : save}
 			startIcon={{ icon: isCreateMode ? Plus : Save }}
 		>
 			{isCreateMode ? 'Create Rule' : 'Save Rule'}

@@ -14,6 +14,9 @@
 		fullHeight: boolean
 		overlapped?: string | undefined
 		componentDraggedId?: string | undefined
+		onexpand?: (...args: any[]) => any
+		onlock?: (...args: any[]) => any
+		onfillHeight?: (...args: any[]) => any
 	}
 
 	let {
@@ -23,7 +26,10 @@
 		render,
 		fullHeight,
 		overlapped = undefined,
-		componentDraggedId = undefined
+		componentDraggedId = undefined,
+		onexpand = undefined,
+		onlock = undefined,
+		onfillHeight = undefined
 	}: Props = $props()
 	let everRender = $state(render)
 
@@ -34,9 +40,9 @@
 
 {#if everRender || $app.eagerRendering}
 	<ComponentRendered
-		on:expand
-		on:lock
-		on:fillHeight
+		onexpand={onexpand}
+		onlock={onlock}
+		onfillHeight={onfillHeight}
 		{componentDraggedId}
 		{overlapped}
 		{render}

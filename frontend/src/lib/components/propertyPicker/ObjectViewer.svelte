@@ -220,7 +220,7 @@
 				iconOnly
 				btnClasses="text-primary hover:text-primary"
 				startIcon={{ icon: Search }}
-				on:click={() => {
+				onclick={() => {
 					searchOpen = true
 					tick().then(() => searchInput?.focus())
 				}}
@@ -239,7 +239,7 @@
 				<Button
 					size="xs2"
 					variant="default"
-					on:click={collapse}
+					onclick={collapse}
 					wrapperClasses="!inline-flex w-fit"
 					btnClasses="font-mono h-4 text-2xs px-1 font-thin text-primary rounded-[0.275rem]"
 					>-</Button
@@ -261,11 +261,11 @@
 							animationDuration="2s"
 						>
 							<Button
-								on:click={() => selectProp(key, undefined, false)}
-								on:mouseenter={() => {
+								onclick={() => selectProp(key, undefined, false)}
+								onmouseenter={() => {
 									hoveredKey = key
 								}}
-								on:mouseleave={() => (hoveredKey = null)}
+								onmouseleave={() => (hoveredKey = null)}
 								size="xs2"
 								color="light"
 								variant="border"
@@ -292,7 +292,7 @@
 								currentPath={computeFullKey(key, rawKey)}
 								{pureViewer}
 								{allowCopy}
-								on:select
+								onselect={onselect}
 								{collapseLevel}
 								collapsed={collapseLevel !== undefined
 									? level + 1 >= collapseLevel && key != expandedEvenOnLevel0
@@ -345,7 +345,7 @@
 			<Button
 				size="xs2"
 				variant="default"
-				on:click={collapse}
+				onclick={collapse}
 				wrapperClasses="!inline-flex w-fit"
 				btnClasses="h-4 text-[9px] px-1 text-primary rounded-[0.275rem]"
 			>

@@ -99,7 +99,7 @@
 </script>
 
 <Drawer bind:open={drawerOpen} size="800px">
-	<DrawerContent title={drawerContent?.title} on:close={() => closeDrawer()}>
+	<DrawerContent title={drawerContent?.title} onclose={() => closeDrawer()}>
 		{#if drawerContent?.mode === 'json'}
 			<DisplayResult
 				workspaceId={previewJob?.workspace_id}

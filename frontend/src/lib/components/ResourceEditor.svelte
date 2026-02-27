@@ -240,7 +240,7 @@
 						unifiedSize="xs"
 						btnClasses={editDescription ? 'bg-surface-hover' : ''}
 						startIcon={{ icon: Pen }}
-						on:click={() => (editDescription = !editDescription)}
+						onclick={() => (editDescription = !editDescription)}
 					/>
 				{/if}
 			</h4>
@@ -267,7 +267,7 @@
 		<div class="flex flex-col gap-1">
 			<div class="w-full flex gap-4 flex-row-reverse items-center">
 				<Toggle
-					on:change={(e) => switchTab(e.detail)}
+					onchange={(e) => switchTab(e)}
 					options={{
 						right: 'As JSON'
 					}}

@@ -20,7 +20,7 @@
 			id={data.id}
 			selectable={true}
 			selected={selectionManager?.isNodeSelected(id)}
-			on:select={(e) => {
+			onselect={(e) => {
 				setTimeout(() => data?.eventHandlers?.select(e.detail))
 			}}
 		/>

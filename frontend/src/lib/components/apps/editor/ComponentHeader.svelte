@@ -125,7 +125,7 @@
 			{#snippet content()}
 				<ComponentOutputViewer
 					suffix="connect"
-					on:select={({ detail }) =>
+					onselect={(detail) =>
 						connectOutput(connectingInput, component.type, component.id, detail)}
 					componentId={component.id}
 				/>
@@ -322,7 +322,7 @@
 				</div>
 				<Button
 					variant="default"
-					on:click={() => $openDebugRun?.($errorByComponent[component.id]?.id ?? '')}
+					onclick={() => $openDebugRun?.($errorByComponent[component.id]?.id ?? '')}
 					>Open Debug Runs</Button
 				>
 			{/snippet}

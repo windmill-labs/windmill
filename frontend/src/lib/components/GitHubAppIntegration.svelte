@@ -168,7 +168,7 @@
 		<Button
 			variant="default"
 			size="xs"
-			on:click={handleRefreshInstallations}
+			onclick={handleRefreshInstallations}
 			disabled={!$enterpriseLicense}
 			startIcon={{ icon: RotateCw }}
 		/>
@@ -237,7 +237,7 @@
 											variant="accent"
 											buttonType="button"
 											disabled={!githubState.selectedGHAppRepository}
-											on:click={() => handleApplyRepositoryURL(close)}
+											onclick={() => handleApplyRepositoryURL(close)}
 										>
 											Apply
 										</Button>
@@ -265,7 +265,7 @@
 										}}
 										target="_blank"
 										disabled={githubState.isCheckingInstallation}
-										on:click={() => {
+										onclick={() => {
 											if ($workspaceStore) {
 												startInstallationCheck(githubState, $workspaceStore, () =>
 													loadGithubInstallations(githubState, $workspaceStore!)
@@ -322,7 +322,7 @@
 																		variant="accent"
 																		title="Export installation to other instance"
 																		startIcon={{ icon: Download }}
-																		on:click={() =>
+																		onclick={() =>
 																			handleExportInstallation(installation.installation_id)}
 																	>
 																		Export
@@ -333,7 +333,7 @@
 																		destructive
 																		title="Remove installation from workspace"
 																		startIcon={{ icon: Minus }}
-																		on:click={() =>
+																		onclick={() =>
 																			handleDeleteInstallation(installation.installation_id)}
 																	>
 																		Remove
@@ -392,7 +392,7 @@
 																	variant="accent"
 																	title="Add installation to workspace"
 																	startIcon={{ icon: Plus }}
-																	on:click={() => {
+																	onclick={() => {
 																		if (installation.workspace_id) {
 																			handleAddInstallation(
 																				installation.installation_id,
@@ -427,7 +427,7 @@
 								/>
 								<Button
 									variant="accent"
-									on:click={handleImportInstallation}
+									onclick={handleImportInstallation}
 									disabled={!githubState.importJwt}
 								>
 									Import
@@ -455,7 +455,7 @@
 			}}
 			href={githubState.githubInstallationUrl}
 			target="_blank"
-			on:click={handleInstallClickWithPopover}
+			onclick={handleInstallClickWithPopover}
 		>
 			{$enterpriseLicense
 				? githubState.isCheckingInstallation

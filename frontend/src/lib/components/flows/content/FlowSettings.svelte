@@ -162,7 +162,7 @@
 							textClass="font-medium"
 							size="xs"
 							checked={displayWorkerTagPicker}
-							on:change={() => {
+							onchange={() => {
 								displayWorkerTagPicker = !displayWorkerTagPicker
 								if (!displayWorkerTagPicker) {
 									flowStore.val.tag = undefined
@@ -208,7 +208,7 @@
 							textClass="font-medium"
 							size="xs"
 							checked={Boolean(flowStore.val.value.cache_ttl)}
-							on:change={() => {
+							onchange={() => {
 								if (flowStore.val.value.cache_ttl && flowStore.val.value.cache_ttl != undefined) {
 									flowStore.val.value.cache_ttl = undefined
 								} else {
@@ -251,7 +251,7 @@
 							textClass="font-medium"
 							size="xs"
 							checked={Boolean(flowStore.val.value.skip_expr)}
-							on:change={() => {
+							onchange={() => {
 								if (Boolean(flowStore.val.value.skip_expr) && flowStore.val.value.skip_expr) {
 									flowStore.val.value.skip_expr = undefined
 								} else {
@@ -303,7 +303,7 @@
 							textClass="font-medium"
 							size="xs"
 							checked={Boolean(flowStore.val.value.early_return)}
-							on:change={() => {
+							onchange={() => {
 								if (Boolean(flowStore.val.value.early_return) && flowStore.val.value.early_return) {
 									flowStore.val.value.early_return = undefined
 								} else {
@@ -363,7 +363,7 @@
 					textClass="font-medium"
 					size="xs"
 					checked={Boolean(flowStore.val.visible_to_runner_only)}
-					on:change={() => {
+					onchange={() => {
 						if (flowStore.val.visible_to_runner_only) {
 							flowStore.val.visible_to_runner_only = undefined
 						} else {
@@ -385,7 +385,7 @@
 						textClass="font-medium"
 						size="xs"
 						checked={Boolean(flowStore.val.on_behalf_of_email)}
-						on:change={() => {
+						onchange={() => {
 							if (flowStore.val.on_behalf_of_email) {
 								flowStore.val.on_behalf_of_email = undefined
 								$preserveOnBehalfOf = false
@@ -449,7 +449,7 @@
 							size="xs"
 							disabled={!$enterpriseLicense}
 							checked={Boolean(flowStore.val.value.concurrent_limit)}
-							on:change={() => {
+							onchange={() => {
 								if (flowStore.val.value.concurrent_limit) {
 									flowStore.val.value.concurrent_limit = undefined
 								} else {
@@ -476,7 +476,7 @@
 										<Button
 											size="sm"
 											color="light"
-											on:click={() => {
+											onclick={() => {
 												flowStore.val.value.concurrent_limit = undefined
 											}}
 											variant="border">Remove Limits</Button
@@ -534,7 +534,7 @@
 					size="xs"
 					disabled={!$enterpriseLicense || isCloudHosted()}
 					checked={flowStore.val.value.priority !== undefined && flowStore.val.value.priority > 0}
-					on:change={() => {
+					onchange={() => {
 						if (flowStore.val.value.priority) {
 							flowStore.val.value.priority = undefined
 						} else {
@@ -580,7 +580,7 @@
 						size="xs"
 						disabled={!$enterpriseLicense || isCloudHosted()}
 						checked={Boolean(flowStore.val.dedicated_worker)}
-						on:change={() => {
+						onchange={() => {
 							if (flowStore.val.dedicated_worker) {
 								flowStore.val.dedicated_worker = undefined
 							} else {

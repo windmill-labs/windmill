@@ -146,7 +146,7 @@
 	variant="accent-secondary"
 	wrapperClasses="whitespace-nowrap"
 	unifiedSize="md"
-	on:click={() => {
+	onclick={() => {
 		previewMode = 'whole'
 		previewOpen = !previewOpen
 		if (previewOpen) {
@@ -180,13 +180,13 @@
 			bind:branchOrIterationN
 			bind:rightColumnSelect
 			bind:localModuleStates
-			on:close={() => {
+			onclose={() => {
 				// keep the data in the preview content
 				deferContent = true
 				previewOpen = false
 				flowPreviewContent?.setRecordingMode(false)
 			}}
-			on:openTriggers={(e) => {
+			onopenTriggers={(e) => {
 				previewOpen = false
 				dispatch('openTriggers', e.detail)
 				onopenTriggers?.(e.detail)

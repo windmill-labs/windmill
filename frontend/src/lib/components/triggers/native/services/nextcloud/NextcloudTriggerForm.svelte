@@ -112,7 +112,7 @@
 				>No events available. Please ensure your workspace has a connected Nextcloud integration.</div
 			>
 			<div class="flex gap-2">
-				<Button variant="default" on:click={loadAvailableEvents} {disabled}>
+				<Button variant="default" onclick={loadAvailableEvents} {disabled}>
 					Retry loading events
 				</Button>
 				<Button variant="subtle" href="/workspace_settings?tab=integrations" target="_blank">

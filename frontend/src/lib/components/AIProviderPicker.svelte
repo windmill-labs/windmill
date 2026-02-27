@@ -166,7 +166,7 @@
 	<!-- Provider Selection -->
 	<ToggleButtonGroup
 		selected={value?.kind}
-		onSelected={onProviderChange}
+		onselected={onProviderChange}
 		{disabled}
 		wrap
 		tabListClass="w-full"
@@ -232,7 +232,7 @@
 				bind:checked={useAsDefault}
 				options={{ right: 'Use as personal default for other new agents' }}
 				size="xs"
-				on:change={(e) => {
+				onchange={(e) => {
 					if (!e.detail) {
 						removeConfig()
 					} else {

@@ -42,6 +42,7 @@
 		onloadMore?: (...args: any[]) => any
 		onprevious?: (...args: any[]) => any
 		onnext?: (...args: any[]) => any
+		onchange?: (...args: any[]) => any
 	}
 
 	let {
@@ -174,7 +175,7 @@
 						<Button
 							color="light"
 							size="xs2"
-							on:click={() => (dispatch('previous'), onprevious?.())}
+							onclick={() => (dispatch('previous'), onprevious?.())}
 							disabled={currentPage === 1}
 							startIcon={{ icon: ArrowLeftIcon }}
 						>
@@ -185,7 +186,7 @@
 						<Button
 							color="light"
 							size="xs2"
-							on:click={() => (dispatch('next'), onnext?.())}
+							onclick={() => (dispatch('next'), onnext?.())}
 							endIcon={{ icon: ArrowRightIcon }}
 							disabled={!hasMore}
 						>
@@ -199,7 +200,7 @@
 				<Button
 					color="light"
 					size="xs2"
-					on:click={() => triggerLoadMore()}
+					onclick={() => triggerLoadMore()}
 					endIcon={{ icon: ArrowDownIcon }}
 				>
 					Load {loadMore} more

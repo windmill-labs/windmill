@@ -35,7 +35,7 @@
 		{disabled}
 		size="sm"
 		checked={Boolean(flowModule.delete_after_use)}
-		on:change={() => {
+		onchange={() => {
 			if (flowModule.delete_after_use) {
 				flowModule.delete_after_use = undefined
 			} else {

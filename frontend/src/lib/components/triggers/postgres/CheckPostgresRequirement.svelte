@@ -61,7 +61,7 @@
 		<Button
 			disabled={!can_write}
 			loading={loadingConfiguration}
-			on:click={checkConnectionAndDatabaseConfiguration}
+			onclick={checkConnectionAndDatabaseConfiguration}
 			size="xs"
 			spacingSize="sm"
 			variant="default"

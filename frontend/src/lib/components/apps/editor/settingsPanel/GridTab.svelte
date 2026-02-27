@@ -205,7 +205,7 @@
 							bind:value={items[index].value}
 						/>
 						<div class="absolute right-8">
-							<CloseButton noBg small on:close={() => deleteSubgrid(index)} />
+							<CloseButton noBg small onclose={() => deleteSubgrid(index)} />
 						</div>
 
 						<div class="flex flex-col justify-center gap-2">
@@ -229,6 +229,6 @@
 				</div>
 			{/each}
 		</section>
-		<Button size="xs" variant="default" startIcon={{ icon: Plus }} on:click={addTab} iconOnly />
+		<Button size="xs" variant="default" startIcon={{ icon: Plus }} onclick={addTab} iconOnly />
 	</div>
 </PanelSection>

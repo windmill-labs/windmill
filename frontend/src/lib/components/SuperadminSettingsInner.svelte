@@ -252,7 +252,7 @@
 										btnClasses="w-auto"
 										size="sm"
 										variant="accent"
-										on:click={() => {
+										onclick={() => {
 											automateUsernameModalOpen = true
 										}}
 									>
@@ -260,11 +260,11 @@
 									</Button>
 									<ConfirmationModal
 										open={automateUsernameModalOpen}
-										on:confirmed={() => {
+										onconfirmed={() => {
 											automateUsernameModalOpen = false
 											enableAutomateUsernameCreationSetting()
 										}}
-										on:canceled={() => (automateUsernameModalOpen = false)}
+										oncanceled={() => (automateUsernameModalOpen = false)}
 										title="Automatic username creation"
 										confirmationText="Enable"
 									>
@@ -308,7 +308,7 @@
 										</Button>
 									{/snippet}
 									{#snippet content()}
-										<InviteGlobalUser on:new={() => listUsers(activeOnly)} />
+										<InviteGlobalUser onnew={() => listUsers(activeOnly)} />
 									{/snippet}
 								</Popover>
 							</div>
@@ -319,7 +319,7 @@
 								<DataTable
 									shouldLoadMore={(filteredUsers?.length ?? 0) > 50}
 									loadMore={50}
-									on:loadMore={() => {
+									onloadMore={() => {
 										nbDisplayed += 50
 									}}
 								>
@@ -359,7 +359,7 @@
 																		username=""
 																		{email}
 																		isConflict
-																		on:renamed={() => {
+																		onrenamed={() => {
 																			listUsers(activeOnly)
 																		}}
 																	/>
@@ -388,7 +388,7 @@
 													<Cell>
 														<ToggleButtonGroup
 															selected={super_admin ? 'super_admin' : devops ? 'devops' : 'user'}
-															on:selected={async (e) => {
+															onselected={async (e) => {
 																if (email == $userStore?.email) {
 																	sendUserToast('You cannot demote yourself', true)
 																	listUsers(activeOnly)
@@ -454,13 +454,13 @@
 																	value={name}
 																	{username}
 																	{email}
-																	on:refresh={() => {
+																	onrefresh={() => {
 																		listUsers(activeOnly)
 																	}}
-																	on:save={(e) => {
+																	onsave={(e) => {
 																		updateName(e.detail, email)
 																	}}
-																	on:renamed={() => {
+																	onrenamed={() => {
 																		listUsers(activeOnly)
 																	}}
 																	{automateUsernameCreation}
@@ -530,10 +530,10 @@
 	open={Boolean(deleteConfirmedCallback)}
 	title="Remove user"
 	confirmationText="Remove"
-	on:canceled={() => {
+	oncanceled={() => {
 		deleteConfirmedCallback = undefined
 	}}
-	on:confirmed={() => {
+	onconfirmed={() => {
 		if (deleteConfirmedCallback) {
 			deleteConfirmedCallback()
 		}

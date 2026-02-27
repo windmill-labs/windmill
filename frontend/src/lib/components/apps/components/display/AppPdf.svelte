@@ -95,10 +95,10 @@
 				{zoom}
 				class={css?.container?.class}
 				style={css?.container?.style}
-				on:loading={() => {
+				onloading={() => {
 					outputs.loading.set(true)
 				}}
-				on:loaded={() => {
+				onloaded={() => {
 					outputs.loading.set(false)
 				}}
 			/>

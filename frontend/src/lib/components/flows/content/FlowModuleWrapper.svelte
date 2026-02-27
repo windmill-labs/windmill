@@ -144,7 +144,7 @@
 
 		{#if flowModule.value.flow}
 			<FlowInputsFlow
-				on:pick={async ({ detail }) => {
+				onpick={async ({ detail }) => {
 					const { path, summary } = detail
 					const [module, state] = await pickFlow(path, summary, flowModule.id)
 
@@ -160,11 +160,11 @@
 					previousModule !== undefined ||
 					selectedId == 'failure' ||
 					selectedId == 'preprocessor'}
-				on:pick={async ({ detail }) => {
+				onpick={async ({ detail }) => {
 					const { path, summary, kind, hash } = detail
 					createModuleFromScript(path, summary, kind, hash)
 				}}
-				on:new={async ({ detail }) => {
+				onnew={async ({ detail }) => {
 					const { language, kind, subkind, summary } = detail
 
 					const [module, state] = await createInlineScriptModule(

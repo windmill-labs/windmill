@@ -52,7 +52,7 @@
 	{#if triggerMode === 'suspended'}
 		<ToggleButtonGroup
 			disabled={!canWrite}
-			onSelected={async (value) => {
+			onselected={async (value) => {
 				if (value === 'disabled' || value === 'enabled') {
 					const hasJobs = await suspendedJobsModal?.hasJobs()
 					if (hasJobs) {
@@ -76,7 +76,7 @@
 			disabled={!canWrite}
 			options={hideToggleLabels ? undefined : { right: 'enable', left: 'disable' }}
 			checked={triggerMode === 'enabled'}
-			on:change={(e) => {
+			onchange={(e) => {
 				onToggleMode(e.detail ? 'enabled' : 'disabled')
 			}}
 		/>

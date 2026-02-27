@@ -920,7 +920,7 @@
 					{workspace}
 					bind:this={schemaForm}
 					bind:args
-					on:inputClicked={handleInputClick}
+					oninputClicked={handleInputClick}
 				/>
 			</div>
 		{/if}

@@ -76,7 +76,7 @@
 					disabledOptions={isEE ? [] : ['range-bar', 'range-area']}
 				/>
 
-				<Button color="red" size="xs" on:click={removeDataset}>Remove dataset</Button>
+				<Button color="red" size="xs" onclick={removeDataset}>Remove dataset</Button>
 			</div>
 		{/if}
 	{/snippet}

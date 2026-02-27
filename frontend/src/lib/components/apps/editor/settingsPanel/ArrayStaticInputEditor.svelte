@@ -285,7 +285,7 @@
 						right: 'w/ value'
 					}}
 					size="xs"
-					on:change={(e) => {
+					onchange={(e) => {
 						if (e.detail) {
 							items = items.map((item) => {
 								if (typeof item.value === 'string') {
@@ -339,7 +339,7 @@
 									subFieldType={raw ? 'object' : subFieldType}
 									bind:componentInput
 									bind:value={item.value}
-									on:remove={() => deleteElementByType(index)}
+									onremove={() => deleteElementByType(index)}
 								/>
 							</div>
 
@@ -376,14 +376,14 @@
 		<RefreshDatabaseStudioTable {id} />
 	{/if}
 	{#if subFieldType !== 'db-explorer'}
-		<Button size="xs" color="light" startIcon={{ icon: Plus }} on:click={() => addElementByType()}>
+		<Button size="xs" color="light" startIcon={{ icon: Plus }} onclick={() => addElementByType()}>
 			Add
 		</Button>
 		{#if subFieldType === 'table-column' || subFieldType == 'ag-grid'}
 			<QuickAddColumn
 				{id}
 				columns={componentInput.value?.map((item) => item.field)}
-				on:add={({ detail }) => {
+				onadd={(detail) => {
 					if (!componentInput.value) componentInput.value = []
 					if (subFieldType === 'table-column') {
 						componentInput.value.push({ field: detail, headerName: detail, type: 'text' })

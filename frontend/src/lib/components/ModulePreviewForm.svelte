@@ -156,7 +156,7 @@
 								{#snippet fieldHeaderActions()}
 									{#if stepsInputArgs?.isArgManuallySet(mod.id, argName)}
 										<Button
-											on:click={() => {
+											onclick={() => {
 												plugIt(argName)
 											}}
 											size="xs2"

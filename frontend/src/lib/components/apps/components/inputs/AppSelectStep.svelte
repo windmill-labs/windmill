@@ -131,7 +131,7 @@
 			hasValidations={false}
 			allowStepNavigation={true}
 			{selectedIndex}
-			on:click={(e) => {
+			onclick={(e) => {
 				const index = e.detail.index
 				selectedIndex = index
 				let item = resolvedConfig?.items[index]

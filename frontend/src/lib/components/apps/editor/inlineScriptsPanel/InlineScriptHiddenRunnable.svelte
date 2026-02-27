@@ -16,13 +16,15 @@
 		id: string
 		transformer: boolean
 		oncreateScriptFromInlineScript?: (...args: any[]) => any
+		ondelete?: (...args: any[]) => any
 	}
 
 	let {
 		runnable = $bindable(),
 		id,
 		transformer,
-		oncreateScriptFromInlineScript = undefined
+		oncreateScriptFromInlineScript = undefined,
+		ondelete = undefined
 	}: Props = $props()
 
 	const { runnableComponents, app } = getContext<AppViewerContext>('AppViewerContext')
@@ -51,7 +53,7 @@
 			componentType={undefined}
 			bind:inlineScript={runnable.transformer}
 			name="Transformer"
-			on:delete={() => {
+			ondelete={() => {
 				if (runnableComponents) {
 					delete $runnableComponents[id]
 					runnable.transformer = undefined
@@ -66,7 +68,7 @@
 	{/if}
 {:else if isRunnableByName(runnable) && runnable.inlineScript}
 	<InlineScriptEditor
-		on:createScriptFromInlineScript={() => (
+		oncreateScriptFromInlineScript={() => (
 			dispatch('createScriptFromInlineScript', runnable),
 			oncreateScriptFromInlineScript?.(runnable)
 		)}
@@ -75,23 +77,23 @@
 		bind:name={runnable.name}
 		bind:fields={runnable.fields}
 		syncFields
-		on:delete
+		ondelete={ondelete}
 	/>
 {:else if isRunnableByPath(runnable)}
 	<InlineScriptRunnableByPath
 		bind:runnable
 		bind:fields={runnable.fields}
-		on:fork={(e) => fork(e.detail)}
-		on:delete
+		onfork={(e) => fork(e)}
+		ondelete={ondelete}
 		{id}
 	/>
 {:else}
 	<EmptyInlineScript
 		unusedInlineScripts={$app?.unusedInlineScripts}
-		on:pick={(e) => onPick(e.detail)}
-		on:delete
+		onpick={(e) => onPick(e)}
+		ondelete={ondelete}
 		showScriptPicker
-		on:new={(e) => {
+		onnew={(e) => {
 			runnable = {
 				type: 'inline',
 				inlineScript: e.detail,

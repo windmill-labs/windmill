@@ -62,7 +62,7 @@
 		? 'Disable workspace error handler for this script'
 		: 'Enable workspace error handler for this script'}
 	unifiedSize="md"
-	on:click={toggleErrorHandler}
+	onclick={toggleErrorHandler}
 	variant="subtle"
 	startIcon={{
 		icon: errorHandlerMuted === undefined || !errorHandlerMuted ? Bell : BellOff

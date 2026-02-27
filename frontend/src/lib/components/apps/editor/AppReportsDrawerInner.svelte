@@ -499,7 +499,7 @@
 </script>
 
 <DrawerContent
-	on:close={() => (open = false)}
+	onclose={() => (open = false)}
 	title="Schedule Reports"
 	tooltip="Send a PDF or PNG preview of any app at a given schedule"
 	documentationLink="https://www.windmill.dev/docs/apps/schedule_reports"
@@ -509,7 +509,7 @@
 			<Toggle
 				checked={appReportingEnabled}
 				options={{ right: 'enable', left: 'disable' }}
-				on:change={async () => {
+				onchange={async () => {
 					if (appReportingEnabled) {
 						disableAppReporting()
 					} else {
@@ -524,7 +524,7 @@
 			variant="accent"
 			startIcon={{ icon: Save }}
 			unifiedSize="md"
-			on:click={async () => {
+			onclick={async () => {
 				await enableAppReporting()
 				sendUserToast('App reporting updated')
 				open = false
@@ -617,7 +617,7 @@
 			{#if selectedTab === 'custom'}
 				<div class="pt-2">
 					<ScriptPicker
-						on:select={(ev) => {
+						onselect={(ev) => {
 							customPath = ev.detail.path
 						}}
 						initialPath={customPath}
@@ -649,7 +649,7 @@
 								</p>
 								<Button
 									variant="default"
-									on:click={getWorspaceSlackSetting}
+									onclick={getWorspaceSlackSetting}
 									startIcon={{ icon: RotateCw }}
 								/>
 							</div>
@@ -674,7 +674,7 @@
 			<Button
 				loading={testLoading}
 				{disabled}
-				on:click={testReport}
+				onclick={testReport}
 				unifiedSize="md"
 				variant="accent"
 				btnClasses="w-auto"

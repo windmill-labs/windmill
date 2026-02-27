@@ -82,6 +82,7 @@
 		flowHasChanged?: boolean
 		ongenerateStep?: (...args: any[]) => any
 		onchange?: (...args: any[]) => any
+		onreload?: (...args: any[]) => any
 	}
 
 	let {
@@ -113,7 +114,8 @@
 		onDelete,
 		flowHasChanged,
 		ongenerateStep = undefined,
-		onchange = undefined
+		onchange = undefined,
+		onreload = undefined
 	}: Props = $props()
 
 	const { customUi, selectionManager, moving, history, flowStateStore, flowStore, pathStore } =
@@ -392,13 +394,13 @@
 		title="Confirm deleting step with dependents"
 		confirmationText="Delete step"
 		open={Boolean(deleteCallback)}
-		on:confirmed={() => {
+		onconfirmed={() => {
 			if (deleteCallback) {
 				deleteCallback()
 				deleteCallback = undefined
 			}
 		}}
-		on:canceled={() => {
+		oncanceled={() => {
 			deleteCallback = undefined
 		}}
 	>
@@ -427,7 +429,7 @@
 			{disableSettings}
 			{disableStaticInputs}
 			{smallErrorHandler}
-			on:generateStep
+			ongenerateStep={ongenerateStep}
 			{aiChatOpen}
 			{toggleAiChat}
 			{noteMode}
@@ -700,5 +702,5 @@
 </div>
 
 {#if !disableTutorials}
-	<FlowTutorials on:reload />
+	<FlowTutorials onreload={onreload} />
 {/if}

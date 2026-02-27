@@ -249,16 +249,16 @@
 					>
 						<GridEditorMenu
 							id={dataItem.id}
-							on:expand={() => {
+							onexpand={() => {
 								push(history, $app)
 								$selectedComponent = [dataItem.id]
 								expandGriditem($app.grid, dataItem.id, $breakpoint)
 								$app = $app
 							}}
-							on:lock={() => {
+							onlock={() => {
 								handleLock(dataItem.id)
 							}}
-							on:fillHeight={() => {
+							onfillHeight={() => {
 								handleFillHeight(dataItem.id)
 							}}
 							locked={isFixed(dataItem)}
@@ -270,13 +270,13 @@
 								selected={Boolean($selectedComponent?.includes(dataItem.id))}
 								locked={isFixed(dataItem)}
 								fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
-								on:lock={() => {
+								onlock={() => {
 									handleLock(dataItem.id)
 								}}
-								on:fillHeight={() => {
+								onfillHeight={() => {
 									handleFillHeight(dataItem.id)
 								}}
-								on:expand={() => {
+								onexpand={() => {
 									push(history, $app)
 									$selectedComponent = [dataItem.id]
 									expandGriditem($app.grid, dataItem.id, $breakpoint)

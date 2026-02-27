@@ -82,6 +82,10 @@
 		oneditPanelSizeChanged?: (...args: any[]) => any
 		ondelete?: (...args: any[]) => any
 		onclick?: (...args: any[]) => any
+		onacceptChange?: (...args: any[]) => any
+		onrejectChange?: (...args: any[]) => any
+		onedit?: (...args: any[]) => any
+		onchange?: (...args: any[]) => any
 	}
 
 	let {
@@ -121,7 +125,9 @@
 		onChange = undefined,
 		oneditPanelSizeChanged = undefined,
 		ondelete = undefined,
-		onclick = undefined
+		onclick = undefined,
+		onacceptChange = undefined,
+		onrejectChange = undefined
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -439,10 +445,10 @@
 							{disableDnd}
 							{onlyMaskPassword}
 							bind:args
-							on:click={(e) => {
+							onclick={(e) => {
 								opened = e.detail
 							}}
-							on:reorder={(e) => {
+							onreorder={(e) => {
 								let order = e.detail
 								let newProperties = {}
 								for (let key of order) {
@@ -462,8 +468,8 @@
 							prettifyHeader={isAppInput}
 							disabled={!!previewSchema}
 							{diff}
-							on:acceptChange
-							on:rejectChange
+							onacceptChange={onacceptChange}
+							onrejectChange={onrejectChange}
 							{shouldDispatchChanges}
 							bind:isValid
 							noVariablePicker={noVariablePicker || customUi?.disableVariablePicker === true}
@@ -495,7 +501,7 @@
 									{/if}
 									<ToggleButtonGroup
 										bind:selected={dynLang}
-										on:selected={({ detail }) => {
+										onselected={(detail) => {
 											dynCode = initDynFn(detail)
 										}}
 									>
@@ -558,7 +564,7 @@
 											'Arguments can be edited either using the wizard, or by editing their JSON Schema.'
 									}}
 									lightMode
-									on:change={(e) => {
+									onchange={(e) => {
 										if (e.detail) {
 											schemaString = JSON.stringify(schema, null, '\t')
 											editor?.setCode(schemaString)
@@ -625,7 +631,7 @@
 																		<Button
 																			variant="default"
 																			size="xs"
-																			on:click={() => {
+																			onclick={() => {
 																				renameProperty(argName, argName + i)
 																				close()
 																			}}
@@ -834,7 +840,7 @@
 																	bind:order={schema.properties[argName].order}
 																	bind:requiredProperty={schema.properties[argName].required}
 																	{displayWebhookWarning}
-																	on:requiredChange={(event) => {
+																	onrequiredChange={(event) => {
 																		if (event.detail.required) {
 																			schema.required = schema.required ?? []
 																			schema.required.push(argName)
@@ -864,7 +870,7 @@
 									bind:this={editor}
 									small
 									fixedOverflowWidgets={false}
-									on:change={() => {
+									onchange={() => {
 										try {
 											schema = JSON.parse(schemaString)
 											error = ''
@@ -917,7 +923,7 @@
 					variant="default"
 					size="sm"
 					startIcon={{ icon: Plus }}
-					on:click={() => variableEditor?.initNew?.()}
+					onclick={() => variableEditor?.initNew?.()}
 				>
 					New variable
 				</Button>

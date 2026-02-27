@@ -14,6 +14,13 @@
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import { twMerge } from 'tailwind-merge'
 
+	interface Props {
+		onhidePanel?: (...args: any[]) => any
+	}
+
+	let {}: Props = $props()
+
+
 	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
 	const { search } = getContext<ContextPanelContext>('ContextPanel')
 
@@ -26,7 +33,7 @@
 	{#snippet action()}
 		<div class="p-0.5">
 			<HideButton
-				on:click={() => {
+				onclick={() => {
 					dispatch('hidePanel')
 				}}
 				direction="left"
@@ -62,7 +69,7 @@
 								<ComponentOutputViewer
 									{render}
 									componentId={'ctx'}
-									on:select={({ detail }) => {
+									onselect={(detail) => {
 										$connectingInput = connectInput($connectingInput, 'ctx', detail)
 									}}
 								/>
@@ -81,7 +88,7 @@
 									{render}
 									bind:hasContent={hasState}
 									componentId={'state'}
-									on:select={({ detail }) => {
+									onselect={(detail) => {
 										$connectingInput = connectInput($connectingInput, 'state', detail)
 									}}
 								/>

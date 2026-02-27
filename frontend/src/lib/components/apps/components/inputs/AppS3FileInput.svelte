@@ -63,7 +63,7 @@
 		{#if resolvedConfig.displayDirectLink && fileUpload.progress === 100}
 										<Button
 											color="light"
-											on:click={() => {
+											onclick={() => {
 												if (!fileUpload.path) {
 													return
 												}
@@ -142,13 +142,13 @@
 		disabled={resolvedConfigS3?.disabled}
 		{fileUploads}
 		{workspace}
-		on:addition={(evt) => {
+		onaddition={(evt) => {
 			const curr = outputs.result.peak()
 			value = curr.concat(evt.detail)
 			outputs.result.set(value)
 			onFileChange?.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb?.()))
 		}}
-		on:deletion={(evt) => {
+		ondeletion={(evt) => {
 			const curr = outputs.result.peak()
 			value = curr.filter((file) => file.path !== evt.detail?.path)
 			outputs.result.set(value)

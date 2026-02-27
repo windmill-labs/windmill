@@ -151,7 +151,7 @@
 	
 			<Button
 				size="sm"
-				on:click={() => {
+				onclick={() => {
 					setThresholdAlert()
 					thresholdAlertOpen = false
 				}}
@@ -209,7 +209,7 @@
 								: 'Not set'}</p
 						>
 						<Button
-							on:click={() => {
+							onclick={() => {
 								newThresholdAlertAmount = thresholdAlert?.threshold_alert_amount ?? 10
 								thresholdAlertOpen = true
 							}}
@@ -224,7 +224,7 @@
 						/>
 						{#if thresholdAlert?.threshold_alert_amount}
 							<Button
-								on:click={() => {
+								onclick={() => {
 									if (thresholdAlert) {
 										newThresholdAlertAmount = undefined
 										setThresholdAlert()

@@ -12,6 +12,13 @@
 	import { initFlow } from '$lib/components/flows/flowStore.svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
 
+	interface Props {
+		onsave?: (...args: any[]) => any
+	}
+
+	let {}: Props = $props()
+
+
 	let flowEditorDrawer: Drawer | undefined = $state()
 
 	const dispatch = createEventDispatcher()
@@ -82,7 +89,7 @@
 		title="Flow Editor - {flowPath}"
 		noPadding
 		fullScreen
-		on:close={() => {
+		onclose={() => {
 			flowEditorDrawer?.closeDrawer()
 		}}
 	>
@@ -124,7 +131,7 @@
 		{#snippet actions()}
 			<Button
 				variant="default"
-				on:click={() => {
+				onclick={() => {
 					window.open(`/flows/edit/${flowPath}`, '_blank', 'noopener,noreferrer')
 					flowEditorDrawer?.closeDrawer()
 				}}

@@ -65,7 +65,7 @@
 		<ComponentOutputViewer
 			{render}
 			componentId={gridItem.id}
-			on:select={({ detail }) => {
+			onselect={(detail) => {
 				connectOutput(connectingInput, gridItem?.data?.type, gridItem.data.id, detail)
 			}}
 		/>

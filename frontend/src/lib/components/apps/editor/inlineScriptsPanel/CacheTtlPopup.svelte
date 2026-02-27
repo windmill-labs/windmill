@@ -43,7 +43,7 @@
 	{#snippet content()}
 		<Toggle
 			checked={Boolean(cache_ttl)}
-			on:change={() => {
+			onchange={() => {
 				if (cache_ttl != undefined) {
 					cache_ttl = undefined
 				} else {

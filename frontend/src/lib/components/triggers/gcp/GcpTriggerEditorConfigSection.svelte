@@ -189,7 +189,7 @@
 								disabled={!can_write}
 								variant="default"
 								wrapperClasses="self-stretch"
-								on:click={loadAllPubSubTopicsFromProject}
+								onclick={loadAllPubSubTopicsFromProject}
 								startIcon={{ icon: RefreshCw }}
 								iconOnly
 							/>
@@ -206,7 +206,7 @@
 					<div class="flex flex-col gap-3">
 						<ToggleButtonGroup
 							bind:selected={subscription_mode}
-							on:selected={(e) => {
+							onselected={(e) => {
 								if (e.detail === 'existing' && subscription_items.length === 0) {
 									loadAllSubscriptionFromGooglePubSubTopic()
 								}
@@ -324,7 +324,7 @@
 										disabled={!can_write}
 										variant="default"
 										wrapperClasses="self-stretch"
-										on:click={loadAllSubscriptionFromGooglePubSubTopic}
+										onclick={loadAllSubscriptionFromGooglePubSubTopic}
 										startIcon={{ icon: RefreshCw }}
 										iconOnly
 									/>

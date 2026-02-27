@@ -985,7 +985,7 @@
 				>{error}</pre
 			>
 			<div class="flex mt-4">
-				<Button wrapperClasses="border rounded !border-gray-400" variant="accent" on:click={reset}
+				<Button wrapperClasses="border rounded !border-gray-400" variant="accent" onclick={reset}
 					>reset</Button
 				>
 			</div>

@@ -47,7 +47,7 @@
 
 		<Toggle
 			checked={isSkipEnabled}
-			on:change={() => {
+			onchange={() => {
 				if (isSkipEnabled && flowModule.skip_if) {
 					flowModule.skip_if = undefined
 				} else {
@@ -73,7 +73,7 @@
 						noPadding
 						notSelectable
 						pickableProperties={stepPropPicker.pickableProperties}
-						on:select={({ detail }) => {
+						onselect={(detail) => {
 							editor?.insertAtCursor(detail)
 							editor?.focus()
 						}}

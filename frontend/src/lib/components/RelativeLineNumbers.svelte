@@ -11,7 +11,7 @@
 <Toggle
 	size="xs"
 	bind:checked={$relativeLineNumbers}
-	on:change={() => {
+	onchange={() => {
 		storeSetting()
 	}}
 	options={{ right: 'relative line numbers' }}

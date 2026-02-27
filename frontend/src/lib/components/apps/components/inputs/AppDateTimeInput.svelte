@@ -184,7 +184,7 @@
 			<DateTimeInput
 				bind:value
 				useDropdown={resolvedConfig?.displayPresets}
-				on:pointerdown={(e) => {
+				onpointerdown={(e) => {
 					e.stopPropagation()
 					$selectedComponent = [id]
 				}}
@@ -195,7 +195,7 @@
 				maxDate={resolvedConfig.maxDateTime
 					? formatDate(resolvedConfig.maxDateTime, 'yyyy-MM-dd')
 					: undefined}
-				on:focus={() => ($selectedComponent = [id])}
+				onfocus={() => ($selectedComponent = [id])}
 				disabled={resolvedConfig.disabled}
 			/>
 		{/if}

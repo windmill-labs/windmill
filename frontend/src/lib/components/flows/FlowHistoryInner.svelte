@@ -151,7 +151,7 @@
 											buttonType="button"
 											btnClasses="!p-1 !w-[34px] !ml-1"
 											aria-label="Save deployment message"
-											on:click={() => {
+											onclick={() => {
 												updateDeploymentMsg(selectedVersion?.id)
 											}}
 										>
@@ -163,7 +163,7 @@
 											buttonType="button"
 											btnClasses="!p-1 !w-[34px] !ml-1"
 											aria-label="Abort"
-											on:click={() => {
+											onclick={() => {
 												deploymentMsgUpdateMode = false
 												deploymentMsgUpdate = undefined
 											}}
@@ -196,7 +196,7 @@
 										<Button
 											size="sm"
 											variant="accent"
-											on:click={() =>
+											onclick={() =>
 												window.open(
 													`/flows/add?template_id=${selectedVersion?.id}&template=${path}`,
 													'_blank'
@@ -208,7 +208,7 @@
 								{/if}
 
 								<div class="flex">
-									<Button size="sm" variant="accent" on:click={() => restoreVersion(selected)}
+									<Button size="sm" variant="accent" onclick={() => restoreVersion(selected)}
 										>Redeploy with that version
 									</Button>
 								</div>

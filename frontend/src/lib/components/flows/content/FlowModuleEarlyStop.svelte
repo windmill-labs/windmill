@@ -92,7 +92,7 @@
 
 			<Toggle
 				checked={isStopAfterIfEnabled}
-				on:change={() => {
+				onchange={() => {
 					if (isStopAfterIfEnabled && flowModule.stop_after_if) {
 						flowModule.stop_after_if = undefined
 					} else {
@@ -141,7 +141,7 @@
 							<Toggle
 								size="xs"
 								bind:checked={raise_error_message_stop_after_if}
-								on:change={(event) => {
+								onchange={(event) => {
 									if (flowModule.stop_after_if) {
 										flowModule.stop_after_if.error_message = event.detail === false ? undefined : ''
 									}
@@ -169,7 +169,7 @@
 							pickableProperties={stepPropPicker.pickableProperties}
 							result={earlyStopResult}
 							extraResults={isLoop ? { all_iters: result } : undefined}
-							on:select={({ detail }) => {
+							onselect={(detail) => {
 								editor?.insertAtCursor(detail)
 								editor?.focus()
 							}}
@@ -235,7 +235,7 @@
 
 			<Toggle
 				checked={isStopAfterAllIterationsEnabled}
-				on:change={() => {
+				onchange={() => {
 					if (isStopAfterAllIterationsEnabled && flowModule.stop_after_all_iters_if) {
 						flowModule.stop_after_all_iters_if = undefined
 					} else {
@@ -276,7 +276,7 @@
 							<Toggle
 								size="xs"
 								bind:checked={raise_error_message_stop_after_all_if}
-								on:change={(event) => {
+								onchange={(event) => {
 									if (flowModule.stop_after_all_iters_if) {
 										flowModule.stop_after_all_iters_if.error_message =
 											event.detail === false ? undefined : ''
@@ -304,7 +304,7 @@
 							noPadding
 							pickableProperties={stepPropPicker.pickableProperties}
 							{result}
-							on:select={({ detail }) => {
+							onselect={(detail) => {
 								editor?.insertAtCursor(detail)
 								editor?.focus()
 							}}

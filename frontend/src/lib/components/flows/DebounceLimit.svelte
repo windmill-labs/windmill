@@ -69,7 +69,7 @@
 			{size}
 			disabled={!$enterpriseLicense}
 			checked={Boolean(debounce_delay_s)}
-			on:change={() => {
+			onchange={() => {
 				if (debounce_delay_s) {
 					debounce_delay_s = undefined
 					debounce_key = undefined

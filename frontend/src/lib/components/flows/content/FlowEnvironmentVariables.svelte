@@ -255,7 +255,7 @@
 											bind:code={entry.displayValue}
 											disabled={noEditor}
 											class="min-h-[60px] max-h-[200px]"
-											on:change={() => {
+											onchange={() => {
 												updateEnvValue(entry.key, entry.displayValue, 'json')
 											}}
 										/>

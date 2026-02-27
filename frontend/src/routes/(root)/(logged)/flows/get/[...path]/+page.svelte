@@ -472,7 +472,7 @@
 <ShareModal bind:this={shareModal} />
 <MoveDrawer
 	bind:this={moveDrawer}
-	on:update={async (e) => {
+	onupdate={async (e) => {
 		await goto('/flows/get/' + e.detail + `?workspace=${$workspaceStore}`)
 		loadFlow()
 	}}
@@ -495,7 +495,7 @@
 >
 	{#snippet header()}
 		<DetailPageHeader
-			on:seeTriggers={() => {
+			onseeTriggers={() => {
 				rightPaneSelected = 'triggers'
 			}}
 			{mainButtons}
@@ -645,7 +645,7 @@
 													rightTooltip: 'Fill args from JSON'
 												}}
 												lightMode
-												on:change={(e) => {
+												onchange={(e) => {
 													runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
 												}}
 											/>
@@ -696,7 +696,7 @@
 							{flow}
 							noSide={true}
 							minHeight={graphMinHeight}
-							on:select={(e) => {
+							onselect={(e) => {
 								if (e.detail) {
 									stepDetail = e.detail
 									rightPaneSelected = 'flow_step'
@@ -705,7 +705,7 @@
 									rightPaneSelected = 'saved_inputs'
 								}
 							}}
-							on:triggerDetail={(e) => {
+							ontriggerDetail={(e) => {
 								rightPaneSelected = 'triggers'
 							}}
 							noBorder={true}
@@ -724,7 +724,7 @@
 			{isValid}
 			args={args ?? {}}
 			bind:inputSelected
-			on:selected_args={(e) => {
+			onselected_args={(e) => {
 				const nargs = JSON.parse(JSON.stringify(e.detail))
 				args = nargs
 				if (jsonView) {
@@ -769,7 +769,7 @@
 					noSide={false}
 					noBorder
 					minHeight={flowGraphHeight}
-					on:select={(e) => {
+					onselect={(e) => {
 						if (e.detail) {
 							stepDetail = e.detail
 							rightPaneSelected = 'flow_step'
@@ -778,7 +778,7 @@
 							rightPaneSelected = 'saved_inputs'
 						}
 					}}
-					on:triggerDetail={(e) => {
+					ontriggerDetail={(e) => {
 						rightPaneSelected = 'triggers'
 					}}
 				/>

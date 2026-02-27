@@ -321,7 +321,7 @@
 					? `Edit Kafka trigger ${initialPath}`
 					: `Kafka trigger ${initialPath}`
 				: 'New Kafka trigger'}
-			on:close={drawer.closeDrawer}
+			onclose={drawer.closeDrawer}
 		>
 			{#snippet actions()}
 				{@render actionsButtons('sm')}

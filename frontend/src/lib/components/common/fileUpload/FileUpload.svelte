@@ -465,7 +465,7 @@
 									<Button
 										size="xs2"
 										variant="default"
-										on:click={() => {
+										onclick={() => {
 											const file = fileUpload.file
 
 											if (!file) {
@@ -489,7 +489,7 @@
 									<Button
 										size="xs2"
 										variant="default"
-										on:click={() => {
+										onclick={() => {
 											const file = fileUpload.file
 
 											if (!file) {
@@ -513,7 +513,7 @@
 									<Button
 										size="xs2"
 										variant="default"
-										on:click={() => {
+										onclick={() => {
 											fileUpload.cancelled = true
 											fileUpload.progress = 0
 										}}
@@ -529,7 +529,7 @@
 									<Button
 										size="xs2"
 										variant="default"
-										on:click={() => {
+										onclick={() => {
 											$fileUploads = $fileUploads.filter(
 												(_fileUpload) => _fileUpload.name !== fileUpload.name
 											)
@@ -550,7 +550,7 @@
 									<Button
 										size="xs2"
 										variant="default"
-										on:click={() => {
+										onclick={() => {
 											$fileUploads = $fileUploads.filter(
 												(_fileUpload) => _fileUpload.name !== fileUpload.name
 											)
@@ -607,7 +607,7 @@
 					<Button
 						size="xs2"
 						color="light"
-						on:click={() => {
+						onclick={() => {
 							$fileUploads = $fileUploads.map((fileUpload) => {
 								if (fileUpload.progress === 100 || fileUpload.cancelled) {
 									return fileUpload
@@ -632,7 +632,7 @@
 						<Button
 							size="xs2"
 							color="light"
-							on:click={() => {
+							onclick={() => {
 								forceDisplayUploads = true
 							}}
 							startIcon={{

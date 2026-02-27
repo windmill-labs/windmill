@@ -23,7 +23,7 @@
 			variant="subtle"
 			destructive
 			unifiedSize="md"
-			on:click={() => {
+			onclick={() => {
 				extra_params_vec = extra_params_vec.filter((e) => e[0] != o[0])
 				sync()
 			}}
@@ -38,7 +38,7 @@
 		hover="yo"
 		size="sm"
 		endIcon={{ icon: Plus }}
-		on:click={() => {
+		onclick={() => {
 			extra_params_vec = (extra_params_vec ?? []).concat([['key', 'value']])
 			sync()
 		}}

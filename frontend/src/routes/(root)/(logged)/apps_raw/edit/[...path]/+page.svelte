@@ -226,11 +226,11 @@
 	{#key redraw}
 		<div class="h-screen">
 			<RawAppEditor
-				on:savedNewAppPath={(event) => {
+				onsavedNewAppPath={(event) => {
 					goto(`/apps_raw/edit/${event.detail}`)
 					newPath = event.detail
 				}}
-				on:restore={onRestore}
+				onrestore={onRestore}
 				bind:files
 				bind:runnables
 				bind:data

@@ -31,7 +31,7 @@
 			size="xs"
 			variant="accent"
 			btnClasses="!px-2 !py-1"
-			on:click={async () => {
+			onclick={async () => {
 				runLoading = true
 				$runnableJobEditorPanel.focused = true
 				try {
@@ -50,7 +50,7 @@
 			variant="accent"
 			destructive
 			btnClasses="!px-2 !py-1 !ml-[3px]"
-			on:click={async () => {
+			onclick={async () => {
 				cancelable?.forEach((f) => f.cancel())
 				runLoading = false
 			}}

@@ -258,7 +258,7 @@
 			unifiedSize="md"
 			variant="accent"
 			startIcon={{ icon: Plus }}
-			on:click={() => websocketTriggerEditor?.openNew(false)}
+			onclick={() => websocketTriggerEditor?.openNew(false)}
 		>
 			New&nbsp;WebSocket trigger
 		</Button>
@@ -406,7 +406,7 @@
 
 							<div class="flex gap-2 items-center justify-end">
 								<Button
-									on:click={() => websocketTriggerEditor?.openEdit(path, is_flow)}
+									onclick={() => websocketTriggerEditor?.openEdit(path, is_flow)}
 									size="xs"
 									startIcon={canWrite
 										? { icon: Pen }
@@ -513,7 +513,7 @@
 
 <ShareModal
 	bind:this={shareModal}
-	on:change={() => {
+	onchange={() => {
 		loadTriggers()
 	}}
 />

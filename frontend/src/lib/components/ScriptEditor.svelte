@@ -121,6 +121,12 @@
 		enablePreprocessorSnippet?: boolean
 		onchange?: (...args: any[]) => any
 		onformat?: (...args: any[]) => any
+		oncreateScriptFromInlineScript?: (...args: any[]) => any
+		onopenTriggers?: (...args: any[]) => any
+		onapplyArgs?: (...args: any[]) => any
+		onupdateSchema?: (...args: any[]) => any
+		onaddPreprocessor?: (...args: any[]) => any
+		onsaveDraft?: (...args: any[]) => any
 	}
 
 	let {
@@ -154,7 +160,13 @@
 		editor_bar_right,
 		enablePreprocessorSnippet = false,
 		onchange = undefined,
-		onformat = undefined
+		onformat = undefined,
+		oncreateScriptFromInlineScript = undefined,
+		onopenTriggers = undefined,
+		onapplyArgs = undefined,
+		onupdateSchema = undefined,
+		onaddPreprocessor = undefined,
+		onsaveDraft = undefined
 	}: Props = $props()
 
 	let initialArgs = structuredClone($state.snapshot(args))
@@ -953,7 +965,7 @@
 			color="light"
 			startIcon={{ icon: Copy }}
 			iconOnly
-			on:click={() => copyToClipboard(collabUrl())}
+			onclick={() => copyToClipboard(collabUrl())}
 		/>
 	</div>
 </Modal>
@@ -976,7 +988,7 @@
 		</div>
 	</div>
 	{#snippet actions()}
-		<Button size="sm" on:click={confirmDebugBetaWarning}>Continue</Button>
+		<Button size="sm" onclick={confirmDebugBetaWarning}>Continue</Button>
 	{/snippet}
 </Modal>
 
@@ -985,24 +997,24 @@
 		{#if args}
 			<EditorBar
 				scriptPath={edit ? path : undefined}
-				on:toggleCollabMode={() => {
+				ontoggleCollabMode={() => {
 					if (wsProvider?.shouldConnect) {
 						disableCollaboration()
 					} else {
 						setCollaborationMode()
 					}
 				}}
-				on:showDiffMode={showDiffMode}
-				on:hideDiffMode={hideDiffMode}
+				onshowDiffMode={showDiffMode}
+				onhideDiffMode={hideDiffMode}
 				customUi={customUi?.editorBar}
 				collabLive={wsProvider?.shouldConnect}
 				{collabMode}
 				{validCode}
 				iconOnly={width < EDITOR_BAR_WIDTH_THRESHOLD}
-				on:collabPopup={() => (showCollabPopup = true)}
+				oncollabPopup={() => (showCollabPopup = true)}
 				{editor}
 				{lang}
-				on:createScriptFromInlineScript
+				oncreateScriptFromInlineScript={oncreateScriptFromInlineScript}
 				{websocketAlive}
 				collabUsers={peers}
 				kind={asKind(kind)}
@@ -1109,7 +1121,7 @@
 							panelName="Test"
 							shortcut="U"
 							size="md"
-							on:click={() => {
+							onclick={() => {
 								toggleTestPanel()
 							}}
 						/>
@@ -1117,7 +1129,7 @@
 					{#if !(debugMode && isDebuggableScript)}
 						<div class="flex flex-row divide-x divide-gray-800 dark:divide-gray-300 items-stretch">
 							{#if testIsLoading}
-								<Button on:click={jobLoader?.cancelJob} btnClasses="w-full" unifiedSize="md">
+								<Button onclick={jobLoader?.cancelJob} btnClasses="w-full" unifiedSize="md">
 									<WindmillIcon
 										white={true}
 										class="mr-2 text-white"
@@ -1131,7 +1143,7 @@
 								{@const disableTriggerButton =
 									customUi?.previewPanel?.disableTriggerButton === true}
 								<Button
-									on:click={() => runTest()}
+									onclick={() => runTest()}
 									unifiedSize="md"
 									btnClasses="w-full {!disableTriggerButton ? 'rounded-r-none' : ''}"
 									variant="accent-secondary"
@@ -1141,7 +1153,7 @@
 									Test
 								</Button>
 								{#if !disableTriggerButton}
-									<CaptureButton on:openTriggers />
+									<CaptureButton onopenTriggers={onopenTriggers} />
 								{/if}
 							{/if}
 						</div>
@@ -1162,7 +1174,7 @@
 								data-schema-picker
 							>
 								<JsonInputs
-									on:select={(e) => {
+									onselect={(e) => {
 										if (e.detail) {
 											args = e.detail
 										}
@@ -1236,9 +1248,9 @@
 										isFlow={false}
 										path={stablePathForCaptures}
 										canEdit={true}
-										on:applyArgs
-										on:updateSchema
-										on:addPreprocessor
+										onapplyArgs={onapplyArgs}
+										onupdateSchema={onupdateSchema}
+										onaddPreprocessor={onaddPreprocessor}
 									/>
 								</div>
 							{/snippet}
@@ -1312,7 +1324,7 @@
 					customHiddenIcon={{
 						icon: PlayIcon
 					}}
-					on:click={() => {
+					onclick={() => {
 						toggleTestPanel()
 					}}
 					btnClasses="bg-marine-400 hover:bg-marine-200 !text-primary-inverse hover:!text-primary-inverse hover:dark:!text-primary-inverse dark:bg-marine-50 dark:hover:bg-marine-50/70"
@@ -1332,7 +1344,7 @@
 							icon: WandSparkles
 						}}
 						btnClasses="!text-ai border border-gray-200 dark:border-gray-600 bg-surface"
-						on:click={() => {
+						onclick={() => {
 							if (!aiChatManager.open) {
 								aiChatManager.changeMode(AIMode.SCRIPT)
 							}
@@ -1391,15 +1403,15 @@
 			bind:this={editor}
 			{yContent}
 			awareness={wsProvider?.awareness}
-			on:change={(e) => {
+			onchange={(e) => {
 				inferSchema(e.detail)
 				// Refresh breakpoint positions when code changes (decorations track their lines)
 				if (debugMode && breakpointDecorations.length > 0) {
 					refreshBreakpointPositions()
 				}
 			}}
-			on:saveDraft
-			on:toggleTestPanel={toggleTestPanel}
+			onsaveDraft={onsaveDraft}
+			ontoggleTestPanel={toggleTestPanel}
 			cmdEnterAction={async () => {
 				await inferSchema(code)
 				runTest()
@@ -1458,8 +1470,8 @@
 	currentInventories={ansibleAlternativeExecutionMode?.inventories_location}
 	currentPlaybook={ansibleAlternativeExecutionMode?.playbook}
 	gitSshIdentity={ansibleGitSshIdentity}
-	on:selected={handleDelegateConfigUpdate}
-	on:addInventories={handleAddInventories}
+	onselected={handleDelegateConfigUpdate}
+	onaddInventories={handleAddInventories}
 />
 
 <style global>

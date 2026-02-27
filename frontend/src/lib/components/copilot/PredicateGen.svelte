@@ -112,7 +112,7 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 				btnClasses="min-h-[30px] text-ai bg-violet-100 dark:bg-gray-700"
 				{loading}
 				clickableWhileLoading
-				on:click={loading ? () => abortController?.abort() : () => {}}
+				onclick={loading ? () => abortController?.abort() : () => {}}
 			/>
 		{/snippet}
 		{#snippet content({ close })}
@@ -137,7 +137,7 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 				title="Generate predicate from prompt"
 				aria-label="Generate"
 				iconOnly
-				on:click={() => {
+				onclick={() => {
 					close()
 					generatePredicate()
 				}}

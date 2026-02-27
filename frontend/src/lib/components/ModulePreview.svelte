@@ -65,7 +65,7 @@
 	{#if !hideRunButton}
 		<div class="w-full justify-center flex">
 			{#if testIsLoading}
-				<Button size="sm" on:click={moduleTest?.cancelJob} btnClasses="w-full" color="red">
+				<Button size="sm" onclick={moduleTest?.cancelJob} btnClasses="w-full" color="red">
 					<Loader2 size={16} class="animate-spin mr-1" />
 					Cancel
 				</Button>
@@ -74,7 +74,7 @@
 					variant="accent"
 					btnClasses="truncate"
 					size="sm"
-					on:click={runTestWithStepArgs}
+					onclick={runTestWithStepArgs}
 					shortCut={{
 						Icon: CornerDownLeft
 					}}

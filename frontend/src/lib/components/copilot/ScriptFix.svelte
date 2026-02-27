@@ -37,7 +37,7 @@
 						color="light"
 						spacingSize="xs2"
 						startIcon={{ icon: WandSparkles }}
-						on:click={() => {
+						onclick={() => {
 							if ($copilotInfo.enabled) {
 								aiChatManager.fix()
 							}

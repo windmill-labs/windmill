@@ -169,7 +169,7 @@
 	infiniteScroll
 	{hasMore}
 	tableFixed={true}
-	on:loadMore={() => {
+	onloadMore={() => {
 		loadData()
 	}}
 	{loading}

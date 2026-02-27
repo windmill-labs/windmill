@@ -154,7 +154,7 @@
 
 <AddPropertyFormV2
 	{noPopover}
-	on:add={(e) => {
+	onadd={(e) => {
 		try {
 			handleAddOrEditArgument({
 				...DEFAULT_PROPERTY,

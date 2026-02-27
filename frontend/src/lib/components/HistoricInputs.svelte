@@ -149,7 +149,7 @@
 							{job}
 							selected={selected === job.id}
 							hovering={jobHovered === job.id}
-							on:select={(e) => handleSelected(e.detail)}
+							onselect={(e) => handleSelected(e)}
 						/>
 					{/each}
 					{#if jobs.length == 5}
@@ -167,8 +167,8 @@
 	<div class="min-h-0 grow" data-schema-picker>
 		<HistoricList
 			bind:this={historicList}
-			on:error={(e) => handleError(e.detail)}
-			on:select={(e) => handleSelected(e.detail)}
+			onerror={(e) => handleError(e)}
+			onselect={(e) => handleSelected(e)}
 			{runnableId}
 			{runnableType}
 			{selected}

@@ -12,7 +12,7 @@
 <Drawer bind:this={drawer} size="1000px">
 	<DrawerContent
 		title="Queues"
-		on:close={drawer.closeDrawer}
+		onclose={drawer.closeDrawer}
 		documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups#queue-metrics"
 	>
 		<QueueAlerts />

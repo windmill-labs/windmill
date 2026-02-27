@@ -215,7 +215,7 @@
 			>
 				<div class="flex justify-start items-center px-2 text-secondary text-sm">
 					<Button
-						on:click={() => zoom && (zoom -= 10)}
+						onclick={() => zoom && (zoom -= 10)}
 						disabled={!doc}
 						size="xs"
 						color="light"
@@ -228,7 +228,7 @@
 					</Button>
 					{#if wideView}
 						<Button
-							on:click={() => (zoom = 100)}
+							onclick={() => (zoom = 100)}
 							disabled={!doc}
 							size="xs"
 							color="light"
@@ -241,7 +241,7 @@
 						</Button>
 					{/if}
 					<Button
-						on:click={() => renderPdf(true, true)}
+						onclick={() => renderPdf(true, true)}
 						disabled={!doc}
 						size="xs"
 						color="light"
@@ -253,7 +253,7 @@
 						<MoveHorizontal size={16} />
 					</Button>
 					<Button
-						on:click={() => zoom && (zoom += 10)}
+						onclick={() => zoom && (zoom += 10)}
 						disabled={!doc}
 						size="xs"
 						color="light"
@@ -283,7 +283,7 @@
 				</div>
 				<div class="flex justify-end items-center px-2 text-secondary text-sm gap-1">
 					<Button
-						on:click={downloadPdf}
+						onclick={downloadPdf}
 						disabled={!doc}
 						size="xs"
 						color="light"
@@ -295,7 +295,7 @@
 					</Button>
 					{#if allowFullscreen}
 						<Button
-							on:click={() => (fullscreen = !fullscreen)}
+							onclick={() => (fullscreen = !fullscreen)}
 							disabled={!doc}
 							size="xs"
 							color="light"
@@ -342,7 +342,7 @@
 			<button
 				class="fixed z-10 bottom-0 left-0 px-2 py-0.5 bg-indigo-500/90
 			hover:bg-indigo-500 focus:bg-indigo-500 duration-200 text-white text-2xs"
-				on:click={() => syncZoomValue()}
+				onclick={() => syncZoomValue()}
 			>
 				Sync zoom value
 			</button>

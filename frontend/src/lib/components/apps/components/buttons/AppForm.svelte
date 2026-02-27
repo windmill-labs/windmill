@@ -148,10 +148,10 @@
 						{loading}
 						btnClasses={twMerge(css?.button?.class, 'wm-submit-button')}
 						style={css?.button?.style ?? ''}
-						on:pointerdown={(e) => {
+						onpointerdown={(e) => {
 							e?.stopPropagation()
 						}}
-						on:click={() => {
+						onclick={() => {
 							runnableComponent?.runComponent()
 						}}
 						extendedSize={resolvedConfig.size}

@@ -60,7 +60,7 @@
 	{#snippet content()}
 		<div class="p-2 h-[400px] overflow-hidden w-80 border shadow-sm">
 			<HistoricInputs
-				on:select={(e) => {
+				onselect={(e) => {
 					if (e.detail) {
 						dispatch('select', { jobId: e.detail?.jobId, initial: false })
 						onselect?.({ jobId: e.detail?.jobId, initial: false })

@@ -157,7 +157,7 @@
 					>
 						<div class="leading-6 font-semibold text-sm w-full flex justify-between">
 							<div>Migrate to CSS editor</div><CloseButton
-								on:close={() => (migrationModalOpen = false)}
+								onclose={() => (migrationModalOpen = false)}
 							/>
 						</div>
 
@@ -184,7 +184,7 @@
 														<Button
 															variant="accent"
 															size="xs"
-															on:click={() => {
+															onclick={() => {
 																if (component?.customCss?.[cssKey]?.style != undefined) {
 																	setOrUpdateMigration(
 																		cssKey,
@@ -238,7 +238,7 @@
 														<Button
 															variant="accent"
 															size="xs"
-															on:click={() => {
+															onclick={() => {
 																if (type && $app.css?.[type]) {
 																	setOrUpdateMigration(cssKey, $app.css[type][cssKey].style)
 																	$app.css[type][cssKey].style = ''
@@ -286,7 +286,7 @@
 							<Button
 								size="xs"
 								variant="accent"
-								on:click={() => {
+								onclick={() => {
 									appendMigrationsToCss(migrations)
 									migrationModalOpen = false
 								}}

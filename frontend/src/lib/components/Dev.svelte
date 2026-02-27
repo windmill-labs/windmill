@@ -749,7 +749,7 @@
 			{/if}
 			<div class="flex justify-center pt-1">
 				{#if testIsLoading}
-					<Button on:click={jobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
+					<Button onclick={jobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
 						<WindmillIcon
 							white={true}
 							class="mr-2 text-white"
@@ -763,7 +763,7 @@
 					<Button
 						disabled={currentScript === undefined}
 						variant="accent"
-						on:click={(e) => {
+						onclick={(e) => {
 							runTest()
 						}}
 						btnClasses="w-full"
@@ -796,7 +796,7 @@
 									rightTooltip: 'Fill args from JSON'
 								}}
 								lightMode
-								on:change={() => {
+								onchange={() => {
 									jsonEditor?.setCode(JSON.stringify(args ?? {}, null, '\t'))
 								}}
 							/>
@@ -805,7 +805,7 @@
 							<div class="py-2" style="height: {Math.max(schemaHeight, 300)}px">
 								<JsonInputs
 									bind:this={jsonEditor}
-									on:select={(e) => {
+									onselect={(e) => {
 										if (e.detail) {
 											args = e.detail
 										}
@@ -892,7 +892,7 @@
 							<FlowEditorPanel
 								enableAi
 								noEditor
-								on:applyArgs={(ev) => {
+								onapplyArgs={(ev) => {
 									if (ev.detail.kind === 'preprocessor') {
 										stepsInputArgs.setStepArgs('preprocessor', ev.detail.args ?? {})
 										selectionManager.selectId('preprocessor')

@@ -14,6 +14,7 @@
 		appPath: string | undefined
 		onrestore?: (...args: any[]) => any
 		onkeydown?: (...args: any[]) => any
+		onclose?: (...args: any[]) => any
 	}
 
 	let { appPath, onrestore = undefined, onkeydown = undefined }: Props = $props()
@@ -140,7 +141,7 @@
 										buttonType="button"
 										btnClasses="!p-1 !w-[34px] !ml-1"
 										aria-label="Save deployment message"
-										on:click={() => {
+										onclick={() => {
 											updateDeploymentMsg(selected?.id, selectedVersion?.version)
 										}}
 									>
@@ -152,7 +153,7 @@
 										buttonType="button"
 										btnClasses="!p-1 !w-[34px] !ml-1"
 										aria-label="Abort"
-										on:click={() => {
+										onclick={() => {
 											deploymentMsgUpdateMode = false
 											deploymentMsgUpdate = undefined
 										}}
@@ -182,13 +183,13 @@
 						<div class="flex p-1 gap-2">
 							<Button
 								size="xs"
-								on:click={() => window.open(`/apps/add?template_id=${selectedVersion?.version}`)}
+								onclick={() => window.open(`/apps/add?template_id=${selectedVersion?.version}`)}
 							>
 								Restore as fork
 							</Button>
 							<Button
 								size="xs"
-								on:click={() => (dispatch('restore', selected), onrestore?.(selected))}
+								onclick={() => (dispatch('restore', selected), onrestore?.(selected))}
 								>Redeploy with that version
 							</Button>
 						</div>

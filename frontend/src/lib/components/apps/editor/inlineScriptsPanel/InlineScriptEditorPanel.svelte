@@ -53,7 +53,7 @@
 			{componentType}
 			bind:inlineScript={componentInput.transformer}
 			name="Transformer"
-			on:delete={() => {
+			ondelete={() => {
 				if (componentInput?.type == 'runnable') {
 					componentInput.transformer = undefined
 					componentInput = componentInput
@@ -69,7 +69,7 @@
 	{#if isRunnableByName(componentInput.runnable) && componentInput?.runnable?.name !== undefined}
 		{#if componentInput.runnable.inlineScript}
 			<InlineScriptEditor
-				on:createScriptFromInlineScript={() => {
+				oncreateScriptFromInlineScript={() => {
 					if (componentInput?.type == 'runnable' && isRunnableByName(componentInput.runnable)) {
 						dispatch('createScriptFromInlineScript', componentInput?.runnable)
 						oncreateScriptFromInlineScript?.(componentInput?.runnable)
@@ -82,14 +82,14 @@
 				bind:name={componentInput.runnable.name}
 				bind:fields={componentInput.fields}
 				syncFields
-				on:delete={clear}
+				ondelete={clear}
 			/>
 		{:else}
 			<EmptyInlineScript
 				unusedInlineScripts={$app?.unusedInlineScripts}
 				{componentType}
-				on:delete={clear}
-				on:new={(e) => {
+				ondelete={clear}
+				onnew={(e) => {
 					if (
 						componentInput &&
 						componentInput.type == 'runnable' &&
@@ -105,10 +105,10 @@
 		{/if}
 	{:else if componentInput?.runnable && isRunnableByPath(componentInput.runnable) && componentInput.runnable.path}
 		<InlineScriptRunnableByPath
-			on:fork={(e) => fork(e.detail)}
+			onfork={(e) => fork(e)}
 			bind:runnable={componentInput.runnable}
 			bind:fields={componentInput.fields}
-			on:delete={clear}
+			ondelete={clear}
 			{id}
 		/>
 	{/if}

@@ -20,6 +20,11 @@
 		hasPreprocessor?: boolean
 		isFlow?: boolean
 		captureLoading?: boolean
+		oncaptureToggle?: (...args: any[]) => any
+		onapplyArgs?: (...args: any[]) => any
+		onupdateSchema?: (...args: any[]) => any
+		onaddPreprocessor?: (...args: any[]) => any
+		ontestWithArgs?: (...args: any[]) => any
 	}
 
 	let {
@@ -30,7 +35,12 @@
 		isValid = undefined,
 		hasPreprocessor = false,
 		isFlow = false,
-		captureLoading = false
+		captureLoading = false,
+		oncaptureToggle = undefined,
+		onapplyArgs = undefined,
+		onupdateSchema = undefined,
+		onaddPreprocessor = undefined,
+		ontestWithArgs = undefined
 	}: Props = $props()
 
 	let captureURL = $derived(
@@ -51,11 +61,11 @@
 		disabled={isValid === false}
 		{captureInfo}
 		{captureLoading}
-		on:captureToggle
-		on:applyArgs
-		on:updateSchema
-		on:addPreprocessor
-		on:testWithArgs
+		oncaptureToggle={oncaptureToggle}
+		onapplyArgs={onapplyArgs}
+		onupdateSchema={onupdateSchema}
+		onaddPreprocessor={onaddPreprocessor}
+		ontestWithArgs={ontestWithArgs}
 		{hasPreprocessor}
 		{isFlow}
 	>

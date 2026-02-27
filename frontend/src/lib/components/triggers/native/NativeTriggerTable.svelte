@@ -122,7 +122,7 @@
 
 						<div class="flex gap-2 items-center justify-end">
 							<Button
-								on:click={() => onEdit?.(trigger)}
+								onclick={() => onEdit?.(trigger)}
 								unifiedSize="md"
 								startIcon={{ icon: Pen }}
 								variant="subtle"
@@ -158,7 +158,7 @@
 								size="xs"
 								variant="subtle"
 								startIcon={{ icon: RefreshCw }}
-								on:click={() => onRecreate?.(trigger)}
+								onclick={() => onRecreate?.(trigger)}
 							>
 								Recreate
 							</Button>
@@ -175,8 +175,8 @@
 	title="Delete {serviceConfig?.serviceDisplayName} trigger"
 	confirmationText="Delete"
 	loading={isDeleting}
-	onConfirmed={confirmDeleteTrigger}
-	onCanceled={closeDeleteConfirmation}
+	onconfirmed={confirmDeleteTrigger}
+	oncanceled={closeDeleteConfirmation}
 >
 	<div class="flex flex-col w-full space-y-4">
 		<span>Are you sure you want to delete this trigger?</span>

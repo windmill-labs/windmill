@@ -7,14 +7,16 @@
 
 	interface Props {
 		gridItem: GridItem
+		oncreateScriptFromInlineScript?: (...args: any[]) => any
 	}
 
-	let { gridItem = $bindable() }: Props = $props()
+	let { gridItem = $bindable(),
+		oncreateScriptFromInlineScript = undefined }: Props = $props()
 </script>
 
 {#if gridItem?.data?.id === $selectedComponentInEditor || gridItem?.data?.id + '_transformer' === $selectedComponentInEditor}
 	<InlineScriptEditorPanel
-		on:createScriptFromInlineScript
+		oncreateScriptFromInlineScript={oncreateScriptFromInlineScript}
 		defaultUserInput={gridItem.data?.type == 'formcomponent' ||
 			gridItem?.data?.type == 'formbuttoncomponent'}
 		id={gridItem.data.id}
@@ -28,7 +30,7 @@
 	{#each gridItem.data.actionButtons as actionButton, index (index)}
 		{#if actionButton?.id === $selectedComponentInEditor || actionButton?.id + '_transformer' === $selectedComponentInEditor}
 			<InlineScriptEditorPanel
-				on:createScriptFromInlineScript
+				oncreateScriptFromInlineScript={oncreateScriptFromInlineScript}
 				componentType={actionButton.type}
 				id={actionButton.id}
 				transformer={$selectedComponentInEditor?.endsWith('_transformer')}
@@ -42,7 +44,7 @@
 	{#each gridItem.data.actions as actionButton, index (index)}
 		{#if actionButton?.id === $selectedComponentInEditor || actionButton?.id + '_transformer' === $selectedComponentInEditor}
 			<InlineScriptEditorPanel
-				on:createScriptFromInlineScript
+				oncreateScriptFromInlineScript={oncreateScriptFromInlineScript}
 				componentType={actionButton.type}
 				id={actionButton.id}
 				transformer={$selectedComponentInEditor?.endsWith('_transformer')}
@@ -56,7 +58,7 @@
 	{#each gridItem.data.menuItems as actionButton, index (index)}
 		{#if actionButton?.id === $selectedComponentInEditor || actionButton?.id + '_transformer' === $selectedComponentInEditor}
 			<InlineScriptEditorPanel
-				on:createScriptFromInlineScript
+				oncreateScriptFromInlineScript={oncreateScriptFromInlineScript}
 				componentType={actionButton.type}
 				id={actionButton.id}
 				transformer={$selectedComponentInEditor?.endsWith('_transformer')}

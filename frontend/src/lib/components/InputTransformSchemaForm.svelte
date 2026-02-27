@@ -179,7 +179,7 @@
 				variant="accent"
 				size="sm"
 				startIcon={{ icon: Plus }}
-				on:click={() => {
+				onclick={() => {
 					variableEditor?.initNew?.()
 				}}
 			>

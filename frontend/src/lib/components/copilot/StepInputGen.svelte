@@ -227,7 +227,7 @@ Only return the expression without any wrapper.`
 
 {#if $copilotInfo.enabled && $stepInputCompletionEnabled}
 	<FlowCopilotInputsModal
-		on:confirmed={async () => {
+		onconfirmed={async () => {
 			createFlowInput()
 		}}
 		bind:open={openInputsModal}
@@ -240,7 +240,7 @@ Only return the expression without any wrapper.`
 			AIBtnClasses(!loading && generatedContent.length > 0 ? 'green' : 'default'),
 			btnClass
 		)}
-		on:click={() => {
+		onclick={() => {
 			if (!loading && generatedContent.length > 0) {
 				dispatch('setExpr', generatedContent)
 				onsetExpr?.(generatedContent)
@@ -250,13 +250,13 @@ Only return the expression without any wrapper.`
 				generatedContent = ''
 			}
 		}}
-		on:mouseenter={(ev) => {
+		onmouseenter={(ev) => {
 			if (out) {
 				out = false
 				generateStepInput()
 			}
 		}}
-		on:mouseleave={() => {
+		onmouseleave={() => {
 			out = true
 			cancel()
 		}}
@@ -269,10 +269,10 @@ Only return the expression without any wrapper.`
 						: Wand2,
 			classes: loading || ($stepInputsLoading && empty) ? 'animate-spin' : ''
 		}}
-		on:focus={() => {
+		onfocus={() => {
 			btnFocused = true
 		}}
-		on:blur={() => {
+		onblur={() => {
 			btnFocused = false
 		}}
 	>

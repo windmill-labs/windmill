@@ -76,7 +76,7 @@
 						variant="default"
 						selected={isPicked}
 						disabled={notPickable}
-						on:click={() => {
+						onclick={() => {
 							onClick(undefined)
 							close()
 						}}
@@ -91,7 +91,7 @@
 						variant="default"
 						selected={isPicked}
 						disabled={notPickable}
-						on:click={() => {
+						onclick={() => {
 							onClick(r)
 							close()
 						}}

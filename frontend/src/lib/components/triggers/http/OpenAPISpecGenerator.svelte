@@ -174,11 +174,11 @@
 <Drawer
 	size="700px"
 	bind:this={generateCurlCommandDrawer}
-	on:close={() => {
+	onclose={() => {
 		token = ''
 	}}
 >
-	<DrawerContent on:close={generateCurlCommandDrawer.closeDrawer} title={''}>
+	<DrawerContent onclose={generateCurlCommandDrawer.closeDrawer} title={''}>
 		<div class="flex flex-col gap-2">
 			<div class="flex flex-col gap-3">
 				<Alert title="Full Access Warning" type="warning">
@@ -236,7 +236,7 @@ curl -X POST "${window.location.origin}${base}/api/w/${$workspaceStore!}/openapi
 <Drawer size="1400px" bind:this={openAPIGenerator}>
 	<DrawerContent
 		title={'Generate OpenAPI document'}
-		on:close={() => openAPIGenerator.closeDrawer()}
+		onclose={() => openAPIGenerator.closeDrawer()}
 	>
 		<div class="flex flex-row h-full gap-2">
 			<div class="h-full w-1/2 flex flex-col justify-between border rounded-md">
@@ -457,7 +457,7 @@ curl -X POST "${window.location.origin}${base}/api/w/${$workspaceStore!}/openapi
 									size="xs"
 									btnClasses="bg-surface-secondary hover:bg-red-500 hover:text-white p-2 rounded-full"
 									aria-label="Clear"
-									on:click={() => {
+									onclick={() => {
 										webhookAndHttpRouteFilter = webhookAndHttpRouteFilter.filter(
 											(_, index) => index !== i
 										)
@@ -478,7 +478,7 @@ curl -X POST "${window.location.origin}${base}/api/w/${$workspaceStore!}/openapi
 								btnClasses="h-10"
 								size="xs"
 								variant="default"
-								on:click={() => {
+								onclick={() => {
 									webhookAndHttpRouteFilter.push({
 										path: '*',
 										user_or_folder_regex: '*',
@@ -527,7 +527,7 @@ curl -X POST "${window.location.origin}${base}/api/w/${$workspaceStore!}/openapi
 								size="xs"
 								btnClasses="h-10"
 								variant="default"
-								on:click={() => {
+								onclick={() => {
 									webhookAndHttpRouteFilter.push({
 										path_regex: '*',
 										folder_regex: '*',
@@ -575,7 +575,7 @@ curl -X POST "${window.location.origin}${base}/api/w/${$workspaceStore!}/openapi
 						{disabled}
 						spacingSize="sm"
 						loading={isGeneratingOpenapiSpec}
-						on:click={async () => {
+						onclick={async () => {
 							await generateOpenapiSpec(lang)
 						}}
 					>
@@ -586,7 +586,7 @@ curl -X POST "${window.location.origin}${base}/api/w/${$workspaceStore!}/openapi
 						spacingSize="sm"
 						size="xs"
 						variant="default"
-						on:click={copyCommandToClipboard}
+						onclick={copyCommandToClipboard}
 						startIcon={{ icon: ClipboardCopy }}
 					>
 						Copy cURL command
@@ -598,7 +598,7 @@ curl -X POST "${window.location.origin}${base}/api/w/${$workspaceStore!}/openapi
 				<div class="flex flex-row justify-between">
 					<ToggleButtonGroup
 						bind:selected={lang}
-						on:selected={async ({ detail }) => {
+						onselected={async ({ detail }) => {
 							if (!emptyStringTrimmed(openapiDocument)) {
 								try {
 									if (detail === 'yaml') {
@@ -628,7 +628,7 @@ curl -X POST "${window.location.origin}${base}/api/w/${$workspaceStore!}/openapi
 							spacingSize="sm"
 							variant="default"
 							btnClasses="mb-2"
-							on:click={async () => {
+							onclick={async () => {
 								await copyToClipboard(openapiDocument)
 							}}
 							startIcon={{ icon: ClipboardCopy }}
@@ -640,7 +640,7 @@ curl -X POST "${window.location.origin}${base}/api/w/${$workspaceStore!}/openapi
 							spacingSize="sm"
 							variant="default"
 							btnClasses="mb-2"
-							on:click={() => {
+							onclick={() => {
 								download(
 									`openapi-3.1.${lang}`,
 									openapiDocument,

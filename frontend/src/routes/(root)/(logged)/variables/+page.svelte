@@ -225,7 +225,7 @@
 							unifiedSize="md"
 							variant="accent"
 							startIcon={{ icon: Plus }}
-							on:click={() => contextualVariableEditor?.initNew()}
+							onclick={() => contextualVariableEditor?.initNew()}
 						>
 							New&nbsp;contextual&nbsp;variable
 						</Button>
@@ -234,7 +234,7 @@
 							unifiedSize="md"
 							variant="accent"
 							startIcon={{ icon: Plus }}
-							on:click={() => variableEditor?.initNew()}
+							onclick={() => variableEditor?.initNew()}
 						>
 							New&nbsp;variable
 						</Button>
@@ -244,14 +244,14 @@
 		</PageHeader>
 		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showCreateButtons = v)} />
 
-		<VariableEditor bind:this={variableEditor} on:create={loadVariables} />
+		<VariableEditor bind:this={variableEditor} oncreate={loadVariables} />
 		<ContextualVariableEditor
 			bind:this={contextualVariableEditor}
-			on:update={loadContextualVariables}
+			onupdate={loadContextualVariables}
 		/>
 		<ShareModal
 			bind:this={shareModal}
-			on:change={() => {
+			onchange={() => {
 				loadVariables()
 			}}
 		/>
@@ -560,10 +560,10 @@
 	{open}
 	title="Remove variable"
 	confirmationText="Remove"
-	on:canceled={() => {
+	oncanceled={() => {
 		deleteConfirmedCallback = undefined
 	}}
-	on:confirmed={() => {
+	onconfirmed={() => {
 		if (deleteConfirmedCallback) {
 			deleteConfirmedCallback()
 		}

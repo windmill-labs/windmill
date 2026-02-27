@@ -320,7 +320,7 @@
 								size="xs"
 								options={{ right: setting.advancedToggle.label }}
 								checked={setting.advancedToggle.checked($values)}
-								on:change={() => {
+								onchange={() => {
 									if (setting.advancedToggle) {
 										$values = setting.advancedToggle.onChange($values)
 									}
@@ -340,7 +340,7 @@
 						<div class="flex mt-2">
 							<Button
 								disabled={!$enterpriseLicense}
-								on:click={async (e) => {
+								onclick={async (e) => {
 									try {
 										const res = await SettingService.testMetadata({
 											requestBody: $values[setting.key]
@@ -379,7 +379,7 @@
 							variant="default"
 							unifiedSize="md"
 							disabled={!$values[setting.key]}
-							on:click={async () => {
+							onclick={async () => {
 								await SettingService.testLicenseKey({
 									requestBody: { license_key: $values[setting.key] }
 								})
@@ -492,10 +492,10 @@
 
 						{#if valid || expiration}
 							<div class="flex flex-row gap-2 mt-1">
-								<Button on:click={renewLicenseKey} loading={renewing} size="xs" variant="accent"
+								<Button onclick={renewLicenseKey} loading={renewing} size="xs" variant="accent"
 									>Renew key
 								</Button>
-								<Button variant="accent" size="xs" loading={opening} on:click={openCustomerPortal}>
+								<Button variant="accent" size="xs" loading={opening} onclick={openCustomerPortal}>
 									Open customer portal
 								</Button>
 							</div>
@@ -522,7 +522,7 @@
 								variant="default"
 								disabled={!$enterpriseLicense}
 								size="xs"
-								on:click={() => {
+								onclick={() => {
 									isCriticalAlertsUIOpen.set(true)
 									dispatch('closeDrawer')
 									oncloseDrawer?.()
@@ -630,7 +630,7 @@
 						<Toggle
 							id="otel_tracing_proxy_enabled"
 							checked={tracingProxyVal.enabled ?? false}
-							on:change={(e) => {
+							onchange={(e) => {
 								$values[setting.key] = { ...tracingProxyVal, enabled: e.detail }
 							}}
 							options={{ right: 'Enabled' }}

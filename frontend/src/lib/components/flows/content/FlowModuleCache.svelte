@@ -33,7 +33,7 @@
 	{:else}
 		<Toggle
 			checked={isCacheEnabled}
-			on:change={() => {
+			onchange={() => {
 				if (isCacheEnabled && flowModule.cache_ttl != undefined) {
 					flowModule.cache_ttl = undefined
 				} else {

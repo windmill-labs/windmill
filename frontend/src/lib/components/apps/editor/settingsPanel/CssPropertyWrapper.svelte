@@ -10,6 +10,8 @@
 		overriden?: boolean
 		overridding?: boolean
 		wmClass?: string | undefined
+		onleft?: (...args: any[]) => any
+		onright?: (...args: any[]) => any
 	}
 
 	let {
@@ -19,7 +21,9 @@
 		property = $bindable(undefined),
 		overriden = false,
 		overridding = false,
-		wmClass = undefined
+		wmClass = undefined,
+		onleft = undefined,
+		onright = undefined
 	}: Props = $props()
 
 	function hasValues(obj: ComponentCssProperty | undefined) {
@@ -36,8 +40,8 @@
 		name={id}
 		bind:value={property[id]}
 		shouldDisplayLeft={hasValues(property[id])}
-		on:left
-		on:right
+		onleft={onleft}
+		onright={onright}
 		{overriden}
 		{overridding}
 		{wmClass}

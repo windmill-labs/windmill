@@ -3,6 +3,13 @@
 	import BackgroundRunnablesTutorial from './tutorials/app/BackgroundRunnablesTutorial.svelte'
 	import ConnectionTutorial from './tutorials/app/ConnectionTutorial.svelte'
 
+	interface Props {
+		onreload?: (...args: any[]) => any
+		onerror?: (...args: any[]) => any
+	}
+
+	let {}: Props = $props()
+
 	let tutorialRouter: TutorialRouter | undefined = $state(undefined)
 
 	export function runTutorialById(id: string, options?: { skipStepsCount?: number }) {

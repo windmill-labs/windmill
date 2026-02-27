@@ -38,7 +38,7 @@
 			shouldBindKey={false}
 			{extraLib}
 			autoHeight
-			on:change={() => {
+			onchange={() => {
 				if (onchange) {
 					onchange()
 				}

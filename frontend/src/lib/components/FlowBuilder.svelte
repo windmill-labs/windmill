@@ -1115,10 +1115,10 @@
 	bind:open={draftTriggersModalOpen}
 	draftTriggers={triggersState.triggers.filter((t) => t.draftConfig)}
 	isFlow={true}
-	on:canceled={() => {
+	oncanceled={() => {
 		draftTriggersModalOpen = false
 	}}
-	on:confirmed={handleDraftTriggersConfirmed}
+	onconfirmed={handleDraftTriggersConfirmed}
 />
 
 <AIChangesWarningModal bind:open={aiChangesWarningOpen} onConfirm={aiChangesConfirmCallback} />
@@ -1156,7 +1156,7 @@
 							startIcon={{ icon: Calendar }}
 							variant="subtle"
 							size="xs"
-							on:click={async () => {
+							onclick={async () => {
 								select('Trigger')
 								const selected = primaryScheduleIndex ?? scheduleIndex
 								if (selected) {
@@ -1186,7 +1186,7 @@
 						<Button
 							variant="default"
 							unifiedSize="md"
-							on:click={async () => {
+							onclick={async () => {
 								if (!savedFlow) {
 									return
 								}
@@ -1218,7 +1218,7 @@
 					{/if}
 					<FlowPreviewButtons
 						{suspendStatus}
-						on:openTriggers={(e) => {
+						onopenTriggers={(e) => {
 							select('Trigger')
 							handleSelectTriggerFromKind(triggersState, triggersCount, initialPath, e.detail.kind)
 							captureOn.set(true)
@@ -1242,7 +1242,7 @@
 							unifiedSize="md"
 							variant="accent"
 							startIcon={{ icon: Save }}
-							on:click={() => saveDraft()}
+							onclick={() => saveDraft()}
 							disabled={(!newFlow && !savedFlow) || loading}
 							shortCut={{ key: 'S' }}
 						>
@@ -1251,7 +1251,7 @@
 					{/if}
 
 					<DeployButton
-						on:save={async ({ detail }) => await handleSaveFlow(detail)}
+						onsave={async ({ detail }) => await handleSaveFlow(detail)}
 						{loading}
 						{loadingSave}
 						{newFlow}
@@ -1267,17 +1267,17 @@
 					disableAi={disableAi || customUi?.stepInputs?.ai == false}
 					disableSettings={customUi?.settingsPanel === false}
 					{loading}
-					on:reload={() => {
+					onreload={() => {
 						renderCount += 1
 					}}
 					{newFlow}
-					on:applyArgs={(ev) => {
+					onapplyArgs={(ev) => {
 						if (ev.detail.kind === 'preprocessor') {
 							stepsInputArgs.setStepArgs('preprocessor', ev.detail.args ?? {})
 							selectionManager.selectId('preprocessor')
 						}
 					}}
-					on:testWithArgs={(e) => {
+					ontestWithArgs={(e) => {
 						previewArgsStore.val = JSON.parse(JSON.stringify(e.detail))
 						flowPreviewButtons?.openPreview(true)
 					}}
@@ -1334,7 +1334,7 @@
 
 <FlowTutorials
 	bind:this={flowTutorials}
-	on:reload={() => {
+	onreload={() => {
 		renderCount += 1
 	}}
 />

@@ -37,6 +37,12 @@
 		| 'email_trigger'
 	let kind: Kind
 
+	interface Props {
+		onchange?: (...args: any[]) => any
+	}
+
+	let {}: Props = $props()
+
 	let path: string = $state('')
 
 	let ownerKind: 'user' | 'group' = $state('user')
@@ -109,7 +115,7 @@
 </script>
 
 <Drawer bind:this={drawer}>
-	<DrawerContent title="Share {path}" on:close={drawer?.closeDrawer}>
+	<DrawerContent title="Share {path}" onclose={drawer?.closeDrawer}>
 		<div class="flex flex-col gap-2">
 			<h1 class="text-sm font-semibold text-emphasis">{path}</h1>
 			<span class="text-xs font-semibold text-emphasis"
@@ -128,7 +134,7 @@
 				{#if own}
 					<div class="flex flex-row flex-wrap gap-2 items-center">
 						<div>
-							<ToggleButtonGroup bind:selected={ownerKind} on:selected={() => (owner = '')}>
+							<ToggleButtonGroup bind:selected={ownerKind} onselected={() => (owner = '')}>
 								{#snippet children({ item })}
 									<ToggleButton value="user" label="User" {item} />
 									<ToggleButton value="group" label="Group" {item} />
@@ -148,7 +154,7 @@
 							size="lg"
 							variant="accent"
 							disabled={!newOwner}
-							on:click={() => addAcl(newOwner, write)}>Add permission</Button
+							onclick={() => addAcl(newOwner, write)}>Add permission</Button
 						>
 					</div>
 				{/if}
@@ -171,7 +177,7 @@
 												<div>
 													<ToggleButtonGroup
 														selected={write ? 'writer' : 'viewer'}
-														on:selected={async (e) => {
+														onselected={async (e) => {
 															const role = e.detail
 															if (role == 'writer') {
 																await addAcl(owner, true)
@@ -195,7 +201,7 @@
 													variant="default"
 													destructive
 													size="xs"
-													on:click={() => deleteAcl(owner)}
+													onclick={() => deleteAcl(owner)}
 													startIcon={{ icon: Trash }}
 												/>
 											{/if}

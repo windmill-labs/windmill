@@ -8,6 +8,14 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { getTutorialIndex } from '$lib/tutorials/config'
 
+	interface Props {
+		onreload?: (...args: any[]) => any
+	}
+
+	let {
+		onreload = undefined
+	}: Props = $props()
+
 	let appTutorials: AppTutorials | undefined = $state(undefined)
 	let targetTutorial: string | undefined = $state(undefined)
 
@@ -64,8 +72,8 @@
 
 <AppTutorials
 	bind:this={appTutorials}
-	on:reload
-	on:error={(event: CustomEvent<{ detail: string }>) => {
+	onreload={onreload}
+	onerror={(event: CustomEvent<{ detail: string }>) => {
 		targetTutorial = event.detail.detail
 	}}
 />
@@ -74,10 +82,10 @@
 	open={targetTutorial !== undefined}
 	title="Tutorial error"
 	confirmationText="Open new tab"
-	on:canceled={() => {
+	oncanceled={() => {
 		targetTutorial = undefined
 	}}
-	on:confirmed={async () => {
+	onconfirmed={async () => {
 		window.open(`/apps/add?tutorial=${targetTutorial}&nodraft=true`, '_blank')
 	}}
 >

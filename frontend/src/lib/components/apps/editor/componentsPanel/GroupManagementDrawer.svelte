@@ -17,7 +17,7 @@
 </script>
 
 <Drawer bind:this={codeDrawer}>
-	<DrawerContent title="Component Groups" on:close={() => codeDrawer?.closeDrawer()}>
+	<DrawerContent title="Component Groups" onclose={() => codeDrawer?.closeDrawer()}>
 		<GroupList {item} />
 	</DrawerContent>
 </Drawer>

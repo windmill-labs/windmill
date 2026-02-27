@@ -22,6 +22,7 @@
 		flow_env?: Record<string, any> | undefined
 		result?: any | undefined
 		extraResults?: any
+		onselect?: (...args: any[]) => any
 	}
 
 	let {
@@ -32,7 +33,8 @@
 		previousId = undefined,
 		flow_env = undefined,
 		result = undefined,
-		extraResults = undefined
+		extraResults = undefined,
+		onselect = undefined
 	}: Props = $props()
 
 	let variables: Record<string, string> = $state({})
@@ -263,7 +265,7 @@
 				<ObjectViewer
 					{allowCopy}
 					json={{ result, ...(extraResults ? extraResults : {}) }}
-					on:select
+					onselect={onselect}
 				/>
 			</div>
 		{/if}
@@ -275,7 +277,7 @@
 					pureViewer={!$propPickerConfig}
 					json={flowInputsFiltered}
 					prefix="flow_input"
-					on:select
+					onselect={onselect}
 				/>
 			</div>
 		{/if}
@@ -293,7 +295,7 @@
 							step_id: 'The step id'
 						}
 					}}
-					on:select
+					onselect={onselect}
 				/>
 			</div>
 			{#if Object.keys(pickableProperties.priorIds).length > 0}
@@ -306,7 +308,7 @@
 							collapsed={false}
 							json={suggestedPropsFiltered}
 							prefix="results"
-							on:select
+							onselect={onselect}
 						/>
 					</div>
 				{/if}
@@ -319,7 +321,7 @@
 						collapseLevel={allResultsCollapsed ? 1 : undefined}
 						json={resultByIdFiltered}
 						prefix="results"
-						on:select
+						onselect={onselect}
 					/>
 				</div>
 			{/if}
@@ -335,7 +337,7 @@
 							resumes: 'All resume payloads from all approvers',
 							approvers: 'The list of approvers'
 						}}
-						on:select
+						onselect={onselect}
 					/>
 				</div>
 			{/if}
@@ -349,7 +351,7 @@
 							collapsed={false}
 							json={suggestedPropsFiltered}
 							prefix="results"
-							on:select
+							onselect={onselect}
 						/>
 					</div>
 				{/if}
@@ -363,7 +365,7 @@
 							json={resultByIdFiltered}
 							expandedEvenOnLevel0={previousId}
 							prefix="results"
-							on:select
+							onselect={onselect}
 						/>
 					</div>
 				{/if}
@@ -378,7 +380,7 @@
 						<Button
 							size="xs2"
 							variant="default"
-							on:click={() => {
+							onclick={() => {
 								displayVariable = false
 							}}
 							wrapperClasses="inline-flex whitespace-nowrap w-fit"
@@ -390,13 +392,13 @@
 							rawKey={true}
 							json={variables}
 							prefix="variable"
-							on:select
+							onselect={onselect}
 						/>
 					{:else}
 						<Button
 							size="xs2"
 							variant="default"
-							on:click={async () => {
+							onclick={async () => {
 								await loadVariables()
 								displayVariable = true
 							}}
@@ -415,7 +417,7 @@
 						<Button
 							size="xs2"
 							variant="default"
-							on:click={() => {
+							onclick={() => {
 								displayResources = false
 							}}
 							wrapperClasses="inline-flex whitespace-nowrap w-fit"
@@ -427,13 +429,13 @@
 							rawKey={true}
 							json={resources}
 							prefix="resource"
-							on:select
+							onselect={onselect}
 						/>
 					{:else}
 						<Button
 							size="xs2"
 							variant="default"
-							on:click={async () => {
+							onclick={async () => {
 								await loadResources()
 								displayResources = true
 							}}
@@ -454,7 +456,7 @@
 							color="light"
 							size="xs2"
 							variant="border"
-							on:click={() => {
+							onclick={() => {
 								displayFlowEnv = false
 							}}
 							wrapperClasses="inline-flex whitespace-nowrap w-fit"
@@ -466,14 +468,14 @@
 							rawKey={false}
 							json={flowEnvFiltered}
 							prefix="flow_env"
-							on:select
+							onselect={onselect}
 						/>
 					{:else}
 						<Button
 							color="light"
 							size="xs2"
 							variant="border"
-							on:click={() => {
+							onclick={() => {
 								displayFlowEnv = true
 							}}
 							wrapperClasses="inline-flex whitespace-nowrap w-fit"

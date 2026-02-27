@@ -37,9 +37,11 @@
 		restoreDeployed?: () => Promise<void>
 		restoreDraft?: () => Promise<void>
 		isFlow?: boolean
+		onclose?: (...args: any[]) => any
 	}
 
-	let { restoreDeployed = undefined, restoreDraft = undefined, isFlow = false }: Props = $props()
+	let { restoreDeployed = undefined, restoreDraft = undefined, isFlow = false,
+		onclose = undefined }: Props = $props()
 
 	let data:
 		| {
@@ -132,8 +134,8 @@
 	}
 </script>
 
-<Drawer bind:this={diffViewer} size="1200px" on:close>
-	<DrawerContent title="Diff" on:close={diffViewer.closeDrawer}>
+<Drawer bind:this={diffViewer} size="1200px" onclose={onclose}>
+	<DrawerContent title="Diff" onclose={diffViewer.closeDrawer}>
 		<div class="flex flex-col gap-4 h-full">
 			{#if diffType && data}
 				<Tabs bind:selected={diffType} wrapperClass="shrink-0">

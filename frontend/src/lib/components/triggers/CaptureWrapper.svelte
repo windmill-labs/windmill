@@ -28,6 +28,10 @@
 		args?: Record<string, any>
 		isValid?: boolean
 		triggerDeployed?: boolean
+		onapplyArgs?: (...args: any[]) => any
+		onupdateSchema?: (...args: any[]) => any
+		onaddPreprocessor?: (...args: any[]) => any
+		ontestWithArgs?: (...args: any[]) => any
 	}
 
 	let {
@@ -40,7 +44,11 @@
 		connectionInfo = $bindable(undefined),
 		args = {},
 		isValid = false,
-		triggerDeployed = false
+		triggerDeployed = false,
+		onapplyArgs = undefined,
+		onupdateSchema = undefined,
+		onaddPreprocessor = undefined,
+		ontestWithArgs = undefined
 	}: Props = $props()
 
 	let captureLoading = $state(false)
@@ -189,11 +197,11 @@
 				{isValid}
 				{captureInfo}
 				{captureLoading}
-				on:applyArgs
-				on:updateSchema
-				on:addPreprocessor
-				on:captureToggle={handleCapture}
-				on:testWithArgs
+				onapplyArgs={onapplyArgs}
+				onupdateSchema={onupdateSchema}
+				onaddPreprocessor={onaddPreprocessor}
+				oncaptureToggle={handleCapture}
+				ontestWithArgs={ontestWithArgs}
 			/>
 		{:else if captureType === 'postgres'}
 			<PostgresCapture
@@ -203,11 +211,11 @@
 				{hasPreprocessor}
 				{isFlow}
 				{triggerDeployed}
-				on:applyArgs
-				on:updateSchema
-				on:addPreprocessor
-				on:captureToggle={handleCapture}
-				on:testWithArgs
+				onapplyArgs={onapplyArgs}
+				onupdateSchema={onupdateSchema}
+				onaddPreprocessor={onaddPreprocessor}
+				oncaptureToggle={handleCapture}
+				ontestWithArgs={ontestWithArgs}
 			/>
 		{:else if captureType === 'webhook'}
 			<WebhooksCapture
@@ -217,11 +225,11 @@
 				runnableArgs={data?.args}
 				{captureInfo}
 				{captureLoading}
-				on:applyArgs
-				on:updateSchema
-				on:addPreprocessor
-				on:captureToggle={handleCapture}
-				on:testWithArgs
+				onapplyArgs={onapplyArgs}
+				onupdateSchema={onupdateSchema}
+				onaddPreprocessor={onaddPreprocessor}
+				oncaptureToggle={handleCapture}
+				ontestWithArgs={ontestWithArgs}
 			/>
 		{:else if captureType === 'http'}
 			<RouteCapture
@@ -233,11 +241,11 @@
 				{hasPreprocessor}
 				{isFlow}
 				{captureLoading}
-				on:applyArgs
-				on:updateSchema
-				on:addPreprocessor
-				on:captureToggle={handleCapture}
-				on:testWithArgs
+				onapplyArgs={onapplyArgs}
+				onupdateSchema={onupdateSchema}
+				onaddPreprocessor={onaddPreprocessor}
+				oncaptureToggle={handleCapture}
+				ontestWithArgs={ontestWithArgs}
 			/>
 		{:else if captureType === 'default_email'}
 			<DefaultEmailCapture
@@ -247,11 +255,11 @@
 				{captureInfo}
 				{hasPreprocessor}
 				{captureLoading}
-				on:applyArgs
-				on:updateSchema
-				on:addPreprocessor
-				on:captureToggle={handleCapture}
-				on:testWithArgs
+				onapplyArgs={onapplyArgs}
+				onupdateSchema={onupdateSchema}
+				onaddPreprocessor={onaddPreprocessor}
+				oncaptureToggle={handleCapture}
+				ontestWithArgs={ontestWithArgs}
 			/>
 		{:else if captureType === 'kafka'}
 			<KafkaCapture
@@ -261,11 +269,11 @@
 				{isFlow}
 				{captureLoading}
 				{triggerDeployed}
-				on:applyArgs
-				on:updateSchema
-				on:addPreprocessor
-				on:captureToggle={handleCapture}
-				on:testWithArgs
+				onapplyArgs={onapplyArgs}
+				onupdateSchema={onupdateSchema}
+				onaddPreprocessor={onaddPreprocessor}
+				oncaptureToggle={handleCapture}
+				ontestWithArgs={ontestWithArgs}
 			/>
 		{:else if captureType === 'nats'}
 			<NatsCapture
@@ -275,11 +283,11 @@
 				{isFlow}
 				{captureLoading}
 				{triggerDeployed}
-				on:applyArgs
-				on:updateSchema
-				on:addPreprocessor
-				on:captureToggle={handleCapture}
-				on:testWithArgs
+				onapplyArgs={onapplyArgs}
+				onupdateSchema={onupdateSchema}
+				onaddPreprocessor={onaddPreprocessor}
+				oncaptureToggle={handleCapture}
+				ontestWithArgs={ontestWithArgs}
 			/>
 		{:else if captureType === 'mqtt'}
 			<MqttCapture
@@ -289,11 +297,11 @@
 				{isFlow}
 				{captureLoading}
 				{triggerDeployed}
-				on:applyArgs
-				on:updateSchema
-				on:addPreprocessor
-				on:captureToggle={handleCapture}
-				on:testWithArgs
+				onapplyArgs={onapplyArgs}
+				onupdateSchema={onupdateSchema}
+				onaddPreprocessor={onaddPreprocessor}
+				oncaptureToggle={handleCapture}
+				ontestWithArgs={ontestWithArgs}
 			/>
 		{:else if captureType === 'sqs'}
 			<SqsCapture
@@ -303,11 +311,11 @@
 				{isFlow}
 				{captureLoading}
 				{triggerDeployed}
-				on:applyArgs
-				on:updateSchema
-				on:addPreprocessor
-				on:captureToggle={handleCapture}
-				on:testWithArgs
+				onapplyArgs={onapplyArgs}
+				onupdateSchema={onupdateSchema}
+				onaddPreprocessor={onaddPreprocessor}
+				oncaptureToggle={handleCapture}
+				ontestWithArgs={ontestWithArgs}
 			/>
 		{:else if captureType === 'gcp'}
 			<GcpCapture
@@ -318,11 +326,11 @@
 				{triggerDeployed}
 				deliveryType={args.delivery_type}
 				{captureLoading}
-				on:applyArgs
-				on:updateSchema
-				on:addPreprocessor
-				on:captureToggle={handleCapture}
-				on:testWithArgs
+				onapplyArgs={onapplyArgs}
+				onupdateSchema={onupdateSchema}
+				onaddPreprocessor={onaddPreprocessor}
+				oncaptureToggle={handleCapture}
+				ontestWithArgs={ontestWithArgs}
 			/>
 		{:else if captureType === 'email'}
 			<EmailCapture
@@ -333,11 +341,11 @@
 				{hasPreprocessor}
 				{isFlow}
 				{captureLoading}
-				on:applyArgs
-				on:updateSchema
-				on:addPreprocessor
-				on:captureToggle={handleCapture}
-				on:testWithArgs
+				onapplyArgs={onapplyArgs}
+				onupdateSchema={onupdateSchema}
+				onaddPreprocessor={onaddPreprocessor}
+				oncaptureToggle={handleCapture}
+				ontestWithArgs={ontestWithArgs}
 			/>
 		{/if}
 	</div>

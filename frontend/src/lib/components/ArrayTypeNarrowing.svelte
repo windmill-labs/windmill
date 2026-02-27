@@ -156,7 +156,7 @@
 				<Button
 					variant="default"
 					size="sm"
-					on:click={() => {
+					onclick={() => {
 						if (itemsType?.enum) {
 							let enum_ = itemsType.enum
 							let choice = `choice ${enum_?.length ? enum_?.length + 1 : 1}`
@@ -170,7 +170,7 @@
 					variant="default"
 					size="sm"
 					btnClasses="ml-2"
-					on:click={() => itemsType?.enum && (itemsType.enum = undefined)}
+					onclick={() => itemsType?.enum && (itemsType.enum = undefined)}
 				>
 					Clear
 				</Button>

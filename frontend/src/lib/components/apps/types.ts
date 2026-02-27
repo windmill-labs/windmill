@@ -165,6 +165,7 @@ export interface AppEditorProps {
 	unsavedConfirmationModal?: import('svelte').Snippet<[any]>
 	onSavedNewAppPath?: (path: string) => void
 	onpointerdown?: (...args: any[]) => any
+	onrestore?: (...args: any[]) => any
 }
 
 export type App = {

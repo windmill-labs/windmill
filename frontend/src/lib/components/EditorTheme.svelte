@@ -21,4 +21,4 @@
 	})
 </script>
 
-<DarkModeObserver on:change={onThemeChange} />
+<DarkModeObserver onchange={onThemeChange} />

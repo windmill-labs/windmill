@@ -82,7 +82,7 @@
 						variant="contained"
 						color="light"
 						size="xs"
-						on:click={async () => {
+						onclick={async () => {
 							dispatch('seeTriggers')
 							onseeTriggers?.()
 							await tick()

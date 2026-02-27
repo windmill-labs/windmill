@@ -9,6 +9,13 @@
 	import Label from './Label.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 
+	interface Props {
+		onupdate?: (...args: any[]) => any
+	}
+
+	let {}: Props = $props()
+
+
 	const dispatch = createEventDispatcher()
 
 	type Kind = 'script' | 'resource' | 'schedule' | 'variable' | 'flow' | 'app'
@@ -65,7 +72,7 @@
 </script>
 
 <Drawer bind:this={drawer}>
-	<DrawerContent title="Move/Rename {initialPath}" on:close={drawer.closeDrawer}>
+	<DrawerContent title="Move/Rename {initialPath}" onclose={drawer.closeDrawer}>
 		{#if !own}
 			<Alert type="warning" title="Not owner" class="mb-4">
 				Since you do not own this item, you cannot move this item (you can however fork it)
@@ -91,7 +98,7 @@
 			<Path disabled={!own} {kind} {initialPath} bind:path bind:dirty={dirtyPath} />
 		</Label>
 		{#snippet actions()}
-			<Button variant="accent" disabled={!own || !hasChanges} on:click={updatePath}
+			<Button variant="accent" disabled={!own || !hasChanges} onclick={updatePath}
 				>Move/Rename</Button
 			>
 		{/snippet}

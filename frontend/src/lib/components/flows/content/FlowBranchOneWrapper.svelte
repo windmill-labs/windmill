@@ -39,7 +39,7 @@
 				{parentModule}
 				{previousModule}
 				{enableAi}
-				on:updateSummary={(e) => {
+				onupdateSummary={(e) => {
 					if (!branch.summary) {
 						branch.summary = e.detail
 					}

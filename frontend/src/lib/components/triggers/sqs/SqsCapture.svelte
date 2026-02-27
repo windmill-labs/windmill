@@ -10,6 +10,11 @@
 		isFlow?: boolean
 		captureLoading?: boolean
 		triggerDeployed?: boolean
+		oncaptureToggle?: (...args: any[]) => any
+		onapplyArgs?: (...args: any[]) => any
+		onupdateSchema?: (...args: any[]) => any
+		onaddPreprocessor?: (...args: any[]) => any
+		ontestWithArgs?: (...args: any[]) => any
 	}
 
 	let {
@@ -18,7 +23,12 @@
 		hasPreprocessor = false,
 		isFlow = false,
 		captureLoading = false,
-		triggerDeployed = false
+		triggerDeployed = false,
+		oncaptureToggle = undefined,
+		onapplyArgs = undefined,
+		onupdateSchema = undefined,
+		onaddPreprocessor = undefined,
+		ontestWithArgs = undefined
 	}: Props = $props()
 </script>
 
@@ -27,11 +37,11 @@
 		captureType="sqs"
 		disabled={isValid === false}
 		{captureInfo}
-		on:captureToggle
-		on:applyArgs
-		on:updateSchema
-		on:addPreprocessor
-		on:testWithArgs
+		oncaptureToggle={oncaptureToggle}
+		onapplyArgs={onapplyArgs}
+		onupdateSchema={onupdateSchema}
+		onaddPreprocessor={onaddPreprocessor}
+		ontestWithArgs={ontestWithArgs}
 		{hasPreprocessor}
 		{isFlow}
 		{captureLoading}

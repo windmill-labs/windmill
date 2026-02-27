@@ -454,10 +454,10 @@
 </script>
 
 <Drawer bind:this={logDrawer} bind:open={logDrawerOpen} size="1400px">
-	<DrawerContent title="See context" on:close={logDrawer.closeDrawer}>
+	<DrawerContent title="See context" onclose={logDrawer.closeDrawer}>
 		{#snippet actions()}
 			<Button
-				on:click={() => copyToClipboard(content)}
+				onclick={() => copyToClipboard(content)}
 				color="light"
 				size="xs"
 				startIcon={{
@@ -505,7 +505,7 @@
 					size="xs"
 					bind:checked={withError}
 					options={{ right: 'errors > 0' }}
-					on:change={() => {
+					onchange={() => {
 						allLogs = undefined
 						getAllLogs(minTs, maxTs)
 					}}
@@ -514,7 +514,7 @@
 					size="xs"
 					bind:checked={autoRefresh}
 					disabled={searchTerm != ''}
-					on:change={(e) => {
+					onchange={(e) => {
 						if (e.detail) {
 							getAllLogs(maxTs, undefined)
 						} else {

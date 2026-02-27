@@ -135,7 +135,7 @@
 			<Button
 				unifiedSize="md"
 				variant="accent"
-				on:click={async () => {
+				onclick={async () => {
 					await GroupService.updateGroup({
 						workspace: $workspaceStore ?? '',
 						name,
@@ -154,7 +154,7 @@
 		{#if can_write}
 			<div class="flex items-start gap-1">
 				<Select items={safeSelectItems(usernames)} bind:value={username} size="md" class="grow" />
-				<Button variant="accent" color="blue" unifiedSize="md" on:click={addToGroup}>
+				<Button variant="accent" color="blue" unifiedSize="md" onclick={addToGroup}>
 					Add member
 				</Button>
 			</div>
@@ -177,7 +177,7 @@
 										<div>
 											<ToggleButtonGroup
 												selected={role}
-												on:selected={async (e) => {
+												onselected={async (e) => {
 													const role = e.detail
 													// const wasInGroup = (group?.members ?? []).includes(group)
 													// const inAcl = (

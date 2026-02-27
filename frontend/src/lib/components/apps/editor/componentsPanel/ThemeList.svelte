@@ -13,6 +13,14 @@
 	import { ResourceService } from '$lib/gen'
 	import { Alert } from '$lib/components/common'
 	import ThemeRow from './ThemeRow.svelte'
+
+	interface Props {
+		onsetCodeTab?: (...args: any[]) => any
+	}
+
+	let {
+		onsetCodeTab = undefined
+	}: Props = $props()
 	import { onDestroy } from 'svelte'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 
@@ -97,7 +105,7 @@
 		/>
 		<Button
 			disabled={type != 'inlined' || nameField == ''}
-			on:click={() => addTheme(nameField)}
+			onclick={() => addTheme(nameField)}
 			variant="accent"
 			size="xs">Create theme</Button
 		>
@@ -115,7 +123,7 @@
 				<Button
 					variant="default"
 					size="xs"
-					on:click={() => {
+					onclick={() => {
 						previewTheme.set(undefined)
 						previewThemePath = undefined
 					}}
@@ -140,10 +148,10 @@
 								<ThemeRow
 									{row}
 									bind:previewThemePath
-									on:reloadThemes={() => {
+									onreloadThemes={() => {
 										getThemes()
 									}}
-									on:setCodeTab
+									onsetCodeTab={onsetCodeTab}
 								/>
 							{/key}
 						{/each}

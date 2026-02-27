@@ -722,7 +722,7 @@
 						<ContentSearchInner
 							search={removePrefix(searchTerm, '#')}
 							bind:this={contentSearch}
-							on:close={() => {
+							onclose={() => {
 								closeModal()
 							}}
 						/>

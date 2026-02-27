@@ -167,26 +167,26 @@ Only output the expression, do not explain or discuss.`
 					? 'bg-green-100 text-green-800 hover:bg-green-100 dark:text-green-400 dark:bg-green-700 dark:hover:bg-green-700'
 					: ''
 			)}
-			on:click={() => {
+			onclick={() => {
 				if (!loading && generatedContent.length > 0) {
 					dispatch('setExpr', generatedContent)
 					onsetExpr?.(generatedContent)
 					generatedContent = ''
 				}
 			}}
-			on:focus={() => {
+			onfocus={() => {
 				btnFocused = true
 			}}
-			on:blur={() => {
+			onblur={() => {
 				btnFocused = false
 			}}
-			on:mouseenter={(ev) => {
+			onmouseenter={(ev) => {
 				if (out) {
 					out = false
 					generateIteratorExpr()
 				}
 			}}
-			on:mouseleave={() => {
+			onmouseleave={() => {
 				out = true
 				cancel()
 			}}

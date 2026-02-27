@@ -237,7 +237,7 @@ export async function main(bucket: any) {
 </script>
 
 {#if Object.keys(scripts).includes(resourceType || '')}
-	<Button spacingSize="sm" size="xs" unifiedSize="md" variant="default" on:click={testConnection}>
+	<Button spacingSize="sm" size="xs" unifiedSize="md" variant="default" onclick={testConnection}>
 		{#if loading}
 			<Loader2 class="animate-spin mr-2 !h-4 !w-4" />
 		{:else}

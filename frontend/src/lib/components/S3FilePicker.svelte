@@ -71,7 +71,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <Drawer
 	bind:this={drawer}
-	on:close={() => {
+	onclose={() => {
 		onClose?.()
 		s3FilePickerInner?.close?.()
 	}}
@@ -79,7 +79,7 @@
 >
 	<DrawerContent
 		title="S3 file browser"
-		on:close={() => {
+		onclose={() => {
 			s3FilePickerInner?.exit?.()
 			drawer?.closeDrawer?.()
 		}}
@@ -88,7 +88,7 @@
 	>
 		<S3FilePickerInner
 			bind:this={s3FilePickerInner}
-			on:selectAndClose={(e) => {
+			onselectAndClose={(e) => {
 				onSelectAndClose?.(e.detail)
 				drawer?.closeDrawer?.()
 			}}
@@ -129,7 +129,7 @@
 						color="light"
 						disabled={workspaceSettingsInitialized === false}
 						startIcon={{ icon: FileUp }}
-						on:click={() => {
+						onclick={() => {
 							uploadModalOpen = true
 						}}>Upload File</Button
 					>
@@ -138,7 +138,7 @@
 							disabled={selectedFileKey === undefined ||
 								emptyString(selectedFileKey.s3) ||
 								(folderOnly && allFilesByKey[selectedFileKey.s3]?.type !== 'folder')}
-							on:click={s3FilePickerInner.selectAndClose}>Select</Button
+							onclick={s3FilePickerInner.selectAndClose}>Select</Button
 						>
 					{/if}
 				{/if}

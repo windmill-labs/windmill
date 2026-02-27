@@ -48,6 +48,7 @@
 			} | null
 		) => void
 		oncreateScriptFromInlineScript?: (...args: any[]) => any
+		ondelete?: (...args: any[]) => any
 	}
 
 	let {
@@ -55,7 +56,8 @@
 		id,
 		appPath,
 		onSelectionChange,
-		oncreateScriptFromInlineScript = undefined
+		oncreateScriptFromInlineScript = undefined,
+		ondelete = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -195,7 +197,7 @@
 			{#if isRunnableByName(runnable)}
 				<RawAppInlineScriptEditor
 					bind:this={inlineScriptEditor}
-					on:createScriptFromInlineScript={() => (
+					oncreateScriptFromInlineScript={() => (
 						dispatch('createScriptFromInlineScript', runnable),
 						oncreateScriptFromInlineScript?.(runnable)
 					)}
@@ -204,7 +206,7 @@
 					bind:name={runnable.name}
 					bind:fields={runnable.fields}
 					onRun={testPreview}
-					on:delete
+					ondelete={ondelete}
 					path={appPath}
 					{onSelectionChange}
 				/>
@@ -213,8 +215,8 @@
 					rawApps
 					bind:runnable
 					bind:fields={runnable.fields}
-					on:fork={(e) => fork(e.detail)}
-					on:delete
+					onfork={(e) => fork(e)}
+					ondelete={ondelete}
 					{id}
 					isLoading={testIsLoading}
 					onRun={testPreview}
@@ -295,7 +297,7 @@
 											/>
 										</div>
 										<SchemaForm
-											on:keydownCmdEnter={testPreview}
+											onkeydownCmdEnter={testPreview}
 											disabledArgs={Object.entries(runnable?.fields ?? {})
 												.filter(([_, v]) => v.type == 'static')
 												.map(([k]) => k)}
@@ -370,11 +372,11 @@
 	<EmptyInlineScript
 		unusedInlineScripts={[]}
 		rawApps
-		on:pick={(e) =>
+		onpick={(e) =>
 			onPick(e.detail as { runnable: Runnable; fields: Record<string, StaticAppInput> })}
-		on:delete
+		ondelete={ondelete}
 		showScriptPicker
-		on:new={(e) => {
+		onnew={(e) => {
 			runnable = {
 				type: 'inline',
 				inlineScript: e.detail,

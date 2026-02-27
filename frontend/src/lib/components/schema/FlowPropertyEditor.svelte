@@ -183,7 +183,7 @@
 							<Button
 								variant="default"
 								size="xs"
-								on:click={() => {
+								onclick={() => {
 									createVariant(variantName)
 									close()
 								}}
@@ -210,7 +210,7 @@
 							startIcon={{ icon: Pen }}
 							propagateEvent
 							iconOnly={false}
-							on:click={() => {
+							onclick={() => {
 								if (oneOfSelected) {
 									variantName = oneOfSelected
 								}
@@ -235,7 +235,7 @@
 							<Button
 								variant="default"
 								size="xs"
-								on:click={() => {
+								onclick={() => {
 									if (oneOfSelected) {
 										renameVariant(variantName, oneOfSelected)
 										close()
@@ -254,7 +254,7 @@
 					startIcon={{ icon: Trash2 }}
 					iconOnly
 					disabled={(oneOf?.length ?? 0) <= 2}
-					on:click={() => {
+					onclick={() => {
 						if (oneOf && oneOfSelected) {
 							const idx = oneOf.findIndex((obj) => obj.title === oneOfSelected)
 							oneOf = oneOf.filter((_, i) => i !== idx)
@@ -289,7 +289,7 @@
 				<ToggleButtonGroup
 					bind:selected={customObjectSelected}
 					class="my-2"
-					on:selected={(e) => {
+					onselected={(e) => {
 						if (e.detail === 'editor') {
 							format = undefined
 						} else {
@@ -385,16 +385,14 @@
 			options={{ right: 'Required' }}
 			size="xs"
 			disabled={type === 'boolean'}
-			on:change={(event) => {
+			onchange={(event) => {
 				dispatch('requiredChange', { required: event?.detail })
 				onrequiredChange?.({ required: event?.detail })
-			}}
-			checked={required}
-			on:change={(event) => {
 				if (event?.detail) {
 					nullable = false
 				}
 			}}
+			checked={required}
 		/>
 		{#if type === 'string'}
 			<Toggle
@@ -405,7 +403,7 @@
 				lightMode
 				size="xs"
 				checked={nullable}
-				on:change={(event) => {
+				onchange={(event) => {
 					if (event?.detail) {
 						nullable = true
 					} else {
@@ -423,7 +421,7 @@
 			lightMode
 			size="xs"
 			checked={disabled}
-			on:change={(event) => {
+			onchange={(event) => {
 				if (event?.detail) {
 					disabled = true
 				} else {
@@ -447,7 +445,7 @@
 		size="xs"
 		options={{ right: 'Show this field only when conditions are met' }}
 		checked={Boolean(showExpr)}
-		on:change={() => {
+		onchange={() => {
 			showExpr = showExpr ? undefined : 'true //fields.foo == 42'
 		}}
 	/>

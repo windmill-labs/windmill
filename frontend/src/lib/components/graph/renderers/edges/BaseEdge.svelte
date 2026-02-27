@@ -128,7 +128,7 @@
 			<InsertModulePopover
 				disableAi={data.disableAi}
 				allowTrigger={data.index == 0}
-				on:new={(e) => {
+				onnew={(e) => {
 					data?.eventHandlers.insert({
 						sourceId: data.sourceId,
 						targetId: data.targetId,
@@ -138,7 +138,7 @@
 						inlineScript: e.detail.inlineScript
 					})
 				}}
-				on:pickScript={(e) => {
+				onpickScript={(e) => {
 					// console.log('pickScript', e)
 					data?.eventHandlers.insert({
 						sourceId: data.sourceId,
@@ -149,7 +149,7 @@
 						kind: e.detail.kind
 					})
 				}}
-				on:pickFlow={(e) => {
+				onpickFlow={(e) => {
 					// console.log('pickFlow', e)
 					data?.eventHandlers.insert({
 						sourceId: data.sourceId,

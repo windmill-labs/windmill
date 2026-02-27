@@ -467,7 +467,7 @@
 							inputProps={{ disabled: !colorEnabled }}
 						/>
 						<Button
-							on:click={generateRandomColor}
+							onclick={generateRandomColor}
 							size="xs"
 							variant="default"
 							disabled={!colorEnabled}>Random</Button
@@ -563,7 +563,7 @@
 								>
 								<ToggleButtonGroup
 									selected={autoAdd ? 'add' : 'invite'}
-									on:selected={async (e) => {
+									onselected={async (e) => {
 										autoAdd = e.detail === 'add'
 									}}
 								>
@@ -580,7 +580,7 @@
 							<span class="text-xs text-secondary font-normal">Role of the auto-invited users</span>
 							<ToggleButtonGroup
 								selected={operatorOnly ? 'operator' : 'developer'}
-								on:selected={(e) => {
+								onselected={(e) => {
 									operatorOnly = e.detail == 'operator'
 								}}
 							>
@@ -609,7 +609,7 @@
 						!name ||
 						(!automateUsernameCreation && (errorUser != '' || !username)) ||
 						!id}
-					on:click={createOrForkWorkspace}
+					onclick={createOrForkWorkspace}
 				>
 					{#if isFork}
 						Fork workspace

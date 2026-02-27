@@ -18,7 +18,7 @@
 </script>
 
 <Drawer bind:this={drawer} size="800px">
-	<DrawerContent title="OpenFlow" on:close={() => drawer?.toggleDrawer()}>
+	<DrawerContent title="OpenFlow" onclose={() => drawer?.toggleDrawer()}>
 		{#if flow}
 			<FlowViewer flow={cleanFlow(flow)} initTab="raw" />
 		{/if}

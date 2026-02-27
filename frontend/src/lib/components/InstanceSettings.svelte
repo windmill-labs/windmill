@@ -844,7 +844,7 @@
 			<div class="flex items-center justify-end gap-4 mb-2">
 				<Toggle
 					checked={showSensitive}
-					on:change={(e) => handleShowSensitiveToggle(e.detail)}
+					onchange={(e) => handleShowSensitiveToggle(e)}
 					options={{ right: 'Show sensitive values' }}
 					size="xs"
 				/>
@@ -959,7 +959,7 @@
 				</div>
 				<div class="flex gap-2 mb-4">
 					<Button
-						on:click={sendStats}
+						onclick={sendStats}
 						variant="default"
 						btnClasses="w-auto"
 						loading={sendingStats}
@@ -968,7 +968,7 @@
 						Send usage
 					</Button>
 					<Button
-						on:click={downloadStats}
+						onclick={downloadStats}
 						variant="default"
 						btnClasses="w-auto"
 						loading={downloadingStats}
@@ -1015,7 +1015,7 @@
 					<div class="flex-col flex gap-6 pb-4">
 						{#each scimSamlSetting as setting}
 							<InstanceSetting
-								on:closeDrawer={() => closeDrawer?.()}
+								oncloseDrawer={() => closeDrawer?.()}
 								{loading}
 								{setting}
 								{values}
@@ -1034,7 +1034,7 @@
 				{#if setting.fieldType != 'slack_connect' && !(quickSetup && setting.hideInQuickSetup) && !(quickSetup && category === 'Core' && setting.key === 'license_key')}
 					<InstanceSetting
 						{openSmtpSettings}
-						on:closeDrawer={() => closeDrawer?.()}
+						oncloseDrawer={() => closeDrawer?.()}
 						{loading}
 						{setting}
 						{values}
@@ -1050,7 +1050,7 @@
 					{#if licenseKeySetting}
 						<InstanceSetting
 							{openSmtpSettings}
-							on:closeDrawer={() => closeDrawer?.()}
+							oncloseDrawer={() => closeDrawer?.()}
 							{loading}
 							setting={licenseKeySetting}
 							{values}
@@ -1070,7 +1070,7 @@
 				{#each extraSettings as setting}
 					<InstanceSetting
 						{openSmtpSettings}
-						on:closeDrawer={() => closeDrawer?.()}
+						oncloseDrawer={() => closeDrawer?.()}
 						{loading}
 						{setting}
 						{values}

@@ -198,7 +198,7 @@
 			class="absolute flex flex-row gap-2 bottom-10 left-1/2 z-10 -translate-x-1/2 rounded-md p-1 w-full justify-center"
 		>
 			{#each buttons as button}
-				<Button on:click={button.onClick} variant="contained" size="sm" color={button.color}
+				<Button onclick={button.onClick} variant="contained" size="sm" color={button.color}
 					>{button.text}</Button
 				>
 			{/each}

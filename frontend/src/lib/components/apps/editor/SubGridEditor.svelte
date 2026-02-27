@@ -283,8 +283,8 @@
 										component={dataItem.data}
 										selected={Boolean($selectedComponent?.includes(dataItem.id))}
 										locked={isFixed(dataItem)}
-										on:lock={() => lock(dataItem)}
-										on:expand={() => {
+										onlock={() => lock(dataItem)}
+										onexpand={() => {
 											const parentGridItem = findGridItem($app, id)
 
 											if (!parentGridItem) {
@@ -302,7 +302,7 @@
 											)
 											$app = $app
 										}}
-										on:fillHeight={() => {
+										onfillHeight={() => {
 											const gridItem = findGridItem($app, dataItem.id)
 											const b = $breakpoint === 'sm' ? 3 : 12
 

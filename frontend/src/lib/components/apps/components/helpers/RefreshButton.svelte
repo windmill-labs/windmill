@@ -20,8 +20,8 @@
 
 <Popover>
 	<Button
-		on:mouseenter={() => (buttonHover = true)}
-		on:mouseleave={() => (buttonHover = false)}
+		onmouseenter={() => (buttonHover = true)}
+		onmouseleave={() => (buttonHover = false)}
 		startIcon={{
 			icon: loading ? (!buttonHover ? LoaderIcon : RefreshCwOff) : RefreshCw,
 			classes: twMerge(
@@ -32,14 +32,14 @@
 		color="light"
 		size="xs2"
 		btnClasses={twMerge(loading ? ' bg-blue-100 dark:bg-blue-400' : '', 'transition-all')}
-		on:click={(e) => {
+		onclick={(e) => {
 			if (buttonHover && loading) {
 				cancelCallbacks?.forEach((cb) => cb.cancel())
 			} else {
 				cancelCallbacks = $runnableComponents[id]?.cb?.map((cb) => cb())
 			}
 		}}
-		on:pointerdown={(e) => {
+		onpointerdown={(e) => {
 			e.preventDefault()
 			e.stopPropagation()
 		}}

@@ -318,7 +318,7 @@
 					? `Edit GCP Pub/Sub trigger ${initialPath}`
 					: `GCP Pub/Sub trigger ${initialPath}`
 				: 'New GCP Pub/Sub trigger'}
-			on:close={drawer?.closeDrawer}
+			onclose={drawer?.closeDrawer}
 		>
 			{#snippet actions()}
 				{@render actionsButtons()}

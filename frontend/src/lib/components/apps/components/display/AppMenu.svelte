@@ -126,7 +126,7 @@
 					{#snippet triggr({ trigger })}
 						<MeltButton meltElement={trigger} class="w-full h-full">
 							<Button
-								on:pointerdown={(e) => e.stopPropagation()}
+								onpointerdown={(e) => e.stopPropagation()}
 								btnClasses={twMerge(
 									css?.button?.class,
 									'wm-button',

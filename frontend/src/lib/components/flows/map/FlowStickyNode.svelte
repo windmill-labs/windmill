@@ -21,6 +21,7 @@
 		toggleNoteMode?: () => void
 		disableAi?: boolean
 		diffManager?: FlowDiffManager
+		ongenerateStep?: (...args: any[]) => any
 	}
 
 	let {
@@ -33,7 +34,8 @@
 		noteMode,
 		toggleNoteMode,
 		disableAi,
-		diffManager
+		diffManager,
+		ongenerateStep = undefined
 	}: Props = $props()
 
 	const { selectionManager, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -58,7 +60,7 @@
 		</Button>
 	{/if}
 	<Popover>
-		<FlowErrorHandlerItem {disableAi} small={smallErrorHandler} {diffManager} on:generateStep />
+		<FlowErrorHandlerItem {disableAi} small={smallErrorHandler} {diffManager} ongenerateStep={ongenerateStep} />
 		{#snippet text()}
 			Error Handler
 		{/snippet}

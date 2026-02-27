@@ -609,7 +609,7 @@
 {/each}
 
 <InsertRowRunnable
-	on:insert={() => {
+	oninsert={() => {
 		aggrid?.clearRows()
 		refreshCount++
 	}}
@@ -618,7 +618,7 @@
 />
 {#if resolvedConfig.allowDelete}
 	<DeleteRow
-		on:deleted={() => {
+		ondeleted={() => {
 			aggrid?.clearRows()
 			refreshCount++
 		}}
@@ -700,10 +700,10 @@
 					{outputs}
 					allowDelete={resolvedConfig.allowDelete ?? false}
 					containerHeight={componentContainerHeight - (buttonContainerHeight ?? 0)}
-					on:update={onUpdate}
-					on:delete={onDelete}
+					onupdate={onUpdate}
+					ondelete={onDelete}
 					allowColumnDefsActions={false}
-					on:recompute={() => {
+					onrecompute={() => {
 						lastTable = undefined
 						clearColumnDefs()
 						listColumnsIfAvailable()

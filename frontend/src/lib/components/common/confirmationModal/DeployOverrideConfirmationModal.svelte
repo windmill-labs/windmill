@@ -27,10 +27,10 @@
 	{open}
 	title={'New version deployed by ' + deployedBy}
 	confirmationText="Override"
-	on:canceled={() => {
+	oncanceled={() => {
 		open = false
 	}}
-	on:confirmed={() => confirmCallback()}
+	onconfirmed={() => confirmCallback()}
 >
 	<div class="flex flex-col w-full space-y-4">
 		<span>A new version was deployed while you were editing this one.</span>
@@ -39,7 +39,7 @@
 				wrapperClasses="self-start"
 				variant="default"
 				size="xs"
-				on:click={() => {
+				onclick={() => {
 					if (!deployedValue || !currentValue) {
 						return
 					}

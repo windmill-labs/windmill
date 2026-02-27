@@ -422,7 +422,7 @@
 					? `Edit email trigger ${initialPath}`
 					: `Email trigger ${initialPath}`
 				: 'New email trigger'}
-			on:close={() => drawer?.closeDrawer()}
+			onclose={() => drawer?.closeDrawer()}
 		>
 			{#snippet actions()}
 				{@render saveButton()}

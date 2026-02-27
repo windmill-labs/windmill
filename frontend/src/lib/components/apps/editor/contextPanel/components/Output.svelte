@@ -26,7 +26,7 @@
 		<ComponentOutputViewer
 			{render}
 			componentId={id}
-			on:select={({ detail }) => {
+			onselect={(detail) => {
 				$connectingInput = connectInput($connectingInput, id, detail)
 			}}
 		/>

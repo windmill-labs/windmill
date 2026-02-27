@@ -127,7 +127,7 @@
 		disabled={!can_write || disabled}
 		variant="default"
 		wrapperClasses="self-stretch"
-		on:click={listDatabasePublication}
+		onclick={listDatabasePublication}
 		startIcon={{ icon: RefreshCw }}
 		iconOnly
 	/>
@@ -136,13 +136,13 @@
 		size="xs"
 		variant="default"
 		disabled={emptyString(publication_name) || !can_write || disabled}
-		on:click={updatePublication}>Update</Button
+		onclick={updatePublication}>Update</Button
 	>
 	<Button
 		loading={deletingPublication}
 		size="xs"
 		variant="default"
 		disabled={emptyString(publication_name) || !can_write || disabled}
-		on:click={deletePublication}>Delete</Button
+		onclick={deletePublication}>Delete</Button
 	>
 </div>

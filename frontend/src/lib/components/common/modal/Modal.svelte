@@ -96,7 +96,7 @@
 					{style}
 				>
 					{#if kind == 'X'}
-						<div class="absolute top-4 right-4"><CloseButton on:close={() => (open = false)} /></div
+						<div class="absolute top-4 right-4"><CloseButton onclose={() => (open = false)} /></div
 						>
 					{/if}
 					<div class="flex">
@@ -115,7 +115,7 @@
 						<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
 							{@render actions?.()}
 							<Button
-								on:click={() => {
+								onclick={() => {
 									dispatch('canceled')
 									oncanceled?.()
 									open = false

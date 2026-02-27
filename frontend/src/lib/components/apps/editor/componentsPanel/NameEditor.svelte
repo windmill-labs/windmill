@@ -42,7 +42,7 @@
 				<Button
 					variant="accent"
 					size="xs"
-					on:click={() => {
+					onclick={() => {
 						dispatch('update', { path: row.path, name: editedName })
 						onupdate?.({ path: row.path, name: editedName })
 						close()

@@ -24,6 +24,9 @@
 		onpickWebsearchTool?: (...args: any[]) => any
 		onpickAiAgentTool?: (...args: any[]) => any
 		onnew?: (...args: any[]) => any
+		oninsert?: (...args: any[]) => any
+		onpickScript?: (...args: any[]) => any
+		onpickFlow?: (...args: any[]) => any
 	}
 
 	let {
@@ -37,7 +40,10 @@
 		onpickMcpTool = undefined,
 		onpickWebsearchTool = undefined,
 		onpickAiAgentTool = undefined,
-		onnew = undefined
+		onnew = undefined,
+		oninsert = undefined,
+		onpickScript = undefined,
+		onpickFlow = undefined
 	}: Props = $props()
 
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
@@ -67,9 +73,9 @@
 >
 	<div class="flex flex-row items-center gap-2">
 		<StepGenQuick
-			on:escape={() => (dispatch('close'), onclose?.())}
+			onescape={() => (dispatch('close'), onclose?.())}
 			{disableAi}
-			on:insert
+			oninsert={oninsert}
 			bind:funcDesc
 			{preFilter}
 			{loading}
@@ -219,13 +225,13 @@
 			{funcDesc}
 			{kind}
 			bind:owners
-			on:close={() => {
+			onclose={() => {
 				dispatch('close')
 				onclose?.()
 			}}
-			on:new
-			on:pickScript
-			on:pickFlow
+			onnew={onnew}
+			onpickScript={onpickScript}
+			onpickFlow={onpickFlow}
 			{preFilter}
 			{displayPath}
 			refreshCount={refreshCount.val}

@@ -312,7 +312,7 @@
 					? `Edit SQS trigger ${initialPath}`
 					: `SQS trigger ${initialPath}`
 				: 'New SQS trigger'}
-			on:close={drawer.closeDrawer}
+			onclose={drawer.closeDrawer}
 		>
 			{#snippet actions()}
 				{@render actionsSnippet()}

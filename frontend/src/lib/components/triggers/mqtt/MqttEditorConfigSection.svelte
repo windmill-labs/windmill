@@ -165,7 +165,7 @@
 							variant="default"
 							size="xs"
 							btnClasses="mt-1"
-							on:click={() => {
+							onclick={() => {
 								subscribe_topics = [
 									...subscribe_topics,
 									{

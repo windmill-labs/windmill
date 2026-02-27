@@ -537,7 +537,7 @@
 										? 'static_website'
 										: 'static_asset'
 									: 'runnable'}
-								on:selected={(ev) => {
+								onselected={(ev) => {
 									if (ev.detail === 'static_asset' || ev.detail === 'static_website') {
 										static_asset_config = { s3: '' }
 										s3Editor?.setCode(JSON.stringify(static_asset_config, null, 2))
@@ -612,13 +612,13 @@
 													folderOnly={is_static_website}
 													allowMultiple={false}
 													randomFileKey={true}
-													on:addition={(evt) => {
+													onaddition={(evt) => {
 														static_asset_config = {
 															s3: evt.detail?.path ?? '',
 															filename: evt.detail?.filename ?? undefined
 														}
 													}}
-													on:deletion={(evt) => {
+													ondeletion={(evt) => {
 														static_asset_config = {
 															s3: ''
 														}
@@ -630,7 +630,7 @@
 											<Button
 												variant="default"
 												size="xs"
-												on:click={() => {
+												onclick={() => {
 													s3FilePicker?.open?.(!is_static_website ? static_asset_config : undefined)
 												}}
 												startIcon={{ icon: Pipette }}
@@ -711,7 +711,7 @@
 													<ToggleButtonGroup
 														class="w-auto h-full"
 														selected={request_type}
-														on:selected={({ detail }) => {
+														onselected={(detail) => {
 															request_type = detail
 														}}
 														disabled={!can_write || !!static_asset_config}
@@ -749,7 +749,7 @@
 											<ToggleButtonGroup
 												class="w-auto h-full"
 												bind:selected={authentication_method}
-												on:selected={(e) => {
+												onselected={(e) => {
 													if (
 														e.detail === 'signature' &&
 														signature_options_type === 'custom_script'
@@ -776,7 +776,7 @@
 																	<ToggleButtonGroup
 																		class="w-auto h-full"
 																		bind:selected={signature_options_type}
-																		on:selected={(e) => {
+																		onselected={(e) => {
 																			if (e.detail === 'custom_script') {
 																				if (!raw_string) {
 																					raw_string = true
@@ -850,7 +850,7 @@
 														<Button
 															title="Add variable"
 															variant="accent"
-															on:click={() => variablePicker?.openDrawer()}
+															onclick={() => variablePicker?.openDrawer()}
 															size="xs"
 															disabled={!can_write}
 														>
@@ -878,7 +878,7 @@
 											</div>
 										{/if}
 									{:else if authentication_method === 'windmill'}
-										<Button size="xs" variant="default" on:click={() => userSettings?.openDrawer()}>
+										<Button size="xs" variant="default" onclick={() => userSettings?.openDrawer()}>
 											Create a route-specific token
 											<Tooltip light>
 												The token will have a scope such that it can only be used to read and
@@ -948,7 +948,7 @@
 					? `Edit route ${initialPath}`
 					: `Route ${initialPath}`
 				: 'New route'}
-			on:close={() => drawer?.closeDrawer()}
+			onclose={() => drawer?.closeDrawer()}
 		>
 			{#snippet actions()}
 				{@render saveButton()}
@@ -991,7 +991,7 @@
 				variant="default"
 				size="sm"
 				startIcon={{ icon: Plus }}
-				on:click={() => {
+				onclick={() => {
 					variableEditor?.initNew()
 				}}
 			>
@@ -1001,4 +1001,4 @@
 	{/snippet}
 </ItemPicker>
 
-<VariableEditor bind:this={variableEditor} on:create={(e) => variablePicker?.openDrawer()} />
+<VariableEditor bind:this={variableEditor} oncreate={(e) => variablePicker?.openDrawer()} />

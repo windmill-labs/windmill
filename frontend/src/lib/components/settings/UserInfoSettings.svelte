@@ -55,7 +55,7 @@
 						size="sm"
 						variant="default"
 						btnClasses="w-min whitespace-nowrap"
-						on:click={setPassword}>Set password</Button
+						onclick={setPassword}>Set password</Button
 					>
 				</div>
 				{#if passwordError}

@@ -13,7 +13,7 @@
 	<Toggle
 		size="xs"
 		bind:checked={$codeCompletionSessionEnabled}
-		on:change={() => {
+		onchange={() => {
 			storeSetting()
 		}}
 		options={{ right: 'AI code completion' }}
@@ -23,7 +23,7 @@
 		disabled
 		size="xs"
 		checked={false}
-		on:change={() => {
+		onchange={() => {
 			storeSetting()
 		}}
 		options={{ right: 'AI code completion (disabled in workspace settings)' }}

@@ -46,7 +46,7 @@
 		<div class="flex flex-row gap-1 items-center">
 			<GroupNameEditor
 				kind="group"
-				on:update={async (e) => {
+				onupdate={async (e) => {
 					if (!$workspaceStore) return
 					const group = await getGroup($workspaceStore, row.path)
 					await updateGroup($workspaceStore, row.path, {

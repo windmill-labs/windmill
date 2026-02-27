@@ -15,7 +15,7 @@
 	unifiedSize="md"
 	variant="subtle"
 	startIcon={{ icon: Download }}
-	on:click={() => {
+	onclick={() => {
 		try {
 			const blob = new Blob([getContent()], { type: 'text/csv;charset=utf-8;' })
 			const url = URL.createObjectURL(blob)

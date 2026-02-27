@@ -195,7 +195,7 @@
 			{#if render}
 				<div bind:clientHeight={tabHeight}>
 					<Stepper
-						on:click={(e) => {
+						onclick={(e) => {
 							const index = e.detail.index
 							if (index <= maxReachedIndex || $mode === 'dnd') {
 								runStep(index)
@@ -244,7 +244,7 @@
 								size="xs"
 								variant="subtle"
 								disabled={selectedIndex === 0}
-								on:click={(e) => {
+								onclick={(e) => {
 									e.preventDefault()
 									directionClicked = 'left'
 									onPrevious?.forEach((id) =>
@@ -267,7 +267,7 @@
 								size="xs"
 								variant="accent"
 								disabled={lastStep}
-								on:click={(e) => {
+								onclick={(e) => {
 									e.preventDefault()
 									directionClicked = 'right'
 									onNext?.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb?.()))

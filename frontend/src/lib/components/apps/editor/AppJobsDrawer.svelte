@@ -73,7 +73,7 @@
 	<DrawerContent
 		noPadding
 		title="Debug Runs"
-		on:close={() => {
+		onclose={() => {
 			open = false
 		}}
 		tooltip="Look at latests runs to spot potential bugs."
@@ -184,7 +184,7 @@
 												<Button
 													variant="accent"
 													destructive
-													on:click={() => jobLoader?.cancelJob()}
+													onclick={() => jobLoader?.cancelJob()}
 												>
 													<Loader2 size={14} class="animate-spin mr-2" />
 
@@ -292,7 +292,7 @@
 				<Button
 					size="md"
 					variant="default"
-					on:click={() => {
+					onclick={() => {
 						refreshComponents?.()
 					}}
 					title="Refresh App"
@@ -303,7 +303,7 @@
 			<Button
 				size="md"
 				variant="default"
-				on:click={() => {
+				onclick={() => {
 					dispatch('clear')
 					onclear?.()
 				}}
@@ -313,7 +313,7 @@
 				<Button
 					size="md"
 					variant="default"
-					on:click={() => (dispatch('clearErrors'), onclearErrors?.())}
+					onclick={() => (dispatch('clearErrors'), onclearErrors?.())}
 				>
 					Clear Errors &nbsp;<BellOff size={14} />
 				</Button>

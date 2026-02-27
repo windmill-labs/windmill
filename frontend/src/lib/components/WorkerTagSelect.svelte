@@ -158,7 +158,7 @@
 		variant="subtle"
 		unifiedSize="sm"
 		startIcon={{ icon: RotateCw, classes: loading ? 'animate-spin' : '' }}
-		on:click={async () => {
+		onclick={async () => {
 			loadWorkerGroups(true)
 			open = true
 		}}

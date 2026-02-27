@@ -33,7 +33,7 @@
 <HighlightTheme />
 
 <Drawer bind:this={codeViewer} size="900px">
-	<DrawerContent title={'Expanded Code'} on:close={codeViewer.closeDrawer}>
+	<DrawerContent title={'Expanded Code'} onclose={codeViewer.closeDrawer}>
 		{#if stepDetail && typeof stepDetail != 'string'}
 			{#if stepDetail.value.type == 'script'}
 				<div class="mb-4">
@@ -311,7 +311,7 @@
 					unifiedSize="sm"
 					startIcon={{ icon: Copy }}
 					variant="subtle"
-					on:click={() => {
+					onclick={() => {
 						if (typeof stepDetail !== 'string') {
 							const val = stepDetail?.value
 							if (val?.type == 'flow') {

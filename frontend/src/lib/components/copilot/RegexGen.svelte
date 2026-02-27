@@ -12,6 +12,13 @@
 	import { createEventDispatcher } from 'svelte'
 	import { copilotInfo } from '$lib/aiStore'
 
+	interface Props {
+		ongen?: (...args: any[]) => any
+	}
+
+	let {}: Props = $props()
+
+
 	// state
 	let funcDesc: string = $state('')
 	let genLoading: boolean = $state(false)
@@ -113,7 +120,7 @@
 				loading={genLoading}
 				propagateEvent
 				clickableWhileLoading
-				on:click={genLoading ? () => abortController?.abort() : () => {}}
+				onclick={genLoading ? () => abortController?.abort() : () => {}}
 			/>
 		
 	{/snippet}
@@ -141,7 +148,7 @@
 								buttonType="button"
 								btnClasses="!ml-2 text-ai bg-violet-100 dark:bg-gray-700"
 								aria-label="Generate"
-								on:click={() => {
+								onclick={() => {
 									close()
 									onGenerate()
 								}}
@@ -158,7 +165,7 @@
 										color="light"
 										btnClasses="justify-start overflow-x-scroll no-scrollbar"
 										startIcon={{ icon: HistoryIcon, classes: 'shrink-0' }}
-										on:click={() => {
+										onclick={() => {
 											funcDesc = p
 										}}>{p}</Button
 									>

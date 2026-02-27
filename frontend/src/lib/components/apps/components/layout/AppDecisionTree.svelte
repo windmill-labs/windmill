@@ -257,7 +257,7 @@
 			{/if}
 			{#if getFirstNode(nodes)?.id !== currentNodeId}
 				<Button
-					on:click={prev}
+					onclick={prev}
 					size="xs2"
 					color="light"
 					startIcon={{ icon: ArrowLeft }}
@@ -267,7 +267,7 @@
 				</Button>
 			{/if}
 			<Button
-				on:click={next}
+				onclick={next}
 				size="xs2"
 				variant="accent"
 				endIcon={{ icon: ArrowRight }}

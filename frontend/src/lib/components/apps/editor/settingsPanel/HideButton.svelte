@@ -25,6 +25,7 @@
 		customHiddenIcon?: ButtonType.Icon | undefined
 		usePopoverOverride?: boolean
 		popoverOverride?: import('svelte').Snippet
+		onclick?: (...args: any[]) => any
 	}
 
 	let {
@@ -38,7 +39,8 @@
 		panelName = undefined,
 		customHiddenIcon = undefined,
 		usePopoverOverride = false,
-		popoverOverride
+		popoverOverride,
+		onclick = undefined
 	}: Props = $props()
 
 	const OpenIconMap = {
@@ -89,7 +91,7 @@
 			hidden ? 'bg-surface-selected !text-primary' : '',
 			btnClasses
 		)}
-		on:click
+		onclick={onclick}
 		{variant}
 		{color}
 	/>

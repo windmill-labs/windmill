@@ -151,7 +151,7 @@
 <Drawer bind:open size={expand ? `${windowWidth}px` : '1200px'} {offset}>
 	<DrawerContent
 		title="Data"
-		on:close={() => {
+		onclose={() => {
 			if (hasReplResult) {
 				dbManagerContent?.clearReplResult()
 			} else {
@@ -202,7 +202,7 @@
 				variant="contained"
 				color="blue"
 				disabled={!canAdd}
-				on:click={handleAddTables}
+				onclick={handleAddTables}
 				startIcon={{ icon: Plus }}
 				size="xs"
 			>
@@ -215,7 +215,7 @@
 
 			<Button
 				loading={dbManagerContent?.isLoading() ?? false}
-				on:click={() => dbManagerContent?.refresh()}
+				onclick={() => dbManagerContent?.refresh()}
 				startIcon={{ icon: RefreshCcw }}
 				size="xs"
 				color="light"
@@ -225,7 +225,7 @@
 			</Button>
 
 			<Button
-				on:click={() => (expand = !expand)}
+				onclick={() => (expand = !expand)}
 				startIcon={{ icon: expand ? Minimize : Expand }}
 				size="xs"
 				color="light"

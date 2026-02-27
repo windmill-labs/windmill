@@ -231,7 +231,7 @@
 						{#if tableRow[0] !== null}
 							<CloseButton
 								small
-								on:close={() => {
+								onclose={() => {
 									if (s3ResourceSettings.secondaryStorage) {
 										s3ResourceSettings.secondaryStorage.splice(idx - 1, 1)
 										s3ResourceSettings.secondaryStorage = [...s3ResourceSettings.secondaryStorage]
@@ -250,7 +250,7 @@
 							btnClasses="max-w-fit"
 							variant="default"
 							disabled={!s3ResourceSettings.resourcePath}
-							on:click={() => {
+							onclick={() => {
 								if (s3ResourceSettings.secondaryStorage === undefined) {
 									s3ResourceSettings.secondaryStorage = []
 								}
@@ -430,7 +430,7 @@
 			</div>
 		{/each}
 	</div>
-	<Button size="xs" variant="default" on:click={() => rules?.push({ pattern: '', allow: [] })}>
+	<Button size="xs" variant="default" onclick={() => rules?.push({ pattern: '', allow: [] })}>
 		<Plus size={14} />
 		Add permission rule
 	</Button>

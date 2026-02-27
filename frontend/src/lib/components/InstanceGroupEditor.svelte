@@ -51,7 +51,7 @@
 			<div class="flex justify-end">
 				<Button
 					size="xs"
-					on:click={async () => {
+					onclick={async () => {
 						await GroupService.updateInstanceGroup({
 							name,
 							requestBody: { new_summary: instance_group?.summary ?? '' }
@@ -75,7 +75,7 @@
 				variant="accent"
 				size="sm"
 				btnClasses="!ml-4"
-				on:click={async () => {
+				onclick={async () => {
 					await GroupService.addUserToInstanceGroup({
 						name,
 						requestBody: { email: email }

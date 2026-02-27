@@ -502,7 +502,7 @@
 					? `Edit Postgres trigger ${initialPath}`
 					: `Postgres trigger ${initialPath}`
 				: 'New Postgres trigger'}
-			on:close={drawer.closeDrawer}
+			onclose={drawer.closeDrawer}
 		>
 			{#snippet actions()}{@render actionsSnippet()}{/snippet}
 			{@render content()}
@@ -608,7 +608,7 @@
 									btnClasses="ml-4"
 									variant="accent"
 									size="xs"
-									on:click={getTemplateScript}
+									onclick={getTemplateScript}
 									target="_blank"
 									{loading}
 									>Create from template
@@ -741,7 +741,7 @@
 													<div class="flex flex-col gap-3">
 														<ToggleButtonGroup
 															bind:selected={selectedSlotAction}
-															on:selected={() => {
+															onselected={() => {
 																replication_slot_name = ''
 															}}
 															disabled={!can_write}
@@ -764,7 +764,7 @@
 																	size="xs"
 																	variant="default"
 																	disabled={emptyStringTrimmed(replication_slot_name) || !can_write}
-																	on:click={createSlot}>Create</Button
+																	onclick={createSlot}>Create</Button
 																>
 															</div>
 														{:else}
@@ -788,7 +788,7 @@
 														<ToggleButtonGroup
 															selected={selectedPublicationAction}
 															disabled={!can_write}
-															on:selected={({ detail }) => {
+															onselected={(detail) => {
 																selectedPublicationAction = detail
 																if (selectedPublicationAction === 'create') {
 																	publication_name = `windmill_publication_${random_adj()}`
@@ -821,7 +821,7 @@
 																	disabled={emptyStringTrimmed(publication_name) ||
 																		(relations && relations.length === 0) ||
 																		!can_write}
-																	on:click={createPublication}>Create</Button
+																	onclick={createPublication}>Create</Button
 																>
 															</div>
 														{:else}

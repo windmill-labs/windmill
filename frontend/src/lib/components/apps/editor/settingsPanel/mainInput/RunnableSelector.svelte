@@ -171,7 +171,7 @@
 </script>
 
 <Drawer bind:this={picker} size="1000px">
-	<DrawerContent title="Script/Flow Picker" on:close={picker.closeDrawer}>
+	<DrawerContent title="Script/Flow Picker" onclose={picker.closeDrawer}>
 		<div>
 			<div class="max-w-6xl">
 				<Tabs bind:selected={tab}>
@@ -191,17 +191,17 @@
 					<div class="flex flex-col">
 						{#if tab == 'inlinescripts'}
 							<InlineScriptList
-								on:pick={(e) => pickInlineScript(e.detail)}
+								onpick={(e) => pickInlineScript(e)}
 								inlineScripts={unusedInlineScripts
 									? unusedInlineScripts.map((uis) => uis.name)
 									: []}
 							/>
 						{:else if tab == 'workspacescripts'}
-							<WorkspaceScriptList on:pick={(e) => pickScript(e.detail)} />
+							<WorkspaceScriptList onpick={(e) => pickScript(e)} />
 						{:else if tab == 'workspaceflows'}
-							<WorkspaceFlowList on:pick={(e) => pickFlow(e.detail)} />
+							<WorkspaceFlowList onpick={(e) => pickFlow(e)} />
 						{:else if tab == 'hubscripts'}
-							<PickHubScript bind:filter on:pick={(e) => pickHubScript(e.detail.path)} />
+							<PickHubScript bind:filter onpick={(e) => pickHubScript(e.detail.path)} />
 						{/if}
 					</div>
 				</div>
@@ -213,7 +213,7 @@
 <div class="flex flex-col gap-2">
 	{#if !hideCreateScript}
 		<Button
-			on:click={createScript}
+			onclick={createScript}
 			unifiedSize="md"
 			variant="default"
 			startIcon={{ icon: Plus }}
@@ -224,7 +224,7 @@
 		</Button>
 	{/if}
 	<Button
-		on:click={() => picker?.openDrawer()}
+		onclick={() => picker?.openDrawer()}
 		unifiedSize="md"
 		variant={rawApps ? 'contained' : 'border'}
 		startIcon={{ icon: MousePointer }}

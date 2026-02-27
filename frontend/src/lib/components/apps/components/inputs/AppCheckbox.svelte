@@ -151,7 +151,7 @@
 		options={{ right: resolvedConfig.label }}
 		textClass={twMerge(css?.text?.class, 'wm-toggle-text')}
 		textStyle={css?.text?.style ?? ''}
-		on:change={(e) => {
+		onchange={(e) => {
 			preclickAction?.()
 
 			value = e.detail

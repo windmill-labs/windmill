@@ -18,6 +18,13 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 
+	interface Props {
+		oncreate?: (...args: any[]) => any
+	}
+
+	let {}: Props = $props()
+
+
 	const dispatch = createEventDispatcher()
 
 	// Helper function to get full filename
@@ -360,7 +367,7 @@ numpy>=1.24.0
 		title={edit
 			? `Deploy ${getFullFilename(workspaceDependencies.language, workspaceDependenciesType === 'workspace' ? null : workspaceDependenciesName)}`
 			: 'Add enforced dependencies'}
-		on:close={drawer?.closeDrawer}
+		onclose={drawer?.closeDrawer}
 	>
 		<div class="flex flex-col gap-8">
 			{#if !can_write}
@@ -404,7 +411,7 @@ numpy>=1.24.0
 							<span class="text-sm text-blue-800 flex-1">
 								Workspace default already exists for {workspaceDependencies.language}
 							</span>
-							<Button size="xs" color="blue" variant="border" on:click={goToWorkspaceDefault}>
+							<Button size="xs" color="blue" variant="border" onclick={goToWorkspaceDefault}>
 								Go to default
 							</Button>
 						</div>
@@ -499,7 +506,7 @@ numpy>=1.24.0
 							autoHeight
 							lang="markdown"
 							code={workspaceDependencies.content}
-							on:change={(e) => handleEditorChange(e.detail)}
+							onchange={(e) => handleEditorChange(e)}
 							fixedOverflowWidgets={false}
 							disabled={!can_write}
 						/>
@@ -510,7 +517,7 @@ numpy>=1.24.0
 
 		{#snippet actions()}
 			<Button
-				on:click={handleDeployClick}
+				onclick={handleDeployClick}
 				disabled={isDisabled}
 				startIcon={{ icon: Rocket }}
 				color="dark"

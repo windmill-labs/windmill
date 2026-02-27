@@ -603,7 +603,7 @@
 <Drawer bind:this={importConfigDrawer} size="800px">
 	<DrawerContent
 		title="Import groups config from YAML"
-		on:close={() => importConfigDrawer?.toggleDrawer?.()}
+		onclose={() => importConfigDrawer?.toggleDrawer?.()}
 	>
 		<SimpleEditor
 			bind:code={importConfigCode}
@@ -625,7 +625,7 @@
 <Drawer bind:this={yamlConfigDrawer} size="800px">
 	<DrawerContent
 		title="Worker groups config (YAML)"
-		on:close={() => {
+		onclose={() => {
 			yamlDiffMode = false
 			yamlConfigDrawer?.toggleDrawer?.()
 		}}
@@ -693,7 +693,7 @@
 <Drawer bind:this={newHttpAgentWorkerDrawer} size="800px">
 	<DrawerContent
 		title="New HTTP agent worker"
-		on:close={() => newHttpAgentWorkerDrawer?.toggleDrawer?.()}
+		onclose={() => newHttpAgentWorkerDrawer?.toggleDrawer?.()}
 	>
 		<HttpAgentWorkerDrawer {customTags} />
 	</DrawerContent>
@@ -702,7 +702,7 @@
 <Drawer bind:this={replForWorkerDrawer} size="1000px">
 	<DrawerContent
 		title="Repl"
-		on:close={() => {
+		onclose={() => {
 			tag = ''
 			replForWorkerDrawer?.closeDrawer?.()
 		}}
@@ -738,7 +738,7 @@
 							startIcon={{
 								icon: Tags
 							}}
-							on:click={() => {
+							onclick={() => {
 								manageTagsDrawer?.openDrawer()
 							}}
 						>
@@ -751,7 +751,7 @@
 							startIcon={{
 								icon: LineChart
 							}}
-							on:click={() => {
+							onclick={() => {
 								queueMetricsDrawer?.openDrawer()
 							}}
 						>
@@ -762,7 +762,7 @@
 							unifiedSize="md"
 							variant="default"
 							startIcon={{ icon: Plus }}
-							on:click={() => {
+							onclick={() => {
 								newHttpAgentWorkerDrawer?.toggleDrawer?.()
 							}}>New agent worker</Button
 						>
@@ -842,7 +842,7 @@
 										variant="accent"
 										startIcon={{ icon: Plus }}
 										disabled={!newConfigName}
-										on:click={addConfig}
+										onclick={addConfig}
 									>
 										Create
 									</Button>
@@ -913,7 +913,7 @@
 							workers={worker_group[1]}
 							isAgent={worker_group[2]}
 							{config}
-							on:reload={() => {
+							onreload={() => {
 								loadWorkerGroups()
 							}}
 							activeWorkers={activeWorkers?.length ?? 0}
@@ -1192,7 +1192,7 @@
 															<Button
 																unifiedSize="sm"
 																color="light"
-																on:click={() => {
+																onclick={() => {
 																	if (isWorkerAlive === false) {
 																		sendUserToast('Worker must be alive', true)
 																		return
@@ -1238,7 +1238,7 @@
 								{customTags}
 								workers={worker_group[1]}
 								isAgent={false}
-								on:reload={() => {
+								onreload={() => {
 									loadWorkerGroups()
 								}}
 								name={worker_group[0]}

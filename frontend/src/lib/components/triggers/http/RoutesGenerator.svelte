@@ -135,7 +135,7 @@
 <Drawer size="700px" bind:this={routesGenerator}>
 	<DrawerContent
 		title={'Generate HTTP routes from OpenAPI spec'}
-		on:close={() => routesGenerator.closeDrawer()}
+		onclose={() => routesGenerator.closeDrawer()}
 	>
 		{#snippet actions()}
 			<Button
@@ -143,7 +143,7 @@
 				loading={isCreating}
 				disabled={httpTriggers.length === 0}
 				startIcon={{ icon: Save }}
-				on:click={saveHttpTrigger}
+				onclick={saveHttpTrigger}
 			>
 				Save routes
 			</Button>
@@ -168,7 +168,7 @@
 				{#if !emptyStringTrimmed(folderName)}
 					<Subsection>
 						<ToggleButtonGroup
-							on:selected={({ detail }) => {
+							onselected={(detail) => {
 								if (selected === 'OpenAPI') {
 									openApiRawEditorValue = code
 								} else if (selected === 'OpenAPI_File') {
@@ -256,7 +256,7 @@
 										size="xs"
 										loading={isFetchingOpenApiSpec}
 										disabled={!isValidUrl}
-										on:click={fetchOpenApiConfig}
+										onclick={fetchOpenApiConfig}
 									>
 										Fetch
 									</Button>
@@ -272,7 +272,7 @@
 								size="xs"
 								btnClasses="h-8"
 								loading={isGeneratingHttpRoutes}
-								on:click={generateHttpTrigger}
+								onclick={generateHttpTrigger}
 								disabled={code.length === 0}
 								variant="default">Generate HTTP routes</Button
 							>
@@ -299,7 +299,7 @@
 
 								<div class="flex gap-2 items-center justify-end">
 									<Button
-										on:click={() => {
+										onclick={() => {
 											callback = (newHttpTrigger) => {
 												httpTriggers[index] = newHttpTrigger as NewHttpTrigger
 												httpTriggers = httpTriggers

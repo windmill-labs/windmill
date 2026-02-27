@@ -37,6 +37,8 @@
 		onOpenDetails?: () => void
 		previewOpen?: boolean
 		flowModuleSchemaMap?: import('../map/FlowModuleSchemaMap.svelte').default
+		onapplyArgs?: (...args: any[]) => any
+		ontestWithArgs?: (...args: any[]) => any
 	}
 
 	let {
@@ -54,7 +56,9 @@
 		suspendStatus,
 		onOpenDetails,
 		previewOpen = false,
-		flowModuleSchemaMap = undefined
+		flowModuleSchemaMap = undefined,
+		onapplyArgs = undefined,
+		ontestWithArgs = undefined
 	}: Props = $props()
 
 	const {
@@ -99,12 +103,12 @@
 	<FlowInput
 		{noEditor}
 		disabled={disabledFlowInputs}
-		on:openTriggers={(ev) => {
+		onopenTriggers={(ev) => {
 			selectionManager.selectId('Trigger')
 			handleSelectTriggerFromKind(triggersState, triggersCount, savedFlow?.path, ev.detail.kind)
 			showCaptureHint.set(true)
 		}}
-		on:applyArgs
+		onapplyArgs={onapplyArgs}
 		{onTestFlow}
 		{previewOpen}
 		{flowModuleSchemaMap}
@@ -119,15 +123,15 @@
 	<FlowPreprocessorModule {noEditor} savedModule={savedFlow?.value.preprocessor_module} />
 {:else if selectedId === 'Trigger'}
 	<TriggersEditor
-		on:applyArgs
-		on:addPreprocessor={async (e) => {
+		onapplyArgs={onapplyArgs}
+		onaddPreprocessor={async (e) => {
 			await insertNewPreprocessorModule(flowStore, flowStateStore, {
 				language: 'bun'
 			})
 			stepsInputArgs.setStepArgs('preprocessor', e.detail.args ?? {})
 			selectionManager.selectId('preprocessor')
 		}}
-		on:updateSchema={(e) => {
+		onupdateSchema={(e) => {
 			const { payloadData, redirect } = e.detail
 			if (payloadData) {
 				previewArgs.val = JSON.parse(JSON.stringify(payloadData))
@@ -138,7 +142,7 @@
 				$flowInputEditorState.payloadData = payloadData
 			}
 		}}
-		on:testWithArgs
+		ontestWithArgs={ontestWithArgs}
 		currentPath={$pathStore}
 		initialPath={$initialPathStore}
 		{fakeInitialPath}

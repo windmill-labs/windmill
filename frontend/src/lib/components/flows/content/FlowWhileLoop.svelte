@@ -55,7 +55,7 @@
 		previewArgs={previewIterationArgs}
 		bind:job
 		bind:jobId
-		on:close={() => {
+		onclose={() => {
 			previewOpen = false
 		}}
 	/>
@@ -121,7 +121,7 @@
 						</div>
 						<Toggle
 							bind:checked={mod.value.squash}
-							on:change={({ detail }) => {
+							onchange={(detail) => {
 								;(mod.value as WhileloopFlow).squash = detail
 							}}
 							options={{
@@ -135,7 +135,7 @@
 				<div class="my-2 flex flex-row gap-2 items-center">
 					<div class="flex w-full justify-end">
 						<Button
-							on:click={() => (previewOpen = true)}
+							onclick={() => (previewOpen = true)}
 							startIcon={{ icon: Play }}
 							variant="accent"
 							size="sm">Test an iteration</Button

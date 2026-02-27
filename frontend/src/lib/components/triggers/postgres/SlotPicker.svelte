@@ -96,7 +96,7 @@
 	<Button
 		variant="default"
 		wrapperClasses="self-stretch"
-		on:click={listDatabaseSlot}
+		onclick={listDatabaseSlot}
 		startIcon={{ icon: RefreshCw }}
 		iconOnly
 		{disabled}
@@ -106,6 +106,6 @@
 		size="xs"
 		variant="default"
 		disabled={emptyString(replication_slot_name) || disabled}
-		on:click={deleteSlot}>Delete</Button
+		onclick={deleteSlot}>Delete</Button
 	>
 </div>

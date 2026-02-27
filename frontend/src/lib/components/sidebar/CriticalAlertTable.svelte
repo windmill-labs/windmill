@@ -59,8 +59,8 @@
 	<DataTable
 		size="xs"
 		paginated
-		on:next={goToNextPage}
-		on:previous={goToPreviousPage}
+		onnext={goToNextPage}
+		onprevious={goToPreviousPage}
 		bind:currentPage={page}
 		{hasMore}
 		bind:contentHeight
@@ -82,7 +82,7 @@
 							startIcon={{ icon: CheckCircle2 }}
 							unifiedSize="sm"
 							disabled={numUnacknowledgedCriticalAlerts === 0}
-							on:click={acknowledgeAll}
+							onclick={acknowledgeAll}
 							title="Acknowledge all"
 						>
 							All</Button
@@ -141,7 +141,7 @@
 											variant="accent"
 											startIcon={{ icon: CheckCircle2 }}
 											unifiedSize="sm"
-											on:click={() => {
+											onclick={() => {
 												if (id) acknowledgeAlert(id)
 											}}
 											title="Acknowledge"

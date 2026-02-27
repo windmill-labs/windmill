@@ -28,7 +28,7 @@
 		{#if component.horizontalAlignment}
 			<ToggleButtonGroup
 				noWFull
-				on:selected={() => ($app = $app)}
+				onselected={() => ($app = $app)}
 				bind:selected={component.horizontalAlignment}
 			>
 				{#snippet children({ item })}
@@ -41,7 +41,7 @@
 		{#if component.type !== 'formcomponent' && component.verticalAlignment}
 			<ToggleButtonGroup
 				noWFull
-				on:selected={() => ($app = $app)}
+				onselected={() => ($app = $app)}
 				bind:selected={component.verticalAlignment}
 			>
 				{#snippet children({ item })}

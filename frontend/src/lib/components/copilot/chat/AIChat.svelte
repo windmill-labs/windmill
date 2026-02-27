@@ -87,7 +87,7 @@
 		panelName="AI"
 		shortcut="L"
 		size="md"
-		on:click={() => aiChatManager.toggleOpen()}
+		onclick={() => aiChatManager.toggleOpen()}
 	/>
 {/snippet}
 

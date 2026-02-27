@@ -12,6 +12,13 @@
 	import Row from '$lib/components/table/Row.svelte'
 	import { createEventDispatcher } from 'svelte'
 
+	interface Props {
+		oninsertSelector?: (...args: any[]) => any
+	}
+
+	let {}: Props = $props()
+
+
 	const STATIC_ELEMENTS = ['app'] as const
 	const TITLE_PREFIX = 'Css.' as const
 
@@ -90,7 +97,7 @@
 			<ListItem
 				title={name}
 				prefix={TITLE_PREFIX}
-				on:open={(e) => {
+				onopen={(e) => {
 					if ($app.css != undefined) {
 						if (type && e.detail && $app.css[type] == undefined) {
 							$app.css[type] = Object.fromEntries((ids ?? []).map(({ id }) => [id, {}]))
@@ -161,7 +168,7 @@
 															<Button
 																size="xs2"
 																color="light"
-																on:click={() => {
+																onclick={() => {
 																	dispatch('insertSelector', `${selector} {}`)
 																}}
 															>
@@ -199,7 +206,7 @@
 															<Button
 																size="xs2"
 																color="light"
-																on:click={() => {
+																onclick={() => {
 																	dispatch(
 																		'insertSelector',
 																		`${customisation.root} { ${variable}: ${value};}`

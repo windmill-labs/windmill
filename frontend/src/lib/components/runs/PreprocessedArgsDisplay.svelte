@@ -37,7 +37,7 @@
 <!-- 
 {#if args !== undefined && argsStr !== undefined}
 	<Drawer bind:this={jsonViewer} size="900px">
-		<DrawerContent title="Original args" on:close={jsonViewer.closeDrawer}>
+		<DrawerContent title="Original args" onclose={jsonViewer.closeDrawer}>
 			{#snippet actions()}
 				<Button
 					download="windmill-args.json"
@@ -49,7 +49,7 @@
 					Download
 				</Button>
 				<Button
-					on:click={() => copyToClipboard(argsStr)}
+					onclick={() => copyToClipboard(argsStr)}
 					color="light"
 					size="xs"
 					startIcon={{ icon: ClipboardCopy }}
@@ -72,7 +72,7 @@
 		</DrawerContent>
 	</Drawer>
 	<button
-		on:click={() => {
+		onclick={() => {
 			jsonViewer?.openDrawer()
 		}}
 	>

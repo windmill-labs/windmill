@@ -66,6 +66,7 @@
 		}
 		suspendStatus: StateStore<Record<string, { job: Job; nb: number }>>
 		onclose?: (...args: any[]) => any
+		onopenTriggers?: (...args: any[]) => any
 	}
 
 	let {
@@ -88,7 +89,8 @@
 		onJobDone,
 		upToId = undefined,
 		suspendStatus,
-		onclose = undefined
+		onclose = undefined,
+		onopenTriggers = undefined
 	}: Props = $props()
 
 	let restartBranchNames: [number, string][] = []
@@ -386,7 +388,7 @@
 		<div class="flex flex-row w-full items-center gap-x-2 px-4">
 			<div class="w-8">
 				<Button
-					on:click={() => (dispatch('close'), onclose?.())}
+					onclick={() => (dispatch('close'), onclose?.())}
 					startIcon={{ icon: X }}
 					iconOnly
 					unifiedSize="md"
@@ -400,7 +402,7 @@
 					<Button
 						variant="accent"
 						destructive
-						on:click={async () => {
+						onclick={async () => {
 							cancelTest()
 						}}
 						unifiedSize="md"
@@ -439,7 +441,7 @@
 							startIcon={{ icon: isRunning ? RefreshCw : Play }}
 							size="sm"
 							btnClasses="w-full max-w-lg"
-							on:click={() =>
+							onclick={() =>
 								recordingMode ? recordAndTest() : runPreview(previewArgs.val, undefined)}
 							id="flow-editor-test-flow-drawer"
 							shortCut={{ Icon: CornerDownLeft }}
@@ -461,7 +463,7 @@
 							variant="subtle"
 							unifiedSize="sm"
 							title="Download recording"
-							on:click={downloadRecording}
+							onclick={downloadRecording}
 							startIcon={{ icon: Download }}
 						>
 							Download recording
@@ -502,8 +504,8 @@
 						stablePathForCaptures={$initialPathStore || fakeInitialPath}
 						runnableType={'FlowPath'}
 						previewArgs={previewArgs.val}
-						on:openTriggers
-						on:select={(e) => {
+						onopenTriggers={onopenTriggers}
+						onselect={(e) => {
 							selectInput(e.detail.payload, e.detail?.type)
 						}}
 						{isValid}
@@ -523,7 +525,7 @@
 										rightTooltip: 'Fill args from JSON'
 									}}
 									lightMode
-									on:change={(e) => {
+									onchange={(e) => {
 										jsonEditor?.setCode(JSON.stringify(previewArgs.val ?? {}, null, '\t'))
 										refresh()
 									}}
@@ -534,7 +536,7 @@
 							<div class="py-2" style="height: {Math.max(schemaHeight, 100)}px" data-schema-picker>
 								<JsonInputs
 									bind:this={jsonEditor}
-									on:select={(e) => {
+									onselect={(e) => {
 										if (e.detail) {
 											previewArgs.val = e.detail
 										}
@@ -551,7 +553,7 @@
 										compact
 										schema={flowStore.val.schema}
 										bind:args={previewArgs.val}
-										on:change={() => {
+										onchange={() => {
 											savedArgs = $state.snapshot(previewArgs.val)
 										}}
 										bind:isValid
@@ -591,7 +593,7 @@
 				{/if}
 				<FlowHistoryJobPicker
 					selectInitial={jobId == undefined}
-					on:select={(e) => {
+					onselect={(e) => {
 						if (!currentJobId) {
 							currentJobId = jobId
 						}
@@ -601,7 +603,7 @@
 							stepHistoryLoader?.setFlowJobInitial(detail.initial)
 						}
 					}}
-					on:unselect={() => {
+					onunselect={() => {
 						jobId = currentJobId
 						currentJobId = undefined
 					}}

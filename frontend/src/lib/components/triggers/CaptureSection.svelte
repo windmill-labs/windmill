@@ -304,7 +304,7 @@
 						<AnimatedButton animate={captureInfo.active} baseRadius="6px">
 							<Button
 								size="xs"
-								on:click={() => (dispatch('captureToggle', {}), oncaptureToggle?.({}))}
+								onclick={() => (dispatch('captureToggle', {}), oncaptureToggle?.({}))}
 								{disabled}
 								variant={captureInfo.active ? 'default' : 'accent-secondary'}
 								selected={captureInfo.active}
@@ -397,7 +397,7 @@
 								{captureType}
 								isFlow={captureInfo.isFlow}
 								path={captureInfo.path}
-								on:selectCapture={handleSelectCapture}
+								onselectCapture={handleSelectCapture}
 								fullHeight
 								headless
 								addButton={false}
@@ -451,7 +451,7 @@
 								hidden: !isFlow || testKind !== 'main'
 							}
 						].filter((item) => !item.hidden)}
-						on:click={async () => {
+						onclick={async () => {
 							if (!selectedCapture) return
 							const payloadData = selectedCapture?.main_args ?? {}
 							if (isFlow && testKind === 'main') {
@@ -486,7 +486,7 @@
 					{base}
 					result={selectedCapture?.main_args}
 					disableTooltips={false}
-					on:open-drawer={() => {
+					onopenDrawer={() => {
 						if (displayResult && typeof displayResult.openDrawer === 'function') {
 							displayResult.openDrawer()
 						}
@@ -546,7 +546,7 @@
 							jobId={undefined}
 							result={payloadData}
 							externalToolbarAvailable
-							on:toolbar-location-changed={({ detail }) => {
+							ontoolbarLocationChanged={(detail) => {
 								toolbarLocation = detail
 							}}
 						/>

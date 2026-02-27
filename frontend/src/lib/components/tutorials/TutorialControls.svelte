@@ -39,7 +39,7 @@
 				size="xs2"
 				color="light"
 				startIcon={{ icon: ArrowLeft }}
-				on:click={() => {
+				onclick={() => {
 					dispatch('previous')
 					onprevious?.()
 				}}
@@ -50,7 +50,7 @@
 				size="xs2"
 				variant="accent"
 				endIcon={{ icon: ArrowRight }}
-				on:click={() => {
+				onclick={() => {
 					dispatch('next')
 					onnext?.()
 				}}

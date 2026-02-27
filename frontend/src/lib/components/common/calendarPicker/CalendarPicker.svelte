@@ -64,11 +64,11 @@
 					{clearable}
 					{useDropdown}
 					value={date}
-					on:change={(e) => {
+					onchange={(e) => {
 						date = e.detail
 						if (date) onchange?.(date)
 					}}
-					on:clear={() => {
+					onclear={() => {
 						onclear?.()
 					}}
 				/>

@@ -58,6 +58,8 @@
 		onTestFlow?: (conversationId?: string) => Promise<string | undefined>
 		previewOpen: boolean
 		flowModuleSchemaMap?: import('../map/FlowModuleSchemaMap.svelte').default
+		onopenTriggers?: (...args: any[]) => any
+		onapplyArgs?: (...args: any[]) => any
 	}
 
 	let {
@@ -65,7 +67,8 @@
 		disabled,
 		onTestFlow,
 		previewOpen,
-		flowModuleSchemaMap = undefined
+		flowModuleSchemaMap = undefined,
+		onopenTriggers = undefined
 	}: Props = $props()
 	const {
 		flowStore,
@@ -629,8 +632,8 @@
 	open={showChatModeWarning}
 	title="Enable Chat Mode?"
 	confirmationText="Continue"
-	onConfirmed={enableChatMode}
-	onCanceled={() => {
+	onconfirmed={enableChatMode}
+	oncanceled={() => {
 		showChatModeWarning = false
 		chatInputEnabled = false
 	}}
@@ -652,7 +655,7 @@
 				<Toggle
 					size="sm"
 					bind:checked={chatInputEnabled}
-					on:change={() => {
+					onchange={() => {
 						handleToggleChatMode()
 					}}
 					options={{
@@ -668,7 +671,7 @@
 						color={showAdditionalInputs ? 'blue' : 'light'}
 						startIcon={{ icon: Settings2 }}
 						title="Manage inputs"
-						on:click={() => (showAdditionalInputs = !showAdditionalInputs)}
+						onclick={() => (showAdditionalInputs = !showAdditionalInputs)}
 					>
 						Manage inputs
 					</Button>
@@ -690,7 +693,7 @@
 								showDynOpt
 								bind:dynCode
 								bind:dynLang
-								on:delete={(e) => {
+								ondelete={(e) => {
 									chatInputsAddPropertyV2?.handleDeleteArgument([e.detail])
 								}}
 							>
@@ -741,7 +744,7 @@
 						bind:this={editableSchemaForm}
 						bind:schema={flowStore.val.schema}
 						isFlowInput
-						on:delete={(e) => {
+						ondelete={(e) => {
 							addPropertyV2?.handleDeleteArgument([e.detail])
 						}}
 						showDynOpt
@@ -763,7 +766,7 @@
 						pannelExtraButtonWidth={$flowInputEditorState?.editPanelSize ? tabButtonWidth : 0}
 						{diff}
 						disableDnd={!!previewSchema}
-						on:rejectChange={(e) => {
+						onrejectChange={(e) => {
 							const isAiChange = hasAiSchemaChanges
 							rejectChange(e.detail).then(() => {
 								if (!isAiChange) {
@@ -771,7 +774,7 @@
 								}
 							})
 						}}
-						on:acceptChange={(e) => {
+						onacceptChange={(e) => {
 							acceptChange(e.detail).then(() => {
 								const isAiChange = hasAiSchemaChanges
 								if (!isAiChange) {
@@ -879,7 +882,7 @@
 							{#if $flowInputEditorState?.selectedTab === 'history'}
 								<FlowInputEditor
 									title="History"
-									on:destroy={() => {
+									ondestroy={() => {
 										updatePreviewSchemaAndArgs(undefined)
 									}}
 								>
@@ -887,7 +890,7 @@
 										bind:this={historicInputs}
 										runnableId={$initialPathStore ?? undefined}
 										runnableType={$pathStore ? 'FlowPath' : undefined}
-										on:select={(e) => {
+										onselect={(e) => {
 											updatePreviewSchemaAndArgs(e.detail?.args ?? undefined)
 										}}
 										limitPayloadSize
@@ -895,20 +898,20 @@
 								</FlowInputEditor>
 							{:else if $flowInputEditorState?.selectedTab === 'captures'}
 								<FlowInputEditor
-									on:destroy={() => {
+									ondestroy={() => {
 										updatePreviewSchemaAndArgs(undefined)
 									}}
 									title="Trigger captures"
 								>
 									{#snippet action()}
 										<div class="center-center">
-											<CaptureButton on:openTriggers small={true} />
+											<CaptureButton onopenTriggers={onopenTriggers} small={true} />
 										</div>
 									{/snippet}
 									<div class="h-full">
 										<CaptureTable
 											path={$initialPathStore || fakeInitialPath}
-											on:select={(e) => {
+											onselect={(e) => {
 												updatePreviewSchemaAndArgs(e.detail ?? undefined)
 											}}
 											isFlow={true}
@@ -921,7 +924,7 @@
 								</FlowInputEditor>
 							{:else if $flowInputEditorState?.selectedTab === 'savedInputs'}
 								<FlowInputEditor
-									on:destroy={() => {
+									ondestroy={() => {
 										updatePreviewSchemaAndArgs(undefined)
 									}}
 									title="Saved inputs"
@@ -929,10 +932,10 @@
 									<SavedInputsPicker
 										runnableId={$initialPathStore ?? undefined}
 										runnableType={$pathStore ? 'FlowPath' : undefined}
-										on:select={(e) => {
+										onselect={(e) => {
 											updatePreviewSchemaAndArgs(e.detail ?? undefined)
 										}}
-										on:isEditing={(e) => {
+										onisEditing={(e) => {
 											preventEnter = e.detail
 										}}
 										previewArgs={previewArgs.val}
@@ -943,19 +946,19 @@
 								</FlowInputEditor>
 							{:else if $flowInputEditorState?.selectedTab === 'json'}
 								<FlowInputEditor
-									on:destroy={() => {
+									ondestroy={() => {
 										updatePreviewSchemaAndArgs(undefined)
 									}}
 									title="Json payload"
 								>
 									<JsonInputs
-										on:focus={() => {
+										onfocus={() => {
 											preventEnter = true
 										}}
-										on:blur={async () => {
+										onblur={async () => {
 											preventEnter = false
 										}}
-										on:select={(e) => {
+										onselect={(e) => {
 											updatePreviewSchemaAndArgs(e.detail ?? undefined)
 										}}
 										selected={!!previewArgs.val}
@@ -964,7 +967,7 @@
 								</FlowInputEditor>
 							{:else if $flowInputEditorState?.selectedTab === 'firstStepInputs'}
 								<FlowInputEditor
-									on:destroy={() => {
+									ondestroy={() => {
 										updatePreviewSchemaAndArgs(undefined)
 										connectFirstNode = () => {}
 									}}
@@ -972,10 +975,10 @@
 								>
 									<FirstStepInputs
 										bind:this={firstStepInputs}
-										on:connectFirstNode={({ detail }) => {
+										onconnectFirstNode={(detail) => {
 											connectFirstNode = detail.connectFirstNode
 										}}
-										on:select={(e) => {
+										onselect={(e) => {
 											if (e.detail) {
 												const diffSchema = computeDiff(e.detail, flowStore.val.schema)
 												diff = diffSchema

@@ -470,7 +470,7 @@
 													'Allow workspace admins to setup Google native triggers using these credentials'
 											}}
 											checked={oauths[k]?.share_with_workspaces ?? false}
-											on:change={(e) => {
+											onchange={(e) => {
 												if (oauths && oauths[k]) {
 													oauths[k] = { ...oauths[k], share_with_workspaces: e.detail }
 												}

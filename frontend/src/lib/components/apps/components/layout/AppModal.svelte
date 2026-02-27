@@ -156,10 +156,10 @@
 				style={css?.button?.style}
 				wrapperStyle={css?.buttonContainer?.style}
 				disabled={resolvedConfig.buttonDisabled}
-				on:pointerdown={(e) => {
+				onpointerdown={(e) => {
 					e?.stopPropagation()
 				}}
-				on:click={async (e) => {
+				onclick={async (e) => {
 					await preclickAction?.()
 					$focusedGrid = {
 						parentComponentId: id,

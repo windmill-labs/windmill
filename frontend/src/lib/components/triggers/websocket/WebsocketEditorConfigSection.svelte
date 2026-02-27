@@ -105,7 +105,7 @@
 		<div class="mb-2">
 			<ToggleButtonGroup
 				selected={url?.startsWith('$') ? 'runnable' : 'static'}
-				on:selected={(ev) => {
+				onselected={(ev) => {
 					url = ev.detail === 'runnable' ? '$script:' : ''
 					url_runnable_args = {}
 				}}
@@ -130,7 +130,7 @@
 						allowFlow={true}
 						itemKind={url.startsWith('$flow:') ? 'flow' : 'script'}
 						initialPath={url.split(':')[1] ?? ''}
-						on:select={(ev) => {
+						onselect={(ev) => {
 							dirtyUrl = true
 							const { path, itemKind } = ev.detail
 							url = `$${itemKind}:${path ?? ''}`

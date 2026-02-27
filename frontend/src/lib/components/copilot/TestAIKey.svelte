@@ -28,7 +28,7 @@
 	variant="default"
 	{disabled}
 	{loading}
-	on:click={async () => {
+	onclick={async () => {
 		loading = true
 		try {
 			const abortController = new AbortController()

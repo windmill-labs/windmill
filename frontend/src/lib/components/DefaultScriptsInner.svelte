@@ -73,7 +73,7 @@
 					size="xs"
 					color="red"
 					checked={$defaultScripts?.hidden?.includes(lang)}
-					on:change={(e) => {
+					onchange={(e) => {
 						let toggled = e.detail
 						if (toggled) {
 							defaultScripts.update((s) => ({

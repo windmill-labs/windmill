@@ -283,7 +283,7 @@ done`
 
 <UserSettings
 	bind:this={userSettings}
-	on:tokenCreated={(e) => {
+	ontokenCreated={(e) => {
 		token = e.detail
 		triggerTokens?.listTokens()
 	}}
@@ -301,7 +301,7 @@ done`
 					inputProps={{ placeholder: 'Paste your token here once created to alter examples below' }}
 					class="!text-xs !font-normal"
 				/>
-				<Button size="xs" variant="default" on:click={() => userSettings?.openDrawer()}>
+				<Button size="xs" variant="default" onclick={() => userSettings?.openDrawer()}>
 					Create a Webhook-specific Token
 					<Tooltip light>
 						The token will have a scope such that it can only be used to trigger this script. It is

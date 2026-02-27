@@ -74,7 +74,7 @@
 	<div class="grow-0 flex flex-row gap-2 w-full items-center">
 		<div class="grow-0">
 			<ToggleButtonGroup
-				on:selected={({ detail }) => {
+				onselected={(detail) => {
 					if (detail === 'all') {
 						cached = relations
 						relations = undefined
@@ -241,7 +241,7 @@
 										wrapperClasses="absolute -top-3 -right-3"
 										btnClasses="hidden group-hover:block hover:bg-red-500 hover:text-white p-2 rounded-full hover:border-red-500 transition-all duration-300"
 										size="xs"
-										on:click={() => {
+										onclick={() => {
 											if (pg14 && v.table_to_track.length > 1) {
 												updateRelationsFor(i, (r) => ({
 													...r,
@@ -262,7 +262,7 @@
 							{/each}
 							<AddPropertyFormV2
 								customName="Table"
-								on:add={({ detail }) => {
+								onadd={(detail) => {
 									addTable(detail.name, i)
 								}}
 								{disabled}
@@ -287,7 +287,7 @@
 						size="xs"
 						btnClasses="bg-surface-secondary hover:bg-red-500 hover:text-white p-2 rounded-full"
 						aria-label="Clear"
-						on:click={() => {
+						onclick={() => {
 							if (relations) {
 								relations = relations.filter((_, index) => index !== i)
 							}
@@ -304,7 +304,7 @@
 		<div class="grow min-w-0 pr-10">
 			<AddPropertyFormV2
 				customName="Schema"
-				on:add={({ detail }) => {
+				onadd={(detail) => {
 					if (relations == undefined || !Array.isArray(relations)) {
 						relations = getDefaultTableToTrack(pg14)
 					} else if (emptyStringTrimmed(detail.name)) {

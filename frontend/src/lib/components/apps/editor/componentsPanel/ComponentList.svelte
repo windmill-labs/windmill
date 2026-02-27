@@ -197,10 +197,10 @@
 <Drawer bind:this={ccDrawer}>
 	<DrawerContent
 		title="Custom Components"
-		on:close={ccDrawer.closeDrawer}
+		onclose={ccDrawer.closeDrawer}
 		documentationLink="https://www.windmill.dev/docs/apps/react_components"
 	>
-		<ComponentsList on:reload={fetchCustomComponents} />
+		<ComponentsList onreload={fetchCustomComponents} />
 	</DrawerContent>
 </Drawer>
 

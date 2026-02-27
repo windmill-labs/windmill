@@ -93,6 +93,7 @@
 		onpointerdown?: (...args: any[]) => any
 		onmove?: (...args: any[]) => any
 		ondelete?: (...args: any[]) => any
+		ontoggleMock?: (...args: any[]) => any
 	}
 
 	let {
@@ -213,7 +214,7 @@
 		flowStore?.val?.value.failure_module
 	)}
 	<Drawer bind:open={editId}>
-		<DrawerContent title="Edit Step Id {id}" on:close={() => (editId = false)}>
+		<DrawerContent title="Edit Step Id {id}" onclose={() => (editId = false)}>
 			<div>
 				<IdEditorInput
 					buttonText="Edit Id "
@@ -587,7 +588,7 @@
 							title="Run"
 							variant="default"
 							btnClasses="px-1 py-1.5 bg-surface"
-							on:click={() => {
+							onclick={() => {
 								outputPicker?.toggleOpen(true)
 								moduleTest?.loadArgsAndRunTest()
 							}}
@@ -616,7 +617,7 @@
 							color="red"
 							variant="contained"
 							btnClasses="!h-[25.5px] !w-[36px] !p-1.5 gap-0.5"
-							on:click={async () => {
+							onclick={async () => {
 								moduleTest?.cancelJob()
 							}}
 						>

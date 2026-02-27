@@ -20,6 +20,7 @@
 		jsonView?: boolean
 		children?: import('svelte').Snippet
 		onselect?: (...args: any[]) => any
+		onopenTriggers?: (...args: any[]) => any
 	}
 
 	let {
@@ -30,7 +31,8 @@
 		isValid = true,
 		jsonView = false,
 		children,
-		onselect = undefined
+		onselect = undefined,
+		onopenTriggers = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -142,7 +144,7 @@
 								bind:this={historicInputs}
 								{runnableId}
 								{runnableType}
-								on:select={(e) => {
+								onselect={(e) => {
 									dispatch('select', { payload: e.detail?.args, type: 'history' })
 									onselect?.({ payload: e.detail?.args, type: 'history' })
 								}}
@@ -156,7 +158,7 @@
 								{runnableType}
 								{previewArgs}
 								bind:this={savedInputsPicker}
-								on:select={(e) => {
+								onselect={(e) => {
 									dispatch('select', { payload: e.detail, type: 'saved' })
 									onselect?.({ payload: e.detail, type: 'saved' })
 								}}
@@ -168,14 +170,14 @@
 							{#snippet action()}
 								<svelete:fragment>
 									<div class="center-center">
-										<CaptureButton on:openTriggers small={true} />
+										<CaptureButton onopenTriggers={onopenTriggers} small={true} />
 									</div>
 								</svelete:fragment>
 							{/snippet}
 							<div class="h-full">
 								<CaptureTable
 									path={stablePathForCaptures}
-									on:select={(e) => {
+									onselect={(e) => {
 										dispatch('select', { payload: e.detail, type: 'captures' })
 										onselect?.({ payload: e.detail, type: 'captures' })
 									}}

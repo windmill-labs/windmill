@@ -83,7 +83,7 @@
 		<Toggle
 			checked={enabled}
 			disabled={eeOnly && !$enterpriseLicense}
-			on:change={(e) => {
+			onchange={(e) => {
 				if (e.detail) {
 					if (name === 'teams' || name === 'microsoft') {
 						value = { id: '', secret: '', tenant: '' }

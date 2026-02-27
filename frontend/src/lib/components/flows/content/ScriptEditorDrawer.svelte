@@ -17,6 +17,13 @@
 	import { fade } from 'svelte/transition'
 	import WorkerTagSelect from '$lib/components/WorkerTagSelect.svelte'
 
+	interface Props {
+		onsave?: (...args: any[]) => any
+	}
+
+	let {}: Props = $props()
+
+
 	let scriptEditorDrawer: Drawer | undefined = $state()
 
 	const dispatch = createEventDispatcher()
@@ -137,10 +144,10 @@
 	open={unsavedModalOpen}
 	title="Unsaved changes detected"
 	confirmationText="Discard changes"
-	on:canceled={() => {
+	oncanceled={() => {
 		unsavedModalOpen = false
 	}}
-	on:confirmed={() => {
+	onconfirmed={() => {
 		console.log('confirmed')
 		closeAnyway = true
 		unsavedModalOpen = false
@@ -153,7 +160,7 @@
 			wrapperClasses="self-start"
 			variant="default"
 			size="xs"
-			on:click={() => {
+			onclick={() => {
 				if (!savedScript || !script) {
 					return
 				}
@@ -184,7 +191,7 @@
 <Drawer
 	bind:this={scriptEditorDrawer}
 	size="1200px"
-	on:close={() => {
+	onclose={() => {
 		checkForUnsavedChanges()
 	}}
 >
@@ -193,7 +200,7 @@
 		noPadding
 		forceOverflowVisible
 		fullScreen
-		on:close={() => {
+		onclose={() => {
 			scriptEditorDrawer?.closeDrawer()
 		}}
 	>
@@ -201,7 +208,7 @@
 			{#key script.hash}
 				<ScriptEditor
 					showCaptures={false}
-					on:saveDraft={() => {
+					onsaveDraft={() => {
 						saveScript()
 					}}
 					noSyncFromGithub
@@ -235,7 +242,7 @@
 			<Button
 				disabled={!savedScript || !script}
 				variant="default"
-				on:click={async () => {
+				onclick={async () => {
 					if (!savedScript || !script) {
 						return
 					}
@@ -263,7 +270,7 @@
 				</div>
 			</Button>
 			<Button
-				on:click={async () => {
+				onclick={async () => {
 					await saveScript()
 					dispatch('save')
 					scriptEditorDrawer?.closeDrawer()
@@ -279,7 +286,7 @@
 
 <DiffDrawer
 	bind:this={diffDrawer}
-	on:close={() => {
+	onclose={() => {
 		displayEditor = true
 	}}
 />

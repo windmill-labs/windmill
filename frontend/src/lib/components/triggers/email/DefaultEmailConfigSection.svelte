@@ -66,7 +66,7 @@
 						}}
 						class="!text-xs"
 					/>
-					<Button size="xs" variant="default" on:click={() => userSettings.openDrawer()}>
+					<Button size="xs" variant="default" onclick={() => userSettings.openDrawer()}>
 						Create an Email-specific Token
 						<Tooltip light>
 							The token will have a scope such that it can only be used to trigger this script. It

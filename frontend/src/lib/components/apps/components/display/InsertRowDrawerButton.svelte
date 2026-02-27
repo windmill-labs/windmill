@@ -36,7 +36,7 @@
 	startIcon={{ icon: Plus }}
 	variant="default"
 	size="xs2"
-	on:click={() => {
+	onclick={() => {
 		args = {}
 		insertDrawer?.openDrawer()
 	}}
@@ -45,12 +45,12 @@
 </Button>
 
 <Drawer bind:this={insertDrawer} size="800px">
-	<DrawerContent title="Insert row" on:close={insertDrawer.closeDrawer} id="insert-row-drawer">
+	<DrawerContent title="Insert row" onclose={insertDrawer.closeDrawer} id="insert-row-drawer">
 		{#snippet actions()}
 			<Button
 				variant="accent"
 				unifiedSize="md"
-				on:click={onConfirm}
+				onclick={onConfirm}
 				disabled={!isInsertable}
 				shortCut={{ Icon: CornerDownLeft }}
 			>

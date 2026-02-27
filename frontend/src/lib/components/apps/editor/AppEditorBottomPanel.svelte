@@ -8,6 +8,7 @@
 		runnablePanelSize?: number
 		onmouseenter?: (...args: any[]) => any
 		onmouseleave?: (...args: any[]) => any
+		onhidePanel?: (...args: any[]) => any
 	}
 
 	let {
@@ -15,7 +16,8 @@
 		centerPanelWidth = 0,
 		runnablePanelSize = 0,
 		onmouseenter = undefined,
-		onmouseleave = undefined
+		onmouseleave = undefined,
+		onhidePanel = undefined
 	}: Props = $props()
 </script>
 
@@ -26,12 +28,12 @@
 		onmouseenter={(e) => onmouseenter?.(e)}
 		onmouseleave={(e) => onmouseleave?.(e)}
 	>
-		<InlineScriptsPanel on:hidePanel />
+		<InlineScriptsPanel onhidePanel={onhidePanel} />
 		<RunnableJobPanel hidden={runnablePanelSize === 0} />
 	</div>
 {:else}
 	<div class="flex flex-row relative w-full h-full">
-		<InlineScriptsPanel width={centerPanelWidth * 0.66} on:hidePanel />
+		<InlineScriptsPanel width={centerPanelWidth * 0.66} onhidePanel={onhidePanel} />
 		<RunnableJobPanel float={false} hidden={runnablePanelSize === 0} />
 	</div>
 {/if}

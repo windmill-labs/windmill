@@ -12,6 +12,7 @@
 		editor?: Editor | undefined
 		isOpen?: boolean | undefined
 		id: string
+		oncreateScriptFromInlineScript?: (...args: any[]) => any
 	}
 
 	let {
@@ -19,7 +20,8 @@
 		inlineScript = $bindable(),
 		editor = undefined,
 		isOpen = $bindable(undefined),
-		id
+		id,
+		oncreateScriptFromInlineScript = undefined
 	}: Props = $props()
 
 	export function openDrawer() {
@@ -34,7 +36,7 @@
 		title="Script Editor"
 		noPadding
 		forceOverflowVisible
-		on:close={() => {
+		onclose={() => {
 			scriptEditorDrawer?.closeDrawer()
 			editor?.setCode(inlineScript.content)
 		}}
@@ -49,7 +51,7 @@
 				fixedOverflowWidgets={false}
 				bind:code={inlineScript.content}
 				bind:schema={inlineScript.schema}
-				on:createScriptFromInlineScript
+				oncreateScriptFromInlineScript={oncreateScriptFromInlineScript}
 				tag={undefined}
 				saveToWorkspace
 				{args}

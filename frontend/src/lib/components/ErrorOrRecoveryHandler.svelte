@@ -437,7 +437,7 @@
 					disabled={!$enterpriseLicense || !isEditable}
 					checked={isSlackHandler(handlerPath)}
 					options={{ right: toggleText }}
-					on:change={async (e) => {
+					onchange={async (e) => {
 						if (e.detail && errorOrRecovery === 'error') {
 							handlerPath = slackHandlerScriptPath
 						} else if (e.detail && errorOrRecovery === 'recovery') {
@@ -474,7 +474,7 @@
 							disabled={emptyString(handlerExtraArgs['channel'])}
 							wrapperClasses="w-fit"
 							variant="default"
-							on:click={() => sendSlackMessage(handlerExtraArgs['channel'])}
+							onclick={() => sendSlackMessage(handlerExtraArgs['channel'])}
 							unifiedSize="md">Send test message</Button
 						>
 						{#if connectionTestJob !== undefined}
@@ -521,7 +521,7 @@
 					disabled={!$enterpriseLicense || !isEditable}
 					checked={isTeamsHandler(handlerPath)}
 					options={{ right: toggleText }}
-					on:change={async (e) => {
+					onchange={async (e) => {
 						if (e.detail && errorOrRecovery === 'error') {
 							handlerPath = teamsHandlerScriptPath
 						} else if (e.detail && errorOrRecovery === 'recovery') {
@@ -570,7 +570,7 @@
 							disabled={emptyString(handlerExtraArgs['channel'])}
 							btnClasses="w-32 text-center whitespace-nowrap"
 							variant="default"
-							on:click={() => sendTeamsMessage(handlerExtraArgs['channel'] ?? '')}
+							onclick={() => sendTeamsMessage(handlerExtraArgs['channel'] ?? '')}
 							size="xs">Send test message</Button
 						>
 						{#if connectionTestJob !== undefined}

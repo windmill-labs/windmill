@@ -69,20 +69,20 @@
 <div class="h-full rounded-md border">
 	<SimpleEditor
 		bind:this={simpleEditor}
-		on:focus={() => {
+		onfocus={() => {
 			if (updateOnBlur) {
 				dispatch('focus')
 				onfocus?.()
 				updatePayloadFromJson(pendingJson)
 			}
 		}}
-		on:blur={async () => {
+		onblur={async () => {
 			if (updateOnBlur) {
 				dispatch('blur')
 				onblur?.()
 			}
 		}}
-		on:change={(e) => {
+		onchange={(e) => {
 			if (e.detail?.code !== undefined) {
 				updatePayloadFromJson(e.detail.code)
 			}

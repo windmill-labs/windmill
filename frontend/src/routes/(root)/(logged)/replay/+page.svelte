@@ -33,7 +33,7 @@
 <div class="max-w-7xl mx-auto px-4 py-8 w-full">
 	{#if recording}
 		<div class="flex justify-end mb-4">
-			<Button variant="border" size="xs" on:click={quit} startIcon={{ icon: Upload }}>
+			<Button variant="border" size="xs" onclick={quit} startIcon={{ icon: Upload }}>
 				Load another recording
 			</Button>
 		</div>

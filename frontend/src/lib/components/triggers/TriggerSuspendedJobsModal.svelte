@@ -381,8 +381,8 @@
 			<DataTable
 				size="xs"
 				paginated
-				on:next={nextPage}
-				on:previous={prevPage}
+				onnext={nextPage}
+				onprevious={prevPage}
 				bind:currentPage
 				hasMore={hasMorePages}
 			>
@@ -480,7 +480,7 @@
 					startIcon={{ icon: Trash2 }}
 					size="sm"
 					disabled={processingAction}
-					on:click={discardSelectedJobs}
+					onclick={discardSelectedJobs}
 				>
 					Discard Selected ({selectedJobs.size})
 				</Button>
@@ -488,7 +488,7 @@
 					startIcon={{ icon: Play }}
 					size="sm"
 					disabled={processingAction || hasChanged}
-					on:click={runSelectedJobs}
+					onclick={runSelectedJobs}
 				>
 					Resume selected ({selectedJobs.size})
 				</Button>
@@ -497,7 +497,7 @@
 					startIcon={{ icon: Trash2 }}
 					size="sm"
 					disabled={processingAction || queuedJobs.length === 0}
-					on:click={discardAllJobs}
+					onclick={discardAllJobs}
 				>
 					Discard all jobs{action === 'disable'
 						? ' and disable'
@@ -509,7 +509,7 @@
 					startIcon={{ icon: Play }}
 					size="sm"
 					disabled={processingAction || hasChanged || queuedJobs.length === 0}
-					on:click={runAllJobs}
+					onclick={runAllJobs}
 				>
 					Resume all jobs{action === 'disable'
 						? ' and disable'

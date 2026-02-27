@@ -27,6 +27,7 @@
 		unusedInlineScripts: { name: string; inlineScript: InlineScript }[]
 		onnew?: (...args: any[]) => any
 		ondelete?: (...args: any[]) => any
+		onpick?: (...args: any[]) => any
 	}
 
 	let {
@@ -35,7 +36,8 @@
 		rawApps = false,
 		unusedInlineScripts,
 		onnew = undefined,
-		ondelete = undefined
+		ondelete = undefined,
+		onpick = undefined
 	}: Props = $props()
 
 	let tab = $state('workspacescripts')
@@ -104,7 +106,7 @@
 </script>
 
 <Drawer bind:this={picker} size="1000px">
-	<DrawerContent title="Script/Flow Picker" on:close={picker.closeDrawer}>
+	<DrawerContent title="Script/Flow Picker" onclose={picker.closeDrawer}>
 		<div>
 			<div class="max-w-6xl">
 				<Tabs bind:selected={tab}>
@@ -116,9 +118,9 @@
 				<div class="flex flex-col gap-y-16">
 					<div class="flex flex-col">
 						{#if tab == 'workspacescripts'}
-							<WorkspaceScriptList on:pick={(e) => pickScript(e.detail)} />
+							<WorkspaceScriptList onpick={(e) => pickScript(e)} />
 						{:else if tab == 'hubscripts'}
-							<PickHubScript bind:filter on:pick={(e) => pickHubScript(e.detail.path)} />
+							<PickHubScript bind:filter onpick={(e) => pickHubScript(e.detail.path)} />
 						{/if}
 					</div>
 				</div>
@@ -138,10 +140,10 @@
 		<div class="font-bold items-baseline truncate">Choose a language</div>
 		<div class="flex gap-2">
 			{#if showScriptPicker}
-				<RunnableSelector {unusedInlineScripts} {rawApps} on:pick hideCreateScript />
+				<RunnableSelector {unusedInlineScripts} {rawApps} onpick={onpick} hideCreateScript />
 			{/if}
 			<Button
-				on:click={() => picker?.openDrawer()}
+				onclick={() => picker?.openDrawer()}
 				size="xs"
 				variant="border"
 				color="light"
@@ -152,7 +154,7 @@
 			</Button>
 
 			<Button
-				on:click={() => (dispatch('delete'), ondelete?.())}
+				onclick={() => (dispatch('delete'), ondelete?.())}
 				size="xs"
 				color="red"
 				variant="border"
@@ -172,7 +174,7 @@
 					<FlowScriptPicker
 						{label}
 						{lang}
-						on:click={() => {
+						onclick={() => {
 							createInlineScriptByLanguage(lang)
 						}}
 						id={`create-${lang}-script`}
@@ -196,7 +198,7 @@
 					<FlowScriptPicker
 						label={`JavaScript`}
 						lang="javascript"
-						on:click={() => {
+						onclick={() => {
 							const newInlineScript = {
 								content: `// read outputs and ctx
 console.log(ctx.email)

@@ -7,9 +7,13 @@
 	interface Props {
 		name: string;
 		index: number;
+		onerror?: (...args: any[]) => any
+		onskipAll?: (...args: any[]) => any
 	}
 
-	let { name, index }: Props = $props();
+	let { name, index,
+		onerror = undefined,
+		onskipAll = undefined }: Props = $props();
 
 	let tutorial: Tutorial | undefined = $state(undefined)
 
@@ -22,8 +26,8 @@
 	bind:this={tutorial}
 	{index}
 	{name}
-	on:error
-	on:skipAll
+	onerror={onerror}
+	onskipAll={onskipAll}
 	getSteps={(driver, options) => {
 		const steps: DriveStep[] = [
 			{
