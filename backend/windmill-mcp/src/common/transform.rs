@@ -102,6 +102,39 @@ pub fn extract_hub_version_id_from_hashed(name: &str) -> Result<String, String> 
     Ok(id.to_string())
 }
 
+/// Extract a safe original-path prefix from a hashed workspace tool name.
+///
+/// Given `S-u_admin_engineering__te<hash16>`, extracts the escaped prefix between
+/// `S-` and the hash, un-escapes it, and returns a prefix suitable for
+/// `WHERE path LIKE '{prefix}%'`.
+///
+/// Returns `None` if the name is too short to contain a meaningful prefix.
+pub fn extract_path_prefix_from_hashed(name: &str) -> Option<String> {
+    // Strip the 2-char type prefix ("S-" or "F-") and the 16-char hash suffix
+    if name.len() <= 2 + HASH_LEN {
+        return None;
+    }
+    let escaped_prefix = &name[2..name.len() - HASH_LEN];
+    if escaped_prefix.is_empty() {
+        return None;
+    }
+
+    // Strip trailing underscores — they may be half of a `__` pair split by truncation
+    let trimmed = escaped_prefix.trim_end_matches('_');
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    // Un-escape: `__` → `_`, standalone `_` → `/`
+    const TEMP_PLACEHOLDER: &str = "@@UNDERSCORE@@";
+    let prefix = trimmed
+        .replace("__", TEMP_PLACEHOLDER)
+        .replace('_', "/")
+        .replace(TEMP_PLACEHOLDER, "_");
+
+    Some(prefix)
+}
+
 /// Truncate a string to at most `max_len` bytes, ensuring we don't split a UTF-8 character.
 fn truncate_to_char_boundary(s: &str, max_len: usize) -> &str {
     if s.len() <= max_len {
@@ -321,6 +354,36 @@ mod tests {
         assert_eq!(type_str, "flow");
         assert_eq!(path, "f/folder/flow");
         assert!(!is_hub);
+    }
+
+    #[test]
+    fn test_extract_path_prefix_from_hashed() {
+        // Generate a real hashed name and verify prefix extraction
+        let long_path = "u/admin/engineering/team/automation/very_long_script";
+        let hashed = transform_path(long_path, "script");
+        assert!(is_hashed_name(&hashed));
+
+        let prefix = extract_path_prefix_from_hashed(&hashed).unwrap();
+        // The original path should start with the extracted prefix
+        assert!(
+            long_path.starts_with(&prefix),
+            "path '{}' should start with prefix '{}'",
+            long_path,
+            prefix
+        );
+    }
+
+    #[test]
+    fn test_extract_path_prefix_underscore_in_path() {
+        let long_path = "u/admin/my_team/automation/very_long_script_name_here";
+        let hashed = transform_path(long_path, "script");
+        let prefix = extract_path_prefix_from_hashed(&hashed).unwrap();
+        assert!(
+            long_path.starts_with(&prefix),
+            "path '{}' should start with prefix '{}'",
+            long_path,
+            prefix
+        );
     }
 
     #[test]

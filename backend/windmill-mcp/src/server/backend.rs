@@ -55,20 +55,22 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
     // Listing Operations
     // ─────────────────────────────────────────────────────────────────
 
-    /// List scripts, optionally filtered to favorites only
+    /// List scripts, optionally filtered to favorites only and/or by path prefix
     async fn list_scripts(
         &self,
         auth: &Self::Auth,
         workspace_id: &str,
         favorites_only: bool,
+        path_prefix: Option<&str>,
     ) -> BackendResult<Vec<ScriptInfo>>;
 
-    /// List flows, optionally filtered to favorites only
+    /// List flows, optionally filtered to favorites only and/or by path prefix
     async fn list_flows(
         &self,
         auth: &Self::Auth,
         workspace_id: &str,
         favorites_only: bool,
+        path_prefix: Option<&str>,
     ) -> BackendResult<Vec<FlowInfo>>;
 
     /// List resource types in workspace
@@ -89,15 +91,6 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
     /// List hub scripts, optionally filtered by app integrations
     async fn list_hub_scripts(&self, app_filter: Option<&str>)
         -> BackendResult<Vec<HubScriptInfo>>;
-
-    /// List all paths for a given item type (script or flow) in a workspace.
-    /// Used for resolving hashed tool names back to their original paths.
-    async fn list_all_item_paths(
-        &self,
-        auth: &Self::Auth,
-        workspace_id: &str,
-        item_type: &str,
-    ) -> BackendResult<Vec<String>>;
 
     // ─────────────────────────────────────────────────────────────────
     // Schema Operations

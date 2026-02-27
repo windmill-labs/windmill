@@ -6,8 +6,8 @@
 use crate::common::schema::extract_resource_types_from_schema;
 use crate::common::scope::parse_mcp_scopes;
 use crate::common::transform::{
-    extract_hub_version_id_from_hashed, is_hashed_name, parse_hashed_name, reverse_transform,
-    reverse_transform_key, transform_path,
+    extract_hub_version_id_from_hashed, extract_path_prefix_from_hashed, is_hashed_name,
+    parse_hashed_name, reverse_transform, reverse_transform_key, transform_path,
 };
 use crate::common::types::{ResourceInfo, ToolableItem, WorkspaceId};
 use crate::server::backend::{McpAuth, McpBackend};
@@ -123,9 +123,9 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         // Fetch all items concurrently
         let (scripts, flows, resource_types, hub_scripts) = tokio::try_join!(
             self.backend
-                .list_scripts(&auth, &workspace_id, favorites_only),
+                .list_scripts(&auth, &workspace_id, favorites_only, None),
             self.backend
-                .list_flows(&auth, &workspace_id, favorites_only),
+                .list_flows(&auth, &workspace_id, favorites_only, None),
             self.backend.list_resource_types(&auth, &workspace_id),
             async {
                 if let Some(ref apps) = scope_config.hub_apps {
@@ -282,30 +282,35 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
                     })?;
                 (type_str, version_id, true)
             } else {
-                let all_paths = self
-                    .backend
-                    .list_all_item_paths(&auth, &workspace_id, type_str)
-                    .await
-                    .map_err(|e| {
-                        ErrorData::internal_error(
-                            format!("Failed to list {} paths: {}", type_str, e.message),
-                            None,
-                        )
-                    })?;
+                let path_prefix =
+                    extract_path_prefix_from_hashed(&request.name);
+                let matched_path = if type_str == "script" {
+                    self.backend
+                        .list_scripts(&auth, &workspace_id, false, path_prefix.as_deref())
+                        .await
+                        .map_err(|e| ErrorData::internal_error(e.message, None))?
+                        .into_iter()
+                        .find(|s| transform_path(&s.path, "script") == request.name.as_ref())
+                        .map(|s| s.path)
+                } else {
+                    self.backend
+                        .list_flows(&auth, &workspace_id, false, path_prefix.as_deref())
+                        .await
+                        .map_err(|e| ErrorData::internal_error(e.message, None))?
+                        .into_iter()
+                        .find(|f| transform_path(&f.path, "flow") == request.name.as_ref())
+                        .map(|f| f.path)
+                };
 
-                let matched_path = all_paths
-                    .iter()
-                    .find(|p| transform_path(p, type_str) == request.name.as_ref())
-                    .cloned()
-                    .ok_or_else(|| {
-                        ErrorData::internal_error(
-                            format!(
-                                "No {} found matching hashed tool name '{}'",
-                                type_str, request.name
-                            ),
-                            None,
-                        )
-                    })?;
+                let matched_path = matched_path.ok_or_else(|| {
+                    ErrorData::internal_error(
+                        format!(
+                            "No {} found matching hashed tool name '{}'",
+                            type_str, request.name
+                        ),
+                        None,
+                    )
+                })?;
 
                 (type_str, matched_path, false)
             }
