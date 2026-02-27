@@ -63,8 +63,11 @@ function mapPrepareResults(
 	res: { error?: string; columns?: { name: string; type: string }[] }[],
 	chunk: QueryEntry[]
 ): [string, PreparedAssetsSqlQuery][] {
+	if (res.length !== chunk.length) {
+		throw new Error(`Prepare results count mismatch: got ${res.length}, expected ${chunk.length}`)
+	}
 	return res.map((r, i) => [
-		chunk[i][0],
+		chunk[i]?.[0],
 		r.columns
 			? {
 					columns: Object.fromEntries(
