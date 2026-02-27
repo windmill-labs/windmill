@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
 
 	import Section from '$lib/components/Section.svelte'
 	import Required from '$lib/components/Required.svelte'
@@ -47,7 +46,7 @@
 
 		return true
 	}
-	run(() => {
+	$effect(() => {
 		isValid = isValidSubscribeTopics(subscribe_topics) && !emptyStringTrimmed(mqtt_resource_path)
 	})
 </script>

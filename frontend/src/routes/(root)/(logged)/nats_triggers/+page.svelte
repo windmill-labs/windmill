@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
 
 	import {
 		NatsTriggerService,
@@ -121,7 +120,7 @@
 		}
 	}
 
-	run(() => {
+	$effect(() => {
 		if ($workspaceStore && $userStore) {
 			loadTriggers()
 		}
@@ -142,10 +141,10 @@
 	)
 	let filterUserFolders = $state(getLocalSetting(FILTER_USER_FOLDER_SETTING_NAME) == 'true')
 
-	run(() => {
+	$effect(() => {
 		storeLocalSetting(TRIGGER_PATH_KIND_FILTER_SETTING, selectedFilterKind)
 	})
-	run(() => {
+	$effect(() => {
 		storeLocalSetting(FILTER_USER_FOLDER_SETTING_NAME, filterUserFolders ? 'true' : undefined)
 	})
 
@@ -171,7 +170,7 @@
 		}
 	}
 
-	run(() => {
+	$effect(() => {
 		preFilteredItems =
 			ownerFilter != undefined
 				? selectedFilterKind === 'trigger'
@@ -190,7 +189,7 @@
 					)
 	})
 
-	run(() => {
+	$effect(() => {
 		if ($workspaceStore) {
 			ownerFilter = undefined
 		}
@@ -206,7 +205,7 @@
 				).sort()
 	)
 
-	run(() => {
+	$effect(() => {
 		items = filter !== '' ? filteredItems : preFilteredItems
 	})
 
@@ -240,7 +239,7 @@
 		loadQueryFilters()
 	})
 
-	run(() => {
+	$effect(() => {
 		updateQueryFilters(selectedFilterKind, filterUserFolders)
 	})
 </script>

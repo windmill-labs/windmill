@@ -277,7 +277,7 @@
 			</div>
 		{:else if stepDetail.value.type == 'branchall'}
 			<p class="font-medium text-secondary text-center pt-4 pb-8">
-				All branches will run, regardless of the inputs
+				All branches will regardless of the inputs
 			</p>
 		{:else if stepDetail.value.type == 'branchone'}
 			<p class="font-medium text-secondary text-center pt-4 pb-8">

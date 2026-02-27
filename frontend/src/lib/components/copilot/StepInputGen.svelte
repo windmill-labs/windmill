@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
 
 	import { Check, Loader2, Wand2 } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
@@ -42,7 +41,7 @@
 	}: Props = $props()
 
 	let empty = $state(false)
-	run(() => {
+	$effect(() => {
 		empty =
 			Object.keys(arg ?? {}).length === 0 ||
 			(arg.type === 'static' && !arg.value) ||

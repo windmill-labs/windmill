@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
 
 	import OauthExtraParams from './OauthExtraParams.svelte'
 	import OauthScopes from './OauthScopes.svelte'
@@ -15,7 +14,7 @@
 		extra_params_callback: {}
 	}) } = $props();
 
-	run(() => {
+	$effect(() => {
 		if (!connect_config) {
 			connect_config = {
 				scopes: [],

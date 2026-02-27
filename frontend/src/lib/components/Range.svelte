@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { run, createBubbler, stopPropagation } from 'svelte/legacy';
+	import { createBubbler, stopPropagation } from 'svelte/legacy';
 
 	const bubble = createBubbler();
 	import RangeSlider from 'svelte-range-slider-pips'
@@ -35,7 +35,7 @@
 		return range < 100 ? 1 : range / 20
 	}
 
-	run(() => {
+	$effect(() => {
 		if (value === null) {
 			value = 0
 		}

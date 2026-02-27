@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
 
 	import { base } from '$lib/base'
 	import { Button } from '../common'
@@ -53,7 +52,7 @@
 		}
 	}
 
-	run(() => {
+	$effect(() => {
 		input && setTimeout(() => input?.focus(), 100)
 	});
 

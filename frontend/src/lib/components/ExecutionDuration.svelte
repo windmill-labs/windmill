@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
 
 	import { type Job } from '$lib/gen'
 	import { isScriptPreview } from '$lib/utils'
@@ -59,7 +58,7 @@
 		clearInterval(interval)
 	})
 	// Detect when execution of job started
-	run(() => {
+	$effect(() => {
 		if (
 			!busy &&
 			job &&

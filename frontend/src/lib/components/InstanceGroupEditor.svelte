@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
 
 	import { GroupService, type InstanceGroup } from '$lib/gen'
 	import { createEventDispatcher } from 'svelte'
@@ -35,7 +34,7 @@
 				})
 			: []
 	}
-	run(() => {
+	$effect(() => {
 		load()
 	});
 </script>

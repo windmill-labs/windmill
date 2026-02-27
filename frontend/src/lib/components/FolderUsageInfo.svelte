@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
 
 	import { FolderService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -19,7 +18,7 @@
 	async function loadUsage() {
 		usage = await FolderService.getFolderUsage({ workspace: $workspaceStore!, name })
 	}
-	run(() => {
+	$effect(() => {
 		$workspaceStore && loadUsage()
 	});
 </script>

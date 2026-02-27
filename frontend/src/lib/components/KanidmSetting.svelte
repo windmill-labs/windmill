@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
 
 	import IconedResourceType from './IconedResourceType.svelte'
 	import TextInput from './text_input/TextInput.svelte'
@@ -45,7 +44,7 @@
 	// also allow lazy/async binding of the `value` prop.
 	let derivedBaseUrl = $derived(value?.connect_config?.auth_url?.replace(AUTH_URL_SUFFIX, ''))
 	let baseUrl = $derived(proxyUrlValue ?? derivedBaseUrl ?? '')
-	run(() => {
+	$effect(() => {
 		changeValues({ baseUrl, id: value?.id ?? '' })
 	});
 </script>

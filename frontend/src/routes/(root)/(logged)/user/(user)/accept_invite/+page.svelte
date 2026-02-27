@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
 
 	import { goto } from '$lib/navigation'
 	import { base } from '$lib/base'
@@ -66,7 +65,7 @@
 		}
 	}
 	getAutomateUsernameCreationSetting()
-	run(() => {
+	$effect(() => {
 		validateName(username)
 	});
 </script>

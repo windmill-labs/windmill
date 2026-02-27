@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
 
 	import { type GridApi, createGrid, type IDatasource } from 'ag-grid-community'
 
@@ -181,7 +180,7 @@
 	}
 
 	let darkMode: boolean = $state(false)
-	run(() => {
+	$effect(() => {
 		eGui && mountGrid()
 	});
 </script>

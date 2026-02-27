@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
 
 	import { ArrowDown, ArrowUp, Download, MoreVertical, MoveVertical, Columns } from 'lucide-svelte'
 	import Dropdown from '../DropdownV2.svelte'
@@ -159,10 +158,10 @@
 			colSelection = [...colSelection, key]
 		}
 	}
-	run(() => {
+	$effect(() => {
 		recomputeObjectsAndHeaders(objects)
 	})
-	run(() => {
+	$effect(() => {
 		perPage && adjustCurrentPage()
 	})
 	let data = $derived(computeData(structuredObjects, activeSorting, search))

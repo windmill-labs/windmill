@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
 
 	import { goto } from '$lib/navigation'
 	import { base } from '$app/paths'
@@ -49,7 +48,7 @@
 
 	let rd = $derived($page.url.searchParams.get('rd'))
 
-	run(() => {
+	$effect(() => {
 		if (userSettings && $page.url.hash.startsWith(USER_SETTINGS_HASH)) {
 			const mcpMode = $page.url.hash.includes('-mcp')
 			userSettings.openDrawer(mcpMode)
@@ -94,7 +93,7 @@
 			workspaces = $userWorkspaces
 		}
 	}
-	run(() => {
+	$effect(() => {
 		list_all_as_super_admin != undefined && $userWorkspaces && handleListWorkspaces()
 	})
 
@@ -110,7 +109,7 @@
 
 	let createWorkspace = $state($superadmin || isCloudHosted())
 
-	run(() => {
+	$effect(() => {
 		if ($superadmin) {
 			createWorkspace = true
 		}

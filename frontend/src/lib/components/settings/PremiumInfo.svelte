@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
 
 	import { base } from '$lib/base'
 	import { capitalize, pluralize, sendUserToast } from '$lib/utils'
@@ -126,7 +125,7 @@
 	}
 
 	const formatNumber = (value: number) => value.toLocaleString('en-US')
-	run(() => {
+	$effect(() => {
 		if ($workspaceStore) {
 			loadPremiumInfo()
 			listUsers()
@@ -135,7 +134,7 @@
 	});
 	let estimatedDevs = $derived(Math.max(1, estimatedDevsRaw))
 	let estimatedSeats = $derived(estimatedDevs + Math.ceil(estimatedOps / 2))
-	run(() => {
+	$effect(() => {
 		estimatedSeats && updateExecs()
 	});
 </script>

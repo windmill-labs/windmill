@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
 
 	import { FlowService, ScriptService, UserService, type TruncatedToken } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -41,7 +40,7 @@
 		await listTokens()
 	}
 
-	run(() => {
+	$effect(() => {
 		$workspaceStore && listTokens()
 	});
 </script>

@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
 
 	import 'chartjs-adapter-date-fns'
 	import { Line } from '$lib/components/chartjs-wrappers/chartJs'
@@ -183,10 +182,10 @@
 
 	let darkMode = $state(false)
 
-	run(() => {
+	$effect(() => {
 		ChartJS.defaults.color = darkMode ? '#ccc' : '#666'
 	});
-	run(() => {
+	$effect(() => {
 		ChartJS.defaults.borderColor = darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
 	});
 </script>

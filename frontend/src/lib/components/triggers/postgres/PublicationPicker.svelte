@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
 
 	import { Button } from '$lib/components/common'
 	import Select from '$lib/components/select/Select.svelte'
@@ -108,7 +107,7 @@
 	}
 
 	listDatabasePublication()
-	run(() => {
+	$effect(() => {
 		publication_name && getAllRelations()
 	});
 </script>

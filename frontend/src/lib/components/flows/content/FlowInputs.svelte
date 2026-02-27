@@ -150,7 +150,7 @@
 			<div class="mt-2"></div>
 			<Alert title="Trigger scripts" type="info">
 				Trigger scripts are designed to pull data from an external source and return all of the new
-				items since the last run, without resorting to external webhooks.<br /><br />
+				items since the last without resorting to external webhooks.<br /><br />
 
 				A trigger script is intended to be used with
 				<a

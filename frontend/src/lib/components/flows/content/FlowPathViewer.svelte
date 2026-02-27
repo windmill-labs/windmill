@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
 
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
@@ -34,7 +33,7 @@
 		)
 	}
 
-	run(() => {
+	$effect(() => {
 		path && loadFlow(path)
 	});
 </script>

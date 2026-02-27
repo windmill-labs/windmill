@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { run, createBubbler, stopPropagation, preventDefault } from 'svelte/legacy';
+	import { createBubbler, stopPropagation, preventDefault } from 'svelte/legacy';
 
 	const bubble = createBubbler();
 	import { createEventDispatcher } from 'svelte'
@@ -33,7 +33,7 @@
 	let isHovered = $state(false)
 
 	let isNumeric = $derived(['number', 'range'].includes(type))
-	run(() => {
+	$effect(() => {
 		dispatchIfMounted('change', value)
 	});
 
@@ -45,7 +45,7 @@
 		value = ''
 	}
 
-	run(() => {
+	$effect(() => {
 		if (value === undefined) value = ''
 	});
 </script>

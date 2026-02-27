@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
 
 	import { customIcon } from './store'
 
@@ -117,7 +116,7 @@
 
 	let lessSaturatedColor: string | undefined = $state()
 
-	run(() => {
+	$effect(() => {
 		color ? (lessSaturatedColor = reduceSaturation(color, -16)) : (lessSaturatedColor = undefined)
 	})
 </script>

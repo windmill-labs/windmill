@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
 
 	import IconedResourceType from './IconedResourceType.svelte'
 	import Toggle from './Toggle.svelte'
@@ -35,7 +34,7 @@
 	let enabled = $derived(value != undefined)
 	// Initialize org from existing auth_url
 	let org = $derived(value?.connect_config?.auth_url?.replace('/application/o/authorize/', '') ?? '')
-	run(() => {
+	$effect(() => {
 		changeOrg(org)
 	});
 </script>

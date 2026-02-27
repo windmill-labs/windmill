@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
 
 	import type { Schema } from '$lib/common'
 	import { ResourceService, type Resource, type ResourceType } from '$lib/gen'
@@ -177,24 +176,24 @@
 			content: textFileContent
 		}
 	}
-	run(() => {
+	$effect(() => {
 		if (defaultValues && Object.keys(defaultValues).length > 0) {
 			args = defaultValues
 		}
 	})
-	run(() => {
+	$effect(() => {
 		canSave = (can_write && isValid && jsonError == '') || (viewJsonSchema && jsonError == '')
 	})
 	$effect(() => {
 		onChange && onChange({ path, args, description })
 	})
-	run(() => {
+	$effect(() => {
 		rawCode && untrack(() => parseJson())
 	})
-	run(() => {
+	$effect(() => {
 		linkedVars.length > 0 && path && untrack(() => updateArgsFromLinkedVars())
 	})
-	run(() => {
+	$effect(() => {
 		textFileContent && untrack(() => parseTextFileContent())
 	})
 </script>

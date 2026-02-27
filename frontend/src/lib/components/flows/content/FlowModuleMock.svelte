@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
 
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -40,7 +39,7 @@
 			isMockEnabled = Boolean(newMock?.enabled)
 		}
 	}
-	run(() => {
+	$effect(() => {
 		;(flowModule.mock, untrack(() => updateMock(flowModule.mock)))
 	})
 

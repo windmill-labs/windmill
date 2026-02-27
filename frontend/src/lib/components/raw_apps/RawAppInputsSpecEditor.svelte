@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
 
 	import { addWhitespaceBeforeCapitals, capitalize, classNames } from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -69,7 +68,7 @@
 		markdownTooltip = undefined
 	}: Props = $props()
 
-	run(() => {
+	$effect(() => {
 		if (componentInput == undefined) {
 			//@ts-ignore
 			componentInput = {

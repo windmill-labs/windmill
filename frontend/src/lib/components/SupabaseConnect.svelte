@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
 
 	import { Loader2, RotateCwIcon } from 'lucide-svelte'
 
@@ -48,7 +47,7 @@
 	}
 	let databases: undefined | Database[] = $state(undefined)
 
-	run(() => {
+	$effect(() => {
 		token != undefined && listDatabases()
 	})
 

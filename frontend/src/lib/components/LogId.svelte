@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
 
 	interface Props {
 		id: string;
@@ -7,7 +6,7 @@
 
 	let { id }: Props = $props();
 
-	run(() => {
+	$effect(() => {
 		id && console.log('updateJobId')
 	});
 </script>

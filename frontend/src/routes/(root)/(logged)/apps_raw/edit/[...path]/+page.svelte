@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
 
 	import { AppService, DraftService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -169,7 +168,7 @@
 		}
 	}
 
-	run(() => {
+	$effect(() => {
 		if ($workspaceStore) {
 			loadApp()
 		}

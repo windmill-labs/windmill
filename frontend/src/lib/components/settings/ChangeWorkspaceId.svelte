@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
 
 	import { workspaceStore, superadmin } from '$lib/stores'
 	import Alert from '../common/alert/Alert.svelte'
@@ -58,10 +57,10 @@
 	}
 
 	let { open = $bindable(false) }: Props = $props();
-	run(() => {
+	$effect(() => {
 		newId = newName.toLowerCase().replace(/\s/gi, '-')
 	});
-	run(() => {
+	$effect(() => {
 		validateName(newId)
 	});
 </script>

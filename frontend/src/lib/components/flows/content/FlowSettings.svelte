@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { run, createBubbler } from 'svelte/legacy'
+	import { createBubbler } from 'svelte/legacy'
 
 	const bubble = createBubbler()
 	import Path from '$lib/components/Path.svelte'
@@ -61,7 +61,7 @@
 
 	let displayWorkerTagPicker = $state(false)
 
-	run(() => {
+	$effect(() => {
 		flowStore.val.tag ? (displayWorkerTagPicker = true) : null
 	})
 

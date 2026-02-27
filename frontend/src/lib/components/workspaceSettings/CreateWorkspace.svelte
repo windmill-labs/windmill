@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
 
 	import { goto } from '$lib/navigation'
 	import { base } from '$lib/base'
@@ -329,16 +328,16 @@
 	let operatorOnly = $state(false)
 	let autoAdd = $state(true)
 	let selected: Exclude<AIProvider, 'customai'> = $state('openai')
-	run(() => {
+	$effect(() => {
 		id = name.toLowerCase().replace(/\s/gi, '-')
 	})
-	run(() => {
+	$effect(() => {
 		validateName(id)
 	})
-	run(() => {
+	$effect(() => {
 		errorUser = validateUsername(username)
 	})
-	run(() => {
+	$effect(() => {
 		colorEnabled && !workspaceColor && generateRandomColor()
 	})
 	let domain = $derived($usersWorkspaceStore?.email.split('@')[1])

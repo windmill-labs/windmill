@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
 
 	import { getContext, onMount } from 'svelte'
 	import type { App, AppEditorContext, AppViewerContext } from '../types'
@@ -179,12 +178,12 @@
 			setInter: (n) => setInter(n, 'all context')
 		}
 	})
-	run(() => {
+	$effect(() => {
 		!firstLoad &&
 			canInitializeAll($initialized?.initializedComponents, $app) &&
 			refresh('all initialized')
 	});
-	run(() => {
+	$effect(() => {
 		$recomputeAllContext.componentNumber =
 			Object.values($runnableComponents).filter((x) => x.autoRefresh).length ?? 0
 	});

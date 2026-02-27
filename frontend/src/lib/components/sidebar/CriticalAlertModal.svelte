@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
 
 	import { onMount, onDestroy } from 'svelte'
 	import CriticalAlertModalInner from './CriticalAlertModalInner.svelte'
@@ -170,13 +169,13 @@
 		await acknowledgeCriticalAlert?.({ id })
 		updateHasUnacknowledgedCriticalAlerts()
 	}
-	run(() => {
+	$effect(() => {
 		setupApiFunctions(workspaceContext)
 	});
-	run(() => {
+	$effect(() => {
 		if ($isCriticalAlertsUIOpen) open = $isCriticalAlertsUIOpen
 	});
-	run(() => {
+	$effect(() => {
 		isCriticalAlertsUIOpen.set(open)
 	});
 </script>

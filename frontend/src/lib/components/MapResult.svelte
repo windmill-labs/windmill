@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
 
 	import { Map, View, Feature } from 'ol'
 	import { Fill, Stroke, Style, Text } from 'ol/style.js'
@@ -111,7 +110,7 @@
 		createMarkerLayers()?.forEach((l) => map?.addLayer(l))
 	}
 
-	run(() => {
+	$effect(() => {
 		if (!map && mapElement) {
 			useGeographic()
 			map = new Map({

@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
 
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import IconedResourceType from './IconedResourceType.svelte'
@@ -173,7 +172,7 @@
 
 	const connectAndManual = ['gitlab']
 
-	run(() => {
+	$effect(() => {
 		isGoogleSignin =
 			step == 1 &&
 			(resourceType == 'google' ||
@@ -183,7 +182,7 @@
 				resourceType == 'gsheets')
 	})
 
-	run(() => {
+	$effect(() => {
 		disabled =
 			(step == 1 && resourceType == '') ||
 			(step == 2 &&

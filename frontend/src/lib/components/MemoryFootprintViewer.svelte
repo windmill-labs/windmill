@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
 
 	import { type MetricDataPoint, MetricsService } from '$lib/gen'
 	import { displayTime } from '$lib/utils'
@@ -72,7 +71,7 @@
 		data = [...data]
 	}
 
-	run(() => {
+	$effect(() => {
 		jobUpdateLastFetch && loadMetricsData()
 	});
 </script>

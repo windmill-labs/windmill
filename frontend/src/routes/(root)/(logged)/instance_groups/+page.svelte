@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
 
 	import type { InstanceGroup } from '$lib/gen'
 	import { GroupService } from '$lib/gen'
@@ -34,7 +33,7 @@
 		groupDrawer?.openDrawer()
 	}
 
-	run(() => {
+	$effect(() => {
 		loadInstanceGroups()
 	})
 

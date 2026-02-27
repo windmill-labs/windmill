@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
 
 	import { createEventDispatcher } from 'svelte'
 	import { Button, Drawer } from './common'
@@ -36,7 +35,7 @@
 	const dispatch = createEventDispatcher()
 
 	let darkMode: boolean = $state(false)
-	run(() => {
+	$effect(() => {
 		appConnectInner && onRtToLoadChange(rtToLoad)
 	})
 </script>

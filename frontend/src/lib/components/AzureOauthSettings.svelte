@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
 
 	import { ExternalLink } from 'lucide-svelte'
 	import OauthScopes from './OauthScopes.svelte'
@@ -24,7 +23,7 @@
 		extra_params_callback: {}
 	}) }: Props = $props();
 
-	run(() => {
+	$effect(() => {
 		if (!connect_config) {
 			connect_config = {
 				scopes: ['offline_access'],
@@ -37,7 +36,7 @@
 		}
 	});
 
-	run(() => {
+	$effect(() => {
 		if (connect_config.extra_params.tenant_id) {
 			connect_config.auth_url = `https://login.microsoftonline.com/${connect_config.extra_params.tenant_id}/oauth2/v2.0/authorize`
 			connect_config.token_url = `https://login.microsoftonline.com/${connect_config.extra_params.tenant_id}/oauth2/v2.0/token`

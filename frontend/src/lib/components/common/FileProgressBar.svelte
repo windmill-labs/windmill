@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
 
 	import { tweened } from 'svelte/motion'
 	import { cubicOut } from 'svelte/easing'
@@ -23,7 +22,7 @@
 		easing: cubicOut
 	})
 
-	run(() => {
+	$effect(() => {
 		tweenedProgress.set(progress)
 	});
 </script>

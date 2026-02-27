@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
 
 	import { enterpriseLicense, userStore, workspaceStore, awarenessStore } from '$lib/stores'
 	import { BROWSER } from 'esm-env'
@@ -47,13 +46,13 @@
 			setPeers()
 		})
 	}
-	run(() => {
+	$effect(() => {
 		awareness?.setLocalState({
 			name: $userStore?.username,
 			url: $page.url.pathname
 		})
 	});
-	run(() => {
+	$effect(() => {
 		$enterpriseLicense && $workspaceStore && connectWorkspace($workspaceStore)
 	});
 

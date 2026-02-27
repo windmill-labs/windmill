@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { run, createBubbler } from 'svelte/legacy'
+	import { createBubbler } from 'svelte/legacy'
 
 	const bubble = createBubbler()
 	import { createPopperActions, type PopperOptions } from 'svelte-popperjs'
@@ -67,7 +67,7 @@
 		timeout = setTimeout(() => (showTooltip = false), disappearTimeout)
 	}
 
-	run(() => {
+	$effect(() => {
 		focusEl && focusEl?.focus()
 	})
 </script>

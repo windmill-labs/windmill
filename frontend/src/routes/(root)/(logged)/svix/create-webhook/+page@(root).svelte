@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
 
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import { Button } from '$lib/components/common'
@@ -67,7 +66,7 @@
 
 		scopes = [`jobs:run:${itemKind}s:${scriptPath}`]
 	}
-	run(() => {
+	$effect(() => {
 		updateTokenAndScope(itemPath)
 	})
 </script>
