@@ -1,6 +1,15 @@
 #!/bin/bash
 set -euo pipefail
 
+# ── Nix profile ──────────────────────────────────────────────────────────────
+export PATH="/root/.nix-profile/bin:/nix/var/nix/profiles/default/bin:$PATH"
+export CARGO_HOME=/tmp/.cargo
+
+# ── Browser env (from Nix sandbox profile) ───────────────────────────────────
+if command -v sandbox-env >/dev/null 2>&1; then
+    eval "$(sandbox-env)"
+fi
+
 # ── Start PostgreSQL ──────────────────────────────────────────────────────────
 PGDATA=/tmp/pgdata
 mkdir -p "$PGDATA"
