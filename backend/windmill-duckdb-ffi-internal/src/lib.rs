@@ -266,6 +266,9 @@ fn prepare_duckdb_internal(
             continue;
         }
 
+        // Note : We have to use a DESCRIBE statement and cannot simply use the
+        // methods returned by .prepare() because they panic if the statement was
+        // not executed at least once (which we specifically do not want to do)
         let describe_query = format!("DESCRIBE {}", modified_query);
         match conn.prepare(&describe_query).and_then(|mut stmt| {
             let rows = stmt.query_map([], |row| {
