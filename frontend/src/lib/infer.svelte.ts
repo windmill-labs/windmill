@@ -114,7 +114,7 @@ async function prepareDucklakeQueries(
 	queries.sort((a, b) => a[1].source_name.localeCompare(b[1].source_name))
 	let results = (
 		await Promise.all(
-			chunkBy(queries, ([_, q]) => q.source_name).map(async (chunk) => {
+			chunkBy(queries, ([_, q]) => `${q.source_name}::${q.source_schema ?? ''}`).map(async (chunk) => {
 				let sourceName = chunk[0][1].source_name
 				let sourceSchema = chunk[0][1].source_schema
 				let attachSetup = `ATTACH 'ducklake://${sourceName}' AS dl;\n`
