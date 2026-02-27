@@ -262,28 +262,6 @@
             sqlx database create
             wm-migrate
           '')
-        ];
-
-        # ---------------------------------------------------------------
-        # Helper scripts — extra (full shell only)
-        # ---------------------------------------------------------------
-
-        helperScriptsFull = [
-          (pkgs.writeScriptBin "wm-caddy" ''
-            cd ./frontend
-            xcaddy build $* \
-              --with github.com/mholt/caddy-l4@145ec36251a44286f05a10d231d8bfb3a8192e09 \
-              --with github.com/RussellLuo/caddy-ext/layer4@ab1e18cfe426012af351a68463937ae2e934a2a1
-          '')
-          (pkgs.writeScriptBin "wm-setup" ''
-            sqlx database create
-            wm-build
-            wm-caddy
-            wm-migrate
-          '')
-          (pkgs.writeScriptBin "wm-bench" ''
-            deno run -A benchmarks/main.ts -e admin@windmill.dev -p changeme $*
-          '')
           (pkgs.writeScriptBin "wm-minio" ''
             set -e
             cd ./backend
@@ -308,6 +286,28 @@
             fi
             echo "bucket: wmill"
             echo "endpoint: http://localhost:9000"
+          '')
+        ];
+
+        # ---------------------------------------------------------------
+        # Helper scripts — extra (full shell only)
+        # ---------------------------------------------------------------
+
+        helperScriptsFull = [
+          (pkgs.writeScriptBin "wm-caddy" ''
+            cd ./frontend
+            xcaddy build $* \
+              --with github.com/mholt/caddy-l4@145ec36251a44286f05a10d231d8bfb3a8192e09 \
+              --with github.com/RussellLuo/caddy-ext/layer4@ab1e18cfe426012af351a68463937ae2e934a2a1
+          '')
+          (pkgs.writeScriptBin "wm-setup" ''
+            sqlx database create
+            wm-build
+            wm-caddy
+            wm-migrate
+          '')
+          (pkgs.writeScriptBin "wm-bench" ''
+            deno run -A benchmarks/main.ts -e admin@windmill.dev -p changeme $*
           '')
         ];
 
