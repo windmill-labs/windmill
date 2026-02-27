@@ -7,7 +7,8 @@ After making changes, run the appropriate checks and fix all errors before consi
 | What changed | Command | Notes |
 |---|---|---|
 | Core code (no feature gates) | `cargo check` | |
-| Enterprise code (`*_ee.rs`) | `cargo check --features enterprise` | Also do EE PR workflow (see `docs/enterprise.md`) |
+| Enterprise code (`*_ee.rs`) | `cargo check --features enterprise,private` | Also do EE PR workflow (see `docs/enterprise.md`) |
+| Enterprise + license-gated code | `cargo check --features enterprise,private,license` | When the feature requires a valid license key |
 | Kafka trigger code | `cargo check --features kafka` | |
 | Native trigger code | `cargo check --features native_trigger` | |
 | Parquet code | `cargo check --features parquet` | |

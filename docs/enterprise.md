@@ -5,7 +5,9 @@
 - Enterprise files use the `*_ee.rs` suffix
 - Source lives in `windmill-ee-private` (sibling repo), symlinked into each crate's `src/`
 - `_ee.rs` files are gitignored in the main windmill repo — tracked only in `windmill-ee-private`
-- Use feature flags: `#[cfg(feature = "enterprise")]`
+- Use feature flags: `#[cfg(feature = "enterprise")]` for enterprise logic
+- The `private` feature flag gates compilation of `*_ee.rs` files
+- The `license` feature flag gates features that require a valid license key at runtime
 - Isolate enterprise code in separate modules
 
 ## Finding the EE Repo
@@ -29,5 +31,9 @@ When you modify any `*_ee.rs` file and create a PR on windmill:
 ## Validation
 
 ```bash
-cargo check --features enterprise
+# EE code (always include private to compile *_ee.rs files)
+cargo check --features enterprise,private
+
+# EE code that also requires license validation
+cargo check --features enterprise,private,license
 ```
