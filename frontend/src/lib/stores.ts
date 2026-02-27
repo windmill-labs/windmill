@@ -126,9 +126,7 @@ export const codeCompletionSessionEnabled = writable<boolean>(
 
 export const usedTriggerKinds = writable<string[]>([])
 
-export let globalDbManagerDrawer: StateStore<any | undefined> = createState({
-	val: undefined
-})
+export let globalDbManagerDrawer: StateStore<any | undefined> = { val: undefined }
 
 type SQLBaseSchema = {
 	[schemaKey: string]: {
