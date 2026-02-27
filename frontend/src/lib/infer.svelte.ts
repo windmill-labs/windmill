@@ -120,33 +120,37 @@ async function prepareDucklakeQueries(
 	queries.sort((a, b) => a[1].source_name.localeCompare(b[1].source_name))
 	let results = (
 		await Promise.all(
-			chunkBy(queries, ([_, q]) => `${q.source_name}::${q.source_schema ?? ''}`).map(async (chunk) => {
-				let sourceName = chunk[0][1].source_name
-				let sourceSchema = chunk[0][1].source_schema
-				let attachSetup = `ATTACH 'ducklake://${sourceName}' AS dl;\n`
-				attachSetup += sourceSchema ? `USE dl.${sourceSchema};\n` : `USE dl;\n`
+			chunkBy(queries, ([_, q]) => `${q.source_name}::${q.source_schema ?? ''}`).map(
+				async (chunk) => {
+					let sourceName = chunk[0][1].source_name
+					let sourceSchema = chunk[0][1].source_schema
+					let attachSetup = `ATTACH 'ducklake://${sourceName}' AS dl;\n`
+					attachSetup += sourceSchema ? `USE dl.${sourceSchema};\n` : `USE dl;\n`
 
-				let queryContent = chunk
-					.map(([_, q]) => q.query_string + (q.query_string.trim().endsWith(';') ? '' : ';'))
-					.join('\n')
-				queryContent =
-					'-- prepare\n--result_collection=all_statements_first_row\n' + attachSetup + queryContent
+					let queryContent = chunk
+						.map(([_, q]) => q.query_string + (q.query_string.trim().endsWith(';') ? '' : ';'))
+						.join('\n')
+					queryContent =
+						'-- prepare\n--result_collection=all_statements_first_row\n' +
+						attachSetup +
+						queryContent
 
-				try {
-					let res = (await JobService.runScriptPreviewAndWaitResult({
-						workspace: getWorkspace()!,
-						requestBody: {
-							language: 'duckdb',
-							content: queryContent,
-							args: {}
-						}
-					})) as { error?: string; columns?: { name: string; type: string }[] }[]
-					return mapPrepareResults(res, chunk)
-				} catch (e) {
-					const error = e instanceof Error ? e.message : JSON.stringify(e)
-					return chunk.map(([key]) => [key, { error }] as [string, PreparedAssetsSqlQuery])
+					try {
+						let res = (await JobService.runScriptPreviewAndWaitResult({
+							workspace: getWorkspace()!,
+							requestBody: {
+								language: 'duckdb',
+								content: queryContent,
+								args: {}
+							}
+						})) as { error?: string; columns?: { name: string; type: string }[] }[]
+						return mapPrepareResults(res, chunk)
+					} catch (e) {
+						const error = e instanceof Error ? e.message : JSON.stringify(e)
+						return chunk.map(([key]) => [key, { error }] as [string, PreparedAssetsSqlQuery])
+					}
 				}
-			})
+			)
 		)
 	).flat()
 	return results
