@@ -63,6 +63,16 @@ impl AssetCollector {
         }
     }
 
+    /// If the name resolves to an attached asset, record it. Otherwise, register it as a local
+    /// table/view so that subsequent references are not mistakenly attributed to the active asset.
+    fn track_table_definition(&mut self, name: &ObjectName) {
+        if let Some(asset) = self.get_associated_asset_from_obj_name(name, Some(W)) {
+            self.assets.push(asset);
+        } else if let Some(simple_name) = get_trivial_obj_name(name) {
+            self.local_table_names.insert(simple_name.to_lowercase());
+        }
+    }
+
     fn is_locally_defined(&self, name: &str) -> bool {
         let name_lower = name.to_lowercase();
         self.local_table_names.contains(&name_lower)
@@ -636,19 +646,11 @@ impl Visitor for AssetCollector {
             }
 
             sqlparser::ast::Statement::CreateTable(create_table) => {
-                if let Some(asset) =
-                    self.get_associated_asset_from_obj_name(&create_table.name, Some(W))
-                {
-                    self.assets.push(asset);
-                } else if let Some(name) = get_trivial_obj_name(&create_table.name) {
-                    self.local_table_names.insert(name.to_lowercase());
-                }
+                self.track_table_definition(&create_table.name);
             }
 
             sqlparser::ast::Statement::CreateView { name, .. } => {
-                if let Some(asset) = self.get_associated_asset_from_obj_name(name, Some(W)) {
-                    self.assets.push(asset);
-                }
+                self.track_table_definition(name);
             }
 
             sqlparser::ast::Statement::Copy { target: CopyTarget::File { filename }, .. } => {
@@ -1650,6 +1652,109 @@ mod tests {
                 kind: AssetKind::Ducklake,
                 path: "main/friends".to_string(),
                 access_type: Some(RW),
+                columns: None
+            },])
+        );
+    }
+
+    #[test]
+    fn test_sql_asset_parser_local_create_view_overrides_asset() {
+        let input = r#"
+            CREATE VIEW my_view AS SELECT 1;
+            ATTACH 'ducklake://my_dl' AS dl;
+            USE dl;
+            SELECT * FROM my_view;
+            SELECT * FROM asset_table;
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::Ducklake,
+                path: "my_dl/asset_table".to_string(),
+                access_type: Some(R),
+                columns: None
+            },])
+        );
+    }
+
+    #[test]
+    fn test_sql_asset_parser_create_view_with_use_is_still_asset() {
+        let input = r#"
+            ATTACH 'ducklake://my_dl' AS dl;
+            USE dl;
+            CREATE VIEW my_view AS SELECT 1;
+            SELECT * FROM my_view;
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::Ducklake,
+                path: "my_dl/my_view".to_string(),
+                access_type: Some(RW),
+                columns: None
+            },])
+        );
+    }
+
+    #[test]
+    fn test_sql_asset_parser_cte_mixed_with_asset_tables() {
+        let input = r#"
+            ATTACH 'ducklake://my_dl' AS dl;
+            USE dl;
+            WITH tmp AS (SELECT 1 AS x)
+            SELECT * FROM tmp JOIN real_table ON true;
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::Ducklake,
+                path: "my_dl/real_table".to_string(),
+                access_type: Some(R),
+                columns: None
+            },])
+        );
+    }
+
+    #[test]
+    fn test_sql_asset_parser_local_table_insert_and_select() {
+        let input = r#"
+            CREATE TABLE staging (id INT, val TEXT);
+            ATTACH 'ducklake://my_dl' AS dl;
+            USE dl;
+            INSERT INTO staging VALUES (1, 'a');
+            SELECT * FROM staging;
+            INSERT INTO real_table VALUES (2, 'b');
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::Ducklake,
+                path: "my_dl/real_table".to_string(),
+                access_type: Some(W),
+                columns: None
+            },])
+        );
+    }
+
+    #[test]
+    fn test_sql_asset_parser_qualified_ref_bypasses_local() {
+        // Even if 'tbl' is local, 'dl.tbl' is an explicit asset reference
+        let input = r#"
+            CREATE TABLE tbl (id INT);
+            ATTACH 'ducklake://my_dl' AS dl;
+            SELECT * FROM dl.tbl;
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::Ducklake,
+                path: "my_dl/tbl".to_string(),
+                access_type: Some(R),
                 columns: None
             },])
         );
