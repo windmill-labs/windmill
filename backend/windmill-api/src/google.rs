@@ -14,8 +14,9 @@ use serde::Deserialize;
 use serde_json::json;
 use windmill_common::{
     ai_google::{
-        openai_messages_to_gemini, parse_gemini_sse_event, GeminiFunctionDeclaration,
-        GeminiGenerationConfig, GeminiTextRequest, GeminiTool,
+        gemini_event_to_openai_sse_chunks, gemini_response_to_openai, openai_messages_to_gemini,
+        parse_gemini_response, parse_gemini_sse_event, sanitize_schema_for_google,
+        GeminiFunctionDeclaration, GeminiGenerationConfig, GeminiTextRequest, GeminiTool,
     },
     ai_types::OpenAIMessage,
     error::{Error, Result},
@@ -164,49 +165,10 @@ async fn handle_streaming(
             match event {
                 Ok(event) => match parse_gemini_sse_event(&event.data) {
                     Ok(Some(parsed)) => {
-                        if let Some(text) = parsed.text {
-                            let chunk = json!({
-                                "id": id,
-                                "object": "chat.completion.chunk",
-                                "model": model_str,
-                                "choices": [{
-                                    "index": 0,
-                                    "delta": { "content": text },
-                                    "finish_reason": null
-                                }]
-                            });
-                            yield Ok::<Bytes, reqwest::Error>(
-                                Bytes::from(format!("data: {}\n\n", chunk))
-                            );
-                        }
-
-                        for tc in &parsed.tool_calls {
-                            let args_str = serde_json::to_string(&tc.args).unwrap_or_default();
-                            let call_id = format!("call_{}", uuid::Uuid::new_v4().simple());
-                            let chunk = json!({
-                                "id": id,
-                                "object": "chat.completion.chunk",
-                                "model": model_str,
-                                "choices": [{
-                                    "index": 0,
-                                    "delta": {
-                                        "tool_calls": [{
-                                            "index": tool_call_index,
-                                            "id": call_id,
-                                            "type": "function",
-                                            "function": {
-                                                "name": tc.name,
-                                                "arguments": args_str
-                                            }
-                                        }]
-                                    },
-                                    "finish_reason": null
-                                }]
-                            });
-                            yield Ok::<Bytes, reqwest::Error>(
-                                Bytes::from(format!("data: {}\n\n", chunk))
-                            );
-                            tool_call_index += 1;
+                        for chunk in gemini_event_to_openai_sse_chunks(
+                            &parsed, &id, &model_str, &mut tool_call_index,
+                        ) {
+                            yield Ok::<Bytes, reqwest::Error>(Bytes::from(chunk));
                         }
                     }
                     Ok(None) => {}
@@ -300,49 +262,6 @@ pub async fn handle_google_ai_models(
 // Non-streaming path
 // ============================================================================
 
-/// Response types for Gemini's `generateContent` endpoint (non-streaming).
-#[derive(Deserialize)]
-struct GeminiResponse {
-    candidates: Option<Vec<GeminiCandidate>>,
-    #[serde(rename = "usageMetadata")]
-    usage_metadata: Option<GeminiResponseUsage>,
-}
-
-#[derive(Deserialize)]
-struct GeminiCandidate {
-    content: Option<GeminiCandidateContent>,
-    #[serde(rename = "finishReason")]
-    finish_reason: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct GeminiCandidateContent {
-    parts: Option<Vec<GeminiResponsePart>>,
-}
-
-#[derive(Deserialize)]
-struct GeminiResponsePart {
-    text: Option<String>,
-    #[serde(rename = "functionCall")]
-    function_call: Option<GeminiResponseFunctionCall>,
-}
-
-#[derive(Deserialize)]
-struct GeminiResponseFunctionCall {
-    name: String,
-    args: serde_json::Value,
-}
-
-#[derive(Deserialize)]
-struct GeminiResponseUsage {
-    #[serde(rename = "promptTokenCount", default)]
-    prompt_token_count: Option<i32>,
-    #[serde(rename = "candidatesTokenCount", default)]
-    candidates_token_count: Option<i32>,
-    #[serde(rename = "totalTokenCount", default)]
-    total_token_count: Option<i32>,
-}
-
 async fn handle_non_streaming(
     model: &str,
     request_body: String,
@@ -367,82 +286,12 @@ async fn handle_non_streaming(
         return Err(Error::AIError(err_msg));
     }
 
-    let gemini_resp: GeminiResponse = response.json().await.map_err(|e| {
-        Error::internal_err(format!("Failed to parse Gemini response: {}", e))
+    let body = response.bytes().await.map_err(|e| {
+        Error::internal_err(format!("Failed to read Gemini response body: {}", e))
     })?;
 
-    let candidate = gemini_resp
-        .candidates
-        .as_ref()
-        .and_then(|c| c.first());
-
-    let parts = candidate
-        .and_then(|c| c.content.as_ref())
-        .and_then(|c| c.parts.as_ref());
-
-    let content: String = parts
-        .map(|parts| {
-            parts
-                .iter()
-                .filter_map(|p| p.text.as_deref())
-                .collect::<Vec<_>>()
-                .join("")
-        })
-        .unwrap_or_default();
-
-    let tool_calls: Vec<serde_json::Value> = parts
-        .map(|parts| {
-            parts
-                .iter()
-                .filter_map(|p| p.function_call.as_ref())
-                .enumerate()
-                .map(|(i, fc)| {
-                    json!({
-                        "index": i,
-                        "id": format!("call_{}", uuid::Uuid::new_v4().simple()),
-                        "type": "function",
-                        "function": {
-                            "name": fc.name,
-                            "arguments": serde_json::to_string(&fc.args).unwrap_or_default()
-                        }
-                    })
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-
-    let finish_reason = candidate
-        .and_then(|c| c.finish_reason.as_deref())
-        .map(|r| r.to_lowercase())
-        .unwrap_or_else(|| "stop".to_string());
-
-    let usage = gemini_resp.usage_metadata.as_ref().map(|u| {
-        json!({
-            "prompt_tokens": u.prompt_token_count.unwrap_or(0),
-            "completion_tokens": u.candidates_token_count.unwrap_or(0),
-            "total_tokens": u.total_token_count.unwrap_or(0),
-        })
-    });
-
-    let mut message = json!({
-        "role": "assistant",
-        "content": content
-    });
-    if !tool_calls.is_empty() {
-        message["tool_calls"] = json!(tool_calls);
-    }
-
-    let openai_response = json!({
-        "id": format!("chatcmpl-{}", uuid::Uuid::new_v4().simple()),
-        "object": "chat.completion",
-        "model": model,
-        "choices": [{
-            "index": 0,
-            "message": message,
-            "finish_reason": finish_reason
-        }],
-        "usage": usage
-    });
+    let parsed = parse_gemini_response(&body)?;
+    let openai_response = gemini_response_to_openai(&parsed, model);
 
     let body_bytes = serde_json::to_vec(&openai_response)
         .map_err(|e| Error::internal_err(format!("Failed to serialize response: {}", e)))?;
@@ -451,35 +300,4 @@ async fn handle_non_streaming(
     headers.insert("content-type", "application/json".parse().unwrap());
 
     Ok((http::StatusCode::OK, headers, Body::from(body_bytes)))
-}
-
-// ============================================================================
-// Schema sanitization
-// ============================================================================
-
-const UNSUPPORTED_SCHEMA_FIELDS: &[&str] = &[
-    "additionalProperties",
-    "strict",
-    "$schema",
-    "default",
-    "exclusiveMinimum",
-    "exclusiveMaximum",
-    "const",
-    "multipleOf",
-];
-
-/// Recursively remove JSON Schema fields unsupported by the Gemini API.
-fn sanitize_schema_for_google(value: &mut serde_json::Value) {
-    if let Some(obj) = value.as_object_mut() {
-        for field in UNSUPPORTED_SCHEMA_FIELDS {
-            obj.remove(*field);
-        }
-        for v in obj.values_mut() {
-            sanitize_schema_for_google(v);
-        }
-    } else if let Some(arr) = value.as_array_mut() {
-        for v in arr.iter_mut() {
-            sanitize_schema_for_google(v);
-        }
-    }
 }

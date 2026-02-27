@@ -243,7 +243,6 @@ pub struct GeminiGroundingMetadata {
 pub struct GeminiSSECandidate {
     pub content: Option<GeminiSSEContent>,
     #[serde(rename = "finishReason")]
-    #[allow(dead_code)]
     pub finish_reason: Option<String>,
     #[serde(rename = "groundingMetadata")]
     pub grounding_metadata: Option<GeminiGroundingMetadata>,
@@ -289,7 +288,7 @@ impl GeminiToolCallEvent {
     }
 }
 
-/// Structured result of parsing one Gemini SSE data line.
+/// Structured result of parsing a Gemini response (streaming SSE event or non-streaming body).
 #[derive(Debug, Default)]
 pub struct GeminiParsedEvent {
     pub text: Option<String>,
@@ -297,6 +296,7 @@ pub struct GeminiParsedEvent {
     pub annotations: Vec<UrlCitation>,
     pub used_websearch: bool,
     pub usage: Option<GeminiUsageMetadata>,
+    pub finish_reason: Option<String>,
 }
 
 // ============================================================================
@@ -512,46 +512,215 @@ pub fn parse_gemini_sse_event(data: &str) -> Result<Option<GeminiParsedEvent>, E
         return Ok(Some(parsed));
     };
 
+    extract_candidates_into(&candidates, &mut parsed);
+
+    Ok(Some(parsed))
+}
+
+/// Parse a non-streaming Gemini `generateContent` response body.
+pub fn parse_gemini_response(data: &[u8]) -> Result<GeminiParsedEvent, Error> {
+    let event: GeminiSSEEvent = serde_json::from_slice(data)
+        .map_err(|e| Error::internal_err(format!("Failed to parse Gemini response: {}", e)))?;
+
+    let mut parsed = GeminiParsedEvent { usage: event.usage_metadata, ..Default::default() };
+
+    if let Some(candidates) = event.candidates {
+        extract_candidates_into(&candidates, &mut parsed);
+    }
+
+    Ok(parsed)
+}
+
+// ============================================================================
+// Gemini → OpenAI Format Conversion
+// ============================================================================
+
+/// Convert a `GeminiParsedEvent` from a non-streaming response to an OpenAI chat completion JSON.
+pub fn gemini_response_to_openai(parsed: &GeminiParsedEvent, model: &str) -> serde_json::Value {
+    let content = parsed.text.as_deref().unwrap_or_default();
+
+    let tool_calls: Vec<serde_json::Value> = parsed
+        .tool_calls
+        .iter()
+        .enumerate()
+        .map(|(i, tc)| {
+            serde_json::json!({
+                "index": i,
+                "id": format!("call_{}", uuid::Uuid::new_v4().simple()),
+                "type": "function",
+                "function": {
+                    "name": tc.name,
+                    "arguments": serde_json::to_string(&tc.args).unwrap_or_default()
+                }
+            })
+        })
+        .collect();
+
+    let finish_reason = parsed
+        .finish_reason
+        .as_deref()
+        .map(|r| r.to_lowercase())
+        .unwrap_or_else(|| "stop".to_string());
+
+    let usage = parsed.usage.as_ref().map(|u| {
+        serde_json::json!({
+            "prompt_tokens": u.prompt_token_count.unwrap_or(0),
+            "completion_tokens": u.candidates_token_count.unwrap_or(0),
+            "total_tokens": u.total_token_count.unwrap_or(0),
+        })
+    });
+
+    let mut message = serde_json::json!({
+        "role": "assistant",
+        "content": content,
+    });
+    if !tool_calls.is_empty() {
+        message["tool_calls"] = serde_json::json!(tool_calls);
+    }
+
+    serde_json::json!({
+        "id": format!("chatcmpl-{}", uuid::Uuid::new_v4().simple()),
+        "object": "chat.completion",
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "message": message,
+            "finish_reason": finish_reason,
+        }],
+        "usage": usage,
+    })
+}
+
+/// Convert a `GeminiParsedEvent` from a streaming SSE event into OpenAI-format SSE lines.
+///
+/// Returns the serialized `"data: {...}\n\n"` lines ready to be written to the response stream.
+/// `tool_call_index` is mutated to track the running index across multiple SSE events.
+pub fn gemini_event_to_openai_sse_chunks(
+    parsed: &GeminiParsedEvent,
+    id: &str,
+    model: &str,
+    tool_call_index: &mut usize,
+) -> Vec<String> {
+    let mut chunks = Vec::new();
+
+    if let Some(text) = &parsed.text {
+        let chunk = serde_json::json!({
+            "id": id,
+            "object": "chat.completion.chunk",
+            "model": model,
+            "choices": [{
+                "index": 0,
+                "delta": { "content": text },
+                "finish_reason": null,
+            }]
+        });
+        chunks.push(format!("data: {}\n\n", chunk));
+    }
+
+    for tc in &parsed.tool_calls {
+        let args_str = serde_json::to_string(&tc.args).unwrap_or_default();
+        let call_id = format!("call_{}", uuid::Uuid::new_v4().simple());
+        let chunk = serde_json::json!({
+            "id": id,
+            "object": "chat.completion.chunk",
+            "model": model,
+            "choices": [{
+                "index": 0,
+                "delta": {
+                    "tool_calls": [{
+                        "index": *tool_call_index,
+                        "id": call_id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.name,
+                            "arguments": args_str,
+                        }
+                    }]
+                },
+                "finish_reason": null,
+            }]
+        });
+        chunks.push(format!("data: {}\n\n", chunk));
+        *tool_call_index += 1;
+    }
+
+    chunks
+}
+
+/// Recursively remove JSON Schema fields unsupported by the Gemini API.
+pub fn sanitize_schema_for_google(value: &mut serde_json::Value) {
+    const UNSUPPORTED: &[&str] = &[
+        "additionalProperties",
+        "strict",
+        "$schema",
+        "default",
+        "exclusiveMinimum",
+        "exclusiveMaximum",
+        "const",
+        "multipleOf",
+    ];
+
+    if let Some(obj) = value.as_object_mut() {
+        for field in UNSUPPORTED {
+            obj.remove(*field);
+        }
+        for v in obj.values_mut() {
+            sanitize_schema_for_google(v);
+        }
+    } else if let Some(arr) = value.as_array_mut() {
+        for v in arr.iter_mut() {
+            sanitize_schema_for_google(v);
+        }
+    }
+}
+
+// ============================================================================
+// Internal Helpers
+// ============================================================================
+
+fn extract_candidates_into(candidates: &[GeminiSSECandidate], parsed: &mut GeminiParsedEvent) {
     for candidate in candidates {
-        if let Some(content) = candidate.content {
-            if let Some(parts) = content.parts {
+        if let Some(content) = &candidate.content {
+            if let Some(parts) = &content.parts {
                 for part in parts {
-                    if let Some(text) = part.text {
+                    if let Some(text) = &part.text {
                         if !text.is_empty() {
                             match parsed.text.as_mut() {
-                                Some(existing) => existing.push_str(&text),
-                                None => parsed.text = Some(text),
+                                Some(existing) => existing.push_str(text),
+                                None => parsed.text = Some(text.clone()),
                             }
                         }
                     }
 
-                    if let Some(function_call) = part.function_call {
+                    if let Some(function_call) = &part.function_call {
                         parsed.tool_calls.push(GeminiToolCallEvent {
-                            name: function_call.name,
-                            args: function_call.args,
-                            thought_signature: part.thought_signature,
+                            name: function_call.name.clone(),
+                            args: function_call.args.clone(),
+                            thought_signature: part.thought_signature.clone(),
                         });
                     }
                 }
             }
         }
 
-        if let Some(grounding) = candidate.grounding_metadata {
+        if candidate.finish_reason.is_some() {
+            parsed.finish_reason = candidate.finish_reason.clone();
+        }
+
+        if let Some(grounding) = &candidate.grounding_metadata {
             if !grounding.web_search_queries.is_empty() || !grounding.grounding_chunks.is_empty() {
                 parsed.used_websearch = true;
             }
-            for chunk in grounding.grounding_chunks {
-                if let Some(web) = chunk.web {
+            for chunk in &grounding.grounding_chunks {
+                if let Some(web) = &chunk.web {
                     parsed.annotations.push(UrlCitation {
                         start_index: 0,
                         end_index: 0,
-                        url: web.uri,
-                        title: web.title,
+                        url: web.uri.clone(),
+                        title: web.title.clone(),
                     });
                 }
             }
         }
     }
-
-    Ok(Some(parsed))
 }
