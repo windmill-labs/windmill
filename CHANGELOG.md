@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.646.0](https://github.com/windmill-labs/windmill/compare/v1.645.0...v1.646.0) (2026-02-26)
+
+
+### Features
+
+* add force_branch parameter to git sync settings ([#8089](https://github.com/windmill-labs/windmill/issues/8089)) ([4e1ae27](https://github.com/windmill-labs/windmill/commit/4e1ae276b006992e06ae755ec9315dbfadf4f838))
+* add wmill docs CLI command for querying documentation ([#8114](https://github.com/windmill-labs/windmill/issues/8114)) ([01c7270](https://github.com/windmill-labs/windmill/commit/01c7270cdaa0d5dbee2e15aa5dd08551cff60c70))
+* Broad filters for search ([#8112](https://github.com/windmill-labs/windmill/issues/8112)) ([16a6d5e](https://github.com/windmill-labs/windmill/commit/16a6d5e7afe9323b2f2c7a93828518f5d924cc69))
+* change on behalf selector to allow picking any user + select value in target by default if possible ([#8113](https://github.com/windmill-labs/windmill/issues/8113)) ([408c5af](https://github.com/windmill-labs/windmill/commit/408c5af6d8352f1e205e4543772ce5d060556ffc))
+
+
+### Bug Fixes
+
+* remove duplicate job loading on chart zoom ([#8121](https://github.com/windmill-labs/windmill/issues/8121)) ([99c01bc](https://github.com/windmill-labs/windmill/commit/99c01bca3863ac9b2882948bb5914f051a7716a4))
+* runs page date picker query parameter handling ([#8120](https://github.com/windmill-labs/windmill/issues/8120)) ([427bc64](https://github.com/windmill-labs/windmill/commit/427bc6410be7fda132fc91991164e9b38b32c7e3))
+
 ## [1.645.0](https://github.com/windmill-labs/windmill/compare/v1.644.0...v1.645.0) (2026-02-26)
 
 
