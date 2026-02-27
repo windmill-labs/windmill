@@ -74,7 +74,7 @@ use windmill_common::{
     utils::{not_found_if_none, report_critical_error, StripPath, WarnAfterExt},
     worker::{
         to_raw_value, CLOUD_HOSTED, DISABLE_FLOW_SCRIPT, NO_LOGS, WORKER_PULL_QUERIES,
-        WORKER_SUSPENDED_PULL_QUERY,
+        WORKER_PULL_QUERIES_BATCH, WORKER_SUSPENDED_PULL_QUERY,
     },
     DB, METRICS_ENABLED,
 };
@@ -3434,6 +3434,65 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
     Ok(job_and_suspended)
 }
 
+pub async fn pull_batch(
+    db: &Pool<Postgres>,
+    worker_name: &str,
+    limit: i32,
+) -> windmill_common::error::Result<Vec<PulledJob>> {
+    let queries = WORKER_PULL_QUERIES_BATCH.read().await;
+
+    if queries.is_empty() {
+        tracing::warn!("No batch pull queries available");
+        return Ok(vec![]);
+    }
+
+    let mut results: Vec<PulledJob> = Vec::new();
+    let mut remaining = limit;
+
+    for query in queries.iter() {
+        if remaining <= 0 {
+            break;
+        }
+
+        let jobs = timeout(
+            Duration::from_secs(15),
+            sqlx::query_as::<_, PulledJob>(query)
+                .bind(worker_name)
+                .bind(remaining)
+                .fetch_all(db),
+        )
+        .await??;
+
+        for job in jobs {
+            if job.is_flow() || job.is_dependency() {
+                let per_workspace = per_workspace_tag(&job.workspace_id).await;
+                let base_tag = if job.is_flow() {
+                    "flow".to_string()
+                } else {
+                    "dependency".to_string()
+                };
+                let tag = if per_workspace {
+                    format!("{}-{}", base_tag, job.workspace_id)
+                } else {
+                    base_tag
+                };
+                sqlx::query!(
+                    "UPDATE v2_job_queue SET tag = $1, running = false WHERE id = $2",
+                    tag,
+                    job.id
+                )
+                .execute(db)
+                .await?;
+                continue;
+            }
+            remaining -= 1;
+            results.push(job);
+        }
+    }
+
+    Ok(results)
+}
+
 pub async fn custom_concurrency_key(
     db: &Pool<Postgres>,
     job_id: &Uuid,
@@ -5373,15 +5432,7 @@ async fn push_inner<'c, 'd>(
             language
                 .as_ref()
                 .map(|x| {
-                    let tag_lang = if x == &ScriptLang::Bunnative {
-                        if job_kind == JobKind::Dependencies {
-                            ScriptLang::Bun.as_str()
-                        } else {
-                            ScriptLang::Nativets.as_str()
-                        }
-                    } else {
-                        x.as_str()
-                    };
+                    let tag_lang = x.tag_str(job_kind == JobKind::Dependencies);
                     if per_workspace {
                         format!("{}-{}", tag_lang, workspace_id)
                     } else {

@@ -401,6 +401,7 @@ pub fn spawn_test_worker(
             }];
             windmill_common::worker::store_suspended_pull_query(&wc).await;
             windmill_common::worker::store_pull_query(&wc).await;
+            windmill_common::worker::store_pull_query_batch(&wc).await;
         }
         windmill_worker::run_worker(
             &conn,
@@ -412,6 +413,7 @@ pub fn spawn_test_worker(
             rx,
             tx2,
             &base_internal_url,
+            None,
         )
         .await
     };

@@ -230,6 +230,7 @@ fn spawn_workers(
                 }];
                 windmill_common::worker::store_suspended_pull_query(&wc).await;
                 windmill_common::worker::store_pull_query(&wc).await;
+                windmill_common::worker::store_pull_query_batch(&wc).await;
             }
             windmill_worker::run_worker(
                 &conn,
@@ -241,6 +242,7 @@ fn spawn_workers(
                 rx,
                 tx2,
                 &base_internal_url,
+                None,
             )
             .await;
         };

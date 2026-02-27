@@ -72,6 +72,7 @@ use windmill_parser::MainArgSignature;
 use windmill_queue::DedicatedWorkerJob;
 use windmill_queue::FlowRunners;
 use windmill_queue::MiniCompletedJob;
+use windmill_queue::PulledJobResult;
 use windmill_queue::PulledJobResultToJobErr;
 
 use uuid::Uuid;
@@ -89,8 +90,8 @@ use windmill_common::{
 };
 
 use windmill_queue::{
-    append_logs, canceled_job_to_result, empty_result, get_same_worker_job, pull, push_init_job,
-    push_periodic_bash_job, CanceledBy, JobAndPerms, JobCompleted, MiniPulledJob,
+    append_logs, canceled_job_to_result, empty_result, get_same_worker_job, pull, pull_batch,
+    push_init_job, push_periodic_bash_job, CanceledBy, JobAndPerms, JobCompleted, MiniPulledJob,
     PrecomputedAgentInfo, PulledJob, SameWorkerPayload, HTTP_CLIENT, INIT_SCRIPT_TAG,
     PERIODIC_SCRIPT_TAG,
 };
@@ -255,6 +256,13 @@ const VACUUM_PERIOD: u32 = 10000;
 // const DROP_CACHE_PERIOD: u32 = 1000;
 
 pub const MAX_BUFFERED_DEDICATED_JOBS: usize = 3;
+
+pub struct NativeJobDispatch {
+    pub job: PulledJobResult,
+    pub permit: tokio::sync::OwnedSemaphorePermit,
+}
+
+pub type NativeJobRx = Arc<std::sync::Mutex<tokio::sync::mpsc::Receiver<NativeJobDispatch>>>;
 
 /// Per-language OTEL tracing proxy configuration.
 /// Default languages are configured in frontend instanceSettings.ts
@@ -1348,6 +1356,87 @@ pub async fn create_job_dir(worker_directory: &str, job_id: impl Display) -> Str
     job_dir_path
 }
 
+pub async fn run_native_poller(
+    db: &sqlx::Pool<sqlx::Postgres>,
+    job_tx: tokio::sync::mpsc::Sender<NativeJobDispatch>,
+    semaphore: Arc<tokio::sync::Semaphore>,
+    mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    worker_name: &str,
+) {
+    loop {
+        match killpill_rx.try_recv() {
+            Ok(_) | Err(tokio::sync::broadcast::error::TryRecvError::Closed) => {
+                tracing::info!(worker = %worker_name, "native poller: killpill received, exiting");
+                break;
+            }
+            _ => {}
+        }
+
+        let available = semaphore.available_permits();
+        if available == 0 {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            continue;
+        }
+
+        let jobs = match timeout(
+            Duration::from_secs(30),
+            pull_batch(db, worker_name, available as i32),
+        )
+        .await
+        {
+            Ok(Ok(jobs)) => jobs,
+            Ok(Err(e)) => {
+                tracing::error!(worker = %worker_name, "native poller: pull_batch error: {e}");
+                tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE)).await;
+                continue;
+            }
+            Err(_) => {
+                tracing::error!(worker = %worker_name, "native poller: pull_batch timed out");
+                continue;
+            }
+        };
+
+        if jobs.is_empty() {
+            tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE)).await;
+            continue;
+        }
+
+        for pulled_job in jobs {
+            let permit = semaphore
+                .clone()
+                .try_acquire_owned()
+                .expect("permits can only increase between available_permits() and here");
+
+            let mut job = PulledJobResult {
+                job: Some(pulled_job),
+                suspended: false,
+                missing_concurrency_key: false,
+                error_while_preprocessing: None,
+            };
+
+            if let Err(e) = timeout(
+                core::time::Duration::from_secs(10),
+                job.maybe_apply_debouncing(db),
+            )
+            .await
+            .map_err(error::Error::from)
+            .and_then(|r| r)
+            {
+                job.error_while_preprocessing = Some(e.to_string());
+            }
+
+            if job_tx
+                .send(NativeJobDispatch { job, permit })
+                .await
+                .is_err()
+            {
+                tracing::info!(worker = %worker_name, "native poller: channel closed, exiting");
+                return;
+            }
+        }
+    }
+}
+
 pub async fn run_worker(
     conn: &Connection,
     hostname: &str,
@@ -1358,6 +1447,7 @@ pub async fn run_worker(
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
     killpill_tx: KillpillSender,
     base_internal_url: &str,
+    native_job_rx: Option<NativeJobRx>,
 ) {
     #[cfg(not(feature = "enterprise"))]
     if is_sandboxing_enabled() {
@@ -1818,10 +1908,13 @@ pub async fn run_worker(
     let mut last_30jobs_suspended = 0;
     let mut last_suspend_first = Instant::now();
     let mut killed_but_draining_same_worker_jobs = false;
+    let mut native_permit: Option<tokio::sync::OwnedSemaphorePermit> = None;
 
     let mut killpill_rx2 = killpill_rx.resubscribe();
 
     loop {
+        drop(native_permit.take());
+
         let last_processing_duration_secs = last_processing_duration.load(Ordering::SeqCst);
         if last_processing_duration_secs > 5 {
             let sleep_duration = if last_processing_duration_secs > 10 {
@@ -2056,6 +2149,27 @@ pub async fn run_worker(
                     tracing::info!(worker = %worker_name, hostname = %hostname, "there may be same_worker jobs to process later, waiting for job_completed_processor to finish progressing all remaining flows before exiting");
                     tokio::time::sleep(Duration::from_millis(200)).await;
                     continue;
+                }
+            } else if let Some(ref native_rx) = native_job_rx {
+                let dispatch = native_rx.lock().unwrap().try_recv().ok();
+                match dispatch {
+                    Some(d) => {
+                        native_permit = Some(d.permit);
+                        match d.job.to_pulled_job() {
+                            Ok(j) => Ok(j.map(|job| NextJob::Sql { flow_runners: None, job })),
+                            Err(PulledJobResultToJobErr::MissingConcurrencyKey(jc))
+                            | Err(PulledJobResultToJobErr::ErrorWhilePreprocessing(jc)) => {
+                                if let Err(err) = job_completed_tx.send_job(jc, true).await {
+                                    tracing::error!(
+                                        "An error occurred while sending job completed: {:#?}",
+                                        err
+                                    )
+                                }
+                                Ok(None)
+                            }
+                        }
+                    }
+                    None => Ok(None),
                 }
             } else {
                 match &conn {

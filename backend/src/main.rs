@@ -1822,10 +1822,52 @@ pub async fn run_workers(
             .expect("could not create initial worker dir");
     }
 
+    let native_mode = NATIVE_MODE_RESOLVED.load(std::sync::atomic::Ordering::Relaxed);
+
     tracing::info!(
-        "Starting {num_workers} workers and SLEEP_QUEUE={}ms",
+        "Starting {num_workers} workers (native_polling={native_mode}) and SLEEP_QUEUE={}ms",
         *windmill_worker::SLEEP_QUEUE
     );
+
+    let native_job_rx = if native_mode && num_workers > 1 {
+        let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(num_workers));
+        let (job_tx, job_rx) =
+            tokio::sync::mpsc::channel::<windmill_worker::NativeJobDispatch>(num_workers);
+        let native_job_rx: windmill_worker::NativeJobRx =
+            std::sync::Arc::new(std::sync::Mutex::new(job_rx));
+
+        let first_conn = &workers[0];
+        match &first_conn.conn {
+            Connection::Sql(db) => {
+                let poller_killpill_rx = rx.resubscribe();
+                let poller_name = format!(
+                    "{}-poller",
+                    first_conn
+                        .worker_name
+                        .rsplit_once('-')
+                        .map_or(first_conn.worker_name.as_str(), |(prefix, _)| prefix)
+                );
+                let db = db.clone();
+                handles.push(tokio::spawn(async move {
+                    windmill_worker::run_native_poller(
+                        &db,
+                        job_tx,
+                        semaphore,
+                        poller_killpill_rx,
+                        &poller_name,
+                    )
+                    .await;
+                }));
+                Some(native_job_rx)
+            }
+            Connection::Http(_) => {
+                tracing::warn!("native polling mode is not supported with HTTP connections, falling back to individual polling");
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     for i in 1..(num_workers + 1) {
         let wk_conf = &workers[i as usize - 1];
@@ -1837,6 +1879,7 @@ pub async fn run_workers(
         let tx = tx.clone();
         let base_internal_url = base_internal_url.clone();
         let hostname = hostname.clone();
+        let native_job_rx = native_job_rx.clone();
 
         handles.push(tokio::spawn(async move {
             if num_workers > 1 {
@@ -1853,6 +1896,7 @@ pub async fn run_workers(
                 rx,
                 tx,
                 &base_internal_url,
+                native_job_rx,
             );
 
             // #[cfg(tokio_unstable)]

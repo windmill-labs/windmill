@@ -71,7 +71,7 @@ use windmill_common::{
     worker::{
         load_env_vars, load_init_bash_from_env, load_periodic_bash_script_from_env,
         load_periodic_bash_script_interval_from_env, load_whitelist_env_vars_from_env,
-        load_worker_config, reload_custom_tags_setting, store_pull_query,
+        load_worker_config, reload_custom_tags_setting, store_pull_query, store_pull_query_batch,
         store_suspended_pull_query, Connection, WorkerConfig, DEFAULT_TAGS_PER_WORKSPACE,
         DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG, SCRIPT_TOKEN_EXPIRY, SMTP_CONFIG, TMP_DIR,
         WORKER_CONFIG, WORKER_GROUP,
@@ -2268,6 +2268,7 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
             tracing::info!("Reloading worker config...");
             store_suspended_pull_query(&config).await;
             store_pull_query(&config).await;
+            store_pull_query_batch(&config).await;
             *wc = config
         }
     }

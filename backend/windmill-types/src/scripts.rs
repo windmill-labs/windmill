@@ -88,6 +88,18 @@ impl ScriptLang {
         }
     }
 
+    pub fn tag_str(&self, is_dependency: bool) -> &'static str {
+        if self == &ScriptLang::Bunnative {
+            if is_dependency {
+                ScriptLang::Bun.as_str()
+            } else {
+                ScriptLang::Nativets.as_str()
+            }
+        } else {
+            self.as_str()
+        }
+    }
+
     pub fn as_dependencies_filename(&self) -> Option<String> {
         use ScriptLang::*;
         Some(
@@ -105,15 +117,15 @@ impl ScriptLang {
     pub fn is_native(&self) -> bool {
         matches!(
             self,
-            ScriptLang::Bunnative |
-            ScriptLang::Nativets |
-            ScriptLang::Postgresql |
-            ScriptLang::Mysql |
-            ScriptLang::Graphql |
-            ScriptLang::Snowflake |
-            ScriptLang::Mssql |
-            ScriptLang::Bigquery |
-            ScriptLang::OracleDB
+            ScriptLang::Bunnative
+                | ScriptLang::Nativets
+                | ScriptLang::Postgresql
+                | ScriptLang::Mysql
+                | ScriptLang::Graphql
+                | ScriptLang::Snowflake
+                | ScriptLang::Mssql
+                | ScriptLang::Bigquery
+                | ScriptLang::OracleDB
         )
     }
 

@@ -5343,12 +5343,16 @@ async fn add_batch_jobs(
         if dedicated_worker && path.is_some() {
             windmill_common::worker::dedicated_worker_tag(&w_id, &path.clone().unwrap())
         } else {
-            format!("{}", language.as_str())
+            language
+                .tag_str(job_kind == JobKind::Dependencies)
+                .to_string()
         }
     } else if let Some(tag) = batch_info.tag {
         tag
     } else {
-        format!("{}", language.as_str())
+        language
+            .tag_str(job_kind == JobKind::Dependencies)
+            .to_string()
     };
 
     let mut tx = user_db.begin(&authed).await?;
