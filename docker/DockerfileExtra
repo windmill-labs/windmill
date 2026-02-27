@@ -44,9 +44,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
     case "$arch" in \
-    'amd64') targz='go1.21.13.linux-amd64.tar.gz' ;; \
-    'arm64') targz='go1.21.13.linux-arm64.tar.gz' ;; \
-    'armhf') targz='go1.21.13.linux-armv6l.tar.gz' ;; \
+    'amd64') targz='go1.26.0.linux-amd64.tar.gz' ;; \
+    'arm64') targz='go1.26.0.linux-arm64.tar.gz' ;; \
+    'armhf') targz='go1.26.0.linux-armv6l.tar.gz' ;; \
     *) echo >&2 "error: unsupported architecture '$arch'"; exit 1 ;; \
     esac; \
     wget "https://golang.org/dl/$targz" -nv && tar -C /usr/local -xzf "$targz" && rm "$targz"

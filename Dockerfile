@@ -126,7 +126,7 @@ ARG POWERSHELL_DEB_VERSION=7.5.0-1
 ARG KUBECTL_VERSION=1.28.7
 ARG HELM_VERSION=3.14.3
 # NOTE: If changing, also change go version in workspace dependencies template at WorkspaceDependenciesEditor.svelte
-ARG GO_VERSION=1.25.0
+ARG GO_VERSION=1.26.0
 ARG APP=/usr/src/app
 ARG WITH_POWERSHELL=true
 ARG WITH_KUBECTL=true
