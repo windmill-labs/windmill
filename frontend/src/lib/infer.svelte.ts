@@ -94,16 +94,21 @@ async function prepareDatatableQueries(
 					.join('\n')
 				queryContent = '-- prepare\n--result_collection=all_statements_first_row\n' + queryContent
 
-				let res = (await JobService.runScriptPreviewAndWaitResult({
-					workspace: getWorkspace()!,
-					requestBody: {
-						language: 'postgresql',
-						content: queryContent,
-						args: { database: `datatable://${chunk[0][1]?.source_name}` }
-					}
-				})) as { error?: string; columns?: { name: string; type: string }[] }[]
+				try {
+					let res = (await JobService.runScriptPreviewAndWaitResult({
+						workspace: getWorkspace()!,
+						requestBody: {
+							language: 'postgresql',
+							content: queryContent,
+							args: { database: `datatable://${chunk[0][1]?.source_name}` }
+						}
+					})) as { error?: string; columns?: { name: string; type: string }[] }[]
 
-				return mapPrepareResults(res, chunk)
+					return mapPrepareResults(res, chunk)
+				} catch (e) {
+					const error = e instanceof Error ? e.message : JSON.stringify(e)
+					return chunk.map(([key]) => [key, { error }] as [string, PreparedAssetsSqlQuery])
+				}
 			})
 		)
 	).flat()
