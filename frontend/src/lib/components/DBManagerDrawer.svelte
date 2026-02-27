@@ -55,7 +55,10 @@
 	let expand = $state(false)
 
 	$effect(() => {
-		if (!open) expand = false
+		if (!open) {
+			expand = false
+			uriState.closeDrawer()
+		}
 	})
 
 	let dbManagerContent: DBManagerContent | undefined = $state()
@@ -91,6 +94,8 @@
 					bind:this={dbManagerContent}
 					input={uriState.effectiveInput}
 					bind:hasReplResult
+					bind:selectedSchemaKey={uriState.selectedSchema}
+					bind:selectedTableKey={uriState.selectedTable}
 				>
 					{#snippet dbSelector()}
 						{#if uriState.isDatatableInput}

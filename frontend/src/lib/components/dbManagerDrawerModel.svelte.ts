@@ -18,6 +18,8 @@ export interface DbManagerUriState {
 	readonly effectiveInput: DbInput | undefined
 	readonly isDatatableInput: boolean
 	selectedDatatable: string | undefined
+	selectedSchema: string | undefined
+	selectedTable: string | undefined
 	readonly open: boolean
 	openDrawer: (nInput: DbInput) => void
 	closeDrawer: () => void
@@ -122,6 +124,18 @@ export function useDbManagerUriState(): DbManagerUriState {
 		},
 		set selectedDatatable(v: string | undefined) {
 			params.dbmanager_datatable = v ?? null
+		},
+		get selectedSchema() {
+			return params.dbmanager_schema != null ? String(params.dbmanager_schema) : undefined
+		},
+		set selectedSchema(v: string | undefined) {
+			params.dbmanager_schema = v ?? null
+		},
+		get selectedTable() {
+			return params.dbmanager_table != null ? String(params.dbmanager_table) : undefined
+		},
+		set selectedTable(v: string | undefined) {
+			params.dbmanager_table = v ?? null
 		},
 		get open() {
 			return !!input
