@@ -49,7 +49,9 @@
 {#if $open && !disablePopup}
 	<div use:melt={$content} transition:fade={{ duration: 100 }} style="z-index: {zIndexes.tooltip}">
 		<TooltipInner {documentationLink} {markdownTooltip} {customBgClass}>
-			<slot name="text" />
+			{#snippet children()}
+				<slot name="text" />
+			{/snippet}
 		</TooltipInner>
 	</div>
 {/if}

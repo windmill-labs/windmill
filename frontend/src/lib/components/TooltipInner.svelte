@@ -2,17 +2,29 @@
 	import { ExternalLink } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 
-	export let documentationLink: string | undefined = undefined
-	export let markdownTooltip: string | undefined = undefined
-	export let customBgClass: string | undefined = undefined
-
-	let markdownModule: Promise<{ default: typeof import('svelte-exmarkdown').default; gfmPlugin: typeof import('svelte-exmarkdown/gfm').gfmPlugin }> | undefined = undefined
-	$: if (markdownTooltip && !markdownModule) {
-		markdownModule = Promise.all([
-			import('svelte-exmarkdown'),
-			import('svelte-exmarkdown/gfm')
-		]).then(([md, gfm]) => ({ default: md.default, gfmPlugin: gfm.gfmPlugin }))
+	interface Props {
+		documentationLink?: string | undefined
+		markdownTooltip?: string | undefined
+		customBgClass?: string | undefined
+		children?: import('svelte').Snippet
 	}
+
+	let {
+		documentationLink = undefined,
+		markdownTooltip = undefined,
+		customBgClass = undefined,
+		children
+	}: Props = $props()
+
+	let markdownModule: Promise<{ default: typeof import('svelte-exmarkdown').default; gfmPlugin: typeof import('svelte-exmarkdown/gfm').gfmPlugin }> | undefined = $state()
+	$effect(() => {
+		if (markdownTooltip && !markdownModule) {
+			markdownModule = Promise.all([
+				import('svelte-exmarkdown'),
+				import('svelte-exmarkdown/gfm')
+			]).then(([md, gfm]) => ({ default: md.default, gfmPlugin: gfm.gfmPlugin }))
+		}
+	})
 </script>
 
 <div
@@ -28,7 +40,7 @@
 			</div>
 		{/await}
 	{:else}
-		<slot />
+		{@render children?.()}
 	{/if}
 
 	{#if documentationLink}
