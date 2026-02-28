@@ -11,7 +11,6 @@
 	export let placement: Placement | undefined = 'bottom'
 	export let documentationLink: string | undefined = undefined
 	export let small = false
-	export let markdownTooltip: string | undefined = undefined
 	export let disablePopup: boolean = false
 	export let openDelay: number = 300
 	export let closeDelay: number = 0
@@ -48,7 +47,7 @@
 
 {#if $open && !disablePopup}
 	<div use:melt={$content} transition:fade={{ duration: 100 }} style="z-index: {zIndexes.tooltip}">
-		<TooltipInner {documentationLink} {markdownTooltip} {customBgClass}>
+		<TooltipInner {documentationLink} {customBgClass}>
 			{#snippet children()}
 				<slot name="text" />
 			{/snippet}

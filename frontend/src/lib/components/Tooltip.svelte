@@ -14,7 +14,6 @@
 		placement?: PopoverPlacement | undefined
 		documentationLink?: string | undefined
 		small?: boolean
-		markdownTooltip?: string | undefined
 		customSize?: string
 		class?: string
 		Icon?: typeof InfoIcon
@@ -27,7 +26,6 @@
 		placement = undefined,
 		documentationLink = undefined,
 		small = false,
-		markdownTooltip = undefined,
 		customSize = '100%',
 		class: classNames = '',
 		Icon = InfoIcon,
@@ -37,16 +35,6 @@
 	const disableTooltips = hasContext('disableTooltips')
 		? getContext('disableTooltips') === true
 		: false
-
-	let markdownModule: Promise<{ default: typeof import('svelte-exmarkdown').default; gfmPlugin: typeof import('svelte-exmarkdown/gfm').gfmPlugin }> | undefined = $state()
-	$effect(() => {
-		if (markdownTooltip && !markdownModule) {
-			markdownModule = Promise.all([
-				import('svelte-exmarkdown'),
-				import('svelte-exmarkdown/gfm')
-			]).then(([md, gfm]) => ({ default: md.default, gfmPlugin: gfm.gfmPlugin }))
-		}
-	})
 </script>
 
 {#if disableTooltips !== true}
@@ -65,15 +53,7 @@
 			<Icon class="{small ? 'bottom-0' : '-bottom-0.5'} absolute" size={small ? 12 : 14} />
 		</div>
 		{#snippet text()}
-			{#if markdownTooltip && markdownModule}
-				{#await markdownModule then { default: Markdown, gfmPlugin }}
-					<div class="prose-sm">
-						<Markdown md={markdownTooltip} plugins={[gfmPlugin()]} />
-					</div>
-				{/await}
-			{:else}
-				{@render children?.()}
-			{/if}
+			{@render children?.()}
 		{/snippet}
 	</Popover>
 {/if}

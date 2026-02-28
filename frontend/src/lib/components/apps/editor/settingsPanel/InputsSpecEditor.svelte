@@ -55,7 +55,6 @@
 		recomputeOnInputChanged?: boolean
 		showOnDemandOnlyToggle?: boolean
 		documentationLink?: string | undefined
-		markdownTooltip?: string | undefined
 		securedContext?: boolean
 		disabled?: boolean
 	}
@@ -86,7 +85,6 @@
 		recomputeOnInputChanged = true,
 		showOnDemandOnlyToggle = true,
 		documentationLink = undefined,
-		markdownTooltip = undefined,
 		securedContext = false
 	}: Props = $props()
 
@@ -174,8 +172,8 @@
 					{#if loading}
 						<Loader2 size={14} class="animate-spin ml-2" />
 					{/if}
-					{#if tooltip || markdownTooltip}
-						<Tooltip small {documentationLink} {markdownTooltip}>
+					{#if tooltip}
+						<Tooltip small {documentationLink}>
 							{tooltip}
 						</Tooltip>
 					{/if}
