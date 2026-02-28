@@ -1,13 +1,18 @@
 <script lang="ts">
-	import Markdown from 'svelte-exmarkdown'
 	import { ExternalLink } from 'lucide-svelte'
-	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
 	import { twMerge } from 'tailwind-merge'
 
 	export let documentationLink: string | undefined = undefined
 	export let markdownTooltip: string | undefined = undefined
 	export let customBgClass: string | undefined = undefined
-	const plugins = [gfmPlugin()]
+
+	let markdownModule: Promise<{ default: typeof import('svelte-exmarkdown').default; gfmPlugin: typeof import('svelte-exmarkdown/gfm').gfmPlugin }> | undefined = undefined
+	$: if (markdownTooltip && !markdownModule) {
+		markdownModule = Promise.all([
+			import('svelte-exmarkdown'),
+			import('svelte-exmarkdown/gfm')
+		]).then(([md, gfm]) => ({ default: md.default, gfmPlugin: gfm.gfmPlugin }))
+	}
 </script>
 
 <div
@@ -16,10 +21,12 @@
 		customBgClass || 'bg-surface-secondary'
 	)}
 >
-	{#if markdownTooltip}
-		<div class="prose-sm">
-			<Markdown md={markdownTooltip} {plugins} />
-		</div>
+	{#if markdownTooltip && markdownModule}
+		{#await markdownModule then { default: Markdown, gfmPlugin }}
+			<div class="prose-sm">
+				<Markdown md={markdownTooltip} plugins={[gfmPlugin()]} />
+			</div>
+		{/await}
 	{:else}
 		<slot />
 	{/if}

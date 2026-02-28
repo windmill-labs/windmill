@@ -3,11 +3,9 @@
 	 * @deprecated Use `$lib/components/meltComponents/Tooltip.svelte` instead.
 	 * This legacy tooltip component will be removed in a future version.
 	 */
-	import Markdown from 'svelte-exmarkdown'
 	import type { PopoverPlacement } from './Popover.model'
 	import Popover from './Popover.svelte'
 	import { InfoIcon } from 'lucide-svelte'
-	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
 	import { getContext, hasContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	interface Props {
@@ -35,11 +33,20 @@
 		Icon = InfoIcon,
 		children
 	}: Props = $props()
-	const plugins = [gfmPlugin()]
 
 	const disableTooltips = hasContext('disableTooltips')
 		? getContext('disableTooltips') === true
 		: false
+
+	let markdownModule: Promise<{ default: typeof import('svelte-exmarkdown').default; gfmPlugin: typeof import('svelte-exmarkdown/gfm').gfmPlugin }> | undefined = $state()
+	$effect(() => {
+		if (markdownTooltip && !markdownModule) {
+			markdownModule = Promise.all([
+				import('svelte-exmarkdown'),
+				import('svelte-exmarkdown/gfm')
+			]).then(([md, gfm]) => ({ default: md.default, gfmPlugin: gfm.gfmPlugin }))
+		}
+	})
 </script>
 
 {#if disableTooltips !== true}
@@ -58,10 +65,12 @@
 			<Icon class="{small ? 'bottom-0' : '-bottom-0.5'} absolute" size={small ? 12 : 14} />
 		</div>
 		{#snippet text()}
-			{#if markdownTooltip}
-				<div class="prose-sm">
-					<Markdown md={markdownTooltip} {plugins} />
-				</div>
+			{#if markdownTooltip && markdownModule}
+				{#await markdownModule then { default: Markdown, gfmPlugin }}
+					<div class="prose-sm">
+						<Markdown md={markdownTooltip} plugins={[gfmPlugin()]} />
+					</div>
+				{/await}
 			{:else}
 				{@render children?.()}
 			{/if}
