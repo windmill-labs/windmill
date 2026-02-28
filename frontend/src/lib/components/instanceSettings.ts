@@ -141,6 +141,21 @@ export const settings: Record<string, Setting[]> = {
 					!value?.endsWith(' '))
 		},
 		{
+			label: 'Email domain',
+			description: 'Domain to display in webhooks for email triggers (should match the MX record)',
+			key: 'email_domain',
+			fieldType: 'text',
+			placeholder: 'mail.windmill.com',
+			storage: 'setting',
+			error: 'Must be a valid domain',
+			isValid: (value: string | undefined) =>
+				value == undefined ||
+				value === '' ||
+				/^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*$/.test(
+					value
+				)
+		},
+		{
 			label: 'Request size limit in MB',
 			description: 'Maximum size of HTTP requests in MB.',
 			cloudonly: true,
