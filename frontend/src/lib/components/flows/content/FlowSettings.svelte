@@ -82,7 +82,7 @@
 		{ name: 'Early Return', active: Boolean(flowStore.val.value.early_return) },
 		{ name: 'Dedicated Worker', active: Boolean(flowStore.val.dedicated_worker) },
 		{ name: 'Concurrent Limit', active: Boolean(flowStore.val.value.concurrent_limit) },
-		{ name: 'Run on Behalf of Last Editor', active: Boolean(flowStore.val.on_behalf_of_email) },
+		{ name: `Run on Behalf of ${flowStore.val.on_behalf_of_email ?? 'Last Editor'}`, active: Boolean(flowStore.val.on_behalf_of_email) },
 		{ name: 'Worker Tag', active: displayWorkerTagPicker }
 	])
 
@@ -428,6 +428,11 @@
 							customEmail={customOnBehalfOfEmail}
 							isDeployment={false}
 						/>
+					{:else if flowStore.val.on_behalf_of_email && !canPreserve}
+						<span class="text-xs text-tertiary">
+							Currently: <span class="font-medium">{$savedOnBehalfOfEmail ?? flowStore.val.on_behalf_of_email}</span>.
+							Will be set to <span class="font-medium">{$userStore?.email}</span> on deploy (requires admin or wm_deployers group to override)
+						</span>
 					{/if}
 				</span>
 
