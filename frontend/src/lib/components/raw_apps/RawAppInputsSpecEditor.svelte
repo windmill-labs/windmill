@@ -98,7 +98,7 @@
 					{/if}
 					{#if tooltip}
 						<Tooltip small {documentationLink}>
-							{tooltip}
+							{@html tooltip}
 						</Tooltip>
 					{/if}
 				</div>
