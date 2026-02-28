@@ -42,13 +42,6 @@ RUN bun add -g @playwright/test \
     && bunx playwright install chromium --with-deps \
     && rm -rf /var/lib/apt/lists/* /tmp/bunx-*
 
-# ── AWS CLI ───────────────────────────────────────────────────────────────────
-RUN curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip \
-    && unzip -q /tmp/awscliv2.zip -d /tmp \
-    && /tmp/aws/install \
-    && rm -rf /tmp/aws /tmp/awscliv2.zip
-ENV AWS_DEFAULT_REGION=auto
-
 # ── Claude Code ───────────────────────────────────────────────────────────────
 RUN curl -fsSL https://claude.ai/install.sh | bash
 ENV PATH="/root/.local/bin:$PATH"
