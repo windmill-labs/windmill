@@ -287,19 +287,36 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
             (type_str, version_id, true)
         } else {
             let path_prefix = extract_path_prefix_from_hashed(&request.name);
+            let favorites_only = scope_config.favorites;
             let matched_path = if type_str == "script" {
-                self.backend
-                    .list_scripts(&auth, &workspace_id, false, path_prefix.as_deref())
+                let candidates = self.backend
+                    .list_scripts(&auth, &workspace_id, favorites_only, path_prefix.as_deref())
                     .await
-                    .map_err(|e| ErrorData::internal_error(e.message, None))?
+                    .map_err(|e| ErrorData::internal_error(e.message, None))?;
+                tracing::info!(
+                    "hashed tool resolution: name='{}' prefix={:?} candidate_count={} candidates={:?}",
+                    request.name,
+                    path_prefix,
+                    candidates.len(),
+                    candidates.iter().map(|s| s.path.as_str()).collect::<Vec<_>>()
+                );
+                candidates
                     .into_iter()
                     .find(|s| transform_path(&s.path, "script") == request.name.as_ref())
                     .map(|s| s.path)
             } else {
-                self.backend
-                    .list_flows(&auth, &workspace_id, false, path_prefix.as_deref())
+                let candidates = self.backend
+                    .list_flows(&auth, &workspace_id, favorites_only, path_prefix.as_deref())
                     .await
-                    .map_err(|e| ErrorData::internal_error(e.message, None))?
+                    .map_err(|e| ErrorData::internal_error(e.message, None))?;
+                tracing::info!(
+                    "hashed tool resolution: name='{}' prefix={:?} candidate_count={} candidates={:?}",
+                    request.name,
+                    path_prefix,
+                    candidates.len(),
+                    candidates.iter().map(|f| f.path.as_str()).collect::<Vec<_>>()
+                );
+                candidates
                     .into_iter()
                     .find(|f| transform_path(&f.path, "flow") == request.name.as_ref())
                     .map(|f| f.path)
