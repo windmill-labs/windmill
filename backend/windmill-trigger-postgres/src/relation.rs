@@ -80,10 +80,17 @@ mod tests {
     use rust_postgres::types::Type;
     use serde_json::json;
 
-    use super::super::replication_message::{Column, ReplicaIdentity, RelationBody};
+    use super::super::replication_message::{Column, RelationBody, ReplicaIdentity};
 
     fn make_relation(o_id: Oid, columns: Vec<Column>) -> RelationBody {
-        RelationBody::new(None, o_id, "public".to_string(), "test".to_string(), ReplicaIdentity::Default, columns)
+        RelationBody::new(
+            None,
+            o_id,
+            "public".to_string(),
+            "test".to_string(),
+            ReplicaIdentity::Default,
+            columns,
+        )
     }
 
     fn text_col(name: &str, typ: Option<Type>) -> Column {
@@ -93,10 +100,13 @@ mod tests {
     #[test]
     fn test_row_to_json_text_columns() {
         let mut converter = RelationConverter::new();
-        converter.add_relation(make_relation(1, vec![
-            text_col("id", Some(Type::INT4)),
-            text_col("name", Some(Type::TEXT)),
-        ]));
+        converter.add_relation(make_relation(
+            1,
+            vec![
+                text_col("id", Some(Type::INT4)),
+                text_col("name", Some(Type::TEXT)),
+            ],
+        ));
 
         let tuple = vec![
             TupleData::Text(Bytes::from("42")),
@@ -111,15 +121,15 @@ mod tests {
     #[test]
     fn test_row_to_json_with_null() {
         let mut converter = RelationConverter::new();
-        converter.add_relation(make_relation(1, vec![
-            text_col("id", Some(Type::INT4)),
-            text_col("email", Some(Type::TEXT)),
-        ]));
+        converter.add_relation(make_relation(
+            1,
+            vec![
+                text_col("id", Some(Type::INT4)),
+                text_col("email", Some(Type::TEXT)),
+            ],
+        ));
 
-        let tuple = vec![
-            TupleData::Text(Bytes::from("1")),
-            TupleData::Null,
-        ];
+        let tuple = vec![TupleData::Text(Bytes::from("1")), TupleData::Null];
 
         let result = converter.row_to_json((1, tuple)).unwrap();
         assert_eq!(result["id"], json!(1));
@@ -129,9 +139,7 @@ mod tests {
     #[test]
     fn test_row_to_json_with_unchanged_toast() {
         let mut converter = RelationConverter::new();
-        converter.add_relation(make_relation(1, vec![
-            text_col("data", Some(Type::TEXT)),
-        ]));
+        converter.add_relation(make_relation(1, vec![text_col("data", Some(Type::TEXT))]));
 
         let tuple = vec![TupleData::UnchangedToast];
         let result = converter.row_to_json((1, tuple)).unwrap();
@@ -141,9 +149,7 @@ mod tests {
     #[test]
     fn test_row_to_json_binary_rejected() {
         let mut converter = RelationConverter::new();
-        converter.add_relation(make_relation(1, vec![
-            text_col("data", Some(Type::BYTEA)),
-        ]));
+        converter.add_relation(make_relation(1, vec![text_col("data", Some(Type::BYTEA))]));
 
         let tuple = vec![TupleData::Binary(Bytes::from("data"))];
         assert!(matches!(
@@ -168,8 +174,12 @@ mod tests {
         converter.add_relation(make_relation(1, vec![text_col("a", Some(Type::TEXT))]));
         converter.add_relation(make_relation(2, vec![text_col("b", Some(Type::INT4))]));
 
-        let result1 = converter.row_to_json((1, vec![TupleData::Text(Bytes::from("hello"))])).unwrap();
-        let result2 = converter.row_to_json((2, vec![TupleData::Text(Bytes::from("42"))])).unwrap();
+        let result1 = converter
+            .row_to_json((1, vec![TupleData::Text(Bytes::from("hello"))]))
+            .unwrap();
+        let result2 = converter
+            .row_to_json((2, vec![TupleData::Text(Bytes::from("42"))]))
+            .unwrap();
 
         assert_eq!(result1["a"], json!("hello"));
         assert_eq!(result2["b"], json!(42));
@@ -178,11 +188,11 @@ mod tests {
     #[test]
     fn test_row_to_json_bool_column() {
         let mut converter = RelationConverter::new();
-        converter.add_relation(make_relation(1, vec![
-            text_col("active", Some(Type::BOOL)),
-        ]));
+        converter.add_relation(make_relation(1, vec![text_col("active", Some(Type::BOOL))]));
 
-        let result = converter.row_to_json((1, vec![TupleData::Text(Bytes::from("t"))])).unwrap();
+        let result = converter
+            .row_to_json((1, vec![TupleData::Text(Bytes::from("t"))]))
+            .unwrap();
         assert_eq!(result["active"], json!(true));
     }
 }

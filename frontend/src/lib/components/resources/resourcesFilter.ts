@@ -15,6 +15,10 @@ export function buildResourcesFilterSchema({
 	userFoldersLabel?: string
 }) {
 	return {
+		_default_: {
+			type: 'string' as const,
+			hidden: true
+		},
 		resource_type: {
 			type: 'oneof' as const,
 			options: resourceTypes.map((s) => ({ label: s, value: s })),

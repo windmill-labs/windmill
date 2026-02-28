@@ -198,6 +198,9 @@
 		if (currentFilters.owner) {
 			apiParams.pathStart = currentFilters.owner
 		}
+		if (currentFilters._default_) {
+			apiParams.broadFilter = currentFilters._default_
+		}
 
 		const result = (await ResourceService.listResource(apiParams)).map((x) => {
 			return {
@@ -555,6 +558,10 @@
 	})
 
 	let dbManagerDrawer = $derived(globalDbManagerDrawer.val) as any
+
+	let showTable = $derived(
+		tab == 'workspace' || tab == 'states' || tab == 'cache' || tab == 'theme'
+	)
 </script>
 
 <ConfirmationModal
@@ -876,31 +883,31 @@
 					{/snippet}
 				</Tab>
 			</Tabs>
-			<div class="flex">
+			<div class="flex gap-2 grow justify-end">
 				<Button
-					variant="default"
-					on:click={reload}
+					unifiedSize="md"
+					iconOnly
+					onClick={reload}
 					startIcon={{
 						icon: RotateCw,
 						classes: loading.resources || loading.types ? 'animate-spin' : ''
 					}}
 				/>
+				<FilterSearchbar
+					schema={resourcesFilterSchema}
+					class="max-w-[26rem] grow"
+					bind:value={filters.val}
+					placeholder="Filter resources..."
+					presets={[
+						{
+							name: resourcesFilterSchema.user_folders_only?.label ?? '?',
+							value: 'user_folders_only:\\ true'
+						}
+					]}
+				/>
 			</div>
 		</div>
-		{#if tab == 'workspace' || tab == 'states' || tab == 'cache' || tab == 'theme'}
-			<FilterSearchbar
-				schema={resourcesFilterSchema}
-				bind:value={filters.val}
-				placeholder="Filter resources..."
-				class="mt-4"
-				presets={[
-					{
-						name: resourcesFilterSchema.user_folders_only?.label ?? '?',
-						value: 'user_folders_only:\\ true'
-					}
-				]}
-			/>
-
+		{#if showTable}
 			<div class="overflow-x-auto pb-40 mt-4">
 				{#if loading.resources}
 					<Skeleton layout={[0.5, [2], 1]} />

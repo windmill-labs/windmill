@@ -283,14 +283,14 @@ async fn native_kubernetes_autoscaling_healthcheck() -> Result<(), error::Error>
 }
 
 async fn list_available_python_versions() -> error::JsonResult<Vec<String>> {
-    #[cfg(not(all(feature = "python", feature = "inline_preview")))]
+    #[cfg(not(all(feature = "python", feature = "run_inline")))]
     return Err(error::Error::BadRequest(
         "Python listing available only with 'python' feature enabled".to_string(),
     ));
 
-    #[cfg(all(feature = "python", feature = "inline_preview"))]
+    #[cfg(all(feature = "python", feature = "run_inline"))]
     use itertools::Itertools;
-    #[cfg(all(feature = "python", feature = "inline_preview"))]
+    #[cfg(all(feature = "python", feature = "run_inline"))]
     return Ok(Json(
         windmill_worker::PyV::list_available_python_versions()
             .await

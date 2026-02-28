@@ -69,7 +69,6 @@
 		{/if}
 		<RefreshButton
 			size="sm"
-			light
 			{loading}
 			onClick={() => {
 				refreshCount.val += 1

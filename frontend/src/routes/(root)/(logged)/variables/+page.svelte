@@ -118,6 +118,9 @@
 		if (currentFilters.owner) {
 			apiParams.pathStart = currentFilters.owner
 		}
+		if (currentFilters._default_) {
+			apiParams.broadFilter = currentFilters._default_
+		}
 
 		const result = (await VariableService.listVariable(apiParams)).map((x) => {
 			return {
@@ -253,33 +256,37 @@
 			}}
 		/>
 
-		<Tabs bind:selected={tab}>
-			<Tab value="workspace" label="Workspace" icon={Building} />
-			<Tab value="contextual" label="Contextual" icon={DollarSign}>
-				{#snippet extra()}
-					<Tooltip
-						documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets#contextual-variables"
-					>
-						Contextual variables are passed as environment variables when running a script and
-						depends on the execution context.
-					</Tooltip>
-				{/snippet}
-			</Tab>
-		</Tabs>
+		<div class="flex gap-2 justify-between items-center">
+			<Tabs bind:selected={tab}>
+				<Tab value="workspace" label="Workspace" icon={Building} />
+				<Tab value="contextual" label="Contextual" icon={DollarSign}>
+					{#snippet extra()}
+						<Tooltip
+							documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets#contextual-variables"
+						>
+							Contextual variables are passed as environment variables when running a script and
+							depends on the execution context.
+						</Tooltip>
+					{/snippet}
+				</Tab>
+			</Tabs>
+			{#if tab == 'workspace'}
+				<FilterSearchbar
+					class="grow max-w-[26rem]"
+					schema={variablesFilterSchema}
+					bind:value={filters.val}
+					placeholder="Filter variables..."
+					presets={[
+						{
+							name: variablesFilterSchema.user_folders_only?.label ?? '?',
+							value: 'user_folders_only:\\ true'
+						}
+					]}
+				/>
+			{/if}
+		</div>
 		{#if tab == 'workspace'}
-			<FilterSearchbar
-				class="my-4"
-				schema={variablesFilterSchema}
-				bind:value={filters.val}
-				placeholder="Filter variables..."
-				presets={[
-					{
-						name: variablesFilterSchema.user_folders_only?.label ?? '?',
-						value: 'user_folders_only:\\ true'
-					}
-				]}
-			/>
-			<div class="relative overflow-x-auto pb-40">
+			<div class="relative overflow-x-auto pb-40 mt-4">
 				{#if !filteredItems}
 					<Skeleton layout={[0.5, [2], 1]} />
 					{#each new Array(3) as _}

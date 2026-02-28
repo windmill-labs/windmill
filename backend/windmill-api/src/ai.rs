@@ -663,12 +663,30 @@ async fn global_proxy(
 
     let base_url = provider.get_base_url(None, &db).await?;
 
-    let url = format!("{}/{}", base_url, ai_path);
+    let is_anthropic = provider.is_anthropic();
+    let is_anthropic_sdk = headers.get("X-Anthropic-SDK").is_some();
+
+    let url = if is_anthropic_sdk {
+        let truncated_base_url = base_url.trim_end_matches("/v1");
+        format!("{}/{}", truncated_base_url, ai_path)
+    } else {
+        format!("{}/{}", base_url, ai_path)
+    };
 
     let mut request = HTTP_CLIENT
         .request(method, url)
         .header("content-type", "application/json")
-        .header("Authorization", format!("Bearer {}", api_key));
+        .header("Authorization", format!("Bearer {}", &api_key));
+
+    if is_anthropic {
+        request = request.header("X-API-Key", &api_key);
+    }
+
+    for (header_name, header_value) in headers.iter() {
+        if header_name.to_string().starts_with("anthropic-") {
+            request = request.header(header_name, header_value);
+        }
+    }
 
     // Apply custom headers from AI_HTTP_HEADERS environment variable
     for (header_name, header_value) in AI_HTTP_HEADERS.iter() {

@@ -1,8 +1,5 @@
 use std::collections::HashMap;
 
-use windmill_api_auth::ApiAuthed;
-use windmill_store::resources::try_get_resource_from_db_as;
-use windmill_trigger::trigger_helpers::TriggerJobArgs;
 use chrono::Utc;
 use itertools::Itertools;
 use native_tls::{Certificate, TlsConnector};
@@ -13,6 +10,8 @@ use rust_postgres_native_tls::MakeTlsConnector;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::value::RawValue;
 use sqlx::FromRow;
+use windmill_api_auth::ApiAuthed;
+use windmill_common::workspaces::get_datatable_resource_from_db_unchecked;
 use windmill_common::{
     db::UserDB,
     error::{to_anyhow, Error, Result},
@@ -20,6 +19,8 @@ use windmill_common::{
     utils::empty_as_none,
     DB,
 };
+use windmill_store::resources::try_get_resource_from_db_as;
+use windmill_trigger::trigger_helpers::TriggerJobArgs;
 
 mod bool;
 mod converter;
@@ -373,6 +374,26 @@ pub async fn get_raw_postgres_connection(
     Ok(client)
 }
 
+pub async fn resolve_postgres_resource(
+    authed: &ApiAuthed,
+    user_db: Option<UserDB>,
+    db: &DB,
+    postgres_resource_path: &str,
+    w_id: &str,
+) -> Result<Postgres> {
+    if let Some(datatable_name) = postgres_resource_path.strip_prefix("datatable://") {
+        let resource_value =
+            get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
+        serde_json::from_value::<Postgres>(resource_value).map_err(|e| Error::SerdeJson {
+            error: e,
+            location: "resolve_postgres_resource".to_string(),
+        })
+    } else {
+        try_get_resource_from_db_as::<Postgres>(authed, user_db, db, postgres_resource_path, w_id)
+            .await
+    }
+}
+
 pub async fn get_pg_connection(
     authed: ApiAuthed,
     user_db: Option<UserDB>,
@@ -382,8 +403,7 @@ pub async fn get_pg_connection(
     logical_mode: bool,
 ) -> Result<Client> {
     let database =
-        try_get_resource_from_db_as::<Postgres>(&authed, user_db, db, postgres_resource_path, w_id)
-            .await?;
+        resolve_postgres_resource(&authed, user_db, db, postgres_resource_path, w_id).await?;
 
     Ok(get_raw_postgres_connection(&database, logical_mode).await?)
 }

@@ -25,7 +25,9 @@ use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
     schedule::Schedule,
-    utils::{not_found_if_none, paginate, Pagination, ScheduleType, StripPath},
+    utils::{
+        escape_ilike_pattern, not_found_if_none, paginate, Pagination, ScheduleType, StripPath,
+    },
     worker::to_raw_value,
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
@@ -592,6 +594,7 @@ pub struct ListScheduleQuery {
     pub description: Option<String>,
     // filter on summary (pattern match)
     pub summary: Option<String>,
+    pub broad_filter: Option<String>,
 }
 
 #[derive(sqlx::FromRow, Serialize, Deserialize, Debug, Clone)]
@@ -651,13 +654,19 @@ async fn list_schedule(
         sqlb.and_where_eq("path", "?".bind(schedule_path));
     }
     if let Some(description) = &lsq.description {
-        sqlb.and_where(&format!(
-            "description ILIKE '%{}%'",
-            description.replace("'", "''")
-        ));
+        let pat = format!("%{}%", escape_ilike_pattern(description));
+        sqlb.and_where("description ILIKE ?".bind(&pat));
     }
     if let Some(summary) = &lsq.summary {
-        sqlb.and_where(&format!("summary ILIKE '%{}%'", summary.replace("'", "''")));
+        let pat = format!("%{}%", escape_ilike_pattern(summary));
+        sqlb.and_where("summary ILIKE ?".bind(&pat));
+    }
+    if let Some(broad_filter) = &lsq.broad_filter {
+        let pat = format!("%{}%", escape_ilike_pattern(broad_filter));
+        sqlb.and_where(
+            "(path ILIKE ? OR script_path ILIKE ? OR description ILIKE ? OR summary ILIKE ? OR schedule ILIKE ?)"
+                .bind(&pat).bind(&pat).bind(&pat).bind(&pat).bind(&pat)
+        );
     }
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let rows = sqlx::query_as::<_, ScheduleLight>(&sql)

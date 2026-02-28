@@ -326,6 +326,28 @@ pub struct RunInlinePreviewScriptFnParams {
     pub killpill_rx: tokio::sync::broadcast::Receiver<()>,
 }
 
+pub enum InlineScriptTarget {
+    Path(String),
+    Hash(i64),
+}
+
+pub struct RunInlineScriptFnParams {
+    pub workspace_id: String,
+    pub target: InlineScriptTarget,
+    pub args: Option<HashMap<String, Box<RawValue>>>,
+    pub created_by: String,
+    pub permissioned_as: String,
+    pub permissioned_as_email: String,
+    pub base_internal_url: String,
+    pub worker_name: String,
+    pub conn: crate::worker::Connection,
+    pub client: AuthedClient,
+    pub job_dir: String,
+    pub worker_dir: String,
+    pub killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    pub user_db: Option<(crate::db::UserDB, crate::db::Authed)>,
+}
+
 #[derive(Clone)]
 pub struct WorkerInternalServerInlineUtils {
     pub killpill_rx: Arc<tokio::sync::broadcast::Receiver<()>>,
@@ -333,6 +355,13 @@ pub struct WorkerInternalServerInlineUtils {
     pub run_inline_preview_script: Arc<
         dyn Fn(
                 RunInlinePreviewScriptFnParams,
+            ) -> Pin<Box<dyn Future<Output = error::Result<Box<RawValue>>> + Send>>
+            + Send
+            + Sync,
+    >,
+    pub run_inline_script: Arc<
+        dyn Fn(
+                RunInlineScriptFnParams,
             ) -> Pin<Box<dyn Future<Output = error::Result<Box<RawValue>>> + Send>>
             + Send
             + Sync,

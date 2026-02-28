@@ -9,9 +9,7 @@ on:
   issue_comment:
     types:
       - created
-  pull_request_review_comment:
-    types:
-      - created
+      - edited
 
 jobs:
   notify_discord_when_pr_opened:
@@ -53,23 +51,7 @@ jobs:
       COMMENT_BODY: ${{ github.event.comment.body }}
       COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
       COMMENT_URL: ${{ github.event.comment.html_url }}
-      DISCORD_CHANNEL_ID: "1372204995868491786"
-      DISCORD_GUILD_ID: "930051556043276338"
-    secrets:
-      DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_AI_BOT_TOKEN }}
-
-  notify_discord_on_review_comment:
-    if: >
-      github.event_name == 'pull_request_review_comment'
-      && github.event.comment.user.login != 'cloudflare-workers-and-pages[bot]'
-      && github.event.comment.user.login != 'ellipsis-dev[bot]'
-    uses: ./.github/workflows/shareable-discord-notification.yml
-    with:
-      PR_STATUS: "comment"
-      PR_NUMBER: ${{ github.event.pull_request.number }}
-      COMMENT_BODY: ${{ github.event.comment.body }}
-      COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
-      COMMENT_URL: ${{ github.event.comment.html_url }}
+      COMMENT_IS_EDIT: ${{ github.event.action == 'edited' }}
       DISCORD_CHANNEL_ID: "1372204995868491786"
       DISCORD_GUILD_ID: "930051556043276338"
     secrets:

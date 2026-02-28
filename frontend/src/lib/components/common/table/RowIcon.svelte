@@ -13,6 +13,7 @@
 		DollarSign,
 		Folder,
 		LayoutDashboard,
+		Mail,
 		Route,
 		Unplug
 	} from 'lucide-svelte'
@@ -37,6 +38,7 @@
 		| 'mqtt'
 		| 'sqs'
 		| 'gcp'
+		| 'emails'
 
 	/** For 'trigger' kind, specifies the specific trigger type (routes, schedules, etc.) */
 	export let triggerKind: string | undefined = undefined
@@ -78,6 +80,8 @@
 		<AwsIcon size={16} class="text-gray-400" />
 	{:else if effectiveKind === 'gcp'}
 		<GoogleCloudIcon size={16} />
+	{:else if effectiveKind === 'emails'}
+		<Mail size={16} class="text-gray-400" />
 	{:else if effectiveKind === 'trigger'}
 		<Calendar size={16} class="text-gray-400" />
 	{:else}

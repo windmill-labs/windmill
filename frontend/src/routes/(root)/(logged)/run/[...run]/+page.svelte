@@ -34,6 +34,7 @@
 		Code2,
 		ClipboardCopy,
 		GitBranch,
+		GitFork,
 		EllipsisVertical
 	} from 'lucide-svelte'
 
@@ -86,6 +87,7 @@
 	import FlowRestartButton from '$lib/components/FlowRestartButton.svelte'
 	import JobOtelTraces from '$lib/components/JobOtelTraces.svelte'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
+	import { buildForkEditUrl } from '$lib/utils/editInFork'
 	let job: (Job & { result?: any; result_stream?: string }) | undefined = $state()
 	let jobUpdateLastFetch: Date | undefined = $state()
 
@@ -652,6 +654,15 @@
 							disabled={!showEditButton}
 							size="sm"
 							startIcon={{ icon: Pen }}>Edit</Button
+						>
+					{/if}
+					{#if !showEditButton && !isRuleActive('DisableWorkspaceForking')}
+						<Button
+							href={buildForkEditUrl(isScript ? 'script' : 'flow', job?.script_path ?? '')}
+							unifiedSize="md"
+							variant="default"
+							size="sm"
+							startIcon={{ icon: GitFork }}>Edit in fork</Button
 						>
 					{/if}
 				{/if}
