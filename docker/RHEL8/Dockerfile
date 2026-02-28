@@ -22,7 +22,7 @@ FROM node:20-alpine as frontend
 
 # install dependencies
 WORKDIR /frontend
-COPY ./frontend/package.json ./frontend/package-lock.json ./
+COPY ./frontend/package.json ./frontend/package-lock.json ./.npmrc ./
 COPY ./frontend/scripts/ ./scripts/
 RUN npm ci
 
