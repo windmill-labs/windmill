@@ -781,7 +781,7 @@
 						tooltip={'How far behind the min datetime to start considering jobs for the concurrency graph. Change this value to include jobs started before the set time window for the computation of the graph'}
 					/>
 				{:else if !lastFetchWentToEnd && (jobs?.length ?? 0) >= (perPage.val ?? 1000)}
-					<Button wrapperClasses="ml-2" unifiedSize="md" onClick={() => jobsLoader.loadExtraJobs()}>
+					<Button wrapperClasses="ml-2" unifiedSize="md" loading={jobsLoader.loading} onClick={() => jobsLoader.loadExtraJobs()}>
 						Load more
 						<Tooltip>There are more jobs to load</Tooltip>
 					</Button>
@@ -848,6 +848,7 @@
 										showExternalJobs={graph !== 'RunChart'}
 										activeLabel={filters.val.label}
 										{lastFetchWentToEnd}
+										loading={jobsLoader.loading}
 										bind:selectedIds
 										bind:selectedWorkspace
 										on:loadExtra={loadExtra}

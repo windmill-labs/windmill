@@ -127,6 +127,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let loadingFetch = false
 
 	async function loadExtraJobs(): Promise<void> {
+		loading = true
 		const batchSize = Math.min(perPage, 1000)
 		await loadExtraJobsBatch(batchSize)
 	}
