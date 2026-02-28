@@ -124,7 +124,6 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		}
 		promise = CancelablePromiseUtils.catchErr(promise, (e) => {
 			if (e instanceof CancelError) {
-				batchProgress = null
 				return CancelablePromiseUtils.pure<void>(undefined)
 			}
 			return CancelablePromiseUtils.err(e)
@@ -138,7 +137,6 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		paramChangePromise = loadJobsIntern(false, 25)
 		paramChangePromise = CancelablePromiseUtils.catchErr(paramChangePromise, (e) => {
 			if (e instanceof CancelError) {
-				batchProgress = null
 				return CancelablePromiseUtils.pure<void>(undefined)
 			}
 			return CancelablePromiseUtils.err(e)
