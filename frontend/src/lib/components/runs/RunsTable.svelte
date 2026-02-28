@@ -37,7 +37,6 @@
 		batchRerunOptionsIsOpen?: boolean
 		manualSelectionMode: undefined | 'cancel' | 'rerun'
 		onCancelJobs: (jobIds: string[]) => void
-		loading?: boolean
 		loadingExtra?: boolean
 	}
 
@@ -54,7 +53,6 @@
 		manualSelectionMode,
 		onCancelJobs,
 		batchRerunOptionsIsOpen = $bindable(),
-		loading = false,
 		loadingExtra = false
 	}: Props = $props()
 
@@ -537,9 +535,6 @@
 					{#snippet footer()}
 						<div
 							>{#if !lastFetchWentToEnd && jobs && jobs.length >= perPage}
-								{#if loading && !loadingExtra}
-									<div class="text-xs text-secondary text-center w-full pb-1">Refreshing...</div>
-								{/if}
 								<button
 									class="text-xs text-accent text-center w-full pb-2"
 									disabled={loadingExtra}
