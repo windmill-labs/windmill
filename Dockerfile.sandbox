@@ -195,13 +195,6 @@ RUN bun add -g @playwright/test \
     && chmod -R a+rwX /usr/local/lib/bun/install \
     && rm -rf /var/lib/apt/lists/* /tmp/bunx-*
 
-# ── AWS CLI (for S3-compatible uploads to R2) ─────────────────────────────────
-RUN curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip \
-    && unzip -q /tmp/awscliv2.zip -d /tmp \
-    && /tmp/aws/install \
-    && rm -rf /tmp/aws /tmp/awscliv2.zip
-
-ENV AWS_DEFAULT_REGION=auto
 
 # ── Runtime env for arbitrary UID ─────────────────────────────────────────────
 # Mutable state goes to /tmp (writable by any UID). Toolchains stay read-only.
