@@ -38,6 +38,7 @@ pub enum DeployedObject {
     EmailTrigger { path: String, parent_path: Option<String> },
     Settings { setting_type: String },
     Key { key_type: String },
+    WorkspaceDependency { path: String },
 }
 
 impl DeployedObject {
@@ -65,6 +66,7 @@ impl DeployedObject {
             DeployedObject::EmailTrigger { path, .. } => path.to_owned(),
             DeployedObject::Settings { .. } => "settings.yaml".to_string(),
             DeployedObject::Key { .. } => "encryption_key.yaml".to_string(),
+            DeployedObject::WorkspaceDependency { path, .. } => path.to_owned(),
         }
     }
 
@@ -74,7 +76,8 @@ impl DeployedObject {
             | Self::Group { .. }
             | Self::ResourceType { .. }
             | Self::Settings { .. }
-            | Self::Key { .. } => true,
+            | Self::Key { .. }
+            | Self::WorkspaceDependency { .. } => true,
             _ => false,
         }
     }
@@ -103,6 +106,7 @@ impl DeployedObject {
             DeployedObject::EmailTrigger { parent_path, .. } => parent_path.to_owned(),
             DeployedObject::Settings { .. } => None,
             DeployedObject::Key { .. } => None,
+            DeployedObject::WorkspaceDependency { .. } => None,
         }
     }
 
@@ -130,6 +134,8 @@ impl DeployedObject {
             DeployedObject::EmailTrigger { .. } => "email_trigger",
             DeployedObject::Settings { .. } => "settings",
             DeployedObject::Key { .. } => "key",
-        }.to_string()
+            DeployedObject::WorkspaceDependency { .. } => "workspace_dependency",
+        }
+        .to_string()
     }
 }
