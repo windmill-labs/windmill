@@ -98,6 +98,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let queue_count: Tweened<number> | undefined = $state()
 	let suspended_count: Tweened<number> | undefined = $state()
 	let loading = $state(false)
+	let loadingExtra = $state(false)
 	let lastFetchWentToEnd = $state(true)
 	let batchProgress = $state<{ loaded: number; total: number } | null>(null)
 
@@ -128,8 +129,10 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 
 	async function loadExtraJobs(): Promise<void> {
 		loading = true
+		loadingExtra = true
 		const batchSize = Math.min(perPage, 1000)
 		await loadExtraJobsBatch(batchSize)
+		loadingExtra = false
 	}
 
 	function loadExtraJobsBatch(batchSize: number): CancelablePromise<void> {
@@ -611,6 +614,9 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		},
 		get loading() {
 			return loading
+		},
+		get loadingExtra() {
+			return loadingExtra
 		},
 		get completedJobs() {
 			return completedJobs
