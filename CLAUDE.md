@@ -51,10 +51,15 @@ After making code changes, you MUST run the appropriate checks and fix all error
 
 `backend/summarized_schema.txt` provides a compact overview of all tables, columns, types, ENUMs, and foreign keys. Use it to quickly understand the data model and relationships. Note: this file is a simplified summary — it omits indexes, constraints details, and other metadata.
 
-For exact table definitions (indexes, constraints, column defaults, etc.), query the database directly:
+For exact table definitions (indexes, constraints, column defaults, etc.), query the database directly.
+
+**IMPORTANT**: The database name varies per worktree/branch. Always read `.env.local` first to get the correct `DATABASE_URL`. The default `windmill` database is only used on the main branch — worktrees use branch-specific database names (e.g., `windmill_add_fast_filter`). Using the wrong database means your queries, inserts, and migrations will target stale or empty data.
 
 ```bash
-psql postgres://postgres:changeme@localhost:5432/windmill
+# Always check .env.local first:
+grep DATABASE_URL .env.local
+# Then use the correct database URL, e.g.:
+psql "postgres://postgres:changeme@127.0.0.1:5432/windmill_add_fast_filter"
 ```
 
 Useful psql commands:

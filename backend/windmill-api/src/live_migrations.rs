@@ -101,12 +101,21 @@ async fn fast_filter_migration(db: &DB) -> Result<(), Error> {
 
 async fn fast_filter_migration_inner(db: &DB) -> Result<(), Error> {
     // Wait until all workers are at least version 1.647 so new jobs write fast_filter
-    loop {
-        if MIN_VERSION_IS_AT_LEAST_1_647.met().await {
-            break;
+    let skip_version_check = std::env::var("SKIP_MIN_VERSION_CHECK")
+        .map(|v| v == "1" || v == "true")
+        .unwrap_or(false);
+    if !skip_version_check {
+        loop {
+            if MIN_VERSION_IS_AT_LEAST_1_647.met().await {
+                break;
+            }
+            tracing::info!("fast_filter migration: waiting for all workers to be >= 1.647");
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
         }
-        tracing::info!("fast_filter migration: waiting for all workers to be >= 1.647");
-        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+    } else {
+        tracing::info!(
+            "fast_filter migration: skipping version check (SKIP_MIN_VERSION_CHECK=true)"
+        );
     }
 
     // Backfill existing rows in batches (skip skipped jobs — they stay NULL)
