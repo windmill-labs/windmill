@@ -14,6 +14,10 @@ use futures::TryFutureExt;
 use tokio::sync::Mutex;
 use tokio::time::timeout;
 use windmill_common::client::AuthedClient;
+use windmill_common::db::UserDbWithAuthed;
+use windmill_common::get_latest_deployed_hash_for_path;
+use windmill_common::jobs::InlineScriptTarget;
+use windmill_common::jobs::RunInlineScriptFnParams;
 use windmill_common::jobs::WorkerInternalServerInlineUtils;
 use windmill_common::jobs::WORKER_INTERNAL_SERVER_INLINE_UTILS;
 use windmill_common::runtime_assets::init_runtime_asset_loop;
@@ -4705,43 +4709,18 @@ pub fn init_worker_internal_server_inline_utils(
         base_internal_url,
         killpill_rx: Arc::new(killpill_rx),
         run_inline_preview_script: Arc::new(|params| {
-            let job = MiniPulledJob {
-                workspace_id: params.workspace_id,
-                id: Uuid::new_v4(),
-                args: params.args.map(Json),
-                parent_job: None,
-                created_by: params.created_by,
-                scheduled_for: chrono::Utc::now(),
-                started_at: None,
-                runnable_path: None,
-                kind: JobKind::Preview,
-                runnable_id: None,
-                canceled_reason: None,
-                canceled_by: None,
-                permissioned_as: params.permissioned_as,
-                permissioned_as_email: params.permissioned_as_email,
-                flow_status: None,
-                tag: "inline_preview".to_string(),
-                script_lang: Some(params.lang),
-                same_worker: true,
-                pre_run_error: None,
-                flow_innermost_root_job: None,
-                root_job: None,
-                timeout: None,
-                flow_step_id: None,
-                cache_ttl: None,
-                cache_ignore_s3_path: None,
-                priority: None,
-                preprocessed: None,
-                script_entrypoint_override: None,
-                trigger: None,
-                trigger_kind: None,
-                visible_to_owner: false,
-                permissioned_as_end_user_email: None,
-                runnable_settings_handle: None,
-                concurrent_limit: None,
-                concurrency_time_window_s: None,
-            };
+            let job = MiniPulledJob::new_inline(
+                params.workspace_id,
+                params.args,
+                params.created_by,
+                params.permissioned_as,
+                params.permissioned_as_email,
+                None,
+                JobKind::Preview,
+                None,
+                "inline_preview".to_string(),
+                Some(params.lang),
+            );
             Box::pin(async move {
                 let mut mem_peak: i32 = -1;
                 let mut canceled_by: Option<CanceledBy> = None;
@@ -4773,6 +4752,86 @@ pub fn init_worker_internal_server_inline_utils(
                     &None,
                     &None,
                     &None,
+                    true,
+                )
+                .await
+            })
+        }),
+        run_inline_script: Arc::new(|params: RunInlineScriptFnParams| {
+            Box::pin(async move {
+                let (script_hash, runnable_path) = match params.target {
+                    InlineScriptTarget::Path(ref path) => {
+                        let db = params
+                            .conn
+                            .as_sql()
+                            .ok_or_else(|| {
+                                error::Error::InternalErr(
+                                    "run_inline_script by path requires a SQL connection"
+                                        .to_string(),
+                                )
+                            })?
+                            .clone();
+                        let authed_ref = params.user_db.as_ref().map(|(_, a)| a.to_authed_ref());
+                        let user_db_authed =
+                            params.user_db.as_ref().zip(authed_ref.as_ref()).map(
+                                |((udb, _), ar)| UserDbWithAuthed { db: udb.clone(), authed: ar },
+                            );
+                        let script_hash_info = get_latest_deployed_hash_for_path(
+                            user_db_authed,
+                            db,
+                            &params.workspace_id,
+                            path,
+                        )
+                        .await?;
+                        (ScriptHash(script_hash_info.hash), Some(path.clone()))
+                    }
+                    InlineScriptTarget::Hash(hash) => (ScriptHash(hash), None),
+                };
+                let content_info =
+                    get_script_content_by_hash(&script_hash, &params.workspace_id, &params.conn)
+                        .await?;
+                let job = MiniPulledJob::new_inline(
+                    params.workspace_id,
+                    params.args,
+                    params.created_by,
+                    params.permissioned_as,
+                    params.permissioned_as_email,
+                    runnable_path,
+                    JobKind::Script,
+                    Some(script_hash),
+                    "inline_run".to_string(),
+                    content_info.language,
+                );
+                let mut mem_peak: i32 = -1;
+                let mut canceled_by: Option<CanceledBy> = None;
+                let mut column_order: Option<Vec<String>> = None;
+                let mut new_args: Option<HashMap<String, Box<RawValue>>> = None;
+                let mut occupancy_metrics = OccupancyMetrics::new(Instant::now());
+                let mut has_stream: bool = false;
+                let mut killpill_rx = params.killpill_rx;
+
+                run_language_executor(
+                    &job,
+                    &params.conn,
+                    &params.client,
+                    None,
+                    &params.job_dir,
+                    &params.worker_dir,
+                    &mut mem_peak,
+                    &mut canceled_by,
+                    &params.base_internal_url,
+                    &params.worker_name,
+                    &mut column_order,
+                    &mut new_args,
+                    &mut occupancy_metrics,
+                    &mut killpill_rx,
+                    None,
+                    &mut has_stream,
+                    content_info.language,
+                    &content_info.content,
+                    &content_info.envs,
+                    &content_info.codebase,
+                    &content_info.lockfile,
                     true,
                 )
                 .await

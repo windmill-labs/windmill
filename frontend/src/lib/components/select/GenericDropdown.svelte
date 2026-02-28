@@ -44,7 +44,10 @@
 		if (!getInputRect || !listEl) return { width: 0, height: 0, x: 0, y: 0, isBelow: true }
 		let inputR = getInputRect()
 		const listR = listEl.getBoundingClientRect()
-		const isBelow = inputR.y + inputR.height + listR.height <= window.innerHeight
+		const fitsBelow = inputR.y + inputR.height + listR.height <= window.innerHeight
+		const spaceBelow = window.innerHeight - (inputR.y + inputR.height)
+		const spaceAbove = inputR.y
+		const isBelow = fitsBelow || spaceBelow >= spaceAbove
 		let [x, y] = disablePortal ? [0, 0] : [inputR.x, inputR.y]
 		if (isBelow)
 			return { width: inputR.width, height: listR.height, x: x, y: y + inputR.height, isBelow }

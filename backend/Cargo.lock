@@ -16167,6 +16167,7 @@ dependencies = [
  "windmill-common",
  "windmill-native-triggers",
  "windmill-test-utils",
+ "windmill-worker",
 ]
 
 [[package]]
@@ -17022,6 +17023,7 @@ dependencies = [
 name = "windmill-sql-datatype-parser-wasm"
 version = "1.646.0"
 dependencies = [
+ "getrandom 0.3.4",
  "wasm-bindgen",
  "wasm-bindgen-test",
  "windmill-parser",

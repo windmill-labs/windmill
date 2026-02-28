@@ -2228,7 +2228,7 @@ class DataTableClient:
         args_def = ""
         for i, arg in enumerate(args):
             args_dict[f"arg{i+1}"] = arg
-            args_def += f"-- ${i+1} arg{i+1}\n"
+            args_def += f"-- ${i+1} arg{i+1} ({infer_sql_type(arg)})\n"
         sql = args_def + sql
         return SqlQuery(
             sql,
@@ -2338,7 +2338,7 @@ def infer_sql_type(value) -> str:
     elif isinstance(value, int):
         return "BIGINT"
     elif isinstance(value, float):
-        return "DOUBLE PRECISION"
+        return "FLOAT8"
     elif value is None:
         return "TEXT"
     elif isinstance(value, str):
