@@ -16208,6 +16208,7 @@ dependencies = [
  "tar",
  "tower-http",
  "tracing",
+ "url",
  "windmill-api-auth",
  "windmill-common",
 ]

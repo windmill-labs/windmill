@@ -131,12 +131,29 @@ pub fn workspaced_service() -> Router {
         )
 }
 
-fn build_registry_request(url: &str, auth_token: &Option<String>) -> reqwest::RequestBuilder {
+fn build_registry_request(
+    url: &str,
+    auth_token: &Option<String>,
+    registry_base_url: &str,
+) -> Result<reqwest::RequestBuilder> {
+    let parsed_url =
+        url::Url::parse(url).map_err(|e| Error::BadRequest(format!("Invalid URL: {}", e)))?;
+    let parsed_base = url::Url::parse(registry_base_url)
+        .map_err(|e| Error::BadRequest(format!("Invalid registry URL: {}", e)))?;
+
+    if parsed_url.host_str() != parsed_base.host_str() {
+        return Err(Error::BadRequest(format!(
+            "Tarball URL host '{}' does not match registry host '{}'",
+            parsed_url.host_str().unwrap_or("unknown"),
+            parsed_base.host_str().unwrap_or("unknown"),
+        )));
+    }
+
     let mut req = HTTP_CLIENT.get(url);
     if let Some(token) = auth_token {
         req = req.bearer_auth(token);
     }
-    req
+    Ok(req)
 }
 
 /// Get package metadata (versions and tags) from the private registry
@@ -153,7 +170,7 @@ async fn get_package_metadata(
 
     tracing::info!("Fetching package metadata from: {}", package_url);
 
-    let response = build_registry_request(&package_url, &auth_token)
+    let response = build_registry_request(&package_url, &auth_token, &registry_url)?
         .send()
         .await
         .map_err(|e| Error::InternalErr(format!("Failed to fetch package metadata: {}", e)))?;
@@ -204,7 +221,7 @@ async fn resolve_package_version(
 
     tracing::info!("Resolving package version from: {}", package_url);
 
-    let response = build_registry_request(&package_url, &auth_token)
+    let response = build_registry_request(&package_url, &auth_token, &registry_url)?
         .send()
         .await
         .map_err(|e| Error::InternalErr(format!("Failed to fetch package metadata: {}", e)))?;
@@ -258,7 +275,7 @@ async fn get_package_filetree(
 
     tracing::info!("Fetching package filetree from: {}", package_url);
 
-    let response = build_registry_request(&package_url, &auth_token)
+    let response = build_registry_request(&package_url, &auth_token, &registry_url)?
         .send()
         .await
         .map_err(|e| Error::InternalErr(format!("Failed to fetch package metadata: {}", e)))?;
@@ -283,7 +300,7 @@ async fn get_package_filetree(
         .and_then(|t| t.as_str())
         .ok_or_else(|| Error::NotFound(format!("Tarball not found for {}@{}", package, version)))?;
 
-    let tarball_response = build_registry_request(tarball_url, &auth_token)
+    let tarball_response = build_registry_request(tarball_url, &auth_token, &registry_url)?
         .send()
         .await
         .map_err(|e| Error::InternalErr(format!("Failed to download tarball: {}", e)))?;
@@ -329,7 +346,7 @@ async fn get_package_file(
 
     tracing::info!("Fetching package file from: {}", package_url);
 
-    let response = build_registry_request(&package_url, &auth_token)
+    let response = build_registry_request(&package_url, &auth_token, &registry_url)?
         .send()
         .await
         .map_err(|e| Error::InternalErr(format!("Failed to fetch package metadata: {}", e)))?;
@@ -354,7 +371,7 @@ async fn get_package_file(
         .and_then(|t| t.as_str())
         .ok_or_else(|| Error::NotFound(format!("Tarball not found for {}@{}", package, version)))?;
 
-    let tarball_response = build_registry_request(tarball_url, &auth_token)
+    let tarball_response = build_registry_request(tarball_url, &auth_token, &registry_url)?
         .send()
         .await
         .map_err(|e| Error::InternalErr(format!("Failed to download tarball: {}", e)))?;
