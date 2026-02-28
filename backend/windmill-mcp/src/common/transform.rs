@@ -21,8 +21,8 @@ const HASH_LEN: usize = 16;
 /// have names with slashes. Because we replace slashes with underscores,
 /// we also need to escape underscores.
 ///
-/// For short names (≤60 chars): `s-{escaped_path}` or `f-{escaped_path}`
-/// For long names (>60 chars): `S-{escaped[:42]}{sha256[:16]}` or `F-{escaped[:42]}{sha256[:16]}`
+/// For short names (≤40 chars): `s-{escaped_path}` or `f-{escaped_path}`
+/// For long names (>40 chars): `S-{escaped[:22]}{sha256[:16]}` or `F-{escaped[:22]}{sha256[:16]}`
 ///
 /// The uppercase prefix signals that the name is hashed.
 pub fn transform_path(path: &str, type_str: &str) -> String {
@@ -35,7 +35,7 @@ pub fn transform_path(path: &str, type_str: &str) -> String {
     }
 
     let upper_prefix = prefix_char.to_uppercase();
-    // Layout: "{Upper}-" (2 chars) + prefix_body (42 chars) + hash (16 chars) = 60
+    // Layout: "{Upper}-" (2 chars) + prefix_body (22 chars) + hash (16 chars) = 40
     let prefix_body_len = MAX_PATH_LENGTH - 2 - HASH_LEN;
     let hash = calculate_hash(&short_name);
     let hash_suffix = &hash[..HASH_LEN];
@@ -45,8 +45,8 @@ pub fn transform_path(path: &str, type_str: &str) -> String {
 
 /// Transform the path for hub scripts
 ///
-/// For short names (≤60 chars): `hs-{id}-{summary}`
-/// For long names (>60 chars): `Hs-{id}-{summary[:N]}{sha256[:16]}`
+/// For short names (≤40 chars): `hs-{id}-{summary}`
+/// For long names (>40 chars): `Hs-{id}-{summary[:N]}{sha256[:16]}`
 pub fn transform_hub_path(version_id: u64, summary: &str) -> String {
     let escaped_summary = summary.replace(' ', "_");
     let short_name = format!("hs-{}-{}", version_id, escaped_summary);
