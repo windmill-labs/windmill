@@ -1,6 +1,6 @@
 import type { AIProvider, AIProviderModel } from '$lib/gen'
-import { workspaceStore, type DBSchema, type GraphqlSchema, type SQLSchema } from '$lib/stores'
-import { buildClientSchema, printSchema } from 'graphql'
+import { workspaceStore, type DBSchema, type SQLSchema } from '$lib/stores'
+import type { IntrospectionQuery } from 'graphql'
 import OpenAI from 'openai'
 import type {
 	ChatCompletionChunk,
@@ -587,43 +587,40 @@ export function addThousandsSeparator(n: number) {
 	return n.toFixed().replace(/\B(?=(\d{3})+(?!\d))/g, "'")
 }
 
-export function stringifySchema(
-	dbSchema: Omit<SQLSchema, 'stringified'> | Omit<GraphqlSchema, 'stringified'>
-) {
+export function stringifySchema(dbSchema: Omit<SQLSchema, 'stringified'>): string {
 	const { schema, lang } = dbSchema
-	if (lang === 'graphql') {
-		let graphqlSchema = printSchema(buildClientSchema(schema))
-		return graphqlSchema
-	} else {
-		let smallerSchema: {
-			[schemaKey: string]: {
-				[tableKey: string]: Array<[string, string, boolean, string?]>
-			}
-		} = {}
-		for (const schemaKey in schema) {
-			smallerSchema[schemaKey] = {}
-			for (const tableKey in schema[schemaKey]) {
-				smallerSchema[schemaKey][tableKey] = []
-				for (const colKey in schema[schemaKey][tableKey]) {
-					const col = schema[schemaKey][tableKey][colKey]
-					const p: [string, string, boolean, string?] = [colKey, col.type, col.required]
-					if (col.default) {
-						p.push(col.default)
-					}
-					smallerSchema[schemaKey][tableKey].push(p)
+	let smallerSchema: {
+		[schemaKey: string]: {
+			[tableKey: string]: Array<[string, string, boolean, string?]>
+		}
+	} = {}
+	for (const schemaKey in schema) {
+		smallerSchema[schemaKey] = {}
+		for (const tableKey in schema[schemaKey]) {
+			smallerSchema[schemaKey][tableKey] = []
+			for (const colKey in schema[schemaKey][tableKey]) {
+				const col = schema[schemaKey][tableKey][colKey]
+				const p: [string, string, boolean, string?] = [colKey, col.type, col.required]
+				if (col.default) {
+					p.push(col.default)
 				}
+				smallerSchema[schemaKey][tableKey].push(p)
 			}
 		}
-
-		let finalSchema: typeof smallerSchema | (typeof smallerSchema)['schemaKey'] = smallerSchema
-		if (dbSchema.publicOnly) {
-			finalSchema =
-				smallerSchema.public || smallerSchema.PUBLIC || smallerSchema.dbo || smallerSchema
-		} else if (lang === 'mysql' && Object.keys(smallerSchema).length === 1) {
-			finalSchema = smallerSchema[Object.keys(smallerSchema)[0]]
-		}
-		return JSON.stringify(finalSchema)
 	}
+
+	let finalSchema: typeof smallerSchema | (typeof smallerSchema)['schemaKey'] = smallerSchema
+	if (dbSchema.publicOnly) {
+		finalSchema = smallerSchema.public || smallerSchema.PUBLIC || smallerSchema.dbo || smallerSchema
+	} else if (lang === 'mysql' && Object.keys(smallerSchema).length === 1) {
+		finalSchema = smallerSchema[Object.keys(smallerSchema)[0]]
+	}
+	return JSON.stringify(finalSchema)
+}
+
+export async function stringifyGraphqlSchema(schema: unknown): Promise<string> {
+	const { buildClientSchema, printSchema } = await import('graphql')
+	return printSchema(buildClientSchema(schema as IntrospectionQuery))
 }
 
 function addDBSChema(scriptOptions: CopilotOptions, prompt: string) {
