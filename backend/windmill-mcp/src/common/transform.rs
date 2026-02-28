@@ -126,14 +126,15 @@ pub fn extract_path_prefix_from_hashed(name: &str) -> Option<String> {
         return None;
     }
 
-    // Un-escape: `__` → `_`, standalone `_` → `/`
-    const TEMP_PLACEHOLDER: &str = "@@UNDERSCORE@@";
-    let prefix = trimmed
-        .replace("__", TEMP_PLACEHOLDER)
-        .replace('_', "/")
-        .replace(TEMP_PLACEHOLDER, "_");
+    Some(unescape_path(trimmed))
+}
 
-    Some(prefix)
+/// Un-escape a mangled path segment: `__` → `_`, standalone `_` → `/`.
+fn unescape_path(s: &str) -> String {
+    const TEMP_PLACEHOLDER: &str = "@@UNDERSCORE@@";
+    s.replace("__", TEMP_PLACEHOLDER)
+        .replace('_', "/")
+        .replace(TEMP_PLACEHOLDER, "_")
 }
 
 /// Truncate a string to at most `max_len` bytes, ensuring we don't split a UTF-8 character.
@@ -159,7 +160,7 @@ fn truncate_to_char_boundary(s: &str, max_len: usize) -> &str {
 /// Returns: (type, original_path, is_hub)
 ///
 /// Note: This only works for non-hashed (short) names. Hashed names must be
-/// resolved via `is_hashed_name` + path enumeration in the runner.
+/// resolved via `parse_tool_prefix` + path enumeration in the runner.
 pub fn reverse_transform(transformed_path: &str) -> Result<(&str, String, bool), String> {
     let (type_str, is_hub, is_hashed) = parse_tool_prefix(transformed_path)?;
 
@@ -181,11 +182,7 @@ pub fn reverse_transform(transformed_path: &str) -> Result<(&str, String, bool),
         }
         parts[0].to_string()
     } else {
-        const TEMP_PLACEHOLDER: &str = "@@UNDERSCORE@@";
-        mangled_path
-            .replace("__", TEMP_PLACEHOLDER)
-            .replace('_', "/")
-            .replace(TEMP_PLACEHOLDER, "_")
+        unescape_path(mangled_path)
     };
 
     Ok((type_str, original_path, is_hub))

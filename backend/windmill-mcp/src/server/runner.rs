@@ -7,7 +7,7 @@ use crate::common::schema::extract_resource_types_from_schema;
 use crate::common::scope::parse_mcp_scopes;
 use crate::common::transform::{
     extract_hub_version_id_from_hashed, extract_path_prefix_from_hashed, parse_tool_prefix,
-    reverse_transform, reverse_transform_key, transform_path,
+    reverse_transform, reverse_transform_key,
 };
 use crate::common::types::{ResourceInfo, ToolableItem, WorkspaceId};
 use crate::server::backend::{McpAuth, McpBackend};
@@ -82,6 +82,13 @@ impl<B: McpBackend> Runner<B> {
 
         Ok((auth.clone(), workspace_id))
     }
+}
+
+fn find_matching_path<T: ToolableItem>(candidates: Vec<T>, request_name: &str) -> Option<String> {
+    candidates
+        .into_iter()
+        .find(|item| item.get_transformed_path() == request_name)
+        .map(|item| item.get_full_path().to_string())
 }
 
 impl<B: McpBackend> ServerHandler for Runner<B> {
@@ -289,37 +296,21 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
             let path_prefix = extract_path_prefix_from_hashed(&request.name);
             let favorites_only = scope_config.favorites;
             let matched_path = if type_str == "script" {
-                let candidates = self.backend
-                    .list_scripts(&auth, &workspace_id, favorites_only, path_prefix.as_deref())
-                    .await
-                    .map_err(|e| ErrorData::internal_error(e.message, None))?;
-                tracing::info!(
-                    "hashed tool resolution: name='{}' prefix={:?} candidate_count={} candidates={:?}",
-                    request.name,
-                    path_prefix,
-                    candidates.len(),
-                    candidates.iter().map(|s| s.path.as_str()).collect::<Vec<_>>()
-                );
-                candidates
-                    .into_iter()
-                    .find(|s| transform_path(&s.path, "script") == request.name.as_ref())
-                    .map(|s| s.path)
+                find_matching_path(
+                    self.backend
+                        .list_scripts(&auth, &workspace_id, favorites_only, path_prefix.as_deref())
+                        .await
+                        .map_err(|e| ErrorData::internal_error(e.message, None))?,
+                    &request.name,
+                )
             } else {
-                let candidates = self.backend
-                    .list_flows(&auth, &workspace_id, favorites_only, path_prefix.as_deref())
-                    .await
-                    .map_err(|e| ErrorData::internal_error(e.message, None))?;
-                tracing::info!(
-                    "hashed tool resolution: name='{}' prefix={:?} candidate_count={} candidates={:?}",
-                    request.name,
-                    path_prefix,
-                    candidates.len(),
-                    candidates.iter().map(|f| f.path.as_str()).collect::<Vec<_>>()
-                );
-                candidates
-                    .into_iter()
-                    .find(|f| transform_path(&f.path, "flow") == request.name.as_ref())
-                    .map(|f| f.path)
+                find_matching_path(
+                    self.backend
+                        .list_flows(&auth, &workspace_id, favorites_only, path_prefix.as_deref())
+                        .await
+                        .map_err(|e| ErrorData::internal_error(e.message, None))?,
+                    &request.name,
+                )
             };
 
             let matched_path = matched_path.ok_or_else(|| {

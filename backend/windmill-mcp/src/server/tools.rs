@@ -17,7 +17,7 @@ use crate::server::backend::McpBackend;
 
 /// Implementation of ToolableItem for ScriptInfo
 impl ToolableItem for ScriptInfo {
-    fn get_path_or_id(&self) -> String {
+    fn get_transformed_path(&self) -> String {
         transform_path(&self.path, "script")
     }
 
@@ -52,7 +52,7 @@ impl ToolableItem for ScriptInfo {
 
 /// Implementation of ToolableItem for FlowInfo
 impl ToolableItem for FlowInfo {
-    fn get_path_or_id(&self) -> String {
+    fn get_transformed_path(&self) -> String {
         transform_path(&self.path, "flow")
     }
 
@@ -87,7 +87,7 @@ impl ToolableItem for FlowInfo {
 
 /// Implementation of ToolableItem for HubScriptInfo
 impl ToolableItem for HubScriptInfo {
-    fn get_path_or_id(&self) -> String {
+    fn get_transformed_path(&self) -> String {
         let summary = self.summary.as_deref().unwrap_or("No summary");
         transform_hub_path(self.version_id, summary)
     }
@@ -135,7 +135,7 @@ pub fn create_tool_from_item<T: ToolableItem, B: McpBackend>(
     resources_types: &[ResourceType],
 ) -> Tool {
     let is_hub = item.is_hub();
-    let path = item.get_path_or_id();
+    let path = item.get_transformed_path();
     let item_type = item.item_type();
     let description = format!(
         "This is a {} named `{}` with the following description: `{}`.{}",
