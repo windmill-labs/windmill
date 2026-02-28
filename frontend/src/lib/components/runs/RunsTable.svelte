@@ -37,6 +37,7 @@
 		batchRerunOptionsIsOpen?: boolean
 		manualSelectionMode: undefined | 'cancel' | 'rerun'
 		onCancelJobs: (jobIds: string[]) => void
+		loadingExtra?: boolean
 	}
 
 	let {
@@ -51,7 +52,8 @@
 		perPage = 1000,
 		manualSelectionMode,
 		onCancelJobs,
-		batchRerunOptionsIsOpen = $bindable()
+		batchRerunOptionsIsOpen = $bindable(),
+		loadingExtra = false
 	}: Props = $props()
 
 	let hasClickFocus = $state(false)
@@ -535,11 +537,16 @@
 							>{#if !lastFetchWentToEnd && jobs && jobs.length >= perPage}
 								<button
 									class="text-xs text-accent text-center w-full pb-2"
+									disabled={loadingExtra}
 									onclick={() => {
 										dispatch('loadExtra')
 									}}
 								>
-									Load next {perPage} jobs
+									{#if loadingExtra}
+										Loading...
+									{:else}
+										Load next {perPage} jobs
+									{/if}
 								</button>
 							{/if}</div
 						>

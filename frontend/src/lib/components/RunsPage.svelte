@@ -168,9 +168,9 @@
 		resultError,
 		perPage: perPage.val,
 		lookback: graph === 'RunChart' ? 0 : lookback,
-		onSetPerPage: (p) => (perPage.val = p),
 		currentWorkspace: $workspaceStore ?? ''
 	}))
+	let batchProgress = $derived(jobsLoader.batchProgress)
 	let lastFetchWentToEnd = $derived(jobsLoader.lastFetchWentToEnd)
 	let queue_count = $derived(jobsLoader.queue_count)
 	let suspended_count = $derived(jobsLoader.suspended_count)
@@ -781,7 +781,7 @@
 						tooltip={'How far behind the min datetime to start considering jobs for the concurrency graph. Change this value to include jobs started before the set time window for the computation of the graph'}
 					/>
 				{:else if !lastFetchWentToEnd && (jobs?.length ?? 0) >= (perPage.val ?? 1000)}
-					<Button wrapperClasses="ml-2" unifiedSize="md" onClick={() => jobsLoader.loadExtraJobs()}>
+					<Button wrapperClasses="ml-2" unifiedSize="md" loading={jobsLoader.loadingExtra} onClick={() => jobsLoader.loadExtraJobs()}>
 						Load more
 						<Tooltip>There are more jobs to load</Tooltip>
 					</Button>
@@ -821,6 +821,23 @@
 				<Pane minSize={40}>
 					<div class="h-full flex">
 						<div class="flex flex-col flex-1 m-4 mt-2 mr-2">
+							{#if batchProgress}
+								<div class="flex items-center gap-3 px-1 pb-2 text-xs text-secondary">
+									<span>Loading jobs: {batchProgress.loaded} of {batchProgress.total}...</span>
+									<div class="flex-1 bg-surface-hover rounded-full h-1.5">
+										<div
+											class="bg-blue-500 h-1.5 rounded-full transition-all duration-300"
+											style="width: {Math.round((batchProgress.loaded / batchProgress.total) * 100)}%"
+										></div>
+									</div>
+									<button
+										class="text-xs text-secondary hover:text-primary underline"
+										onclick={() => jobsLoader.stopBatchLoading()}
+									>
+										Stop
+									</button>
+								</div>
+							{/if}
 							<!-- Runs table. Add overflow-hidden because scroll is handled inside the runs table based on this wrapper height -->
 							<div class="grow min-h-0 overflow-y-hidden overflow-x-auto">
 								{#if jobs}
@@ -831,6 +848,7 @@
 										showExternalJobs={graph !== 'RunChart'}
 										activeLabel={filters.val.label}
 										{lastFetchWentToEnd}
+										loadingExtra={jobsLoader.loadingExtra}
 										bind:selectedIds
 										bind:selectedWorkspace
 										on:loadExtra={loadExtra}
