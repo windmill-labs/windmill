@@ -115,6 +115,13 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	function onParamChanges() {
 		resetJobs()
 		let promise = loadJobsIntern(true)
+		if (perPage > 25) {
+			promise = CancelablePromiseUtils.onTimeout(promise, 4000, () => {
+				sendUserToast('Loading jobs is taking longer than expected...', 'warning', [
+					{ label: 'Stream by batches of 25', callback: () => restreamWithSmallBatches() }
+				])
+			})
+		}
 		promise = CancelablePromiseUtils.catchErr(promise, (e) => {
 			if (e instanceof CancelError) {
 				batchProgress = null
@@ -123,6 +130,19 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 			return CancelablePromiseUtils.err(e)
 		})
 		return promise
+	}
+
+	function restreamWithSmallBatches() {
+		paramChangePromise?.cancel()
+		resetJobs()
+		paramChangePromise = loadJobsIntern(false, 25)
+		paramChangePromise = CancelablePromiseUtils.catchErr(paramChangePromise, (e) => {
+			if (e instanceof CancelError) {
+				batchProgress = null
+				return CancelablePromiseUtils.pure<void>(undefined)
+			}
+			return CancelablePromiseUtils.err(e)
+		})
 	}
 
 	let loadingFetch = false
@@ -308,7 +328,10 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		intervalId && clearInterval(intervalId)
 		intervalId = setInterval(syncer, refreshRate)
 	}
-	function loadJobsIntern(shouldGetCount?: boolean): CancelablePromise<void> {
+	function loadJobsIntern(
+		shouldGetCount?: boolean,
+		overrideBatchSize?: number
+	): CancelablePromise<void> {
 		const { minTs, maxTs } = timeframe?.computeMinMax() ?? { minTs: null, maxTs: null }
 		if (shouldGetCount) {
 			getCount()
@@ -320,7 +343,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		const extendedMinTs = subtractDaysFromDateString(minTs, lookback)
 
 		if (concurrencyKey == null || concurrencyKey === '') {
-			const batchSize = Math.min(perPage, 1000)
+			const batchSize = overrideBatchSize ?? Math.min(perPage, 1000)
 			const isBatched = perPage > batchSize
 			if (isBatched) {
 				batchProgress = { loaded: 0, total: perPage }
