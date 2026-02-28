@@ -58,7 +58,7 @@ FROM node:24-alpine as frontend
 
 # install dependencies
 WORKDIR /frontend
-COPY ./frontend/package.json ./frontend/package-lock.json ./.npmrc ./
+COPY ./frontend/package.json ./frontend/package-lock.json ./frontend/.npmrc ./
 COPY ./frontend/scripts/ ./scripts/
 RUN npm ci
 
