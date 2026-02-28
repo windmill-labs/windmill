@@ -155,7 +155,8 @@ pub async fn get_items<T: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Sen
     }
 
     if let Some(prefix) = path_prefix {
-        sqlb.and_where("o.path LIKE ?".bind(&format!("{}%", prefix)));
+        let escaped = prefix.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+        sqlb.and_where("o.path LIKE ? ESCAPE '\\'".bind(&format!("{}%", escaped)));
     }
 
     sqlb.order_by(
