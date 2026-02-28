@@ -136,47 +136,44 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let loadingFetch = false
 
 	async function loadExtraJobs(): Promise<void> {
-		if (jobs && jobs.length > 0) {
-			let minQueueTs: string | undefined = undefined
-			let minCompletedTs: string | undefined = undefined
+		const batchSize = Math.min(perPage, 1000)
+		await loadExtraJobsBatch(batchSize)
+	}
 
-			let cursor = 0
-
-			while (jobs && cursor < jobs?.length) {
-				cursor++
-				const job = jobs[jobs.length - 1 - cursor]
-				if (job.type == 'CompletedJob') {
-					minCompletedTs = job.completed_at
-					break
-				} else if (job.type == 'QueuedJob' && minQueueTs == undefined) {
-					minQueueTs = job.created_at
-				}
-			}
-
-			const ts = minCompletedTs ?? minQueueTs
-
-			if (!ts) {
-				sendUserToast('No jobs to load from')
-				lastFetchWentToEnd = false
-				return
-			}
-			// const minCreated = lastJob?.created_at
-			const minCreated = new Date(new Date(ts).getTime() - 1).toISOString()
-
-			const minTs = timeframe?.computeMinMax().minTs ?? null
-			let olderJobs = await fetchJobs(minCreated, minTs, undefined)
-			jobs = updateWithNewJobs(olderJobs ?? [], jobs ?? [])
-			computeCompletedJobs()
-			lastFetchWentToEnd = olderJobs?.length < perPage
-		} else {
-			lastFetchWentToEnd = false
+	function loadExtraJobsBatch(batchSize: number): CancelablePromise<void> {
+		if (!jobs || jobs.length === 0) {
+			lastFetchWentToEnd = true
+			return CancelablePromiseUtils.pure<void>(undefined as void)
 		}
+		const lastJob = jobs[jobs.length - 1]
+		const ts = lastJob.created_at
+		if (!ts) {
+			lastFetchWentToEnd = true
+			return CancelablePromiseUtils.pure<void>(undefined as void)
+		}
+		const cursorTs = new Date(new Date(ts).getTime() - 1).toISOString()
+		const minTs = timeframe?.computeMinMax().minTs ?? null
+		return CancelablePromiseUtils.map(
+			fetchJobs(null, minTs, undefined, cursorTs, batchSize),
+			(olderJobs) => {
+				jobs = updateWithNewJobs(olderJobs ?? [], jobs ?? [])
+				if (extendedJobs) {
+					extendedJobs.jobs = jobs ?? []
+					extendedJobs = extendedJobs
+				}
+				computeCompletedJobs()
+				lastFetchWentToEnd = (olderJobs?.length ?? 0) < batchSize
+				loading = false
+			}
+		)
 	}
 
 	function fetchJobs(
 		completedBefore: string | null,
 		completedAfter: string | null,
-		createdAfterQueue: string | undefined
+		createdAfterQueue: string | undefined,
+		createdBefore?: string,
+		perPageOverride?: number
 	): CancelablePromise<Job[]> {
 		if (_args.skip) return CancelablePromiseUtils.pure<Job[]>([])
 		loadingFetch = true
@@ -186,6 +183,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		let isCompletedOnly = success == 'success' || success == 'failure'
 		let promise = JobService.listJobs({
 			workspace: currentWorkspace,
+			createdBefore: createdBefore ?? undefined,
 			completedBefore: isQueueOnly ? undefined : (completedBefore ?? undefined),
 			completedAfter: isQueueOnly ? undefined : (completedAfter ?? undefined),
 			createdBeforeQueue: isQueueOnly ? (completedBefore ?? undefined) : undefined,
@@ -226,7 +224,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 					: undefined,
 			triggerKind: jobTriggerKind ?? undefined,
 			allWorkspaces: allWorkspaces ? true : undefined,
-			perPage,
+			perPage: perPageOverride ?? perPage,
 			allowWildcards: allowWildcards ? true : undefined,
 			broadFilter
 		})
@@ -320,8 +318,9 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		const extendedMinTs = subtractDaysFromDateString(minTs, lookback)
 
 		if (concurrencyKey == null || concurrencyKey === '') {
-			return CancelablePromiseUtils.map(
-				fetchJobs(maxTs, extendedMinTs ?? null, extendedMinTs),
+			const batchSize = Math.min(perPage, 1000)
+			let p = CancelablePromiseUtils.map(
+				fetchJobs(maxTs, extendedMinTs ?? null, extendedMinTs, undefined, batchSize),
 				(newJobs) => {
 					extendedJobs = { jobs: newJobs, obscured_jobs: [] } as ExtendedJobs
 
@@ -330,10 +329,22 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 					jobs = sortMinDate(minTs, newJobs)
 					externalJobs = []
 					computeCompletedJobs()
-					lastFetchWentToEnd = newJobs.length < perPage
+					lastFetchWentToEnd = newJobs.length < batchSize
 					loading = false
 				}
 			)
+			if (perPage > batchSize) {
+				const numExtraBatches = Math.ceil(perPage / batchSize) - 1
+				for (let i = 0; i < numExtraBatches; i++) {
+					p = CancelablePromiseUtils.then(p, (): CancelablePromise<void> => {
+						if (lastFetchWentToEnd || !jobs)
+							return CancelablePromiseUtils.pure<void>(undefined as void)
+						loading = true
+						return loadExtraJobsBatch(batchSize)
+					})
+				}
+			}
+			return p
 		} else {
 			return CancelablePromiseUtils.map(
 				fetchExtendedJobs(concurrencyKey, maxTs, extendedMinTs ?? null),
