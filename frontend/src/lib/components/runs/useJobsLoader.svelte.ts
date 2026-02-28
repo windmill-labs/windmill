@@ -58,7 +58,6 @@ export interface UseJobLoaderArgs {
 	skip?: boolean
 	lookback?: number
 	perPage?: number
-	onSetPerPage?: (perPage: number) => void
 }
 
 export function useJobsLoader(args: () => UseJobLoaderArgs) {
@@ -73,7 +72,6 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let refreshRate = $derived(_args.refreshRate ?? 5000)
 	let syncQueuedRunsCount = $derived(_args.syncQueuedRunsCount ?? true)
 	let lookback = $derived(_args.lookback ?? 0)
-	let onSetPerPage = $derived(_args.onSetPerPage)
 	let timeframe = $derived(_args?.timeframe)
 	let perPage = $derived(_args?.perPage ?? 1000)
 
@@ -101,6 +99,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let suspended_count: Tweened<number> | undefined = $state()
 	let loading = $state(false)
 	let lastFetchWentToEnd = $state(true)
+	let batchProgress = $state<{ loaded: number; total: number } | null>(null)
 
 	let completedJobs: CompletedJob[] | undefined = $state()
 	let externalJobs: Job[] | undefined = $state()
@@ -115,17 +114,9 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	function onParamChanges() {
 		resetJobs()
 		let promise = loadJobsIntern(true)
-		promise = CancelablePromiseUtils.onTimeout(promise, 4000, () => {
-			sendUserToast(
-				'Loading jobs is taking longer than expected...',
-				'warning',
-				perPage > 25 && onSetPerPage
-					? [{ label: 'Reduce to 25 items per page', callback: () => onSetPerPage(25) }]
-					: []
-			)
-		})
 		promise = CancelablePromiseUtils.catchErr(promise, (e) => {
 			if (e instanceof CancelError) {
+				batchProgress = null
 				return CancelablePromiseUtils.pure<void>(undefined)
 			}
 			return CancelablePromiseUtils.err(e)
@@ -297,12 +288,19 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		await loadJobsIntern(shouldGetCount)
 	}
 
+	function stopBatchLoading(): void {
+		paramChangePromise?.cancel()
+		batchProgress = null
+		loading = false
+	}
+
 	function resetJobs() {
 		jobs = undefined
 		completedJobs = undefined
 		externalJobs = undefined
 		extendedJobs = undefined
 		lastFetchWentToEnd = false
+		batchProgress = null
 		intervalId && clearInterval(intervalId)
 		intervalId = setInterval(syncer, refreshRate)
 	}
@@ -319,6 +317,10 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 
 		if (concurrencyKey == null || concurrencyKey === '') {
 			const batchSize = Math.min(perPage, 1000)
+			const isBatched = perPage > batchSize
+			if (isBatched) {
+				batchProgress = { loaded: 0, total: perPage }
+			}
 			let p = CancelablePromiseUtils.map(
 				fetchJobs(maxTs, extendedMinTs ?? null, extendedMinTs, undefined, batchSize),
 				(newJobs) => {
@@ -331,19 +333,27 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 					computeCompletedJobs()
 					lastFetchWentToEnd = newJobs.length < batchSize
 					loading = false
+					if (isBatched) {
+						batchProgress = { loaded: jobs?.length ?? 0, total: perPage }
+					}
 				}
 			)
-			if (perPage > batchSize) {
+			if (isBatched) {
 				const numExtraBatches = Math.ceil(perPage / batchSize) - 1
 				for (let i = 0; i < numExtraBatches; i++) {
 					p = CancelablePromiseUtils.then(p, (): CancelablePromise<void> => {
 						if (lastFetchWentToEnd || !jobs)
 							return CancelablePromiseUtils.pure<void>(undefined as void)
 						loading = true
-						return loadExtraJobsBatch(batchSize)
+						return CancelablePromiseUtils.pipe(loadExtraJobsBatch(batchSize), () => {
+							batchProgress = { loaded: jobs?.length ?? 0, total: perPage }
+						})
 					})
 				}
 			}
+			p = CancelablePromiseUtils.pipe(p, () => {
+				batchProgress = null
+			})
 			return p
 		} else {
 			return CancelablePromiseUtils.map(
@@ -588,6 +598,10 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	return {
 		loadExtraJobs,
 		loadJobs,
+		stopBatchLoading,
+		get batchProgress() {
+			return batchProgress
+		},
 		get queue_count() {
 			return queue_count
 		},
