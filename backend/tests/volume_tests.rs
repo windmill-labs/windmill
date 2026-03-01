@@ -487,14 +487,16 @@ fn test_parse_volume_relative_nested_path() {
     assert_eq!(volumes[0].target, "data/models");
 }
 
-#[cfg(not(feature = "private"))]
 #[test]
-fn test_volume_nsjail_mount_oss() {
+fn test_volume_nsjail_mount() {
     use std::path::Path;
     use windmill_worker_volumes::volume_nsjail_mount;
 
     let result = volume_nsjail_mount(Path::new("/tmp/volumes/data"), "/mnt/data");
-    assert_eq!(result, "");
+    assert!(result.contains("src: \"/tmp/volumes/data\""));
+    assert!(result.contains("dst: \"/mnt/data\""));
+    assert!(result.contains("is_bind: true"));
+    assert!(result.contains("rw: true"));
 }
 
 #[test]
