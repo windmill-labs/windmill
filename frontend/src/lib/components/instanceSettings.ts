@@ -231,7 +231,6 @@ export const settings: Record<string, Setting[]> = {
 			description:
 				'Maximum amount of time (measured in seconds) that a <a href="https://www.windmill.dev/docs/core_concepts/webhooks">sync endpoint</a> is allowed to run before it is forcibly stopped or timed out.',
 			key: 'timeout_wait_result',
-			cloudonly: true,
 			fieldType: 'seconds',
 			placeholder: '60',
 			storage: 'setting'
