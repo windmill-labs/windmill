@@ -37,7 +37,7 @@ ENV CARGO_HOME=/tmp/.cargo
 # ── Allow non-root UID (--user) to access tools installed in /root ───────────
 # Give UID 1000 a proper passwd entry, passwordless sudo, and full access to /root
 RUN chmod -R 777 /root \
-    && echo "agent:x:1000:100::/root:/bin/bash" >> /etc/passwd \
+    && useradd -u 1000 -g 100 -d /root -s /bin/bash -M agent \
     && echo "agent ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/agent \
     && chmod 0440 /etc/sudoers.d/agent
 
