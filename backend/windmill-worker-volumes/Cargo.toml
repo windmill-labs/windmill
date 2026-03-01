@@ -10,6 +10,7 @@ path = "src/lib.rs"
 
 [features]
 enterprise = []
+private = []
 
 [dependencies]
 windmill-common = { workspace = true, default-features = false }

@@ -17497,7 +17497,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker-volumes"
-version = "1.645.0"
+version = "1.647.0"
 dependencies = [
  "bytes",
  "futures",

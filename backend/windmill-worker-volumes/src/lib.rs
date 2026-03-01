@@ -1,7 +1,7 @@
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "private")]
 mod volume_ee;
-#[cfg(feature = "enterprise")]
-pub use volume_ee::*;
+mod volume_oss;
+pub use volume_oss::*;
 
 pub use object_store::ObjectStore as DynObjectStore;
 
