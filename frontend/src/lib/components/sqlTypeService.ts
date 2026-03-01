@@ -36,13 +36,12 @@ async function getWorkerClient(): Promise<(...uris: Uri[]) => Promise<ExtendedTy
 	}
 }
 
-export async function waitForWorkerInitialization(fileUri: string): Promise<true> {
+export async function waitForWorkerInitialization(modelUri: string): Promise<true> {
 	const WORKER_INIT_TIMEOUT = 10000
 	const MAX_RETRIES = 10
 	const RETRY_DELAY = 300
 
-	if (!fileUri.endsWith('.ts')) fileUri += '.ts'
-	const uri = Uri.parse(fileUri)
+	const uri = Uri.parse(modelUri)
 
 	const startTime = Date.now()
 
@@ -84,12 +83,11 @@ export async function waitForWorkerInitialization(fileUri: string): Promise<true
  * @returns Promise that resolves when the update is complete
  */
 export async function updateSqlQueriesInWorker(
-	fileUri: string,
+	modelUri: string,
 	queries: InferAssetsSqlQueryDetails[]
 ): Promise<void> {
 	try {
-		if (!fileUri.endsWith('.ts')) fileUri += '.ts'
-		const uri = Uri.parse(fileUri)
+		const uri = Uri.parse(modelUri)
 		const uriString = uri.toString()
 
 		const workerClient = await getWorkerClient()

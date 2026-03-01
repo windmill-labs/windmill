@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.645.0"
+version = "1.647.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -77,7 +77,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal"]
 
 [workspace.package]
-version = "1.645.0"
+version = "1.647.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -160,12 +160,12 @@ all_languages = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "
 # For windows we have another set of languages enabled
 all_languages_windows = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql-winauth", "bigquery", "csharp", "nu", "php", "java"]
 # Edition meta-features: shared groups
-inline_preview = ["windmill-api/inline_preview"]
+run_inline = ["windmill-api/run_inline"]
 oss_core = [
     "embedding", "parquet", "openidconnect", "license",
     "http_trigger", "zip", "oauth2", "postgres_trigger",
     "mqtt_trigger", "websocket", "smtp", "native_trigger",
-    "static_frontend", "mcp", "bedrock", "inline_preview",
+    "static_frontend", "mcp", "bedrock", "run_inline",
     "quickjs"
 ]
 ce_core = ["oss_core", "private", "operator"]
@@ -355,7 +355,7 @@ tower-cookies = "^0.10"
 serde = "=1.0.219"
 serde_json = { version = "^1", features = ["preserve_order", "raw_value"] }
 serde_yml = "0.0.12"
-uuid = { version = "^1", features = ["serde", "v4"] }
+uuid = { version = "^1", features = ["serde", "v4", "js"] }
 thiserror = "^2"
 anyhow = "^1"
 chrono = { version = "^0.4", features = ["serde"] }

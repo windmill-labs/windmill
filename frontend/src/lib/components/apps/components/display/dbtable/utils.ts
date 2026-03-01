@@ -1,11 +1,6 @@
 import type { ScriptLang } from '$lib/gen'
 import type { SQLSchema } from '$lib/stores'
-import {
-	buildClientSchema,
-	getIntrospectionQuery,
-	printSchema,
-	type IntrospectionQuery
-} from 'graphql'
+import type { IntrospectionQuery } from 'graphql'
 
 import type { DbType } from '$lib/components/dbTypes'
 
@@ -64,7 +59,7 @@ export function resourceTypeToLang(rt: string) {
 const legacyScripts: Record<
 	string,
 	{
-		code: string
+		code: string | (() => Promise<string>)
 		lang: string
 		processingFn?: (any: any) => SQLSchema['schema']
 		argName: string
@@ -146,7 +141,7 @@ const legacyScripts: Record<
 		argName: 'database'
 	},
 	graphql: {
-		code: getIntrospectionQuery(),
+		code: () => import('graphql').then((m) => m.getIntrospectionQuery()),
 		lang: 'graphql',
 		argName: 'api'
 	},
@@ -305,7 +300,8 @@ export function formatSchema(dbSchema: {
 	}
 }
 
-export function formatGraphqlSchema(schema: IntrospectionQuery): string {
+export async function formatGraphqlSchema(schema: IntrospectionQuery): Promise<string> {
+	const { buildClientSchema, printSchema } = await import('graphql')
 	return printSchema(buildClientSchema(schema))
 }
 

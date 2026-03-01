@@ -1,4 +1,3 @@
-import { Sha256 } from '@aws-crypto/sha256-js'
 import { getCountInput } from '../components/display/dbtable/queries/count'
 import { getDeleteInput } from '../components/display/dbtable/queries/delete'
 import { getInsertInput } from '../components/display/dbtable/queries/insert'
@@ -236,6 +235,7 @@ async function hash(message) {
 		return hashHex
 	} catch {
 		//subtle not available, trying pure js
+		const { Sha256 } = await import('@aws-crypto/sha256-js')
 		const hash = new Sha256()
 		hash.update(message ?? '')
 		const result = Array.from(await hash.digest())

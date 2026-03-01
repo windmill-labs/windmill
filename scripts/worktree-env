@@ -88,6 +88,15 @@ if [[ -n "$main_repo_root" && -d "$main_repo_root/frontend/node_modules" ]]; the
   echo "Copied frontend/node_modules (with symlinks preserved)"
 fi
 
+# --- Install cli deps and generate client ---
+if [[ -n "$main_repo_root" && -d "$main_repo_root/cli/node_modules" ]]; then
+  cp -a "$main_repo_root/cli/node_modules" cli/
+  echo "Copied cli/node_modules (with symlinks preserved)"
+fi
+(cd cli && npm install && npm run gen-client) \
+  && echo "CLI deps installed and client generated" \
+  || echo "WARNING: CLI setup failed" >&2
+
 # --- Allow direnv so the nix devshell activates in pane commands ---
 if command -v direnv &>/dev/null && [ -f .envrc ]; then
   direnv allow
