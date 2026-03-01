@@ -263,7 +263,10 @@ RUN bun install -g windmill-cli \
     && ln -s $(bun pm bin -g)/wmill /usr/bin/wmill
 
 # Install Claude Code CLI (used by claude sandbox scripts)
-RUN curl -fsSL https://claude.ai/install.sh | bash
+# The installer puts the binary in ~/.local/bin/claude (symlink to ~/.local/share/claude/versions/*)
+# Copy it to /usr/bin/claude so it's accessible inside nsjail sandbox (which mounts /usr but not /root)
+RUN curl -fsSL https://claude.ai/install.sh | bash \
+    && cp /root/.local/share/claude/versions/* /usr/bin/claude
 
 COPY --from=php:8.3.7-cli /usr/local/bin/php /usr/bin/php
 COPY --from=composer:2.7.6 /usr/bin/composer /usr/bin/composer
