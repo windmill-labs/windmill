@@ -2,7 +2,9 @@
 	import { Button } from '$lib/components/common'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { IndexSearchService } from '$lib/gen'
+	import type { GetIndexStorageSizesResponse } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
+	import { displaySize } from '$lib/utils'
 	import Tooltip from '../Tooltip.svelte'
 	import IntegerInput from '../IntegerInput.svelte'
 	import InputError from '../InputError.svelte'
@@ -19,6 +21,22 @@
 
 	let clearJobsIndexModalOpen = $state(false)
 	let clearServiceLogsIndexModalOpen = $state(false)
+
+	let storageSizes: GetIndexStorageSizesResponse | undefined = $state(undefined)
+	let storageSizesLoading = $state(true)
+
+	async function loadStorageSizes() {
+		storageSizesLoading = true
+		try {
+			storageSizes = await IndexSearchService.getIndexStorageSizes()
+		} catch (e) {
+			storageSizes = undefined
+		} finally {
+			storageSizesLoading = false
+		}
+	}
+
+	loadStorageSizes()
 </script>
 
 <div class="space-y-6">
@@ -54,28 +72,58 @@
 	</div>
 	<Label label="Clear index">
 		<span class="text-xs text-secondary"
-			>This buttons will clear the whole index, and the service will start reindexing from scratch.
+			>These buttons will clear the whole index, and the service will start reindexing from scratch.
 			Full text search might be down during this time.</span
 		>
-		<div class="flex flex-row gap-2">
-			<Button
-				variant="default"
-				unifiedSize="sm"
-				on:click={() => {
-					clearJobsIndexModalOpen = true
-				}}
-			>
-				Clear jobs index
-			</Button>
-			<Button
-				variant="default"
-				unifiedSize="sm"
-				on:click={() => {
-					clearServiceLogsIndexModalOpen = true
-				}}
-			>
-				Clear service logs index
-			</Button>
+		<div class="flex flex-col gap-3">
+			<div class="flex flex-row items-center gap-2">
+				<Button
+					variant="default"
+					unifiedSize="sm"
+					on:click={() => {
+						clearJobsIndexModalOpen = true
+					}}
+				>
+					Clear jobs index
+				</Button>
+				{#if storageSizesLoading}
+					<span class="text-2xs text-tertiary">Loading sizes...</span>
+				{:else if storageSizes?.job_index}
+					<span class="text-2xs text-tertiary">
+						{#if storageSizes.job_index.disk_size_bytes != null}
+							Disk: {displaySize(storageSizes.job_index.disk_size_bytes) ?? 'N/A'}
+						{/if}
+						{#if storageSizes.job_index.s3_size_bytes != null}
+							{#if storageSizes.job_index.disk_size_bytes != null}&middot;{/if}
+							S3: {displaySize(storageSizes.job_index.s3_size_bytes) ?? 'N/A'}
+						{/if}
+					</span>
+				{/if}
+			</div>
+			<div class="flex flex-row items-center gap-2">
+				<Button
+					variant="default"
+					unifiedSize="sm"
+					on:click={() => {
+						clearServiceLogsIndexModalOpen = true
+					}}
+				>
+					Clear service logs index
+				</Button>
+				{#if storageSizesLoading}
+					<span class="text-2xs text-tertiary">Loading sizes...</span>
+				{:else if storageSizes?.service_log_index}
+					<span class="text-2xs text-tertiary">
+						{#if storageSizes.service_log_index.disk_size_bytes != null}
+							Disk: {displaySize(storageSizes.service_log_index.disk_size_bytes) ?? 'N/A'}
+						{/if}
+						{#if storageSizes.service_log_index.s3_size_bytes != null}
+							{#if storageSizes.service_log_index.disk_size_bytes != null}&middot;{/if}
+							S3: {displaySize(storageSizes.service_log_index.s3_size_bytes) ?? 'N/A'}
+						{/if}
+					</span>
+				{/if}
+			</div>
 		</div>
 	</Label>
 	<ConfirmationModal
