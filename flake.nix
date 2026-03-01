@@ -342,10 +342,59 @@
 
         # Wrapper for the Nix-provided playwright CLI (version-matched to its browsers)
         playwrightWrapper = pkgs.writeShellScriptBin "playwright" ''
+          export PLAYWRIGHT_BROWSERS_PATH="${pkgs.playwright-driver.browsers}"
           exec ${pkgs.nodejs}/bin/node ${pkgs.playwright-driver}/cli.js "$@"
         '';
 
+        # ---------------------------------------------------------------
+        # sandbox-env script — outputs env vars for browser tooling
+        # Usage: eval "$(sandbox-env)"
+        # ---------------------------------------------------------------
+
+        sandboxEnvScript = pkgs.writeShellScriptBin "sandbox-env" ''
+          echo "export PLAYWRIGHT_BROWSERS_PATH=${pkgs.playwright-driver.browsers}"
+          echo "export PUPPETEER_EXECUTABLE_PATH=${pkgs.chromium}/bin/chromium"
+          echo "export PUPPETEER_SKIP_DOWNLOAD=true"
+        '';
+
+        # ---------------------------------------------------------------
+        # pkg-config wrapper — bakes in the Nix pkg-config search path
+        # so sandbox profiles (buildEnv) work without setting env vars.
+        # ---------------------------------------------------------------
+
+        pkgConfigWrapper = pkgs.writeShellScriptBin "pkg-config" ''
+          export PKG_CONFIG_PATH="${pkgConfigPath}:$PKG_CONFIG_PATH"
+          exec ${pkgs.pkg-config}/bin/pkg-config "$@"
+        '';
+
+        # ---------------------------------------------------------------
+        # Installable sandbox profiles (nix profile install .#sandbox)
+        # ---------------------------------------------------------------
+
+        sandboxEnv = pkgs.buildEnv {
+          name = "windmill-sandbox";
+          paths = coreBuildInputs ++ helperScriptsBase
+            ++ [ playwrightWrapper sandboxEnvScript pkgConfigWrapper pkgs.chromium ];
+        };
+
+        sandboxFullEnv = pkgs.buildEnv {
+          name = "windmill-sandbox-full";
+          paths = coreBuildInputs ++ extraRuntimes
+            ++ helperScriptsBase ++ helperScriptsFull
+            ++ [ playwrightWrapper sandboxEnvScript pkgConfigWrapper pkgs.chromium
+                 pkgs.cargo-sweep pkgs.xcaddy pkgs.nsjail ];
+        };
+
       in {
+
+        # =============================================================
+        # Installable profiles — for Docker / nix profile install
+        # Usage: nix profile install .#sandbox
+        # =============================================================
+
+        packages.sandbox = sandboxEnv;
+        packages.sandbox-full = sandboxFullEnv;
+        packages.default = sandboxEnv;
 
         # =============================================================
         # default — daily driver for backend + frontend development

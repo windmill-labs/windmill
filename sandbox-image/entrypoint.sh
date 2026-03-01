@@ -1,21 +1,31 @@
 #!/bin/bash
 set -euo pipefail
 
-# ── Start PostgreSQL ──────────────────────────────────────────────────────────
+# ── Nix profile ──────────────────────────────────────────────────────────────
+export PATH="/root/.nix-profile/bin:/nix/var/nix/profiles/default/bin:$PATH"
+export CARGO_HOME=/tmp/.cargo
+
+# ── Browser env (from Nix sandbox profile) ───────────────────────────────────
+if command -v sandbox-env >/dev/null 2>&1; then
+    eval "$(sandbox-env)"
+fi
+
+# ── Start PostgreSQL as current user (no root/su needed) ─────────────────────
 PGDATA=/tmp/pgdata
 mkdir -p "$PGDATA"
-chown postgres:postgres "$PGDATA"
 
 if [ ! -f "$PGDATA/PG_VERSION" ]; then
-    su - postgres -c "/usr/lib/postgresql/15/bin/initdb -D $PGDATA --auth=trust"
+    initdb -D "$PGDATA" --auth=trust
 fi
-su - postgres -c "/usr/lib/postgresql/15/bin/pg_ctl -D $PGDATA -l /tmp/pg.log start -o '-k /tmp'"
-su - postgres -c "psql -h /tmp -c 'CREATE ROLE root SUPERUSER LOGIN'" 2>/dev/null || true
-su - postgres -c "createdb -h /tmp windmill" 2>/dev/null || true
+pg_ctl -D "$PGDATA" -l /tmp/pg.log start -o "-k /tmp"
+
+# Create postgres role and windmill database (idempotent)
+psql -h /tmp -d postgres -c "CREATE ROLE postgres SUPERUSER LOGIN" 2>/dev/null || true
+createdb -h /tmp windmill 2>/dev/null || true
 
 # ── Run migrations if present ─────────────────────────────────────────────────
 if [ -d "$PWD/backend/migrations" ]; then
-    DATABASE_URL="postgres://root@localhost/windmill?host=/tmp" \
+    DATABASE_URL="postgres://postgres@localhost/windmill?host=/tmp" \
         sqlx migrate run --source "$PWD/backend/migrations" 2>/dev/null || true
 fi
 
