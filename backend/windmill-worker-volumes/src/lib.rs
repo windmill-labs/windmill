@@ -1,4 +1,6 @@
+#[cfg(feature = "enterprise")]
 mod volume_ee;
+#[cfg(feature = "enterprise")]
 pub use volume_ee::*;
 
 pub use object_store::ObjectStore as DynObjectStore;

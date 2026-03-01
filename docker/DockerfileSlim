@@ -61,6 +61,9 @@ RUN ln -s /usr/bin/bun /usr/bin/node \
     && bun install -g windmill-cli \
     && ln -s $(bun pm bin -g)/wmill /usr/bin/wmill
 
+# Install Claude Code CLI (used by claude sandbox scripts)
+RUN curl -fsSL https://claude.ai/install.sh | bash
+
 # add the docker client to call docker from a worker if enabled
 COPY --from=docker:dind /usr/local/bin/docker /usr/local/bin/
 

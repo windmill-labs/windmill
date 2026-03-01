@@ -4207,8 +4207,8 @@ mount {{
         }
     }
 
-    // Volume mount setup
-    #[cfg(feature = "parquet")]
+    // Volume mount setup (EE: volumes require S3 storage and enterprise license)
+    #[cfg(all(feature = "parquet", feature = "enterprise"))]
     let volume_mounts = {
         let comment_prefix = match language {
             ScriptLang::Python3
@@ -4238,15 +4238,15 @@ mount {{
             .collect::<Vec<_>>()
     };
 
-    #[cfg(feature = "parquet")]
+    #[cfg(all(feature = "parquet", feature = "enterprise"))]
     let mut volume_states: Vec<windmill_worker_volumes::VolumeState> = Vec::new();
-    #[cfg(feature = "parquet")]
+    #[cfg(all(feature = "parquet", feature = "enterprise"))]
     let mut volume_client: Option<std::sync::Arc<dyn windmill_worker_volumes::DynObjectStore>> =
         None;
-    #[cfg(feature = "parquet")]
+    #[cfg(all(feature = "parquet", feature = "enterprise"))]
     let mut volume_lease_renewal: Option<tokio::task::JoinHandle<()>> = None;
 
-    #[cfg(feature = "parquet")]
+    #[cfg(all(feature = "parquet", feature = "enterprise"))]
     if !volume_mounts.is_empty() {
         let vol_summary: Vec<String> = volume_mounts
             .iter()
@@ -4879,7 +4879,7 @@ mount {{
         _ => panic!("unreachable, language is not supported: {language:#?}"),
     };
     // Volume sync-back and lease release
-    #[cfg(feature = "parquet")]
+    #[cfg(all(feature = "parquet", feature = "enterprise"))]
     if !volume_states.is_empty() {
         if let Some(ref vol_client) = volume_client {
             if let Connection::Sql(db) = conn {
