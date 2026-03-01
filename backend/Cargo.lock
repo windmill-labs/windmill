@@ -16942,6 +16942,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "windmill-parser-wac"
+version = "1.647.0"
+dependencies = [
+ "anyhow",
+ "rustpython-ast",
+ "rustpython-parser",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "swc_common",
+ "swc_ecma_ast",
+ "swc_ecma_parser",
+ "swc_ecma_visit",
+]
+
+[[package]]
 name = "windmill-parser-yaml"
 version = "1.647.0"
 dependencies = [

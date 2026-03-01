@@ -18,8 +18,8 @@ pub async fn build_tar_and_push(
     custom_folder_name: Option<String>,
     platform_agnostic: bool,
 ) -> error::Result<()> {
-    use windmill_object_store::object_store_reexports::Path;
     use tokio::fs::create_dir_all;
+    use windmill_object_store::object_store_reexports::Path;
 
     use crate::TAR_PYBASE_CACHE_DIR;
 
@@ -197,7 +197,9 @@ pub async fn exists_in_cache(bin_path: &str, _remote_path: &str) -> bool {
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
         if let Some(os) = windmill_object_store::get_object_store().await {
             return os
-                .get(&windmill_object_store::object_store_reexports::Path::from(_remote_path))
+                .get(&windmill_object_store::object_store_reexports::Path::from(
+                    _remote_path,
+                ))
                 .await
                 .is_ok();
         }

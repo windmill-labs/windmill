@@ -1448,3 +1448,123 @@ export function parseS3Object(s3Object: S3Object): S3ObjectRecord {
 function parseVariableSyntax(s: string) {
   if (s.startsWith("var://")) return s.substring(6);
 }
+
+// ── Workflow-as-Code SDK ──────────────────────────────────────────────
+
+class StepSuspend extends Error {
+  constructor(public dispatchInfo: Record<string, any>) {
+    super("__step_suspend__");
+    this.name = "StepSuspend";
+  }
+}
+
+export let _workflowCtx: WorkflowCtx | null = null;
+
+export class WorkflowCtx {
+  private completed: Record<string, any>;
+  private stepIndex = 0;
+  private pending: Array<{
+    name: string;
+    script: string;
+    args: Record<string, any>;
+    key: string;
+  }> = [];
+
+  constructor(checkpoint: Record<string, any> = {}) {
+    this.completed = checkpoint?.completed_steps ?? {};
+  }
+
+  _nextStep(
+    name: string,
+    script: string,
+    args: Record<string, any> = {}
+  ): PromiseLike<any> {
+    const key = `step_${this.stepIndex++}`;
+
+    if (key in this.completed) {
+      const value = this.completed[key];
+      return { then: (resolve: any) => resolve(value) };
+    }
+
+    this.pending.push({ name, script, args, key });
+    return {
+      then: () => {
+        const steps = [...this.pending];
+        this.pending = [];
+        throw new StepSuspend({
+          mode: steps.length > 1 ? "parallel" : "sequential",
+          steps,
+        });
+      },
+    };
+  }
+}
+
+/**
+ * Wrap an async function as a workflow task.
+ *
+ * @example
+ * const extract_data = task(async (url: string) => { ... });
+ * const run_external = task("f/external_script", async (x: number) => { ... });
+ *
+ * Inside a `workflow()`, calling a task dispatches it as a step.
+ * Outside a workflow, the function body executes directly.
+ */
+export function task<T extends (...args: any[]) => Promise<any>>(
+  fnOrPath: T | string,
+  maybeFn?: T
+): T {
+  let fn: T;
+  let taskPath: string | undefined;
+
+  if (typeof fnOrPath === "string") {
+    taskPath = fnOrPath;
+    fn = maybeFn!;
+  } else {
+    fn = fnOrPath;
+  }
+
+  const taskName = fn.name || "anonymous";
+
+  const wrapper = async function (...args: any[]) {
+    const ctx = _workflowCtx;
+    if (ctx) {
+      // Inside a workflow — dispatch as step
+      const script = taskPath ?? taskName;
+      // Convert positional args to kwargs using param names
+      const paramNames = getParamNames(fn);
+      const kwargs: Record<string, any> = {};
+      for (let i = 0; i < args.length; i++) {
+        if (paramNames[i]) {
+          kwargs[paramNames[i]] = args[i];
+        } else {
+          kwargs[`arg${i}`] = args[i];
+        }
+      }
+      return ctx._nextStep(taskName, script, kwargs);
+    } else {
+      // Standalone — execute directly
+      return fn(...args);
+    }
+  } as unknown as T;
+
+  Object.defineProperty(wrapper, "name", { value: taskName });
+  (wrapper as any)._is_task = true;
+  (wrapper as any)._task_path = taskPath;
+  return wrapper;
+}
+
+export function workflow<T>(fn: (...args: any[]) => Promise<T>) {
+  (fn as any)._is_workflow = true;
+  return fn;
+}
+
+function getParamNames(fn: Function): string[] {
+  const src = fn.toString();
+  const match = src.match(/^(?:async\s+)?(?:function\s*\w*)?\s*\(([^)]*)\)/);
+  if (!match) return [];
+  return match[1]
+    .split(",")
+    .map((p) => p.trim().replace(/[:=].*/s, "").trim())
+    .filter(Boolean);
+}

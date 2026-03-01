@@ -20,8 +20,8 @@ use windmill_common::{
     flow_status::AgentAction,
     flows::FlowModule,
 };
-use windmill_types::s3::S3Object;
 use windmill_parser::Typ;
+use windmill_types::s3::S3Object;
 
 // Re-export shared types from windmill_common::ai_types
 pub use windmill_common::ai_types::{
@@ -1603,10 +1603,7 @@ mod tests {
 
         schema.sanitize_for_google();
 
-        assert!(
-            schema.multiple_of.is_none(),
-            "multipleOf should be removed"
-        );
+        assert!(schema.multiple_of.is_none(), "multipleOf should be removed");
     }
 
     #[test]
@@ -1639,7 +1636,10 @@ mod tests {
         assert!(schema.default.is_none());
 
         let value_prop = schema.properties.as_ref().unwrap().get("value").unwrap();
-        assert!(value_prop.default.is_none(), "nested default should be removed");
+        assert!(
+            value_prop.default.is_none(),
+            "nested default should be removed"
+        );
         assert!(
             value_prop.exclusive_minimum.is_none(),
             "nested exclusiveMinimum should be removed"
@@ -1652,7 +1652,10 @@ mod tests {
             value_prop.multiple_of.is_none(),
             "nested multipleOf should be removed"
         );
-        assert!(value_prop.r#const.is_none(), "nested const should be removed");
+        assert!(
+            value_prop.r#const.is_none(),
+            "nested const should be removed"
+        );
 
         assert!(schema.properties.is_some());
         assert!(matches!(&schema.r#type, Some(SchemaType::Single(t)) if t == "object"));

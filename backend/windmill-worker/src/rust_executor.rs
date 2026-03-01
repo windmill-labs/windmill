@@ -5,6 +5,7 @@ use std::{collections::HashMap, process::Stdio};
 use uuid::Uuid;
 use windmill_parser_rust::parse_rust_deps_into_manifest;
 
+use crate::global_cache::save_cache;
 use itertools::Itertools;
 use tokio::{
     fs::{create_dir_all, File},
@@ -16,7 +17,6 @@ use windmill_common::{
     utils::calculate_hash,
     worker::{write_file, Connection},
 };
-use crate::global_cache::save_cache;
 use windmill_queue::MiniPulledJob;
 use windmill_queue::{append_logs, CanceledBy};
 
@@ -611,8 +611,7 @@ pub async fn handle_rust_job(
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
 
-    let (cache, cache_logs) =
-        crate::global_cache::load_cache(&bin_path, &remote_path, false).await;
+    let (cache, cache_logs) = crate::global_cache::load_cache(&bin_path, &remote_path, false).await;
 
     let cache_logs = if cache {
         let target = format!("{job_dir}/main");

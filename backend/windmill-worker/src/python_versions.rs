@@ -18,6 +18,8 @@ use windmill_common::{
 use anyhow::{anyhow, bail};
 use windmill_queue::append_logs;
 
+#[cfg(unix)]
+use crate::python_executor::UV_PATH;
 use crate::{
     common::{start_child_process, OccupancyMetrics},
     handle_child::handle_child,
@@ -25,8 +27,6 @@ use crate::{
     HOME_ENV, INSTANCE_PYTHON_VERSION, PATH_ENV, PROXY_ENVS, PY_INSTALL_DIR, UV_CACHE_DIR,
     WIN_ENVS,
 };
-#[cfg(unix)]
-use crate::python_executor::UV_PATH;
 
 impl From<PyV> for PyVAlias {
     fn from(value: PyV) -> Self {

@@ -2352,7 +2352,134 @@ def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]:
     name = name
     schema = None
     if ":" in name:
-        name, schema = name.split(":", 1) 
+        name, schema = name.split(":", 1)
     if not name:
         name = "main"
     return name, schema
+
+
+# ── Workflow-as-Code SDK ──────────────────────────────────────────────
+
+import asyncio as _asyncio
+import contextvars as _contextvars
+
+
+class _StepSuspend(BaseException):
+    """Raised to suspend workflow execution. Inherits from BaseException
+    so it is not caught by bare `except Exception:` blocks."""
+
+    def __init__(self, dispatch_info: dict):
+        self.dispatch_info = dispatch_info
+
+
+_workflow_ctx: _contextvars.ContextVar["WorkflowCtx"] = _contextvars.ContextVar(
+    "_workflow_ctx"
+)
+
+
+class WorkflowCtx:
+    """Internal context for workflow replay/suspension.
+
+    Not user-facing — set implicitly by ``@workflow`` via contextvars.
+    """
+
+    def __init__(self, checkpoint: dict | None = None):
+        checkpoint = checkpoint or {}
+        self._completed: dict = checkpoint.get("completed_steps", {})
+        self._step_index: int = 0
+        self._pending: list = []
+
+    def _next_step(self, name: str, script: str, **kwargs):
+        """Return an awaitable that either resolves from cache or suspends."""
+        key = f"step_{self._step_index}"
+        self._step_index += 1
+
+        if key in self._completed:
+            return self._resolved(self._completed[key])
+
+        info = {"name": name, "script": script, "args": kwargs, "key": key}
+        self._pending.append(info)
+        return self._suspend()
+
+    async def _resolved(self, value):
+        return value
+
+    async def _suspend(self):
+        steps = list(self._pending)
+        self._pending.clear()
+        raise _StepSuspend(
+            {
+                "mode": "parallel" if len(steps) > 1 else "sequential",
+                "steps": steps,
+            }
+        )
+
+
+def task(_func=None, *, path: Optional[str] = None):
+    """Decorator that marks an async function as a workflow task.
+
+    Usage::
+
+        @task
+        async def extract_data(url: str): ...
+
+        @task(path="f/external_script")
+        async def run_external(x: int): ...
+
+    Inside a ``@workflow``, calling a ``@task`` function dispatches it as a
+    step (with checkpoint replay). Outside a workflow, the function body
+    executes directly.
+    """
+
+    def decorator(func):
+        task_path = path
+        task_name = func.__name__
+
+        def wrapper(*args, **kwargs):
+            ctx = _workflow_ctx.get(None)
+            if ctx is not None:
+                # Inside a workflow — dispatch as step (synchronous registration).
+                # Returning the awaitable directly (not awaiting here) is critical
+                # so that asyncio.gather() can collect multiple pending steps
+                # before any of them suspend.
+                script = task_path if task_path else task_name
+                return ctx._next_step(task_name, script, **kwargs)
+            else:
+                # Standalone / MAIN_OVERRIDE — execute directly
+                return func(*args, **kwargs)
+
+        wrapper.__name__ = func.__name__
+        wrapper.__qualname__ = func.__qualname__
+        wrapper._is_task = True
+        wrapper._task_path = task_path
+        return wrapper
+
+    if _func is not None:
+        # @task without parentheses
+        return decorator(_func)
+    # @task() or @task(path="...")
+    return decorator
+
+
+def workflow(func):
+    """Decorator marking an async function as a workflow-as-code entry point."""
+    func._is_workflow = True
+    return func
+
+
+async def _run_workflow_async(func, checkpoint: dict, input_args: dict):
+    ctx = WorkflowCtx(checkpoint)
+    token = _workflow_ctx.set(ctx)
+    try:
+        result = await func(**input_args)
+        return {"type": "complete", "result": result}
+    except _StepSuspend as e:
+        return {"type": "dispatch", **e.dispatch_info}
+    finally:
+        _workflow_ctx.reset(token)
+
+
+def _run_workflow(func, checkpoint: dict, input_args: dict):
+    """Synchronous wrapper that runs the workflow coroutine to completion
+    or until it suspends."""
+    return _asyncio.run(_run_workflow_async(func, checkpoint, input_args))
