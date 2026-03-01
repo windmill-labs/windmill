@@ -45,7 +45,7 @@ jobs:
           -c
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/suite_config.json
       - name: Save benchmark results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: benchmark_single
           path: |
@@ -87,7 +87,7 @@ jobs:
           --no-warm-up -c
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/suite_dedicated.json
       - name: Save benchmark results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: benchmark_dedicated
           path: |
@@ -164,7 +164,7 @@ jobs:
           --workers 4
           --factor 3
       - name: Save benchmark results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: benchmark_4workers
           path: |
@@ -284,7 +284,7 @@ jobs:
           --workers 8
           --factor 3
       - name: Save benchmark results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: benchmark_8workers
           path: |
