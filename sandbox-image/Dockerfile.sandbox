@@ -3,8 +3,8 @@ FROM debian:bookworm-slim
 # ── Minimal system deps ──────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl git xz-utils \
-    # PostgreSQL (for local DB)
-    postgresql postgresql-client \
+    # PostgreSQL client (server provided by Nix profile)
+    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Nix (single-user, Determinate installer) ────────────────────────────────
@@ -33,6 +33,10 @@ RUN PUPPETEER_SKIP_DOWNLOAD=true npm i -g @mermaid-js/mermaid-cli
 
 # ── Runtime env ──────────────────────────────────────────────────────────────
 ENV CARGO_HOME=/tmp/.cargo
+
+# ── Allow non-root UID (--user) to access tools installed in /root ───────────
+RUN chmod -R 777 /root \
+    && echo "agent:x:1000:100::/root:/bin/bash" >> /etc/passwd
 
 # ── Entrypoint ───────────────────────────────────────────────────────────────
 COPY sandbox-image/entrypoint.sh /usr/local/bin/entrypoint.sh
