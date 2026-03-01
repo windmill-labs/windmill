@@ -36,7 +36,7 @@ fi
 # Setup Monaco temp directory for LSP
 mkdir -p /tmp/monaco
 if [ ! -f /tmp/monaco/go.mod ]; then
-    echo -e "module mymod\ngo 1.25" > /tmp/monaco/go.mod
+    echo -e "module mymod\ngo 1.26" > /tmp/monaco/go.mod
 fi
 
 echo "[entrypoint] Starting Windmill Extra Services"
