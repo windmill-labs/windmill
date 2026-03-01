@@ -358,20 +358,30 @@
         '';
 
         # ---------------------------------------------------------------
+        # pkg-config wrapper — bakes in the Nix pkg-config search path
+        # so sandbox profiles (buildEnv) work without setting env vars.
+        # ---------------------------------------------------------------
+
+        pkgConfigWrapper = pkgs.writeShellScriptBin "pkg-config" ''
+          export PKG_CONFIG_PATH="${pkgConfigPath}:$PKG_CONFIG_PATH"
+          exec ${pkgs.pkg-config}/bin/pkg-config "$@"
+        '';
+
+        # ---------------------------------------------------------------
         # Installable sandbox profiles (nix profile install .#sandbox)
         # ---------------------------------------------------------------
 
         sandboxEnv = pkgs.buildEnv {
           name = "windmill-sandbox";
           paths = coreBuildInputs ++ helperScriptsBase
-            ++ [ playwrightWrapper sandboxEnvScript pkgs.chromium ];
+            ++ [ playwrightWrapper sandboxEnvScript pkgConfigWrapper pkgs.chromium ];
         };
 
         sandboxFullEnv = pkgs.buildEnv {
           name = "windmill-sandbox-full";
           paths = coreBuildInputs ++ extraRuntimes
             ++ helperScriptsBase ++ helperScriptsFull
-            ++ [ playwrightWrapper sandboxEnvScript pkgs.chromium
+            ++ [ playwrightWrapper sandboxEnvScript pkgConfigWrapper pkgs.chromium
                  pkgs.cargo-sweep pkgs.xcaddy pkgs.nsjail ];
         };
 
