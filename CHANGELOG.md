@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.647.0](https://github.com/windmill-labs/windmill/compare/v1.646.0...v1.647.0) (2026-03-01)
+
+
+### Features
+
+* populate baseUrl and userId in Nextcloud resource from OAuth ([#8132](https://github.com/windmill-labs/windmill/issues/8132)) ([5d58a87](https://github.com/windmill-labs/windmill/commit/5d58a87a7f02c4f7775bd02c885071495a5f686d))
+* runScript inline for path and hash ([#8019](https://github.com/windmill-labs/windmill/issues/8019)) ([7d9d16a](https://github.com/windmill-labs/windmill/commit/7d9d16a6a3357981e5692023982ca1e670acfaae))
+* slow stream warnings, batch size control, and fix result/skipped filters ([#8154](https://github.com/windmill-labs/windmill/issues/8154)) ([7a32abe](https://github.com/windmill-labs/windmill/commit/7a32abec96124f96a1dbac11e03162cca68f3286))
+
+
+### Bug Fixes
+
+* : persist show schedules and show future jobs toggles in local storage ([#8125](https://github.com/windmill-labs/windmill/issues/8125)) ([f1d8568](https://github.com/windmill-labs/windmill/commit/f1d8568831bf69ee790def4f90df8f32c59a94e0)), closes [#8123](https://github.com/windmill-labs/windmill/issues/8123)
+* add partial index for fast failure filtering on runs page ([#8150](https://github.com/windmill-labs/windmill/issues/8150)) ([d4673c2](https://github.com/windmill-labs/windmill/commit/d4673c2e91168dcdb0aca9d6c039df0d9c52bb28))
+* copy deps and remove user auto-add on workspace fork ([#8142](https://github.com/windmill-labs/windmill/issues/8142)) ([0776de6](https://github.com/windmill-labs/windmill/commit/0776de6b2173075f533fd59a49efb111000da5df))
+* fix custom TS Monaco worker not reloading on file uri change ([#8130](https://github.com/windmill-labs/windmill/issues/8130)) ([b68ff96](https://github.com/windmill-labs/windmill/commit/b68ff965dd4f67046fae7e8cf756c8b3e15c2643))
+* Handle CTEs and local tables in SQL asset parser ([#8131](https://github.com/windmill-labs/windmill/issues/8131)) ([0955051](https://github.com/windmill-labs/windmill/commit/095505136c2b3e03f656ace20a5c1bbe142fa63f))
+* prevent wm-cursor from hanging on stale cursor IPC sockets ([b9e3e05](https://github.com/windmill-labs/windmill/commit/b9e3e053e4914e753bbb806e6b748c791edb92d2))
+* process deletes before adds in CLI sync push to avoid conflicts ([#8148](https://github.com/windmill-labs/windmill/issues/8148)) ([278983c](https://github.com/windmill-labs/windmill/commit/278983c4fd38d67a14a8c208178c04db05ee1880))
+* remove review comments from discord notifications and support comment edits ([cdc0543](https://github.com/windmill-labs/windmill/commit/cdc0543747680267e30974037a2eb180a19062d9))
+* restore email domain (MX) setting in instance settings UI ([#8152](https://github.com/windmill-labs/windmill/issues/8152)) ([13daebf](https://github.com/windmill-labs/windmill/commit/13daebf88ac1abcb833646490073f922ac7c050e))
+* sync flow on_behalf_of_email on load ([#8149](https://github.com/windmill-labs/windmill/issues/8149)) ([faf190f](https://github.com/windmill-labs/windmill/commit/faf190f12d96cd75ba9eda10ab3e6f26d2eed813))
+* validate tarball URL host against registry to prevent SSRF and token exfiltration ([#8153](https://github.com/windmill-labs/windmill/issues/8153)) ([86182ed](https://github.com/windmill-labs/windmill/commit/86182ed2e999f018fc72343308e7df8e9de6c189))
+
+
+### Performance Improvements
+
+* batch large job list requests and fix loadExtraJobs cursor ([#8151](https://github.com/windmill-labs/windmill/issues/8151)) ([4f5a804](https://github.com/windmill-labs/windmill/commit/4f5a8040912e18f34401a6e3a95dea6f97d1d24c))
+* lazy-load heavy deps (graphql, openapi-parser, sha256) ([#8145](https://github.com/windmill-labs/windmill/issues/8145)) ([ba48d70](https://github.com/windmill-labs/windmill/commit/ba48d7015741eb6bbbe04088a957c37499cd8471))
+* lazy-load markdown in Tooltip components ([#8143](https://github.com/windmill-labs/windmill/issues/8143)) ([bd9ff03](https://github.com/windmill-labs/windmill/commit/bd9ff03010f75557dcc315d10e9208b4e9cafece))
+
 ## [1.646.0](https://github.com/windmill-labs/windmill/compare/v1.645.0...v1.646.0) (2026-02-26)
 
 
