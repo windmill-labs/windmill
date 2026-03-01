@@ -487,6 +487,7 @@ fn test_parse_volume_relative_nested_path() {
     assert_eq!(volumes[0].target, "data/models");
 }
 
+#[cfg(not(feature = "private"))]
 #[test]
 fn test_volume_nsjail_mount_oss() {
     use std::path::Path;
