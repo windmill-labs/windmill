@@ -111,9 +111,20 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let sync = true
 	let paramChangeTimeout: ReturnType<typeof setTimeout> | undefined
 	let paramChangePromise: CancelablePromise<void> | undefined
+	let slowStreamIntervalId: ReturnType<typeof setInterval> | undefined
+	let currentBatchSize = $state<number | null>(null)
 
 	function onParamChanges() {
 		resetJobs()
+		slowStreamIntervalId = setInterval(() => {
+			sendUserToast(
+				'Loading is taking a long time...',
+				'warning',
+				[{ label: 'Stop loading', callback: () => stopBatchLoading() }],
+				undefined,
+				8000
+			)
+		}, 15000)
 		let promise = loadJobsIntern(true)
 		if (perPage > 25) {
 			promise = CancelablePromiseUtils.onTimeout(promise, 4000, () => {
@@ -122,6 +133,12 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 				])
 			})
 		}
+		promise = CancelablePromiseUtils.pipe(promise, () => {
+			if (slowStreamIntervalId) {
+				clearInterval(slowStreamIntervalId)
+				slowStreamIntervalId = undefined
+			}
+		})
 		promise = CancelablePromiseUtils.catchErr(promise, (e) => {
 			if (e instanceof CancelError) {
 				return CancelablePromiseUtils.pure<void>(undefined)
@@ -131,16 +148,39 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		return promise
 	}
 
-	function restreamWithSmallBatches() {
+	function restreamWithBatchSize(size: number) {
 		paramChangePromise?.cancel()
 		resetJobs()
-		paramChangePromise = loadJobsIntern(false, 25)
+		slowStreamIntervalId = setInterval(() => {
+			sendUserToast(
+				'Loading is taking a long time...',
+				'warning',
+				[{ label: 'Stop loading', callback: () => stopBatchLoading() }],
+				undefined,
+				8000
+			)
+		}, 15000)
+		paramChangePromise = loadJobsIntern(false, size)
+		paramChangePromise = CancelablePromiseUtils.pipe(paramChangePromise, () => {
+			if (slowStreamIntervalId) {
+				clearInterval(slowStreamIntervalId)
+				slowStreamIntervalId = undefined
+			}
+		})
 		paramChangePromise = CancelablePromiseUtils.catchErr(paramChangePromise, (e) => {
 			if (e instanceof CancelError) {
 				return CancelablePromiseUtils.pure<void>(undefined)
 			}
 			return CancelablePromiseUtils.err(e)
 		})
+	}
+
+	function restreamWithSmallBatches() {
+		restreamWithBatchSize(25)
+	}
+
+	function restreamWithSingleItems() {
+		restreamWithBatchSize(1)
 	}
 
 	let loadingFetch = false
@@ -312,7 +352,12 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 
 	function stopBatchLoading(): void {
 		paramChangePromise?.cancel()
+		if (slowStreamIntervalId) {
+			clearInterval(slowStreamIntervalId)
+			slowStreamIntervalId = undefined
+		}
 		batchProgress = null
+		currentBatchSize = null
 		loading = false
 	}
 
@@ -323,6 +368,11 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		extendedJobs = undefined
 		lastFetchWentToEnd = false
 		batchProgress = null
+		currentBatchSize = null
+		if (slowStreamIntervalId) {
+			clearInterval(slowStreamIntervalId)
+			slowStreamIntervalId = undefined
+		}
 		intervalId && clearInterval(intervalId)
 		intervalId = setInterval(syncer, refreshRate)
 	}
@@ -346,23 +396,41 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 			if (isBatched) {
 				batchProgress = { loaded: 0, total: perPage }
 			}
-			let p = CancelablePromiseUtils.map(
-				fetchJobs(maxTs, extendedMinTs ?? null, extendedMinTs, undefined, batchSize),
-				(newJobs) => {
-					extendedJobs = { jobs: newJobs, obscured_jobs: [] } as ExtendedJobs
-
-					// Filter on minTs here and not in the backend
-					// to get enough data for the concurrency graph
-					jobs = sortMinDate(minTs, newJobs)
-					externalJobs = []
-					computeCompletedJobs()
-					lastFetchWentToEnd = newJobs.length < batchSize
-					loading = false
-					if (isBatched) {
-						batchProgress = { loaded: jobs?.length ?? 0, total: perPage }
-					}
-				}
+			currentBatchSize = batchSize
+			let slowBatchToastShown = false
+			let firstFetchPromise = fetchJobs(
+				maxTs,
+				extendedMinTs ?? null,
+				extendedMinTs,
+				undefined,
+				batchSize
 			)
+			if (isBatched && batchSize > 1) {
+				firstFetchPromise = CancelablePromiseUtils.onTimeout(firstFetchPromise, 4000, () => {
+					if (!slowBatchToastShown) {
+						slowBatchToastShown = true
+						sendUserToast(
+							`Streaming by batches of ${batchSize} is slow, try loading one at a time`,
+							'warning',
+							[{ label: 'Stream 1 by 1', callback: () => restreamWithSingleItems() }]
+						)
+					}
+				})
+			}
+			let p = CancelablePromiseUtils.map(firstFetchPromise, (newJobs) => {
+				extendedJobs = { jobs: newJobs, obscured_jobs: [] } as ExtendedJobs
+
+				// Filter on minTs here and not in the backend
+				// to get enough data for the concurrency graph
+				jobs = sortMinDate(minTs, newJobs)
+				externalJobs = []
+				computeCompletedJobs()
+				lastFetchWentToEnd = newJobs.length < batchSize
+				loading = false
+				if (isBatched) {
+					batchProgress = { loaded: jobs?.length ?? 0, total: perPage }
+				}
+			})
 			if (isBatched) {
 				const numExtraBatches = Math.ceil(perPage / batchSize) - 1
 				for (let i = 0; i < numExtraBatches; i++) {
@@ -370,14 +438,28 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 						if (lastFetchWentToEnd || !jobs)
 							return CancelablePromiseUtils.pure<void>(undefined as void)
 						loading = true
-						return CancelablePromiseUtils.pipe(loadExtraJobsBatch(batchSize), () => {
+						let batchPromise = CancelablePromiseUtils.pipe(loadExtraJobsBatch(batchSize), () => {
 							batchProgress = { loaded: jobs?.length ?? 0, total: perPage }
 						})
+						if (batchSize > 1 && !slowBatchToastShown) {
+							batchPromise = CancelablePromiseUtils.onTimeout(batchPromise, 4000, () => {
+								if (!slowBatchToastShown) {
+									slowBatchToastShown = true
+									sendUserToast(
+										`Streaming by batches of ${batchSize} is slow, try loading one at a time`,
+										'warning',
+										[{ label: 'Stream 1 by 1', callback: () => restreamWithSingleItems() }]
+									)
+								}
+							})
+						}
+						return batchPromise
 					})
 				}
 			}
 			p = CancelablePromiseUtils.pipe(p, () => {
 				batchProgress = null
+				currentBatchSize = null
 			})
 			return p
 		} else {
@@ -624,8 +706,12 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		loadExtraJobs,
 		loadJobs,
 		stopBatchLoading,
+		restreamWithBatchSize,
 		get batchProgress() {
 			return batchProgress
+		},
+		get currentBatchSize() {
+			return currentBatchSize
 		},
 		get queue_count() {
 			return queue_count

@@ -171,6 +171,7 @@
 		currentWorkspace: $workspaceStore ?? ''
 	}))
 	let batchProgress = $derived(jobsLoader.batchProgress)
+	let currentBatchSize = $derived(jobsLoader.currentBatchSize)
 	let lastFetchWentToEnd = $derived(jobsLoader.lastFetchWentToEnd)
 	let queue_count = $derived(jobsLoader.queue_count)
 	let suspended_count = $derived(jobsLoader.suspended_count)
@@ -830,12 +831,29 @@
 											style="width: {Math.round((batchProgress.loaded / batchProgress.total) * 100)}%"
 										></div>
 									</div>
-									<button
-										class="text-xs text-secondary hover:text-primary underline"
-										onclick={() => jobsLoader.stopBatchLoading()}
+									{#if currentBatchSize != null}
+										<span class="whitespace-nowrap shrink-0">Batch size:</span>
+										<input
+											type="number"
+											min="1"
+											max="1000"
+											value={currentBatchSize}
+											class="!w-14 shrink-0 text-xs px-1 py-0.5 border rounded text-center"
+											onchange={(e) => {
+												const v = parseInt(e.currentTarget.value)
+												if (v >= 1 && v <= 1000) {
+													jobsLoader.restreamWithBatchSize(v)
+												}
+											}}
+										/>
+									{/if}
+									<Button
+										size="xs"
+										destructive
+										onClick={() => jobsLoader.stopBatchLoading()}
 									>
 										Stop
-									</button>
+									</Button>
 								</div>
 							{/if}
 							<!-- Runs table. Add overflow-hidden because scroll is handled inside the runs table based on this wrapper height -->
