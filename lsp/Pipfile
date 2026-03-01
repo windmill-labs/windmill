@@ -5,7 +5,6 @@ name = "pypi"
 
 [packages]
 wmill = ">=1.647.0"
-wmill_pg = ">=1.647.0"
 sendgrid = "*"
 mysql-connector-python = "*"
 pymongo = "*"
