@@ -2062,6 +2062,8 @@ async fn list_jobs(
 
     let sql = if lq.success.is_none()
         && lq.label.is_none()
+        && lq.result.is_none()
+        && !lq.is_skipped.unwrap_or(false)
         && lq.created_before.is_none()
         && lq.started_before.is_none()
         && lq.created_or_started_before.is_none()
