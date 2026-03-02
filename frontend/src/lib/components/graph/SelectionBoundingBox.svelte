@@ -86,7 +86,7 @@
 			: [])
 	])
 
-	let bounds = $derived(() => {
+	let bounds = $derived.by(() => {
 		if (selectedNodes.length === 0) {
 			return null
 		}
@@ -107,8 +107,8 @@
 	})
 </script>
 
-{#if bounds() && selectedNodes.length > 1}
-	{@const currentBounds = bounds()!}
+{#if bounds && selectedNodes.length > 1}
+	{@const currentBounds = bounds!}
 	<ViewportPortal target="front">
 		<div
 			class={'absolute cursor-pointer bg-surface-selected/40 rounded-md pointer-events-none'}

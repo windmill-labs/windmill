@@ -21,10 +21,11 @@ export function nextId(flowState: FlowState, fullFlow: OpenFlow): string {
 // Computes a copy id like "a2", "a3", etc. based on the original id
 export function copyId(originalId: string, flowState: FlowState, fullFlow: OpenFlow): string {
 	const allIds = new Set(dfs(fullFlow.value.modules, (fm) => fm.id).concat(Object.keys(flowState)))
-	for (let n = 2; ; n++) {
+	for (let n = 2; n < 10000; n++) {
 		const candidate = `${originalId}${n}`
 		if (!allIds.has(candidate)) {
 			return candidate
 		}
 	}
+	return `${originalId}10000`
 }

@@ -94,7 +94,11 @@ export class MoveManager {
 	}
 
 	toggleMovingMultiple(ids: string[]) {
-		if (this.movingIds && this.movingIds[0] === ids[0]) {
+		if (
+			this.movingIds &&
+			this.movingIds.length === ids.length &&
+			this.movingIds.every((id, i) => id === ids[i])
+		) {
 			this.movingModuleId = undefined
 			this.movingIds = undefined
 			this.#updateDraggedNodeIds(undefined)

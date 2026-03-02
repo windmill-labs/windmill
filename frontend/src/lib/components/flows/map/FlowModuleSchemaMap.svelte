@@ -393,7 +393,7 @@
 			const clones: FlowModule[] = []
 			for (const loc of sorted) {
 				const original = parentArr[loc.index]
-				const clone: FlowModule = structuredClone($state.snapshot(original))
+				const clone: FlowModule = $state.snapshot(original)
 
 				clone.id = copyId(original.id, flowStateStore.val, flowStore.val)
 				flowStateStore.val[clone.id] = emptyFlowModuleState()
@@ -610,6 +610,10 @@
 						await tick()
 						if (moveManager.movingModuleId) {
 							push(history, flowStore.val)
+							if (!originalModules || !targetModules) {
+								moveManager.clearMoving()
+								return
+							}
 							if (moveManager.movingIds && moveManager.movingIds.length > 1) {
 								// Multi-move: splice out all moving modules from their parent, insert at target
 								const firstIndex = originalModules.findIndex(
@@ -786,7 +790,7 @@
 				push(history, flowStore.val)
 
 				const original = targetModules[targetIndex]
-				const clone: FlowModule = structuredClone($state.snapshot(original))
+				const clone: FlowModule = $state.snapshot(original)
 
 				// Assign copy id to the clone, and fresh ids to nested modules
 				clone.id = copyId(original.id, flowStateStore.val, flowStore.val)
