@@ -130,7 +130,11 @@
 		const fullKey = computeFullKey(key, rawKey)
 		if (allowCopy) {
 			if (pureViewer && clickedValue) {
-				copyToClipboard(typeof value == 'string' ? value : JSON.stringify(value))
+				try {
+					copyToClipboard(typeof value == 'string' ? value : JSON.stringify(value))
+				} catch (e) {
+					copyToClipboard(String(value))
+				}
 			} else {
 				copyToClipboard(fullKey)
 			}
@@ -192,7 +196,11 @@
 			icon: ClipboardCopy,
 			onClick: () => {
 				const v = lastContextData.value
-				copyToClipboard(typeof v === 'string' ? v : JSON.stringify(v))
+				try {
+					copyToClipboard(typeof v === 'string' ? v : JSON.stringify(v))
+				} catch (e) {
+					copyToClipboard(String(v))
+				}
 			}
 		},
 		...(lastContextData.key !== ''
@@ -211,7 +219,13 @@
 						id: 'copy-object',
 						label: 'Copy entire object',
 						icon: Braces,
-						onClick: () => copyToClipboard(JSON.stringify(lastContextData.parentObj))
+						onClick: () => {
+							try {
+								copyToClipboard(JSON.stringify(lastContextData.parentObj))
+							} catch (e) {
+								copyToClipboard(String(lastContextData.parentObj))
+							}
+						}
 					}
 				]
 			: [])
