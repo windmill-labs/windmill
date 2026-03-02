@@ -12,7 +12,6 @@ Open-source platform for internal tools, workflows, API integrations, background
 ## Documentation
 
 - **Validation**: `docs/validation.md` — what checks to run based on what you changed
-- **Autonomous mode**: `docs/autonomous-mode.md` — when running in bypass/auto permission mode
 - **Enterprise**: `docs/enterprise.md` — EE file conventions and PR workflow
 - **Backend patterns**: use the `rust-backend` skill when writing Rust code
 - **Frontend patterns**: use the `svelte-frontend` skill when writing Svelte code
