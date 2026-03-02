@@ -556,7 +556,10 @@ pub fn list_completed_jobs_query(
     let mut sqlb = SqlBuilder::select_from("v2_job_completed")
         .fields(fields)
         .order_by(
-            if lq.completed_before.is_some() || lq.completed_after.is_some() {
+            if lq.completed_before.is_some()
+                || lq.completed_after.is_some()
+                || lq.success == Some(false)
+            {
                 "v2_job_completed.completed_at"
             } else {
                 "v2_job.created_at"

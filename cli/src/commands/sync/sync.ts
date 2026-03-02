@@ -1496,11 +1496,21 @@ async function compareDynFSElement(
     }
   }
 
-  changes.sort((a, b) =>
-    getOrderFromPath(a.path) == getOrderFromPath(b.path)
-      ? a.path.localeCompare(b.path)
-      : getOrderFromPath(a.path) - getOrderFromPath(b.path),
-  );
+  changes.sort((a, b) => {
+    const orderA = getOrderFromPath(a.path);
+    const orderB = getOrderFromPath(b.path);
+    if (orderA !== orderB) {
+      return orderA - orderB;
+    }
+    // Within the same entity type, process deletes before adds/edits
+    // to avoid conflicts (e.g. unique path constraints on triggers)
+    const deletePriority = (name: string) => (name === "deleted" ? 0 : 1);
+    const dp = deletePriority(a.name) - deletePriority(b.name);
+    if (dp !== 0) {
+      return dp;
+    }
+    return a.path.localeCompare(b.path);
+  });
 
   return changes;
 }

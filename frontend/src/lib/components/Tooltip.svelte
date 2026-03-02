@@ -3,11 +3,9 @@
 	 * @deprecated Use `$lib/components/meltComponents/Tooltip.svelte` instead.
 	 * This legacy tooltip component will be removed in a future version.
 	 */
-	import Markdown from 'svelte-exmarkdown'
 	import type { PopoverPlacement } from './Popover.model'
 	import Popover from './Popover.svelte'
 	import { InfoIcon } from 'lucide-svelte'
-	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
 	import { getContext, hasContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	interface Props {
@@ -16,7 +14,6 @@
 		placement?: PopoverPlacement | undefined
 		documentationLink?: string | undefined
 		small?: boolean
-		markdownTooltip?: string | undefined
 		customSize?: string
 		class?: string
 		Icon?: typeof InfoIcon
@@ -29,13 +26,11 @@
 		placement = undefined,
 		documentationLink = undefined,
 		small = false,
-		markdownTooltip = undefined,
 		customSize = '100%',
 		class: classNames = '',
 		Icon = InfoIcon,
 		children
 	}: Props = $props()
-	const plugins = [gfmPlugin()]
 
 	const disableTooltips = hasContext('disableTooltips')
 		? getContext('disableTooltips') === true
@@ -58,13 +53,7 @@
 			<Icon class="{small ? 'bottom-0' : '-bottom-0.5'} absolute" size={small ? 12 : 14} />
 		</div>
 		{#snippet text()}
-			{#if markdownTooltip}
-				<div class="prose-sm">
-					<Markdown md={markdownTooltip} {plugins} />
-				</div>
-			{:else}
-				{@render children?.()}
-			{/if}
+			{@render children?.()}
 		{/snippet}
 	</Popover>
 {/if}

@@ -137,6 +137,13 @@
 	let preserveOnBehalfOf = writable(false)
 	let savedOnBehalfOfEmail = writable<string | undefined>(savedFlow?.on_behalf_of_email)
 
+	// Keep savedOnBehalfOfEmail in sync when savedFlow is loaded asynchronously
+	$effect(() => {
+		if (savedFlow?.on_behalf_of_email !== undefined) {
+			savedOnBehalfOfEmail.set(savedFlow.on_behalf_of_email)
+		}
+	})
+
 	// used for new flows for captures
 	let fakeInitialPath =
 		'u/' +
