@@ -37,7 +37,8 @@
 	export let disabled: boolean = false
 	export let documentationLink: string | undefined = undefined
 	export let disableFocusTrap: boolean = false
-	export let openFocus: string | HTMLElement | (() => HTMLElement | null) | null | undefined = undefined
+	export let openFocus: string | HTMLElement | (() => HTMLElement | null) | null | undefined =
+		undefined
 	export let escapeBehavior: EscapeBehaviorType = 'close'
 	export let enableFlyTransition: boolean = false
 	export let onKeyDown: (e: KeyboardEvent) => void = () => {}
@@ -70,7 +71,7 @@
 	onDestroy(clearTimers)
 
 	const {
-		elements: { trigger, content, arrow, close: closeElement, overlay },
+		elements: { trigger: _trigger, content, arrow, close: closeElement, overlay },
 		states,
 		options: { closeOnOutsideClick: closeOnOutsideClickOption, positioning, portal: portalOption },
 		ids: { content: popoverId }
@@ -147,9 +148,7 @@
 	}
 
 	async function getMenuElements(): Promise<HTMLElement[]> {
-		const selector = excludeSelectors
-			? `[data-popover], ${excludeSelectors}`
-			: '[data-popover]'
+		const selector = excludeSelectors ? `[data-popover], ${excludeSelectors}` : '[data-popover]'
 		return Array.from(document.querySelectorAll(selector)) as HTMLElement[]
 	}
 
@@ -175,7 +174,7 @@
 
 <button
 	class={className}
-	use:melt={$trigger}
+	use:melt={$_trigger}
 	aria-label="Popup button"
 	disabled={disablePopup || disabled}
 	on:mouseenter={() => {
