@@ -3,17 +3,35 @@
 
 	import { copyToClipboard, truncate } from '$lib/utils'
 
-	import { createEventDispatcher, tick, untrack, type Snippet } from 'svelte'
+	import {
+		createEventDispatcher,
+		tick,
+		untrack,
+		setContext,
+		getContext,
+		type Snippet
+	} from 'svelte'
 	import { computeKey, keepByKeyOrValue } from './utils'
 	import { NEVER_TESTED_THIS_FAR } from '../flows/models'
 	import Portal from '$lib/components/Portal.svelte'
 	import { Button } from '$lib/components/common'
-	import { Download, PanelRightOpen, Search, TriangleAlertIcon, X } from 'lucide-svelte'
+	import {
+		Download,
+		PanelRightOpen,
+		Search,
+		TriangleAlertIcon,
+		X,
+		ClipboardCopy,
+		Braces
+	} from 'lucide-svelte'
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import Popover from '../Popover.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import ContextMenu, {
+		type ContextMenuItem
+	} from '$lib/components/common/contextmenu/ContextMenu.svelte'
 
 	interface Props {
 		json: any
@@ -112,7 +130,11 @@
 		const fullKey = computeFullKey(key, rawKey)
 		if (allowCopy) {
 			if (pureViewer && clickedValue) {
-				copyToClipboard(typeof value == 'string' ? value : JSON.stringify(value))
+				try {
+					copyToClipboard(typeof value == 'string' ? value : JSON.stringify(value))
+				} catch (e) {
+					copyToClipboard(String(value))
+				}
 			} else {
 				copyToClipboard(fullKey)
 			}
@@ -140,6 +162,74 @@
 	let keyLimit = $derived(isArray ? 5 : 100)
 	let fullyCollapsed = $derived(keys.length > 1 && collapsed)
 	let searchInput: HTMLInputElement | undefined = $state(undefined)
+
+	// Context menu — shared via context so nested ObjectViewer instances
+	// update the root-level data and a single ContextMenu renders the menu.
+	let lastContextData = $state<{ key: string; value: any; parentObj: any }>({
+		key: '',
+		value: null,
+		parentObj: null
+	})
+
+	function setContextMenuData(e: MouseEvent, key: string, value: any, parentObj: any) {
+		// Only the deepest handler should set the data — mark the event
+		// so ancestor <li> handlers skip their update.
+		if (!(e as any).__objViewerCtxSet) {
+			lastContextData = { key, value, parentObj }
+			;(e as any).__objViewerCtxSet = true
+		}
+	}
+
+	const CONTEXT_MENU_CTX_KEY = 'objectViewerContextMenu'
+
+	if (level === 0) {
+		setContext(CONTEXT_MENU_CTX_KEY, setContextMenuData)
+	}
+
+	const updateContextData: typeof setContextMenuData =
+		level === 0 ? setContextMenuData : getContext<typeof setContextMenuData>(CONTEXT_MENU_CTX_KEY)
+
+	let menuItems: ContextMenuItem[] = $derived([
+		{
+			id: 'copy-value',
+			label: 'Copy value',
+			icon: ClipboardCopy,
+			onClick: () => {
+				const v = lastContextData.value
+				try {
+					copyToClipboard(typeof v === 'string' ? v : v ? JSON.stringify(v) : String(v))
+				} catch (e) {
+					copyToClipboard(String(v))
+				}
+			}
+		},
+		...(lastContextData.key !== ''
+			? [
+					{
+						id: 'copy-key',
+						label: 'Copy object key',
+						icon: ClipboardCopy,
+						onClick: () => copyToClipboard(lastContextData.key)
+					}
+				]
+			: []),
+		...(lastContextData.parentObj != null
+			? [
+					{
+						id: 'copy-object',
+						label: 'Copy entire object',
+						icon: Braces,
+						onClick: () => {
+							try {
+								copyToClipboard(JSON.stringify(lastContextData.parentObj))
+							} catch (e) {
+								copyToClipboard(String(lastContextData.parentObj))
+							}
+						}
+					}
+				]
+			: [])
+	])
 </script>
 
 {#snippet renderScalar(k: string, v: any)}
@@ -180,184 +270,203 @@
 	</span>
 {/snippet}
 
-{#if getTypeAsString(jsonFiltered) === 's3object'}
-	<Portal name="object-viewer">
-		<S3FilePicker bind:this={s3FileViewer} readOnlyMode={true} />
-	</Portal>
-{/if}
+{#snippet viewerContent()}
+	{#if getTypeAsString(jsonFiltered) === 's3object'}
+		<Portal name="object-viewer">
+			<S3FilePicker bind:this={s3FileViewer} readOnlyMode={true} />
+		</Portal>
+	{/if}
 
-{#if level == 0}
-	<div class="float-right">
-		{#if searchOpen}
-			<div class="px-1 relative">
-				<input
-					onkeydown={(event) => {
-						if ((event as KeyboardEvent)?.key === 'Escape') {
+	{#if level == 0}
+		<div class="float-right">
+			{#if searchOpen}
+				<div class="px-1 relative">
+					<input
+						onkeydown={(event) => {
+							if ((event as KeyboardEvent)?.key === 'Escape') {
+								clearSearch()
+							}
+							event.stopPropagation()
+						}}
+						type="text"
+						class="!h-6 !text-2xs mt-0.5"
+						bind:value={search}
+						placeholder="Search..."
+						bind:this={searchInput}
+					/>
+					<button
+						class="absolute right-2 top-1 rounded-full hover:bg-surface-hover focus:bg-surface-hover text-secondary p-0.5"
+						onclick={() => {
 							clearSearch()
-						}
-						event.stopPropagation()
+						}}><X size={12} /></button
+					>
+				</div>
+			{:else}
+				<Button
+					color="light"
+					size="xs3"
+					iconOnly
+					btnClasses="text-primary hover:text-primary"
+					startIcon={{ icon: Search }}
+					on:click={() => {
+						searchOpen = true
+						tick().then(() => searchInput?.focus())
 					}}
-					type="text"
-					class="!h-6 !text-2xs mt-0.5"
-					bind:value={search}
-					placeholder="Search..."
-					bind:this={searchInput}
-				/>
-				<button
-					class="absolute right-2 top-1 rounded-full hover:bg-surface-hover focus:bg-surface-hover text-secondary p-0.5"
-					onclick={() => {
-						clearSearch()
-					}}><X size={12} /></button
+				></Button>
+			{/if}
+		</div>
+	{/if}
+
+	{#if keys.length > 0}
+		{#if !fullyCollapsed}
+			<span>
+				{#if level != 0 && keys.length > 1}
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+
+					<Button
+						size="xs2"
+						variant="default"
+						on:click={collapse}
+						wrapperClasses="!inline-flex w-fit"
+						btnClasses="font-mono h-4 text-2xs px-1 font-thin text-primary rounded-[0.275rem]"
+						>-</Button
+					>
+				{/if}
+				{#if level == 0 && topBrackets}<span class="text-primary">{openBracket}</span>{/if}
+				<ul
+					class={`w-full ${
+						level === 0 ? `border-none ${topBrackets ? 'pl-2' : ''}` : 'pl-2 border-l border-dotted'
+					}`}
 				>
-			</div>
-		{:else}
-			<Button
-				color="light"
-				size="xs3"
-				iconOnly
-				btnClasses="text-primary hover:text-primary"
-				startIcon={{ icon: Search }}
-				on:click={() => {
-					searchOpen = true
-					tick().then(() => searchInput?.focus())
-				}}
-			></Button>
+					{#each keys.length > keyLimit ? keys.slice(0, keyLimit) : keys as key, index (key)}
+						<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+						<li
+							oncontextmenu={(e) => updateContextData(e, key, json[key], json)}
+							class="[&:hover:not(:has(li:hover))]:bg-surface-hover"
+						>
+							<AnimatedButton
+								animate={connecting && hoveredKey === key}
+								marginWidth="1px"
+								wrapperClasses="inline-flex h-fit w-fit items-center"
+								baseRadius="0.275rem"
+								animationDuration="2s"
+							>
+								<Button
+									on:click={() => selectProp(key, undefined, false)}
+									on:mouseenter={() => {
+										hoveredKey = key
+									}}
+									on:mouseleave={() => (hoveredKey = null)}
+									size="xs2"
+									color="light"
+									variant="border"
+									wrapperClasses="p-0 whitespace-nowrap w-fit"
+									btnClasses={twMerge(
+										'hover:bg-surface',
+										'font-mono h-4 py-1 text-2xs',
+										'font-thin px-1 rounded-[0.275rem]',
+										metaData ? 'rounded-r-none border-r-0.5' : ''
+									)}
+									title={computeFullKey(key, rawKey)}
+								>
+									<span class={pureViewer ? 'cursor-auto' : ''}>{!isArray ? key : index}</span>
+								</Button>
+								{@render metaData?.(key)}
+							</AnimatedButton>
+							<span class="text-2xs -ml-0.5 text-primary">:</span>
+
+							{#if getTypeAsString(jsonFiltered[key]) === 'object'}
+								<ObjectViewer
+									{connecting}
+									json={jsonFiltered[key]}
+									level={level + 1}
+									currentPath={computeFullKey(key, rawKey)}
+									{pureViewer}
+									{allowCopy}
+									on:select
+									{collapseLevel}
+									collapsed={collapseLevel !== undefined
+										? level + 1 >= collapseLevel && key != expandedEvenOnLevel0
+										: undefined}
+								/>
+							{:else}
+								{@render renderScalar(key, jsonFiltered[key])}
+							{/if}
+							{@render editKey?.(key)}
+						</li>
+					{/each}
+					{#if keys.length > keyLimit}
+						{@const increment = Math.min(100, keys.length - keyLimit)}
+						<button onclick={() => (keyLimit += increment)} class="text-2xs px-2 text-secondary">
+							{keyLimit}/{keys.length}: Load {increment} more...
+						</button>
+					{/if}
+				</ul>
+				{#if level == 0 && topBrackets}
+					<div class="flex">
+						<span class="text-primary">{closeBracket}</span>
+						{#if getTypeAsString(jsonFiltered) === 's3object'}
+							<a
+								class="text-secondary underline font-semibold text-2xs whitespace-nowrap ml-1 w-fit"
+								href={`/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${encodeURIComponent(
+									jsonFiltered?.s3 ?? ''
+								)}${jsonFiltered?.storage ? `&storage=${jsonFiltered.storage}` : ''}`}
+								download={jsonFiltered?.s3.split('/').pop() ?? 'unnamed_download.file'}
+							>
+								<span class="flex items-center gap-1"><Download size={12} />download</span>
+							</a>
+							<button
+								class="text-secondary underline text-2xs whitespace-nowrap ml-1"
+								onclick={() => {
+									s3FileViewer?.open?.(jsonFiltered)
+								}}
+								><span class="flex items-center gap-1"
+									><PanelRightOpen size={12} />open preview</span
+								>
+							</button>
+						{/if}
+					</div>
+				{/if}
+			</span>
 		{/if}
-	</div>
-{/if}
 
-{#if keys.length > 0}
-	{#if !fullyCollapsed}
-		<span>
-			{#if level != 0 && keys.length > 1}
-				<!-- svelte-ignore a11y_click_events_have_key_events -->
-				<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
 
+		{#if fullyCollapsed}
+			<span>
 				<Button
 					size="xs2"
 					variant="default"
 					on:click={collapse}
 					wrapperClasses="!inline-flex w-fit"
-					btnClasses="font-mono h-4 text-2xs px-1 font-thin text-primary rounded-[0.275rem]"
-					>-</Button
+					btnClasses="h-4 text-[9px] px-1 text-primary rounded-[0.275rem]"
 				>
-			{/if}
-			{#if level == 0 && topBrackets}<span class="text-primary">{openBracket}</span>{/if}
-			<ul
-				class={`w-full ${
-					level === 0 ? `border-none ${topBrackets ? 'pl-2' : ''}` : 'pl-2 border-l border-dotted'
-				}`}
-			>
-				{#each keys.length > keyLimit ? keys.slice(0, keyLimit) : keys as key, index (key)}
-					<li>
-						<AnimatedButton
-							animate={connecting && hoveredKey === key}
-							marginWidth="1px"
-							wrapperClasses="inline-flex h-fit w-fit items-center"
-							baseRadius="0.275rem"
-							animationDuration="2s"
-						>
-							<Button
-								on:click={() => selectProp(key, undefined, false)}
-								on:mouseenter={() => {
-									hoveredKey = key
-								}}
-								on:mouseleave={() => (hoveredKey = null)}
-								size="xs2"
-								color="light"
-								variant="border"
-								wrapperClasses="p-0 whitespace-nowrap w-fit"
-								btnClasses={twMerge(
-									'hover:bg-surface',
-									'font-mono h-4 py-1 text-2xs',
-									'font-thin px-1 rounded-[0.275rem]',
-									metaData ? 'rounded-r-none border-r-0.5' : ''
-								)}
-								title={computeFullKey(key, rawKey)}
-							>
-								<span class={pureViewer ? 'cursor-auto' : ''}>{!isArray ? key : index}</span>
-							</Button>
-							{@render metaData?.(key)}
-						</AnimatedButton>
-						<span class="text-2xs -ml-0.5 text-primary">:</span>
-
-						{#if getTypeAsString(jsonFiltered[key]) === 'object'}
-							<ObjectViewer
-								{connecting}
-								json={jsonFiltered[key]}
-								level={level + 1}
-								currentPath={computeFullKey(key, rawKey)}
-								{pureViewer}
-								{allowCopy}
-								on:select
-								{collapseLevel}
-								collapsed={collapseLevel !== undefined
-									? level + 1 >= collapseLevel && key != expandedEvenOnLevel0
-									: undefined}
-							/>
-						{:else}
-							{@render renderScalar(key, jsonFiltered[key])}
-						{/if}
-						{@render editKey?.(key)}
-					</li>
-				{/each}
-				{#if keys.length > keyLimit}
-					{@const increment = Math.min(100, keys.length - keyLimit)}
-					<button onclick={() => (keyLimit += increment)} class="text-2xs px-2 text-secondary">
-						{keyLimit}/{keys.length}: Load {increment} more...
-					</button>
-				{/if}
-			</ul>
-			{#if level == 0 && topBrackets}
-				<div class="flex">
-					<span class="text-primary">{closeBracket}</span>
-					{#if getTypeAsString(jsonFiltered) === 's3object'}
-						<a
-							class="text-secondary underline font-semibold text-2xs whitespace-nowrap ml-1 w-fit"
-							href={`/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${encodeURIComponent(
-								jsonFiltered?.s3 ?? ''
-							)}${jsonFiltered?.storage ? `&storage=${jsonFiltered.storage}` : ''}`}
-							download={jsonFiltered?.s3.split('/').pop() ?? 'unnamed_download.file'}
-						>
-							<span class="flex items-center gap-1"><Download size={12} />download</span>
-						</a>
-						<button
-							class="text-secondary underline text-2xs whitespace-nowrap ml-1"
-							onclick={() => {
-								s3FileViewer?.open?.(jsonFiltered)
-							}}
-							><span class="flex items-center gap-1"><PanelRightOpen size={12} />open preview</span>
-						</button>
-					{/if}
-				</div>
-			{/if}
+					{openBracket}{collapsedSymbol}{closeBracket}
+				</Button>
+			</span>
+		{/if}
+	{:else if topBrackets}
+		<span class="text-primary">{openBracket}{closeBracket}</span>
+	{:else if jsonFiltered == undefined}
+		<span class="text-primary text-2xs ml-2">undefined</span>
+	{:else if typeof jsonFiltered != 'object'}
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<span oncontextmenu={(e) => updateContextData(e, '', jsonFiltered, null)}>
+			{@render renderScalar('', jsonFiltered)}
 		</span>
+	{:else}
+		<span class="text-primary text-2xs ml-2">No items</span>
 	{/if}
+{/snippet}
 
-	<!-- svelte-ignore a11y_click_events_have_key_events -->
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-
-	{#if fullyCollapsed}
-		<span>
-			<Button
-				size="xs2"
-				variant="default"
-				on:click={collapse}
-				wrapperClasses="!inline-flex w-fit"
-				btnClasses="h-4 text-[9px] px-1 text-primary rounded-[0.275rem]"
-			>
-				{openBracket}{collapsedSymbol}{closeBracket}
-			</Button>
-		</span>
-	{/if}
-{:else if topBrackets}
-	<span class="text-primary">{openBracket}{closeBracket}</span>
-{:else if jsonFiltered == undefined}
-	<span class="text-primary text-2xs ml-2">undefined</span>
-{:else if typeof jsonFiltered != 'object'}
-	{@render renderScalar('', jsonFiltered)}
+{#if level === 0}
+	<ContextMenu items={menuItems}>
+		{@render viewerContent()}
+	</ContextMenu>
 {:else}
-	<span class="text-primary text-2xs ml-2">No items</span>
+	{@render viewerContent()}
 {/if}
 
 <style lang="postcss">
