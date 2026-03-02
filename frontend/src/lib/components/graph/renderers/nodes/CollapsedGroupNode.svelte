@@ -1,12 +1,11 @@
 <script lang="ts">
-	import { stopPropagation, preventDefault } from 'svelte/legacy'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { CollapsedGroupN } from '../../graphBuilder.svelte'
 	import { getGraphContext } from '../../graphContext'
 	import GroupNodeCard from '../../GroupNodeCard.svelte'
 	import GroupActionBar from '../../GroupActionBar.svelte'
 	import { getGroupEditorContext } from '../../groupEditor.svelte'
-	import { NOTE_COLORS, NoteColor } from '../../noteColors'
+	import StepCountTab from '../../StepCountTab.svelte'
 
 	interface Props {
 		data: CollapsedGroupN['data']
@@ -20,44 +19,19 @@
 
 	let selected = $derived(!!(selectionManager && selectionManager.isNodeSelected(id)))
 	let hover = $state(false)
-	let noteHeight = $state(0)
 
 	let group = $derived(
 		groupEditorContext?.groupEditor.getGroups().find((g) => g.id === data.groupId)
 	)
 
-	let colorConfig = $derived(
-		data.color
-			? (NOTE_COLORS[data.color as NoteColor] ?? NOTE_COLORS[NoteColor.BLUE])
-			: NOTE_COLORS[NoteColor.BLUE]
-	)
-	let borderColorClass = $derived(colorConfig.outline.replace(/outline-/g, 'border-'))
 </script>
 
 <NodeWrapper offset={data.offset}>
 	{#snippet children({ darkMode })}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div class="relative" onmouseenter={() => (hover = true)} onmouseleave={() => (hover = false)}>
-			<!-- Step count badge — top-left -->
-			<button
-				class="absolute -top-5 font-normal left-0 text-3xs text-secondary opacity-60 hover:opacity-100 hover:text-blue-500 z-10"
-				onclick={stopPropagation(
-					preventDefault(() => data.eventHandlers.expandGroup(data.groupId))
-				)}
-				onpointerdown={stopPropagation(preventDefault(() => {}))}
-			>
-				{data.stepCount} step{data.stepCount !== 1 ? 's' : ''}
-			</button>
+			<StepCountTab stepCount={data.stepCount} color={data.color} onExpand={() => data.eventHandlers.expandGroup(data.groupId)} />
 
-			<!-- Stacked layers behind the card -->
-			<div
-				class="absolute inset-0 left-2 h-9 rounded-md border z-[-1] {colorConfig.background} {borderColorClass}"
-				style="top: {3 + noteHeight}px; width: 259px;"
-			></div>
-			<div
-				class="absolute inset-0 left-4 h-9 rounded-md border z-[-2] {colorConfig.background} {borderColorClass}"
-				style="top: {7 + noteHeight}px; width: 243px;"
-			></div>
 
 			<GroupNodeCard
 				summary={data.summary}
@@ -71,7 +45,6 @@
 					groupEditorContext?.groupEditor.updateSummary(data.groupId, text)}
 				onNoteUpdate={(text) => groupEditorContext?.groupEditor.updateNote(data.groupId, text)}
 				onHeightChange={(h) => {
-					noteHeight = h
 					groupEditorContext?.groupEditor.setNoteHeight(data.groupId, h)
 				}}
 			/>

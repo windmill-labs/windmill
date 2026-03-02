@@ -8,7 +8,7 @@
 	import { isMac, type Item } from '$lib/utils'
 	import type { ContextMenuItem } from '../../../common/contextmenu/ContextMenu.svelte'
 	import { addGroupNoteContextMenuItem } from '../../noteUtils.svelte'
-	import { stopPropagation, preventDefault } from 'svelte/legacy'
+	import StepCountTab from '../../StepCountTab.svelte'
 
 	interface Props {
 		data: ModuleN['data']
@@ -50,6 +50,15 @@
 			data.module.value.type === 'forloopflow' ||
 			data.module.value.type === 'whileloopflow'
 	)
+
+	let containerStepCount = $derived.by(() => {
+		if (data.isCollapsedContainer) return data.containerModules?.length ?? 0
+		const v = data.module.value
+		if (v.type === 'branchall') return v.branches.flatMap((b) => b.modules).length
+		if (v.type === 'branchone') return v.default.length + v.branches.flatMap((b) => b.modules).length
+		if (v.type === 'forloopflow' || v.type === 'whileloopflow') return v.modules.length
+		return 0
+	})
 
 	// Define context menu items
 	let noteDisabled = $derived(
@@ -102,28 +111,13 @@
 <NodeWrapper offset={data.offset} {menuItems}>
 	{#snippet children({ darkMode })}
 		<div class="relative">
-			{#if data.isCollapsedContainer}
-				{@const numberOfsteps = data.containerModules?.length ?? 0}
-				<!-- Step count badge — top-left -->
-				<button
-					class="absolute -top-5 left-0 text-3xs text-secondary font-normal opacity-60 hover:opacity-100 hover:text-blue-500 z-10"
-					onclick={stopPropagation(
-						preventDefault(() => data.eventHandlers.expandContainer(data.id))
-					)}
-					onpointerdown={stopPropagation(preventDefault(() => {}))}
-				>
-					{`${numberOfsteps} step${numberOfsteps > 1 ? 's' : ''}`}
-				</button>
-
-				<!-- Stacked layers behind the card -->
-				<div
-					class="absolute left-2 h-[34px] rounded-md border z-[-1] bg-surface border-gray-300 dark:border-gray-600"
-					style="top: 5px; width: 259px;"
-				></div>
-				<div
-					class="absolute left-4 h-[34px] rounded-md border z-[-2] bg-surface border-gray-300 dark:border-gray-600"
-					style="top: 9px; width: 243px;"
-				></div>
+			{#if isContainer}
+				<StepCountTab
+					stepCount={containerStepCount}
+					onExpand={data.isCollapsedContainer
+						? () => data.eventHandlers.expandContainer(data.id)
+						: () => data.eventHandlers.collapseContainer(data.id)}
+				/>
 			{/if}
 
 			<MapItem

@@ -6,6 +6,7 @@
 	import GroupNodeCard from './GroupNodeCard.svelte'
 	import GroupActionBar from './GroupActionBar.svelte'
 	import type { FlowModule } from '$lib/gen'
+	import StepCountTab from './StepCountTab.svelte'
 
 	interface Props {
 		hoveredNodeId: string | null
@@ -146,6 +147,11 @@
 							actionBarHovered = false
 						}}
 					>
+						<StepCountTab
+							stepCount={group.module_ids.length}
+							color={group.color}
+							onExpand={() => toggleCollapse(group.id)}
+						/>
 						<GroupNodeCard
 							summary={group.summary}
 							stepCount={group.module_ids.length}
