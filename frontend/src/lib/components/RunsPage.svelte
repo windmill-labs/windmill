@@ -148,7 +148,9 @@
 		(v) => {
 			v.maxTs ? (filters.val.max_ts = new Date(v.maxTs)) : delete filters.val.max_ts
 			v.minTs ? (filters.val.min_ts = new Date(v.minTs)) : delete filters.val.min_ts
-			v.timeframe ? (filters.val.timeframe = v.timeframe) : delete filters.val.timeframe
+			v.timeframe && v.timeframe !== 'Latest runs'
+				? (filters.val.timeframe = v.timeframe)
+				: delete filters.val.timeframe
 		}
 	)
 	let timeframe = $derived(_timeframe.val)
