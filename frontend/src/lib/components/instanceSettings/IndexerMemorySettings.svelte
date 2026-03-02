@@ -70,6 +70,44 @@
 		/>
 		<InputError error={errors.writer_memory_budget ?? ''} />
 	</div>
+	<Label label="Index storage">
+		<div class="flex flex-row items-center gap-2">
+			{#if storageSizesLoading}
+				<span class="text-2xs text-tertiary">Loading sizes...</span>
+			{:else if storageSizes}
+				<div class="flex flex-col gap-1 text-2xs text-tertiary">
+					<span>
+						Jobs index:
+						{#if storageSizes.job_index?.disk_size_bytes != null}
+							Disk: {displaySize(storageSizes.job_index.disk_size_bytes) ?? 'N/A'}
+						{/if}
+						{#if storageSizes.job_index?.s3_size_bytes != null}
+							{#if storageSizes.job_index?.disk_size_bytes != null}&middot;{/if}
+							S3: {displaySize(storageSizes.job_index.s3_size_bytes) ?? 'N/A'}
+						{/if}
+					</span>
+					<span>
+						Service logs index:
+						{#if storageSizes.service_log_index?.disk_size_bytes != null}
+							Disk: {displaySize(storageSizes.service_log_index.disk_size_bytes) ?? 'N/A'}
+						{/if}
+						{#if storageSizes.service_log_index?.s3_size_bytes != null}
+							{#if storageSizes.service_log_index?.disk_size_bytes != null}&middot;{/if}
+							S3: {displaySize(storageSizes.service_log_index.s3_size_bytes) ?? 'N/A'}
+						{/if}
+					</span>
+				</div>
+			{/if}
+			<Button
+				variant="border"
+				unifiedSize="xs"
+				on:click={loadStorageSizes}
+				disabled={storageSizesLoading}
+			>
+				Refresh
+			</Button>
+		</div>
+	</Label>
 	<Label label="Clear index">
 		<span class="text-xs text-secondary"
 			>These buttons will clear the whole index, and the service will start reindexing from scratch.
@@ -86,19 +124,6 @@
 				>
 					Clear jobs index
 				</Button>
-				{#if storageSizesLoading}
-					<span class="text-2xs text-tertiary">Loading sizes...</span>
-				{:else if storageSizes?.job_index}
-					<span class="text-2xs text-tertiary">
-						{#if storageSizes.job_index.disk_size_bytes != null}
-							Disk: {displaySize(storageSizes.job_index.disk_size_bytes) ?? 'N/A'}
-						{/if}
-						{#if storageSizes.job_index.s3_size_bytes != null}
-							{#if storageSizes.job_index.disk_size_bytes != null}&middot;{/if}
-							S3: {displaySize(storageSizes.job_index.s3_size_bytes) ?? 'N/A'}
-						{/if}
-					</span>
-				{/if}
 			</div>
 			<div class="flex flex-row items-center gap-2">
 				<Button
@@ -110,19 +135,6 @@
 				>
 					Clear service logs index
 				</Button>
-				{#if storageSizesLoading}
-					<span class="text-2xs text-tertiary">Loading sizes...</span>
-				{:else if storageSizes?.service_log_index}
-					<span class="text-2xs text-tertiary">
-						{#if storageSizes.service_log_index.disk_size_bytes != null}
-							Disk: {displaySize(storageSizes.service_log_index.disk_size_bytes) ?? 'N/A'}
-						{/if}
-						{#if storageSizes.service_log_index.s3_size_bytes != null}
-							{#if storageSizes.service_log_index.disk_size_bytes != null}&middot;{/if}
-							S3: {displaySize(storageSizes.service_log_index.s3_size_bytes) ?? 'N/A'}
-						{/if}
-					</span>
-				{/if}
 			</div>
 		</div>
 	</Label>
