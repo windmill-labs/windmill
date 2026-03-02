@@ -8,7 +8,7 @@
 	import { getGraphContext } from './graphContext'
 	import MoveHandleButton from './MoveHandleButton.svelte'
 	import { tick } from 'svelte'
-	import type { Item } from '$lib/utils'
+	import { isMac, type Item } from '$lib/utils'
 
 	interface Props {
 		selectedNodes: string[]
@@ -71,7 +71,7 @@
 			displayName: `Delete (${resolvedCount})`,
 			icon: Trash2,
 			type: 'delete',
-			shortcut: '⌫',
+			shortcut: isMac() ? '⌫' : 'Del',
 			action: () => onDeleteSelected?.()
 		},
 		...(noteEditorContext?.noteEditor

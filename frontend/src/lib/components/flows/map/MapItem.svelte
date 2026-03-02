@@ -119,7 +119,6 @@
 					: ''
 			: ''
 	)
-
 </script>
 
 {#if mod}
@@ -262,7 +261,7 @@
 					deletable={insertable}
 					id={mod.id}
 					{...itemProps}
-						{nodeState}
+					{nodeState}
 					label={mod.summary ||
 						(mod.value.type === 'aiagent' ? 'AI Agent' : undefined) ||
 						(mod.id === 'preprocessor'

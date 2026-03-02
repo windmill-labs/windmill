@@ -5,7 +5,7 @@
 	import type { ModuleN } from '../../graphBuilder.svelte'
 	import { jobToGraphModuleState } from '$lib/components/modulesTest.svelte'
 	import { getNoteEditorContext } from '../../noteEditor.svelte'
-	import type { Item } from '$lib/utils'
+	import { isMac, type Item } from '$lib/utils'
 
 	interface Props {
 		data: ModuleN['data']
@@ -42,9 +42,10 @@
 	})
 
 	// Define context menu items
-	const noteDisabled =
+	let noteDisabled = $derived(
 		!noteEditorContext?.noteEditor ||
 		(noteEditorContext?.noteEditor?.isNodeOnlyMemberOfGroupNote(data.id) ?? false)
+	)
 
 	const menuItems: Item[] = $derived(
 		data.editMode
@@ -63,7 +64,7 @@
 						displayName: 'Delete',
 						icon: Trash2,
 						type: 'delete' as const,
-						shortcut: '⌫',
+						shortcut: isMac() ? '⌫' : 'Del',
 						action: () => data.eventHandlers.delete({ id: data.id }, '')
 					},
 					{

@@ -1,6 +1,5 @@
 import type { FlowModule } from '$lib/gen'
 import { dfs } from './dfs'
-import { getAllSubmodules } from './flowExplorer'
 
 /** Virtual/non-module node IDs that should be filtered out of multi-select operations */
 const VIRTUAL_ID_PREFIXES = ['Input', 'Result', 'Trigger', 'preprocessor', 'failure']
@@ -19,6 +18,34 @@ function isVirtualId(id: string): boolean {
 }
 
 /**
+ * Single DFS pass to build a map of moduleId → set of ancestor module IDs.
+ * Used to deduplicate nested selections (keep container, drop children).
+ */
+function buildAncestorMap(modules: FlowModule[]): Map<string, Set<string>> {
+	const ancestors = new Map<string, Set<string>>()
+
+	function walk(mods: FlowModule[], parentAncestors: Set<string>) {
+		for (const mod of mods) {
+			ancestors.set(mod.id, parentAncestors)
+			const childAncestors = new Set([...parentAncestors, mod.id])
+
+			const val = mod.value
+			if (val.type === 'forloopflow' || val.type === 'whileloopflow') {
+				walk(val.modules, childAncestors)
+			} else if (val.type === 'branchall') {
+				for (const branch of val.branches) walk(branch.modules, childAncestors)
+			} else if (val.type === 'branchone') {
+				for (const branch of val.branches) walk(branch.modules, childAncestors)
+				walk(val.default, childAncestors)
+			}
+		}
+	}
+
+	walk(modules, new Set())
+	return ancestors
+}
+
+/**
  * Filter raw selected node IDs down to the minimal set of top-level module IDs:
  * 1. Filter out virtual graph nodes (Input, Result, Trigger, -start, -end, -branch-*, subflow:*, preprocessor, failure)
  * 2. Verify each ID exists as a real module in the flow module tree
@@ -28,33 +55,19 @@ export function resolveSelectedModuleIds(rawIds: string[], modules: FlowModule[]
 	// Step 1: Filter out virtual IDs
 	const candidateIds = rawIds.filter((id) => !isVirtualId(id))
 
-	// Step 2: Verify existence — collect all real module IDs via DFS
-	const allModuleIds = new Set(dfs(modules, (mod) => mod.id))
-	const verifiedIds = candidateIds.filter((id) => allModuleIds.has(id))
+	// Step 2+3: Single DFS to build ancestor map (also verifies existence)
+	const ancestorMap = buildAncestorMap(modules)
+	const verifiedIds = candidateIds.filter((id) => ancestorMap.has(id))
 
-	// Step 3: Deduplicate nested — if a container and its children are both selected, keep only the container
+	// If any ancestor of this module is also selected, it's a nested child — drop it
 	const selectedSet = new Set(verifiedIds)
-	const childIds = new Set<string>()
-
-	for (const id of verifiedIds) {
-		// Find the module and get all its submodules
-		const submodules = dfs(modules, (mod) => {
-			if (mod.id === id) {
-				return getAllSubmodules(mod)
-					.flat()
-					.map((m) => m.id)
-			}
-			return []
-		}).flat()
-
-		for (const childId of submodules) {
-			if (selectedSet.has(childId)) {
-				childIds.add(childId)
-			}
+	return verifiedIds.filter((id) => {
+		const ancestors = ancestorMap.get(id)!
+		for (const ancestor of ancestors) {
+			if (selectedSet.has(ancestor)) return false
 		}
-	}
-
-	return verifiedIds.filter((id) => !childIds.has(id))
+		return true
+	})
 }
 
 export type ModuleLocation = {
