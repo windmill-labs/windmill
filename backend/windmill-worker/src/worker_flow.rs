@@ -47,7 +47,9 @@ use windmill_common::jobs::{
     check_tag_available_for_workspace_internal, script_path_to_payload, JobKind, JobPayload,
     OnBehalfOf, RawCode, ENTRYPOINT_OVERRIDE,
 };
-use windmill_common::runnable_settings::{ConcurrencySettingsWithCustom, DebouncingSettings};
+use windmill_common::runnable_settings::{
+    ConcurrencySettingsWithCustom, DebouncingSettings, RunnableSettingsTrait,
+};
 use windmill_common::scripts::{ScriptHash, ScriptRunnableSettingsInline};
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::WarnAfterExt;
@@ -1424,6 +1426,38 @@ pub async fn update_flow_status_after_job_completion_internal(
                 }
             };
 
+            // When debouncing is applied, store the flow's debouncing settings in
+            // the runnable_settings_handle so that maybe_apply_debouncing can find
+            // them after re-pull and perform argument accumulation.
+            let new_runnable_settings_handle: Option<i64> = if scheduled_for.is_some() {
+                let debouncing_hash = flow_value
+                    .debouncing_settings
+                    .insert_cached(db)
+                    .await
+                    .unwrap_or_else(|e| {
+                        tracing::error!(
+                            "Failed to insert debouncing settings for post-preprocessing: {e:#}"
+                        );
+                        None
+                    });
+                windmill_common::runnable_settings::insert_rs(
+                    windmill_common::runnable_settings::RunnableSettings {
+                        debouncing_settings: debouncing_hash,
+                        concurrency_settings: None,
+                    },
+                    db,
+                )
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::error!(
+                        "Failed to insert runnable settings for post-preprocessing: {e:#}"
+                    );
+                    None
+                })
+            } else {
+                None
+            };
+
             sqlx::query!(
                 "WITH job_result AS (
                  SELECT result
@@ -1434,7 +1468,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                 UPDATE v2_job_queue
                 SET running = false,
                 tag = COALESCE($3, tag),
-                scheduled_for = COALESCE($6, scheduled_for)
+                scheduled_for = COALESCE($6, scheduled_for),
+                runnable_settings_handle = COALESCE($7, runnable_settings_handle)
                 WHERE id = $2
              )
              UPDATE v2_job
@@ -1463,6 +1498,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 concurrent_limit,
                 concurrency_time_window_s,
                 scheduled_for,
+                new_runnable_settings_handle,
             )
             .execute(db)
             .await
