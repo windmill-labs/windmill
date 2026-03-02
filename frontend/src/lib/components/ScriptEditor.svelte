@@ -33,7 +33,7 @@
 		Bug,
 		Copy,
 		CornerDownLeft,
-		Circle,
+		Video,
 		Download,
 		ExternalLink,
 		Github,
@@ -1191,7 +1191,7 @@
 							items={[
 								{
 									displayName: 'Test & record',
-									icon: Circle,
+									icon: Video,
 									action: () => recordAndTest()
 								},
 								...(lastRecording

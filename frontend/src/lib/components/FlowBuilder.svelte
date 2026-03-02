@@ -57,7 +57,8 @@
 		Circle,
 		CheckCircle,
 		RefreshCw,
-		CheckCheck
+		CheckCheck,
+		Video
 	} from 'lucide-svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
@@ -938,7 +939,7 @@
 			},
 			{
 				displayName: 'Test flow & record',
-				icon: Circle,
+				icon: Video,
 				action: () => flowPreviewButtons?.openRecordingPreview()
 			}
 		]
