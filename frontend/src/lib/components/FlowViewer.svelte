@@ -52,8 +52,9 @@
 	}: Props = $props()
 
 	let open: { [id: number]: boolean } = {}
-	if (untrack(() => initialOpen)) {
-		open[untrack(() => initialOpen)] = true
+	const untrackedInitialOpen = untrack(() => initialOpen)
+	if (untrackedInitialOpen) {
+		open[untrackedInitialOpen] = true
 	}
 
 	let previousVersionId: number | undefined = $state(undefined)
