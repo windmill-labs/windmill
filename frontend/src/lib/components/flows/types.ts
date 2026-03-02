@@ -74,7 +74,6 @@ export type CurrentEditor =
 export type FlowEditorContext = {
 	selectionManager: SelectionManager
 	currentEditor: Writable<CurrentEditor>
-	moving: Writable<{ id: string } | undefined>
 	previewArgs: StateStore<Record<string, any>>
 	scriptEditorDrawer: Writable<ScriptEditorDrawer | undefined>
 	flowEditorDrawer: Writable<FlowEditorDrawer | undefined>
