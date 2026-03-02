@@ -197,7 +197,7 @@
 			onClick: () => {
 				const v = lastContextData.value
 				try {
-					copyToClipboard(typeof v === 'string' ? v : JSON.stringify(v))
+					copyToClipboard(typeof v === 'string' ? v : v ? JSON.stringify(v) : String(v))
 				} catch (e) {
 					copyToClipboard(String(v))
 				}
