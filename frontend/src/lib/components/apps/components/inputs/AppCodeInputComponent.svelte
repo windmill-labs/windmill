@@ -21,7 +21,7 @@
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = $state(
-		initConfig(components['codeinputcomponent'].initialData.configuration, configuration)
+		initConfig(components['codeinputcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
 	let code = $state<string | undefined>(undefined)
@@ -32,7 +32,7 @@
 
 	let lang = $derived(resolvedConfig?.lang ?? 'javascript')
 	let outputs = $state(
-		initOutput($worldStore, id, {
+		initOutput($worldStore, untrack(() => id), {
 			result: ''
 		})
 	)
@@ -48,8 +48,8 @@
 		}
 	})
 
-	$componentControl[id] = {
-		...$componentControl[id],
+	$componentControl[untrack(() => id)] = {
+		...$componentControl[untrack(() => id)],
 		setValue(value: string) {
 			code = value
 			editorInstance?.setCode(value)

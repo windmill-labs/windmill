@@ -46,12 +46,12 @@
 		states: { open }
 	} = createTooltip({
 		positioning: {
-			placement
+			untrack(() => placement)
 		},
-		openDelay,
-		closeDelay,
+		untrack(() => openDelay),
+		untrack(() => closeDelay),
 		group: true,
-		portal
+		untrack(() => portal)
 	})
 </script>
 

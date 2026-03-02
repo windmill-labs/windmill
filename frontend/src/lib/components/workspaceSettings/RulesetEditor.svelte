@@ -27,21 +27,21 @@
 	const hasRule = (ruleKind: string) => rule?.rules?.includes(ruleKind as any) ?? false
 
 	// Editable state
-	let name = $state(rule?.name ?? '')
+	let name = $state(untrack(() => rule)?.name ?? '')
 	let disableDirectDeployment = $state(hasRule('DisableDirectDeployment'))
 	let disableFork = $state(hasRule('DisableWorkspaceForking'))
-	let selectedGroups = $state<string[]>(rule?.bypass_groups?.map((g) => g.replace('g/', '')) ?? [])
-	let selectedUsers = $state<string[]>(rule?.bypass_users?.map((u) => u.replace('u/', '')) ?? [])
+	let selectedGroups = $state<string[]>(untrack(() => rule)?.bypass_groups?.map((g) => g.replace('g/', '')) ?? [])
+	let selectedUsers = $state<string[]>(untrack(() => rule)?.bypass_users?.map((u) => u.replace('u/', '')) ?? [])
 
 	// Initial state for unsaved changes tracking
-	let initialName = $state(rule?.name ?? '')
+	let initialName = $state(untrack(() => rule)?.name ?? '')
 	let initialDisableDirectDeployment = $state(hasRule('DisableDirectDeployment'))
 	let initialDisableFork = $state(hasRule('DisableWorkspaceForking'))
 	let initialSelectedGroups = $state<string[]>(
-		rule?.bypass_groups ? rule.bypass_groups.map((g) => g.replace('g/', '')) : []
+		untrack(() => rule)?.bypass_groups ? untrack(() => rule).bypass_groups.map((g) => g.replace('g/', '')) : []
 	)
 	let initialSelectedUsers = $state<string[]>(
-		rule?.bypass_users ? rule.bypass_users.map((u) => u.replace('u/', '')) : []
+		untrack(() => rule)?.bypass_users ? untrack(() => rule).bypass_users.map((u) => u.replace('u/', '')) : []
 	)
 
 	// Available options

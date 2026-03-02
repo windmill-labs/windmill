@@ -35,7 +35,7 @@
 		children
 	}: Props = $props()
 
-	if (openInitially && collapsable && collapsed) {
+	if (untrack(() => openInitially) && untrack(() => collapsable) && collapsed) {
 		collapsed = false
 	}
 </script>

@@ -51,7 +51,7 @@
 
 	const { app, worldStore, darkMode } = getContext<AppViewerContext>('AppViewerContext')
 
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined,
 		loading: false
 	})
@@ -61,7 +61,7 @@
 	let result: undefined = $state(undefined)
 
 	const resolvedConfig = $state(
-		initConfig(components['chartjscomponent'].initialData.configuration, configuration)
+		initConfig(components['chartjscomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
 	function hasScales() {
@@ -110,7 +110,7 @@
 			: result
 	)
 
-	let css = $state(initCss($app.css?.chartjscomponent, customCss))
+	let css = $state(initCss($app.css?.chartjscomponent, untrack(() => customCss)))
 </script>
 
 {#if datasets}

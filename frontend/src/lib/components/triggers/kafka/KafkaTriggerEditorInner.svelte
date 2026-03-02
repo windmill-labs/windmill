@@ -112,7 +112,7 @@
 			!hasChanged
 	)
 	const kafkaConfig = $derived.by(getSaveCfg)
-	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
+	const captureConfig = $derived.by(untrack(() => isEditor) ? getCaptureConfig : () => ({}))
 
 	$effect(() => {
 		is_flow = itemKind === 'flow'

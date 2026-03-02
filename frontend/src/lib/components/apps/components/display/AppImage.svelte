@@ -26,7 +26,7 @@
 	let { id, configuration, customCss = undefined, render }: Props = $props()
 
 	const resolvedConfig = $state(
-		initConfig(components['imagecomponent'].initialData.configuration, configuration)
+		initConfig(components['imagecomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
 	const { app, appPath, worldStore, workspace, isEditor } =
@@ -38,9 +38,9 @@
 	}
 
 	//used so that we can count number of outputs setup for first refresh
-	initOutput($worldStore, id, {})
+	initOutput($worldStore, untrack(() => id), {})
 
-	let css = $state(initCss($app.css?.imagecomponent, customCss))
+	let css = $state(initCss($app.css?.imagecomponent, untrack(() => customCss)))
 
 	let imageUrl: string | undefined = $state(undefined)
 

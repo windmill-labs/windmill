@@ -32,7 +32,7 @@
 	}: Props = $props()
 
 	let dropdownOpen = $state(false)
-	let editValue = $state(id)
+	let editValue = $state(untrack(() => id))
 	let textInputElement: TextInput | undefined = $state()
 
 	function finishEdit() {

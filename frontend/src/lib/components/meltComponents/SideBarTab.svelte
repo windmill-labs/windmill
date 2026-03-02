@@ -33,7 +33,7 @@
 		open = false
 	}
 
-	let hasCloseButton = close_button
+	let hasCloseButton = untrack(() => close_button)
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->

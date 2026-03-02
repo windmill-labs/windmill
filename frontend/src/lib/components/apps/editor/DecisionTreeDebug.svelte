@@ -27,7 +27,7 @@
 		getContext<AppViewerContext>('AppViewerContext')
 	const dispatch = createEventDispatcher()
 
-	let currentNodeId: string = $state($worldStore.outputsById[id]?.currentNodeId?.peak() ?? 'a')
+	let currentNodeId: string = $state($worldStore.outputsById[untrack(() => id)]?.currentNodeId?.peak() ?? 'a')
 
 	function subscribeToCurrentNode(id: string) {
 		return $worldStore.outputsById[id]?.currentNodeId?.subscribe(
@@ -41,7 +41,7 @@
 		)
 	}
 
-	let subscription = subscribeToCurrentNode(id)
+	let subscription = subscribeToCurrentNode(untrack(() => id))
 
 	function onDebugNode(debuggedNodeIndex: number | undefined) {
 		if (debuggedNodeIndex === undefined) {
@@ -63,7 +63,7 @@
 	})
 
 	let renderCount: number = $state(0)
-	let lastNodes: DecisionTreeNode[] = nodes
+	let lastNodes: DecisionTreeNode[] = untrack(() => nodes)
 
 	function onNodesChange(newNodes: DecisionTreeNode[]) {
 		if (JSON.stringify(newNodes) !== JSON.stringify(lastNodes)) {

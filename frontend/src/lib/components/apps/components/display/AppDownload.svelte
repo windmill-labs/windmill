@@ -36,14 +36,14 @@
 	}: Props = $props()
 
 	const resolvedConfig = $state(
-		initConfig(components['downloadcomponent'].initialData.configuration, configuration)
+		initConfig(components['downloadcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
 	const { app, worldStore, appPath, workspace, isEditor } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	//used so that we can count number of outputs setup for first refresh
-	initOutput($worldStore, id, {})
+	initOutput($worldStore, untrack(() => id), {})
 
 	let beforeIconComponent: any = $state()
 	let afterIconComponent: any = $state()
@@ -106,7 +106,7 @@
 		}
 	}
 
-	let css = $state(initCss($app.css?.downloadcomponent, customCss))
+	let css = $state(initCss($app.css?.downloadcomponent, untrack(() => customCss)))
 	$effect(() => {
 		resolvedConfig.beforeIcon && beforeIconComponent && untrack(() => handleBeforeIcon())
 	})

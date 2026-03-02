@@ -155,7 +155,7 @@
 
 	let draftDrawerOpen = $state(false)
 	let saveDrawerOpen = $state(false)
-	let inputsDrawerOpen = $state(fromHub)
+	let inputsDrawerOpen = $state(untrack(() => fromHub))
 	let historyBrowserDrawerOpen = $state(false)
 	let debugAppDrawerOpen = $state(false)
 	let lazyDrawerOpen = $state(false)

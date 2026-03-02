@@ -41,10 +41,10 @@
 	let size = $state(2)
 	let color = $state('#00000060')
 
-	let css = $state(initCss($app.css?.[position + 'dividercomponent'], customCss))
+	let css = $state(initCss($app.css?.[untrack(() => position) + 'dividercomponent'], untrack(() => customCss)))
 
 	//used so that we can count number of outputs setup for first refresh
-	initOutput($worldStore, id, {})
+	initOutput($worldStore, untrack(() => id), {})
 
 	function getSize() {
 		if (position === 'horizontal') {

@@ -68,7 +68,7 @@
 	let isActive = $state(false)
 	let sber = editorContext?.componentActive?.subscribe((x) => (isActive = x))
 
-	let everVisible = $state(visible)
+	let everVisible = $state(untrack(() => visible))
 
 	$effect.pre(() => {
 		visible && !everVisible && (everVisible = true)

@@ -36,11 +36,11 @@
 		getContext<AppViewerContext>('AppViewerContext')
 
 	//used so that we can count number of outputs setup for first refresh
-	initOutput($worldStore, id, {
+	initOutput($worldStore, untrack(() => id), {
 		selectedPaneIndex: 0
 	})
 
-	let everRender = $state(render)
+	let everRender = $state(untrack(() => render))
 
 	$effect.pre(() => {
 		render && !everRender && (everRender = true)
@@ -53,9 +53,9 @@
 		}
 	}
 
-	let css = $state(initCss($app.css?.containercomponent, customCss))
+	let css = $state(initCss($app.css?.containercomponent, untrack(() => customCss)))
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		left: () => {
 			if ($focusedGrid?.subGridIndex) {
 				const index = $focusedGrid?.subGridIndex ?? 0
@@ -80,7 +80,7 @@
 		}
 	}
 
-	let sumedup = $state(panes.map((x) => (x / panes.reduce((a, b) => a + b, 0)) * 100))
+	let sumedup = $state(untrack(() => panes).map((x) => (x / panes.reduce((a, b) => a + b, 0)) * 100))
 	$effect.pre(() => {
 		let ns = panes.map((x) => (x / panes.reduce((a, b) => a + b, 0)) * 100)
 		if (!deepEqual(ns, sumedup)) {

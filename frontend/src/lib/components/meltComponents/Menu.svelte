@@ -46,9 +46,9 @@
 	}: Props = $props()
 
 	// Use the passed createMenu function
-	const menu = createMenu({
+	const menu = untrack(() => createMenu)({
 		positioning: {
-			placement,
+			untrack(() => placement),
 			fitViewport: true,
 			strategy: 'fixed'
 		},

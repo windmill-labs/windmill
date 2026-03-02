@@ -27,7 +27,7 @@
 		onClick
 	}: Props = $props()
 
-	let truncatedPath = asset.path.split('?table=')[0]
+	let truncatedPath = untrack(() => asset).path.split('?table=')[0]
 	let resourceDataCacheValue = $derived(resourceDataCache[truncatedPath])
 </script>
 

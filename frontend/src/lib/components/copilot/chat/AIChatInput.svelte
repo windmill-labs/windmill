@@ -77,7 +77,7 @@
 
 	let contextTextareaComponent: ContextTextarea | undefined = $state()
 	let instructionsTextareaComponent: HTMLTextAreaElement | undefined = $state()
-	let instructions = $state(initialInstructions)
+	let instructions = $state(untrack(() => initialInstructions))
 
 	// App mode @ mention state
 	let showAppContextTooltip = $state(false)

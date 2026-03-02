@@ -34,16 +34,16 @@
 		}
 	}
 
-	if (tables.includes(type)) {
+	if (tables.includes(untrack(() => type))) {
 		addContextVariable(
 			'row',
 			'The current row of a table. Row is an object with keys index and value.'
 		)
-	} else if (type === 's3fileinputcomponent' || type === 'fileinputcomponent') {
+	} else if (untrack(() => type) === 's3fileinputcomponent' || untrack(() => type) === 'fileinputcomponent') {
 		addContextVariable('file', 'The current file being processed.')
-	} else if (type === 'containercomponent') {
+	} else if (untrack(() => type) === 'containercomponent') {
 		addContextVariable('group', 'The group name of the container.')
-	} else if (type === 'listcomponent') {
+	} else if (untrack(() => type) === 'listcomponent') {
 		addContextVariable(
 			'iter',
 			'The current iteration of the list. Iter is an object with keys index and value.'
@@ -77,7 +77,7 @@
 		processParents(allParents)
 	}
 
-	findParentsContextVariables(id)
+	findParentsContextVariables(untrack(() => id))
 
 	function addParentContextVariable(parent: GridItem | undefined) {
 		if (parent?.data?.type === 'containercomponent') {

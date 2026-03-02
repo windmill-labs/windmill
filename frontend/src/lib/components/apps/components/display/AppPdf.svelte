@@ -22,7 +22,7 @@
 	const { app, worldStore, appPath, workspace, isEditor } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		loading: false
 	})
 
@@ -67,7 +67,7 @@
 		source && loadSource()
 	})
 
-	let css = $state(initCss($app.css?.pdfcomponent, customCss))
+	let css = $state(initCss($app.css?.pdfcomponent, untrack(() => customCss)))
 </script>
 
 <InputValue key="source" {id} input={configuration.source} bind:value={source} />

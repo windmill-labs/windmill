@@ -81,7 +81,7 @@
 			.map(([k, _]) => k)
 	}
 
-	if (!newResource) {
+	if (!untrack(() => newResource)) {
 		initEdit()
 	} else if (resource_type) {
 		loadResourceType()

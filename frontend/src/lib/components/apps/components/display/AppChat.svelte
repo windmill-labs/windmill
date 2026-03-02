@@ -46,7 +46,7 @@
 	const { worldStore, app, componentControl } = getContext<AppViewerContext>('AppViewerContext')
 
 	// Initialize outputs
-	let outputs = initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined as any,
 		loading: false,
 		jobId: undefined as string | undefined,
@@ -56,11 +56,11 @@
 
 	// Resolve configuration
 	let resolvedConfig = $state(
-		initConfig(components['chatcomponent'].initialData.configuration, configuration)
+		initConfig(components['chatcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
 	// Initialize CSS
-	let css = $state(initCss($app.css?.chatcomponent, customCss))
+	let css = $state(initCss($app.css?.chatcomponent, untrack(() => customCss)))
 
 	// State
 	let runnableComponent: RunnableComponent | undefined = $state()
@@ -79,7 +79,7 @@
 	let chatMemoryId = $state(randomUUID())
 
 	// Register component control for programmatic access
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		sendMessage: (message: string) => {
 			if (message && !loading) {
 				inputValue = message

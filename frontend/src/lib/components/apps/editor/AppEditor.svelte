@@ -80,9 +80,9 @@
 		onSavedNewAppPath
 	}: AppEditorProps = $props()
 
-	migrateApp(app)
+	migrateApp(untrack(() => app))
 
-	const stateApp = $state(app)
+	const stateApp = $state(untrack(() => app))
 	const appStore = writable<App>(stateApp)
 	const selectedComponent = writable<string[] | undefined>(undefined)
 
@@ -91,7 +91,7 @@
 	// })
 	const mode = writable<EditorMode>('dnd')
 	const breakpoint = writable<EditorBreakpoint>('lg')
-	const summaryStore = writable(summary)
+	const summaryStore = writable(untrack(() => summary))
 	const connectingInput = writable<ConnectingInput>({
 		opened: false,
 		input: undefined,
@@ -100,7 +100,7 @@
 
 	const cssEditorOpen = writable<boolean>(false)
 
-	const history = initHistory(app)
+	const history = initHistory(untrack(() => app))
 
 	const jobsById = writable<
 		Record<
@@ -127,7 +127,7 @@
 		workspace: $workspaceStore,
 		mode: 'editor',
 		summary: $summaryStore,
-		author: policy.on_behalf_of_email
+		author: untrack(() => policy).on_behalf_of_email
 	})
 	const darkMode: Writable<boolean> = writable(document.documentElement.classList.contains('dark'))
 
@@ -147,7 +147,7 @@
 	$secondaryMenuRightStore.isOpen = false
 	$secondaryMenuLeftStore.isOpen = false
 
-	let writablePath = writable(path)
+	let writablePath = writable(untrack(() => path))
 
 	function onPathChange() {
 		writablePath.set(path)
@@ -185,8 +185,8 @@
 		cssEditorOpen,
 		previewTheme,
 		debuggingComponents: writable({}),
-		replaceStateFn: replaceStateFn,
-		policy: policy,
+		replaceStateFn: untrack(() => replaceStateFn),
+		policy: untrack(() => policy),
 		recomputeAllContext: writable({
 			loading: false,
 			componentNumber: 0,

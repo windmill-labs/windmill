@@ -11,12 +11,12 @@
 		...props
 	}: FlowBuilderProps & { light?: boolean } = $props()
 
-	let flowStore = $state(oldFlowStore)
-	let flowStateStore = $state(oldFlowStateStore)
+	let flowStore = $state(untrack(() => oldFlowStore))
+	let flowStateStore = $state(untrack(() => oldFlowStateStore))
 
 	let trialRender = $state(true)
 
-	if (light) {
+	if (untrack(() => light)) {
 		setTimeout(() => {
 			trialRender = false
 		}, 1000 * 300)

@@ -21,8 +21,8 @@
 
 	let { prop, value = $bindable(), inline = false, onChange }: Props = $props()
 	const styleStore = getContext<StyleStore>(STYLE_STORE_KEY)
-	const key = prop.key
-	const type = prop.value?.['type']
+	const key = untrack(() => prop).key
+	const type = untrack(() => prop).value?.['type']
 	let unit: (typeof StylePropertyUnits)[number] = $state(StylePropertyUnits[0])
 	let internalValue: number | string = $derived(
 		getInteralValue(value, prop.value as StylePropertyValue)

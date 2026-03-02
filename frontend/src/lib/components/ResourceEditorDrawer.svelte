@@ -36,7 +36,7 @@
 		drawer?.openDrawer?.()
 	}
 
-	let mode: 'edit' | 'new' = $state(newResource ? 'new' : 'edit')
+	let mode: 'edit' | 'new' = $state(untrack(() => newResource) ? 'new' : 'edit')
 
 	run(() => {
 		path ? (mode = 'edit') : (mode = 'new')

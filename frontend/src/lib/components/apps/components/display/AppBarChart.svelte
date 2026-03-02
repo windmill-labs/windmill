@@ -43,10 +43,10 @@
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = $state(
-		initConfig(components['barchartcomponent'].initialData.configuration, configuration)
+		initConfig(components['barchartcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
-	let outputs = initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined,
 		loading: false
 	})
@@ -119,7 +119,7 @@
 		}
 	})
 
-	let css = $state(initCss($app.css?.barchartcomponent, customCss))
+	let css = $state(initCss($app.css?.barchartcomponent, untrack(() => customCss)))
 </script>
 
 {#each Object.keys(components['barchartcomponent'].initialData.configuration) as key (key)}

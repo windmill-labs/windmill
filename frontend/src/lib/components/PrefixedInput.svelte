@@ -8,7 +8,7 @@
 	} = $props()
 
 	let inputElement: HTMLInputElement = $state(null!)
-	let internalValue = $state(prefix + value)
+	let internalValue = $state(untrack(() => prefix) + value)
 
 	// Update internal value when prop changes
 	$effect(() => {

@@ -28,7 +28,7 @@
 
 	// export let containerClasses: string = 'rounded-lg shadow-md border p-4 bg-surface'
 	// export let floatingClasses: string = ''
-	const [floatingRef, floatingContent] = createFloatingActions(floatingConfig)
+	const [floatingRef, floatingContent] = createFloatingActions(untrack(() => floatingConfig))
 
 	function close() {
 		open = false

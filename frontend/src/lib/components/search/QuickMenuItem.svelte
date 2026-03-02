@@ -56,7 +56,7 @@
 		onkeyboardSpecificSelect
 	}: Props = $props()
 
-	if (small) {
+	if (untrack(() => small)) {
 		kbdClass = twMerge(
 			kbdClass,
 			'!text-[10px]  px-1',

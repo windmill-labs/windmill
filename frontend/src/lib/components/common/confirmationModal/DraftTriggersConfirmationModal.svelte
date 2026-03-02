@@ -20,7 +20,7 @@
 
 	let { open = $bindable(false), draftTriggers = [], isFlow = false }: Props = $props()
 
-	let selectedTriggers: Trigger[] = $state(draftTriggers)
+	let selectedTriggers: Trigger[] = $state(untrack(() => draftTriggers))
 
 	const dispatch = createEventDispatcher<{
 		canceled: void

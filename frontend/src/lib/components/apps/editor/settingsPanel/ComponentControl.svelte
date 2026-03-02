@@ -13,7 +13,7 @@
 
 	let { type }: Props = $props()
 
-	const componentControls = getComponentControl(type)
+	const componentControls = getComponentControl(untrack(() => type))
 
 	let collapsed: boolean = $state(true)
 </script>

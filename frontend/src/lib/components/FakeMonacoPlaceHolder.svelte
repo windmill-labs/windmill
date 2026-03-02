@@ -45,7 +45,7 @@
 
 	const charWidth = 9 // try to match as closely as possible to monaco editor
 
-	const lineHeight = fontSize * GOLDEN_LINE_HEIGHT_RATIO
+	const lineHeight = untrack(() => fontSize) * GOLDEN_LINE_HEIGHT_RATIO
 
 	let [clientWidth, clientHeight] = $state([0, 0])
 	let showHorizontalScrollbar = $derived(

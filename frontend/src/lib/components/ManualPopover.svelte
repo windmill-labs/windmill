@@ -26,7 +26,7 @@
 		content
 	}: Props = $props()
 
-	const [popperRef, popperContent, getInstance] = createPopperActions({ placement })
+	const [popperRef, popperContent, getInstance] = createPopperActions({ untrack(() => placement) })
 
 	export function open() {
 		showTooltip = true

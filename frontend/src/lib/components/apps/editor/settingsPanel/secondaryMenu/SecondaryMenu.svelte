@@ -11,7 +11,7 @@
 
 	let { right }: Props = $props()
 
-	let secondaryMenu = right ? secondaryMenuRight : secondaryMenuLeft
+	let secondaryMenu = untrack(() => right) ? secondaryMenuRight : secondaryMenuLeft
 	let width: number | undefined = $state()
 </script>
 

@@ -38,7 +38,7 @@
 		onCloseRecomputeIds = undefined
 	}: Props = $props()
 
-	let everRender = $state(render)
+	let everRender = $state(untrack(() => render))
 	$effect(() => {
 		render && !everRender && (everRender = true)
 	})
@@ -55,9 +55,9 @@
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const resolvedConfig = $state(
-		initConfig(components['drawercomponent'].initialData.configuration, configuration)
+		initConfig(components['drawercomponent'].initialData.configuration, untrack(() => configuration))
 	)
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		open: false
 	})
 
@@ -65,7 +65,7 @@
 
 	let appDrawer: Drawer | undefined = $state()
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		open: () => {
 			appDrawer?.openDrawer()
 		},
@@ -74,7 +74,7 @@
 		}
 	}
 
-	let css = $state(initCss($app.css?.drawercomponent, customCss))
+	let css = $state(initCss($app.css?.drawercomponent, untrack(() => customCss)))
 </script>
 
 {#each Object.keys(components['drawercomponent'].initialData.configuration) as key (key)}

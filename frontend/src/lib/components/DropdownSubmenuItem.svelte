@@ -18,7 +18,7 @@
 	const {
 		elements: { subTrigger, subMenu },
 		states: { subOpen }
-	} = builders.createSubmenu()
+	} = untrack(() => builders).createSubmenu()
 
 	let subItems = $derived((item.submenuItems ?? []).filter((i) => !i.hide))
 </script>

@@ -32,7 +32,7 @@
 		class: className = ''
 	}: Props = $props()
 
-	let items = togglableItems.map((i) => ({
+	let items = untrack(() => togglableItems).map((i) => ({
 		displayName: i.label,
 		action: () => (selected = i.value),
 		tooltip: i.tooltip

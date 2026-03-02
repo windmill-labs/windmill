@@ -115,10 +115,10 @@
 		ids: { content: popoverId }
 	} = createPopover({
 		forceVisible: true,
-		portal: dynamicPortal,
-		disableFocusTrap,
-		escapeBehavior,
-		openFocus,
+		portal: untrack(() => dynamicPortal),
+		untrack(() => disableFocusTrap),
+		untrack(() => escapeBehavior),
+		untrack(() => openFocus),
 		onOpenChange: ({ curr, next }) => {
 			if (curr != next) {
 				dispatch('openChange', next)
@@ -145,8 +145,8 @@
 		}
 	})
 
-	$positioning = floatingConfig ?? {
-		placement,
+	$positioning = untrack(() => floatingConfig) ?? {
+		untrack(() => placement),
 		strategy: 'absolute',
 		gutter: 8,
 		overflowPadding: 16,
@@ -182,7 +182,7 @@
 
 	let { debounced: debounceClose, clearDebounce: clearDebounceClose } = debounce(
 		() => openOnHover && close(),
-		debounceDelay
+		untrack(() => debounceDelay)
 	)
 
 	const handleClick: MeltEventHandler<PointerEvent> = (event) => {

@@ -25,7 +25,7 @@
 	}: Props = $props();
 
 	let loadingArgs = $state(true)
-	loadArgsFromRunningJob(job.id)
+	loadArgsFromRunningJob(untrack(() => job).id)
 
 	async function loadArgsFromRunningJob(id: string | undefined) {
 		if (!id) return

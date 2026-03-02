@@ -152,7 +152,7 @@
 
 	let editId = $state(false)
 
-	let newId: string = $state(id ?? '')
+	let newId: string = $state(untrack(() => id) ?? '')
 
 	let moduleTest: ModuleTest | undefined = $state(undefined)
 	let testIsLoading = $state(false)

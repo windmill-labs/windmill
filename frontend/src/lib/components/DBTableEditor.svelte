@@ -92,7 +92,7 @@
 		computePreview
 	}: Props = $props()
 
-	const columnTypes = DB_TYPES[dbType]
+	const columnTypes = DB_TYPES[untrack(() => dbType)]
 	const defaultColumnType = (
 		{
 			postgresql: 'BIGSERIAL',
@@ -102,10 +102,10 @@
 			mysql: 'varchar',
 			duckdb: 'string'
 		} satisfies Record<DbType, string>
-	)[dbType]
+	)[untrack(() => dbType)]
 
 	const values: TableEditorValues = $state(
-		$state.snapshot(initialValues) ?? {
+		$state.snapshot(untrack(() => initialValues)) ?? {
 			name: '',
 			columns: [],
 			foreignKeys: []
@@ -122,8 +122,8 @@
 			...(primaryKey && { primaryKey })
 		})
 	}
-	if (!initialValues) {
-		addColumn({ name: 'id', primaryKey: features?.primaryKeys })
+	if (!untrack(() => initialValues)) {
+		addColumn({ name: 'id', primaryKey: untrack(() => features)?.primaryKeys })
 	}
 
 	const errors: ReturnType<typeof validate> = $derived(validate(values, dbSchema))

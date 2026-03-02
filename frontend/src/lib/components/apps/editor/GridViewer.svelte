@@ -58,7 +58,7 @@
 
 	let xPerPx = $state(0)
 
-	let yPerPx = rowHeight
+	let yPerPx = untrack(() => rowHeight)
 
 	let containerHeight = $derived(getContainerHeight(items, yPerPx, getComputedCols))
 
@@ -71,7 +71,7 @@
 			yPerPx,
 			width: containerWidth
 		})
-	}, throttleUpdate)
+	}, untrack(() => throttleUpdate))
 
 	onMount(() => {
 		setTimeout(() => {

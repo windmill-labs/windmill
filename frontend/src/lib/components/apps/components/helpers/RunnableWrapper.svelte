@@ -161,7 +161,7 @@
 		}
 	})
 
-	const fullId = id + (extraKey ?? '')
+	const fullId = untrack(() => id) + (untrack(() => extraKey) ?? '')
 	if (!(initializing && componentInput?.type === 'runnable' && isRunnableDefined(componentInput))) {
 		initializing = false
 	} else {

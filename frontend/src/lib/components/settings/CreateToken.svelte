@@ -49,7 +49,7 @@
 	let newToken = $state<string | undefined>(undefined)
 	let newMcpToken = $state<string | undefined>(undefined)
 	let newTokenExpiration = $state<number | undefined>(undefined)
-	let newTokenWorkspace = $state<string | undefined>(defaultNewTokenWorkspace)
+	let newTokenWorkspace = $state<string | undefined>(untrack(() => defaultNewTokenWorkspace))
 	let newMcpApps = $state<string[]>([])
 	let mcpCreationMode = $state(false)
 	let newMcpScope = $state('favorites')

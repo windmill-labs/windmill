@@ -28,7 +28,7 @@
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
-	const payloadTooBigForPreview = payloadData != 'WINDMILL_TOO_BIG' && isObjectTooBig(payloadData)
+	const payloadTooBigForPreview = untrack(() => payloadData) != 'WINDMILL_TOO_BIG' && isObjectTooBig(untrack(() => payloadData))
 	const buttonWidth = 34
 	const floatingConfig = {
 		placement: 'bottom-end',
@@ -44,7 +44,7 @@
 			}
 		]
 	}
-	const xOffset = editOptions ? 218 : 168 // width of the optional buttons on the right
+	const xOffset = untrack(() => editOptions) ? 218 : 168 // width of the optional buttons on the right
 
 	let popover: Popover | undefined = $state()
 	let popoverOpen = false

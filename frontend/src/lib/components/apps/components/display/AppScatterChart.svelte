@@ -47,7 +47,7 @@
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined,
 		loading: false
 	})
@@ -91,7 +91,7 @@
 		datasets: result ?? []
 	} as ChartData<'scatter', (number | Point)[], unknown>)
 
-	let css = $state(initCss($app.css?.scatterchartcomponent, customCss))
+	let css = $state(initCss($app.css?.scatterchartcomponent, untrack(() => customCss)))
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}

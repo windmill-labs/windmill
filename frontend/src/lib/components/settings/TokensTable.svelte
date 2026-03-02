@@ -29,7 +29,7 @@
 	// --- Local State ---
 	let tokens = $state<TruncatedToken[]>([])
 	let tokenPage = $state(1)
-	let newTokenLabel = $state<string | undefined>(defaultNewTokenLabel)
+	let newTokenLabel = $state<string | undefined>(untrack(() => defaultNewTokenLabel))
 
 	$effect(() => {
 		listTokens()

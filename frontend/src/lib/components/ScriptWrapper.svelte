@@ -5,7 +5,7 @@
 
 	let { script: oldScript, disableAi, ...props }: ScriptBuilderProps = $props()
 
-	let script = $state(oldScript)
+	let script = $state(untrack(() => oldScript))
 </script>
 
 <AiChatLayout noPadding {disableAi}>

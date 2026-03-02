@@ -38,7 +38,7 @@
 
 	const dispatch = createEventDispatcher()
 	let kind: 'script' | 'failure' | 'approval' | 'trigger' = $state(
-		failureModule
+		untrack(() => failureModule)
 			? 'failure'
 			: summary == 'Trigger'
 				? 'trigger'

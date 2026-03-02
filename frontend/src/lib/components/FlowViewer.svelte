@@ -51,13 +51,13 @@
 	}: Props = $props()
 
 	let open: { [id: number]: boolean } = {}
-	if (initialOpen) {
-		open[initialOpen] = true
+	if (untrack(() => initialOpen)) {
+		open[untrack(() => initialOpen)] = true
 	}
 
 	let previousVersionId: number | undefined = $state(undefined)
 	let previousFlow: PreviousFlow | undefined = $state(undefined)
-	let tab: TabValue = $state(initTab ?? 'diff')
+	let tab: TabValue = $state(untrack(() => initTab) ?? 'diff')
 
 	let previousFlowCache: Record<number, PreviousFlow> = {}
 

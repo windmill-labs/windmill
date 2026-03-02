@@ -27,12 +27,12 @@
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = $state(
-		initConfig(components['statcomponent'].initialData.configuration, configuration)
+		initConfig(components['statcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
-	initOutput($worldStore, id, {})
+	initOutput($worldStore, untrack(() => id), {})
 
-	let css = $state(initCss($app.css?.statcomponent, customCss))
+	let css = $state(initCss($app.css?.statcomponent, untrack(() => customCss)))
 
 	let iconComponent: any = $state()
 

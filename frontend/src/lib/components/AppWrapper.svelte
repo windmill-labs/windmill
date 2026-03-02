@@ -4,7 +4,7 @@
 
 	let { app: oldApp, ...props }: AppEditorProps = $props()
 
-	let app = $state(oldApp)
+	let app = $state(untrack(() => oldApp))
 </script>
 
 <AppEditor {app} {...props} />

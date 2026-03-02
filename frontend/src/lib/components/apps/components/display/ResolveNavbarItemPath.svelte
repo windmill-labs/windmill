@@ -12,7 +12,7 @@
 
 	let { navbarItem, id, index, resolvedPath = $bindable(undefined) }: Props = $props()
 
-	let resolvedConfig = $state(initConfig({ path: navbarItem.path }, { path: navbarItem.path }))
+	let resolvedConfig = $state(initConfig({ path: untrack(() => navbarItem).path }, { path: untrack(() => navbarItem).path }))
 
 	$effect.pre(() => {
 		resolvedPath = (

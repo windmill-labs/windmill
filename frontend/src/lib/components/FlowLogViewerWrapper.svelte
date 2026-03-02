@@ -62,7 +62,7 @@
 	const timelineItems = $derived(timelineCompute?.items ?? undefined)
 	const timelineNow = $derived(timelineCompute?.now ?? Date.now())
 
-	let moduleTracker = new ChangeTracker($state.snapshot(job.raw_flow?.modules ?? []))
+	let moduleTracker = new ChangeTracker($state.snapshot(untrack(() => job).raw_flow?.modules ?? []))
 	$effect(() => {
 		readFieldsRecursively(job.raw_flow?.modules ?? [])
 		untrack(() => moduleTracker.track($state.snapshot(job.raw_flow?.modules ?? [])))
@@ -123,7 +123,7 @@
 	}
 
 	let timelineAvailableWidths = $state<Record<string, number>>({})
-	let lastJobId: string | undefined = $state(job.id)
+	let lastJobId: string | undefined = $state(untrack(() => job).id)
 
 	const timelinelWidth = $derived.by(() => {
 		const widths = Object.values(timelineAvailableWidths)

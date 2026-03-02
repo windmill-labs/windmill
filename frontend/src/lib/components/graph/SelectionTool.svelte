@@ -8,7 +8,7 @@
 
 	let { selectionManager, clearGraphSelection }: Props = $props()
 
-	selectionManager.setClearGraphSelection(clearGraphSelection)
+	untrack(() => selectionManager).setClearGraphSelection(untrack(() => clearGraphSelection))
 
 	// Get store to access selectionRect
 	const store = useStore()

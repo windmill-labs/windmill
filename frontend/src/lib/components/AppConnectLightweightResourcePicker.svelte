@@ -21,8 +21,8 @@
 
 	let darkMode: boolean = $state(false)
 
-	if (workspace) {
-		$workspaceStore = workspace
+	if (untrack(() => workspace)) {
+		$workspaceStore = untrack(() => workspace)
 	}
 
 	onMount(async () => {

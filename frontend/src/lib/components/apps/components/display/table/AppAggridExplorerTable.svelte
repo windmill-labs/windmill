@@ -64,7 +64,7 @@
 	const contextPanel = getContext<ContextPanelContext>('ContextPanel')
 	const { app, selectedComponent, componentControl, darkMode, mode } = context
 
-	let css = $state(initCss($app.css?.aggridcomponent, customCss))
+	let css = $state(initCss($app.css?.aggridcomponent, untrack(() => customCss)))
 
 	let selectedRowIndex = -1
 
@@ -402,9 +402,9 @@
 		}
 	}
 
-	let oldDatasource = $state(datasource)
+	let oldDatasource = $state(untrack(() => datasource))
 
-	let extraConfig = $state(resolvedConfig.extraConfig)
+	let extraConfig = $state(untrack(() => resolvedConfig).extraConfig)
 
 	export function clearRows() {
 		api?.purgeInfiniteCache()

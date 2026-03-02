@@ -30,10 +30,10 @@
 	const { worldStore, darkMode } = getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = $state(
-		initConfig(components['plotlycomponent'].initialData.configuration, configuration)
+		initConfig(components['plotlycomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined,
 		loading: false
 	})

@@ -34,7 +34,7 @@
 	}: Props = $props()
 
 	let error = $state('')
-	const regex = acceptUnderScores ? /^[a-zA-Z][a-zA-Z0-9_]*$/ : /^[a-zA-Z][a-zA-Z0-9]*$/
+	const regex = untrack(() => acceptUnderScores) ? /^[a-zA-Z][a-zA-Z0-9_]*$/ : /^[a-zA-Z][a-zA-Z0-9]*$/
 
 	function validateId(id: string, reservedIds: string[], reservedPrefixes: string[]) {
 		if (id == initialId) {

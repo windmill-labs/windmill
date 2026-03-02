@@ -853,7 +853,7 @@
 		}
 	}
 
-	setContext('disableTooltips', customUi?.disableTooltips === true)
+	setContext('disableTooltips', untrack(() => customUi)?.disableTooltips === true)
 
 	let codePanelSize = $state(70)
 	let testPanelSize = $state(30)

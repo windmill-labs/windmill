@@ -32,7 +32,7 @@
 		return html2
 	}
 
-	let html = highlightSnippet(content)
+	let html = highlightSnippet(untrack(() => content))
 </script>
 
 <button onclick={onClick} class="font-light !m-0 !p-0">

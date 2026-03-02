@@ -167,8 +167,8 @@
 		testJob = modulesTestStates.states?.[mod.id]?.testJob
 	})
 
-	modulesTestStates.states[mod.id] = {
-		...(modulesTestStates.states?.[mod.id] ?? { loading: false }),
+	modulesTestStates.states[untrack(() => mod).id] = {
+		...(modulesTestStates.states?.[untrack(() => mod).id] ?? { loading: false }),
 		loading: testIsLoading,
 		testJob: testJob
 	}

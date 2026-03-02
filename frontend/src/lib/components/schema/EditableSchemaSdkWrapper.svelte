@@ -10,7 +10,7 @@
 		...props
 	}: EditableSchemaWrapperProps & { onSchemaChange?: (schema: any) => void } = $props()
 
-	let schema = $state(oldSchema)
+	let schema = $state(untrack(() => oldSchema))
 
 	let lastSchema = $state<any>(undefined)
 	$effect(() => {

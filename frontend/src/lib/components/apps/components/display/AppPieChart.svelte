@@ -41,7 +41,7 @@
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined,
 		loading: false
 	})
@@ -87,7 +87,7 @@
 		]
 	})
 
-	let css = $state(initCss($app.css?.piechartcomponent, customCss))
+	let css = $state(initCss($app.css?.piechartcomponent, untrack(() => customCss)))
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}

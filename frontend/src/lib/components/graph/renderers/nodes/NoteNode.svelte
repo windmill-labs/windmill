@@ -52,7 +52,7 @@
 	let textareaElement: HTMLTextAreaElement | undefined = $state(undefined)
 	let editMode = $state(false)
 	let hovering = $state(false)
-	let textContent = $state(data.text ?? '')
+	let textContent = $state(untrack(() => data).text ?? '')
 	let containerHeight = $state(0)
 
 	// Use data props directly - they're kept in sync by NoteManager observer

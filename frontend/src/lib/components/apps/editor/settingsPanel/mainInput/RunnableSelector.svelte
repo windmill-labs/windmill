@@ -34,7 +34,7 @@
 	// const { app, workspace } = getContext<AppViewerContext>('AppViewerContext')
 
 	let tab: TabType = $state(
-		onlyFlow
+		untrack(() => onlyFlow)
 			? 'workspaceflows'
 			: unusedInlineScripts?.length > 0
 				? 'inlinescripts'

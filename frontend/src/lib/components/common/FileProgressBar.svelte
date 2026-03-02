@@ -18,7 +18,7 @@
 		children
 	}: Props = $props();
 
-	const tweenedProgress = tweened(progress, {
+	const tweenedProgress = tweened(untrack(() => progress), {
 		duration: 400,
 		easing: cubicOut
 	})

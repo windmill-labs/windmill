@@ -18,7 +18,7 @@
 
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	let outputs = initOutput($worldStore, `${id}_delete`, {
+	let outputs = initOutput($worldStore, `${untrack(() => id)}_delete`, {
 		result: undefined,
 		loading: false,
 		jobId: undefined

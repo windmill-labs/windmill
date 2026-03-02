@@ -62,7 +62,7 @@
 		showLogsWithResult = false
 	}: Props = $props()
 
-	let lastJobId: string = jobId
+	let lastJobId: string = untrack(() => jobId)
 
 	let retryStatus = $state({ val: {} })
 	let globalRefreshes: Record<string, ((clear, root) => Promise<void>)[]> = $state({})
@@ -71,11 +71,11 @@
 		flowState,
 		suspendStatus,
 		retryStatus,
-		hideDownloadInGraph,
-		hideNodeDefinition,
-		hideTimeline,
-		hideJobId,
-		hideDownloadLogs
+		untrack(() => hideDownloadInGraph),
+		untrack(() => hideNodeDefinition),
+		untrack(() => hideTimeline),
+		untrack(() => hideJobId),
+		untrack(() => hideDownloadLogs)
 	})
 
 	function loadOwner(path: string) {

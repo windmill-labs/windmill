@@ -18,7 +18,7 @@
 		size: number
 	} = $props()
 
-	let t = $state(opened ? 1 : 0)
+	let t = $state(untrack(() => opened) ? 1 : 0)
 	let computedSize = $derived((opened ? easing(t) : 1 - easing(1 - t)) * size)
 
 	let lastTValue = 0

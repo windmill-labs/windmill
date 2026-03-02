@@ -21,7 +21,7 @@
 	}
 
 	let { contextElement, deletable = false, onDelete }: Props = $props()
-	const icon = ContextIconMap[contextElement.type]
+	const icon = ContextIconMap[untrack(() => contextElement).type]
 	let showDelete = $state(false)
 
 	const isDeletable = $derived(deletable && contextElement.deletable !== false)

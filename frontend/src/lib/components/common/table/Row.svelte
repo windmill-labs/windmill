@@ -56,7 +56,7 @@
 		onSelect = () => {}
 	}: Props = $props()
 
-	let displayPath: string = (depth === 0 ? path : path?.split('/')?.slice(-1)?.[0]) ?? ''
+	let displayPath: string = (untrack(() => depth) === 0 ? untrack(() => path) : untrack(() => path)?.split('/')?.slice(-1)?.[0]) ?? ''
 </script>
 
 {#if href}

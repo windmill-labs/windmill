@@ -43,7 +43,7 @@
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = $state(
-		initConfig(components['dateslidercomponent'].initialData.configuration, configuration)
+		initConfig(components['dateslidercomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
 	onDestroy(() => {
@@ -66,11 +66,11 @@
 
 	let slider: HTMLElement | undefined = $state()
 
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: null as string | null
 	})
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		setValue(nvalue: number) {
 			values = [nvalue]
 		}
@@ -99,7 +99,7 @@
 		}
 	}
 
-	let css = $state(initCss($app.css?.dateslidercomponent, customCss))
+	let css = $state(initCss($app.css?.dateslidercomponent, untrack(() => customCss)))
 
 	let lastStyle: string | undefined = $state(undefined)
 

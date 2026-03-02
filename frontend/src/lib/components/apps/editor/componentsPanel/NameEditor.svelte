@@ -14,7 +14,7 @@
 
 	let { kind, row }: Props = $props()
 
-	let editedName = $state(row.name)
+	let editedName = $state(untrack(() => row).name)
 
 	const dispatch = createEventDispatcher()
 	function onkeydown(e) {

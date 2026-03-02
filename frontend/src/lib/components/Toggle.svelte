@@ -54,7 +54,7 @@
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher<{ change: boolean }>()
-	const bothOptions = Boolean(options.left) && Boolean(options.right)
+	const bothOptions = Boolean(untrack(() => options).left) && Boolean(untrack(() => options).right)
 </script>
 
 <label

@@ -47,7 +47,7 @@
 		onKeyboardNavigation
 	}: Props = $props()
 
-	const paddingLeft = depth * 24
+	const paddingLeft = untrack(() => depth) * 24
 	const isSelected = $derived(selectedWorkspaceId === workspace.id)
 
 	// Helper functions

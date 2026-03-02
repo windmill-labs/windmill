@@ -25,7 +25,7 @@
 		overlapped = undefined,
 		componentDraggedId = undefined
 	}: Props = $props()
-	let everRender = $state(render)
+	let everRender = $state(untrack(() => render))
 
 	$effect(() => {
 		render && !everRender && (everRender = true)

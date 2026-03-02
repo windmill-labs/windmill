@@ -55,8 +55,8 @@
 		const key = getCachedKey(path)
 		latestHash = cachedValues[key]?.latestHash
 	}
-	if (flowModuleValue?.type === 'script' && flowModuleValue.path) {
-		getCachedValues(flowModuleValue.path)
+	if (untrack(() => flowModuleValue)?.type === 'script' && untrack(() => flowModuleValue).path) {
+		getCachedValues(untrack(() => flowModuleValue).path)
 	}
 
 	async function loadLatestHash(value: PathScript) {

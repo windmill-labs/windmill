@@ -104,7 +104,7 @@
 		pathError != '' || emptyString(script_path) || !can_write || !isValid || !hasChanged
 	)
 	const natsConfig = $derived.by(getSaveCfg)
-	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
+	const captureConfig = $derived.by(untrack(() => isEditor) ? getCaptureConfig : () => ({}))
 
 	$effect(() => {
 		is_flow = itemKind === 'flow'

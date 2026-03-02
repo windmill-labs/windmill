@@ -53,8 +53,8 @@
 	const { selectedComponent, hoverStore, mode, connectingInput, componentControl, app } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	$componentControl[id] = {
-		...$componentControl[id],
+	$componentControl[untrack(() => id)] = {
+		...$componentControl[untrack(() => id)],
 		onDelete: () => {
 			// Remove associated subgrid
 			actions.forEach((action) => {

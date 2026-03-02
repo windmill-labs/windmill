@@ -27,7 +27,7 @@
 		renderRec = true
 	}: Props = $props()
 	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
-	const name = getComponentNameById(gridItem.id)
+	const name = getComponentNameById(untrack(() => gridItem).id)
 
 	let nameOverrides = $derived(
 		gridItem?.data?.type === 'decisiontreecomponent'

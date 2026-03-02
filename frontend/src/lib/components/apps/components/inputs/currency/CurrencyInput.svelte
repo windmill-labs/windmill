@@ -185,7 +185,7 @@
 
 	let formattedValue = $state('')
 	let formattedPlaceholder =
-		placeholder !== null ? formatCurrency(placeholder, fractionDigits, fractionDigits) : ''
+		untrack(() => placeholder) !== null ? formatCurrency(untrack(() => placeholder), untrack(() => fractionDigits), untrack(() => fractionDigits)) : ''
 	let isZero = $derived(value === 0)
 	let isNegative = $derived((value ?? DEFAULT_VALUE) < 0)
 	$effect(() => {

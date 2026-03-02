@@ -38,12 +38,12 @@
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = $state(
-		initConfig(components['dateinputcomponent'].initialData.configuration, configuration)
+		initConfig(components['dateinputcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
 	let value: string | undefined = $state(undefined)
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		setValue(nvalue: string) {
 			if (typeof nvalue === 'string') {
 				value = nvalue?.split('T')?.[0]
@@ -54,7 +54,7 @@
 		}
 	}
 
-	let outputs = initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined as string | undefined
 	})
 
@@ -80,7 +80,7 @@
 	function handleDefault(defaultValue: string | undefined) {
 		value = defaultValue
 	}
-	let css = $state(initCss($app.css?.dateinputcomponent, customCss))
+	let css = $state(initCss($app.css?.dateinputcomponent, untrack(() => customCss)))
 	$effect.pre(() => {
 		resolvedConfig.defaultValue
 		untrack(() => handleDefault(resolvedConfig.defaultValue))

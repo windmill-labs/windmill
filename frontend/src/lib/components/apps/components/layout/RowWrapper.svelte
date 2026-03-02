@@ -14,7 +14,7 @@
 
 	let { index, value, disabled = false, onSet, onRemove, children }: Props = $props()
 
-	const ctx = writable({ index, value, disabled })
+	const ctx = writable({ untrack(() => index), untrack(() => value), untrack(() => disabled) })
 
 	$effect(() => {
 		$ctx = { index, value, disabled }

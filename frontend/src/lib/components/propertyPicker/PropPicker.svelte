@@ -65,9 +65,9 @@
 		$pickablePropertiesFiltered = pickableProperties
 	})
 
-	let flowInputsFiltered: any = $state(pickableProperties.flow_input)
-	let resultByIdFiltered: any = $state(pickableProperties.priorIds)
-	let flowEnvFiltered: any = $state(pickableProperties.flow_env)
+	let flowInputsFiltered: any = $state(untrack(() => pickableProperties).flow_input)
+	let resultByIdFiltered: any = $state(untrack(() => pickableProperties).priorIds)
+	let flowEnvFiltered: any = $state(untrack(() => pickableProperties).flow_env)
 
 	let timeout: number | undefined
 	function onSearch(search: string) {

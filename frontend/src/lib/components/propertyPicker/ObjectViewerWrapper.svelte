@@ -33,18 +33,18 @@
 	}: Props = $props();
 
 	const _props = {
-		json,
-		level,
-		currentPath,
-		pureViewer,
-		collapsed,
-		rawKey,
-		topBrackets,
-		allowCopy,
-		collapseLevel,
-		prefix,
-		expandedEvenOnLevel0,
-		connecting
+		untrack(() => json),
+		untrack(() => level),
+		untrack(() => currentPath),
+		untrack(() => pureViewer),
+		untrack(() => collapsed),
+		untrack(() => rawKey),
+		untrack(() => topBrackets),
+		untrack(() => allowCopy),
+		untrack(() => collapseLevel),
+		untrack(() => prefix),
+		untrack(() => expandedEvenOnLevel0),
+		untrack(() => connecting)
 	}
 
 	const dispatch = createEventDispatcher()

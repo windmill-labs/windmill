@@ -116,7 +116,7 @@
 		}
 	})
 
-	if (!createWorkspace) {
+	if (!untrack(() => createWorkspace)) {
 		getCreateWorkspaceRequireSuperadmin()
 	}
 

@@ -9,7 +9,7 @@
 	let port = $state(Number(page.url.searchParams.get('port')))
 	let host: string = page.url.searchParams.get('host') || 'localhost'
 	let scheme: string = page.url.searchParams.get('scheme') || 'http'
-	port = port == 0 || Number.isNaN(port) ? 80 : port
+	port = untrack(() => port) == 0 || Number.isNaN(untrack(() => port)) ? 80 : untrack(() => port)
 
 	async function authorizeToken(): Promise<void> {
 		const username = $userStore?.username

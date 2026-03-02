@@ -32,7 +32,7 @@
 
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
 	let selectedKind: 'script' | 'trigger' | 'preprocessor' | 'approval' | 'flow' | 'failure' =
-		$state(kind)
+		$state(untrack(() => kind))
 	let preFilter: 'all' | 'workspace' | 'hub' = $state('all')
 	let loading = $state(false)
 	let small = $derived(kind === 'preprocessor' || kind === 'failure')

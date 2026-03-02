@@ -63,7 +63,7 @@
 	let dispatch = createEventDispatcher()
 
 	// Dynamic component based on whether href is provided
-	const Element = href ? 'a' : 'button'
+	const Element = untrack(() => href) ? 'a' : 'button'
 </script>
 
 {#if !disabled}

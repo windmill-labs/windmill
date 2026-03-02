@@ -49,7 +49,7 @@
 		}
 	}
 
-	let collapsed = $state(initiallyCollapsed)
+	let collapsed = $state(untrack(() => initiallyCollapsed))
 </script>
 
 <div

@@ -29,7 +29,7 @@
 		...rest
 	}: Props = $props()
 
-	let Tag = head ? 'th' : 'td'
+	let Tag = untrack(() => head) ? 'th' : 'td'
 
 	const { size } = getContext<DatatableContext>('datatable')
 </script>

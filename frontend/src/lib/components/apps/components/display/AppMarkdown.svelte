@@ -39,17 +39,17 @@
 	const { app, worldStore, mode } = getContext<AppViewerContext>('AppViewerContext')
 
 	const resolvedConfig = $state(
-		initConfig(components['mardowncomponent'].initialData.configuration, configuration)
+		initConfig(components['mardowncomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined,
 		loading: false
 	})
 
 	let result: string | undefined = $state(undefined)
 
-	let css = $state(initCss($app.css?.mardowncomponent, customCss))
+	let css = $state(initCss($app.css?.mardowncomponent, untrack(() => customCss)))
 
 	const proseMapping = {
 		sm: 'prose-sm',

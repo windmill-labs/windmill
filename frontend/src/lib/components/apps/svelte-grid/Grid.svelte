@@ -97,7 +97,7 @@
 	let container = $state()
 
 	let xPerPx = $state(0)
-	let yPerPx = rowHeight
+	let yPerPx = untrack(() => rowHeight)
 
 	const onResizeThrottled = throttle(() => {
 		if (!getComputedCols) return
@@ -108,7 +108,7 @@
 			yPerPx,
 			width: containerWidth
 		})
-	}, throttleUpdate)
+	}, untrack(() => throttleUpdate))
 
 	let mounted = $state(false)
 
@@ -261,7 +261,7 @@
 		}
 	}
 
-	const throttleMatrix = throttle(updateMatrix, throttleResize)
+	const throttleMatrix = throttle(updateMatrix, untrack(() => throttleResize))
 
 	//let hiddenComponents = writable({})
 
