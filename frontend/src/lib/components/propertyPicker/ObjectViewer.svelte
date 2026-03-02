@@ -327,7 +327,10 @@
 				>
 					{#each keys.length > keyLimit ? keys.slice(0, keyLimit) : keys as key, index (key)}
 						<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-						<li oncontextmenu={(e) => updateContextData(e, key, json[key], json)}>
+						<li
+							oncontextmenu={(e) => updateContextData(e, key, json[key], json)}
+							class="[&:hover:not(:has(li:hover))]:bg-surface-hover"
+						>
 							<AnimatedButton
 								animate={connecting && hoveredKey === key}
 								marginWidth="1px"
