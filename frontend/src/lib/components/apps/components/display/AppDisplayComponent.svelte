@@ -1,6 +1,6 @@
 <script lang="ts">
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'

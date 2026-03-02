@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { GitSyncService } from '$lib/gen'
 	import Select from './select/Select.svelte'
 

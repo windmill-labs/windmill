@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { ExternalLink } from 'lucide-svelte'
 	import PanelSection from './common/PanelSection.svelte'
 	import type { components } from '../component'

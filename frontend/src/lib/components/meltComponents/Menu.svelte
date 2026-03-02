@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { createBubbler } from 'svelte/legacy'
 
 	const bubble = createBubbler()

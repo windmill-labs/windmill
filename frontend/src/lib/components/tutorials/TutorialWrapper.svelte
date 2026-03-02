@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { getTutorialIndex } from '$lib/tutorials/config'
 
 	interface Props {

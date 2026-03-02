@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import type { SupportedLanguage } from '$lib/common'
 	import MySQLIcon from '$lib/components/icons/Mysql.svelte'
 	import PostgresIcon from '$lib/components/icons/PostgresIcon.svelte'

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { setContext } from 'svelte'
+	import { setContext, untrack } from 'svelte'
 	import type { ListInputs, ListContext } from '../../types'
 	import { writable } from 'svelte/store'
 

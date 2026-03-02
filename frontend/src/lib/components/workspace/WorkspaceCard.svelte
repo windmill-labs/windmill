@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { GitFork, ChevronUp, ArchiveRestore } from 'lucide-svelte'
 	import { slide } from 'svelte/transition'
 	import { Badge, Button } from '$lib/components/common'

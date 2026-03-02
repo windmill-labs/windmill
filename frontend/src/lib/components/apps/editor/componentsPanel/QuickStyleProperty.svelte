@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { Button, ClearableInput, Menu } from '../../../common'
 	import Popover from '../../../Popover.svelte'
 	import ColorInput from '../settingsPanel/inputEditor/ColorInput.svelte'

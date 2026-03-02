@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import type { Placement } from '@floating-ui/core'
 	import { InfoIcon } from 'lucide-svelte'
 	import { zIndexes } from '$lib/zIndexes'

@@ -27,7 +27,7 @@
 	import HtmlIcon from '../icons/HtmlIcon.svelte'
 	import MarkdownIcon from '../icons/MarkdownIcon.svelte'
 	import YamlIcon from '../icons/YamlIcon.svelte'
-	import { tick } from 'svelte'
+	import { tick, untrack } from 'svelte'
 
 	interface TreeNode {
 		name: string

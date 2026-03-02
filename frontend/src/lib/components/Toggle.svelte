@@ -3,7 +3,7 @@
 
 	const bubble = createBubbler()
 	import { classNames } from '$lib/utils'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import Tooltip from './Tooltip.svelte'
 	import { AlertTriangle } from 'lucide-svelte'

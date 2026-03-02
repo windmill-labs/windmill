@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import Star from '$lib/components/Star.svelte'
 	import RowIcon from './RowIcon.svelte'
 	import { BellOff } from 'lucide-svelte'

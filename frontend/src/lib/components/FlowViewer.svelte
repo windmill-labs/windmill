@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { type FlowValue, FlowService } from '$lib/gen'
 	import { Tab, Tabs, TabContent } from './common'
 	import SchemaViewer from './SchemaViewer.svelte'

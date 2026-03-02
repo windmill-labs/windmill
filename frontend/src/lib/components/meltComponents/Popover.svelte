@@ -16,7 +16,7 @@
 	import type { Placement } from '@floating-ui/core'
 	import { debounce, pointerDownOutside } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { Button } from '$lib/components/common'
 	import DocLink from '$lib/components/apps/editor/settingsPanel/DocLink.svelte'
 	import type { FloatingConfig } from '@melt-ui/svelte/internal/actions/floating'

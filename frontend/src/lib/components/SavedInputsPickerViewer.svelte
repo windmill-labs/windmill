@@ -7,7 +7,7 @@
 	import ObjectViewerWrapper from '$lib/components/propertyPicker/ObjectViewerWrapper.svelte'
 	import { copyToClipboard, isObjectTooBig } from '$lib/utils'
 	import { Eye, CopyIcon, Loader2 } from 'lucide-svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 
 	interface Props {
 		payloadData: any

@@ -4,7 +4,7 @@
 	const bubble = createBubbler()
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import { classNames } from '$lib/utils'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { AppViewerContext } from '../types'
 	import type { DecisionTreeNode } from './component'
 	import { isDebugging } from './settingsPanel/decisionTree/utils'

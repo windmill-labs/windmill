@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import type { EnumType } from '$lib/common'
 	import { computeKind } from '$lib/utils'
 	import Label from './Label.svelte'

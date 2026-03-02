@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { UserService } from '$lib/gen'
 	import { page } from '$app/state'
 	import { base } from '$lib/base'

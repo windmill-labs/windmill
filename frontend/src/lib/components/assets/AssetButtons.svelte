@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { AlertTriangle, Edit2 } from 'lucide-svelte'
 	import { Button } from '../common'
 	import ExploreAssetButton, { assetCanBeExplored } from '../ExploreAssetButton.svelte'

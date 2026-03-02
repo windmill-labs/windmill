@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import { clickOutside } from '$lib/utils'
 	import { createFloatingActions, type ComputeConfig } from 'svelte-floating-ui'

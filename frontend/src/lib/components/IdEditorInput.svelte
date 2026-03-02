@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { stopPropagation, createBubbler } from 'svelte/legacy'
 
 	const bubble = createBubbler()

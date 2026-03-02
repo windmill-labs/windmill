@@ -1,4 +1,5 @@
 <script lang="ts" module>
+	import { untrack } from 'svelte'
 	function validate(values: TableEditorValues, dbSchema?: DBSchema) {
 		const columnNamesErrs = values.columns.flatMap((column) => {
 			const isUnique = values.columns.filter((c) => c.name === column.name).length === 1

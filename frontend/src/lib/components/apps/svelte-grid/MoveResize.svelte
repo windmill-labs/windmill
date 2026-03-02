@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, onMount } from 'svelte'
+	import { getContext, onMount, untrack } from 'svelte'
 	import type { AppEditorContext, AppViewerContext } from '../types'
 	import { writable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'

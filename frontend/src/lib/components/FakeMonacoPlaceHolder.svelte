@@ -1,6 +1,7 @@
 <!-- Used to avoid height jitter when loading monaco asynchronously -->
 
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { getOS } from '$lib/utils'
 	import { MONACO_Y_PADDING } from './vscode'
 

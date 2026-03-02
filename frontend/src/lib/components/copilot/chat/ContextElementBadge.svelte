@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { Popover } from '$lib/components/meltComponents'
 	import { Loader2, X } from 'lucide-svelte'
 	import { ContextIconMap, type ContextElement } from './context'

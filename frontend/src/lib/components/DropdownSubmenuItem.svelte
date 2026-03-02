@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import MenuItem from '$lib/components/meltComponents/MenuItem.svelte'
 	import { melt } from '@melt-ui/svelte'
 	import { twMerge } from 'tailwind-merge'

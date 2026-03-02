@@ -16,7 +16,7 @@
 	import { getNoteEditorContext } from '../../noteEditor.svelte'
 	import { getGraphContext } from '../../graphContext'
 	import { clickOutside } from '$lib/utils'
-	import { tick } from 'svelte'
+	import { tick, untrack } from 'svelte'
 
 	interface Props {
 		data: {

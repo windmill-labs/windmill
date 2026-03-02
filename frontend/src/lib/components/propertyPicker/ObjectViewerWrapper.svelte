@@ -1,6 +1,6 @@
 <script lang="ts">
 	import ObjectViewer from './ObjectViewer.svelte'
-	import { createEventDispatcher, onMount } from 'svelte'
+	import { createEventDispatcher, onMount, untrack } from 'svelte'
 
 	interface Props {
 		json: any;

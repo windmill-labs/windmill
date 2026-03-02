@@ -6,7 +6,7 @@
 	import type { InlineScript, Runnable, StaticAppInput } from '$lib/components/apps/inputType'
 	import WorkspaceScriptList from './WorkspaceScriptList.svelte'
 	import WorkspaceFlowList from './WorkspaceFlowList.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import type { Schema } from '$lib/common'
 	import { schemaToInputsSpec } from '$lib/components/apps/utils'
 	import { defaultIfEmptyString, emptySchema } from '$lib/utils'

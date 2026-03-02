@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { AnsiUp } from 'ansi_up'
 
 	interface Props {

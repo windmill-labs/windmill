@@ -2,7 +2,7 @@
 	import { createBubbler } from 'svelte/legacy'
 
 	const bubble = createBubbler()
-	import { getContext, onMount } from 'svelte'
+	import { getContext, onMount, untrack } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, RichConfigurations } from '../../types'

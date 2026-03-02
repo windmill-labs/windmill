@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import AiChatLayout from './copilot/chat/AiChatLayout.svelte'
 	import type { ScriptBuilderProps } from './script_builder'

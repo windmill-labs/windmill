@@ -3,7 +3,7 @@
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 	import { Button } from '$lib/components/common'
 	import { workspaceStore } from '$lib/stores'
-	import { onMount } from 'svelte'
+	import { onMount, untrack } from 'svelte'
 
 	interface Props {
 		resourceType?: string | undefined

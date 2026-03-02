@@ -11,7 +11,7 @@
 	import type { Snippet } from 'svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import { zIndexes } from '$lib/zIndexes'
-	import { tick } from 'svelte'
+	import { tick, untrack } from 'svelte'
 
 	interface Props {
 		availableContext: ContextElement[]

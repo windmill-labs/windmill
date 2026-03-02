@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { classNames } from '$lib/utils'
 	import { ChevronDown, ChevronRight } from 'lucide-svelte'
 	import Tooltip from '../../../../Tooltip.svelte'

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	let {
 		prefix = '',
 		value = $bindable(''),

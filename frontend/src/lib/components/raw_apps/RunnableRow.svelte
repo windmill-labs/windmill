@@ -5,7 +5,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import type { Runnable } from '../apps/inputType'
 	import TextInput from '../text_input/TextInput.svelte'
-	import { tick } from 'svelte'
+	import { tick, untrack } from 'svelte'
 
 	interface Props {
 		id: string

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { run } from 'svelte/legacy';
 
 	import { tweened } from 'svelte/motion'

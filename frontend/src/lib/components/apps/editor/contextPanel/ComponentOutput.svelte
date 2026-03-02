@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { components } from '../component'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import type { AppViewerContext, GridItem } from '../../types'
 	import ComponentOutputViewer from './ComponentOutputViewer.svelte'
 	import { connectOutput } from '../appUtils'

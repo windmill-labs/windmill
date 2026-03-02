@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import AiChatLayout from './copilot/chat/AiChatLayout.svelte'
 	import type { FlowBuilderProps } from './flow_builder'
 	import FlowBuilder from './FlowBuilder.svelte'

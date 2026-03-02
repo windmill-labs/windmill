@@ -2,7 +2,7 @@
 	import { createBubbler } from 'svelte/legacy'
 
 	const bubble = createBubbler()
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { ButtonType } from './model'
 	import { twMerge } from 'tailwind-merge'
 	import Dropdown from '$lib/components/DropdownV2.svelte'

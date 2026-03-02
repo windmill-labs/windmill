@@ -3,7 +3,7 @@
 
 	import { push } from '$lib/history.svelte'
 	import { classNames } from '$lib/utils'
-	import { getContext, onDestroy } from 'svelte'
+	import { getContext, onDestroy, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { gridColumns, isFixed, toggleFixed } from '../gridUtils'
 	import Grid from '../svelte-grid/Grid.svelte'

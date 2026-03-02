@@ -2,7 +2,7 @@
 	import { createBubbler, stopPropagation } from 'svelte/legacy'
 
 	const bubble = createBubbler()
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../types'

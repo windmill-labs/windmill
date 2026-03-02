@@ -20,7 +20,7 @@
 		Timer,
 		Maximize2
 	} from 'lucide-svelte'
-	import { createEventDispatcher, getContext, onDestroy } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy, untrack } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import type { FlowEditorContext } from '../types'
 	import { twMerge } from 'tailwind-merge'

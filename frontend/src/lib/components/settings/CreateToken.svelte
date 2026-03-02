@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { userWorkspaces, workspaceStore, type UserWorkspace } from '$lib/stores'
 	import { Badge, Button } from '../common'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'

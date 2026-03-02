@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { stopPropagation } from 'svelte/legacy'
 
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { initCss } from '../../utils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { twMerge } from 'tailwind-merge'

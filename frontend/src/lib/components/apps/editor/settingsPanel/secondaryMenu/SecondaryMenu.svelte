@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { fly } from 'svelte/transition'
 	import { secondaryMenuLeft, secondaryMenuRight } from './'
 	import CloseButton from '$lib/components/common/CloseButton.svelte'

@@ -3,7 +3,7 @@
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import { JobService } from '$lib/gen/index.js'
 	import { workspaceStore } from '$lib/stores'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { ExternalLink } from 'lucide-svelte'
 	import { base } from '$lib/base'
 	import { Cell, Row } from '$lib/components/table'

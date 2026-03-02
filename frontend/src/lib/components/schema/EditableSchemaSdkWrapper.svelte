@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { readFieldsRecursively } from '$lib/utils'
 	import { deepEqual } from 'fast-equals'
 	import type { EditableSchemaWrapperProps } from './editable_schema_wrapper'

@@ -2,7 +2,7 @@
 	import { createBubbler, preventDefault } from 'svelte/legacy'
 
 	const bubble = createBubbler()
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components } from '../../editor/component'

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { setContext } from 'svelte'
+	import { setContext, untrack } from 'svelte'
 	import type { Writable } from 'svelte/store'
 	import type { GroupContext } from '../types'
 

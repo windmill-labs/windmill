@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { useOnSelectionChange, useStore, type Node } from '@xyflow/svelte'
 	import type { SelectionManager } from './selectionUtils.svelte'
 	interface Props {

@@ -21,7 +21,7 @@
 	import InputValue from '../helpers/InputValue.svelte'
 	import type { ChartOptions, ChartData } from 'chart.js'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { initCss } from '../../utils'
 	import { initOutput } from '../../editor/appUtils'
 	import { twMerge } from 'tailwind-merge'

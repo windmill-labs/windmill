@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { type ComponentProps } from 'svelte'
+	import { type ComponentProps, untrack } from 'svelte'
 	import { Pane } from 'svelte-splitpanes'
 	import { cubicOut } from 'svelte/easing'
 

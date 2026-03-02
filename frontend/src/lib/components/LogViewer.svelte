@@ -1,4 +1,5 @@
 <script lang="ts" module>
+	import { untrack } from 'svelte'
 	const s3LogPrefixes = [
 		'[windmill] Previous logs have been saved to object storage at logs/',
 		'[windmill] Previous logs have been saved to disk at logs/',

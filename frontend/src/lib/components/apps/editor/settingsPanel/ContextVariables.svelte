@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Popover from '$lib/components/Popover.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import type { AppViewerContext, GridItem } from '../../types'
 	import { dfs } from '../appUtils'
 	import { findGridItem } from '../appUtilsCore'
