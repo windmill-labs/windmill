@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.647.2](https://github.com/windmill-labs/windmill/compare/v1.647.1...v1.647.2) (2026-03-02)
+
+
+### Bug Fixes
+
+* update oracle instant client arm64 download url ([#8179](https://github.com/windmill-labs/windmill/issues/8179)) ([758b35f](https://github.com/windmill-labs/windmill/commit/758b35f8ebbf78e1473a8fd83dbc795d58b23b80))
+
 ## [1.647.1](https://github.com/windmill-labs/windmill/compare/v1.647.0...v1.647.1) (2026-03-02)
 
 
