@@ -99,6 +99,8 @@ profiles:
 
       5) Include in PR descriptions using markdown image syntax.
 
+      IMPORTANT: Read docs/autonomous-mode.md before starting any work.
+
 linkedRepos:
   - repo: windmill-labs/windmill-ee-private
     alias: ee
