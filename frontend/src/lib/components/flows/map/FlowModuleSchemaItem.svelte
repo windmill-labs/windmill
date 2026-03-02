@@ -137,6 +137,7 @@
 	const flowGraphContext = getGraphContext()
 	const diffManager = flowGraphContext?.diffManager
 	const moveManager = flowGraphContext?.moveManager
+	const freeDrag = flowGraphContext?.freeDrag
 
 	let pickableIds: Record<string, any> | undefined = $state(undefined)
 
@@ -321,7 +322,13 @@
 		style="width: 275px; height: 34px;"
 		onmouseenter={() => (hover = true)}
 		onmouseleave={() => (hover = false)}
-		onpointerdown={stopPropagation(preventDefault((e) => dispatch('pointerdown', e)))}
+		onpointerdown={(e) => {
+			if (!$freeDrag) {
+				e.stopPropagation()
+				e.preventDefault()
+			}
+			dispatch('pointerdown', e)
+		}}
 	>
 		{#if id}
 			<DiffActionBar moduleId={id} {moduleAction} {diffManager} {flowStore} />

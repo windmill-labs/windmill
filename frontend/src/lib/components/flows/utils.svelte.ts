@@ -76,7 +76,7 @@ export function filteredContentForExport(flow: ExtendedOpenFlow) {
 	let o = {
 		summary: flow.summary,
 		description: flow.description,
-		value: flow.value,
+		value: $state.snapshot(flow.value),
 		schema: flow.schema
 	}
 	if (flow.dedicated_worker) {

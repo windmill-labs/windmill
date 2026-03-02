@@ -465,6 +465,18 @@
 			modules={flowStore.val.value.modules}
 			{noteMode}
 			notes={flowStore.val.value.notes}
+			nodeOffsets={flowStore.val.value.node_offsets}
+			onNodeOffsetUpdate={(nodeId, offset) => {
+				if (!flowStore.val.value.node_offsets) {
+					flowStore.val.value.node_offsets = {}
+				}
+				flowStore.val.value.node_offsets[nodeId] = offset
+				refreshStateStore(flowStore)
+			}}
+			onNodeOffsetsReset={() => {
+				flowStore.val.value.node_offsets = {}
+				refreshStateStore(flowStore)
+			}}
 			preprocessorModule={flowStore.val.value?.preprocessor_module}
 			failureModule={flowStore.val.value?.failure_module}
 			currentInputSchema={flowStore.val.schema}

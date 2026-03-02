@@ -9,6 +9,7 @@ export type GraphContext = {
 	selectionManager: SelectionManager
 	useDataflow: Writable<boolean | undefined>
 	showAssets: Writable<boolean | undefined>
+	freeDrag: Writable<boolean>
 	noteManager?: NoteManager
 	moveManager?: MoveManager
 	clearFlowSelection?: () => void
