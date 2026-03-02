@@ -91,10 +91,7 @@
 		>
 			<div class="flex flex-row">
 				<div>
-					<Popover
-						floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-						containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
-					>
+					<Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}>
 						{#snippet trigger()}
 							<Button unifiedSize="md" variant="accent" startIcon={{ icon: Plus }} nonCaptureEvent
 								>New&nbsp;group</Button

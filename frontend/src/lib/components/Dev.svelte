@@ -596,9 +596,9 @@
 			}
 		})
 	}
-	let token = $derived($page.url.searchParams.get('wm_token') ?? undefined)
-	let workspace = $derived($page.url.searchParams.get('workspace') ?? undefined)
-	let themeDarkRaw = $derived($page.url.searchParams.get('activeColorTheme'))
+	let token = $derived(page.url.searchParams.get('wm_token') ?? undefined)
+	let workspace = $derived(page.url.searchParams.get('workspace') ?? undefined)
+	let themeDarkRaw = $derived(page.url.searchParams.get('activeColorTheme'))
 	let themeDark = $derived(themeDarkRaw == '2' || themeDarkRaw == '4')
 
 	$effect.pre(() => {

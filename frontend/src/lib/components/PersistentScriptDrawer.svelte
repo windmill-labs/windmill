@@ -10,9 +10,9 @@
 	import { Hourglass, Loader2, Play, RefreshCw } from 'lucide-svelte'
 
 	let dispatch = createEventDispatcher()
-	let drawer: Drawer = $state()
+	let drawer: Drawer | undefined = $state()
 
-	let script: Script = $state()
+	let script: Script | undefined = $state()
 	let loadQueuedJobs = $state(true)
 	let queuedJobsLoading = $state(false)
 	let queuedJobs: {
@@ -40,7 +40,7 @@
 		let qjs = await JobService.listQueue({
 			workspace: $workspaceStore ?? '',
 			orderDesc: false,
-			scriptPathExact: script.path
+			scriptPathExact: script?.path
 		})
 		let loadingQueuedJobs: {
 			status: 'running' | 'queued'
@@ -71,12 +71,12 @@
 		cancellingInProgress = true
 		await JobService.cancelPersistentQueuedJobs({
 			workspace: $workspaceStore ?? '',
-			path: script.path,
+			path: script?.path ?? '',
 			requestBody: {
 				reason: undefined
 			}
 		})
-		sendUserToast(`All jobs cancelled for ${script.path}`)
+		sendUserToast(`All jobs cancelled for ${script?.path}`)
 		cancellingInProgress = false
 	}
 
@@ -88,12 +88,12 @@
 		script = persistentScript!
 		loadQueuedJobs = true
 		continuouslyLoadQueuedJobs()
-		drawer.openDrawer?.()
+		drawer?.openDrawer?.()
 	}
 
 	async function exit() {
 		loadQueuedJobs = false
-		drawer.closeDrawer?.()
+		drawer?.closeDrawer?.()
 	}
 
 	onDestroy(() => {
@@ -117,7 +117,7 @@
 	>
 		<div class="flex gap-2 items-center justify-between">
 			<h2>
-				Queued jobs for {script.path}
+				Queued jobs for {script?.path}
 			</h2>
 			<Button size="md" btnClasses="w-full h-8" variant="default" on:click={loadQueuedJobsOnce}>
 				<RefreshCw class={queuedJobsLoading ? 'animate-spin' : ''} size={14} />
@@ -125,15 +125,15 @@
 		</div>
 		<TableCustom>
 			{#snippet headerRow()}
-						<tr >
+				<tr>
 					<th class="text-xs">Script Hash</th>
 					<th class="text-xs">Job ID</th>
 					<th class="text-xs">Status</th>
 					<th class="text-xs">Scheduled For</th>
 				</tr>
-					{/snippet}
+			{/snippet}
 			{#snippet body()}
-						<tbody >
+				<tbody>
 					{#each queuedJobs as { jobId, status, scriptHash, scheduledFor }}
 						<tr class="">
 							<td class="text-xs">
@@ -146,8 +146,10 @@
 								</a>
 							</td>
 							<td class="text-xs">
-								<a class="pr-3" href="{base}/run/{jobId}?workspace={$workspaceStore}" target="_blank"
-									>{jobId.substring(24)}</a
+								<a
+									class="pr-3"
+									href="{base}/run/{jobId}?workspace={$workspaceStore}"
+									target="_blank">{jobId.substring(24)}</a
 								>
 							</td>
 							<td class="text-xs">
@@ -165,7 +167,7 @@
 						</tr>
 					{/each}
 				</tbody>
-					{/snippet}
+			{/snippet}
 		</TableCustom>
 
 		{#snippet actions()}

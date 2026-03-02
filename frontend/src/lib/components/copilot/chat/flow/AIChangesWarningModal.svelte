@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import Modal from '../../../common/modal/Modal.svelte'
-	import { AlertTriangleIcon } from 'lucide-svelte'
 
 	let {
 		open = $bindable(false),

@@ -44,7 +44,7 @@
 							}
 						},
 						name: nameField,
-						js: await files[0].text()
+						js: await files?.[0]?.text?.()
 					}
 				}
 			})
@@ -63,7 +63,7 @@
 
 	let nameField: string = $state('')
 	let reactVersion: string = $state('18.2.0')
-	let files: FileList = $state()
+	let files: FileList | undefined = $state()
 	let useReact = $state(true)
 
 	getCustomComponents()

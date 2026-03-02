@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { stopPropagation } from 'svelte/legacy';
+	import { stopPropagation } from 'svelte/legacy'
 
 	import Portal from '$lib/components/Portal.svelte'
 
@@ -9,18 +9,17 @@
 	import List from '$lib/components/common/layout/List.svelte'
 	import { fade } from 'svelte/transition'
 
-
 	interface Props {
-		title: string;
-		css?: any;
-		target?: string;
-		isOpen?: boolean;
-		fixedWidth?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl';
-		fixedHeight?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl';
-		contentClasses?: string;
-		headerLeft?: import('svelte').Snippet;
-		headerRight?: import('svelte').Snippet;
-		children?: import('svelte').Snippet;
+		title: string
+		css?: any
+		target?: string
+		isOpen?: boolean
+		fixedWidth?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl'
+		fixedHeight?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl'
+		contentClasses?: string
+		headerLeft?: import('svelte').Snippet
+		headerRight?: import('svelte').Snippet
+		children?: import('svelte').Snippet
 	}
 
 	let {
@@ -34,7 +33,7 @@
 		headerLeft,
 		headerRight,
 		children
-	}: Props = $props();
+	}: Props = $props()
 
 	const widthMap = {
 		xs: '400px',
@@ -92,10 +91,7 @@
 						css?.popup?.class,
 						'wm-modal-form-popup'
 					)}
-					use:clickOutside
-					onclick_outside={() => {
-						close()
-					}}
+					use:clickOutside={{ onClickOutside: () => close() }}
 				>
 					<List gap="md">
 						<div class="flex w-full">

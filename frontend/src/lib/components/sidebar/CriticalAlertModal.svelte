@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
+	import { run } from 'svelte/legacy'
 
 	import { onMount, onDestroy } from 'svelte'
 	import CriticalAlertModalInner from './CriticalAlertModalInner.svelte'
@@ -22,15 +22,18 @@
 	import Notification from '$lib/components/common/alert/Notification.svelte'
 
 	interface Props {
-		open?: boolean;
-		numUnacknowledgedCriticalAlerts?: number;
-		muteSettings: any;
+		open?: boolean
+		numUnacknowledgedCriticalAlerts?: number
+		muteSettings: any
 	}
 
-	let { open = $bindable(false), numUnacknowledgedCriticalAlerts = $bindable(0), muteSettings = $bindable() }: Props = $props();
+	let {
+		open = $bindable(false),
+		numUnacknowledgedCriticalAlerts = $bindable(0),
+		muteSettings = $bindable()
+	}: Props = $props()
 	let workspaceContext = $state(false)
-	let childRef = $state()
-
+	let childRef: CriticalAlertModalInner | undefined = $state()
 
 	function setupApiFunctions(_ctx?) {
 		getCriticalAlerts = withSuperadminLogic(
@@ -49,7 +52,6 @@
 		)
 	}
 
-
 	let checkForNewAlertsInterval: ReturnType<typeof setInterval>
 	let checkingForNewAlerts = false
 
@@ -66,9 +68,10 @@
 		}
 	}
 
-	let getCriticalAlerts = $state()
-	let acknowledgeCriticalAlert = $state()
-	let acknowledgeAllCriticalAlerts = $state()
+	type AckFn = (params?: {}) => Promise<any>
+	let getCriticalAlerts: AckFn | undefined = $state()
+	let acknowledgeCriticalAlert: AckFn | undefined = $state()
+	let acknowledgeAllCriticalAlerts: AckFn | undefined = $state()
 
 	setupApiFunctions()
 
@@ -93,7 +96,7 @@
 		sendUserToast(
 			`Critical alert UI mute settings changed.\nPlease reload page for UI changes to take effect.`
 		)
-		childRef.refreshAlerts()
+		childRef?.refreshAlerts()
 	}
 	async function saveGlobalMuteSetting() {
 		await SettingService.setGlobal({
@@ -103,7 +106,7 @@
 		sendUserToast(
 			`Critical alert UI mute settings changed.\nPlease reload page for UI changes to take effect.`
 		)
-		childRef.refreshAlerts()
+		childRef?.refreshAlerts()
 	}
 
 	async function updateHasUnacknowledgedCriticalAlerts(sendToast: boolean = false) {
@@ -167,18 +170,18 @@
 	}
 
 	async function acknowledgeAlert(id: number) {
-		await acknowledgeCriticalAlert({ id })
+		await acknowledgeCriticalAlert?.({ id })
 		updateHasUnacknowledgedCriticalAlerts()
 	}
 	run(() => {
 		setupApiFunctions(workspaceContext)
-	});
+	})
 	run(() => {
 		if ($isCriticalAlertsUIOpen) open = $isCriticalAlertsUIOpen
-	});
+	})
 	run(() => {
 		isCriticalAlertsUIOpen.set(open)
-	});
+	})
 </script>
 
 <Modal2
@@ -189,126 +192,114 @@
 	fixedWidth="lg"
 >
 	{#snippet headerLeft()}
-	
-			<Notification notificationCount={numUnacknowledgedCriticalAlerts} notificationLimit={9999} />
-		
+		<Notification notificationCount={numUnacknowledgedCriticalAlerts} notificationLimit={9999} />
 	{/snippet}
 	{#snippet headerRight()}
-	
-			<List horizontal>
-				{#if $superadmin || $userStore?.is_admin}
-					<Popover
-						floatingConfig={{ strategy: 'fixed', placement: 'bottom-end' }}
-						portal="#mute-settings-button"
-						contentClasses="p-4"
-					>
-						{#snippet trigger()}
-									
-								<div id="mute-settings-button">
-									<Button variant="default" nonCaptureEvent>
-										{#if muteSettings.global || muteSettings.workspace}
-											<BellOff size="16" />
-										{:else}
-											<Bell size="16" />
-										{/if}
-									</Button>
-								</div>
-							
-									{/snippet}
-						{#snippet content()}
-									
-								<List justify="start">
-									<div class="w-full">
-										{#if $superadmin}
-											<Toggle
-												on:change={saveGlobalMuteSetting}
-												bind:checked={muteSettings.global}
-												options={{
-													right: 'Automatically acknowledge critical alerts instance wide'
-												}}
-												size="xs"
-											/>
-										{/if}
-									</div>
+		<List horizontal>
+			{#if $superadmin || $userStore?.is_admin}
+				<Popover
+					floatingConfig={{ strategy: 'fixed', placement: 'bottom-end' }}
+					portal="#mute-settings-button"
+					contentClasses="p-4"
+				>
+					{#snippet trigger()}
+						<div id="mute-settings-button">
+							<Button variant="default" nonCaptureEvent>
+								{#if muteSettings.global || muteSettings.workspace}
+									<BellOff size="16" />
+								{:else}
+									<Bell size="16" />
+								{/if}
+							</Button>
+						</div>
+					{/snippet}
+					{#snippet content()}
+						<List justify="start">
+							<div class="w-full">
+								{#if $superadmin}
+									<Toggle
+										on:change={saveGlobalMuteSetting}
+										bind:checked={muteSettings.global}
+										options={{
+											right: 'Automatically acknowledge critical alerts instance wide'
+										}}
+										size="xs"
+									/>
+								{/if}
+							</div>
 
-									<div class="w-full">
-										<Toggle
-											on:change={saveWorkSpaceMuteSetting}
-											bind:checked={muteSettings.workspace}
-											options={{
-												right: 'Automatically acknowledge critical alerts for current workspace'
-											}}
-											size="xs"
-										/>
-									</div>
-								</List>
-							
-									{/snippet}
-					</Popover>
-				{/if}
-
-				{#if $superadmin}
-					<Popover
-						floatingConfig={{ strategy: 'fixed', placement: 'bottom-end' }}
-						portal="#settings-button"
-						contentClasses="p-4"
-					>
-						{#snippet trigger()}
-									
-								<div id="settings-button">
-									<Button variant="default" nonCaptureEvent>
-										<Settings size="16" />
-									</Button>
-								</div>
-							
-									{/snippet}
-						{#snippet content()}
-									
-								<List justify="start" gap="none">
-									<div class="w-full">
-										<Button
-											size="xs"
-											color="light"
-											href="{base}/?workspace=admins#superadmin-settings"
-											target="_blank"
-										>
-											<div class="w-full">
-												<List horizontal justify="between" gap="sm">
-													<div>Instance Critical Alert Settings</div>
-													<ExternalLink size="16" />
-												</List>
-											</div>
-										</Button>
-									</div>
-									<div class="w-full">
-										<Button
-											size="xs"
-											color="light"
-											href="{base}/workspace_settings?tab=error_handler"
-											target="_blank"
-										>
-											Workspace Critical Alert Settings <ExternalLink size="16" />
-										</Button>
-									</div>
-								</List>
-							
-									{/snippet}
-					</Popover>
-				{:else}
-					<Button
-						size="xs"
-						variant="default"
-						href="{base}/workspace_settings?tab=error_handler"
-						target="_blank"
-					>
-						<List horizontal justify="between" gap="sm">
-							<Settings size="16" />
-							<ExternalLink size="16" />
+							<div class="w-full">
+								<Toggle
+									on:change={saveWorkSpaceMuteSetting}
+									bind:checked={muteSettings.workspace}
+									options={{
+										right: 'Automatically acknowledge critical alerts for current workspace'
+									}}
+									size="xs"
+								/>
+							</div>
 						</List>
-					</Button>
-				{/if}
-			</List>
-		
+					{/snippet}
+				</Popover>
+			{/if}
+
+			{#if $superadmin}
+				<Popover
+					floatingConfig={{ strategy: 'fixed', placement: 'bottom-end' }}
+					portal="#settings-button"
+					contentClasses="p-4"
+				>
+					{#snippet trigger()}
+						<div id="settings-button">
+							<Button variant="default" nonCaptureEvent>
+								<Settings size="16" />
+							</Button>
+						</div>
+					{/snippet}
+					{#snippet content()}
+						<List justify="start" gap="none">
+							<div class="w-full">
+								<Button
+									size="xs"
+									color="light"
+									href="{base}/?workspace=admins#superadmin-settings"
+									target="_blank"
+								>
+									<div class="w-full">
+										<List horizontal justify="between" gap="sm">
+											<div>Instance Critical Alert Settings</div>
+											<ExternalLink size="16" />
+										</List>
+									</div>
+								</Button>
+							</div>
+							<div class="w-full">
+								<Button
+									size="xs"
+									color="light"
+									href="{base}/workspace_settings?tab=error_handler"
+									target="_blank"
+								>
+									Workspace Critical Alert Settings <ExternalLink size="16" />
+								</Button>
+							</div>
+						</List>
+					{/snippet}
+				</Popover>
+			{:else}
+				<Button
+					size="xs"
+					variant="default"
+					href="{base}/workspace_settings?tab=error_handler"
+					target="_blank"
+				>
+					<List horizontal justify="between" gap="sm">
+						<Settings size="16" />
+						<ExternalLink size="16" />
+					</List>
+				</Button>
+			{/if}
+		</List>
 	{/snippet}
 
 	<CriticalAlertModalInner

@@ -214,10 +214,10 @@
 					{args}
 				>
 					{#snippet editorBarRight()}
-										<div >
-							<WorkerTagSelect bind:tag={script.tag} />
+						<div>
+							<WorkerTagSelect bind:tag={() => script?.tag, (v) => script && (script.tag = v)} />
 						</div>
-									{/snippet}
+					{/snippet}
 				</ScriptEditor>
 			{/key}
 		{:else}

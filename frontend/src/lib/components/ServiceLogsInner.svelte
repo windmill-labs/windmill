@@ -663,7 +663,7 @@
 								<LogSnippetViewer
 									content={snippet_fragment || document.logs[0]}
 									highlighted={snippet_highlighted}
-									on:click={() => {
+									onClick={() => {
 										let logLineNumber = document.line_number[0]
 										let logFile = document.file_name[0]
 										let host = document.host[0]

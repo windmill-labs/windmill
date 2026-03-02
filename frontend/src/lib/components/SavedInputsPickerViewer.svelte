@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { run, createBubbler } from 'svelte/legacy';
+	import { run, createBubbler } from 'svelte/legacy'
 
-	const bubble = createBubbler();
+	const bubble = createBubbler()
 	import { Button } from '$lib/components/common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import ObjectViewerWrapper from '$lib/components/propertyPicker/ObjectViewerWrapper.svelte'
@@ -10,12 +10,12 @@
 	import { createEventDispatcher } from 'svelte'
 
 	interface Props {
-		payloadData: any;
-		limitPayloadSize?: boolean;
-		hover?: boolean;
-		viewerOpen?: boolean;
-		maxWidth?: number | undefined;
-		editOptions?: boolean;
+		payloadData: any
+		limitPayloadSize?: boolean
+		hover?: boolean
+		viewerOpen?: boolean
+		maxWidth?: number | undefined
+		editOptions?: boolean
 	}
 
 	let {
@@ -25,7 +25,7 @@
 		viewerOpen = false,
 		maxWidth = undefined,
 		editOptions = true
-	}: Props = $props();
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 	const payloadTooBigForPreview = payloadData != 'WINDMILL_TOO_BIG' && isObjectTooBig(payloadData)
@@ -89,7 +89,7 @@
 
 	run(() => {
 		handleHoverChange(hover)
-	});
+	})
 	let ajustedWidth = $derived(maxWidth ? Math.abs(maxWidth - xOffset) : undefined)
 </script>
 
@@ -101,82 +101,78 @@
 		e.stopPropagation()
 	}}
 	closeOnOtherPopoverOpen
-	closeOnClickOutside={false}
+	closeOnOutsideClick={false}
 	usePointerDownOutside
 >
 	{#snippet trigger({ isOpen })}
-	
-			<Button
-				variant="subtle"
-				unifiedSize="sm"
-				btnClasses={hover || isOpen ? 'block -my-2 bg-transparent' : 'hidden'}
-				wrapperClasses="p-0"
-				iconOnly
-				nonCaptureEvent
-				startIcon={{ icon: Eye }}
-			/>
-		
+		<Button
+			variant="subtle"
+			unifiedSize="sm"
+			btnClasses={hover || isOpen ? 'block -my-2 bg-transparent' : 'hidden'}
+			wrapperClasses="p-0"
+			iconOnly
+			nonCaptureEvent
+			startIcon={{ icon: Eye }}
+		/>
 	{/snippet}
 	{#snippet content()}
-	
-			<div
-				class="p-2 overflow-auto"
-				style="width: {ajustedWidth ? ajustedWidth + 'px' : '50vh'}; max-height: 50vh"
-			>
-				{#if payloadData === 'WINDMILL_TOO_BIG'}
-					<div class="text-center text-primary text-xs">
-						{#if limitPayloadSize}
-							Payload too big to be used
-						{:else}
-							Payload too big to preview but can still be loaded
-						{/if}
-					</div>
-				{:else}
-					<div
-						class="relative p-2"
-						role="button"
-						tabindex="0"
-						aria-label="Copy JSON payload to clipboard"
-						onclick={() => {
+		<div
+			class="p-2 overflow-auto"
+			style="width: {ajustedWidth ? ajustedWidth + 'px' : '50vh'}; max-height: 50vh"
+		>
+			{#if payloadData === 'WINDMILL_TOO_BIG'}
+				<div class="text-center text-primary text-xs">
+					{#if limitPayloadSize}
+						Payload too big to be used
+					{:else}
+						Payload too big to preview but can still be loaded
+					{/if}
+				</div>
+			{:else}
+				<div
+					class="relative p-2"
+					role="button"
+					tabindex="0"
+					aria-label="Copy JSON payload to clipboard"
+					onclick={() => {
 						copyToClipboard(JSON.stringify(payloadData))
 					}}
-						onkeydown={bubble('keydown')}
-					>
-						{#if !objectViewerLoaded && payloadTooBigForPreview}
-							<div class="flex justify-center items-center py-4">
-								<Loader2 size={20} class="animate-spin text-primary" />
-								<span class="ml-2 text-xs text-primary">Loading data...</span>
-							</div>
-						{/if}
+					onkeydown={bubble('keydown')}
+				>
+					{#if !objectViewerLoaded && payloadTooBigForPreview}
+						<div class="flex justify-center items-center py-4">
+							<Loader2 size={20} class="animate-spin text-primary" />
+							<span class="ml-2 text-xs text-primary">Loading data...</span>
+						</div>
+					{/if}
 
-						{#if popoverFullyOpened || !payloadTooBigForPreview}
-							<div
-								class={!objectViewerLoaded && payloadTooBigForPreview
-									? 'invisible h-0 overflow-hidden'
-									: ''}
-							>
-								<ObjectViewerWrapper
-									json={payloadData}
-									allowCopy
-									pureViewer
-									on:mounted={() => (objectViewerLoaded = true)}
-								/>
-							</div>
-						{/if}
-
-						<div class="absolute top-2 right-2 w-full h-full">
-							<Button
-								variant="subtle"
-								unifiedSize="sm"
-								class="absolute top-0 right-0"
-								iconOnly
-								startIcon={{ icon: CopyIcon }}
-								nonCaptureEvent
+					{#if popoverFullyOpened || !payloadTooBigForPreview}
+						<div
+							class={!objectViewerLoaded && payloadTooBigForPreview
+								? 'invisible h-0 overflow-hidden'
+								: ''}
+						>
+							<ObjectViewerWrapper
+								json={payloadData}
+								allowCopy
+								pureViewer
+								on:mounted={() => (objectViewerLoaded = true)}
 							/>
 						</div>
+					{/if}
+
+					<div class="absolute top-2 right-2 w-full h-full">
+						<Button
+							variant="subtle"
+							unifiedSize="sm"
+							class="absolute top-0 right-0"
+							iconOnly
+							startIcon={{ icon: CopyIcon }}
+							nonCaptureEvent
+						/>
 					</div>
-				{/if}
-			</div>
-		
+				</div>
+			{/if}
+		</div>
 	{/snippet}
 </Popover>

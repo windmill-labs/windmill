@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
+	import { run } from 'svelte/legacy'
 
 	import type { InstanceGroup } from '$lib/gen'
 	import { GroupService } from '$lib/gen'
@@ -15,7 +15,7 @@
 
 	let newGroupName: string = $state('')
 	let instanceGroups: InstanceGroup[] | undefined = $state(undefined)
-	let groupDrawer: Drawer = $state()
+	let groupDrawer: Drawer | undefined = $state()
 
 	async function loadInstanceGroups(): Promise<void> {
 		try {
@@ -31,18 +31,18 @@
 		})
 		loadInstanceGroups()
 		editGroupName = newGroupName
-		groupDrawer.openDrawer()
+		groupDrawer?.openDrawer()
 	}
 
 	run(() => {
 		loadInstanceGroups()
-	});
+	})
 
 	let editGroupName: string = $state('')
 </script>
 
 <Drawer bind:this={groupDrawer}>
-	<DrawerContent title="Instance Group {editGroupName}" on:close={groupDrawer.closeDrawer}>
+	<DrawerContent title="Instance Group {editGroupName}" on:close={groupDrawer?.closeDrawer}>
 		<InstanceGroupEditor on:update={loadInstanceGroups} name={editGroupName} />
 	</DrawerContent>
 </Drawer>
@@ -51,33 +51,26 @@
 	<PageHeader title="Instance Groups">
 		<div class="flex flex-row">
 			<div>
-				<Popover
-					floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-					containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
-				>
+				<Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}>
 					{#snippet trigger()}
-									
-							<Button size="md" startIcon={{ icon: Plus }} nonCaptureEvent>New&nbsp;group</Button>
-						
-									{/snippet}
+						<Button size="md" startIcon={{ icon: Plus }} nonCaptureEvent>New&nbsp;group</Button>
+					{/snippet}
 					{#snippet content({ close })}
-									
-							<div class="flex-col flex gap-2 p-4">
-								<input class="mr-2" placeholder="New instance group name" bind:value={newGroupName} />
-								<Button
-									size="md"
-									startIcon={{ icon: Plus }}
-									disabled={!newGroupName}
-									on:click={() => {
-										addInstanceGroup()
-										close()
-									}}
-								>
-									Create
-								</Button>
-							</div>
-						
-									{/snippet}
+						<div class="flex-col flex gap-2 p-4">
+							<input class="mr-2" placeholder="New instance group name" bind:value={newGroupName} />
+							<Button
+								size="md"
+								startIcon={{ icon: Plus }}
+								disabled={!newGroupName}
+								on:click={() => {
+									addInstanceGroup()
+									close()
+								}}
+							>
+								Create
+							</Button>
+						</div>
+					{/snippet}
 				</Popover>
 			</div>
 		</div>
@@ -87,24 +80,24 @@
 		<div class="relative mb-20 pt-8">
 			<TableCustom>
 				{#snippet headerRow()}
-								<tr >
+					<tr>
 						<th>Name</th>
 						<th>Summary</th>
 						<th>Members</th>
 						<th></th>
 					</tr>
-							{/snippet}
+				{/snippet}
 				{#snippet body()}
-								<tbody >
+					<tbody>
 						{#each instanceGroups as { name, summary, emails }}
 							<tr>
 								<td>
 									<a
 										href="#{name}"
 										onclick={() => {
-										editGroupName = name
-										groupDrawer.openDrawer()
-									}}
+											editGroupName = name
+											groupDrawer?.openDrawer()
+										}}
 										>{name}
 									</a>
 								</td>
@@ -126,7 +119,7 @@
 							</tr>
 						{/each}
 					</tbody>
-							{/snippet}
+				{/snippet}
 			</TableCustom>
 		</div>
 	{/if}

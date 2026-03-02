@@ -642,7 +642,7 @@
 							resourceType={'postgresql'}
 							datatableAsPgResource
 						/>
-						<CheckPostgresRequirement bind:postgres_resource_path bind:can_write />
+						<CheckPostgresRequirement {postgres_resource_path} {can_write} />
 					</div>
 					{#if loadingPostgres}
 						<div class="flex flex-col items-center justify-center h-full w-full">
@@ -769,7 +769,7 @@
 															</div>
 														{:else}
 															<SlotPicker
-																bind:edit
+																{edit}
 																{postgres_resource_path}
 																bind:replication_slot_name
 																disabled={!can_write}

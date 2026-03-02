@@ -48,7 +48,11 @@
 		showEditButtons?: boolean
 	}
 
-	let { filter = $bindable(''), subtab = $bindable('script'), showEditButtons = true }: Props = $props()
+	let {
+		filter = $bindable(''),
+		subtab = $bindable('script'),
+		showEditButtons = true
+	}: Props = $props()
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
 		canWrite: boolean
@@ -367,7 +371,7 @@
 					if (itemKind != 'all') {
 						subtab = v
 					}
-					setQuery($page.url, 'kind', v)
+					setQuery(page.url, 'kind', v)
 				}}
 			>
 				{#snippet children({ item })}
