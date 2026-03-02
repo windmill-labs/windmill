@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { WorkspaceService } from '$lib/gen'
-	import { globalDbManagerDrawer, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 
 	import Select from './select/Select.svelte'
 	import ExploreAssetButton, { assetCanBeExplored } from './ExploreAssetButton.svelte'
@@ -31,7 +31,7 @@
 	let ducklakes = usePromise(() =>
 		WorkspaceService.listDucklakes({ workspace: $workspaceStore ?? '' })
 	)
-	let dbManagerDrawer = $derived(globalDbManagerDrawer.val)
+
 </script>
 
 <div class={className}>
@@ -49,7 +49,6 @@
 		<ExploreAssetButton
 			class="mt-1 w-fit"
 			asset={{ kind: 'ducklake', path: value }}
-			{dbManagerDrawer}
 		/>
 	{/if}
 </div>

@@ -770,6 +770,6 @@
 	<CenteredModal title="Loading user..." loading={true}></CenteredModal>
 {/if}
 
-{#if $workspaceStore}
+{#if $workspaceStore && globalDbManagerDrawer.val}
 	<DBManagerDrawer uriState={globalDbManagerDrawer.val} />
 {/if}
