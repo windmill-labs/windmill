@@ -292,7 +292,7 @@ export function validatePassword(password: string): boolean {
 	return re.test(password)
 }
 
-const portalDivs = ['#app-editor-select', '.select-dropdown-portal']
+const portalDivs = ['#app-editor-select', '.select-dropdown-portal', '[data-context-menu]']
 
 interface ClickOutsideOptions {
 	capture?: boolean
