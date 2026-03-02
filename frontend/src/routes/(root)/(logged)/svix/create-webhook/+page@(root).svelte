@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
+	import { run } from 'svelte/legacy'
 
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import { Button } from '$lib/components/common'
@@ -17,10 +17,9 @@
 	let clientName = $page.url.searchParams.get('domain') ?? undefined
 	let redirectURI = $page.url.searchParams.get('redirect_uri')
 
-	let userSettings: UserSettings = $state()
+	let userSettings: UserSettings | undefined = $state()
 	let token: string | undefined = $state(undefined)
 	let scopes: string[] = $state([])
-
 
 	async function createWebhook(path: string, kind: 'script' | 'flow' | 'app', token: string) {
 		try {
@@ -70,7 +69,7 @@
 	}
 	run(() => {
 		updateTokenAndScope(itemPath)
-	});
+	})
 </script>
 
 <UserSettings
@@ -101,11 +100,11 @@
 			<div class="flex flex-col items-center gap-3 w-full">
 				<div class="flex flex-row items-center justify-center w-full">
 					<span class="flex justify-end w-full items-right"> Selected Workspace: </span>
-					<Menubar >
+					<Menubar>
 						{#snippet children({ createMenu })}
-												<WorkspaceMenu strictWorkspaceSelect {createMenu} />
-																	{/snippet}
-										</Menubar>
+							<WorkspaceMenu strictWorkspaceSelect {createMenu} />
+						{/snippet}
+					</Menubar>
 				</div>
 				<ScriptPicker
 					allowEdit={false}
@@ -151,7 +150,7 @@
 						size="md"
 						btnClasses="whitespace-normal break-words flex flex-wrap"
 						disabled={itemPath == undefined}
-						on:click={() => userSettings.openDrawer()}
+						on:click={() => userSettings?.openDrawer()}
 					>
 						Generate webhook-specific Token
 					</Button>
