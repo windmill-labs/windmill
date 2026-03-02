@@ -413,11 +413,15 @@ pub struct OAuthClient {
     pub id: String,
     pub secret: StringOrSecretRef,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub allowed_domains: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connect_config: Option<OAuthConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub login_config: Option<OAuthConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tenant: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub share_with_workspaces: Option<bool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -2235,9 +2239,11 @@ mod tests {
                         secret: StringOrSecretRef::EnvRef(EnvRefWrapper {
                             env_ref: "__WM_TEST_OAUTH_SECRET".to_string(),
                         }),
+                        display_name: None,
                         allowed_domains: None,
                         connect_config: None,
                         login_config: None,
+                        tenant: None,
                         share_with_workspaces: None,
                         grant_types: vec![],
                     },
