@@ -1,3 +1,5 @@
+name: windmill
+
 main_branch: main
 
 merge_strategy: rebase
