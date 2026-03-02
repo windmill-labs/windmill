@@ -453,10 +453,12 @@
 				hideContextMenu()
 			}}
 			role="presentation"
+			data-popover
 		></div>
 		<div
 			class="fixed {getContextMenuContainerClass('z-[9999]')}"
 			style="left: {contextMenu.x}px; top: {contextMenu.y}px;"
+			data-popover
 		>
 			<button
 				class="{CONTEXT_MENU_ITEM_BASE_CLASS} {CONTEXT_MENU_ITEM_HOVER_CLASS} cursor-pointer"
