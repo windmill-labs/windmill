@@ -1,21 +1,21 @@
 import type { Job, OpenFlow } from '$lib/gen'
-import type { FlowRecording, RecordedJob } from './types'
+import type { ActiveRecording, ActiveReplayData, FlowRecording, RecordedJob } from './types'
 
 // Module-level active instances (bypasses context/portal issues)
-let activeRecording: FlowRecordingStore | undefined = undefined
-let activeReplay: FlowRecording | undefined = undefined
+let activeRecording: ActiveRecording | undefined = undefined
+let activeReplay: ActiveReplayData | undefined = undefined
 let replayStartTime: number = 0
 
 export function getActiveRecording() {
 	return activeRecording
 }
-export function setActiveRecording(r: FlowRecordingStore | undefined) {
+export function setActiveRecording(r: ActiveRecording | undefined) {
 	activeRecording = r
 }
 export function getActiveReplay() {
 	return activeReplay
 }
-export function setActiveReplay(r: FlowRecording | undefined) {
+export function setActiveReplay(r: ActiveReplayData | undefined) {
 	activeReplay = r
 	replayStartTime = r ? Date.now() : 0
 }
