@@ -190,7 +190,7 @@ Generate a tool name for the script below:
 		untrack(() => generateOnAppear) &&
 		!content &&
 		untrack(() => code) &&
-		!isInitialCode(untrack(() => code))
+		!isInitialCode(untrack(() => code) ?? '')
 	) {
 		setTimeout(() => {
 			el?.focus()
