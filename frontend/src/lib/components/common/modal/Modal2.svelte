@@ -84,11 +84,11 @@
 								<div class="grow w-min-0">
 									<List horizontal justify="between">
 										<div class="min-w-0 grow">
-											<slot name="header-left" />
+											<slot name="headerLeft" />
 										</div>
 										<div class="min-w-0 grow-0 justify-end">
 											<List horizontal justify="end">
-												<slot name="header-right" />
+												<slot name="headerRight" />
 												<div class="w-8">
 													<button
 														id="modal-close-button"

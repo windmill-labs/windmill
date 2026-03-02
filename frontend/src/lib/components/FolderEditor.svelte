@@ -270,8 +270,8 @@
 			{/if}
 			{#if perms}
 				<TableCustom>
-					<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
-					<tr slot="header-row">
+
+					<tr slot="headerRow">
 						<th>user/group</th>
 						<th></th>
 						<th></th>
@@ -407,7 +407,7 @@
 				<p class="text-primary text-sm">No folder is managing this folder</p>
 			{:else}
 				<TableCustom>
-					<tr slot="header-row">
+					<tr slot="headerRow">
 						<th>folder</th>
 						<th />
 					</tr>

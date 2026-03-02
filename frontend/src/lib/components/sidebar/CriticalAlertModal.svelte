@@ -178,10 +178,10 @@
 	fixedHeight="lg"
 	fixedWidth="lg"
 >
-	<svelte:fragment slot="header-left">
+	<svelte:fragment slot="headerLeft">
 		<Notification notificationCount={numUnacknowledgedCriticalAlerts} notificationLimit={9999} />
 	</svelte:fragment>
-	<svelte:fragment slot="header-right">
+	<svelte:fragment slot="headerRight">
 		<List horizontal>
 			{#if $superadmin || $userStore?.is_admin}
 				<Popover

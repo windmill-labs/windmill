@@ -80,7 +80,7 @@
 	{#if instanceGroups && instanceGroups.length > 0}
 		<div class="relative mb-20 pt-8">
 			<TableCustom>
-				<tr slot="header-row">
+				<tr slot="headerRow">
 					<th>Name</th>
 					<th>Summary</th>
 					<th>Members</th>

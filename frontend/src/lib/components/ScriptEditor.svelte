@@ -117,7 +117,7 @@
 		lastDeployedCode?: string | undefined
 		disableAi?: boolean
 		assets?: AssetWithAltAccessType[]
-		editor_bar_right?: import('svelte').Snippet
+		editorBarRight?: import('svelte').Snippet
 		enablePreprocessorSnippet?: boolean
 	}
 
@@ -149,7 +149,7 @@
 		lastDeployedCode = undefined,
 		disableAi = false,
 		assets = $bindable(),
-		editor_bar_right,
+		editorBarRight,
 		enablePreprocessorSnippet = false
 	}: Props = $props()
 
@@ -1012,7 +1012,7 @@
 				bind:showHistoryDrawer
 			>
 				{#snippet right()}
-					{@render editor_bar_right?.()}
+					{@render editorBarRight?.()}
 				{/snippet}
 			</EditorBar>
 		{/if}

@@ -79,7 +79,7 @@
 		<p class="text-primary text-sm">No permission changes recorded yet</p>
 	{:else}
 		<TableCustom>
-			<tr slot="header-row">
+			<tr slot="headerRow">
 				<th>Changed By</th>
 				<th>Change Type</th>
 				<th>Affected</th>

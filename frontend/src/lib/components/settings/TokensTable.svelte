@@ -80,8 +80,8 @@
 	/>
 	<div class="overflow-auto grow min-h-64 max-h-2/3">
 		<TableCustom>
-			<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
-			<tr slot="header-row">
+
+			<tr slot="headerRow">
 				<th>Prefix</th>
 				<th>Label</th>
 				<th>Expiration</th>

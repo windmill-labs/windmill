@@ -85,7 +85,7 @@
 		</div>
 		{#if members}
 			<TableCustom>
-				<tr slot="header-row">
+				<tr slot="headerRow">
 					<th>user</th>
 					<th></th>
 				</tr>

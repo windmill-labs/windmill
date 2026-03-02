@@ -124,7 +124,7 @@
 			</Button>
 		</div>
 		<TableCustom>
-			<tr slot="header-row">
+			<tr slot="headerRow">
 				<th class="text-xs">Script Hash</th>
 				<th class="text-xs">Job ID</th>
 				<th class="text-xs">Status</th>

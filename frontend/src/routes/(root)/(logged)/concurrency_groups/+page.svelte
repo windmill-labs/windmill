@@ -78,7 +78,7 @@
 	{#if concurrencyGroups && concurrencyGroups.length > 0}
 		<div class="relative mb-20 pt-8">
 			<TableCustom>
-				<tr slot="header-row">
+				<tr slot="headerRow">
 					<th>Concurrency key</th>
 					<th>Jobs running</th>
 					<th></th>

@@ -214,7 +214,7 @@
 	{/if}
 	{#if files}
 		<div class="w-full max-h-full overflow-auto px-6">
-			<slot name="selected-title">
+			<slot name="selectedTitle">
 				<div class="text-center mb-2 px-2">
 					{submittedText ? submittedText : `Selected file${files.length > 1 ? 's' : ''}`}:
 				</div>

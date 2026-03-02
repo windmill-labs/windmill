@@ -19,7 +19,7 @@
 	<div class="inline-block min-w-full py-2 align-middle">
 		<table class="table-custom min-w-full table-auto divide-y">
 			<thead>
-				<slot name="header-row" />
+				<slot name="headerRow" />
 			</thead>
 			<slot name="body" />
 		</table>
