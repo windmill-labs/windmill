@@ -256,7 +256,7 @@ COPY --from=windmill_duckdb_ffi_internal_builder /windmill-duckdb-ffi-internal/t
 
 COPY --from=denoland/deno:2.2.1 --chmod=755 /usr/bin/deno /usr/bin/deno
 
-COPY --from=oven/bun:1.3.8 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.3.10 /usr/local/bin/bun /usr/bin/bun
 
 # Install windmill CLI
 RUN bun install -g windmill-cli \
