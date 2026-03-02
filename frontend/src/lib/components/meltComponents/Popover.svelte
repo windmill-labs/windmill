@@ -71,7 +71,7 @@
 	onDestroy(clearTimers)
 
 	const {
-		elements: { trigger: _trigger, content, arrow, close: closeElement, overlay },
+		elements: { trigger: _trigger, content: _content, arrow, close: closeElement, overlay },
 		states,
 		options: { closeOnOutsideClick: closeOnOutsideClickOption, positioning, portal: portalOption },
 		ids: { content: popoverId }
@@ -215,7 +215,7 @@
 			}
 		}}
 		on:mouseleave={debounceClose}
-		use:melt={$content}
+		use:melt={$_content}
 		transition:fly={{ duration: enableFlyTransition ? 100 : 0, y: -16 }}
 		class={twMerge(
 			'relative dark:border rounded-md bg-surface-tertiary shadow-lg',
