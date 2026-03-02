@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
+	import { run } from 'svelte/legacy'
 
 	import { goto } from '$lib/navigation'
 	import { base } from '$app/paths'
@@ -44,8 +44,8 @@
 	let workspaceHasForks = $state(false)
 	let workspaceTreeView: WorkspaceTreeView | undefined = $state(undefined)
 
-	let userSettings: UserSettings = $state()
-	let superadminSettings: SuperadminSettings = $state()
+	let userSettings: UserSettings | undefined = $state()
+	let superadminSettings: SuperadminSettings | undefined = $state()
 
 	let rd = $derived($page.url.searchParams.get('rd'))
 
@@ -54,7 +54,7 @@
 			const mcpMode = $page.url.hash.includes('-mcp')
 			userSettings.openDrawer(mcpMode)
 		}
-	});
+	})
 
 	async function loadInvites() {
 		try {
@@ -96,9 +96,9 @@
 	}
 	run(() => {
 		list_all_as_super_admin != undefined && $userWorkspaces && handleListWorkspaces()
-	});
+	})
 
-	let allWorkspaces = $derived(workspaces || [])
+	let allWorkspaces = $derived.by(() => workspaces || [])
 	let noWorkspaces = $derived($superadmin && allWorkspaces.length == 0)
 	let onlyAdminsWorkspace = $derived(allWorkspaces.length === 1 && allWorkspaces[0].id === 'admins')
 
@@ -114,7 +114,7 @@
 		if ($superadmin) {
 			createWorkspace = true
 		}
-	});
+	})
 
 	if (!createWorkspace) {
 		getCreateWorkspaceRequireSuperadmin()
@@ -265,7 +265,13 @@
 
 		{#if createWorkspace}
 			<div class="flex flex-row-reverse pt-4 w-full">
-				<AnimatedButton animate={onlyAdminsWorkspace} baseRadius="6px" animationDuration="2s" marginWidth="2px" wrapperClasses="w-full">
+				<AnimatedButton
+					animate={onlyAdminsWorkspace}
+					baseRadius="6px"
+					animationDuration="2s"
+					marginWidth="2px"
+					wrapperClasses="w-full"
+				>
 					<Button
 						unifiedSize="sm"
 						href="{base}/user/create_workspace{rd ? `?rd=${encodeURIComponent(rd)}` : ''}"
@@ -317,7 +323,7 @@
 					<Button
 						variant="subtle"
 						size="xs2"
-						on:click={async () => {
+						onClick={async () => {
 							await UserService.declineInvite({
 								requestBody: { workspace_id: invite.workspace_id }
 							})
@@ -406,12 +412,12 @@
 				<Button
 					variant="default"
 					unifiedSize="md"
-					on:click={superadminSettings.openDrawer}
+					onClick={superadminSettings?.openDrawer}
 					startIcon={{ icon: Settings }}
 					dropdownItems={[
 						{
 							label: 'User settings',
-							onClick: () => userSettings.openDrawer(),
+							onClick: () => userSettings?.openDrawer(),
 							icon: User
 						}
 					]}
@@ -422,7 +428,7 @@
 				<Button
 					variant="default"
 					unifiedSize="md"
-					onClick={() => userSettings.openDrawer()}
+					onClick={() => userSettings?.openDrawer()}
 					startIcon={{ icon: Settings }}
 				>
 					User settings
@@ -432,7 +438,7 @@
 			<Button
 				variant="accent"
 				unifiedSize="md"
-				on:click={async () => {
+				onClick={async () => {
 					logout()
 				}}
 			>
