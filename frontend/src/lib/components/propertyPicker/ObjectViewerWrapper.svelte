@@ -15,7 +15,7 @@
 	export let expandedEvenOnLevel0: string | undefined = undefined
 	export let connecting = false
 
-	const props = {
+	const _props = {
 		json,
 		level,
 		currentPath,
@@ -40,5 +40,5 @@
 </script>
 
 <div>
-	<ObjectViewer {...props} />
+	<ObjectViewer {..._props} />
 </div>
