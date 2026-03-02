@@ -16,6 +16,10 @@
 	export let closeDelay: number = 0
 	export let portal: string | undefined | null = 'body'
 	export let customBgClass: string | undefined = undefined
+	export let style: string = ''
+
+	let className: string = ''
+	export { className as class }
 
 	const {
 		elements: { trigger, content },
@@ -31,14 +35,14 @@
 	})
 </script>
 
-<span class={$$props.class} style={$$props.style} use:melt={$trigger}>
+<span class={className} {style} use:melt={$trigger}>
 	<slot />
 </span>
 {#if !$$slots.default}
 	<div
 		class="inline-flex w-3 mx-0.5 h-3 {light
 			? 'text-primary-inverse'
-			: 'text-primary'} {$$props.class} "
+			: 'text-primary'} {className} "
 		use:melt={$trigger}
 	>
 		<InfoIcon size={small ? 12 : 14} />

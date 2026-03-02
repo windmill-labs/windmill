@@ -8,6 +8,9 @@
 	export let title: string | undefined = undefined
 	export let size: 'sm' | 'md' = 'md'
 	export let disabled = false
+
+	let className: string = ''
+	export { className as class }
 </script>
 
 {#if title !== undefined}
@@ -20,7 +23,7 @@
 	class={twMerge(
 		'grow min-w-0 w-full border flex items-center bg-surface-secondary hover:opacity-60 transition-opacity text-primary justify-between rounded-md',
 		inputSizeClasses[size],
-		$$props.class
+		className
 	)}
 	class:cursor-not-allowed={disabled}
 	class:cursor-pointer={!disabled}

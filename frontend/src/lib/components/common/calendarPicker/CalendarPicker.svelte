@@ -16,6 +16,9 @@
 	let input: HTMLInputElement | undefined
 
 	export let placement: Placement = 'top-end'
+
+	let className: string = ''
+	export { className as class }
 </script>
 
 <Popover
@@ -28,7 +31,7 @@
 			title="Open calendar picker"
 			class={twMerge(
 				'absolute bottom-1 right-2 top-1 py-1 min-w-min !px-2.5 items-center text-primary bg-surface-secondary rounded center-center hover:bg-surface-hover transition-all cursor-pointer',
-				$$props.class
+				className
 			)}
 			aria-label="Open calendar picker"
 			on:click={() => {

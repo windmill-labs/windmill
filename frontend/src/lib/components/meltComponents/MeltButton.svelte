@@ -10,6 +10,9 @@
 	export let title: string = ''
 	export let id: string | undefined = undefined
 
+	let className: string = ''
+	export { className as class }
+
 	let buttonRef: HTMLButtonElement | undefined = undefined
 </script>
 
@@ -23,7 +26,7 @@
 			buttonRef?.click()
 		}
 	}}
-	class={$$props.class}
+	class={className}
 	{type}
 	{title}
 	{id}

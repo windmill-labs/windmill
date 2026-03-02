@@ -10,6 +10,9 @@
 
 	export let code: string = ''
 
+	let className: string = ''
+	export { className as class }
+
 	async function loadMonaco() {
 		editor = meditor.create(divEl as HTMLDivElement, {
 			value: code,
@@ -43,4 +46,4 @@
 	})
 </script>
 
-<div bind:this={divEl} class="{$$props.class ?? ''} editor"></div>
+<div bind:this={divEl} class="{className} editor"></div>

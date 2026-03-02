@@ -42,6 +42,9 @@
 	export let enableFlyTransition: boolean = false
 	export let onKeyDown: (e: KeyboardEvent) => void = () => {}
 	export let onClose: () => void = () => {}
+
+	let className: string = ''
+	export { className as class }
 	/**
 	 * If provided, the popover will only open if the click is on the element with the given id.
 	 */
@@ -171,7 +174,7 @@
 <svelte:window onkeydown={(e) => isOpen && onKeyDown(e)} />
 
 <button
-	class={$$props.class}
+	class={className}
 	use:melt={$trigger}
 	aria-label="Popup button"
 	disabled={disablePopup || disabled}

@@ -9,6 +9,9 @@
 	/** This element will act as the reference point to the `Splitpanes`
 	 * and the top difference will be calculated from it. */
 	export let refElement: HTMLElement | undefined = undefined
+
+	let className: string = ''
+	export { className as class }
 	let wrapper: HTMLDivElement
 	let gap = 0
 
@@ -28,7 +31,7 @@
 
 <div
 	bind:this={wrapper}
-	class="h-full {$$props.class || ''}"
+	class="h-full {className}"
 	style="max-height: calc(100% - {gap}px) !important;"
 >
 	<slot />

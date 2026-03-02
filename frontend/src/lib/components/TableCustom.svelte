@@ -6,13 +6,16 @@
 	export let showNext = true
 
 	const dispatch = createEventDispatcher()
+
+	let className: string = ''
+	export { className as class }
 </script>
 
 <!-- A custom table 
 - the first slot should be a <tr>, containing th elements
 - the second slot should be a <tbody>, containing th elements
 -->
-<div class="flex flex-col {$$props.class} min-w-full">
+<div class="flex flex-col {className} min-w-full">
 	<div class="inline-block min-w-full py-2 align-middle">
 		<table class="table-custom min-w-full table-auto divide-y">
 			<thead>

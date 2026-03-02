@@ -11,6 +11,9 @@
 	export let style: string = ''
 	export let css: any = {}
 
+	let className: string = ''
+	export { className as class }
+
 	const { mode } = getContext<AppViewerContext>('AppViewerContext')
 
 	let isOpen = false
@@ -66,7 +69,7 @@
 					<div
 						class={twMerge(
 							'max-w-screen-lg max-h-screen-80 overflow-auto flex flex-col',
-							$$props.class
+							className
 						)}
 						{style}
 					>

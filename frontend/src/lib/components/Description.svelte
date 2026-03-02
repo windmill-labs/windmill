@@ -3,9 +3,12 @@
 	import { twMerge } from 'tailwind-merge'
 
 	export let link: string | undefined = undefined
+
+	let className: string = ''
+	export { className as class }
 </script>
 
-<div class={twMerge('text-xs text-primary font-normal', $$props.class)}>
+<div class={twMerge('text-xs text-primary font-normal', className)}>
 	<slot />
 	{#if link}
 		<a href={link} target="_blank" class="whitespace-nowrap"

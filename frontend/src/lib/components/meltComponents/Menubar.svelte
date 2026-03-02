@@ -5,8 +5,11 @@
 		elements: { menubar },
 		builders: { createMenu }
 	} = createMenubar()
+
+	let className: string = ''
+	export { className as class }
 </script>
 
-<div use:melt={$menubar} class={$$props.class}>
+<div use:melt={$menubar} class={className}>
 	<slot {createMenu} />
 </div>

@@ -8,6 +8,9 @@
 	export let disabled: boolean = false
 	export let hovering: boolean = false
 	const dispatch = createEventDispatcher()
+
+	let className: string = ''
+	export { className as class }
 </script>
 
 <tr
@@ -17,7 +20,7 @@
 		'transition-all',
 		dividable ? 'divide-x' : '',
 		disabled ? 'opacity-60' : '',
-		$$props.class
+		className
 	)}
 	on:click={() => {
 		dispatch('click')
