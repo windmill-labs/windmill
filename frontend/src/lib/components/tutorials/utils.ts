@@ -310,18 +310,18 @@ export async function animateCursorToElementAndClick(
 	startOffset: number = CURSOR_START_OFFSET
 ): Promise<void> {
 	const rect = element.getBoundingClientRect()
-
+	
 	// Set initial position (off-screen to the left)
 	cursor.style.left = `${rect.left + startOffset}px`
 	cursor.style.top = `${rect.top + rect.height / 2}px`
 	await wait(DELAY_SHORT)
-
+	
 	// Animate to target position
 	cursor.style.left = `${rect.left + rect.width / 2}px`
 	cursor.style.top = `${rect.top + rect.height / 2}px`
 	await wait(DELAY_ANIMATION)
 	await wait(DELAY_MEDIUM)
-
+	
 	// Click on the element
 	element.click()
 	await wait(DELAY_SHORT)

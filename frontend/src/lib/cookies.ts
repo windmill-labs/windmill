@@ -10,18 +10,20 @@ export function getCookie(name: string): string | undefined {
 	return match ? decodeURIComponent(match[1]) : undefined
 }
 
+
+
 // this only check the last 2 segments to work for popup on shared top-domain
 export function sameTopDomainOrigin(origin: string | null, desktopOrigin: string): boolean {
 	if (origin == null) {
 		return false
 	}
 	const getLastTwoSegments = (url: string) => {
-		const parts = url.split('.')
-		return parts.length >= 2 ? parts.slice(-2).join('.') : url
-	}
+		const parts = url.split('.');
+		return parts.length >= 2 ? parts.slice(-2).join('.') : url;
+	};
 	if (origin.includes('.') && desktopOrigin.includes('.')) {
-		return getLastTwoSegments(origin) === getLastTwoSegments(desktopOrigin)
+		return getLastTwoSegments(origin) === getLastTwoSegments(desktopOrigin);
 	} else {
-		return origin === desktopOrigin
+		return origin === desktopOrigin;
 	}
 }
