@@ -3,16 +3,16 @@
 	import { Minus, Plus } from 'lucide-svelte'
 
 	interface Props {
-		scopes?: string[];
+		scopes?: string[]
 	}
 
-	let { scopes = $bindable([]) }: Props = $props();
+	let { scopes = $bindable([]) }: Props = $props()
 </script>
 
 {#if scopes && Array.isArray(scopes)}
-	{#each scopes as v}
+	{#each scopes as v, i}
 		<div class="flex flex-row max-w-md mb-2">
-			<input type="text" bind:value={v} />
+			<input type="text" bind:value={scopes[i]} />
 			<Button
 				variant="default"
 				size="xs"
