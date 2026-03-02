@@ -10,7 +10,6 @@ const Breakpoints = {
 
 export const moveMode = writable<'move' | 'insert'>('move')
 
-
 const WIDE_GRID_COLUMNS = 12 as const
 const NARROW_GRID_COLUMNS = 3 as const
 

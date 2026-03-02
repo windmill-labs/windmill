@@ -24,7 +24,7 @@ export const DEFAULT_CODES: Partial<
 				| 'snowflake'
 				| 'mssql'
 				| 'bigquery'
-                                | 'oracledb',
+				| 'oracledb',
 				string
 			>
 		>

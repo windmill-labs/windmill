@@ -1,59 +1,78 @@
 export const FIX_PROMPT = {
-  "system": "You are a helpful coding assistant for Windmill, a developer platform for running scripts. You fix the code shared by the user. Each user message includes some contextual information which should guide your answer.\nOnly output code. Wrap the code in a code block. \nExplain the error and the fix after generating the code inside an <explanation> tag.\nAlso put explanations directly in the code as comments.\nReturn the complete fixed code.\n\nHere's how interactions have to look like:\nuser: {sample_question}\nassistant: ```language\n{code}\n```\n<explanation>{explanation}</explanation>",
-  "prompts": {
-    "python3": {
-      "prompt": "Here's my python3 code: \n```python\n{code}\n```\n<contextual_information>\nYou have to write a function in python called \"main\". Specify the parameter types. Do not call the main function. You should generally return the result.\nThe \"main\" function cannot be async. If you need to use async code, you can use the asyncio library.\nYou can take as parameters resources which are dictionaries containing credentials or configuration information. For Windmill to correctly detect the resources to be passed, the resource type name has to be exactly as specified in the following list:\n<resourceTypes>\n{resourceTypes}\n</resourceTypes>\nYou need to define the type of the resources that are needed before the main function, but only include them if they are actually needed to achieve the function purpose.\nThe resource type name has to be exactly as specified (has to be IN LOEWRCASE). If the type name conflicts with any imported methods, you have to rename the imported method with the conflicting name.\n<contextual_information>\nI get the following error: {error}\nFix my code."
-    },
-    "deno": {
-      "prompt": "Here's my TypeScript code in a deno running environment:\n```typescript\n{code}\n```\n<contextual_information>\nWe have to export a \"main\" function like this: \"export async function main(...)\" and specify the parameter types but do not call it. You should generally return the result.\nIf needed, the standard fetch method is available globally, do not import it.\nYou can take as parameters resources which are dictionaries containing credentials or configuration information. Name the resource parameters like this: \"{resource_type}Resource\".\nThe following resource types are available:\n<resourceTypes>\n{resourceTypes}\n</resourceTypes>\nOnly define the type for resources that are actually needed to achieve the function purpose. The resource type name has to be exactly as specified. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.\nNaming conventions are guidelines, but follow the user's naming choices in the existing code.\n</contextual_information>\nI get the following error: {error}\nFix my code."
-    },
-    "rust": {
-      "prompt": "Here's my Rust code:\n```rust\n{code}\n```\n<contextual_information>\nPlease define a `main` function in Rust with this signature:\n```rust\npub fn main(...) -> Result<ReturnType, Box<dyn std::error::Error>>\n```\nbut do not call it. Favor idiomatic Rust patterns, ensuring safe handling of ownership and borrowing, robust error handling with `Result`, and concurrency if needed (`async`/`tokio` or std threading). \n\n- Include necessary imports and modules only when needed.\n- Add comments explaining important operations and any unsafe usage (if absolutely required).\n- The generated code should be easily executable and testable in an integrated terminal.\n</contextual_information>\nI get the following error: {error}\nFix my code."
-    },
-    "go": {
-      "prompt": "Here's my go code: \n```go\n{code}\n```\n<contextual_information>\nWe have to export a \"main\" function. Import the packages you need. The return type of the function has to be ({return_type}, error). The file package has to be \"inner\"\n</contextual_information>\nI get the following error: {error}\nFix my code."
-    },
-    "bash": {
-      "prompt": "Here's my bash code: \n```shell\n{code}\n```\n<contextual_information>\nDo not include \"#!/bin/bash\". Arguments are always string and can only be obtained with \"var1=\"$1\"\", \"var2=\"$2\"\", etc... You do not need to check if the arguments are present.\n</contextual_information>\nI get the following error: {error}\nFix my code."
-    },
-    "postgresql": {
-      "prompt": "Here's my PostgreSQL code: \n```sql\n{code}\n```\n<contextual_information>\nArguments can be obtained directly in the statement with `$1::{type}`, `$2::{type}`, etc... Name the parameters (without specifying the type) by adding comments before the statement like that: `-- $1 name1` or `-- $2 name = default` (one per row)\n</contextual_information>\nI get the following error: {error}\nFix my code."
-    },
-    "mysql": {
-      "prompt": "Here's my MySQL code: \n```sql\n{code}\n```\n<contextual_information>\nArguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the statement like that: `-- ? name1 ({type})` or `-- ? name2 ({type}) = default` (one per row)\n</contextual_information>\nI get the following error: {error}\nFix my code."
-    },
-    "bigquery": {
-      "prompt": "Here's my BigQuery code: \n```sql\n{code}\n```\n<contextual_information>\nYou can define arguments by adding comments before the statement like that: `-- @name1 ({type})` or `-- @name2 ({type}) = default` (one per row). They can then be obtained directly in the statement with `@name1`, `@name2`, etc....\n</contextual_information>\nI get the following error: {error}\nFix my code."
-    },
-    "snowflake": {
-      "prompt": "Here's my snowflake code: \n```sql\n{code}\n```\n<contextual_information>\nArguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the statement like that: `-- ? name1 ({type})` or `-- ? name2 ({type}) = default` (one per row)\n</contextual_information>\nI get the following error: {error}\nFix my code."
-    },
-    "mssql": {
-      "prompt": "Here's my Microsoft SQL Server code: \n```sql\n{code}\n```\n<contextual_information>\nArguments can be obtained directly in the statement with @P1, @P2, etc.. Name the parameters by adding comments before the statement like that: `-- @P1 name1 ({type})` or `-- @P2 name2 ({type}) = default` (one per row)\n</contextual_information>\nI get the following error: {error}\nFix my code."
-    },
-    "graphql": {
-      "prompt": "Here's my graphql code: \n```graphql\n{code}\n```\n<contextual_information>\nAdd the needed arguments as query parameters.\n</contextual_information>\nI get the following error: {error}\nFix my code."
-    },
-    "powershell": {
-      "prompt": "Here's my powershell code: \n```powershell\n{code}\n```\n<contextual_information>\nArguments can be obtained by calling the param function on the first line like that: `param($ParamName1, $ParamName2 = \"default value\", [{type}]$ParamName3, ...)`\n</contextual_information>\nI get the following error: {error}\nFix my code."
-    },
-    "nativets": {
-      "prompt": "Here's my TypeScript code: \n```typescript\n{code}\n```\n<contextual_information>\nWe have to export a \"main\" function like this: \"export async function main(...)\" and specify the parameter types but do not call it. You should generally return the result.\nYou can take as parameters resources which are dictionaries containing credentials or configuration information. Name the resource parameters like this: \"{resource_type}Resource\". \nThe following resource types are available:\n<resourceTypes>\n{resourceTypes}\n</resourceTypes>\nOnly define the type for resources that are actually needed to achieve the function purpose. The resource type name has to be exactly as specified. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.\nNaming conventions are guidelines, but follow the user's naming choices in the existing code.\n</contextual_information>\nI get the following error: {error}\nFix my code."
-    },
-    "bun": {
-      "prompt": "Here's my TypeScript code: \n```typescript\n{code}\n```\n<contextual_information>\nWe have to export a \"main\" function like this: \"export async function main(...)\" and specify the parameter types but do not call it. You should generally return the result.\nIf needed, the standard fetch method is available globally, do not import it.\nYou can take as parameters resources which are dictionaries containing credentials or configuration information. Name the resource parameters like this: \"{resource_type}Resource\".\nThe following resource types are available:\n<resourceTypes>\n{resourceTypes}\n</resourceTypes>\nOnly define the type for resources that are actually needed to achieve the function purpose. The resource type name has to be exactly as specified. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.\nNaming conventions are guidelines, but follow the user's naming choices in the existing code.\n</contextual_information>\nI get the following error: {error}\nFix my code."
-    },
-    "php": {
-      "prompt": "Here's my php code: \n```php\n{code}\n```\n<contextual_information>\nYou have to write a function in php called \"main\". Specify the parameter types. Do not call the main function. You should generally return the result. The script must start with `<?php`.\nYou can take as parameters resources which are classes containing credentials or configuration information. For Windmill to correctly detect the resources to be passed, the resource type name has to be exactly as specified in the following list:\n<resourceTypes>\n{resourceTypes}\n</resourceTypes>\nYou need to define the type of the resources that are needed before the main function, but only include them if they are actually needed to achieve the function purpose.\nBefore defining each type, check if the class already exists using class_exists.\nThe resource type name has to be exactly as specified.\nIf you need to import libraries, you need to specify them as comments in the following manner before the main function:\n```\n// require:\n// mylibrary/mylibrary\n// myotherlibrary/myotherlibrary@optionalversion\n```\nNo need to require autoload, it is already done.\n<contextual_information>\nI get the following error: {error}\nFix my code."
-    },
-    "csharp": {
-      "prompt": "Here's my C# code:\n```csharp\n{code}\n```\n<contextual_information>\nYou have to write C# code with a public static Main method inside a class. The class name is irrelevant. Specify the parameter types. Do not call the main function. You should generally return the result.\nNuGet packages can be added using the format: #r \"nuget: PackageName, Version\" at the top of the script.\nThe Main method signature should be: public static ReturnType Main(parameter types...)\nArguments are used to generate the input specification and create the frontend UI for the script.\n</contextual_information>\nI get the following error: {error}\nFix my code."
-    },
-    "java": {
-      "prompt": "Here's my Java code:\n```java\n{code}\n```\n<contextual_information>\nYou have to write Java code with a Main public class and a public static main() method. The return type can be Object or void. Do not call the main function. You should generally return the result.\nDependencies can be added using the format: //requirements://groupId:artifactId:version at the top of the script.\nThe method signature should be: public static Object main(parameter types...)\nArguments are used to generate the input specification and create the frontend UI for the script.\n</contextual_information>\nI get the following error: {error}\nFix my code."
-    },
-    "duckdb": {
-      "prompt": "Here's my DuckDB code:\n```sql\n{code}\n```\n<contextual_information>\nArguments are defined with comments like `-- $age (text) = 20` or `-- $name (text)` (one per row) and used in the statement with $age, $name, etc. To use Ducklake, attach it with `ATTACH 'ducklake' AS dl;` (for main ducklake) or `ATTACH 'ducklake://name' AS dl;` for named ducklakes. To connect to external databases, use `ATTACH '$res:path/to/resource' AS db (TYPE postgres);`. To read S3 files, use `SELECT * FROM read_csv('s3:///path/to/file.csv');` for default storage or `SELECT * FROM read_csv('s3://secondary_storage_name/path/to/file.csv');` for named storage.\n</contextual_information>\nI get the following error: {error}\nFix my code."
-    }
-  }
-};
+	system:
+		"You are a helpful coding assistant for Windmill, a developer platform for running scripts. You fix the code shared by the user. Each user message includes some contextual information which should guide your answer.\nOnly output code. Wrap the code in a code block. \nExplain the error and the fix after generating the code inside an <explanation> tag.\nAlso put explanations directly in the code as comments.\nReturn the complete fixed code.\n\nHere's how interactions have to look like:\nuser: {sample_question}\nassistant: ```language\n{code}\n```\n<explanation>{explanation}</explanation>",
+	prompts: {
+		python3: {
+			prompt:
+				'Here\'s my python3 code: \n```python\n{code}\n```\n<contextual_information>\nYou have to write a function in python called "main". Specify the parameter types. Do not call the main function. You should generally return the result.\nThe "main" function cannot be async. If you need to use async code, you can use the asyncio library.\nYou can take as parameters resources which are dictionaries containing credentials or configuration information. For Windmill to correctly detect the resources to be passed, the resource type name has to be exactly as specified in the following list:\n<resourceTypes>\n{resourceTypes}\n</resourceTypes>\nYou need to define the type of the resources that are needed before the main function, but only include them if they are actually needed to achieve the function purpose.\nThe resource type name has to be exactly as specified (has to be IN LOEWRCASE). If the type name conflicts with any imported methods, you have to rename the imported method with the conflicting name.\n<contextual_information>\nI get the following error: {error}\nFix my code.'
+		},
+		deno: {
+			prompt:
+				'Here\'s my TypeScript code in a deno running environment:\n```typescript\n{code}\n```\n<contextual_information>\nWe have to export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it. You should generally return the result.\nIf needed, the standard fetch method is available globally, do not import it.\nYou can take as parameters resources which are dictionaries containing credentials or configuration information. Name the resource parameters like this: "{resource_type}Resource".\nThe following resource types are available:\n<resourceTypes>\n{resourceTypes}\n</resourceTypes>\nOnly define the type for resources that are actually needed to achieve the function purpose. The resource type name has to be exactly as specified. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.\nNaming conventions are guidelines, but follow the user\'s naming choices in the existing code.\n</contextual_information>\nI get the following error: {error}\nFix my code.'
+		},
+		rust: {
+			prompt:
+				"Here's my Rust code:\n```rust\n{code}\n```\n<contextual_information>\nPlease define a `main` function in Rust with this signature:\n```rust\npub fn main(...) -> Result<ReturnType, Box<dyn std::error::Error>>\n```\nbut do not call it. Favor idiomatic Rust patterns, ensuring safe handling of ownership and borrowing, robust error handling with `Result`, and concurrency if needed (`async`/`tokio` or std threading). \n\n- Include necessary imports and modules only when needed.\n- Add comments explaining important operations and any unsafe usage (if absolutely required).\n- The generated code should be easily executable and testable in an integrated terminal.\n</contextual_information>\nI get the following error: {error}\nFix my code."
+		},
+		go: {
+			prompt:
+				'Here\'s my go code: \n```go\n{code}\n```\n<contextual_information>\nWe have to export a "main" function. Import the packages you need. The return type of the function has to be ({return_type}, error). The file package has to be "inner"\n</contextual_information>\nI get the following error: {error}\nFix my code.'
+		},
+		bash: {
+			prompt:
+				'Here\'s my bash code: \n```shell\n{code}\n```\n<contextual_information>\nDo not include "#!/bin/bash". Arguments are always string and can only be obtained with "var1="$1"", "var2="$2"", etc... You do not need to check if the arguments are present.\n</contextual_information>\nI get the following error: {error}\nFix my code.'
+		},
+		postgresql: {
+			prompt:
+				"Here's my PostgreSQL code: \n```sql\n{code}\n```\n<contextual_information>\nArguments can be obtained directly in the statement with `$1::{type}`, `$2::{type}`, etc... Name the parameters (without specifying the type) by adding comments before the statement like that: `-- $1 name1` or `-- $2 name = default` (one per row)\n</contextual_information>\nI get the following error: {error}\nFix my code."
+		},
+		mysql: {
+			prompt:
+				"Here's my MySQL code: \n```sql\n{code}\n```\n<contextual_information>\nArguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the statement like that: `-- ? name1 ({type})` or `-- ? name2 ({type}) = default` (one per row)\n</contextual_information>\nI get the following error: {error}\nFix my code."
+		},
+		bigquery: {
+			prompt:
+				"Here's my BigQuery code: \n```sql\n{code}\n```\n<contextual_information>\nYou can define arguments by adding comments before the statement like that: `-- @name1 ({type})` or `-- @name2 ({type}) = default` (one per row). They can then be obtained directly in the statement with `@name1`, `@name2`, etc....\n</contextual_information>\nI get the following error: {error}\nFix my code."
+		},
+		snowflake: {
+			prompt:
+				"Here's my snowflake code: \n```sql\n{code}\n```\n<contextual_information>\nArguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the statement like that: `-- ? name1 ({type})` or `-- ? name2 ({type}) = default` (one per row)\n</contextual_information>\nI get the following error: {error}\nFix my code."
+		},
+		mssql: {
+			prompt:
+				"Here's my Microsoft SQL Server code: \n```sql\n{code}\n```\n<contextual_information>\nArguments can be obtained directly in the statement with @P1, @P2, etc.. Name the parameters by adding comments before the statement like that: `-- @P1 name1 ({type})` or `-- @P2 name2 ({type}) = default` (one per row)\n</contextual_information>\nI get the following error: {error}\nFix my code."
+		},
+		graphql: {
+			prompt:
+				"Here's my graphql code: \n```graphql\n{code}\n```\n<contextual_information>\nAdd the needed arguments as query parameters.\n</contextual_information>\nI get the following error: {error}\nFix my code."
+		},
+		powershell: {
+			prompt:
+				'Here\'s my powershell code: \n```powershell\n{code}\n```\n<contextual_information>\nArguments can be obtained by calling the param function on the first line like that: `param($ParamName1, $ParamName2 = "default value", [{type}]$ParamName3, ...)`\n</contextual_information>\nI get the following error: {error}\nFix my code.'
+		},
+		nativets: {
+			prompt:
+				'Here\'s my TypeScript code: \n```typescript\n{code}\n```\n<contextual_information>\nWe have to export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it. You should generally return the result.\nYou can take as parameters resources which are dictionaries containing credentials or configuration information. Name the resource parameters like this: "{resource_type}Resource". \nThe following resource types are available:\n<resourceTypes>\n{resourceTypes}\n</resourceTypes>\nOnly define the type for resources that are actually needed to achieve the function purpose. The resource type name has to be exactly as specified. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.\nNaming conventions are guidelines, but follow the user\'s naming choices in the existing code.\n</contextual_information>\nI get the following error: {error}\nFix my code.'
+		},
+		bun: {
+			prompt:
+				'Here\'s my TypeScript code: \n```typescript\n{code}\n```\n<contextual_information>\nWe have to export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it. You should generally return the result.\nIf needed, the standard fetch method is available globally, do not import it.\nYou can take as parameters resources which are dictionaries containing credentials or configuration information. Name the resource parameters like this: "{resource_type}Resource".\nThe following resource types are available:\n<resourceTypes>\n{resourceTypes}\n</resourceTypes>\nOnly define the type for resources that are actually needed to achieve the function purpose. The resource type name has to be exactly as specified. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.\nNaming conventions are guidelines, but follow the user\'s naming choices in the existing code.\n</contextual_information>\nI get the following error: {error}\nFix my code.'
+		},
+		php: {
+			prompt:
+				'Here\'s my php code: \n```php\n{code}\n```\n<contextual_information>\nYou have to write a function in php called "main". Specify the parameter types. Do not call the main function. You should generally return the result. The script must start with `<?php`.\nYou can take as parameters resources which are classes containing credentials or configuration information. For Windmill to correctly detect the resources to be passed, the resource type name has to be exactly as specified in the following list:\n<resourceTypes>\n{resourceTypes}\n</resourceTypes>\nYou need to define the type of the resources that are needed before the main function, but only include them if they are actually needed to achieve the function purpose.\nBefore defining each type, check if the class already exists using class_exists.\nThe resource type name has to be exactly as specified.\nIf you need to import libraries, you need to specify them as comments in the following manner before the main function:\n```\n// require:\n// mylibrary/mylibrary\n// myotherlibrary/myotherlibrary@optionalversion\n```\nNo need to require autoload, it is already done.\n<contextual_information>\nI get the following error: {error}\nFix my code.'
+		},
+		csharp: {
+			prompt:
+				'Here\'s my C# code:\n```csharp\n{code}\n```\n<contextual_information>\nYou have to write C# code with a public static Main method inside a class. The class name is irrelevant. Specify the parameter types. Do not call the main function. You should generally return the result.\nNuGet packages can be added using the format: #r "nuget: PackageName, Version" at the top of the script.\nThe Main method signature should be: public static ReturnType Main(parameter types...)\nArguments are used to generate the input specification and create the frontend UI for the script.\n</contextual_information>\nI get the following error: {error}\nFix my code.'
+		},
+		java: {
+			prompt:
+				"Here's my Java code:\n```java\n{code}\n```\n<contextual_information>\nYou have to write Java code with a Main public class and a public static main() method. The return type can be Object or void. Do not call the main function. You should generally return the result.\nDependencies can be added using the format: //requirements://groupId:artifactId:version at the top of the script.\nThe method signature should be: public static Object main(parameter types...)\nArguments are used to generate the input specification and create the frontend UI for the script.\n</contextual_information>\nI get the following error: {error}\nFix my code."
+		},
+		duckdb: {
+			prompt:
+				"Here's my DuckDB code:\n```sql\n{code}\n```\n<contextual_information>\nArguments are defined with comments like `-- $age (text) = 20` or `-- $name (text)` (one per row) and used in the statement with $age, $name, etc. To use Ducklake, attach it with `ATTACH 'ducklake' AS dl;` (for main ducklake) or `ATTACH 'ducklake://name' AS dl;` for named ducklakes. To connect to external databases, use `ATTACH '$res:path/to/resource' AS db (TYPE postgres);`. To read S3 files, use `SELECT * FROM read_csv('s3:///path/to/file.csv');` for default storage or `SELECT * FROM read_csv('s3://secondary_storage_name/path/to/file.csv');` for named storage.\n</contextual_information>\nI get the following error: {error}\nFix my code."
+		}
+	}
+}

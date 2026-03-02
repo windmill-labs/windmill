@@ -35,7 +35,9 @@ export function getTutorialIndex(id: string): number {
 		const tutorial = tab.tutorials.find((t) => t.id === id)
 		if (tutorial?.index !== undefined) return tutorial.index
 	}
-	throw new Error(`Tutorial index not found for id: ${id}. Make sure the tutorial has an index defined in config.`)
+	throw new Error(
+		`Tutorial index not found for id: ${id}. Make sure the tutorial has an index defined in config.`
+	)
 }
 
 // Available roles : developer, admin, operator
@@ -86,7 +88,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				index: 3,
 				active: true,
 				comingSoon: false,
-				roles: ['admin','developer'],
+				roles: ['admin', 'developer'],
 				order: 3
 			},
 			{
@@ -100,7 +102,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				index: 7,
 				active: true,
 				comingSoon: false,
-				roles: ['admin', 'developer','operator'],
+				roles: ['admin', 'developer', 'operator'],
 				order: 4
 			},
 			{
@@ -116,7 +118,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				comingSoon: false,
 				roles: ['operator'],
 				order: 1
-			},	
+			}
 		]
 	},
 	app_editor: {
@@ -125,7 +127,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 		progressBar: false,
 		active: true,
 		tutorials: [
-            {
+			{
 				id: 'backgroundrunnables',
 				icon: PlayCircle,
 				title: 'Background runnables',
@@ -136,7 +138,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				index: 4,
 				active: true,
 				comingSoon: false,
-				roles: ['developer','admin'],
+				roles: ['developer', 'admin'],
 				order: 4
 			},
 			{
@@ -153,7 +155,6 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				roles: ['developer', 'admin'],
 				order: 5
 			}
-        ]
+		]
 	}
 } as const
-

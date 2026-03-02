@@ -2,7 +2,14 @@ import type { Schema } from '$lib/common'
 
 import { twMerge } from 'tailwind-merge'
 import { type AppComponent } from './editor/component'
-import { isRunnableByName, isRunnableByPath, type AppInput, type InputType, type ResultAppInput, type StaticAppInput } from './inputType'
+import {
+	isRunnableByName,
+	isRunnableByPath,
+	type AppInput,
+	type InputType,
+	type ResultAppInput,
+	type StaticAppInput
+} from './inputType'
 import type { Output } from './rx'
 import type {
 	App,
@@ -133,7 +140,7 @@ export function isScriptByNameDefined(appInput: AppInput | undefined): boolean {
 		return false
 	}
 
-	if (appInput.type === 'runnable' &&  isRunnableByName(appInput.runnable)) {
+	if (appInput.type === 'runnable' && isRunnableByName(appInput.runnable)) {
 		return appInput.runnable?.name != undefined
 	}
 
@@ -402,10 +409,7 @@ export function getAllScriptNames(app: App): string[] {
 	const names = (allItems(app.grid, app?.subgrids) ?? []).reduce((acc, gridItem: GridItem) => {
 		const { componentInput } = gridItem.data
 
-		if (
-			componentInput?.type === 'runnable' &&
-			isRunnableByName(componentInput.runnable)
-		) {
+		if (componentInput?.type === 'runnable' && isRunnableByName(componentInput.runnable)) {
 			acc.push(componentInput.runnable.name)
 		}
 

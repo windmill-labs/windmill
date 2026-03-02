@@ -90,6 +90,7 @@ export function formatAssetKind(asset: {
 		case 'datatable':
 			return 'Data table'
 	}
+	return 'Unknown'
 }
 
 export function formatAssetAccessType(accessType: AssetUsageAccessType | undefined) {

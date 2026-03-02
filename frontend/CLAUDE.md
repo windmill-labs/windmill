@@ -47,6 +47,7 @@ function useLoader(argsGetter: () => Args) {
 ```
 
 This pattern ensures:
+
 - State responsibility is clearly owned by `useLoader`
 - Data flows in one direction (parent → child)
 - No ambiguity about where state can be modified
@@ -59,7 +60,10 @@ For async requests, **always use `resource()` from the Runed library** instead o
 ```typescript
 import { resource } from 'runed'
 
-let items = resource(() => args, (args) => YourService.route(args))
+let items = resource(
+	() => args,
+	(args) => YourService.route(args)
+)
 
 // Access loading state
 items.loading
@@ -69,6 +73,7 @@ items.current
 ```
 
 The `resource()` utility:
+
 - Automatically handles loading states
 - Manages async lifecycle
 - Provides reactive updates when dependencies change
@@ -102,6 +107,7 @@ npm run check:fast
 ```
 
 At the end of a PR to do final validation, you can do the longer one (2s for fast vs 50s for the slow one):
+
 ```bash
 npm run check
 ```

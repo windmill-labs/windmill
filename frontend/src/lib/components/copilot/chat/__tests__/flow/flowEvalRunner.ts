@@ -1,6 +1,11 @@
 import type { FlowModule } from '$lib/gen'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
-import { flowTools, prepareFlowSystemMessage, prepareFlowUserMessage, type FlowAIChatHelpers } from '../../flow/core'
+import {
+	flowTools,
+	prepareFlowSystemMessage,
+	prepareFlowUserMessage,
+	type FlowAIChatHelpers
+} from '../../flow/core'
 import { createFlowEvalHelpers } from './flowEvalHelpers'
 import { evaluateFlowComparison, type ExpectedFlow } from './flowEvalComparison'
 import {
@@ -64,7 +69,11 @@ export async function runFlowEval(
 
 	// Resolve variant configuration
 	const variantName = options?.variant?.name ?? 'baseline'
-	const systemMessage = resolveSystemPrompt(options?.variant, flowDefaults, options?.customSystemPrompt)
+	const systemMessage = resolveSystemPrompt(
+		options?.variant,
+		flowDefaults,
+		options?.customSystemPrompt
+	)
 	const { toolDefs, tools } = resolveTools(options?.variant, flowDefaults)
 	const model = resolveModel(options?.variant, options?.model)
 

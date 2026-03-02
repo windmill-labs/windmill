@@ -19,7 +19,7 @@ export function buildWorkspaceHierarchy(workspaces: UserWorkspace[]): WorkspaceH
 	}
 
 	// Create maps for quick lookups
-	const workspaceMap = new Map(workspaces.map(w => [w.id, w]))
+	const workspaceMap = new Map(workspaces.map((w) => [w.id, w]))
 	const childrenMap = new Map<string, UserWorkspace[]>()
 	const hasChildrenSet = new Set<string>()
 
@@ -35,7 +35,7 @@ export function buildWorkspaceHierarchy(workspaces: UserWorkspace[]): WorkspaceH
 	}
 
 	// Find root workspaces (those without a parent or whose parent is not in the current list)
-	const rootWorkspaces = workspaces.filter(w => {
+	const rootWorkspaces = workspaces.filter((w) => {
 		if (!w.parent_workspace_id) {
 			return true // Definitely a root
 		}
@@ -46,7 +46,12 @@ export function buildWorkspaceHierarchy(workspaces: UserWorkspace[]): WorkspaceH
 	const result: WorkspaceHierarchyItem[] = []
 
 	// Recursively build the hierarchy
-	function addWorkspaceAndChildren(workspace: UserWorkspace, depth: number, isForked: boolean, parentName?: string) {
+	function addWorkspaceAndChildren(
+		workspace: UserWorkspace,
+		depth: number,
+		isForked: boolean,
+		parentName?: string
+	) {
 		// Add the current workspace
 		result.push({
 			workspace,
@@ -60,7 +65,7 @@ export function buildWorkspaceHierarchy(workspaces: UserWorkspace[]): WorkspaceH
 		const children = childrenMap.get(workspace.id) || []
 		children
 			.sort((a, b) => a.name.localeCompare(b.name))
-			.forEach(child => {
+			.forEach((child) => {
 				addWorkspaceAndChildren(child, depth + 1, true, workspace.name)
 			})
 	}
@@ -68,12 +73,13 @@ export function buildWorkspaceHierarchy(workspaces: UserWorkspace[]): WorkspaceH
 	// Process root workspaces (sorted by name for consistency)
 	rootWorkspaces
 		.sort((a, b) => a.name.localeCompare(b.name))
-		.forEach(workspace => {
+		.forEach((workspace) => {
 			const isRootForked = workspace.parent_workspace_id != null
-			const parentName = isRootForked && workspace.parent_workspace_id 
-				? workspace.parent_workspace_id // Use parent ID as fallback if parent not in list
-				: undefined
-			
+			const parentName =
+				isRootForked && workspace.parent_workspace_id
+					? workspace.parent_workspace_id // Use parent ID as fallback if parent not in list
+					: undefined
+
 			addWorkspaceAndChildren(workspace, 0, isRootForked, parentName)
 		})
 
@@ -99,7 +105,7 @@ export function isRootWorkspace(workspace: UserWorkspace): boolean {
  * Helper function to find all descendants of a workspace
  */
 export function findWorkspaceDescendants(
-	workspaceId: string, 
+	workspaceId: string,
 	allWorkspaces: UserWorkspace[]
 ): UserWorkspace[] {
 	const descendants: UserWorkspace[] = []

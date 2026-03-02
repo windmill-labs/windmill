@@ -152,7 +152,7 @@
 	class={className}
 	customWidth={setDropdownWidthToButtonWidth ? triggersButtonWidth : undefined}
 	usePointerDownOutside
-	on:close={() => onClose?.()}
+	onClose={() => onClose?.()}
 >
 	{#snippet buttonReplacement()}
 		<div class={className} bind:clientWidth={triggersButtonWidth}>

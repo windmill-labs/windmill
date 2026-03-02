@@ -93,7 +93,10 @@ export function createBranchOneModule(
 /**
  * Creates a BranchAll module with parallel branches
  */
-export function createBranchAllModule(id: string, branches: { modules: FlowModule[] }[]): FlowModule {
+export function createBranchAllModule(
+	id: string,
+	branches: { modules: FlowModule[] }[]
+): FlowModule {
 	return {
 		id,
 		value: {

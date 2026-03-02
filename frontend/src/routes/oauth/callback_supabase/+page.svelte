@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import { sendUserToast } from '$lib/toast'
 	import { onMount } from 'svelte'
 	import { OauthService } from '$lib/gen'
@@ -11,9 +11,9 @@
 
 	const client_name = 'supabase_wizard'
 
-	let error = $page.url.searchParams.get('error')
-	let code = $page.url.searchParams.get('code') ?? undefined
-	let state = $page.url.searchParams.get('state') ?? undefined
+	let error = page.url.searchParams.get('error')
+	let code = page.url.searchParams.get('code') ?? undefined
+	let state = page.url.searchParams.get('state') ?? undefined
 
 	onMount(async () => {
 		if (error) {

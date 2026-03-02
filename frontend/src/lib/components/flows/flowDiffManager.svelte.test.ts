@@ -206,26 +206,29 @@ describe('FlowDiffManager', () => {
 		it('handles duplicate ID prefix (old__) for type changes', () => {
 			const cleanup = $effect.root(() => {
 				const manager = createFlowDiffManager({ testMode: true })
-	   
+
 				// Create a real type change: rawscript -> identity
 				const moduleBeforeA = createRawScriptModule('a', 'content')
 				const moduleAfterA = createIdentityModule('a')
 				const beforeFlow = createExtendedOpenFlow({ modules: [moduleBeforeA] })
 				const afterFlow: FlowValue = { modules: [moduleAfterA] }
-	   
+
 				manager.setEditMode(true)
 				manager.setBeforeFlow(beforeFlow)
 				manager.setCurrentFlow(afterFlow)
 				flushSync()
-	   
+
 				// Type change produces: 'a' (added) and 'old__a' (removed)
 				expect(manager.moduleActions['a']).toEqual({ action: 'added', pending: true })
-				expect(manager.moduleActions[`${DUPLICATE_MODULE_PREFIX}a`]).toEqual({ action: 'removed', pending: true })
-	   
+				expect(manager.moduleActions[`${DUPLICATE_MODULE_PREFIX}a`]).toEqual({
+					action: 'removed',
+					pending: true
+				})
+
 				// Accept the removal (old__a) - should remove original module from beforeFlow
 				manager.acceptModule(`${DUPLICATE_MODULE_PREFIX}a`)
 				flushSync()
-	   
+
 				// The module 'a' (original rawscript) should be removed from beforeFlow
 				const beforeModules = manager.beforeFlow?.value.modules ?? []
 				expect(beforeModules.map((m) => m.id)).not.toContain('a')

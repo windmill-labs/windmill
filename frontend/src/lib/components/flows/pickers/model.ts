@@ -1,5 +1,5 @@
 export interface HubItem {
-	app: string;
+	app: string
 	summary: string
 	path: string
 	version?: string

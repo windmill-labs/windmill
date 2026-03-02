@@ -1,7 +1,15 @@
 import type { Schema } from '$lib/common'
 import { ScriptService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
-import { isRunnableByName, isRunnableByPath, type AppInputs, type InlineScript, type Runnable, type RunnableByName, type CtxInput } from '../../inputType'
+import {
+	isRunnableByName,
+	isRunnableByPath,
+	type AppInputs,
+	type InlineScript,
+	type Runnable,
+	type RunnableByName,
+	type CtxInput
+} from '../../inputType'
 import type { GridItem, HiddenRunnable } from '../../types'
 import { fieldTypeToTsType, schemaToInputsSpec } from '../../utils'
 import type { AppComponent } from '../component'
@@ -14,7 +22,11 @@ export interface AppScriptsList {
 // When the schema is loaded, we need to update the inputs spec
 // in order to render the inputs the component panel
 // Note: fields can include CtxInput for raw apps
-export function computeFields(schema: Schema, defaultUserInput: boolean, fields: AppInputs | Record<string, CtxInput | AppInputs[string]>) {
+export function computeFields(
+	schema: Schema,
+	defaultUserInput: boolean,
+	fields: AppInputs | Record<string, CtxInput | AppInputs[string]>
+) {
 	let schemaCopy: Schema = JSON.parse(JSON.stringify(schema))
 
 	const result = {}

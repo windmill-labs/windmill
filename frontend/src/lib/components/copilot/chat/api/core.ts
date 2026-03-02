@@ -8,7 +8,7 @@ import { getDocumentationTool } from '../navigator/core'
 import { userStore } from '$lib/stores'
 import { get } from 'svelte/store'
 
-export const CHAT_SYSTEM_PROMPT = (username: string) =>`
+export const CHAT_SYSTEM_PROMPT = (username: string) => `
 You are Windmill's intelligent assistant, designed to interact with the platform via API endpoints and answer questions about its functionality. Your purpose is to help the user directly query and manipulate Windmill resources through API calls.
 
 Windmill is an open-source developer platform for building internal tools, API integrations, background jobs, workflows, and user interfaces. It offers a unified system where scripts are automatically turned into sharable UIs and can be composed into flows or embedded in custom applications.

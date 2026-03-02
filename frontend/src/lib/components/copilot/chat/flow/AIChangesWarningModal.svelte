@@ -18,20 +18,22 @@
 </script>
 
 <Modal bind:open title="AI Changes Will Be Lost">
-	<div slot="title" class="flex items-center gap-2">
-		<AlertTriangleIcon size={20} class="text-orange-500" />
-		AI Changes Will Be Lost
-	</div>
 	<div class="py-4">
+		<div class="flex items-center gap-2 mb-3">
+			<AlertTriangleIcon size={20} class="text-orange-500" />
+			<span class="font-medium">Warning</span>
+		</div>
 		<p class="text-gray-700 dark:text-gray-300">
 			You have pending AI changes that will be rejected when saving. Do you want to continue?
 		</p>
 	</div>
-	<div slot="actions">
-		<div class="flex gap-2 justify-end">
-			<Button variant="contained" color="red" on:click={handleConfirm}>
-				Reject changes and save
-			</Button>
+	{#snippet actions()}
+		<div>
+			<div class="flex gap-2 justify-end">
+				<Button variant="contained" color="red" onclick={handleConfirm}>
+					Reject changes and save
+				</Button>
+			</div>
 		</div>
-	</div>
+	{/snippet}
 </Modal>

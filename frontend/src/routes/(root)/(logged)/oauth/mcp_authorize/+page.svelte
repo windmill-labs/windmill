@@ -1,19 +1,19 @@
 <script lang="ts">
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Button } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
 	import { Check, Info } from 'lucide-svelte'
 
 	// Get OAuth params from URL
-	let workspaceId = $page.url.searchParams.get('workspace_id') || ''
-	let clientId = $page.url.searchParams.get('client_id') || ''
-	let clientName = $page.url.searchParams.get('client_name') || 'Unknown Client'
-	let redirectUri = $page.url.searchParams.get('redirect_uri') || ''
-	let scope = $page.url.searchParams.get('scope') || 'mcp:all'
-	let oauthState = $page.url.searchParams.get('state') || ''
-	let codeChallenge = $page.url.searchParams.get('code_challenge') || ''
-	let codeChallengeMethod = $page.url.searchParams.get('code_challenge_method') || ''
+	let workspaceId = page.url.searchParams.get('workspace_id') || ''
+	let clientId = page.url.searchParams.get('client_id') || ''
+	let clientName = page.url.searchParams.get('client_name') || 'Unknown Client'
+	let redirectUri = page.url.searchParams.get('redirect_uri') || ''
+	let scope = page.url.searchParams.get('scope') || 'mcp:all'
+	let oauthState = page.url.searchParams.get('state') || ''
+	let codeChallenge = page.url.searchParams.get('code_challenge') || ''
+	let codeChallengeMethod = page.url.searchParams.get('code_challenge_method') || ''
 
 	let loading = $state(false)
 	let success = $state(false)

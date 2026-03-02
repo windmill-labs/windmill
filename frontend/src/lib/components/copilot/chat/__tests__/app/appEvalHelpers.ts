@@ -30,7 +30,10 @@ export function createAppEvalHelpers(
 	let frontend: Record<string, string> = { ...initialFrontend }
 	let backend: Record<string, BackendRunnable> = { ...initialBackend }
 	let snapshotId = 0
-	const snapshots: Map<number, { frontend: Record<string, string>; backend: Record<string, BackendRunnable> }> = new Map()
+	const snapshots: Map<
+		number,
+		{ frontend: Record<string, string>; backend: Record<string, BackendRunnable> }
+	> = new Map()
 
 	const helpers: AppAIChatHelpers = {
 		// Frontend file operations
@@ -126,11 +129,7 @@ export function createAppEvalHelpers(
 			return { success: true, result: [] }
 		},
 
-		addTableToWhitelist: (
-			_datatableName: string,
-			_schemaName: string,
-			_tableName: string
-		) => {
+		addTableToWhitelist: (_datatableName: string, _schemaName: string, _tableName: string) => {
 			// No-op for eval testing - tables are not tracked in test context
 		}
 	}

@@ -1,6 +1,10 @@
 <script lang="ts">
 	import { BaseEdge } from '@xyflow/svelte'
-	export let markerEnd: string | undefined = undefined
+	interface Props {
+		markerEnd?: string | undefined;
+	}
+
+	let { markerEnd = undefined }: Props = $props();
 </script>
 
 <BaseEdge path={''} {markerEnd} class="hidden" />
