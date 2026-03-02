@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.648.0](https://github.com/windmill-labs/windmill/compare/v1.647.2...v1.648.0) (2026-03-02)
+
+
+### Features
+
+* add right-click context menu to ObjectViewer ([#8181](https://github.com/windmill-labs/windmill/issues/8181)) ([1855204](https://github.com/windmill-labs/windmill/commit/18552046c29878b5cf115b9364c2ce829ab7aa59))
+* **frontend:** add drag-and-drop node movement in flow editor ([#8076](https://github.com/windmill-labs/windmill/issues/8076)) ([7a5e487](https://github.com/windmill-labs/windmill/commit/7a5e48787860c38aa3589c49ea9a70654d479c8a))
+
+
+### Bug Fixes
+
+* don't insert underscore after digit in PascalCase to snake_case conversion ([#8184](https://github.com/windmill-labs/windmill/issues/8184)) ([a111653](https://github.com/windmill-labs/windmill/commit/a111653c6d32fd1a3d2f45351eceb8d8d7df6f41))
+* **frontend:** preserve keycloak realm url between instance settings saves ([#8189](https://github.com/windmill-labs/windmill/issues/8189)) ([cfd9541](https://github.com/windmill-labs/windmill/commit/cfd9541ab1daf635c7d801cd3a7788db57b98257))
+* preserve debouncing settings for post-preprocessing arg accumulation ([#8191](https://github.com/windmill-labs/windmill/issues/8191)) ([9e92445](https://github.com/windmill-labs/windmill/commit/9e92445faed1a10b2406b97562e8df7a5b2dfd76))
+
 ## [1.647.2](https://github.com/windmill-labs/windmill/compare/v1.647.1...v1.647.2) (2026-03-02)
 
 
