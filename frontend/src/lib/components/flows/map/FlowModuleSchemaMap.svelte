@@ -18,11 +18,13 @@
 	import { emptyFlowModuleState } from '../utils.svelte'
 
 	import { dfs } from '../dfs'
+	import { nextId, copyId } from '../flowModuleNextId'
 	import { push } from '$lib/history.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 
 	import { getDependentComponents } from '../flowExplorer'
+	import { locateModules, groupByParent } from '../multiSelectUtils'
 	import { workspaceStore } from '$lib/stores'
 	import { copilotInfo } from '$lib/aiStore'
 	import FlowTutorials from '$lib/components/FlowTutorials.svelte'
@@ -345,6 +347,80 @@
 		noteMode = !noteMode
 	}
 
+	export function deleteMultiple(ids: string[]) {
+		const deletingSet = new Set(ids)
+		const allDeps: Record<string, string[]> = {}
+		for (const id of ids) {
+			const deps = getDependentComponents(id, flowStore.val)
+			for (const [depId, exprs] of Object.entries(deps)) {
+				if (!deletingSet.has(depId)) {
+					allDeps[depId] = [...(allDeps[depId] ?? []), ...exprs]
+				}
+			}
+		}
+
+		const cb = () => {
+			push(history, flowStore.val)
+			for (const id of ids) {
+				removeAtId(flowStore.val.value.modules, id)
+				delete flowStateStore.val[id]
+			}
+			selectionManager.clearSelection()
+			refreshStateStore(flowStore)
+		}
+
+		if (Object.keys(allDeps).length > 0) {
+			dependents = allDeps
+			deleteCallback = cb
+		} else {
+			cb()
+		}
+	}
+
+	export function duplicateMultiple(ids: string[]) {
+		const locations = locateModules(ids, flowStore.val.value.modules)
+		const groups = groupByParent(locations)
+
+		push(history, flowStore.val)
+
+		const allCloneIds: string[] = []
+
+		for (const group of groups) {
+			const sorted = [...group].sort((a, b) => a.index - b.index)
+			const parentArr = sorted[0].parentArray
+			const lastIndex = sorted[sorted.length - 1].index
+
+			const clones: FlowModule[] = []
+			for (const loc of sorted) {
+				const original = parentArr[loc.index]
+				const clone: FlowModule = structuredClone($state.snapshot(original))
+
+				clone.id = copyId(original.id, flowStateStore.val, flowStore.val)
+				flowStateStore.val[clone.id] = emptyFlowModuleState()
+
+				dfs([clone], (mod) => {
+					if (mod.id !== clone.id) {
+						const newModId = nextId(flowStateStore.val, flowStore.val)
+						mod.id = newModId
+						flowStateStore.val[newModId] = emptyFlowModuleState()
+					}
+				})
+
+				clones.push(clone)
+				allCloneIds.push(clone.id)
+			}
+
+			parentArr.splice(lastIndex + 1, 0, ...clones)
+		}
+
+		refreshStateStore(flowStore)
+		selectionManager.selectByIds(allCloneIds)
+	}
+
+	export function moveMultiple(ids: string[]) {
+		moveManager.toggleMovingMultiple(ids)
+	}
+
 	const dispatch = createEventDispatcher<{
 		generateStep: { moduleId: string; instructions: string; lang: ScriptLang }
 		change: void
@@ -533,18 +609,33 @@
 					if (flowStore.val.value.modules && Array.isArray(flowStore.val.value.modules)) {
 						await tick()
 						if (moveManager.movingModuleId) {
-							// console.log('modules', modules, movingModules, movingModule)
 							push(history, flowStore.val)
-							let indexToRemove = originalModules.findIndex((m) => moveManager.movingModuleId == m.id)
-
-							let [removedModule] = originalModules.splice(indexToRemove, 1)
-							// When moving within the same array, removal shifts subsequent indices down by 1
-							let insertIndex = detail.index
-							if (originalModules === targetModules && indexToRemove < detail.index) {
-								insertIndex -= 1
+							if (moveManager.movingIds && moveManager.movingIds.length > 1) {
+								// Multi-move: splice out all moving modules from their parent, insert at target
+								const firstIndex = originalModules.findIndex(
+									(m) => m.id === moveManager.movingIds?.[0]
+								)
+								const removedModules = originalModules.splice(
+									firstIndex,
+									moveManager.movingIds.length
+								)
+								let insertIndex = detail.index
+								if (originalModules === targetModules && firstIndex < detail.index) {
+									insertIndex -= moveManager.movingIds.length
+								}
+								targetModules.splice(insertIndex, 0, ...removedModules)
+								selectionManager.selectByIds(removedModules.map((m) => m.id))
+							} else {
+								let indexToRemove = originalModules.findIndex((m) => moveManager.movingModuleId == m.id)
+								let [removedModule] = originalModules.splice(indexToRemove, 1)
+								// When moving within the same array, removal shifts subsequent indices down by 1
+								let insertIndex = detail.index
+								if (originalModules === targetModules && indexToRemove < detail.index) {
+									insertIndex -= 1
+								}
+								targetModules.splice(insertIndex, 0, removedModule)
+								selectionManager.selectId(removedModule.id)
 							}
-							targetModules.splice(insertIndex, 0, removedModule)
-							selectionManager.selectId(removedModule.id)
 							moveManager.clearMoving()
 						} else {
 							if (detail.isPreprocessor) {
@@ -678,6 +769,41 @@
 			onMove={(id) => {
 				moveManager.toggleMoving(id)
 			}}
+			onDuplicate={(id) => {
+				let targetModules: FlowModule[] | undefined
+				let targetIndex: number = -1
+
+				dfs(flowStore.val.value.modules, (mod, modules) => {
+					const idx = modules.findIndex((m) => m.id === id)
+					if (idx !== -1) {
+						targetModules = modules
+						targetIndex = idx
+					}
+				})
+
+				if (!targetModules || targetIndex === -1) return
+
+				push(history, flowStore.val)
+
+				const original = targetModules[targetIndex]
+				const clone: FlowModule = structuredClone($state.snapshot(original))
+
+				// Assign copy id to the clone, and fresh ids to nested modules
+				clone.id = copyId(original.id, flowStateStore.val, flowStore.val)
+				flowStateStore.val[clone.id] = emptyFlowModuleState()
+
+				dfs([clone], (mod) => {
+					if (mod.id !== clone.id) {
+						const newModId = nextId(flowStateStore.val, flowStore.val)
+						mod.id = newModId
+						flowStateStore.val[newModId] = emptyFlowModuleState()
+					}
+				})
+
+				targetModules.splice(targetIndex + 1, 0, clone)
+				refreshStateStore(flowStore)
+				selectionManager.selectId(clone.id)
+			}}
 			onUpdateMock={(detail) => {
 				let module = findModuleById(detail.id)
 				module.mock = $state.snapshot(detail.mock)
@@ -696,6 +822,10 @@
 				}
 			}}
 			multiSelectEnabled
+			movingIds={moveManager.movingIds}
+			onDeleteMultiple={deleteMultiple}
+			onDuplicateMultiple={duplicateMultiple}
+			onMoveMultiple={moveMultiple}
 		/>
 	</div>
 </div>

@@ -5,7 +5,7 @@
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
 	import FlowModuleIcon from '../FlowModuleIcon.svelte'
 	import { prettyLanguage } from '$lib/common'
-	import { msToSec } from '$lib/utils'
+	import { msToSec, type Item } from '$lib/utils'
 	import FlowJobsMenu from './FlowJobsMenu.svelte'
 	import {
 		isTriggerStep,
@@ -47,6 +47,7 @@
 		flowJob?: Job | undefined
 		isOwner?: boolean
 		maximizeSubflow?: () => void
+		menuItems?: Item[]
 	}
 
 	let {
@@ -67,7 +68,8 @@
 		onEditInput,
 		flowJob,
 		isOwner = false,
-		maximizeSubflow
+		maximizeSubflow,
+		menuItems = undefined
 	}: Props = $props()
 
 	const { selectionManager, moveManager } = getGraphContext()
@@ -122,7 +124,7 @@
 
 {#if mod}
 	<div class="relative">
-		{#if moveManager?.movingModuleId == mod.id}
+		{#if moveManager?.movingModuleId == mod.id && !moveManager?.movingIds?.includes(mod.id)}
 			<div class="absolute z-10 inset-0 flex items-center justify-center">
 				<Button variant="accent" on:click={() => dispatch('move')} size="xs" destructive>
 					Cancel move
@@ -171,6 +173,7 @@
 					deletable={insertable}
 					{editMode}
 					{moduleAction}
+					{menuItems}
 					label={`${
 						mod.summary || (mod.value.type == 'forloopflow' ? 'For loop' : 'While loop')
 					}  ${mod.value.parallel ? '(parallel)' : ''} ${
@@ -205,6 +208,7 @@
 					deletable={insertable}
 					{editMode}
 					{moduleAction}
+					{menuItems}
 					on:changeId
 					on:delete
 					on:move
@@ -224,6 +228,7 @@
 					deletable={insertable}
 					{editMode}
 					{moduleAction}
+					{menuItems}
 					on:changeId
 					on:delete
 					on:move
@@ -243,6 +248,7 @@
 					{retries}
 					{editMode}
 					{moduleAction}
+					{menuItems}
 					on:changeId
 					on:pointerdown={handlePointerDown}
 					on:delete
@@ -256,8 +262,7 @@
 					deletable={insertable}
 					id={mod.id}
 					{...itemProps}
-					modType={mod.value.type}
-					{nodeState}
+						{nodeState}
 					label={mod.summary ||
 						(mod.value.type === 'aiagent' ? 'AI Agent' : undefined) ||
 						(mod.id === 'preprocessor'

@@ -10,6 +10,7 @@
 	import FlowGraphPreviewButton from './FlowGraphPreviewButton.svelte'
 	import type { Job } from '$lib/gen'
 	import { getNodeColorClasses, aiActionToNodeState } from '$lib/components/graph'
+	import { getGraphContext } from '$lib/components/graph/graphContext'
 
 	interface Props {
 		label?: string | undefined
@@ -69,6 +70,12 @@
 		flowHasChanged = false
 	}: Props = $props()
 
+	const flowGraphContext = getGraphContext()
+
+	let isMultiSelected = $derived(
+		(flowGraphContext?.selectionManager?.selectedIds?.length ?? 0) > 1
+	)
+
 	const outputPickerVisible = $derived(
 		(nodeKind || (inputJson && Object.keys(inputJson).length > 0)) && editMode
 	)
@@ -125,7 +132,7 @@
 					</div>
 				{/if}
 			</div>
-			{#if outputPickerVisible}
+			{#if outputPickerVisible && !isMultiSelected}
 				<OutputPicker
 					{selected}
 					{hover}
@@ -201,7 +208,7 @@
 					hoverButton = false
 				}}
 			>
-				{#if outputPickerVisible}
+				{#if outputPickerVisible && !isMultiSelected}
 					<div transition:fade={{ duration: 100 }}>
 						<FlowGraphPreviewButton
 							{isRunning}
