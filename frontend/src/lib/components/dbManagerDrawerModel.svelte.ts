@@ -18,9 +18,13 @@ import { isDbType } from './dbTypes'
  *   schema.       – schema only
  *   (omitted)     – neither
  *
+ * Default schemas (omitted from URL, restored on parse):
+ *   datatable → public
+ *   ducklake  → main
+ *
  * Examples:
- *   datatable~main~public.customers
- *   ducklake~main~.orders
+ *   datatable~main~.customers          (schema "public" implied)
+ *   ducklake~main~.orders              (schema "main" implied)
  *   postgresql~$res:u/user/my_pg~public.customers
  */
 
@@ -72,18 +76,26 @@ function parseDbm(raw: unknown): ParsedDbm | null {
 		}
 	}
 
+	// Restore default schema when omitted for datatable/ducklake
+	if (!schema && table && type in defaultSchemas) {
+		schema = defaultSchemas[type]
+	}
+
 	return { type, path, resType, schema, table }
 }
 
+const defaultSchemas: Record<string, string> = { datatable: 'public', ducklake: 'main' }
+
 function buildDbm(p: ParsedDbm): string {
 	const firstSeg = p.type === 'database' ? p.resType! : p.type
+	const schema = p.schema === defaultSchemas[p.type] ? undefined : p.schema
 	let schemaTable = ''
-	if (p.schema && p.table) {
-		schemaTable = `${p.schema}.${p.table}`
+	if (schema && p.table) {
+		schemaTable = `${schema}.${p.table}`
 	} else if (p.table) {
 		schemaTable = `.${p.table}`
-	} else if (p.schema) {
-		schemaTable = `${p.schema}.`
+	} else if (schema) {
+		schemaTable = `${schema}.`
 	}
 	return schemaTable ? `${firstSeg}~${p.path}~${schemaTable}` : `${firstSeg}~${p.path}`
 }
