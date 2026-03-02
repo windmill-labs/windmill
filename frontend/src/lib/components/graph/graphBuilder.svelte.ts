@@ -119,7 +119,6 @@ export type InputN = {
 		eventHandlers: GraphEventHandlers
 		hasPreprocessor: boolean
 		insertable: boolean
-		moving: string | undefined
 		disableAi: boolean
 		cache: boolean
 		earlyStop: boolean
@@ -143,7 +142,6 @@ export type ModuleN = {
 		id: string
 		parentIds: string[]
 		eventHandlers: GraphEventHandlers
-		moving: string | undefined
 		flowModuleState: GraphModuleState | undefined
 		testModuleState: ModuleTestState | undefined
 		insertable: boolean
@@ -395,7 +393,6 @@ export function graphBuilder(
 	success: boolean | undefined,
 	useDataflow: boolean | undefined,
 	selectedId: string | undefined,
-	moving: string | undefined,
 	simplifiableFlow: SimplifiableFlow | undefined,
 	flowPathForTriggerNode: string | undefined,
 	expandedSubflows: Record<string, FlowModule[]>
@@ -437,7 +434,6 @@ export function graphBuilder(
 					id: module.id,
 					parentIds: [],
 					eventHandlers: eventHandlers,
-					moving: moving,
 					flowModuleState: extra.flowModuleStates?.[module.id],
 					testModuleState: extra.testModuleStates?.states?.[module.id],
 					insertable: extra.insertable,
@@ -531,7 +527,6 @@ export function graphBuilder(
 					sourceId,
 					targetId,
 					branch,
-					moving,
 					eventHandlers,
 					simplifiedTriggerView: simplifiableFlow?.simplifiedFlow,
 					disableMoveIds: options?.disableMoveIds,
@@ -554,7 +549,6 @@ export function graphBuilder(
 				eventHandlers: eventHandlers,
 				hasPreprocessor: !!preprocessorModule || flowPathForTriggerNode == undefined,
 				insertable: extra.insertable,
-				moving: moving,
 				disableAi: extra.disableAi,
 				cache: extra.cache,
 				earlyStop: extra.earlyStop,
