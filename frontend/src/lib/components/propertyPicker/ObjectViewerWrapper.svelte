@@ -2,18 +2,35 @@
 	import ObjectViewer from './ObjectViewer.svelte'
 	import { createEventDispatcher, onMount } from 'svelte'
 
-	export let json: any
-	export let level = 0
-	export let currentPath: string = ''
-	export let pureViewer = false
-	export let collapsed = (level != 0 && level % 3 == 0) || Array.isArray(json)
-	export let rawKey = false
-	export let topBrackets = false
-	export let allowCopy = true
-	export let collapseLevel: number | undefined = undefined
-	export let prefix = ''
-	export let expandedEvenOnLevel0: string | undefined = undefined
-	export let connecting = false
+	interface Props {
+		json: any;
+		level?: number;
+		currentPath?: string;
+		pureViewer?: boolean;
+		collapsed?: any;
+		rawKey?: boolean;
+		topBrackets?: boolean;
+		allowCopy?: boolean;
+		collapseLevel?: number | undefined;
+		prefix?: string;
+		expandedEvenOnLevel0?: string | undefined;
+		connecting?: boolean;
+	}
+
+	let {
+		json,
+		level = 0,
+		currentPath = '',
+		pureViewer = false,
+		collapsed = (level != 0 && level % 3 == 0) || Array.isArray(json),
+		rawKey = false,
+		topBrackets = false,
+		allowCopy = true,
+		collapseLevel = undefined,
+		prefix = '',
+		expandedEvenOnLevel0 = undefined,
+		connecting = false
+	}: Props = $props();
 
 	const _props = {
 		json,

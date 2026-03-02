@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy';
+
 	import { goto } from '$lib/navigation'
 	import { base } from '$app/paths'
 	import { page } from '$app/stores'
@@ -31,26 +33,28 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import type { UserWorkspace } from '$lib/stores'
 
-	let invites: WorkspaceInvite[] = []
-	let list_all_as_super_admin: boolean = false
-	let workspaces: UserWorkspace[] | undefined = undefined
-	let showAllForks: boolean = false
+	let invites: WorkspaceInvite[] = $state([])
+	let list_all_as_super_admin: boolean = $state(false)
+	let workspaces: UserWorkspace[] | undefined = $state(undefined)
+	let showAllForks: boolean = $state(false)
 
 	// Workspace tree controls
-	let workspaceSearchFilter = ''
-	let workspaceAllExpanded = false
-	let workspaceHasForks = false
-	let workspaceTreeView: WorkspaceTreeView | undefined = undefined
+	let workspaceSearchFilter = $state('')
+	let workspaceAllExpanded = $state(false)
+	let workspaceHasForks = $state(false)
+	let workspaceTreeView: WorkspaceTreeView | undefined = $state(undefined)
 
-	let userSettings: UserSettings
-	let superadminSettings: SuperadminSettings
+	let userSettings: UserSettings = $state()
+	let superadminSettings: SuperadminSettings = $state()
 
-	$: rd = $page.url.searchParams.get('rd')
+	let rd = $derived($page.url.searchParams.get('rd'))
 
-	$: if (userSettings && $page.url.hash.startsWith(USER_SETTINGS_HASH)) {
-		const mcpMode = $page.url.hash.includes('-mcp')
-		userSettings.openDrawer(mcpMode)
-	}
+	run(() => {
+		if (userSettings && $page.url.hash.startsWith(USER_SETTINGS_HASH)) {
+			const mcpMode = $page.url.hash.includes('-mcp')
+			userSettings.openDrawer(mcpMode)
+		}
+	});
 
 	async function loadInvites() {
 		try {
@@ -90,11 +94,13 @@
 			workspaces = $userWorkspaces
 		}
 	}
-	$: list_all_as_super_admin != undefined && $userWorkspaces && handleListWorkspaces()
+	run(() => {
+		list_all_as_super_admin != undefined && $userWorkspaces && handleListWorkspaces()
+	});
 
-	$: allWorkspaces = workspaces || []
-	$: noWorkspaces = $superadmin && allWorkspaces.length == 0
-	$: onlyAdminsWorkspace = allWorkspaces.length === 1 && allWorkspaces[0].id === 'admins'
+	let allWorkspaces = $derived(workspaces || [])
+	let noWorkspaces = $derived($superadmin && allWorkspaces.length == 0)
+	let onlyAdminsWorkspace = $derived(allWorkspaces.length === 1 && allWorkspaces[0].id === 'admins')
 
 	async function getCreateWorkspaceRequireSuperadmin() {
 		const r = await fetch(base + '/api/workspaces/create_workspace_require_superadmin')
@@ -102,11 +108,13 @@
 		createWorkspace = t != 'true'
 	}
 
-	let createWorkspace = $superadmin || isCloudHosted()
+	let createWorkspace = $state($superadmin || isCloudHosted())
 
-	$: if ($superadmin) {
-		createWorkspace = true
-	}
+	run(() => {
+		if ($superadmin) {
+			createWorkspace = true
+		}
+	});
 
 	if (!createWorkspace) {
 		getCreateWorkspaceRequireSuperadmin()
@@ -116,7 +124,7 @@
 	loadInvites()
 	loadWorkspaces()
 
-	let loading = false
+	let loading = $state(false)
 
 	async function speakFriendAndEnterWorkspace(workspaceId: string) {
 		loading = true

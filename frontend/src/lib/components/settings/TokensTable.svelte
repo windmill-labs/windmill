@@ -81,13 +81,15 @@
 	<div class="overflow-auto grow min-h-64 max-h-2/3">
 		<TableCustom>
 
-			<tr slot="headerRow">
-				<th>Prefix</th>
-				<th>Label</th>
-				<th>Expiration</th>
-				<th>Scopes</th>
-				<th></th>
-			</tr>
+			{#snippet headerRow()}
+						<tr >
+					<th>Prefix</th>
+					<th>Label</th>
+					<th>Expiration</th>
+					<th>Scopes</th>
+					<th></th>
+				</tr>
+					{/snippet}
 			{#snippet body()}
 				<tbody>
 					{#if tokens && tokens.length > 0}

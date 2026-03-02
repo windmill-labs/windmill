@@ -160,11 +160,13 @@
 		{#if members}
 			<TableCustom>
 
-				<tr slot="headerRow">
-					<th>user</th>
-					<th></th>
-					<th></th>
-				</tr>
+				{#snippet headerRow()}
+								<tr >
+						<th>user</th>
+						<th></th>
+						<th></th>
+					</tr>
+							{/snippet}
 				{#snippet body()}
 					<tbody>
 						{#each members ?? [] as { member_name, role }}<tr>
@@ -302,9 +304,11 @@
 				<h2 class="mt-6 text-emphasis text-xs font-semibold">Members from the instance group</h2>
 				<TableCustom>
 	
-					<tr slot="headerRow">
-						<th>user</th>
-					</tr>
+					{#snippet headerRow()}
+										<tr >
+							<th>user</th>
+						</tr>
+									{/snippet}
 					{#snippet body()}
 						<tbody>
 							{#each instance_group?.emails ?? [] as email}<tr>

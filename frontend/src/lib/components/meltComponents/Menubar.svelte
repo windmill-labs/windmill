@@ -6,10 +6,15 @@
 		builders: { createMenu }
 	} = createMenubar()
 
-	let className: string = ''
-	export { className as class }
+	interface Props {
+		class?: string;
+		children?: import('svelte').Snippet<[any]>;
+	}
+
+	let { class: className = '', children }: Props = $props();
+	
 </script>
 
 <div use:melt={$menubar} class={className}>
-	<slot {createMenu} />
+	{@render children?.({ createMenu, })}
 </div>

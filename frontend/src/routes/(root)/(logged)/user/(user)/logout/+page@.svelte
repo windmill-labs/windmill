@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { clearUser } from '$lib/logout'
 	import { userStore } from '$lib/stores'
 	import { onMount } from 'svelte'
 
-	const rd = $page.url.searchParams.get('rd')
+	const rd = page.url.searchParams.get('rd')
 
 	function sleep(ms: number): Promise<void> {
 		return new Promise((resolve) => setTimeout(resolve, ms))
@@ -25,7 +25,7 @@
 
 		await sleep(3000)
 
-		if ($page.url.pathname != '/user/logout' && $page.url.pathname != '/user/login') {
+		if (page.url.pathname != '/user/logout' && page.url.pathname != '/user/login') {
 			return
 		}
 

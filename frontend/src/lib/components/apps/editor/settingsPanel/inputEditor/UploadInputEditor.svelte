@@ -74,9 +74,11 @@
 			}
 		}}
 	>
-		<svelte:fragment slot="selectedTitle">
-			<!-- Removing the title when there is a selected file -->
-			<span></span>
-		</svelte:fragment>
+		{#snippet selectedTitle()}
+			
+				<!-- Removing the title when there is a selected file -->
+				<span></span>
+			
+			{/snippet}
 	</FileInput>
 {/if}

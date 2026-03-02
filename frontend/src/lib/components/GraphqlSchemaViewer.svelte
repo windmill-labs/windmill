@@ -5,13 +5,17 @@
 
 	import { onDestroy, onMount } from 'svelte'
 
-	let divEl: HTMLDivElement | null = null
+	let divEl: HTMLDivElement | null = $state(null)
 	let editor: meditor.IStandaloneCodeEditor
 
-	export let code: string = ''
 
-	let className: string = ''
-	export { className as class }
+	interface Props {
+		code?: string;
+		class?: string;
+	}
+
+	let { code = '', class: className = '' }: Props = $props();
+	
 
 	async function loadMonaco() {
 		editor = meditor.create(divEl as HTMLDivElement, {

@@ -43,29 +43,33 @@
 	{/if}
 	{#if (asset.kind === 'resource' && resourceDataCacheValue === undefined) || ducklakeNotFound || datatableNotFound}
 		<Popover contentClasses="px-3 py-2">
-			<svelte:fragment slot="trigger">
-				<Button
-					startIcon={{ icon: AlertTriangle }}
-					variant="default"
-					unifiedSize="md"
-					btnClasses="text-red-500"
-					iconOnly
-				/>
-			</svelte:fragment>
-			<svelte:fragment slot="content">
-				<span class="text-sm">Not found</span>
-				{#if ducklakeNotFound}
-					<Button wrapperClasses="mt-1" href="/workspace_settings?tab=windmill_lfs">
-						Go to Ducklake settings
-					</Button>
-				{:else if datatableNotFound}
-					<Button wrapperClasses="mt-1" href="/workspace_settings?tab=windmill_data_tables">
-						Go to Data Table settings
-					</Button>
-				{:else if asset.kind === 'resource' && resourceDataCacheValue === undefined}
-					<Button wrapperClasses="mt-1" href="/resources">Go to Resources</Button>
-				{/if}
-			</svelte:fragment>
+			{#snippet trigger()}
+					
+					<Button
+						startIcon={{ icon: AlertTriangle }}
+						variant="default"
+						unifiedSize="md"
+						btnClasses="text-red-500"
+						iconOnly
+					/>
+				
+					{/snippet}
+			{#snippet content()}
+					
+					<span class="text-sm">Not found</span>
+					{#if ducklakeNotFound}
+						<Button wrapperClasses="mt-1" href="/workspace_settings?tab=windmill_lfs">
+							Go to Ducklake settings
+						</Button>
+					{:else if datatableNotFound}
+						<Button wrapperClasses="mt-1" href="/workspace_settings?tab=windmill_data_tables">
+							Go to Data Table settings
+						</Button>
+					{:else if asset.kind === 'resource' && resourceDataCacheValue === undefined}
+						<Button wrapperClasses="mt-1" href="/resources">Go to Resources</Button>
+					{/if}
+				
+					{/snippet}
 		</Popover>
 	{:else if assetCanBeExplored(asset, { resource_type: resourceDataCacheValue })}
 		<ExploreAssetButton

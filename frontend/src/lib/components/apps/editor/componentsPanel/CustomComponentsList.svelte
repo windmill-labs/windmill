@@ -15,9 +15,9 @@
 	let customcomponents: Array<{
 		name: string
 		path: string
-	}> = []
+	}> = $state([])
 
-	let loading: boolean = false
+	let loading: boolean = $state(false)
 
 	async function getCustomComponents() {
 		loading = true
@@ -61,10 +61,10 @@
 		nameField = ''
 	}
 
-	let nameField: string = ''
-	let reactVersion: string = '18.2.0'
-	let files: FileList
-	let useReact = true
+	let nameField: string = $state('')
+	let reactVersion: string = $state('18.2.0')
+	let files: FileList = $state()
+	let useReact = $state(true)
 
 	getCustomComponents()
 </script>

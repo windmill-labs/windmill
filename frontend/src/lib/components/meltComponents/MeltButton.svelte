@@ -1,19 +1,36 @@
 <script lang="ts">
+	import { createBubbler } from 'svelte/legacy';
+
+	const bubble = createBubbler();
 	import { type AnyMeltElement } from '@melt-ui/svelte'
 	import { conditionalMelt } from '$lib/utils'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 
-	export let aiId: string | undefined = undefined
-	export let aiDescription: string | undefined = undefined
-	export let meltElement: AnyMeltElement | undefined = undefined
-	export let type: 'button' | 'submit' | 'reset' | null | undefined = undefined
-	export let title: string = ''
-	export let id: string | undefined = undefined
 
-	let className: string = ''
-	export { className as class }
+	interface Props {
+		aiId?: string | undefined;
+		aiDescription?: string | undefined;
+		meltElement?: AnyMeltElement | undefined;
+		type?: 'button' | 'submit' | 'reset' | null | undefined;
+		title?: string;
+		id?: string | undefined;
+		class?: string;
+		children?: import('svelte').Snippet;
+	}
 
-	let buttonRef: HTMLButtonElement | undefined = undefined
+	let {
+		aiId = undefined,
+		aiDescription = undefined,
+		meltElement = undefined,
+		type = undefined,
+		title = '',
+		id = undefined,
+		class: className = '',
+		children
+	}: Props = $props();
+	
+
+	let buttonRef: HTMLButtonElement | undefined = $state(undefined)
 </script>
 
 <button
@@ -31,7 +48,7 @@
 	{title}
 	{id}
 	{...$meltElement}
-	on:click
+	onclick={bubble('click')}
 >
-	<slot />
+	{@render children?.()}
 </button>

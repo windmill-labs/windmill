@@ -1652,8 +1652,10 @@
 													/>
 												{:else if script.on_behalf_of_email && !canPreserve}
 													<span class="text-xs text-tertiary">
-														Currently: <span class="font-medium">{originalOnBehalfOfEmail ?? script.on_behalf_of_email}</span>.
-														Will be set to <span class="font-medium">{$userStore?.email}</span> on deploy (requires admin or wm_deployers group to override)
+														Currently: <span class="font-medium"
+															>{originalOnBehalfOfEmail ?? script.on_behalf_of_email}</span
+														>. Will be set to <span class="font-medium">{$userStore?.email}</span> on
+														deploy (requires admin or wm_deployers group to override)
 													</span>
 												{/if}
 											</span>

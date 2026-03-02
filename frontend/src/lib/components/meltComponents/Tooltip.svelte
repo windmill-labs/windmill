@@ -7,19 +7,39 @@
 	import { fade } from 'svelte/transition'
 	import TooltipInner from '../TooltipInner.svelte'
 
-	export let light = false
-	export let placement: Placement | undefined = 'bottom'
-	export let documentationLink: string | undefined = undefined
-	export let small = false
-	export let disablePopup: boolean = false
-	export let openDelay: number = 300
-	export let closeDelay: number = 0
-	export let portal: string | undefined | null = 'body'
-	export let customBgClass: string | undefined = undefined
-	export let style: string = ''
 
-	let className: string = ''
-	export { className as class }
+	interface Props {
+		light?: boolean;
+		placement?: Placement | undefined;
+		documentationLink?: string | undefined;
+		small?: boolean;
+		disablePopup?: boolean;
+		openDelay?: number;
+		closeDelay?: number;
+		portal?: string | undefined | null;
+		customBgClass?: string | undefined;
+		style?: string;
+		class?: string;
+		children?: import('svelte').Snippet;
+		text?: import('svelte').Snippet;
+	}
+
+	let {
+		light = false,
+		placement = 'bottom',
+		documentationLink = undefined,
+		small = false,
+		disablePopup = false,
+		openDelay = 300,
+		closeDelay = 0,
+		portal = 'body',
+		customBgClass = undefined,
+		style = '',
+		class: className = '',
+		children,
+		text
+	}: Props = $props();
+	
 
 	const {
 		elements: { trigger, content },
@@ -36,9 +56,9 @@
 </script>
 
 <span class={className} {style} use:melt={$trigger}>
-	<slot />
+	{@render children?.()}
 </span>
-{#if !$$slots.default}
+{#if !children}
 	<div
 		class="inline-flex w-3 mx-0.5 h-3 {light
 			? 'text-primary-inverse'
@@ -53,7 +73,7 @@
 	<div use:melt={$content} transition:fade={{ duration: 100 }} style="z-index: {zIndexes.tooltip}">
 		<TooltipInner {documentationLink} {customBgClass}>
 			{#snippet children()}
-				<slot name="text" />
+				{@render text?.()}
 			{/snippet}
 		</TooltipInner>
 	</div>

@@ -1,4 +1,4 @@
-<script context="module" lang="ts">
+<script module lang="ts">
 	import { writable } from 'svelte/store'
 	const activePopover = writable<{ id: string | null; close: (() => void) | null }>({
 		id: null,
@@ -7,6 +7,9 @@
 </script>
 
 <script lang="ts">
+	import { run, createBubbler } from 'svelte/legacy';
+
+	const bubble = createBubbler();
 	import { createPopover, createSync, melt } from '@melt-ui/svelte'
 	import { fly } from 'svelte/transition'
 	import { X, Minimize2, Maximize2 } from 'lucide-svelte'
@@ -19,47 +22,14 @@
 	import type { FloatingConfig } from '@melt-ui/svelte/internal/actions/floating'
 	import type { EscapeBehaviorType } from '@melt-ui/svelte/internal/actions'
 
-	export let closeButton: boolean = false
-	export let displayArrow: boolean = false
-	export let placement: Placement = 'bottom'
-	export let disablePopup: boolean = false
-	export let openOnHover: boolean = false
-	export let debounceDelay: number = 0
-	export let floatingConfig: any | undefined = undefined
-	export let usePointerDownOutside: boolean = false
-	export let closeOnOutsideClick: boolean = true
-	export let contentClasses: string = ''
-	export let contentStyle: string = ''
-	export let portal: string | HTMLElement | null = 'body'
-	export let closeOnOtherPopoverOpen: boolean = false
-	export let allowFullScreen: boolean = false
-	export let extraProps: Record<string, any> = {}
-	export let disabled: boolean = false
-	export let documentationLink: string | undefined = undefined
-	export let disableFocusTrap: boolean = false
-	export let openFocus: string | HTMLElement | (() => HTMLElement | null) | null | undefined =
-		undefined
-	export let escapeBehavior: EscapeBehaviorType = 'close'
-	export let enableFlyTransition: boolean = false
-	export let onKeyDown: (e: KeyboardEvent) => void = () => {}
-	export let onClose: () => void = () => {}
 
-	let className: string = ''
-	export { className as class }
-	/**
-	 * If provided, the popover will only open if the click is on the element with the given id.
-	 */
-	export let targetId: string | undefined = undefined
-	/**
-	 * Additional CSS selectors whose matching elements should be excluded from outside-click detection.
-	 */
-	export let excludeSelectors: string | undefined = undefined
+	
+	
+	
 
-	let fullScreen = false
+	let fullScreen = $state(false)
 	const dispatch = createEventDispatcher()
 
-	// Dynamic portal: use 'body' when fullscreen, otherwise use the provided portal
-	$: dynamicPortal = fullScreen ? 'body' : portal
 
 	function clearTimers() {
 		clearDebounceClose()
@@ -117,17 +87,78 @@
 		overlap: false
 	}
 
-	// Update portal reactively when fullscreen state changes
-	$: if (portalOption) {
-		$portalOption = dynamicPortal
+
+	interface Props {
+		closeButton?: boolean;
+		displayArrow?: boolean;
+		placement?: Placement;
+		disablePopup?: boolean;
+		openOnHover?: boolean;
+		debounceDelay?: number;
+		floatingConfig?: any | undefined;
+		usePointerDownOutside?: boolean;
+		closeOnOutsideClick?: boolean;
+		contentClasses?: string;
+		contentStyle?: string;
+		portal?: string | HTMLElement | null;
+		closeOnOtherPopoverOpen?: boolean;
+		allowFullScreen?: boolean;
+		extraProps?: Record<string, any>;
+		disabled?: boolean;
+		documentationLink?: string | undefined;
+		disableFocusTrap?: boolean;
+		openFocus?: string | HTMLElement | (() => HTMLElement | null) | null | undefined;
+		escapeBehavior?: EscapeBehaviorType;
+		enableFlyTransition?: boolean;
+		onKeyDown?: (e: KeyboardEvent) => void;
+		onClose?: () => void;
+		class?: string;
+		/**
+	 * If provided, the popover will only open if the click is on the element with the given id.
+	 */
+		targetId?: string | undefined;
+		/**
+	 * Additional CSS selectors whose matching elements should be excluded from outside-click detection.
+	 */
+		excludeSelectors?: string | undefined;
+		isOpen?: boolean;
+		trigger?: import('svelte').Snippet<[any]>;
+		content?: import('svelte').Snippet<[any]>;
 	}
 
-	export let isOpen = false
+	let {
+		closeButton = false,
+		displayArrow = false,
+		placement = 'bottom',
+		disablePopup = false,
+		openOnHover = false,
+		debounceDelay = 0,
+		floatingConfig = undefined,
+		usePointerDownOutside = false,
+		closeOnOutsideClick = true,
+		contentClasses = '',
+		contentStyle = '',
+		portal = 'body',
+		closeOnOtherPopoverOpen = false,
+		allowFullScreen = false,
+		extraProps = {},
+		disabled = false,
+		documentationLink = undefined,
+		disableFocusTrap = false,
+		openFocus = undefined,
+		escapeBehavior = 'close',
+		enableFlyTransition = false,
+		onKeyDown = () => {},
+		onClose = () => {},
+		class: className = '',
+		targetId = undefined,
+		excludeSelectors = undefined,
+		isOpen = $bindable(false),
+		trigger,
+		content
+	}: Props = $props();
 	const sync = createSync(states)
-	$: sync.open(isOpen, (v) => (isOpen = v))
 
-	// Allow for dynamic closeOnOutsideClick
-	$: $closeOnOutsideClickOption = usePointerDownOutside ? false : closeOnOutsideClick
 
 	export function close() {
 		isOpen = false
@@ -168,6 +199,21 @@
 			}
 		}
 	}
+	// Dynamic portal: use 'body' when fullscreen, otherwise use the provided portal
+	let dynamicPortal = $derived(fullScreen ? 'body' : portal)
+	// Update portal reactively when fullscreen state changes
+	run(() => {
+		if (portalOption) {
+			$portalOption = dynamicPortal
+		}
+	});
+	run(() => {
+		sync.open(isOpen, (v) => (isOpen = v))
+	});
+	// Allow for dynamic closeOnOutsideClick
+	run(() => {
+		$closeOnOutsideClickOption = usePointerDownOutside ? false : closeOnOutsideClick
+	});
 </script>
 
 <svelte:window onkeydown={(e) => isOpen && onKeyDown(e)} />
@@ -177,29 +223,29 @@
 	use:melt={$_trigger}
 	aria-label="Popup button"
 	disabled={disablePopup || disabled}
-	on:mouseenter={() => {
+	onmouseenter={() => {
 		if (openOnHover) {
 			open()
 			clearDebounceClose()
 		}
 	}}
-	on:mouseleave={debounceClose}
+	onmouseleave={debounceClose}
 	use:pointerDownOutside={{
 		capture: true,
 		stopPropagation: false,
 		exclude: getMenuElements
 	}}
-	on:pointerdown_outside={() => {
+	onpointerdown_outside={() => {
 		if (usePointerDownOutside) {
 			if (fullScreen) fullScreen = false
 			else close()
 		}
 	}}
 	data-popover
-	on:m-click={handleClick}
-	on:click
+	onm-click={handleClick}
+	onclick={bubble('click')}
 >
-	<slot name="trigger" {isOpen} />
+	{@render trigger?.({ isOpen, })}
 </button>
 
 {#if fullScreen && isOpen && !disablePopup}
@@ -208,13 +254,13 @@
 
 {#if isOpen && !disablePopup}
 	<div
-		on:mouseenter={() => {
+		onmouseenter={() => {
 			if (openOnHover) {
 				open()
 				clearDebounceClose()
 			}
 		}}
-		on:mouseleave={debounceClose}
+		onmouseleave={debounceClose}
 		use:melt={$_content}
 		transition:fly={{ duration: enableFlyTransition ? 100 : 0, y: -16 }}
 		class={twMerge(
@@ -255,7 +301,7 @@
 			</button>
 		{/if}
 
-		<slot name="content" {open} {close} />
+		{@render content?.({ open, close, })}
 	</div>
 {/if}
 

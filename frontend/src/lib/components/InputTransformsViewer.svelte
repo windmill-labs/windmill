@@ -7,8 +7,12 @@
 	import Cell from './table/Cell.svelte'
 	import Row from './table/Row.svelte'
 
-	export let inputTransforms: Record<string, InputTransform>
-	$: entries = Object.entries(inputTransforms)
+	interface Props {
+		inputTransforms: Record<string, InputTransform>;
+	}
+
+	let { inputTransforms }: Props = $props();
+	let entries = $derived(Object.entries(inputTransforms))
 </script>
 
 {#if entries.length}

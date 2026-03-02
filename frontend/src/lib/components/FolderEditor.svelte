@@ -271,11 +271,13 @@
 			{#if perms}
 				<TableCustom>
 
-					<tr slot="headerRow">
-						<th>user/group</th>
-						<th></th>
-						<th></th>
-					</tr>
+					{#snippet headerRow()}
+										<tr >
+							<th>user/group</th>
+							<th></th>
+							<th></th>
+						</tr>
+									{/snippet}
 					{#snippet body()}
 						<tbody>
 							{#each perms ?? [] as { owner_name, role }}<tr>

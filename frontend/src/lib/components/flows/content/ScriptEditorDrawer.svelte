@@ -213,9 +213,11 @@
 					bind:schema={script.schema}
 					{args}
 				>
-					<div slot="editorBarRight">
-						<WorkerTagSelect bind:tag={script.tag} />
-					</div>
+					{#snippet editorBarRight()}
+										<div >
+							<WorkerTagSelect bind:tag={script.tag} />
+						</div>
+									{/snippet}
 				</ScriptEditor>
 			{/key}
 		{:else}

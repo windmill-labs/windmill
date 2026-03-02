@@ -19,11 +19,15 @@
 	import HighlightTheme from './HighlightTheme.svelte'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 
-	export let schema: any | undefined = undefined
 
-	export let stepDetail: FlowModule | string | undefined = undefined
-	export let jobScriptHash: string | undefined = undefined
-	let codeViewer: Drawer
+	interface Props {
+		schema?: any | undefined;
+		stepDetail?: FlowModule | string | undefined;
+		jobScriptHash?: string | undefined;
+	}
+
+	let { schema = undefined, stepDetail = undefined, jobScriptHash = undefined }: Props = $props();
+	let codeViewer: Drawer = $state()
 </script>
 
 <HighlightTheme />

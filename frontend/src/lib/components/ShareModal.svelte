@@ -155,11 +155,13 @@
 				{#if acls?.length > 0}
 					<TableCustom>
 
-						<tr slot="headerRow">
-							<th>owner</th>
-							<th></th>
-							<th></th>
-						</tr>
+						{#snippet headerRow()}
+												<tr >
+								<th>owner</th>
+								<th></th>
+								<th></th>
+							</tr>
+											{/snippet}
 						{#snippet body()}
 							<tbody>
 								{#each acls as [owner, write]}

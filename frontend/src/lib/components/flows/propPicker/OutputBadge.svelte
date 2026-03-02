@@ -5,13 +5,17 @@
 	import { ExternalLink } from 'lucide-svelte'
 	import { emptyString } from '$lib/utils'
 
-	export let job:
+
+	interface Props {
+		job?: 
 		| Job
 		| { id: string; result: unknown; type: 'CompletedJob'; success: boolean; workspace_id: string }
-		| undefined = undefined
+		| undefined;
+		class?: string;
+	}
 
-	let className: string = ''
-	export { className as class }
+	let { job = undefined, class: className = '' }: Props = $props();
+	
 </script>
 
 {#if job}

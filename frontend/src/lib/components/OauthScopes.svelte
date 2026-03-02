@@ -2,7 +2,11 @@
 	import { Button } from './common'
 	import { Minus, Plus } from 'lucide-svelte'
 
-	export let scopes: string[] = []
+	interface Props {
+		scopes?: string[];
+	}
+
+	let { scopes = $bindable([]) }: Props = $props();
 </script>
 
 {#if scopes && Array.isArray(scopes)}

@@ -3,9 +3,9 @@
 	import { CheckCircle, XCircle } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
 
-	let isLoading = true
-	let isSuccess = false
-	let errorMessage = ''
+	let isLoading = $state(true)
+	let isSuccess = $state(false)
+	let errorMessage = $state('')
 
 	function closeWindow() {
 		window.close()
@@ -74,7 +74,7 @@
 					The GitHub app has been successfully installed. You can now close this window and return to Windmill to start using the GitHub integration.
 				</p>
 				<button
-					on:click={closeWindow}
+					onclick={closeWindow}
 					class="w-full py-2 px-4 bg-green-600 hover:bg-green-700 text-white font-medium rounded transition-colors"
 				>
 					Close this window
@@ -94,7 +94,7 @@
 					Please try again or contact your administrator for assistance.
 				</p>
 				<button
-					on:click={closeWindow}
+					onclick={closeWindow}
 					class="w-full py-2 px-4 bg-red-600 hover:bg-red-700 text-white font-medium rounded transition-colors"
 				>
 					Close this window
