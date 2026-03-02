@@ -32,7 +32,7 @@ export type InlineScript = {
 	instructions?: string
 }
 
-export type onSelectedIteration = (
+export type OnSelectedIteration = (
 	detail:
 		| { id: string; index: number; manuallySet: true; moduleId: string }
 		| { manuallySet: false; moduleId: string }
@@ -56,7 +56,7 @@ export type GraphEventHandlers = {
 	delete: (detail: { id: string }, label: string) => void
 	newBranch: (id: string) => void
 	move: (detail: { id: string }) => void
-	selectedIteration: onSelectedIteration
+	selectedIteration: OnSelectedIteration
 	changeId: (newId: string) => void
 	simplifyFlow: (b: boolean) => void
 	expandSubflow: (id: string, path: string) => void

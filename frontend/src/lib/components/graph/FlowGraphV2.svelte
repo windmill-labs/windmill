@@ -24,7 +24,7 @@
 		type InlineScript,
 		type InsertKind,
 		type NodeLayout,
-		type onSelectedIteration,
+		type OnSelectedIteration,
 		type SimplifiableFlow
 	} from './graphBuilder.svelte'
 	import ModuleNode from './renderers/nodes/ModuleNode.svelte'
@@ -152,7 +152,7 @@
 		onMove?: (id: string) => void
 		onUpdateMock?: (detail: { mock: FlowModule['mock']; id: string }) => void
 		onTestUpTo?: ((id: string) => void) | undefined
-		onSelectedIteration?: onSelectedIteration
+		onSelectedIteration?: OnSelectedIteration
 		onEditInput?: (moduleId: string, key: string) => void
 		onTestFlow?: () => void
 		onCancelTestFlow?: () => void
@@ -588,7 +588,10 @@
 		let assetNodesResult = $showAssets
 			? computeAssetNodes(
 					newNodes.map((n) => ({
-						data: { assets: n.data?.assets as AssetWithAltAccessType[], offset: n.data?.offset as number },
+						data: {
+							assets: n.data?.assets as AssetWithAltAccessType[],
+							offset: n.data?.offset as number
+						},
 						id: n.id,
 						position: n.position
 					}))
@@ -915,7 +918,12 @@
 		<SvelteFlowProvider>
 			<ViewportResizer {height} {width} {nodes} bind:this={viewportResizer} />
 			{#if moveManager}
-				<DragCoordinator {moveManager} eventHandlers={eventHandler} {edges} nodes={nodesWithOffset} />
+				<DragCoordinator
+					{moveManager}
+					eventHandlers={eventHandler}
+					{edges}
+					nodes={nodesWithOffset}
+				/>
 			{/if}
 			{#if sharedViewport && onViewportChange}
 				<ViewportSynchronizer
