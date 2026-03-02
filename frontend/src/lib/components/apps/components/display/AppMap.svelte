@@ -268,6 +268,7 @@
 
 {#if render}
 	<div class="relative h-full w-full component-wrapper">
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			onpointermove={updateRegionOutput}
 			onwheel={updateRegionOutput}
@@ -279,6 +280,7 @@
 		></div>
 
 		{#if $mode !== 'preview'}
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
 				class="absolute bottom-0 left-0 px-1 py-0.5 bg-indigo-500 text-white text-2xs"
 				onpointerdown={handleSyncRegion}

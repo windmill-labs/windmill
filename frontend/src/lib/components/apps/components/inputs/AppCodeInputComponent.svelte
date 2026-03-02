@@ -71,6 +71,7 @@
 {/each}
 
 {#if render}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class="h-full flex-col flex max-h-full overflow-scroll editor-wrapper rounded-md border border-gray-300 dark:border-gray-500 wm-code-editor"
 		onpointerdown={(e) => {

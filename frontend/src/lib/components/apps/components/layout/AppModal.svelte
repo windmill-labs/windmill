@@ -231,6 +231,7 @@
 							</div>
 						</div>
 
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<div
 							class={twMerge('wm-modal-container h-full', 'overflow-y-auto', css?.container?.class)}
 							onpointerdown={(e) => {

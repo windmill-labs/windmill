@@ -199,6 +199,7 @@
 <!-- {visible}
 {everVisible} -->
 {#if everVisible || $app.eagerRendering}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class="translate-x-0 translate-y-0 w-full subgrid {visible
 			? 'visible'
@@ -329,6 +330,7 @@
 				>
 					{#snippet children({ dataItem })}
 						<!-- svelte-ignore a11y_click_events_have_key_events -->
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<div
 							onpointerdown={stopPropagation((e) =>
 								selectComponent(e as PointerEvent, dataItem.id)

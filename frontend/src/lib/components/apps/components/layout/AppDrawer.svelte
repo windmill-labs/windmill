@@ -162,6 +162,7 @@
 					}}
 					fullScreen={$mode !== 'dnd'}
 				>
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
 						class={twMerge('h-full', css?.drawer?.class, 'wm-drawer')}
 						style={css?.drawer?.style}

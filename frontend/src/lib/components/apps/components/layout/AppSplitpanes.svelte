@@ -104,11 +104,13 @@
 <InitializeComponent {id} />
 
 {#if everRender}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div class="h-full w-full border" onpointerdown={onFocus}>
 		{#key sumedup}
 			<Splitpanes {horizontal}>
 				{#each sumedup as paneSize, index (index)}
 					<Pane size={paneSize} minSize={20}>
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<div
 							class="w-full h-full"
 							onpointerdown={stopPropagation(() => {

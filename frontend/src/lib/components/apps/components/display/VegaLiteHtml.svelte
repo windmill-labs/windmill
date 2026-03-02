@@ -85,6 +85,7 @@
 {#if render}
 	<div class="w-full h-full" bind:clientHeight={h} bind:clientWidth={w}>
 		<RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div onpointerdown={bubble('pointerdown')} bind:this={divEl}></div>
 		</RunnableWrapper>
 	</div>

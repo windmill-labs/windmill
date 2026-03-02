@@ -125,6 +125,7 @@
 	class={twMerge(css?.container?.class, 'wm-select-step')}
 	style={css?.container?.style}
 >
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div class="w-full" onpointerdown={onPointerDown}>
 		<Stepper
 			tabs={(resolvedConfig?.items ?? []).map((item) => getLabel(item))}

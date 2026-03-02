@@ -943,6 +943,7 @@
 					<Pane bind:size={centerPanelSize}>
 						<Splitpanes id="o2" horizontal class="!overflow-visible">
 							<Pane bind:size={gridPanelSize} class="ovisible">
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
 								<div
 									onpointerdown={(e) => {
 										$selectedComponent = undefined
@@ -988,6 +989,7 @@
 										</div>
 									{/if}
 
+									<!-- svelte-ignore a11y_no_static_element_interactions -->
 									<div
 										class="absolute bottom-2 left-2 z-50 border bg-surface"
 										data-connection-button

@@ -163,6 +163,7 @@
 <InitializeComponent {id} />
 
 <AlignWrapper {render} hFull {verticalAlignment}>
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class={twMerge('w-full', resolvedConfig.allowOverflow ? '' : 'absolute inset-0')}
 		onpointerdown={(e) => {

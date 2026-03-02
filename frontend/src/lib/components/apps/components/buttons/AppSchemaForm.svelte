@@ -169,6 +169,7 @@
 			class={twMerge('p-2 overflow-auto h-full', css?.container?.class, 'wm-schema-form')}
 			style={css?.container?.style}
 		>
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
 				onpointerdown={stopPropagation(
 					(e) =>

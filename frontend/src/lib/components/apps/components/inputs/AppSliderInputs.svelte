@@ -147,6 +147,7 @@
 
 <AlignWrapper {render} hFull {verticalAlignment}>
 	<div class="flex {resolvedConfig.vertical ? 'flex-col' : ''} items-center w-full h-full gap-1">
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			class={twMerge(
 				'grow',

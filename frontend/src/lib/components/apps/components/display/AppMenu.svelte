@@ -168,6 +168,7 @@
 						{#if menuItems.length > 0}
 							{#each menuItems as actionButton, actionIndex (actionButton?.id)}
 								{#if actionButton.type == 'buttoncomponent'}
+									<!-- svelte-ignore a11y_no_static_element_interactions -->
 									<div
 										onpointerup={() => {
 											outputs?.result.set({

@@ -102,6 +102,7 @@
 
 <InitializeComponent {id} />
 {#if render}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class="editor-wrapper h-full flex-col flex max-h-full overflow-hidden"
 		onpointerdown={stopPropagation(() => {

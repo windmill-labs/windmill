@@ -178,6 +178,7 @@
 				? new Date(resolvedConfig?.min).toDateString()
 				: new Date().toDateString()}
 		</span>
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			class={twMerge(
 				'grow',

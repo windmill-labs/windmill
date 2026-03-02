@@ -255,6 +255,7 @@
 {/if}
 
 <AlignWrapper {render} {verticalAlignment}>
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class="app-select w-full"
 		style="height: 34px;"

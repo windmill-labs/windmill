@@ -119,6 +119,7 @@
 <AlignWrapper {render} {verticalAlignment}>
 	<div class="flex flex-col w-full">
 		<div class="flex items-center w-full gap-1">
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
 				class={twMerge('grow', 'wm-slider-bar')}
 				style="--range-handle-focus: {'#7e9abd'}; --range-handle: {'#7e9abd'}; {css?.bar?.style ??

@@ -119,6 +119,7 @@
 	{#key resolvedConfig.isNegativeAllowed}
 		{#key resolvedConfig.locale}
 			{#key resolvedConfig.currency}
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div class="w-full" onpointerdown={stopPropagation(() => ($selectedComponent = [id]))}>
 					<CurrencyInput
 						inputClasses={{
