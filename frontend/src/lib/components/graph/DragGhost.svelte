@@ -15,6 +15,8 @@
 	 *  used to offset the ghost so the dragged node aligns with the cursor.
 	 *  The handle is at the top-right of the 275px-wide node (right-4 = 16px inset). */
 	const DRAG_HANDLE_OFFSET = { x: -90, y: 10 }
+	/** Offset so the cursor indicator icon doesn't overlap the cursor tip */
+	const CURSOR_INDICATOR_OFFSET = 8
 
 	function nodeOffset(n: Node): number {
 		return ((n.data as Record<string, unknown>)?.offset as number) ?? 0
@@ -33,11 +35,11 @@
 
 	/** Resolve a node's position to absolute flow coordinates.
 	 *  xyflow child nodes (with parentId) have positions relative to their parent. */
-	function absolutePosition(n: Node, allNodes: Node[]): { x: number; y: number } {
-		if (n.parentId) {
+	function absolutePosition(n: Node, allNodes: Node[], depth = 0): { x: number; y: number } {
+		if (n.parentId && depth < 20) {
 			const parent = allNodes.find((p) => p.id === n.parentId)
 			if (parent) {
-				const parentAbs = absolutePosition(parent, allNodes)
+				const parentAbs = absolutePosition(parent, allNodes, depth + 1)
 				return { x: parentAbs.x + n.position.x, y: parentAbs.y + n.position.y }
 			}
 		}
@@ -110,6 +112,7 @@
 	let ghost = $derived.by(() => {
 		const moduleId = moveManager.dragging?.moduleId
 		if (!moduleId) return undefined
+		// Compute ghost once at drag start — don't react to node/edge changes during drag
 		return untrack(() => computeGhost(moduleId, nodes, edges))
 	})
 </script>
@@ -119,7 +122,7 @@
 		class="fixed pointer-events-none z-[10001] flex items-center justify-center w-5 h-5 rounded-full shadow border border-border transition-colors duration-150 {isNearDrop
 			? 'bg-surface-accent-primary text-white'
 			: 'bg-surface text-secondary'}"
-		style="left: {moveManager.ghostScreenX + 8}px; top: {moveManager.ghostScreenY + 8}px;"
+		style="left: {moveManager.ghostScreenX + CURSOR_INDICATOR_OFFSET}px; top: {moveManager.ghostScreenY + CURSOR_INDICATOR_OFFSET}px;"
 	>
 		<Move size={12} />
 	</div>

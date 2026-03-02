@@ -54,13 +54,22 @@ export function getSubflowNodeIds(
 	// Include child nodes (e.g. asset/AI tool nodes) of nodes added via edges.
 	// Nodes found through disableMoveIds (like inner module "b") may have children
 	// ("b-asset-in-...") that weren't caught by the initial prefix match on moduleId.
-	const edgeMatchedIds = [...nodeIds]
-	for (const n of allNodes) {
-		if (!nodeIds.has(n.id)) {
-			for (const id of edgeMatchedIds) {
-				if (n.id.startsWith(id + '-')) {
-					nodeIds.add(n.id)
-					break
+	// Only scan children of edge-added nodes that aren't already covered by the
+	// moduleId prefix (those children were already captured in the first pass).
+	const newFromEdges: string[] = []
+	for (const id of nodeIds) {
+		if (id !== moduleId && !id.startsWith(nodeIdPrefix)) {
+			newFromEdges.push(id)
+		}
+	}
+	if (newFromEdges.length > 0) {
+		for (const n of allNodes) {
+			if (!nodeIds.has(n.id)) {
+				for (const id of newFromEdges) {
+					if (n.id.startsWith(id + '-')) {
+						nodeIds.add(n.id)
+						break
+					}
 				}
 			}
 		}
