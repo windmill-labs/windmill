@@ -8,27 +8,25 @@
 
 	type ConvertedFile = string | ArrayBuffer | null
 
-	
-
 	const dispatch = createEventDispatcher()
-	let input: HTMLInputElement = $state()
+	let input: HTMLInputElement | undefined = $state()
 	type FileWithPath = File & { path?: string }
 	interface Props {
-		class?: string;
-		style?: string;
-		accept?: string;
-		multiple?: boolean;
-		convertTo?: ReadFileAs | undefined;
-		hideIcon?: boolean;
-		iconSize?: number;
-		returnFileNames?: boolean;
-		submittedText?: string | undefined;
-		defaultFile?: string | string[] | undefined;
-		disabled?: boolean | undefined;
-		folderOnly?: boolean;
-		files?: FileWithPath[] | undefined;
-		selectedTitle?: import('svelte').Snippet;
-		children?: import('svelte').Snippet;
+		class?: string
+		style?: string
+		accept?: string
+		multiple?: boolean
+		convertTo?: ReadFileAs | undefined
+		hideIcon?: boolean
+		iconSize?: number
+		returnFileNames?: boolean
+		submittedText?: string | undefined
+		defaultFile?: string | string[] | undefined
+		disabled?: boolean | undefined
+		folderOnly?: boolean
+		files?: FileWithPath[] | undefined
+		selectedTitle?: import('svelte').Snippet
+		children?: import('svelte').Snippet
 		[key: string]: any
 	}
 
@@ -49,7 +47,7 @@
 		selectedTitle,
 		children,
 		...rest
-	}: Props = $props();
+	}: Props = $props()
 
 	let pointerStartX = $state(0)
 	let pointerStartY = $state(0)
@@ -74,7 +72,7 @@
 
 		// Needs to be reset so the same file can be selected
 		// multiple times in a row
-		input.value = ''
+		if (input) input.value = ''
 
 		dispatchChange()
 	}
@@ -263,10 +261,8 @@
 				{/each}
 			</ul>
 		</div>
-	{:else}
-		{#if children}{@render children()}{:else}
-			<span>Drag and drop {folderOnly ? 'a folder' : multiple ? 'files' : 'a file'}</span>
-		{/if}
+	{:else if children}{@render children()}{:else}
+		<span>Drag and drop {folderOnly ? 'a folder' : multiple ? 'files' : 'a file'}</span>
 	{/if}
 	<input
 		class="!absolute !inset-0 !z-10 !opacity-0 !cursor-pointer"

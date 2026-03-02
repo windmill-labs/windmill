@@ -592,7 +592,7 @@
 												{argName}
 												{#if !uiOnly}
 													<div onclick={stopPropagation(preventDefault(bubble('click')))}>
-														<Popover placement="bottom-end" containerClasses="p-4" closeButton>
+														<Popover placement="bottom-end" closeButton>
 															{#snippet trigger()}
 																<Button
 																	variant="subtle"

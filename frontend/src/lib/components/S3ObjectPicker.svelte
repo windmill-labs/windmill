@@ -12,16 +12,16 @@
 	import FileUpload from './common/fileUpload/FileUpload.svelte'
 
 	interface Props {
-		value: any;
-		editor?: SimpleEditor | undefined;
+		value: any
+		editor?: SimpleEditor | undefined
 	}
 
-	let { value = $bindable(), editor = $bindable(undefined) }: Props = $props();
+	let { value = $bindable(), editor = $bindable(undefined) }: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
-	let s3FilePicker: S3FilePicker = $state()
-	let s3FileUploadRawMode: false = $state()
+	let s3FilePicker: S3FilePicker | undefined = $state()
+	let s3FileUploadRawMode: boolean | undefined = $state()
 	let el: HTMLTextAreaElement | undefined = undefined
 	let rawValue: string | undefined = $state(undefined)
 

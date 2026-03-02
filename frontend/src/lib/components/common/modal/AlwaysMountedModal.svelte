@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { stopPropagation } from 'svelte/legacy';
+	import { stopPropagation } from 'svelte/legacy'
 
 	import Portal from '$lib/components/Portal.svelte'
 
@@ -9,23 +9,15 @@
 	import { getContext } from 'svelte'
 	import type { AppViewerContext } from '$lib/components/apps/types'
 
-
 	interface Props {
-		title: string;
-		style?: string;
-		css?: any;
-		class?: string;
-		children?: import('svelte').Snippet;
+		title: string
+		style?: string
+		css?: any
+		class?: string
+		children?: import('svelte').Snippet
 	}
 
-	let {
-		title,
-		style = '',
-		css = {},
-		class: className = '',
-		children
-	}: Props = $props();
-	
+	let { title, style = '', css = {}, class: className = '', children }: Props = $props()
 
 	const { mode } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -57,10 +49,7 @@
 					css?.popup?.class,
 					'wm-modal-form-popup'
 				)}
-				use:clickOutside
-				onclick_outside={() => {
-					close()
-				}}
+				use:clickOutside={{ onClickOutside: () => close() }}
 			>
 				<div class="px-4 py-2 border-b flex justify-between items-center">
 					<div>{title}</div>

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
+	import { run } from 'svelte/legacy'
 
 	import { Button, Drawer } from './common'
 
@@ -7,7 +7,7 @@
 
 	import { Loader2, Save } from 'lucide-svelte'
 
-	let drawer: Drawer = $state()
+	let drawer: Drawer | undefined = $state()
 	let canSave = $state(true)
 	let resource_type: string | undefined = $state(undefined)
 	let defaultValues: Record<string, any> | undefined = $state(undefined)
@@ -22,7 +22,7 @@
 		resource_type = undefined
 		newResource = false
 		path = p
-		drawer.openDrawer?.()
+		drawer?.openDrawer?.()
 	}
 
 	export async function initNew(
@@ -33,20 +33,20 @@
 		path = undefined
 		resource_type = resourceType
 		defaultValues = nDefaultValues
-		drawer.openDrawer?.()
+		drawer?.openDrawer?.()
 	}
 
 	let mode: 'edit' | 'new' = $state(newResource ? 'new' : 'edit')
 
 	run(() => {
 		path ? (mode = 'edit') : (mode = 'new')
-	});
+	})
 </script>
 
 <Drawer bind:this={drawer} size="800px">
 	<DrawerContent
 		title={mode == 'edit' ? 'Edit ' + path : 'Add a resource'}
-		on:close={drawer.closeDrawer}
+		on:close={drawer?.closeDrawer}
 	>
 		{#await import('./ResourceEditor.svelte')}
 			<Loader2 class="animate-spin" />
@@ -72,7 +72,7 @@
 					} else {
 						resourceEditor?.createResource()
 					}
-					drawer.closeDrawer()
+					drawer?.closeDrawer()
 				}}
 				disabled={!canSave}
 			>

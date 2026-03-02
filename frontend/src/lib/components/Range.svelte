@@ -1,18 +1,18 @@
 <script lang="ts">
-	import { run, createBubbler, stopPropagation } from 'svelte/legacy';
+	import { run, createBubbler, stopPropagation } from 'svelte/legacy'
 
-	const bubble = createBubbler();
+	const bubble = createBubbler()
 	import RangeSlider from 'svelte-range-slider-pips'
 
 	interface Props {
-		min?: number;
-		max?: number;
-		initialValue?: number;
-		value?: any;
-		disabled?: boolean;
-		defaultValue?: number | undefined;
-		format?: (value: number) => string;
-		hideInput?: boolean;
+		min?: number
+		max?: number
+		initialValue?: number
+		value?: any
+		disabled?: boolean
+		defaultValue?: number | undefined
+		format?: (value: number) => string
+		hideInput?: boolean
 	}
 
 	let {
@@ -24,11 +24,11 @@
 		defaultValue = undefined,
 		format = (v) => `${v}`,
 		hideInput = false
-	}: Props = $props();
+	}: Props = $props()
 
 	let step: number = 1
 
-	let slider: HTMLElement = $state()
+	let slider: HTMLElement | undefined = $state()
 
 	function calculateAxisStep(min: number, max: number): number {
 		const range = max - min
@@ -39,7 +39,7 @@
 		if (value === null) {
 			value = 0
 		}
-	});
+	})
 
 	let axisStep = $derived(calculateAxisStep(min, max))
 

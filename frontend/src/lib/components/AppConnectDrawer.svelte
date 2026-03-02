@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
+	import { run } from 'svelte/legacy'
 
 	import { createEventDispatcher } from 'svelte'
 	import { Button, Drawer } from './common'
@@ -9,12 +9,12 @@
 	import DarkModeObserver from './DarkModeObserver.svelte'
 
 	interface Props {
-		expressOAuthSetup?: boolean;
+		expressOAuthSetup?: boolean
 	}
 
-	let { expressOAuthSetup = false }: Props = $props();
+	let { expressOAuthSetup = false }: Props = $props()
 
-	let drawer: Drawer = $state()
+	let drawer: Drawer | undefined = $state()
 	let resourceType = $state('')
 	let step = $state(1)
 	let disabled = $state(false)
@@ -26,9 +26,8 @@
 	let rtToLoad: string | undefined = $state('')
 	export async function open(rt?: string) {
 		rtToLoad = rt
-		drawer.openDrawer?.()
+		drawer?.openDrawer?.()
 	}
-
 
 	function onRtToLoadChange(rtToLoad: string | undefined) {
 		appConnectInner?.open(rtToLoad)
@@ -39,7 +38,7 @@
 	let darkMode: boolean = $state(false)
 	run(() => {
 		appConnectInner && onRtToLoadChange(rtToLoad)
-	});
+	})
 </script>
 
 <DarkModeObserver bind:darkMode />
@@ -55,7 +54,7 @@
 	<DrawerContent
 		title="Add a resource"
 		id="add-resource-drawer"
-		on:close={drawer.closeDrawer}
+		on:close={drawer?.closeDrawer}
 		tooltip="Resources represent connections to third party systems. Learn more on how to integrate external APIs."
 		documentationLink="https://www.windmill.dev/docs/integrations/integrations_on_windmill"
 	>

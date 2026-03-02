@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
+	import { run } from 'svelte/legacy'
 
 	import { type GridApi, createGrid, type IDatasource } from 'ag-grid-community'
 
@@ -17,18 +17,13 @@
 
 	let selectedRowIndex = -1
 	interface Props {
-		s3resource: string;
-		storage: string | undefined;
-		workspaceId: string | undefined;
-		disable_download?: boolean;
+		s3resource: string
+		storage: string | undefined
+		workspaceId: string | undefined
+		disable_download?: boolean
 	}
 
-	let {
-		s3resource,
-		storage,
-		workspaceId,
-		disable_download = false
-	}: Props = $props();
+	let { s3resource, storage, workspaceId, disable_download = false }: Props = $props()
 
 	let lastSearch: string | undefined = undefined
 
@@ -106,8 +101,7 @@
 		toggleRow(rows[0])
 	}
 
-	let eGui: HTMLDivElement = $state()
-
+	let eGui: HTMLDivElement | undefined = $state()
 
 	let error: string | undefined = $state(undefined)
 	async function mountGrid() {
@@ -183,7 +177,7 @@
 	let darkMode: boolean = $state(false)
 	run(() => {
 		eGui && mountGrid()
-	});
+	})
 </script>
 
 <DarkModeObserver bind:darkMode />
