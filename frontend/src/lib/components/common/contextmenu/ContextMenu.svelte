@@ -85,6 +85,11 @@
 		exclude: getMenuElements,
 		onClickOutside: handlePointerDownOutside
 	}}
+	onpointerdown={(e) => {
+		if (e.button === 0 && open.get()) {
+			close()
+		}
+	}}
 	data-context-menu-trigger
 >
 	{@render children?.()}
