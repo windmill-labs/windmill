@@ -97,7 +97,7 @@ if __name__ == "__main__":
     go_mod_path = os.path.join(monaco_path, "go.mod")
     if not os.path.exists(go_mod_path):
         f = open(go_mod_path, "w")
-        f.write("module mymod\ngo 1.25")
+        f.write("module mymod\ngo 1.26")
         f.close()
     port = int(os.environ.get("PORT", "3001"))
     app = web.Application(

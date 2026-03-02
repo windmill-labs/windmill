@@ -16,7 +16,7 @@ export default defineConfig({
 			formats: ['es']
 		},
 		outDir: 'dist/sharedUtils',
-		rollupOptions: {
+		rolldownOptions: {
 			external: [],
 			output: {
 				globals: {}

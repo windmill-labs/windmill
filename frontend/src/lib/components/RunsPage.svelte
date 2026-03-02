@@ -168,9 +168,10 @@
 		resultError,
 		perPage: perPage.val,
 		lookback: graph === 'RunChart' ? 0 : lookback,
-		onSetPerPage: (p) => (perPage.val = p),
 		currentWorkspace: $workspaceStore ?? ''
 	}))
+	let batchProgress = $derived(jobsLoader.batchProgress)
+	let currentBatchSize = $derived(jobsLoader.currentBatchSize)
 	let lastFetchWentToEnd = $derived(jobsLoader.lastFetchWentToEnd)
 	let queue_count = $derived(jobsLoader.queue_count)
 	let suspended_count = $derived(jobsLoader.suspended_count)
@@ -781,7 +782,7 @@
 						tooltip={'How far behind the min datetime to start considering jobs for the concurrency graph. Change this value to include jobs started before the set time window for the computation of the graph'}
 					/>
 				{:else if !lastFetchWentToEnd && (jobs?.length ?? 0) >= (perPage.val ?? 1000)}
-					<Button wrapperClasses="ml-2" unifiedSize="md" onClick={() => jobsLoader.loadExtraJobs()}>
+					<Button wrapperClasses="ml-2" unifiedSize="md" loading={jobsLoader.loadingExtra} onClick={() => jobsLoader.loadExtraJobs()}>
 						Load more
 						<Tooltip>There are more jobs to load</Tooltip>
 					</Button>
@@ -821,6 +822,40 @@
 				<Pane minSize={40}>
 					<div class="h-full flex">
 						<div class="flex flex-col flex-1 m-4 mt-2 mr-2">
+							{#if batchProgress}
+								<div class="flex items-center gap-3 px-1 pb-2 text-xs text-secondary">
+									<span>Loading jobs: {batchProgress.loaded} of {batchProgress.total}...</span>
+									<div class="flex-1 bg-surface-hover rounded-full h-1.5">
+										<div
+											class="bg-blue-500 h-1.5 rounded-full transition-all duration-300"
+											style="width: {Math.round((batchProgress.loaded / batchProgress.total) * 100)}%"
+										></div>
+									</div>
+									{#if currentBatchSize != null}
+										<span class="whitespace-nowrap shrink-0">Batch size:</span>
+										<input
+											type="number"
+											min="1"
+											max="1000"
+											value={currentBatchSize}
+											class="!w-14 shrink-0 text-xs px-1 py-0.5 border rounded text-center"
+											onchange={(e) => {
+												const v = parseInt(e.currentTarget.value)
+												if (v >= 1 && v <= 1000) {
+													jobsLoader.restreamWithBatchSize(v)
+												}
+											}}
+										/>
+									{/if}
+									<Button
+										size="xs"
+										destructive
+										onClick={() => jobsLoader.stopBatchLoading()}
+									>
+										Stop
+									</Button>
+								</div>
+							{/if}
 							<!-- Runs table. Add overflow-hidden because scroll is handled inside the runs table based on this wrapper height -->
 							<div class="grow min-h-0 overflow-y-hidden overflow-x-auto">
 								{#if jobs}
@@ -831,6 +866,7 @@
 										showExternalJobs={graph !== 'RunChart'}
 										activeLabel={filters.val.label}
 										{lastFetchWentToEnd}
+										loadingExtra={jobsLoader.loadingExtra}
 										bind:selectedIds
 										bind:selectedWorkspace
 										on:loadExtra={loadExtra}
