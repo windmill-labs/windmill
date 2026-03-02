@@ -420,6 +420,8 @@ pub struct OAuthClient {
     pub login_config: Option<OAuthConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub share_with_workspaces: Option<bool>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub grant_types: Vec<String>,
 }
 
 /// OAuth provider endpoint configuration.
@@ -438,6 +440,8 @@ pub struct OAuthConfig {
     pub extra_params_callback: Option<BTreeMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub req_body_auth: Option<bool>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub grant_types: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -2235,6 +2239,7 @@ mod tests {
                         connect_config: None,
                         login_config: None,
                         share_with_workspaces: None,
+                        grant_types: vec![],
                     },
                 );
                 m
