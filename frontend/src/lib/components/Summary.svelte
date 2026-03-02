@@ -2,12 +2,8 @@
 	import { Pen } from 'lucide-svelte'
 	import TextInput from './text_input/TextInput.svelte'
 
-	interface Props {
-		value: string;
-		disabled?: boolean;
-	}
-
-	let { value = $bindable(), disabled = false }: Props = $props();
+	export let value: string
+	export let disabled = false
 
 	function blur(e: KeyboardEvent) {
 		e.key === 'Enter' && (e?.target as any)?.blur()

@@ -1,17 +1,10 @@
 <script lang="ts">
-	interface Props {
-		open?: boolean;
-		onOpen?: () => void;
-		onClose?: () => void;
-	}
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
+	import { createEventDispatcher } from 'svelte'
 
-	let { open = false, onOpen = undefined, onClose = undefined }: Props = $props();
+	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
+	export let open: boolean = false
 
-	$effect(() => {
-		if (open) {
-			onOpen?.()
-		} else {
-			onClose?.()
-		}
-	});
+	$: dispatchIfMounted(open ? 'open' : 'close')
 </script>

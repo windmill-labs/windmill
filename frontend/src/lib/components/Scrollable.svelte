@@ -2,19 +2,14 @@
 	import { onMount, onDestroy } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 
-	let isAtBottom: boolean = $state(false)
-	let isScrollable = $state(false)
+	let isAtBottom: boolean = false
+	let isScrollable = false
 
-	interface Props {
-		id?: string | null | undefined
-		scrollableClass?: string
-		shiftedShadow?: boolean
-		children?: import('svelte').Snippet
-	}
-
-	let { id = undefined, scrollableClass = '', shiftedShadow = false, children }: Props = $props()
+	export let id: string | null | undefined = undefined
+	export let scrollableClass: string = ''
+	export let shiftedShadow: boolean = false
 	let mutationObserver: MutationObserver
-	let el: HTMLDivElement | undefined = $state()
+	let el: HTMLDivElement
 
 	function handleScroll(event) {
 		const scrollableElement = event.target
@@ -38,7 +33,7 @@
 	}
 
 	export function scrollIntoView(top: number) {
-		el?.scrollTo({ top, behavior: 'smooth' })
+		el.scrollTo({ top, behavior: 'smooth' })
 	}
 	onMount(() => {
 		observeScrollability(el)
@@ -50,8 +45,8 @@
 </script>
 
 <div {id} class={twMerge('relative pb-1', scrollableClass)}>
-	<div bind:this={el} onscroll={handleScroll} class="w-full h-full overflow-y-auto">
-		{@render children?.()}
+	<div bind:this={el} on:scroll={handleScroll} class="w-full h-full overflow-y-auto">
+		<slot />
 	</div>
 	{#if !isAtBottom && isScrollable}
 		<div

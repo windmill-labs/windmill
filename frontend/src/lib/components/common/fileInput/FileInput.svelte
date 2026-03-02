@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { createEventDispatcher } from 'svelte'
 	import { FileUp, Trash } from 'lucide-svelte'
 	import Button from '../../common/button/Button.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -7,47 +8,24 @@
 
 	type ConvertedFile = string | ArrayBuffer | null
 
-	type FileWithPath = File & { path?: string }
+	let c = ''
+	export { c as class }
+	export let style = ''
+	export let accept = '*'
+	export let multiple = false
+	export let convertTo: ReadFileAs | undefined = undefined
+	export let hideIcon = false
+	export let iconSize = 24
+	export let returnFileNames = false
+	export let submittedText: string | undefined = undefined
+	export let defaultFile: string | string[] | undefined = undefined
+	export let disabled: boolean | undefined = undefined
+	export let folderOnly = false
 
-	interface Props {
-		class?: string
-		style?: string
-		accept?: string
-		multiple?: boolean
-		convertTo?: ReadFileAs | undefined
-		hideIcon?: boolean
-		iconSize?: number
-		returnFileNames?: boolean
-		submittedText?: string | undefined
-		defaultFile?: string | string[] | undefined
-		disabled?: boolean | undefined
-		folderOnly?: boolean
-		files?: FileWithPath[] | undefined
-		selected_title?: import('svelte').Snippet
-		children?: import('svelte').Snippet
-		onChange?: (detail: any) => void
-	}
-
-	let {
-		class: c = '',
-		style = '',
-		accept = '*',
-		multiple = false,
-		convertTo = undefined,
-		hideIcon = false,
-		iconSize = 24,
-		returnFileNames = false,
-		submittedText = undefined,
-		defaultFile = undefined,
-		disabled = undefined,
-		folderOnly = false,
-		files = $bindable(undefined),
-		selected_title,
-		children,
-		onChange
-	}: Props = $props()
-
+	const dispatch = createEventDispatcher()
 	let input: HTMLInputElement
+	type FileWithPath = File & { path?: string }
+	export let files: FileWithPath[] | undefined = undefined
 
 	let pointerStartX = 0
 	let pointerStartY = 0
@@ -57,10 +35,10 @@
 		pointerStartY = e.clientY
 	}
 
-	async function handleFileChange(fileList: FileWithPath[] | null) {
+	async function onChange(fileList: FileWithPath[] | null) {
 		if (!fileList || !fileList.length) {
 			files = undefined
-			onChange?.(files)
+			dispatch('change', files)
 			return
 		}
 
@@ -120,14 +98,14 @@
 		dirEntry: FileSystemDirectoryEntry,
 		path: string
 	): Promise<FileWithPath[]> {
-		const filesArr: FileWithPath[] = []
+		const files: FileWithPath[] = []
 		const dirReader = dirEntry.createReader()
 
 		async function readEntries() {
 			return new Promise<FileWithPath[]>((resolve) => {
 				dirReader.readEntries(async (entries) => {
 					if (entries.length === 0) {
-						resolve(filesArr)
+						resolve(files)
 						return
 					}
 
@@ -135,7 +113,7 @@
 						return traverseFileTree(entry, path + dirEntry.name + '/')
 					})
 					const nestedFiles = await Promise.all(filePromises)
-					filesArr.push(...nestedFiles.flat())
+					files.push(...nestedFiles.flat())
 					// readEntries only return up to 100 files
 					// continue reading if more files exist
 					resolve(await readEntries())
@@ -163,8 +141,8 @@
 			if (folderOnly) {
 				const item = event.dataTransfer.items[0]?.webkitGetAsEntry()
 				if (item) {
-					const droppedFiles = await traverseFileTree(item, '')
-					handleFileChange(droppedFiles)
+					const files = await traverseFileTree(item, '')
+					onChange(files)
 				}
 			} else {
 				if (event.dataTransfer.files && event.dataTransfer.files.length) {
@@ -172,7 +150,7 @@
 						sendUserToast('Only one file can be uploaded at a time')
 						return
 					} else {
-						handleFileChange(Array.from(event.dataTransfer.files))
+						onChange(Array.from(event.dataTransfer.files))
 					}
 				}
 			}
@@ -195,9 +173,9 @@
 			if (returnFileNames) {
 				converted = converted.map((c, i) => ({ name: files![i].name, data: c }))
 			}
-			onChange?.(converted)
+			dispatch('change', converted)
 		} else {
-			onChange?.(files)
+			dispatch('change', files)
 		}
 	}
 
@@ -216,10 +194,10 @@
 		duration-200 px-1 py-8`,
 		c
 	)}
-	ondragover={handleDragOver}
-	ondrop={handleDrop}
-	onpointerdown={handlePointerDown}
-	onclick={(e) => {
+	on:dragover={handleDragOver}
+	on:drop={handleDrop}
+	on:pointerdown={handlePointerDown}
+	on:click={(e) => {
 		const deltaX = Math.abs(e.clientX - pointerStartX)
 		const deltaY = Math.abs(e.clientY - pointerStartY)
 		if (deltaX > 5 || deltaY > 5) {
@@ -236,13 +214,11 @@
 	{/if}
 	{#if files}
 		<div class="w-full max-h-full overflow-auto px-6">
-			{#if selected_title}
-				{@render selected_title()}
-			{:else}
+			<slot name="selected-title">
 				<div class="text-center mb-2 px-2">
 					{submittedText ? submittedText : `Selected file${files.length > 1 ? 's' : ''}`}:
 				</div>
-			{/if}
+			</slot>
 			<ul class="relative z-20 max-w-[500px] bg-surface rounded-lg overflow-hidden mx-auto">
 				{#each files as { name }, i}
 					<li
@@ -256,7 +232,7 @@
 							iconOnly
 							btnClasses="bg-transparent"
 							startIcon={{ icon: Trash }}
-							onclick={() => removeFile(i)}
+							on:click={() => removeFile(i)}
 							destructive
 						/>
 					</li>
@@ -264,11 +240,9 @@
 			</ul>
 		</div>
 	{:else}
-		{#if children}
-			{@render children()}
-		{:else}
+		<slot>
 			<span>Drag and drop {folderOnly ? 'a folder' : multiple ? 'files' : 'a file'}</span>
-		{/if}
+		</slot>
 	{/if}
 	<input
 		class="!absolute !inset-0 !z-10 !opacity-0 !cursor-pointer"
@@ -276,11 +250,12 @@
 		{...{ webkitdirectory: folderOnly }}
 		title={files ? `${files.length} file${files.length > 1 ? 's' : ''} chosen` : 'No file chosen'}
 		bind:this={input}
-		onchange={({ currentTarget }) => {
-			handleFileChange(currentTarget.files ? Array.from(currentTarget.files) : null)
+		on:change={({ currentTarget }) => {
+			onChange(currentTarget.files ? Array.from(currentTarget.files) : null)
 		}}
 		{accept}
 		{multiple}
+		{...$$restProps}
 	/>
 	{#if defaultFile && (!Array.isArray(defaultFile) || defaultFile.length > 0)}
 		<div class="w-full border-dashed border-t-2 text-2xs pt-1 text-primary mt-2">

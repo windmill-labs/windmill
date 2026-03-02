@@ -1,12 +1,8 @@
 <script lang="ts">
 	import Notification from '$lib/components/common/alert/Notification.svelte'
 
-	interface Props {
-		notificationCount?: number;
-		small?: boolean;
-	}
-
-	let { notificationCount = 0, small = false }: Props = $props();
+	export let notificationCount = 0
+	export let small: boolean = false
 </script>
 
 {#if !small}

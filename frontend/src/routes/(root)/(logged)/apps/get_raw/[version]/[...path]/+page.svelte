@@ -4,7 +4,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { onDestroy, onMount } from 'svelte'
 	import { page } from '$app/state'
-	let loaded = $state(false)
+	let loaded = false
 
 	onMount(async () => {
 		globalThis.windmill = {

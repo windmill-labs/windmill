@@ -18,36 +18,33 @@
 		Unplug
 	} from 'lucide-svelte'
 
-	interface Props {
-		kind:
-			| 'script'
-			| 'flow'
-			| 'app'
-			| 'raw_app'
-			| 'resource'
-			| 'variable'
-			| 'resource_type'
-			| 'folder'
-			| 'schedule'
-			| 'trigger'
-			| 'routes'
-			| 'schedules'
-			| 'websockets'
-			| 'postgres'
-			| 'kafka'
-			| 'nats'
-			| 'mqtt'
-			| 'sqs'
-			| 'gcp'
-			| 'emails'
-		/** For 'trigger' kind, specifies the specific trigger type (routes, schedules, etc.) */
-		triggerKind?: string | undefined
-	}
+	export let kind:
+		| 'script'
+		| 'flow'
+		| 'app'
+		| 'raw_app'
+		| 'resource'
+		| 'variable'
+		| 'resource_type'
+		| 'folder'
+		| 'schedule'
+		| 'trigger'
+		| 'routes'
+		| 'schedules'
+		| 'websockets'
+		| 'postgres'
+		| 'kafka'
+		| 'nats'
+		| 'mqtt'
+		| 'sqs'
+		| 'gcp'
+		| 'emails'
 
-	let { kind, triggerKind = undefined }: Props = $props()
+	/** For 'trigger' kind, specifies the specific trigger type (routes, schedules, etc.) */
+	export let triggerKind: string | undefined = undefined
 
 	// Use triggerKind if kind is 'trigger' and triggerKind is provided
-	let effectiveKind = $derived(kind === 'trigger' && triggerKind ? triggerKind : kind)
+	$: effectiveKind = kind === 'trigger' && triggerKind ? triggerKind : kind
 </script>
 
 <div class="flex justify-center items-center" title={effectiveKind}>

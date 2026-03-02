@@ -1,4 +1,4 @@
-<script module>
+<script context="module">
 	export function load({ params }) {
 		return {
 			stuff: { title: `Script ${params.path}` }

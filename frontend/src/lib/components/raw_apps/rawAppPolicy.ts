@@ -1,11 +1,6 @@
 import type { Policy, ScriptLang } from '$lib/gen'
 import { collectStaticFields, hash, type TriggerableV2 } from '../apps/editor/commonAppUtils'
-import {
-	isRunnableByName,
-	isRunnableByPath,
-	type InlineScript,
-	type RunnableWithFields
-} from '../apps/inputType'
+import { isRunnableByName, isRunnableByPath, type InlineScript, type RunnableWithFields } from '../apps/inputType'
 
 export async function updateRawAppPolicy(
 	runnables: Record<string, Runnable>,

@@ -8,12 +8,7 @@
 	let divEl: HTMLDivElement | null = null
 	let editor: meditor.IStandaloneCodeEditor
 
-	interface Props {
-		code?: string
-		class?: string
-	}
-
-	let { code = '', class: c = '' }: Props = $props()
+	export let code: string = ''
 
 	async function loadMonaco() {
 		editor = meditor.create(divEl as HTMLDivElement, {
@@ -48,4 +43,4 @@
 	})
 </script>
 
-<div bind:this={divEl} class="{c ?? ''} editor"></div>
+<div bind:this={divEl} class="{$$props.class ?? ''} editor"></div>

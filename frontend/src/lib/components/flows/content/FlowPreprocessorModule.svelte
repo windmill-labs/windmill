@@ -4,14 +4,10 @@
 	import FlowModuleWrapper from './FlowModuleWrapper.svelte'
 	import type { FlowModule } from '$lib/gen'
 
-	interface Props {
-		noEditor?: boolean;
-		savedModule?: FlowModule | undefined;
-	}
+	export let noEditor = false
+	export let savedModule: FlowModule | undefined = undefined
 
-	let { noEditor = false, savedModule = undefined }: Props = $props();
-
-	const { flowStore } = $state(getContext<FlowEditorContext>('FlowEditorContext'))
+	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 </script>
 
 {#if flowStore.val.value.preprocessor_module}

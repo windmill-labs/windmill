@@ -51,10 +51,7 @@
 	/>
 {:else if isMcpTool(tool)}
 	<!-- MCP tool - use McpToolEditor -->
-	<McpToolEditor bind:tool={
-		() => tool as McpTool,
-		(v) => (tool = v)
-	} />
+	<McpToolEditor bind:tool={tool as McpTool} />
 {:else if isWebsearchTool(tool)}
 	<WebsearchToolDisplay />
 {/if}

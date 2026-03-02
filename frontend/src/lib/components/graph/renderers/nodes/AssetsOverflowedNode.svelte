@@ -53,22 +53,18 @@
 			)}
 			placement="top"
 		>
-			{#snippet trigger()}
-					
-					+{data.overflowedAssets.length}
-				
-					{/snippet}
-			{#snippet content()}
-					
-					<ul>
-						{#each data.overflowedAssets as asset}
-							<li class="w-48">
-								<AssetNode data={{ asset, displayedAccessType: data.displayedAccessType }} />
-							</li>
-						{/each}
-					</ul>
-				
-					{/snippet}
+			<svelte:fragment slot="trigger">
+				+{data.overflowedAssets.length}
+			</svelte:fragment>
+			<svelte:fragment slot="content">
+				<ul>
+					{#each data.overflowedAssets as asset}
+						<li class="w-48">
+							<AssetNode data={{ asset, displayedAccessType: data.displayedAccessType }} />
+						</li>
+					{/each}
+				</ul>
+			</svelte:fragment>
 		</Popover>
 	{/snippet}
 </NodeWrapper>

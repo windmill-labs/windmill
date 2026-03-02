@@ -14,14 +14,16 @@ export function getSubModules(flowModule: FlowModule): ModuleBranches {
 		// Return AI agent tools as pseudo-FlowModules for searching
 		if (flowModule.value.tools) {
 			return [
-				flowModule.value.tools.filter(isFlowModuleTool).map(
-					(tool) =>
-						({
-							id: tool.id,
-							value: tool.value,
-							summary: tool.summary
-						}) as FlowModule
-				)
+				flowModule.value.tools
+					.filter(isFlowModuleTool)
+					.map(
+						(tool) =>
+							({
+								id: tool.id,
+								value: tool.value,
+								summary: tool.summary
+							}) as FlowModule
+					)
 			]
 		}
 	}
@@ -72,7 +74,7 @@ function filterDependentComponents(modules: FlowModule[], id: string): Record<st
 				modules
 					.map((mod) => [mod.id, getModuleExprs(mod).filter((expr) => expr.includes(`flow_input`))])
 					.filter((x) => x[1].length > 0)
-			)
+		  )
 		: Object.fromEntries(
 				modules
 					.map((mod) => [
@@ -83,7 +85,7 @@ function filterDependentComponents(modules: FlowModule[], id: string): Record<st
 						})
 					])
 					.filter((x) => x[1].length > 0)
-			)
+		  )
 }
 
 function getModuleExprs(x: FlowModule): string[] {

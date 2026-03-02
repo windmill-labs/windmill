@@ -2,14 +2,9 @@
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import { twMerge } from 'tailwind-merge'
 
-	interface Props {
-		color?: string
-		class?: string
-	}
-
-	let { color = 'black', class: c = '' }: Props = $props()
+	export let color: string = 'black'
 </script>
 
-<div class={twMerge(`text-${color}`, c)}>
+<div class={twMerge(`text-${color}`, $$props.class)}>
 	<BarsStaggered size={14} />
 </div>

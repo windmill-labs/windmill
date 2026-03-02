@@ -1,20 +1,22 @@
 import path from 'path'
 import fs from 'fs'
 
+
 // Check if we're in node_modules (installed as dependency)
 if (process.cwd().includes('node_modules')) {
-	console.log('Skipping postinstall - running as dependency')
-	process.exit(0)
+	console.log('Skipping postinstall - running as dependency');
+	process.exit(0);
 }
 
 // Check if we're in the root project
 if (process.env.INIT_CWD && process.env.INIT_CWD !== process.cwd()) {
-	console.log('Skipping postinstall - not root project')
-	process.exit(0)
+	console.log('Skipping postinstall - not root project');
+	process.exit(0);
 }
 
 // Your actual postinstall logic here
-console.log('Running postinstall for root project')
+console.log('Running postinstall for root project');
+
 
 import { x } from 'tar'
 
@@ -32,6 +34,7 @@ const __dirname = dirname(__filename)
 const response = await fetch(tarUrl)
 const buffer = await response.arrayBuffer()
 await fs.promises.writeFile(outputTarPath, Buffer.from(buffer))
+
 
 // Create extract directory if it doesn't exist
 try {

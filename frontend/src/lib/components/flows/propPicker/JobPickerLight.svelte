@@ -4,11 +4,7 @@
 	import type { Job } from '$lib/gen'
 	import OutputBadge from './OutputBadge.svelte'
 
-	interface Props {
-		job: Job | undefined;
-	}
-
-	let { job }: Props = $props();
+	export let job: Job | undefined
 </script>
 
 {#if job}

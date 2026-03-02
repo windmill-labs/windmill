@@ -46,7 +46,9 @@ export const FileItem: React.FC<FileItemProps> = ({ item, onDelete, onRename, on
 						autoFocus
 					/>
 				) : (
-					<span className={item.type === 'folder' ? 'cursor-pointer hover:text-blue-600' : ''}>
+					<span
+						className={item.type === 'folder' ? 'cursor-pointer hover:text-blue-600' : ''}
+					>
 						{item.name}
 					</span>
 				)}
@@ -65,7 +67,10 @@ export const FileItem: React.FC<FileItemProps> = ({ item, onDelete, onRename, on
 				>
 					Rename
 				</button>
-				<button onClick={() => onDelete(item)} className="text-red-500 hover:text-red-700 text-sm">
+				<button
+					onClick={() => onDelete(item)}
+					className="text-red-500 hover:text-red-700 text-sm"
+				>
 					Delete
 				</button>
 			</div>

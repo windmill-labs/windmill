@@ -1,23 +1,11 @@
 <script lang="ts">
 	import Tooltip from './Tooltip.svelte'
 
-	interface Props {
-		title: string;
-		tooltip?: string;
-		documentationLink?: string | undefined;
-		primary?: boolean;
-		childrenWrapperDivClasses?: string;
-		children?: import('svelte').Snippet;
-	}
-
-	let {
-		title,
-		tooltip = '',
-		documentationLink = undefined,
-		primary = true,
-		childrenWrapperDivClasses = '',
-		children
-	}: Props = $props();
+	export let title: string
+	export let tooltip: string = ''
+	export let documentationLink: string | undefined = undefined
+	export let primary: boolean = true
+	export let childrenWrapperDivClasses: string = ''
 </script>
 
 <div class="flex flex-row flex-wrap justify-between items-center pb-2 my-4 mr-2 min-h-16">
@@ -43,9 +31,9 @@
 		</span>
 	{/if}
 
-	{#if children}
+	{#if $$slots.default}
 		<div class="my-2 {childrenWrapperDivClasses}">
-			{@render children?.()}
+			<slot />
 		</div>
 	{/if}
 </div>

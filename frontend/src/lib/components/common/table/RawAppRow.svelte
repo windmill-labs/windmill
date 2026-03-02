@@ -69,7 +69,7 @@
 					}
 				]
 			}}
-			onOpen={() => {
+			on:open={() => {
 				menuOpen = true
 			}}
 		/>

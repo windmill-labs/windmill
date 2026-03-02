@@ -2,7 +2,7 @@
 	import { WorkerService } from '$lib/gen'
 	import { Alert } from './common'
 
-	let ips: string[] | undefined = $state(undefined)
+	let ips: string[] | undefined = undefined
 
 	WorkerService.listWorkers({ pingSince: 300 }).then((workers) => {
 		ips = [

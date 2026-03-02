@@ -2,11 +2,7 @@
 	import type { SchemaProperty } from '$lib/common'
 	import Badge from './common/badge/Badge.svelte'
 
-	interface Props {
-		property: SchemaProperty;
-	}
-
-	let { property }: Props = $props();
+	export let property: SchemaProperty
 </script>
 
 <div class="flex flex-row flex-wrap gap-1">

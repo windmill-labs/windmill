@@ -5,13 +5,9 @@
 	import { displayDate } from '$lib/utils'
 	import { Hourglass } from 'lucide-svelte'
 
-	interface Props {
-		type: FlowStatusModule['type'];
-		scheduled_for: Date | undefined;
-		skipped?: boolean;
-	}
-
-	let { type, scheduled_for, skipped = false }: Props = $props();
+	export let type: FlowStatusModule['type']
+	export let scheduled_for: Date | undefined
+	export let skipped: boolean = false
 </script>
 
 {#if type == 'WaitingForEvents'}

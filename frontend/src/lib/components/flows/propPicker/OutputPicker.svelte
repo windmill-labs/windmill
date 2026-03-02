@@ -145,7 +145,7 @@
 					}}
 					usePointerDownOutside
 					closeOnOutsideClick={false}
-					onclick={(e) => {
+					on:click={(e) => {
 						e.preventDefault()
 						e.stopPropagation()
 					}}
@@ -193,7 +193,7 @@
 				}}
 				usePointerDownOutside
 				closeOnOutsideClick={false}
-				onclick={(e) => {
+				on:click={(e) => {
 					e.preventDefault()
 					e.stopPropagation()
 				}}

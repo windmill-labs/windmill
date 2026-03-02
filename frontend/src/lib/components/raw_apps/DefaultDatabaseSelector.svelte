@@ -48,48 +48,44 @@
 </script>
 
 <Popover>
-	{#snippet trigger()}
-	
-			<Button
-				title="Configure default datatable & schema"
-				unifiedSize="xs"
-				variant="subtle"
-				nonCaptureEvent
-				btnClasses="px-1"
-			>
-				<Settings size={12} />
-			</Button>
-		
-	{/snippet}
-	{#snippet content()}
-	
-			<div class="flex flex-col gap-3 p-4 min-w-64 max-w-80">
-				<div class="text-xs font-medium text-primary">Default Datatable & Schema</div>
+	<svelte:fragment slot="trigger">
+		<Button
+			title="Configure default datatable & schema"
+			unifiedSize="xs"
+			variant="subtle"
+			nonCaptureEvent
+			btnClasses="px-1"
+		>
+			<Settings size={12} />
+		</Button>
+	</svelte:fragment>
+	<svelte:fragment slot="content">
+		<div class="flex flex-col gap-3 p-4 min-w-64 max-w-80">
+			<div class="text-xs font-medium text-primary">Default Datatable & Schema</div>
 
-				<p class="text-2xs text-tertiary leading-relaxed">
-					{description}
-				</p>
+			<p class="text-2xs text-tertiary leading-relaxed">
+				{description}
+			</p>
 
-				<div class="flex flex-col gap-1">
-					<span class="text-2xs text-tertiary">Database</span>
-					<Select
-						items={datatableItems}
-						bind:value={() => datatable, (v) => onChange?.(v, schema)}
-						placeholder="Select database"
-						size="sm"
-					/>
-				</div>
-
-				<div class="flex flex-col gap-1">
-					<span class="text-2xs text-tertiary">Schema</span>
-					<Select
-						items={schemaItems}
-						bind:value={() => schema ?? '', (v) => onChange?.(datatable, v || undefined)}
-						placeholder="public"
-						size="sm"
-					/>
-				</div>
+			<div class="flex flex-col gap-1">
+				<span class="text-2xs text-tertiary">Database</span>
+				<Select
+					items={datatableItems}
+					bind:value={() => datatable, (v) => onChange?.(v, schema)}
+					placeholder="Select database"
+					size="sm"
+				/>
 			</div>
-		
-	{/snippet}
+
+			<div class="flex flex-col gap-1">
+				<span class="text-2xs text-tertiary">Schema</span>
+				<Select
+					items={schemaItems}
+					bind:value={() => schema ?? '', (v) => onChange?.(datatable, v || undefined)}
+					placeholder="public"
+					size="sm"
+				/>
+			</div>
+		</div>
+	</svelte:fragment>
 </Popover>

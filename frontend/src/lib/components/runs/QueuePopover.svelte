@@ -5,12 +5,8 @@
 	import Skeleton from '../common/skeleton/Skeleton.svelte'
 	import { displayDate } from '$lib/utils'
 
-	let jobs: QueuedJob[] | undefined = $state(undefined)
-	interface Props {
-		allWorkspaces?: boolean;
-	}
-
-	let { allWorkspaces = false }: Props = $props();
+	let jobs: QueuedJob[] | undefined = undefined
+	export let allWorkspaces: boolean = false
 
 	getQueuedJobs()
 	async function getQueuedJobs() {
