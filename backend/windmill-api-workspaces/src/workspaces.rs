@@ -2863,9 +2863,8 @@ async fn clone_workspace_data(
     // Clone workspace runnable dependencies and dependency map
     clone_workspace_runnable_dependencies(tx, source_workspace_id, target_workspace_id).await?;
 
-    // TODO: Enable when git sync is implemented for workspace dependencies.
-    // // Clone workspace dependencies
-    // clone_workspace_dependencies(tx, source_workspace_id, target_workspace_id).await?;
+    // Clone workspace dependencies
+    clone_workspace_dependencies(tx, source_workspace_id, target_workspace_id).await?;
     Ok(())
 }
 
@@ -3362,13 +3361,12 @@ async fn clone_workspace_runnable_dependencies(
     Ok(())
 }
 
-#[allow(dead_code)]
 async fn clone_workspace_dependencies(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
 ) -> Result<()> {
-    // Clone workspace_runnable_dependencies
+    // Clone workspace_dependencies
     sqlx::query!(
         "INSERT INTO workspace_dependencies (workspace_id, language, name, description, content, archived, created_at)
          SELECT $1, language, name, description, content, archived, created_at
@@ -3501,17 +3499,6 @@ async fn create_workspace_fork(
 
     // Clone all data from the parent workspace using Rust implementation
     clone_workspace_data(&mut tx, &parent_workspace_id, &forked_id).await?;
-
-    sqlx::query!(
-        "INSERT INTO workspace_invite (workspace_id, email, is_admin, operator)
-           SELECT $1, email, is_admin, operator
-           FROM usr
-         WHERE workspace_id = $2",
-        &forked_id,
-        &parent_workspace_id
-    )
-    .execute(&mut *tx)
-    .await?;
 
     audit_log(
         &mut *tx,

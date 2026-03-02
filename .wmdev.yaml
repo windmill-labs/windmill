@@ -53,12 +53,11 @@ profiles:
          --endpoint-url "$(printenv R2_ENDPOINT)"
       3) The public URL will be:
          $(printenv R2_PUBLIC_URL)/<branch>/screenshot.png
-      4) Include screenshots in PR descriptions as markdown images:
-         ![description]($(printenv R2_PUBLIC_URL)/<branch>/screenshot.png)
+      4) Include in PR descriptions using markdown image syntax.
 
       --- Terminal Recordings (asciinema) ---
       You can record terminal sessions and upload them for sharing.
-      asciinema is pre-installed at /usr/local/bin/asciinema.
+      asciinema is available on PATH.
 
       1) Write a shell script with the commands to demo. Add sleep
           delays for readable pacing:
@@ -98,8 +97,7 @@ profiles:
       4) The public URL will be:
           $(printenv R2_PUBLIC_URL)/<branch>/diagram.svg
 
-      5) Include in PR descriptions as markdown images:
-          ![description]($(printenv R2_PUBLIC_URL)/<branch>/diagram.svg)
+      5) Include in PR descriptions using markdown image syntax.
 
 linkedRepos:
   - repo: windmill-labs/windmill-ee-private

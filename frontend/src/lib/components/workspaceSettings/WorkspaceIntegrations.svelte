@@ -57,6 +57,7 @@
 			displayName: 'Google',
 			description: 'Connect to Google for Drive and Calendar triggers',
 			icon: GoogleIcon,
+			docsUrl: 'https://www.windmill.dev/docs/core_concepts/native_triggers#google-triggers',
 			requiresBaseUrl: false,
 			clientIdPlaceholder: 'xxxx.apps.googleusercontent.com',
 			clientSecretPlaceholder: 'Google Cloud Console client secret',

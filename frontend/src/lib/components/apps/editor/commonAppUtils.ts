@@ -1,5 +1,4 @@
 import type { StaticAppInput } from '../inputType'
-import { Sha256 } from '@aws-crypto/sha256-js'
 
 export function collectStaticFields(fields: Record<string, StaticAppInput>) {
 	return Object.fromEntries(
@@ -26,6 +25,7 @@ export async function hash(message) {
 		return hashHex
 	} catch {
 		//subtle not available, trying pure js
+		const { Sha256 } = await import('@aws-crypto/sha256-js')
 		const hash = new Sha256()
 		hash.update(message ?? '')
 		const result = Array.from(await hash.digest())

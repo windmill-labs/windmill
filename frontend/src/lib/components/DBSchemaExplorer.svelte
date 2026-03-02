@@ -32,10 +32,10 @@
 	</ToggleButtonGroup>
 {/if}
 {#if dbSchema.lang === 'graphql'}
-	{#await import('$lib/components/GraphqlSchemaViewer.svelte')}
+	{#await Promise.all([import('$lib/components/GraphqlSchemaViewer.svelte'), formatGraphqlSchema(dbSchema.schema)])}
 		<Loader2 class="animate-spin" />
-	{:then Module}
-		<Module.default code={formatGraphqlSchema(dbSchema.schema)} class="h-full" />
+	{:then [Module, code]}
+		<Module.default {code} class="h-full" />
 	{/await}
 {:else}
 	<ObjectViewer json={formatSchema(dbSchema)} pureViewer collapseLevel={1} />

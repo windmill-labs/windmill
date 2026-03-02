@@ -45,7 +45,6 @@
 		allowTypeChange?: boolean
 		loading?: boolean
 		documentationLink?: string | undefined
-		markdownTooltip?: string | undefined
 	}
 
 	let {
@@ -64,8 +63,7 @@
 		displayType = false,
 		allowTypeChange = true,
 		loading = false,
-		documentationLink = undefined,
-		markdownTooltip = undefined
+		documentationLink = undefined
 	}: Props = $props()
 
 	$effect(() => {
@@ -97,9 +95,9 @@
 					{#if loading}
 						<Loader2 size={14} class="animate-spin ml-2" />
 					{/if}
-					{#if tooltip || markdownTooltip}
-						<Tooltip small {documentationLink} {markdownTooltip}>
-							{tooltip}
+					{#if tooltip}
+						<Tooltip small {documentationLink}>
+							{@html tooltip}
 						</Tooltip>
 					{/if}
 				</div>

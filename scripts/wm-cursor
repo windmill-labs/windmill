@@ -10,25 +10,30 @@ setopt err_exit no_unset pipe_fail
 
 local script_path=${0:A}
 
-# --- Resolve Cursor remote CLI (most recently modified) ---
+# --- Lazy Cursor CLI resolution (only when needed) ---
 
-local -a cursor_bins=(~/.cursor-server/cli/servers/*/server/bin/remote-cli/cursor(NOm))
-if (( ${#cursor_bins} == 0 )); then
-  print -u2 "Error: Cursor remote CLI not found in ~/.cursor-server/cli/servers/"
-  exit 1
-fi
-local cursor_bin=${cursor_bins[1]}
+local cursor_bin=
 
-# --- Refresh Cursor IPC socket (tmux may hold a stale one) ---
-# Multiple stale sockets may exist; probe to find a live one
+resolve_cursor_cli() {
+  [[ -n $cursor_bin ]] && return 0
 
-local sock
-for sock in /tmp/vscode-ipc-*.sock(NOm); do
-  if VSCODE_IPC_HOOK_CLI=$sock $cursor_bin --status &>/dev/null; then
-    export VSCODE_IPC_HOOK_CLI=$sock
-    break
+  local -a cursor_bins=(~/.cursor-server/cli/servers/*/server/bin/remote-cli/cursor(NOm))
+  if (( ${#cursor_bins} == 0 )); then
+    print -u2 "Error: Cursor remote CLI not found in ~/.cursor-server/cli/servers/"
+    exit 1
   fi
-done
+  cursor_bin=${cursor_bins[1]}
+
+  # Refresh Cursor IPC socket (tmux may hold a stale one)
+  # Multiple stale sockets may exist; probe to find a live one
+  local sock
+  for sock in /tmp/vscode-ipc-*.sock(NOm); do
+    if timeout 2 env VSCODE_IPC_HOOK_CLI=$sock $cursor_bin --status &>/dev/null; then
+      export VSCODE_IPC_HOOK_CLI=$sock
+      break
+    fi
+  done
+}
 
 # --- Helper functions ---
 
@@ -133,6 +138,7 @@ parse_features_flag() {
 # --- Subcommands ---
 
 cmd_add() {
+  resolve_cursor_cli
   ensure_tmux
   check_dev_db
 
@@ -166,6 +172,7 @@ cmd_open() {
   local name=${1:?Usage: wm-cursor open <name>}
   shift
 
+  resolve_cursor_cli
   ensure_tmux
   check_dev_db
 
@@ -202,6 +209,7 @@ cmd_close() {
 cmd_open_ee() {
   local name=${1:?Usage: wm-cursor open-ee <name>}
 
+  resolve_cursor_cli
   local wt_path=$(workmux path $name)
   local main_repo_root="$(cd "$(git -C "$wt_path" rev-parse --git-common-dir 2>/dev/null)/.." && pwd)"
 

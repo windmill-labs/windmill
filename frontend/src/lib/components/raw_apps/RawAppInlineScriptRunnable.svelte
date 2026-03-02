@@ -252,7 +252,6 @@
 										customTitle={meta?.['customTitle']}
 										loading={meta?.['loading']}
 										documentationLink={meta?.['documentationLink']}
-										markdownTooltip={meta?.['markdownTooltip']}
 										allowTypeChange={meta?.['allowTypeChange']}
 										displayType
 									/>

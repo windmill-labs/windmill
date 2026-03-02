@@ -3069,18 +3069,7 @@ This is a paragraph.
 					type: 'static',
 					value: 'yyyy-MM-dd',
 					fieldType: 'text',
-					markdownTooltip: `### Output format
-See date-fns format for more information. By default, it is 'yyyy-MM-dd'
-
-| Format      | Result | Description |
-| ----------- | ----------- | ----------- |
-| dd 				| 01, 02, ..., 31 | Day of the month |
-| d 				| 1, 2, ..., 31 | Day of the month |
-| MM 				| 01, 02, ..., 12 | Month |
-| MMM 				| Jan, Feb, ..., Dec | Month |
-| MMMM 				| January, February, ..., December | Month |
-| yyyy 				| 2021, 2022, ... | Year |
-`,
+					tooltip: `<b>Output format</b><br>See date-fns format for more information. Default: <code>yyyy-MM-dd</code><table class="mt-1 text-2xs"><tr><th class="pr-2 text-left">Format</th><th class="pr-2 text-left">Result</th><th class="text-left">Description</th></tr><tr><td><code>dd</code></td><td>01, 02, ..., 31</td><td>Day of the month</td></tr><tr><td><code>d</code></td><td>1, 2, ..., 31</td><td>Day of the month</td></tr><tr><td><code>MM</code></td><td>01, 02, ..., 12</td><td>Month</td></tr><tr><td><code>MMM</code></td><td>Jan, Feb, ..., Dec</td><td>Month</td></tr><tr><td><code>MMMM</code></td><td>January, ..., December</td><td>Month</td></tr><tr><td><code>yyyy</code></td><td>2021, 2022, ...</td><td>Year</td></tr></table>`,
 
 					documentationLink: 'https://date-fns.org/v2.30.0/docs/format',
 					placeholder: 'yyyy-MM-dd'
@@ -3131,21 +3120,7 @@ See date-fns format for more information. By default, it is 'yyyy-MM-dd'
 					fieldType: 'text',
 					documentationLink: 'https://date-fns.org/v2.30.0/docs/format',
 					placeholder: 'dd.MM.yyyy HH:mm',
-					markdownTooltip: `### Output format
-See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
-
-| Format      | Result | Description |
-| ----------- | ----------- | ----------- |
-| dd 				| 01, 02, ..., 31 | Day of the month |
-| d 				| 1, 2, ..., 31 | Day of the month |
-| MM 				| 01, 02, ..., 12 | Month |
-| MMM 				| Jan, Feb, ..., Dec | Month |
-| MMMM 				| January, February, ..., December | Month |
-| yyyy 				| 2021, 2022, ... | Year |
-| HH 				| 00, 01, ..., 23 | Hours |
-| mm 				| 00, 01, ..., 59 | Minutes |
-| ss 				| 00, 01, ..., 59 | Seconds |
-					`
+					tooltip: `<b>Output format</b><br>See date-fns format for more information. Default: <code>dd.MM.yyyy HH:mm</code><table class="mt-1 text-2xs"><tr><th class="pr-2 text-left">Format</th><th class="pr-2 text-left">Result</th><th class="text-left">Description</th></tr><tr><td><code>dd</code></td><td>01, 02, ..., 31</td><td>Day of the month</td></tr><tr><td><code>d</code></td><td>1, 2, ..., 31</td><td>Day of the month</td></tr><tr><td><code>MM</code></td><td>01, 02, ..., 12</td><td>Month</td></tr><tr><td><code>MMM</code></td><td>Jan, Feb, ..., Dec</td><td>Month</td></tr><tr><td><code>MMMM</code></td><td>January, ..., December</td><td>Month</td></tr><tr><td><code>yyyy</code></td><td>2021, 2022, ...</td><td>Year</td></tr><tr><td><code>HH</code></td><td>00, 01, ..., 23</td><td>Hours</td></tr><tr><td><code>mm</code></td><td>00, 01, ..., 59</td><td>Minutes</td></tr><tr><td><code>ss</code></td><td>00, 01, ..., 59</td><td>Seconds</td></tr></table>`
 				},
 				defaultValue: {
 					type: 'static',

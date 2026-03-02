@@ -30,7 +30,15 @@
       "Bash(cargo check:*)",
       "mcp__ide__getDiagnostics",
       "Bash(npm run generate-backend-client:*)",
-      "Bash(npm run check:*)"
+      "Bash(npm run check:*)",
+      "Bash(git push:*)",
+      "Bash(git reset:*)",
+      "Bash(git revert:*)",
+      "Bash(git checkout:*)",
+      "Bash(git merge:*)",
+      "Bash(git rebase:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ],
     "deny": [
       "Read(.env)",
@@ -55,17 +63,23 @@
       "Bash(chown:*)",
       "Bash(truncate:*)",
       "Bash(shred:*)",
-      "Bash(unlink:*)",
-      "Bash(git push:*)",
-      "Bash(git reset:*)",
-      "Bash(git revert:*)",
-      "Bash(git checkout:*)",
-      "Bash(git merge:*)",
-      "Bash(git rebase:*)"
+      "Bash(unlink:*)"
     ]
   },
   "enableAllProjectMcpServers": true,
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-main-branch.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write",

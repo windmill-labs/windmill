@@ -55,7 +55,6 @@
 		recomputeOnInputChanged?: boolean
 		showOnDemandOnlyToggle?: boolean
 		documentationLink?: string | undefined
-		markdownTooltip?: string | undefined
 		securedContext?: boolean
 		disabled?: boolean
 		oncloseConnection?: (...args: any[]) => any
@@ -88,7 +87,6 @@
 		recomputeOnInputChanged = true,
 		showOnDemandOnlyToggle = true,
 		documentationLink = undefined,
-		markdownTooltip = undefined,
 		securedContext = false,
 		oncloseConnection = undefined,
 		onopenConnection = undefined
@@ -180,9 +178,9 @@
 					{#if loading}
 						<Loader2 size={14} class="animate-spin ml-2" />
 					{/if}
-					{#if tooltip || markdownTooltip}
-						<Tooltip small {documentationLink} {markdownTooltip}>
-							{tooltip}
+					{#if tooltip}
+						<Tooltip small {documentationLink}>
+							{@html tooltip}
 						</Tooltip>
 					{/if}
 				</div>

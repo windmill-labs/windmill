@@ -14,7 +14,6 @@
 		placement?: Placement | undefined
 		documentationLink?: string | undefined
 		small?: boolean
-		markdownTooltip?: string | undefined
 		disablePopup?: boolean
 		/** When true, the trigger renders as a non-interactive span instead of a button */
 		notClickable?: boolean
@@ -40,7 +39,6 @@
 		placement = 'bottom',
 		documentationLink = undefined,
 		small = false,
-		markdownTooltip = undefined,
 		disablePopup = false,
 		notClickable: _notClickable = false,
 		openDelay = 300,
@@ -90,7 +88,7 @@
 
 {#if $open && !disablePopup}
 	<div use:melt={$content} transition:fade={{ duration: 100 }} style="z-index: {zIndexes.tooltip}">
-		<TooltipInner {documentationLink} {markdownTooltip} customBgClass={containerClasses ?? customBgClass}>
+		<TooltipInner {documentationLink} customBgClass={containerClasses ?? customBgClass}>
 			{@render text?.()}
 		</TooltipInner>
 	</div>

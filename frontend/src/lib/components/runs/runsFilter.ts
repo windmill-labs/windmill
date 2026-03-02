@@ -238,6 +238,7 @@ export const buildRunsFilterPresets = ({
 }) => [
 	{ name: 'Hide schedules', value: 'job_trigger_kind:\\ !schedule' },
 	{ name: 'Hide future jobs', value: 'show_future_jobs:\\ false' },
+	{ name: 'Show skipped', value: 'show_skipped:\\ true' },
 	...(isSuperadmin && isAdminsWorkspace
 		? [{ name: 'All workspaces', value: 'all_workspaces:\\ true' }]
 		: [])

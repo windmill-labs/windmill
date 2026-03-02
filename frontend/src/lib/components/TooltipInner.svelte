@@ -1,23 +1,18 @@
 <script lang="ts">
-	import Markdown from 'svelte-exmarkdown'
 	import { ExternalLink } from 'lucide-svelte'
-	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
 	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
-		documentationLink?: string | undefined;
-		markdownTooltip?: string | undefined;
-		customBgClass?: string | undefined;
-		children?: import('svelte').Snippet;
+		documentationLink?: string | undefined
+		customBgClass?: string | undefined
+		children?: import('svelte').Snippet
 	}
 
 	let {
 		documentationLink = undefined,
-		markdownTooltip = undefined,
 		customBgClass = undefined,
 		children
-	}: Props = $props();
-	const plugins = [gfmPlugin()]
+	}: Props = $props()
 </script>
 
 <div
@@ -26,13 +21,7 @@
 		customBgClass || 'bg-surface-secondary'
 	)}
 >
-	{#if markdownTooltip}
-		<div class="prose-sm">
-			<Markdown md={markdownTooltip} {plugins} />
-		</div>
-	{:else}
-		{@render children?.()}
-	{/if}
+	{@render children?.()}
 
 	{#if documentationLink}
 		<a href={documentationLink} target="_blank">
