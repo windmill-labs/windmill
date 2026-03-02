@@ -31,7 +31,9 @@
 	} from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
-	import FilterSearchbar, { useUrlSyncedFilterInstance } from '$lib/components/FilterSearchbar.svelte'
+	import FilterSearchbar, {
+		useUrlSyncedFilterInstance
+	} from '$lib/components/FilterSearchbar.svelte'
 	import { buildSchedulesFilterSchema } from '$lib/components/schedules/schedulesFilter'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
@@ -87,6 +89,9 @@
 		}
 		if (currentFilters.args) {
 			apiParams.args = currentFilters.args
+		}
+		if (currentFilters._default_) {
+			apiParams.broadFilter = currentFilters._default_
 		}
 
 		const result = (await ScheduleService.listSchedules(apiParams)).map((x) => {
@@ -171,9 +176,7 @@
 			scriptPaths: allScriptPaths,
 			showUserFoldersFilter: userFoldersFilterType !== undefined,
 			userFoldersLabel:
-				userFoldersFilterType === 'only f/*'
-					? 'Only f/*'
-					: `Only u/${$userStore?.username} and f/*`
+				userFoldersFilterType === 'only f/*' ? 'Only f/*' : `Only u/${$userStore?.username} and f/*`
 		})
 	)
 	let filters = useUrlSyncedFilterInstance(untrack(() => schedulesFilterSchema))
@@ -260,18 +263,19 @@
 			</Button>
 		</PageHeader>
 		<div class="w-full h-full flex flex-col">
-			<div class="w-full pb-4 pt-6">
-				<FilterSearchbar schema={schedulesFilterSchema} bind:value={filters.val} />
-
-				<div class="flex flex-row items-center justify-end gap-4 mt-4">
-					<ToggleButtonGroup class="w-auto" bind:selected={filterEnabledDisabled}>
-						{#snippet children({ item })}
-							<ToggleButton small value="all" label="All" {item} />
-							<ToggleButton small value="enabled" label="Enabled" {item} />
-							<ToggleButton small value="disabled" label="Disabled" {item} />
-						{/snippet}
-					</ToggleButtonGroup>
-				</div>
+			<div class="flex flex-row items-center justify-end gap-4 pb-4">
+				<ToggleButtonGroup bind:selected={filterEnabledDisabled} class="w-fit">
+					{#snippet children({ item })}
+						<ToggleButton value="all" label="All" {item} />
+						<ToggleButton value="enabled" label="Enabled" {item} />
+						<ToggleButton value="disabled" label="Disabled" {item} />
+					{/snippet}
+				</ToggleButtonGroup>
+				<FilterSearchbar
+					schema={schedulesFilterSchema}
+					bind:value={filters.val}
+					class="grow max-w-[26rem]"
+				/>
 			</div>
 			{#if loading}
 				{#each new Array(6) as _}

@@ -96,6 +96,8 @@
 	import type { FlowBuilderProps } from './flow_builder'
 	import { ModulesTestStates } from './modulesTest.svelte'
 	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from './flows/FlowAssetsHandler.svelte'
+	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
+	import { buildForkEditUrl } from '$lib/utils/editInFork'
 
 	let {
 		initialPath = $bindable(''),
@@ -134,6 +136,13 @@
 	// For preserve_on_behalf_of feature
 	let preserveOnBehalfOf = writable(false)
 	let savedOnBehalfOfEmail = writable<string | undefined>(savedFlow?.on_behalf_of_email)
+
+	// Keep savedOnBehalfOfEmail in sync when savedFlow is loaded asynchronously
+	$effect(() => {
+		if (savedFlow?.on_behalf_of_email !== undefined) {
+			savedOnBehalfOfEmail.set(savedFlow.on_behalf_of_email)
+		}
+	})
 
 	// used for new flows for captures
 	let fakeInitialPath =
@@ -806,6 +815,13 @@
 			dropdownItems.push({
 				label: 'Fork',
 				onClick: () => window.open(`/flows/add?template=${initialPath}`)
+			})
+		}
+
+		if (!newFlow && !isRuleActive('DisableWorkspaceForking')) {
+			dropdownItems.push({
+				label: 'Edit in workspace fork',
+				onClick: () => window.open(buildForkEditUrl('flow', initialPath))
 			})
 		}
 	}

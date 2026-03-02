@@ -2285,6 +2285,59 @@ pub struct MiniPulledJob {
     pub runnable_settings_handle: Option<i64>,
 }
 
+impl MiniPulledJob {
+    pub fn new_inline(
+        workspace_id: String,
+        args: Option<HashMap<String, Box<RawValue>>>,
+        created_by: String,
+        permissioned_as: String,
+        permissioned_as_email: String,
+        runnable_path: Option<String>,
+        kind: JobKind,
+        runnable_id: Option<ScriptHash>,
+        tag: String,
+        script_lang: Option<ScriptLang>,
+    ) -> Self {
+        Self {
+            workspace_id,
+            id: Uuid::new_v4(),
+            args: args.map(Json),
+            parent_job: None,
+            created_by,
+            scheduled_for: chrono::Utc::now(),
+            started_at: None,
+            runnable_path,
+            kind,
+            runnable_id,
+            canceled_reason: None,
+            canceled_by: None,
+            permissioned_as,
+            permissioned_as_email,
+            flow_status: None,
+            tag,
+            script_lang,
+            same_worker: true,
+            pre_run_error: None,
+            flow_innermost_root_job: None,
+            root_job: None,
+            timeout: None,
+            flow_step_id: None,
+            cache_ttl: None,
+            cache_ignore_s3_path: None,
+            priority: None,
+            preprocessed: None,
+            script_entrypoint_override: None,
+            trigger: None,
+            trigger_kind: None,
+            visible_to_owner: false,
+            permissioned_as_end_user_email: None,
+            runnable_settings_handle: None,
+            concurrent_limit: None,
+            concurrency_time_window_s: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MiniCompletedJob {
     pub id: Uuid,

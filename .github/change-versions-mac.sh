@@ -15,11 +15,8 @@ sed -i '' -e "/\"version\": /s/: .*,/: \"$VERSION\",/" ${root_dirpath}/typescrip
 sed -i '' -e "/\"version\": /s/: .*,/: \"$VERSION\",/" ${root_dirpath}/frontend/package.json
 sed -i '' -e "/^version =/s/= .*/= \"$VERSION\"/" ${root_dirpath}/python-client/wmill/pyproject.toml
 sed -i '' -e "/^windmill-api =/s/= .*/= \"\\^$VERSION\"/" ${root_dirpath}/python-client/wmill/pyproject.toml
-sed -i '' -e "/^version =/s/= .*/= \"$VERSION\"/" ${root_dirpath}/python-client/wmill_pg/pyproject.toml
 sed -i '' -e "/^[[:space:]]*ModuleVersion[[:space:]]*=/s/= .*/= '$VERSION'/" ${root_dirpath}/powershell-client/WindmillClient/WindmillClient.psd1
-# sed -i '' -e "/^wmill =/s/= .*/= \"\\^$VERSION\"/" python-client/wmill_pg/pyproject.toml
 sed -i '' -e "/^wmill =/s/= .*/= \">=$VERSION\"/" ${root_dirpath}/lsp/Pipfile
-sed -i '' -e "/^wmill_pg =/s/= .*/= \">=$VERSION\"/" ${root_dirpath}/lsp/Pipfile
 
 sed -i '' -E "s/name = \"windmill\"\nversion = \"[^\"]*\"\\n(.*)/name = \"windmill\"\nversion = \"$VERSION\"\\n\\1/" ${root_dirpath}/backend/Cargo.lock
 

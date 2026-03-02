@@ -43,6 +43,8 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 	import { scriptToHubUrl } from '$lib/hub'
+	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
+	import { buildForkEditUrl } from '$lib/utils/editInFork'
 
 	interface Props {
 		script: Script & { canWrite: boolean; use_codebase: boolean }
@@ -150,39 +152,40 @@
 
 	{#snippet actions()}
 		<span class="hidden md:inline-flex gap-x-1">
-			{#if !$userStore?.operator && showEditButton}
-				{#if script.use_codebase}
-					<Badge
-						>bundle<Tooltip
-							>This script is deployed as a bundle and can only be deployed from the CLI for now</Tooltip
-						></Badge
-					>
-				{:else if script.canWrite && !script.archived}
-					<div>
-						<Button
-							aiId={`edit-script-button-${script.summary?.length > 0 ? script.summary : script.path}`}
-							aiDescription={`Edits the script ${script.summary?.length > 0 ? script.summary : script.path}`}
-							variant="subtle"
-							wrapperClasses="w-20"
-							unifiedSize="md"
-							startIcon={{ icon: Pen }}
-							href="{base}/scripts/edit/{script.path}"
+			{#if !$userStore?.operator}
+				{#if showEditButton}
+					{#if script.use_codebase}
+						<Badge
+							>bundle<Tooltip
+								>This script is deployed as a bundle and can only be deployed from the CLI for now</Tooltip
+							></Badge
 						>
-							Edit
-						</Button>
-					</div>
-				{:else if !script.draft_only}
+					{:else if script.canWrite && !script.archived}
+						<div>
+							<Button
+								aiId={`edit-script-button-${script.summary?.length > 0 ? script.summary : script.path}`}
+								aiDescription={`Edits the script ${script.summary?.length > 0 ? script.summary : script.path}`}
+								variant="subtle"
+								wrapperClasses="w-20"
+								unifiedSize="md"
+								startIcon={{ icon: Pen }}
+								href="{base}/scripts/edit/{script.path}"
+							>
+								Edit
+							</Button>
+						</div>
+					{/if}
+				{/if}
+				{#if !isRuleActive('DisableWorkspaceForking') && (!showEditButton || !script.canWrite)}
 					<div>
 						<Button
-							aiId={`fork-script-button-${script.summary ?? script.path}`}
-							aiDescription={`Fork the script ${script.summary ?? script.path}`}
-							variant="subtle"
-							wrapperClasses="w-20"
+							variant={!showEditButton ? 'default' : 'subtle'}
+							wrapperClasses="w-32"
 							unifiedSize="md"
 							startIcon={{ icon: GitFork }}
-							href="{base}/scripts/add?template={script.path}"
+							href={buildForkEditUrl('script', script.path)}
 						>
-							Fork
+							Edit in fork
 						</Button>
 					</div>
 				{/if}
@@ -236,6 +239,12 @@
 						href: `${base}/scripts/add?template=${script.path}`,
 						disabled: !showEditButton,
 						hide: $userStore?.operator
+					},
+					{
+						displayName: 'Edit in workspace fork',
+						icon: GitFork,
+						href: buildForkEditUrl('script', script.path),
+						hide: $userStore?.operator || isRuleActive('DisableWorkspaceForking')
 					},
 					{
 						displayName: 'Move/Rename',
