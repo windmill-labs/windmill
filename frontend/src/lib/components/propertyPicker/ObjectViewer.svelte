@@ -3,17 +3,30 @@
 
 	import { copyToClipboard, truncate } from '$lib/utils'
 
-	import { createEventDispatcher, tick, untrack, type Snippet } from 'svelte'
+	import { createEventDispatcher, tick, untrack, setContext, getContext, type Snippet } from 'svelte'
 	import { computeKey, keepByKeyOrValue } from './utils'
 	import { NEVER_TESTED_THIS_FAR } from '../flows/models'
 	import Portal from '$lib/components/Portal.svelte'
 	import { Button } from '$lib/components/common'
-	import { Download, PanelRightOpen, Search, TriangleAlertIcon, X } from 'lucide-svelte'
+	import {
+		Download,
+		PanelRightOpen,
+		Search,
+		TriangleAlertIcon,
+		X,
+		ClipboardCopy,
+		Braces
+	} from 'lucide-svelte'
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import Popover from '../Popover.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import {
+		getContextMenuContainerClass,
+		CONTEXT_MENU_ITEM_BASE_CLASS,
+		CONTEXT_MENU_ITEM_HOVER_CLASS
+	} from '$lib/components/common/contextmenu/contextMenuStyles'
 
 	interface Props {
 		json: any
@@ -140,6 +153,71 @@
 	let keyLimit = $derived(isArray ? 5 : 100)
 	let fullyCollapsed = $derived(keys.length > 1 && collapsed)
 	let searchInput: HTMLInputElement | undefined = $state(undefined)
+
+	// Context menu
+	type ContextMenuData = {
+		show: boolean
+		x: number
+		y: number
+		key: string
+		value: any
+		parentObj: any
+	}
+
+	let contextMenu = $state<ContextMenuData>({
+		show: false,
+		x: 0,
+		y: 0,
+		key: '',
+		value: null,
+		parentObj: null
+	})
+
+	function showContextMenu(e: MouseEvent, key: string, value: any, parentObj: any) {
+		e.preventDefault()
+		e.stopPropagation()
+		const x = Math.min(e.clientX, window.innerWidth - 200)
+		const y = Math.min(e.clientY, window.innerHeight - 150)
+		contextMenu = { show: true, x, y, key, value, parentObj }
+	}
+
+	function hideContextMenu() {
+		contextMenu = { ...contextMenu, show: false }
+	}
+
+	const CONTEXT_MENU_CTX_KEY = 'objectViewerContextMenu'
+
+	if (level === 0) {
+		setContext(CONTEXT_MENU_CTX_KEY, showContextMenu)
+	}
+
+	const openContextMenu: typeof showContextMenu =
+		level === 0 ? showContextMenu : getContext<typeof showContextMenu>(CONTEXT_MENU_CTX_KEY)
+
+	function handleContextMenuAction(action: 'value' | 'key' | 'object') {
+		if (action === 'value') {
+			const v = contextMenu.value
+			copyToClipboard(typeof v === 'string' ? v : JSON.stringify(v))
+		} else if (action === 'key') {
+			copyToClipboard(contextMenu.key)
+		} else if (action === 'object') {
+			copyToClipboard(JSON.stringify(contextMenu.parentObj))
+		}
+		hideContextMenu()
+	}
+
+	$effect(() => {
+		if (level !== 0 || !contextMenu.show) return
+
+		function handleKeydown(e: KeyboardEvent) {
+			if (e.key === 'Escape') {
+				hideContextMenu()
+			}
+		}
+
+		window.addEventListener('keydown', handleKeydown)
+		return () => window.removeEventListener('keydown', handleKeydown)
+	})
 </script>
 
 {#snippet renderScalar(k: string, v: any)}
@@ -249,7 +327,8 @@
 				}`}
 			>
 				{#each keys.length > keyLimit ? keys.slice(0, keyLimit) : keys as key, index (key)}
-					<li>
+					<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+					<li oncontextmenu={(e) => openContextMenu(e, key, json[key], json)}>
 						<AnimatedButton
 							animate={connecting && hoveredKey === key}
 							marginWidth="1px"
@@ -355,9 +434,57 @@
 {:else if jsonFiltered == undefined}
 	<span class="text-primary text-2xs ml-2">undefined</span>
 {:else if typeof jsonFiltered != 'object'}
-	{@render renderScalar('', jsonFiltered)}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<span oncontextmenu={(e) => openContextMenu(e, '', jsonFiltered, null)}>
+		{@render renderScalar('', jsonFiltered)}
+	</span>
 {:else}
 	<span class="text-primary text-2xs ml-2">No items</span>
+{/if}
+
+{#if level === 0 && contextMenu.show}
+	<Portal name="object-viewer-context-menu">
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			class="fixed inset-0 z-[9998]"
+			onclick={hideContextMenu}
+			oncontextmenu={(e) => {
+				e.preventDefault()
+				hideContextMenu()
+			}}
+			role="presentation"
+		></div>
+		<div
+			class="fixed {getContextMenuContainerClass('z-[9999]')}"
+			style="left: {contextMenu.x}px; top: {contextMenu.y}px;"
+		>
+			<button
+				class="{CONTEXT_MENU_ITEM_BASE_CLASS} {CONTEXT_MENU_ITEM_HOVER_CLASS} cursor-pointer"
+				onclick={() => handleContextMenuAction('value')}
+			>
+				<ClipboardCopy size={14} class="mr-2 flex-shrink-0" />
+				<span>Copy value</span>
+			</button>
+			{#if contextMenu.key !== ''}
+				<button
+					class="{CONTEXT_MENU_ITEM_BASE_CLASS} {CONTEXT_MENU_ITEM_HOVER_CLASS} cursor-pointer"
+					onclick={() => handleContextMenuAction('key')}
+				>
+					<ClipboardCopy size={14} class="mr-2 flex-shrink-0" />
+					<span>Copy object key</span>
+				</button>
+			{/if}
+			{#if contextMenu.parentObj != null}
+				<button
+					class="{CONTEXT_MENU_ITEM_BASE_CLASS} {CONTEXT_MENU_ITEM_HOVER_CLASS} cursor-pointer"
+					onclick={() => handleContextMenuAction('object')}
+				>
+					<Braces size={14} class="mr-2 flex-shrink-0" />
+					<span>Copy entire object</span>
+				</button>
+			{/if}
+		</div>
+	</Portal>
 {/if}
 
 <style lang="postcss">
