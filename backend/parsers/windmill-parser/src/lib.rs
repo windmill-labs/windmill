@@ -126,6 +126,7 @@ pub fn json_to_typ(js: &Value, precise_arrays: bool) -> Typ {
 pub fn to_snake_case(s: &str) -> String {
     s.with_boundaries(&Boundary::defaults())
         .without_boundaries(&Boundary::letter_digit())
+        .without_boundaries(&[Boundary::DigitLower])
         .to_case(Case::Snake)
 }
 
@@ -138,8 +139,8 @@ mod test {
         assert_eq!("s3", to_snake_case("S3"));
         assert_eq!("s3", to_snake_case("s3"));
         assert_eq!("s3_object", to_snake_case("S3Object"));
-        assert_eq!("s3_object", to_snake_case("S3object"));
-        assert_eq!("s3_object", to_snake_case("s3object"));
+        assert_eq!("s3object", to_snake_case("S3object"));
+        assert_eq!("s3object", to_snake_case("s3object"));
         assert_eq!("abc", to_snake_case("ABC"));
         assert_eq!("aa_bc", to_snake_case("AaBC"));
         assert_eq!("a_b_c", to_snake_case("A_B_C"));
@@ -181,6 +182,9 @@ mod test {
     fn test_mixed_case_with_numbers() {
         assert_eq!(to_snake_case("testCase1"), "test_case1");
         assert_eq!(to_snake_case("Test123Case"), "test123_case");
+        // digit followed by lowercase should NOT insert underscore (issue #7934)
+        assert_eq!(to_snake_case("Connect2allApi"), "connect2all_api");
+        assert_eq!(to_snake_case("Foo2barApi"), "foo2bar_api");
     }
 
     #[test]
