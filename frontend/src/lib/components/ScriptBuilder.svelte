@@ -193,10 +193,15 @@
 		confirmDeploymentCallback(selectedTriggers)
 	}
 
-	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(untrack(() => savedPrimarySchedule)) // keep for legacy
+	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(
+		untrack(() => savedPrimarySchedule)
+	) // keep for legacy
 	const triggersCount = writable<TriggersCount | undefined>(
 		untrack(() => savedPrimarySchedule)
-			? { schedule_count: 1, primary_schedule: { schedule: untrack(() => savedPrimarySchedule).cron } }
+			? {
+					schedule_count: 1,
+					primary_schedule: { schedule: untrack(() => savedPrimarySchedule)!.cron }
+				}
 			: undefined
 	)
 	const simplifiedPoll = writable(false)
