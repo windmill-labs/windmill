@@ -189,11 +189,7 @@
 				type === 'email' ||
 				type === 'cli' ||
 				(triggersGrouped[type] && triggersGrouped[type].length === 1)}
-			<Tooltip
-				disablePopup={menuOpen}
-				placement={vertical ? 'right' : 'bottom'}
-				on:click={(e) => e.stopPropagation()}
-			>
+			<Tooltip disablePopup={menuOpen} placement={vertical ? 'right' : 'bottom'}>
 				{#snippet text()}
 					{camelCaseToWords(type)}
 				{/snippet}
@@ -279,7 +275,7 @@
 			isSelected ? 'bg-surface-accent-selected text-accent border-border-selected' : '',
 			small ? 'w-[23px] h-[23px]' : 'p-2'
 		)}
-		on:click={(e) => {
+		onClick={(e) => {
 			e.stopPropagation()
 			e.preventDefault()
 			if (singleItem) {
