@@ -75,7 +75,7 @@
 
 	let ncontext: any = {
 		...untrack(() => context),
-		untrack(() => workspace),
+		workspace: untrack(() => workspace),
 		mode: 'viewer',
 		summary: untrack(() => summary),
 		author: untrack(() => policy).on_behalf_of_email
@@ -151,16 +151,16 @@
 		bgRuns: writable([]),
 		mode,
 		connectingInput,
-		untrack(() => breakpoint),
+		breakpoint: untrack(() => breakpoint),
 		runnableComponents: writable({}),
 		appPath: writablePath,
-		untrack(() => workspace),
+		workspace: untrack(() => workspace),
 		onchange: undefined,
-		untrack(() => isEditor),
+		isEditor: untrack(() => isEditor),
 		jobs: parentContext?.jobs ?? writable([]),
 		jobsById: parentContext?.jobsById ?? writable({}),
 		staticExporter: writable({}),
-		untrack(() => noBackend),
+		noBackend: untrack(() => noBackend),
 		errorByComponent: writable({}),
 		openDebugRun: writable(undefined),
 		focusedGrid: writable(undefined),
@@ -174,9 +174,9 @@
 		cssEditorOpen: writable(false),
 		previewTheme: writable(undefined),
 		debuggingComponents: writable({}),
-		untrack(() => replaceStateFn),
-		untrack(() => gotoFn),
-		untrack(() => policy),
+		replaceStateFn: untrack(() => replaceStateFn),
+		gotoFn: untrack(() => gotoFn),
+		policy: untrack(() => policy),
 		recomputeAllContext: writable({
 			loading: false,
 			componentNumber: 0,
@@ -319,6 +319,7 @@
 				<GridViewer allIdsInPath={$allIdsInPath} items={app.grid} {maxRow} breakpoint={$breakpoint}>
 					{#snippet children({ dataItem })}
 						<!-- svelte-ignore a11y_click_events_have_key_events -->
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<div
 							class={'h-full w-full center-center'}
 							onpointerdown={() => ($selectedComponent = [dataItem.id])}

@@ -116,9 +116,9 @@
 	} = createPopover({
 		forceVisible: true,
 		portal: untrack(() => dynamicPortal),
-		untrack(() => disableFocusTrap),
-		untrack(() => escapeBehavior),
-		untrack(() => openFocus),
+		disableFocusTrap: untrack(() => disableFocusTrap),
+		escapeBehavior: untrack(() => escapeBehavior),
+		openFocus: untrack(() => openFocus),
 		onOpenChange: ({ curr, next }) => {
 			if (curr != next) {
 				dispatch('openChange', next)
@@ -146,7 +146,7 @@
 	})
 
 	$positioning = untrack(() => floatingConfig) ?? {
-		untrack(() => placement),
+		placement: untrack(() => placement),
 		strategy: 'absolute',
 		gutter: 8,
 		overflowPadding: 16,

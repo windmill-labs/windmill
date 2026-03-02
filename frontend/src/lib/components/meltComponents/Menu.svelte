@@ -49,7 +49,7 @@
 	// Use the passed createMenu function
 	const menu = untrack(() => createMenu)({
 		positioning: {
-			untrack(() => placement),
+			placement: untrack(() => placement),
 			fitViewport: true,
 			strategy: 'fixed'
 		},

@@ -8,21 +8,20 @@
 	import { fade } from 'svelte/transition'
 	import TooltipInner from '../TooltipInner.svelte'
 
-
 	interface Props {
-		light?: boolean;
-		placement?: Placement | undefined;
-		documentationLink?: string | undefined;
-		small?: boolean;
-		disablePopup?: boolean;
-		openDelay?: number;
-		closeDelay?: number;
-		portal?: string | undefined | null;
-		customBgClass?: string | undefined;
-		style?: string;
-		class?: string;
-		children?: import('svelte').Snippet;
-		text?: import('svelte').Snippet;
+		light?: boolean
+		placement?: Placement | undefined
+		documentationLink?: string | undefined
+		small?: boolean
+		disablePopup?: boolean
+		openDelay?: number
+		closeDelay?: number
+		portal?: string | undefined | null
+		customBgClass?: string | undefined
+		style?: string
+		class?: string
+		children?: import('svelte').Snippet
+		text?: import('svelte').Snippet
 	}
 
 	let {
@@ -39,20 +38,19 @@
 		class: className = '',
 		children,
 		text
-	}: Props = $props();
-	
+	}: Props = $props()
 
 	const {
 		elements: { trigger, content },
 		states: { open }
 	} = createTooltip({
 		positioning: {
-			untrack(() => placement)
+			placement: untrack(() => placement)
 		},
-		untrack(() => openDelay),
-		untrack(() => closeDelay),
+		openDelay: untrack(() => openDelay),
+		closeDelay: untrack(() => closeDelay),
 		group: true,
-		untrack(() => portal)
+		portal: untrack(() => portal)
 	})
 </script>
 

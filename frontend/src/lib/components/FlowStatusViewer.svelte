@@ -71,11 +71,11 @@
 		flowState,
 		suspendStatus,
 		retryStatus,
-		untrack(() => hideDownloadInGraph),
-		untrack(() => hideNodeDefinition),
-		untrack(() => hideTimeline),
-		untrack(() => hideJobId),
-		untrack(() => hideDownloadLogs)
+		hideDownloadInGraph: untrack(() => hideDownloadInGraph),
+		hideNodeDefinition: untrack(() => hideNodeDefinition),
+		hideTimeline: untrack(() => hideTimeline),
+		hideJobId: untrack(() => hideJobId),
+		hideDownloadLogs: untrack(() => hideDownloadLogs)
 	})
 
 	function loadOwner(path: string) {

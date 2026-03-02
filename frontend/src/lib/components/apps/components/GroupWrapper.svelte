@@ -11,7 +11,10 @@
 
 	let { context, id, children }: Props = $props()
 
-	setContext<GroupContext>('GroupContext', { untrack(() => id), untrack(() => context) })
+	setContext<GroupContext>('GroupContext', {
+		id: untrack(() => id),
+		context: untrack(() => context)
+	})
 </script>
 
 {@render children?.()}

@@ -281,7 +281,7 @@
 		useDataflow,
 		showAssets,
 		noteManager,
-		untrack(() => moveManager),
+		moveManager: untrack(() => moveManager),
 		clearFlowSelection,
 		yOffset,
 		diffManager

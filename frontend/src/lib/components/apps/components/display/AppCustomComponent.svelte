@@ -34,16 +34,20 @@
 	let divId = `custom-component-${untrack(() => id)}`
 	const { worldStore, workspace } = getContext<AppViewerContext>('AppViewerContext')
 
-	const outputs = initOutput($worldStore, untrack(() => id), {
-		result: undefined,
-		output: undefined,
-		loading: false
-	})
+	const outputs = initOutput(
+		$worldStore,
+		untrack(() => id),
+		{
+			result: undefined,
+			output: undefined,
+			loading: false
+		}
+	)
 
 	let setInput = $state() as ((input: any) => void) | undefined
 	let setRender = $state() as ((render: boolean) => void) | undefined
 	let ccProps: CCProps<any> = {
-		untrack(() => render),
+		render: untrack(() => render),
 		id: divId,
 		passSetters: (setter) => {
 			setInput = setter.onInput

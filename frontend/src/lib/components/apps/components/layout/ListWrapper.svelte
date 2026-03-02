@@ -20,7 +20,11 @@
 		onRemove = undefined,
 		children
 	}: Props = $props()
-	const ctx = writable({ untrack(() => index), untrack(() => value), untrack(() => disabled) })
+	const ctx = writable({
+		index: untrack(() => index),
+		value: untrack(() => value),
+		disabled: untrack(() => disabled)
+	})
 
 	$effect(() => {
 		$ctx = { index, value, disabled }

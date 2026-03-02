@@ -3,18 +3,18 @@
 	import { createEventDispatcher, onMount, untrack } from 'svelte'
 
 	interface Props {
-		json: any;
-		level?: number;
-		currentPath?: string;
-		pureViewer?: boolean;
-		collapsed?: any;
-		rawKey?: boolean;
-		topBrackets?: boolean;
-		allowCopy?: boolean;
-		collapseLevel?: number | undefined;
-		prefix?: string;
-		expandedEvenOnLevel0?: string | undefined;
-		connecting?: boolean;
+		json: any
+		level?: number
+		currentPath?: string
+		pureViewer?: boolean
+		collapsed?: any
+		rawKey?: boolean
+		topBrackets?: boolean
+		allowCopy?: boolean
+		collapseLevel?: number | undefined
+		prefix?: string
+		expandedEvenOnLevel0?: string | undefined
+		connecting?: boolean
 	}
 
 	let {
@@ -30,21 +30,21 @@
 		prefix = '',
 		expandedEvenOnLevel0 = undefined,
 		connecting = false
-	}: Props = $props();
+	}: Props = $props()
 
 	const _props = {
-		untrack(() => json),
-		untrack(() => level),
-		untrack(() => currentPath),
-		untrack(() => pureViewer),
-		untrack(() => collapsed),
-		untrack(() => rawKey),
-		untrack(() => topBrackets),
-		untrack(() => allowCopy),
-		untrack(() => collapseLevel),
-		untrack(() => prefix),
-		untrack(() => expandedEvenOnLevel0),
-		untrack(() => connecting)
+		json: untrack(() => json),
+		level: untrack(() => level),
+		currentPath: untrack(() => currentPath),
+		pureViewer: untrack(() => pureViewer),
+		collapsed: untrack(() => collapsed),
+		rawKey: untrack(() => rawKey),
+		topBrackets: untrack(() => topBrackets),
+		allowCopy: untrack(() => allowCopy),
+		collapseLevel: untrack(() => collapseLevel),
+		prefix: untrack(() => prefix),
+		expandedEvenOnLevel0: untrack(() => expandedEvenOnLevel0),
+		connecting: untrack(() => connecting)
 	}
 
 	const dispatch = createEventDispatcher()

@@ -99,7 +99,7 @@
 
 	let cordDiff = $state({ x: 0, y: 0 })
 
-	let newSize = $state({ untrack(() => width), untrack(() => height) })
+	let newSize = $state({ width: untrack(() => width), height: untrack(() => height) })
 	let trans = $state(false)
 
 	let anima

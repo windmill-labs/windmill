@@ -76,7 +76,7 @@
 		ids: { menu: dropdownId }
 	} = createDropdownMenu({
 		positioning: {
-			untrack(() => placement)
+			placement: untrack(() => placement)
 		},
 		loop: true,
 		onOpenChange: ({ next }) => {

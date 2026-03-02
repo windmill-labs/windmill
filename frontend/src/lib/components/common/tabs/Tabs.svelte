@@ -52,7 +52,7 @@
 	setContext<TabsContext>('Tabs', {
 		selected: selectedStore,
 		update,
-		untrack(() => hashNavigation)
+		hashNavigation: untrack(() => hashNavigation)
 	})
 
 	// Sync external prop changes to store (single direction: prop → store)

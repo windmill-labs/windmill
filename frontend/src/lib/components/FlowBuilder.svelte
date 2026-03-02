@@ -227,7 +227,9 @@
 		}
 	}
 
-	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(untrack(() => savedPrimarySchedule)) // kept for legacy reasons
+	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(
+		untrack(() => savedPrimarySchedule)
+	) // kept for legacy reasons
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
 	const simplifiedPoll = writable(false)
 
@@ -601,7 +603,7 @@
 	const selectedIdStore = $derived(selectionManager.getSelectedId())
 	// Initialize with selected id if provided
 	if (untrack(() => selectedId)) {
-		selectionManager.selectId(untrack(() => selectedId))
+		selectionManager.selectId(untrack(() => selectedId) ?? '')
 	} else {
 		selectionManager.selectId('settings-metadata')
 	}
@@ -641,15 +643,15 @@
 		scriptEditorDrawer,
 		flowEditorDrawer,
 		history,
-		untrack(() => flowStateStore),
-		untrack(() => flowStore),
+		flowStateStore: untrack(() => flowStateStore),
+		flowStore: untrack(() => flowStore),
 		pathStore,
 		stepsInputArgs,
 		saveDraft,
 		initialPathStore,
 		fakeInitialPath,
 		flowInputsStore: writable<FlowInput>({}),
-		untrack(() => customUi),
+		customUi: untrack(() => customUi),
 		insertButtonOpen,
 		executionCount: writable(0),
 		flowInputEditorState: flowInputEditorStateStore,
@@ -660,10 +662,13 @@
 	})
 
 	// Set up NoteEditor context for note editing capabilities
-	const noteEditor = new NoteEditor(untrack(() => flowStore), () => {
-		// Enable notes display when a note is created
-		flowEditor?.enableNotes?.()
-	})
+	const noteEditor = new NoteEditor(
+		untrack(() => flowStore),
+		() => {
+			// Enable notes display when a note is created
+			flowEditor?.enableNotes?.()
+		}
+	)
 	setNoteEditorContext(noteEditor)
 
 	setContext(
