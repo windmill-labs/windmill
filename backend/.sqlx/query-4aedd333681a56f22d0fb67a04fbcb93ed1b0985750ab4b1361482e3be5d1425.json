@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE token SET expiry_notified = true\n         WHERE expiration IS NOT NULL\n           AND expiration > now()\n           AND expiration <= now() + interval '7 days'\n           AND expiry_notified = false\n           AND (label IS NULL OR (label != 'session' AND label NOT ILIKE 'ephemeral%'))\n         RETURNING substring(token for 10) as token_prefix, label, email, workspace_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "token_prefix",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "label",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "4aedd333681a56f22d0fb67a04fbcb93ed1b0985750ab4b1361482e3be5d1425"
+}
