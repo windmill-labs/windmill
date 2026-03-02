@@ -426,6 +426,10 @@ pub struct OAuthClient {
     pub share_with_workspaces: Option<bool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub grant_types: Vec<String>,
+
+    /// Catch-all for provider-specific fields (e.g. Keycloak `org`, Okta `domain`/`custom`).
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 /// OAuth provider endpoint configuration.
@@ -2246,6 +2250,7 @@ mod tests {
                         tenant: None,
                         share_with_workspaces: None,
                         grant_types: vec![],
+                        extra: BTreeMap::new(),
                     },
                 );
                 m
