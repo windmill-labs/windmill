@@ -280,10 +280,10 @@ pub struct GeminiToolCallEvent {
 }
 
 impl GeminiToolCallEvent {
-    /// Convert to an [`ExtraContent`] carrying the thought signature, if present.
-    pub fn into_extra_content(thought_signature: Option<String>) -> Option<ExtraContent> {
-        thought_signature.map(|sig| ExtraContent {
-            google: Some(GoogleExtraContent { thought_signature: Some(sig) }),
+    /// Convert the thought signature (if present) into an [`ExtraContent`].
+    pub fn to_extra_content(&self) -> Option<ExtraContent> {
+        self.thought_signature.as_ref().map(|sig| ExtraContent {
+            google: Some(GoogleExtraContent { thought_signature: Some(sig.clone()) }),
         })
     }
 }

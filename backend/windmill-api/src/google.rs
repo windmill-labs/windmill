@@ -149,9 +149,10 @@ async fn handle_streaming(
             Error::internal_err(format!("Failed to send request to Gemini API: {}", e))
         })?;
 
-    if response.error_for_status_ref().is_err() {
-        let err_msg = response.text().await.unwrap_or_default();
-        return Err(Error::AIError(err_msg));
+    if let Err(e) = response.error_for_status_ref() {
+        let status = e.status().map(|s| s.to_string()).unwrap_or_default();
+        let body = response.text().await.unwrap_or_default();
+        return Err(Error::AIError(format!("{}: {}", status, body)));
     }
 
     let id = format!("chatcmpl-{}", uuid::Uuid::new_v4().simple());
@@ -228,9 +229,10 @@ pub async fn handle_google_ai_models(
         .await
         .map_err(|e| Error::internal_err(format!("Failed to fetch Gemini models: {}", e)))?;
 
-    if response.error_for_status_ref().is_err() {
-        let err_msg = response.text().await.unwrap_or_default();
-        return Err(Error::AIError(err_msg));
+    if let Err(e) = response.error_for_status_ref() {
+        let status = e.status().map(|s| s.to_string()).unwrap_or_default();
+        let body = response.text().await.unwrap_or_default();
+        return Err(Error::AIError(format!("{}: {}", status, body)));
     }
 
     let gemini_resp: GeminiModelsResponse = response.json().await.map_err(|e| {
@@ -281,9 +283,10 @@ async fn handle_non_streaming(
             Error::internal_err(format!("Failed to send request to Gemini API: {}", e))
         })?;
 
-    if response.error_for_status_ref().is_err() {
-        let err_msg = response.text().await.unwrap_or_default();
-        return Err(Error::AIError(err_msg));
+    if let Err(e) = response.error_for_status_ref() {
+        let status = e.status().map(|s| s.to_string()).unwrap_or_default();
+        let body = response.text().await.unwrap_or_default();
+        return Err(Error::AIError(format!("{}: {}", status, body)));
     }
 
     let body = response.bytes().await.map_err(|e| {
