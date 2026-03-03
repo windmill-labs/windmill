@@ -27,8 +27,8 @@
 		untrack(() => {
 			chart = new Chart(canvasElem, {
 				type,
-				data: $state.snapshot(data),
-				options: $state.snapshot(options)
+				data: $state.snapshot(data) as typeof data,
+				options: $state.snapshot(options) as typeof options
 			})
 		})
 		return () => {
@@ -40,7 +40,7 @@
 		data
 		untrack(() => {
 			if (chart) {
-				chart.data = $state.snapshot(data)
+				chart.data = $state.snapshot(data) as typeof data
 				chart.update()
 			}
 		})
