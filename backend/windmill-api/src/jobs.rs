@@ -448,14 +448,15 @@ async fn get_flow_env_by_flow_job_id(
     Path((w_id, flow_job_id, var_name)): Path<(String, Uuid, String)>,
     Query(JsonPath { json_path, .. }): Query<JsonPath>,
 ) -> windmill_common::error::JsonResult<Box<JsonRawValue>> {
-    let flow_env = sqlx::query_scalar!(
+    // Fetch the raw value for the key (without json_path) to check for $var:/$res: references
+    let raw_value = sqlx::query_scalar!(
             r#"
                 SELECT
                     CASE
                         WHEN flow_version.id IS NOT NULL THEN
-                            (flow_version.value -> 'flow_env' -> $3) #> $4
+                            flow_version.value -> 'flow_env' -> $3
                         ELSE
-                            (root_job.raw_flow -> 'flow_env' -> $3) #> $4
+                            root_job.raw_flow -> 'flow_env' -> $3
                     END AS "flow_env: sqlx::types::Json<Box<RawValue>>"
                 FROM
                     v2_job current_job
@@ -472,16 +473,86 @@ async fn get_flow_env_by_flow_job_id(
             flow_job_id,
             w_id,
             var_name,
-            json_path
-                .as_ref()
-                .map(|x| x.split(".").collect::<Vec<_>>())
-                .unwrap_or_default() as Vec<&str>,
         )
         .fetch_optional(&db)
         .await?
-        .map(|r| r.map(|x| x.0))
-        .flatten()
-        .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null));
+        .and_then(|r| r.map(|x| x.0));
+
+    let flow_env = if let Some(raw) = raw_value {
+        // Check if the value is a $var: or $res: reference that needs resolution
+        let raw_str = raw.get();
+        let resolved = if let Some(path) = raw_str
+            .strip_prefix("\"$var:")
+            .and_then(|s| s.strip_suffix("\""))
+        {
+            // Resolve variable reference
+            let db_authed = windmill_common::db::DbWithOptAuthed::<ApiAuthed>::from_authed(
+                &authed,
+                db.clone(),
+                None,
+            );
+            match windmill_store::variables::get_value_internal(&db_authed, &w_id, path, false)
+                .await
+            {
+                Ok(val) => to_raw_value(&serde_json::Value::String(val)),
+                Err(_) => raw,
+            }
+        } else if let Some(path) = raw_str
+            .strip_prefix("\"$res:")
+            .and_then(|s| s.strip_suffix("\""))
+        {
+            // Resolve resource reference
+            let db_authed = windmill_common::db::DbWithOptAuthed::<ApiAuthed>::from_authed(
+                &authed,
+                db.clone(),
+                None,
+            );
+            match windmill_store::resources::get_resource_value_interpolated_internal(
+                &db_authed,
+                &w_id,
+                path,
+                Some(flow_job_id),
+                Some(&tokened.token),
+                false,
+            )
+            .await
+            {
+                Ok(Some(val)) => to_raw_value(&val),
+                _ => raw,
+            }
+        } else {
+            raw
+        };
+
+        // Apply json_path if present
+        let json_path_parts = json_path
+            .as_ref()
+            .map(|x| x.split(".").collect::<Vec<_>>())
+            .unwrap_or_default();
+        if json_path_parts.is_empty() {
+            resolved
+        } else {
+            // Navigate into the resolved value using json_path
+            let mut value: serde_json::Value =
+                serde_json::from_str(resolved.get()).unwrap_or(serde_json::Value::Null);
+            for part in &json_path_parts {
+                value = match value {
+                    serde_json::Value::Object(ref mut map) => {
+                        map.remove(*part).unwrap_or(serde_json::Value::Null)
+                    }
+                    serde_json::Value::Array(ref arr) => part
+                        .parse::<usize>()
+                        .ok()
+                        .and_then(|i| arr.get(i).cloned())
+                        .unwrap_or(serde_json::Value::Null),
+                    _ => serde_json::Value::Null,
+                };
+            }
+            to_raw_value(&value)
+        }
+    } else {
+        to_raw_value(&serde_json::Value::Null)
+    };
 
     log_job_view(
         &db,

@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::common::{cached_result_path, get_root_job_id, save_in_cache};
+use crate::common::{cached_result_path, get_root_job_id, save_in_cache, transform_json};
 use crate::js_eval::{eval_timeout, IdContext};
 use crate::worker_utils::get_tag_and_concurrency;
 use crate::{
@@ -51,7 +51,7 @@ use windmill_common::runnable_settings::{ConcurrencySettingsWithCustom, Debounci
 use windmill_common::scripts::{ScriptHash, ScriptRunnableSettingsInline};
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::WarnAfterExt;
-use windmill_common::worker::to_raw_value;
+use windmill_common::worker::{to_raw_value, Connection};
 use windmill_common::{
     add_time, get_latest_flow_version_info_for_path, get_script_info_for_hash, FlowVersionInfo,
     ScriptHashInfo, DB,
@@ -2198,7 +2198,34 @@ pub async fn handle_flow(
     flow_runners: Option<Arc<FlowRunners>>,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
 ) -> anyhow::Result<()> {
-    let flow = flow_data.value();
+    let flow_from_cache = flow_data.value();
+
+    // Resolve $var: and $res: references in flow_env
+    let resolved_flow;
+    let flow = if let Some(ref env) = flow_from_cache.flow_env {
+        match transform_json(
+            client,
+            &flow_job.workspace_id,
+            env,
+            &flow_job,
+            &Connection::Sql(db.clone()),
+        )
+        .await
+        {
+            Ok(Some(resolved_env)) => {
+                resolved_flow = {
+                    let mut f = flow_from_cache.clone();
+                    f.flow_env = Some(resolved_env);
+                    f
+                };
+                &resolved_flow
+            }
+            _ => flow_from_cache,
+        }
+    } else {
+        flow_from_cache
+    };
+
     let status = flow_job
         .parse_flow_status()
         .with_context(|| "Unable to parse flow status")?;

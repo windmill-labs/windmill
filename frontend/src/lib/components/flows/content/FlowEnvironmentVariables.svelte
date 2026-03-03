@@ -10,12 +10,16 @@
 	import JsonEditor from '$lib/components/JsonEditor.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import Select from '$lib/components/select/Select.svelte'
+	import ItemPicker from '$lib/components/ItemPicker.svelte'
+	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
+	import { VariableService } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
 
 	interface Props {
 		noEditor: boolean
 	}
 
-	type EnvVarType = 'string' | 'json'
+	type EnvVarType = 'string' | 'json' | 'variable' | 'resource'
 
 	interface EnvVarEntry {
 		id: string
@@ -37,6 +41,12 @@
 
 	function determineValueType(value: any): EnvVarType {
 		if (typeof value === 'string') {
+			if (value.startsWith('$var:')) {
+				return 'variable'
+			}
+			if (value.startsWith('$res:')) {
+				return 'resource'
+			}
 			try {
 				JSON.parse(value)
 				return value.trim().startsWith('{') ||
@@ -53,10 +63,35 @@
 
 	let flowEnvTypes = $state<Record<string, EnvVarType>>({})
 
-	const typeOptions = [
-		{ label: 'String', value: 'string' as EnvVarType },
-		{ label: 'JSON', value: 'json' as EnvVarType }
+	const typeOptions: { label: string; value: EnvVarType }[] = [
+		{ label: 'String', value: 'string' },
+		{ label: 'JSON', value: 'json' },
+		{ label: 'Variable', value: 'variable' },
+		{ label: 'Resource', value: 'resource' }
 	]
+
+	// Track resource paths separately for bind:value with ResourcePicker
+	let resourcePaths = $state<Record<string, string | undefined>>({})
+
+	// Initialize resourcePaths from existing flow_env values
+	for (const [key, value] of Object.entries(flowStore.val.value.flow_env || {})) {
+		if (typeof value === 'string' && value.startsWith('$res:')) {
+			resourcePaths[key] = value.substring('$res:'.length)
+		}
+	}
+
+	// Sync resourcePaths changes back to flow_env
+	$effect(() => {
+		for (const [key, path] of Object.entries(resourcePaths)) {
+			if (flowStore.val.value.flow_env && flowEnvTypes[key] === 'resource') {
+				const newVal = '$res:' + (path || '')
+				if (flowStore.val.value.flow_env[key] !== newVal) {
+					flowStore.val.value.flow_env[key] = newVal
+					flowStore.val = flowStore.val
+				}
+			}
+		}
+	})
 
 	$effect(() => {
 		for (const [key, value] of flowEnvVarsMap.entries()) {
@@ -113,6 +148,7 @@
 		if (flowStore.val.value.flow_env && key in flowStore.val.value.flow_env) {
 			delete flowStore.val.value.flow_env[key]
 			delete flowEnvTypes[key]
+			delete resourcePaths[key]
 			flowStore.val = flowStore.val
 		}
 	}
@@ -150,19 +186,34 @@
 			flowStore.val.value.flow_env = newEnvVars
 			delete flowEnvTypes[oldKey]
 			flowEnvTypes[newKey] = type
+
+			// Move resource path if applicable
+			if (type === 'resource' && oldKey in resourcePaths) {
+				resourcePaths[newKey] = resourcePaths[oldKey]
+				delete resourcePaths[oldKey]
+			}
+
 			flowStore.val = flowStore.val
 		}
 	}
 
 	function updateEnvType(key: string, newType: EnvVarType) {
 		if (flowStore.val.value.flow_env && key in flowStore.val.value.flow_env) {
-			const currentValue = flowStore.val.value.flow_env[key]
-			const stringValue =
-				typeof currentValue === 'string' ? currentValue : JSON.stringify(currentValue, null, 2)
-
 			flowEnvTypes[key] = newType
 
-			if (newType === 'json') {
+			if (newType === 'variable') {
+				flowStore.val.value.flow_env[key] = '$var:'
+				delete resourcePaths[key]
+			} else if (newType === 'resource') {
+				flowStore.val.value.flow_env[key] = '$res:'
+				resourcePaths[key] = ''
+			} else if (newType === 'json') {
+				delete resourcePaths[key]
+				const currentValue = flowStore.val.value.flow_env[key]
+				const stringValue =
+					typeof currentValue === 'string'
+						? currentValue
+						: JSON.stringify(currentValue, null, 2)
 				try {
 					const parsed = JSON.parse(stringValue)
 					flowStore.val.value.flow_env[key] = parsed
@@ -170,11 +221,34 @@
 					flowStore.val.value.flow_env[key] = stringValue
 				}
 			} else {
+				delete resourcePaths[key]
+				const currentValue = flowStore.val.value.flow_env[key]
+				const stringValue =
+					typeof currentValue === 'string'
+						? currentValue
+						: JSON.stringify(currentValue, null, 2)
 				flowStore.val.value.flow_env[key] = stringValue
 			}
 			flowStore.val = flowStore.val
 		}
 	}
+
+	function getVarPath(value: any): string {
+		if (typeof value === 'string' && value.startsWith('$var:')) {
+			return value.substring('$var:'.length)
+		}
+		return ''
+	}
+
+	function setVarPath(key: string, path: string) {
+		if (flowStore.val.value.flow_env) {
+			flowStore.val.value.flow_env[key] = '$var:' + path
+			flowStore.val = flowStore.val
+		}
+	}
+
+	let variablePicker: ItemPicker | undefined = $state(undefined)
+	let pickForKey: string | undefined = $state(undefined)
 
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		inputMatches: writable(undefined),
@@ -192,8 +266,8 @@
 				Flow envs can be referenced in any flow step input using the syntax{' '}
 				<code>flow_env.VARIABLE_NAME</code> or <code>flow_env["VARIABLE_NAME"]</code>. These
 				variables are available in the property picker and can be used in JavaScript expressions and
-				input bindings. You can choose between String or JSON types for each variable - JSON types
-				allow complex data structures.
+				input bindings. You can choose between String, JSON, Variable, or Resource types. Variable
+				and Resource types reference workspace variables and resources that are resolved at runtime.
 			</Alert>
 
 			{#if flowEnvEntries.length === 0}
@@ -249,7 +323,34 @@
 							<div class="flex flex-col gap-1">
 								<!-- svelte-ignore a11y_label_has_associated_control -->
 								<label class="text-sm font-medium">Value</label>
-								{#if entry.type === 'json'}
+								{#if entry.type === 'variable'}
+									<div class="flex items-center gap-2">
+										<input
+											type="text"
+											value={getVarPath(entry.value)}
+											disabled
+											class="input w-full"
+											placeholder="Select a variable..."
+										/>
+										{#if !noEditor}
+											<Button
+												size="sm"
+												color="light"
+												onClick={() => {
+													pickForKey = entry.key
+													variablePicker?.openDrawer?.()
+												}}
+											>
+												Pick
+											</Button>
+										{/if}
+									</div>
+								{:else if entry.type === 'resource'}
+									<ResourcePicker
+										bind:value={resourcePaths[entry.key]}
+										disabled={noEditor}
+									/>
+								{:else if entry.type === 'json'}
 									<div class="w-full">
 										<JsonEditor
 											bind:code={entry.displayValue}
@@ -285,3 +386,20 @@
 		</div>
 	</FlowCard>
 </div>
+
+<ItemPicker
+	bind:this={variablePicker}
+	pickCallback={(path, _) => {
+		if (pickForKey) {
+			setVarPath(pickForKey, path)
+			pickForKey = undefined
+		}
+	}}
+	itemName="Variable"
+	extraField="path"
+	loadItems={async () =>
+		(await VariableService.listVariable({ workspace: $workspaceStore ?? '' })).map((x) => ({
+			name: x.path,
+			...x
+		}))}
+/>
