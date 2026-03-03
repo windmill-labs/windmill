@@ -913,7 +913,7 @@
 			<SettingsPageHeader
 				title="OTEL/Prometheus"
 				description="Configure OpenTelemetry and Prometheus metrics export for monitoring your Windmill instance."
-				link="https://www.windmill.dev/docs/core_concepts/otel"
+				link="https://www.windmill.dev/docs/misc/guides/otel"
 			/>
 		{:else if category == 'Indexer'}
 			<SettingsPageHeader
