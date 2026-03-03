@@ -16,5 +16,3 @@ CREATE TABLE volume (
     PRIMARY KEY (workspace_id, name)
 );
 
--- Workspace volume settings
-ALTER TABLE workspace_settings ADD COLUMN IF NOT EXISTS volume_settings JSONB;

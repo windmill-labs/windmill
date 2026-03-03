@@ -319,40 +319,6 @@ async fn test_volume_primary_key_uniqueness(db: Pool<Postgres>) -> anyhow::Resul
     Ok(())
 }
 
-#[sqlx::test(fixtures("base"))]
-async fn test_volume_settings_column(db: Pool<Postgres>) -> anyhow::Result<()> {
-    initialize_tracing().await;
-
-    let settings = serde_json::json!({
-        "admin_only_creation": true,
-        "max_volume_size_bytes": 1073741824_i64
-    });
-
-    sqlx::query!(
-        "UPDATE workspace_settings SET volume_settings = $1::jsonb WHERE workspace_id = $2",
-        settings,
-        "test-workspace"
-    )
-    .execute(&db)
-    .await?;
-
-    let row = sqlx::query!(
-        "SELECT volume_settings FROM workspace_settings WHERE workspace_id = $1",
-        "test-workspace"
-    )
-    .fetch_one(&db)
-    .await?;
-
-    let settings = row.volume_settings.unwrap();
-    assert_eq!(settings["admin_only_creation"], serde_json::json!(true));
-    assert_eq!(
-        settings["max_volume_size_bytes"],
-        serde_json::json!(1073741824_i64)
-    );
-
-    Ok(())
-}
-
 #[test]
 fn test_parse_volume_annotations_python() {
     use windmill_worker_volumes::parse_volume_annotations;

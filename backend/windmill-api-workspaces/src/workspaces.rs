@@ -250,8 +250,6 @@ pub struct WorkspaceSettings {
     pub success_handler: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_app_execution_limit_per_minute: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub volume_settings: Option<serde_json::Value>,
 }
 
 /// #[derive(sqlx::Type, Serialize, Deserialize, Debug)]
@@ -591,8 +589,7 @@ async fn get_settings(
             auto_invite,
             error_handler,
             success_handler,
-            public_app_execution_limit_per_minute,
-            volume_settings
+            public_app_execution_limit_per_minute
         FROM
             workspace_settings
         WHERE
