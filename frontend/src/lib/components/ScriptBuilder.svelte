@@ -105,7 +105,6 @@
 	import DebounceLimit from './flows/DebounceLimit.svelte'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { buildForkEditUrl } from '$lib/utils/editInFork'
-	import { isCloudHosted } from '$lib/cloud'
 	import OnBehalfOfSelector, { type OnBehalfOfChoice } from './OnBehalfOfSelector.svelte'
 
 	let {
