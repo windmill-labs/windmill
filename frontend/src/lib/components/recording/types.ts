@@ -29,6 +29,7 @@ export type ScriptRecording = {
 	code: string
 	language: string
 	args: Record<string, any>
+	schema?: Record<string, any>
 	job: RecordedJob
 }
 

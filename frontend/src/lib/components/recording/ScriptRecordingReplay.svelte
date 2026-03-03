@@ -102,17 +102,7 @@
 		setActiveReplay(undefined)
 	})
 
-	let schema = $derived.by(() => {
-		try {
-			return recording.job?.initial_job?.raw_flow
-				?? recording.job?.initial_job?.['schema']
-				?? undefined
-		} catch {
-			return undefined
-		}
-	})
-
-	let lockfile = $derived(recording.job?.initial_job?.['raw_lock'] as string | undefined)
+	let schema = $derived(recording.schema)
 </script>
 
 <HighlightTheme />
@@ -150,41 +140,22 @@
 
 		<Tabs selected="code">
 			<Tab value="code" label="Code" />
-			<Tab value="dependencies" label="Lockfile" />
-			<Tab value="schema" label="Schema" />
+			{#if schema}
+				<Tab value="schema" label="Schema" />
+			{/if}
 			{#snippet content()}
 				<TabContent value="code">
-					<div class="p-2 w-full max-h-[500px] overflow-auto">
+					<div class="p-2 w-full overflow-auto">
 						<HighlightCode
 							language={recording.language as Script['language']}
 							code={recording.code}
 							lines
+							className="text-xs"
 						/>
 					</div>
 				</TabContent>
-				<TabContent value="dependencies">
-					<div>
-						{#if lockfile}
-							<div class="relative overflow-x-auto w-full">
-								<Button
-									wrapperClasses="absolute top-2 right-2 z-20"
-									on:click={() => copyToClipboard(lockfile)}
-									color="light"
-									size="xs2"
-									startIcon={{ icon: ClipboardCopy }}
-									iconOnly
-								/>
-								<pre class="bg-surface-secondary text-sm p-2 h-full overflow-auto w-full max-h-[500px]">{lockfile}</pre>
-							</div>
-						{:else}
-							<p class="bg-surface-secondary text-sm p-2">
-								No lockfile available in this recording
-							</p>
-						{/if}
-					</div>
-				</TabContent>
 				<TabContent value="schema">
-					<div class="p-1 relative max-h-[500px] overflow-auto">
+					<div class="p-1 relative overflow-auto text-xs">
 						{#if schema}
 							<button
 								onclick={() => copyToClipboard(JSON.stringify(schema, null, 4))}
@@ -241,6 +212,7 @@
 				isLoading={!done}
 				content={job?.logs}
 				tag={job?.tag}
+				download={false}
 			/>
 		</div>
 	</div>

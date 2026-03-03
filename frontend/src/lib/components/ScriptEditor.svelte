@@ -363,7 +363,7 @@
 
 	async function recordAndTest() {
 		lastRecording = undefined
-		scriptRecording.start(path ?? '', code, lang ?? '', args ?? {})
+		scriptRecording.start(path ?? '', code, lang ?? '', args ?? {}, schema)
 		setActiveRecording(scriptRecording)
 		await runTest()
 	}

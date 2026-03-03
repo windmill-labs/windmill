@@ -1,9 +1,26 @@
 import type { Job, OpenFlow } from '$lib/gen'
 import type { ActiveRecording, ActiveReplayData, FlowRecording, RecordedJob } from './types'
 
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
+
+export function truncateUuids(json: string): string {
+	const map = new Map<string, string>()
+	let counter = 0
+	return json.replace(UUID_RE, (uuid) => {
+		const key = uuid.toLowerCase()
+		let short = map.get(key)
+		if (!short) {
+			short = counter === 0 ? key.slice(-8) : key.slice(-8) + '_' + counter
+			counter++
+			map.set(key, short)
+		}
+		return short
+	})
+}
+
 // Module-level active instances (bypasses context/portal issues)
 let activeRecording: ActiveRecording | undefined = undefined
-let activeReplay: ActiveReplayData | undefined = undefined
+let activeReplay: ActiveReplayData | undefined = $state<ActiveReplayData | undefined>(undefined)
 let replayStartTime: number = 0
 
 export function getActiveRecording() {
@@ -178,7 +195,9 @@ export function createFlowRecording() {
 			}
 		},
 		download(recording: FlowRecording) {
-			const blob = new Blob([JSON.stringify(recording, null, 2)], { type: 'application/json' })
+			const blob = new Blob([truncateUuids(JSON.stringify(recording, null, 2))], {
+				type: 'application/json'
+			})
 			const url = URL.createObjectURL(blob)
 			const a = document.createElement('a')
 			a.href = url

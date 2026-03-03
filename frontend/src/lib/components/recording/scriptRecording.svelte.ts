@@ -1,5 +1,6 @@
 import type { Job } from '$lib/gen'
 import type { ActiveRecording, ActiveReplayData, RecordedJob, ScriptRecording } from './types'
+import { truncateUuids } from './flowRecording.svelte'
 
 export function createScriptRecording(): ScriptRecordingStore {
 	let active = $state(false)
@@ -8,19 +9,27 @@ export function createScriptRecording(): ScriptRecordingStore {
 	let code = ''
 	let language = ''
 	let scriptArgs: Record<string, any> = {}
+	let scriptSchema: Record<string, any> | undefined = undefined
 	let recordedJob: RecordedJob | undefined = undefined
 
 	return {
 		get active() {
 			return active
 		},
-		start(path: string, scriptCode: string, lang: string, args: Record<string, any>) {
+		start(
+			path: string,
+			scriptCode: string,
+			lang: string,
+			args: Record<string, any>,
+			schema?: Record<string, any>
+		) {
 			active = true
 			startTime = Date.now()
 			scriptPath = path
 			code = scriptCode
 			language = lang
 			scriptArgs = JSON.parse(JSON.stringify(args))
+			scriptSchema = schema ? JSON.parse(JSON.stringify(schema)) : undefined
 			recordedJob = undefined
 		},
 		recordInitialJob(_id: string, job: Job) {
@@ -56,6 +65,7 @@ export function createScriptRecording(): ScriptRecordingStore {
 				code,
 				language,
 				args: scriptArgs,
+				schema: scriptSchema,
 				job: recordedJob ?? { initial_job: {} as Job, events: [] }
 			}
 			return recording
@@ -72,7 +82,9 @@ export function createScriptRecording(): ScriptRecordingStore {
 			}
 		},
 		download(recording: ScriptRecording) {
-			const blob = new Blob([JSON.stringify(recording, null, 2)], { type: 'application/json' })
+			const blob = new Blob([truncateUuids(JSON.stringify(recording, null, 2))], {
+				type: 'application/json'
+			})
 			const url = URL.createObjectURL(blob)
 			const a = document.createElement('a')
 			a.href = url
@@ -85,7 +97,13 @@ export function createScriptRecording(): ScriptRecordingStore {
 
 export type ScriptRecordingStore = ActiveRecording & {
 	readonly active: boolean
-	start(path: string, code: string, lang: string, args: Record<string, any>): void
+	start(
+		path: string,
+		code: string,
+		lang: string,
+		args: Record<string, any>,
+		schema?: Record<string, any>
+	): void
 	stop(): ScriptRecording
 	toReplayData(recording: ScriptRecording): ActiveReplayData
 	download(recording: ScriptRecording): void
