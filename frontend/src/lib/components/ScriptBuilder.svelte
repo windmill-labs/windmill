@@ -105,6 +105,7 @@
 	import DebounceLimit from './flows/DebounceLimit.svelte'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { isCloudHosted } from '$lib/cloud'
 	import OnBehalfOfSelector, { type OnBehalfOfChoice } from './OnBehalfOfSelector.svelte'
 
 	let {
@@ -771,7 +772,7 @@
 								window.open(`/scripts/add?template=${initialPath}`)
 							}
 						},
-						...(!isRuleActive('DisableWorkspaceForking')
+						...(!isCloudHosted() && !isRuleActive('DisableWorkspaceForking')
 							? [
 									{
 										label: 'Edit in workspace fork',
