@@ -1,17 +1,16 @@
 use async_trait::async_trait;
 use windmill_common::{
     ai_google::{
-        find_gemini_function_name, openai_tools_to_gemini, GeminiContentMessage,
-        GeminiGenerationConfig, GeminiImageContent, GeminiImageRequest, GeminiImageResponse,
-        GeminiInlineData, GeminiFunctionCall, GeminiFunctionResponse, GeminiPart,
-        GeminiPredictContent, GeminiTextRequest, GeminiTool, parse_data_url,
+        openai_messages_to_gemini, openai_tools_to_gemini, GeminiGenerationConfig,
+        GeminiImageContent, GeminiImageRequest, GeminiImageResponse, GeminiInlineData, GeminiPart,
+        GeminiPredictContent, GeminiTextRequest, GeminiTool,
     },
     client::AuthedClient,
     error::Error,
 };
 
 use crate::ai::{
-    image_handler::download_and_encode_s3_image,
+    image_handler::{download_and_encode_s3_image, prepare_messages_for_api},
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventProcessor},
     sse::{GeminiSSEParser, SSEParser},
     types::*,
@@ -34,8 +33,9 @@ impl GoogleAIQueryBuilder {
         client: &AuthedClient,
         workspace_id: &str,
     ) -> Result<String, Error> {
-        let (contents, system_instruction) =
-            self.convert_messages_to_gemini(args.messages, client, workspace_id).await?;
+        let prepared_messages =
+            prepare_messages_for_api(args.messages, client, workspace_id).await?;
+        let (contents, system_instruction) = openai_messages_to_gemini(&prepared_messages);
 
         let tools = self.convert_tools_to_gemini(args.tools, args.has_websearch);
 
@@ -98,148 +98,6 @@ impl GoogleAIQueryBuilder {
 
         serde_json::to_string(&request)
             .map_err(|e| Error::internal_err(format!("Failed to serialize request: {}", e)))
-    }
-
-    /// Convert OpenAI-format messages to Gemini format, including S3 image downloads.
-    ///
-    /// This is the worker-specific version that handles `S3Object` content parts
-    /// in addition to the text and data-URL images handled by the shared common function.
-    async fn convert_messages_to_gemini(
-        &self,
-        messages: &[OpenAIMessage],
-        client: &AuthedClient,
-        workspace_id: &str,
-    ) -> Result<(Vec<GeminiContentMessage>, Option<GeminiContentMessage>), Error> {
-        let mut contents: Vec<GeminiContentMessage> = Vec::new();
-        let mut system_instruction: Option<GeminiContentMessage> = None;
-
-        for msg in messages {
-            match msg.role.as_str() {
-                "system" => {
-                    if let Some(content) = &msg.content {
-                        let parts = self
-                            .convert_content_to_parts_with_s3(content, client, workspace_id)
-                            .await?;
-                        if !parts.is_empty() {
-                            system_instruction =
-                                Some(GeminiContentMessage { role: None, parts });
-                        }
-                    }
-                }
-                "tool" => {
-                    if let (Some(tool_call_id), Some(content)) =
-                        (&msg.tool_call_id, &msg.content)
-                    {
-                        let func_name =
-                            find_gemini_function_name(messages, tool_call_id);
-                        let response_text = match content {
-                            OpenAIContent::Text(text) => text.clone(),
-                            OpenAIContent::Parts(parts) => parts
-                                .iter()
-                                .filter_map(|p| {
-                                    if let ContentPart::Text { text } = p {
-                                        Some(text.as_str())
-                                    } else {
-                                        None
-                                    }
-                                })
-                                .collect::<Vec<_>>()
-                                .join(" "),
-                        };
-                        contents.push(GeminiContentMessage {
-                            role: Some("user".to_string()),
-                            parts: vec![GeminiPart::FunctionResponse {
-                                function_response: GeminiFunctionResponse {
-                                    name: func_name,
-                                    response: serde_json::json!({ "result": response_text }),
-                                },
-                            }],
-                        });
-                    }
-                }
-                role => {
-                    let gemini_role = if role == "assistant" { "model" } else { "user" };
-                    let mut parts: Vec<GeminiPart> = Vec::new();
-
-                    if let Some(content) = &msg.content {
-                        parts.extend(
-                            self.convert_content_to_parts_with_s3(content, client, workspace_id)
-                                .await?,
-                        );
-                    }
-
-                    if let Some(tool_calls) = &msg.tool_calls {
-                        for tc in tool_calls {
-                            let args: serde_json::Value =
-                                serde_json::from_str(&tc.function.arguments).unwrap_or_default();
-                            let thought_signature = tc
-                                .extra_content
-                                .as_ref()
-                                .and_then(|ec| ec.google.as_ref())
-                                .and_then(|g| g.thought_signature.clone());
-                            parts.push(GeminiPart::FunctionCall {
-                                function_call: GeminiFunctionCall {
-                                    name: tc.function.name.clone(),
-                                    args,
-                                },
-                                thought_signature,
-                            });
-                        }
-                    }
-
-                    if !parts.is_empty() {
-                        contents.push(GeminiContentMessage {
-                            role: Some(gemini_role.to_string()),
-                            parts,
-                        });
-                    }
-                }
-            }
-        }
-
-        Ok((contents, system_instruction))
-    }
-
-    /// Convert OpenAI content to Gemini parts, handling S3 objects via download.
-    async fn convert_content_to_parts_with_s3(
-        &self,
-        content: &OpenAIContent,
-        client: &AuthedClient,
-        workspace_id: &str,
-    ) -> Result<Vec<GeminiPart>, Error> {
-        match content {
-            OpenAIContent::Text(text) if !text.is_empty() => {
-                Ok(vec![GeminiPart::Text { text: text.clone() }])
-            }
-            OpenAIContent::Text(_) => Ok(vec![]),
-            OpenAIContent::Parts(parts) => {
-                let mut result = Vec::new();
-                for part in parts {
-                    match part {
-                        ContentPart::Text { text } if !text.is_empty() => {
-                            result.push(GeminiPart::Text { text: text.clone() });
-                        }
-                        ContentPart::ImageUrl { image_url } => {
-                            if let Some((mime_type, data)) = parse_data_url(&image_url.url) {
-                                result.push(GeminiPart::InlineData {
-                                    inline_data: GeminiInlineData { mime_type, data },
-                                });
-                            }
-                        }
-                        ContentPart::S3Object { s3_object } if !s3_object.s3.is_empty() => {
-                            let (mime_type, data) =
-                                download_and_encode_s3_image(s3_object, client, workspace_id)
-                                    .await?;
-                            result.push(GeminiPart::InlineData {
-                                inline_data: GeminiInlineData { mime_type, data },
-                            });
-                        }
-                        _ => {}
-                    }
-                }
-                Ok(result)
-            }
-        }
     }
 
     /// Convert OpenAI tool definitions to Gemini format.
