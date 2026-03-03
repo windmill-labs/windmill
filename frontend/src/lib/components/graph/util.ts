@@ -240,14 +240,10 @@ export function calculateNodesBoundsWithOffset(
 
 	return nodesToCalculate.reduce(
 		(acc, node) => {
-			// Account for CSS offset applied by NodeWrapper
-			const cssOffset = node.data?.offset ?? 0
-			const visualX = node.position.x + cssOffset
-
 			return {
-				minX: Math.min(acc.minX, visualX),
+				minX: Math.min(acc.minX, node.position.x),
 				minY: Math.min(acc.minY, node.position.y),
-				maxX: Math.max(acc.maxX, visualX + NODE.width),
+				maxX: Math.max(acc.maxX, node.position.x + NODE.width),
 				maxY: Math.max(acc.maxY, node.position.y + NODE.height)
 			}
 		},

@@ -20,7 +20,6 @@
 	import {
 		graphBuilder,
 		isTriggerStep,
-		topologicalSort,
 		type InlineScript,
 		type InsertKind,
 		type NodeLayout,
@@ -36,7 +35,7 @@
 	import ResultNode from './renderers/nodes/ResultNode.svelte'
 	import BaseEdge from './renderers/edges/BaseEdge.svelte'
 	import EmptyEdge from './renderers/edges/EmptyEdge.svelte'
-	import { sugiyama, dagStratify, coordCenter, decrossTwoLayer, decrossOpt } from 'd3-dag'
+	// d3-dag imports now used inside compoundLayout.ts
 	import { Expand, MousePointer, Hand } from 'lucide-svelte'
 	import Toggle from '../Toggle.svelte'
 	import DataflowEdge from './renderers/edges/DataflowEdge.svelte'
@@ -71,6 +70,8 @@
 	import type { MoveManager } from './moveManager.svelte'
 	import DragCoordinator from './DragCoordinator.svelte'
 	import type { ModulesTestStates } from '../modulesTest.svelte'
+	import { compoundLayout, type WrapperInfo } from './compoundLayout'
+	import DebugWrapperNode from './renderers/nodes/DebugWrapperNode.svelte'
 	import { deepEqual } from 'fast-equals'
 	import type { AssetWithAltAccessType } from '../assets/lib'
 	import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
@@ -323,6 +324,8 @@
 	}
 	type NodePos = { position: { x: number; y: number } }
 	let lastNodes: [NodeDep[], (NodeDep & NodePos)[]] | undefined = undefined
+	let lastWrappers: WrapperInfo[] = []
+	let lastXCenter = 0
 
 	function layoutNodes(nodes: NodeDep[]): (NodeDep & NodePos)[] {
 		let lastResult = lastNodes?.[1]
@@ -339,59 +342,31 @@
 			seenId.push(n.id)
 		}
 
-		let nodeWidths: Record<string, number> = {}
-		const nodes2: (NodeDep & NodePos)[] = nodes.map((n) => {
-			return { ...n, position: { x: 0, y: 0 } }
+		// Build edges from parentIds
+		const edges = nodes.flatMap((n) =>
+			(n.parentIds ?? []).map((pid) => ({ source: pid, target: n.id }))
+		)
+
+		// Run recursive compound layout
+		const { positions, bbox, wrappers } = compoundLayout(nodes, edges, {
+			nodeWidth: NODE.width,
+			nodeHeight: NODE.height,
+			gapH: NODE.gap.horizontal,
+			gapV: NODE.gap.vertical
 		})
-		for (const n of topologicalSort(nodes)) {
-			const endId = n.id + '-end'
 
-			if (nodeWidths[endId] != undefined) {
-				nodeWidths[n.id] = Math.max(nodeWidths[n.id] ?? 0, nodeWidths[endId])
-			}
-			if (n.parentIds && n.parentIds?.length == 1) {
-				const parent = n.parentIds[0]
-				const nodeWidth = nodeWidths[n.id] ?? 1
-				nodeWidths[parent] = (nodeWidths[parent] ?? 0) + nodeWidth
-			}
-		}
+		lastWrappers = wrappers
 
-		const dag = dagStratify().id(({ id }: NodeDep & NodePos) => id)(nodes2)
+		// Center horizontally
+		const xCenter =
+			(fullSize ? fullWidth : width) / 2 - bbox.width / 2 - (width - fullWidth) / 2
+		lastXCenter = xCenter
 
-		let boxSize: any
-		try {
-			const layout = sugiyama()
-				.decross(nodes.length > 20 ? decrossTwoLayer() : decrossOpt())
-				.coord(coordCenter())
-				.nodeSize((d) => {
-					return [
-						(nodeWidths[d?.data?.['id'] ?? ''] ?? 1) * (NODE.width + NODE.gap.horizontal * 1),
-						NODE.height + NODE.gap.vertical
-					] as readonly [number, number]
-				})
-			boxSize = layout(dag as any)
-		} catch {
-			const layout = sugiyama()
-				.decross(decrossTwoLayer())
-				.coord(coordCenter())
-				.nodeSize(() => [NODE.width + NODE.gap.horizontal, NODE.height + NODE.gap.vertical])
-			boxSize = layout(dag as any)
-		}
-
-		const newNodes = dag.descendants().map((des) => ({
-			id: des.data.id,
+		const newNodes = nodes.map((n) => ({
+			id: n.id,
 			position: {
-				x: des.x
-					? // @ts-ignore
-						(des.data.offset ?? 0) +
-						// @ts-ignore
-						des.x +
-						(fullSize ? fullWidth : width) / 2 -
-						boxSize.width / 2 -
-						NODE.width / 2 -
-						(width - fullWidth) / 2
-					: 0,
-				y: des.y || 0
+				x: (positions.get(n.id)?.x ?? 0) + xCenter - NODE.width / 2,
+				y: positions.get(n.id)?.y ?? 0
 			}
 		}))
 
@@ -642,8 +617,35 @@
 			}))
 		}
 
+		// Build debug wrapper nodes from compound layout
+		// compoundLayout positions use x as CENTER of each node.
+		// layoutNodes transforms: screenX = compoundX + lastXCenter - NODE.width/2
+		// For wrappers: screenX = w.x + lastXCenter - w.width/2
+		const wrapperNodes: Node[] = lastWrappers.map((w) => {
+			return {
+				id: w.id,
+				type: 'debugWrapper',
+				position: {
+					x: w.x + lastXCenter - w.width / 2,
+					y: w.y
+				},
+				data: {
+					headId: w.headId,
+					type: w.type,
+					level: w.level,
+					label: w.label,
+					wrapperWidth: w.width,
+					wrapperHeight: w.height
+				},
+				selectable: false,
+				draggable: false,
+				zIndex: w.level === 'group' ? -10 : -5,
+				style: `width: ${w.width}px; height: ${w.height}px;`
+			} satisfies Node
+		})
+
 		// update nodes
-		nodes = [...finalNodes, ...(noteNodesResult?.noteNodes ?? [])]
+		nodes = [...finalNodes, ...wrapperNodes, ...(noteNodesResult?.noteNodes ?? [])]
 
 		edges = [
 			...(assetNodesResult?.newAssetEdges ?? []),
@@ -689,7 +691,8 @@
 		assetsOverflowed: AssetsOverflowedNode,
 		aiTool: AiToolNode,
 		newAiTool: NewAiToolNode,
-		note: NoteNode
+		note: NoteNode,
+		debugWrapper: DebugWrapperNode
 	} as any
 
 	const edgeTypes = {

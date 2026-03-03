@@ -19,7 +19,7 @@
 	let {
 		enableSourceHandle = true,
 		enableTargetHandle = true,
-		offset = 0,
+		offset: _offset = 0,
 		wrapperClass = '',
 		contextMenuItems = undefined,
 		nodeId = undefined,
@@ -39,14 +39,14 @@
 
 {#if contextMenuItems && contextMenuItems.length > 0}
 	<ContextMenu items={contextMenuItems}>
-		<div class={twMerge('relative rounded-md', faded ? 'opacity-30' : '', wrapperClass)} style={`margin-left: ${offset}px;`}>
+		<div class={twMerge('relative rounded-md', faded ? 'opacity-30' : '', wrapperClass)}>
 			{@render children?.({ darkMode })}
 		</div>
 
 		{@render handles()}
 	</ContextMenu>
 {:else}
-	<div class={twMerge('relative rounded-md', faded ? 'opacity-30' : '', wrapperClass)} style={`margin-left: ${offset}px;`}>
+	<div class={twMerge('relative rounded-md', faded ? 'opacity-30' : '', wrapperClass)}>
 		{@render children?.({ darkMode })}
 	</div>
 
@@ -59,7 +59,6 @@
 			type="source"
 			isConnectable={false}
 			position={Position.Bottom}
-			style={`margin-left: ${offset / 2}px;`}
 		/>
 	{/if}
 
@@ -68,7 +67,6 @@
 			type="target"
 			isConnectable={false}
 			position={Position.Top}
-			style={`margin-left: ${offset / 2}px;`}
 		/>
 	{/if}
 {/snippet}
