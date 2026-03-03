@@ -3,6 +3,7 @@
 	import { type ButtonType } from './common/button/model'
 	import { Save, CheckCircle2, AlertCircle, Loader2 } from 'lucide-svelte'
 	import { fly } from 'svelte/transition'
+	import { sendUserToast } from '$lib/toast'
 
 	let {
 		onSave,
@@ -48,6 +49,7 @@
 			})
 			.catch((error) => {
 				console.error('Save failed:', error)
+				sendUserToast(error?.message ?? 'Save failed', true)
 				saveStatus = 'error'
 				statusTimeout = setTimeout(() => {
 					saveStatus = null
