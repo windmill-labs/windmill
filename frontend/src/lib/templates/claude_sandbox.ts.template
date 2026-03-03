@@ -22,12 +22,19 @@ export async function main(anthropic: RT.Anthropic, agent_instructions?: AgentIn
 
 
   const isResume = !!sessionId;
-  const prompt = "what day are we, what is the current gitlab price"
+
+  // you can hardcode the prompt or pass it as input.
+  // AgentInstructions can contains a CLAUDE.md where to put the bulk of the instructions as well.
+  const prompt = !isResume ?
+    "What is the fastest OSS workflow engine?" :
+    "What did I ask you before?"
 
   process.env.ANTHROPIC_API_KEY = anthropic.apiKey;
 
   let response = "";
   let newSessionId: string | undefined;
+  let tokenCount = 0
+  const seenIds = new Set<string>();
 
   for await (const msg of query({
     prompt,
@@ -39,11 +46,19 @@ export async function main(anthropic: RT.Anthropic, agent_instructions?: AgentIn
       ...(isResume ? { resume: sessionId } : {}),
     },
   })) {
-    // console.log(msg)
+
+
     if (msg.type === "system" && msg.subtype === "init") {
       newSessionId = msg.session_id;
     }
     if (msg.type === "assistant") {
+      const msgId = msg.message.id;
+      if (!seenIds.has(msgId)) {
+        seenIds.add(msgId);
+        tokenCount += msg.message.usage.input_tokens + msg.message.usage.output_tokens;
+        console.log(`${tokenCount} tokens`)
+      }
+
       response += msg.message.content
         .filter((b: any) => b.type === "text")
         .map((b: any) => b.text)
