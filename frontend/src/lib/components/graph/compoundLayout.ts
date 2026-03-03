@@ -415,7 +415,7 @@ function layoutLevel(
 			// Loop: body is indented
 			const bodyWidth = branchLayouts[0]?.bbox.width ?? constants.nodeWidth
 			const bodyHeight = branchLayouts[0]?.bbox.height ?? 0
-			wrapperWidth = Math.max(bodyWidth + LOOP_INDENT, constants.nodeWidth)
+			wrapperWidth = Math.max(bodyWidth + LOOP_INDENT * 2, constants.nodeWidth)
 			// head row + start row + body + end row
 			wrapperHeight = rowHeight + bodyHeight + rowHeight
 			console.log(
@@ -663,7 +663,7 @@ function layoutLevel(
 		wrappers.map((w) => ({ id: w.id, type: w.type, x: w.x, y: w.y, w: w.width, h: w.height }))
 	)
 
-	// Compute overall bbox
+	// Compute overall bbox (nodes + wrappers)
 	let minX = Infinity
 	let maxX = -Infinity
 	let maxY = 0
@@ -671,6 +671,12 @@ function layoutLevel(
 		minX = Math.min(minX, pos.x - constants.nodeWidth / 2)
 		maxX = Math.max(maxX, pos.x + constants.nodeWidth / 2)
 		maxY = Math.max(maxY, pos.y + constants.nodeHeight)
+	}
+	// Wrappers (e.g. forloop with LOOP_INDENT padding) may extend beyond node positions
+	for (const w of wrappers) {
+		minX = Math.min(minX, w.x - w.width / 2)
+		maxX = Math.max(maxX, w.x + w.width / 2)
+		maxY = Math.max(maxY, w.y + w.height)
 	}
 
 	const bboxWidth = maxX - minX
