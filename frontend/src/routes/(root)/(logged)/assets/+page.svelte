@@ -22,32 +22,49 @@
 	import { Tooltip } from '$lib/components/meltComponents'
 	import { AlertTriangle, Loader2, SettingsIcon, StarIcon } from 'lucide-svelte'
 	import { StaleWhileLoading, useInfiniteQuery, useScrollToBottom } from '$lib/svelte5Utils.svelte'
-	import { Debounced, resource, watch, type ResourceReturn } from 'runed'
-	import Label from '$lib/components/Label.svelte'
-	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
-	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { resource, watch, type ResourceReturn } from 'runed'
 	import RefreshButton from '$lib/components/common/button/RefreshButton.svelte'
 	import Section from '$lib/components/Section.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { favoriteManager, parseFavoriteAsset } from '$lib/components/sidebar/FavoriteMenu.svelte'
+	import FilterSearchbar, {
+		useUrlSyncedFilterInstance
+	} from '$lib/components/FilterSearchbar.svelte'
+	import { buildAssetsFilterSchema } from '$lib/components/assets/assetsFilter'
+	import { untrack } from 'svelte'
 
 	interface AssetCursor {
 		created_at?: string
 		id?: number
 	}
 
-	let assetPathFilter: string = $state('')
-	let usagePathFilter: string = $state('')
-	let assetKindsFilter: Array<AssetKind> = $state([])
+	// Collect unique values for filter autocomplete
+	let allPaths: string[] = $state([])
+	let allAssetKinds: string[] = $state([
+		's3object',
+		'resource',
+		'variable',
+		'ducklake',
+		'datatable'
+	])
 
-	let filters = new Debounced(
-		() => ({
-			assetPath: assetPathFilter || undefined,
-			usagePath: usagePathFilter || undefined,
-			assetKinds: assetKindsFilter.join(',') || undefined
-		}),
-		500
+	// FilterSearchbar setup
+	let assetsFilterSchema = $derived(
+		buildAssetsFilterSchema({
+			paths: allPaths,
+			assetKinds: allAssetKinds
+		})
 	)
+	let filterValues = useUrlSyncedFilterInstance(untrack(() => assetsFilterSchema))
+
+	let filters = $derived.by(() => ({
+		assetPath: filterValues.val.asset_path || undefined,
+		usagePath: filterValues.val.usage_path || undefined,
+		assetKinds: filterValues.val.asset_kinds || undefined,
+		path: filterValues.val.path || undefined,
+		columns: filterValues.val.columns || undefined,
+		broadFilter: filterValues.val._default_ || undefined
+	}))
 
 	const assetsQuery = useInfiniteQuery<ListAssetsResponse, AssetCursor | undefined>({
 		queryFn: async (cursor) => {
@@ -56,7 +73,7 @@
 				perPage: 50,
 				cursorCreatedAt: cursor?.created_at,
 				cursorId: cursor?.id,
-				...filters.current
+				...filters
 			})
 		},
 		initialPageParam: undefined,
@@ -72,7 +89,7 @@
 	)
 
 	watch(
-		() => [filters.current, $workspaceStore],
+		() => [filters, $workspaceStore],
 		() => assetsQuery.reset()
 	)
 
@@ -82,7 +99,7 @@
 	let assets = $derived(_assets.current?.flatMap((page) => page.assets))
 
 	let s3FilePicker: S3FilePicker | undefined = $state()
-	let dbManagerDrawer = $derived(globalDbManagerDrawer.val)
+	let dbManagerDrawer = $derived(globalDbManagerDrawer.val) as any
 	let assetsUsageDropdown: AssetsUsageDrawer | undefined = $state()
 
 	let allS3Storages = resource(
@@ -252,29 +269,21 @@
 			</div>
 		</Section>
 		<Section label="Latest assets used">
-			<div class="flex gap-2 mb-4 items-end justify-between">
-				<div class="flex gap-2">
-					<Label class="lg:min-w-[16rem] max-w-[30rem]" label="Asset path">
-						<TextInput bind:value={assetPathFilter} />
-					</Label>
-					<Label class="lg:min-w-[16rem] max-w-[30rem]" label="Usage path">
-						<TextInput bind:value={usagePathFilter} />
-					</Label>
-					<Label class="lg:min-w-[8rem] max-w-[30rem]" label="Asset kinds">
-						<MultiSelect
-							hideMainClearBtn
-							bind:value={assetKindsFilter}
-							items={[
-								{ label: 'S3 Object', value: 's3object' },
-								{ label: 'Ducklake', value: 'ducklake' },
-								{ label: 'Data Table', value: 'datatable' },
-								{ label: 'Resource', value: 'resource' }
-							]}
-						/>
-					</Label>
+			{#snippet action()}
+				<div class="flex gap-2 grow justify-end">
+					<RefreshButton
+						variant="default"
+						onClick={() => assetsQuery.reset()}
+						loading={assetsQuery.isLoading}
+					/>
+					<FilterSearchbar
+						class="grow max-w-[26rem]"
+						schema={assetsFilterSchema}
+						bind:value={filterValues.val}
+						placeholder="Filter assets..."
+					/>
 				</div>
-				<RefreshButton onClick={() => assetsQuery.reset()} loading={assetsQuery.isLoading} />
-			</div>
+			{/snippet}
 			{@render table()}
 			{#if assetsQuery.isFetchingNextPage}
 				<Loader2 size={32} class="mx-auto my-4 text-primary animate-spin" />

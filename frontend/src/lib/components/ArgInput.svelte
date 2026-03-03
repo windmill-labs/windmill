@@ -20,7 +20,6 @@
 	import ObjectResourceInput from './ObjectResourceInput.svelte'
 	import Range from './Range.svelte'
 	import ResourcePicker from './ResourcePicker.svelte'
-	import type SimpleEditor from './SimpleEditor.svelte'
 	import Toggle from './Toggle.svelte'
 	import type VariableEditor from './VariableEditor.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -97,7 +96,7 @@
 		title?: string | undefined
 		placeholder?: string | undefined
 		order?: string[] | undefined
-		editor?: SimpleEditor | undefined
+		editor?: any | undefined
 		orderEditable?: boolean
 		shouldDispatchChanges?: boolean
 		noDefaultOnSelectFirst?: boolean
@@ -1058,6 +1057,7 @@
 		{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format && format?.split('-').length > 1 && resourceTypes.includes(format?.substring('resource-'.length))))}
 			<!-- {JSON.stringify(value)} -->
 			<ObjectResourceInput
+				datatableAsPgResource={label === 'database'}
 				{disabled}
 				{defaultValue}
 				selectFirst={!noDefaultOnSelectFirst && required}

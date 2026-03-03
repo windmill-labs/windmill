@@ -33,6 +33,7 @@
 	import { JobService } from '$lib/gen'
 	import { dfsByModule } from '../previousResults'
 	import type { InlineScript, InsertKind } from '$lib/components/graph/graphBuilder.svelte'
+	import { MoveManager } from '$lib/components/graph/moveManager.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import type { GraphModuleState } from '$lib/components/graph'
 	import FlowStickyNode from './FlowStickyNode.svelte'
@@ -41,10 +42,15 @@
 	import type { StateStore } from '$lib/utils'
 	import {
 		type AgentTool,
+		type SpecialToolKind,
 		flowModuleToAgentTool,
 		createMcpTool,
-		createWebsearchTool
+		createWebsearchTool,
+		createAiAgentTool,
+		SPECIAL_TOOL_KINDS,
+		agentToolToFlowModule
 	} from '../agentToolUtils'
+	import { loadFlowModuleState } from '../flowStateUtils.svelte'
 	import { getNoteEditorContext } from '$lib/components/graph/noteEditor.svelte'
 
 	interface Props {
@@ -107,14 +113,29 @@
 		flowHasChanged
 	}: Props = $props()
 
-	const { customUi, selectionManager, moving, history, flowStateStore, flowStore, pathStore } =
+	const { customUi, selectionManager, history, flowStateStore, flowStore, pathStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
+
+	const moveManager = new MoveManager()
 	const { triggersCount, triggersState } = getContext<TriggerContext>('TriggerContext')
 
 	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
 
 	// Get NoteEditor context for note position updates
 	const noteEditorContext = getNoteEditorContext()
+
+	$effect(() => {
+		if (!moveManager.movingModuleId) return
+
+		function onKeyDown(e: KeyboardEvent) {
+			if (e.key === 'Escape') {
+				moveManager.clearMoving()
+			}
+		}
+
+		document.addEventListener('keydown', onKeyDown, true)
+		return () => document.removeEventListener('keydown', onKeyDown, true)
+	})
 
 	export async function insertNewModuleAtIndex(
 		modules: FlowModule[] | AgentTool[],
@@ -123,7 +144,7 @@
 		wsScript?: { path: string; summary: string; hash: string | undefined },
 		wsFlow?: { path: string; summary: string },
 		inlineScript?: InlineScript,
-		toolKind?: 'mcpTool' | 'flowmoduleTool' | 'websearchTool'
+		toolKind?: SpecialToolKind | 'flowmoduleTool'
 	): Promise<FlowModule[] | AgentTool[]> {
 		push(history, flowStore.val)
 		let module = emptyModule(flowStateStore.val, flowStore.val, kind == 'flow')
@@ -184,6 +205,12 @@
 			// Create Websearch AgentTool
 			const websearchTool = createWebsearchTool(module.id)
 			;(modules as AgentTool[]).splice(index, 0, websearchTool)
+			return modules as AgentTool[]
+		} else if (toolKind === 'aiAgentTool') {
+			// Create AI Agent tool (nested agent)
+			const aiAgentTool = createAiAgentTool(module.id)
+			flowStateStore.val[module.id] = await loadFlowModuleState(agentToolToFlowModule(aiAgentTool))
+			;(modules as AgentTool[]).splice(index, 0, aiAgentTool)
 			return modules as AgentTool[]
 		} else if (toolKind === 'flowmoduleTool') {
 			// Create AgentTool from FlowModule
@@ -318,7 +345,6 @@
 		noteMode = !noteMode
 	}
 
-
 	const dispatch = createEventDispatcher<{
 		generateStep: { moduleId: string; instructions: string; lang: ScriptLang }
 		change: void
@@ -434,7 +460,7 @@
 			insertable
 			scroll
 			{minHeight}
-			moving={$moving?.id}
+			{moveManager}
 			maxHeight={minHeight}
 			modules={flowStore.val.value.modules}
 			{noteMode}
@@ -491,8 +517,7 @@
 					}
 
 					dfs(flowStore.val.value.modules, (mod, modules, branches) => {
-						// console.log('mod', mod.id, $moving?.id, detail, branches)
-						if (mod.id == $moving?.id) {
+						if (mod.id == moveManager.movingModuleId) {
 							originalModules = modules
 						}
 						if (detail.branch) {
@@ -507,15 +532,20 @@
 					})
 					if (flowStore.val.value.modules && Array.isArray(flowStore.val.value.modules)) {
 						await tick()
-						if ($moving) {
+						if (moveManager.movingModuleId) {
 							// console.log('modules', modules, movingModules, movingModule)
 							push(history, flowStore.val)
-							let indexToRemove = originalModules.findIndex((m) => $moving?.id == m.id)
+							let indexToRemove = originalModules.findIndex((m) => moveManager.movingModuleId == m.id)
 
 							let [removedModule] = originalModules.splice(indexToRemove, 1)
-							targetModules.splice(detail.index, 0, removedModule)
+							// When moving within the same array, removal shifts subsequent indices down by 1
+							let insertIndex = detail.index
+							if (originalModules === targetModules && indexToRemove < detail.index) {
+								insertIndex -= 1
+							}
+							targetModules.splice(insertIndex, 0, removedModule)
 							selectionManager.selectId(removedModule.id)
-							$moving = undefined
+							moveManager.clearMoving()
 						} else {
 							if (detail.isPreprocessor) {
 								await insertNewPreprocessorModule(
@@ -535,11 +565,9 @@
 								}
 							} else {
 								const index = (detail.agentId ? targetModules?.length : detail.index) ?? 0
-								const toolKind = detail.agentId
-									? detail.kind === 'mcpTool'
-										? 'mcpTool'
-										: detail.kind === 'websearchTool'
-											? 'websearchTool'
+								const toolKind: SpecialToolKind | 'flowmoduleTool' | undefined = detail.agentId
+									? (SPECIAL_TOOL_KINDS as readonly string[]).includes(detail.kind)
+										? (detail.kind as SpecialToolKind)
 										: 'flowmoduleTool'
 									: undefined
 
@@ -648,11 +676,7 @@
 				}
 			}}
 			onMove={(id) => {
-				if (!$moving || $moving.id !== id) {
-					$moving = { id }
-				} else {
-					$moving = undefined
-				}
+				moveManager.toggleMoving(id)
 			}}
 			onUpdateMock={(detail) => {
 				let module = findModuleById(detail.id)

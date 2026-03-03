@@ -17,6 +17,21 @@ pub struct Authed {
     pub token_prefix: Option<String>,
 }
 
+impl Authed {
+    pub fn to_authed_ref(&self) -> AuthedRef<'_> {
+        AuthedRef {
+            email: &self.email,
+            username: &self.username,
+            is_admin: &self.is_admin,
+            is_operator: &self.is_operator,
+            groups: &self.groups,
+            folders: &self.folders,
+            scopes: &self.scopes,
+            token_prefix: &self.token_prefix,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Hash)]
 pub struct AuthedRef<'a> {
     pub email: &'a str,

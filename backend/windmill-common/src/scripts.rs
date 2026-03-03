@@ -49,9 +49,7 @@ pub fn extract_workspace_dependencies_annotated_refs(
             Some(&RE_PYTHON),
             runnable_path,
         ),
-        Go => {
-            WorkspaceDependenciesAnnotatedRefs::parse("//", "go_mod", code, None, runnable_path)
-        }
+        Go => WorkspaceDependenciesAnnotatedRefs::parse("//", "go_mod", code, None, runnable_path),
         Php => WorkspaceDependenciesAnnotatedRefs::parse(
             "//",
             "composer_json",
@@ -67,11 +65,8 @@ pub async fn prefetch_cached_script(
     script: Script<ScriptRunnableSettingsHandle>,
     db: &DB,
 ) -> crate::error::Result<Script<ScriptRunnableSettingsInline>> {
-    let rs = runnable_settings::from_handle(
-        script.runnable_settings.runnable_settings_handle,
-        db,
-    )
-    .await?;
+    let rs = runnable_settings::from_handle(script.runnable_settings.runnable_settings_handle, db)
+        .await?;
     let (debouncing_settings, concurrency_settings) =
         runnable_settings::prefetch_cached(&rs, db).await?;
 
@@ -379,11 +374,8 @@ pub async fn clone_script<'c>(
         )));
     };
 
-    let rs = runnable_settings::from_handle(
-        s.runnable_settings.runnable_settings_handle,
-        db,
-    )
-    .await?;
+    let rs =
+        runnable_settings::from_handle(s.runnable_settings.runnable_settings_handle, db).await?;
     let (debouncing_settings, concurrency_settings) =
         runnable_settings::prefetch_cached(&rs, db).await?;
 
@@ -424,6 +416,7 @@ pub async fn clone_script<'c>(
         codebase: s.codebase,
         has_preprocessor: s.has_preprocessor,
         on_behalf_of_email: s.on_behalf_of_email,
+        preserve_on_behalf_of: None,
         assets: s.assets,
     };
 

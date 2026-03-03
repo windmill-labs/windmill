@@ -12,6 +12,9 @@
 //! TypeScript scripts via the nativets runtime. By isolating this here,
 //! deno_core compilation no longer blocks windmill-worker or windmill-api.
 
+mod dedicated;
+pub use dedicated::{ExecutingIsolate, PrewarmedIsolate, PrewarmedResult};
+
 use std::{
     borrow::Cow,
     cell::RefCell,
@@ -112,14 +115,15 @@ impl NetPermissions for PermissionsContainer {
 
 // ── Types ────────────────────────────────────────────────────────────
 
-struct MainArgs {
-    args: Vec<Option<Box<RawValue>>>,
+pub(crate) struct MainArgs {
+    pub(crate) args: Vec<Option<Box<RawValue>>>,
 }
 
 struct LogString {
     pub s: mpsc::UnboundedSender<String>,
 }
 
+#[derive(Clone)]
 pub struct NativeAnnotation {
     pub useragent: Option<String>,
     pub proxy: Option<(String, Option<(String, String)>)>,
@@ -145,7 +149,7 @@ impl Drop for IsolateDropGuard {
 
 static RUNTIME_SNAPSHOT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/FETCH_SNAPSHOT.bin"));
 
-const WINDMILL_CLIENT: &str = include_str!("./windmill-client.js");
+pub(crate) const WINDMILL_CLIENT: &str = include_str!("./windmill-client.js");
 
 const ERROR_DIR: &str = const_format::concatcp!(TMP_DIR, "/native_errors");
 
@@ -177,7 +181,10 @@ pub fn setup_deno_runtime() -> anyhow::Result<()> {
         .collect::<Vec<_>>();
 
         if !unrecognized_v8_flags.is_empty() {
-            init_err = Some(format!("Unrecognized V8 flags: {:?}", unrecognized_v8_flags));
+            init_err = Some(format!(
+                "Unrecognized V8 flags: {:?}",
+                unrecognized_v8_flags
+            ));
         }
 
         // Use an unprotected platform that doesn't enforce thread-isolated allocations
@@ -349,6 +356,140 @@ fn op_log(op_state: Rc<RefCell<OpState>>, #[string] log: &str) {
     }
 }
 
+// ── Shared V8 runtime creation ───────────────────────────────────────
+
+pub(crate) struct CreatedRuntime {
+    pub(crate) js_runtime: JsRuntime,
+    pub(crate) log_receiver: mpsc::UnboundedReceiver<String>,
+    pub(crate) memory_limit_rx: mpsc::UnboundedReceiver<()>,
+}
+
+/// Create a JsRuntime with the standard nativets extensions, heap limit
+/// callback, and log channel.  Must be called on a blocking thread (not
+/// on the async tokio runtime) because V8 isolate creation is
+/// synchronous and potentially heavy.
+pub(crate) fn create_nativets_runtime(
+    ann: NativeAnnotation,
+    initial_args: Vec<Option<Box<RawValue>>>,
+) -> anyhow::Result<CreatedRuntime> {
+    let ops = vec![op_get_static_args(), op_log()];
+    let ext = Extension { name: "windmill", ops: ops.into(), ..Default::default() };
+
+    let fetch_options = deno_fetch::Options {
+        root_cert_store_provider: None,
+        user_agent: ann.useragent.unwrap_or_else(|| "windmill/beta".to_string()),
+        proxy: ann.proxy.map(|x| deno_tls::Proxy {
+            url: x.0,
+            basic_auth: x
+                .1
+                .map(|(username, password)| deno_tls::BasicAuth { username, password }),
+        }),
+        ..Default::default()
+    };
+
+    let exts: Vec<Extension> = vec![
+        deno_telemetry::deno_telemetry::init_ops(),
+        deno_webidl::deno_webidl::init_ops(),
+        deno_url::deno_url::init_ops(),
+        deno_console::deno_console::init_ops(),
+        deno_web::deno_web::init_ops::<PermissionsContainer>(Arc::new(BlobStore::default()), None),
+        deno_fetch::deno_fetch::init_ops::<PermissionsContainer>(fetch_options),
+        deno_net::deno_net::init_ops::<PermissionsContainer>(None, None),
+        ext,
+    ];
+
+    let options = RuntimeOptions {
+        is_main: true,
+        extensions: exts,
+        create_params: Some(
+            deno_core::v8::CreateParams::default().heap_limits(0, 1024 * 1024 * 128),
+        ),
+        startup_snapshot: Some(RUNTIME_SNAPSHOT),
+        module_loader: Some(Rc::new(deno_core::FsModuleLoader)),
+        extension_transpiler: None,
+        ..Default::default()
+    };
+
+    let (memory_limit_tx, memory_limit_rx) = mpsc::unbounded_channel::<()>();
+
+    setup_deno_runtime().expect("V8 platform init failed");
+
+    let mut js_runtime = {
+        let _v8_lock = V8_ISOLATE_CREATE_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        JsRuntime::new(options)
+    };
+
+    js_runtime.add_near_heap_limit_callback(move |x, y| {
+        tracing::error!("heap limit reached: {x} {y}");
+        if memory_limit_tx.send(()).is_err() {
+            tracing::warn!(
+                "memory limit notification channel closed - isolate may already be terminating"
+            );
+        }
+        y * 2
+    });
+
+    let (log_sender, log_receiver) = mpsc::unbounded_channel::<String>();
+
+    {
+        let op_state = js_runtime.op_state();
+        let mut op_state = op_state.borrow_mut();
+        op_state.put(PermissionsContainer {});
+        op_state.put(MainArgs { args: initial_args });
+        op_state.put(LogString { s: log_sender });
+    }
+
+    Ok(CreatedRuntime { js_runtime, log_receiver, memory_limit_rx })
+}
+
+// ── Shared module-loading helpers ────────────────────────────────────
+
+pub(crate) async fn load_client_module(
+    js_runtime: &mut JsRuntime,
+    env_code: &str,
+) -> anyhow::Result<()> {
+    js_runtime
+        .load_side_es_module_from_code(
+            &deno_core::resolve_url("file:///windmill.ts")
+                .map_err(windmill_common::error::to_anyhow)?,
+            format!("{env_code}\n{WINDMILL_CLIENT}"),
+        )
+        .await
+        .map_err(windmill_common::error::to_anyhow)?;
+    Ok(())
+}
+
+pub(crate) async fn load_user_module(
+    js_runtime: &mut JsRuntime,
+    source: String,
+) -> anyhow::Result<()> {
+    use anyhow::Context;
+    js_runtime
+        .load_side_es_module_from_code(
+            &deno_core::resolve_url("file:///eval.ts")
+                .map_err(windmill_common::error::to_anyhow)?,
+            source,
+        )
+        .await
+        .context("failed to load module")?;
+    Ok(())
+}
+
+/// Extract a string result from a resolved V8 global and convert to `Box<RawValue>`.
+pub(crate) fn extract_global_string(
+    js_runtime: &mut JsRuntime,
+    global: v8::Global<v8::Value>,
+) -> Result<Box<RawValue>, String> {
+    let scope = &mut js_runtime.handle_scope();
+    let local = v8::Local::new(scope, global);
+    match serde_v8::from_v8::<Option<String>>(scope, local) {
+        Ok(s) => Ok(unsafe_raw(s.unwrap_or_else(|| "null".to_string()))),
+        Err(e) => Err(format!("failed to deserialize result: {e}")),
+    }
+}
+
 // ── eval_fetch_timeout ───────────────────────────────────────────────
 
 /// Execute a NativeTS script using deno_core/V8.
@@ -436,87 +577,15 @@ pub async fn eval_fetch_timeout(
     }
 
     let result_f = tokio::task::spawn_blocking(move || {
-        let ops = vec![op_get_static_args(), op_log()];
-        let ext = Extension { name: "windmill", ops: ops.into(), ..Default::default() };
+        let CreatedRuntime { mut js_runtime, mut log_receiver, mut memory_limit_rx } =
+            create_nativets_runtime(ann, spread)?;
 
-        let fetch_options = deno_fetch::Options {
-            root_cert_store_provider: None,
-            user_agent: ann.useragent.unwrap_or_else(|| "windmill/beta".to_string()),
-            proxy: ann.proxy.map(|x| deno_tls::Proxy {
-                url: x.0,
-                basic_auth: x
-                    .1
-                    .map(|(username, password)| deno_tls::BasicAuth { username, password }),
-            }),
-            ..Default::default()
-        };
-
-        let exts: Vec<Extension> = vec![
-            deno_telemetry::deno_telemetry::init_ops(),
-            deno_webidl::deno_webidl::init_ops(),
-            deno_url::deno_url::init_ops(),
-            deno_console::deno_console::init_ops(),
-            deno_web::deno_web::init_ops::<PermissionsContainer>(
-                Arc::new(BlobStore::default()),
-                None,
-            ),
-            deno_fetch::deno_fetch::init_ops::<PermissionsContainer>(fetch_options),
-            deno_net::deno_net::init_ops::<PermissionsContainer>(None, None),
-            ext,
-        ];
-
-        let options = RuntimeOptions {
-            is_main: true,
-            extensions: exts,
-            create_params: Some(
-                deno_core::v8::CreateParams::default().heap_limits(0, 1024 * 1024 * 128),
-            ),
-            startup_snapshot: Some(RUNTIME_SNAPSHOT),
-            module_loader: Some(Rc::new(deno_core::FsModuleLoader)),
-            extension_transpiler: None,
-            ..Default::default()
-        };
-
-        let (memory_limit_tx, mut memory_limit_rx) = mpsc::unbounded_channel::<()>();
-
-        // Ensure V8 platform is initialized (idempotent, no-op if already done).
-        setup_deno_runtime().expect("V8 platform init failed");
-
-        // Serialize isolate creation as extra safety net against concurrent V8
-        // isolate creation races. The main fix is the unprotected platform in
-        // setup_deno_runtime(), but this provides defense in depth.
-        let mut js_runtime = {
-            let _v8_lock = V8_ISOLATE_CREATE_LOCK
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            JsRuntime::new(options)
-        };
-
-        // Bootstrap OpenTelemetry for fetch auto-instrumentation if OTEL was initialized.
         if otel_initialized {
             if let Err(e) =
                 js_runtime.execute_script("<otel_bootstrap>", "globalThis.__bootstrapOtel()")
             {
                 tracing::warn!("Failed to bootstrap OTEL telemetry: {}", e);
             }
-        }
-
-        js_runtime.add_near_heap_limit_callback(move |x, y| {
-            tracing::error!("heap limit reached: {x} {y}");
-            if memory_limit_tx.send(()).is_err() {
-                tracing::error!("failed to send memory limit reached notification - isolate may already be terminating");
-            };
-            y * 2
-        });
-
-        let (log_sender, mut log_receiver) = mpsc::unbounded_channel::<String>();
-
-        {
-            let op_state = js_runtime.op_state();
-            let mut op_state = op_state.borrow_mut();
-            op_state.put(PermissionsContainer {});
-            op_state.put(MainArgs { args: spread });
-            op_state.put(LogString { s: log_sender });
         }
 
         *isolate_handle.lock().unwrap_or_else(|e| e.into_inner()) =
@@ -601,42 +670,97 @@ async fn eval_fetch(
     script_entrypoint_override: Option<String>,
     load_client: bool,
     job_id: &Uuid,
-    _otel_initialized: bool,
+    otel_initialized: bool,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     if load_client {
         if let Some(env_code) = env_code.as_ref() {
-            let _ = js_runtime
-                .load_side_es_module_from_code(
-                    &deno_core::resolve_url("file:///windmill.ts")
-                        .map_err(windmill_common::error::to_anyhow)?,
-                    format!("{env_code}\n{}", WINDMILL_CLIENT.to_string()),
-                )
-                .await
-                .map_err(windmill_common::error::to_anyhow)?;
+            load_client_module(js_runtime, env_code).await?;
         }
     }
-    use anyhow::Context;
-    use deno_core::error::CoreError;
-    use windmill_common::worker::to_raw_value;
     let source = format!("{}\n{expr}", env_code.unwrap_or_default());
-    let _ = js_runtime
-        .load_side_es_module_from_code(
-            &deno_core::resolve_url("file:///eval.ts")
-                .map_err(windmill_common::error::to_anyhow)?,
-            source.to_string(),
-        )
-        .await
-        .map_err(|e| {
-            write_error_expr(expr, &job_id);
-            e
-        })
-        .context("failed to load module")?;
+    if let Err(e) = load_user_module(js_runtime, source.clone()).await {
+        write_error_expr(expr, job_id);
+        return Err(e.into());
+    }
 
-    let main_override = script_entrypoint_override.unwrap_or("main".to_string());
+    let result = execute_main(
+        js_runtime,
+        script_entrypoint_override.as_deref(),
+        otel_initialized,
+        Some(job_id),
+    )
+    .await;
+
+    match result {
+        Ok(raw) => Ok(raw),
+        Err(ExecuteError::Script(msg)) => {
+            write_error_expr(expr, job_id);
+            Err(Error::ExecutionErr(msg))
+        }
+        Err(ExecuteError::Js { message, stack, name, source: eval_source }) => {
+            write_error_expr(expr, job_id);
+            use windmill_common::worker::to_raw_value;
+            let stack_head = eval_source.and_then(|(file, line_no)| {
+                if file == "file:///eval.ts" {
+                    source
+                        .lines()
+                        .nth(line_no.saturating_sub(1))
+                        .map(|l| format!("{l}\n"))
+                } else {
+                    None
+                }
+            });
+            let stack_s = format!(
+                "{}{}",
+                stack_head.unwrap_or_default(),
+                stack.as_deref().unwrap_or_default()
+            );
+            let stack = if stack_s.is_empty() {
+                None
+            } else {
+                Some(stack_s)
+            };
+            Err(Error::ExecutionRawError(to_raw_value(&serde_json::json!({
+                "message": message,
+                "stack": stack,
+                "name": name,
+            }))))
+        }
+    }
+}
+
+// ── Shared execution engine ──────────────────────────────────────────
+
+pub(crate) enum ExecuteError {
+    /// Non-JS error (V8 internal, init failure, deserialization)
+    Script(String),
+    /// JS exception with structured error info
+    Js {
+        message: Option<String>,
+        stack: Option<String>,
+        name: Option<String>,
+        /// (file_name, line_number) from the first stack frame, if in user code
+        source: Option<(String, usize)>,
+    },
+}
+
+/// Execute the `main` function from the already-loaded `eval.ts` module.
+///
+/// Args must already be set in `MainArgs` in the runtime's OpState.
+/// Modules (`windmill.ts` and `eval.ts`) must already be loaded.
+pub(crate) async fn execute_main(
+    js_runtime: &mut JsRuntime,
+    entrypoint: Option<&str>,
+    _otel_initialized: bool,
+    _job_id: Option<&Uuid>,
+) -> Result<Box<RawValue>, ExecuteError> {
+    let main_fn = entrypoint.unwrap_or("main");
 
     #[cfg(all(feature = "private", feature = "enterprise"))]
     let otel_context_inject = if _otel_initialized {
-        let trace_id = job_id.as_simple().to_string();
+        let trace_id = _job_id
+            .map(|id| id.as_simple().to_string())
+            .unwrap_or_default();
         format!(
             r#"globalThis.__enterSpan?.({{
     isRecording: () => true,
@@ -687,7 +811,7 @@ function processStreamIterative(res) {{
 {otel_context_inject}
 
 let args = Deno.core.ops.op_get_static_args().map(JSON.parse)
-import("file:///eval.ts").then((module) => module.{main_override}(...args))
+import("file:///eval.ts").then((module) => module.{main_fn}(...args))
     .then(res => {{
         if (isAsyncIterable(res)) {{
             return processStreamIterative(res)
@@ -698,60 +822,25 @@ import("file:///eval.ts").then((module) => module.{main_override}(...args))
 "#
             ),
         )
-        .map_err(|e| {
-            write_error_expr(expr, &job_id);
-            e
-        })
-        .context("native script initialization")?;
+        .map_err(|e| ExecuteError::Script(format!("native script initialization: {e}")))?;
 
     let fut = js_runtime.resolve(script);
     let global = js_runtime
         .with_event_loop_promise(fut, PollEventLoopOptions::default())
-        .await
-        .map_err(|e| {
-            write_error_expr(expr, &job_id);
-            e
-        });
+        .await;
 
     match global {
         Ok(global) => {
-            let scope = &mut js_runtime.handle_scope();
-            let local = v8::Local::new(scope, global);
-            let r = serde_v8::from_v8::<Option<String>>(scope, local)
-                .map_err(windmill_common::error::to_anyhow)?;
-            Ok(unsafe_raw(r.unwrap_or_else(|| "null".to_string())))
+            extract_global_string(js_runtime, global).map_err(|e| ExecuteError::Script(e))
         }
-        Err(CoreError::Js(e)) => {
-            let stack_head = e.frames.first().and_then(|f| {
-                if f.file_name.as_ref().is_some_and(|x| x == "file:///eval.ts") {
-                    Some(format!(
-                        "{}\n",
-                        source
-                            .lines()
-                            .nth((f.line_number.unwrap_or(1)) as usize - 1)
-                            .unwrap_or("")
-                            .to_string()
-                    ))
-                } else {
-                    None
-                }
+        Err(deno_core::error::CoreError::Js(e)) => {
+            let source = e.frames.first().and_then(|f| {
+                f.file_name
+                    .as_ref()
+                    .map(|name| (name.clone(), f.line_number.unwrap_or(1) as usize))
             });
-            let stack_s = format!(
-                "{}{}",
-                stack_head.unwrap_or("".to_string()),
-                e.stack.unwrap_or("".to_string())
-            );
-            let stack = if stack_s.is_empty() {
-                None
-            } else {
-                Some(stack_s)
-            };
-            Err(Error::ExecutionRawError(to_raw_value(&serde_json::json!({
-                "message": e.message,
-                "stack": stack,
-                "name": e.name,
-            }))))
+            Err(ExecuteError::Js { message: e.message, stack: e.stack, name: e.name, source })
         }
-        Err(e) => Err(Error::ExecutionErr(e.print_with_cause())),
+        Err(e) => Err(ExecuteError::Script(e.print_with_cause())),
     }
 }

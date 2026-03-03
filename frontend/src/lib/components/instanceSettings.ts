@@ -141,6 +141,21 @@ export const settings: Record<string, Setting[]> = {
 					!value?.endsWith(' '))
 		},
 		{
+			label: 'Email domain',
+			description: 'Domain to display in webhooks for email triggers (should match the MX record)',
+			key: 'email_domain',
+			fieldType: 'text',
+			placeholder: 'mail.windmill.com',
+			storage: 'setting',
+			error: 'Must be a valid domain',
+			isValid: (value: string | undefined) =>
+				value == undefined ||
+				value === '' ||
+				/^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*$/.test(
+					value
+				)
+		},
+		{
 			label: 'Request size limit in MB',
 			description: 'Maximum size of HTTP requests in MB.',
 			cloudonly: true,
@@ -181,7 +196,7 @@ export const settings: Record<string, Setting[]> = {
 	],
 	Jobs: [
 		{
-			label: 'Job Isolation',
+			label: 'Job isolation',
 			key: 'job_isolation',
 			fieldType: 'select',
 			description:
@@ -216,7 +231,6 @@ export const settings: Record<string, Setting[]> = {
 			description:
 				'Maximum amount of time (measured in seconds) that a <a href="https://www.windmill.dev/docs/core_concepts/webhooks">sync endpoint</a> is allowed to run before it is forcibly stopped or timed out.',
 			key: 'timeout_wait_result',
-			cloudonly: true,
 			fieldType: 'seconds',
 			placeholder: '60',
 			storage: 'setting'
@@ -321,7 +335,7 @@ export const settings: Record<string, Setting[]> = {
 	],
 	SMTP: [
 		{
-			label: 'SMTP',
+			label: 'SMTP configuration',
 			key: 'smtp_settings',
 			fieldType: 'smtp_connect',
 			storage: 'setting',
@@ -406,23 +420,37 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
-			label: 'Npm config registry',
-			description: 'Add private npm registry',
-			key: 'npm_config_registry',
-			fieldType: 'password',
-			placeholder: 'https://registry.npmjs.org/:_authToken=npm_FOOBAR',
+			label: 'NPM Registry Configuration (.npmrc)',
+			description:
+				'Full .npmrc file content for private npm registries. Used by Bun, Deno, and the npm proxy. Takes precedence over the legacy fields below.',
+			key: 'npmrc',
+			fieldType: 'codearea',
+			codeAreaLang: 'ini',
+			placeholder:
+				'registry=https://registry.mycompany.com/\n//registry.mycompany.com/:_authToken=YOUR_TOKEN\n\n@myorg:registry=https://registry.myorg.com/\n//registry.myorg.com/:_authToken=SCOPED_TOKEN',
 			storage: 'setting',
 			ee_only: ''
 		},
 		{
-			label: 'Bunfig install scopes',
+			label: 'Npm config registry (legacy)',
+			description: 'Add private npm registry. Prefer using the .npmrc field above.',
+			key: 'npm_config_registry',
+			fieldType: 'password',
+			placeholder: 'https://registry.npmjs.org/:_authToken=npm_FOOBAR',
+			storage: 'setting',
+			ee_only: '',
+			hiddenIfEmpty: true
+		},
+		{
+			label: 'Bunfig install scopes (legacy)',
 			description:
-				'Add private scoped registries for Bun, See: https://bun.sh/docs/install/registries',
+				'Add private scoped registries for Bun. Prefer using the .npmrc field above. See: https://bun.sh/docs/install/registries',
 			key: 'bunfig_install_scopes',
 			fieldType: 'password',
 			placeholder: '"@myorg3" = { token = "mytoken", url = "https://registry.myorg.com/" }',
 			storage: 'setting',
-			ee_only: ''
+			ee_only: '',
+			hiddenIfEmpty: true
 		},
 		{
 			label: 'Nuget Config',
@@ -781,4 +809,85 @@ export const categoryToTabMap: Record<string, string> = {
 	'Object Storage': 'object_storage',
 	Jobs: 'jobs',
 	'Private Hub': 'private_hub'
+}
+
+export interface SearchableSettingItem {
+	label: string
+	tabId: string
+	settingKey?: string
+	category: string
+	/** Full description text (HTML stripped), used for search matching only — not displayed */
+	description?: string
+}
+
+/**
+ * Extract the label portion from a uFuzzy marked/highlighted string.
+ * Only allows `<mark>` and `</mark>` tags through (sanitizes everything else).
+ */
+export function extractMarkedLabel(marked: string | undefined, labelLength: number): string {
+	if (!marked) return ''
+	let plainIdx = 0
+	let markedIdx = 0
+	while (plainIdx < labelLength && markedIdx < marked.length) {
+		if (marked[markedIdx] === '<') {
+			while (markedIdx < marked.length && marked[markedIdx] !== '>') markedIdx++
+			markedIdx++
+		} else {
+			plainIdx++
+			markedIdx++
+		}
+	}
+	// Include any closing </mark> right after
+	if (marked.startsWith('</mark>', markedIdx)) {
+		markedIdx += '</mark>'.length
+	}
+	// Sanitize: only allow <mark> and </mark> tags from uFuzzy highlight
+	return marked.slice(0, markedIdx).replace(/<(?!\/?mark>)[^>]*>/g, '')
+}
+
+export function buildSearchableSettingItems(
+	navigationGroups: typeof instanceSettingsNavigationGroups = instanceSettingsNavigationGroups
+): SearchableSettingItem[] {
+	const items: SearchableSettingItem[] = []
+
+	// Add sidebar navigation items (tab-level)
+	for (const group of navigationGroups) {
+		for (const navItem of group.items) {
+			items.push({
+				label: navItem.label,
+				tabId: navItem.id,
+				category: group.title
+			})
+		}
+	}
+
+	// Add individual settings from each category
+	for (const [category, categorySettings] of Object.entries(settings)) {
+		const tabId = categoryToTabMap[category]
+		if (!tabId) continue
+		for (const setting of categorySettings) {
+			if (!setting.label) continue
+			items.push({
+				label: setting.label,
+				tabId,
+				settingKey: setting.key,
+				category,
+				description: setting.description?.replace(/<[^>]*>/g, '') ?? ''
+			})
+		}
+	}
+
+	// Add SCIM/SAML settings
+	for (const setting of scimSamlSetting) {
+		if (!setting.label) continue
+		items.push({
+			label: setting.label,
+			tabId: 'scim_saml',
+			settingKey: setting.key,
+			category: 'SCIM/SAML',
+			description: setting.description?.replace(/<[^>]*>/g, '') ?? ''
+		})
+	}
+
+	return items
 }

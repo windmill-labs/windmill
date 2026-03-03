@@ -225,7 +225,7 @@
 			lockChanges = true
 			replaceFlow(event.data)
 			timeout && clearTimeout(timeout)
-			timeout = setTimeout(() => {
+			timeout = window.setTimeout(() => {
 				lockChanges = false
 			}, 500)
 		} else if (event.data.type == 'error') {
@@ -492,7 +492,6 @@
 
 	const previewArgsStore = $state({ val: {} })
 	const scriptEditorDrawer = writable(undefined)
-	const moving = writable<{ id: string } | undefined>(undefined)
 	const history = initHistory(flowStore.val)
 	const stepsInputArgs = new StepsInputArgs()
 	const selectionManager = new SelectionManager()
@@ -519,7 +518,6 @@
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
 		flowEditorDrawer: writable(undefined),
-		moving,
 		history,
 		pathStore: pathStore,
 		flowStateStore,
@@ -539,7 +537,9 @@
 		}),
 		currentEditor: writable(undefined),
 		modulesTestStates,
-		outputPickerOpenFns
+		outputPickerOpenFns,
+		preserveOnBehalfOf: writable(false),
+		savedOnBehalfOfEmail: writable<string | undefined>(undefined)
 	})
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),

@@ -13,9 +13,11 @@ windmill-api-auth.workspace = true
 windmill-common = { workspace = true, default-features = false }
 axum.workspace = true
 flate2.workspace = true
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
 tar.workspace = true
 tower-http.workspace = true
 tracing.workspace = true
+url.workspace = true

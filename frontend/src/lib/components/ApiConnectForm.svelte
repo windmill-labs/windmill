@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { OauthService, type ResourceType } from '$lib/gen'
+	import FilesetEditor from './FilesetEditor.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { emptySchema, emptyString } from '$lib/utils'
 	import SchemaForm from './SchemaForm.svelte'
-	import type SimpleEditor from './SimpleEditor.svelte'
 	import Toggle from './Toggle.svelte'
 	import TestConnection from './TestConnection.svelte'
 	import SupabaseIcon from './icons/SupabaseIcon.svelte'
@@ -80,7 +80,7 @@
 			rawCode = JSON.stringify(args, null, 2)
 		} else {
 			parseJson()
-			if (resourceTypeInfo?.format_extension) {
+			if (resourceTypeInfo?.format_extension && !resourceTypeInfo?.is_fileset) {
 				textFileContent = args.content
 			}
 		}
@@ -115,7 +115,7 @@
 		}
 	}
 
-	let rawCodeEditor: SimpleEditor | undefined = $state(undefined)
+	let rawCodeEditor: { setCode: (code: string) => void } | undefined = $state(undefined)
 	let textFileContent: string | undefined = $state(undefined)
 
 	function parseTextFileContent() {
@@ -238,6 +238,11 @@
 			/>
 		{/await}
 	</div>
+{:else if resourceTypeInfo?.is_fileset}
+	<h5 class="mt-1 inline-flex items-center gap-4">
+		Fileset
+	</h5>
+	<FilesetEditor bind:args />
 {:else if resourceTypeInfo?.format_extension}
 	<h5 class="mt-4 inline-flex items-center gap-4">
 		File content ({resourceTypeInfo.format_extension})

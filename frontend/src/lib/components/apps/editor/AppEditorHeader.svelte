@@ -63,6 +63,8 @@
 	import AppEditorHeaderDeployInitialDraft from './AppEditorHeaderDeployInitialDraft.svelte'
 	import { computeSecretUrl } from './appDeploy.svelte'
 	import { updatePolicy } from './appPolicy'
+	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
+	import { buildForkEditUrl } from '$lib/utils/editInFork'
 
 	interface Props {
 		policy: Policy
@@ -158,6 +160,7 @@
 	let debugAppDrawerOpen = $state(false)
 	let lazyDrawerOpen = $state(false)
 	let deploymentMsg = $state('')
+	let preserveOnBehalfOf = $state(false)
 
 	function closeSaveDrawer() {
 		saveDrawerOpen = false
@@ -178,7 +181,8 @@
 					summary: $summary,
 					policy,
 					deployment_message: deploymentMsg,
-					custom_path: customPath
+					custom_path: customPath,
+					preserve_on_behalf_of: preserveOnBehalfOf || undefined
 				}
 			})
 			savedApp = {
@@ -274,7 +278,8 @@
 				// custom_path requires admin so to accept update without it, we need to send as undefined when non-admin (when undefined, it will be ignored)
 				// it also means that customPath needs to be set to '' instead of undefined to unset it (when admin)
 				custom_path:
-					$userStore?.is_admin || $userStore?.is_super_admin ? (customPath ?? '') : undefined
+					$userStore?.is_admin || $userStore?.is_super_admin ? (customPath ?? '') : undefined,
+				preserve_on_behalf_of: preserveOnBehalfOf || undefined
 			}
 		})
 		savedApp = {
@@ -851,6 +856,7 @@
 			bind:customPathError
 			bind:pathError
 			bind:newEditedPath
+			bind:preserveOnBehalfOf
 			hideSecretUrl={false}
 		/>
 	</DrawerContent>
@@ -1114,7 +1120,17 @@
 							onClick: () => {
 								window.open(`/apps/add?template=${appPath}`)
 							}
-						}
+						},
+						...(!isRuleActive('DisableWorkspaceForking')
+							? [
+									{
+										label: 'Edit in workspace fork',
+										onClick: () => {
+											window.open(buildForkEditUrl('app', $appPath))
+										}
+									}
+								]
+							: [])
 					]
 				: undefined}
 		>

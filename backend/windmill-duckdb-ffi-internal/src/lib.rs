@@ -4,7 +4,7 @@ use std::{
     ptr::null_mut,
 };
 
-use duckdb::{Row, params_from_iter, types::TimeUnit};
+use duckdb::{Row, core::LogicalTypeId, params_from_iter, types::TimeUnit};
 use rust_decimal::{Decimal, prelude::FromPrimitive};
 use serde::Deserialize;
 use serde_json::value::RawValue;
@@ -267,7 +267,10 @@ fn do_duckdb_inner(
                             (0..stmt.column_count())
                                 .map(|i| {
                                     let logical_type = stmt.column_logical_type(i);
-                                    if logical_type.is_invalid() {
+                                    let logical_type_id = logical_type.id();
+                                    let invalid = logical_type_id == LogicalTypeId::Invalid
+                                        || logical_type_id == LogicalTypeId::Unsupported;
+                                    if invalid {
                                         None
                                     } else {
                                         logical_type.get_alias()

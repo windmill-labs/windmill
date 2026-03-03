@@ -61,9 +61,9 @@
 			}}
 			{onclick}
 			class={twMerge(
-				'group flex items-center px-2 py-2 text-sm font-light rounded-md h-8 gap-3',
+				'group flex items-center px-2 py-2 text-sm font-light rounded-md h-8 gap-2',
 				isSelected
-					? 'bg-surface-selected-inverse dark:bg-surface-selected'
+					? sidebarClasses.selectedBg
 					: sidebarClasses.hoverBg,
 				isSelected ? sidebarClasses.selectedText : sidebarClasses.text,
 				classNames
@@ -77,7 +77,7 @@
 		>
 			{#if icon}
 				{@const SvelteComponent = icon}
-				<SvelteComponent size={16} class={twMerge('flex-shrink-0 transition-all')} />
+				<SvelteComponent size={16} class={twMerge('flex-shrink-0 transition-all', isSelected ? sidebarClasses.selectedText : sidebarClasses.iconText)} />
 			{/if}
 
 			{#if !isCollapsed}

@@ -13,7 +13,7 @@
  * Usage:
  *   import { withTestBackend, cleanupTestBackend } from "./test_backend.ts";
  *
- *   Deno.test("my test", async () => {
+ *   test("my test", async () => {
  *     await withTestBackend(async (backend, tempDir) => {
  *       const result = await backend.runCLICommand(["sync", "pull"], tempDir);
  *       // ...
@@ -23,6 +23,9 @@
 
 import { CargoBackend, CargoBackendConfig } from "./cargo_backend.ts";
 import { ContainerizedBackend, ContainerConfig } from "./containerized_backend.ts";
+import { mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 /**
  * Common interface for test backends
@@ -37,8 +40,8 @@ export interface TestBackend {
   stop(): Promise<void>;
   reset(): Promise<void>;
 
-  createCLICommand(args: string[], workingDir: string, workspaceName?: string): Deno.Command;
-  runCLICommand(args: string[], workingDir: string, workspaceName?: string): Promise<{
+  createCLICommand(args: string[], workingDir: string, opts?: { workspace?: string; token?: string }): any;
+  runCLICommand(args: string[], workingDir: string, opts?: { workspace?: string; token?: string }): Promise<{
     stdout: string;
     stderr: string;
     code: number;
@@ -94,12 +97,12 @@ class CargoBackendAdapter implements TestBackend {
     await this.backend.reset();
   }
 
-  createCLICommand(args: string[], workingDir: string, workspaceName?: string): Deno.Command {
-    return this.backend.createCLICommand(args, workingDir, workspaceName);
+  createCLICommand(args: string[], workingDir: string, opts?: { workspace?: string; token?: string }): any {
+    return this.backend.createCLICommand(args, workingDir, opts);
   }
 
-  async runCLICommand(args: string[], workingDir: string, workspaceName?: string) {
-    return this.backend.runCLICommand(args, workingDir, workspaceName);
+  async runCLICommand(args: string[], workingDir: string, opts?: { workspace?: string; token?: string }) {
+    return this.backend.runCLICommand(args, workingDir, opts);
   }
 
   async apiRequest(path: string, options?: RequestInit): Promise<Response> {
@@ -366,12 +369,12 @@ class ContainerizedBackendAdapter implements TestBackend {
     await this.backend.reset();
   }
 
-  createCLICommand(args: string[], workingDir: string, workspaceName?: string): Deno.Command {
-    return this.backend.createCLICommand(args, workingDir, workspaceName);
+  createCLICommand(args: string[], workingDir: string, opts?: { workspace?: string; token?: string }): any {
+    return this.backend.createCLICommand(args, workingDir, opts);
   }
 
-  async runCLICommand(args: string[], workingDir: string, workspaceName?: string) {
-    return this.backend.runCLICommand(args, workingDir, workspaceName);
+  async runCLICommand(args: string[], workingDir: string, opts?: { workspace?: string; token?: string }) {
+    return this.backend.runCLICommand(args, workingDir, opts);
   }
 
   async seedTestData(): Promise<void> {
@@ -414,7 +417,7 @@ let globalBackend: TestBackend | null = null;
  * Get the backend type from environment
  */
 function getBackendType(): "cargo" | "docker" {
-  const envType = Deno.env.get("TEST_BACKEND")?.toLowerCase();
+  const envType = process.env["TEST_BACKEND"]?.toLowerCase();
   if (envType === "docker") {
     return "docker";
   }
@@ -433,7 +436,7 @@ export function createTestBackend(type?: "cargo" | "docker"): TestBackend {
   } else {
     console.log("🦀 Using Cargo-based test backend");
     return new CargoBackendAdapter({
-      verbose: Deno.env.get("VERBOSE") === "1",
+      verbose: process.env["VERBOSE"] === "1",
     });
   }
 }
@@ -444,6 +447,7 @@ export function createTestBackend(type?: "cargo" | "docker"): TestBackend {
 export async function getTestBackend(): Promise<TestBackend> {
   if (!globalBackend) {
     globalBackend = createTestBackend();
+    registerCleanup();
     await globalBackend.start();
   }
   return globalBackend;
@@ -456,7 +460,7 @@ export async function withTestBackend<T>(
   testFn: (backend: TestBackend, tempDir: string) => Promise<T>
 ): Promise<T> {
   const backend = await getTestBackend();
-  const tempDir = await Deno.makeTempDir({ prefix: "windmill_cli_test_" });
+  const tempDir = await mkdtemp(join(tmpdir(), "windmill_cli_test_"));
 
   try {
     await backend.reset();
@@ -465,7 +469,7 @@ export async function withTestBackend<T>(
     }
     return await testFn(backend, tempDir);
   } finally {
-    await Deno.remove(tempDir, { recursive: true });
+    await rm(tempDir, { recursive: true });
   }
 }
 
@@ -477,6 +481,90 @@ export async function cleanupTestBackend(): Promise<void> {
     await globalBackend.stop();
     globalBackend = null;
   }
+}
+
+// Auto-cleanup on process exit
+let cleanupRegistered = false;
+function registerCleanup() {
+  if (cleanupRegistered) return;
+  cleanupRegistered = true;
+  process.on("exit", () => {
+    if (globalBackend) {
+      // Synchronous kill — can't await in exit handler
+      try {
+        (globalBackend as any).backend?.process?.kill();
+      } catch {
+        // Best effort
+      }
+    }
+  });
+  // Handle graceful shutdown
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    process.on(signal, async () => {
+      await cleanupTestBackend();
+      process.exit(0);
+    });
+  }
+}
+
+/**
+ * Create a non-admin user, add them to the workspace, and return their token.
+ */
+export async function createNonAdminUser(
+  backend: TestBackend,
+  workspaceId: string = backend.workspace
+): Promise<string> {
+  if (!backend.apiRequest) {
+    throw new Error("Backend does not support apiRequest");
+  }
+
+  const email = `nonadmin_${Date.now()}@test.dev`;
+  const password = "testpass123";
+
+  // Create user globally (as admin)
+  const createResp = await backend.apiRequest("/api/users/create", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      email,
+      password,
+      super_admin: false,
+      name: "Non-Admin Test User",
+    }),
+  });
+  if (!createResp.ok) {
+    throw new Error(`Failed to create user: ${await createResp.text()}`);
+  }
+  await createResp.text();
+
+  // Add user to workspace as non-admin
+  const addResp = await backend.apiRequest(
+    `/api/w/${workspaceId}/workspaces/add_user`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email,
+        is_admin: false,
+        operator: false,
+      }),
+    }
+  );
+  if (!addResp.ok) {
+    throw new Error(`Failed to add user to workspace: ${await addResp.text()}`);
+  }
+  await addResp.text();
+
+  // Login as the non-admin user to get a token
+  const loginResp = await fetch(`${backend.baseUrl}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!loginResp.ok) {
+    throw new Error(`Failed to login as non-admin: ${await loginResp.text()}`);
+  }
+  return await loginResp.text();
 }
 
 // Re-export for convenience

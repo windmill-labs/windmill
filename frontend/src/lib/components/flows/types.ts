@@ -13,7 +13,7 @@ import type { Asset, AssetWithAccessType } from '../assets/lib'
 import type S3FilePicker from '../S3FilePicker.svelte'
 import type ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 import type { ModulesTestStates } from '../modulesTest.svelte'
-import type { ButtonProp } from '$lib/components/DiffEditor.svelte'
+import type { ButtonProp } from '$lib/components/diffEditorTypes'
 
 import type { SelectionManager } from '../graph/selectionUtils.svelte'
 import type { InferAssetsSqlQueryDetails } from '$lib/infer'
@@ -74,7 +74,6 @@ export type CurrentEditor =
 export type FlowEditorContext = {
 	selectionManager: SelectionManager
 	currentEditor: Writable<CurrentEditor>
-	moving: Writable<{ id: string } | undefined>
 	previewArgs: StateStore<Record<string, any>>
 	scriptEditorDrawer: Writable<ScriptEditorDrawer | undefined>
 	flowEditorDrawer: Writable<FlowEditorDrawer | undefined>
@@ -93,6 +92,8 @@ export type FlowEditorContext = {
 	executionCount: Writable<number>
 	modulesTestStates: ModulesTestStates
 	outputPickerOpenFns: Record<string, () => void>
+	preserveOnBehalfOf: Writable<boolean>
+	savedOnBehalfOfEmail: Writable<string | undefined>
 }
 
 export type FlowGraphAssetContext = StateStore<{

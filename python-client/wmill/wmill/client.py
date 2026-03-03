@@ -1589,6 +1589,19 @@ def get_job_status(job_id: str) -> JobStatus:
 
 
 @init_global_client
+def get_job(job_id: str) -> dict:
+    """Get full job details by ID.
+
+    Args:
+        job_id: UUID of the job
+
+    Returns:
+        Job details dictionary
+    """
+    return _client.get_job(job_id=job_id)
+
+
+@init_global_client
 def get_result(job_id: str, assert_result_is_not_none=True) -> Dict[str, Any]:
     """Get the result of a completed job.
 
@@ -2228,7 +2241,7 @@ class DataTableClient:
         args_def = ""
         for i, arg in enumerate(args):
             args_dict[f"arg{i+1}"] = arg
-            args_def += f"-- ${i+1} arg{i+1}\n"
+            args_def += f"-- ${i+1} arg{i+1} ({infer_sql_type(arg)})\n"
         sql = args_def + sql
         return SqlQuery(
             sql,
@@ -2338,7 +2351,7 @@ def infer_sql_type(value) -> str:
     elif isinstance(value, int):
         return "BIGINT"
     elif isinstance(value, float):
-        return "DOUBLE PRECISION"
+        return "FLOAT8"
     elif value is None:
         return "TEXT"
     elif isinstance(value, str):

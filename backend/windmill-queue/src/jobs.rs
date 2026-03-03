@@ -2285,6 +2285,59 @@ pub struct MiniPulledJob {
     pub runnable_settings_handle: Option<i64>,
 }
 
+impl MiniPulledJob {
+    pub fn new_inline(
+        workspace_id: String,
+        args: Option<HashMap<String, Box<RawValue>>>,
+        created_by: String,
+        permissioned_as: String,
+        permissioned_as_email: String,
+        runnable_path: Option<String>,
+        kind: JobKind,
+        runnable_id: Option<ScriptHash>,
+        tag: String,
+        script_lang: Option<ScriptLang>,
+    ) -> Self {
+        Self {
+            workspace_id,
+            id: Uuid::new_v4(),
+            args: args.map(Json),
+            parent_job: None,
+            created_by,
+            scheduled_for: chrono::Utc::now(),
+            started_at: None,
+            runnable_path,
+            kind,
+            runnable_id,
+            canceled_reason: None,
+            canceled_by: None,
+            permissioned_as,
+            permissioned_as_email,
+            flow_status: None,
+            tag,
+            script_lang,
+            same_worker: true,
+            pre_run_error: None,
+            flow_innermost_root_job: None,
+            root_job: None,
+            timeout: None,
+            flow_step_id: None,
+            cache_ttl: None,
+            cache_ignore_s3_path: None,
+            priority: None,
+            preprocessed: None,
+            script_entrypoint_override: None,
+            trigger: None,
+            trigger_kind: None,
+            visible_to_owner: false,
+            permissioned_as_end_user_email: None,
+            runnable_settings_handle: None,
+            concurrent_limit: None,
+            concurrency_time_window_s: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MiniCompletedJob {
     pub id: Uuid,
@@ -5321,7 +5374,11 @@ async fn push_inner<'c, 'd>(
                 .as_ref()
                 .map(|x| {
                     let tag_lang = if x == &ScriptLang::Bunnative {
-                        ScriptLang::Nativets.as_str()
+                        if job_kind == JobKind::Dependencies {
+                            ScriptLang::Bun.as_str()
+                        } else {
+                            ScriptLang::Nativets.as_str()
+                        }
                     } else {
                         x.as_str()
                     };
@@ -5364,7 +5421,6 @@ async fn push_inner<'c, 'd>(
             job_id,
             &args,
             &mut tx,
-            _db,
         )
         .await?
     }
@@ -6204,7 +6260,7 @@ pub async fn get_same_worker_job(
                     v2_job.raw_code,
                     v2_job.raw_lock,
                     v2_job.raw_flow,
-                    pj.runnable_path as parent_runnable_path,
+                    COALESCE(pj.runnable_path, v2_job.args->>'_FLOW_PATH') as parent_runnable_path,
                     p.email as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
                     p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email
                     FROM v2_job_queue

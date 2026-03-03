@@ -11,7 +11,7 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
 	import type { InputCat, DynamicInput as DynamicInputTypes } from '$lib/utils'
-	import { createEventDispatcher, getContext, untrack } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy, untrack } from 'svelte'
 	import { computeShow } from '$lib/utils'
 
 	import ArgInput from './ArgInput.svelte'
@@ -65,6 +65,7 @@
 		otherArgs?: Record<string, InputTransform>
 		helperScript?: DynamicInputTypes.HelperScript | undefined
 		isAgentTool?: boolean
+		allowedAiTransforms?: string[] | undefined
 		s3StorageConfigured?: boolean
 		chatInputEnabled?: boolean
 	}
@@ -92,13 +93,13 @@
 		otherArgs = {},
 		helperScript = undefined,
 		isAgentTool = false,
+		allowedAiTransforms = isAgentTool ? undefined : [],
 		s3StorageConfigured = true,
 		chatInputEnabled = false
 	}: Props = $props()
 
 	let monaco: SimpleEditor | undefined = $state(undefined)
 	let monacoTemplate: TemplateEditor | undefined = $state(undefined)
-	let focusedPrev = false
 
 	let hidden = $state(false)
 
@@ -118,7 +119,13 @@
 
 	const propPickerWrapperContext: PropPickerWrapperContext | undefined =
 		getContext<PropPickerWrapperContext>('PropPickerWrapper')
-	const { inputMatches, focusProp, propPickerConfig, clearFocus } = propPickerWrapperContext ?? {}
+	const {
+		inputMatches,
+		connectProp: focusProp,
+		propPickerConfig,
+		clearConnect: clearFocus,
+		exprBeingEdited
+	} = propPickerWrapperContext ?? {}
 
 	let inputCat = $derived(
 		computeInputCat(
@@ -128,6 +135,11 @@
 			schema?.properties?.[argName]?.enum,
 			schema?.properties?.[argName]?.contentEncoding
 		)
+	)
+
+	// Whether this specific field is allowed to use AI transforms
+	let fieldAllowsAi = $derived(
+		allowedAiTransforms === undefined || allowedAiTransforms.includes(argName)
 	)
 
 	let propertyType = $state(getPropertyType(arg))
@@ -162,7 +174,7 @@
 	function getPropertyType(arg: InputTransform | any): InputTransform['type'] {
 		// For agent tools, if static with undefined/empty value, treat as 'ai', meaning the field will be filled by the AI agent dynamically.
 		if (
-			isAgentTool &&
+			fieldAllowsAi &&
 			((arg?.type === 'static' && arg?.value === undefined) || arg?.type === 'ai')
 		) {
 			if (arg?.type === 'static') {
@@ -301,7 +313,7 @@
 		await tick()
 
 		// Activate connect mode
-		focusProp?.(argName, 'connect', (path) => {
+		focusProp?.(argName, (path) => {
 			onPath(path)
 			return true
 		})
@@ -394,6 +406,22 @@
 		focused = true
 	}
 
+	function updatePropsBeingEdited(focused: boolean) {
+		let newPropsBeingEdited = [...$exprBeingEdited]
+		if (focused) {
+			newPropsBeingEdited.push(argName)
+		} else {
+			newPropsBeingEdited = newPropsBeingEdited.filter((p) => p !== argName)
+		}
+		if (!deepEqual(newPropsBeingEdited, $exprBeingEdited)) {
+			exprBeingEdited.set(newPropsBeingEdited)
+		}
+	}
+
+	onDestroy(() => {
+		updatePropsBeingEdited(false)
+	})
+
 	let prevArg: any = undefined
 	function onArgChange() {
 		const newArg = { arg, propertyType, inputCat }
@@ -426,13 +454,6 @@
 		}
 	}
 
-	function updateFocused(newFocused: boolean) {
-		if (focusedPrev && !newFocused && inputMatches) {
-			$inputMatches = undefined
-		}
-		focusedPrev = focused
-	}
-
 	let resourceTypes: string[] | undefined = $state(undefined)
 
 	async function loadResourceTypes() {
@@ -457,10 +478,7 @@
 		arg?.expr
 		inputCat && propertyType && arg && untrack(() => onArgChange())
 	})
-	$effect(() => {
-		;[focused]
-		untrack(() => updateFocused(focused))
-	})
+
 	$effect(() => {
 		schema?.properties?.[argName]?.default && untrack(() => setDefaultCode())
 	})
@@ -472,9 +490,7 @@
 
 		untrack(() => handleFieldVisibility(schema, arg, otherArgs))
 	})
-	let connecting = $derived(
-		$propPickerConfig?.propName == argName && $propPickerConfig?.insertionMode == 'connect'
-	)
+	let connecting = $derived($propPickerConfig?.propName == argName)
 	let shouldShowS3ArrayHelper = $derived(
 		inputCat === 'list' &&
 			['s3object', 's3_object'].includes(schema?.properties?.[argName]?.items?.resourceType)
@@ -557,13 +573,10 @@
 							id="flow-editor-plug"
 							{connecting}
 							on:click={() => {
-								if (
-									$propPickerConfig?.propName == argName &&
-									$propPickerConfig?.insertionMode == 'connect'
-								) {
+								if ($propPickerConfig?.propName == argName) {
 									clearFocus()
 								} else {
-									focusProp?.(argName, 'connect', (path) => {
+									focusProp?.(argName, (path) => {
 										connectProperty(path)
 										dispatch('change', { argName })
 										return true
@@ -639,7 +652,7 @@
 							}}
 						>
 							{#snippet children({ item })}
-								{#if isAgentTool}
+								{#if fieldAllowsAi}
 									<ToggleButton
 										small
 										label="AI"
@@ -700,13 +713,6 @@
 
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div class="relative w-full" onkeyup={handleKeyUp}>
-			<!-- {#if $propPickerConfig?.propName == argName && $propPickerConfig?.insertionMode == 'connect'}
-				<span
-					class={'text-white  z-50 px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute top-0 right-0 bg-blue-500'}
-				>
-					Connect input &rightarrow;
-				</span>
-			{/if} -->
 			<!-- {inputCat}
 			{propertyType} -->
 			<div class="relative flex flex-row items-top gap-1 justify-between">
@@ -734,8 +740,8 @@
 							<div
 								class="text-sm text-tertiary italic p-3 bg-surface-secondary rounded-md border border-gray-200"
 							>
-								<span class="flex items-center gap-2">
-									<InfoIcon size={16} />
+								<span class="flex items-center gap-2 text-xs">
+									<InfoIcon size={13} />
 									This field will be filled by the AI agent dynamically
 								</span>
 							</div>
@@ -851,8 +857,14 @@
 									shouldBindKey={false}
 									renderLineHighlight="none"
 									hideLineNumbers
-									on:focus={() => (focused = true)}
-									on:blur={() => (focused = false)}
+									on:focus={() => {
+										focused = true
+										updatePropsBeingEdited(true)
+									}}
+									on:blur={() => {
+										focused = false
+										updatePropsBeingEdited(false)
+									}}
 									on:change={() => {
 										dispatch('change', { argName, arg })
 									}}
@@ -867,7 +879,7 @@
 									class="mt-2"
 									{connecting}
 									onClick={() =>
-										focusProp?.(argName, 'connect', (path) => {
+										focusProp?.(argName, (path) => {
 											appendPathToArrayExpr(arg.expr, path)
 											return true
 										})}

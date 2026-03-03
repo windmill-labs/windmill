@@ -10,6 +10,7 @@ use windmill_common::{
     assets::{AssetKind, AssetUsageKind},
     db::UserDB,
     error::JsonResult,
+    utils::escape_ilike_pattern,
 };
 
 use windmill_api_auth::ApiAuthed;
@@ -27,9 +28,14 @@ struct ListAssetsQuery {
     per_page: i64,
     cursor_created_at: Option<chrono::DateTime<chrono::Utc>>,
     cursor_id: Option<i64>,
-    asset_path: Option<String>,
-    usage_path: Option<String>,
-    asset_kinds: Option<String>,
+    pub asset_path: Option<String>,
+    pub usage_path: Option<String>,
+    pub asset_kinds: Option<String>,
+    // Exact path match filter
+    pub path: Option<String>,
+    // Filter by matching a subset of the columns using base64 encoded json subset
+    pub columns: Option<String>,
+    pub broad_filter: Option<String>,
 }
 
 fn default_per_page() -> i64 {
@@ -75,10 +81,22 @@ async fn list_assets(
 
     let mut param_count = 2; // $1 = workspace_id, $2 = limit
 
-    // Asset path filter
+    // Asset path filter (ILIKE pattern match)
     if query.asset_path.is_some() {
         param_count += 1;
         asset_summary_filters.push(format!("asset.path ILIKE ${}", param_count));
+    }
+
+    // Exact path filter
+    if query.path.is_some() {
+        param_count += 1;
+        asset_summary_filters.push(format!("asset.path = ${}", param_count));
+    }
+
+    // Columns filter (check if JSONB has all specified keys)
+    if query.columns.is_some() {
+        param_count += 1;
+        asset_summary_filters.push(format!("asset.columns ?& ${}", param_count));
     }
 
     // Usage path filter - for jobs, also check runnable_path
@@ -112,6 +130,14 @@ async fn list_assets(
         asset_summary_filters.push(format!("asset.kind = ANY(${})", param_count));
     }
 
+    if query.broad_filter.is_some() {
+        param_count += 1;
+        asset_summary_filters.push(format!(
+            "(asset.path ILIKE ${p} OR asset.kind::text ILIKE ${p})",
+            p = param_count
+        ));
+    }
+
     let asset_summary_where = asset_summary_filters.join(" AND ");
 
     // Build cursor condition
@@ -128,7 +154,7 @@ async fn list_assets(
         format!(
             r#"FROM asset
             LEFT JOIN v2_job job_cte ON asset.usage_kind = 'job'
-              AND asset.usage_path = job_cte.id::text
+              AND job_cte.id = CASE WHEN asset.usage_kind = 'job' THEN asset.usage_path::uuid END
               AND job_cte.workspace_id = $1"#
         )
     } else {
@@ -193,7 +219,7 @@ async fn list_assets(
           ) = resource.path
           AND resource.workspace_id = $1
         LEFT JOIN v2_job job ON asset.usage_kind = 'job'
-          AND asset.usage_path = job.id::text
+          AND job.id = CASE WHEN asset.usage_kind = 'job' THEN asset.usage_path::uuid END
           AND job.workspace_id = $1
         WHERE asset.workspace_id = $1
           AND (asset.kind <> 'resource' OR resource.path IS NOT NULL)
@@ -208,17 +234,35 @@ async fn list_assets(
     let mut query_builder = sqlx::query(&sql).bind(&w_id).bind(limit);
 
     if let Some(ref asset_path) = query.asset_path {
-        query_builder = query_builder.bind(format!("%{}%", asset_path));
+        query_builder = query_builder.bind(format!("%{}%", escape_ilike_pattern(asset_path)));
+    }
+
+    if let Some(ref path) = query.path {
+        query_builder = query_builder.bind(path);
+    }
+
+    if let Some(ref columns) = query.columns {
+        // Columns is a comma-separated string, split into array for ?& operator
+        let columns_array: Vec<String> = columns
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        query_builder = query_builder.bind(columns_array);
     }
 
     if let Some(ref usage_path) = query.usage_path {
-        query_builder = query_builder.bind(format!("%{}%", usage_path));
+        query_builder = query_builder.bind(format!("%{}%", escape_ilike_pattern(usage_path)));
     }
 
     if let Some(ref asset_kinds) = asset_kinds {
         if !asset_kinds.is_empty() {
             query_builder = query_builder.bind(asset_kinds);
         }
+    }
+
+    if let Some(ref broad_filter) = query.broad_filter {
+        query_builder = query_builder.bind(format!("%{}%", escape_ilike_pattern(broad_filter)));
     }
 
     if let (Some(cursor_created_at), Some(cursor_id)) = (query.cursor_created_at, query.cursor_id) {

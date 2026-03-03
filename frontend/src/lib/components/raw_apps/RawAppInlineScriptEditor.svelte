@@ -48,7 +48,7 @@
 		fields?: Record<string, StaticAppInput | UserAppInput | CtxAppInput>
 		path: string
 		onRun: () => Promise<void>
-		editor?: Editor | undefined
+		editor?: any | undefined
 		lastDeployedCode?: string | undefined
 		/** Called when code is selected in the editor */
 		onSelectionChange?: (

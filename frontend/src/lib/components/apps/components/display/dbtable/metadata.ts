@@ -13,7 +13,7 @@ import {
 import { type Preview } from '$lib/gen'
 import type { DBSchema, GraphqlSchema, SQLSchema } from '$lib/stores'
 
-import { stringifySchema } from '$lib/components/copilot/lib'
+import { stringifyGraphqlSchema, stringifySchema } from '$lib/components/copilot/lib'
 import type { DbType } from '$lib/components/dbTypes'
 import { getDatabaseArg } from '$lib/components/dbOps'
 
@@ -402,6 +402,7 @@ export async function getDbSchemas(
 	errorCallback: (message: string) => void,
 	options: {
 		useLegacyScripts?: boolean // To avoid breaking app policies
+		customTag?: string
 	} = {}
 ): Promise<DBSchema | undefined> {
 	let scripts = options.useLegacyScripts ? legacyScripts : scriptsV2
@@ -415,7 +416,8 @@ export async function getDbSchemas(
 			workspace,
 			requestBody: {
 				language: sqlScript.lang as Preview['language'],
-				content: sqlScript.code,
+				content: typeof sqlScript.code === 'function' ? await sqlScript.code() : sqlScript.code,
+				tag: options.customTag,
 				args: {
 					[sqlScript.argName]: resourcePath.startsWith('datatable://')
 						? resourcePath
@@ -456,7 +458,10 @@ export async function getDbSchemas(
 					lang: 'graphql' as GraphqlSchema['lang'],
 					schema: result
 				}
-				return { ...(dbSchema as any), stringified: stringifySchema(dbSchema as any) }
+				return {
+					...(dbSchema as any),
+					stringified: await stringifyGraphqlSchema(result)
+				}
 			}
 		}
 	}

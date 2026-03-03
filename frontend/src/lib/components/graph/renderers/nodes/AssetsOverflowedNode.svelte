@@ -13,8 +13,9 @@
 
 	interface Props {
 		data: AssetsOverflowedN['data']
+		id?: string
 	}
-	let { data }: Props = $props()
+	let { data, id }: Props = $props()
 	const flowGraphAssetsCtx = getContext<FlowGraphAssetContext | undefined>('FlowGraphAssetContext')
 
 	let isOpen = $state(false)
@@ -37,7 +38,7 @@
 	const colors = $derived(getNodeColorClasses(undefined, includesSelected))
 </script>
 
-<NodeWrapper>
+<NodeWrapper nodeId={id}>
 	{#snippet children({ darkMode })}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<Popover

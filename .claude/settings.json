@@ -1,5 +1,8 @@
 {
   "permissions": {
+    "additionalDirectories": [
+      "../windmill-ee-private"
+    ],
     "allow": [
       "Bash(ls:*)",
       "Bash(grep:*)",
@@ -27,7 +30,15 @@
       "Bash(cargo check:*)",
       "mcp__ide__getDiagnostics",
       "Bash(npm run generate-backend-client:*)",
-      "Bash(npm run check:*)"
+      "Bash(npm run check:*)",
+      "Bash(git push:*)",
+      "Bash(git reset:*)",
+      "Bash(git revert:*)",
+      "Bash(git checkout:*)",
+      "Bash(git merge:*)",
+      "Bash(git rebase:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ],
     "deny": [
       "Read(.env)",
@@ -52,46 +63,19 @@
       "Bash(chown:*)",
       "Bash(truncate:*)",
       "Bash(shred:*)",
-      "Bash(unlink:*)",
-      "Bash(git push:*)",
-      "Bash(git reset:*)",
-      "Bash(git revert:*)",
-      "Bash(git checkout:*)",
-      "Bash(git merge:*)",
-      "Bash(git rebase:*)"
+      "Bash(unlink:*)"
     ]
   },
   "enableAllProjectMcpServers": true,
   "hooks": {
-    "UserPromptSubmit": [
+    "PreToolUse": [
       {
+        "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/resolve-symlinks.sh",
-            "timeout": 30
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/restore-symlinks.sh",
-            "timeout": 30
-          }
-        ]
-      }
-    ],
-    "SessionEnd": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/restore-symlinks.sh",
-            "timeout": 30
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-main-branch.sh",
+            "timeout": 5
           }
         ]
       }

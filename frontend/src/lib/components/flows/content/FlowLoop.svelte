@@ -24,7 +24,7 @@
 	import FlowModuleSkip from './FlowModuleSkip.svelte'
 	import FlowPlugConnect from '$lib/components/FlowPlugConnect.svelte'
 
-	import PropPickerWrapper, { CONNECT } from '../propPicker/PropPickerWrapper.svelte'
+	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import TabsV2 from '$lib/components/common/tabs/TabsV2.svelte'
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
@@ -122,7 +122,7 @@
 	}
 
 	$effect(() => {
-		editor && currentEditor.set({ type: 'iterator', editor, stepId: mod.id })
+		editor && (currentEditor as any).set({ type: 'iterator', editor, stepId: mod.id })
 	})
 
 	let suggestion: string | undefined = $state(undefined)
@@ -176,7 +176,8 @@
 								documentationLink="https://www.windmill.dev/docs/flows/flow_loops"
 								>If disabled, the flow will fail as soon as one of the iteration fail. Otherwise,
 								the error will be collected as the result of the iteration. Regardless of this
-								setting, if an error handler is defined, it will process the error.</Tooltip
+								setting, if a flow level error handler is defined, it will process the error.
+								(Workspace error handlers will NOT be used to process errors if enabled.)</Tooltip
 							></div
 						>
 						<Toggle
@@ -360,10 +361,9 @@
 						</Tooltip>
 					</div>
 					<FlowPlugConnect
-						connecting={$flowPropPickerConfig?.insertionMode == CONNECT}
+						connecting={$flowPropPickerConfig != undefined}
 						on:click={() => {
 							const config = {
-								insertionMode: CONNECT,
 								onSelect: (code) => {
 									setExpr(code)
 									return true
@@ -405,7 +405,7 @@
 							notSelectable
 							pickableProperties={stepPropPicker.pickableProperties}
 							on:select={({ detail }) => {
-								if ($flowPropPickerConfig?.insertionMode == CONNECT) {
+								if ($flowPropPickerConfig) {
 									setExpr(detail)
 									flowPropPickerConfig.set(undefined)
 									return

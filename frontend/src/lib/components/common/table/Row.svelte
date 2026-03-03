@@ -16,7 +16,8 @@
 		errorHandlerMuted?: boolean
 		aiId?: string | undefined
 		aiDescription?: string | undefined
-		kind?: 'script' | 'flow' | 'app' | 'raw_app' | 'resource' | 'variable' | 'resource_type'
+		kind?: 'script' | 'flow' | 'app' | 'raw_app' | 'resource' | 'variable' | 'resource_type' | 'folder' | 'schedule' | 'trigger'
+		triggerKind?: string | undefined
 		summary?: string | undefined
 		path: string
 		href?: string
@@ -43,6 +44,7 @@
 		aiId = undefined,
 		aiDescription = undefined,
 		kind = 'script',
+		triggerKind = undefined,
 		summary = undefined,
 		path,
 		href = undefined,
@@ -105,7 +107,7 @@
 		</div>
 	{/if}
 
-	{#if canFavorite && kind !== 'resource' && kind !== 'variable' && kind !== 'resource_type'}
+	{#if canFavorite && (kind == 'app' || kind == 'raw_app' || kind == 'script' || kind == 'flow')}
 		<div class="center-center h-full text-xs font-semibold text-secondary w-9">
 			<Star {kind} {path} {workspaceId} {summary} />
 		</div>
@@ -120,7 +122,7 @@
 
 {#snippet rowContent()}
 	<div class="shrink">
-		<RowIcon {kind} />
+		<RowIcon {kind} {triggerKind} />
 	</div>
 	<div class="grow">
 		<div class="text-emphasis flex-wrap text-left text-xs font-semibold">

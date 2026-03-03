@@ -1,9 +1,9 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use sqlparser::{
     ast::{
-        CopyTarget, Expr, ObjectName, ObjectNamePart, SelectItem, TableFactor, TableObject, Value,
-        ValueWithSpan, Visit, Visitor,
+        CopyTarget, Expr, FunctionArg, FunctionArgExpr, ObjectName, ObjectNamePart, SelectItem,
+        TableFactor, TableObject, Value, ValueWithSpan, Visit, Visitor,
     },
     dialect::DuckDbDialect,
     parser::Parser,
@@ -45,6 +45,10 @@ struct AssetCollector {
     var_identifiers: BTreeMap<String, (AssetKind, String)>,
     // e.g USE dl;
     currently_used_asset: Option<(AssetKind, String)>,
+    // CTE names in scope (stack for nested queries)
+    cte_name_stack: Vec<HashSet<String>>,
+    // Locally created tables (not attached to an asset)
+    local_table_names: HashSet<String>,
 }
 
 impl AssetCollector {
@@ -54,7 +58,28 @@ impl AssetCollector {
             current_access_type_stack: Vec::with_capacity(8),
             var_identifiers: BTreeMap::new(),
             currently_used_asset: None,
+            cte_name_stack: Vec::new(),
+            local_table_names: HashSet::new(),
         }
+    }
+
+    /// If the name resolves to an attached asset, record it. Otherwise, register it as a local
+    /// table/view so that subsequent references are not mistakenly attributed to the active asset.
+    fn track_table_definition(&mut self, name: &ObjectName) {
+        if let Some(asset) = self.get_associated_asset_from_obj_name(name, Some(W)) {
+            self.assets.push(asset);
+        } else if let Some(simple_name) = get_trivial_obj_name(name) {
+            self.local_table_names.insert(simple_name.to_lowercase());
+        }
+    }
+
+    fn is_locally_defined(&self, name: &str) -> bool {
+        let name_lower = name.to_lowercase();
+        self.local_table_names.contains(&name_lower)
+            || self
+                .cte_name_stack
+                .iter()
+                .any(|set| set.contains(&name_lower))
     }
 
     // Detect when we do 'a.b' and 'a' is associated with an asset in var_identifiers
@@ -70,6 +95,14 @@ impl AssetCollector {
             // we are not in a known R/W context
             if access_type.is_none() {
                 return None;
+            }
+
+            if name.0.len() == 1 {
+                if let Some(ident) = name.0.first().and_then(|id| id.as_ident()) {
+                    if self.is_locally_defined(&ident.value) {
+                        return None;
+                    }
+                }
             }
 
             if name.0.len() == 1 || name.0.len() == 2 {
@@ -123,6 +156,72 @@ impl AssetCollector {
             path.clone()
         };
         Some(ParseAssetsResult { kind: *kind, access_type, path, columns: None })
+    }
+
+    /// If `table_factor` is a string literal used directly as a table name (e.g. FROM 's3:///file.parquet'),
+    /// return a `ParseAssetsResult` for it.
+    fn get_s3_asset_from_str_literal_table(
+        &self,
+        table_factor: &TableFactor,
+    ) -> Option<ParseAssetsResult> {
+        let name = match table_factor {
+            TableFactor::Table { name, args: None, .. } => name,
+            _ => return None,
+        };
+
+        let s3_str = get_str_lit_from_obj_name(name)?;
+        let (kind, path) = parse_asset_syntax(s3_str, false)?;
+        if kind != AssetKind::S3Object {
+            return None;
+        }
+
+        Some(ParseAssetsResult {
+            kind,
+            path: path.to_string(),
+            access_type: Some(R),
+            columns: None,
+        })
+    }
+
+    /// If `table_factor` is a read function (read_parquet/read_csv/read_json) whose first
+    /// positional argument is an S3 string literal, return a `ParseAssetsResult` for it.
+    fn get_s3_asset_from_table_function(
+        &self,
+        table_factor: &TableFactor,
+    ) -> Option<ParseAssetsResult> {
+        let (name, args) = match table_factor {
+            TableFactor::Table { name, args: Some(args), .. } => (name, args),
+            _ => return None,
+        };
+
+        let fname = get_trivial_obj_name(name)?;
+        if !is_read_fn(fname) {
+            return None;
+        }
+
+        let s3_str = args.args.first().and_then(|arg| match arg {
+            FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(ValueWithSpan {
+                value: Value::SingleQuotedString(s),
+                ..
+            })))
+            | FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(ValueWithSpan {
+                value: Value::DoubleQuotedString(s),
+                ..
+            }))) => Some(s.as_str()),
+            _ => None,
+        })?;
+
+        let (kind, path) = parse_asset_syntax(s3_str, false)?;
+        if kind != AssetKind::S3Object {
+            return None;
+        }
+
+        Some(ParseAssetsResult {
+            kind,
+            path: path.to_string(),
+            access_type: Some(R),
+            columns: None,
+        })
     }
 
     fn handle_string_literal(&mut self, s: &str) {
@@ -190,13 +289,19 @@ impl AssetCollector {
         projection: &[SelectItem],
         from_tables: &[sqlparser::ast::TableWithJoins],
     ) {
-        // Check if this is a single-table SELECT (to avoid ambiguity)
+        // Check if this is a single-table SELECT (to avoid ambiguity).
+        // For S3 table functions (read_parquet/read_csv/read_json), detect the asset even
+        // though args are present, since we know the file path from the string literal arg.
         let single_table = if from_tables.len() == 1 {
-            if let TableFactor::Table { name, args, .. } = &from_tables[0].relation {
-                if args.is_some() && args.as_ref().map_or(0, |a| a.args.len()) > 0 {
-                    return; // Skip table functions
+            let relation = &from_tables[0].relation;
+            if let TableFactor::Table { name, args, .. } = relation {
+                let has_args = args.as_ref().map_or(false, |a| !a.args.is_empty());
+                if has_args {
+                    self.get_s3_asset_from_table_function(relation)
+                } else {
+                    self.get_associated_asset_from_obj_name(name, Some(R))
+                        .or_else(|| self.get_s3_asset_from_str_literal_table(relation))
                 }
-                self.get_associated_asset_from_obj_name(name, Some(R))
             } else {
                 None
             }
@@ -204,26 +309,48 @@ impl AssetCollector {
             None
         };
 
-        // Build a map of table aliases/names to assets for multi-table queries
+        // Build a map of table aliases/names to assets for multi-table queries.
+        // For S3 table functions, only aliased references are unambiguous
+        // (e.g. SELECT t.col1 FROM read_parquet('s3://...') AS t).
         let mut table_to_asset: BTreeMap<String, ParseAssetsResult> = BTreeMap::new();
         for table_with_joins in from_tables {
             if let TableFactor::Table { name, alias, args, .. } = &table_with_joins.relation {
-                if args.is_some() && args.as_ref().map_or(0, |a| a.args.len()) > 0 {
-                    continue; // Skip table functions
-                }
-                if let Some(asset) = self.get_associated_asset_from_obj_name(name, Some(R)) {
-                    // Use alias if present, otherwise use the table name
-                    let table_key = if let Some(alias) = alias {
-                        alias.name.value.clone()
+                let has_args = args.as_ref().map_or(false, |a| !a.args.is_empty());
+                if has_args {
+                    // For table functions, only add to the alias map when an alias is present
+                    if let Some(alias) = alias {
+                        if let Some(asset) =
+                            self.get_s3_asset_from_table_function(&table_with_joins.relation)
+                        {
+                            table_to_asset.insert(alias.name.value.clone(), asset);
+                        }
+                    }
+                } else if let Some(asset) = self
+                    .get_associated_asset_from_obj_name(name, Some(R))
+                    .or_else(|| {
+                        self.get_s3_asset_from_str_literal_table(&table_with_joins.relation)
+                    })
+                {
+                    // For string literal S3 tables (e.g. FROM 's3:///file.parquet'), only add to
+                    // the alias map when an alias is present (to avoid false positives).
+                    // For regular named tables, use alias or table name as key.
+                    let is_str_literal = get_str_lit_from_obj_name(name).is_some();
+                    if is_str_literal {
+                        if let Some(alias) = alias {
+                            table_to_asset.insert(alias.name.value.clone(), asset);
+                        }
                     } else {
-                        // For qualified names like "dl.table1", use just the last part
-                        name.0
-                            .last()
-                            .and_then(|id| id.as_ident())
-                            .map(|id| id.value.clone())
-                            .unwrap_or_default()
-                    };
-                    table_to_asset.insert(table_key, asset);
+                        let table_key = if let Some(alias) = alias {
+                            alias.name.value.clone()
+                        } else {
+                            name.0
+                                .last()
+                                .and_then(|id| id.as_ident())
+                                .map(|id| id.value.clone())
+                                .unwrap_or_default()
+                        };
+                        table_to_asset.insert(table_key, asset);
+                    }
                 }
             }
         }
@@ -358,6 +485,7 @@ impl Visitor for AssetCollector {
     ) -> std::ops::ControlFlow<Self::Break> {
         match statement {
             sqlparser::ast::Statement::Query(q) => {
+                self.cte_name_stack.push(collect_cte_names(q));
                 if let Some(select) = q.body.as_select() {
                     // First, handle table references (adds table-level assets)
                     for t in &select.from {
@@ -518,17 +646,11 @@ impl Visitor for AssetCollector {
             }
 
             sqlparser::ast::Statement::CreateTable(create_table) => {
-                if let Some(asset) =
-                    self.get_associated_asset_from_obj_name(&create_table.name, Some(W))
-                {
-                    self.assets.push(asset);
-                }
+                self.track_table_definition(&create_table.name);
             }
 
             sqlparser::ast::Statement::CreateView { name, .. } => {
-                if let Some(asset) = self.get_associated_asset_from_obj_name(name, Some(W)) {
-                    self.assets.push(asset);
-                }
+                self.track_table_definition(name);
             }
 
             sqlparser::ast::Statement::Copy { target: CopyTarget::File { filename }, .. } => {
@@ -578,16 +700,20 @@ impl Visitor for AssetCollector {
 
     fn post_visit_statement(
         &mut self,
-        _statement: &sqlparser::ast::Statement,
+        statement: &sqlparser::ast::Statement,
     ) -> std::ops::ControlFlow<Self::Break> {
+        if matches!(statement, sqlparser::ast::Statement::Query(_)) {
+            self.cte_name_stack.pop();
+        }
         std::ops::ControlFlow::Continue(())
     }
 
     fn pre_visit_query(
         &mut self,
-        _query: &sqlparser::ast::Query,
+        query: &sqlparser::ast::Query,
     ) -> std::ops::ControlFlow<Self::Break> {
         self.current_access_type_stack.push(R);
+        self.cte_name_stack.push(collect_cte_names(query));
         std::ops::ControlFlow::Continue(())
     }
 
@@ -596,10 +722,20 @@ impl Visitor for AssetCollector {
         _query: &sqlparser::ast::Query,
     ) -> std::ops::ControlFlow<Self::Break> {
         self.current_access_type_stack.pop();
+        self.cte_name_stack.pop();
         std::ops::ControlFlow::Continue(())
     }
 
     // We do not use pre_visit_relation because we cannot know if an ObjectName is a table or a function
+}
+
+fn collect_cte_names(query: &sqlparser::ast::Query) -> HashSet<String> {
+    query.with.as_ref().map_or_else(HashSet::new, |with| {
+        with.cte_tables
+            .iter()
+            .map(|cte| cte.alias.name.value.to_lowercase())
+            .collect()
+    })
 }
 
 fn is_read_fn(fname: &str) -> bool {
@@ -1270,5 +1406,393 @@ mod tests {
         assert_eq!(columns.get("name"), Some(&RW)); // Written in SET, read in RETURNING
         assert_eq!(columns.get("age"), Some(&W)); // Only written
         assert_eq!(columns.get("id"), Some(&R)); // Only read
+    }
+
+    #[test]
+    fn test_sql_asset_parser_s3_single_table_column_detection() {
+        let input = r#"
+            SELECT col1, col2 FROM read_parquet('s3:///example_file.parquet');
+        "#;
+        let result = parse_assets(input).unwrap().assets;
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].kind, AssetKind::S3Object);
+        assert_eq!(result[0].path, "/example_file.parquet");
+        assert_eq!(result[0].access_type, Some(R));
+
+        let columns = result[0].columns.as_ref().expect("Should have columns");
+        assert_eq!(columns.len(), 2);
+        assert_eq!(columns.get("col1"), Some(&R));
+        assert_eq!(columns.get("col2"), Some(&R));
+    }
+
+    #[test]
+    fn test_sql_asset_parser_s3_single_table_column_with_alias() {
+        let input = r#"
+            SELECT col1 AS c1, col2 AS c2 FROM read_parquet('s3:///example_file.parquet');
+        "#;
+        let result = parse_assets(input).unwrap().assets;
+
+        assert_eq!(result.len(), 1);
+        let columns = result[0].columns.as_ref().expect("Should have columns");
+        assert_eq!(columns.get("col1"), Some(&R));
+        assert_eq!(columns.get("col2"), Some(&R));
+    }
+
+    #[test]
+    fn test_sql_asset_parser_s3_wildcard_no_columns() {
+        let input = r#"
+            SELECT * FROM read_parquet('s3:///example_file.parquet');
+        "#;
+        let result = parse_assets(input).unwrap().assets;
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].kind, AssetKind::S3Object);
+        assert_eq!(result[0].path, "/example_file.parquet");
+        assert!(result[0].columns.is_none());
+    }
+
+    #[test]
+    fn test_sql_asset_parser_s3_table_alias_qualified_columns() {
+        let input = r#"
+            SELECT t.col1, t.col2 FROM read_parquet('s3:///example_file.parquet') AS t;
+        "#;
+        let result = parse_assets(input).unwrap().assets;
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].kind, AssetKind::S3Object);
+        assert_eq!(result[0].path, "/example_file.parquet");
+
+        let columns = result[0].columns.as_ref().expect("Should have columns");
+        assert_eq!(columns.get("col1"), Some(&R));
+        assert_eq!(columns.get("col2"), Some(&R));
+    }
+
+    #[test]
+    fn test_sql_asset_parser_s3_multi_table_aliased_columns() {
+        let input = r#"
+            SELECT t1.col1, t2.col2
+            FROM read_parquet('s3:///file1.parquet') AS t1,
+                 read_csv('s3://bucket/file2.csv') AS t2;
+        "#;
+        let result = parse_assets(input).unwrap().assets;
+
+        assert_eq!(result.len(), 2);
+
+        assert!(result.iter().any(|a| {
+            a.path == "/file1.parquet"
+                && a.columns.as_ref().map_or(false, |c| c.contains_key("col1"))
+        }));
+        assert!(result.iter().any(|a| {
+            a.path == "bucket/file2.csv"
+                && a.columns.as_ref().map_or(false, |c| c.contains_key("col2"))
+        }));
+    }
+
+    #[test]
+    fn test_sql_asset_parser_s3_multi_table_no_alias_no_columns() {
+        // Without aliases, unqualified columns in a multi-table query are ambiguous
+        let input = r#"
+            SELECT col1, col2
+            FROM read_parquet('s3:///file1.parquet'),
+                 read_parquet('s3:///file2.parquet');
+        "#;
+        let result = parse_assets(input).unwrap().assets;
+
+        // Table-level assets should still be detected, but no columns
+        assert_eq!(result.iter().filter(|a| a.columns.is_some()).count(), 0);
+    }
+
+    #[test]
+    fn test_sql_asset_parser_s3_str_literal_table_column_detection() {
+        // FROM 's3:///file.parquet' (string literal as table, no read_parquet wrapper)
+        let input = r#"
+            SELECT a,b,c FROM 's3:///test.parquet';
+        "#;
+        let result = parse_assets(input).unwrap().assets;
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].kind, AssetKind::S3Object);
+        assert_eq!(result[0].path, "/test.parquet");
+        assert_eq!(result[0].access_type, Some(R));
+
+        let columns = result[0].columns.as_ref().expect("Should have columns");
+        assert_eq!(columns.len(), 3);
+        assert_eq!(columns.get("a"), Some(&R));
+        assert_eq!(columns.get("b"), Some(&R));
+        assert_eq!(columns.get("c"), Some(&R));
+    }
+
+    #[test]
+    fn test_sql_asset_parser_s3_str_literal_table_with_alias_columns() {
+        let input = r#"
+            SELECT t.col1, t.col2 FROM 's3://bucket/file.parquet' AS t;
+        "#;
+        let result = parse_assets(input).unwrap().assets;
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].kind, AssetKind::S3Object);
+        assert_eq!(result[0].path, "bucket/file.parquet");
+
+        let columns = result[0].columns.as_ref().expect("Should have columns");
+        assert_eq!(columns.get("col1"), Some(&R));
+        assert_eq!(columns.get("col2"), Some(&R));
+    }
+
+    #[test]
+    fn test_sql_asset_parser_s3_str_literal_wildcard_no_columns() {
+        let input = r#"
+            SELECT * FROM 's3:///test.parquet';
+        "#;
+        let result = parse_assets(input).unwrap().assets;
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].kind, AssetKind::S3Object);
+        assert!(result[0].columns.is_none());
+    }
+
+    #[test]
+    fn test_sql_asset_parser_cte_not_treated_as_asset() {
+        let input = r#"
+            ATTACH 'ducklake://my_dl' AS dl;
+            USE dl;
+            WITH tmp AS (SELECT 1 AS x)
+            SELECT * FROM tmp;
+            SELECT * FROM real_table;
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::Ducklake,
+                path: "my_dl/real_table".to_string(),
+                access_type: Some(R),
+                columns: None
+            },])
+        );
+    }
+
+    #[test]
+    fn test_sql_asset_parser_cte_scope_does_not_leak() {
+        let input = r#"
+            ATTACH 'ducklake://my_dl' AS dl;
+            USE dl;
+            WITH tmp AS (SELECT 1) SELECT * FROM tmp;
+            SELECT * FROM tmp;
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::Ducklake,
+                path: "my_dl/tmp".to_string(),
+                access_type: Some(R),
+                columns: None
+            },])
+        );
+    }
+
+    #[test]
+    fn test_sql_asset_parser_multiple_ctes() {
+        let input = r#"
+            ATTACH 'ducklake://my_dl' AS dl;
+            USE dl;
+            WITH cte1 AS (SELECT 1), cte2 AS (SELECT 2)
+            SELECT * FROM cte1 JOIN cte2 ON true;
+            SELECT * FROM real_table;
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::Ducklake,
+                path: "my_dl/real_table".to_string(),
+                access_type: Some(R),
+                columns: None
+            },])
+        );
+    }
+
+    #[test]
+    fn test_sql_asset_parser_local_create_table_overrides_asset() {
+        let input = r#"
+            CREATE TABLE local_tbl (id INT);
+            ATTACH 'ducklake://my_dl' AS dl;
+            USE dl;
+            SELECT * FROM local_tbl;
+            SELECT * FROM asset_table;
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::Ducklake,
+                path: "my_dl/asset_table".to_string(),
+                access_type: Some(R),
+                columns: None
+            },])
+        );
+    }
+
+    #[test]
+    fn test_sql_asset_parser_create_table_with_use_is_still_asset() {
+        let input = r#"
+            ATTACH 'ducklake' AS dl; USE dl;
+            CREATE TABLE friends (
+                name text,
+                age int
+            );
+            INSERT INTO friends VALUES ($name, $age);
+            SELECT * FROM friends;
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::Ducklake,
+                path: "main/friends".to_string(),
+                access_type: Some(RW),
+                columns: None
+            },])
+        );
+    }
+
+    #[test]
+    fn test_sql_asset_parser_local_create_view_overrides_asset() {
+        let input = r#"
+            CREATE VIEW my_view AS SELECT 1;
+            ATTACH 'ducklake://my_dl' AS dl;
+            USE dl;
+            SELECT * FROM my_view;
+            SELECT * FROM asset_table;
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::Ducklake,
+                path: "my_dl/asset_table".to_string(),
+                access_type: Some(R),
+                columns: None
+            },])
+        );
+    }
+
+    #[test]
+    fn test_sql_asset_parser_create_view_with_use_is_still_asset() {
+        let input = r#"
+            ATTACH 'ducklake://my_dl' AS dl;
+            USE dl;
+            CREATE VIEW my_view AS SELECT 1;
+            SELECT * FROM my_view;
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::Ducklake,
+                path: "my_dl/my_view".to_string(),
+                access_type: Some(RW),
+                columns: None
+            },])
+        );
+    }
+
+    #[test]
+    fn test_sql_asset_parser_cte_mixed_with_asset_tables() {
+        let input = r#"
+            ATTACH 'ducklake://my_dl' AS dl;
+            USE dl;
+            WITH tmp AS (SELECT 1 AS x)
+            SELECT * FROM tmp JOIN real_table ON true;
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::Ducklake,
+                path: "my_dl/real_table".to_string(),
+                access_type: Some(R),
+                columns: None
+            },])
+        );
+    }
+
+    #[test]
+    fn test_sql_asset_parser_local_table_insert_and_select() {
+        let input = r#"
+            CREATE TABLE staging (id INT, val TEXT);
+            ATTACH 'ducklake://my_dl' AS dl;
+            USE dl;
+            INSERT INTO staging VALUES (1, 'a');
+            SELECT * FROM staging;
+            INSERT INTO real_table VALUES (2, 'b');
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::Ducklake,
+                path: "my_dl/real_table".to_string(),
+                access_type: Some(W),
+                columns: None
+            },])
+        );
+    }
+
+    #[test]
+    fn test_sql_asset_parser_qualified_ref_bypasses_local() {
+        // Even if 'tbl' is local, 'dl.tbl' is an explicit asset reference
+        let input = r#"
+            CREATE TABLE tbl (id INT);
+            ATTACH 'ducklake://my_dl' AS dl;
+            SELECT * FROM dl.tbl;
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::Ducklake,
+                path: "my_dl/tbl".to_string(),
+                access_type: Some(R),
+                columns: None
+            },])
+        );
+    }
+
+    #[test]
+    fn test_sql_asset_parser_cte_case_insensitive() {
+        let input = r#"
+            ATTACH 'ducklake://my_dl' AS dl;
+            USE dl;
+            WITH MyTable AS (SELECT 1)
+            SELECT * FROM mytable;
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::Ducklake,
+                path: "my_dl".to_string(),
+                access_type: None,
+                columns: None
+            },])
+        );
+    }
+
+    #[test]
+    fn test_sql_asset_parser_s3_read_csv_columns() {
+        let input = r#"
+            SELECT name, age FROM read_csv('s3://my-bucket/data.csv');
+        "#;
+        let result = parse_assets(input).unwrap().assets;
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].kind, AssetKind::S3Object);
+        assert_eq!(result[0].path, "my-bucket/data.csv");
+
+        let columns = result[0].columns.as_ref().expect("Should have columns");
+        assert_eq!(columns.get("name"), Some(&R));
+        assert_eq!(columns.get("age"), Some(&R));
     }
 }

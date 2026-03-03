@@ -17,7 +17,7 @@
 	import type { Modules } from './RawAppModules.svelte'
 	import { isRunnableByName, isRunnableByPath } from '../apps/inputType'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
-	import { onMount } from 'svelte'
+	import { onMount, untrack } from 'svelte'
 	import type { LintResult, DataTableSchema, InspectorElementInfo } from '../copilot/chat/app/core'
 	import type { AppCodeSelectionElement } from '../copilot/chat/context'
 	import { rawAppLintStore } from './lintStore'
@@ -158,10 +158,20 @@
 	}
 
 	let iframeLoaded = $state(false) // @hmr:keep
+	let suppressSetActiveDocument = false
 
 	function populateFiles() {
 		if (files) {
-			setFilesInIframe(files)
+			// Suppress iframe's automatic setActiveDocument for a short window
+			// after sending files, to prevent it from resetting to App.tsx.
+			suppressSetActiveDocument = true
+			setTimeout(() => { suppressSetActiveDocument = false }, 500)
+			const doc = untrack(() => selectedDocument)
+			if (doc) {
+				setFilesAndSelectInIframe(files, doc)
+			} else {
+				setFilesInIframe(files)
+			}
 		}
 	}
 	function setFilesInIframe(newFiles: Record<string, string>) {
@@ -612,6 +622,7 @@
 		} else if (e.data.type === 'updateModules') {
 			modules = e.data.modules
 		} else if (e.data.type === 'setActiveDocument') {
+			if (suppressSetActiveDocument) return
 			// Normalize Windows-style path separators to Linux-style
 			selectedDocument = e.data.path?.replace(/\\/g, '/')
 		} else if (e.data.type === 'inspectorSelect') {

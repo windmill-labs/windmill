@@ -47,7 +47,9 @@ use windmill_common::jobs::{
     check_tag_available_for_workspace_internal, script_path_to_payload, JobKind, JobPayload,
     OnBehalfOf, RawCode, ENTRYPOINT_OVERRIDE,
 };
-use windmill_common::runnable_settings::{ConcurrencySettingsWithCustom, DebouncingSettings};
+use windmill_common::runnable_settings::{
+    ConcurrencySettingsWithCustom, DebouncingSettings, RunnableSettingsTrait,
+};
 use windmill_common::scripts::{ScriptHash, ScriptRunnableSettingsInline};
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::WarnAfterExt;
@@ -547,6 +549,25 @@ pub async fn update_flow_status_after_job_completion_internal(
             Ok::<_, Error>(args.clone())
         };
 
+        // Pre-compute whether the completed job was an identity (skipped) job.
+        // When a step has skip_if set and the condition was true, the step runs
+        // as an identity job.  We must skip the stop_after_if evaluation in that
+        // case because the result is just a pass-through of the previous step's
+        // result, not the output of the actual step logic.
+        let is_identity_job = if current_module.is_some_and(|m| m.skip_if.is_some()) {
+            sqlx::query_scalar!(
+                "SELECT kind = 'identity' FROM v2_job WHERE id = $1",
+                job_id_for_status
+            )
+            .fetch_optional(db)
+            .await
+            .map_err(|e| Error::internal_err(format!("error during identity job check: {e:#}")))?
+            .flatten()
+            .unwrap_or(false)
+        } else {
+            false
+        };
+
         let (mut stop_early, mut stop_early_err_msg, mut skip_if_stop_early, continue_on_error) =
             if stop_early_override.is_some()
                 && !is_flow_stop_early_override
@@ -562,6 +583,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 let stop_early = success
                     && !is_branch_all // we don't support stop_early per branch
                     && !parallel_loop // we don't support anymore stop_early per iteration when parallel for loop (removed from frontend)
+                    && !is_identity_job // don't evaluate stop_after_if for skipped (identity) steps
                     && if let Some(expr) = current_module
                         .stop_after_if
                         .as_ref()
@@ -1099,21 +1121,12 @@ pub async fn update_flow_status_after_job_completion_internal(
                     || (flow_jobs.is_some() && (skip_loop_failures || skip_seq_branch_failure)))
                     && !(stop_early && stop_early_err_msg.is_some() && !skip_if_stop_early)
                 {
-                    let is_skipped = if current_module.as_ref().is_some_and(|m| m.skip_if.is_some())
-                    {
-                        sqlx::query_scalar!(
-                            "SELECT kind = 'identity' FROM v2_job WHERE id = $1",
-                            job_id_for_status
-                        )
-                        .fetch_one(db)
-                        .await
-                        .map_err(|e| {
-                            Error::internal_err(format!("error during skip check: {e:#}"))
-                        })?
-                        .unwrap_or(false)
-                    } else {
-                        stop_early && skip_if_stop_early // Mark as skipped when stop_after_if with skip_if_stopped=true
-                    };
+                    let is_skipped = (stop_early && skip_if_stop_early)
+                        || if current_module.as_ref().is_some_and(|m| m.skip_if.is_some()) {
+                            is_identity_job
+                        } else {
+                            false
+                        };
                     success = true;
                     (
                         true,
@@ -1328,29 +1341,30 @@ pub async fn update_flow_status_after_job_completion_internal(
 
         if module_step.is_preprocessor_step() && success {
             let tag_and_concurrency_key = get_tag_and_concurrency(&flow, db).await;
-            let require_args = tag_and_concurrency_key.as_ref().is_some_and(|x| {
+            let has_debouncing = flow_value
+                .debouncing_settings
+                .debounce_delay_s
+                .filter(|x| *x > 0)
+                .is_some();
+            let concurrency_requires_args = tag_and_concurrency_key.as_ref().is_some_and(|x| {
                 x.tag.as_ref().is_some_and(|t| t.contains("$args"))
                     || x.concurrency_key
                         .as_ref()
                         .is_some_and(|ck| ck.contains("$args"))
             });
-            let mut tag = tag_and_concurrency_key
-                .as_ref()
-                .map(|x| x.tag.clone())
-                .flatten();
+            let require_args = concurrency_requires_args || has_debouncing;
+            let mut tag = tag_and_concurrency_key.as_ref().and_then(|x| x.tag.clone());
             let concurrency_key = tag_and_concurrency_key
                 .as_ref()
-                .map(|x| x.concurrency_key.clone())
-                .flatten();
+                .and_then(|x| x.concurrency_key.clone());
             let concurrent_limit = tag_and_concurrency_key
                 .as_ref()
-                .map(|x| x.concurrent_limit)
-                .flatten();
+                .and_then(|x| x.concurrent_limit);
             let concurrency_time_window_s = tag_and_concurrency_key
                 .as_ref()
-                .map(|x| x.concurrency_time_window_s)
-                .flatten();
-            if require_args {
+                .and_then(|x| x.concurrency_time_window_s);
+
+            let fetched_args = if require_args {
                 let args = sqlx::query_scalar!(
                     "SELECT result  as \"result: Json<HashMap<String, Box<RawValue>>>\"
                  FROM v2_job_completed
@@ -1362,8 +1376,13 @@ pub async fn update_flow_status_after_job_completion_internal(
                 .map_err(|e| {
                     Error::internal_err(format!("error while fetching preprocessing args: {e:#}"))
                 })?;
-                let args_hm = args.unwrap_or_default().0;
-                let args = PushArgs::from(&args_hm);
+                Some(args.unwrap_or_default().0)
+            } else {
+                None
+            };
+
+            if concurrency_requires_args {
+                let args = PushArgs::from(fetched_args.as_ref().unwrap());
                 if let Some(ck) = concurrency_key {
                     insert_concurrency_key(
                         &flow_job.workspace_id,
@@ -1392,8 +1411,63 @@ pub async fn update_flow_status_after_job_completion_internal(
                 .await?;
             }
 
-            // let tag = tag_and_concurrency_key.and_then(|tc| tc.tag.map(|t| interpolate_args(t.clone(), &args, &workspace_id)));
-            // let concurrency_key = tag_and_concurrency_key.and_then(|tc| tc.concurrency_key.map(|ck| interpolate_args(&ck, &args, &workspace_id)));
+            let scheduled_for: Option<chrono::DateTime<chrono::Utc>> = {
+                #[cfg(feature = "private")]
+                {
+                    if has_debouncing {
+                        let empty_hm = HashMap::new();
+                        let args = PushArgs::from(fetched_args.as_ref().unwrap_or(&empty_hm));
+                        windmill_queue::jobs_ee::maybe_debounce_post_preprocessing(
+                            &flow_value.debouncing_settings,
+                            &flow_job.runnable_path,
+                            &flow_job.workspace_id,
+                            flow,
+                            &args,
+                            db,
+                        )
+                        .await?
+                    } else {
+                        None
+                    }
+                }
+                #[cfg(not(feature = "private"))]
+                {
+                    None
+                }
+            };
+
+            // When debouncing is applied, store the flow's debouncing settings in
+            // the runnable_settings_handle so that maybe_apply_debouncing can find
+            // them after re-pull and perform argument accumulation.
+            let new_runnable_settings_handle: Option<i64> = if scheduled_for.is_some() {
+                let debouncing_hash = flow_value
+                    .debouncing_settings
+                    .insert_cached(db)
+                    .await
+                    .unwrap_or_else(|e| {
+                        tracing::error!(
+                            "Failed to insert debouncing settings for post-preprocessing: {e:#}"
+                        );
+                        None
+                    });
+                windmill_common::runnable_settings::insert_rs(
+                    windmill_common::runnable_settings::RunnableSettings {
+                        debouncing_settings: debouncing_hash,
+                        concurrency_settings: None,
+                    },
+                    db,
+                )
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::error!(
+                        "Failed to insert runnable settings for post-preprocessing: {e:#}"
+                    );
+                    None
+                })
+            } else {
+                None
+            };
+
             sqlx::query!(
                 "WITH job_result AS (
                  SELECT result
@@ -1403,7 +1477,9 @@ pub async fn update_flow_status_after_job_completion_internal(
              updated_queue AS (
                 UPDATE v2_job_queue
                 SET running = false,
-                tag = COALESCE($3, tag)
+                tag = COALESCE($3, tag),
+                scheduled_for = COALESCE($6, scheduled_for),
+                runnable_settings_handle = COALESCE($7, runnable_settings_handle)
                 WHERE id = $2
              )
              UPDATE v2_job
@@ -1431,6 +1507,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                 tag,
                 concurrent_limit,
                 concurrency_time_window_s,
+                scheduled_for,
+                new_runnable_settings_handle,
             )
             .execute(db)
             .await

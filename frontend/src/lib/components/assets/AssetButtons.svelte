@@ -2,15 +2,13 @@
 	import { AlertTriangle, Edit2 } from 'lucide-svelte'
 	import { Button } from '../common'
 	import ExploreAssetButton, { assetCanBeExplored } from '../ExploreAssetButton.svelte'
-	import S3FilePicker from '../S3FilePicker.svelte'
-	import DbManagerDrawer from '../DBManagerDrawer.svelte'
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 	import type { Asset } from '$lib/gen'
 	import Popover from '../meltComponents/Popover.svelte'
 
 	type Props = {
-		s3FilePicker?: S3FilePicker | undefined
-		dbManagerDrawer?: DbManagerDrawer | undefined
+		s3FilePicker?: any | undefined
+		dbManagerDrawer?: any | undefined
 		resourceEditorDrawer?: ResourceEditorDrawer | undefined
 		resourceDataCache: Record<string, string | undefined>
 		asset: Asset

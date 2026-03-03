@@ -11,19 +11,22 @@
 	import { createEventDispatcher } from 'svelte'
 	import { ArrowBigUp } from 'lucide-svelte'
 
-	export let item
-	export let depth: number = 0
-
 	const dispatch = createEventDispatcher()
 
-	let deleteConfirmedCallback: (() => void) | undefined = undefined
-	let shareModal: ShareModal
-	let moveDrawer: MoveDrawer
-	let deploymentDrawer: DeployWorkspaceDrawer
+	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
+	let shareModal: any | undefined = $state()
+	let moveDrawer: any | undefined = $state()
+	let deploymentDrawer: any | undefined = $state()
 
-	let menuOpen: boolean = false
-	export let showCode: (path: string, summary: string) => void
-	export let showEditButton: boolean = true
+	let menuOpen: boolean = $state(false)
+	interface Props {
+		item: any
+		depth?: number
+		showCode: (path: string, summary: string) => void
+		showEditButton?: boolean
+	}
+
+	let { item, depth = 0, showCode, showEditButton = true }: Props = $props()
 </script>
 
 {#if item.type == 'script'}

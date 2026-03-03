@@ -8,8 +8,8 @@ COPY --from=ghcr.io/oracle/oraclelinux9-instantclient:23 /usr/lib/oracle/23/clie
 # Oracle DB Client for arm64
 RUN mkdir -p /opt/oracle/23/arm64 \
 	&& cd /opt/oracle/23/arm64 \
-	&& wget https://download.oracle.com/otn_software/linux/instantclient/instantclient-basiclite-linux-arm64.zip \
-	&& unzip instantclient-basiclite-linux-arm64.zip && rm instantclient-basiclite-linux-arm64.zip && mv instantclient* ./lib
+	&& wget https://download.oracle.com/otn_software/linux/instantclient/2326100/instantclient-basiclite-linux.arm64-23.26.1.0.0.zip \
+	&& unzip instantclient-basiclite-linux.arm64-23.26.1.0.0.zip && rm instantclient-basiclite-linux.arm64-23.26.1.0.0.zip && mv instantclient* ./lib
 
 RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
         mv /opt/oracle/23/arm64/lib /opt/oracle/23/lib; \

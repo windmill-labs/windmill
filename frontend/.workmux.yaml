@@ -1,0 +1,15 @@
+panes:
+  # Pane 1: Install dependencies, then start dev server
+  - command: npm install && npm run generate-backend-client && npm run dev
+
+  # Pane 2: AI agent
+  - command: <agent>
+    split: horizontal
+    focus: true
+
+files:
+  copy:
+    - .env
+
+  symlink:
+    - node_modules

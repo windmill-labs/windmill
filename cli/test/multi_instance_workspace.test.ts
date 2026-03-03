@@ -1,4 +1,5 @@
-import { assertEquals, assert, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { expect, test } from "bun:test";
+import { writeFile } from "node:fs/promises";
 import { withTestBackend } from "./test_backend.ts";
 import { addWorkspace } from "../workspace.ts";
 import { parseJsonFromCLIOutput } from "./test_config_helpers.ts";
@@ -20,16 +21,12 @@ async function setupWorkspaceProfile(backend: any, workspaceName: string): Promi
   await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
 }
 
-Deno.test({
-  name: "Multi-Branch: sync pull with branch-specific overrides",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  fn: async () => {
+test("Multi-Branch: sync pull with branch-specific overrides", async () => {
     await withTestBackend(async (backend, tempDir) => {
       await setupWorkspaceProfile(backend, "multi_branch_test");
 
       // Create wmill.yaml with gitBranches configuration
-      await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+      await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
 includes:
   - "**"
 excludes: []
@@ -46,7 +43,7 @@ gitBranches:
   prod:
     overrides:
       skipVariables: true
-      skipResources: true`);
+      skipResources: true`, "utf-8");
 
       // Test main branch - should include variables and resources
       const mainResult = await backend.runCLICommand([
@@ -56,7 +53,7 @@ gitBranches:
         '--json-output'
       ], tempDir, "multi_branch_test");
 
-      assertEquals(mainResult.code, 0, `Main branch sync should succeed: ${mainResult.stderr}`);
+      expect(mainResult.code).toEqual(0);
 
       const mainData = parseJsonFromCLIOutput(mainResult.stdout);
       const mainPaths = (mainData.changes || []).map((c: any) => c.path);
@@ -64,8 +61,8 @@ gitBranches:
       const mainHasVariables = mainPaths.some((path: string) => path.includes('.variable.yaml'));
       const mainHasResources = mainPaths.some((path: string) => path.includes('.resource.yaml'));
 
-      assertEquals(mainHasVariables, true, "Main branch should include variables");
-      assertEquals(mainHasResources, true, "Main branch should include resources");
+      expect(mainHasVariables).toEqual(true);
+      expect(mainHasResources).toEqual(true);
 
       // Test staging branch - should skip variables but include resources
       const stagingResult = await backend.runCLICommand([
@@ -75,7 +72,7 @@ gitBranches:
         '--json-output'
       ], tempDir, "multi_branch_test");
 
-      assertEquals(stagingResult.code, 0, `Staging branch sync should succeed: ${stagingResult.stderr}`);
+      expect(stagingResult.code).toEqual(0);
 
       const stagingData = parseJsonFromCLIOutput(stagingResult.stdout);
       const stagingPaths = (stagingData.changes || []).map((c: any) => c.path);
@@ -83,8 +80,8 @@ gitBranches:
       const stagingHasVariables = stagingPaths.some((path: string) => path.includes('.variable.yaml'));
       const stagingHasResources = stagingPaths.some((path: string) => path.includes('.resource.yaml'));
 
-      assertEquals(stagingHasVariables, false, "Staging branch should skip variables");
-      assertEquals(stagingHasResources, true, "Staging branch should include resources");
+      expect(stagingHasVariables).toEqual(false);
+      expect(stagingHasResources).toEqual(true);
 
       // Test prod branch - should skip both variables and resources
       const prodResult = await backend.runCLICommand([
@@ -94,7 +91,7 @@ gitBranches:
         '--json-output'
       ], tempDir, "multi_branch_test");
 
-      assertEquals(prodResult.code, 0, `Prod branch sync should succeed: ${prodResult.stderr}`);
+      expect(prodResult.code).toEqual(0);
 
       const prodData = parseJsonFromCLIOutput(prodResult.stdout);
       const prodPaths = (prodData.changes || []).map((c: any) => c.path);
@@ -102,21 +99,16 @@ gitBranches:
       const prodHasVariables = prodPaths.some((path: string) => path.includes('.variable.yaml'));
       const prodHasResources = prodPaths.some((path: string) => path.includes('.resource.yaml'));
 
-      assertEquals(prodHasVariables, false, "Prod branch should skip variables");
-      assertEquals(prodHasResources, false, "Prod branch should skip resources");
+      expect(prodHasVariables).toEqual(false);
+      expect(prodHasResources).toEqual(false);
     });
-  }
 });
 
-Deno.test({
-  name: "Multi-Branch: branch override with includes filtering",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  fn: async () => {
+test("Multi-Branch: branch override with includes filtering", async () => {
     await withTestBackend(async (backend, tempDir) => {
       await setupWorkspaceProfile(backend, "includes_branch_test");
 
-      await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+      await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
 includes:
   - "**"
 
@@ -131,7 +123,7 @@ gitBranches:
       includes:
         - "f/**"
         - "users/**"
-      skipVariables: false`);
+      skipVariables: false`, "utf-8");
 
       // Test feature branch - should skip variables and only include f/**
       const featureResult = await backend.runCLICommand([
@@ -141,7 +133,7 @@ gitBranches:
         '--json-output'
       ], tempDir, "includes_branch_test");
 
-      assertEquals(featureResult.code, 0, `Feature branch sync should succeed: ${featureResult.stderr}`);
+      expect(featureResult.code).toEqual(0);
 
       const featureData = parseJsonFromCLIOutput(featureResult.stdout);
       const featurePaths = (featureData.changes || []).map((c: any) => c.path);
@@ -151,8 +143,8 @@ gitBranches:
       const featureHasVariables = normalizedFeaturePaths.some((path: string) => path.includes('.variable.yaml'));
       const featureHasUsers = normalizedFeaturePaths.some((path: string) => path.startsWith('users/'));
 
-      assertEquals(featureHasVariables, false, "Feature branch should skip variables");
-      assertEquals(featureHasUsers, false, "Feature branch should not include users (not in includes)");
+      expect(featureHasVariables).toEqual(false);
+      expect(featureHasUsers).toEqual(false);
 
       // Test release branch - should include variables and users
       const releaseResult = await backend.runCLICommand([
@@ -163,7 +155,7 @@ gitBranches:
         '--json-output'
       ], tempDir, "includes_branch_test");
 
-      assertEquals(releaseResult.code, 0, `Release branch sync should succeed: ${releaseResult.stderr}`);
+      expect(releaseResult.code).toEqual(0);
 
       const releaseData = parseJsonFromCLIOutput(releaseResult.stdout);
       const releasePaths = (releaseData.changes || []).map((c: any) => c.path);
@@ -173,21 +165,16 @@ gitBranches:
       const releaseHasVariables = normalizedReleasePaths.some((path: string) => path.includes('.variable.yaml'));
       const releaseHasUsers = normalizedReleasePaths.some((path: string) => path.startsWith('users/'));
 
-      assertEquals(releaseHasVariables, true, "Release branch should include variables");
-      assertEquals(releaseHasUsers, true, "Release branch should include users");
+      expect(releaseHasVariables).toEqual(true);
+      expect(releaseHasUsers).toEqual(true);
     });
-  }
 });
 
-Deno.test({
-  name: "Multi-Branch: fallback to base config when branch not defined",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  fn: async () => {
+test("Multi-Branch: fallback to base config when branch not defined", async () => {
     await withTestBackend(async (backend, tempDir) => {
       await setupWorkspaceProfile(backend, "fallback_test");
 
-      await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+      await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
 includes:
   - "**"
 skipVariables: true
@@ -197,7 +184,7 @@ gitBranches:
   main:
     overrides:
       skipVariables: false
-      skipResources: false`);
+      skipResources: false`, "utf-8");
 
       // Test undefined branch - should use base config (skip variables and resources)
       const undefinedResult = await backend.runCLICommand([
@@ -207,7 +194,7 @@ gitBranches:
         '--json-output'
       ], tempDir, "fallback_test");
 
-      assertEquals(undefinedResult.code, 0, `Undefined branch sync should succeed: ${undefinedResult.stderr}`);
+      expect(undefinedResult.code).toEqual(0);
 
       const undefinedData = parseJsonFromCLIOutput(undefinedResult.stdout);
       const undefinedPaths = (undefinedData.changes || []).map((c: any) => c.path);
@@ -216,8 +203,8 @@ gitBranches:
       const undefinedHasResources = undefinedPaths.some((path: string) => path.includes('.resource.yaml'));
 
       // Should use base config since branch is not defined
-      assertEquals(undefinedHasVariables, false, "Undefined branch should use base config skipVariables: true");
-      assertEquals(undefinedHasResources, false, "Undefined branch should use base config skipResources: true");
+      expect(undefinedHasVariables).toEqual(false);
+      expect(undefinedHasResources).toEqual(false);
 
       // Test defined main branch - should use branch overrides
       const mainResult = await backend.runCLICommand([
@@ -227,7 +214,7 @@ gitBranches:
         '--json-output'
       ], tempDir, "fallback_test");
 
-      assertEquals(mainResult.code, 0, `Main branch sync should succeed: ${mainResult.stderr}`);
+      expect(mainResult.code).toEqual(0);
 
       const mainData = parseJsonFromCLIOutput(mainResult.stdout);
       const mainPaths = (mainData.changes || []).map((c: any) => c.path);
@@ -235,21 +222,16 @@ gitBranches:
       const mainHasVariables = mainPaths.some((path: string) => path.includes('.variable.yaml'));
       const mainHasResources = mainPaths.some((path: string) => path.includes('.resource.yaml'));
 
-      assertEquals(mainHasVariables, true, "Main branch should use override skipVariables: false");
-      assertEquals(mainHasResources, true, "Main branch should use override skipResources: false");
+      expect(mainHasVariables).toEqual(true);
+      expect(mainHasResources).toEqual(true);
     });
-  }
 });
 
-Deno.test({
-  name: "Multi-Branch: branch inherits unspecified settings from base",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  fn: async () => {
+test("Multi-Branch: branch inherits unspecified settings from base", async () => {
     await withTestBackend(async (backend, tempDir) => {
       await setupWorkspaceProfile(backend, "inherit_test");
 
-      await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+      await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
 includes:
   - "**"
 skipVariables: true
@@ -259,7 +241,7 @@ skipApps: true
 gitBranches:
   partial:
     overrides:
-      skipVariables: false`);
+      skipVariables: false`, "utf-8");
 
       // Test partial branch - should inherit skipResources and skipApps from base
       const result = await backend.runCLICommand([
@@ -269,7 +251,7 @@ gitBranches:
         '--json-output'
       ], tempDir, "inherit_test");
 
-      assertEquals(result.code, 0, `Partial branch sync should succeed: ${result.stderr}`);
+      expect(result.code).toEqual(0);
 
       const data = parseJsonFromCLIOutput(result.stdout);
       const paths = (data.changes || []).map((c: any) => c.path);
@@ -279,10 +261,9 @@ gitBranches:
       const hasApps = paths.some((path: string) => path.includes('.app/') || path.endsWith('.app.yaml'));
 
       // skipVariables is overridden to false
-      assertEquals(hasVariables, true, "Partial branch should include variables (override)");
+      expect(hasVariables).toEqual(true);
       // skipResources and skipApps are inherited from base (true)
-      assertEquals(hasResources, false, "Partial branch should skip resources (inherited)");
-      assertEquals(hasApps, false, "Partial branch should skip apps (inherited)");
+      expect(hasResources).toEqual(false);
+      expect(hasApps).toEqual(false);
     });
-  }
 });

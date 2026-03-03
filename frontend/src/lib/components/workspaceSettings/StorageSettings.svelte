@@ -48,7 +48,7 @@
 		| { open: false }
 		| { open: true; storage: S3ResourceSettingsItem } = $state({ open: false })
 
-	let s3FileViewer: S3FilePicker | undefined = $state()
+	let s3FileViewer: any | undefined = $state()
 
 	async function editWindmillLFSSettings(): Promise<void> {
 		const large_file_storage = convertFrontendToBackendSetting(s3ResourceSettings)

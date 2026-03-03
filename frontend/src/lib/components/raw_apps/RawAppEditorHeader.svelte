@@ -6,7 +6,6 @@
 	import { AppService, DraftService, type Policy } from '$lib/gen'
 	import { rawAppToHubUrl } from '$lib/hub'
 	import { enterpriseLicense, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
-	import JSZip from 'jszip'
 	import YAML from 'yaml'
 	import {
 		Bug,
@@ -52,6 +51,8 @@
 	import { aiChatManager } from '../copilot/chat/AIChatManager.svelte'
 	import { AIBtnClasses } from '../copilot/chat/AIButtonStyle'
 	import type { RawAppData } from './dataTableRefUtils'
+	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
+	import { buildForkEditUrl } from '$lib/utils/editInFork'
 
 	// async function hash(message) {
 	// 	try {
@@ -155,6 +156,7 @@
 		if (!app) return
 		publishingToHub = true
 		try {
+			const { default: JSZip } = await import('jszip')
 			const { js, css } = await getBundle()
 			const zip = new JSZip()
 			zip.file('app.yaml', YAML.stringify(app))
@@ -931,7 +933,17 @@
 							onClick: () => {
 								window.open(`/apps/add?template=${appPath}`)
 							}
-						}
+						},
+						...(!isRuleActive('DisableWorkspaceForking')
+							? [
+									{
+										label: 'Edit in workspace fork',
+										onClick: () => {
+											window.open(buildForkEditUrl('raw_app', appPath))
+										}
+									}
+								]
+							: [])
 					]
 				: undefined}
 		>

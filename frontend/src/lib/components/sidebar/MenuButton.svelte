@@ -1,10 +1,11 @@
 <script module lang="ts">
 	export const sidebarClasses = {
-		text: 'text-primary-inverse dark:text-primary data-[light-mode=true]:text-primary text-xs font-normal',
-		selectedText: 'text-emphasis-inverse dark:text-emphasis text-xs font-normal',
-		sublabelText: 'text-secondary-inverse dark:text-secondary text-2xs font-normal',
-		hoverBg:
-			'transition-colors hover:bg-surface-hover-inverse dark:hover:bg-surface-hover data-[light-mode=true]:hover:bg-surface-hover'
+		text: 'text-secondary text-xs font-normal',
+		iconText: 'text-hint',
+		selectedText: 'text-emphasis text-xs font-semibold',
+		sublabelText: 'text-secondary text-2xs font-normal',
+		hoverBg: 'transition-colors hover:bg-surface-hover',
+		selectedBg: 'bg-surface-hover'
 	}
 </script>
 
@@ -113,7 +114,7 @@
 						<foreignObject x="5" y="5" width="16" height="16">
 							<SvelteComponent
 								size={16}
-								class={twMerge(sidebarClasses.text, 'transition-colors', iconClasses)}
+								class={twMerge(sidebarClasses.iconText, 'transition-colors', iconClasses)}
 								{...iconProps}
 							/>
 						</foreignObject>
@@ -121,7 +122,7 @@
 				{:else}
 					<SvelteComponent
 						size={16}
-						class={twMerge('flex-shrink-0', sidebarClasses.text, 'transition-colors', iconClasses)}
+						class={twMerge('flex-shrink-0', sidebarClasses.iconText, 'transition-colors', iconClasses)}
 						{...iconProps}
 					/>
 				{/if}
@@ -140,7 +141,7 @@
 					>
 						{label}
 						<span
-							class="pl-2 text-xs dark:text-secondary light:text-secondary-inverse font-semibold"
+							class="pl-2 text-xs text-secondary font-semibold"
 						>
 							{shortcut}
 						</span>

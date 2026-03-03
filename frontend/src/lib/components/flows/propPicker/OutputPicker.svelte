@@ -50,9 +50,7 @@
 
 	const zoom = $derived.by(useSvelteFlow().getZoom)
 
-	let showConnecting = $derived(
-		isConnectingCandidate && $flowPropPickerConfig?.insertionMode === 'connect'
-	)
+	let showConnecting = $derived(isConnectingCandidate && $flowPropPickerConfig != undefined)
 
 	function selectConnection(value: string) {
 		if ($flowPropPickerConfig?.onSelect(value)) {

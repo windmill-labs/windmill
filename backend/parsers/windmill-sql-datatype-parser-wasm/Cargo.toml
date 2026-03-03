@@ -17,3 +17,6 @@ wasm-bindgen-test.workspace = true
 windmill-parser.workspace = true
 windmill-parser-sql.workspace = true
 wasm-bindgen.workspace = true
+# getrandom 0.3 is pulled in transitively by rand 0.9 (via windmill-types).
+# It requires the "wasm_js" feature to work on wasm32-unknown-unknown.
+getrandom3 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }

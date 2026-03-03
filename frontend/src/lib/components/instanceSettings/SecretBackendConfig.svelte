@@ -289,7 +289,7 @@
 
 				<!-- Authentication Method Toggle -->
 				<div class="flex flex-col gap-2">
-					<label class="block text-xs font-semibold text-emphasis">Authentication Method</label>
+					<span class="block text-xs font-semibold text-emphasis">Authentication Method</span>
 					<ToggleButtonGroup selected={authMethod} onSelected={(v) => setAuthMethod(v)}>
 						{#snippet children({ item: toggleButton })}
 							<ToggleButton
@@ -420,7 +420,7 @@ vault write auth/jwt/role/windmill-secrets \
 
 				<!-- Migration Section -->
 				<div class="flex flex-col gap-4 pt-4 border-t">
-					<label class="block text-xs font-semibold text-emphasis">Secret Migration</label>
+					<span class="block text-xs font-semibold text-emphasis">Secret Migration</span>
 					<span class="text-2xs text-secondary">
 						Migrate secrets between the database and HashiCorp Vault. Original values are NOT
 						deleted to allow for rollback.

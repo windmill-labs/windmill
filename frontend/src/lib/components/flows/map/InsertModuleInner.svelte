@@ -69,7 +69,6 @@
 		{/if}
 		<RefreshButton
 			size="sm"
-			light
 			{loading}
 			onClick={() => {
 				refreshCount.val += 1
@@ -99,6 +98,13 @@
 						label="Web Search"
 						onSelect={() => {
 							dispatch('pickWebsearchTool')
+							dispatch('close')
+						}}
+					/>
+					<TopLevelNode
+						label="AI Agent"
+						onSelect={() => {
+							dispatch('pickAiAgentTool')
 							dispatch('close')
 						}}
 					/>

@@ -57,7 +57,8 @@
 		Circle,
 		CheckCircle,
 		RefreshCw,
-		CheckCheck
+		CheckCheck,
+		Focus
 	} from 'lucide-svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
@@ -95,6 +96,8 @@
 	import type { FlowBuilderProps } from './flow_builder'
 	import { ModulesTestStates } from './modulesTest.svelte'
 	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from './flows/FlowAssetsHandler.svelte'
+	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
+	import { buildForkEditUrl } from '$lib/utils/editInFork'
 
 	let {
 		initialPath = $bindable(''),
@@ -129,6 +132,17 @@
 	}: FlowBuilderProps = $props()
 
 	let initialPathStore = writable(initialPath)
+
+	// For preserve_on_behalf_of feature
+	let preserveOnBehalfOf = writable(false)
+	let savedOnBehalfOfEmail = writable<string | undefined>(savedFlow?.on_behalf_of_email)
+
+	// Keep savedOnBehalfOfEmail in sync when savedFlow is loaded asynchronously
+	$effect(() => {
+		if (savedFlow?.on_behalf_of_email !== undefined) {
+			savedOnBehalfOfEmail.set(savedFlow.on_behalf_of_email)
+		}
+	})
 
 	// used for new flows for captures
 	let fakeInitialPath =
@@ -480,6 +494,7 @@
 						dedicated_worker: flow.dedicated_worker,
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
+						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
 						deployment_message: deploymentMsg || undefined
 					}
 				})
@@ -532,6 +547,7 @@
 						ws_error_handler_muted: flow.ws_error_handler_muted,
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
+						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
 						deployment_message: deploymentMsg || undefined
 					}
 				})
@@ -559,7 +575,7 @@
 
 	function saveSessionDraft() {
 		timeout && clearTimeout(timeout)
-		timeout = setTimeout(() => {
+		timeout = window.setTimeout(() => {
 			try {
 				localStorage.setItem(
 					initialPath && initialPath != '' ? `flow-${initialPath}` : 'flow',
@@ -597,7 +613,6 @@
 	const previewArgsStore = $state({ val: initialArgs })
 	const scriptEditorDrawer = writable<ScriptEditorDrawer | undefined>(undefined)
 	const flowEditorDrawer = writable<FlowEditorDrawer | undefined>(undefined)
-	const moving = writable<{ id: string } | undefined>(undefined)
 	const history = initHistory(flowStore.val)
 	const pathStore = writable<string>(pathStoreInit ?? initialPath)
 	const captureOn = writable<boolean>(false)
@@ -625,7 +640,6 @@
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
 		flowEditorDrawer,
-		moving,
 		history,
 		flowStateStore,
 		flowStore,
@@ -640,7 +654,9 @@
 		executionCount: writable(0),
 		flowInputEditorState: flowInputEditorStateStore,
 		modulesTestStates,
-		outputPickerOpenFns
+		outputPickerOpenFns,
+		preserveOnBehalfOf,
+		savedOnBehalfOfEmail
 	})
 
 	// Set up NoteEditor context for note editing capabilities
@@ -801,6 +817,13 @@
 				onClick: () => window.open(`/flows/add?template=${initialPath}`)
 			})
 		}
+
+		if (!newFlow && !isRuleActive('DisableWorkspaceForking')) {
+			dropdownItems.push({
+				label: 'Edit in workspace fork',
+				onClick: () => window.open(buildForkEditUrl('flow', initialPath))
+			})
+		}
 	}
 
 	let flowCopilotContext: FlowCopilotContext = $state({
@@ -913,6 +936,11 @@
 						icon: CheckCheck
 					}
 				]
+			},
+			{
+				displayName: 'Test flow & record',
+				icon: Focus,
+				action: () => flowPreviewButtons?.openRecordingPreview()
 			}
 		]
 	}
@@ -1115,7 +1143,7 @@
 			<div
 				class="justify-between flex flex-row items-center pl-2 pr-4 space-x-4 scrollbar-hidden overflow-x-auto max-h-12 h-full relative"
 			>
-				<div class="flex w-full max-w-md gap-8 items-center">
+				<div class="flex w-full gap-8 items-center min-w-0">
 					<SummaryPathDisplay
 						bind:summary={flowStore.val.summary}
 						bind:path={$pathStore}
@@ -1124,7 +1152,7 @@
 					/>
 				</div>
 
-				<div class="gap-4 flex-row hidden md:flex w-full whitespace-nowrap max-w-md">
+				<div class="gap-4 flex-row hidden md:flex whitespace-nowrap">
 					{#if triggersState.triggers?.some((t) => t.type === 'schedule')}
 						{@const primaryScheduleIndex = triggersState.triggers.findIndex((t) => t.isPrimary)}
 						{@const scheduleIndex = triggersState.triggers.findIndex((t) => t.type === 'schedule')}
