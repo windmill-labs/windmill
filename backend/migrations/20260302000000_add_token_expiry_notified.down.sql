@@ -1,1 +1,1 @@
-ALTER TABLE token DROP COLUMN expiry_notified;
+DROP TABLE IF EXISTS token_expiry_notification;

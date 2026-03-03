@@ -946,6 +946,20 @@ pub async fn delete_expired_items(db: &DB) -> () {
         Err(e) => tracing::error!("Error deleting token: {}", e.to_string()),
     }
 
+    // Clean up orphaned notification rows for tokens that no longer exist
+    if let Err(e) = sqlx::query!(
+        "DELETE FROM token_expiry_notification n
+         WHERE NOT EXISTS (SELECT 1 FROM token t WHERE t.token = n.token)"
+    )
+    .execute(db)
+    .await
+    {
+        tracing::error!(
+            "Error cleaning up orphaned token expiry notifications: {}",
+            e
+        );
+    }
+
     let pip_resolution_r = sqlx::query_scalar!(
         "DELETE FROM pip_resolution_cache WHERE expiration <= now() RETURNING hash",
     )
@@ -1150,16 +1164,15 @@ pub async fn delete_expired_items(db: &DB) -> () {
 }
 
 pub async fn check_expiring_tokens(db: &DB) {
-    // Find tokens expiring within 7 days that haven't been notified yet
+    // Find tokens expiring within 7 days that still have a pending notification row
     let expiring_tokens_r = sqlx::query_as!(
         TokenRow,
-        "UPDATE token SET expiry_notified = true
-         WHERE expiration IS NOT NULL
-           AND expiration > now()
-           AND expiration <= now() + interval '7 days'
-           AND expiry_notified = false
-           AND (label IS NULL OR (label != 'session' AND label NOT ILIKE 'ephemeral%'))
-         RETURNING substring(token for 10) as token_prefix, label, email, workspace_id",
+        "DELETE FROM token_expiry_notification n
+         USING token t
+         WHERE n.token = t.token
+           AND n.expiration > now()
+           AND n.expiration <= now() + interval '7 days'
+         RETURNING substring(t.token for 10) as token_prefix, t.label, t.email, t.workspace_id",
     )
     .fetch_all(db)
     .await;

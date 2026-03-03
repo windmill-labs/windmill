@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE token SET expiry_notified = true\n         WHERE expiration IS NOT NULL\n           AND expiration > now()\n           AND expiration <= now() + interval '7 days'\n           AND expiry_notified = false\n           AND (label IS NULL OR (label != 'session' AND label NOT ILIKE 'ephemeral%'))\n         RETURNING substring(token for 10) as token_prefix, label, email, workspace_id",
+  "query": "DELETE FROM token_expiry_notification n\n         USING token t\n         WHERE n.token = t.token\n           AND n.expiration > now()\n           AND n.expiration <= now() + interval '7 days'\n         RETURNING substring(t.token for 10) as token_prefix, t.label, t.email, t.workspace_id",
   "describe": {
     "columns": [
       {
@@ -34,5 +34,5 @@
       true
     ]
   },
-  "hash": "4aedd333681a56f22d0fb67a04fbcb93ed1b0985750ab4b1361482e3be5d1425"
+  "hash": "d7e9b69fef8369117ce057d01d87288b39ea7c802007f112eb3d62230d07abb6"
 }
