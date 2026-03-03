@@ -771,7 +771,7 @@
 								window.open(`/scripts/add?template=${initialPath}`)
 							}
 						},
-						...(!isRuleActive('DisableWorkspaceForking')
+						...(!isCloudHosted() && !isRuleActive('DisableWorkspaceForking')
 							? [
 									{
 										label: 'Edit in workspace fork',

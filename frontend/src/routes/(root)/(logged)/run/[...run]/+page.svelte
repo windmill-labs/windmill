@@ -88,6 +88,7 @@
 	import JobOtelTraces from '$lib/components/JobOtelTraces.svelte'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { isCloudHosted } from '$lib/cloud'
 	let job: (Job & { result?: any; result_stream?: string }) | undefined = $state()
 	let jobUpdateLastFetch: Date | undefined = $state()
 
@@ -656,7 +657,7 @@
 							startIcon={{ icon: Pen }}>Edit</Button
 						>
 					{/if}
-					{#if !showEditButton && !isRuleActive('DisableWorkspaceForking')}
+					{#if !showEditButton && !isCloudHosted() && !isRuleActive('DisableWorkspaceForking')}
 						<Button
 							href={buildForkEditUrl(isScript ? 'script' : 'flow', job?.script_path ?? '')}
 							unifiedSize="md"

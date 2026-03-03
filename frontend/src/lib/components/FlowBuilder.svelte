@@ -98,6 +98,7 @@
 	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from './flows/FlowAssetsHandler.svelte'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { isCloudHosted } from '$lib/cloud'
 
 	let {
 		initialPath = $bindable(''),
@@ -818,7 +819,7 @@
 			})
 		}
 
-		if (!newFlow && !isRuleActive('DisableWorkspaceForking')) {
+		if (!newFlow && !isCloudHosted() && !isRuleActive('DisableWorkspaceForking')) {
 			dropdownItems.push({
 				label: 'Edit in workspace fork',
 				onClick: () => window.open(buildForkEditUrl('flow', initialPath))
