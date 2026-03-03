@@ -1,12 +1,13 @@
+name: Windmill
+
+startupEnvs:
+  CARGO_FEATURES: "quickjs"
+
 services:
   - name: BE
     portEnv: BACKEND_PORT
   - name: FE
     portEnv: FRONTEND_PORT
-
-startupEnvs:
-  WM_CLONE_DB=false
-  CARGO_FEATURES=""
 
 profiles:
   default:
