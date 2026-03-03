@@ -666,6 +666,11 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		if (intervalId) {
 			clearInterval(intervalId)
 		}
+		if (slowStreamIntervalId) {
+			clearInterval(slowStreamIntervalId)
+			slowStreamIntervalId = undefined
+		}
+		paramChangePromise?.cancel()
 	})
 	$effect(() => {
 		Object.keys(filters ?? {}).map((k) => filters?.[k as keyof RunsFilterInstance])
