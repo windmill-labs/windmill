@@ -17029,6 +17029,63 @@ paths:
                         type: integer
                         nullable: true
 
+  /indexer/status:
+    get:
+      summary: Get indexer status including liveness and storage sizes.
+      operationId: getIndexerStatus
+      tags:
+        - indexSearch
+      responses:
+        "200":
+          description: indexer status for each index
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_indexer:
+                    type: object
+                    properties:
+                      is_alive:
+                        type: boolean
+                      last_locked_at:
+                        type: string
+                        format: date-time
+                        nullable: true
+                      owner:
+                        type: string
+                        nullable: true
+                      storage:
+                        type: object
+                        properties:
+                          disk_size_bytes:
+                            type: integer
+                            nullable: true
+                          s3_size_bytes:
+                            type: integer
+                            nullable: true
+                  log_indexer:
+                    type: object
+                    properties:
+                      is_alive:
+                        type: boolean
+                      last_locked_at:
+                        type: string
+                        format: date-time
+                        nullable: true
+                      owner:
+                        type: string
+                        nullable: true
+                      storage:
+                        type: object
+                        properties:
+                          disk_size_bytes:
+                            type: integer
+                            nullable: true
+                          s3_size_bytes:
+                            type: integer
+                            nullable: true
+
   /w/{workspace}/assets/list:
     get:
       summary: List all assets in the workspace with cursor pagination
