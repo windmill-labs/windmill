@@ -18,6 +18,8 @@ use windmill_common::{
 use anyhow::{anyhow, bail};
 use windmill_queue::append_logs;
 
+#[cfg(unix)]
+use crate::python_executor::UV_PATH;
 use crate::{
     common::{start_child_process, OccupancyMetrics},
     handle_child::handle_child,
@@ -25,8 +27,6 @@ use crate::{
     HOME_ENV, INSTANCE_PYTHON_VERSION, PATH_ENV, PROXY_ENVS, PY_INSTALL_DIR, UV_CACHE_DIR,
     WIN_ENVS,
 };
-#[cfg(unix)]
-use crate::python_executor::UV_PATH;
 
 impl From<PyV> for PyVAlias {
     fn from(value: PyV) -> Self {
@@ -454,6 +454,30 @@ impl PyV {
         res
     }
 
+    /// Check that a managed Python installation has a functional stdlib.
+    /// Python's getpath.py uses the os.py landmark to resolve sys.prefix.
+    /// If os.py is missing, sys.prefix falls back to the compiled-in '/install'
+    /// and Python can't find stdlib modules like 'encodings'.
+    #[cfg(unix)]
+    fn validate_python_runtime(&self, py_path: &str) -> bool {
+        // py_path: /tmp/windmill/cache/py_runtime/cpython-3.12.12-.../bin/python3.12
+        // runtime dir: /tmp/windmill/cache/py_runtime/cpython-3.12.12-.../
+        let Some(runtime_dir) = py_path.rsplit_once("/bin/").map(|(dir, _)| dir) else {
+            return true; // Not a standard managed Python layout, skip validation
+        };
+
+        let [major, minor, ..] = self.release() else {
+            return true;
+        };
+
+        let landmark = format!("{runtime_dir}/lib/python{major}.{minor}/os.py");
+        let valid = std::path::Path::new(&landmark).exists();
+        if !valid {
+            tracing::warn!("Python stdlib landmark missing: {landmark}");
+        }
+        valid
+    }
+
     async fn get_python_inner(
         &self,
         job_id: &Uuid,
@@ -464,9 +488,25 @@ impl PyV {
         w_id: &str,
         occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     ) -> error::Result<Option<String>> {
-        let py_path = self.find_python().await;
+        let mut py_path = self.find_python().await;
 
-        // Runtime is not installed
+        // If Python was found but its stdlib is corrupted, remove it so it gets reinstalled
+        #[cfg(unix)]
+        if let Ok(Some(ref path)) = py_path {
+            if !self.validate_python_runtime(path) {
+                tracing::warn!(
+                    "Managed Python at {path} has corrupted stdlib, removing and reinstalling"
+                );
+                if let Some(runtime_dir) = path.rsplit_once("/bin/").map(|(dir, _)| dir) {
+                    let _ = tokio::fs::remove_dir_all(runtime_dir).await;
+                }
+                py_path = Err(Error::internal_err(
+                    "Python runtime corrupted, reinstalling",
+                ));
+            }
+        }
+
+        // Runtime is not installed (or was corrupted and removed above)
         if let Err(py_err) = py_path {
             // Install it
             if let Err(err) = self
