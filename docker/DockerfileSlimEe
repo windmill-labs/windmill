@@ -54,7 +54,7 @@ RUN mkdir -p /tmp/windmill/cache && \
     rm -rf /tmp/build_cache && \
     mkdir -p -m 777 /tmp/windmill/cache/uv
 
-COPY --from=oven/bun:1.3.8 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.3.10 /usr/local/bin/bun /usr/bin/bun
 
 # Install windmill CLI (node symlink needed for bun install)
 RUN ln -s /usr/bin/bun /usr/bin/node \

@@ -315,7 +315,7 @@
 	<SettingsPageHeader
 		title="Native Triggers"
 		description="Connect your workspace to external services for native triggers and enhanced functionality. These connections are shared across all workspace members and are required for native triggers to work."
-		link="https://www.windmill.dev/docs/integrations/native-triggers"
+		link="https://www.windmill.dev/docs/core_concepts/native_triggers"
 	/>
 
 	{#if pendingCallback}

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.647.0
+  version: 1.648.0
   title: Windmill API
 
   contact:
@@ -16973,9 +16973,9 @@ paths:
                     description: count of log lines that matched the query per hostname
                     type: object
 
-  /srch/index/delete/{idx_name}:
+  /indexer/delete/{idx_name}:
     delete:
-      summary: Restart container and delete the index to recreate it.
+      summary: Clear an index and restart the indexer.
       operationId: clearIndex
       tags:
         - indexSearch
@@ -16990,11 +16990,101 @@ paths:
               - ServiceLogIndex
       responses:
         "200":
-          description: idx to be deleted and container restarting
+          description: idx to be deleted and indexer restarting
           content:
             text/plain:
               schema:
                 type: string
+
+  /indexer/storage:
+    get:
+      summary: Get index storage sizes (disk and S3).
+      operationId: getIndexStorageSizes
+      tags:
+        - indexSearch
+      responses:
+        "200":
+          description: storage sizes for each index
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_index:
+                    type: object
+                    properties:
+                      disk_size_bytes:
+                        type: integer
+                        nullable: true
+                      s3_size_bytes:
+                        type: integer
+                        nullable: true
+                  service_log_index:
+                    type: object
+                    properties:
+                      disk_size_bytes:
+                        type: integer
+                        nullable: true
+                      s3_size_bytes:
+                        type: integer
+                        nullable: true
+
+  /indexer/status:
+    get:
+      summary: Get indexer status including liveness and storage sizes.
+      operationId: getIndexerStatus
+      tags:
+        - indexSearch
+      responses:
+        "200":
+          description: indexer status for each index
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_indexer:
+                    type: object
+                    properties:
+                      is_alive:
+                        type: boolean
+                      last_locked_at:
+                        type: string
+                        format: date-time
+                        nullable: true
+                      owner:
+                        type: string
+                        nullable: true
+                      storage:
+                        type: object
+                        properties:
+                          disk_size_bytes:
+                            type: integer
+                            nullable: true
+                          s3_size_bytes:
+                            type: integer
+                            nullable: true
+                  log_indexer:
+                    type: object
+                    properties:
+                      is_alive:
+                        type: boolean
+                      last_locked_at:
+                        type: string
+                        format: date-time
+                        nullable: true
+                      owner:
+                        type: string
+                        nullable: true
+                      storage:
+                        type: object
+                        properties:
+                          disk_size_bytes:
+                            type: integer
+                            nullable: true
+                          s3_size_bytes:
+                            type: integer
+                            nullable: true
 
   /w/{workspace}/assets/list:
     get:

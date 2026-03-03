@@ -39,26 +39,6 @@ Even in bypass mode, **enter plan mode before starting non-trivial work**. Ask a
 - Read `docs/validation.md` to know what checks you'll need to run
 - Break large features into stages — commit each stage separately
 
-## Dev Environment (tmux)
-
-Backend and frontend are running in tmux panes in the current session:
-
-- **Pane 0**: This pane (Claude agent)
-- **Pane 1**: Backend (`cargo watch -x run`)
-- **Pane 2**: Frontend (`npm run dev`)
-
-### Checking Logs
-
-```bash
-# Backend logs (last 50 lines)
-tmux capture-pane -t .1 -p -S -50
-
-# Frontend logs (last 50 lines)
-tmux capture-pane -t .2 -p -S -50
-```
-
-Backend runs with `cargo watch`, so Rust changes auto-recompile — just check pane 1 logs for errors. No need to run `cargo check` separately during iteration if the backend pane shows a successful build.
-
 ## Manual Testing
 
 After code changes compile and type-check, verify the feature works:
