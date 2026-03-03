@@ -146,15 +146,24 @@ async fn get_input_history(
         "AND parent_job IS NULL"
     };
 
-    let sql = &format!(
-        "select id, v2_job_completed.completed_at, created_by, 'null'::jsonb as args, status = 'success' as success from v2_job JOIN v2_job_completed USING (id) \
-        where v2_job.workspace_id = $3 and {} = $1 and kind = any($2) {args_query} AND v2_job_completed.status != 'skipped' {include_non_root} \
-        order by v2_job_completed.completed_at desc limit $4 offset $5",
-        r.runnable_type.column_name(),
+    // Two-step approach: first fetch 2*(per_page+offset) rows using created_at ordering
+    // (which leverages the ix_job_root_job_index_by_path_2 index on v2_job), then sort
+    // the small result set by completed_at. This works because created_at and completed_at
+    // are highly correlated.
+    let inner_limit = 2 * (per_page + offset);
 
+    let sql = &format!(
+        "SELECT id, completed_at, created_by, args, success FROM (\
+            SELECT id, v2_job_completed.completed_at, created_by, 'null'::jsonb as args, \
+            status = 'success' as success \
+            FROM v2_job JOIN v2_job_completed USING (id) \
+            WHERE v2_job.workspace_id = $3 AND {} = $1 AND kind = any($2) \
+            {args_query} AND v2_job_completed.status != 'skipped' {include_non_root} \
+            ORDER BY v2_job.created_at DESC LIMIT $4\
+        ) t ORDER BY completed_at DESC LIMIT $5 OFFSET $6",
+        r.runnable_type.column_name(),
     );
 
-    // tracing::info!("sql: {}", sql);
     let query = sqlx::query_as::<_, CompletedJobMini>(sql);
 
     let query = match r.runnable_type {
@@ -175,6 +184,7 @@ async fn get_input_history(
     let rows = query
         .bind(job_kinds)
         .bind(&w_id)
+        .bind(inner_limit as i32)
         .bind(per_page as i32)
         .bind(offset as i32)
         .fetch_all(&mut *tx)

@@ -78,6 +78,13 @@ if command -v psql &>/dev/null; then
   DATABASE_URL="$db_url" sqlx migrate run --source backend/migrations \
     && echo "Migrations applied to $db_name" \
     || echo "WARNING: Could not run migrations on $db_name" >&2
+  # Copy license_key from the main windmill database to the new database
+  license_key=$(psql "$db_conn/windmill" -t -A -c "SELECT value FROM global_settings WHERE name = 'license_key'" 2>/dev/null || true)
+  if [[ -n "$license_key" ]]; then
+    psql "$db_url" -c "INSERT INTO global_settings (name, value) VALUES ('license_key', '${license_key}'::jsonb) ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value" 2>/dev/null \
+      && echo "Copied license_key to $db_name" \
+      || echo "WARNING: Could not copy license_key to $db_name" >&2
+  fi
   # Use export so DATABASE_URL overrides the nix devshell value for child processes
   cat >> .env.local <<EOF
 export DATABASE_URL=$db_url

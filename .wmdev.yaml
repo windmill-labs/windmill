@@ -1,3 +1,8 @@
+name: Windmill
+
+startupEnvs:
+  CARGO_FEATURES: "quickjs"
+
 services:
   - name: BE
     portEnv: BACKEND_PORT

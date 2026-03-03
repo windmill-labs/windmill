@@ -1,23 +1,20 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
-
+	import { untrack } from 'svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import Toggle from './Toggle.svelte'
 	import SettingCard from './instanceSettings/SettingCard.svelte'
 
 	interface Props {
-		value: any;
+		value: any
 	}
 
-	let { value = $bindable() }: Props = $props();
+	let { value = $bindable() }: Props = $props()
 
+	let lastOrg: string | undefined = undefined
 
-	let org = $state('')
-
-
-	function changeOrg(org) {
-		if (value) {
+	function changeOrg(org: string | undefined) {
+		if (value && org) {
 			value = {
 				...value,
 				connect_config: {
@@ -34,10 +31,15 @@
 			}
 		}
 	}
+
 	let enabled = $derived(value != undefined)
-	run(() => {
-		changeOrg(org)
-	});
+
+	$effect.pre(() => {
+		if (value?.['org'] != lastOrg) {
+			lastOrg = value?.['org']
+			untrack(() => changeOrg(value?.['org']))
+		}
+	})
 </script>
 
 <div class="flex flex-col gap-1">
@@ -47,7 +49,7 @@
 			checked={enabled}
 			on:change={(e) => {
 				if (e.detail) {
-					value = { id: '', secret: '' }
+					value = { id: '', secret: '', org: '' }
 				} else {
 					value = undefined
 				}
@@ -61,7 +63,10 @@
 				<span class="text-secondary font-normal text-xs"
 					>{'REALM_URL/protocol/openid-connect/auth'}</span
 				>
-				<TextInput inputProps={{ type: 'text', placeholder: 'yourorg' }} bind:value={org} />
+				<TextInput
+					inputProps={{ type: 'text', placeholder: 'yourorg' }}
+					bind:value={value['org']}
+				/>
 			</label>
 			<label class="flex flex-col gap-1">
 				<span class="text-emphasis font-semibold text-xs">Custom Name</span>
