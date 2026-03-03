@@ -554,9 +554,7 @@ pub async fn update_flow_status_after_job_completion_internal(
         // as an identity job.  We must skip the stop_after_if evaluation in that
         // case because the result is just a pass-through of the previous step's
         // result, not the output of the actual step logic.
-        let is_identity_job = if current_module
-            .is_some_and(|m| m.skip_if.is_some() && m.stop_after_if.is_some())
-        {
+        let is_identity_job = if current_module.is_some_and(|m| m.skip_if.is_some()) {
             sqlx::query_scalar!(
                 "SELECT kind = 'identity' FROM v2_job WHERE id = $1",
                 job_id_for_status
