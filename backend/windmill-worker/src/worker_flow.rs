@@ -549,6 +549,25 @@ pub async fn update_flow_status_after_job_completion_internal(
             Ok::<_, Error>(args.clone())
         };
 
+        // Pre-compute whether the completed job was an identity (skipped) job.
+        // When a step has skip_if set and the condition was true, the step runs
+        // as an identity job.  We must skip the stop_after_if evaluation in that
+        // case because the result is just a pass-through of the previous step's
+        // result, not the output of the actual step logic.
+        let is_identity_job = if current_module.is_some_and(|m| m.skip_if.is_some()) {
+            sqlx::query_scalar!(
+                "SELECT kind = 'identity' FROM v2_job WHERE id = $1",
+                job_id_for_status
+            )
+            .fetch_optional(db)
+            .await
+            .map_err(|e| Error::internal_err(format!("error during identity job check: {e:#}")))?
+            .flatten()
+            .unwrap_or(false)
+        } else {
+            false
+        };
+
         let (mut stop_early, mut stop_early_err_msg, mut skip_if_stop_early, continue_on_error) =
             if stop_early_override.is_some()
                 && !is_flow_stop_early_override
@@ -564,6 +583,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 let stop_early = success
                     && !is_branch_all // we don't support stop_early per branch
                     && !parallel_loop // we don't support anymore stop_early per iteration when parallel for loop (removed from frontend)
+                    && !is_identity_job // don't evaluate stop_after_if for skipped (identity) steps
                     && if let Some(expr) = current_module
                         .stop_after_if
                         .as_ref()
@@ -1103,17 +1123,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 {
                     let is_skipped = (stop_early && skip_if_stop_early)
                         || if current_module.as_ref().is_some_and(|m| m.skip_if.is_some()) {
-                            sqlx::query_scalar!(
-                                "SELECT kind = 'identity' FROM v2_job WHERE id = $1",
-                                job_id_for_status
-                            )
-                            .fetch_optional(db)
-                            .await
-                            .map_err(|e| {
-                                Error::internal_err(format!("error during skip check: {e:#}"))
-                            })?
-                            .flatten()
-                            .unwrap_or(false)
+                            is_identity_job
                         } else {
                             false
                         };
