@@ -287,6 +287,11 @@
 			"svelte": "./package/components/recording/FlowRecordingReplay.svelte",
 			"default": "./package/components/recording/FlowRecordingReplay.svelte"
 		},
+		"./components/ScriptRecordingReplay.svelte": {
+			"types": "./package/components/recording/ScriptRecordingReplay.svelte.d.ts",
+			"svelte": "./package/components/recording/ScriptRecordingReplay.svelte",
+			"default": "./package/components/recording/ScriptRecordingReplay.svelte"
+		},
 		"./components/FlowWrapper.svelte": {
 			"types": "./package/components/FlowWrapper.svelte.d.ts",
 			"svelte": "./package/components/FlowWrapper.svelte",
@@ -488,6 +493,9 @@
 			],
 			"components/FlowRecordingReplay.svelte": [
 				"./package/components/recording/FlowRecordingReplay.svelte.d.ts"
+			],
+			"components/ScriptRecordingReplay.svelte": [
+				"./package/components/recording/ScriptRecordingReplay.svelte.d.ts"
 			],
 			"components/FlowBuilder.svelte": [
 				"./package/components/FlowBuilder.svelte.d.ts"
