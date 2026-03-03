@@ -242,11 +242,12 @@
 
 	interface Props {
 		data: AssetN['data']
+		id?: string
 	}
 
 	const flowGraphAssetsCtx = getContext<any | undefined>('FlowGraphAssetContext')
 
-	let { data }: Props = $props()
+	let { data, id }: Props = $props()
 
 	const isSelected = $derived(assetEq(flowGraphAssetsCtx?.val.selectedAsset, data.asset))
 	const cachedResourceMetadata = $derived.by(() => {
@@ -267,7 +268,7 @@
 	)
 </script>
 
-<NodeWrapper wrapperClass="bg-surface-secondary rounded-md">
+<NodeWrapper wrapperClass="bg-surface-secondary rounded-md" nodeId={id}>
 	{#snippet children({ darkMode })}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<Tooltip customBgClass="bg-surface-tertiary">

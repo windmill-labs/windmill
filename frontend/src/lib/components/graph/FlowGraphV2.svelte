@@ -68,6 +68,8 @@
 	import { SelectionManager } from './selectionUtils.svelte'
 	import { ChangeTracker } from '$lib/svelte5Utils.svelte'
 	import { NoteManager } from './noteManager.svelte'
+	import type { MoveManager } from './moveManager.svelte'
+	import DragCoordinator from './DragCoordinator.svelte'
 	import type { ModulesTestStates } from '../modulesTest.svelte'
 	import { deepEqual } from 'fast-equals'
 	import type { AssetWithAltAccessType } from '../assets/lib'
@@ -109,7 +111,7 @@
 		earlyStop?: boolean
 		cache?: boolean
 		scroll?: boolean
-		moving?: string | undefined
+		moveManager?: MoveManager
 		// Download: display a top level button to open the graph in a new tab
 		download?: boolean
 		fullSize?: boolean
@@ -196,7 +198,7 @@
 		earlyStop = false,
 		cache = false,
 		scroll = false,
-		moving = undefined,
+		moveManager = undefined,
 		download = false,
 		fullSize = false,
 		disableAi = false,
@@ -279,6 +281,7 @@
 		useDataflow,
 		showAssets,
 		noteManager,
+		moveManager,
 		clearFlowSelection,
 		yOffset,
 		diffManager
@@ -752,7 +755,6 @@
 			success,
 			$useDataflow,
 			untrack(() => selectedId),
-			moving,
 			simplifiableFlow,
 			triggerNode ? path : undefined,
 			expandedSubflows
@@ -912,6 +914,9 @@
 	{:else}
 		<SvelteFlowProvider>
 			<ViewportResizer {height} {width} {nodes} bind:this={viewportResizer} />
+			{#if moveManager}
+				<DragCoordinator {moveManager} eventHandlers={eventHandler} {edges} nodes={nodesWithOffset} />
+			{/if}
 			{#if sharedViewport && onViewportChange}
 				<ViewportSynchronizer
 					{sharedViewport}

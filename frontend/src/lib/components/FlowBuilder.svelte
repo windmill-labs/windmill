@@ -613,7 +613,6 @@
 	const previewArgsStore = $state({ val: initialArgs })
 	const scriptEditorDrawer = writable<ScriptEditorDrawer | undefined>(undefined)
 	const flowEditorDrawer = writable<FlowEditorDrawer | undefined>(undefined)
-	const moving = writable<{ id: string } | undefined>(undefined)
 	const history = initHistory(flowStore.val)
 	const pathStore = writable<string>(pathStoreInit ?? initialPath)
 	const captureOn = writable<boolean>(false)
@@ -641,7 +640,6 @@
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
 		flowEditorDrawer,
-		moving,
 		history,
 		flowStateStore,
 		flowStore,

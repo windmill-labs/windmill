@@ -25,7 +25,6 @@
 		moduleAction: ModuleActionInfo | undefined
 		annotation?: string | undefined
 		nodeState?: FlowNodeState
-		moving?: string | undefined
 		duration_ms?: number | undefined
 		retries?: number | undefined
 		flowJobs:
@@ -58,7 +57,6 @@
 		moduleAction = undefined,
 		annotation = undefined,
 		nodeState,
-		moving = undefined,
 		duration_ms = undefined,
 		retries = undefined,
 		flowJobs,
@@ -72,7 +70,7 @@
 		maximizeSubflow
 	}: Props = $props()
 
-	const { selectionManager } = getGraphContext()
+	const { selectionManager, moveManager } = getGraphContext()
 
 	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')
 	const { flowStore } = flowEditorContext || {}
@@ -106,15 +104,30 @@
 			onSelect(mod.id)
 		}
 	}
+
+	/** Whether this module should be faded because it or its parent subflow is being moved/dragged */
+	let isPartOfMovingSubflow = $derived(moveManager?.draggedNodeIds?.has(mod.id) ?? false)
+
+	let fadedClass = $derived(
+		isPartOfMovingSubflow
+			? moveManager?.movingModuleId
+				? 'opacity-50'
+				: moveManager?.dragging
+					? 'opacity-30'
+					: ''
+			: ''
+	)
+
 </script>
 
 {#if mod}
 	<div class="relative">
-		{#if moving == mod.id}
-			<div class="absolute z-10 right-20 top-0.5 center-center">
-				<Button variant="accent" on:click={() => dispatch('move')} size="xs" destructive
-					>Cancel move</Button
-				>
+		{#if moveManager?.movingModuleId == mod.id}
+			<div class="absolute z-10 inset-0 flex items-center justify-center">
+				<Button variant="accent" on:click={() => dispatch('move')} size="xs" destructive>
+					Cancel move
+					<kbd class="ml-1 text-2xs opacity-60 font-mono">Esc</kbd>
+				</Button>
 			</div>
 		{/if}
 
@@ -152,7 +165,7 @@
 			</div>
 		{/if}
 
-		<div class={moving == mod.id ? 'opacity-50' : ''}>
+		<div class={fadedClass}>
 			{#if mod.value.type === 'forloopflow' || mod.value.type === 'whileloopflow'}
 				<FlowModuleSchemaItem
 					deletable={insertable}
