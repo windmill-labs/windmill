@@ -44,7 +44,11 @@
 
 	function daysUntilExpiration(expiration: string | undefined): number | null {
 		if (!expiration) return null
-		return Math.floor((new Date(expiration).getTime() - Date.now()) / 86400000)
+		const today = new Date()
+		today.setHours(0, 0, 0, 0)
+		const exp = new Date(expiration)
+		exp.setHours(0, 0, 0, 0)
+		return Math.round((exp.getTime() - today.getTime()) / 86400000)
 	}
 
 	function expirationBadge(

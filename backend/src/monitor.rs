@@ -946,20 +946,6 @@ pub async fn delete_expired_items(db: &DB) -> () {
         Err(e) => tracing::error!("Error deleting token: {}", e.to_string()),
     }
 
-    // Clean up orphaned notification rows for tokens that no longer exist
-    if let Err(e) = sqlx::query!(
-        "DELETE FROM token_expiry_notification n
-         WHERE NOT EXISTS (SELECT 1 FROM token t WHERE t.token = n.token)"
-    )
-    .execute(db)
-    .await
-    {
-        tracing::error!(
-            "Error cleaning up orphaned token expiry notifications: {}",
-            e
-        );
-    }
-
     let pip_resolution_r = sqlx::query_scalar!(
         "DELETE FROM pip_resolution_cache WHERE expiration <= now() RETURNING hash",
     )
@@ -1187,6 +1173,14 @@ pub async fn check_expiring_tokens(db: &DB) {
             }
         }
         Err(e) => tracing::error!("Error checking expiring tokens: {}", e),
+    }
+
+    // Clean up notification rows whose expiration has passed
+    if let Err(e) = sqlx::query!("DELETE FROM token_expiry_notification WHERE expiration <= now()")
+        .execute(db)
+        .await
+    {
+        tracing::error!("Error cleaning up expired token notifications: {}", e);
     }
 }
 
@@ -2177,10 +2171,10 @@ pub async fn monitor_db(
         }
     };
 
-    // Run every hour (120 iterations * 30s = 60 minutes)
+    // Run every hour (10 iterations * 30s = 5 minutes)
     // Check for tokens expiring within 7 days and send alerts
     let check_expiring_tokens_f = async {
-        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(120) {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(10) {
             if let Some(db) = conn.as_sql() {
                 check_expiring_tokens(&db).await;
             }
