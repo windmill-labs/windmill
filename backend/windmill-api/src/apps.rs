@@ -8,7 +8,7 @@ use std::{collections::HashMap, sync::Arc};
  * LICENSE-AGPL for a copy of the license.
  */
 use crate::{
-    auth::OptTokened,
+    auth::{get_end_user_email, OptTokened},
     db::{ApiAuthed, DB},
     jobs::RunJobQuery,
     users::{require_owner_of_path, OptAuthed},
@@ -2093,7 +2093,7 @@ async fn execute_component(
         (email.as_str(), permissioned_as)
     };
 
-    let end_user_email = opt_authed.as_ref().map(|a| a.email.clone());
+    let end_user_email = get_end_user_email(&db, opt_authed.as_ref(), tokened.token.as_deref()).await;
 
     let (uuid, mut tx) = push(
         &db,
