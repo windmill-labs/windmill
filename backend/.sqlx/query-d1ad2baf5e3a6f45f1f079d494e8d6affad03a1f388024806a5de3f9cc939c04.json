@@ -1,16 +1,17 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT token\n        FROM token\n        WHERE token LIKE concat($1::text, '%')\n        LIMIT 1\n        ",
+  "query": "SELECT leased_by FROM volume WHERE workspace_id = $1 AND name = $2",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "token",
+        "name": "leased_by",
         "type_info": "Varchar"
       }
     ],
     "parameters": {
       "Left": [
+        "Text",
         "Text"
       ]
     },
@@ -18,5 +19,5 @@
       true
     ]
   },
-  "hash": "90092c0b3f7612373fcc8fb7a966200118ab308430d4a0cbb5cb16c397246492"
+  "hash": "d1ad2baf5e3a6f45f1f079d494e8d6affad03a1f388024806a5de3f9cc939c04"
 }

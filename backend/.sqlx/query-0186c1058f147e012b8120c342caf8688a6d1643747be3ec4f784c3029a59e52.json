@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT j.id\n             FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)\n             WHERE r.ping < now() - ($1 || ' seconds')::interval\n             AND q.running = true AND j.kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlestepflow') AND j.same_worker = false",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "0186c1058f147e012b8120c342caf8688a6d1643747be3ec4f784c3029a59e52"
+}

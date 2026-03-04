@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT app, hash, lock, code, code_sha256\n         FROM app_script\n         WHERE app = ANY(SELECT id FROM app WHERE workspace_id = $1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "app",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "hash",
+        "type_info": "Bpchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "lock",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "code",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "code_sha256",
+        "type_info": "Bpchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "34979901e417b6eef8bda80f6213db46e3e68ee3d756c2540d924831879ce9e9"
+}

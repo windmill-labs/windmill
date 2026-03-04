@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO variable (workspace_id, path, value, is_secret, description)\n         VALUES\n         ('test-workspace', 'f/shared/api_key', 'secret123', false, 'Test key'),\n         ('test-workspace', 'f/shared/variable_to_modify', 'original', false, 'To modify')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "d8c5c64006cdd52570bbc56b0fa5df9b597d9a45353391411efa86959a7512bc"
+}

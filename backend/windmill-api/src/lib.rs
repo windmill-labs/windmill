@@ -269,16 +269,33 @@ pub struct AgentWorkerName(pub String);
 /// self-reported values in request bodies/query params.
 #[cfg(feature = "agent_worker_server")]
 async fn inject_agent_authed(
-    request: axum::http::Request<Body>,
+    request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Response {
     let mut request = request;
 
-    // Extract worker name from the agent JWT token
-    if let Some(worker_name) = extract_agent_worker_name(&request).await {
-        request
-            .extensions_mut()
-            .insert(AgentWorkerName(worker_name));
+    // Extract what we need from the request synchronously (before any .await)
+    // to avoid holding &Request across an await point (Request is Send but not Sync).
+    let extracted = {
+        let token = request
+            .headers()
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.strip_prefix("Bearer ").map(|t| t.to_string()));
+        let cache = request.extensions().get::<Arc<AgentCache>>().cloned();
+        let db = request.extensions().get::<DB>().cloned();
+        match (token, cache, db) {
+            (Some(token), Some(cache), Some(db)) => Some((token, cache, db)),
+            _ => None,
+        }
+    };
+
+    if let Some((token, cache, db)) = extracted {
+        if let Some(auth) = cache.get_agent_authed(&token, &db).await {
+            request
+                .extensions_mut()
+                .insert(AgentWorkerName(auth.worker_name()));
+        }
     }
 
     request
@@ -298,21 +315,6 @@ async fn inject_agent_authed(
             job_id: None,
         });
     next.run(request).await
-}
-
-#[cfg(feature = "agent_worker_server")]
-async fn extract_agent_worker_name(request: &axum::http::Request<Body>) -> Option<String> {
-    let token = request
-        .headers()
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.strip_prefix("Bearer "))?;
-
-    let cache = request.extensions().get::<Arc<AgentCache>>()?.clone();
-    let db = request.extensions().get::<DB>()?.clone();
-
-    let auth = cache.get_agent_authed(token, &db).await?;
-    Some(auth.worker_name())
 }
 
 pub async fn run_server(

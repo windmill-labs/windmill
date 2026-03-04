@@ -1,0 +1,89 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE mcp_oauth_refresh_token\n         SET used_at = now()\n         WHERE refresh_token = $1\n           AND client_id = $2\n           AND used_at IS NULL\n           AND NOT revoked\n           AND expires_at > now()\n         RETURNING id, refresh_token, access_token, client_id, user_email, workspace_id,\n                   scopes, token_family, created_at, expires_at, used_at, revoked",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "refresh_token",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "access_token",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "client_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "user_email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "scopes",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 7,
+        "name": "token_family",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "expires_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 10,
+        "name": "used_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 11,
+        "name": "revoked",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "5c9ed4d8d16c77c0c6b42e9ee211168573162745060788fbca188ed405c423cd"
+}
