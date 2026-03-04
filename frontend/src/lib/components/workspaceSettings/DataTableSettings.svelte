@@ -263,7 +263,6 @@
 								<ExploreAssetButton
 									class="h-9"
 									asset={{ kind: 'datatable', path: dataTable.name }}
-									{dbManagerDrawer}
 									disabled
 								/>
 							{/snippet}
@@ -272,10 +271,7 @@
 							{/snippet}
 						</Popover>
 					{:else}
-						<ExploreAssetButton
-							class="h-9"
-							asset={{ kind: 'datatable', path: dataTable.name }}
-						/>
+						<ExploreAssetButton class="h-9" asset={{ kind: 'datatable', path: dataTable.name }} />
 					{/if}
 				</Cell>
 				<Cell class="w-12">
