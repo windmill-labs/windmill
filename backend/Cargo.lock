@@ -15951,6 +15951,7 @@ dependencies = [
  "windmill-trigger-websocket",
  "windmill-types",
  "windmill-worker",
+ "windmill-worker-volumes",
 ]
 
 [[package]]
@@ -17508,10 +17509,12 @@ dependencies = [
  "bytes",
  "futures",
  "lazy_static",
+ "md-5 0.10.6",
  "object_store",
  "regex",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tracing",
  "windmill-common",

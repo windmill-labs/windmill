@@ -99,7 +99,9 @@ async fn add_granular_acl(
             .fetch_optional(&db)
             .await?
             .ok_or_else(|| Error::NotFound(format!("volume '{path}' not found")))?;
-            if created_by != authed.username {
+            // created_by is stored with u/ prefix (from job.permissioned_as)
+            let owner_username = created_by.strip_prefix("u/").unwrap_or(&created_by);
+            if owner_username != authed.username {
                 return Err(Error::NotAuthorized(
                     "Only the volume owner or an admin can modify permissions".to_string(),
                 ));
@@ -267,7 +269,9 @@ async fn remove_granular_acl(
             .fetch_optional(&db)
             .await?
             .ok_or_else(|| Error::NotFound(format!("volume '{path}' not found")))?;
-            if created_by != authed.username {
+            // created_by is stored with u/ prefix (from job.permissioned_as)
+            let owner_username = created_by.strip_prefix("u/").unwrap_or(&created_by);
+            if owner_username != authed.username {
                 return Err(Error::NotAuthorized(
                     "Only the volume owner or an admin can modify permissions".to_string(),
                 ));

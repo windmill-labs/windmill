@@ -5,11 +5,41 @@ pub use volume_oss::*;
 
 pub use object_store::ObjectStore as DynObjectStore;
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
 pub const MAX_VOLUMES_PER_JOB: usize = 10;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileEntry {
+    pub size: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub md5: Option<String>,
+}
+
+pub fn compute_md5_hex(data: &[u8]) -> String {
+    use md5::{Digest, Md5};
+    let result = Md5::digest(data);
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut hex = String::with_capacity(32);
+    for &b in result.iter() {
+        hex.push(HEX[(b >> 4) as usize] as char);
+        hex.push(HEX[(b & 0x0f) as usize] as char);
+    }
+    hex
+}
+
+/// Extract an MD5 hash from an S3 ETag, if it's a simple (non-multipart) ETag.
+pub fn etag_to_md5(e_tag: Option<&str>) -> Option<String> {
+    let tag = e_tag?.trim_matches('"');
+    // Multipart ETags contain a '-' (e.g. "abc123-5"), skip those
+    if tag.contains('-') || tag.is_empty() {
+        return None;
+    }
+    Some(tag.to_string())
+}
 
 lazy_static::lazy_static! {
     static ref ARGS_INTERPOLATION_RE: regex::Regex =
@@ -27,7 +57,7 @@ pub struct VolumeMount {
 pub struct VolumeState {
     pub mount: VolumeMount,
     pub local_dir: PathBuf,
-    pub manifest: HashMap<String, u64>,
+    pub manifest: HashMap<String, FileEntry>,
     pub symlinks: HashMap<String, String>,
 }
 

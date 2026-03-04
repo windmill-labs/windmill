@@ -251,18 +251,36 @@ type IndexReader = windmill_indexer::completed_runs_oss::IndexReader;
 #[cfg(feature = "tantivy")]
 type ServiceLogIndexReader = windmill_indexer::service_logs_oss::ServiceLogIndexReader;
 
-/// Middleware that injects a synthetic admin `ApiAuthed` into request extensions.
+/// Worker name derived from the agent JWT token, used to authenticate volume operations.
+/// Defined unconditionally so volume endpoint handlers can reference it regardless of
+/// whether agent_worker_server is enabled (the extension is only populated on the agent path).
+#[derive(Clone)]
+pub struct AgentWorkerName(pub String);
+
+/// Middleware that injects a synthetic `ApiAuthed` and JWT-derived worker name
+/// into request extensions.
 ///
 /// Used for volume proxy endpoints under the agent_workers path, where the
 /// agent JWT auth layer has already validated the request. The volume handlers
 /// need `ApiAuthed` to resolve the workspace S3 client, but the agent JWT
 /// format is incompatible with the standard auth extractor.
+///
+/// The worker name is extracted from the JWT claims rather than trusting
+/// self-reported values in request bodies/query params.
 #[cfg(feature = "agent_worker_server")]
 async fn inject_agent_authed(
     request: axum::http::Request<Body>,
     next: axum::middleware::Next,
 ) -> Response {
     let mut request = request;
+
+    // Extract worker name from the agent JWT token
+    if let Some(worker_name) = extract_agent_worker_name(&request).await {
+        request
+            .extensions_mut()
+            .insert(AgentWorkerName(worker_name));
+    }
+
     request
         .extensions_mut()
         .insert(windmill_api_auth::OptJobAuthed {
@@ -280,6 +298,21 @@ async fn inject_agent_authed(
             job_id: None,
         });
     next.run(request).await
+}
+
+#[cfg(feature = "agent_worker_server")]
+async fn extract_agent_worker_name(request: &axum::http::Request<Body>) -> Option<String> {
+    let token = request
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.strip_prefix("Bearer "))?;
+
+    let cache = request.extensions().get::<Arc<AgentCache>>()?.clone();
+    let db = request.extensions().get::<DB>()?.clone();
+
+    let auth = cache.get_agent_authed(token, &db).await?;
+    Some(auth.worker_name())
 }
 
 pub async fn run_server(
@@ -664,7 +697,7 @@ pub async fn run_server(
                         agent_workers_router
                             .nest(
                                 "/volumes",
-                                volumes_oss::workspaced_service()
+                                volumes_oss::agent_workspaced_service()
                                     .layer(axum::middleware::from_fn(inject_agent_authed)),
                             )
                             .layer(Extension(agent_cache.clone()))
