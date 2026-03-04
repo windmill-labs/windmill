@@ -23,32 +23,11 @@ type CompoundGroup = {
 	}[]
 }
 
-export type WrapperInfo = {
-	id: string
-	headId: string
-	type: CompoundGroup['type']
-	level: 'group' | 'branch' | 'loop-body'
-	label: string
-	x: number
-	y: number
-	width: number
-	height: number
-}
-
 type LayoutResult = {
 	positions: Map<string, { x: number; y: number }>
 	bbox: { width: number; height: number }
-	wrappers: WrapperInfo[]
 	contentMinX: number
 }
-
-/**
- * ----- DEBUG -----
- * Flip to `true` to compute and visualize compound-layout wrapper boxes.
- * When enabled, the layout returns WrapperInfo[] objects that FlowGraphV2
- * renders as colored dashed/dotted rectangles around groups and branches.
- */
-export const SHOW_DEBUG_WRAPPERS = false
 
 const LOOP_INDENT = 25
 
@@ -301,7 +280,6 @@ function layoutLevel(
 		return {
 			positions,
 			bbox: { width: constants.nodeWidth, height: 0 },
-			wrappers: [],
 			contentMinX: 0
 		}
 	}
@@ -543,89 +521,6 @@ function layoutLevel(
 		}
 	}
 
-	// ----- DEBUG: wrapper visualization data -----
-	const wrappers: WrapperInfo[] = []
-	if (SHOW_DEBUG_WRAPPERS) {
-		for (const [headId, gl] of groupLayouts) {
-			const wrapperPos = sugResult.positions.get(headId)
-			if (!wrapperPos) continue
-
-			// Overall group wrapper
-			wrappers.push({
-				id: `__wrapper__${headId}`,
-				headId,
-				type: gl.group.type,
-				level: 'group',
-				label: `${gl.group.type} (${headId})`,
-				x: wrapperPos.x,
-				y: wrapperPos.y,
-				width: gl.wrapperWidth,
-				height: gl.wrapperHeight
-			})
-
-			const rowHeight = constants.nodeHeight + constants.gapV
-			const isBranch = gl.group.type === 'branchall' || gl.group.type === 'branchone'
-			if (isBranch) {
-				const branchWidths = gl.branchLayouts.map((bl) =>
-					Math.max(bl.bbox.width, constants.nodeWidth)
-				)
-				const totalWidth =
-					branchWidths.reduce((s, w) => s + w, 0) +
-					Math.max(0, branchWidths.length - 1) * constants.gapH
-				let cx = wrapperPos.x - totalWidth / 2
-				for (let bi = 0; bi < gl.branchLayouts.length; bi++) {
-					const bl = gl.branchLayouts[bi]
-					const bw = branchWidths[bi]
-					const branchCenterX = cx + bw / 2
-
-					// Per-branch wrapper
-					wrappers.push({
-						id: `__wrapper__${headId}__branch_${bi}`,
-						headId,
-						type: gl.group.type,
-						level: 'branch',
-						label: `branch ${bi} (${bl.labelId})`,
-						x: branchCenterX,
-						y: wrapperPos.y + rowHeight,
-						width: bw,
-						height: bl.bbox.height
-					})
-
-					// Child wrappers from recursive layout
-					for (const cw of bl.result.wrappers) {
-						wrappers.push({ ...cw, x: branchCenterX + cw.x, y: wrapperPos.y + rowHeight + cw.y })
-					}
-					cx += bw + constants.gapH
-				}
-			} else {
-				const bl = gl.branchLayouts[0]
-				if (bl) {
-					// Loop body wrapper
-					wrappers.push({
-						id: `__wrapper__${headId}__body`,
-						headId,
-						type: gl.group.type,
-						level: 'loop-body',
-						label: `loop body (${bl.labelId})`,
-						x: wrapperPos.x + LOOP_INDENT,
-						y: wrapperPos.y + rowHeight,
-						width: bl.bbox.width,
-						height: bl.bbox.height
-					})
-
-					// Child wrappers from recursive layout
-					for (const cw of bl.result.wrappers) {
-						wrappers.push({
-							...cw,
-							x: wrapperPos.x + LOOP_INDENT + cw.x,
-							y: wrapperPos.y + rowHeight + cw.y
-						})
-					}
-				}
-			}
-		}
-	}
-
 	// Compute overall bbox (nodes + group wrapper extents)
 	let minX = Infinity
 	let maxX = -Infinity
@@ -654,7 +549,7 @@ function layoutLevel(
 		width: Math.max(bboxWidth, constants.nodeWidth),
 		height: Math.max(bboxHeight, 0)
 	}
-	return { positions, bbox: finalBbox, wrappers, contentMinX }
+	return { positions, bbox: finalBbox, contentMinX }
 }
 
 /**
@@ -693,11 +588,6 @@ export function compoundLayout(
 			for (const pos of result.positions.values()) {
 				pos.x -= minX
 			}
-			if (SHOW_DEBUG_WRAPPERS) {
-				for (const w of result.wrappers) {
-					w.x -= minX
-				}
-			}
 		}
 	}
 
@@ -711,38 +601,4 @@ export function compoundLayout(
 	}
 
 	return result
-}
-
-/** Build SvelteFlow nodes for debug wrappers. Returns [] when SHOW_DEBUG_WRAPPERS is false. */
-export function buildDebugWrapperNodes(
-	wrappers: WrapperInfo[],
-	xCenter: number
-): {
-	id: string
-	type: string
-	position: { x: number; y: number }
-	data: Record<string, unknown>
-	selectable: boolean
-	draggable: boolean
-	zIndex: number
-	style: string
-}[] {
-	if (!SHOW_DEBUG_WRAPPERS) return []
-	return wrappers.map((w) => ({
-		id: w.id,
-		type: 'debugWrapper',
-		position: { x: w.x + xCenter - w.width / 2, y: w.y },
-		data: {
-			headId: w.headId,
-			type: w.type,
-			level: w.level,
-			label: w.label,
-			wrapperWidth: w.width,
-			wrapperHeight: w.height
-		},
-		selectable: false,
-		draggable: false,
-		zIndex: w.level === 'group' ? -10 : -5,
-		style: `width: ${w.width}px; height: ${w.height}px;`
-	}))
 }

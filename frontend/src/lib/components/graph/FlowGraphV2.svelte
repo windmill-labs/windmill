@@ -70,8 +70,7 @@
 	import type { MoveManager } from './moveManager.svelte'
 	import DragCoordinator from './DragCoordinator.svelte'
 	import type { ModulesTestStates } from '../modulesTest.svelte'
-	import { compoundLayout, buildDebugWrapperNodes, type WrapperInfo } from './compoundLayout'
-	import DebugWrapperNode from './renderers/nodes/DebugWrapperNode.svelte'
+	import { compoundLayout } from './compoundLayout'
 	import { deepEqual } from 'fast-equals'
 	import type { AssetWithAltAccessType } from '../assets/lib'
 	import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
@@ -324,7 +323,6 @@
 	}
 	type NodePos = { position: { x: number; y: number } }
 	let lastNodes: [NodeDep[], (NodeDep & NodePos)[]] | undefined = undefined
-	let lastWrappers: WrapperInfo[] = []
 	let lastXCenter = 0
 
 	function layoutNodes(nodes: NodeDep[]): (NodeDep & NodePos)[] {
@@ -348,14 +346,12 @@
 		)
 
 		// Run recursive compound layout
-		const { positions, bbox, wrappers } = compoundLayout(nodes, edges, {
+		const { positions, bbox } = compoundLayout(nodes, edges, {
 			nodeWidth: NODE.width,
 			nodeHeight: NODE.height,
 			gapH: NODE.gap.horizontal,
 			gapV: NODE.gap.vertical
 		})
-
-		lastWrappers = wrappers
 
 		// Center horizontally
 		const xCenter =
@@ -618,11 +614,7 @@
 		}
 
 		// update nodes
-		nodes = [
-			...finalNodes,
-			...buildDebugWrapperNodes(lastWrappers, lastXCenter),
-			...(noteNodesResult?.noteNodes ?? [])
-		]
+		nodes = [...finalNodes, ...(noteNodesResult?.noteNodes ?? [])]
 
 		edges = [
 			...(assetNodesResult?.newAssetEdges ?? []),
@@ -668,8 +660,7 @@
 		assetsOverflowed: AssetsOverflowedNode,
 		aiTool: AiToolNode,
 		newAiTool: NewAiToolNode,
-		note: NoteNode,
-		debugWrapper: DebugWrapperNode
+		note: NoteNode
 	} as any
 
 	const edgeTypes = {
@@ -971,7 +962,7 @@
 						{@render leftHeader()}
 					</div>
 				{:else}
-					<Controls position="top-right" orientation="horizontal" showLock={false} fitViewOptions={{ nodes: nodes.filter((n) => n.type !== 'debugWrapper' && n.type !== 'note') }}>
+					<Controls position="top-right" orientation="horizontal" showLock={false} fitViewOptions={{ nodes: nodes.filter((n) => n.type !== 'note') }}>
 						{#if multiSelectEnabled}
 							<div class="flex items-center gap-2">
 								<Tooltip>
