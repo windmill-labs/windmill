@@ -102,6 +102,23 @@
 		return map[(color as NoteColor) ?? NoteColor.BLUE] ?? map[NoteColor.BLUE]
 	}
 
+	const GROUP_BG_COLORS: Record<NoteColor, string> = {
+		[NoteColor.YELLOW]: 'bg-yellow-400/5 dark:bg-yellow-600/5',
+		[NoteColor.BLUE]: 'bg-blue-400/5 dark:bg-blue-600/5',
+		[NoteColor.GREEN]: 'bg-green-400/5 dark:bg-green-600/5',
+		[NoteColor.PURPLE]: 'bg-purple-400/5 dark:bg-purple-600/5',
+		[NoteColor.PINK]: 'bg-pink-400/5 dark:bg-pink-600/5',
+		[NoteColor.ORANGE]: 'bg-orange-400/5 dark:bg-orange-600/5',
+		[NoteColor.RED]: 'bg-red-400/5 dark:bg-red-600/5',
+		[NoteColor.CYAN]: 'bg-cyan-400/5 dark:bg-cyan-600/5',
+		[NoteColor.LIME]: 'bg-lime-400/5 dark:bg-lime-600/5',
+		[NoteColor.GRAY]: 'bg-gray-400/5 dark:bg-gray-600/5'
+	}
+
+	function getBgColorClass(color?: string): string {
+		return GROUP_BG_COLORS[(color as NoteColor) ?? NoteColor.BLUE] ?? GROUP_BG_COLORS[NoteColor.BLUE]
+	}
+
 	function toggleCollapse(groupId: string) {
 		groupEditorContext?.groupEditor.toggleRuntimeCollapse(groupId)
 	}
@@ -152,7 +169,7 @@
 					class="absolute rounded-lg outline outline-1 pointer-events-none transition-colors duration-150 {getOutlineColorClass(
 						group.color,
 						visibleGroup?.id === group.id
-					)}"
+					)} {getBgColorClass(group.color)}"
 					style:transform="translate({bounds.x}px, {bounds.y}px)"
 					style:width="{bounds.width}px"
 					style:height="{bounds.height}px"
